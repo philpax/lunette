@@ -13,6 +13,7 @@ use crate::{
         },
         keys::KeyName,
         module_functions,
+        monitor::MonitorSelection,
         output::{NewOutput, SetMode},
         seat::{NewSeat, Stroke},
         values::PointerButtonName,
@@ -64,6 +65,7 @@ fn surface() -> Vec<Item> {
     let mut items = vec![
         Item::Handle(collect::<Sink<NullTexture>>()),
         Item::Handle(collect::<Window<NullTexture>>()),
+        Item::Record(MonitorSelection::RECORD),
         Item::Handle(collect::<Monitor<NullTexture>>()),
         Item::Handle(collect::<Process<NullTexture>>()),
         Item::Record(Stroke::RECORD),

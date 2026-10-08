@@ -99,6 +99,7 @@ wayland-protocols-wlr = { version = "=0.3.12", default-features = false }
 xkbcommon = { version = "=0.8.0", features = ["wayland"] }
 wlx-capture = { git = "https://github.com/wayvr-org/wayvr", rev = "98f800c644719d3f23a20e50bd3237c29a8082cb", default-features = false, features = [
     "pipewire",
+    "wlr",
 ] }
 
 # mlua is vendored as a submodule at vendor/mlua (`philpax/mlua` `lunette`, a

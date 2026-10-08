@@ -175,6 +175,7 @@ function native.new()
     local monitor = { id = id, name = id, dead = false, width = 1920, height = 1080, sink = newSink 'host' }
     function monitor:mirror()
       events.mirrored = (events.mirrored or 0) + 1
+      self.mirrored = true
       return true
     end
     function monitor:getTexture()
@@ -182,6 +183,7 @@ function native.new()
     end
     function monitor:dismiss()
       events.unmirrored = (events.unmirrored or 0) + 1
+      self.mirrored, self.pending = false, false
       return true
     end
     function monitor:setPaused(paused)
@@ -227,6 +229,20 @@ installNative = function(fake, events, subscribe, clearSubscriptions)
   end
   lunette.monitors = function()
     return events.monitors
+  end
+  lunette.selectMonitors = function()
+    events.monitorSelections = (events.monitorSelections or 0) + 1
+    if #events.monitors == 0 then
+      return false, 'monitor selection: no host monitors are attached'
+    end
+    if events.monitorSelection and events.monitorSelection.state == 'pending' then
+      return false, 'monitor selection: a request is already pending'
+    end
+    events.monitorSelection = { state = 'pending' }
+    return true
+  end
+  lunette.monitorSelection = function()
+    return table.clone(events.monitorSelection or { state = 'idle' })
   end
   lunette.outputs = function()
     return table.clone(events.outputs)

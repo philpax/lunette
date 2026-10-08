@@ -52,6 +52,8 @@ pub struct GraphicsDevice {
     external_memory_fd: khr::external_memory_fd::Device,
     render_node: Option<RenderNode>,
     formats: Vec<Format>,
+    export_formats: Vec<Format>,
+    pub(crate) capture_live: parking_lot::Mutex<bool>,
 }
 
 impl GraphicsDevice {
@@ -114,6 +116,22 @@ impl GraphicsDevice {
 
         let render_node = query_render_node(&instance, handles.physical_device)?;
         let formats = query_formats(&instance, handles.physical_device);
+        let export_formats = formats
+            .iter()
+            .copied()
+            .filter(|format| {
+                format.modifier != smithay::backend::allocator::Modifier::Invalid
+                    && formats::mapping_for(format.code).is_some_and(|mapping| {
+                        external_image_support(
+                            &instance,
+                            handles.physical_device,
+                            mapping.vulkan,
+                            u64::from(format.modifier),
+                            vk::ExternalMemoryFeatureFlags::EXPORTABLE,
+                        )
+                    })
+            })
+            .collect();
 
         debug!(
             queue_family = handles.queue_family,
@@ -127,8 +145,10 @@ impl GraphicsDevice {
             device,
             queue_family: handles.queue_family,
             external_memory_fd,
+            capture_live: parking_lot::Mutex::new(true),
             render_node,
             formats,
+            export_formats,
         }))
     }
 
@@ -143,6 +163,11 @@ impl GraphicsDevice {
             main_device: self.render_node,
             formats: self.formats.clone(),
         }
+    }
+
+    /// Single-plane explicit layouts supporting both import and DMA buffer export.
+    pub(crate) fn export_formats(&self) -> &[Format] {
+        &self.export_formats
     }
 
     #[must_use]
@@ -342,11 +367,12 @@ fn query_formats(instance: &ash::Instance, physical_device: vk::PhysicalDevice) 
         let usable: Vec<_> = formats::single_plane_modifiers(&reported)
             .into_iter()
             .filter(|modifier| {
-                importable(
+                external_image_support(
                     instance,
                     physical_device,
                     mapping.vulkan,
                     u64::from(*modifier),
+                    vk::ExternalMemoryFeatureFlags::IMPORTABLE,
                 )
             })
             .collect();
@@ -406,12 +432,13 @@ fn query_modifiers(
 }
 
 /// Whether an image can be created for this format and modifier at the tiling,
-/// usage, and external handle type the import path uses.
-fn importable(
+/// usage, and external handle type the import and export paths use.
+fn external_image_support(
     instance: &ash::Instance,
     physical_device: vk::PhysicalDevice,
     format: vk::Format,
     modifier: u64,
+    required: vk::ExternalMemoryFeatureFlags,
 ) -> bool {
     let mut modifier_info = vk::PhysicalDeviceImageDrmFormatModifierInfoEXT::default()
         .drm_format_modifier(modifier)
@@ -444,7 +471,7 @@ fn importable(
         && external_properties
             .external_memory_properties
             .external_memory_features
-            .contains(vk::ExternalMemoryFeatureFlags::IMPORTABLE)
+            .contains(required)
 }
 
 /// The usage every imported image is created with.

@@ -11,7 +11,7 @@ use lunette_lovr::raw::{lovrGraphicsIsInitialized, lovrGraphicsWait};
 use tracing::{error, info, warn};
 
 use crate::{
-    frame::{FrameDriver, GraphicsState},
+    frame::{Compositor, FrameDriver, GraphicsState},
     restart,
     texture::{MonitorTextures, TextureLedger},
 };
@@ -180,6 +180,15 @@ pub(super) enum Disposal {
 
 impl DeviceTeardown for FrameDriver {
     fn drain_gpu(&mut self) {
+        if let Some(host) = &self.host {
+            host.mirrors
+                .set_streams(Box::new(lunette_capture::mirror::NoStreams));
+        }
+        if let Some(graphics) = self.compositor.as_ref().and_then(Compositor::graphics) {
+            // Upstream does not join detached request workers. Their exporters must
+            // stop calling the borrowed device before LÖVR destroys it.
+            *graphics.device.capture_live.lock() = false;
+        }
         // A configuration may switch the graphics module off, and the teardown
         // still runs. `lovrGraphicsWait` submits before it waits, and that
         // submit aborts when there is no device to submit to.

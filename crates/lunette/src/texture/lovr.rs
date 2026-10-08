@@ -435,9 +435,8 @@ fn texture_info(size: PixelSize, format: TextureFormat, handle: u64, foreign: bo
         mipmaps: 1,
         samples: 1,
         usage: TEXTURE_SAMPLE | TEXTURE_TRANSFER,
-        // The client's buffer holds the values it wrote. Declaring sRGB would
-        // have the sampler apply a transfer function to content that has
-        // already had one applied.
+        // Preserve encoded desktop pixels for raw layer copies. Scene renderers
+        // decode sRGB explicitly, unpremultiplying window alpha before decoding.
         srgb: false,
         xr: false,
         imageCount: 0,

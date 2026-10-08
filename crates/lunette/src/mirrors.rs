@@ -14,7 +14,10 @@
 use std::{cell::RefCell, fmt, mem};
 
 use lunette_capture::{
-    mirror::{MirrorOutcome, MirrorSet, MonitorStreams, Progress, RosterChange},
+    mirror::{
+        MirrorOutcome, MirrorSet, MonitorStreams, Progress, RosterChange, SelectionOutcome,
+        SelectionState,
+    },
     monitor::{LogicalGeometry, Monitor, MonitorKey, PixelExtent, Roster},
     portal::ScreenCastPortal,
     stream::CapturedFrame,
@@ -68,6 +71,25 @@ pub trait MirrorRegistry: fmt::Debug {
 
     /// Stops or restarts a mirror's stream without releasing its node.
     fn set_paused(&self, monitor: &MonitorKey, paused: bool) -> bool;
+
+    /// Requests a fresh selection without restoring the previous grant.
+    fn select_monitors(&self) -> SelectionOutcome;
+
+    /// The latest explicit selection's state, independent of existing capture.
+    fn selection_state(&self) -> SelectionState;
+
+    /// Reports whether an active monitor uses direct capture.
+    fn is_direct(&self, _monitor: &MonitorKey) -> bool {
+        false
+    }
+
+    /// Defers dismissal while a replacement configuration acquires its mirrors.
+    fn begin_reload(&self) -> bool {
+        true
+    }
+
+    /// Releases mirrors not reused by the replacement configuration.
+    fn finish_reload(&self) {}
 }
 
 /// The mirror lifecycle, as the frame loop advances it.
@@ -92,6 +114,9 @@ pub trait MirrorFrames: fmt::Debug {
 
     /// The newest frame each running mirror has produced.
     fn take_frames(&self) -> Vec<(MonitorKey, CapturedFrame)>;
+
+    /// Drains identities whose previous streams have been replaced.
+    fn take_replaced_monitors(&self) -> Vec<MonitorKey>;
 
     /// The restore tokens to persist, once a grant has changed them.
     ///
@@ -155,6 +180,10 @@ impl<P: ScreenCastPortal> MirrorFrames for HostMirrors<P> {
         self.mirrors.borrow_mut().take_frames()
     }
 
+    fn take_replaced_monitors(&self) -> Vec<MonitorKey> {
+        self.mirrors.borrow_mut().take_replaced_monitors()
+    }
+
     fn take_changed_tokens(&self) -> Option<TokenStore> {
         self.mirrors.borrow_mut().take_changed_tokens().cloned()
     }
@@ -201,6 +230,26 @@ impl<P: ScreenCastPortal> MirrorRegistry for HostMirrors<P> {
     fn set_paused(&self, monitor: &MonitorKey, paused: bool) -> bool {
         self.mirrors.borrow_mut().set_paused(monitor, paused)
     }
+
+    fn select_monitors(&self) -> SelectionOutcome {
+        self.mirrors.borrow_mut().select_monitors()
+    }
+
+    fn selection_state(&self) -> SelectionState {
+        self.mirrors.borrow().selection_state()
+    }
+
+    fn is_direct(&self, monitor: &MonitorKey) -> bool {
+        self.mirrors.borrow().is_direct(monitor)
+    }
+
+    fn begin_reload(&self) -> bool {
+        self.mirrors.borrow_mut().begin_reload()
+    }
+
+    fn finish_reload(&self) {
+        self.mirrors.borrow_mut().finish_reload();
+    }
 }
 
 /// A registry over a machine whose monitors lunette cannot see.
@@ -241,6 +290,14 @@ impl MirrorRegistry for NoMonitors {
 
     fn set_paused(&self, _monitor: &MonitorKey, _paused: bool) -> bool {
         false
+    }
+
+    fn select_monitors(&self) -> SelectionOutcome {
+        SelectionOutcome::NoMonitors
+    }
+
+    fn selection_state(&self) -> SelectionState {
+        SelectionState::Idle
     }
 }
 

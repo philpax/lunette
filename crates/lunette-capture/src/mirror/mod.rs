@@ -1,16 +1,16 @@
-//! Linux-only: coordinates portal sessions and PipeWire streams for monitor mirrors.
+//! Linux-only: prefers direct monitor capture, with portal/PipeWire fallback.
 //!
-//! Capture starts when a monitor is first mirrored and stops when it is dismissed.
-//! Pausing deactivates the existing PipeWire stream while retaining its resources.
-//! Dismissing drops the stream and keeps the granted portal session, so re-adding
-//! the monitor does not prompt again.
+//! Capture starts when a monitor is first mirrored. Dismissal removes the active
+//! mirror and retains any portal grant. PipeWire stops on drop and deactivates on
+//! pause; direct capture inherits the pinned backend's pause and worker-drop
+//! limitations, documented in [`screencopy`].
 //!
-//! # Non-blocking lifecycle
+//! # Portal progress
 //!
-//! [`MirrorSet::mirror`] records the requested monitor and returns.
 //! [`MirrorSet::poll`] advances the portal exchange once per frame. Portal
 //! progress, including a dialog awaiting the user's response, does not block the
-//! frame loop.
+//! frame loop. Direct setup uses the pinned client's synchronous initialization
+//! roundtrips; this adapter does not change that upstream contract.
 //!
 //! # External monitor roster
 //!
@@ -28,6 +28,7 @@
 //! before then remains wanted and opens on the first subsequent
 //! [`MirrorSet::poll`].
 
+pub mod screencopy;
 pub mod source;
 
 #[cfg(any(test, feature = "test-fakes"))]
@@ -39,7 +40,9 @@ use std::mem;
 
 use tracing::{debug, info, warn};
 
-pub use crate::mirror::source::{MonitorStream, MonitorStreams, NoStreams, PipewireStreams};
+pub use crate::mirror::source::{
+    DirectOpen, MonitorStream, MonitorStreams, NoStreams, PipewireStreams,
+};
 use crate::{
     monitor::{name::MonitorKey, roster::Roster},
     portal::{
@@ -57,6 +60,8 @@ pub struct MirrorSet<P> {
     cursor: CursorPolicy,
     roster: Roster,
     session: SessionState,
+    selection: SelectionRequest,
+    replaced: Vec<MonitorKey>,
     /// Monitors requested for mirroring, whether or not a stream is running.
     ///
     /// This differs from [`Self::active`] while a session or stream is pending.
@@ -64,6 +69,7 @@ pub struct MirrorSet<P> {
     active: Vec<Mirror>,
     tokens: TokenStore,
     tokens_changed: bool,
+    reload_dismissed: Option<Vec<MonitorKey>>,
 }
 
 impl<P: ScreenCastPortal> MirrorSet<P> {
@@ -79,10 +85,13 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
             cursor,
             roster: Roster::new(),
             session: SessionState::Idle,
+            selection: SelectionRequest::Idle,
+            replaced: Vec::new(),
             wanted: Vec::new(),
             active: Vec::new(),
             tokens,
             tokens_changed: false,
+            reload_dismissed: None,
         }
     }
 
@@ -96,6 +105,9 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
             wanted = self.wanted.len(),
             "capture streams can now be opened"
         );
+        self.replaced
+            .extend(self.active.iter().map(|mirror| mirror.key.clone()));
+        self.active.clear();
         self.streams = streams;
     }
 
@@ -156,11 +168,29 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
         if self.roster.find(key).is_none() {
             return MirrorOutcome::NoSuchMonitor;
         }
+        if let Some(dismissed) = &mut self.reload_dismissed {
+            dismissed.retain(|monitor| monitor != key);
+        }
         if self.active.iter().any(|mirror| &mirror.key == key) {
             return MirrorOutcome::AlreadyMirroring;
         }
+        if let SelectionRequest::Pending { dismissed, .. } = &mut self.selection {
+            dismissed.retain(|monitor| monitor != key);
+            if !self.wanted.contains(key) {
+                self.wanted.push(key.clone());
+            }
+            return MirrorOutcome::Requested;
+        }
         if !self.wanted.iter().any(|wanted| wanted == key) {
             self.wanted.push(key.clone());
+        }
+
+        if self.try_direct(key) {
+            return if self.is_mirroring(key) {
+                MirrorOutcome::Mirroring
+            } else {
+                MirrorOutcome::Requested
+            };
         }
 
         match &self.session {
@@ -176,7 +206,48 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
                 None => self.request(),
             },
             SessionState::Requested(_) => MirrorOutcome::Requested,
-            SessionState::Idle | SessionState::Failed(_) => self.request(),
+            SessionState::Idle => self.request(),
+            SessionState::Failed(error) => MirrorOutcome::Refused(error.clone()),
+        }
+    }
+
+    /// Requests a fresh monitor selection without restoring the previous grant.
+    /// Existing streams continue until the request succeeds. Failure retains them.
+    pub fn select_monitors(&mut self) -> SelectionOutcome {
+        if self.roster.monitors().is_empty() {
+            return SelectionOutcome::NoMonitors;
+        }
+        if matches!(self.session, SessionState::Requested(_))
+            || matches!(self.selection, SelectionRequest::Pending { .. })
+        {
+            return SelectionOutcome::Busy;
+        }
+        match self.portal.begin(SessionRequest::new(None, self.cursor)) {
+            Ok(request) => {
+                self.selection = SelectionRequest::Pending {
+                    request,
+                    dismissed: Vec::new(),
+                };
+                SelectionOutcome::Requested
+            }
+            Err(error) => {
+                if matches!(self.session, SessionState::Idle | SessionState::Failed(_)) {
+                    self.session = SessionState::Failed(error.clone());
+                }
+                self.selection = SelectionRequest::Failed(error.clone());
+                SelectionOutcome::Refused(error)
+            }
+        }
+    }
+
+    /// Reports the latest explicit selection request, independently of active capture.
+    #[must_use]
+    pub fn selection_state(&self) -> SelectionState {
+        match &self.selection {
+            SelectionRequest::Idle => SelectionState::Idle,
+            SelectionRequest::Pending { .. } => SelectionState::Pending,
+            SelectionRequest::Ready => SelectionState::Ready,
+            SelectionRequest::Failed(error) => SelectionState::Failed(error.clone()),
         }
     }
 
@@ -184,13 +255,48 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
     ///
     /// Returns whether a stream was running. Repeated dismissal returns `false`.
     pub fn dismiss(&mut self, key: &MonitorKey) -> bool {
+        if let Some(dismissed) = &mut self.reload_dismissed {
+            if !dismissed.contains(key) {
+                dismissed.push(key.clone());
+            }
+            return self.is_mirroring(key);
+        }
         self.wanted.retain(|wanted| wanted != key);
+        if let SelectionRequest::Pending { dismissed, .. } = &mut self.selection
+            && !dismissed.contains(key)
+        {
+            dismissed.push(key.clone());
+        }
         self.stop(key)
     }
 
     #[must_use]
     pub fn is_mirroring(&self, key: &MonitorKey) -> bool {
         self.active.iter().any(|mirror| &mirror.key == key)
+    }
+
+    /// Defers plugin-owned dismissal until the replacement configuration requests its monitors.
+    pub fn begin_reload(&mut self) -> bool {
+        if self.reload_dismissed.is_some() {
+            return false;
+        }
+        self.reload_dismissed = Some(Vec::new());
+        true
+    }
+
+    /// Stops streams not reused by the replacement configuration, including a failed reload.
+    pub fn finish_reload(&mut self) {
+        for key in self.reload_dismissed.take().unwrap_or_default() {
+            self.dismiss(&key);
+        }
+    }
+
+    /// Reports whether the running stream uses direct screencopy rather than the portal.
+    #[must_use]
+    pub fn is_direct(&self, key: &MonitorKey) -> bool {
+        self.active
+            .iter()
+            .any(|mirror| &mirror.key == key && mirror.node.is_none())
     }
 
     /// Returns whether a monitor has been requested, whether or not it is running.
@@ -224,13 +330,18 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
     /// Call once per frame. Queued, negotiating, and user-facing dialog states
     /// return [`Progress::Waiting`].
     pub fn poll(&mut self) -> Progress {
+        if let SelectionRequest::Pending { request, .. } = &self.selection {
+            return self.poll_selection(*request);
+        }
         let SessionState::Requested(request) = self.session else {
             // Retry wanted monitors whose source was unavailable when the session arrived.
             let started = self.open_wanted();
-            return if started.is_empty() {
-                Progress::Idle
-            } else {
+            return if !started.is_empty() {
                 Progress::Started(started)
+            } else if matches!(self.session, SessionState::Requested(_)) {
+                Progress::Waiting
+            } else {
+                Progress::Idle
             };
         };
 
@@ -284,10 +395,10 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
         }
     }
 
-    /// Drops the held session and stops every mirror.
+    /// Drops the held portal session and stops its PipeWire mirrors.
     ///
-    /// If monitors remain wanted, this starts a new session request immediately.
-    /// The request may prompt if the portal does not restore it.
+    /// Direct streams continue. Wanted monitors that still need the portal start
+    /// a new request, which may prompt if the portal does not restore it.
     pub fn revoke_session(&mut self) {
         if matches!(self.session, SessionState::Idle) {
             return;
@@ -297,11 +408,11 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
             mirrors = self.active.len(),
             "the screencast session is gone"
         );
-        self.active.clear();
+        self.active.retain(|mirror| mirror.node.is_none());
         self.session = SessionState::Idle;
 
-        if !self.wanted.is_empty() {
-            let _ = self.request();
+        if !matches!(self.selection, SelectionRequest::Pending { .. }) {
+            let _ = self.open_wanted();
         }
     }
 
@@ -330,6 +441,77 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
         mem::take(&mut self.tokens_changed).then_some(&self.tokens)
     }
 
+    /// Monitors whose old streams were replaced by a successful selection.
+    /// The frame loop discards their stale textures before importing new frames.
+    pub fn take_replaced_monitors(&mut self) -> Vec<MonitorKey> {
+        mem::take(&mut self.replaced)
+    }
+
+    fn poll_selection(&mut self, request: RequestId) -> Progress {
+        match self.portal.poll(request) {
+            RequestProgress::Queued
+            | RequestProgress::Negotiating
+            | RequestProgress::AwaitingUser => Progress::Waiting,
+            RequestProgress::Failed(error) => {
+                if matches!(self.session, SessionState::Idle | SessionState::Failed(_)) {
+                    self.session = SessionState::Failed(error.clone());
+                }
+                self.selection = SelectionRequest::Failed(error.clone());
+                Progress::Failed(error)
+            }
+            RequestProgress::Ready(response) => {
+                let correlation = correlate(&response.streams, &self.roster);
+                for unmatched in &correlation.unmatched {
+                    warn!(node = %unmatched.node, reason = %unmatched.reason, "monitor selection: unmatched stream");
+                }
+                if correlation.matched.is_empty() {
+                    let error =
+                        PortalError::Malformed("monitor selection matching an attached monitor");
+                    self.selection = SelectionRequest::Failed(error.clone());
+                    return Progress::Failed(error);
+                }
+                let dismissed = match &self.selection {
+                    SelectionRequest::Pending { dismissed, .. } => dismissed,
+                    _ => return Progress::Idle,
+                };
+                self.replaced.extend(
+                    self.active
+                        .iter()
+                        .filter(|mirror| mirror.node.is_some())
+                        .map(|mirror| mirror.key.clone()),
+                );
+                self.active.retain(|mirror| mirror.node.is_none());
+                self.tokens = TokenStore::new();
+                let nodes: Vec<_> = correlation
+                    .matched
+                    .into_iter()
+                    .map(|matched| (matched.monitor, matched.node))
+                    .collect();
+                self.wanted = self
+                    .active
+                    .iter()
+                    .map(|mirror| mirror.key.clone())
+                    .collect();
+                for (key, _) in &nodes {
+                    if !dismissed.contains(key) && !self.wanted.contains(key) {
+                        self.wanted.push(key.clone());
+                    }
+                }
+                for (key, _) in &nodes {
+                    self.tokens.record(
+                        key.clone(),
+                        response.restore_token.clone(),
+                        response.granted_persist_mode,
+                    );
+                }
+                self.tokens_changed = true;
+                self.session = SessionState::Held(Held { nodes });
+                self.selection = SelectionRequest::Ready;
+                Progress::Started(self.open_wanted())
+            }
+        }
+    }
+
     /// Requests a portal session covering the wanted monitors.
     fn request(&mut self) -> MirrorOutcome {
         // One token restores the complete session, so any wanted monitor's token
@@ -353,23 +535,53 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
         }
     }
 
-    fn open_wanted(&mut self) -> Vec<MonitorKey> {
-        let SessionState::Held(held) = &self.session else {
-            return Vec::new();
+    fn try_direct(&mut self, key: &MonitorKey) -> bool {
+        let Some(monitor) = self.roster.find(key) else {
+            return false;
         };
+        match self.streams.open_direct(monitor) {
+            DirectOpen::Opened(stream) => {
+                self.active.push(Mirror {
+                    key: key.clone(),
+                    node: None,
+                    stream,
+                    paused: false,
+                });
+                true
+            }
+            DirectOpen::Deferred => true,
+            DirectOpen::Unavailable => false,
+        }
+    }
 
-        let pending: Vec<(MonitorKey, NodeId)> = self
+    fn open_wanted(&mut self) -> Vec<MonitorKey> {
+        let pending: Vec<_> = self
             .wanted
             .iter()
             .filter(|key| !self.active.iter().any(|mirror| &&mirror.key == key))
-            .filter_map(|key| held.node_for(key).map(|node| (key.clone(), node)))
+            .cloned()
             .collect();
-
-        let mut started = Vec::with_capacity(pending.len());
-        for (key, node) in pending {
-            if self.open(key.clone(), node) {
-                started.push(key);
+        let mut started = Vec::new();
+        let mut needs_portal = false;
+        for key in pending {
+            let node = match &self.session {
+                SessionState::Held(held) => held.node_for(&key),
+                _ => None,
+            };
+            if self.try_direct(&key) {
+                if self.is_mirroring(&key) {
+                    started.push(key);
+                }
+            } else if let Some(node) = node {
+                if self.open(key.clone(), node) {
+                    started.push(key);
+                }
+            } else {
+                needs_portal = true;
             }
+        }
+        if needs_portal && matches!(self.session, SessionState::Idle) {
+            let _ = self.request();
         }
         started
     }
@@ -381,7 +593,7 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
 
         self.active.push(Mirror {
             key,
-            node,
+            node: Some(node),
             stream,
             paused: false,
         });
@@ -396,7 +608,7 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
         let mirror = self.active.remove(index);
         info!(
             monitor = %mirror.key,
-            node = %mirror.node,
+            node = ?mirror.node,
             "stopped mirroring; the session is kept, so re-adding does not prompt",
         );
         true
@@ -405,7 +617,7 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
 
 struct Mirror {
     key: MonitorKey,
-    node: NodeId,
+    node: Option<NodeId>,
     stream: Box<dyn MonitorStream>,
     paused: bool,
 }
@@ -416,8 +628,35 @@ enum SessionState {
     /// A request is in flight; [`MirrorSet::poll`] advances it.
     Requested(RequestId),
     Held(Held),
-    /// A failed request is not retried by [`MirrorSet::poll`]; a later
-    /// [`MirrorSet::mirror`] call starts another request.
+    /// A failed request stays refused until explicit [`MirrorSet::select_monitors`].
+    Failed(PortalError),
+}
+
+enum SelectionRequest {
+    Idle,
+    Pending {
+        request: RequestId,
+        dismissed: Vec<MonitorKey>,
+    },
+    Ready,
+    Failed(PortalError),
+}
+
+/// The result of starting an explicit fresh selection.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SelectionOutcome {
+    Requested,
+    Busy,
+    NoMonitors,
+    Refused(PortalError),
+}
+
+/// The latest explicit selection's state. Existing capture can remain live while pending or failed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SelectionState {
+    Idle,
+    Pending,
+    Ready,
     Failed(PortalError),
 }
 

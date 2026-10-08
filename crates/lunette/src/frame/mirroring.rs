@@ -5,8 +5,15 @@
 //! outputs, persisting the restore tokens a stream returns, importing the
 //! frames that arrived, and dropping what remains after a stream stops.
 
-use lunette_capture::{mirror::PipewireStreams, monitor::MonitorKey, tokens};
-use lunette_compositor::protocol::ImportedBuffer;
+use std::sync::Arc;
+
+use lunette_capture::{
+    mirror::screencopy::PreferredStreams, monitor::MonitorKey, stream::DrmFourcc, tokens,
+};
+use lunette_compositor::{
+    protocol::{ImportedBuffer, PixelSize},
+    surface::{PixelBuffer, ShmFormat},
+};
 use tracing::{debug, info, warn};
 
 use crate::{
@@ -71,9 +78,9 @@ impl FrameDriver {
 
     /// Turns each mirror's newest frame into the texture Lua samples.
     ///
-    /// The frames arrive as plain descriptors from PipeWire's own thread. Every
-    /// Vulkan import in the process runs in this method, on the main thread,
-    /// through the same dmabuf path a client's buffer takes.
+    /// Frames arrive as owned descriptors or copied pixels from the capture
+    /// worker. Vulkan import and LÖVR uploads run on this main thread, through
+    /// the same paths a client's buffers take.
     pub(super) fn import_capture_frames(&mut self) {
         let (Some(host), Some(graphics)) = (
             &self.host,
@@ -84,6 +91,73 @@ impl FrameDriver {
 
         for (monitor, frame) in host.mirrors.take_frames() {
             let size = frame.format().size;
+            let transform = frame.format().transform;
+            if let Some(source) = frame.pixels() {
+                let mut packed = source.to_vec();
+                if matches!(
+                    frame.format().fourcc,
+                    DrmFourcc::Abgr8888 | DrmFourcc::Xbgr8888
+                ) {
+                    for pixel in packed.as_chunks_mut::<4>().0 {
+                        pixel.swap(0, 2);
+                    }
+                }
+                let shm_format = match frame.format().fourcc {
+                    DrmFourcc::Argb8888 | DrmFourcc::Abgr8888 => ShmFormat::Argb8888,
+                    _ => ShmFormat::Xrgb8888,
+                };
+                if shm_format == ShmFormat::Xrgb8888 {
+                    for pixel in packed.as_chunks_mut::<4>().0 {
+                        pixel[3] = 255;
+                    }
+                }
+                let Some(pixels) = PixelBuffer::new(
+                    PixelSize::new(size.width(), size.height()),
+                    shm_format,
+                    packed,
+                ) else {
+                    warn!(%monitor, "capture upload: shared-memory pixels have an invalid length");
+                    continue;
+                };
+                let description = crate::texture::describe(&ImportedBuffer::Pixels(pixels.clone()));
+                let refilled = self.session.with_monitor_textures(|textures| {
+                    textures
+                        .texture(&monitor)
+                        .zip(textures.describe(&monitor))
+                        .is_some_and(|(texture, previous)| {
+                            if previous != description {
+                                return false;
+                            }
+                            // SAFETY: this is the frame thread and graphics is initialized.
+                            unsafe { texture.refill(&pixels, previous) }
+                        })
+                });
+                if refilled {
+                    self.session.with_monitor_textures(|textures| {
+                        textures.refresh_frame(&monitor, transform);
+                    });
+                    continue;
+                }
+                // SAFETY: this is the frame thread and graphics is initialized.
+                match unsafe { LovrTexture::upload(&pixels) } {
+                    Ok(texture) => {
+                        let displaced = self.session.with_monitor_textures(|textures| {
+                            let displaced =
+                                textures.install_pixels(monitor.clone(), texture, description);
+                            textures.refresh_frame(&monitor, transform);
+                            displaced
+                        });
+                        if let Some(displaced) = displaced {
+                            displaced.release_ref();
+                        }
+                        graphics.capture.forget_stream(&monitor);
+                    }
+                    Err(error) => {
+                        warn!(%monitor, %error, "capture upload: shared-memory texture unavailable")
+                    }
+                }
+                continue;
+            }
             // Read this first, because the importer requires it. The
             // image a monitor's texture wraps is the entry its buffer
             // retention must not release; releasing it would free an image a
@@ -105,6 +179,9 @@ impl FrameDriver {
             // first few frames this branch runs. Wrapping the image again would
             // allocate a texture over memory a texture already covers.
             if installed == Some(image.image) {
+                self.session.with_monitor_textures(|textures| {
+                    textures.refresh_frame(&monitor, transform);
+                });
                 continue;
             }
 
@@ -127,7 +204,10 @@ impl FrameDriver {
             );
             let description = crate::texture::describe(&ImportedBuffer::Image(image));
             let displaced = self.session.with_monitor_textures(|textures| {
-                textures.install(monitor.clone(), image.image, texture, description)
+                let displaced =
+                    textures.install(monitor.clone(), image.image, texture, description);
+                textures.refresh_frame(&monitor, transform);
+                displaced
             });
             if let Some(displaced) = displaced {
                 displaced.release_ref();
@@ -149,6 +229,14 @@ impl FrameDriver {
     /// alone, for the reason [`stopped_monitors`] states: a monitor can retain
     /// capture buffers while holding no texture.
     pub(super) fn drop_stopped_mirrors(&mut self) {
+        let replaced = self
+            .host
+            .as_ref()
+            .map(|host| host.mirrors.take_replaced_monitors())
+            .unwrap_or_default();
+        for monitor in &replaced {
+            self.forget_monitor_texture(monitor);
+        }
         let holding = self
             .session
             .with_monitor_textures(|textures| textures.monitors());
@@ -204,7 +292,7 @@ impl FrameDriver {
     /// Runs again for every device, not once at startup. A capture stream
     /// negotiates against what the importer accepts, and that is a property of
     /// a particular device.
-    pub(super) fn negotiate_capture_formats(&self, device: &GraphicsDevice) {
+    pub(super) fn negotiate_capture_formats(&self, device: &Arc<GraphicsDevice>) {
         let Some(host) = &self.host else {
             return;
         };
@@ -213,7 +301,11 @@ impl FrameDriver {
             formats = formats.len(),
             "monitor capture can now negotiate a dmabuf"
         );
-        host.mirrors
-            .set_streams(Box::new(PipewireStreams::new(formats)));
+        let exporters = crate::import::export::Exporters::new(Arc::clone(device), formats.clone());
+        host.mirrors.set_streams(Box::new(PreferredStreams::new(
+            host.capture_client,
+            Box::new(exporters),
+            formats,
+        )));
     }
 }

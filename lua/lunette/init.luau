@@ -110,8 +110,18 @@ export type Window = {
   read properties: (self: Window) -> { [string]: boolean | number | string },
 }
 
--- One of the user's own screens, mirrored through the screencast portal and not
--- hosted by this compositor.
+-- The latest fresh monitor-selection request's state, independent of running
+-- capture.
+export type MonitorSelection = {
+  -- idle, pending, ready, or failed. Ready describes the portal grant, not a
+  -- received frame.
+  state: 'idle' | 'pending' | 'ready' | 'failed',
+  -- The portal error when state is failed.
+  message: string?,
+}
+
+-- One of the user's own screens, mirrored by direct capture or the screencast
+-- portal and not hosted by this compositor.
 export type Monitor = {
   -- The saved identity, and what a table of per-monitor state is keyed by.
   -- Stable across a restart and across the monitor moving to another port.
@@ -121,12 +131,14 @@ export type Monitor = {
   read dead: boolean,
   -- Whether a capture stream is running for this monitor.
   read mirrored: boolean,
+  -- Whether the active stream uses wlr-screencopy, with no portal selection.
+  read directCapture: boolean,
   -- Whether a mirror has been asked for and has not arrived. True while a
   -- portal dialog is on the user's screen, and false once the user accepts or
   -- declines.
   read pending: boolean,
-  -- The monitor's resolution, which is the size a captured frame arrives at.
-  -- Zero on both axes when the host reports no mode.
+  -- The host-reported mode in pixels, not necessarily the captured texture
+  -- size. Zero on both axes when the host reports no mode.
   read width: number,
   read height: number,
   -- Where the monitor is on the host desktop, in the compositor's logical
@@ -135,24 +147,26 @@ export type Monitor = {
   read y: number,
   read logicalWidth: number,
   read logicalHeight: number,
+  -- The current frame's UV transform, or nil before a frame is installed.
+  -- Undefined and normal sample unchanged; rotations and flips follow WayVR.
+  read frameTransform: ('undefined' | 'normal' | 'rot90' | 'rot180' | 'rot270' | 'flipped' | 'flipped90' | 'flipped180' | 'flipped270')?,
   -- Where input for this monitor goes: a sink in the host domain, present
   -- whether or not the monitor is mirrored. Pointing at the host desktop does
   -- not require lunette to be showing it.
   read sink: Sink,
   -- The latest captured frame of this monitor. False while the monitor is gone,
-  -- while it is not mirrored, or while it has produced no frame yet. These
-  -- cases return `false` and not an error; a still desktop has no frame,
-  -- because a monitor that is not changing sends nothing.
+  -- while it is not mirrored, or while it has produced no frame yet. Read again
+  -- each frame rather than caching a rotating capture texture.
   read getTexture: (self: Textured) -> Texture | false,
-  -- Requests this screen to be captured. True once a stream is running or has
-  -- been asked for. A dialog the user has not answered is a true, and `pending`
-  -- reports the frame has not landed.
+  -- Requests this screen to be captured, preferring direct capture. True once a
+  -- stream is installed or requested, not necessarily producing. The portal
+  -- fallback may prompt asynchronously.
   read mirror: (self: Monitor) -> boolean,
-  -- Stops capturing this screen, tearing the stream down. The portal session is
-  -- kept, so mirroring again does not prompt.
+  -- Removes the active mirror and texture. PipeWire joins its worker and keeps
+  -- the portal session; the pinned direct worker may remain detached.
   read dismiss: (self: Monitor) -> boolean,
-  -- Stops the stream without giving up the session, for a panel that has left
-  -- the user's view.
+  -- Deactivates PipeWire without giving up its session. The pinned direct
+  -- backend accepts the request but implements pause and resume as no-ops.
   read setPaused: (self: Monitor, paused: boolean) -> boolean,
 }
 
@@ -633,6 +647,12 @@ export type Lunette = {
   read spawn: (options: SpawnOptions) -> Process,
   -- The user's own screens, whether or not they are being mirrored.
   read monitors: () -> { Monitor },
+  -- Requests fresh host-monitor selection without a restore token. Existing
+  -- captures continue until success. False returns a refusal message.
+  read selectMonitors: () -> (boolean, string?),
+  -- The latest explicit selection's status. A failed or pending request can
+  -- coexist with running captures.
+  read monitorSelection: () -> MonitorSelection,
   -- Requests a composition layer for a window's pixels. Claims are ranked at
   -- the frame boundary, so a fresh claim is granted no earlier than the next
   -- frame.

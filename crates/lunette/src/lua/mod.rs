@@ -67,7 +67,7 @@ use crate::{
         claim::{ClaimLayer, claim_layer},
         declarations::{FunctionSpec, NullTexture, Options, Record, Type, module, record},
         keys::{KeyCodes, locking_modifier_names, modifier_names},
-        monitor::monitors,
+        monitor::{MonitorSelection, monitor_selection, monitors, select_monitors},
         output::{NewOutput, new_output, outputs},
         seat::{NewSeat, default_seat, new_seat, seats},
         subscribers::{Subscribers, SubscriptionId},
@@ -572,6 +572,12 @@ module! {
     /// The user's own screens, whether or not they are being mirrored.
     fn monitors(lua, session) -> Vec<Monitor<T>> { monitors(lua, session) }
 
+    /// Requests fresh host-monitor selection without a restore token. Existing captures continue until success. False returns a refusal message.
+    fn selectMonitors(_lua, session) -> (bool, Option<String>) { Ok(select_monitors(session)) }
+
+    /// The latest explicit selection's status. A failed or pending request can coexist with running captures.
+    fn monitorSelection(_lua, session) -> MonitorSelection { Ok(monitor_selection(session)) }
+
     /// Requests a composition layer for a window's pixels. Claims are ranked at the frame boundary, so a fresh claim is granted no earlier than the next frame.
     fn claimLayer(_lua, session, options: Options<ClaimLayer>) -> Claim<T> {
         claim_layer(session, &options)
@@ -643,7 +649,15 @@ module! {
 
     /// Shuts down plugin runtimes, retires their contract epoch, and re-runs the configuration in the same Lua state, keeping the compositor, the clients, and their textures. Answers whether it loaded, and the error if it did not.
     fn reload(lua, session) -> (bool, Option<String>) {
-        reload_from_lua(lua, &|| session.clear_subscribers())
+        if crate::plugin::host::callback_active(lua) {
+            return reload_from_lua(lua, &|| session.clear_subscribers());
+        }
+        let owns_reload = session.mirrors().begin_reload();
+        let result = reload_from_lua(lua, &|| session.clear_subscribers());
+        if owns_reload {
+            session.mirrors().finish_reload();
+        }
+        result
     }
 
     /// Tears the session down and starts it again, graphics device included.

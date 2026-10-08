@@ -121,10 +121,11 @@ pub struct Startup {
 
 /// The host desktop the entry point opened, for the frame loop to drive.
 ///
-/// Resolved at startup for the reason the socket is: the host's
-/// `WAYLAND_DISPLAY` must be read before the entry point overwrites it with
-/// lunette's own, which is before any other thread exists.
+/// Resolved by the binary, which retains the host display for direct capture
+/// and passes explicit host configuration to the other subsystems.
 pub struct HostDesktop {
+    /// Environment-dependent upstream construction stays at the application boundary.
+    pub capture_client: fn() -> Option<lunette_capture::mirror::screencopy::WlxClient>,
     /// The host's `wl_output`s, kept up to date as they change.
     pub outputs: OutputWatcher,
     /// The mirror lifecycle's frame-loop half. The same object the Lua session

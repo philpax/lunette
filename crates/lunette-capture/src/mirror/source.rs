@@ -14,9 +14,9 @@ use crate::{
 
 /// A monitor's captured frames and lifecycle controls.
 ///
-/// Dropping the stream stops PipeWire and releases its descriptors. Pausing
-/// stops production while retaining the stream for a panel that is temporarily
-/// out of view; dismissal drops it instead.
+/// PipeWire stops and joins on drop, and deactivates on pause. Direct screencopy
+/// delegates these operations to the pinned backend: its pause is a no-op and
+/// dropping it does not cancel or join an in-flight request worker.
 pub trait MonitorStream {
     /// Returns the newest frame since the previous call and discards older frames.
     fn latest(&mut self) -> Option<CapturedFrame>;
@@ -24,7 +24,7 @@ pub trait MonitorStream {
     /// Returns counts of delivered, dropped, and refused frames.
     fn counts(&self) -> FrameCounts;
 
-    /// Stops production without releasing the stream.
+    /// Requests a pause without releasing the stream; backend support varies.
     fn pause(&mut self);
 
     /// Resumes production after [`Self::pause`].
@@ -54,6 +54,11 @@ impl MonitorStream for CaptureStream {
 /// The lifecycle stores implementations as `Box<dyn MonitorStreams>`, so this
 /// trait must remain object-safe.
 pub trait MonitorStreams {
+    /// Tries direct host capture before requesting a portal session.
+    fn open_direct(&mut self, _monitor: &crate::monitor::Monitor) -> DirectOpen {
+        DirectOpen::Unavailable
+    }
+
     /// Opens `node` and begins delivering frames, using `name` for logging.
     ///
     /// Returns `None` when the source is not ready. The lifecycle retains the
@@ -65,6 +70,15 @@ pub trait MonitorStreams {
     ///
     /// [`MirrorSet::poll`]: crate::mirror::MirrorSet::poll
     fn open(&mut self, name: &str, node: NodeId) -> Option<Box<dyn MonitorStream>>;
+}
+
+/// The result of trying the preferred direct backend.
+pub enum DirectOpen {
+    Opened(Box<dyn MonitorStream>),
+    /// Graphics initialization has not supplied capture resources yet.
+    Deferred,
+    /// The protocol or direct setup cannot be used; the portal remains available.
+    Unavailable,
 }
 
 /// A source that is not ready to open streams.
@@ -79,6 +93,10 @@ pub trait MonitorStreams {
 pub struct NoStreams;
 
 impl MonitorStreams for NoStreams {
+    fn open_direct(&mut self, _monitor: &crate::monitor::Monitor) -> DirectOpen {
+        DirectOpen::Deferred
+    }
+
     fn open(&mut self, name: &str, node: NodeId) -> Option<Box<dyn MonitorStream>> {
         debug!(
             stream = name,

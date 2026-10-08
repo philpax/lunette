@@ -31,6 +31,7 @@
 pub mod capture;
 pub mod device;
 pub mod dmabuf;
+pub(crate) mod export;
 pub mod formats;
 pub mod shm;
 

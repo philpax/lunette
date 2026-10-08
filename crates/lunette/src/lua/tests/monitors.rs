@@ -11,11 +11,12 @@ use lunette_capture::{
     hid::{
         KeyModifiers, PanelPoint, PointerButton as HostButton, VirtualKey, WheelDelta, XkbKeymap,
     },
-    mirror::MirrorOutcome,
+    mirror::{MirrorOutcome, SelectionOutcome, SelectionState},
     monitor::{
         ConnectorKind, ConnectorName, LogicalGeometry, LogicalPosition, LogicalSize, MonitorKey,
         PixelExtent,
     },
+    stream::FrameTransform,
 };
 use lunette_compositor::protocol::PixelPoint;
 use pretty_assertions::assert_eq;
@@ -23,7 +24,9 @@ use pretty_assertions::assert_eq;
 use super::*;
 use crate::{
     host::HostSinks,
+    import::formats::Alpha,
     mirrors::{MirrorRegistry, MonitorState},
+    texture::TextureDescription,
 };
 
 /// A registry over a fixed set of monitors, recording every request it receives.
@@ -40,6 +43,7 @@ pub(super) enum Call {
     Mirror(MonitorKey),
     Dismiss(MonitorKey),
     SetPaused(MonitorKey, bool),
+    SelectMonitors,
 }
 
 impl FakeMirrors {
@@ -98,6 +102,19 @@ impl MirrorRegistry for FakeMirrors {
             .borrow_mut()
             .push(Call::SetPaused(monitor.clone(), paused));
         true
+    }
+
+    fn select_monitors(&self) -> SelectionOutcome {
+        self.calls.borrow_mut().push(Call::SelectMonitors);
+        SelectionOutcome::Requested
+    }
+
+    fn selection_state(&self) -> SelectionState {
+        if self.calls.borrow().contains(&Call::SelectMonitors) {
+            SelectionState::Pending
+        } else {
+            SelectionState::Idle
+        }
     }
 }
 
@@ -219,6 +236,42 @@ fn a_session_with_no_monitor_source_lists_none() {
 }
 
 #[test]
+fn fresh_monitor_selection_reaches_the_registry_and_reports_pending() {
+    let (session, mirrors, _host) = mirrored_session(Vec::new(), FakeMirrors::one());
+    let lua = lua(&session);
+    let result: (String, bool, Option<String>, String) = lua
+        .load(
+            "local before = lunette.monitorSelection().state
+             local accepted, message = lunette.selectMonitors()
+             return before, accepted, message, lunette.monitorSelection().state",
+        )
+        .eval()
+        .expect("the selection API answers");
+    assert_eq!(
+        result,
+        ("idle".to_owned(), true, None, "pending".to_owned())
+    );
+    assert_eq!(mirrors.calls(), vec![Call::SelectMonitors]);
+}
+
+#[test]
+fn fresh_monitor_selection_without_host_integration_reports_refusal() {
+    let session = session(Vec::new());
+    let lua = lua(&session);
+    let result: (bool, Option<String>) = lua
+        .load("return lunette.selectMonitors()")
+        .eval()
+        .expect("the selection API answers");
+    assert_eq!(
+        result,
+        (
+            false,
+            Some("monitor selection: no host monitors are available".to_owned())
+        )
+    );
+}
+
+#[test]
 fn a_monitor_reports_its_identity_and_its_resolution() {
     let (session, _mirrors, _host) = mirrored_session(Vec::new(), FakeMirrors::one());
     let lua = lua(&session);
@@ -242,6 +295,56 @@ fn a_monitor_reports_its_identity_and_its_resolution() {
             1920,
         ),
         "width and height are pixels, because that is the size a captured frame arrives at",
+    );
+}
+
+#[test]
+fn captured_frame_transform_reads_through_reused_monitor_textures() {
+    let (session, mirrors, _host) = mirrored_session(Vec::new(), FakeMirrors::one());
+    let lua = lua(&session);
+    lua.load("monitor = lunette.monitors()[1]")
+        .exec()
+        .expect("the handle is held");
+    assert_eq!(
+        lua.load("return monitor.frameTransform")
+            .eval::<Option<String>>()
+            .expect("field reads"),
+        None
+    );
+    session.with_monitor_textures(|textures| {
+        textures.install_pixels(
+            key(1),
+            FakeTexture(7),
+            TextureDescription {
+                size: PixelSize::new(1920, 1080),
+                alpha: Alpha::Opaque,
+            },
+        );
+    });
+    for (transform, name) in [
+        (FrameTransform::Undefined, "undefined"),
+        (FrameTransform::Normal, "normal"),
+        (FrameTransform::Rotated90, "rot90"),
+        (FrameTransform::Rotated180, "rot180"),
+        (FrameTransform::Rotated270, "rot270"),
+        (FrameTransform::Flipped, "flipped"),
+        (FrameTransform::Flipped90, "flipped90"),
+        (FrameTransform::Flipped180, "flipped180"),
+        (FrameTransform::Flipped270, "flipped270"),
+    ] {
+        session.with_monitor_textures(|textures| textures.refresh_frame(&key(1), transform));
+        let fields: (String, i64) = lua
+            .load("return monitor.frameTransform, monitor:getTexture()")
+            .eval()
+            .expect("frame fields read");
+        assert_eq!(fields, (name.to_owned(), 7));
+    }
+    mirrors.detach_all();
+    assert_eq!(
+        lua.load("return monitor.frameTransform")
+            .eval::<Option<String>>()
+            .expect("field reads"),
+        None
     );
 }
 

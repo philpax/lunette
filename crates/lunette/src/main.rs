@@ -7,12 +7,10 @@
 //!
 //! Linux-only: starts LÖVR, the compositor, and host capture.
 //!
-//! The binary is the sole environment reader and `tracing` subscriber owner. It exports
-//! `WAYLAND_DISPLAY` before any thread starts, after reading the host socket. `set_var` is unsafe
-//! in a multithreaded process because a concurrent environment read can access freed memory. LÖVR's
-//! GLFW build disables Wayland support, so its window cannot connect to lunette's socket before
-//! the compositor thread starts. The binary does not export `DISPLAY`; spawned clients receive
-//! display settings from the compositor's spawner.
+//! The binary is the sole environment reader and `tracing` subscriber owner. It
+//! retains the host's `WAYLAND_DISPLAY` for the pinned capture client and removes
+//! `WAYLAND_SOCKET` before any worker starts. Hosted applications receive lunette's
+//! display settings explicitly from the compositor's spawner.
 
 mod boot;
 mod check;
@@ -48,7 +46,7 @@ use lunette_capture::{
     tokens::{self, Loaded, TokenFile},
 };
 use lunette_compositor::{
-    client::{DisplayName, XwaylandSatellite, listen},
+    client::{XwaylandSatellite, listen},
     protocol::{KeymapConfig, KeymapDefaults},
     selection::DataControlSource,
 };
@@ -147,6 +145,10 @@ fn main() -> ExitCode {
 
     let state_directory = state_directory(&StateDirectorySources::from_environment());
 
+    // SAFETY: no application worker has started. The logging subscriber and
+    // configuration resolution above do not spawn threads.
+    let host_socket = unsafe { prepare_host_display() };
+
     // Bind before LÖVR starts. Failure disables `lunctl` but does not stop the session.
     let control = match absolute_path(env::var_os(XDG_RUNTIME_DIR)) {
         Some(runtime_directory) => {
@@ -184,13 +186,6 @@ fn main() -> ExitCode {
         }
     };
 
-    // SAFETY: this is the only write to the environment in the program, and it
-    // runs before anything has spawned a thread. The subscriber is installed,
-    // the configuration directory is resolved, and the socket is bound; none
-    // of those starts one. Every later reader is in a thread this write
-    // precedes.
-    let host_socket = unsafe { read_host_then_export_display(&name) };
-
     info!(
         "connect a client from outside with WAYLAND_DISPLAY={}",
         name.wayland().to_string_lossy()
@@ -209,6 +204,7 @@ fn main() -> ExitCode {
             Rc::clone(&host.pointer) as _,
             Some(HostDesktop {
                 outputs: host.outputs,
+                capture_client: upstream_capture_client,
                 mirrors: host.mirrors as Rc<dyn MirrorFrames>,
                 pointer: host.pointer,
                 tokens: host.tokens,
@@ -260,9 +256,33 @@ fn main() -> ExitCode {
     )
 }
 
+struct AvailablePortal(Result<WlxPortal, lunette_capture::portal::PortalError>);
+
+impl lunette_capture::portal::ScreenCastPortal for AvailablePortal {
+    fn begin(
+        &mut self,
+        request: lunette_capture::portal::SessionRequest,
+    ) -> Result<lunette_capture::portal::RequestId, lunette_capture::portal::PortalError> {
+        match &mut self.0 {
+            Ok(portal) => lunette_capture::portal::ScreenCastPortal::begin(portal, request),
+            Err(error) => Err(error.clone()),
+        }
+    }
+
+    fn poll(
+        &mut self,
+        request: lunette_capture::portal::RequestId,
+    ) -> lunette_capture::portal::RequestProgress {
+        match &mut self.0 {
+            Ok(portal) => lunette_capture::portal::ScreenCastPortal::poll(portal, request),
+            Err(error) => lunette_capture::portal::RequestProgress::Failed(error.clone()),
+        }
+    }
+}
+
 /// Host desktop resources shared by the Lua session and frame loop.
 struct Host {
-    mirrors: Rc<HostMirrors<WlxPortal>>,
+    mirrors: Rc<HostMirrors<AvailablePortal>>,
     pointer: Rc<HostPointer>,
     outputs: OutputWatcher,
     tokens: Option<TokenFile>,
@@ -282,13 +302,9 @@ fn open_host(socket: &Path, state_directory: Option<&Path>) -> Option<Host> {
         }
     };
 
-    let portal = match WlxPortal::connect() {
-        Ok(portal) => portal,
-        Err(error) => {
-            warn!("{error}; no monitor can be mirrored this session");
-            return None;
-        }
-    };
+    let portal = AvailablePortal(WlxPortal::connect().inspect_err(|error| {
+        warn!("{error}; portal fallback is unavailable; direct capture remains available");
+    }));
 
     let (stored, tokens) = read_tokens(state_directory);
 
@@ -309,7 +325,7 @@ fn open_host(socket: &Path, state_directory: Option<&Path>) -> Option<Host> {
     Some(Host {
         mirrors: Rc::new(HostMirrors::new(MirrorSet::new(
             portal,
-            CursorPolicy::Hidden,
+            CursorPolicy::Visible,
             stored,
         ))),
         pointer: Rc::new(HostPointer::new(input)),
@@ -355,7 +371,7 @@ fn read_tokens(state_directory: Option<&Path>) -> (tokens::TokenStore, Option<To
     loaded.for_session(path)
 }
 
-/// The host compositor socket captured before `WAYLAND_DISPLAY` is replaced.
+/// The host compositor socket resolved during single-threaded startup.
 #[derive(Debug)]
 struct HostWaylandSocket(Option<PathBuf>);
 
@@ -365,25 +381,40 @@ impl HostWaylandSocket {
     }
 }
 
-/// Reads the host socket before exporting lunette's socket as `WAYLAND_DISPLAY`.
+/// Resolves the host socket and removes the inherited descriptor override.
 ///
-/// Host output enumeration and input providers use the original socket. Reading after the export
-/// would connect them to lunette's compositor. The returned type can be constructed only here.
+/// The pinned client's constructor connects through the retained host display.
+/// Removing `WAYLAND_SOCKET` here prevents its later constructor from mutating
+/// the environment after application workers have started.
 ///
 /// # Safety
 ///
-/// The process must be single-threaded. A concurrent environment read can access memory freed by
-/// `std::env::set_var`.
-unsafe fn read_host_then_export_display(display: &DisplayName) -> HostWaylandSocket {
+/// The process must be single-threaded. A concurrent environment read can access
+/// memory freed by `std::env::remove_var`.
+unsafe fn prepare_host_display() -> HostWaylandSocket {
     let socket = host_wayland_socket(
         env::var_os(XDG_RUNTIME_DIR).as_deref(),
         env::var_os(WAYLAND_DISPLAY).as_deref(),
     );
 
-    // SAFETY: the caller's guarantee, and the read above has already happened.
-    unsafe { env::set_var(WAYLAND_DISPLAY, display.wayland()) };
+    // SAFETY: the caller guarantees single-threaded startup. Upstream's constructor
+    // removes WAYLAND_SOCKET when present, so remove it before any worker exists.
+    // Hosted clients receive lunette's display explicitly through the spawner.
+    unsafe { env::remove_var("WAYLAND_SOCKET") };
 
     HostWaylandSocket(socket)
+}
+
+/// Constructs the pinned environment-based client at the application boundary.
+fn upstream_capture_client() -> Option<lunette_capture::mirror::screencopy::WlxClient> {
+    // Startup removes WAYLAND_SOCKET, so connect_to_env only reads the environment.
+    // Missing required upstream globals currently panic; setup falls back to the portal.
+    std::panic::catch_unwind(lunette_capture::mirror::screencopy::WlxClient::new).unwrap_or_else(
+        |_| {
+            warn!("direct capture: the upstream host client could not initialize");
+            None
+        },
+    )
 }
 
 /// Resolves an absolute `WAYLAND_DISPLAY` path or a name relative to `XDG_RUNTIME_DIR`.

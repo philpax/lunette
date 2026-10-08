@@ -22,7 +22,7 @@
 
 use std::collections::HashMap;
 
-use lunette_capture::monitor::MonitorKey;
+use lunette_capture::{monitor::MonitorKey, stream::FrameTransform};
 use lunette_compositor::protocol::ImageHandle;
 
 use crate::texture::TextureDescription;
@@ -57,7 +57,7 @@ impl<T> MonitorTextures<T> {
     /// [`CaptureImporter::import`]: crate::import::CaptureImporter::import
     #[must_use]
     pub fn image(&self, monitor: &MonitorKey) -> Option<ImageHandle> {
-        self.entries.get(monitor).map(|entry| entry.image)
+        self.entries.get(monitor).and_then(|entry| entry.image)
     }
 
     /// Records a monitor's new texture, returning the one it displaces.
@@ -79,11 +79,32 @@ impl<T> MonitorTextures<T> {
                 monitor,
                 Entry {
                     texture,
-                    image,
+                    image: Some(image),
                     description,
+                    transform: FrameTransform::Undefined,
                 },
             )
             .map(|displaced| displaced.texture)
+    }
+
+    /// Records a texture uploaded from shared memory rather than imported memory.
+    pub fn install_pixels(
+        &mut self,
+        monitor: MonitorKey,
+        texture: T,
+        description: TextureDescription,
+    ) -> Option<T> {
+        self.entries
+            .insert(
+                monitor,
+                Entry {
+                    texture,
+                    image: None,
+                    description,
+                    transform: FrameTransform::Undefined,
+                },
+            )
+            .map(|entry| entry.texture)
     }
 
     /// The texture a monitor's mirror last produced.
@@ -103,6 +124,19 @@ impl<T> MonitorTextures<T> {
     #[must_use]
     pub fn describe(&self, monitor: &MonitorKey) -> Option<TextureDescription> {
         self.entries.get(monitor).map(|entry| entry.description)
+    }
+
+    /// The transform of the currently presented capture, including identity Undefined.
+    #[must_use]
+    pub fn frame_transform(&self, monitor: &MonitorKey) -> Option<FrameTransform> {
+        self.entries.get(monitor).map(|entry| entry.transform)
+    }
+
+    /// Updates capture metadata even when a buffer or uploaded texture is reused.
+    pub fn refresh_frame(&mut self, monitor: &MonitorKey, transform: FrameTransform) {
+        if let Some(entry) = self.entries.get_mut(monitor) {
+            entry.transform = transform;
+        }
     }
 
     /// Drops what is held for a monitor, returning its texture.
@@ -159,8 +193,9 @@ struct Entry<T> {
     texture: T,
     /// Which image the texture wraps, so a recurring PipeWire buffer is
     /// recognised and not re-wrapped.
-    image: ImageHandle,
+    image: Option<ImageHandle>,
     description: TextureDescription,
+    transform: FrameTransform,
 }
 
 #[cfg(test)]
@@ -189,6 +224,45 @@ mod tests {
             size: PixelSize::new(1920, 1080),
             alpha: Alpha::Opaque,
         }
+    }
+
+    #[test]
+    fn capture_transform_refreshes_reused_and_refilled_textures() {
+        for imported in [false, true] {
+            let mut textures = MonitorTextures::new();
+            if imported {
+                textures.install(monitor(1), image(7), 10_u32, description());
+            } else {
+                textures.install_pixels(monitor(1), 10_u32, description());
+            }
+            for transform in [
+                FrameTransform::Undefined,
+                FrameTransform::Normal,
+                FrameTransform::Rotated90,
+                FrameTransform::Rotated180,
+                FrameTransform::Rotated270,
+                FrameTransform::Flipped,
+                FrameTransform::Flipped90,
+                FrameTransform::Flipped180,
+                FrameTransform::Flipped270,
+            ] {
+                textures.refresh_frame(&monitor(1), transform);
+                assert_eq!(textures.frame_transform(&monitor(1)), Some(transform));
+                assert_eq!(textures.texture(&monitor(1)), Some(&10));
+                assert_eq!(textures.image(&monitor(1)), imported.then(|| image(7)));
+            }
+            textures.forget(&monitor(1));
+            assert_eq!(textures.frame_transform(&monitor(1)), None);
+        }
+    }
+
+    #[test]
+    fn an_uploaded_monitor_texture_has_no_imported_image() {
+        let mut textures = MonitorTextures::new();
+        textures.install_pixels(monitor(1), 10_u32, description());
+        assert_eq!(textures.texture(&monitor(1)), Some(&10));
+        assert_eq!(textures.image(&monitor(1)), None);
+        assert_eq!(textures.monitors(), vec![monitor(1)]);
     }
 
     #[test]

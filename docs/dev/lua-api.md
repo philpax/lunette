@@ -597,41 +597,48 @@ A session starts with one output, and it is what a client that was assigned none
 
 ## Monitors
 
-`lunette.monitors()` returns the user's own screens, which lunette mirrors through the screencast portal rather than hosting. They are not compositor windows and they are not outputs; a window belongs to a client lunette runs, and a monitor belongs to the machine lunette runs on.
+`lunette.monitors()` returns the user's own screens. Lunette prefers direct host `wlr-screencopy` capture when the pinned backend can use it, with the screencast portal and PipeWire as fallback. These screens are not hosted compositor windows or outputs; a window belongs to a client lunette runs, and a monitor belongs to the host desktop.
 
 ```lua
 for _, monitor in ipairs(lunette.monitors()) do
     print(monitor.id)              -- the saved identity, stable across a restart.
     print(monitor.name)            -- as a user would recognise it: 'Acme X24 on DP-1'.
-    print(monitor.width, monitor.height)               -- the resolution, in pixels.
+    print(monitor.width, monitor.height)               -- the host mode, in pixels.
     print(monitor.x, monitor.y)                        -- where it sits, in logical coordinates.
-    print(monitor.logicalWidth, monitor.logicalHeight) -- how large it is there.
-    print(monitor.mirrored)        -- whether a capture stream is running.
-    print(monitor.pending)         -- whether one has been asked for and not arrived.
-    monitor:getTexture()           -- this frame's pixels, or false.
-    monitor:mirror()               -- start capturing; may prompt.
-    monitor:setPaused(true)        -- stop the stream, keep the node.
-    monitor:dismiss()              -- stop capturing; no ongoing cost.
+    print(monitor.logicalWidth, monitor.logicalHeight) -- its desktop-oriented logical size.
+    print(monitor.mirrored)        -- whether a capture stream is installed.
+    print(monitor.pending)         -- whether a mirror request is outstanding.
+    print(monitor.frameTransform)  -- current frame's UV transform, or nil.
+    monitor:getTexture()           -- latest captured pixels, or false; read each frame.
+    monitor:mirror()               -- request capture; the portal fallback may prompt.
+    monitor:setPaused(true)        -- pause PipeWire; pinned direct pause is a no-op.
+    monitor:dismiss()              -- remove the active mirror and its texture.
 end
 ```
 
 The list is ordered by identity rather than by the order the host enumerated the screens, so an arrangement derived from it does not change when a cable is replugged and nothing else has.
 
-`monitor.id` is the identity described in [Host desktop](host-desktop.md#identity-and-lifecycle): the make and model where the host reports one, a connector name where it does not, and the monitor's logical position where neither is available. It survives a restart and survives the monitor moving to a different port, so it is what a table of per-monitor state is keyed by.
+`monitor.id` is the identity described in [Host desktop](host-desktop.md#identity-and-lifecycle): the make and model where the host reports one, a connector name where it does not, and the monitor's logical position where neither is available. It is what a table of per-monitor state is keyed by; connector and position fallbacks do not survive every rearrangement.
 
-`monitor.width` and `monitor.height` are pixels — the size a captured frame arrives at. `monitor.logicalWidth` and `monitor.logicalHeight` are the compositor's logical coordinates, which differ from pixels by the scale factor on a scaled display. Pointer positions are in the logical space; a texture is in the pixel one.
+`monitor.width` and `monitor.height` report the host's mode in pixels, not the captured texture's dimensions. `monitor.logicalWidth` and `monitor.logicalHeight` describe the desktop-oriented logical rectangle, accounting for scale and output rotation. The built-in panels derive proportions from this logical size. Monitor sinks accept pixel-space coordinates over the reported mode dimensions and normalize them into that logical rectangle; they do not rotate an already desktop-oriented panel hit again.
 
-`monitor:mirror()` is a request. It returns immediately, and may put a portal dialog on the user's screen: nothing waits for one, because a frame cannot. `monitor.pending` is true while a request is outstanding, and `monitor.mirrored` becomes true some frames later — or never, if the user declines. A configuration that treats mirroring as synchronous draws an empty panel. It returns `false` only when the monitor is gone or the portal could not be asked at all.
+`monitor.directCapture` reports whether the active stream uses `wlr-screencopy`. It is false before a stream starts and for portal capture. A source reload retains streams requested again by the replacement configuration and stops streams it no longer requests. A failed or cancelled portal request remains refused until an explicit `lunette.selectMonitors()` action.
 
-Capture starts lazily. Nothing is requested of the portal until the first `monitor:mirror()`, so a configuration that mirrors nothing never prompts.
+`monitor:mirror()` requests capture, not a first frame. Direct setup can install a stream during the call and inherits the pinned client's synchronous initialization. A request made before graphics initialization waits for a later frame. Portal permission is asynchronous and may put a dialog on the user's screen. `monitor.pending` reports an outstanding request, while `monitor.mirrored` reports an installed stream, which may not yet have produced pixels. It returns `false` when the monitor is gone or capture setup is refused. The pinned direct backend has no asynchronous failure channel, so `mirrored` is not proof that frames are still arriving.
 
-`monitor:dismiss()` stops the capture for real: the stream is torn down, so a dismissed monitor has no ongoing cost. The portal session is kept, so mirroring the monitor again does not prompt a second time. It returns `false` when nothing was running, which is not an error — dismissing twice is how a configuration says "make sure this is off".
+Capture starts lazily. `monitor:mirror()` first tries direct capture; only a monitor needing fallback requests a portal session. Explicit `lunette.selectMonitors()` requests a fresh portal grant even when direct capture is available.
 
-`monitor:getTexture()` returns the texture holding the monitor's latest captured frame, and is valid for that frame only — PipeWire cycles a small pool of buffers and the texture rotates with them. Call it again each frame rather than caching it. It returns `false` in three ordinary cases: the monitor is gone, it is not mirrored, and it is mirrored but has produced no frame yet, which is what a still desktop looks like since an unchanging monitor sends nothing at all.
+`lunette.selectMonitors()` requests a fresh selection without a restore token. It returns `(true, nil)` when the request starts, or `(false, message)` when no host monitors are attached, another request is pending, or the portal refuses the request. `lunette.monitorSelection()` returns a detached `{ state, message? }` record. `state` is `idle`, `pending`, `ready`, or `failed`. Existing captures continue while selection is pending or refused. A successful grant replaces PipeWire streams and restore tokens but retains active direct streams; portal revocation likewise leaves direct streams running. A grant with no identifiable attached monitor reports failure and retains the previous captures. A monitor dismissed while selection is pending remains dismissed. Polling does not reopen a refused dialog.
 
-The texture matches the captured output's resolution, which is `monitor.width` by `monitor.height`.
+Direct capture requests an embedded cursor. The portal client prefers a cursor embedded in the captured pixels, then cursor metadata, then hidden capture. Embedded cursor pixels appear through the normal monitor shader. Metadata-only cursor presentation is not implemented; such a backend can still produce a mirror without the host cursor.
 
-`monitor:setPaused(paused)` is the middle case, for a panel that has left the user's view. The stream stops producing but is not given up, so resuming costs nothing. Reach for `dismiss` when the user closed the panel, and for `setPaused` when they merely turned away.
+`monitor:dismiss()` removes the active mirror and its texture. PipeWire drops and joins its worker, retaining the portal session so a covered monitor can be mirrored again without another prompt. The pinned direct backend has no cancellation or joined-drop contract, so its worker may remain detached and dismissal does not guarantee zero remaining capture cost. It returns `false` when no mirror was active; dismissing twice is not an error.
+
+`monitor:getTexture()` returns the latest captured texture, valid for the current frame only. Direct and PipeWire capture cycle small buffer pools, so read it again each frame rather than caching it. It returns `false` when the monitor is gone, it is not mirrored, or it has produced no usable frame yet. Descriptor-backed shared-memory frames can refill a texture instead of replacing it.
+
+`monitor.frameTransform` is nil without an installed frame. Otherwise it is one of `'undefined'`, `'normal'`, `'rot90'`, `'rot180'`, `'rot270'`, `'flipped'`, `'flipped90'`, `'flipped180'`, or `'flipped270'`, describing the UV transform for that texture. The built-in panels apply WayVR's rotation and flip permutations on flat and curved geometry. Undefined and normal sample unchanged: the pinned PipeWire backend reports undefined, while direct raw capture reports the output transform. The value refreshes when a texture is reused or refilled and is independent of the host mode dimensions.
+
+`monitor:setPaused(paused)` deactivates or reactivates PipeWire while retaining its session. The pinned direct backend accepts the request but its pause and resume methods are no-ops. Use `dismiss` to remove a closed panel's active mirror, without assuming it cancels a direct worker.
 
 `lunette.onMonitorAdded` fires for each monitor at startup and for each one attached afterwards. It carries `event.id`, and `event.monitor` when the screen is still attached by the time the handler runs.
 

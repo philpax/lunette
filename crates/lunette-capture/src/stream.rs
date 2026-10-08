@@ -1,4 +1,4 @@
-//! Linux-only: carries PipeWire frames from its callback thread to the main thread.
+//! Linux-only: carries captured frames from backend callbacks to the main thread.
 //!
 //! The callback converts each frame into owned metadata and queues it. The main
 //! thread performs every Vulkan import through the same path as a Wayland
@@ -122,6 +122,7 @@ impl fmt::Debug for CaptureStream {
 pub struct CapturedFrame {
     format: CaptureFormat,
     planes: SmallVec<[CapturedPlane; MAX_PLANES]>,
+    pixels: Option<Vec<u8>>,
 }
 
 impl CapturedFrame {
@@ -135,7 +136,7 @@ impl CapturedFrame {
         match frame {
             WlxFrame::Dmabuf(dmabuf) => Self::from_dmabuf(dmabuf),
             WlxFrame::Implicit(_) => Err(FrameError::Implicit),
-            WlxFrame::MemFd(_) => Err(FrameError::SharedMemory { kind: "a memfd" }),
+            WlxFrame::MemFd(frame) => Self::from_memfd(frame),
             WlxFrame::MemPtr(_) => Err(FrameError::SharedMemory {
                 kind: "a mapped pointer",
             }),
@@ -152,6 +153,74 @@ impl CapturedFrame {
         &self.planes
     }
 
+    /// Packed shared-memory pixels, owned independently of the capture callback.
+    #[must_use]
+    pub fn pixels(&self) -> Option<&[u8]> {
+        self.pixels.as_deref()
+    }
+
+    /// Builds a frame from an exported destination whose descriptor stays live for the call.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FrameError::DuplicateDescriptor`] if the descriptor cannot be retained.
+    pub fn from_exported(
+        format: CaptureFormat,
+        descriptor: BorrowedFd<'_>,
+        offset: u32,
+        stride: u32,
+    ) -> Result<Self, FrameError> {
+        let descriptor = descriptor
+            .try_clone_to_owned()
+            .map_err(|cause| FrameError::DuplicateDescriptor { plane: 0, cause })?;
+        Ok(Self {
+            format,
+            planes: [CapturedPlane {
+                descriptor,
+                offset,
+                stride,
+            }]
+            .into_iter()
+            .collect(),
+            pixels: None,
+        })
+    }
+
+    fn from_memfd(frame: &wlx_capture::frame::MemFdFrame) -> Result<Self, FrameError> {
+        let stride = u32::try_from(frame.plane.stride).map_err(|_| FrameError::NegativeStride {
+            plane: 0,
+            stride: frame.plane.stride,
+        })?;
+        let length = pixel_length(&frame.format, Some(stride))?;
+        let raw = frame
+            .plane
+            .fd
+            .ok_or(FrameError::MissingDescriptor { plane: 0 })?;
+        // SAFETY: upstream holds the descriptor throughout its callback.
+        let borrowed = unsafe { BorrowedFd::borrow_raw(raw) };
+        let descriptor = borrowed
+            .try_clone_to_owned()
+            .map_err(|cause| FrameError::DuplicateDescriptor { plane: 0, cause })?;
+        let file = std::fs::File::from(descriptor);
+        let mut source = vec![0; length];
+        std::os::unix::fs::FileExt::read_exact_at(
+            &file,
+            &mut source,
+            u64::from(frame.plane.offset),
+        )
+        .map_err(FrameError::ReadPixels)?;
+        let row = frame.format.width as usize * 4;
+        let pixels = source
+            .chunks_exact(stride as usize)
+            .flat_map(|line| line[..row].iter().copied())
+            .collect();
+        Ok(Self {
+            format: CaptureFormat::from_wlx(&frame.format)?,
+            planes: SmallVec::new(),
+            pixels: Some(pixels),
+        })
+    }
+
     /// Builds a frame from parts for tests that do not run PipeWire.
     ///
     /// The production path is [`Self::from_wlx`].
@@ -163,6 +232,7 @@ impl CapturedFrame {
     ) -> Self {
         Self {
             format,
+            pixels: None,
             planes: planes
                 .into_iter()
                 .map(|(descriptor, offset, stride)| CapturedPlane {
@@ -192,8 +262,35 @@ impl CapturedFrame {
             .map(|(index, plane)| CapturedPlane::from_wlx(index, plane))
             .collect::<Result<_, _>>()?;
 
-        Ok(Self { format, planes })
+        Ok(Self {
+            format,
+            planes,
+            pixels: None,
+        })
     }
+}
+
+fn pixel_length(format: &FrameFormat, stride: Option<u32>) -> Result<usize, FrameError> {
+    let invalid = || FrameError::SharedMemory {
+        kind: "an unsupported shared-memory layout",
+    };
+    CaptureFormat::from_wlx(format)?;
+    if !matches!(
+        format.drm_format.code,
+        DrmFourcc::Argb8888 | DrmFourcc::Xrgb8888 | DrmFourcc::Abgr8888 | DrmFourcc::Xbgr8888
+    ) {
+        return Err(invalid());
+    }
+    let row = format.width.checked_mul(4).ok_or_else(invalid)?;
+    let stride = stride.filter(|stride| *stride >= row).ok_or_else(invalid)?;
+    let length = usize::try_from(stride)
+        .ok()
+        .and_then(|stride| stride.checked_mul(format.height as usize))
+        .ok_or_else(invalid)?;
+    if length > isize::MAX as usize {
+        return Err(invalid());
+    }
+    Ok(length)
 }
 
 /// An owned descriptor and layout for one dmabuf plane.
@@ -313,9 +410,10 @@ impl fmt::Display for FrameSize {
 
 /// The frame orientation carried across the capture boundary.
 ///
-/// An undefined transform from `wlx-capture` maps to [`Self::Normal`].
+/// Undefined is preserved from the backend and samples identically to Normal.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum FrameTransform {
+    Undefined,
     #[default]
     Normal,
     Rotated90,
@@ -328,9 +426,10 @@ pub enum FrameTransform {
 }
 
 impl FrameTransform {
-    fn from_wlx(transform: Transform) -> Self {
+    pub fn from_wlx(transform: Transform) -> Self {
         match transform {
-            Transform::Undefined | Transform::Normal => Self::Normal,
+            Transform::Undefined => Self::Undefined,
+            Transform::Normal => Self::Normal,
             Transform::Rotated90 => Self::Rotated90,
             Transform::Rotated180 => Self::Rotated180,
             Transform::Rotated270 => Self::Rotated270,
@@ -456,13 +555,13 @@ pub struct FrameCounts {
 /// Why a captured frame could not reach the importer.
 #[derive(Debug)]
 pub enum FrameError {
-    /// The frame was blitted into a destination buffer, but this crate supplies
-    /// no destination buffer.
+    /// The generic conversion has no exporter to identify the completed buffer.
     Implicit,
-    /// The stream negotiated shared memory. v1 imports dmabufs only.
+    /// The shared-memory frame has no supported descriptor-backed pixel layout.
     SharedMemory {
         kind: &'static str,
     },
+    ReadPixels(std::io::Error),
     EmptyFrame {
         width: u32,
         height: u32,
@@ -488,13 +587,11 @@ impl fmt::Display for FrameError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "capture: ")?;
         match self {
-            Self::Implicit => f.write_str(
-                "the frame was blitted into a buffer lunette supplied, and lunette supplies none",
-            ),
-            Self::SharedMemory { kind } => write!(
-                f,
-                "the stream delivered {kind} rather than a dmabuf, which v1 does not import"
-            ),
+            Self::Implicit => f.write_str("the completed buffer requires its capture exporter"),
+            Self::SharedMemory { kind } => {
+                write!(f, "the stream delivered {kind}, which cannot be copied")
+            }
+            Self::ReadPixels(_) => f.write_str("the shared-memory pixels could not be read"),
             Self::EmptyFrame { width, height } => {
                 write!(f, "a frame of {width}x{height} has no image in it")
             }
@@ -521,7 +618,7 @@ impl fmt::Display for FrameError {
 impl Error for FrameError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::DuplicateDescriptor { cause, .. } => Some(cause),
+            Self::DuplicateDescriptor { cause, .. } | Self::ReadPixels(cause) => Some(cause),
             Self::Implicit
             | Self::SharedMemory { .. }
             | Self::EmptyFrame { .. }
@@ -693,13 +790,13 @@ mod tests {
     }
 
     #[test]
-    fn a_stream_that_reported_no_transform_is_treated_as_unrotated() {
+    fn a_stream_that_reported_no_transform_preserves_undefined() {
         let (frame, _owners) = dmabuf_frame(1);
 
         let captured =
             CapturedFrame::from_wlx(&WlxFrame::Dmabuf(frame)).expect("a well-formed dmabuf frame");
 
-        assert_eq!(captured.format().transform, FrameTransform::Normal);
+        assert_eq!(captured.format().transform, FrameTransform::Undefined);
     }
 
     #[test]
@@ -726,13 +823,86 @@ mod tests {
     #[test]
     fn an_implicit_frame_is_rejected_rather_than_ignored() {
         let error = CapturedFrame::from_wlx(&WlxFrame::Implicit(Transform::Normal))
-            .expect_err("lunette supplies no buffer to blit into");
+            .expect_err("generic conversion cannot identify the exporter's buffer");
 
         assert!(matches!(error, FrameError::Implicit), "{error}");
         assert!(
-            error.to_string().contains("lunette supplies none"),
+            error.to_string().contains("requires its capture exporter"),
             "{error}"
         );
+    }
+
+    #[test]
+    fn a_shared_memory_frame_copies_pixels_before_the_callback_returns() {
+        let pixels = [1u8, 2, 3, 4, 5, 6, 7, 8];
+        let file = smithay_free_memfd();
+        std::os::unix::fs::FileExt::write_all_at(&file, &pixels, 0).expect("pixels can be written");
+        let mut format = format();
+        format.width = 2;
+        format.height = 1;
+        let frame = CapturedFrame::from_wlx(&WlxFrame::MemFd(wlx_capture::frame::MemFdFrame {
+            format,
+            plane: FramePlane {
+                fd: Some(file.as_raw_fd()),
+                offset: 0,
+                stride: 8,
+            },
+            mouse: None,
+        }))
+        .expect("shared-memory frames are supported");
+        drop(file);
+        assert_eq!(frame.pixels(), Some(pixels.as_slice()));
+        assert!(frame.planes().is_empty());
+    }
+
+    #[test]
+    fn shared_memory_padding_and_offset_do_not_enter_the_pixel_copy() {
+        let file = smithay_free_memfd();
+        let bytes = [
+            99, 99, 1, 2, 3, 4, 80, 80, 80, 80, 5, 6, 7, 8, 90, 90, 90, 90,
+        ];
+        std::os::unix::fs::FileExt::write_all_at(&file, &bytes, 0).expect("pixels can be written");
+        let mut format = format();
+        format.width = 1;
+        format.height = 2;
+        let frame = CapturedFrame::from_wlx(&WlxFrame::MemFd(wlx_capture::frame::MemFdFrame {
+            format,
+            plane: FramePlane {
+                fd: Some(file.as_raw_fd()),
+                offset: 2,
+                stride: 8,
+            },
+            mouse: None,
+        }))
+        .expect("padded shared memory is supported");
+        assert_eq!(frame.pixels(), Some([1, 2, 3, 4, 5, 6, 7, 8].as_slice()));
+    }
+
+    #[test]
+    fn a_truncated_shared_memory_frame_reports_a_pixel_read_failure() {
+        let file = smithay_free_memfd();
+        let mut format = format();
+        format.width = 1;
+        format.height = 1;
+        let error = CapturedFrame::from_wlx(&WlxFrame::MemFd(wlx_capture::frame::MemFdFrame {
+            format,
+            plane: FramePlane {
+                fd: Some(file.as_raw_fd()),
+                offset: 0,
+                stride: 4,
+            },
+            mouse: None,
+        }))
+        .expect_err("the descriptor contains no pixels");
+        assert!(matches!(error, FrameError::ReadPixels(_)));
+    }
+
+    fn smithay_free_memfd() -> std::fs::File {
+        // SAFETY: the literal is NUL-terminated and the descriptor is owned on success.
+        let raw = unsafe { libc::memfd_create(c"capture-test".as_ptr(), libc::MFD_CLOEXEC) };
+        assert!(raw >= 0, "memfd_create succeeds");
+        // SAFETY: memfd_create returned a new owned descriptor.
+        unsafe { std::fs::File::from_raw_fd(raw) }
     }
 
     #[test]
@@ -743,7 +913,7 @@ mod tests {
             size: 0,
             mouse: None,
         }))
-        .expect_err("v1 imports dmabufs only");
+        .expect_err("safe conversion does not dereference arbitrary mapped pointers");
 
         assert!(
             error.to_string().contains("a mapped pointer"),

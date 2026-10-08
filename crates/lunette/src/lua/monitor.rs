@@ -9,26 +9,30 @@
 //!
 //! # The mirroring request
 //!
-//! `monitor:mirror()` may put a portal dialog on the user's screen, and nothing
-//! waits for it. The call returns immediately and `monitor.mirrored` becomes
-//! true some frames later, or never, if the user declines. A configuration that
-//! treats mirroring as synchronous draws an empty panel.
+//! `monitor:mirror()` prefers direct host capture and falls back to the portal.
+//! Portal permission is asynchronous; direct setup inherits the pinned client's
+//! synchronous initialization. A stream can be installed before its first frame.
 //!
-//! `monitor:dismiss()` stops the capture: the stream is torn down and the
-//! monitor has no ongoing cost until it is mirrored again. The portal session
-//! is kept, so mirroring again does not prompt.
+//! `monitor:dismiss()` removes the active mirror and texture. PipeWire joins its
+//! worker and keeps the portal session; the pinned direct worker may remain
+//! detached. Direct pause is likewise an upstream no-op.
 
 use std::{cell::RefCell, rc::Rc};
 
-use lunette_capture::{mirror::MirrorOutcome, monitor::MonitorKey};
-use mlua::Value;
+use lunette_capture::{
+    mirror::{MirrorOutcome, SelectionOutcome, SelectionState},
+    monitor::MonitorKey,
+    stream::FrameTransform,
+};
+use lunette_luau::Type;
+use mlua::{IntoLua, Lua, Value};
 use tracing::warn;
 
 use crate::{
     control::wire::HandleKind,
     lua::{
         LuaTexture, Session, Sink,
-        declarations::{Textured, handle},
+        declarations::{Textured, Typed, handle, record},
         values::MaybeTexture,
     },
     mirrors::MonitorState,
@@ -66,8 +70,8 @@ impl<T> Monitor<T> {
 }
 
 handle! {
-    /// One of the user's own screens, mirrored through the screencast portal
-    /// and not hosted by this compositor.
+    /// One of the user's own screens, mirrored by direct capture or the
+    /// screencast portal and not hosted by this compositor.
     Monitor<T: LuaTexture> = HandleKind::Monitor;
 
     /// The saved identity, and what a table of per-monitor state is keyed by.
@@ -88,6 +92,11 @@ handle! {
         Ok(this.known.borrow().mirrored)
     }
 
+    /// Whether the active stream uses wlr-screencopy, with no portal selection.
+    field directCapture(_lua, this) -> bool {
+        Ok(this.refresh() && this.session.mirrors().is_direct(&this.key))
+    }
+
     /// Whether a mirror has been asked for and has not arrived. True while a
     /// portal dialog is on the user's screen, and false once the user accepts
     /// or declines.
@@ -96,8 +105,8 @@ handle! {
         Ok(this.known.borrow().pending)
     }
 
-    /// The monitor's resolution, which is the size a captured frame arrives at.
-    /// Zero on both axes when the host reports no mode.
+    /// The host-reported mode in pixels, not necessarily the captured texture
+    /// size. Zero on both axes when the host reports no mode.
     field width(_lua, this) -> u32 {
         this.refresh();
         Ok(this.known.borrow().pixels.width)
@@ -130,6 +139,15 @@ handle! {
         Ok(this.known.borrow().geometry.size.height)
     }
 
+    /// The current frame's UV transform, or nil before a frame is installed.
+    /// Undefined and normal sample unchanged; rotations and flips follow WayVR.
+    field frameTransform(_lua, this) -> Option<CaptureTransform> {
+        if !this.refresh() { return Ok(None); }
+        Ok(this.session.with_monitor_textures(|textures| {
+            textures.frame_transform(&this.key).map(CaptureTransform)
+        }))
+    }
+
     /// Where input for this monitor goes: a sink in the host domain, present
     /// whether or not the monitor is mirrored. Pointing at the host desktop
     /// does not require lunette to be showing it.
@@ -140,22 +158,117 @@ handle! {
 
     /// The latest captured frame of this monitor. False while the monitor is
     /// gone, while it is not mirrored, or while it has produced no frame yet.
-    /// These cases return `false` and not an error; a still desktop has no
-    /// frame, because a monitor that is not changing sends nothing.
+    /// Read again each frame rather than caching a rotating capture texture.
     method getTexture(lua, this: Textured) -> MaybeTexture { get_texture(lua, this) }
 
-    /// Requests this screen to be captured. True once a stream is running or
-    /// has been asked for. A dialog the user has not answered is a true, and
-    /// `pending` reports the frame has not landed.
+    /// Requests this screen to be captured, preferring direct capture. True
+    /// once a stream is installed or requested, not necessarily producing.
+    /// The portal fallback may prompt asynchronously.
     method mirror(_lua, this) -> bool { Ok(mirror(this)) }
 
-    /// Stops capturing this screen, tearing the stream down. The portal
-    /// session is kept, so mirroring again does not prompt.
+    /// Removes the active mirror and texture. PipeWire joins its worker and
+    /// keeps the portal session; the pinned direct worker may remain detached.
     method dismiss(_lua, this) -> bool { Ok(dismiss(this)) }
 
-    /// Stops the stream without giving up the session, for a panel that has
-    /// left the user's view.
+    /// Deactivates PipeWire without giving up its session. The pinned direct
+    /// backend accepts the request but implements pause and resume as no-ops.
     method setPaused(_lua, this, paused: bool) -> bool { Ok(set_paused(this, paused)) }
+}
+
+#[derive(Debug)]
+pub(crate) struct CaptureTransform(FrameTransform);
+
+impl IntoLua for CaptureTransform {
+    fn into_lua(self, lua: &Lua) -> mlua::Result<Value> {
+        match self.0 {
+            FrameTransform::Undefined => "undefined",
+            FrameTransform::Normal => "normal",
+            FrameTransform::Rotated90 => "rot90",
+            FrameTransform::Rotated180 => "rot180",
+            FrameTransform::Rotated270 => "rot270",
+            FrameTransform::Flipped => "flipped",
+            FrameTransform::Flipped90 => "flipped90",
+            FrameTransform::Flipped180 => "flipped180",
+            FrameTransform::Flipped270 => "flipped270",
+        }
+        .into_lua(lua)
+    }
+}
+
+impl Typed for CaptureTransform {
+    fn luau() -> Type {
+        Type::literals(&[
+            "undefined",
+            "normal",
+            "rot90",
+            "rot180",
+            "rot270",
+            "flipped",
+            "flipped90",
+            "flipped180",
+            "flipped270",
+        ])
+    }
+}
+
+/// Starts a fresh portal selection, retaining active capture until a successful grant.
+pub(crate) fn select_monitors<T>(session: &Rc<Session<T>>) -> (bool, Option<String>) {
+    match session.mirrors().select_monitors() {
+        SelectionOutcome::Requested => (true, None),
+        SelectionOutcome::Busy => (
+            false,
+            Some("monitor selection: a request is already pending".to_owned()),
+        ),
+        SelectionOutcome::NoMonitors => (
+            false,
+            Some("monitor selection: no host monitors are available".to_owned()),
+        ),
+        SelectionOutcome::Refused(error) => (false, Some(error.to_string())),
+    }
+}
+
+/// Reports asynchronous selection progress without changing capture state.
+pub(crate) fn monitor_selection<T>(session: &Rc<Session<T>>) -> MonitorSelection {
+    let state = session.mirrors().selection_state();
+    let message = match &state {
+        SelectionState::Failed(error) => Some(error.to_string()),
+        _ => None,
+    };
+    MonitorSelection {
+        state: SelectionName(state),
+        message,
+    }
+}
+
+record! {
+    /// The latest fresh monitor-selection request's state, independent of running capture.
+    struct MonitorSelection {
+        /// idle, pending, ready, or failed. Ready describes the portal grant, not a received frame.
+        state: SelectionName,
+        /// The portal error when state is failed.
+        message: Option<String>,
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct SelectionName(SelectionState);
+
+impl IntoLua for SelectionName {
+    fn into_lua(self, lua: &Lua) -> mlua::Result<Value> {
+        match self.0 {
+            SelectionState::Idle => "idle",
+            SelectionState::Pending => "pending",
+            SelectionState::Ready => "ready",
+            SelectionState::Failed(_) => "failed",
+        }
+        .into_lua(lua)
+    }
+}
+
+impl Typed for SelectionName {
+    fn luau() -> Type {
+        Type::literals(&["idle", "pending", "ready", "failed"])
+    }
 }
 
 /// `lunette.monitors()`: every screen lunette can mirror, this frame.
@@ -222,26 +335,20 @@ fn mirror<T>(monitor: &Monitor<T>) -> bool {
     }
 }
 
-/// `monitor:dismiss()`: stops capturing this screen.
+/// `monitor:dismiss()`: removes the active mirror and texture.
 ///
-/// The stream is torn down and not paused, so a dismissed monitor has no
-/// ongoing cost. The portal session is kept, so `monitor:mirror()` afterwards
-/// does not prompt again.
-///
-/// False when no stream is running; that is not an error. A second dismissal
-/// asserts that the monitor is off.
+/// PipeWire drops and joins its worker, retaining the portal session. The
+/// pinned direct worker has no cancellation or joined-drop contract.
+/// Returns false when no mirror was active.
 fn dismiss<T>(monitor: &Monitor<T>) -> bool {
     monitor.session.mirrors().dismiss(&monitor.key)
 }
 
-/// `monitor:setPaused(paused)`: stops the stream without giving up the
-/// session, for a panel that has left the user's view.
+/// `monitor:setPaused(paused)`: forwards the backend's pause request.
 ///
-/// Undoing a pause is cheaper than re-mirroring after a dismissal, and
-/// holding a paused stream costs more than holding none. Pause and dismissal
-/// differ in that trade.
-///
-/// False when no stream is running to pause.
+/// PipeWire changes stream activity while retaining its session. The pinned
+/// direct backend's pause and resume methods are no-ops.
+/// Returns false when no mirror was active.
 fn set_paused<T>(monitor: &Monitor<T>, paused: bool) -> bool {
     monitor.session.mirrors().set_paused(&monitor.key, paused)
 }
