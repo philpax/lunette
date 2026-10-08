@@ -8,6 +8,7 @@ local interaction = require '@lunette-contracts/interaction'
 local vocabulary = require '@lunette-contracts/vocabulary'
 local input = require '@lunette-plugins/laser/input'
 local draw = require '@lunette-plugins/laser/draw'
+local aim = require '@lunette-plugins/laser/aim'
 local passState = require '@lunette-plugins/pass-state'
 local registry = require '@lunette-plugins/laser/registry'
 local inspection = require '@lunette-contracts/inspection'
@@ -37,6 +38,7 @@ type MutableLaser = registry.MutableLaser
 
 local function makeLaser(state: ProviderState, settings: Settings, owner: Owner, hand: Hand, options: Options?): Laser
   local given: Options = options or {}
+  local aimSettings = aim.resolve(given.aim, settings.aim)
   local device = input.devices[hand]
   if not device then
     error("laser: '" .. tostring(hand) .. "' is not a hand a laser is made for", 2)
@@ -65,6 +67,7 @@ local function makeLaser(state: ProviderState, settings: Settings, owner: Owner,
       error(pointer, 0)
     end
     local frameInput: Input? = nil
+    local aimState: aim.State? = nil
     local withdrawn = false
     local target: MutableLaser
     target = {
@@ -100,15 +103,19 @@ local function makeLaser(state: ProviderState, settings: Settings, owner: Owner,
         if self.dead or not state.active then
           return
         end
-        local frame = self.readInput(self.hand)
-        target.input = frame
-        if not frame then
+        local sampled = self.readInput(self.hand)
+        if not sampled then
+          aimState = nil
+          target.input = nil
           if not withdrawn then
             withdrawn = true
             self.pointer:withdraw()
           end
           return
         end
+        local frame, nextAim = aim.update(aimState, sampled, aimSettings)
+        aimState = nextAim
+        target.input = frame
         withdrawn = false
         local before = self.pointer.hovered
         self.pointer:update(frame, surfaces)

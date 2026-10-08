@@ -35,7 +35,26 @@ export type StyleOverride = {
   read hapticDuration: number?,
 }
 
+-- Cutoffs are in hertz. Betas scale cutoff by unit-direction speed and positional speed in metres per second.
+export type Aim = {
+  read enabled: boolean,
+  read minCutoff: number,
+  read derivativeCutoff: number,
+  read angularBeta: number,
+  read positionBeta: number,
+  read resetAfter: number,
+}
+export type AimOverride = {
+  read enabled: boolean?,
+  read minCutoff: number?,
+  read derivativeCutoff: number?,
+  read angularBeta: number?,
+  read positionBeta: number?,
+  read resetAfter: number?,
+}
+
 export type Options = {
+  read aim: AimOverride?,
   read seat: lunette.Seat?,
   read name: string?,
   read readInput: ((Hand) -> Input?)?,

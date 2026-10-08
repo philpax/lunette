@@ -112,6 +112,24 @@ The existing `plugin.configure(target)(config)` and `desktop.configure(target)(c
 
 [Writing plugins](writing-plugins.md) describes provider substitution and plugin authoring. The [desktop example](../../examples/desktop/main.luau) combines settings, typed entry patches, workspaces, and inserted plugins.
 
+## Pointer aim
+
+The built-in laser provider stabilizes each controller's aim origin and direction before picking and drawing. The beam, landing indicator, UI input, and application mouse coordinates use the same stabilized ray. The controller pose used for panel grabs stays unfiltered. Trigger edges and scrolling remain immediate.
+
+`lua/lunette-plugins/laser/aim.luau` owns the aim settings and defaults. Smoothing is enabled by default. `minCutoff` controls stationary smoothing in hertz; lower values suppress more jitter and add lag. `angularBeta` and `positionBeta` increase responsiveness during deliberate rotation and translation. `derivativeCutoff` controls speed-estimate smoothing in hertz. Tracking loss, a zero direction, or a frame interval above `resetAfter` clears history. Readers without a positive `dt` pass through without temporal smoothing.
+
+The desktop's pointing settings override the provider defaults for both hands. The following configuration disables smoothing for comparison:
+
+```luau
+require('@lunette-desktop').run {
+  settings = {
+    pointing = { laser = { aim = { enabled = false } } },
+  },
+}
+```
+
+The same `aim` object accepts `minCutoff`, `angularBeta`, `positionBeta`, `derivativeCutoff`, and `resetAfter`. A patch for the `laser` provider configures its defaults; `laser:new` and `laser:attach` accept per-laser overrides.
+
 ## Panel movement
 
 A grip press while pointing at a movable panel starts a grab and cancels an active trigger gesture. The panel follows controller-relative translation and rotation. While holding grip, the vertical thumbstick axis adjusts distance, and a second grip on the same panel scales it by hand separation. Releasing grip ends the grab and records placement for application panels.
@@ -141,6 +159,8 @@ Logic-headless tests do not establish these visual, timing, or comfort results.
 The manager exposes search and configuration fields through the shared UI controls and shared keyboard. `toggleKey` is removed; the manager configuration schema reports a migration diagnostic for configurations that still set it. Logic-headless behavior does not establish XR or GPU-backed behavior, host-desktop acceptance, or installed-session execution. Manual headset acceptance remains open for readability, controller ergonomics, shaping, bidirectional editing, and IME behavior.
 
 ## Decisions
+
+Aim smoothing runs before picking so surface selection and rendered feedback use one ray. The adaptive low-pass follows the [1 Euro filter](https://gery.casiez.net/1euro/) approach with separate vector-speed gains for position and direction. It keeps the raw grab pose and button edges because filtering those would delay manipulation and clicks. Per-widget cursor smoothing would require each consumer to keep its rendering and dispatched coordinates synchronized. The shared provider avoids that duplication. The default gains require headset tuning; logic checks do not establish comfort.
 
 The wrist menu uses UI controls and menu actions so the shipped keyboard, reload, and workspace controls do not require physical key chords. The neutral bindings provider remains available for custom inputs. Keyboard placement stays in `wristKeyboard` for configurations that change the shared display without changing wrist geometry.
 

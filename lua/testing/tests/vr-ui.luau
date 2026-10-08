@@ -9,6 +9,24 @@ local vrUi = require '@testing/vr-ui'
 
 local test = testing.suite()
 
+-- Fixture geometry tests teleport controllers and require exact, unfiltered hit coordinates.
+local function boot()
+  return vrUi.boot {
+    'frame',
+    'surfaces',
+    'drops',
+    'focus',
+    'interaction',
+    {
+      id = 'laser',
+      definition = require('@lunette-plugins/laser').definition,
+      config = { aim = { enabled = false } },
+    },
+    'keyboard',
+    'desktop/pointing',
+  }
+end
+
 local function panel(fixture, options)
   local state = { presses = {}, releases = {}, cancels = {}, hovers = {}, generation = 0 }
   state.instance = fixture.session:use(plugin.define {
@@ -94,7 +112,7 @@ local function control(id, x)
 end
 
 test('the VR UI fixture drives real pointers and records output', function()
-  local fixture = vrUi.boot()
+  local fixture = boot()
   local state = panel(fixture)
   fixture:aim(geometry(state), 25, 30, 'left')
   fixture:aim(geometry(state), 170, 70, 'right')
@@ -133,7 +151,7 @@ test('the VR UI fixture drives real pointers and records output', function()
 end)
 
 test('the VR UI fixture detects cancellation and render overflow', function()
-  local fixture = vrUi.boot()
+  local fixture = boot()
   local pointer = {}
   fixture:recordPointer { kind = 'press', pointer = pointer, button = 'left' }
   fixture:recordPointer { kind = 'cancel', pointer = pointer, button = 'left', reason = 'tracking-loss' }
@@ -152,7 +170,7 @@ test('the VR UI fixture detects cancellation and render overflow', function()
 end)
 
 test('the VR UI fixture discovers a dynamic control and rediscovers after reload', function()
-  local fixture = vrUi.boot()
+  local fixture = boot()
   local state = panel(fixture)
   state.controls = { control('initial', 20) }
   local publicPanel = {
@@ -182,7 +200,7 @@ test('the VR UI fixture discovers a dynamic control and rediscovers after reload
 end)
 
 test('the VR UI fixture requeries control geometry after the preparatory update', function()
-  local fixture = vrUi.boot()
+  local fixture = boot()
   local state = panel(fixture)
   state.controls = { control('moving', 20) }
   local service = {
@@ -209,7 +227,7 @@ test('the VR UI fixture requeries control geometry after the preparatory update'
 end)
 
 test('the VR UI fixture rejects a replacement generation during a gesture', function()
-  local fixture = vrUi.boot()
+  local fixture = boot()
   local state = panel(fixture)
   state.controls = { control('replaced', 20) }
   local service = {
@@ -239,7 +257,7 @@ test('the VR UI fixture rejects a replacement generation during a gesture', func
 end)
 
 test('the VR UI fixture requires owner identity for ambiguous controls', function()
-  local fixture = vrUi.boot()
+  local fixture = boot()
   local state = panel(fixture)
   local firstOwner, secondOwner = table.freeze {}, table.freeze {}
   state.controls = { control('shared', 20), control('shared', 140) }
@@ -266,7 +284,7 @@ test('the VR UI fixture requires owner identity for ambiguous controls', functio
 end)
 
 test('the VR UI fixture keeps head tracking independent of the controller hands', function()
-  local fixture = vrUi.boot()
+  local fixture = boot()
   fixture:tracked('right', false)
   fixture:pose('right', lovr.math.newMat4():translate(2, 3, -4))
   expect.truthy(lovr.headset.isTracked 'head', 'losing a hand does not lose the head')
@@ -278,7 +296,7 @@ test('the VR UI fixture keeps head tracking independent of the controller hands'
 end)
 
 test('the VR UI fixture records native pointer delivery through an offered surface', function()
-  local fixture = vrUi.boot()
+  local fixture = boot()
   local state = panel(fixture)
   local window = fixture.native.newWindow(17)
   state.target.sink = function()
@@ -304,7 +322,7 @@ test('the VR UI fixture records native pointer delivery through an offered surfa
 end)
 
 test('the VR UI fixture scripts axes, target death, and callback errors at real boundaries', function()
-  local fixture = vrUi.boot()
+  local fixture = boot()
   local state = panel(fixture, { fail = true })
   fixture:aim(geometry(state), 50, 50, 'right')
   fixture:axis('right', 0.5, -0.75)

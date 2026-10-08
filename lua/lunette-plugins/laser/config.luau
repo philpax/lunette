@@ -1,5 +1,6 @@
 local schema = require '@lunette-plugin/schema'
 local contracts = require '@lunette-contracts/laser'
+local aim = require './aim'
 
 export type ReadBase = (contracts.Hand) -> contracts.Input?
 export type ReadInput = (contracts.Hand, ReadBase) -> contracts.Input?
@@ -85,6 +86,7 @@ end
 local function configuration<R, D>(reader: R, drawing: D)
   return schema.object {
     style = schema.default(STYLE)(STYLE.parse {}),
+    aim = schema.default(aim.schema)(aim.schema.parse {}),
     buttons = schema.default(schema.array(MAPPING)) { { control = 'trigger', button = 'left' } },
     readInput = defaultCallback(reader),
     draw = defaultCallback(drawing),

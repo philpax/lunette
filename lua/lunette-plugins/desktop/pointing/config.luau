@@ -1,5 +1,6 @@
 local schema = require '@lunette-plugin/schema'
 local laser = require '@lunette-contracts/laser'
+local aim = require '@lunette-plugins/laser/aim'
 
 local function readInput(_hand: laser.Hand): laser.Input?
   return nil
@@ -26,6 +27,7 @@ local style = schema.object {
   hapticDuration = schema.optional(schema.number()),
 }
 local options = schema.object {
+  aim = schema.optional(aim.overrides),
   name = schema.optional(schema.string()),
   readInput = schema.optional(schema.callback(readInput)),
   tuning = schema.optional(tuning),
