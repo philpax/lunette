@@ -599,6 +599,9 @@ export type PluginContext = {
   read services: (self: PluginContext) -> unknown,
   -- Acquires a resource and registers its inverse for cleanup.
   read effect: (self: PluginContext, acquire: () -> () -> ()) -> PluginEffect,
+  -- Acquires a resource and registers its inverse without draining queued
+  -- lifecycle work.
+  read effectDeferred: (self: PluginContext, acquire: () -> () -> ()) -> PluginEffect,
   -- Installs a child definition owned by this activation.
   read child: (self: PluginContext, definition: PluginDefinition, config: unknown) -> PluginInstance,
   -- Checks that another context is a live dependent of this plugin's current

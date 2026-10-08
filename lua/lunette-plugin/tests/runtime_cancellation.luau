@@ -97,57 +97,64 @@ end)
 
 for _, command in { 'close', 'disable', 'reload', 'disable-enable' } do
   test('a ' .. command .. ' during an active acquisition cancels it and releases the old inverses once', function()
-    local runtime = plugin.runtime()
-    local instance
-    local contexts = {}
-    local events = {}
-    local loads = 0
-    local definition = plugin.define({}, {}, function(context)
-      loads += 1
-      local generation = loads
-      contexts[generation] = context
-      context:effect(function()
-        return function()
-          table.insert(events, 'base-' .. generation)
-        end
+    for _, acquisition in { 'effect', 'effectDeferred' } do
+      local runtime = plugin.runtime()
+      local instance
+      local contexts = {}
+      local events = {}
+      local loads = 0
+      local definition = plugin.define({}, {}, function(context)
+        loads += 1
+        local generation = loads
+        contexts[generation] = context
+        context:effect(function()
+          return function()
+            table.insert(events, 'base-' .. generation)
+          end
+        end)
+        return {}
       end)
-      return {}
-    end)
-    instance = runtime:use(definition, {})
-    instance:enable()
-    expect.raises(function()
-      contexts[1]:effect(function()
-        if command == 'close' then
-          runtime:close()
-        elseif command == 'disable' then
-          instance:disable()
-        elseif command == 'disable-enable' then
-          instance:disable()
-          instance:enable()
-        else
-          instance:reload {}
-        end
+      instance = runtime:use(definition, {})
+      instance:enable()
+      expect.raises(function()
+        contexts[1][acquisition](contexts[1], function()
+          if command == 'close' then
+            runtime:close()
+          elseif command == 'disable' then
+            instance:disable()
+          elseif command == 'disable-enable' then
+            instance:disable()
+            instance:enable()
+          else
+            instance:reload {}
+          end
+          runtime:drain()
+          return function()
+            table.insert(events, 'acquired-1')
+          end
+        end)
+      end, 'cancelled', 'the active acquisition')
+      if acquisition == 'effectDeferred' then
+        expect.equal(table.concat(events, ','), 'acquired-1', 'only the cancelled acquisition releases before a drain')
+        expect.equal(loads, 1, 'the queued lifecycle work remains deferred')
         runtime:drain()
-        return function()
-          table.insert(events, 'acquired-1')
-        end
-      end)
-    end, 'cancelled', 'the active acquisition')
-    expect.equal(table.concat(events, ','), 'acquired-1,base-1', 'the old inverses, once and in reverse order')
-    expect.falsy(contexts[1]:active(), 'the old context is active')
-    local reenabled = command == 'reload' or command == 'disable-enable'
-    if reenabled then
-      expect.equal(loads, 2, 'the loads')
-      expect.truthy(contexts[2]:active(), 'reenabling activates a fresh context')
-    else
-      expect.equal(loads, 1, 'the loads')
+      end
+      expect.equal(table.concat(events, ','), 'acquired-1,base-1', 'the old inverses, once and in reverse order')
+      expect.falsy(contexts[1]:active(), 'the old context is active')
+      local reenabled = command == 'reload' or command == 'disable-enable'
+      if reenabled then
+        expect.equal(loads, 2, 'the loads')
+        expect.truthy(contexts[2]:active(), 'reenabling activates a fresh context')
+      else
+        expect.equal(loads, 1, 'the loads')
+      end
+      runtime:close()
+      expect.equal(
+        table.concat(events, ','),
+        if reenabled then 'acquired-1,base-1,base-2' else 'acquired-1,base-1',
+        'the inverses at close'
+      )
     end
-    runtime:close()
-    expect.equal(
-      table.concat(events, ','),
-      if reenabled then 'acquired-1,base-1,base-2' else 'acquired-1,base-1',
-      'the inverses at close'
-    )
   end)
 end
 

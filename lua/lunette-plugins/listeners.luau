@@ -17,7 +17,7 @@ export type Listeners<T> = {
 
 type Entry<T> = {
   owner: plugin.Owner,
-  listener: T,
+  listener: T?,
   details: inspection.Details,
   active: boolean,
 }
@@ -46,6 +46,7 @@ function listeners.new<T>(context: plugin.Context): Listeners<T>
         entries[#entries + 1] = entry
         return function(): ()
           entry.active = false
+          entry.listener = nil
           local index = table.find(entries, entry)
           if index then
             table.remove(entries, index)
@@ -56,7 +57,7 @@ function listeners.new<T>(context: plugin.Context): Listeners<T>
     each = function(_self: Listeners<T>, label: string, call: (T) -> (), wanted: ((T) -> boolean)?): ()
       for _, entry in ipairs(table.clone(entries)) do
         local listener = entry.listener
-        if entry.active and context:owns(entry.owner) and (wanted == nil or wanted(listener)) then
+        if listener ~= nil and entry.active and context:owns(entry.owner) and (wanted == nil or wanted(listener)) then
           protected.call(label, function(): ()
             call(listener)
           end)
@@ -66,6 +67,7 @@ function listeners.new<T>(context: plugin.Context): Listeners<T>
     clear = function(_self: Listeners<T>): ()
       for _, entry in ipairs(entries) do
         entry.active = false
+        entry.listener = nil
       end
       table.clear(entries)
     end,

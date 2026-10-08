@@ -1,6 +1,10 @@
-//! Loads public UI, menu, and keyboard-display modules from files copied by the installation manifest.
+//! Loads public UI, menu, keyboard-display, and theme modules from installed manifest copies.
+//! Checks that the bundled theme font and licence are copied without changing their bytes.
 
-use std::{fs, path::Path};
+use std::{
+    fs,
+    path::{Component, Path},
+};
 
 use libtest_mimic::Trial;
 use lunette::aliases::install_manifest;
@@ -21,10 +25,38 @@ fn load(roots: &Roots) -> Result<(), Box<dyn std::error::Error>> {
         let (source, destination) = line
             .split_once('\t')
             .ok_or("install manifest: missing destination")?;
-        copy(
-            &roots.repository.join(source),
-            &installation.path().join(destination),
-        )?;
+        let destination = Path::new(destination);
+        if destination.as_os_str().is_empty()
+            || destination
+                .components()
+                .any(|component| !matches!(component, Component::Normal(_)))
+        {
+            return Err(format!(
+                "install manifest: destination is not a safe relative path: {}",
+                destination.display()
+            )
+            .into());
+        }
+        let source = roots.repository.join(source);
+        let destination = installation.path().join(destination);
+        if source.is_dir() {
+            copy_modules(&source, &destination)?;
+        } else {
+            copy_file(&source, &destination)?;
+        }
+    }
+    for asset in [
+        "lua/lunette-plugins/theme/fonts/SpaceMono-Regular.ttf",
+        "lua/lunette-plugins/theme/fonts/OFL.txt",
+    ] {
+        let repository = fs::read(roots.repository.join(asset))?;
+        let installed = fs::read(installation.path().join(asset))?;
+        if installed.is_empty() || installed != repository {
+            return Err(format!(
+                "installed roots: asset is empty or differs from the repository: {asset}"
+            )
+            .into());
+        }
     }
     let installed = Roots::of_repository(installation.path().to_path_buf());
     let lua = state::new(&installed)?;
@@ -40,6 +72,9 @@ fn load(roots: &Roots) -> Result<(), Box<dyn std::error::Error>> {
          local display = require '@lunette-contracts/keyboard-display'
          local displayProvider = require '@lunette-plugins/desktop/keyboard'
          assert(display.capability ~= nil and displayProvider ~= nil)
+         local theme = require '@lunette-contracts/theme'
+         local themeProvider = require '@lunette-plugins/theme'
+         assert(theme.capability ~= nil and themeProvider.definition ~= nil)
          assert(require('@lunette').textBoundaries('é')[2] == 4)",
     )
     .set_name("@installed-ui-main.luau")
@@ -58,26 +93,28 @@ fn load(roots: &Roots) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn copy(source: &Path, destination: &Path) -> Result<(), Box<dyn std::error::Error>> {
+fn copy_modules(source: &Path, destination: &Path) -> Result<(), Box<dyn std::error::Error>> {
     if source.is_dir() {
         fs::create_dir_all(destination)?;
         for entry in fs::read_dir(source)? {
             let entry = entry?;
             if entry.file_name() != "tests" {
-                copy(&entry.path(), &destination.join(entry.file_name()))?;
+                copy_modules(&entry.path(), &destination.join(entry.file_name()))?;
             }
         }
     } else if source
         .extension()
         .is_some_and(|extension| extension == "luau")
-        || source
-            .file_name()
-            .is_some_and(|name| name == "installed.luaurc")
     {
-        if let Some(parent) = destination.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        fs::copy(source, destination)?;
+        copy_file(source, destination)?;
     }
+    Ok(())
+}
+
+fn copy_file(source: &Path, destination: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    if let Some(parent) = destination.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::copy(source, destination)?;
     Ok(())
 }

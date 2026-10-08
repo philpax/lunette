@@ -28,6 +28,17 @@ lunette dynamically links a fork of LÖVR, carried as the `vendor/lovr` submodul
 
 Patches under `vendor/lovr` are MIT, matching upstream, not GPL-3.0-only. Relicensing them would make them unmergeable by the project they are written for. Each patch is narrow, additive, and shaped as an upstream pull request; the set is listed in [docs/dev/lovr-integration.md](docs/dev/lovr-integration.md#the-patch-set).
 
+## Space Mono
+
+Space Mono is copyright 2016 The Space Mono Project Authors (<https://github.com/googlefonts/spacemono>). The bundled font is licensed under the SIL Open Font License, Version 1.1. The licence is preserved in `lua/lunette-plugins/theme/fonts/OFL.txt`.
+
+`lua/lunette-plugins/theme/fonts/SpaceMono-Regular.ttf` and its licence are unmodified copies from the official `google/fonts` repository at revision `8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5`. The pinned upstream files are [SpaceMono-Regular.ttf](https://raw.githubusercontent.com/google/fonts/8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5/ofl/spacemono/SpaceMono-Regular.ttf) and [OFL.txt](https://raw.githubusercontent.com/google/fonts/8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5/ofl/spacemono/OFL.txt).
+
+| File | Git blob | SHA256 |
+|---|---|---|
+| `SpaceMono-Regular.ttf` | `1cfa3653dc8ddb7aa9f4ef1c9c581e9516137e6e` | `95837e182baeeada83368f7748db28357f0a1b75c6b84ff7065b5edf933c8e18` |
+| `OFL.txt` | `a72b0a7845bec3214559673ffeba60c816a21841` | `8e4ee42b2553e1e01504e61cb0d46d148cd8c9e5eacaa3622a7df2d4f2955b9f` |
+
 ## awesome
 
 <https://github.com/awesomeWM/awesome>, GPL-2.0.

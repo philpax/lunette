@@ -338,6 +338,11 @@ impl MethodsDescribed for PluginContext {
                 context::effect(lua, this, acquire.0)
             }
 
+            /// Acquires a resource and registers its inverse without draining queued lifecycle work.
+            method effectDeferred(lua, this, acquire: PluginAcquire) -> PluginEffect {
+                context::effect_deferred(lua, this, acquire.0)
+            }
+
             /// Installs a child definition owned by this activation.
             method child(_lua, this, definition: UserDataRef<PluginDefinition>, config: Unknown) -> PluginInstance {
                 Ok(context::child(this, Rc::clone(&definition.data), config.0)?)

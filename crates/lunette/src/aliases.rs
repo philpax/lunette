@@ -163,8 +163,8 @@ impl ModuleRoots {
     }
 }
 
-/// A file installed beside the module roots, and its destination below
-/// `$PREFIX/share/lunette`.
+/// An explicit file installed below `$PREFIX/share/lunette`, including assets
+/// within module roots.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct InstallArtifact {
     /// A source path in the repository.
@@ -173,9 +173,9 @@ pub struct InstallArtifact {
     pub destination: &'static str,
 }
 
-/// The files an installed Luau runtime needs besides its module roots. Every
-/// installed root's directory is installed from `lua/` to `lua/`; the
-/// manifest derives those entries from [`INSTALLED_ALIASES`].
+/// The explicit files an installed Luau runtime needs, including non-Luau assets.
+/// Every installed root's directory is installed from `lua/` to `lua/`; the
+/// manifest derives those directory entries from [`INSTALLED_ALIASES`].
 pub const INSTALL_ARTIFACTS: &[InstallArtifact] = &[
     InstallArtifact {
         source: "etc/lunette/definitions.luau",
@@ -185,12 +185,20 @@ pub const INSTALL_ARTIFACTS: &[InstallArtifact] = &[
         source: "etc/lunette/installed.luaurc",
         destination: "lua/.luaurc",
     },
+    InstallArtifact {
+        source: "lua/lunette-plugins/theme/fonts/SpaceMono-Regular.ttf",
+        destination: "lua/lunette-plugins/theme/fonts/SpaceMono-Regular.ttf",
+    },
+    InstallArtifact {
+        source: "lua/lunette-plugins/theme/fonts/OFL.txt",
+        destination: "lua/lunette-plugins/theme/fonts/OFL.txt",
+    },
 ];
 
 /// Renders the install manifest as tab-separated source and destination paths.
 ///
-/// Module roots include `.luau` files outside `tests` directories. The testing
-/// root is not installed.
+/// Module roots include `.luau` files outside `tests` directories. Explicit files
+/// are installed regardless of extension. The testing root is not installed.
 #[must_use]
 pub fn install_manifest() -> String {
     let mut output = String::new();

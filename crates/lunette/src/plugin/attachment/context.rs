@@ -15,7 +15,10 @@ use crate::plugin::{
             callback_call, lifecycle_operation, record_failure, rollback_effects, use_definition,
         },
         snapshot::PluginEffectState,
-        state::{ActivationAuthority, DeclarationField, DefinitionData, EffectState, RuntimeState},
+        state::{
+            ActivationAuthority, DeclarationField, DefinitionData, DrainGuard, EffectState,
+            RuntimeState,
+        },
     },
     graph::{ActivationId, Binding, InstanceId, Stage},
 };
@@ -93,43 +96,65 @@ pub(super) fn effect(
 ) -> mlua::Result<PluginEffect> {
     let runtime = live_context(context, ContextOperation::Effect, Require::Resources)?;
     lifecycle_operation(lua, &runtime, || {
-        let inverse = callback_call(&runtime, || acquire.call::<Function>(()))?;
-        let ordinal = {
-            let mut state = runtime.borrow_mut();
-            let instance =
-                state
-                    .instances
-                    .get_mut(&context.instance)
-                    .ok_or(AttachmentError::Context {
-                        operation: ContextOperation::Effect,
-                        reason: ContextReason::InstanceGone,
-                    })?;
-            let ordinal = instance.next_effect;
-            instance.next_effect += 1;
-            instance.effects.insert(ordinal, inverse);
-            instance.effect_states.insert(
-                ordinal,
-                EffectState {
-                    activation: context.activation,
-                    state: PluginEffectState::Armed,
-                },
-            );
-            ordinal
-        };
-        if live_context(context, ContextOperation::Effect, Require::Resources).is_err() {
-            withdraw_acquisition(lua, &runtime, context, ordinal)?;
-            return Err(AttachmentError::Context {
-                operation: ContextOperation::Effect,
-                reason: ContextReason::Cancelled,
-            }
-            .into());
-        }
-        Ok(PluginEffect {
-            runtime: Rc::downgrade(&runtime),
-            instance: context.instance,
-            activation: context.activation,
+        register_effect(lua, &runtime, context, acquire)
+    })
+}
+
+/// Registers an effect without draining queued lifecycle work on return.
+///
+/// The guard keeps lifecycle work deferred through acquisition and cancellation rollback.
+pub(super) fn effect_deferred(
+    lua: &Lua,
+    context: &PluginContext,
+    acquire: Function,
+) -> mlua::Result<PluginEffect> {
+    let runtime = live_context(context, ContextOperation::Effect, Require::Resources)?;
+    let _draining = DrainGuard::enter(&runtime);
+    register_effect(lua, &runtime, context, acquire)
+}
+
+fn register_effect(
+    lua: &Lua,
+    runtime: &Rc<RefCell<RuntimeState>>,
+    context: &PluginContext,
+    acquire: Function,
+) -> mlua::Result<PluginEffect> {
+    let inverse = callback_call(runtime, || acquire.call::<Function>(()))?;
+    let ordinal = {
+        let mut state = runtime.borrow_mut();
+        let instance =
+            state
+                .instances
+                .get_mut(&context.instance)
+                .ok_or(AttachmentError::Context {
+                    operation: ContextOperation::Effect,
+                    reason: ContextReason::InstanceGone,
+                })?;
+        let ordinal = instance.next_effect;
+        instance.next_effect += 1;
+        instance.effects.insert(ordinal, inverse);
+        instance.effect_states.insert(
             ordinal,
-        })
+            EffectState {
+                activation: context.activation,
+                state: PluginEffectState::Armed,
+            },
+        );
+        ordinal
+    };
+    if live_context(context, ContextOperation::Effect, Require::Resources).is_err() {
+        withdraw_acquisition(lua, runtime, context, ordinal)?;
+        return Err(AttachmentError::Context {
+            operation: ContextOperation::Effect,
+            reason: ContextReason::Cancelled,
+        }
+        .into());
+    }
+    Ok(PluginEffect {
+        runtime: Rc::downgrade(runtime),
+        instance: context.instance,
+        activation: context.activation,
+        ordinal,
     })
 }
 

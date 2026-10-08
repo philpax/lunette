@@ -44,6 +44,7 @@ export type Context = {
   read checkOwner: (Context, Owner) -> (),
   read owns: (Context, Owner) -> boolean,
   read acquire: (Context, Owner, () -> () -> ()) -> Effect,
+  read acquireDeferred: (Context, Owner, () -> () -> ()) -> Effect,
   read resource: <T>(Context, Owner, () -> (T, () -> ())) -> (T, Effect),
   read on: <E>(Context, Subscription<E>) -> Effect,
   read active: (Context) -> boolean,
@@ -206,6 +207,12 @@ local function wrapContext(nativeContext: NativeContext, required: Declaration):
       local callerContext = ownerContext(owner, 3)
       nativeContext:checkOwner(callerContext)
       local effect: NativeEffect = callerContext:effect(acquire)
+      return (effect :: unknown) :: Effect
+    end,
+    acquireDeferred = function(_self: Context, owner: Owner, acquire: () -> () -> ()): Effect
+      local callerContext = ownerContext(owner, 3)
+      nativeContext:checkOwner(callerContext)
+      local effect: NativeEffect = callerContext:effectDeferred(acquire)
       return (effect :: unknown) :: Effect
     end,
     resource = function<T>(_self: Context, owner: Owner, acquire: () -> (T, () -> ())): (T, Effect)
