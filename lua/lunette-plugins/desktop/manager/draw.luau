@@ -4,6 +4,7 @@ local graph = require './graph'
 local view = require './view'
 local geometry = require './graph-geometry'
 local draw = {}
+local DETAIL_DEPTH = 0.001
 
 export type Button = {
   read x: number,
@@ -100,10 +101,13 @@ function draw.render(pass: Pass, state: view.State, options: Options): ()
     pass:setMaterial(nil)
     pass:setFont(font)
     pass:setCullMode 'none'
-    pass:setDepthTest()
-    pass:setDepthWrite(false)
+    pass:setDepthTest 'gequal'
+    pass:setDepthWrite(true)
     pass:setColor(0.045, 0.055, 0.075, 1)
+    pass:translate(0, 0, -DETAIL_DEPTH)
     rectangle(pass, bounds, bounds)
+    pass:translate(0, 0, DETAIL_DEPTH)
+    pass:setDepthWrite(false)
     renderGraph(pass, font, state, canvas)
     renderSidebar(pass, font, options, bounds)
     renderButtons(pass, font, options.buttons, bounds)
@@ -503,7 +507,20 @@ wrappedTextBox = function(
     local width = font:getWidth(line)
     local fitted = if width > 0 then math.min(scale, bounded.width / width) else scale
     -- LÖVR glyphs are y-up; the caller's logical pixel transform is y-down.
-    pass:text(line, bounded.x, bounded.y + (index - 1) * leading, 0, fitted, math.pi, 1, 0, 0, 0, 'left', 'top')
+    pass:text(
+      line,
+      bounded.x,
+      bounded.y + (index - 1) * leading,
+      DETAIL_DEPTH,
+      fitted,
+      math.pi,
+      1,
+      0,
+      0,
+      0,
+      'left',
+      'top'
+    )
   end
   return overflow
 end

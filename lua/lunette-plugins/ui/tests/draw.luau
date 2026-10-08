@@ -112,7 +112,7 @@ test('provider, panel, and control hooks receive frozen snapshots and paint in p
   recorder:assertRestored()
 end)
 
-test('replacement hooks inherit the same untextured depth-free state as built-in widgets', function()
+test('replacement hooks inherit untextured scene depth without writing glyph bounds', function()
   local recorder = recorderForDrawing()
   local pass = recorder.pass
   pass:setShader 'scene shader'
@@ -132,7 +132,7 @@ test('replacement hooks inherit the same untextured depth-free state as built-in
     if call.draw then
       expect.equal(call.state.setShader[1], nil)
       expect.equal(call.state.setMaterial[1], nil)
-      expect.equal(call.state.setDepthTest[1], nil)
+      expect.equal(call.state.setDepthTest[1], 'gequal')
       expect.equal(call.state.setDepthWrite[1], false)
       expect.equal(call.state.setCullMode[1], 'none')
     end

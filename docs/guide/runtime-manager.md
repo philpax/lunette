@@ -15,7 +15,7 @@ require('@lunette-desktop').run {
 
 Trigger on the shared titlebar background moves the panel. Grip moves and rotates the panel with the controller. While holding grip, the vertical thumbstick adjusts distance. A second grip scales the panel by hand separation. The [panel movement settings](desktop-configuration.md#panel-movement) define reach and resize bounds.
 
-External runtime changes refresh while the manager is visible at `refreshInterval`, which defaults to 0.25 seconds. Opening the panel and control actions refresh immediately. The hidden panel does not poll snapshots. Drawing uses the retained controls between refreshes; snapshot and graph reconstruction do not run on every display frame. This bounds refresh work but does not establish headset frame-time performance.
+External runtime changes refresh while the manager is visible at `refreshInterval`, which defaults to 0.25 seconds. Opening the panel and control actions refresh immediately. The hidden panel does not poll snapshots. Drawing uses the retained controls between refreshes; snapshot and graph reconstruction do not run on every display frame. The manager draws in the scene phase and respects the depth of closer panels rather than painting as an overlay. This bounds refresh work but does not establish headset frame-time performance.
 
 ## Entry management
 

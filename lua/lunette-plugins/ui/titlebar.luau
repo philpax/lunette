@@ -6,6 +6,7 @@ local surfaces = require '@lunette-contracts/surfaces'
 local quad = require '@lunette-contracts/quad'
 local styleDefinition = require './titlebar-style'
 local passState = require '@lunette-plugins/pass-state'
+local depth = require './depth'
 
 local titlebar = {}
 
@@ -195,7 +196,7 @@ function titlebar.new(
     if description.width ~= toolbarWidth or description.height ~= style.barHeight then
       panel:setSize(toolbarWidth, style.barHeight, toolbarWidth * 1000, style.barHeight * 1000)
     end
-    panel:setPose(lovr.math.newMat4(pose):translate(width / 2 - toolbarWidth / 2, 0, 0.001))
+    panel:setPose(lovr.math.newMat4(pose):translate(width / 2 - toolbarWidth / 2, 0, depth.layer))
     panel:setVisible(live() and #actions > 0)
   end
   local function destroy(): boolean
@@ -324,6 +325,8 @@ function titlebar.new(
             pass:setShader()
             pass:setMaterial(nil)
             pass:setFont(lovr.graphics.getDefaultFont())
+            pass:setDepthTest 'gequal'
+            pass:setDepthWrite(true)
             local border = if highlighted then style.borderHighlightColor else style.borderColor
             pass:setColor(border[1], border[2], border[3], border[4])
             pass:plane(
@@ -339,13 +342,12 @@ function titlebar.new(
             pass:setColor(background[1], background[2], background[3], background[4])
             pass:plane(lovr.math.mat4(pose):scale(width, style.barHeight, 1), 'fill', 1, 1)
             if width > reserved and options.title ~= '' then
-              pass:setDepthTest()
               pass:setDepthWrite(false)
               local foreground = style.titleColor
               pass:setColor(foreground[1], foreground[2], foreground[3], foreground[4])
               pass:text(
                 options.title,
-                lovr.math.mat4(pose):translate(-reserved / 2, 0, 0.001):scale(vector.pack(style.titleHeight)),
+                lovr.math.mat4(pose):translate(-reserved / 2, 0, depth.layer):scale(vector.pack(style.titleHeight)),
                 (width - reserved) / style.titleHeight,
                 'center',
                 'middle'

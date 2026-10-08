@@ -198,7 +198,11 @@ The desktop consumers require `lunette/frame` and `lunette/surfaces` and take no
 
 ### Pointer feedback draws after overlay UI
 
-The frame contract separates update and draw phase sets. Picking remains in the `pointing` update phase after scene geometry, so overlay reactions observe the current hit. The final `feedback` draw phase places beams and landing indicators after every scene and overlay draw. Pointer feedback disables depth testing so its indicator remains visible over panel content. Raising the pointing draw's numeric order is insufficient because order applies only within a phase. Moving the pointing update after overlays would also change interaction timing. The existing draw phases and shared phase aliases remain valid for callers that do not draw pointer feedback.
+The frame contract separates update and draw phase sets. Picking remains in the `pointing` update phase after scene geometry, so overlay reactions observe the current hit. The final `feedback` draw phase places beams and landing indicators after every scene and overlay draw. The manager draws with scene depth testing. Pointer feedback disables depth testing so its indicator remains visible over panel content; depth-free custom overlays still require the final draw phase. Raising the pointing draw's numeric order is insufficient because order applies only within a phase. Moving the pointing update after overlays would also change interaction timing. The existing draw phases and shared phase aliases remain valid for callers that do not draw pointer feedback.
+
+### UI depth offsets follow drawing nesting
+
+Shared UI panel backings write scene depth. Controls, their contents, and glyphs use successive 1 mm offsets without depth writes. This prevents coplanar conflicts and preserves sibling painter order without accumulating physical depth across controls. The built-in details span 3 mm in front of the backing. Intersecting or nearly coincident panels can show draw-order-dependent details within that span. This limited overlap is accepted rather than adding per-panel visibility masks. The [UI drawing contract](lua-api.md#ui-panels) specifies the offsets and hook state.
 
 ### Panel lifecycle is announced through the panels contract
 

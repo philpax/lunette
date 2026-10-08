@@ -118,8 +118,7 @@ return plugin.consumer<<Config, Settings>>({
       end,
     })
     frameService:onDraw(context, {
-      phase = 'overlay',
-      order = 1000,
+      phase = 'scene',
       run = function(pass: Pass): ()
         if not dead and not panel.dead then
           panel:draw(pass)

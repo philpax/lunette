@@ -7,6 +7,7 @@ local geometry = require './geometry'
 local theme = require './theme'
 local textFieldGeometry = require './text-field-geometry'
 local passState = require '@lunette-plugins/pass-state'
+local depth = require './depth'
 local draw = {}
 
 type TextEntry = {
@@ -106,7 +107,7 @@ protected = function(pass: Pass, render: () -> ()): ()
     pass:setMaterial(nil)
     pass:setFont(lovr.graphics.getDefaultFont())
     pass:setCullMode 'none'
-    pass:setDepthTest()
+    pass:setDepthTest 'gequal'
     pass:setDepthWrite(false)
     render()
   end)
@@ -123,8 +124,8 @@ renderDefault = function(pass: Pass, visual: ui.Visual): ()
   pass:setMaterial(nil)
   pass:setFont(font)
   pass:setCullMode 'none'
-  pass:setDepthTest()
-  pass:setDepthWrite(false)
+  pass:setDepthTest 'gequal'
+  pass:setDepthWrite(visual.kind == 'panel')
   setColor(
     pass,
     if visual.kind == 'panel'
@@ -135,6 +136,9 @@ renderDefault = function(pass: Pass, visual: ui.Visual): ()
       else style.control
   )
   rectangle(pass, visual.bounds, clip)
+  -- Only the panel backing writes depth; controls and glyphs retain painter order in front of it.
+  pass:setDepthWrite(false)
+  pass:translate(0, 0, depth.layer)
   local content = inset(visual.bounds, style.padding)
   local overflow = visual.overflow == true
   if visual.kind == 'text-field' then
@@ -218,7 +222,7 @@ text = function(pass: Pass, font: Font, value: string, bounds: ui.Bounds, clip: 
   local fitted = fittedText(font, value, scale, visible.width, height)
   if fitted.shown then
     -- Glyphs are y-up, while logical panel coordinates are y-down.
-    pass:text(fitted.shown, visible.x, visible.y, 0, scale, math.pi, 1, 0, 0, 0, 'left', 'top')
+    pass:text(fitted.shown, visible.x, visible.y, depth.layer, scale, math.pi, 1, 0, 0, 0, 'left', 'top')
   end
   return fitted.overflow
 end
@@ -297,7 +301,20 @@ renderTextField = function(pass: Pass, font: Font, visual: ui.Visual, clip: ui.B
   end
   setColor(pass, if visual.enabled then style.foreground else style.border)
   if layout.text ~= '' then
-    pass:text(layout.text, layout.origin.x, layout.origin.y, 0, layout.scale, math.pi, 1, 0, 0, 0, 'left', 'top')
+    pass:text(
+      layout.text,
+      layout.origin.x,
+      layout.origin.y,
+      depth.layer,
+      layout.scale,
+      math.pi,
+      1,
+      0,
+      0,
+      0,
+      'left',
+      'top'
+    )
   end
   if visual.focused then
     setColor(pass, style.focus)

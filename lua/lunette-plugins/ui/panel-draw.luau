@@ -5,6 +5,7 @@ local controlOrder = require '@lunette-plugins/ui/control-order'
 local input = require '@lunette-plugins/ui/input'
 local geometry = require '@lunette-plugins/ui/geometry'
 local draw = require '@lunette-plugins/ui/draw'
+local depth = require '@lunette-plugins/ui/depth'
 
 local panelDraw = {}
 
@@ -22,7 +23,7 @@ function panelDraw.render(state: records.Panel, pass: Pass): ()
     pass:push 'transform'
     pushed = true
     pass:transform(state.pose)
-    pass:translate(-state.width / 2, state.height / 2, 0.002)
+    pass:translate(-state.width / 2, state.height / 2, depth.surface)
     pass:scale(state.width / state.logicalWidth, -state.height / state.logicalHeight, 1)
     local drawRevision = state.revision
     local clip: ui.Bounds = { x = 0, y = 0, width = state.logicalWidth, height = state.logicalHeight }
@@ -39,6 +40,8 @@ function panelDraw.render(state: records.Panel, pass: Pass): ()
       focused = false,
       items = {},
     }, nil)
+    -- Sibling controls keep painter order; only nesting adds physical depth.
+    pass:translate(0, 0, depth.layer)
     for _, record in ipairs(controlOrder.ordered(state.controls)) do
       if not live(state, nil) or state.revision ~= drawRevision then
         break

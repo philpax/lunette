@@ -240,7 +240,7 @@ test('clips all graph geometry in logical coordinates without a framebuffer scis
     elseif command[1] == 'text' then
       expect.truthy(command[3] >= 0 and command[3] <= 1000, 'text x within surface')
       expect.truthy(command[4] >= 0 and command[4] <= 600, 'text y within surface')
-      expect.equal(command[5], 0, 'text remains on logical plane')
+      expect.equal(command[5], 0.001, 'text sits in front of its logical face')
       expect.equal(command[7], math.pi, 'glyphs face upright in the y-down canvas')
     end
   end
