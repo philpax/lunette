@@ -100,6 +100,7 @@ function fixture.boot(provider, additions, config)
     self.controls:clickControl(self.services.ui, 'desktop/menu', 'open')
     self.controls:clickControl(self.services.ui, 'desktop/menu', 'actions', 'right', 'desktop/manager/open')
     self.controls:clickControl(self.services.ui, 'desktop/menu', 'close')
+    self:click 'graph-view'
   end
   function result:click(id, itemId, hand)
     self.controls:clickControl(self.services.ui, 'desktop/manager', id, hand or 'right', itemId)

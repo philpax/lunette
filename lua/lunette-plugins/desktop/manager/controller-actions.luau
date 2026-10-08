@@ -15,6 +15,7 @@ export type State = {
   service: composition.Service,
   width: number,
   height: number,
+  presentation: 'entries' | 'graph',
   tab: 'inspect' | 'configure' | 'catalog',
   catalog: { read [number]: composition.KnownEntry },
   catalogSelection: string?,
@@ -43,11 +44,23 @@ function actions.build(
   entry: composition.Entry?,
   textActions: TextActions
 ): ({ Button }, { [string]: Action }, toolbarLayout.Layout)
-  local layout = toolbarLayout.compute(state.width, state.height, state.edit ~= nil, state.view.searchActive)
+  local layout = toolbarLayout.compute(
+    state.width,
+    state.height,
+    state.edit ~= nil,
+    state.view.searchActive,
+    nil,
+    state.presentation,
+    state.tab
+  )
   local buttons: { Button } = {}
   local bindings: { [string]: Action } = {}
   local function button(id: string, label: string, enabled: boolean, run: () -> (), editorAction: boolean?): ()
-    local bounds = layout.buttons[id].bounds
+    local placement = layout.buttons[id]
+    if not placement then
+      return
+    end
+    local bounds = placement.bounds
     buttons[#buttons + 1] = {
       id = id,
       x = bounds.x,
@@ -59,6 +72,12 @@ function actions.build(
     }
     bindings[id] = { run = run, editor = editorAction == true }
   end
+  button('entries-view', if state.presentation == 'entries' then 'Entries [shown]' else 'Entries', true, function()
+    state.presentation = 'entries'
+  end, true)
+  button('graph-view', if state.presentation == 'graph' then 'Graph [shown]' else 'Graph', true, function()
+    state.presentation = 'graph'
+  end, true)
   button('inspect', 'Inspect', true, function()
     if state.tab ~= 'inspect' then
       state.edit, state.text = nil, ''
@@ -177,7 +196,15 @@ function actions.build(
   end, true)
   button('fit', 'Fit', true, function()
     view.endSearch(state.view)
-    local bounds = toolbarLayout.compute(state.width, state.height, state.edit ~= nil, false).graphBounds
+    local bounds = toolbarLayout.compute(
+      state.width,
+      state.height,
+      state.edit ~= nil,
+      false,
+      nil,
+      state.presentation,
+      state.tab
+    ).graphBounds
     state.view.viewport = { x = bounds.width, y = bounds.height }
     view.reset(state.view)
   end, true)

@@ -13,6 +13,16 @@ require('@lunette-desktop').run {
 }
 ```
 
+Grip moves and rotates the panel with the controller. While holding grip, the vertical thumbstick adjusts distance. A second grip scales the panel by hand separation. The [panel movement settings](desktop-configuration.md#panel-movement) define reach and resize bounds.
+
+External runtime changes refresh while the manager is visible at `refreshInterval`, which defaults to 0.25 seconds. Opening the panel and control actions refresh immediately. The hidden panel does not poll snapshots. Drawing uses the retained controls between refreshes; snapshot and graph reconstruction do not run on every display frame. This bounds refresh work but does not establish headset frame-time performance.
+
+## Entry management
+
+The manager opens with Entries. Each row identifies the entry id, runtime state, and protection status. Selecting a row opens its details. Enable, Disable, Reload, Recover, and Remove apply to that selection. Protected entries cannot be disabled or removed. Inspect, Configure, and Catalog switch the sidebar content; configuration actions appear only in Configure, and Load appears only in Catalog. Close remains in the first toolbar row.
+
+Search and dependency filters apply to both Entries and Graph. The Graph control opens the diagnostic relationship view; Entries returns to the list. `settings.manager.view = 'graph'` selects the graph initially. `lua/lunette-plugins/desktop/manager/config.luau` defines the settings and defaults.
+
 ## Graph controls
 
 The graph custom region supports selection and dragging. Dragging pans the graph, and scrolling over it zooms around the pointer. Zoom in and Zoom out change the scale around the canvas centre. Focus centres the selected instance, and Fit fits the graph within the supported zoom range. Search opens a shared text field and the shared keyboard. Clear filter and Clear selection end those states. These controls remain reachable through controller input. Large graphs remain pannable when the minimum zoom cannot fit every node.

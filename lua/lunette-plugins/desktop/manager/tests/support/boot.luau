@@ -17,6 +17,10 @@ local manager = require '@lunette-plugins/desktop/manager'
 local controller = require '@lunette-plugins/desktop/manager/controller'
 
 return function(config, additions, protected)
+  config = table.clone(config or {})
+  if config.view == nil then
+    config.view = 'graph'
+  end
   local fake = testing.native()
   local font = {
     getHeight = function()

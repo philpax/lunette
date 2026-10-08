@@ -54,6 +54,7 @@ function controller.new(
     readers = readers,
     width = width,
     height = height,
+    presentation = 'entries',
     sidebar = toolbarLayout.sidebarWidth(width),
     tab = 'inspect',
     catalog = {},
@@ -310,7 +311,15 @@ refresh = function(state: State): ()
   state.projected = projection.snapshot(state.service:snapshot())
   state.entries = state.service:entries()
   state.catalog = state.service:catalog()
-  local layout = toolbarLayout.compute(state.width, state.height, state.edit ~= nil, state.view.searchActive)
+  local layout = toolbarLayout.compute(
+    state.width,
+    state.height,
+    state.edit ~= nil,
+    state.view.searchActive,
+    nil,
+    state.presentation,
+    state.tab
+  )
   state.view.viewport = { x = layout.graphBounds.width, y = layout.graphBounds.height }
   view.update(state.view, state.projected.graph)
   local entry = selectedEntry(state)
@@ -335,7 +344,15 @@ refresh = function(state: State): ()
       valueField = selectedRow.control
     end
   end
-  layout = toolbarLayout.compute(state.width, state.height, state.edit ~= nil, state.view.searchActive, valueField)
+  layout = toolbarLayout.compute(
+    state.width,
+    state.height,
+    state.edit ~= nil,
+    state.view.searchActive,
+    valueField,
+    state.presentation,
+    state.tab
+  )
   state.bodyTop = layout.detailsTop
   state.graphBounds, state.bodyBounds = layout.graphBounds, layout.bodyBounds
   state.editBounds, state.searchBounds = layout.editBounds, layout.searchBounds

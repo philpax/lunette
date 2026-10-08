@@ -155,6 +155,7 @@ test('manager dimensions reject short canvases and accept minimum and maximum us
   do
     local running, _, all, state, _, public = start(managerConfig.schema.parse(config, 'manager'))
     local pointer = public:pointer()
+    public:click(pointer, 'graph-view')
     public:click(pointer, 'fit')
     public:click(pointer, 'graph', 'desktop/manager')
     for _, label in { 'configure', 'catalog' } do

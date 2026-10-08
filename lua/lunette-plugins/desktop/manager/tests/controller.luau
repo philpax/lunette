@@ -55,6 +55,7 @@ local function fixture(descriptor, config)
   }).definition
   local running = management.start { { id = 'editable', definition = definition, config = config } }
   local state = controller.new(running.service, {}, 1280, 800)
+  invoke(state, 'graph-view')
   local selected
   for _, entry in running.service:entries() do
     if entry.id == 'editable' then
@@ -437,7 +438,14 @@ test('stable action IDs reject disabled and unknown actions without reporting su
     seen[button.id] = true
   end
   expect.truthy(seen['clear-filter'] and seen['clear-selection'], 'graph reset controls are explicit')
-  expect.truthy(seen.load and seen.add, 'catalog Load and configuration Add have distinct identities')
+  expect.equal(seen.load, nil, 'inspection does not show catalog actions')
+  expect.equal(seen.add, nil, 'inspection does not show configuration actions')
+  invoke(state, 'catalog')
+  expect.truthy(state.actions.load, 'catalog Load has its own identity')
+  expect.equal(state.actions.add, nil, 'catalog does not show configuration Add')
+  invoke(state, 'configure')
+  expect.truthy(state.actions.add, 'configuration Add has its own identity')
+  expect.equal(state.actions.load, nil, 'configuration does not show catalog Load')
   running.runtime:close()
 end)
 

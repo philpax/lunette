@@ -305,26 +305,74 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
       if graphPointer == nil then
         publishedView = table.clone(state.view)
       end
-      local projected = geometry.project(publishedView, graphBounds)
-      local graphRecord = retain('graph', 'region', 'Plugin graph', graphBounds, true, function()
-        graphItems = projected.items
-        return panel:region(owner, {
-          id = 'graph',
-          label = 'Plugin graph',
-          bounds = graphBounds,
-          items = graphItems,
-          exclusive = true,
-          z = -1,
-          onPointer = graphEvent,
-          draw = function(pass: Pass, visual: ui.Visual, _default: ui.Renderer): ()
-            draw.graph(pass, publishedView, visual.clip)
-          end,
-        })
-      end)
-      if graphPointer == nil and not equal(graphItems, projected.items) then
-        graphItems = projected.items
-        local handle = graphRecord.handle :: ui.Region
-        handle:setItems(graphItems)
+      if state.presentation == 'graph' then
+        local projected = geometry.project(publishedView, graphBounds)
+        local graphRecord = retain('graph', 'region', 'Plugin graph', graphBounds, true, function()
+          graphItems = projected.items
+          return panel:region(owner, {
+            id = 'graph',
+            label = 'Plugin graph',
+            bounds = graphBounds,
+            items = graphItems,
+            exclusive = true,
+            z = -1,
+            onPointer = graphEvent,
+            draw = function(pass: Pass, visual: ui.Visual, _default: ui.Renderer): ()
+              draw.graph(pass, publishedView, visual.clip)
+            end,
+          })
+        end)
+        if graphPointer == nil and not equal(graphItems, projected.items) then
+          graphItems = projected.items
+          local handle = graphRecord.handle :: ui.Region
+          handle:setItems(graphItems)
+        end
+      else
+        local items: { ui.Item } = {}
+        local visible = view.visible(state.view)
+        for _, entry in state.entries do
+          if visible[entry.instanceId] then
+            items[#items + 1] = {
+              id = 'entry/' .. entry.id,
+              label = entry.id .. ': ' .. entry.state .. (if entry.protected then ' [protected]' else ''),
+            }
+          end
+        end
+        local selected = state.view.selection
+        local selectedId: string? = nil
+        for _, entry in state.entries do
+          if selected and selected.kind == 'node' and selected.id == entry.instanceId then
+            selectedId = 'entry/' .. entry.id
+          end
+        end
+        local record = retain('entries', 'list', 'Plugin entries', graphBounds, true, function()
+          return panel:list(owner, {
+            id = 'entries',
+            label = 'Plugin entries',
+            bounds = graphBounds,
+            items = items,
+            selected = selectedId,
+            theme = { rowHeight = 40 },
+            onChange = function(id: string): ()
+              for _, entry in state.entries do
+                if id == 'entry/' .. entry.id then
+                  view.select(state.view, { kind = 'node', id = entry.instanceId })
+                  update()
+                  return
+                end
+              end
+            end,
+          })
+        end)
+        local handle = record.handle :: ui.List
+        if not equal(record.items, items) then
+          record.items = items
+          handle:setItems(items)
+        end
+        if record.selected ~= selectedId then
+          record.selected = selectedId
+          handle:setSelected(selectedId)
+        end
       end
       local sidebar = draw.sidebarGeometry(controller.options(state))
       retain('sidebar-background', 'region', 'Sidebar background', sidebar.background, false, function()

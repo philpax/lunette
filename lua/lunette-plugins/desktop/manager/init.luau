@@ -29,6 +29,8 @@ return plugin.consumer<<Config, Settings>>({
     local menuService = context:require(menu.capability)
     local pixelHeight = settings.pixels * settings.height / settings.width
     local dead = false
+    local visible = settings.visible
+    local untilRefresh = settings.refreshInterval
     local panel: ui.Panel
     local shell: widgets.Shell?
     local state = controller.new(
@@ -43,6 +45,7 @@ return plugin.consumer<<Config, Settings>>({
         if dead then
           return
         end
+        visible = false
         panel:setVisible(false)
         local current = shell
         if current then
@@ -60,6 +63,7 @@ return plugin.consumer<<Config, Settings>>({
       visible = settings.visible,
       grabbable = true,
     })
+    state.presentation = settings.view
     shell = widgets.new(panel, context, state)
     context:effect(function(): () -> ()
       return function(): ()
@@ -83,15 +87,22 @@ return plugin.consumer<<Config, Settings>>({
           if current then
             current.update()
           end
+          visible = true
+          untilRefresh = settings.refreshInterval
           panel:setVisible(true)
         end
       end,
     })
     frameService:onUpdate(context, {
       phase = 'scene',
-      run = function(_dt: number): ()
+      run = function(dt: number): ()
         local current = shell
-        if not dead and current and not panel.dead and panel:describe().visible then
+        if dead or not current or panel.dead or not visible then
+          return
+        end
+        untilRefresh -= dt
+        if untilRefresh <= 0 then
+          untilRefresh = settings.refreshInterval
           current.update()
         end
       end,

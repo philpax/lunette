@@ -23,7 +23,9 @@ function toolbarLayout.compute(
   height: number,
   editing: boolean,
   searching: boolean,
-  valueField: ('boolean' | 'choice')?
+  valueField: ('boolean' | 'choice')?,
+  presentation: ('entries' | 'graph')?,
+  tab: ('inspect' | 'configure' | 'catalog')?
 ): Layout
   assert(width >= toolbarLayout.minimumWidth and width < math.huge, 'manager layout: invalid logical width')
   assert(height >= toolbarLayout.minimumHeight and height < math.huge, 'manager layout: invalid logical height')
@@ -45,39 +47,32 @@ function toolbarLayout.compute(
     end
     return y + math.ceil(#ids / columns) * 30
   end
-  local detailsTop = group({
-    'inspect',
-    'configure',
-    'catalog',
-    'enable',
-    'disable',
-    'reload',
-    'recover',
-    'remove',
-    'apply',
-    'optional',
-    'reset',
-    'add',
-    'remove-value',
-    'previous',
-    'next',
-    'load',
-  }, 'sidebar', left + 10, 8, sidebar - 20, 3) + 10
-  local graphTop = group({
-    'zoom-in',
-    'zoom-out',
-    'focus',
-    'fit',
-    'search',
-    'transitive',
-    'providers',
-    'consumers',
-    'all',
-    'affected',
-    'clear-filter',
-    'clear-selection',
-    'close',
-  }, 'graph', 8, 8, left - 16, 5) + 6
+  local detailsTop = group({ 'inspect', 'configure', 'catalog' }, 'sidebar', left + 10, 8, sidebar - 20, 3) + 2
+  detailsTop = group(
+    { 'enable', 'disable', 'reload', 'recover', 'remove' },
+    'sidebar',
+    left + 10,
+    detailsTop,
+    sidebar - 20,
+    3
+  ) + 2
+  if tab == nil or tab == 'configure' then
+    local ids = { 'apply', 'optional', 'reset', 'add', 'remove-value' }
+    if tab == nil then
+      ids[#ids + 1] = 'load'
+    end
+    detailsTop = group(ids, 'sidebar', left + 10, detailsTop, sidebar - 20, 3) + 2
+  elseif tab == 'catalog' then
+    detailsTop = group({ 'load' }, 'sidebar', left + 10, detailsTop, sidebar - 20, 3) + 2
+  end
+  detailsTop = group({ 'previous', 'next' }, 'sidebar', left + 10, detailsTop, sidebar - 20, 3) + 4
+  local graphTop = group({ 'entries-view', 'graph-view', 'close' }, 'graph', 8, 8, left - 16, 3) + 8
+  graphTop = group({ 'search', 'clear-filter', 'clear-selection' }, 'graph', 8, graphTop, left - 16, 3) + 8
+  if presentation == nil or presentation == 'graph' then
+    graphTop = group({ 'zoom-in', 'zoom-out', 'focus', 'fit' }, 'graph', 8, graphTop, left - 16, 4) + 8
+  end
+  graphTop = group({ 'transitive', 'providers', 'consumers', 'all', 'affected' }, 'graph', 8, graphTop, left - 16, 5)
+    + 6
   local searchBounds: graph.Box? = nil
   if searching then
     searchBounds = { x = 8, y = graphTop, width = left - 16, height = 34 }

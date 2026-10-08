@@ -242,7 +242,7 @@ end
 function scenario.resources(env, context)
   expect.truthy(scenario.keyboardCount(env) <= 1, context .. ': at most one actual keyboard')
   expect.equal(scenario.live(env.native.events.seats), 2, context .. ': two current pointer seats')
-  expect.equal(scenario.live(env.native.events.claims), 1, context .. ': one current application claim')
+  expect.equal(scenario.live(env.native.events.claims), 0, context .. ': applications remain scene-rendered')
   for _, name in { 'onWindowOpened', 'onMonitorAdded', 'onError' } do
     expect.equal(env.native.subscriptionCount(name), 1, context .. ': one ' .. name .. ' subscription')
   end
