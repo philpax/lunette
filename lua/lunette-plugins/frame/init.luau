@@ -40,9 +40,11 @@ local function ranks(names: { read [number]: string }): { [string]: number }
   return result
 end
 
-local PHASE_RANKS = ranks(contract.PHASES)
+local UPDATE_PHASE_RANKS = ranks(contract.UPDATE_PHASES)
+local DRAW_PHASE_RANKS = ranks(contract.DRAW_PHASES)
 local INPUT_PHASE_RANKS = ranks(contract.INPUT_PHASES)
-local PHASE_NAMES = table.concat(contract.PHASES, ', ')
+local UPDATE_PHASE_NAMES = table.concat(contract.UPDATE_PHASES, ', ')
+local DRAW_PHASE_NAMES = table.concat(contract.DRAW_PHASES, ', ')
 local INPUT_PHASE_NAMES = table.concat(contract.INPUT_PHASES, ', ')
 
 local PHASED_KEYS: { [string]: boolean } = { phase = true, order = true, run = true }
@@ -255,8 +257,8 @@ local function create(context: plugin.Context): (contract.Service, Dispatcher)
     inspect = function(_self: contract.Service): inspection.Snapshot
       local result: { inspection.Registration } = {}
       describe(result, 'frame.onBatch', batches, {}, 'batch')
-      describe(result, 'frame.onUpdate', updates, contract.PHASES)
-      describe(result, 'frame.onDraw', draws, contract.PHASES)
+      describe(result, 'frame.onUpdate', updates, contract.UPDATE_PHASES)
+      describe(result, 'frame.onDraw', draws, contract.DRAW_PHASES)
       describe(result, 'frame.onKey', keys, contract.INPUT_PHASES)
       describe(result, 'frame.onText', texts, contract.INPUT_PHASES)
       describe(result, 'frame.onQuit', quits, {})
@@ -277,11 +279,11 @@ local function create(context: plugin.Context): (contract.Service, Dispatcher)
       return effect
     end,
     onUpdate = function(_self: contract.Service, owner: contract.Owner, handler: contract.UpdateHandler): plugin.Effect
-      local rank, order = validate('onUpdate', handler, PHASED_KEYS, PHASE_RANKS, nil, PHASE_NAMES)
+      local rank, order = validate('onUpdate', handler, PHASED_KEYS, UPDATE_PHASE_RANKS, nil, UPDATE_PHASE_NAMES)
       return (register(updates, owner, rank, order, handler.run))
     end,
     onDraw = function(_self: contract.Service, owner: contract.Owner, handler: contract.DrawHandler): plugin.Effect
-      local rank, order = validate('onDraw', handler, PHASED_KEYS, PHASE_RANKS, nil, PHASE_NAMES)
+      local rank, order = validate('onDraw', handler, PHASED_KEYS, DRAW_PHASE_RANKS, nil, DRAW_PHASE_NAMES)
       return (register(draws, owner, rank, order, handler.run))
     end,
     onKey = function(_self: contract.Service, owner: contract.Owner, handler: contract.KeyHandler): plugin.Effect

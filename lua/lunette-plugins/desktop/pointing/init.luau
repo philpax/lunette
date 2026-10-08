@@ -24,8 +24,7 @@ return plugin.consumer<<Config, Settings>>({
     local surfaceService: surfaces.Service = context:require(surfaces.capability)
     local laserService: laser.Service = context:require(laser.capability)
     laserService:attach(context, settings.laser)
-    -- The pointing phase follows the scene, so the beams pick against this
-    -- frame's panels.
+    -- Picking follows this frame's scene geometry; feedback draws after overlay UI.
     frameService:onUpdate(context, {
       phase = 'pointing',
       run = function(_dt: number)
@@ -33,7 +32,7 @@ return plugin.consumer<<Config, Settings>>({
       end,
     })
     frameService:onDraw(context, {
-      phase = 'pointing',
+      phase = 'feedback',
       run = function(pass: Pass)
         laserService:draw(pass)
       end,

@@ -128,7 +128,7 @@ require('@lunette-desktop').run {
 }
 ```
 
-The same `aim` object accepts `minCutoff`, `angularBeta`, `positionBeta`, `derivativeCutoff`, and `resetAfter`. A patch for the `laser` provider configures its defaults; `laser:new` and `laser:attach` accept per-laser overrides.
+The same `aim` object accepts `minCutoff`, `angularBeta`, `positionBeta`, `derivativeCutoff`, and `resetAfter`. A patch for the `laser` provider configures its defaults; `laser:new` and `laser:attach` accept per-laser overrides. Pointer feedback draws in the final `feedback` phase, after scene geometry and overlay UI, including Plugins. OpenXR composition layers have separate runtime ordering; [Window rendering](#window-rendering) states that limit.
 
 ## Panel movement
 
@@ -147,7 +147,7 @@ Native capture and seat changes require a new process; source reload alone does 
 - A gray ramp and familiar desktop content have matching brightness in the host display and mirror, including translucent window edges.
 - A plane-rendered application window has the expected scene depth ordering. No default window receives an OpenXR composition layer.
 - Every configured monitor starts capture automatically. Direct capture opens no portal selection when the host supports it. Restart mirror in the monitor titlebar restarts that capture. Select monitors in the titlebar opens a fresh portal selection when required, both granted monitors update, cancellation retains existing capture, and an explicit retry remains possible. X removes the mirror panel without unplugging the monitor; a window's X permits an application confirmation dialog. The host cursor appears with embedded-cursor capture. A portrait monitor has the correct panel aspect, image orientation, and pointer coordinates.
-- Keyboard legends remain complete while moving the head and controllers. Laser rendering does not change later panel visibility.
+- Keyboard legends remain complete while moving the head and controllers. Laser rendering does not change panel visibility. The landing indicator remains visible over Plugins, the menu, the keyboard, and application panels.
 - Plugins opens a readable entry list with runtime states. Entry selection, Disable, Enable, Graph, Configure, Catalog, and Close work with controller input. Manager-open frame time is compared with manager-closed frame time.
 - Grip on panel content or a titlebar button moves and rotates the panel with the controller. Trigger on the non-button titlebar moves it without application clicks; trigger on a button invokes only that action. The vertical axis adjusts distance, and two-hand resizing remains usable.
 - Reload configuration can run repeatedly without duplicate `laser.left` or `laser.right` seat errors, stale menu controls, or additional keyboard instances.

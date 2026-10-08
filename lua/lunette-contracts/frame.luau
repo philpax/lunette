@@ -7,7 +7,10 @@ local keys = require '@lunette-contracts/keys'
 local frame = {}
 
 export type Owner = owner.Owner
-export type Phase = 'input' | 'scene' | 'pointing' | 'overlay'
+export type UpdatePhase = 'input' | 'scene' | 'pointing' | 'overlay'
+export type DrawPhase = UpdatePhase | 'feedback'
+-- Retained for callers that share a phase between update and draw.
+export type Phase = UpdatePhase
 export type InputPhase = 'binding' | 'delivery'
 
 -- IDs increase within one provider activation, not across replacements.
@@ -41,13 +44,13 @@ export type TextEvent = {
 }
 
 export type UpdateHandler = {
-  read phase: Phase,
+  read phase: UpdatePhase,
   read order: number?,
   read run: (number) -> (),
 }
 
 export type DrawHandler = {
-  read phase: Phase,
+  read phase: DrawPhase,
   read order: number?,
   read run: (Pass) -> (),
 }
@@ -91,8 +94,14 @@ export type Service = {
 
 export type Capability = plugin.Capability<Service>
 
--- The phases in the order update and draw run them.
-frame.PHASES = table.freeze { 'input', 'scene', 'pointing', 'overlay' } :: { Phase }
+-- Pointing updates resolve hits after the scene and before overlay reactions.
+frame.UPDATE_PHASES = table.freeze { 'input', 'scene', 'pointing', 'overlay' } :: { UpdatePhase }
+
+-- Feedback draws beams and landing indicators after all scene and overlay UI.
+frame.DRAW_PHASES = table.freeze { 'input', 'scene', 'pointing', 'overlay', 'feedback' } :: { DrawPhase }
+
+-- Retained as the shared subset; new callers use the operation's explicit phase set.
+frame.PHASES = frame.UPDATE_PHASES
 
 -- The key and text phases in the order they run.
 frame.INPUT_PHASES = table.freeze { 'binding', 'delivery' } :: { InputPhase }
