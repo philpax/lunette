@@ -45,13 +45,39 @@ function panels.new(provider, owner, options)
   }
   local handle = { dead = false }
   local chrome: ui.Titlebar? = nil
+  local refreshing = false
   function panel.live()
     return not panel.dead and provider.context:owns(owner)
   end
   function panel.theme()
-    return appearance.theme(appearance.defaultTheme, panel.overrides)
+    panel.refresh()
+    return panel.resolved
   end
-  panel.theme()
+  function panel.refresh()
+    if refreshing or panel.dead or not provider.context:active() or not owner:active() then
+      return
+    end
+    refreshing = true
+    local completed, failure = pcall(function()
+      provider.refreshBase()
+      local changed = appearance.resolve(panel, provider.base, panel.overrides)
+      for _, control in table.clone(panel.controls) do
+        if control.live() then
+          changed = control.refresh() or changed
+        end
+      end
+      if changed then
+        panel.revision += 1
+        panel.cancel(nil, 'control-removed')
+      end
+    end)
+    refreshing = false
+    if not completed then
+      error(failure, 0)
+    end
+  end
+  provider.refreshBase()
+  appearance.resolve(panel, provider.base, panel.overrides)
   function panel.clip()
     return { x = 0, y = 0, width = panel.surface.pixelWidth, height = panel.surface.pixelHeight }
   end
@@ -163,18 +189,23 @@ function panels.new(provider, owner, options)
     return winner, itemId
   end
   function panel.surface.raycast(_, origin, direction)
+    panel.refresh()
     if not panel.live() or not panel.visible then
       return nil, nil, nil
     end
     return quad.hit(panel.surface, origin, direction)
   end
   function panel.surface.project(_, origin, direction)
+    panel.refresh()
     if not panel.live() or not panel.visible then
       return nil, nil, nil
     end
     return quad.project(panel.surface, origin, direction)
   end
   function panel.surface.onPointer(_, event)
+    if event.kind ~= 'cancel' and event.kind ~= 'leave' then
+      panel.refresh()
+    end
     local pointer, button = event.pointer, event.button
     local gestures = panel.gestures[pointer] or {}
     if event.kind == 'cancel' then
@@ -334,11 +365,16 @@ function panels.new(provider, owner, options)
       return
     end
     local copied = appearance.copyOverrides(value)
+    local previous = panel.overrides
     panel.overrides = copied
-    panel.revision += 1
-    panel.cancel(nil, 'control-removed')
+    local ok, failure = pcall(panel.refresh)
+    if not ok then
+      panel.overrides = previous
+      error(failure, 0)
+    end
   end
   function handle.describe(_: ui.Panel): ui.Description
+    panel.refresh()
     local described = {}
     for _, control in panel.controls do
       if control.live() then
@@ -385,6 +421,7 @@ function panels.new(provider, owner, options)
     end
   end
   function handle.draw(_: ui.Panel, pass: Pass)
+    panel.refresh()
     if not panel.live() or not panel.visible then
       return
     end
@@ -431,8 +468,13 @@ function panels.new(provider, owner, options)
           items = if control then items.rows(control) else {},
         }
       end
-      local panelHooks = if panel.drawHook then { panel.drawHook } else {}
-      appearance.paint(owner, pass, visual(nil), panelHooks)
+      local panelHooks = if provider.draw then { provider.draw } else {}
+      if panel.drawHook then
+        panelHooks[#panelHooks + 1] = panel.drawHook
+      end
+      panel.lease:withFont(function()
+        appearance.paint(owner, pass, visual(nil), panelHooks)
+      end)
       local ordered = table.clone(panel.controls)
       table.sort(ordered, function(a, b)
         return a.z < b.z
@@ -443,7 +485,9 @@ function panels.new(provider, owner, options)
           if control.drawHook then
             hooks[#hooks + 1] = control.drawHook
           end
-          appearance.paint(control.owner, pass, visual(control), hooks)
+          control.lease:withFont(function()
+            appearance.paint(control.owner, pass, visual(control), hooks)
+          end)
         end
       end
     end
@@ -491,6 +535,7 @@ function panels.new(provider, owner, options)
       end
     end
     panel.controls, panel.gestures, panel.drawHook = {}, {}, nil
+    appearance.release(panel)
     local index = table.find(provider.panels, panel)
     if index then
       table.remove(provider.panels, index)

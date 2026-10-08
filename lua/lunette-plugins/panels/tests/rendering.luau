@@ -15,7 +15,10 @@ local function fixture(config)
     shaders[#shaders + 1] = shader
     return shader
   end
-  local session = testing.start { { id = 'panels', definition = provider.definition, config = config } }
+  local session = testing.start {
+    { id = 'theme', definition = require('@lunette-plugins/theme').definition },
+    { id = 'panels', definition = provider.definition, config = config },
+  }
   local observer = session:observe(contract.capability)
   local window = native.newWindow(1)
   window.getTexture = function()

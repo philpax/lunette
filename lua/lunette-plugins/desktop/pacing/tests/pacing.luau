@@ -7,7 +7,7 @@ local test = testing.suite()
 -- The consumer over the fake native API, with a quiet window and a monitor, each shown as a panel.
 local function start()
   local env = {}
-  env.session = testing.boot { 'frame', 'surfaces', 'panels', 'pacing', 'desktop/pacing' }
+  env.session = testing.boot { 'frame', 'theme', 'surfaces', 'panels', 'pacing', 'desktop/pacing' }
   env.native = env.session.native
   env.panels = env.session:observe(panelsContract.capability)
   env.window = env.native.newWindow(1)

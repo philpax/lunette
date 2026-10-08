@@ -3,12 +3,14 @@ local render = require '@testing/render'
 local draw = require '../draw'
 local laser = require '@lunette-plugins/laser'
 local contract = require '@lunette-contracts/laser'
+local theme = require '@lunette-contracts/theme'
 local expect = testing.expect
 local test = testing.suite()
 
 local function fixture(hook)
   local native = testing.native()
   local session = testing.start {
+    'theme',
     'drops',
     'focus',
     'interaction',
@@ -26,6 +28,10 @@ local function fixture(hook)
         dt = 1 / 60,
       }
     end,
+  })
+  local appearance = session:observe(theme.capability)
+  appearance.service:select(appearance.context, {
+    colors = { pointer = { 0.9, 0.1, 0.3, 0.8 }, pointerHovered = { 0.1, 0.9, 0.4, 1 } },
   })
   target:update {}
   local recorder = render.new()
@@ -56,6 +62,8 @@ for _, failure in { false, true } do
           expect.equal(call.state.setDepthWrite[1], false, 'laser never writes scene depth')
           expect.equal(call.state.setShader[1], nil, 'beam uses its own shader')
           expect.equal(call.state.setMaterial[1], nil, 'beam has no inherited texture')
+          expect.equal(call.state.setColor[1], 0.9, 'beam uses the live pointer colour')
+          expect.equal(call.state.setColor[2], 0.1, 'beam does not retain a provider palette default')
         end
       end
     end

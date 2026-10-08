@@ -8,6 +8,7 @@ local rules = require '@lunette-contracts/rules'
 local layouts = require '@lunette-contracts/layouts'
 local tags = require '@lunette-contracts/tags'
 local interaction = require '@lunette-contracts/interaction'
+local theme = require '@lunette-contracts/theme'
 local keyboardConfig = require '@lunette-plugins/keyboard/config'
 local laserConfig = require '@lunette-plugins/laser/config'
 
@@ -38,10 +39,23 @@ local function use(
     owner,
     { chord = { key = 't', modifiers = strings }, run = function(_press: bindings.Press): () end }
   )
+  local configuredStyle = keyboardSettings.style
+  local font = configuredStyle.font
+  local fontSpec: theme.FontSpec? = if font == nil or font.kind == 'default' then { kind = 'default' } else nil
+  if font and font.kind == 'file' then
+    assert(font.file and font.size and font.spread)
+    fontSpec = { kind = 'file', file = font.file, size = font.size, spread = font.spread }
+  end
   keyboardService:new(owner, {
     rows = keyboardSettings.rows,
     layers = keyboardSettings.layers,
-    style = keyboardSettings.style,
+    style = {
+      gap = configuredStyle.gap,
+      keyColor = configuredStyle.keyColor,
+      font = fontSpec,
+      backingRadius = configuredStyle.backingRadius,
+      keyRadius = configuredStyle.keyRadius,
+    },
   })
   ruleService:fromList(ruleList)
   ruleService:setRules(owner, { rules = ruleList })
@@ -51,6 +65,6 @@ local function use(
   pointer:update(input, surfaces)
 end
 
-local color: laser.Color = laserSettings.style.color
+local color: laser.Color? = laserSettings.style.color
 local chord: keyboard.Action = { kind = 'chord', code = 30, modifiers = strings }
 return { use = use, color = color, chord = chord, evaluators = evaluators }

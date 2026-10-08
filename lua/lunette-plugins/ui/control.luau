@@ -16,6 +16,7 @@ export type Widget = {
   read pointer: (surface.PointerEvent, string?) -> (),
   read items: (ui.Bounds, ui.Theme) -> { read [number]: ui.ItemDescription },
   read visual: (ui.Visual) -> ui.Visual,
+  read clearMeasurements: (() -> ())?,
 }
 export type Host = {
   read live: () -> boolean,
@@ -28,6 +29,7 @@ export type Host = {
   read bounds: () -> ui.Bounds,
   read clip: () -> ui.Bounds?,
   read theme: () -> ui.Theme,
+  read withFont: ((Font) -> ()) -> (),
   read callback: (string, () -> (), boolean?) -> boolean,
 }
 

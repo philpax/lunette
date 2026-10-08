@@ -12,7 +12,7 @@ end
 
 local function start()
   local env = { native = testing.native() }
-  env.session = testing.start { 'drops', 'focus', 'interaction', 'laser' }
+  env.session = testing.start { 'theme', 'drops', 'focus', 'interaction', 'laser' }
   env.consumer = env.session:observe(laserContract.capability)
   env.service, env.owner = env.consumer.service, env.consumer.context
   env.interaction = env.session:observe(interactionContract.capability).service

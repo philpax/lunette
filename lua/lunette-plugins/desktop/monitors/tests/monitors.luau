@@ -24,6 +24,7 @@ end
 -- The consumer with `config` over the panels and tags providers, started once `native` reports its monitors.
 local function start(native, config)
   local session = testing.start {
+    'theme',
     'panels',
     'tags',
     { id = 'desktop/monitors', definition = require '@lunette-plugins/desktop/monitors', config = config },

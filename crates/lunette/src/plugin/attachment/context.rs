@@ -349,10 +349,10 @@ pub(super) fn context_active(context: &PluginContext) -> bool {
         .instances
         .get(&context.instance)
         .is_some_and(|instance| instance.authority.permits_resources(context.activation))
-        && matches!(
-            state.graph.live(context.instance, context.activation),
-            Some((Stage::Loading | Stage::Active(_), _))
-        )
+        && state
+            .graph
+            .activation_is_valid(context.instance, context.activation)
+            .unwrap_or(false)
 }
 
 /// Reports whether this activation's services remain published.

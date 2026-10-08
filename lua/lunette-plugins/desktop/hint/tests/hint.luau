@@ -12,15 +12,22 @@ local function drawsHint(session)
   session:draw()
   for _, call in ipairs(events.draw) do
     if call[1] == 'text' and call[2] == HINT then
-      return true
+      return call
     end
   end
-  return false
+  return nil
 end
 
 test('the empty scene draws the hint and a scene with a panel does not', function()
-  local session = testing.boot { 'frame', 'surfaces', 'panels', 'desktop/hint' }
-  expect.truthy(drawsHint(session), 'the hint in the empty scene')
+  local session = testing.boot { 'frame', 'theme', 'surfaces', 'panels', 'desktop/hint' }
+  local hint = drawsHint(session)
+  expect.truthy(hint, 'the hint in the empty scene')
+  expect.equal(hint.state.setFont[1], session.native.events.render.font, 'the theme-selected font')
+  local foreground = hint.state.setColor
+  expect.equal(foreground[1], 0.94, 'the theme foreground red component')
+  expect.equal(foreground[2], 0.96, 'the theme foreground green component')
+  expect.equal(foreground[3], 1, 'the theme foreground blue component')
+  expect.equal(foreground[4], 1, 'the theme foreground alpha component')
   local panels = session:observe(panelsContract.capability)
   panels.service:fromWindow(panels.context, session.native.newWindow(1), {})
   expect.falsy(drawsHint(session), 'the hint in a scene with a panel')
@@ -31,6 +38,7 @@ test('the configured vector position reaches the hint draw pose unchanged', func
   local position = vector.pack(2, 3, -4)
   local session = testing.boot {
     'frame',
+    'theme',
     'surfaces',
     'panels',
     { id = 'desktop/hint', definition = require '@lunette-plugins/desktop/hint', config = { position = position } },

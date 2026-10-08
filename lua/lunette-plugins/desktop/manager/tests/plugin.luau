@@ -213,7 +213,7 @@ test('a manager draw failure restores the caller transform before the next frame
   pass.scale = function(self, ...)
     self.current:scale(...)
   end
-  lovr.graphics.getDefaultFont = function()
+  pass.text = function()
     error('injected manager draw failure', 0)
   end
   lovr.draw(pass)

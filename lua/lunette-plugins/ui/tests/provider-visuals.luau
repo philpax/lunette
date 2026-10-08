@@ -26,7 +26,10 @@ local function immutable(value, path)
     value.snapshotMutation = true
   end, nil, path .. ' rejects mutation')
   for key, child in value do
-    immutable(child, path .. '.' .. tostring(key))
+    -- Font handles are native resources; the headless recorder represents them with mutable tables.
+    if key ~= 'font' then
+      immutable(child, path .. '.' .. tostring(key))
+    end
   end
 end
 

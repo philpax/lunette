@@ -6,7 +6,7 @@ local test = testing.suite()
 
 local function start()
   local env = {}
-  env.session = testing.boot { 'frame', 'surfaces', 'panels', 'scale', 'desktop/scale' }
+  env.session = testing.boot { 'frame', 'theme', 'surfaces', 'panels', 'scale', 'desktop/scale' }
   env.native = env.session.native
   env.panels = env.session:observe(panelsContract.capability)
   env.primary = env.native.events.outputs[1]

@@ -13,6 +13,8 @@ local triggerLock = require '@lunette-plugins/laser/trigger-lock'
 local passState = require '@lunette-plugins/pass-state'
 local registry = require '@lunette-plugins/laser/registry'
 local inspection = require '@lunette-contracts/inspection'
+local theme = require '@lunette-contracts/theme'
+local style = require '@lunette-plugins/laser/style'
 
 export type Service = contracts.Service
 export type Owner = contracts.Owner
@@ -39,6 +41,8 @@ type MutableLaser = registry.MutableLaser
 
 local function makeLaser(state: ProviderState, settings: Settings, owner: Owner, hand: Hand, options: Options?): Laser
   local given: Options = options or {}
+  local styleOverrides = style.overrides.parse(given.style or {}, 'laser: style')
+  state.refreshStyle()
   local aimSettings = aim.resolve(given.aim, settings.aim)
   local lockSettings = triggerLock.resolve(given.triggerLock, settings.triggerLock)
   local device = input.devices[hand]
@@ -91,22 +95,15 @@ local function makeLaser(state: ProviderState, settings: Settings, owner: Owner,
         end)
       end,
       pointer = pointer,
-      style = if given.style
-        then {
-          length = given.style.length or settings.style.length,
-          color = given.style.color or settings.style.color,
-          hoverColor = given.style.hoverColor or settings.style.hoverColor,
-          cursorRadius = given.style.cursorRadius or settings.style.cursorRadius,
-          hapticStrength = given.style.hapticStrength or settings.style.hapticStrength,
-          hapticDuration = given.style.hapticDuration or settings.style.hapticDuration,
-        }
-        else settings.style,
+      style = style.resolve(state.themes:current().theme, settings.style, styleOverrides),
+      styleOverrides = styleOverrides,
       input = frameInput,
       dead = false,
       update = function(self: Laser, surfaces: { read [number]: Surface })
         if self.dead or not state.active then
           return
         end
+        state.refreshStyle()
         local sampled = self.readInput(self.hand)
         if not sampled then
           aimState = nil
@@ -145,6 +142,7 @@ local function makeLaser(state: ProviderState, settings: Settings, owner: Owner,
         if self.dead or not state.active then
           return
         end
+        state.refreshStyle()
         passState.withRestore(pass, function()
           settings.draw(self, pass, draw.laser)
         end)
@@ -187,10 +185,31 @@ end
 local function build(context: plugin.Context, settings: Settings): Service
   -- The published service is revoked with this activation, so its methods need no liveness guard; lasers
   -- outlive the call that made them and check the activation themselves.
-  local state: ProviderState = {
+  local themes: theme.Service = context:require(theme.capability)
+  local revision = -1
+  local publishStyle: (contracts.Style) -> () = function(_style: contracts.Style): () end
+  local state: ProviderState
+  local function refreshStyle(): ()
+    if not state.active or not context:active() then
+      return
+    end
+    local snapshot = themes:current()
+    if revision == snapshot.revision then
+      return
+    end
+    local resolved = style.resolve(snapshot.theme, settings.style)
+    for _, target in ipairs(state.lasers) do
+      target.style = style.resolve(snapshot.theme, settings.style, target.styleOverrides)
+    end
+    publishStyle(resolved)
+    revision = snapshot.revision
+  end
+  state = {
     active = true,
     context = context,
     lasers = {},
+    themes = themes,
+    refreshStyle = refreshStyle,
   }
   context:effect(function()
     return function()
@@ -198,7 +217,7 @@ local function build(context: plugin.Context, settings: Settings): Service
       registry.destroyAll(state)
     end
   end)
-  local service: Service = {
+  local service = {
     inspect = function(_self: Service): inspection.Snapshot
       local result: { inspection.Registration } = {}
       local ownedSeats = 0
@@ -229,7 +248,7 @@ local function build(context: plugin.Context, settings: Settings): Service
       )
     end,
     HANDS = HANDS,
-    STYLE = settings.style,
+    STYLE = style.resolve(themes:current().theme, settings.style),
     new = function(_self: Service, owner: Owner, hand: Hand, options: Options?): Laser
       state.context:checkOwner(owner)
       return makeLaser(state, settings, owner, hand, options)
@@ -271,6 +290,13 @@ local function build(context: plugin.Context, settings: Settings): Service
       registry.draw(state, pass)
     end,
   }
+  publishStyle = function(resolved: contracts.Style): ()
+    service.STYLE = resolved
+  end
+  themes:onChanged(context, function(_snapshot: theme.Snapshot): ()
+    refreshStyle()
+  end)
+  refreshStyle()
   return service
 end
 
@@ -309,7 +335,7 @@ end
 return plugin.provider<<Config, Settings, Service>> {
   name = 'laser',
   capability = contracts.capability,
-  requires = { interaction = interaction.capability },
+  requires = { interaction = interaction.capability, theme = theme.capability },
   schema = config,
   validate = validate,
   build = build,

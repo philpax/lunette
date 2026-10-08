@@ -15,6 +15,7 @@ local function start(config)
   env.session = testing.boot {
     'frame',
     'menu',
+    'theme',
     'panels',
     'tags',
     'rules',

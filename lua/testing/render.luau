@@ -34,6 +34,10 @@ function render.new(calls)
     calls = sink(),
     _sink = sink,
     font = newFont(),
+    fonts = {},
+    fontAcquisitions = {},
+    fontReleases = {},
+    fontMeasurements = {},
     _state = {},
     _transform = lovr.math.newMat4(),
     _stacks = { state = {}, transform = {} },
@@ -41,6 +45,24 @@ function render.new(calls)
   self.pass = newPass(self)
   self._initial = self:checkpoint()
   return self
+end
+
+function Recorder:newFont(file, size, spread)
+  local spec = table.freeze { kind = 'file', file = file, size = size, spread = spread }
+  local key = file .. ':' .. tostring(size) .. ':' .. tostring(spread)
+  local face = newFont(spec, self)
+  local faces = self.fonts[key] or {}
+  self.fonts[key] = faces
+  faces[#faces + 1] = face
+  self.fontAcquisitions[#self.fontAcquisitions + 1] = { spec = spec, font = face, key = key }
+  return face
+end
+
+function Recorder:assertFontsReleased()
+  for _, acquisition in self.fontAcquisitions do
+    assert(acquisition.font.released, 'render recorder: leaked font ' .. acquisition.key)
+  end
+  assert(not self.font.released, 'render recorder: default font was released')
 end
 
 function Recorder:within(box, callback)
@@ -126,27 +148,45 @@ function Recorder:assertRestored(checkpoint)
   assert(sameState(self._state, wanted.state), 'render recorder: restoration: drawing state or scissor changed')
 end
 
-newFont = function()
-  local font = {}
+newFont = function(spec, recorder)
+  local font = { spec = spec or table.freeze { kind = 'default' }, released = false }
+  local advance = if spec then 0.7 + spec.size / 1000 + spec.spread / 10000 else 0.5
+  local height = if spec then 1.2 else 1
+  local function live(method, text)
+    assert(not font.released, 'render recorder: released font used for ' .. method)
+    if recorder then
+      recorder.fontMeasurements[#recorder.fontMeasurements + 1] = { font = font, method = method, text = text }
+    end
+  end
+  function font:release()
+    assert(spec, 'render recorder: default font must not be released')
+    assert(not self.released, 'render recorder: font released twice')
+    self.released = true
+    recorder.fontReleases[#recorder.fontReleases + 1] = { spec = spec, font = self }
+  end
   function font:getHeight()
-    return 1
+    live 'getHeight'
+    return height
   end
   function font:getLineSpacing()
-    return 1
+    live 'getLineSpacing'
+    return if spec then 1.1 else 1
   end
   function font:getWidth(text)
+    live('getWidth', text)
     local width = 0
     for line in (text .. '\n'):gmatch '(.-)\n' do
       local count = utf8.len(line)
       assert(count, 'render recorder: font: invalid UTF-8')
-      width = math.max(width, count * 0.5)
+      width = math.max(width, count * advance)
     end
     return width
   end
   function font:getLines(text, wrap)
+    live('getLines', text)
     wrap = wrap or 0
     assert(wrap >= 0 and wrap < math.huge, 'render recorder: font: invalid wrap')
-    local limit = if wrap == 0 then math.huge else math.max(1, math.floor(wrap * 2))
+    local limit = if wrap == 0 then math.huge else math.max(1, math.floor(wrap / advance))
     local lines = {}
     for line in (text .. '\n'):gmatch '(.-)\n' do
       assert(utf8.len(line), 'render recorder: font: invalid UTF-8')

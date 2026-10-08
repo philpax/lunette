@@ -46,6 +46,7 @@ function composition.options(provider, observed, ledger, form)
     init = function(context)
       ledger.activations += 1
       local activation = ledger.activations
+      local ownerEnded = false
       local widgets = context:require(ui.capability)
       local panel = widgets:newPanel(context, {
         name = 'vr-migration-probe',
@@ -68,6 +69,7 @@ function composition.options(provider, observed, ledger, form)
         onPointer = function(event)
           local record = table.clone(event)
           record.ownerActive = context:active()
+          record.ownerEnded = ownerEnded
           record.activation = activation
           ledger.events[#ledger.events + 1] = record
           if event.kind == 'press' then
@@ -88,12 +90,19 @@ function composition.options(provider, observed, ledger, form)
       })
       context:effect(function()
         return function()
+          ownerEnded = true
           ledger.ended += 1
         end
       end)
     end,
   }
   local patches = {
+    {
+      id = 'desktop/theme',
+      config = {
+        overrides = { typography = { font = { kind = 'file', file = 'fixture-theme.ttf', size = 28, spread = 5 } } },
+      },
+    },
     { insert = { id = 'example/ui/form', definition = form } },
     { insert = { id = 'vr-migration-observer', definition = observer } },
     { insert = { id = 'vr-migration-probe', definition = probe } },

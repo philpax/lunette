@@ -100,7 +100,8 @@ local function build(context: plugin.Context, settings: Settings): Service
       return assert(states[pointer], 'interaction: unknown pointer')
     end,
     dropped = function(target: Surface, pointer: Pointer)
-      if active and context:active() then
+      -- Pending unload forbids acquisition but still permits this terminal notification before cleanup.
+      if active then
         dropService:emit(context, { surface = target, pointer = pointer })
       end
     end,
@@ -446,7 +447,7 @@ local function build(context: plugin.Context, settings: Settings): Service
         end
       end,
       destroy = function(_self: Pointer): boolean
-        return destroy(if active and context:active() then 'pointer-destroyed' else 'provider-replaced')
+        return destroy(if active then 'pointer-destroyed' else 'provider-replaced')
       end,
       beginGrab = function(self: Pointer, target: Surface, pose: Mat4?): boolean
         return beginGrab(state, self, target, pose)
@@ -506,7 +507,7 @@ local function build(context: plugin.Context, settings: Settings): Service
       states[public], owners[public] = state, owner
       return function()
         cleanupEffect = nil
-        destroyRaw(if active and context:active() then 'pointer-destroyed' else 'provider-replaced')
+        destroyRaw(if active then 'pointer-destroyed' else 'provider-replaced')
       end
     end)
     if not state.dead then

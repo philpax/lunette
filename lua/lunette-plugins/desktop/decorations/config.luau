@@ -4,7 +4,7 @@ local titlebarStyle = require '@lunette-plugins/ui/titlebar-style'
 local ui = require '@lunette-contracts/ui'
 
 local descriptor = schema.object {
-  style = schema.optional(titlebarStyle.overrides),
+  style = schema.optional(titlebarStyle.editable),
 }
 
 export type Color = ui.Color

@@ -21,6 +21,8 @@ appearance.defaultTheme = {
   error = { 1, 0.2, 0.2, 1 },
   border = { 0.5, 0.5, 0.5, 1 },
   fontSize = 16,
+  panelRadius = 0,
+  controlRadius = 0,
   padding = 4,
   spacing = 2,
   borderWidth = 1,
@@ -39,34 +41,121 @@ function appearance.copyOverrides(overrides)
   if overrides == nil then
     return nil
   end
-  appearance.theme(appearance.defaultTheme, overrides)
   local result = {}
   for key, value in overrides do
-    result[key] = if type(value) == 'table' then table.freeze(table.clone(value)) else value
+    if key == 'font' then
+      assert(type(value) == 'table', 'ui substitute: font is a specification')
+      local allowed = if value.kind == 'default'
+        then { kind = true }
+        else { kind = true, file = true, size = true, spread = true }
+      for field in value do
+        assert(allowed[field], 'ui substitute: unknown font field ' .. tostring(field))
+      end
+      assert(value.kind == 'default' or value.kind == 'file', 'ui substitute: font kind is default or file')
+      if value.kind == 'file' then
+        assert(type(value.file) == 'string' and value.file ~= '', 'ui substitute: font file is nonempty')
+        for _, field in { 'size', 'spread' } do
+          assert(geometry.finite(value[field]) and value[field] > 0, 'ui substitute: font size and spread are positive')
+        end
+      end
+      result[key] = table.freeze(table.clone(value))
+    else
+      local default = appearance.defaultTheme[key]
+      assert(default ~= nil, 'ui substitute: unknown theme field ' .. tostring(key))
+      if type(default) == 'table' then
+        plugin.checkNumbers('testing/ui-substitute', key, value, 4)
+        result[key] = table.freeze(table.clone(value))
+      else
+        assert(geometry.finite(value) and value >= 0, 'ui substitute: theme measurements are finite and nonnegative')
+        assert(
+          (key ~= 'rowHeight' and key ~= 'fontSize') or value > 0,
+          'ui substitute: font and row sizes are positive'
+        )
+        result[key] = value
+      end
+    end
   end
   return table.freeze(result)
 end
 
 function appearance.theme(base, overrides)
-  local result = {}
-  for key, value in base do
-    result[key] = if type(value) == 'table' then table.freeze(table.clone(value)) else value
-  end
+  local result = table.clone(base)
   for key, value in overrides or {} do
-    assert(base[key] ~= nil, 'ui substitute: unknown theme field ' .. tostring(key))
-    if type(base[key]) == 'table' then
-      plugin.checkNumbers('testing/ui-substitute', key, value, 4)
-      result[key] = table.freeze(table.clone(value))
-    else
-      assert(
-        type(value) == 'number' and value == value and value >= 0 and value < math.huge,
-        'ui substitute: theme measurements are finite and nonnegative'
-      )
-      result[key] = value
+    result[key] = if key == 'font'
+      then value
+      elseif type(value) == 'table' then table.freeze(table.clone(value))
+      else value
+  end
+  return table.freeze(result)
+end
+
+function appearance.global(snapshot)
+  local global = snapshot.theme
+  local result = table.clone(appearance.defaultTheme)
+  for key, value in result do
+    if type(value) == 'table' then
+      result[key] = global.colors[key]
     end
   end
-  assert(result.rowHeight > 0 and result.fontSize > 0, 'ui substitute: font and row sizes are positive')
+  result.font = global.typography.font
+  result.fontSize = global.typography.bodySize
+  result.panelRadius, result.controlRadius = global.radii.uiPanel, global.radii.uiControl
+  for _, key in { 'padding', 'spacing', 'borderWidth', 'rowHeight' } do
+    result[key] = global.metrics[key]
+  end
   return table.freeze(result)
+end
+
+function appearance.resolve(record, base, overrides)
+  if not record.provider.context:active() or not record.owner:active() then
+    return false
+  end
+  local nextTheme = appearance.theme(base, overrides)
+  local previous = record.resolved
+  local spec = nextTheme.font
+  local lease = record.lease
+  if
+    not lease
+    or lease.spec.kind ~= spec.kind
+    or (
+      spec.kind == 'file'
+      and (lease.spec.file ~= spec.file or lease.spec.size ~= spec.size or lease.spec.spread ~= spec.spread)
+    )
+  then
+    local nextLease, nextEffect = record.provider.context:resource(record.owner, function()
+      local acquired = record.provider.theme:acquireFont(record.provider.context, spec)
+      return acquired, function()
+        acquired:dispose()
+      end
+    end)
+    local previousEffect = record.fontEffect
+    record.lease, record.fontEffect = nextLease, nextEffect
+    if previousEffect then
+      previousEffect:dispose()
+    end
+  end
+  record.layer = nextTheme
+  local resolved = table.clone(nextTheme)
+  resolved.font = record.lease.font
+  record.resolved = table.freeze(resolved)
+  return previous ~= nil
+    and (
+      previous.font ~= resolved.font
+      or previous.fontSize ~= resolved.fontSize
+      or previous.padding ~= resolved.padding
+      or previous.spacing ~= resolved.spacing
+      or previous.rowHeight ~= resolved.rowHeight
+      or previous.panelRadius ~= resolved.panelRadius
+      or previous.controlRadius ~= resolved.controlRadius
+    )
+end
+
+function appearance.release(record)
+  local effect = record.fontEffect
+  record.lease, record.fontEffect = nil, nil
+  if effect then
+    effect:dispose()
+  end
 end
 
 function appearance.callback(control, label, run, terminal)
@@ -233,6 +322,29 @@ defaultRenderer = function(pass: Pass, visual: ui.Visual)
     )
   )
   pass:plane(box.x + box.width / 2, box.y + box.height / 2, 0, box.width, box.height)
+  if visual.kind ~= 'panel' then
+    local style = visual.theme
+    local text = visual.value or visual.label
+    local available = math.max(0, box.width - 2 * style.padding)
+    local size = math.min(style.fontSize, math.max(0, box.height - 2 * style.padding) / style.font:getHeight())
+    if size > 0 and available > 0 and text ~= '' then
+      while text ~= '' and style.font:getWidth(text) * size > available do
+        local last = utf8.offset(text, -1)
+        text = text:sub(1, last - 1)
+      end
+      if text ~= '' then
+        pass:setFont(style.font)
+        pass:setColor(table.unpack(style.foreground))
+        pass:text(
+          text,
+          lovr.math.newMat4():translate(box.x + style.padding, box.y + style.padding, 0):scale(size),
+          0,
+          'left',
+          'bottom'
+        )
+      end
+    end
+  end
 end
 
 return appearance

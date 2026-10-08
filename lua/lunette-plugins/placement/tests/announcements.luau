@@ -28,7 +28,7 @@ end
 
 local function start()
   local env = { native = testing.native(), announced = {} }
-  env.session = testing.start { 'panels', 'tags', 'rules', 'placement' }
+  env.session = testing.start { 'theme', 'panels', 'tags', 'rules', 'placement' }
   env.listener = consumer(env.session, 'placement-listener')
   env.placer = consumer(env.session, 'placement-placer')
   env.listener.rules:addSource(env.listener.owner, {

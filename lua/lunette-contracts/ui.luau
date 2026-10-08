@@ -4,6 +4,7 @@ local plugin = require '@lunette-plugin'
 local owner = require '@lunette-contracts/owner'
 local surface = require '@lunette-contracts/surface'
 local focus = require '@lunette-contracts/focus'
+local theme = require '@lunette-contracts/theme'
 
 local ui = {}
 
@@ -24,7 +25,10 @@ export type Theme = {
   read selection: Color,
   read error: Color,
   read border: Color,
+  read font: Font,
   read fontSize: number,
+  read panelRadius: number,
+  read controlRadius: number,
   read padding: number,
   read spacing: number,
   read borderWidth: number,
@@ -43,7 +47,10 @@ export type ThemeOverrides = {
   read selection: Color?,
   read error: Color?,
   read border: Color?,
+  read font: theme.FontSpec?,
   read fontSize: number?,
+  read panelRadius: number?,
+  read controlRadius: number?,
   read padding: number?,
   read spacing: number?,
   read borderWidth: number?,
@@ -179,6 +186,8 @@ export type List = Control & {
 }
 export type Region = Control & { read setItems: (Region, { read [number]: RegionItem }) -> () }
 export type TitlebarStyle = {
+  read font: Font,
+  read cornerRadius: number,
   read barHeight: number,
   read margin: number,
   read barColor: Color,
@@ -191,6 +200,8 @@ export type TitlebarStyle = {
   read titleColor: Color,
 }
 export type TitlebarStyleOverrides = {
+  read font: theme.FontSpec?,
+  read cornerRadius: number?,
   read barHeight: number?,
   read margin: number?,
   read barColor: Color?,
@@ -262,6 +273,6 @@ export type Service = {
   read panels: (Service) -> { read [number]: Panel },
 }
 export type Capability = plugin.Capability<Service>
-ui.capability = plugin.capability<<Service>> { name = 'lunette/ui', schema = 1 }
+ui.capability = plugin.capability<<Service>> { name = 'lunette/ui', schema = 2 }
 
 return ui

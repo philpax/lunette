@@ -135,7 +135,13 @@ for _, focused in ipairs { false, true } do
   test('panel disposal isolates control inverses with focus ' .. tostring(focused), function()
     local state =
       { targets = {}, destroyed = {}, observedCounts = {}, surfaceInverses = 0, focusReads = 0, failFirst = false }
-    withSession(testing.start { substituteServices(state), 'ui' }, function(running)
+    local font = require('@testing/render').new().font
+    lovr.graphics = {
+      getDefaultFont = function()
+        return font
+      end,
+    }
+    withSession(testing.start { 'theme', substituteServices(state), 'ui' }, function(running)
       owner(running, 'testing/panel-lifetime', function(context, service)
         state.service = service
         state.panel = service:newPanel(context, options 'lifecycle')
@@ -185,7 +191,8 @@ for _, focused in ipairs { false, true } do
   end)
 end
 
-local entries = { 'frame', 'surfaces', 'drops', 'focus', 'interaction', 'laser', 'keyboard', 'desktop/pointing', 'ui' }
+local entries =
+  { 'theme', 'frame', 'surfaces', 'drops', 'focus', 'interaction', 'laser', 'keyboard', 'desktop/pointing', 'ui' }
 
 for _, showAgain in ipairs { false, true } do
   test('panel hiding preserves focus selected by cancellation with reshow ' .. tostring(showAgain), function()

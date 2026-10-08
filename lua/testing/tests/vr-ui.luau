@@ -13,6 +13,7 @@ local test = testing.suite()
 local function boot()
   return vrUi.boot {
     'frame',
+    'theme',
     'surfaces',
     'drops',
     'focus',

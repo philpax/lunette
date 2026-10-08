@@ -50,6 +50,7 @@ test('inspection separates adoption from provider-owned placements without enume
   local window = native.newWindow(25)
   native.events.windows = { window }
   local session = testing.start {
+    'theme',
     { id = 'panels', definition = require('@lunette-plugins/panels').definition, config = { rendering = 'layer' } },
     'tags',
     'rules',

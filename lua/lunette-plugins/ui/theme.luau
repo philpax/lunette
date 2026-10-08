@@ -1,88 +1,150 @@
--- Theme descriptors validate and freeze provider defaults and each panel or control override layer.
+-- Sparse appearance layers remain detached; resolved visuals carry the leased font handle.
 local schema = require '@lunette-plugin/schema'
 local ui = require '@lunette-contracts/ui'
+local globalTheme = require '@lunette-contracts/theme'
+local descriptors = require '@lunette-plugins/theme/descriptors'
 local theme = {}
 
-local color = schema.array(schema.number { minimum = 0, maximum = 1 }, { minLength = 4, maxLength = 4 })
 local positive = schema.refine(schema.number())(function(value: number): ()
   assert(value > 0, 'must be positive')
 end)
 local nonnegative = schema.number { minimum = 0 }
-local descriptor = schema.object {
-  background = schema.default(color) { 0.035, 0.045, 0.065, 1 },
-  foreground = schema.default(color) { 0.94, 0.96, 1, 1 },
-  control = schema.default(color) { 0.13, 0.17, 0.23, 1 },
-  hovered = schema.default(color) { 0.21, 0.29, 0.39, 1 },
-  pressed = schema.default(color) { 0.10, 0.35, 0.49, 1 },
-  disabled = schema.default(color) { 0.25, 0.28, 0.32, 1 },
-  focus = schema.default(color) { 0.40, 0.82, 1, 1 },
-  selection = schema.default(color) { 0.20, 0.42, 0.66, 1 },
-  error = schema.default(color) { 1, 0.38, 0.34, 1 },
-  border = schema.default(color) { 0.44, 0.52, 0.63, 1 },
-  fontSize = schema.default(positive)(20),
-  padding = schema.default(nonnegative)(8),
-  spacing = schema.default(nonnegative)(6),
-  borderWidth = schema.default(nonnegative)(2),
-  rowHeight = schema.default(positive)(40),
-  hapticStrength = schema.default(schema.number { minimum = 0, maximum = 1 })(0.25),
-  hapticDuration = schema.default(nonnegative)(0.03),
-}
-local overridesDescriptor = schema.object {
-  background = schema.optional(color),
-  foreground = schema.optional(color),
-  control = schema.optional(color),
-  hovered = schema.optional(color),
-  pressed = schema.optional(color),
-  disabled = schema.optional(color),
-  focus = schema.optional(color),
-  selection = schema.optional(color),
-  error = schema.optional(color),
-  border = schema.optional(color),
-  fontSize = schema.optional(positive),
-  padding = schema.optional(nonnegative),
-  spacing = schema.optional(nonnegative),
-  borderWidth = schema.optional(nonnegative),
-  rowHeight = schema.optional(positive),
-  hapticStrength = schema.optional(schema.number { minimum = 0, maximum = 1 }),
-  hapticDuration = schema.optional(nonnegative),
-}
+local function fields(font)
+  return {
+    background = schema.optional(descriptors.color),
+    foreground = schema.optional(descriptors.color),
+    control = schema.optional(descriptors.color),
+    hovered = schema.optional(descriptors.color),
+    pressed = schema.optional(descriptors.color),
+    disabled = schema.optional(descriptors.color),
+    focus = schema.optional(descriptors.color),
+    selection = schema.optional(descriptors.color),
+    error = schema.optional(descriptors.color),
+    border = schema.optional(descriptors.color),
+    font = schema.optional(font),
+    fontSize = schema.optional(positive),
+    panelRadius = schema.optional(nonnegative),
+    controlRadius = schema.optional(nonnegative),
+    padding = schema.optional(nonnegative),
+    spacing = schema.optional(nonnegative),
+    borderWidth = schema.optional(nonnegative),
+    rowHeight = schema.optional(positive),
+    hapticStrength = schema.optional(schema.number { minimum = 0, maximum = 1 }),
+    hapticDuration = schema.optional(nonnegative),
+  }
+end
+local overrides = schema.object(fields(descriptors.font))
+local editable = schema.object(fields(descriptors.editableFont))
+export type Spec = schema.Output<typeof(overrides)>
 
-theme.schema = descriptor
-theme.DEFAULT = descriptor.parse {}
+local BASE = {
+  background = { 0.035, 0.045, 0.065, 1 },
+  foreground = { 0.94, 0.96, 1, 1 },
+  control = { 0.13, 0.17, 0.23, 1 },
+  hovered = { 0.21, 0.29, 0.39, 1 },
+  pressed = { 0.10, 0.35, 0.49, 1 },
+  disabled = { 0.25, 0.28, 0.32, 1 },
+  focus = { 0.40, 0.82, 1, 1 },
+  selection = { 0.20, 0.42, 0.66, 1 },
+  error = { 1, 0.38, 0.34, 1 },
+  border = { 0.44, 0.52, 0.63, 1 },
+  font = { kind = 'default' },
+  fontSize = 20,
+  panelRadius = 0,
+  controlRadius = 0,
+  padding = 8,
+  spacing = 6,
+  borderWidth = 2,
+  rowHeight = 40,
+  hapticStrength = 0.25,
+  hapticDuration = 0.03,
+}
+theme.schema = overrides
+theme.editable = editable
+theme.DEFAULT = overrides.parse(BASE)
 
-function theme.copyOverrides(overrides: ui.ThemeOverrides?): ui.ThemeOverrides?
-  if overrides == nil then
-    return nil
-  end
-  return overridesDescriptor.parse(overrides, 'ui theme overrides')
+function theme.copyOverrides(value: ui.ThemeOverrides?): ui.ThemeOverrides?
+  return if value == nil then nil else overrides.parse(value, 'ui theme overrides')
 end
 
--- Resolve repeatedly for provider → panel → control precedence; each result owns frozen color arrays.
-function theme.resolve(base: ui.Theme, overrides: ui.ThemeOverrides?): ui.Theme
-  local validated = theme.validate(base)
-  return descriptor.resolve(overrides or {}, validated, 'ui theme overrides')
+function theme.project(value: unknown): ui.ThemeOverrides
+  local parsed = editable.parse(value, 'ui theme configuration')
+  local result = table.clone(parsed) :: { [string]: unknown }
+  result.font = if parsed.font then descriptors.projectFont(parsed.font) else nil
+  return overrides.parse(result, 'ui theme overrides')
+end
+
+function theme.inherit(base: ui.ThemeOverrides, value: ui.ThemeOverrides?): ui.ThemeOverrides
+  local result = table.clone(overrides.parse(base, 'ui theme')) :: { [string]: unknown }
+  for key, field in overrides.parse(value or {}, 'ui theme overrides') :: { read [string]: unknown } do
+    result[key] = field
+  end
+  return overrides.parse(result, 'ui theme')
+end
+
+function theme.global(value: globalTheme.Theme, radius: number): ui.ThemeOverrides
+  local colors, metrics = value.colors, value.metrics
+  return theme.inherit(theme.DEFAULT, {
+    background = colors.background,
+    foreground = colors.foreground,
+    control = colors.control,
+    hovered = colors.hovered,
+    pressed = colors.pressed,
+    disabled = colors.disabled,
+    focus = colors.focus,
+    selection = colors.selection,
+    error = colors.error,
+    border = colors.border,
+    font = value.typography.font,
+    fontSize = value.typography.bodySize,
+    padding = metrics.padding,
+    spacing = metrics.spacing,
+    borderWidth = metrics.borderWidth,
+    rowHeight = metrics.rowHeight,
+    panelRadius = radius,
+    controlRadius = value.radii.uiControl,
+  })
+end
+
+function theme.materialize(spec: ui.ThemeOverrides, font: Font): ui.Theme
+  local result = table.clone(theme.inherit(theme.DEFAULT, spec)) :: { [string]: unknown }
+  result.font = font
+  return table.freeze(result) :: ui.Theme
+end
+
+function theme.resolve(base: ui.Theme, value: ui.ThemeOverrides?): ui.Theme
+  local copied = theme.copyOverrides(value)
+  assert(not copied or copied.font == nil, 'ui theme: font specifications require a theme service lease')
+  local result = table.clone(theme.validate(base)) :: { [string]: unknown }
+  for key, field in copied or {} do
+    result[key] = field
+  end
+  return theme.validate(result :: ui.Theme)
 end
 
 function theme.validate(value: ui.Theme): ui.Theme
-  local validated = descriptor.parse(value, 'ui theme')
-  assert(value.background ~= nil, 'ui theme: missing background')
-  assert(value.foreground ~= nil, 'ui theme: missing foreground')
-  assert(value.control ~= nil, 'ui theme: missing control')
-  assert(value.hovered ~= nil, 'ui theme: missing hovered')
-  assert(value.pressed ~= nil, 'ui theme: missing pressed')
-  assert(value.disabled ~= nil, 'ui theme: missing disabled')
-  assert(value.focus ~= nil, 'ui theme: missing focus')
-  assert(value.selection ~= nil, 'ui theme: missing selection')
-  assert(value.error ~= nil, 'ui theme: missing error')
-  assert(value.border ~= nil, 'ui theme: missing border')
-  assert(value.fontSize ~= nil, 'ui theme: missing fontSize')
-  assert(value.padding ~= nil, 'ui theme: missing padding')
-  assert(value.spacing ~= nil, 'ui theme: missing spacing')
-  assert(value.borderWidth ~= nil, 'ui theme: missing borderWidth')
-  assert(value.rowHeight ~= nil, 'ui theme: missing rowHeight')
-  assert(value.hapticStrength ~= nil, 'ui theme: missing hapticStrength')
-  assert(value.hapticDuration ~= nil, 'ui theme: missing hapticDuration')
-  return validated
+  local raw = table.clone(value) :: { [string]: unknown }
+  local font = value.font
+  assert(font ~= nil and type(font.getHeight) == 'function', 'ui theme: missing font')
+  raw.font = nil
+  local parsed = overrides.parse(raw, 'ui theme')
+  for key in BASE :: { read [string]: unknown } do
+    if key ~= 'font' then
+      assert(raw[key] ~= nil, 'ui theme: missing ' .. key)
+    end
+  end
+  return theme.materialize(parsed, font)
+end
+
+function theme.geometryChanged(first: ui.Theme, second: ui.Theme): boolean
+  return first.font ~= second.font
+    or first.fontSize ~= second.fontSize
+    or first.padding ~= second.padding
+    or first.spacing ~= second.spacing
+    or first.borderWidth ~= second.borderWidth
+    or first.rowHeight ~= second.rowHeight
+    or first.panelRadius ~= second.panelRadius
+    or first.controlRadius ~= second.controlRadius
 end
 
 return theme

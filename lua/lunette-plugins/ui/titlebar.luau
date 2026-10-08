@@ -2,6 +2,7 @@
 local plugin = require '@lunette-plugin'
 local ui = require '@lunette-contracts/ui'
 local surface = require '@lunette-contracts/surface'
+local themesContract = require '@lunette-contracts/theme'
 local surfaces = require '@lunette-contracts/surfaces'
 local quad = require '@lunette-contracts/quad'
 local styleDefinition = require './titlebar-style'
@@ -86,17 +87,49 @@ function titlebar.new(
   visible: (() -> boolean)?,
   service: ui.Service,
   offers: surfaces.Service,
-  defaultStyle: ui.TitlebarStyle
+  defaultStyle: ui.TitlebarStyleOverrides,
+  themes: themesContract.Service,
+  onDestroyed: (() -> ())?
 ): ui.Titlebar
   context:checkOwner(owner)
   assert(type(name) == 'string' and name ~= '', 'ui titlebar: name is non-empty')
   assert(target.pose and target.width and target.height, 'ui titlebar: target has panel geometry')
   local options = titlebar.options(given)
-  local function resolveStyle(current: ui.TitlebarOptions): ui.TitlebarStyle
-    return styleDefinition.schema.resolve(current.style or {}, defaultStyle)
+  local function resolveStyle(current: ui.TitlebarOptions): ui.TitlebarStyleOverrides
+    return styleDefinition.inherit(
+      styleDefinition.inherit(styleDefinition.global(themes:current().theme), defaultStyle),
+      current.style
+    )
   end
-  local style = resolveStyle(options)
+  local spec = resolveStyle(options)
+  local lease = themes:acquireFont(context, spec.font)
+  local prepared, style = pcall(styleDefinition.materialize, spec, lease.font)
+  if not prepared then
+    local released, failure = pcall(lease.dispose, lease)
+    error(tostring(style) .. (if released then '' else '; ' .. tostring(failure)), 0)
+  end
+  local themeRevision = themes:current().revision
   local dead, highlighted = false, false
+  local refreshing = false
+  local function refresh(force: boolean?): ()
+    if dead or not context:active() or not context:owns(owner) or refreshing then
+      return
+    end
+    local snapshot = themes:current()
+    if not force and snapshot.revision == themeRevision then
+      return
+    end
+    local nextSpec = resolveStyle(options)
+    local nextLease = themes:acquireFont(context, nextSpec.font)
+    local prepared, nextStyle = pcall(styleDefinition.materialize, nextSpec, nextLease.font)
+    if not prepared then
+      local released, failure = pcall(nextLease.dispose, nextLease)
+      error(tostring(nextStyle) .. (if released then '' else '; ' .. tostring(failure)), 0)
+    end
+    local previous = lease
+    spec, lease, style, themeRevision = nextSpec, nextLease, nextStyle, snapshot.revision
+    previous:dispose()
+  end
   local pose = lovr.math.newMat4()
   local toolbar: ui.Panel? = nil
   local offer: plugin.Effect? = nil
@@ -118,10 +151,17 @@ function titlebar.new(
       pose:set(current):translate(0, offset(), 0)
     end
   end
+  local actionHeight = style.barHeight
+  local toolbarPose: { number } = {}
   local function sync(): ()
+    refresh()
     local panel = toolbar
     if dead or not panel or panel.dead then
       return
+    end
+    if actionHeight ~= style.barHeight then
+      actionHeight = style.barHeight
+      panel:setTheme { fontSize = actionHeight * 1000 * 0.4, padding = 3 }
     end
     place()
     local width = target.width or 0
@@ -196,7 +236,16 @@ function titlebar.new(
     if description.width ~= toolbarWidth or description.height ~= style.barHeight then
       panel:setSize(toolbarWidth, style.barHeight, toolbarWidth * 1000, style.barHeight * 1000)
     end
-    panel:setPose(lovr.math.newMat4(pose):translate(width / 2 - toolbarWidth / 2, 0, depth.layer))
+    local nextPose = lovr.math.newMat4(pose):translate(width / 2 - toolbarWidth / 2, 0, depth.layer)
+    local values = { nextPose:unpack(true) }
+    local moved = #toolbarPose ~= #values
+    for index, value in values do
+      moved = moved or toolbarPose[index] ~= value
+    end
+    if moved then
+      toolbarPose = values
+      panel:setPose(nextPose)
+    end
     panel:setVisible(live() and #actions > 0)
   end
   local function destroy(): boolean
@@ -210,6 +259,11 @@ function titlebar.new(
     for _, operation in
       {
         function(): ()
+          if onDestroyed then
+            onDestroyed()
+          end
+        end,
+        function(): ()
           if panel then
             panel:destroy()
           end
@@ -218,6 +272,9 @@ function titlebar.new(
           if offered then
             offered:dispose()
           end
+        end,
+        function(): ()
+          lease:dispose()
         end,
         function(): ()
           if inverse then
@@ -304,8 +361,16 @@ function titlebar.new(
         end,
         update = function(_self: ui.Titlebar, nextOptions: ui.TitlebarOptions): ()
           if not dead then
-            options = titlebar.options(nextOptions)
-            style = resolveStyle(options)
+            local parsed = titlebar.options(nextOptions)
+            local previous, previousLease = options, lease
+            options = parsed
+            local ok, failure = pcall(refresh, true)
+            if not ok then
+              if lease == previousLease then
+                options = previous
+              end
+              error(failure, 0)
+            end
             sync()
           end
         end,
@@ -321,38 +386,41 @@ function titlebar.new(
           if not width or not height or not targetPose then
             return
           end
-          passState.withRestore(pass, function(): ()
-            pass:setShader()
-            pass:setMaterial(nil)
-            pass:setFont(lovr.graphics.getDefaultFont())
-            pass:setDepthTest 'gequal'
-            pass:setDepthWrite(true)
-            local border = if highlighted then style.borderHighlightColor else style.borderColor
-            pass:setColor(border[1], border[2], border[3], border[4])
-            pass:plane(
-              lovr.math
-                .mat4(targetPose)
-                :translate(0, 0, -style.borderDepth)
-                :scale(width + style.borderThickness * 2, height + style.borderThickness * 2, 1),
-              'fill',
-              1,
-              1
-            )
-            local background = if highlighted then style.barHighlightColor else style.barColor
-            pass:setColor(background[1], background[2], background[3], background[4])
-            pass:plane(lovr.math.mat4(pose):scale(width, style.barHeight, 1), 'fill', 1, 1)
-            if width > reserved and options.title ~= '' then
-              pass:setDepthWrite(false)
-              local foreground = style.titleColor
-              pass:setColor(foreground[1], foreground[2], foreground[3], foreground[4])
-              pass:text(
-                options.title,
-                lovr.math.mat4(pose):translate(-reserved / 2, 0, depth.layer):scale(vector.pack(style.titleHeight)),
-                (width - reserved) / style.titleHeight,
-                'center',
-                'middle'
+          local style, drawLease = style, lease
+          drawLease:withFont(function(font: Font): ()
+            passState.withRestore(pass, function(): ()
+              pass:setShader()
+              pass:setMaterial(nil)
+              pass:setFont(font)
+              pass:setDepthTest 'gequal'
+              pass:setDepthWrite(true)
+              local border = if highlighted then style.borderHighlightColor else style.borderColor
+              pass:setColor(border[1], border[2], border[3], border[4])
+              pass:plane(
+                lovr.math
+                  .mat4(targetPose)
+                  :translate(0, 0, -style.borderDepth)
+                  :scale(width + style.borderThickness * 2, height + style.borderThickness * 2, 1),
+                'fill',
+                1,
+                1
               )
-            end
+              local background = if highlighted then style.barHighlightColor else style.barColor
+              pass:setColor(background[1], background[2], background[3], background[4])
+              pass:plane(lovr.math.mat4(pose):scale(width, style.barHeight, 1), 'fill', 1, 1)
+              if width > reserved and options.title ~= '' then
+                pass:setDepthWrite(false)
+                local foreground = style.titleColor
+                pass:setColor(foreground[1], foreground[2], foreground[3], foreground[4])
+                pass:text(
+                  options.title,
+                  lovr.math.mat4(pose):translate(-reserved / 2, 0, depth.layer):scale(vector.pack(style.titleHeight)),
+                  (width - reserved) / style.titleHeight,
+                  'center',
+                  'middle'
+                )
+              end
+            end)
           end)
           if toolbar then
             toolbar:draw(pass)

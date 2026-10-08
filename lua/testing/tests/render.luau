@@ -25,6 +25,14 @@ local function lastDraw(recorder)
   error 'no recorded draw'
 end
 
+local function managerStyle(recorder)
+  local theme = require('@lunette-plugins/theme/presets').BASE
+  local appearance = require '../ui-substitute/appearance'
+  local visual = table.clone(appearance.global { theme = theme })
+  visual.font = recorder.font
+  return { theme = theme, visual = table.freeze(visual) }
+end
+
 local function managerOptions()
   return {
     width = 600,
@@ -380,7 +388,7 @@ test('checks existing manager logical clipping through a real XR projection', fu
   pass:scale(0.002, -0.002, 1)
   local caller = recorder:checkpoint()
   recorder:within({ x = 0, y = 0, width = 600, height = 400 }, function(current)
-    managerDraw.render(current, state, managerOptions())
+    managerDraw.render(current, state, managerOptions(), managerStyle(recorder))
   end)
   recorder:assertRestored(caller)
   expect.truthy(#recorder.calls > 20, 'real manager emits geometry and text')
@@ -404,12 +412,12 @@ for _, failure in { 'text', 'getLines', 'pop' } do
       end
       error(problem, 0)
     end
-    local ok, message = pcall(managerDraw.render, pass, state, managerOptions())
+    local ok, message = pcall(managerDraw.render, pass, state, managerOptions(), managerStyle(recorder))
     target[failure] = original
     expect.equal(ok, false)
     expect.equal(message, problem)
     recorder:assertRestored(caller)
-    managerDraw.render(pass, state, managerOptions())
+    managerDraw.render(pass, state, managerOptions(), managerStyle(recorder))
     recorder:assertRestored(caller)
   end)
 end
@@ -430,7 +438,8 @@ test('exposes failed manager cleanup while preserving the original drawing error
     end
     originalPop(self, kind)
   end
-  local ok, message = pcall(managerDraw.render, pass, view.new { x = 400, y = 400 }, managerOptions())
+  local ok, message =
+    pcall(managerDraw.render, pass, view.new { x = 400, y = 400 }, managerOptions(), managerStyle(recorder))
   expect.equal(ok, false)
   expect.equal(message, drawError)
   expect.equal(table.concat(attempted, ','), 'transform,state', 'both cleanup operations are attempted')
@@ -465,13 +474,16 @@ test('measures existing flat panel content and chrome without a GPU or a new UI 
   end)
   recorder:assertRestored(caller)
   panelDraw.chrome(target, recorder.pass, {
+    font = recorder.font,
+    windowRadius = 0,
+    monitorRadius = 0,
     borderColor = { 0.2, 0.3, 0.4, 1 },
     borderThickness = 0.02,
     borderDepth = 0.01,
     titleColor = { 1, 1, 1, 1 },
     titleMargin = 0.02,
     titleHeight = 0.08,
-  })
+  }, recorder.font)
   recorder:assertBounds({ x = -1.02, y = -0.52, width = 2.04, height = 1.14 }, nil, nil, pose)
   expect.equal(recorder.calls[1][1], 'push')
   local face

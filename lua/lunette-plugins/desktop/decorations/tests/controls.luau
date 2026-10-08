@@ -16,6 +16,7 @@ local function withTitlebar(provider, run)
     'drops',
     'focus',
     'interaction',
+    'theme',
     'laser',
     'keyboard',
     'desktop/pointing',

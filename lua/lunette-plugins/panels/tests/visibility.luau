@@ -3,11 +3,16 @@ local expect = testing.expect
 local plugin = require '@lunette-plugin'
 local panelsContract = require '@lunette-contracts/panels'
 local panelsModule = require '@lunette-plugins/panels'
+local themeContract = require '@lunette-contracts/theme'
+local render = require '@testing/render'
 
 local test = testing.suite()
 
-local function start(definition, config)
+local function start(definition, config, themeDefinition, newFont)
   local env = { native = testing.native(), meshes = {} }
+  if newFont then
+    lovr.graphics.newFont = newFont
+  end
   lovr.graphics.newMesh = function(vertexCount)
     local mesh = { vertexCount = vertexCount, released = false }
     function mesh:setVertices(vertices)
@@ -23,8 +28,11 @@ local function start(definition, config)
     return mesh
   end
   env.session = testing.start {
+    { id = 'theme', definition = themeDefinition or require('@lunette-plugins/theme').definition },
     { id = 'panels', definition = definition or panelsModule.definition, config = config },
   }
+  local theme = env.session:observe(themeContract.capability)
+  env.theme, env.themeOwner = theme.service, theme.context
   local first = env.session:observe(panelsContract.capability)
   env.panels, env.owner = first.service, first.context
   env.other = env.session:observe(panelsContract.capability).context
@@ -55,7 +63,30 @@ local function drawn(env, panel)
 end
 
 test("chrome is off unless a panel or the provider's configuration asks for it", function()
-  local env = start()
+  local acquisitionFails = false
+  local delivered = 0
+  local broker = plugin.provider {
+    name = 'chrome-theme',
+    capability = themeContract.capability,
+    build = function(context)
+      local real = require('@lunette-plugins/theme').build(context)
+      return setmetatable({
+        onChanged = function(_, owner, run)
+          return real:onChanged(owner, function(snapshot)
+            delivered += 1
+            run(snapshot)
+          end)
+        end,
+        acquireFont = function(_, owner, spec)
+          if acquisitionFails then
+            error 'panel font acquisition failure'
+          end
+          return real:acquireFont(owner, spec)
+        end,
+      }, { __index = real })
+    end,
+  }
+  local env = start(nil, nil, broker.definition)
   local plain = env.panels:fromWindow(env.owner, window(env, 1), { height = 1 })
   expect.equal(plain.chrome, false, 'the chrome of a plain panel')
   local counts = drawn(env, plain)
@@ -65,21 +96,168 @@ test("chrome is off unless a panel or the provider's configuration asks for it",
   counts = drawn(env, framed)
   expect.equal(counts.plane, 2, 'a panel with chrome draws a border')
   expect.equal(counts.text, 1, 'a panel with chrome draws a title')
+
+  local faces = {}
+  lovr.graphics.newFont = function(file, size, spread)
+    local font = render.new().font
+    font.file, font.size, font.spread, font.released = file, size, spread, false
+    font.getHeight = function()
+      assert(not font.released, 'measuring a released font')
+      return 2
+    end
+    font.release = function()
+      font.released = true
+    end
+    faces[#faces + 1] = font
+    return font
+  end
+  local selected = env.theme:select(env.themeOwner, {
+    colors = { foreground = { 0.8, 0.7, 0.6, 1 }, border = { 0.1, 0.2, 0.3, 1 }, focus = { 0.4, 0.5, 0.6, 1 } },
+    typography = { font = { kind = 'file', file = 'panel-face-a.ttf', size = 24, spread = 3 }, titleHeight = 0.06 },
+    metrics = { titlebarBorderThickness = 0.012 },
+    radii = { window = 0.03, monitor = 0.04 },
+  })
+  local pass, recorder = env.native.events.pass, env.native.events.render
+  pass:setFont(recorder.font)
+  pass:setColor(0.3, 0.2, 0.1, 0.5)
+  local caller = recorder:checkpoint()
+  counts = drawn(env, framed)
+  local function paintCalls()
+    local border, title
+    for _, call in env.native.events.draw do
+      if call[1] == 'plane' and not border then
+        border = call
+      elseif call[1] == 'text' then
+        title = call
+      end
+    end
+    return border, title
+  end
+  local border, title = paintCalls()
+  expect.equal(title.state.setFont[1], faces[1], 'the title draws with the selected face')
+  expect.equal(title.state.setColor[1], 0.8, 'the title inherits foreground')
+  expect.equal(border.state.setColor[1], 0.1, 'the border inherits border')
+  expect.near(title[3]:getScale(), 0.03, 1e-9, 'the selected face measures the title height')
+  expect.equal(env.panels.STYLE.font.file, 'panel-face-a.ttf', 'STYLE reports a specification, not a face')
+  expect.equal(env.panels.STYLE.borderThickness, 0.012, 'the metre titlebar border token')
+  expect.equal(env.panels.STYLE.titleMargin, 0.02, 'the title placement margin stays policy')
+  expect.equal(env.panels.STYLE.borderDepth, 0.001, 'the border depth stays policy')
+  expect.equal(framed.windowRadius, 0.03, 'the window radius data seam')
+  expect.equal(framed.monitorRadius, 0.04, 'the monitor radius data seam')
+  expect.equal(counts.plane, 2, 'radii do not change scene geometry yet')
+  recorder:assertRestored(caller)
+  framed:setHighlighted(true)
+  drawn(env, framed)
+  border = paintCalls()
+  expect.equal(border.state.setColor[1], 0.4, 'the highlight inherits focus')
+
+  local square = env.panels:fromWindow(env.owner, window(env, 3), { windowRadius = 0, monitorRadius = 0 })
+  expect.equal(square.windowRadius, 0, 'a per-panel zero overrides the theme')
+  selected:update { typography = { font = { kind = 'file', file = 'panel-face-b.ttf', size = 28, spread = 4 } } }
+  expect.truthy(faces[1].released, 'the subscription publishes the replacement before dropping old paint')
+  local retained = env.panels.STYLE
+  acquisitionFails = true
+  local beforeRevision = env.theme:current().revision
+  selected:update {
+    colors = { foreground = { 0.2, 0.3, 0.4, 1 } },
+    typography = { font = { kind = 'file', file = 'panel-face-b.ttf', size = 28, spread = 4 } },
+  }
+  expect.equal(env.theme:current().revision, beforeRevision + 1, 'the palette publishes a new revision')
+  expect.equal(delivered, 3, 'one subscription receives each current revision')
+  local reports = env.native.events.reported
+  expect.equal(#reports, 1, 'the failed subscription refresh is reported')
+  expect.truthy(reports[1].message:find('panel font acquisition failure', 1, true), 'the acquisition error')
+  expect.raises(function()
+    drawn(env, framed)
+  end, 'panel font acquisition failure', 'a failed refresh raises')
+  expect.falsy(faces[2].released, 'a failed refresh retains the previous paint lease')
+  expect.equal(retained.font.file, 'panel-face-b.ttf', 'a failed refresh keeps the published specification')
+  acquisitionFails = false
+  drawn(env, framed)
+  _, title = paintCalls()
+  expect.equal(title.state.setFont[1], faces[2], 'a later draw retries the current revision')
+  expect.equal(title.state.setColor[1], 0.2, 'the successful retry publishes the current palette')
+
+  local text = pass.text
+  pass.text = function()
+    selected:update { typography = { font = { kind = 'file', file = 'panel-face-c.ttf', size = 30, spread = 4 } } }
+    env.panels:update()
+    expect.falsy(faces[2].released, 'the old draw invocation retains its face through refresh')
+    text(pass, 'retained', lovr.math.newMat4(), 0, 'center', 'middle')
+    error 'chrome title failure'
+  end
+  expect.raises(function()
+    drawn(env, framed)
+  end, 'chrome title failure', 'a failing chrome draw')
+  pass.text = text
+  recorder:assertRestored(caller)
+  expect.truthy(faces[2].released, 'the invocation drops its face after restoration')
+  selected:dispose()
+  expect.truthy(faces[3].released, 'ending a selection refreshes and releases stale paint')
+  framed:raycast(vector.pack(0, 0, 1), vector.pack(0, 0, -1))
+  expect.equal(env.panels.STYLE.font.kind, 'default', 'the style returns to the base spec')
+  expect.equal(square.windowRadius, 0, 'the per-panel zero survives global resets')
+  expect.raises(function()
+    env.panels:fromWindow(env.owner, window(env, 4), { windowRadius = -1 })
+  end, nil, 'a negative per-panel radius')
   env.session:close()
 
-  env = start(nil, { chrome = true })
-  expect.equal(env.panels:fromWindow(env.owner, window(env, 5), { height = 1 }).chrome, true, 'the default')
+  local newFont = lovr.graphics.newFont
+  env = start(nil, {
+    chrome = true,
+    style = {
+      font = { kind = 'file', file = 'panel-explicit.ttf' },
+      windowRadius = 0,
+      borderThickness = 0,
+      titleColor = { 0.9, 0.1, 0.2, 1 },
+    },
+  }, nil, newFont)
+  local defaultChrome = env.panels:fromWindow(env.owner, window(env, 5), { height = 1 })
+  expect.equal(defaultChrome.chrome, true, 'the default')
   local own = env.panels:fromWindow(env.owner, window(env, 6), { height = 1, chrome = false })
   expect.equal(own.chrome, false, "a panel's own option")
+  local override = env.theme:select(env.themeOwner, {
+    typography = { titleHeight = 0.07 },
+    metrics = { titlebarBorderThickness = 0.02 },
+    radii = { window = 0.08, monitor = 0.09 },
+    colors = { foreground = { 0.3, 0.4, 0.5, 1 } },
+  })
+  drawn(env, defaultChrome)
+  local explicitTitle
+  for _, call in env.native.events.draw do
+    if call[1] == 'text' then
+      explicitTitle = call
+    end
+  end
+  expect.equal(explicitTitle.state.setFont[1], faces[#faces], 'explicit provider font wins')
+  expect.equal(explicitTitle.state.setColor[1], 0.9, 'explicit provider title colour wins')
+  expect.equal(env.panels.STYLE.font.size, 32, 'editable file fonts project their default size')
+  expect.equal(env.panels.STYLE.font.spread, 4, 'editable file fonts project their default spread')
+  expect.equal(env.panels.STYLE.titleHeight, 0.07, 'omitted title height remains theme-derived')
+  expect.equal(env.panels.STYLE.borderThickness, 0, 'an explicit zero border survives a theme change')
+  expect.equal(defaultChrome.windowRadius, 0, 'an explicit zero provider radius survives a theme change')
+  expect.equal(defaultChrome.monitorRadius, 0.09, 'an omitted provider radius inherits')
+  expect.raises(function()
+    env.panels.STYLE.font.size = 12
+  end, nil, 'the projected specification is immutable')
+  override:dispose()
   env.session:close()
+  expect.truthy(faces[#faces].released, 'shutdown releases the explicit provider font')
 end)
 
 test('the shape hooks pick a panel and place its layer', function()
   local raycasts, layered = {}, {}
+  local beforeBase
   local env = start(panelsModule.define {
     name = 'shaped-panels',
     rendering = 'layer',
     shape = {
+      draw = function(target, pass, base)
+        if beforeBase then
+          beforeBase()
+        end
+        base(target, pass)
+      end,
       raycast = function(target)
         raycasts[#raycasts + 1] = target
         return 1, 2, 3
@@ -114,6 +292,22 @@ test('the shape hooks pick a panel and place its layer', function()
   expect.equal(layered[1], panel, 'the panel the hook placed')
   expect.truthy(table.find(calls, 'curve 0') and table.find(calls, 'position'), 'the default placed it flat')
   expect.equal(drawn(env, panel).plane, nil, 'a panel on a layer is not drawn in the scene')
+  claim.granted = false
+  env.panels:update()
+  local changed
+  beforeBase = function()
+    changed = env.theme:select(env.themeOwner, { colors = { foreground = { 0.2, 0.3, 0.4, 1 } } })
+  end
+  expect.equal(drawn(env, panel).plane, nil, 'a revision change stops a stale hook base')
+  beforeBase = nil
+  expect.equal(drawn(env, panel).plane, 1, 'a current hook base draws normally')
+  changed:dispose()
+  beforeBase = function()
+    env.session.instances.panels:disable()
+  end
+  expect.equal(drawn(env, panel).plane, nil, 'provider shutdown stops a stale hook base')
+  expect.truthy(panel.dead, 'shutdown retires the drawn panel')
+  env.native.events.render:assertRestored()
   env.session:close()
 end)
 

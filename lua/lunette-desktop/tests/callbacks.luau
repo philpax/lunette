@@ -52,6 +52,7 @@ test('a raising handler or offer is reported and the ones after it still run', f
     end,
   }
   local session = testing.boot {
+    'theme',
     'frame',
     'surfaces',
     'errors',

@@ -12,6 +12,7 @@ local bindings = require '@lunette-contracts/bindings'
 local tags = require '@lunette-contracts/tags'
 local surfaces = require '@lunette-contracts/surfaces'
 local lunette = require '@lunette'
+local theme = require '@lunette-contracts/theme'
 local test = testing.suite()
 
 test('wrist menu actions are VR accessible and session actions do not register physical bindings', function()
@@ -27,6 +28,7 @@ test('wrist menu actions are VR accessible and session actions do not register p
       bindings = bindings.capability,
       tags = tags.capability,
       surfaces = surfaces.capability,
+      theme = theme.capability,
     },
     init = function(context)
       services.ui = context:require(ui.capability)
@@ -36,6 +38,7 @@ test('wrist menu actions are VR accessible and session actions do not register p
       services.bindings = context:require(bindings.capability)
       services.tags = context:require(tags.capability)
       services.surfaces = context:require(surfaces.capability)
+      services.theme = context:require(theme.capability)
     end,
   }
   desktop.run {
@@ -67,8 +70,60 @@ test('wrist menu actions are VR accessible and session actions do not register p
   fixture:step()
   fixture:clickControl(services.ui, 'desktop/menu', 'open')
   local function invoke(id)
+    fixture:axis('right', 0, 0)
+    fixture:button('right', 'trigger', false)
+    local description, list = fixture:discover(services.ui, 'desktop/menu', 'actions')
+    fixture:aim(description, list.bounds.x + list.bounds.width / 2, list.bounds.y + list.bounds.height / 2, 'right')
+    fixture:step()
+    for _ = 1, #services.menu:list() do
+      fixture:axis('right', 0, 1)
+      fixture:step(0.1)
+    end
+    for _ = 1, #services.menu:list() do
+      local found, _, item = pcall(fixture.discover, fixture, services.ui, 'desktop/menu', 'actions', id)
+      if found and item.bounds and item.bounds.height > 0 then
+        break
+      end
+      fixture:axis('right', 0, -1)
+      fixture:step(0.1)
+    end
+    fixture:axis('right', 0, 0)
+    fixture:step()
     fixture:clickControl(services.ui, 'desktop/menu', 'actions', 'right', id)
   end
+  local function selectedPreset(preset)
+    local count = 0
+    for _, action in services.menu:list() do
+      for _, name in { 'dark', 'light', 'arcade' } do
+        if action.id == 'desktop/theme/' .. name then
+          expect.equal(action.label, 'Theme: ' .. name:sub(1, 1):upper() .. name:sub(2), 'preset label')
+          expect.equal(action.selected, name == preset, 'preset selection follows its successful action')
+          if action.selected then
+            count += 1
+          end
+        end
+      end
+      if action.id == 'desktop/theme/dark-mode' then
+        expect.equal(action.selected, preset == 'dark', 'Dark mode is selected only for Dark')
+      end
+    end
+    expect.equal(count, 1, 'exactly one Appearance preset is selected')
+  end
+  selectedPreset 'dark'
+  local initialUI, initialKeyboard = services.ui, services.keyboard
+  invoke 'desktop/theme/light'
+  selectedPreset 'light'
+  invoke 'desktop/theme/dark-mode'
+  selectedPreset 'dark'
+  invoke 'desktop/theme/dark-mode'
+  selectedPreset 'light'
+  invoke 'desktop/theme/arcade'
+  selectedPreset 'arcade'
+  expect.equal(services.theme:current().theme.typography.font.kind, 'file', 'Arcade selects its bundled face')
+  invoke 'desktop/theme/dark-mode'
+  selectedPreset 'dark'
+  expect.equal(services.ui, initialUI, 'Appearance actions retain the UI provider')
+  expect.equal(services.keyboard, initialKeyboard, 'Appearance actions retain the keyboard provider')
   invoke 'desktop/keyboard/toggle'
   expect.truthy(services.display:isVisible(), 'Keyboard shows the shared board')
   local function countBoards()
@@ -97,7 +152,8 @@ test('wrist menu actions are VR accessible and session actions do not register p
   expect.equal(#services.surfaces:all(), beforeManager + 3, 'Plugins opens the manager and titlebar surfaces')
   fixture:clickControl(services.ui, 'desktop/menu/titlebar', 'close')
   fixture:discover(services.ui, 'desktop/menu', 'open')
-  expect.equal(#testing.host.shutdown(), 0, 'the session releases its resources')
+  local shutdown = testing.host.shutdown()
+  expect.equal(#shutdown, 0, 'the session releases its resources: ' .. table.concat(shutdown, '\n'))
   native.assertResourcesReleased()
 end)
 

@@ -8,6 +8,7 @@ local test = testing.suite()
 
 local function boot()
   local running = vrUi.boot {
+    'theme',
     'frame',
     'surfaces',
     'drops',

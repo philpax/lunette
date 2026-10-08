@@ -9,6 +9,7 @@ local test = testing.suite()
 local function start()
   local session = testing.boot {
     'frame',
+    'theme',
     'panels',
     'tags',
     'rules',

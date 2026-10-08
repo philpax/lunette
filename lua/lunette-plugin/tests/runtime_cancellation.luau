@@ -128,6 +128,7 @@ for _, command in { 'close', 'disable', 'reload', 'disable-enable' } do
           else
             instance:reload {}
           end
+          expect.falsy(contexts[1]:active(), 'pending cancellation revokes acquisition authority before draining')
           runtime:drain()
           return function()
             table.insert(events, 'acquired-1')

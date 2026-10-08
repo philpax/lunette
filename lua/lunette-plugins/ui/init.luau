@@ -9,17 +9,24 @@ local config = require '@lunette-plugins/ui/config'
 local owners = require '@lunette-plugins/ui/control-owners'
 local validation = require '@lunette-plugins/ui/validation'
 local titlebar = require '@lunette-plugins/ui/titlebar'
+local theme = require '@lunette-contracts/theme'
+local appearanceTheme = require '@lunette-plugins/ui/theme'
+local titlebarStyle = require '@lunette-plugins/ui/titlebar-style'
 
 export type Config = config.Config
 export type Settings = config.Settings
 
 local function build(context: plugin.Context, settings: Settings): ui.Service
+  local providerTheme = appearanceTheme.project(settings.theme)
+  local providerTitlebarStyle = titlebarStyle.project(settings.titlebarStyle)
   local registry: owners.Registry = {}
   local services: panel.Services = {
     focus = context:require(focus.capability),
     surfaces = context:require(surfaces.capability),
     owners = registry,
+    theme = context:require(theme.capability),
   }
+  local titlebars: { ui.Titlebar } = {}
   local panels: { ui.Panel } = {}
   local names: { [string]: boolean } = {}
   local generation: ui.Generation = { kind = 'ui-generation' }
@@ -39,7 +46,7 @@ local function build(context: plugin.Context, settings: Settings): ui.Service
           owner,
           options,
           services,
-          settings.theme,
+          providerTheme,
           settings.draw,
           generation,
           function(name, target, given)
@@ -70,7 +77,8 @@ local function build(context: plugin.Context, settings: Settings): ui.Service
       options: ui.TitlebarOptions,
       visible: (() -> boolean)?
     ): ui.Titlebar
-      return titlebar.new(
+      local created: ui.Titlebar? = nil
+      local result = titlebar.new(
         context,
         owner,
         name,
@@ -79,8 +87,23 @@ local function build(context: plugin.Context, settings: Settings): ui.Service
         visible,
         service,
         services.surfaces,
-        settings.titlebarStyle
+        providerTitlebarStyle,
+        services.theme,
+        function(): ()
+          if created then
+            local index = table.find(titlebars, created)
+            if index then
+              table.remove(titlebars, index)
+            end
+            created = nil
+          end
+        end
       )
+      created = result
+      if not result.dead then
+        titlebars[#titlebars + 1] = result
+      end
+      return result
     end,
     panels = function(_self: ui.Service): { read [number]: ui.Panel }
       local result: { ui.Panel } = {}
@@ -92,6 +115,35 @@ local function build(context: plugin.Context, settings: Settings): ui.Service
       return table.freeze(result)
     end,
   }
+  services.theme:onChanged(context, function(_snapshot: theme.Snapshot): ()
+    if not context:active() then
+      return
+    end
+    local failures: { string } = {}
+    local function attempt(run: () -> ()): ()
+      local ok, failure = pcall(run)
+      if not ok then
+        failures[#failures + 1] = tostring(failure)
+      end
+    end
+    for _, current in table.clone(titlebars) do
+      if not current.dead then
+        attempt(function(): ()
+          current:sync()
+        end)
+      end
+    end
+    for _, current in table.clone(panels) do
+      if not current.dead then
+        attempt(function(): ()
+          current:describe()
+        end)
+      end
+    end
+    if #failures > 0 then
+      error('ui appearance refresh: ' .. table.concat(failures, '; '), 0)
+    end
+  end)
   return service
 end
 
@@ -99,6 +151,6 @@ return plugin.provider<<Config, Settings, ui.Service>> {
   name = 'ui',
   schema = config,
   capability = ui.capability,
-  requires = { focus = focus.capability, surfaces = surfaces.capability },
+  requires = { focus = focus.capability, surfaces = surfaces.capability, theme = theme.capability },
   build = build,
 }

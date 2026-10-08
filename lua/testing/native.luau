@@ -206,6 +206,7 @@ function native.new()
       assert(fake.subscriptionCount(name) == 0, 'leaked subscription: ' .. name)
     end
     assert(events.closed == 0, 'cleanup closed caller-owned window')
+    events.render:assertFontsReleased()
   end
 
   installNative(fake, events, subscribe, clearSubscriptions)
@@ -320,7 +321,13 @@ installLovr = function(events)
   end)
   local font = recorder.font
   events.render = recorder
+  events.fontAcquisitions = recorder.fontAcquisitions
+  events.fontReleases = recorder.fontReleases
+  events.fontMeasurements = recorder.fontMeasurements
   lovr.graphics = {
+    newFont = function(file, size, spread)
+      return recorder:newFont(file, size, spread)
+    end,
     getDefaultFont = function()
       return font
     end,

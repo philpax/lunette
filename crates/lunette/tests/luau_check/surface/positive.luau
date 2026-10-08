@@ -1,6 +1,7 @@
 local lunette = require '@lunette'
 local surface = require '@lunette-contracts/surface'
 local interaction = require '@lunette-contracts/interaction'
+local owner = require '@lunette-contracts/owner'
 
 type SurfaceMetadata = { read dead: boolean, read width: number? }
 type PointerMetadata = { read dead: boolean, read distance: number? }
@@ -80,6 +81,15 @@ local function protocolSurface(): interaction.Surface
       return nil, nil, nil
     end,
     onPointer = genericReceiver,
+    attachFrame = function(_: surface.Surface, _: owner.Owner, _: surface.FrameStyle): surface.FrameAttachment
+      return {
+        update = function(_: surface.FrameAttachment, _: surface.FrameStyle) end,
+        isJoined = function(_: surface.FrameAttachment): boolean
+          return false
+        end,
+        dispose = function(_: surface.FrameAttachment) end,
+      }
+    end,
   }
 end
 

@@ -8,7 +8,16 @@ local theme = require './theme'
 local textFieldGeometry = require './text-field-geometry'
 local passState = require '@lunette-plugins/pass-state'
 local depth = require './depth'
+local measurement = require './measurement-cache'
+export type Cache = { labels: measurement.Cache, fields: measurement.Cache }
 local draw = {}
+function draw.newCache(): Cache
+  return { labels = measurement.new(), fields = measurement.new() }
+end
+function draw.clearCache(cache: Cache): ()
+  measurement.clear(cache.labels)
+  measurement.clear(cache.fields)
+end
 
 type TextEntry = {
   read value: string,
@@ -18,37 +27,28 @@ type TextEntry = {
   read overflow: boolean,
 }
 
-type FontCache = {
-  read measure: unknown,
-  read height: number,
-  read density: number?,
-  read entries: { TextEntry },
-}
-
-local CACHE_LIMIT = 32
 local snapshot: (ui.Visual) -> ui.Visual
-local protected: (Pass, () -> ()) -> ()
-local renderDefault: ui.Renderer
+local protected: (Pass, Font, () -> ()) -> ()
+local renderDefault: (Pass, ui.Visual, Cache?) -> ()
 local rectangle: (Pass, ui.Bounds, ui.Bounds) -> ()
 local border: (Pass, ui.Bounds, ui.Bounds, number) -> ()
-local text: (Pass, Font, string, ui.Bounds, ui.Bounds, number) -> boolean
-local fittedText: (Font, string, number, number, number) -> TextEntry
-local cacheFor: (Font, number) -> { TextEntry }
-local renderTextField: (Pass, Font, ui.Visual, ui.Bounds) -> boolean
-local renderItems: (Pass, Font, ui.Visual, ui.Bounds) -> boolean
+local text: (Pass, Font, string, ui.Bounds, ui.Bounds, number, Cache?) -> boolean
+local fittedText: (Font, string, number, number, number, Cache?) -> TextEntry
+local renderTextField: (Pass, Font, ui.Visual, ui.Bounds, Cache?) -> boolean
+local renderItems: (Pass, Font, ui.Visual, ui.Bounds, Cache?) -> boolean
 local inset: (ui.Bounds, number) -> ui.Bounds
 local sameBounds: (ui.Bounds, ui.Bounds) -> boolean
 local validateGeometry: (ui.Visual, ui.Visual) -> ()
 local setColor: (Pass, ui.Color) -> ()
 local singleLine: (string) -> string
 
-function draw.render(pass: Pass, visual: ui.Visual, hooks: { read [number]: ui.DrawHook }?): ()
+function draw.render(pass: Pass, visual: ui.Visual, hooks: { read [number]: ui.DrawHook }?, cache: Cache?): ()
   local declared = snapshot(visual)
   local renderer: ui.Renderer = function(target: Pass, value: ui.Visual): ()
     validateGeometry(value, declared)
     local immutable = snapshot(value)
-    protected(target, function()
-      renderDefault(target, immutable)
+    protected(target, immutable.theme.font, function()
+      renderDefault(target, immutable, cache)
     end)
   end
   for _, hook in hooks or {} do
@@ -56,7 +56,7 @@ function draw.render(pass: Pass, visual: ui.Visual, hooks: { read [number]: ui.D
     renderer = function(target: Pass, value: ui.Visual): ()
       validateGeometry(value, declared)
       local immutable = snapshot(value)
-      protected(target, function()
+      protected(target, immutable.theme.font, function()
         hook(target, immutable, base)
       end)
     end
@@ -101,11 +101,11 @@ snapshot = function(value: ui.Visual): ui.Visual
   }
 end
 
-protected = function(pass: Pass, render: () -> ()): ()
+protected = function(pass: Pass, font: Font, render: () -> ()): ()
   passState.withRestore(pass, function()
     pass:setShader()
     pass:setMaterial(nil)
-    pass:setFont(lovr.graphics.getDefaultFont())
+    pass:setFont(font)
     pass:setCullMode 'none'
     pass:setDepthTest 'gequal'
     pass:setDepthWrite(false)
@@ -113,12 +113,12 @@ protected = function(pass: Pass, render: () -> ()): ()
   end)
 end
 
-renderDefault = function(pass: Pass, visual: ui.Visual): ()
+renderDefault = function(pass: Pass, visual: ui.Visual, cache: Cache?): ()
   local clip = geometry.intersect(visual.bounds, visual.clip)
   if not clip then
     return
   end
-  local font, style = lovr.graphics.getDefaultFont(), visual.theme
+  local font, style = visual.theme.font, visual.theme
   geometry.positive(font:getHeight(), 'font height')
   pass:setShader()
   pass:setMaterial(nil)
@@ -142,7 +142,7 @@ renderDefault = function(pass: Pass, visual: ui.Visual): ()
   local content = inset(visual.bounds, style.padding)
   local overflow = visual.overflow == true
   if visual.kind == 'text-field' then
-    overflow = renderTextField(pass, font, visual, clip) or overflow
+    overflow = renderTextField(pass, font, visual, clip, cache) or overflow
   elseif visual.kind == 'choice' then
     local header: ui.Bounds = {
       x = visual.bounds.x,
@@ -151,22 +151,22 @@ renderDefault = function(pass: Pass, visual: ui.Visual): ()
       height = math.min(visual.bounds.height, style.rowHeight),
     }
     setColor(pass, if visual.enabled then style.foreground else style.border)
-    overflow = text(pass, font, visual.value or visual.label, inset(header, style.padding), clip, style.fontSize)
+    overflow = text(pass, font, visual.value or visual.label, inset(header, style.padding), clip, style.fontSize, cache)
       or overflow
     if visual.opened then
-      overflow = renderItems(pass, font, visual, clip) or overflow
+      overflow = renderItems(pass, font, visual, clip, cache) or overflow
     end
   elseif visual.kind == 'list' or visual.kind == 'region' then
-    overflow = renderItems(pass, font, visual, clip) or overflow
+    overflow = renderItems(pass, font, visual, clip, cache) or overflow
   else
     setColor(pass, if visual.enabled then style.foreground else style.border)
-    overflow = text(pass, font, visual.label, content, clip, style.fontSize) or overflow
+    overflow = text(pass, font, visual.label, content, clip, style.fontSize, cache) or overflow
   end
   if visual.error and visual.error ~= '' then
     setColor(pass, style.error)
     local height = math.min(style.fontSize, content.height)
     local message = { x = content.x, y = content.y + content.height - height, width = content.width, height = height }
-    text(pass, font, visual.error, message, clip, style.fontSize)
+    text(pass, font, visual.error, message, clip, style.fontSize, cache)
   end
   setColor(pass, if visual.error then style.error elseif visual.focused then style.focus else style.border)
   border(
@@ -209,7 +209,15 @@ border = function(pass: Pass, bounds: ui.Bounds, clip: ui.Bounds, width: number)
   )
 end
 
-text = function(pass: Pass, font: Font, value: string, bounds: ui.Bounds, clip: ui.Bounds, size: number): boolean
+text = function(
+  pass: Pass,
+  font: Font,
+  value: string,
+  bounds: ui.Bounds,
+  clip: ui.Bounds,
+  size: number,
+  cache: Cache?
+): boolean
   if value == '' then
     return false
   end
@@ -219,7 +227,7 @@ text = function(pass: Pass, font: Font, value: string, bounds: ui.Bounds, clip: 
   end
   local height = font:getHeight()
   local scale = math.min(size, visible.height) / height
-  local fitted = fittedText(font, value, scale, visible.width, height)
+  local fitted = fittedText(font, value, scale, visible.width, height, cache)
   if fitted.shown then
     -- Glyphs are y-up, while logical panel coordinates are y-down.
     pass:text(fitted.shown, visible.x, visible.y, depth.layer, scale, math.pi, 1, 0, 0, 0, 'left', 'top')
@@ -227,12 +235,20 @@ text = function(pass: Pass, font: Font, value: string, bounds: ui.Bounds, clip: 
   return fitted.overflow
 end
 
-fittedText = function(font: Font, value: string, scale: number, width: number, height: number): TextEntry
-  local cached = cacheFor(font, height)
-  for index, entry in cached do
+fittedText = function(
+  font: Font,
+  value: string,
+  scale: number,
+  width: number,
+  _height: number,
+  cache: Cache?
+): TextEntry
+  local entries = measurement.entries(if cache then cache.labels else nil, font)
+  for index, raw in entries or {} do
+    local entry = raw :: TextEntry
     if entry.value == value and entry.scale == scale and entry.width == width then
-      table.remove(cached, index)
-      table.insert(cached, entry)
+      table.remove(entries :: { unknown }, index)
+      table.insert(entries :: { unknown }, entry)
       return entry
     end
   end
@@ -256,27 +272,11 @@ fittedText = function(font: Font, value: string, scale: number, width: number, h
     end
   end
   local result: TextEntry = { value = value, scale = scale, width = width, shown = shown, overflow = overflow }
-  if #cached == CACHE_LIMIT then
-    table.remove(cached, 1)
-  end
-  table.insert(cached, result)
+  measurement.store(entries, result)
   return result
 end
 
-local fontCaches: { [Font]: FontCache } = setmetatable({}, { __mode = 'k' })
-
-cacheFor = function(font: Font, height: number): { TextEntry }
-  -- Single-line metrics depend on the font and its pixel density, not its atlas or line spacing.
-  local density = if font.getPixelDensity then font:getPixelDensity() else nil
-  local cached = fontCaches[font]
-  if not cached or cached.measure ~= font.getWidth or cached.height ~= height or cached.density ~= density then
-    cached = { measure = font.getWidth, height = height, density = density, entries = {} }
-    fontCaches[font] = cached
-  end
-  return cached.entries
-end
-
-renderTextField = function(pass: Pass, font: Font, visual: ui.Visual, clip: ui.Bounds): boolean
+renderTextField = function(pass: Pass, font: Font, visual: ui.Visual, clip: ui.Bounds, cache: Cache?): boolean
   local style, value = visual.theme, visual.value or ''
   local layout = textFieldGeometry.layout(
     value,
@@ -285,14 +285,15 @@ renderTextField = function(pass: Pass, font: Font, visual: ui.Visual, clip: ui.B
     visual.bounds,
     clip,
     style,
-    font
+    font,
+    if cache then cache.fields else nil
   )
   if not layout then
     return value ~= ''
   end
   if value == '' then
     setColor(pass, style.border)
-    text(pass, font, visual.label, layout.visible, layout.visible, style.fontSize)
+    text(pass, font, visual.label, layout.visible, layout.visible, style.fontSize, cache)
   end
   local selection = layout.selectionBounds
   if selection then
@@ -323,7 +324,7 @@ renderTextField = function(pass: Pass, font: Font, visual: ui.Visual, clip: ui.B
   return layout.overflow
 end
 
-renderItems = function(pass: Pass, font: Font, visual: ui.Visual, clip: ui.Bounds): boolean
+renderItems = function(pass: Pass, font: Font, visual: ui.Visual, clip: ui.Bounds, cache: Cache?): boolean
   local style, overflow = visual.theme, false
   for _, item in visual.items do
     if item.bounds then
@@ -348,7 +349,8 @@ renderItems = function(pass: Pass, font: Font, visual: ui.Visual, clip: ui.Bound
         end
       end
       setColor(pass, if item.enabled and visual.enabled then style.foreground else style.border)
-      overflow = text(pass, font, item.label, inset(item.bounds, style.padding), clip, style.fontSize) or overflow
+      overflow = text(pass, font, item.label, inset(item.bounds, style.padding), clip, style.fontSize, cache)
+        or overflow
       if item.selected then
         setColor(pass, style.focus)
         border(pass, item.bounds, clip, math.max(2, style.borderWidth))

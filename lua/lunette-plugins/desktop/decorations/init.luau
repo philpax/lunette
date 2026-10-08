@@ -6,6 +6,7 @@ local panels = require '@lunette-contracts/panels'
 local ui = require '@lunette-contracts/ui'
 local config = require '@lunette-plugins/desktop/decorations/config'
 local controls = require '@lunette-plugins/desktop/decorations/controls'
+local titlebarStyle = require '@lunette-plugins/ui/titlebar-style'
 
 export type Color = config.Color
 export type Style = config.Style
@@ -20,6 +21,7 @@ return plugin.consumer<<Config, Settings>>({
     local frames = context:require(frame.capability)
     local registry = context:require(panels.capability)
     local widgets = context:require(ui.capability)
+    local style = if settings.style then titlebarStyle.project(settings.style) else nil
     local entries: { [panels.Panel]: ui.Titlebar } = {}
     local refusal: string? = nil
     local refresh: () -> ()
@@ -30,7 +32,7 @@ return plugin.consumer<<Config, Settings>>({
           continue
         end
         live[panel] = true
-        local options = controls.options(context, panel, settings.style, refusal, function(): ()
+        local options = controls.options(context, panel, style, refusal, function(): ()
           if context:active() and not panel.dead and not panel.source.dead then
             local accepted, reason = lunette.selectMonitors()
             refusal = if accepted then nil else reason

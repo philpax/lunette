@@ -28,11 +28,17 @@ export type State = controllerActions.State & {
   rows: { draw.Row },
   rowIndices: { number },
   lines: { string },
+  detailRecords: { string },
+  measuredRecords: { string }?,
+  measuredDetails: { string }?,
+  rowHeight: number,
+  rowSpacing: number,
   wrappedDetails: boolean,
   wrapDetails: (({ string }, number) -> { string })?,
 }
 
 local refresh: (State) -> ()
+local refreshRows: (State) -> ()
 local selectedEntry: (State) -> composition.Entry?
 local cancelEdit: (State) -> ()
 local localPoint: (State, graph.Point) -> graph.Point
@@ -77,6 +83,11 @@ function controller.new(
     rowIndices = {},
     editorRows = {},
     lines = {},
+    detailRecords = {},
+    measuredRecords = nil,
+    measuredDetails = nil,
+    rowHeight = 34,
+    rowSpacing = 2,
     wrappedDetails = false,
     wrapDetails = wrapDetails,
     close = close,
@@ -87,6 +98,50 @@ end
 
 function controller.update(state: State): ()
   refresh(state)
+end
+
+function controller.prepareStyle(
+  state: State,
+  rowHeight: number,
+  rowSpacing: number,
+  wrapDetails: (({ string }, number) -> { string })?
+): () -> ()
+  local prepared = table.clone(state)
+  prepared.rowHeight, prepared.rowSpacing = rowHeight, rowSpacing
+  if wrapDetails and state.wrappedDetails then
+    local all = wrapDetails(state.detailRecords, state.sidebar)
+    prepared.scroll = math.clamp(state.scroll, 0, math.max(0, #all - 1))
+    prepared.lines = {}
+    for index = prepared.scroll + 1, #all do
+      prepared.lines[#prepared.lines + 1] = all[index]
+    end
+  end
+  if rowHeight ~= state.rowHeight or rowSpacing ~= state.rowSpacing then
+    refreshRows(prepared)
+  end
+  return function(): ()
+    state.rowHeight, state.rowSpacing = prepared.rowHeight, prepared.rowSpacing
+    state.scroll, state.lines = prepared.scroll, prepared.lines
+    state.rows, state.rowIndices = prepared.rows, prepared.rowIndices
+  end
+end
+
+function controller.measureDetails(state: State, font: Font, size: number): ()
+  if state.tab == 'catalog' or (state.tab == 'configure' and state.draft) then
+    return
+  end
+  local records = state.detailRecords
+  local all = draw.wrapDetails(font, records, state.sidebar, size)
+  if state.detailRecords ~= records then
+    return
+  end
+  state.measuredRecords, state.measuredDetails = records, all
+  state.scroll = math.clamp(state.scroll, 0, math.max(0, #all - 1))
+  state.lines = {}
+  for index = state.scroll + 1, #all do
+    state.lines[#state.lines + 1] = all[index]
+  end
+  state.wrappedDetails = true
 end
 
 function controller.options(state: State): draw.Options
@@ -130,9 +185,11 @@ function controller.setSearch(state: State, value: string): ()
   refresh(state)
 end
 
-function controller.endSearch(state: State): ()
+function controller.endSearch(state: State, refreshDetails: boolean?): ()
   view.endSearch(state.view)
-  refresh(state)
+  if refreshDetails ~= false then
+    refresh(state)
+  end
 end
 
 function controller.setText(state: State, value: string): ()
@@ -165,9 +222,11 @@ function controller.confirmText(state: State): boolean
   return nextModel ~= nil
 end
 
-function controller.cancelText(state: State): ()
+function controller.cancelText(state: State, refreshDetails: boolean?): ()
   cancelEdit(state)
-  refresh(state)
+  if refreshDetails ~= false then
+    refresh(state)
+  end
 end
 
 function controller.clearText(state: State): ()
@@ -357,41 +416,12 @@ refresh = function(state: State): ()
   state.graphBounds, state.bodyBounds = layout.graphBounds, layout.bodyBounds
   state.editBounds, state.searchBounds = layout.editBounds, layout.searchBounds
   state.view.viewport = { x = layout.graphBounds.width, y = layout.graphBounds.height }
-  local available = math.max(1, math.floor(state.bodyBounds.height / 36))
   if state.tab == 'catalog' then
-    state.scroll = math.clamp(state.scroll, 0, math.max(0, #state.catalog - 1))
     state.lines = { 'Known session entries', 'Select a removed entry, then Load.' }
-    for index = state.scroll + 1, math.min(#state.catalog, state.scroll + available) do
-      local known = state.catalog[index]
-      state.rows[#state.rows + 1] = {
-        x = state.bodyBounds.x,
-        y = state.bodyBounds.y + #state.rows * 36,
-        width = state.bodyBounds.width,
-        height = 34,
-        label = known.id,
-        value = if known.installed then 'installed' else 'removed',
-        selected = known.id == state.catalogSelection,
-        editable = not known.installed,
-      }
-      state.rowIndices[#state.rowIndices + 1] = index
-    end
+    refreshRows(state)
   elseif state.tab == 'configure' and entry and entry.configurable and entry.schema then
-    state.scroll = math.clamp(state.scroll, 0, math.max(0, #state.editorRows - 1))
     state.lines = { entry.id .. ': configuration draft', 'Callbacks and opaque values remain read-only.' }
-    for index = state.scroll + 1, math.min(#state.editorRows, state.scroll + available) do
-      local row = state.editorRows[index]
-      state.rows[#state.rows + 1] = {
-        x = state.bodyBounds.x,
-        y = state.bodyBounds.y + #state.rows * 36,
-        width = state.bodyBounds.width,
-        height = 34,
-        label = row.label,
-        value = row.text,
-        selected = index == state.row,
-        editable = not row.readOnly,
-      }
-      state.rowIndices[#state.rowIndices + 1] = index
-    end
+    refreshRows(state)
     if state.message == '' then
       state.message = tostring(#state.editorRows) .. ' options; use Previous/Next to scroll.'
     end
@@ -405,9 +435,24 @@ refresh = function(state: State): ()
         return state.service:ownerId(registration.owner)
       end
     )
+    local previous = state.detailRecords
+    local unchanged = #previous == #all
+    for index, record in all do
+      if previous[index] ~= record then
+        unchanged = false
+        break
+      end
+    end
+    if unchanged then
+      all = previous
+    end
+    state.detailRecords = all
     local wrapDetails = state.wrapDetails
     if wrapDetails then
       all = wrapDetails(all, state.sidebar)
+      state.wrappedDetails = true
+    elseif state.measuredRecords == all and state.measuredDetails then
+      all = state.measuredDetails
       state.wrappedDetails = true
     end
     state.scroll = math.clamp(state.scroll, 0, math.max(0, #all - 1))
@@ -427,6 +472,32 @@ refresh = function(state: State): ()
       controller.clearText(state)
     end,
   })
+end
+
+refreshRows = function(state: State): ()
+  if state.tab ~= 'catalog' and state.tab ~= 'configure' then
+    return
+  end
+  local count = if state.tab == 'catalog' then #state.catalog else #state.editorRows
+  state.scroll = math.clamp(state.scroll, 0, math.max(0, count - 1))
+  state.rows, state.rowIndices = {}, {}
+  local step = state.rowHeight + state.rowSpacing
+  local available = math.max(1, math.floor(state.bodyBounds.height / step))
+  for index = state.scroll + 1, math.min(count, state.scroll + available) do
+    local known, row = state.catalog[index], state.editorRows[index]
+    local catalog = state.tab == 'catalog'
+    state.rows[#state.rows + 1] = {
+      x = state.bodyBounds.x,
+      y = state.bodyBounds.y + #state.rows * step,
+      width = state.bodyBounds.width,
+      height = state.rowHeight,
+      label = if catalog then known.id else row.label,
+      value = if catalog then (if known.installed then 'installed' else 'removed') else row.text,
+      selected = if catalog then known.id == state.catalogSelection else index == state.row,
+      editable = if catalog then not known.installed else not row.readOnly,
+    }
+    state.rowIndices[#state.rowIndices + 1] = index
+  end
 end
 
 return controller

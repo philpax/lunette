@@ -8,7 +8,7 @@ local test = testing.suite()
 
 local function start(extra)
   testing.native()
-  local entries = { 'drops', 'focus', 'interaction' }
+  local entries = { 'theme', 'drops', 'focus', 'interaction' }
   for _, entry in ipairs(extra) do
     entries[#entries + 1] = entry
   end

@@ -75,6 +75,8 @@ fn load(roots: &Roots) -> Result<(), Box<dyn std::error::Error>> {
          local theme = require '@lunette-contracts/theme'
          local themeProvider = require '@lunette-plugins/theme'
          assert(theme.capability ~= nil and themeProvider.definition ~= nil)
+         local themeSelector = require '@lunette-plugins/desktop/theme'
+         assert(themeSelector ~= nil)
          assert(require('@lunette').textBoundaries('é')[2] == 4)",
     )
     .set_name("@installed-ui-main.luau")

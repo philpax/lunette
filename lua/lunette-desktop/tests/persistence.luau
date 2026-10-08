@@ -7,7 +7,8 @@ local vocabulary = require '@lunette-contracts/vocabulary'
 
 local test = testing.suite()
 
-local PROVIDERS = { 'frame', 'panels', 'drops', 'tags', 'rules', 'placement', 'adoption', 'layouts', 'layout/arc' }
+local PROVIDERS =
+  { 'frame', 'theme', 'panels', 'drops', 'tags', 'rules', 'placement', 'adoption', 'layouts', 'layout/arc' }
 
 -- Each consumer group uses fresh factories and reads the arrangement file independently.
 local function placementConsumers(session)

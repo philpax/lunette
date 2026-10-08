@@ -16,7 +16,8 @@ test('the shipped configuration starts, reloads through the production path, and
   end
   expect.equal(#native.events.spawned, 0, 'reload opens no application')
   expect.equal(lovr.quit(), false, 'quit does not veto')
-  expect.equal(#testing.host.shutdown(), 0, 'the failures of the shutdown')
+  local reports = testing.host.shutdown()
+  expect.equal(#reports, 0, 'the failures of the shutdown: ' .. table.concat(reports, '\n'))
   native.assertResourcesReleased()
 end)
 

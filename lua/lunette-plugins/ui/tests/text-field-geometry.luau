@@ -6,15 +6,19 @@ local theme = require '../theme'
 local expect = testing.expect
 local test = testing.suite()
 
+local measurement = require '../measurement-cache'
+local cache = measurement.new()
 local function layout(value, caret, anchor, bounds, clip, overrides, font)
+  font = font or render.new().font
   return geometry.layout(
     value,
     caret,
     anchor,
     bounds,
     clip,
-    theme.resolve(theme.DEFAULT, overrides),
-    font or render.new().font
+    theme.materialize(theme.inherit(theme.DEFAULT, overrides), font),
+    font,
+    cache
   )
 end
 

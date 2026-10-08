@@ -2,6 +2,7 @@ local schema = require '@lunette-plugin/schema'
 local contracts = require '@lunette-contracts/laser'
 local aim = require './aim'
 local triggerLock = require './trigger-lock'
+local style = require './style'
 
 export type ReadBase = (contracts.Hand) -> contracts.Input?
 export type ReadInput = (contracts.Hand, ReadBase) -> contracts.Input?
@@ -72,15 +73,7 @@ local BUTTON = schema.union(
   )
 )
 local MAPPING = schema.object { control = CONTROL, button = BUTTON }
-local COLOR = schema.array(schema.number())
-local STYLE = schema.object {
-  length = schema.default(schema.number())(1.5),
-  color = schema.default(COLOR) { 0.55, 0.7, 1, 0.5 },
-  hoverColor = schema.default(COLOR) { 0.75, 0.9, 1, 0.9 },
-  cursorRadius = schema.default(schema.number())(0.006),
-  hapticStrength = schema.default(schema.number())(0.2),
-  hapticDuration = schema.default(schema.number())(0.01),
-}
+local STYLE = style.configuration
 local function defaultCallback<F>(callback: F): schema.Schema<F?, F>
   return schema.default(schema.callback(callback))(callback)
 end

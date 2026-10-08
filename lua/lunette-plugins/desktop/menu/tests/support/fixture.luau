@@ -14,6 +14,7 @@ function fixture.boot(provider, config)
     'drops',
     'focus',
     'interaction',
+    'theme',
     'laser',
     'keyboard',
     'desktop/pointing',

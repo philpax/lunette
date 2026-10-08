@@ -1,6 +1,7 @@
 -- Shared recursive types and constants avoid dependencies between provider contracts.
 
 local lunette = require '@lunette'
+local owner = require '@lunette-contracts/owner'
 
 local vocabulary = {}
 
@@ -166,7 +167,22 @@ export type Pointer = {
   read vibrate: (Pointer, Haptic) -> boolean,
 }
 
+export type FrameColor = { read [number]: number }
+export type FrameStyle = {
+  read headerHeight: number,
+  read headerRadius: number,
+  read borderThickness: number,
+  read borderDepth: number,
+  read borderColor: FrameColor,
+}
+export type FrameAttachment = {
+  read update: (FrameAttachment, FrameStyle) -> (),
+  read isJoined: (FrameAttachment) -> boolean,
+  read dispose: (FrameAttachment) -> (),
+}
+
 type SurfaceFields = {
+  read attachFrame: ((Surface, owner.Owner, FrameStyle) -> FrameAttachment)?,
   read dead: boolean,
   read grabbable: boolean?,
   -- A primary-button edge begins a spatial grab instead of a click on this surface.
@@ -192,6 +208,7 @@ type SurfaceFields = {
 
 -- Luau rejects the recursive `SurfaceFields` alias and makes `setPose` ambiguous in an intersection.
 type MovableFields = {
+  read attachFrame: ((Surface, owner.Owner, FrameStyle) -> FrameAttachment)?,
   read dead: boolean,
   read grabbable: boolean?,
   read triggerGrabbable: boolean?,

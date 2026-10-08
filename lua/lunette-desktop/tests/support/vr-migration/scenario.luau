@@ -249,7 +249,11 @@ function scenario.resources(env, context)
   expect.equal(env.native.subscriptionCount 'onProcessExited', 0, context .. ': no demonstration process listener')
   local reports = testing.takeReports()
   expect.equal(#reports, 0, context .. ': no plugin reports: ' .. table.concat(reports, '; '))
-  expect.equal(#env.native.events.reported, 0, context .. ': no native error reports')
+  local messages = {}
+  for _, report in env.native.events.reported do
+    messages[#messages + 1] = report.message
+  end
+  expect.equal(#env.native.events.reported, 0, context .. ': no native error reports: ' .. table.concat(messages, '; '))
 end
 
 return scenario

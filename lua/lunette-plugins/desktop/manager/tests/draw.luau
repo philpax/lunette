@@ -3,7 +3,19 @@ local plugin = require '@lunette-plugin'
 local frameContract = require '@lunette-contracts/frame'
 local management = require '@lunette-plugin/management'
 local controller = require '../controller'
-local draw = require '../draw'
+local drawing = require '../draw'
+local presets = require '@lunette-plugins/theme/presets'
+local uiTheme = require '@lunette-plugins/ui/theme'
+local draw = {
+  hit = drawing.hit,
+  wrapDetails = function(font, records, sidebar)
+    return drawing.wrapDetails(font, records, sidebar, presets.BASE.typography.bodySize)
+  end,
+  render = function(pass, state, options)
+    local visual = uiTheme.materialize(uiTheme.global(presets.BASE, 0), lovr.graphics.getDefaultFont())
+    return drawing.render(pass, state, options, { theme = presets.BASE, visual = visual })
+  end,
+}
 local graph = require '../graph'
 local view = require '../view'
 local expect = testing.expect
@@ -258,7 +270,12 @@ test('honours visibility filters and highlights selected nodes and edges', funct
   expect.truthy(hasText(fake.events, 'loop'), 'self-loop of visible node remains')
   local selected = 0
   for _, command in fake.events.draw do
-    if command[1] == 'setColor' and command[2] == 0xffc568 then
+    if
+      command[1] == 'setColor'
+      and command[2][1] == presets.BASE.colors.focus[1]
+      and command[2][2] == presets.BASE.colors.focus[2]
+      and command[2][3] == presets.BASE.colors.focus[3]
+    then
       selected += 1
     end
   end
@@ -268,7 +285,12 @@ test('honours visibility filters and highlights selected nodes and edges', funct
   draw.render(pass, state, options())
   selected = 0
   for _, command in fake.events.draw do
-    if command[1] == 'setColor' and command[2] == 0xffc568 then
+    if
+      command[1] == 'setColor'
+      and command[2][1] == presets.BASE.colors.focus[1]
+      and command[2][2] == presets.BASE.colors.focus[2]
+      and command[2][3] == presets.BASE.colors.focus[3]
+    then
       selected += 1
     end
   end

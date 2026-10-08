@@ -5,6 +5,10 @@ local keyboardContract = require '@lunette-contracts/keyboard'
 local interactionContract = require '@lunette-contracts/interaction'
 local focusContract = require '@lunette-contracts/focus'
 local keyboard = require '@lunette-plugins/keyboard'
+local theme = require '@lunette-contracts/theme'
+local appearance = require '@lunette-plugins/keyboard/appearance'
+local config = require '@lunette-plugins/keyboard/config'
+local presets = require '@lunette-plugins/theme/presets'
 
 local test = testing.suite()
 
@@ -28,7 +32,7 @@ local function start()
     name = 'custom-keyboard',
     rows = ROWS,
     layers = { symbols = SYMBOLS },
-    style = { keyUnit = 1, gap = 0 },
+    style = { keyUnit = 1, gap = 0, keyRadius = 0.003 },
     modifierKeys = { [42] = 'shift', [29] = 'control' },
     locks = { 'shift' },
     onKey = function(board, key, pointer, base)
@@ -42,11 +46,13 @@ local function start()
       base(board, key, pointer)
     end,
     drawKey = function(pass, key, state, base)
-      env.drawn[#env.drawn + 1] = { key = key, held = state.held, hovered = state.hovered, board = state.keyboard }
+      env.drawn[#env.drawn + 1] =
+        { key = key, held = state.held, hovered = state.hovered, board = state.keyboard, style = state.style }
+      expect.equal(pass:getFont(), state.style.font, 'the hook measures with the exact leased face')
       base(pass, key, state)
     end,
   }
-  env.session = testing.start { 'drops', 'focus', 'interaction', { id = 'keyboard', definition = definition } }
+  env.session = testing.start { 'theme', 'drops', 'focus', 'interaction', { id = 'keyboard', definition = definition } }
   local service, owner, pointers, focus
   env.session:use(plugin.define {
     name = 'keyboard-options-test',
@@ -220,10 +226,58 @@ test('drawKey wraps the default for every key, with the hover and held states', 
       expect.equal(entry.held, false, 'a layer key is not held while its layer is hidden')
     end
   end
+  local observed = env.session:observe(theme.capability)
+  board:setSize(board.width * 2)
+  local selection = observed.service:select(observed.context, {
+    colors = {
+      background = { 0.11, 0.12, 0.13, 1 },
+      control = { 0.21, 0.22, 0.23, 1 },
+      pressed = { 0.31, 0.32, 0.33, 1 },
+      hovered = { 0.41, 0.42, 0.43, 1 },
+      foreground = { 0.51, 0.52, 0.53, 1 },
+    },
+    typography = { keyboardLegendHeight = 0.02 },
+    metrics = { keyboardGap = 0.01 },
+    radii = { keyboardBacking = 0.006, keyboardKey = 0.008 },
+  })
+  table.clear(env.drawn)
+  board:draw(env.native.events.pass)
+  local style = env.drawn[1].style
+  expect.near(style.keyUnit, 2, 1e-9, 'key units retain the provider override and caller scale')
+  expect.near(style.legendHeight, 0.04, 1e-9, 'updated nominal text height retains the caller scale')
+  expect.equal(style.gap, 0, 'the supplied provider gap wins over global metrics')
+  expect.near(style.backingRadius, 0.012, 1e-9, 'the global backing radius scales in metres')
+  expect.near(style.keyRadius, 0.006, 1e-9, 'the provider radius wins over the global key radius')
+  for field, channel in { plateColor = 0.11, keyColor = 0.21, heldColor = 0.31, hoverColor = 0.41, legendColor = 0.51 } do
+    expect.equal(style[field][1], channel, 'the global palette maps ' .. field)
+  end
+  expect.equal(board.width, 10, 'the existing board keeps its scaled layout units')
+  selection:dispose()
   env.session:close()
 end)
 
 test('define checks what the generic validation cannot see into', function()
+  local defaults = config.parse {}
+  expect.equal(defaults.style.keyUnit, 0.028, 'physical key-unit defaults remain independent')
+  expect.equal(defaults.style.legendColor, nil, 'omitted appearance remains sparse')
+  expect.equal(defaults.style.font, nil, 'omitted font follows the global theme')
+  local projected =
+    appearance.project(config.parse({ style = { font = { kind = 'file', file = 'keyboard.ttf' } } }).style)
+  expect.equal(projected.font.size, 32, 'editable file fonts project their nominal size')
+  expect.equal(projected.font.spread, 4, 'editable file fonts project their spread')
+  local resolved = appearance.resolve(presets.arcade, projected, {
+    font = { kind = 'default' },
+    keyColor = { 0.7, 0.6, 0.5, 1 },
+    keyRadius = 0,
+  })
+  expect.equal(resolved.font.kind, 'default', 'an object font replaces the provider font as a strict specification')
+  expect.equal(resolved.font.file, nil, 'a default face cannot inherit file-font fields')
+  expect.equal(resolved.keyColor[1], 0.7, 'object appearance wins over provider and global appearance')
+  expect.equal(resolved.keyRadius, 0, 'an explicit square radius wins over global rounding')
+  expect.equal(resolved.gap, 0.006, 'an omitted gap follows global keyboard metrics')
+  expect.raises(function()
+    keyboard.define { style = { font = { kind = 'default', file = 'keyboard.ttf' } } }
+  end, 'default fonts have no file', 'editable default fonts reject file fields')
   expect.raises(function()
     keyboard.define { rows = { { { code = 1, action = { kind = 'hide' } } } } }
   end, 'has a code and an action', 'a key with a code and an action')

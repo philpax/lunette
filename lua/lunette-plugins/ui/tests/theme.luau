@@ -1,5 +1,7 @@
 local testing = require '@testing'
-local theme = require '../theme'
+local themes = require '../theme'
+local theme = table.clone(themes)
+theme.DEFAULT = themes.materialize(themes.DEFAULT, require('@testing/render').new().font)
 local config = require '../config'
 local expect = testing.expect
 local test = testing.suite()
@@ -7,11 +9,13 @@ local test = testing.suite()
 test('provider, panel, and control overrides resolve in order without aliasing', function()
   local color = { 0.1, 0.2, 0.3, 1 }
   local provider = config.parse { theme = { fontSize = 22, foreground = color } }
-  local panel = theme.resolve(provider.theme, { fontSize = 26, padding = 12 })
+  local resolvedProvider = theme.resolve(theme.DEFAULT, themes.project(provider.theme))
+  local panel = theme.resolve(resolvedProvider, { fontSize = 26, padding = 12 })
   local control = theme.resolve(panel, { padding = 0 })
   expect.equal(control.fontSize, 26)
   expect.equal(control.padding, 0)
-  expect.equal(provider.theme.padding, theme.DEFAULT.padding)
+  expect.equal(provider.theme.padding, nil)
+  expect.equal(resolvedProvider.padding, theme.DEFAULT.padding)
   color[1] = 0.9
   expect.equal(provider.theme.foreground[1], 0.1)
   expect.truthy(table.isfrozen(control))
@@ -21,7 +25,8 @@ end)
 
 test('schema projections expose defaults and a callable passthrough hook', function()
   local settings = config.parse {}
-  expect.equal(settings.theme.fontSize, theme.DEFAULT.fontSize)
+  expect.equal(settings.theme.fontSize, nil)
+  expect.equal(theme.resolve(theme.DEFAULT, themes.project(settings.theme)).fontSize, theme.DEFAULT.fontSize)
   local called = 0
   settings.draw({}, {}, function()
     called += 1

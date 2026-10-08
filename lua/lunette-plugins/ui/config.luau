@@ -8,8 +8,8 @@ local function passthrough(pass: Pass, visual: ui.Visual, base: ui.Renderer): ()
 end
 
 local SCHEMA = schema.object {
-  theme = schema.default(theme.schema)(theme.DEFAULT),
-  titlebarStyle = schema.default(titlebarStyle.schema)(titlebarStyle.DEFAULT),
+  theme = schema.default(theme.editable) {},
+  titlebarStyle = schema.default(titlebarStyle.editable) {},
   draw = schema.default(schema.callback(passthrough))(passthrough),
 }
 

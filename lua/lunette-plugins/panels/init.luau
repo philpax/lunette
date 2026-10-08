@@ -7,6 +7,8 @@ local contracts = require '@lunette-contracts/panels'
 local panel = require '@lunette-plugins/panels/panel'
 local events = require '@lunette-plugins/panels/events'
 local inspection = require '@lunette-contracts/inspection'
+local theme = require '@lunette-contracts/theme'
+local appearance = require '@lunette-plugins/panels/appearance'
 
 export type Service = contracts.Service
 export type Owner = contracts.Owner
@@ -140,7 +142,27 @@ local function checkListener(operation: string, listener: unknown): ()
 end
 
 local function build(context: plugin.Context, settings: Settings): Service
+  local broker = context:require(theme.capability)
+  local paint = appearance.prepare(broker, context, settings, broker:current())
   local state: ProviderState
+  local function currentPaint(): appearance.Paint
+    if not state.active or not context:active() then
+      return paint
+    end
+    local snapshot = broker:current()
+    if snapshot.revision ~= paint.revision then
+      local replacement = appearance.prepare(broker, context, settings, snapshot)
+      local previous = paint
+      paint = replacement
+      previous.lease:dispose()
+    end
+    return paint
+  end
+  context:effect(function(): () -> ()
+    return function(): ()
+      paint.lease:dispose()
+    end
+  end)
   local host: panel.Host = {
     active = function(): boolean
       return state.active
@@ -152,6 +174,7 @@ local function build(context: plugin.Context, settings: Settings): Service
       return context:acquire(owner, acquire)
     end,
     settings = settings,
+    paint = currentPaint,
     contentShader = function(opaque: boolean): Shader?
       return contentShader(state, opaque)
     end,
@@ -173,6 +196,9 @@ local function build(context: plugin.Context, settings: Settings): Service
     host = host,
   }
   state = created
+  broker:onChanged(context, function(_snapshot: theme.Snapshot): ()
+    currentPaint()
+  end)
   -- This effect runs last, while removal listeners still have live owners.
   context:effect(function()
     return function()
@@ -239,7 +265,7 @@ local function build(context: plugin.Context, settings: Settings): Service
         { active = state.active, layerClaims = claims, meshes = meshes, opaqueShader = state.opaqueShader ~= nil }
       )
     end,
-    STYLE = settings.style,
+    STYLE = paint.style,
     fromWindow = function(_self: Service, owner: Owner, window: lunette.Window, options: Options?): WindowPanel
       local target = create(state, owner, { kind = 'window', source = window }, options)
       if target.kind ~= 'window' then
@@ -271,11 +297,13 @@ local function build(context: plugin.Context, settings: Settings): Service
       return nil
     end,
     update = function(_self: Service)
+      currentPaint()
       for _, target in ipairs(livePanels(state)) do
         target:update()
       end
     end,
     draw = function(_self: Service, pass: Pass)
+      currentPaint()
       for _, target in ipairs(livePanels(state)) do
         target:draw(pass)
       end
@@ -288,12 +316,20 @@ local function build(context: plugin.Context, settings: Settings): Service
       return events.onRemoved(state.events, owner, listener.panel, listener.run)
     end,
   }
-  return service
+  local methods = table.clone((service :: unknown) :: { [string]: unknown })
+  methods.STYLE = nil
+  -- The checked service supplies its methods; STYLE resolves the current immutable specification.
+  return table.freeze(setmetatable({}, {
+    __index = function(_self: unknown, key: string): unknown
+      return if key == 'STYLE' then currentPaint().style else methods[key]
+    end,
+  })) :: Service
 end
 
 return plugin.provider<<Config, Settings, Service>> {
   name = 'panels',
   capability = contracts.capability,
+  requires = { theme = theme.capability },
   schema = config :: schema.Schema<Config, Settings>,
   build = build,
 }

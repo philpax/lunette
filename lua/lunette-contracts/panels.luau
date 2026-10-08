@@ -4,6 +4,8 @@ local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local owner = require '@lunette-contracts/owner'
 local surface = require '@lunette-contracts/surface'
+local vocabulary = require '@lunette-contracts/vocabulary'
+local theme = require '@lunette-contracts/theme'
 
 local panels = {}
 
@@ -20,6 +22,8 @@ export type Options = {
   read title: string?,
   read chrome: boolean?,
   read curve: number?,
+  read windowRadius: number?,
+  read monitorRadius: number?,
 }
 
 export type Visibility = {
@@ -27,6 +31,9 @@ export type Visibility = {
 }
 
 export type Style = {
+  read font: theme.FontSpec,
+  read windowRadius: number,
+  read monitorRadius: number,
   read borderThickness: number,
   read borderDepth: number,
   read borderColor: { read [number]: number },
@@ -37,6 +44,9 @@ export type Style = {
 }
 
 type PanelFields = {
+  read attachFrame: ((Surface, Owner, vocabulary.FrameStyle) -> vocabulary.FrameAttachment)?,
+  read windowRadius: number,
+  read monitorRadius: number,
   read pose: Mat4,
   read width: number,
   read height: number,
@@ -93,7 +103,7 @@ export type Service = {
 
 export type Capability = plugin.Capability<Service>
 
-local capability = plugin.capability<<Service>> { name = 'lunette/panels', schema = 2 }
+local capability = plugin.capability<<Service>> { name = 'lunette/panels', schema = 3 }
 
 panels.capability = capability
 

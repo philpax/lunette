@@ -1,5 +1,6 @@
 local schema = require '@lunette-plugin/schema'
 local contracts = require '@lunette-contracts/panels'
+local descriptors = require '@lunette-plugins/theme/descriptors'
 
 export type RaycastBase = (contracts.Panel, vector, vector, boolean?) -> (number?, number?, number?)
 export type Raycast = (contracts.Panel, vector, vector, boolean?, RaycastBase) -> (number?, number?, number?)
@@ -26,13 +27,16 @@ end
 
 local COLOR = schema.array(schema.number())
 local STYLE = schema.object {
-  borderThickness = schema.default(schema.number())(0.008),
+  font = schema.optional(descriptors.editableFont),
+  windowRadius = schema.optional(schema.number { minimum = 0 }),
+  monitorRadius = schema.optional(schema.number { minimum = 0 }),
+  borderThickness = schema.optional(schema.number()),
   borderDepth = schema.default(schema.number())(0.001),
-  borderColor = schema.default(COLOR) { 0.14, 0.14, 0.17, 0.95 },
-  borderHighlightColor = schema.default(COLOR) { 0.35, 0.55, 0.95, 0.95 },
-  titleHeight = schema.default(schema.number())(0.04),
+  borderColor = schema.optional(COLOR),
+  borderHighlightColor = schema.optional(COLOR),
+  titleHeight = schema.optional(schema.number()),
   titleMargin = schema.default(schema.number())(0.02),
-  titleColor = schema.default(COLOR) { 1, 1, 1, 1 },
+  titleColor = schema.optional(COLOR),
 }
 local function defaultCallback<F>(callback: F): schema.Schema<F?, F>
   return schema.default(schema.callback(callback))(callback)

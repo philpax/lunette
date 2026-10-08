@@ -4,8 +4,10 @@ local plugin = require '@lunette-plugin'
 local ui = require '@lunette-contracts/ui'
 local surface = require '@lunette-contracts/surface'
 local focus = require '@lunette-contracts/focus'
+local globalTheme = require '@lunette-contracts/theme'
 local control = require '@lunette-plugins/ui/control'
 local owners = require '@lunette-plugins/ui/control-owners'
+local draw = require './draw'
 
 local state = {}
 
@@ -23,6 +25,9 @@ export type Control = {
   order: number,
   exclusive: boolean,
   theme: ui.Theme,
+  spec: ui.ThemeOverrides,
+  lease: globalTheme.FontLease,
+  measurements: draw.Cache,
   overrides: ui.ThemeOverrides?,
   draw: ui.DrawHook?,
   widget: control.Widget,
@@ -46,7 +51,17 @@ export type Panel = {
   logicalHeight: number,
   grabbable: boolean,
   theme: ui.Theme,
-  providerTheme: ui.Theme,
+  providerTheme: ui.ThemeOverrides,
+  overrides: ui.ThemeOverrides?,
+  spec: ui.ThemeOverrides,
+  lease: globalTheme.FontLease,
+  measurements: draw.Cache,
+  themes: globalTheme.Service,
+  themeRevision: number,
+  radiusX: number,
+  radiusY: number,
+  refreshing: boolean,
+  refresh: () -> (),
   providerDraw: ui.DrawHook?,
   draw: ui.DrawHook?,
   controls: { Control },

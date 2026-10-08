@@ -33,7 +33,13 @@ test('every entry rejects an option it does not take, naming itself and the opti
       diagnostic = rejection { id = entry.id, config = { bogus = 1 } }
     end
     expect.truthy(
-      diagnostic:find('plugin ' .. entry.id .. ': option bogus is not a declared field', 1, true),
+      diagnostic:find(
+        if entry.id == 'theme'
+          then 'plugin theme: unknown option bogus; theme takes no options'
+          else 'plugin ' .. entry.id .. ': option bogus is not a declared field',
+        1,
+        true
+      ),
       entry.id .. ': ' .. diagnostic
     )
   end

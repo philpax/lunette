@@ -36,6 +36,7 @@ test('adoption places through a substitute, and an adoption ends with its caller
   local native = testing.native()
   local placements = {}
   local session = testing.start {
+    'theme',
     'panels',
     'rules',
     { id = 'placement', definition = substitutePlacement(placements) },

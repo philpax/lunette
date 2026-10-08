@@ -5,7 +5,7 @@ local test = testing.suite()
 
 test('inspection separates lasers from their owned seats and attach does not duplicate registrations', function()
   testing.native()
-  local session = testing.start { 'drops', 'focus', 'interaction', 'laser' }
+  local session = testing.start { 'theme', 'drops', 'focus', 'interaction', 'laser' }
   local observed = session:observe(contract.capability)
   local service, owner = observed.service, observed.context
   local options = {

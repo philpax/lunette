@@ -9,6 +9,8 @@ local owners = require '@lunette-plugins/ui/control-owners'
 local input = require '@lunette-plugins/ui/input'
 local geometry = require '@lunette-plugins/ui/geometry'
 local theme = require '@lunette-plugins/ui/theme'
+local appearance = require './appearance'
+local drawing = require './draw'
 local protected = require '@lunette-plugins/protected'
 
 local handles = {}
@@ -53,9 +55,21 @@ function handles.create(panel: records.Panel, owner: ui.Owner, options: ui.Optio
   local exclusive = options.exclusive ~= false
   local draw = options.draw
   local overrides = theme.copyOverrides(options.theme)
-  local resolved = theme.resolve(panel.theme, overrides)
-  local callbackLabel = 'ui: ' .. plugin.ownerLabel(owner) .. ': control ' .. id
+  panel.refresh()
+  local spec = theme.inherit(panel.spec, overrides)
   local reservation = owners.reserve(panel.owners, panel.context, owner, id)
+  local acquired, lease = pcall(panel.themes.acquireFont, panel.themes, panel.context, spec.font)
+  if not acquired then
+    reservation.release()
+    error(lease, 0)
+  end
+  local prepared, resolved = pcall(theme.materialize, spec, lease.font)
+  if not prepared then
+    reservation.release()
+    local released, failure = pcall(lease.dispose, lease)
+    error(tostring(resolved) .. (if released then '' else '; ' .. tostring(failure)), 0)
+  end
+  local callbackLabel = 'ui: ' .. plugin.ownerLabel(owner) .. ': control ' .. id
   local record: records.Control
   local initializing, abandoned = true, false
   local target: focus.TargetHandle? = nil
@@ -74,12 +88,17 @@ function handles.create(panel: records.Panel, owner: ui.Owner, options: ui.Optio
   local function dispose(): boolean
     if initializing then
       abandoned = true
+      lease:dispose()
       reservation.release()
       return false
     elseif record.dead then
       return false
     end
     record.dead, record.focused = true, false
+    drawing.clearCache(record.measurements)
+    if record.widget.clearMeasurements then
+      record.widget.clearMeasurements()
+    end
     reservation.release()
     local index = table.find(panel.controls, record)
     if index then
@@ -89,6 +108,9 @@ function handles.create(panel: records.Panel, owner: ui.Owner, options: ui.Optio
     local old, inverse = target, release
     target, record.target, release = nil, nil, nil
     failAll {
+      function(): ()
+        record.lease:dispose()
+      end,
       function(): ()
         input.cancel(panel, record, 'control-removed')
       end,
@@ -154,7 +176,13 @@ function handles.create(panel: records.Panel, owner: ui.Owner, options: ui.Optio
       return input.bounds(panel, record)
     end,
     theme = function(): ui.Theme
+      panel.refresh()
       return if initializing then resolved else record.theme
+    end,
+    withFont = function(run: (Font) -> ()): ()
+      panel.refresh()
+      local currentLease = if initializing then lease else record.lease
+      currentLease:withFont(run)
     end,
     callback = function(name: string, run: () -> (), terminal: boolean?): boolean
       local allowed = if terminal then (owner :: plugin.Context):active() else current()
@@ -179,6 +207,9 @@ function handles.create(panel: records.Panel, owner: ui.Owner, options: ui.Optio
       order = panel.nextOrder,
       exclusive = exclusive,
       theme = resolved,
+      spec = spec,
+      lease = lease,
+      measurements = drawing.newCache(),
       overrides = overrides,
       draw = draw,
       widget = widget,
@@ -227,12 +258,7 @@ function handles.create(panel: records.Panel, owner: ui.Owner, options: ui.Optio
         if not live(panel, record) then
           return
         end
-        local copied = theme.copyOverrides(given)
-        local resolvedTheme = theme.resolve(panel.theme, copied)
-        record.overrides = copied
-        record.theme = resolvedTheme
-        panel.revision += 1
-        input.cancel(panel, record, 'control-removed')
+        appearance.control(panel, record, given)
       end,
       destroy = function(_self: ui.Control): boolean
         return dispose()

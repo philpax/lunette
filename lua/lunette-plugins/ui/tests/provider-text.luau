@@ -11,6 +11,7 @@ local test = testing.suite()
 local function withProvider(provider, run)
   local state = { native = testing.native() }
   local running = testing.start {
+    'theme',
     'surfaces',
     'focus',
     provider,

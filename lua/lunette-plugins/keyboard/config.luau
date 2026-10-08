@@ -3,6 +3,7 @@ local schema = require '@lunette-plugin/schema'
 local keys = require '@lunette-contracts/keys'
 local board = require '@lunette-plugins/keyboard/board'
 local rows = require '@lunette-plugins/keyboard/rows'
+local appearance = require '@lunette-plugins/keyboard/appearance'
 
 local function onKey(target: board.Board, key: board.RenderedKey, pointer: board.Pointer, base: board.Press): ()
   base(target, key, pointer)
@@ -37,20 +38,7 @@ local KEY = schema.object {
   x = schema.optional(schema.number { minimum = 0 }),
 }
 local ROWS = schema.array(schema.array(KEY))
-local COLOR = schema.array(schema.number())
-local STYLE = schema.object {
-  keyUnit = schema.default(schema.number())(0.028),
-  gap = schema.default(schema.number())(0.004),
-  plateDepth = schema.default(schema.number())(0.002),
-  legendDepth = schema.default(schema.number())(0.001),
-  margin = schema.default(schema.number())(0.008),
-  plateColor = schema.default(COLOR) { 0.1, 0.1, 0.13, 0.92 },
-  keyColor = schema.default(COLOR) { 0.2, 0.2, 0.24, 1 },
-  heldColor = schema.default(COLOR) { 0.35, 0.55, 0.95, 1 },
-  hoverColor = schema.default(COLOR) { 0.4, 0.42, 0.5, 1 },
-  legendColor = schema.default(COLOR) { 1, 1, 1, 1 },
-  legendHeight = schema.default(schema.number())(0.012),
-}
+local STYLE = appearance.editableStyle
 local MODIFIER_KEYS = schema.custom<<{ read [number]: string }>> {
   runtimeType = 'table',
   validate = function(value: unknown): { read [number]: string }
@@ -72,14 +60,23 @@ local function configuration<K, D>(keyHook: K, drawHook: D)
   return schema.object {
     rows = schema.default(ROWS)(rows),
     layers = schema.default(schema.map(ROWS)) {},
-    style = schema.default(STYLE)(STYLE.parse {}),
+    style = schema.default(STYLE)(
+      STYLE.parse { keyUnit = 0.028, plateDepth = 0.002, legendDepth = 0.001, margin = 0.008 }
+    ),
     modifierKeys = schema.default(MODIFIER_KEYS)(keys.MODIFIER_KEYS),
     locks = schema.default(schema.array(schema.string()))(lunette.lockingModifierNames()),
     onKey = defaultCallback(keyHook),
     drawKey = defaultCallback(drawHook),
   }
 end
-local SCHEMA = configuration<<board.OnKey, board.DrawKey>>(onKey, drawKey)
+local function described<K, D>(keyHook: K, drawHook: D)
+  local descriptor = configuration(keyHook, drawHook)
+  type Input = schema.Input<typeof(descriptor)>
+  type Output = schema.Output<typeof(descriptor)>
+  local named: schema.Schema<Input, Output> = descriptor
+  return named
+end
+local SCHEMA = described<<board.OnKey, board.DrawKey>>(onKey, drawKey)
 
 export type Config = schema.Input<typeof(SCHEMA)>
 export type Settings = schema.Output<typeof(SCHEMA)>

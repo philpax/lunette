@@ -4,7 +4,8 @@ local contract = require '@lunette-contracts/keyboard'
 local test = testing.suite()
 
 test('inspection reads board state without querying keyboard targets or legends', function()
-  local session = testing.start { 'focus', 'keyboard' }
+  testing.native()
+  local session = testing.start { 'theme', 'focus', 'keyboard' }
   local observed = session:observe(contract.capability)
   local service, owner = observed.service, observed.context
   local board = service:new(owner, {

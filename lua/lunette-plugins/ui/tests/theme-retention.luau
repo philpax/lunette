@@ -1,5 +1,16 @@
 local testing = require '@testing'
-local theme = require '../theme'
+local themes = require '../theme'
+local theme = table.clone(themes)
+local font = require('@testing/render').new().font
+local base = table.clone(themes.DEFAULT)
+base.font = nil
+theme.DEFAULT = table.freeze(base)
+theme.resolve = function(value, overrides)
+  if not value.font then
+    value = themes.materialize(value, font)
+  end
+  return themes.resolve(value, overrides)
+end
 local expect = testing.expect
 local test = testing.suite()
 

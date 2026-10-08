@@ -6,7 +6,7 @@ local test = testing.suite()
 
 test('placement inspection preserves release ownership separately from the panel provider owner', function()
   local native = testing.native()
-  local session = testing.start { 'panels', 'tags', 'rules', 'placement' }
+  local session = testing.start { 'theme', 'panels', 'tags', 'rules', 'placement' }
   local observed = session:observe(contract.capability)
   local service, owner = observed.service, observed.context
   local target, _, effect = service:place(owner, { window = native.newWindow(23), properties = {} })

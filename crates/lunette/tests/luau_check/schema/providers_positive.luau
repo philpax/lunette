@@ -13,10 +13,14 @@ local laserOutput: laser.Settings = laserConfig.parse(laserInput)
 local keyboardInput: keyboard.Config = {
   rows = { { { action = { kind = 'text', text = '#' }, width = 2 } } },
   layers = { symbols = {} },
-  style = { gap = 0.01 },
+  style = { gap = 0.01, font = { kind = 'default' }, backingRadius = 0, keyRadius = 0 },
 }
 local keyboardOutput: keyboard.Settings = keyboardConfig.parse(keyboardInput)
-local panelInput: panels.Config = { shape = {}, style = {}, chrome = true }
+local panelInput: panels.Config = {
+  shape = {},
+  style = { font = { kind = 'default' }, windowRadius = 0, monitorRadius = 0 },
+  chrome = true,
+}
 local pacingInput: pacing.Config = { tuning = { exemptTypes = { none = true } } }
 local scaleInput: scale.Config = { tuning = { reference = 2 } }
 local arcInput: arc.Config = { tuning = { center = vector.pack(0, 2, 0) } }

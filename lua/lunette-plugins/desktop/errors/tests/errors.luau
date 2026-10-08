@@ -9,6 +9,7 @@ test('the error overlay uses a vector position and keeps its background as a col
   local background = { 0.2, 0.3, 0.4, 0.5 }
   local session = testing.boot {
     'frame',
+    'theme',
     'errors',
     {
       id = 'desktop/errors',
@@ -29,6 +30,12 @@ test('the error overlay uses a vector position and keeps its background as a col
     end
   end
   expect.truthy(plane and color and text, 'the overlay background and text')
+  expect.equal(text.state.setFont[1], session.native.events.render.font, 'the theme-selected font')
+  local foreground = text.state.setColor
+  expect.equal(foreground[1], 0.94, 'the theme foreground red component')
+  expect.equal(foreground[2], 0.96, 'the theme foreground green component')
+  expect.equal(foreground[3], 1, 'the theme foreground blue component')
+  expect.equal(foreground[4], 1, 'the theme foreground alpha component')
   expect.near(plane[2], position.x, 1e-5, 'the plane x position')
   expect.near(plane[3], position.y, 1e-5, 'the plane y position')
   expect.near(plane[4], position.z, 1e-5, 'the plane z position')

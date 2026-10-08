@@ -66,6 +66,36 @@ Settings follow the entry's configuration descriptor. Declared objects merge rec
 
 The [desktop example](../../examples/desktop/main.luau) inserts `hide-windows` and `save-menu`. They register Hide windows, Save arrangement, and Restore arrangement in the menu's Examples group. They are optional example consumers, not default session actions.
 
+## Runtime themes
+
+`desktop/theme` selects the runtime theme through `lunette/theme` and registers actions with `lunette/menu`. `lua/lunette-plugins/desktop/theme/config.luau` owns its configuration descriptor and defaults. `preset` accepts `dark`, `light`, or `arcade` and defaults to `dark`. `overrides` defaults to an empty object. The complete presets are in `lua/lunette-plugins/theme/presets.luau`. Dark uses rounded desktop controls, Light uses the same geometry with a light palette, and Arcade replaces the palette, typography, spacing, and radii.
+
+The wrist menu's Appearance group contains Theme: Dark, Theme: Light, and Theme: Arcade. Exactly one preset row is selected. Dark mode is a shortcut: it switches Dark to Light and switches Light or Arcade to Dark. Its selected state is true only for Dark. These actions update one theme registration in place. A failed update preserves the prior preset and menu selections and reports the error through the normal menu boundary. A successful update does not restart the theme provider or its consumers.
+
+Disabling or removing `desktop/theme` releases its theme selection and menu actions. With no other theme selection, the provider returns to its square base theme. Re-enabling or restoring the entry retains the session's selected preset. A provider outage also retains that preset across reactivation. Reload configuration rebuilds the factory definition and resets selection to the configured preset. Menu selections are session state and are not written to the configuration or arrangement file.
+
+The entry's Configure action in Plugins exposes `preset` and sparse `overrides`. A changed configured preset takes precedence over the current menu selection after successful activation. Applying configuration with the same preset, including an overrides-only edit, retains the current menu selection. Configuration replacement reloads this consumer through the normal manager lifecycle; it does not replace the provider. A typed patch uses the selector module's direct factory export:
+
+```luau
+local desktop = require '@lunette-desktop'
+local theme = require '@lunette-plugins/desktop/theme'
+
+local entries = desktop.compose {
+  patches = {
+    desktop.configureEntry('desktop/theme', theme) {
+      preset = 'light',
+      overrides = { radii = { uiControl = 4 } },
+    },
+  },
+}
+```
+
+`overrides` accepts sparse `colors`, `typography`, `metrics`, and `radii` objects. `lua/lunette-plugins/theme/descriptors.luau` owns their fields and validation. Colours are four-component RGBA arrays with values from 0 to 1. Typography dimensions and positive metrics must be greater than zero; padding, spacing, border widths, gaps, and radii may be zero. The selector resolves the selected complete preset with these overrides before passing it to the public theme service.
+
+The editable `overrides.typography.font` is an object with a `kind` choice and optional `file`, `size`, and `spread` fields. `{ kind = 'default' }` rejects those optional fields. `{ kind = 'file', file = 'fonts/example.ttf' }` requires a non-empty path and projects omitted `size` and `spread` to 32 and 4. Supplied size and spread must be positive. Plugins can traverse and edit these fields; Apply validates the whole font object. The public `ThemeOverrides` contract remains strict: a file font passed directly to the service supplies its file, size, and spread.
+
+A missing font file fails selector activation without publishing that theme. The theme provider remains active and returns to the base theme when no other selection remains. A failed configuration replacement uses the manager's existing recovery path. Recover reapplies the last active configuration; it does not retain the failed configuration's theme or change configuration replacement into a transaction. A missing font during a menu selection leaves the existing registration, preset, and menu selections unchanged.
+
 ## Workspaces
 
 The optional `workspaces` field reuses the configuration type of `@lunette-plugins/desktop/workspaces`. It inserts that consumer before `desktop/adoption`, so its placement listener observes windows present at boot.

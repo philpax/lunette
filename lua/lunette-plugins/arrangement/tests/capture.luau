@@ -287,6 +287,7 @@ end)
 test('a bind that fails in its initializer leaves no source behind', function()
   withServices(nil, function(state, _context, _panels, _tags, rules, _reports, _placement, runtime)
     local foreign = plugin.runtime()
+    foreign:use(require('@lunette-plugins/theme').definition, {}):enable()
     foreign:use(require('@lunette-plugins/panels').definition, {}):enable()
     local foreignPanels
     foreign

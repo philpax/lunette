@@ -68,6 +68,9 @@ function fixture.new(options)
     theme = function()
       return theme
     end,
+    withFont = function(run)
+      run(lovr.graphics.getDefaultFont())
+    end,
     callback = function(name, run)
       if not state.live then
         return false

@@ -5,6 +5,7 @@ local surface = require '@lunette-contracts/surface'
 local keys = require '@lunette-contracts/keys'
 local control = require './control'
 local edit = require './text-edit'
+local measurement = require './measurement-cache'
 local textGeometry = require './text-field-geometry'
 local validation = require './validation'
 
@@ -21,6 +22,7 @@ local hasModifier: (focus.KeyEvent, string) -> boolean
 
 type State = {
   host: control.Host,
+  measurements: measurement.Cache,
   options: ui.TextFieldOptions,
   draft: edit.State,
   revision: number,
@@ -33,6 +35,7 @@ function textField.new(options: ui.TextFieldOptions, host: control.Host): contro
   options = validation.textField(options)
   local state: State = {
     host = host,
+    measurements = measurement.new(),
     options = options,
     draft = edit.new(if options.value == nil then '' else options.value),
     revision = 0,
@@ -115,6 +118,9 @@ function textField.new(options: ui.TextFieldOptions, host: control.Host): contro
     end,
     visual = function(base: ui.Visual): ui.Visual
       return visual(state, base)
+    end,
+    clearMeasurements = function(): ()
+      measurement.clear(state.measurements)
     end,
   }
 end
@@ -278,16 +284,21 @@ pointerCaret = function(state: State, x: number): number?
   if not clip then
     return nil
   end
-  local layout = textGeometry.layout(
-    state.draft.value,
-    state.draft.caret,
-    state.draft.anchor,
-    state.host.bounds(),
-    clip,
-    state.host.theme(),
-    lovr.graphics.getDefaultFont()
-  )
-  return if layout then textGeometry.nearest(layout, x) else nil
+  local nearest: number? = nil
+  state.host.withFont(function(font: Font): ()
+    local layout = textGeometry.layout(
+      state.draft.value,
+      state.draft.caret,
+      state.draft.anchor,
+      state.host.bounds(),
+      clip,
+      state.host.theme(),
+      font,
+      state.measurements
+    )
+    nearest = if layout then textGeometry.nearest(layout, x) else nil
+  end)
+  return nearest
 end
 
 visual = function(state: State, base: ui.Visual): ui.Visual

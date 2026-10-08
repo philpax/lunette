@@ -15,6 +15,7 @@ local render: (records.Panel, Pass, ui.Visual, records.Control?) -> ()
 local visual: (records.Panel, records.Control, ui.Bounds) -> ui.Visual
 
 function panelDraw.render(state: records.Panel, pass: Pass): ()
+  state.refresh()
   if not live(state, nil) then
     return
   end
@@ -117,6 +118,7 @@ end
 render = function(state: records.Panel, pass: Pass, value: ui.Visual, record: records.Control?): ()
   local revision = state.revision
   local function available(): boolean
+    state.refresh()
     return live(state, record) and state.revision == revision
   end
   local hooks: { ui.DrawHook } = {}
@@ -130,7 +132,10 @@ render = function(state: records.Panel, pass: Pass, value: ui.Visual, record: re
     hooks[#hooks + 1] = guarded(record.draw, available)
   end
   if available() then
-    draw.render(pass, value, hooks)
+    local lease = if record then record.lease else state.lease
+    lease:withFont(function(_font: Font): ()
+      draw.render(pass, value, hooks, if record then record.measurements else state.measurements)
+    end)
   end
 end
 

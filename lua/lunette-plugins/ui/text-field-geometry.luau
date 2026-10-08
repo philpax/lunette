@@ -2,6 +2,7 @@
 local lunette = require '@lunette'
 local ui = require '@lunette-contracts/ui'
 local geometry = require './geometry'
+local measurement = require './measurement-cache'
 local textFieldGeometry = {}
 
 export type Layout = {
@@ -18,22 +19,6 @@ export type Layout = {
   read overflow: boolean,
 }
 
-type CacheEntry = {
-  read value: string,
-  read caret: number,
-  read anchor: number,
-  read layout: Layout,
-}
-
-type FontCache = {
-  read measure: unknown,
-  read height: number,
-  read density: number?,
-  read entries: { CacheEntry },
-}
-
-local CACHE_LIMIT = 32
-local cacheFor: (Font, number) -> { CacheEntry }
 local advance: (Font, string, number) -> number
 local singleLine: (string) -> string
 
@@ -44,7 +29,8 @@ function textFieldGeometry.layout(
   bounds: ui.Bounds,
   clip: ui.Bounds,
   theme: ui.Theme,
-  font: Font
+  font: Font,
+  cache: measurement.Cache?
 ): Layout?
   geometry.validateBounds(bounds)
   geometry.validateBounds(clip)
@@ -59,11 +45,11 @@ function textFieldGeometry.layout(
     height = bounds.height - 2 * py,
   }, clip)
   local scale = if visible then math.min(theme.fontSize, visible.height) / height else 0
-  local cached = if visible then cacheFor(font, height) else nil
-  if cached and visible then
-    for index, entry in cached do
-      local result = entry.layout
-      local previous = result.visible
+  local entries = measurement.entries(cache, font)
+  if entries and visible then
+    for index, raw in entries do
+      local entry = raw :: { value: string, caret: number, anchor: number, layout: Layout }
+      local result, previous = entry.layout, entry.layout.visible
       if
         entry.value == value
         and entry.caret == caret
@@ -74,8 +60,8 @@ function textFieldGeometry.layout(
         and previous.width == visible.width
         and previous.height == visible.height
       then
-        table.remove(cached, index)
-        table.insert(cached, entry)
+        table.remove(entries, index)
+        table.insert(entries, entry)
         return result
       end
     end
@@ -143,12 +129,7 @@ function textFieldGeometry.layout(
     selectionBounds = selectionBounds,
     overflow = first > 1 or last < #boundaries,
   }
-  if cached then
-    if #cached == CACHE_LIMIT then
-      table.remove(cached, 1)
-    end
-    table.insert(cached, { value = value, caret = caret, anchor = anchor, layout = result })
-  end
+  measurement.store(entries, { value = value, caret = caret, anchor = anchor, layout = result })
   return result
 end
 
@@ -163,19 +144,6 @@ function textFieldGeometry.nearest(layout: Layout, x: number): number
     end
   end
   return nearest
-end
-
-local fontCaches: { [Font]: FontCache } = setmetatable({}, { __mode = 'k' })
-
-cacheFor = function(font: Font, height: number): { CacheEntry }
-  -- Single-line metrics depend on the font and its pixel density, not its atlas or line spacing.
-  local density = if font.getPixelDensity then font:getPixelDensity() else nil
-  local cached = fontCaches[font]
-  if not cached or cached.measure ~= font.getWidth or cached.height ~= height or cached.density ~= density then
-    cached = { measure = font.getWidth, height = height, density = density, entries = {} }
-    fontCaches[font] = cached
-  end
-  return cached.entries
 end
 
 advance = function(font: Font, value: string, scale: number): number

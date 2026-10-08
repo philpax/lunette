@@ -8,7 +8,7 @@ local test = testing.suite()
 
 local function start()
   local env = { native = testing.native(), keys = {}, texts = {} }
-  env.session = testing.start { 'focus', 'keyboard' }
+  env.session = testing.start { 'theme', 'focus', 'keyboard' }
   env.session:use(plugin.define {
     name = 'local-keyboard-owner',
     requires = { keyboard = keyboardContract.capability, focus = focusContract.capability },

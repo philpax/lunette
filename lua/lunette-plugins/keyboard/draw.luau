@@ -41,6 +41,7 @@ function draw.legend(pass: Pass, key: board.RenderedKey, state: board.KeyState):
   local style = state.style
   local color = style.legendColor
   passState.withRestore(pass, function()
+    pass:setFont(style.font)
     pass:setDepthWrite(false)
     pass:setColor(color[1], color[2], color[3], color[4])
     local text = lovr.math.newMat4()

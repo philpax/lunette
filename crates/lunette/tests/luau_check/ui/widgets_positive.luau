@@ -4,7 +4,10 @@ local plugin = require '@lunette-plugin'
 
 local function draw(pass: Pass, visual: ui.Visual, base: ui.Renderer): ()
   local x: number = visual.bounds.x
-  assert(x == x)
+  local font: Font = visual.theme.font
+  local panelRadius: number = visual.theme.panelRadius
+  local controlRadius: number = visual.theme.controlRadius
+  assert(x == x and panelRadius >= 0 and controlRadius >= 0 and font ~= nil)
   base(pass, visual)
 end
 
@@ -15,7 +18,12 @@ local function create(service: ui.Service, owner: ui.Owner): ui.Panel
     height = 0.3,
     logicalWidth = 600,
     logicalHeight = 300,
-    theme = { control = { 0.2, 0.3, 0.4, 1 } },
+    theme = {
+      control = { 0.2, 0.3, 0.4, 1 },
+      font = { kind = 'file', file = 'fixture.ttf', size = 24, spread = 4 },
+      panelRadius = 0,
+      controlRadius = 3,
+    },
     draw = draw,
   })
   local button: ui.Button = panel:button(owner, {

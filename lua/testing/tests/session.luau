@@ -7,8 +7,9 @@ local tagsContract = require '@lunette-contracts/tags'
 local test = testing.suite()
 
 test('start resolves a built-in plugin named by its path and enables the entries in order', function()
+  testing.native()
   local session =
-    testing.start { 'tags', { id = 'panels', definition = require('@lunette-plugins/panels').definition } }
+    testing.start { 'theme', 'tags', { id = 'panels', definition = require('@lunette-plugins/panels').definition } }
   expect.equal(session.instances.tags:state(), 'active', 'the tags provider')
   expect.equal(session.instances.panels:state(), 'active', 'the panels provider')
   session:close()
@@ -45,6 +46,7 @@ test('boot binds the frame callbacks, and closing releases the claims of the ses
   local session = testing.boot {
     'frame',
     'surfaces',
+    'theme',
     { id = 'panels', definition = require('@lunette-plugins/panels').definition, config = { rendering = 'layer' } },
   }
   local native = session.native

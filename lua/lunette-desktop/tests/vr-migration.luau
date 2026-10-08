@@ -43,7 +43,7 @@ end
 local function assertTerminalCallbacks(ledger, before, context)
   for index = before + 1, #ledger.events do
     local event = ledger.events[index]
-    expect.truthy(event.ownerActive, context .. ': teardown callbacks belong only to a live owner')
+    expect.falsy(event.ownerEnded, context .. ': teardown callbacks precede the owner cleanup marker')
     expect.truthy(
       event.kind == 'cancel' or event.kind == 'leave',
       context .. ': teardown delivers only terminal events'
@@ -199,8 +199,31 @@ test('VR UI ten source reloads', function()
       local pointer = assert(oldLedger.pointer)
       local events, releases = #oldLedger.events, oldLedger.releases
       local enumerations = native.events.enumerations
+      local acquired = #native.events.fontAcquisitions
+      local measured = #native.events.fontMeasurements
+      expect.equal(env.controls:draw(), false, context .. ': the current file-font desktop draws normally')
+      expect.truthy(#native.events.fontMeasurements > measured, context .. ': the file face measures current widgets')
+      local fileDraw = false
+      for _, call in env.controls:drawCalls 'text' do
+        local setting = call.state.setFont
+        if setting and setting[1].spec and setting[1].spec.kind == 'file' then
+          fileDraw = true
+        end
+      end
+      expect.truthy(fileDraw, context .. ': drawn text uses the resolved file face')
       local loaded, failure = lunette.reload()
       expect.truthy(loaded, context .. ': ' .. tostring(failure))
+      for index = 1, acquired do
+        expect.truthy(
+          native.events.fontAcquisitions[index].font.released,
+          context .. ': previous file faces are released'
+        )
+      end
+      expect.truthy(
+        #native.events.fontAcquisitions > acquired,
+        context .. ': replacement activation acquires its file face'
+      )
+      expect.falsy(native.events.render.font.released, context .. ': the shared default face is never released')
       expect.truthy(pointer.dead, context .. ': source reload cancels and releases the real pointer')
       expect.equal(oldLedger.releases, releases, context .. ': source reload cannot finish the old capture')
       assertTerminalCallbacks(oldLedger, events, context)

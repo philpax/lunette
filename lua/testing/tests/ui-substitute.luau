@@ -113,6 +113,7 @@ local function withFixture(run)
     'drops',
     'focus',
     'interaction',
+    'theme',
     'laser',
     'keyboard',
     'desktop/pointing',
@@ -287,7 +288,11 @@ test('renderer hooks are attributed to consumers and restore the caller pass aft
   state.panel:draw(recorder.pass)
   recorder:assertRestored(checkpoint)
   local reports = running.native.events.reported
-  expect.equal(#reports - firstReport, 1)
+  local messages = {}
+  for index = firstReport + 1, #reports do
+    messages[#messages + 1] = reports[index].message
+  end
+  expect.equal(#reports - firstReport, 1, table.concat(messages, '\n'))
   local reported = reports[firstReport + 1]
   expect.truthy(reported.message:find 'testing/ui%-contract%-consumer')
   expect.truthy(reported.message:find 'substitute hook failure')

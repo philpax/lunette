@@ -11,6 +11,7 @@ local suite = testing.suite()
 local function test(name, run)
   suite(name, function()
     local running = vrUi.boot {
+      'theme',
       'frame',
       'surfaces',
       'drops',

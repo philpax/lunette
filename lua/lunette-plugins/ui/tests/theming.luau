@@ -12,7 +12,7 @@ local function run(options, scenario)
   end
 end
 
-test('UI theme and draw hook skinning preserves input', function()
+test('UI theme and draw hook theming preserves input', function()
   local heard = {}
   run({
     theme = { background = { 0.9, 0.1, 0.7, 1 }, foreground = { 0, 0, 0, 1 }, rowHeight = 35 },
@@ -51,17 +51,24 @@ test('UI theme and draw hook skinning preserves input', function()
     expect.truthy(colour, 'the recorder sees custom visual output')
     state.field:focus()
     fixture.press(state, 'run')
+    local panel, field, button = state.panel, state.field, state.button
+    local selection = state.themes:select(state.owner, { colors = { control = { 0.2, 0.7, 0.8, 1 } } })
     state.fixture:draw()
+    expect.equal(state.panel, panel, 'a live palette update retains the panel')
+    expect.equal(state.field, field, 'a live palette update retains the focused field')
+    expect.equal(state.button, button, 'a live palette update retains the held button')
+    expect.equal(#state.activations, 1, 'a live palette update does not activate the held gesture')
     local pressed, focused = false, false
     for _, visual in ipairs(heard) do
-      pressed = pressed or (visual.id == 'run' and visual.pressed)
-      focused = focused or (visual.id == 'draft' and visual.focused)
+      pressed = pressed or (visual.id == 'run' and visual.pressed and visual.theme.control[1] == 0.2)
+      focused = focused or (visual.id == 'draft' and visual.focused and visual.theme.control[1] == 0.2)
     end
-    expect.truthy(pressed, 'hooks see actual pressed state')
-    expect.truthy(focused, 'hooks see routed field focus')
+    expect.truthy(pressed, 'hooks see actual pressed state under the updated palette')
+    expect.truthy(focused, 'hooks see routed field focus under the updated palette')
     state.button:setEnabled(false)
     state.fixture:draw()
-    expect.equal(#state.activations, 1, 'disable cancels the held gesture under the custom skin')
+    expect.equal(#state.activations, 1, 'disable cancels the held gesture under the custom theme')
+    selection:dispose()
   end)
 end)
 

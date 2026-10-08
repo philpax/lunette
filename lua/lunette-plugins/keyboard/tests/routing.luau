@@ -71,6 +71,7 @@ local function start(definition)
     end,
   }
   env.session = testing.start {
+    'theme',
     { id = 'focus', definition = focusProvider },
     { id = 'keyboard', definition = definition or keyboard.definition },
   }

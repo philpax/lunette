@@ -17,6 +17,7 @@ local function boot(provider)
     'drops',
     'focus',
     'interaction',
+    'theme',
     'laser',
     'keyboard',
     'desktop/pointing',

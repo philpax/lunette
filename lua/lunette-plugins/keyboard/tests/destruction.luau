@@ -17,7 +17,7 @@ local function start(tiny, focusDefinition)
   local focusEntry = if focusDefinition then { id = 'focus', definition = focusDefinition } else 'focus'
   local env = {
     native = native,
-    session = testing.start { focusEntry, { id = 'keyboard', definition = definition } },
+    session = testing.start { 'theme', focusEntry, { id = 'keyboard', definition = definition } },
   }
   env.consumer = env.session:use(plugin.define {
     name = 'keyboard-destruction-owner',
@@ -296,7 +296,12 @@ for _, tiny in { false, true } do
           env.keyboard:new(env.owner, { pose = 'invalid pose', onVisibilityChanged = callback })
         end)
         expect.falsy(ok)
-        expect.falsy(tostring(failure):find('source inverse defect', 1, true), 'the construction error remains primary')
+        local cleanup = tostring(failure):find('source inverse defect', 1, true)
+        if not tiny and sourceError then
+          expect.truthy(cleanup and cleanup > 1, 'the cleanup failure follows the original construction error')
+        else
+          expect.falsy(cleanup, 'the construction error remains primary')
+        end
       end
       expect.equal(state.sourceCount, 0)
       expect.equal(state.sourceReleases, 1)
@@ -306,10 +311,16 @@ for _, tiny in { false, true } do
       testing.collect()
       expect.equal(weak.callback, nil)
       local reported = env.native.events.reported
-      expect.equal(#reported, if sourceError then 1 else 0)
+      expect.equal(
+        #reported,
+        if tiny and sourceError then 1 else 0,
+        'built-in cleanup errors propagate without duplicate reports'
+      )
       if sourceError then
-        expect.truthy(reported[1].message:find('source inverse defect', 1, true))
-        expect.truthy(reported[1].message:find('keyboard-destruction-owner', 1, true))
+        if tiny then
+          expect.truthy(reported[1].message:find('source inverse defect', 1, true))
+          expect.truthy(reported[1].message:find('keyboard-destruction-owner', 1, true))
+        end
         env.session.instances.keyboard:disable()
         expect.equal(env.session.instances.keyboard:state(), 'quarantined', 'the source inverse retains its owner')
         local reports = testing.takeReports()

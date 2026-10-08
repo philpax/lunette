@@ -149,7 +149,7 @@ local function capturedByAnother(panel: Panel, control: Control, pointer: surfac
 end
 
 -- Destruction, disabling, and geometry replacement detach local state before any observer runs.
-function input.cancel(panel: Panel, selected: Control?, reason: surface.CancelReason): ()
+function input.prepareCancel(panel: Panel, selected: Control?, reason: surface.CancelReason): () -> ()
   local pending: { () -> () } = {}
   local affected: { [surface.Pointer]: boolean } = {}
   local function consume(delivery: records.PendingInput): ()
@@ -220,22 +220,31 @@ function input.cancel(panel: Panel, selected: Control?, reason: surface.CancelRe
       end
     end
   end
-  local wasCancelling = panel.cancelling
-  panel.cancelling = true
-  local failures: { string } = {}
-  for _, inverse in ipairs(pending) do
-    local ok, failure = pcall(inverse)
-    if not ok then
-      failures[#failures + 1] = tostring(failure)
+  return function(): ()
+    local wasCancelling = panel.cancelling
+    panel.cancelling = true
+    local failures: { string } = {}
+    for _, inverse in ipairs(pending) do
+      local ok, failure = pcall(inverse)
+      if not ok then
+        failures[#failures + 1] = tostring(failure)
+      end
     end
-  end
-  panel.cancelling = wasCancelling
-  if #failures > 0 then
-    error('ui: pointer cleanup: ' .. table.concat(failures, '; '), 0)
+    panel.cancelling = wasCancelling
+    if #failures > 0 then
+      error('ui: pointer cleanup: ' .. table.concat(failures, '; '), 0)
+    end
   end
 end
 
+function input.cancel(panel: Panel, selected: Control?, reason: surface.CancelReason): ()
+  input.prepareCancel(panel, selected, reason)()
+end
+
 function input.event(panel: Panel, event: surface.PointerEvent): ()
+  if event.kind ~= 'cancel' and event.kind ~= 'leave' then
+    panel.refresh()
+  end
   if not interactive(panel, nil) then
     return
   end

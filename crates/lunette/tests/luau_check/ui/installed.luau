@@ -5,6 +5,9 @@ local menu = require '@lunette-contracts/menu'
 local menuProvider = require '@lunette-plugins/menu'
 local display = require '@lunette-contracts/keyboard-display'
 local displayProvider = require '@lunette-plugins/desktop/keyboard'
+local theme = require '@lunette-contracts/theme'
+local themeProvider = require '@lunette-plugins/theme'
+local themeSelector = require '@lunette-plugins/desktop/theme'
 
 local definition = provider.definition
 local requires = provider.requires
@@ -21,4 +24,15 @@ local function sessionControls(actions: menu.Service, board: display.Service): b
   return #rows == 0 and not board:isVisible()
 end
 
-return { definition, requires, variant, inspect, menuProvider.definition, displayProvider, sessionControls }
+return {
+  definition,
+  requires,
+  variant,
+  inspect,
+  menuProvider.definition,
+  displayProvider,
+  sessionControls,
+  theme.capability,
+  themeProvider.definition,
+  themeSelector,
+}

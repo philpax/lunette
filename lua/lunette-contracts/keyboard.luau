@@ -5,6 +5,8 @@ local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local owner = require '@lunette-contracts/owner'
 local surface = require '@lunette-contracts/surface'
+local theme = require '@lunette-contracts/theme'
+local vocabulary = require '@lunette-contracts/vocabulary'
 
 local keyboard = {}
 
@@ -43,6 +45,9 @@ export type Key = {
 export type KeyRow = { read [number]: Key }
 
 export type Style = {
+  read font: Font,
+  read backingRadius: number,
+  read keyRadius: number,
   read keyUnit: number,
   read gap: number,
   read plateDepth: number,
@@ -56,8 +61,11 @@ export type Style = {
   read legendHeight: number,
 }
 
--- Style options, each merged over the provider's.
+-- Style options merge over the theme and provider. Radii are measured in metres.
 export type StyleOptions = {
+  read font: theme.FontSpec?,
+  read backingRadius: number?,
+  read keyRadius: number?,
   read keyUnit: number?,
   read gap: number?,
   read plateDepth: number?,
@@ -92,6 +100,7 @@ export type Options = {
 -- A keyboard is a surface an owner places, offers, and draws. Its type repeats
 -- the required fields because optional methods on `Surface` make calls ambiguous.
 export type Keyboard = {
+  read attachFrame: ((Surface, Owner, vocabulary.FrameStyle) -> vocabulary.FrameAttachment)?,
   read kind: nil,
   read dead: boolean,
   read grabbable: boolean,
@@ -124,7 +133,7 @@ export type Service = {
 
 export type Capability = plugin.Capability<Service>
 
-local capability = plugin.capability<<Service>> { name = 'lunette/keyboard', schema = 2 }
+local capability = plugin.capability<<Service>> { name = 'lunette/keyboard', schema = 3 }
 
 keyboard.capability = capability
 

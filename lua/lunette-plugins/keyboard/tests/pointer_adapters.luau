@@ -7,6 +7,7 @@ local keyboard = require '@lunette-plugins/keyboard'
 local focusProvider = require '@lunette-plugins/focus'
 local plugin = require '@lunette-plugin'
 local keys = require '@lunette-contracts/keys'
+local theme = require '@lunette-contracts/theme'
 
 local test = testing.suite()
 
@@ -46,6 +47,7 @@ local function fixture(kind, options)
     end,
   }
   f.session = testing.start {
+    'theme',
     'drops',
     { id = 'focus', definition = focusDefinition },
     'interaction',
@@ -218,10 +220,14 @@ for _, change in { 'layer', 'bounds' } do
     f:record()
     local pointer = f:pointer()
     f:update(pointer, { left = true })
+    local selected = f.session:observe(theme.capability)
+    local selection = selected.service:select(selected.context, { colors = { control = { 0.6, 0.5, 0.4, 1 } } })
+    expect.equal(#f:cancelled(), 0, 'palette changes preserve this board capture')
     if change == 'layer' then
       f.board:setLayer 'alternate'
     else
-      f.board:setSize(f.board.width * 2)
+      selection:update { metrics = { keyboardGap = 0.01 } }
+      expect.near(f.board.width, 0.1, 1e-9, 'theme metrics never alter layout units')
     end
     expect.equal(#f:cancelled(), 1, 'an incompatible control change cancels immediately')
     expect.equal(f:cancelled()[1].reason, 'control-removed')

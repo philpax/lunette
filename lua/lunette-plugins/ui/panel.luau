@@ -13,7 +13,10 @@ local validation = require '@lunette-plugins/ui/validation'
 local input = require '@lunette-plugins/ui/input'
 local geometry = require '@lunette-plugins/ui/geometry'
 local theme = require '@lunette-plugins/ui/theme'
+local globalTheme = require '@lunette-contracts/theme'
+local appearance = require './appearance'
 local panelDraw = require '@lunette-plugins/ui/panel-draw'
+local draw = require './draw'
 local button = require '@lunette-plugins/ui/button'
 local textField = require '@lunette-plugins/ui/text-field'
 local choice = require '@lunette-plugins/ui/choice'
@@ -22,8 +25,12 @@ local region = require '@lunette-plugins/ui/region'
 
 local panel = {}
 
-export type Services =
-  { read focus: focus.Service, read surfaces: surfaces.Service, read owners: controlOwners.Registry }
+export type Services = {
+  read focus: focus.Service,
+  read surfaces: surfaces.Service,
+  read owners: controlOwners.Registry,
+  read theme: globalTheme.Service,
+}
 
 local function positive(value: number, name: string): ()
   assert(type(value) == 'number' and value > 0 and value < math.huge, 'ui: ' .. name .. ' is finite and positive')
@@ -47,7 +54,7 @@ function panel.new(
   owner: ui.Owner,
   options: ui.PanelOptions,
   services: Services,
-  providerTheme: ui.Theme,
+  providerTheme: ui.ThemeOverrides,
   providerDraw: ui.DrawHook?,
   generation: ui.Generation,
   decorate: (string, surface.Surface, ui.TitlebarOptions) -> ui.Titlebar,
@@ -66,7 +73,18 @@ function panel.new(
   local givenPose = options.pose
   local pose = if givenPose then lovr.math.newMat4(givenPose) else lovr.math.newMat4()
   geometry.validatePose(pose)
-  local resolved = theme.resolve(providerTheme, options.theme)
+  local snapshot = services.theme:current()
+  local sx, sy = pose:getScale()
+  local radiusX = snapshot.theme.radii.uiPanel * options.logicalWidth / (options.width * math.abs(sx))
+  local radiusY = snapshot.theme.radii.uiPanel * options.logicalHeight / (options.height * math.abs(sy))
+  local overrides = theme.copyOverrides(options.theme)
+  local spec = theme.inherit(theme.inherit(theme.global(snapshot.theme, radiusX), providerTheme), overrides)
+  local lease = services.theme:acquireFont(context, spec.font)
+  local prepared, resolved = pcall(theme.materialize, spec, lease.font)
+  if not prepared then
+    local released, failure = pcall(lease.dispose, lease)
+    error(tostring(resolved) .. (if released then '' else '; ' .. tostring(failure)), 0)
+  end
   local state: records.Panel = {
     dead = false,
     visible = options.visible ~= false,
@@ -83,6 +101,16 @@ function panel.new(
     grabbable = options.grabbable ~= false,
     theme = resolved,
     providerTheme = providerTheme,
+    overrides = overrides,
+    spec = spec,
+    lease = lease,
+    measurements = draw.newCache(),
+    themes = services.theme,
+    themeRevision = snapshot.revision,
+    radiusX = radiusX,
+    radiusY = radiusY,
+    refreshing = false,
+    refresh = function(): () end,
     providerDraw = providerDraw,
     draw = options.draw,
     controls = {},
@@ -96,6 +124,9 @@ function panel.new(
     context = context,
     focus = services.focus,
   }
+  state.refresh = function(): ()
+    appearance.refresh(state)
+  end
   local release: plugin.Effect? = nil
   local offered: plugin.Effect? = nil
   local chrome: ui.Titlebar? = nil
@@ -116,6 +147,7 @@ function panel.new(
       return false
     end
     state.dead, state.visible = true, false
+    draw.clearCache(state.measurements)
     state.revision += 1
     local controls, oldOffer, oldChrome = state.controls, offered, chrome
     state.controls, offered, chrome = {}, nil, nil
@@ -134,6 +166,9 @@ function panel.new(
       operations[#operations + 1] = function(): ()
         record.dispose()
       end
+    end
+    operations[#operations + 1] = function(): ()
+      state.lease:dispose()
     end
     operations[#operations + 1] = function(): ()
       if oldOffer then
@@ -173,6 +208,7 @@ function panel.new(
     end
   end
   local surfaceBase: surface.Surface = {
+    attachFrame = nil,
     kind = nil,
     dead = false,
     grabbable = state.grabbable,
@@ -193,6 +229,7 @@ function panel.new(
       if not live() or not state.visible then
         return nil, nil, nil
       end
+      state.refresh()
       return quad.hit({
         pose = state.pose,
         width = state.width,
@@ -202,6 +239,7 @@ function panel.new(
       }, origin, direction)
     end,
     project = function(_self: surface.Surface, origin: vector, direction: vector): (number?, number?, number?)
+      state.refresh()
       return quad.project({
         pose = state.pose,
         width = state.width,
@@ -223,6 +261,7 @@ function panel.new(
     end,
   }
   local surfaceMethods: { read [string]: unknown } = {
+    attachFrame = surfaceBase.attachFrame,
     kind = surfaceBase.kind,
     grabbable = surfaceBase.grabbable,
     grabTarget = surfaceBase.grabTarget,
@@ -312,19 +351,19 @@ function panel.new(
       if not live() then
         return
       end
-      local resolvedTheme = theme.resolve(state.providerTheme, overrides)
-      local controls: { [records.Control]: ui.Theme } = {}
-      for _, record in ipairs(state.controls) do
-        controls[record] = theme.resolve(resolvedTheme, record.overrides)
+      local copied = theme.copyOverrides(overrides)
+      local previous, previousLease = state.overrides, state.lease
+      state.overrides = copied
+      local ok, failure = pcall(appearance.refresh, state, true)
+      if not ok then
+        if state.lease == previousLease then
+          state.overrides = previous
+        end
+        error(failure, 0)
       end
-      state.theme = resolvedTheme
-      for record, resolvedControl in controls do
-        record.theme = resolvedControl
-      end
-      state.revision += 1
-      cancel 'control-removed'
     end,
     describe = function(_self: ui.Panel): ui.Description
+      state.refresh()
       local controls: { ui.ControlDescription } = {}
       for _, record in ipairs(controlOrder.ordered(state.controls)) do
         if not record.dead then

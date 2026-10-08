@@ -2,6 +2,7 @@ local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local contracts = require '@lunette-contracts/laser'
 local interaction = require '@lunette-contracts/interaction'
+local theme = require '@lunette-contracts/theme'
 
 local registry = {}
 
@@ -19,6 +20,7 @@ export type MutableLaser = {
   readInput: (Hand) -> contracts.Input?,
   pointer: interaction.Pointer,
   style: contracts.Style,
+  read styleOverrides: contracts.StyleOverride,
   input: contracts.Input?,
   dead: boolean,
   update: (Laser, { read [number]: contracts.Surface }) -> (),
@@ -31,6 +33,8 @@ export type State = {
   active: boolean,
   read context: plugin.Context,
   lasers: { MutableLaser },
+  read themes: theme.Service,
+  read refreshStyle: () -> (),
 }
 
 local function remove(state: State, target: Laser)

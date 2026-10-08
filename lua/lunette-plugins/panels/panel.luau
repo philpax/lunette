@@ -8,6 +8,7 @@ local layer = require '@lunette-plugins/panels/layer'
 local shape = require '@lunette-plugins/panels/shape'
 local drawing = require '@lunette-plugins/panels/draw'
 local passState = require '@lunette-plugins/pass-state'
+local appearance = require '@lunette-plugins/panels/appearance'
 
 local panel = {}
 
@@ -34,6 +35,7 @@ export type Host = {
   -- Checks the owner and registers a resource with its lifetime.
   read acquire: (Owner, () -> () -> ()) -> plugin.Effect,
   read settings: Settings,
+  read paint: () -> appearance.Paint,
   -- The activation's colour conversion shader for opaque or premultiplied captured content.
   read contentShader: (boolean) -> Shader?,
   -- Called once a panel is dead and its claim released.
@@ -47,7 +49,7 @@ type Override = {
   effect: plugin.Effect?,
 }
 
-type MutablePanel = {
+type PanelData = {
   pose: Mat4,
   width: number,
   height: number,
@@ -59,7 +61,6 @@ type MutablePanel = {
   curve: number,
   hidden: boolean,
   highlighted: boolean,
-  read setHighlighted: (surface.Surface, boolean) -> (),
   granted: boolean,
   dead: boolean,
   claim: layer.Claim?,
@@ -71,6 +72,10 @@ type MutablePanel = {
   mesh: Mesh?,
   meshKey: string?,
   effect: plugin.Effect?,
+}
+
+type PanelMethods = {
+  read setHighlighted: (surface.Surface, boolean) -> (),
   read setPose: (surface.Surface, Mat4) -> (),
   read setSize: (surface.Surface, number?, number?) -> (),
   read raycast: (surface.Surface, vector, vector, boolean?) -> (number?, number?, number?),
@@ -85,7 +90,7 @@ type MutablePanel = {
 export type Source =
   { read kind: 'window', read source: lunette.Window }
   | { read kind: 'monitor', read source: lunette.Monitor }
-export type State = MutablePanel & Source
+export type State = PanelData & PanelMethods & { read windowRadius: number, read monitorRadius: number } & Source
 
 local VISIBILITY_KEYS: { [string]: boolean } = { hidden = true }
 
@@ -96,20 +101,28 @@ local function checkCurve(curve: unknown, level: number): number
   return curve :: number
 end
 
+local function checkRadius(radius: unknown): number?
+  if radius == nil then
+    return nil
+  end
+  if type(radius) ~= 'number' or radius ~= radius or radius < 0 or radius == math.huge then
+    error('panels: a radius is a finite number, zero or more, not ' .. tostring(radius), 4)
+  end
+  return radius :: number
+end
+
 function panel.new(host: Host, owner: Owner, source: Source, options: Options?): State
   if source.source == nil then
     error('panels: a panel is over a source, and nil is not one', 4)
   end
   local settings: Options = options or {}
   local curve = checkCurve(if settings.curve == nil then 0 else settings.curve, 4)
+  local windowRadius, monitorRadius = checkRadius(settings.windowRadius), checkRadius(settings.monitorRadius)
   local created: State
   local function raycastBase(_self: Panel, origin: vector, direction: vector, backFace: boolean?)
     return panel.raycast(created, origin, direction, backFace)
   end
-  local function drawBase(_self: Panel, pass: Pass)
-    drawing.content(created, pass, host.contentShader)
-  end
-  local exposed = {
+  local exposed: PanelMethods = {
     setHighlighted = function(_self: surface.Surface, value: boolean)
       if not created.dead then
         created.highlighted = value
@@ -130,6 +143,7 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
       if created.dead or created.hidden then
         return nil, nil, nil
       end
+      host.paint()
       return host.settings.shape.raycast(created, origin, direction, backFace, raycastBase)
     end,
     sink = function(_self: surface.Surface): lunette.Sink?
@@ -148,17 +162,37 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
       if created.dead or created.hidden or created.source.dead then
         return
       end
-      passState.withRestore(pass, function()
-        pass:setShader()
-        pass:setMaterial(nil)
-        pass:setColor(1, 1, 1, 1)
-        if created.chrome then
-          drawing.chrome(created, pass, host.settings.style)
+      local paint = host.paint()
+      local function current(): boolean
+        return host.active() and not created.dead and not created.hidden and not created.source.dead
+      end
+      local function drawBase(_self: Panel, basePass: Pass): ()
+        if not current() or host.paint().revision ~= paint.revision then
+          return
         end
-        if not created.granted then
-          host.settings.shape.draw(created, pass, drawBase)
-        end
-      end)
+        drawing.content(created, basePass, host.contentShader)
+      end
+      local function render(font: Font?): ()
+        passState.withRestore(pass, function()
+          pass:setShader()
+          pass:setMaterial(nil)
+          pass:setColor(1, 1, 1, 1)
+          if created.chrome and font then
+            pass:setFont(font)
+            drawing.chrome(created, pass, paint.style, font)
+          end
+          if current() and host.paint().revision == paint.revision and not created.granted then
+            host.settings.shape.draw(created, pass, drawBase)
+          end
+        end)
+      end
+      if created.chrome then
+        paint.lease:withFont(function(font: Font): ()
+          render(font)
+        end)
+      else
+        render(nil)
+      end
     end,
     setHidden = function(_self: Panel, caller: Owner, visibility: contracts.Visibility): plugin.Effect
       if type(visibility) ~= 'table' or type(visibility.hidden) ~= 'boolean' then
@@ -188,7 +222,17 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
       return panel.retire(created)
     end,
   }
-  local metatable = { __index = exposed }
+  local methods = (exposed :: unknown) :: { [string]: unknown }
+  local metatable = {
+    __index = function(_self: unknown, key: string): unknown
+      if key == 'windowRadius' then
+        return if windowRadius == nil then host.paint().style.windowRadius else windowRadius
+      elseif key == 'monitorRadius' then
+        return if monitorRadius == nil then host.paint().style.monitorRadius else monitorRadius
+      end
+      return methods[key]
+    end,
+  }
   local pose = settings.pose and lovr.math.newMat4(settings.pose) or lovr.math.newMat4()
   local priority = settings.priority or host.settings.priority
   local chrome = if settings.chrome == nil then host.settings.chrome else settings.chrome
@@ -200,7 +244,7 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
   local descriptor: Source = source
   if descriptor.kind == 'window' then
     local window: lunette.Window = descriptor.source
-    local target: MutablePanel & { read kind: 'window', read source: lunette.Window } = setmetatable({
+    local target: PanelData & { read kind: 'window', read source: lunette.Window } = {
       kind = 'window',
       source = window,
       pose = pose,
@@ -225,11 +269,12 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
       mesh = noMesh,
       meshKey = noKey,
       effect = noEffect,
-    }, metatable)
-    created = target
+    }
+    -- The checked data and methods supply the handle; the metatable resolves current radius fields.
+    created = (setmetatable(target, metatable) :: unknown) :: State
   else
     local monitor: lunette.Monitor = descriptor.source
-    local target: MutablePanel & { read kind: 'monitor', read source: lunette.Monitor } = setmetatable({
+    local target: PanelData & { read kind: 'monitor', read source: lunette.Monitor } = {
       kind = 'monitor',
       source = monitor,
       pose = pose,
@@ -254,8 +299,8 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
       mesh = noMesh,
       meshKey = noKey,
       effect = noEffect,
-    }, metatable)
-    created = target
+    }
+    created = (setmetatable(target, metatable) :: unknown) :: State
   end
 
   if settings.width or settings.height then
@@ -478,6 +523,7 @@ function panel.update(target: State)
     panel.retire(target)
     return
   end
+  target.host.paint()
   local aspect = sourceAspect(target)
   if aspect ~= target.sourceAspect then
     target.sourceAspect = aspect

@@ -83,6 +83,7 @@ return function(config, additions, protected)
   }
   frame.install { start = function() end, stop = function() end }
   local entries = {
+    { id = 'theme', definition = require('@lunette-plugins/theme').definition },
     { id = 'frame', definition = frame.definition },
     { id = 'surfaces', definition = surfaces.definition },
     { id = 'focus', definition = focus.definition },

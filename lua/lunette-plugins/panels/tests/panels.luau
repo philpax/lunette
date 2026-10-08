@@ -15,8 +15,10 @@ local function start(config)
       end,
     }
   end
-  env.session =
-    testing.start { { id = 'panels', definition = require('@lunette-plugins/panels').definition, config = config } }
+  env.session = testing.start {
+    { id = 'theme', definition = require('@lunette-plugins/theme').definition },
+    { id = 'panels', definition = require('@lunette-plugins/panels').definition, config = config },
+  }
   env.consumer = env.session:use(plugin.define {
     name = 'panels-test',
     requires = { panels = panelsContract.capability },

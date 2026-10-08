@@ -12,6 +12,7 @@ local test = testing.suite()
 local function start()
   local env = { native = testing.native() }
   env.session = testing.start {
+    'theme',
     { id = 'panels', definition = require('@lunette-plugins/panels').definition, config = { rendering = 'layer' } },
     'tags',
     'rules',

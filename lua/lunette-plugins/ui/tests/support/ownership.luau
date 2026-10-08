@@ -1,5 +1,6 @@
 local plugin = require '@lunette-plugin'
 local theme = require '@lunette-plugins/ui/theme'
+local themes = require '@lunette-contracts/theme'
 local fixture = {}
 local sequence = 0
 
@@ -12,6 +13,7 @@ function fixture.panel(running, _owner, focusService, registry)
   local provider = running.session:use(plugin.define {
     name = name,
     provides = { controls = capability },
+    requires = { theme = themes.capability },
     init = function(context, _config, publish)
       providerContext = context
       publish:provide(capability, {})
@@ -31,7 +33,10 @@ function fixture.panel(running, _owner, focusService, registry)
         focus = focusService,
         logicalWidth = 200,
         logicalHeight = 100,
-        theme = theme.DEFAULT,
+        theme = theme.materialize(theme.DEFAULT, providerContext:require(themes.capability):getFont()),
+        spec = theme.DEFAULT,
+        themes = providerContext:require(themes.capability),
+        refresh = function() end,
         controls = {},
         owners = registry or {},
         nextOrder = 0,

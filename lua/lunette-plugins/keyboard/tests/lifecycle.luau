@@ -7,7 +7,7 @@ local focusContract = require '@lunette-contracts/focus'
 local test = testing.suite()
 
 local function start()
-  local env = { session = testing.start { 'focus', 'keyboard' } }
+  local env = { session = testing.start { 'theme', 'focus', 'keyboard' } }
   env.consumer = env.session:use(plugin.define {
     name = 'keyboard-lifecycle-test',
     requires = { keyboard = keyboardContract.capability, focus = focusContract.capability },

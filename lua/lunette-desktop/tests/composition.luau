@@ -11,6 +11,7 @@ local test = testing.suite()
 
 local DEFAULT_IDS = table.concat({
   'frame',
+  'theme',
   'surfaces',
   'panels',
   'drops',
@@ -21,6 +22,7 @@ local DEFAULT_IDS = table.concat({
   'keyboard',
   'ui',
   'menu',
+  'desktop/theme',
   'tags',
   'rules',
   'placement',

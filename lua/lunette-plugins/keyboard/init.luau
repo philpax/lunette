@@ -3,6 +3,7 @@ local config = require '@lunette-plugins/keyboard/config'
 local plugin = require '@lunette-plugin'
 local focus = require '@lunette-contracts/focus'
 local keyboard = require '@lunette-contracts/keyboard'
+local theme = require '@lunette-contracts/theme'
 local board = require '@lunette-plugins/keyboard/board'
 local build = require '@lunette-plugins/keyboard/service'
 local validation = require '@lunette-plugins/keyboard/validation'
@@ -21,10 +22,10 @@ export type DrawKey = board.DrawKey
 
 export type Config = config.Config
 
-return plugin.provider<<Config, Settings, Service>> {
+return plugin.provider {
   name = 'keyboard',
   capability = keyboard.capability,
-  requires = { focus = focus.capability },
+  requires = { focus = focus.capability, theme = theme.capability },
   schema = config,
   validate = validation.settings,
   build = build,

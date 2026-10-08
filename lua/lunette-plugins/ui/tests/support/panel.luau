@@ -4,6 +4,7 @@ local frame = require '@lunette-contracts/frame'
 local keyboard = require '@lunette-contracts/keyboard'
 local surfaces = require '@lunette-contracts/surfaces'
 local focus = require '@lunette-contracts/focus'
+local theme = require '@lunette-contracts/theme'
 local vrUi = require '@testing/vr-ui'
 
 local fixture = {}
@@ -20,6 +21,7 @@ end
 function fixture.boot(options)
   options = options or {}
   local running = vrUi.boot {
+    'theme',
     'frame',
     'surfaces',
     'drops',
@@ -44,9 +46,11 @@ function fixture.boot(options)
       frame = frame.capability,
       keyboard = keyboard.capability,
       surfaces = surfaces.capability,
+      theme = theme.capability,
     },
     init = function(context)
       state.owner = context
+      state.themes = context:require(theme.capability)
       state.service = context:require(ui.capability)
       state.loads += 1
       local panel = state.service:newPanel(context, {

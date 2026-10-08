@@ -136,7 +136,7 @@ function draw.content(target: Drawable, pass: Pass, contentShader: (boolean) -> 
 end
 
 -- Chrome draws the border and title. Other decorations belong to consumers.
-function draw.chrome(target: Drawable, pass: Pass, style: contracts.Style)
+function draw.chrome(target: Drawable, pass: Pass, style: contracts.Style, font: Font)
   local color = target.highlighted and style.borderHighlightColor or style.borderColor
 
   pass:setColor(color[1], color[2], color[3], color[4])
@@ -156,7 +156,7 @@ function draw.chrome(target: Drawable, pass: Pass, style: contracts.Style)
     local above = lovr.math
       .mat4(target.pose)
       :translate(0, target.height / 2 + style.titleMargin + style.titleHeight / 2, 0)
-      :scale(vector.pack(style.titleHeight))
+      :scale(vector.pack(style.titleHeight / font:getHeight()))
     pass:text(title, above, 0, 'center', 'middle')
   end
   pass:setColor(1, 1, 1, 1)

@@ -16,7 +16,11 @@ for _, mode in ipairs { 'refuse', 'throw' } do
     events.writeMode = mode
     expect.equal(session:quit(), false, 'the quit is not vetoed')
     expect.equal(events.timeline[1], 'save', 'the quit saves first')
-    expect.equal(#events.reported, 1, 'the failed save is reported')
+    local messages = {}
+    for _, report in events.reported do
+      messages[#messages + 1] = report.message
+    end
+    expect.equal(#events.reported, 1, 'the failed save is reported: ' .. table.concat(messages, '\n'))
     expect.truthy(events.reported[1].message:find('lovr.quit: ', 1, true), events.reported[1].message)
     session:close()
   end)

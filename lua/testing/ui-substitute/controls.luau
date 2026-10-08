@@ -19,6 +19,7 @@ function controls.new(panel, owner, input, kind)
     dead = false,
     id = options.id,
     panel = panel,
+    provider = provider,
     owner = owner,
     kind = kind,
     bounds = options.bounds,
@@ -41,7 +42,11 @@ function controls.new(panel, owner, input, kind)
     return not control.dead and panel.live() and provider.context:owns(owner)
   end
   function control.theme()
-    return appearance.theme(panel.theme(), control.overrides)
+    panel.refresh()
+    return control.resolved
+  end
+  function control.refresh()
+    return appearance.resolve(control, panel.layer, control.overrides)
   end
   function control.changed(reason)
     panel.revision += 1
@@ -68,8 +73,12 @@ function controls.new(panel, owner, input, kind)
     if not control.live() then
       return
     end
-    control.overrides = appearance.copyOverrides(value)
-    control.changed()
+    local copied = appearance.copyOverrides(value)
+    local changed = appearance.resolve(control, panel.layer, copied)
+    control.overrides = copied
+    if changed then
+      control.changed()
+    end
   end
   local effect, releaseId
   local function dispose()
@@ -102,6 +111,7 @@ function controls.new(panel, owner, input, kind)
     end
     control.hovered, control.presses, control.receiver = {}, {}, nil
     control.options, control.drawHook = {}, nil
+    appearance.release(control)
     if not cancelled then
       error(cancellation, 0)
     end
@@ -133,6 +143,7 @@ function controls.new(panel, owner, input, kind)
   end
   local _, acquired = provider.context:resource(owner, function()
     local ok, message = pcall(function()
+      control.refresh()
       control.identity, releaseId = provider.owners.claim(owner, options.id, control)
       handle.owner = control.identity
       if kind == 'text-field' then

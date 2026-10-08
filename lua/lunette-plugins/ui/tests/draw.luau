@@ -1,8 +1,15 @@
 local testing = require '@testing'
 local render = require '@testing/render'
 local lunette = require '@lunette'
-local draw = require '../draw'
-local theme = require '../theme'
+local drawing = require '../draw'
+local drawCache = drawing.newCache()
+local draw = {
+  render = function(pass, visual, hooks)
+    drawing.render(pass, visual, hooks, drawCache)
+  end,
+}
+local themes = require '../theme'
+local theme = { resolve = themes.resolve }
 local textField = require '../text-field'
 local expect = testing.expect
 local test = testing.suite()
@@ -10,6 +17,8 @@ local test = testing.suite()
 local function recorderForDrawing()
   testing.native()
   local recorder = render.new()
+  theme.DEFAULT = themes.materialize(themes.DEFAULT, recorder.font)
+  drawCache = drawing.newCache()
   lovr.graphics.getDefaultFont = function()
     return recorder.font
   end
@@ -316,6 +325,9 @@ test('text-field pointer selects the boundary drawn in a scrolled, clipped, shor
       theme = function()
         return style
       end,
+      withFont = function(run)
+        run(style.font)
+      end,
       callback = function(_, run)
         run()
         return true
@@ -515,6 +527,9 @@ test('cached truncation refreshes when font metrics, theme, or clip changes', fu
   draw.render(recorder.pass, value)
   expect.equal(texts(recorder)[5], 'abcdef')
   local replacement = render.new().font
+  local replaced = table.clone(value.theme)
+  replaced.font = replacement
+  value.theme = table.freeze(replaced)
   lovr.graphics.getDefaultFont = function()
     return replacement
   end

@@ -6,6 +6,10 @@ local bounds: ui.Bounds = { x = 0, y = 0, width = 100, height = 40 }
 local function misuse(panel: ui.Panel, owner: ui.Owner, field: ui.TextField, choice: ui.Choice): ()
   local wrongBounds: ui.Bounds = { x = 'left', y = 0, width = 100, height = 40 } -- reject.
   local wrongTheme: ui.ThemeOverrides = { fontSize = 'large' } -- reject.
+  local wrongFont: ui.ThemeOverrides = { font = lovr.graphics.getDefaultFont() } -- reject.
+  local missingFontFields: ui.ThemeOverrides = { font = { kind = 'file', file = 'fixture.ttf' } } -- reject.
+  local wrongRadius: ui.ThemeOverrides = { panelRadius = 'round' } -- reject.
+  assert(wrongFont.font ~= nil and missingFontFields.font ~= nil and wrongRadius.panelRadius ~= nil)
   local wrongItem: ui.Item = { id = 'item', label = 'Item', enabled = 'yes' } -- reject.
   local activate: () -> () = function(_value: string): () end -- reject.
   local change: (string) -> () = function(_value: number): () end -- reject.

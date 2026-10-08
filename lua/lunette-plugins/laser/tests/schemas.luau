@@ -54,7 +54,7 @@ test('defined defaults merge nested fields while mapping lists replace and callb
   local definition = laser.define { name = 'schema-laser', style = { length = 3 }, draw = draw }
   local resolved = definition.resolve { style = { color = { 1, 0, 0, 1 } }, buttons = {} }
   expect.equal(resolved.style.length, 3, 'defined length')
-  expect.equal(resolved.style.cursorRadius, 0.006, 'sibling default')
+  expect.equal(resolved.style.cursorRadius, 0.006, 'cursor geometry retains the non-theme default')
   expect.equal(#resolved.buttons, 0, 'empty mapping list replaces')
   expect.equal(resolved.draw, draw, 'callback identity')
   expect.equal(definition.schema.value.style.length, 3, 'bound default metadata')
@@ -68,7 +68,7 @@ test('keyboard rows and layers replace and retain structured editable metadata',
   expect.equal(#settings.rows, 0, 'rows replace')
   expect.equal(next(settings.layers), nil, 'empty map replaces')
   expect.equal(settings.style.gap, 0.01, 'style override')
-  expect.equal(settings.style.keyUnit, 0.028, 'style sibling default')
+  expect.equal(settings.style.keyUnit, 0.028, 'key units retain the non-theme structural default')
   local fields = definition.schema.child.fields
   expect.equal(fields.rows.child.kind, 'array', 'rows array')
   expect.equal(fields.rows.child.child.child.kind, 'object', 'key object')

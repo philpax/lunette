@@ -10,6 +10,7 @@ local test = testing.suite()
 test('parsed partial pointing overrides merge over configured laser and interaction provider defaults', function()
   testing.native()
   local session = testing.start {
+    'theme',
     'drops',
     'focus',
     {

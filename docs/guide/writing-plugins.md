@@ -178,6 +178,20 @@ Geometric positions, directions, and offsets are native `vector` values, constru
 
 A patch with an entry's `id` changes that entry. A schema-backed definition resolves `config` through its descriptor: declared objects merge key by key, while arrays, maps, unions, and atomic values replace. Raw and legacy definitions retain recursive string-keyed table merging. `disabled = true` removes the entry, and `definition` replaces what the entry is made from. An unknown id raises when the configuration loads.
 
+The shipped desktop selects the Dark theme through `desktop/theme`. Its menu action switches among Dark, Light, and Arcade, and `Dark mode` toggles between Dark and Light. Configuration sets the initial preset and can override selected fields without replacing the preset:
+
+```lua
+desktop.configure(require '@lunette-plugins/desktop/theme') {
+  preset = 'arcade',
+  overrides = {
+    colors = { focus = { 1, 0.5, 0.1, 1 } },
+    typography = { bodySize = 20 },
+  },
+},
+```
+
+An omitted override inherits from the preset and later global theme changes. Explicit zero remains an override. The font override accepts `kind = 'default'` or `kind = 'file'` with a filesystem path; for a file font, omitted `size` and `spread` project to 32 and 4. Disabling `desktop/theme` removes the selector's registration and restores the base theme unless another live registration remains. The `theme` provider must remain enabled for its consumers.
+
 `desktop.configure` takes a plugin's definition and answers a function that makes a configuration patch for the entry named by the definition's name, typed with that definition's options, so the checker reads them. A built-in provider's module holds its definition as `definition`; a desktop consumer's module is its definition, or for `desktop/arrange` a factory of it, which `configure` takes as well. `desktop/persistence` is `@lunette-plugins/arrangement`, which holds its factory as `factory` beside its format functions:
 
 ```lua
@@ -269,7 +283,7 @@ return keyboard.define {
 }
 ```
 
-`pointer:vibrate` pulses the controller of the hand that pressed the key; the laser gives each pointer its controller. `key.source` is the row entry the key was made from, which stays the same table from frame to frame, so it can key a table across frames. `drawing` is `@lunette-plugins/keyboard/draw`, which has the default drawing's halves, `face` and `legend`, and `faceColor`. `examples/keyboard/rounded.luau` uses them to draw rounded faces and keep the default legends.
+`pointer:vibrate` pulses the controller of the hand that pressed the key; the laser gives each pointer its controller. `key.source` is the row entry the key was made from, which stays the same table from frame to frame, so it can key a table across frames. `drawing` is `@lunette-plugins/keyboard/draw`, which has the default drawing's halves, `face` and `legend`, and `faceColor`. `examples/keyboard/rounded.luau` is a custom `drawKey` hook that draws rounded faces and keeps the default legends; the built-in keyboard remains the default provider.
 
 The definition replaces the desktop's keyboard by id:
 
@@ -281,7 +295,7 @@ Every plugin that requires the keyboard contract, including `desktop/keyboard`, 
 
 ## Replacing the keyboard
 
-A plugin that provides `lunette/keyboard` at schema 2 can take the keyboard entry's place in the same way. `service:new(owner, options)` answers a keyboard, which is a surface with `pose`, `width`, `height`, `visible`, `setPose`, `setSize`, `setVisible`, `pressKey`, `typeText`, `modifiers`, `draw`, and `destroy`. `service:inspect()` returns callback-free registration metadata. A replacement uses focus sources for routed input, clears latches and locks on route changes and hide, and implements `Options.onVisibilityChanged` after changing state. Its reasons are `show`, `hide`, `user-hide`, and `destroy`. The native-only `Options.target` callback remains subordinate to a focused local receiver. [Keyboard](../dev/lua-api.md#keyboard) and [Focus](../dev/lua-api.md#focus) specify these rules. `examples/keyboard/tiny.luau` implements the contract with one row of three keys. Its `new` ties each keyboard to the caller.
+A plugin that provides `lunette/keyboard` at schema 3 can take the keyboard entry's place in the same way. `service:new(owner, options)` answers a keyboard, which is a surface with `pose`, `width`, `height`, `visible`, `setPose`, `setSize`, `setVisible`, `pressKey`, `typeText`, `modifiers`, `draw`, and `destroy`. `service:inspect()` returns callback-free registration metadata. A replacement uses focus sources for routed input, clears latches and locks on route changes and hide, and implements `Options.onVisibilityChanged` after changing state. Its reasons are `show`, `hide`, `user-hide`, and `destroy`. The native-only `Options.target` callback remains subordinate to a focused local receiver. [Keyboard](../dev/lua-api.md#keyboard) and [Focus](../dev/lua-api.md#focus) specify these rules. `examples/keyboard/tiny.luau` implements the contract with one row of three keys. Its `new` ties each keyboard to the caller.
 
 The implementation acquires the board through `context:resource(owner, acquire)`. Inside that acquisition, it creates a virtual focus source with the provider's context as the source owner, then returns the board and an inverse that releases the board and source. It releases partial acquisitions if board construction raises. The complete callback and cleanup wiring remains in `examples/keyboard/tiny.luau`.
 

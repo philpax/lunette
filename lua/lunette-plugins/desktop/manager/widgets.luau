@@ -2,6 +2,8 @@
 local plugin = require '@lunette-plugin'
 local ui = require '@lunette-contracts/ui'
 local surface = require '@lunette-contracts/surface'
+local theme = require '@lunette-contracts/theme'
+local styles = require './theme'
 local controller = require './controller'
 local geometry = require './graph-geometry'
 local draw = require './draw'
@@ -18,7 +20,27 @@ type Retained = {
   items: { read [number]: ui.Item }?,
   selected: string?,
 }
-export type Shell = { read update: () -> (), read cancel: () -> (), read destroy: () -> () }
+export type Shell = {
+  read update: () -> (),
+  read refreshTheme: () -> (),
+  read cancel: () -> (),
+  read destroy: () -> (),
+}
+
+type Compact = 'toolbar' | 'field' | 'choice'
+local function compact(tokens: theme.Theme, kind: Compact): ui.ThemeOverrides
+  if kind == 'toolbar' then
+    return { padding = math.min(tokens.metrics.padding, 3), fontSize = math.min(tokens.typography.smallSize, 16) }
+  elseif kind == 'field' then
+    return { padding = math.min(tokens.metrics.padding, 5), fontSize = math.min(tokens.typography.bodySize, 20) }
+  end
+  return {
+    rowHeight = math.min(tokens.metrics.rowHeight, 40),
+    padding = math.min(tokens.metrics.padding, 5),
+    spacing = math.min(tokens.metrics.spacing, 6),
+    fontSize = math.min(tokens.typography.bodySize, 20),
+  }
+end
 
 local function equal(left: unknown, right: unknown): boolean
   if left == right then
@@ -50,8 +72,42 @@ local function pathId(path: { read [number]: string | number }): string
   return table.concat(parts, '/')
 end
 
-function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.State): Shell
+function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.State, style: styles.Style): Shell
   local retained: { [string]: Retained } = {}
+  local layers: { [string]: { kind: Compact, value: ui.ThemeOverrides } } = {}
+  local refreshTheme: () -> ()
+  local dead = false
+  local function active(): boolean
+    return not dead and not panel.dead and owner:active()
+  end
+  local function ready(): boolean
+    if not active() then
+      return false
+    end
+    refreshTheme()
+    return active()
+  end
+  local regionItems: { [string]: { read [number]: ui.RegionItem } } = {}
+  local function themed(id: string, kind: Compact): ui.ThemeOverrides
+    local value = compact(style.current(), kind)
+    layers[id] = { kind = kind, value = value }
+    return value
+  end
+  local measuredFont: Font? = nil
+  local measuredSize: number? = nil
+  local function custom(pass: Pass, visual: ui.Visual, run: (draw.Style) -> ()): ()
+    if not ready() then
+      return
+    end
+    styles.draw(style, pass, visual.theme, function(resolved: draw.Style): ()
+      local font, size = visual.theme.font, visual.theme.fontSize
+      if state.measuredRecords ~= state.detailRecords or measuredFont ~= font or measuredSize ~= size then
+        controller.measureDetails(state, font, size)
+        measuredFont, measuredSize = font, size
+      end
+      run(resolved)
+    end)
+  end
   local used: { [string]: boolean } = {}
   local graphItems: { read [number]: ui.RegionItem } = {}
   local graphPointer: surface.Pointer? = nil
@@ -60,11 +116,12 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
   local scrollRemainder = 0
   local editIdentity: string? = nil
   local updating = false
+  local generation = 0
   local update: () -> ()
   local function retire(id: string): ()
     local record = retained[id]
     if record then
-      retained[id] = nil
+      retained[id], layers[id] = nil, nil
       record.handle:destroy()
     end
   end
@@ -105,6 +162,87 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
     end
     return record
   end
+  refreshTheme = function(): ()
+    if not active() then
+      return
+    end
+    style.refresh(function(_previous: theme.Theme, nextTheme: theme.Theme, _font: Font): () -> ()
+      local preparedGeneration = generation
+      local publish = controller.prepareStyle(state, nextTheme.metrics.rowHeight, nextTheme.metrics.spacing, nil)
+      local replacements: { [string]: ui.ThemeOverrides } = {}
+      for id, layer in layers do
+        local value = compact(nextTheme, layer.kind)
+        if not equal(value, layer.value) then
+          replacements[id] = value
+        end
+      end
+      local prepared = table.clone(state)
+      controller.prepareStyle(prepared, nextTheme.metrics.rowHeight, nextTheme.metrics.spacing, nil)()
+      local rowId = if state.tab == 'catalog' then 'catalog-list' else 'rows'
+      local rowRecord = retained[rowId]
+      local items: { ui.RegionItem }? = nil
+      if rowRecord and prepared.rows ~= state.rows then
+        items = {}
+        for visibleIndex, row in prepared.rows do
+          local index = prepared.rowIndices[visibleIndex]
+          local known, editorRow = state.catalog[index], state.editorRows[index]
+          items[#items + 1] = {
+            id = if state.tab == 'catalog' then 'catalog/' .. known.id else pathId(editorRow.path),
+            label = row.label .. ': ' .. (if row.value == '' then '(empty)' else row.value),
+            bounds = { x = row.x, y = row.y, width = row.width, height = row.height },
+          }
+        end
+      end
+      return function(): ()
+        local changed: { string } = {}
+        local itemsChanged = false
+        local ok, failure = pcall(function(): ()
+          for id, value in replacements do
+            local record = retained[id]
+            if record and not record.handle.dead then
+              changed[#changed + 1] = id
+              record.handle:setTheme(value)
+            end
+          end
+          if rowRecord and items and not rowRecord.handle.dead and not equal(regionItems[rowId], items) then
+            itemsChanged = true
+            (rowRecord.handle :: ui.Region):setItems(items)
+          end
+          style.checkRefresh()
+          assert(not panel.dead and owner:active(), 'manager theme: the panel owner is inactive')
+          assert(generation == preparedGeneration, 'manager theme: the controller changed during publication')
+        end)
+        if not ok then
+          local failures = { tostring(failure) }
+          if itemsChanged and rowRecord and not rowRecord.handle.dead then
+            local restored, problem =
+              pcall((rowRecord.handle :: ui.Region).setItems, rowRecord.handle :: ui.Region, regionItems[rowId] or {})
+            if not restored then
+              failures[#failures + 1] = tostring(problem)
+            end
+          end
+          for index = #changed, 1, -1 do
+            local id = changed[index]
+            local record, layer = retained[id], layers[id]
+            if record and layer and not record.handle.dead then
+              local restored, problem = pcall(record.handle.setTheme, record.handle, layer.value)
+              if not restored then
+                failures[#failures + 1] = tostring(problem)
+              end
+            end
+          end
+          error(table.concat(failures, '; manager theme rollback: '), 0)
+        end
+        publish()
+        for id, value in replacements do
+          layers[id].value = value
+        end
+        if itemsChanged and items then
+          regionItems[rowId] = items
+        end
+      end
+    end)
+  end
   local function cancelGraph(): ()
     if graphPointer == nil then
       return
@@ -112,17 +250,23 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
     graphPointer = nil
     controller.graphCancel(state)
     local record = retained.graph
-    if record and not record.handle.dead then
+    if active() and record and not record.handle.dead then
       local region = record.handle :: ui.Region
       region:setItems(graphItems)
     end
   end
   local function invoke(id: string): ()
+    if not ready() then
+      return
+    end
     cancelGraph()
     controller.invoke(state, id)
     update()
   end
   local function scroll(event: surface.PointerEvent): ()
+    if not ready() then
+      return
+    end
     if event.kind == 'scroll' and event.inside and event.dy ~= nil then
       scrollRemainder += event.dy / 36
       local rows = if scrollRemainder > 0 then math.floor(scrollRemainder) else math.ceil(scrollRemainder)
@@ -134,6 +278,17 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
     end
   end
   local function graphEvent(event: surface.PointerEvent): ()
+    if event.kind == 'cancel' then
+      if event.button == 'left' and event.pointer == graphPointer then
+        graphPointer = nil
+        controller.graphCancel(state)
+      end
+      update()
+      return
+    end
+    if not ready() then
+      return
+    end
     if event.kind == 'scroll' then
       if event.inside and event.x ~= nil and event.y ~= nil and event.dy ~= nil then
         cancelGraph()
@@ -164,17 +319,11 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
           controller.graphCancel(state)
         end
       end
-    elseif event.kind == 'cancel' then
-      if event.button == 'left' and event.pointer == graphPointer then
-        graphPointer = nil
-        controller.graphCancel(state)
-      end
     else
       return
     end
     update()
   end
-  local regionItems: { [string]: { read [number]: ui.RegionItem } } = {}
   local function collection(id: string, items: { ui.RegionItem }, bounds: ui.Bounds): ()
     local function itemAt(x: number?, y: number?): string?
       if x == nil or y == nil then
@@ -199,9 +348,20 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
         exclusive = true,
         z = 1,
         draw = function(pass: Pass, visual: ui.Visual, _default: ui.Renderer): ()
-          draw.details(pass, controller.options(state), visual.clip, 'rows')
+          custom(pass, visual, function(style: draw.Style): ()
+            draw.details(pass, controller.options(state), visual.clip, 'rows', style)
+          end)
         end,
         onPointer = function(event: surface.PointerEvent): ()
+          if event.kind == 'cancel' then
+            if event.button == 'left' then
+              rowPress[id] = nil
+            end
+            return
+          end
+          if not ready() then
+            return
+          end
           if event.kind == 'scroll' then
             scroll(event)
             return
@@ -209,10 +369,6 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
           if event.kind == 'press' then
             if event.button == 'left' and event.inside then
               rowPress[id] = itemAt(event.x, event.y)
-            end
-          elseif event.kind == 'cancel' then
-            if event.button == 'left' then
-              rowPress[id] = nil
             end
           elseif event.kind == 'release' then
             if event.button ~= 'left' then
@@ -252,8 +408,12 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
         label = label,
         bounds = bounds,
         value = value,
+        theme = themed(id, 'field'),
         z = 3,
         onChange = function(text: string): ()
+          if not ready() then
+            return
+          end
           cancelGraph()
           if id == 'search-field' then
             controller.setSearch(state, text)
@@ -263,6 +423,9 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
           update()
         end,
         onSubmit = function(text: string): ()
+          if not ready() then
+            return
+          end
           cancelGraph()
           if id == 'search-field' then
             controller.setSearch(state, text)
@@ -276,9 +439,9 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
         onCancel = function(_text: string): ()
           cancelGraph()
           if id == 'search-field' then
-            controller.endSearch(state)
+            controller.endSearch(state, false)
           else
-            controller.cancelText(state)
+            controller.cancelText(state, false)
           end
           update()
         end,
@@ -294,9 +457,10 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
     return handle
   end
   update = function(): ()
-    if updating or panel.dead then
+    if updating or not ready() then
       return
     end
+    generation += 1
     updating = true
     local ok, problem = pcall(function(): ()
       controller.update(state)
@@ -318,7 +482,9 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
             z = -1,
             onPointer = graphEvent,
             draw = function(pass: Pass, visual: ui.Visual, _default: ui.Renderer): ()
-              draw.graph(pass, publishedView, visual.clip)
+              custom(pass, visual, function(style: draw.Style): ()
+                draw.graph(pass, publishedView, visual.clip, style)
+              end)
             end,
           })
         end)
@@ -352,8 +518,10 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
             bounds = graphBounds,
             items = items,
             selected = selectedId,
-            theme = { rowHeight = 40 },
             onChange = function(id: string): ()
+              if not ready() then
+                return
+              end
               for _, entry in state.entries do
                 if id == 'entry/' .. entry.id then
                   view.select(state.view, { kind = 'node', id = entry.instanceId })
@@ -383,7 +551,9 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
           enabled = false,
           z = -2,
           draw = function(pass: Pass, visual: ui.Visual, _default: ui.Renderer): ()
-            draw.details(pass, controller.options(state), visual.clip, 'background')
+            custom(pass, visual, function(style: draw.Style): ()
+              draw.details(pass, controller.options(state), visual.clip, 'background', style)
+            end)
           end,
         })
       end)
@@ -396,7 +566,9 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
             z = -1,
             onPointer = scroll,
             draw = function(pass: Pass, visual: ui.Visual, _default: ui.Renderer): ()
-              draw.details(pass, controller.options(state), visual.clip, 'details')
+              custom(pass, visual, function(style: draw.Style): ()
+                draw.details(pass, controller.options(state), visual.clip, 'details', style)
+              end)
             end,
           })
         end)
@@ -409,7 +581,9 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
           enabled = false,
           z = -1,
           draw = function(pass: Pass, visual: ui.Visual, _default: ui.Renderer): ()
-            draw.details(pass, controller.options(state), visual.clip, 'footer')
+            custom(pass, visual, function(style: draw.Style): ()
+              draw.details(pass, controller.options(state), visual.clip, 'footer', style)
+            end)
           end,
         })
       end)
@@ -421,6 +595,7 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
             label = button.label,
             bounds = bounds,
             enabled = button.enabled,
+            theme = themed(id, 'toolbar'),
             z = 2,
             onActivate = function(): ()
               invoke(id)
@@ -468,8 +643,12 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
                 id = 'boolean-field',
                 label = selected.label .. ': ' .. tostring(selected.value),
                 bounds = fieldBounds,
+                theme = themed('boolean-field', 'field'),
                 z = 3,
                 onActivate = function(): ()
+                  if not ready() then
+                    return
+                  end
                   if state.row then
                     controller.selectRow(state, state.row, true)
                     update()
@@ -493,11 +672,14 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
                 id = 'choice-field',
                 label = selected.label,
                 bounds = fieldBounds,
-                theme = { rowHeight = 40, padding = 8, spacing = 6 },
+                theme = themed('choice-field', 'choice'),
                 items = choices,
                 selected = selectedId,
                 z = 3,
                 onChange = function(id: string): ()
+                  if not ready() then
+                    return
+                  end
                   local index = tonumber(id:sub(8))
                   if state.row and index then
                     controller.choose(state, state.row, index)
@@ -552,12 +734,14 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
   end
   local shell: Shell = {
     update = update,
+    refreshTheme = refreshTheme,
     cancel = function(): ()
+      generation += 1
       graphPointer = nil
       scrollRemainder = 0
       controller.graphCancel(state)
-      controller.endSearch(state)
-      controller.cancelText(state)
+      controller.endSearch(state, active())
+      controller.cancelText(state, active())
       for _, record in retained do
         if record.kind == 'text-field' then
           (record.handle :: ui.TextField):blur()
@@ -565,6 +749,8 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
       end
     end,
     destroy = function(): ()
+      dead = true
+      generation += 1
       graphPointer = nil
       controller.graphCancel(state)
       for id in retained do

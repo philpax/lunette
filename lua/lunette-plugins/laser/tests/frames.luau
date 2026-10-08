@@ -8,6 +8,7 @@ local test = testing.suite()
 local function start(definition)
   local env = { native = testing.native() }
   env.session = testing.start {
+    'theme',
     'drops',
     'focus',
     'interaction',

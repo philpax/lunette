@@ -17,7 +17,7 @@ local fixture = {}
 -- every layer claim must have been released. The native API is a fresh fake, or `options.native`.
 function fixture.run(options, body)
   local native = options.native or testing.native()
-  local entries = { 'panels', 'tags', 'rules' }
+  local entries = { 'theme', 'panels', 'tags', 'rules' }
   local requires = {
     panels = panelsContract.capability,
     tags = tagsContract.capability,

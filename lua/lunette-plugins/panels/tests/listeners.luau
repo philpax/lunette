@@ -7,7 +7,7 @@ local test = testing.suite()
 
 local function start()
   local env = { native = testing.native() }
-  env.session = testing.start { 'panels' }
+  env.session = testing.start { 'theme', 'panels' }
   env.consumer = env.session:use(plugin.define {
     name = 'listeners-test',
     requires = { panels = panelsContract.capability },

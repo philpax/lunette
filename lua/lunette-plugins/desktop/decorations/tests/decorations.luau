@@ -14,6 +14,7 @@ local function start()
   env.session = testing.boot {
     'frame',
     'surfaces',
+    'theme',
     'panels',
     'drops',
     'focus',

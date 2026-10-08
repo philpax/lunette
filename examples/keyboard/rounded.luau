@@ -5,6 +5,7 @@ local drawing = require '@lunette-plugins/keyboard/draw'
 
 return keyboard.define {
   name = 'rounded-keyboard',
+  style = { keyRadius = 0.004 },
   drawKey = function(pass, key, state, _base)
     local style = state.style
     local color = drawing.faceColor(state)
@@ -14,7 +15,7 @@ return keyboard.define {
       .mat4(state.pose)
       :translate(0, 0, -style.plateDepth / 2)
       :scale(key.width - style.gap, key.height - style.gap, style.plateDepth)
-    pass:roundrect(face, style.gap)
+    pass:roundrect(face, style.keyRadius)
     drawing.legend(pass, key, state)
   end,
 }

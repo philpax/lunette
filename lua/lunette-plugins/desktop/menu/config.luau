@@ -25,7 +25,7 @@ local expanded = schema.object {
   height = schema.default(positive)(0.4),
   logicalWidth = schema.default(logicalWidth)(320),
   logicalHeight = schema.default(logicalHeight)(400),
-  rowHeight = schema.default(positive)(40),
+  rowHeight = schema.optional(positive),
 }
 local descriptor = schema.object {
   hand = schema.default(hand) 'left',

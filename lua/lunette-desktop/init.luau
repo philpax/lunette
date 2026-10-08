@@ -2,6 +2,8 @@
 
 local plugin = require '@lunette-plugin'
 local frame = require '@lunette-plugins/frame'
+local theme = require '@lunette-plugins/theme'
+local themeSelector = require '@lunette-plugins/desktop/theme'
 local surfaces = require '@lunette-plugins/surfaces'
 local panels = require '@lunette-plugins/panels'
 local drops = require '@lunette-plugins/drops'
@@ -86,6 +88,7 @@ local SETTING_FIELDS =
 -- Persistence and arrangement use factories to preserve state across activations. Rule sources precede adoption so they resolve the first window.
 local DEFAULT: { Entry } = plugin.compose {
   { id = 'frame', definition = frame.definition },
+  { id = 'theme', definition = theme.definition },
   { id = 'surfaces', definition = surfaces.definition },
   { id = 'panels', definition = panels.definition },
   { id = 'drops', definition = drops.definition },
@@ -96,6 +99,7 @@ local DEFAULT: { Entry } = plugin.compose {
   { id = 'keyboard', definition = keyboard.definition },
   { id = 'ui', definition = ui.definition },
   { id = 'menu', definition = menu.definition },
+  { id = 'desktop/theme', factory = themeSelector },
   { id = 'tags', definition = tags.definition },
   { id = 'rules', definition = rules.definition },
   { id = 'placement', definition = placement.definition },

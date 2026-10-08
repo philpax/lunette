@@ -12,6 +12,7 @@ test('a layout that is not registered is logged once, and the consumer arranges 
   local session = testing.boot {
     'frame',
     'drops',
+    'theme',
     'panels',
     'tags',
     'rules',
