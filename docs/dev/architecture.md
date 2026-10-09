@@ -60,7 +60,7 @@ A cleanup failure quarantines the instance. A quarantined instance holds no atta
 
 A failure inside a drain is attributed to its instance, recorded as its diagnostic, logged, and delivered to every `lunette.onError` listener. An error from an operation a caller invoked, such as `effect:dispose()`, goes to that caller. A blocked instance reports why: a missing or disabled provider is a waiting condition logged at information level, and a schema mismatch, a dependency cycle, or a quarantined provider is an error.
 
-Source reload closes the runtimes, clears subscriptions and user modules, retires the contract epoch, and runs the configuration again in the same Lua state. Contracts can be declared again in the new epoch. Installing a definition from a retired epoch is rejected. Instance reload unloads and loads one instance within its runtime. Hard restart replaces the Lua state, the attachment, and the epoch.
+Source reload retires the contract epoch ([Reload](lua-api.md#reload)), so contracts can be declared again in the new epoch. Installing a definition from a retired epoch is rejected. Instance reload unloads and loads one instance within its runtime. Hard restart replaces the Lua state, the attachment, and the epoch.
 
 ## GPU ownership
 
@@ -90,9 +90,7 @@ lunette-generate-definitions      generates the Luau definitions, declarations, 
 
 After either reload or restart, `lunette.windows()` enumerates the same clients again.
 
-Source reload keeps the Lua state and its globals. It closes the plugin runtimes, clears subscriber handles and configuration callbacks, drops user and standard-library modules from `package.loaded`, and runs `main.luau` and `lovr.load`. Plugin effects are the only cleanup it runs; Lua code outside a plugin that holds native resources keeps them.
-
-Hard restart closes the plugin runtimes, clears subscribers, flushes the final frame, stops native users of the Lua state, marks the mlua state closed, and calls LÖVR's external close path.
+[Reload](lua-api.md#reload) states the order of a source reload. Hard restart closes the plugin runtimes, clears subscribers, flushes the final frame, stops native users of the Lua state, marks the mlua state closed, and calls LÖVR's external close path.
 
 ## Decisions
 

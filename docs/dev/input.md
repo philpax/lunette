@@ -60,7 +60,7 @@ Wayland clients take an xkb keymap, raw keycodes, and modifier state, and transl
 - Keymap queries: `seat:symbolFor` and `seat:characterFor` give the keysym and text for a keycode under modifiers, `seat.layouts` lists the layouts, and `seat:strokeFor` is the reverse lookup from keysym or character to keycode and modifiers.
 - `sink:scroll` for a continuous distance and `sink:scrollDiscrete` for wheel notches. Clients use the difference to decide whether to scroll kinetically.
 
-A seat carries one layout group. A configuration that names several layouts for one seat is refused, and a second layout requires a second seat. [The Lua API](lua-api.md#seats) specifies each call.
+A seat carries one layout group. A configuration that names several layouts for one seat is refused, and a second layout requires a second seat. `lua/lunette/init.luau` declares each call.
 
 The keymap queries are stateless. They serve virtual-keyboard legends and single-key translation under explicit modifiers, including AltGr, and keep no dead-key or compose state. Physical text uses LÖVR's committed UTF-8.
 

@@ -657,8 +657,7 @@ mod tests {
 
     #[test]
     fn a_name_a_chunk_sets_is_visible_to_the_next_chunk() {
-        // docs/dev/lua-api.md's `$(lunctl 'return win.title')` reads what an earlier
-        // chunk stored.
+        // A later lunctl call reads what an earlier chunk stored.
         let lua = crate::test_lua::session_lua();
 
         returned(evaluate(&lua, "remembered = 5", Budget::DEFAULT, scalars));

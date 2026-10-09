@@ -56,7 +56,7 @@ A text field holds valid single-line UTF-8; control characters and line separato
 
 Focusing a text field shows the shared desktop keyboard when the composition includes `desktop/keyboard`. The field does not require `lunette/keyboard-display` itself. Hiding the keyboard ends the field's focus and keeps its text, and pointing at the field again resumes editing. A keyboard the user showed stays visible after editing ends. `@lunette-contracts/keyboard-display` defines `show`, `hide`, `toggle`, `isVisible`, and `onChanged`.
 
-`@lunette-contracts/menu` defines the action broker. A registration has an `id`, a `label`, a `run` callback, and optional `group`, `order`, `enabled`, and `selected` values, and it ends with its owner. `desktop/menu` draws the actions on the wrist. [Menu actions](../dev/lua-api.md#menu-actions) specifies the broker.
+`@lunette-contracts/menu` defines the action broker. A registration has an `id`, a `label`, a `run` callback, and optional `group`, `order`, `enabled`, and `selected` values, and it ends with its owner. `desktop/menu` draws the actions on the wrist. [Bindings, menu actions, and layouts](../dev/lua-api.md#bindings-menu-actions-and-layouts) specifies the broker.
 
 ## Themes and drawing hooks
 

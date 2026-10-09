@@ -42,7 +42,7 @@ Restore tokens are stored in `$XDG_STATE_HOME/lunette/screencast-tokens.toml`, o
 
 For portal streams, `monitor:setPaused(true)` deactivates the stream and keeps its session, and `monitor:dismiss()` drops and joins the worker while the portal session survives. Direct capture delegates pause, requests, and stream drop to upstream; its pause does nothing, and dropping it neither cancels nor joins its worker. A graphics restart replaces the sources, and a device-lifetime guard stops a detached upstream exporter from calling Vulkan through the old device.
 
-[The Lua API](lua-api.md#monitors) states the monitor handle.
+`lua/lunette/init.luau` declares the monitor handle.
 
 ## Input injection
 

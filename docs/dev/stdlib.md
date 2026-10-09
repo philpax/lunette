@@ -14,13 +14,7 @@ The checker follows directory symlinks and keeps the module path the configurati
 
 A contract module in `@lunette-contracts` declares a service type and exports a capability that pairs it with an authority-qualified name and schema number. Vocabulary shared by several contracts lives in a neutral contract module, so a service type never imports a provider. `@lunette-contracts/vocabulary` holds the surface and pointer types, the per-window pose property `lunette.pose` with `encodePose` and `decodePose`, and `PRECEDENCE`, the named precedences of rule sources. `@lunette-contracts/keys` holds the key vocabulary, read from `lunette.keyCodes()`, `lunette.modifierNames()`, and `lunette.lockingModifierNames()`, and the modifier and LÖVR key-name policy shared by the bindings provider and `desktop/input`. `@lunette-contracts/quad` holds flat-quad ray intersection.
 
-A provider module is made by `plugin.provider` and answers `{ definition, define, build, requires }`, as [Provider modules](lua-api.md#provider-modules) states. `define` makes a variant, and `build` makes an unpublished service that another plugin can wrap. A consumer module is made by `plugin.consumer` and answers `{ definition, define, requires }`. Each validates its configuration with a schema. A replacement provider implements the existing contract; the contract is not weakened to fit it.
-
-The facade's service view raises once a provider's activation ends, so provider methods carry no liveness guard. Objects a method returns, such as panels, pointers, lasers, keyboards, and tags, outlive the call and check their own state.
-
-A resource a consumer requests, such as a pointer, a laser and its seat, a keyboard, a focus target, a tag hold, or a visibility override, is released by an inverse registered on the consumer's owner. An inverse that raises during the owner's unload quarantines the owner, and the provider keeps serving others. When a provider's owner-scoped method needs one of the provider's own dependencies, it registers that work under its own context inside the effect it places on the caller's owner.
-
-Every change a consumer makes to state it does not own is an effect of its owner. A tag lasts while any owner holds it. A tag membership is held by the owners that added it, and an exclusion by the owners that excluded it. A tag's selection and layout, and a panel's visibility, are each decided by the most recent live override, one per owner. A name registered with a broker, a key chord, a rules source name, and a laser hand each have one holder, and registering a taken one raises.
+Each built-in plugin is a provider or consumer module ([Provider modules](lua-api.md#provider-modules)) that validates its configuration with a schema. A replacement provider implements the existing contract; the contract is not weakened to fit it. Objects a provider method returns, such as panels, pointers, lasers, keyboards, and tags, outlive the call and check their own state. [Confinement](lua-api.md#confinement) states how consumer resources and overrides are owned and released.
 
 The built-in providers:
 
@@ -48,27 +42,23 @@ The built-in providers:
 | `pacing` | `lunette/pacing` 1 | none | `tuning` |
 | `scale` | `lunette/scale` 1 | none | `tuning` |
 
-`layout/arc` registers the arc layout with the layouts broker and takes `layout`, the name it registers, and `tuning`. `theme/standard` and `theme/arcade` register themes with the catalog and take no options. `desktop/keyboard` provides `lunette/keyboard-display` 1, and `desktop/persistence` provides `lunette/arrangement` 1. The [Lua API](lua-api.md) specifies each contract and option. The interaction provider exposes its tuning as `TUNING`. A pointer carries `vibrate`, which its creator supplies; the laser supplies its hand's controller.
-
-The frame provider runs every handler under its own protected call and reports an error through `lunette.reportError`, so one handler's error does not stop the others. The surfaces provider protects each offer, and the panels provider each `onAdded` and `onRemoved` listener, the same way. Consumers that follow a panel's life use those listeners rather than any provider's private modules.
+`layout/arc` registers the arc layout with the layouts broker and takes `layout`, the name it registers, and `tuning`. `theme/standard` and `theme/arcade` register themes with the catalog and take no options. `desktop/keyboard` provides `lunette/keyboard-display` 1, and `desktop/persistence` provides `lunette/arrangement` 1. Each contract module under `lua/lunette-contracts/` declares its service, each plugin's `config.luau` or descriptor its options, and [Contracts](lua-api.md#contracts) states their guarantees. Consumers that follow a panel's life use the panels contract's `onAdded` and `onRemoved` listeners rather than any provider's private modules.
 
 ## Runtime themes
 
-`@lunette-plugins/theme` provides `lunette/theme`: owner-scoped selections, change notifications, a cached font face per specification, and data-only inspection. The last live selection is the effective theme. Updating a selection keeps its rank, and disposing it reveals the previous live selection or the square base in `lua/lunette-plugins/theme/base.luau`. An invalid update or a font that fails to load keeps the previous selection. `theme:font(spec?)` loads a face on first use and keeps it for the provider activation; garbage collection frees a face nothing references. [Runtime themes](lua-api.md#runtime-themes) specifies validation and notification.
+`@lunette-plugins/theme` provides `lunette/theme` over the square base theme in `lua/lunette-plugins/theme/base.luau`. [Runtime themes](lua-api.md#runtime-themes) specifies selection, notification, and the font cache.
 
 `@lunette-plugins/themes` provides `lunette/themes`, a catalog of owner-scoped named registrations of complete themes. It selects nothing. `theme/standard` registers Dark and Light, which differ only in palette, and `theme/arcade` registers Arcade, which uses saturated colours, larger text and spacing, other radii, and the bundled Space Mono Regular face with its OFL licence. Arcade exists to show a theme that a plugin supplies and a configuration can disable.
 
 `desktop/theme` selects a catalog theme by name. Its `preset` defaults to `dark`, and its sparse `overrides` apply over whichever theme it shows. It registers a `Theme: <label>` action in the session menu's Appearance group for each catalog entry and follows catalog changes. A choice updates the selector's one registration, so the new theme replaces the old one whole. The selector shows the user's choice while it is registered, then the configured theme, and otherwise holds no selection. A name that is not registered is logged once, after the first frame update so that entries registering later are not reported. The selector keeps the user's choice across activations in one runtime while the configured preset is unchanged.
 
-Consumers resolve appearance from sparse theme fields: an omitted field follows the theme, and an explicit zero is a value. The keyboard, panels, UI, and laser providers and the `desktop/hint`, `desktop/errors`, and `desktop/manager` consumers read the theme. A consumer prepares new measurements before it publishes a new appearance and keeps the old appearance if preparation fails. A palette change keeps input captures; a font or geometry change cancels only the gestures it affects.
+The keyboard, panels, UI, and laser providers and the `desktop/hint`, `desktop/errors`, and `desktop/manager` consumers read the theme.
 
 Panels, UI panels, and the keyboard draw rounded faces from `lua/lunette-plugins/theme/rounded-geometry.luau`. Initial hits test the same perimeter the mesh draws, and controls keep rectangular targets inside a conservative content clip. A titlebar can join its target's frame through `Surface.attachFrame`, so the pair draws one outline. Granted composition layers stay rectangular. [Rendering](rendering.md#rounded-scene-geometry) specifies the geometry, and [Joined frame attachments](lua-api.md#joined-frame-attachments) the attachment.
 
 ## UI toolkit
 
-`@lunette-plugins/ui` provides `lunette/ui`: owner-scoped flat VR panels with buttons, single-line text fields, choices, lists, and regions, and a shared titlebar for any surface. It offers visible panels as surfaces and synchronises titlebars in a scene update at order 1000, after panel updates and before pointing. It installs no draw handler; each consumer draws its own panels. [UI panels](lua-api.md#ui-panels) specifies the contract, and the [UI guide](../guide/ui.md) gives a contract-only example.
-
-Input, drawing, and panel descriptions share top-left, y-down logical coordinates and half-open clipped bounds. Theme overrides resolve from provider to panel to control, and draw hooks wrap renderers in that order without changing hit bounds. A captured gesture stays on its control and cancels without activating on hide, disable, destruction, or geometry change. Text fields focus local receivers through `lunette/focus` and edit at grapheme boundaries from `lunette.textBoundaries`. Each provider activation has a fresh `ui.Generation` token, and each control carries a `ui.OwnerIdentity` token, so a description identifies a live control by generation, owner, and id without exposing a context.
+`@lunette-plugins/ui` provides `lunette/ui`: owner-scoped flat VR panels with buttons, single-line text fields, choices, lists, and regions, and a shared titlebar for any surface. It offers visible panels as surfaces and installs no draw handler; each consumer draws its own panels. [UI panels](lua-api.md#ui-panels) specifies the contract, and the [UI guide](../guide/ui.md) gives a contract-only example.
 
 ## Configuration descriptors
 
@@ -153,7 +143,7 @@ The service protects itself and the configured entries, following their current 
 
 ## Module lifecycle
 
-Source reload closes the plugin runtimes, clears native subscribers and configuration callbacks, drops modules from `package.loaded`, and runs `main.luau` and `lovr.load` again ([Architecture](architecture.md#survival-across-lifecycle-events)). Plugin effects are the only cleanup. A module keeps no module-level state, and a non-plugin module that holds native resources releases them itself.
+Source reload runs every module again ([Reload](lua-api.md#reload)), so a module keeps no module-level state, and a non-plugin module that holds native resources releases them itself.
 
 Each module's tests are in a `tests` directory beside it, as [CONTRIBUTING.md](../../CONTRIBUTING.md#lua-tests) states. `lua/lunette-desktop/tests` drives the shipped desktop: startup and ten production reloads, provider outages, persistence through hotplug and reopened windows, settings, protection, and each example configuration. The tests run over the fake native API in `lua/testing` and do not establish an XR or GPU-backed boot, host-desktop acceptance, or an installed session.
 
@@ -174,17 +164,9 @@ The panels provider adapts native pixels to Lua geometry. Its `rendering` defaul
 
 The Lua roots stay separate from `lunette`. Distinct roots keep a Lua implementation from looking like native mechanism and let a configuration replace any provider.
 
-Service liveness belongs to the facade. A guard in every provider is repeated code, and a provider that omits one exposes torn-down state.
-
 Contracts stay separate from providers, so plugins typecheck against a service without importing its implementation.
 
 Panel lifecycle is announced through the panels contract. A consumer that imported the provider's private modules could not work with a replacement, and a module-global registry of per-panel cleanups outlives activations. A panel is released before its owner's effect is disposed, because the runtime withholds an owner's authority while its inverse runs, and a removal announced from the inverse would reach the owner's own listeners as if the owner were gone.
-
-Consumer resources are released on the consumer's owner. Registering the release on the provider's context was rejected because one failing inverse would quarantine the provider for every consumer.
-
-Owner-scoped changes are overrides, not reverts. Reverting a change to the value before it was rejected because the outcome would depend on unload order and could restore an ended owner's value.
-
-A taken name raises. Replacing the registration or sharing the existing laser was rejected because either ends or shares a resource another owner still holds.
 
 A saved slot is held by its window. Taking a slot on every resolve would let `rules:resolve` consume slots. Freeing a slot when the panel is removed would let a provider outage, which removes every panel while the windows remain, shuffle windows between slots.
 
@@ -202,7 +184,7 @@ Configuration merges records and replaces everything else. A colour list or a ve
 
 Geometric values are native vectors. Numeric tables lose the geometric type and need scalar arithmetic.
 
-Provider modules share one shape so a configuration varies, wraps, or replaces any provider the same way. A built-in calls its own methods through closures, so a wrapper that replaces one method does not change the others.
+Provider modules share one shape so a configuration varies, wraps, or replaces any provider the same way.
 
 Placement is several entries, following the integration component of section 6.5 of the Cordis paper. One policy entry was rejected because replacing the layout, the rules, or persistence would mean copying all of it. Adoption's install and start stay together because a start without the native pose source loses hand-placed poses across reloads. `desktop/arrange` learns of placements from the placement contract, which carries the resolved properties; `panels:onAdded` reaches every panel without them.
 
@@ -236,11 +218,7 @@ Every source is `.luau` because every source uses Luau syntax, and an editor tha
 
 ## Known gaps
 
-A non-plugin module that holds native resources keeps them across source reload.
-
 The desktop tests do not establish an XR or GPU-backed boot, host-desktop acceptance, or an installed session. Geometry recorders do not rasterise edges, alpha, depth, or fonts. The theme and rounded-geometry gates in [Desktop configuration](../guide/desktop-configuration.md) remain pending.
-
-Text input has no dead-key, compose, IME, or preedit support, and the UI toolkit has no text shaping or bidirectional editing. [Input](input.md#known-gaps) records the routing limits.
 
 ## Deliberately left open
 

@@ -2,7 +2,7 @@
 
 A lunette configuration is a LÖVR project whose `main.luau` composes the shipped desktop and adds or replaces plugins in it. A plugin is a definition: a name, the contracts it requires and provides, and an initializer that runs when the plugin activates. The plugin runtime releases everything an activation acquired when that activation ends.
 
-The code in this guide comes from the configurations under `examples/`: `first-plugin`, `keyboard`, `layout`, `theme`, `ui`, and `desktop`. `make check` typechecks them and runs each in the desktop test harness. [The Lua API](../dev/lua-api.md#plugin-authoring) is the specification this guide follows.
+The code in this guide comes from the configurations under `examples/`: `first-plugin`, `keyboard`, `layout`, `theme`, `ui`, and `desktop`. `make check` typechecks them and runs each in the desktop test harness. [The Lua API](../dev/lua-api.md#plugin-authoring) is the specification this guide follows. [The native API](native-api.md) describes the `lunette` module beneath the plugins.
 
 ## A configuration to work in
 
@@ -134,6 +134,16 @@ return plugin.consumer<<Config, Settings>>({
 
 A plugin changes state outside itself only through its context. `context:on` subscribes to a native event for the length of the activation. `context:effect` registers any other resource with the function that releases it. A service method that takes an owner, such as `frames:onDraw(context, ...)` or `keyboard:new(context)`, ties what it creates to that owner. A direct `lunette.onWindowOpened(handler)` call is not tracked: the subscription outlives the plugin, and a reactivated plugin subscribes again. State declared inside `init` belongs to one activation.
 
+The context offers these operations, and each ties what it creates to the activation:
+
+- `context:effect(acquire)` runs `acquire`, which returns the function that undoes it.
+- `context:resource(owner, acquire)` is the form for a provider method: `acquire` returns a value and the function that releases it, and the release is registered on the caller's `owner`.
+- `context:on { event, run }` subscribes to a native event.
+- `context:child(definition, config)` installs and enables a plugin that ends with this one.
+- `context:active()` reports whether the activation can still acquire resources.
+
+When an activation ends, its effects are undone in the reverse of the order they were registered. An effect created while another effect's `acquire` runs is registered first, so it is undone after the outer one; an outer release that depends on the inner one being gone releases it itself. A service method that takes an owner registers its resource on that owner, so a plugin passes its own `context` and the resource ends with the plugin.
+
 A schema declares the options. `Config` is the type of the caller's overrides and `Settings` the type of the resolved value passed to `init`. A plugin without a `schema` takes no options. Every field needs a default or an optional descriptor, because the facade resolves an empty configuration when it builds the definition. [Configuration schemas](configuration-schema.md) describes the constructors and merge rules.
 
 The configured module has `definition`, built from the defaults; `define`, which makes another definition with other defaults and an optional `name`; and `requires`. A provider module also has `build`, which makes an unpublished service that another plugin can wrap. A patch supplies configuration:
@@ -143,6 +153,14 @@ The configured module has `definition`, built from the defaults; `define`, which
 ```
 
 Geometric positions, directions, and offsets are native `vector` values made with `vector.pack(x, y, z)`. Vectors are immutable, so `direction = direction:normalize()` keeps the returned value. `Mat4:translate` accepts a vector. Colours, two-dimensional coordinates, lists, and full matrices keep their own representations.
+
+## Wrapping and hooking a built-in provider
+
+A built-in provider module's `build(context, config)` makes its service without publishing it. A plugin that requires `module.requires` can call `build`, wrap the result, and publish the wrapper under the same contract. A wrapper changes only what other plugins see, because a built-in provider calls its own methods directly.
+
+Behaviour inside a provider changes through a hook: an option whose value is a function that receives the hook's arguments followed by `base`, the default implementation. Calling `base` keeps the default, and not calling it replaces it. The built-in hooks are the keyboard's `onKey` and `drawKey`, interaction's `drive` and `constrain`, the laser's `readInput` and `draw`, placement's `panelOptions`, and the UI provider's `draw`. An error a hook raises is reported where the provider was called from.
+
+Only one active plugin can provide a contract. Where several implementations coexist, as with layouts, themes, menu actions, key bindings, rule sources, and surface offers, one provider is a broker and each implementation registers with it. A name registered with a broker has one holder at a time, and registering a taken name raises an error.
 
 ## Configuring a built-in plugin
 
@@ -200,7 +218,7 @@ catalog:register(context, { name = 'dusk', label = 'Dusk', order = 4, theme = du
 
 `descriptors.resolve` fills omitted fields from the theme it starts from, here Dark. `order` places the row among Dark at 1, Light at 2, and Arcade at 3. Registering a name that another live registration holds raises an error.
 
-`examples/theme/main.luau` inserts the plugin, names Dusk as the selector's `preset`, and disables `theme/arcade`. Arcade is an ordinary plugin of this kind, so disabling its entry removes its row. [Theme catalog](../dev/lua-api.md#theme-catalog) states the contract.
+`examples/theme/main.luau` inserts the plugin, names Dusk as the selector's `preset`, and disables `theme/arcade`. Arcade is an ordinary plugin of this kind, so disabling its entry removes its row. [Runtime themes](../dev/lua-api.md#runtime-themes) states the contract.
 
 ## Extending the built-in keyboard
 
@@ -254,7 +272,7 @@ The definition replaces the desktop's keyboard by id, and every plugin that requ
 
 ## Replacing the keyboard
 
-A plugin that provides `lunette/keyboard` at schema 3 can take the keyboard entry's place. `service:new(owner, options)` returns a keyboard, which is a surface with `setVisible`, `pressKey`, `typeText`, `modifiers`, `draw`, and `destroy`, and `service:inspect()` returns its registrations. A replacement sends keys through a virtual focus source and reports visibility changes through `options.onVisibilityChanged`. [Keyboard](../dev/lua-api.md#keyboard) and [Focus](../dev/lua-api.md#focus) specify the rules. `examples/keyboard/tiny.luau` implements the contract with one row of three keys.
+A plugin that provides `lunette/keyboard` at schema 3 can take the keyboard entry's place. `service:new(owner, options)` returns a keyboard, which is a surface with `setVisible`, `pressKey`, `typeText`, `modifiers`, `draw`, and `destroy`, and `service:inspect()` returns its registrations. A replacement sends keys through a virtual focus source and reports visibility changes through `options.onVisibilityChanged`. [Keyboard](../dev/lua-api.md#keyboard) and [Keyboard routing](../dev/input.md#keyboard-routing) specify the rules. `examples/keyboard/tiny.luau` implements the contract with one row of three keys.
 
 The example acquires each board with `context:resource(owner, acquire)`. The acquisition returns the board and the function that releases it, and `context:resource` registers that release with the owner, so a keyboard ends with the plugin that asked for it. An acquisition that raises before it returns must release what it had already acquired.
 
@@ -340,7 +358,7 @@ A plugin that moves surfaces for a pointer, as a replacement interaction would, 
 
 ## Menu actions and key bindings
 
-Session controls are menu actions, because every session workflow is reachable with VR controllers. A plugin registers an action with `lunette/menu`, and the wrist menu draws it. `examples/desktop/hide-windows.luau` registers Hide windows, which hides every window and updates the action's `selected` state. `examples/desktop/save-menu.luau` registers Save arrangement and Restore arrangement. [Menu actions](../dev/lua-api.md#menu-actions) specifies the broker.
+Session controls are menu actions, because every session workflow is reachable with VR controllers. A plugin registers an action with `lunette/menu`, and the wrist menu draws it. `examples/desktop/hide-windows.luau` registers Hide windows, which hides every window and updates the action's `selected` state. `examples/desktop/save-menu.luau` registers Save arrangement and Restore arrangement. [Bindings, menu actions, and layouts](../dev/lua-api.md#bindings-menu-actions-and-layouts) specifies the broker.
 
 `panel:setHidden(context, { hidden = true })` hides a panel while the plugin holds the returned effect. A hidden panel is not drawn or pointed at and keeps its place. When several plugins hide or show one panel, the most recent override still held decides.
 
