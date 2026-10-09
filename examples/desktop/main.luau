@@ -26,9 +26,9 @@ desktop.run {
       },
     },
     persistence = { file = 'example.state' },
+    -- Two workspaces, chosen from the session menu.
+    workspaces = { workspaces = { { name = 'main' }, { name = 'side' } } },
   },
-  -- Two workspaces, chosen from the session menu.
-  workspaces = { workspaces = { { name = 'main' }, { name = 'side' } } },
   patches = {
     -- Carried panels stay level, whatever the hand does.
     desktop.configure('interaction', interaction.definition) { constrain = require './upright' },

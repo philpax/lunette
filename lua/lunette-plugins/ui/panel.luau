@@ -83,12 +83,7 @@ function panel.new(
   local radiusY = snapshot.theme.radii.uiPanel * options.logicalHeight / (options.height * math.abs(sy))
   local overrides = theme.copyOverrides(options.theme)
   local spec = theme.inherit(theme.inherit(theme.global(snapshot.theme, radiusX), providerTheme), overrides)
-  local lease = services.theme:acquireFont(context, spec.font)
-  local prepared, resolved = pcall(theme.materialize, spec, lease.font)
-  if not prepared then
-    local released, failure = pcall(lease.dispose, lease)
-    error(tostring(resolved) .. (if released then '' else '; ' .. tostring(failure)), 0)
-  end
+  local resolved = theme.materialize(spec, services.theme:font(spec.font))
   local state: records.Panel = {
     dead = false,
     visible = options.visible ~= false,
@@ -107,7 +102,6 @@ function panel.new(
     providerTheme = providerTheme,
     overrides = overrides,
     spec = spec,
-    lease = lease,
     measurements = draw.newCache(),
     themes = services.theme,
     themeRevision = snapshot.revision,
@@ -187,9 +181,6 @@ function panel.new(
       operations[#operations + 1] = function(): ()
         record.dispose()
       end
-    end
-    operations[#operations + 1] = function(): ()
-      state.lease:dispose()
     end
     operations[#operations + 1] = function(): ()
       if oldOffer then
@@ -389,11 +380,11 @@ function panel.new(
         return
       end
       local copied = theme.copyOverrides(overrides)
-      local previous, previousLease = state.overrides, state.lease
+      local previous, previousTheme = state.overrides, state.theme
       state.overrides = copied
       local ok, failure = pcall(appearance.refresh, state, true)
       if not ok then
-        if state.lease == previousLease then
+        if state.theme == previousTheme then
           state.overrides = previous
         end
         error(failure, 0)

@@ -7,6 +7,7 @@ local rulesContract = require '@lunette-contracts/rules'
 local tagsContract = require '@lunette-contracts/tags'
 local vocabulary = require '@lunette-contracts/vocabulary'
 local format = require '@lunette-plugins/arrangement/format'
+local logging = require '@lunette-plugins/desktop/logging'
 local slots = require '@lunette-plugins/arrangement/slots'
 local capture = require '@lunette-plugins/arrangement/capture'
 
@@ -20,25 +21,16 @@ export type Filesystem = {
   write: (string, string) -> boolean,
   getSaveDirectory: () -> string,
 }
--- Formats must refuse unsupported versions so a partial read cannot overwrite newer fields.
-export type Format = {
-  read read: (unknown) -> format.Loaded,
-  read render: (format.File) -> string,
-}
 export type Dependencies = {
   read filesystem: Filesystem?,
   read report: ((string) -> ())?,
   read file: string?,
-  read format: Format?,
-  read keyFor: slots.KeyFor?,
 }
 export type Slots = slots.Slots
-export type KeyFor = slots.KeyFor
 export type Identified = slots.Identified
-export type SaveOptions = { read force: boolean? }
 export type Binding = {
   read active: (Binding) -> boolean,
-  read save: (Binding, SaveOptions?) -> (boolean, string?),
+  read save: (Binding) -> (boolean, string?),
   -- Places the live panels where the arrangement last loaded or saved has
   -- them, and answers how many it placed.
   read restore: (Binding) -> number,
@@ -67,7 +59,6 @@ local SOURCE = 'desktop.persist'
 local PRECEDENCE = vocabulary.PRECEDENCE.persisted
 local FILE = 'arrangement.state'
 
-state.FORMAT = table.freeze { read = format.read, render = format.render } :: Format
 state.FILE = FILE
 state.PRECEDENCE = PRECEDENCE
 state.SOURCE = SOURCE
@@ -89,10 +80,7 @@ local function defaultFilesystem(): Filesystem
 end
 
 local function defaultReport(message: string): ()
-  local log = lovr.log
-  if log then
-    log(message, 'warn', 'desktop.persist')
-  end
+  logging.report(message, 'warn')
 end
 
 function state.path(filesystem: Filesystem?, file: string?): string
@@ -111,18 +99,6 @@ end
 
 state.slots = slots.new
 
--- A reader error or non-load answer marks the file broken and prevents write-back.
-local function load(chosen: Format, text: string): format.Loaded
-  local ok, answered = pcall(chosen.read, text)
-  if not ok then
-    return format.broken('the format could not read it: ' .. tostring(answered))
-  end
-  if not format.isLoaded(answered) then
-    return format.broken('the format answered a ' .. type(answered) .. ', not a load')
-  end
-  return answered
-end
-
 function state.new(dependencies: Dependencies?): State
   local given: Dependencies = dependencies or {}
   local filesystem = given.filesystem or defaultFilesystem()
@@ -131,25 +107,13 @@ function state.new(dependencies: Dependencies?): State
   if type(file) ~= 'string' or file == '' then
     error('desktop.persist: file is a non-empty file name, not ' .. tostring(file), 2)
   end
-  local chosen: Format = given.format or state.FORMAT
-  if type(chosen) ~= 'table' or type(chosen.read) ~= 'function' or type(chosen.render) ~= 'function' then
-    error('desktop.persist: format is a table of read and render functions', 2)
-  end
-  if given.keyFor ~= nil and type(given.keyFor) ~= 'function' then
-    error('desktop.persist: keyFor is a function, not a ' .. type(given.keyFor), 2)
-  end
-  local loaded: format.Loaded
   local text = filesystem.read(file)
-  if text then
-    loaded = load(chosen, text)
-  else
-    loaded = format.empty()
-  end
+  local loaded: format.Loaded = if text then format.read(text) else format.empty()
 
   local arrangement: format.File = format.newFile {}
   local declined: string? = nil
   -- Held slots prevent live windows from changing identity slots during provider outages.
-  local held = slots.new(given.keyFor)
+  local held = slots.new()
   if loaded.kind == 'arrangement' then
     arrangement = loaded.file
   elseif loaded.kind == 'broken' then
@@ -229,12 +193,12 @@ function state.new(dependencies: Dependencies?): State
         end
         return cachedSlots
       end
-      local function save(options: SaveOptions?): (boolean, string?)
+      local function save(): (boolean, string?)
         local current = live()
         if not current then
           return false, 'desktop.persist: the provider binding is no longer active'
         end
-        if declined and not (options and options.force) then
+        if declined then
           return false, declined
         end
         local captured = capture.capture(report, held, current.panels, current.tags)
@@ -242,11 +206,7 @@ function state.new(dependencies: Dependencies?): State
         if not live() then
           return false, 'desktop.persist: the provider binding is no longer active'
         end
-        local rendered = chosen.render(captured)
-        if type(rendered) ~= 'string' then
-          return false, 'desktop.persist: the format rendered a ' .. type(rendered) .. ', not text'
-        end
-        if not filesystem.write(file, rendered) then
+        if not filesystem.write(file, format.render(captured)) then
           return false, state.path(filesystem, file) .. ' could not be written'
         end
         arrangement = captured
@@ -257,8 +217,8 @@ function state.new(dependencies: Dependencies?): State
         active = function(_binding: Binding): boolean
           return live() ~= nil
         end,
-        save = function(_binding: Binding, options: SaveOptions?): (boolean, string?)
-          return save(options)
+        save = function(_binding: Binding): (boolean, string?)
+          return save()
         end,
         restore = function(_binding: Binding): number
           local current = live()

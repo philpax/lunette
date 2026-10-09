@@ -6,14 +6,13 @@ local errors = {}
 
 export type Owner = plugin.Owner
 
--- `sequence` counts delivered reports since the provider started or was cleared. `time` records when the provider received the report.
+-- `sequence` counts delivered reports since the provider started or was cleared.
 export type Report = {
   read message: string,
   read traceback: string,
   read suppressed: number,
   read text: string,
   read sequence: number,
-  read time: number,
 }
 
 export type Subscriber = {

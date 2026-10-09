@@ -51,9 +51,9 @@ function draw.face(pass: Pass, cache: drawing.Cache, key: board.RenderedKey, sta
   pass:setColor(1, 1, 1, 1)
 end
 
-function draw.legend(pass: Pass, key: board.RenderedKey, state: board.KeyState, leasedFont: Font?): ()
+function draw.legend(pass: Pass, key: board.RenderedKey, state: board.KeyState, boundFont: Font?): ()
   local style = state.style
-  local font = leasedFont or style.font
+  local font = boundFont or style.font
   local bounds = faceBounds(key, style)
   local clip = geometry.safeClip(bounds, geometry.uniform(style.keyRadius))
   if clip.width == 0 or clip.height == 0 then
@@ -81,9 +81,9 @@ function draw.legend(pass: Pass, key: board.RenderedKey, state: board.KeyState, 
   end)
 end
 
-function draw.key(pass: Pass, cache: drawing.Cache, key: board.RenderedKey, state: board.KeyState, leasedFont: Font): ()
+function draw.key(pass: Pass, cache: drawing.Cache, key: board.RenderedKey, state: board.KeyState, boundFont: Font): ()
   draw.face(pass, cache, key, state)
-  draw.legend(pass, key, state, leasedFont)
+  draw.legend(pass, key, state, boundFont)
 end
 
 function draw.keyPose(pose: Mat4, key: board.RenderedKey, width: number, height: number): Mat4

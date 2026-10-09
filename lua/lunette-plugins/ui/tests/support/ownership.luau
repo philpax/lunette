@@ -33,7 +33,7 @@ function fixture.panel(running, _owner, focusService, registry)
         focus = focusService,
         logicalWidth = 200,
         logicalHeight = 100,
-        theme = theme.materialize(theme.DEFAULT, providerContext:require(themes.capability):getFont()),
+        theme = theme.materialize(theme.DEFAULT, providerContext:require(themes.capability):font()),
         spec = theme.DEFAULT,
         themes = providerContext:require(themes.capability),
         refresh = function() end,

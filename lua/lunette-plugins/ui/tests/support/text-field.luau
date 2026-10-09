@@ -18,6 +18,7 @@ function fixture.new(options)
     selection = { 1, 1, 1, 1 },
     error = { 1, 0, 0, 1 },
     border = { 1, 1, 1, 1 },
+    font = lovr.graphics.getDefaultFont(),
     fontSize = 20,
     padding = 4,
     spacing = 4,
@@ -67,9 +68,6 @@ function fixture.new(options)
     end,
     theme = function()
       return theme
-    end,
-    withFont = function(run)
-      run(lovr.graphics.getDefaultFont())
     end,
     callback = function(name, run)
       if not state.live then

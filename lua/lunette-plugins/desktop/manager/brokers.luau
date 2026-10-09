@@ -18,7 +18,6 @@ local keyboard = require '@lunette-contracts/keyboard'
 local laser = require '@lunette-contracts/laser'
 local interaction = require '@lunette-contracts/interaction'
 local errors = require '@lunette-contracts/errors'
-local pacing = require '@lunette-contracts/pacing'
 local menu = require '@lunette-contracts/menu'
 
 local brokers = {}
@@ -93,9 +92,6 @@ function brokers.watch(context: plugin.Context): { Reader }
     return service:inspect()
   end)
   add('errors', errors.capability, function(service: errors.Service): inspection.Snapshot
-    return service:inspect()
-  end)
-  add('pacing', pacing.capability, function(service: pacing.Service): inspection.Snapshot
     return service:inspect()
   end)
   add('menu', menu.capability, function(service: menu.Service): inspection.Snapshot

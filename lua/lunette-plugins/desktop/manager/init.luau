@@ -130,9 +130,7 @@ return plugin.consumer<<Config, Settings>>({
           if dead or not context:active() or panel.dead then
             return
           end
-          style.withFont(function(_font: Font, _tokens: theme.Theme): ()
-            panel:draw(pass)
-          end)
+          panel:draw(pass)
         end
       end,
     })

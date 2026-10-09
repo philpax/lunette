@@ -4,7 +4,7 @@
 local testing = require '@testing'
 local expect = testing.expect
 local desktop = require '@lunette-desktop'
-local persist = require '@lunette-plugins/arrangement'
+local persist = require '@lunette-plugins/arrangement/format'
 local panelsContract = require '@lunette-contracts/panels'
 
 local test = testing.suite()
@@ -101,7 +101,7 @@ test('windows of one application take its saved slots, and a reopened window tak
   local adopted = panels.service:forSource(reopened)
   local instances = session.instances
   instances.tags:disable()
-  for _, id in ipairs { 'placement', 'adoption', 'desktop/workspace', 'desktop/persistence', 'desktop/arrange' } do
+  for _, id in ipairs { 'placement', 'adoption', 'desktop/workspaces', 'desktop/persistence', 'desktop/arrange' } do
     expect.truthy(instances[id]:state() ~= 'active', 'a tags outage unloads ' .. id)
   end
   for _, id in ipairs { 'rules', 'desktop/rules', 'layout/arc', 'desktop/render', 'desktop/monitors' } do

@@ -21,7 +21,7 @@ type Paint = {
   revision: number,
   size: number,
   foreground: theme.Color,
-  font: theme.FontLease,
+  font: Font,
 }
 
 return plugin.consumer<<Config, Settings>>({
@@ -42,7 +42,7 @@ return plugin.consumer<<Config, Settings>>({
         revision = snapshot.revision,
         size = settings.size or style.typography.hintTextHeight,
         foreground = settings.foreground or style.colors.foreground,
-        font = themeService:acquireFont(context, configuredFont or style.typography.font),
+        font = themeService:font(configuredFont or style.typography.font),
       }
     end
     local paint = prepare(themeService:current())
@@ -54,10 +54,7 @@ return plugin.consumer<<Config, Settings>>({
       if snapshot.revision == paint.revision then
         return
       end
-      local replacement = prepare(snapshot)
-      local previous = paint
-      paint = replacement
-      previous.font:dispose()
+      paint = prepare(snapshot)
     end
     themeService:onChanged(context, function(_event: theme.Snapshot): ()
       applyCurrent()
@@ -69,15 +66,13 @@ return plugin.consumer<<Config, Settings>>({
       run = function(pass: Pass): ()
         local refreshed, refreshFailure = pcall(applyCurrent)
         if #panelService:all() == 0 then
-          paint.font:withFont(function(face: Font): ()
-            passState.withRestore(pass, function(): ()
-              pass:setShader()
-              pass:setMaterial(nil)
-              pass:setFont(face)
-              local foreground = paint.foreground
-              pass:setColor(foreground[1], foreground[2], foreground[3], foreground[4])
-              pass:text(settings.text, lovr.math.mat4():translate(position):scale(paint.size), 0, 'center', 'middle')
-            end)
+          passState.withRestore(pass, function(): ()
+            pass:setShader()
+            pass:setMaterial(nil)
+            pass:setFont(paint.font)
+            local foreground = paint.foreground
+            pass:setColor(foreground[1], foreground[2], foreground[3], foreground[4])
+            pass:text(settings.text, lovr.math.mat4():translate(position):scale(paint.size), 0, 'center', 'middle')
           end)
         end
         if not refreshed then

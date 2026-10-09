@@ -84,7 +84,7 @@ test('a chord is bound once, whatever order its modifiers are written in', funct
       chord = { key = 'backspace', modifiers = { 'control', 'alt' } },
       run = function() end,
     })
-  end, 'already bound', 'the second registration')
+  end, 'already registered', 'the second registration')
   env.session:close()
 end)
 

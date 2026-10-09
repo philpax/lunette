@@ -1,4 +1,4 @@
--- A board owns routed input, scaled appearance, and its active font lease.
+-- A board owns routed input, scaled appearance, and its theme face.
 local lunette = require '@lunette'
 local focus = require '@lunette-contracts/focus'
 local keyboard = require '@lunette-contracts/keyboard'
@@ -23,30 +23,14 @@ local function extentOf(settings: config.Settings): (number, number)
   return width, height
 end
 
-local function prepare(nominal: keyboard.StyleOptions, lease: theme.FontLease, scale: number): keyboard.Style
-  local prepared, style = pcall(appearance.scaled, nominal, lease.font, scale)
-  if not prepared then
-    local released, failure = pcall(function(): ()
-      lease:dispose()
-    end)
-    if not released then
-      error(tostring(style) .. '; keyboard font cleanup: ' .. tostring(failure), 0)
-    end
-    error(style, 0)
-  end
-  return style
-end
-
-local function construct(
+local function create(
   settings: config.Settings,
   options: keyboard.Options?,
   source: focus.Source,
   themeService: theme.Service,
-  owner: keyboard.Owner,
   active: () -> boolean,
   notify: (keyboard.VisibilityChange) -> (),
-  dispose: () -> (),
-  acquired: (theme.FontLease) -> ()
+  dispose: () -> ()
 ): (board.Board, () -> (), () -> (), () -> ())
   local unitsWide, unitsHigh = extentOf(settings)
   local providerStyle = appearance.project(settings.style)
@@ -54,10 +38,9 @@ local function construct(
   local pose = options and options.pose and lovr.math.newMat4(options.pose) or lovr.math.newMat4()
   local snapshot = themeService:current()
   local nominal = appearance.resolve(snapshot.theme, providerStyle, objectStyle)
-  local lease = themeService:acquireFont(owner, nominal.font)
-  acquired(lease)
+  local font = themeService:font(nominal.font)
   local scale = 1
-  local style = appearance.scaled(nominal, lease.font, scale)
+  local style = appearance.scaled(nominal, font, scale)
   local appliedRevision, geometryRevision = snapshot.revision, 0
   local meshCache = meshDrawing.newCache()
   local keyCaches: { [number]: { [number]: meshDrawing.Cache } } = {}
@@ -165,13 +148,12 @@ local function construct(
       return
     end
     local nextNominal = appearance.resolve(latest.theme, providerStyle, objectStyle)
-    local nextLease = themeService:acquireFont(owner, nextNominal.font)
-    local nextStyle = prepare(nextNominal, nextLease, scale)
+    local nextFont = themeService:font(nextNominal.font)
+    local nextStyle = appearance.scaled(nextNominal, nextFont, scale)
     local width, height = unitsWide * nextStyle.keyUnit, unitsHigh * nextStyle.keyUnit
     local geometryChanged = appearance.geometryChanged(style, nextStyle)
     local meshChanged = appearance.meshChanged(style, nextStyle)
-    local oldLease = lease
-    nominal, lease, style, appliedRevision = nextNominal, nextLease, nextStyle, latest.revision
+    nominal, font, style, appliedRevision = nextNominal, nextFont, nextStyle, latest.revision
     state.width, state.height = width, height
     local failures: { string } = {}
     if geometryChanged then
@@ -182,12 +164,6 @@ local function construct(
     end
     if meshChanged then
       clearMeshes(failures)
-    end
-    local released, failure = pcall(function(): ()
-      oldLease:dispose()
-    end)
-    if not released then
-      failures[#failures + 1] = tostring(failure)
     end
     finish(failures)
   end
@@ -458,7 +434,7 @@ local function construct(
         return
       end
       local nextScale = scale * wanted / state.width
-      local nextStyle = appearance.scaled(nominal, lease.font, nextScale)
+      local nextStyle = appearance.scaled(nominal, font, nextScale)
       scale, style = nextScale, nextStyle
       geometryRevision += 1
       state.width, state.height = unitsWide * style.keyUnit, unitsHigh * style.keyUnit
@@ -484,44 +460,42 @@ local function construct(
       if state.dead or not active() or not state.visible then
         return
       end
-      local revision, activeStyle, activeLease = geometryRevision, style, lease
+      local revision, activeStyle, activeFont = geometryRevision, style, font
       local width, height = state.width, state.height
       local rendered, held = keys(), modifiers()
       local function current(): boolean
         refresh()
         return not state.dead and active() and state.visible and geometryRevision == revision
       end
-      activeLease:withFont(function(font: Font): ()
-        passState.withRestore(pass, function(): ()
-          pass:setShader()
-          pass:setMaterial(nil)
-          pass:setFont(font)
-          pass:setCullMode 'none'
+      passState.withRestore(pass, function(): ()
+        pass:setShader()
+        pass:setMaterial(nil)
+        pass:setFont(activeFont)
+        pass:setCullMode 'none'
+        if not current() then
+          return
+        end
+        drawing.plate(pass, meshCache, state.pose, width, height, activeStyle)
+        for _, key in ipairs(rendered) do
           if not current() then
-            return
+            break
           end
-          drawing.plate(pass, meshCache, state.pose, width, height, activeStyle)
-          for _, key in ipairs(rendered) do
-            if not current() then
-              break
-            end
-            passState.withRestore(pass, function(): ()
-              pass:setFont(font)
-              settings.drawKey(pass, key, {
-                keyboard = created,
-                pose = drawing.keyPose(state.pose, key, width, height),
-                style = activeStyle,
-                held = isHeld(key, held),
-                hovered = isHovered(key),
-              }, function(target: Pass, entry: board.RenderedKey, keyState: board.KeyState): ()
-                if current() then
-                  target:setFont(font)
-                  drawing.key(target, keyCache(entry), entry, keyState, font)
-                end
-              end)
+          passState.withRestore(pass, function(): ()
+            pass:setFont(activeFont)
+            settings.drawKey(pass, key, {
+              keyboard = created,
+              pose = drawing.keyPose(state.pose, key, width, height),
+              style = activeStyle,
+              held = isHeld(key, held),
+              hovered = isHovered(key),
+            }, function(target: Pass, entry: board.RenderedKey, keyState: board.KeyState): ()
+              if current() then
+                target:setFont(activeFont)
+                drawing.key(target, keyCache(entry), entry, keyState, activeFont)
+              end
             end)
-          end
-        end)
+          end)
+        end
       end)
     end,
     destroy = function(_self: keyboard.Keyboard): boolean
@@ -541,53 +515,7 @@ local function construct(
     geometryRevision += 1
     local failures = cancelPointers 'control-removed'
     clearMeshes(failures)
-    local released, failure = pcall(function(): ()
-      lease:dispose()
-    end)
-    if not released then
-      failures[#failures + 1] = tostring(failure)
-    end
     finish(failures)
-  end
-  return created, destroyState, clearInput, refresh
-end
-
-local function create(
-  settings: config.Settings,
-  options: keyboard.Options?,
-  source: focus.Source,
-  themeService: theme.Service,
-  owner: keyboard.Owner,
-  active: () -> boolean,
-  notify: (keyboard.VisibilityChange) -> (),
-  dispose: () -> ()
-): (board.Board, () -> (), () -> (), () -> ())
-  local lease: theme.FontLease? = nil
-  local ok, created, destroyState, clearInput, refresh = pcall(
-    construct,
-    settings,
-    options,
-    source,
-    themeService,
-    owner,
-    active,
-    notify,
-    dispose,
-    function(value: theme.FontLease): ()
-      lease = value
-    end
-  )
-  if not ok then
-    local partialLease = lease
-    if partialLease then
-      local cleaned, failure = pcall(function(): ()
-        partialLease:dispose()
-      end)
-      if not cleaned then
-        error(tostring(created) .. '; keyboard font cleanup: ' .. tostring(failure), 0)
-      end
-    end
-    error(created, 0)
   end
   return created, destroyState, clearInput, refresh
 end

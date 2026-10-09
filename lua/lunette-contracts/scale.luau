@@ -4,11 +4,9 @@ local plugin = require '@lunette-plugin'
 
 local scale = {}
 
--- `reset` clears hysteresis history before the next choice.
+-- `choose` takes a distance in metres and answers the output scale.
 export type Chooser = {
-  read choose: (Chooser, number) -> (number, boolean),
-  read current: (Chooser) -> number?,
-  read reset: (Chooser) -> (),
+  read choose: (Chooser, number) -> number,
 }
 
 export type Service = {

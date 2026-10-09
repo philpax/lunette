@@ -77,11 +77,11 @@ test("chrome is off unless a panel or the provider's configuration asks for it",
             run(snapshot)
           end)
         end,
-        acquireFont = function(_, owner, spec)
+        font = function(_, spec)
           if acquisitionFails then
             error 'panel font acquisition failure'
           end
-          return real:acquireFont(owner, spec)
+          return real:font(spec)
         end,
       }, { __index = real })
     end,
@@ -148,7 +148,6 @@ test("chrome is off unless a panel or the provider's configuration asks for it",
   expect.equal(border.state.setColor[1], 0.4, 'the highlight inherits focus')
 
   selected:update { typography = { font = { kind = 'file', file = 'panel-face-b.ttf', size = 28, spread = 4 } } }
-  expect.truthy(faces[1].released, 'the subscription publishes the replacement before dropping old paint')
   acquisitionFails = true
   local beforeRevision = env.theme:current().revision
   selected:update {
@@ -163,7 +162,6 @@ test("chrome is off unless a panel or the provider's configuration asks for it",
   expect.raises(function()
     drawn(env, framed)
   end, 'panel font acquisition failure', 'a failed refresh raises')
-  expect.falsy(faces[2].released, 'a failed refresh retains the previous paint lease')
   acquisitionFails = false
   drawn(env, framed)
   _, title = paintCalls()
@@ -174,7 +172,6 @@ test("chrome is off unless a panel or the provider's configuration asks for it",
   pass.text = function()
     selected:update { typography = { font = { kind = 'file', file = 'panel-face-c.ttf', size = 30, spread = 4 } } }
     env.panels:update()
-    expect.falsy(faces[2].released, 'the old draw invocation retains its face through refresh')
     text(pass, 'retained', lovr.math.newMat4(), 0, 'center', 'middle')
     error 'chrome title failure'
   end
@@ -183,9 +180,7 @@ test("chrome is off unless a panel or the provider's configuration asks for it",
   end, 'chrome title failure', 'a failing chrome draw')
   pass.text = text
   recorder:assertRestored(caller)
-  expect.truthy(faces[2].released, 'the invocation drops its face after restoration')
   selected:dispose()
-  expect.truthy(faces[3].released, 'ending a selection refreshes and releases stale paint')
   framed:raycast(vector.pack(0, 0, 1), vector.pack(0, 0, -1))
   env.session:close()
 
@@ -223,7 +218,6 @@ test("chrome is off unless a panel or the provider's configuration asks for it",
   expect.equal(square.draw, nil, 'an explicit zero border survives a theme change')
   override:dispose()
   env.session:close()
-  expect.truthy(faces[#faces].released, 'shutdown releases the explicit provider font')
 end)
 
 test('an override hides a panel, and the most recent live override decides', function()

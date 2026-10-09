@@ -284,22 +284,19 @@ pointerCaret = function(state: State, x: number): number?
   if not clip then
     return nil
   end
-  local nearest: number? = nil
-  state.host.withFont(function(font: Font): ()
-    local layout = textGeometry.layout(
-      state.draft.value,
-      state.draft.caret,
-      state.draft.anchor,
-      state.host.bounds(),
-      clip,
-      state.host.theme(),
-      font,
-      state.measurements,
-      if state.host.textClip then state.host.textClip() else nil
-    )
-    nearest = if layout then textGeometry.nearest(layout, x) else nil
-  end)
-  return nearest
+  local resolved = state.host.theme()
+  local layout = textGeometry.layout(
+    state.draft.value,
+    state.draft.caret,
+    state.draft.anchor,
+    state.host.bounds(),
+    clip,
+    resolved,
+    resolved.font,
+    state.measurements,
+    if state.host.textClip then state.host.textClip() else nil
+  )
+  return if layout then textGeometry.nearest(layout, x) else nil
 end
 
 visual = function(state: State, base: ui.Visual): ui.Visual

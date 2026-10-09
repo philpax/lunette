@@ -3,7 +3,6 @@ local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
 local desktop = require '@lunette-desktop'
-local workspaces = require '@lunette-plugins/desktop/workspaces'
 local panelsContract = require '@lunette-contracts/panels'
 local tagsContract = require '@lunette-contracts/tags'
 local menuContract = require '@lunette-contracts/menu'
@@ -45,14 +44,14 @@ local CONFIGS = {
   decorations = { style = { barColor = { 0.3, 0.12, 0.2, 0.95 } } },
   arrange = { layout = 'grid', options = { grid = { columns = 3 } } },
   persistence = { file = 'desktop.state' },
-  wristKeyboard = { placement = { distance = 0.45 } },
+  keyboardDisplay = { placement = { distance = 0.45 } },
   rules = { rules = { { match = { appId = 'mail' }, properties = { tags = { 'mail' } } } } },
   monitors = { select = { 'fixture-output' } },
   hint = { text = 'fixture hint' },
   errors = { width = 1.2 },
   pointing = { laser = { name = 'fixture-pointer', style = { length = 2.5 }, tuning = { reach = 0.5 } } },
   pacing = { pauseMonitors = false },
-  workspace = { name = 'work' },
+  workspaces = { workspaces = { { name = 'work' } } },
   adoption = { tags = { 'work' } },
 }
 
@@ -61,14 +60,14 @@ local RAW_PATCHES = {
   { id = 'desktop/decorations', config = CONFIGS.decorations },
   { id = 'desktop/arrange', config = CONFIGS.arrange },
   { id = 'desktop/persistence', config = CONFIGS.persistence },
-  { id = 'desktop/keyboard', config = CONFIGS.wristKeyboard },
+  { id = 'desktop/keyboard', config = CONFIGS.keyboardDisplay },
   { id = 'desktop/rules', config = CONFIGS.rules },
   { id = 'desktop/monitors', config = CONFIGS.monitors },
   { id = 'desktop/hint', config = CONFIGS.hint },
   { id = 'desktop/errors', config = CONFIGS.errors },
   { id = 'desktop/pointing', config = CONFIGS.pointing },
   { id = 'desktop/pacing', config = CONFIGS.pacing },
-  { id = 'desktop/workspace', config = CONFIGS.workspace },
+  { id = 'desktop/workspaces', config = CONFIGS.workspaces },
   { id = 'desktop/adoption', config = CONFIGS.adoption },
 }
 
@@ -78,9 +77,8 @@ local WORKSPACES = {
 
 local function workspacePatches(config, initial)
   return {
-    { id = 'desktop/workspace', config = { name = initial } },
+    { id = 'desktop/workspaces', config = config },
     { id = 'desktop/adoption', config = { tags = { initial } } },
-    { insert = { id = 'desktop/workspaces', definition = workspaces, config = config }, before = 'desktop/adoption' },
   }
 end
 
@@ -120,16 +118,16 @@ test('settings merge with entry config and coexist with independent provider pat
   end, 'which is not an entry')
 end)
 
-test('workspaces expand into three raw patches with a separate consumer before adoption', function()
-  local actual = desktop.compose { workspaces = WORKSPACES }
+test('workspace settings configure desktop/workspaces and adopt into the first workspace', function()
+  local actual = desktop.compose { settings = { workspaces = WORKSPACES } }
   sameEntries(actual, desktop.compose { patches = workspacePatches(WORKSPACES, 'main') })
-  expect.equal(#actual, #desktop.entries() + 1, 'only the optional consumer is added')
-  for index, entry in ipairs(actual) do
-    if entry.id == 'desktop/workspaces' then
-      expect.equal(actual[index + 1].id, 'desktop/adoption', 'workspace placement listeners precede boot adoption')
-    end
-  end
-  sameEntries(desktop.compose { workspaces = {} }, desktop.compose { patches = workspacePatches({}, 'main') })
+  expect.equal(#actual, #desktop.entries(), 'no entry is added')
+  sameEntries(
+    desktop.compose { settings = { workspaces = {} } },
+    desktop.compose { patches = workspacePatches({}, 'main') }
+  )
+  local adopted = desktop.compose { settings = { workspaces = WORKSPACES, adoption = { tags = { 'side' } } } }
+  expect.equal(entry(adopted, 'desktop/adoption').config.tags[1], 'side', 'adoption settings take precedence')
 end)
 
 test('unknown sections, malformed lists, and shorthand collisions raise before callbacks bind', function()
@@ -137,42 +135,23 @@ test('unknown sections, malformed lists, and shorthand collisions raise before c
   for _, case in ipairs {
     { options = { settings = { keyboard = {} } }, message = 'the settings: unknown field keyboard' },
     { options = { settings = { demoTerminal = {} } }, message = 'the settings: unknown field demoTerminal' },
-    { options = { workspaces = { names = {} } }, message = 'workspaces: unknown field names' },
-    { options = { workspaces = { workspaces = {} } }, message = 'option workspaces has fewer than 1 entries' },
+    { options = { settings = { workspaces = { names = {} } } }, message = 'names' },
+    { options = { settings = { workspaces = { workspaces = {} } } }, message = 'has fewer than 1 entries' },
     {
-      options = { settings = { wristKeyboard = false } },
-      message = 'plugin desktop settings: option wristKeyboard is a table, not a boolean',
+      options = { settings = { keyboardDisplay = false } },
+      message = 'plugin desktop settings: option keyboardDisplay is a table, not a boolean',
     },
     {
-      options = { settings = { wristKeyboard = {} }, patches = { { id = 'desktop/keyboard', config = {} } } },
-      message = 'patch 1 and settings.wristKeyboard both configure desktop/keyboard',
+      options = { settings = { keyboardDisplay = {} }, patches = { { id = 'desktop/keyboard', config = {} } } },
+      message = 'patch 1 and settings.keyboardDisplay both configure desktop/keyboard',
     },
     {
       options = { settings = { persistence = {} }, patches = { { id = 'desktop/persistence', disabled = true } } },
       message = 'patch 1 and settings.persistence both configure desktop/persistence',
     },
     {
-      options = { workspaces = WORKSPACES, settings = { workspace = {} } },
-      message = 'both configure desktop/workspace',
-    },
-    {
-      options = { workspaces = WORKSPACES, settings = { adoption = {} } },
-      message = 'both configure desktop/adoption',
-    },
-    {
-      options = { workspaces = WORKSPACES, patches = { { id = 'desktop/workspaces', config = {} } } },
-      message = 'patch 1 and workspaces both configure desktop/workspaces',
-    },
-    {
-      options = { workspaces = WORKSPACES, patches = { { id = 'desktop/workspace', disabled = true } } },
-      message = 'both configure desktop/workspace',
-    },
-    {
-      options = {
-        workspaces = WORKSPACES,
-        patches = { { insert = { id = 'desktop/workspaces', definition = workspaces } } },
-      },
-      message = 'patch 1 and workspaces both configure desktop/workspaces',
+      options = { settings = { workspaces = WORKSPACES }, patches = { { id = 'desktop/adoption', config = {} } } },
+      message = 'patch 1 and settings.workspaces both configure desktop/adoption',
     },
     { options = { patches = { typo = true } }, message = 'the patch list is a list' },
   } do
@@ -181,27 +160,11 @@ test('unknown sections, malformed lists, and shorthand collisions raise before c
     end, case.message)
     expect.equal(lovr.load, load, 'invalid options bind no callbacks')
   end
-  for _, id in ipairs { 'desktop/workspace', 'desktop/adoption' } do
-    expect.raises(function()
-      desktop.compose {
-        entries = plugin.compose(desktop.entries(), { { id = id, config = {} } }),
-        workspaces = WORKSPACES,
-      }
-    end, 'the configured entry ' .. id)
-  end
-  expect.raises(function()
-    desktop.compose {
-      entries = plugin.compose(
-        desktop.entries(),
-        { { insert = { id = 'desktop/workspaces', definition = workspaces } } }
-      ),
-      workspaces = WORKSPACES,
-    }
-  end, 'the configured entry desktop/workspaces')
 end)
 
 local function environment(config, fake, patches)
-  local session = testing.boot(desktop.compose { workspaces = config, patches = patches }, { native = fake })
+  local session =
+    testing.boot(desktop.compose { settings = { workspaces = config }, patches = patches }, { native = fake })
   local panels = session:observe(panelsContract.capability)
   local tags = session:observe(tagsContract.capability)
   return { session = session, panels = panels.service, tags = tags.service, owner = tags.context, native = fake }
@@ -293,7 +256,7 @@ test('workspace following applies to saved boot windows and can preserve their m
 end)
 
 test('two starts of one expanded composition keep workspace selection independent', function()
-  local entries = desktop.compose { workspaces = WORKSPACES }
+  local entries = desktop.compose { settings = { workspaces = WORKSPACES } }
   local first = testing.boot(entries)
   selectWorkspace({ session = first }, 'side')
   expect.truthy(first:observe(tagsContract.capability).service:find('side').selected, 'the first runtime switches')

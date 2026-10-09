@@ -57,10 +57,9 @@ local function use(
       keyRadius = configuredStyle.keyRadius,
     },
   })
-  ruleService:fromList(ruleList)
   ruleService:setRules(owner, { rules = ruleList })
   layoutService:apply { name = 'arc', panels = panels }
-  tagService:panelsOf(panels)
+  tagService:find 'main'
   laserService:update(surfaces)
   pointer:update(input, surfaces)
 end

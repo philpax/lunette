@@ -28,7 +28,11 @@ local function registrant(env, name, registrations)
 end
 
 local function names(env)
-  return table.concat(env.themes:names(), ',')
+  local result = {}
+  for _, entry in env.themes:list() do
+    result[#result + 1] = entry.name
+  end
+  return table.concat(result, ',')
 end
 
 test('a registration is checked before it is accepted', function()

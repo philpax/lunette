@@ -11,25 +11,18 @@ local test = testing.suite()
 
 local function fixture(hook, fileFont)
   local native = testing.native()
-  local faces = {}
-  local newFont = lovr.graphics.newFont
-  lovr.graphics.newFont = function(file, size, spread)
-    local face = newFont(file, size, spread)
-    faces[#faces + 1] = face
-    return face
-  end
   local control = { fail = false }
   local definition = plugin.define {
     name = 'keyboard-draw-theme',
     provides = { theme = theme.capability },
     init = function(context, _settings, publish)
       local service = themeProvider.build(context, {})
-      local acquire = service.acquireFont
-      service.acquireFont = function(self, owner, spec)
+      local font = service.font
+      service.font = function(self, spec)
         if control.fail then
           error 'keyboard refresh failure'
         end
-        return acquire(self, owner, spec)
+        return font(self, spec)
       end
       publish:provide(theme.capability, service)
     end,
@@ -68,7 +61,6 @@ local function fixture(hook, fileFont)
     recorder,
     {
       session = session,
-      faces = faces,
       theme = observedTheme.service,
       owner = observedTheme.context,
       control = control,
@@ -93,7 +85,7 @@ test('keyboard paints untextured faces and depth-tested legends without writing 
       width = width,
       height = height,
     }, geometry.uniform(state.style.keyRadius))
-    expect.equal(pass:getFont(), state.style.font, 'the hook receives the exact leased face')
+    expect.equal(pass:getFont(), state.style.font, 'the hook receives the theme face')
     base(pass, key, state)
   end)
   observed = env.theme
@@ -132,7 +124,6 @@ test('keyboard paints untextured faces and depth-tested legends without writing 
   for index = start + 1, #recorder.calls do
     expect.truthy(recorder.calls[index][1] ~= 'text', 'a nested geometry refresh rejects the stale base draw')
   end
-  expect.truthy(env.faces[1].released, 'a replaced render face releases after its pinned invocation')
   board:draw(recorder.pass)
   expect.near(activeStyle.legendHeight, 0.02, 1e-9, 'the same board consumes the updated style')
 
@@ -140,7 +131,6 @@ test('keyboard paints untextured faces and depth-tested legends without writing 
     typography = { font = { kind = 'file', file = 'retained.ttf', size = 32, spread = 4 }, keyboardLegendHeight = 0.02 },
   }
   board:draw(recorder.pass)
-  local retained = env.faces[2]
   expect.equal(#recorder.meshAcquisitions, acquired, 'font changes retain unchanged face geometry')
   for index, call in recorder.calls do
     if call[1] == 'text' then
@@ -156,7 +146,6 @@ test('keyboard paints untextured faces and depth-tested legends without writing 
   end
   env.control.fail = true
   applied:update { typography = { keyboardLegendHeight = 0.03 } }
-  expect.falsy(retained.released, 'failed refresh retains the old lease after its selection hold is removed')
   expect.equal(#env.native.events.reported, 1, 'the listener reports the failed refresh')
   expect.raises(function()
     board:draw(recorder.pass)
@@ -165,7 +154,6 @@ test('keyboard paints untextured faces and depth-tested legends without writing 
   env.control.fail = false
   board:draw(recorder.pass)
   expect.near(activeStyle.legendHeight, 0.03, 1e-9, 'restored acquisition retries the unapplied revision')
-  expect.truthy(retained.released, 'successful retry releases the old face only after publishing the new style')
   recorder:assertRestored(caller)
   applied:dispose()
   board:destroy()
@@ -178,9 +166,8 @@ for _, failure in { 'text', 'hook' } do
     board, recorder, env = fixture(
       if failure == 'hook'
         then function(pass, _key, state)
-          expect.equal(pass:getFont(), state.style.font, 'custom hooks measure with the leased face')
+          expect.equal(pass:getFont(), state.style.font, 'custom hooks measure with the theme face')
           board:destroy()
-          expect.falsy(env.faces[1].released, 'destruction retains the face during hook unwind')
           pass:translate(1, 2, 3)
           pass:setDepthTest()
           error 'keyboard failure'
@@ -191,21 +178,14 @@ for _, failure in { 'text', 'hook' } do
     if failure == 'text' then
       recorder.pass.text = function()
         board:destroy()
-        expect.falsy(env.faces[1].released, 'destruction retains the face during text unwind')
         error 'keyboard failure'
       end
-    end
-    local restore = recorder.pass.pop
-    recorder.pass.pop = function(self, ...)
-      expect.falsy(env.faces[1].released, 'the invocation pins the face through pass restoration')
-      restore(self, ...)
     end
     local caller = recorder:checkpoint()
     expect.raises(function()
       board:draw(recorder.pass)
     end, 'keyboard failure')
     recorder:assertRestored(caller)
-    expect.truthy(env.faces[1].released, 'the face releases after protected render unwind')
     recorder:assertMeshesReleased()
   end)
 end

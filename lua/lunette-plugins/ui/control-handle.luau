@@ -58,16 +58,12 @@ function handles.create(panel: records.Panel, owner: ui.Owner, options: ui.Optio
   panel.refresh()
   local spec = theme.inherit(panel.spec, overrides)
   local reservation = owners.reserve(panel.owners, panel.context, owner, id)
-  local acquired, lease = pcall(panel.themes.acquireFont, panel.themes, panel.context, spec.font)
-  if not acquired then
-    reservation.release()
-    error(lease, 0)
-  end
-  local prepared, resolved = pcall(theme.materialize, spec, lease.font)
+  local prepared, resolved = pcall(function(): ui.Theme
+    return theme.materialize(spec, panel.themes:font(spec.font))
+  end)
   if not prepared then
     reservation.release()
-    local released, failure = pcall(lease.dispose, lease)
-    error(tostring(resolved) .. (if released then '' else '; ' .. tostring(failure)), 0)
+    error(resolved, 0)
   end
   local callbackLabel = 'ui: ' .. plugin.ownerLabel(owner) .. ': control ' .. id
   local record: records.Control
@@ -88,7 +84,6 @@ function handles.create(panel: records.Panel, owner: ui.Owner, options: ui.Optio
   local function dispose(): boolean
     if initializing then
       abandoned = true
-      lease:dispose()
       reservation.release()
       return false
     elseif record.dead then
@@ -111,9 +106,6 @@ function handles.create(panel: records.Panel, owner: ui.Owner, options: ui.Optio
         if record.widget.clearMeasurements then
           record.widget.clearMeasurements()
         end
-      end,
-      function(): ()
-        record.lease:dispose()
       end,
       function(): ()
         input.cancel(panel, record, 'control-removed')
@@ -186,11 +178,6 @@ function handles.create(panel: records.Panel, owner: ui.Owner, options: ui.Optio
       panel.refresh()
       return if initializing then resolved else record.theme
     end,
-    withFont = function(run: (Font) -> ()): ()
-      panel.refresh()
-      local currentLease = if initializing then lease else record.lease
-      currentLease:withFont(run)
-    end,
     callback = function(name: string, run: () -> (), terminal: boolean?): boolean
       local allowed = if terminal then (owner :: plugin.Context):active() else current()
       return allowed and protected.call(callbackLabel .. ': ' .. name, run)
@@ -215,7 +202,6 @@ function handles.create(panel: records.Panel, owner: ui.Owner, options: ui.Optio
       exclusive = exclusive,
       theme = resolved,
       spec = spec,
-      lease = lease,
       measurements = drawing.newCache(),
       overrides = overrides,
       draw = draw,

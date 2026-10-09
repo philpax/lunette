@@ -1,4 +1,4 @@
--- Hides panels in unselected workspace tags with an override, preserving higher-priority visibility decisions. The follow option moves newly placed panels into the selected workspace.
+-- Holds the workspace tags, selects one, and hides panels in unselected workspaces with an override that preserves higher-priority visibility decisions. The follow option moves newly placed panels into the selected workspace.
 local plugin = require '@lunette-plugin'
 local menu = require '@lunette-contracts/menu'
 local panels = require '@lunette-contracts/panels'
@@ -170,6 +170,9 @@ return plugin.consumer<<Config, Settings>>({
       })
     end
     switch(current)
-    context:child(actions(settings, held, switch), {})
+    -- One workspace has nothing to switch to.
+    if #held > 1 then
+      context:child(actions(settings, held, switch), {})
+    end
   end,
 }).definition

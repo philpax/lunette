@@ -6,6 +6,13 @@ local tagsContract = require '@lunette-contracts/tags'
 local menuProvider = require '@lunette-plugins/menu'
 local test = testing.suite()
 
+-- Selects one tag for the owner and deselects the others.
+local function only(tags, owner, chosen)
+  for _, tag in tags:all() do
+    tag:setSelected(owner, { selected = tag == chosen })
+  end
+end
+
 local function start()
   local session = testing.boot {
     'frame',
@@ -27,7 +34,7 @@ test('late broker registration reads selection without restarting the workspace 
   local session, tags = start()
   local main, web = tags.service:find 'main', tags.service:find 'web'
   expect.truthy(main.selected and not web.selected, 'selection exists before the broker')
-  tags.service:only(tags.context, web)
+  only(tags.service, tags.context, web)
   session:use(menuProvider.definition)
   local actions = session:observe(menuContract.capability)
   local rows = actions.service:list()
@@ -59,7 +66,7 @@ test('retained callbacks from a substitute broker cannot switch after the child 
   oldChooseWeb()
   expect.truthy(web.selected and not main.selected, 'the live callback chooses its workspace')
   broker:disable()
-  tags.service:only(tags.context, main)
+  only(tags.service, tags.context, main)
   oldChooseWeb()
   expect.truthy(main.selected and not web.selected, 'the ended child callback is inert')
   broker:enable()

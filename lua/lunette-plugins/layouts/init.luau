@@ -3,11 +3,10 @@
 local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/layouts'
 local listeners = require '@lunette-plugins/listeners'
+local registry = require '@lunette-plugins/registry'
 local inspection = require '@lunette-contracts/inspection'
 
 type Registration = {
-  owner: contract.Owner,
-  name: string,
   apply: ({ contract.Panel }, unknown?) -> (),
   continuous: boolean,
 }
@@ -25,52 +24,27 @@ local function checkName(operation: string, name: unknown): string
 end
 
 local function create(context: plugin.Context): contract.Service
-  local named: { [string]: Registration } = {}
   local heard = listeners.new<<() -> ()>>(context)
-
-  local function live(name: string): Registration?
-    local registration = named[name]
-    if registration and context:owns(registration.owner) then
-      return registration
-    end
-    return nil
-  end
+  local named = registry.new<<Registration>>(context, 'layouts register', function(): ()
+    heard:each('layouts: a change listener', function(run: () -> ()): ()
+      run()
+    end)
+  end)
 
   local function registeredNames(): { string }
     local names: { string } = {}
-    for name, _ in named do
-      if live(name) then
-        names[#names + 1] = name
-      end
+    for _, entry in named:list() do
+      names[#names + 1] = entry.name
     end
     table.sort(names)
     return names
   end
 
-  local function changed(): ()
-    heard:each('layouts: a change listener', function(run: () -> ()): ()
-      run()
-    end)
-  end
-
   return {
     inspect = function(_self: contract.Service): inspection.Snapshot
       local result = heard:inspect 'layouts.onChanged'
-      local names: { string } = {}
-      for name in pairs(named) do
-        names[#names + 1] = name
-      end
-      table.sort(names)
-      for _, name in ipairs(names) do
-        local entry = named[name]
-        result[#result + 1] = inspection.registration(
-          'layout',
-          'layouts.register',
-          entry.owner,
-          entry.name,
-          context:owns(entry.owner),
-          { continuous = entry.continuous }
-        )
+      for _, entry in named:inspect('layout', 'layouts.register') do
+        result[#result + 1] = entry
       end
       return inspection.snapshot(result, nil, { 'layout applications are transient callbacks' })
     end,
@@ -84,29 +58,8 @@ local function create(context: plugin.Context): contract.Service
       if raw.continuous ~= nil and type(raw.continuous) ~= 'boolean' then
         error('layouts register: continuous is a boolean, not a ' .. type(raw.continuous), 2)
       end
-      if named[name] then
-        error('layouts register: ' .. name .. ' is already registered', 2)
-      end
-      local registration: Registration = {
-        owner = owner,
-        name = name,
-        apply = spec.apply,
-        continuous = spec.continuous == true,
-      }
-      local effect = context:acquire(owner, function(): () -> ()
-        if named[name] then
-          error('layouts register: ' .. name .. ' is already registered', 0)
-        end
-        named[name] = registration
-        return function(): ()
-          if named[name] == registration then
-            named[name] = nil
-            changed()
-          end
-        end
-      end)
-      changed()
-      return effect
+      local continuous = spec.continuous == true
+      return named:add(owner, name, { apply = spec.apply, continuous = continuous }, { continuous = continuous })
     end,
     apply = function(_self: contract.Service, application: contract.Application): ()
       plugin.rejectUnknownFields('layouts apply', application, APPLICATION_KEYS, 'name, panels, and options', 2)
@@ -115,7 +68,7 @@ local function create(context: plugin.Context): contract.Service
       if type(raw.panels) ~= 'table' then
         error('layouts apply: panels is a list of panels, not a ' .. type(raw.panels), 2)
       end
-      local registration = live(name)
+      local registration = named:get(name)
       if not registration then
         local names = registeredNames()
         local known = if #names == 0 then 'none is registered' else 'the layouts are ' .. table.concat(names, ', ')
@@ -135,11 +88,11 @@ local function create(context: plugin.Context): contract.Service
       return registeredNames()
     end,
     get = function(_self: contract.Service, name: string): contract.Entry?
-      local registration = live(name)
+      local registration = named:get(name)
       if not registration then
         return nil
       end
-      return table.freeze { name = registration.name, continuous = registration.continuous }
+      return table.freeze { name = name, continuous = registration.continuous }
     end,
     onChanged = function(_self: contract.Service, owner: contract.Owner, spec: contract.ChangedListener): plugin.Effect
       plugin.rejectUnknownFields('layouts onChanged', spec, { run = true }, 'run', 2)

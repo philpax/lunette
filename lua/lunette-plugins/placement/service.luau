@@ -33,7 +33,7 @@ type State = {
 local REQUEST_KEYS: { [string]: boolean } = { window = true, properties = true, defaults = true }
 local LISTENER_KEYS: { [string]: boolean } = { run = true }
 
-local function report(message: string, level: rulesContract.LogLevel?): ()
+local function report(message: string, level: ('info' | 'warn')?): ()
   if lovr and lovr.log then
     lovr.log(message, level or 'warn', 'lunette.placement')
   end
@@ -62,32 +62,28 @@ function service.panelOptions(properties: Properties, window: lunette.Window): p
   }
 end
 
--- String tag names are held, creating a tag when needed; tag values are joined directly.
+-- Each named tag is held, which creates it when needed.
 local function joinTags(
   state: State,
   created: panelsContract.WindowPanel,
-  names: { read [number]: string | Tag },
+  names: { read [number]: string },
   holds: { plugin.Effect },
   memberships: { Tag }
 ): ()
   local tags: tagsContract.Service = state.context:require(tagsContract.capability)
   for index = 1, #names do
-    local named = names[index]
-    local found: Tag?
+    local named: unknown = names[index]
     if type(named) == 'string' then
       if not tags:find(named) then
         report("nothing declared the tag '" .. named .. "', so it was created", 'info')
       end
       local tag, held = tags:hold(state.context, { name = named })
-      found = tag
       holds[#holds + 1] = held
-    elseif tags:isTag(named) then
-      found = named
+      if tag:add(state.context, created) then
+        memberships[#memberships + 1] = tag
+      end
     else
-      report('a tag is named by a string or is a tag, not a ' .. type(named))
-    end
-    if found and found:add(state.context, created) then
-      memberships[#memberships + 1] = found
+      report('a tag is named by a string, not a ' .. type(named))
     end
   end
 end

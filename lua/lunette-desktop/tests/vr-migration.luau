@@ -203,10 +203,6 @@ test('VR UI ten source reloads', function()
       borderDepth = 0.001,
       borderColor = { 0.2, 0.4, 0.6, 1 },
     })
-    local reader = env.services.theme:acquireFont(env.services.owner)
-    reader:withFont(function(font)
-      expect.truthy(font:getWidth 'Source reload reader' > 0, context .. ': the retained reader measures before reload')
-    end)
     expect.truthy(frame:isJoined(), context .. ': the visible reload probe owns its frame')
     local previous = scenario.description(env, 'example/ui/form').generation
     local display, show = env.services.display, env.services.display.show
@@ -215,7 +211,6 @@ test('VR UI ten source reloads', function()
     local pointer = assert(oldLedger.pointer)
     local events, releases = #oldLedger.events, oldLedger.releases
     local enumerations = native.events.enumerations
-    local acquired = #native.events.render.fontAcquisitions
     local measured = #native.events.render.fontMeasurements
     expect.equal(env.controls:draw(), false, context .. ': the current file-font desktop draws normally')
     expect.truthy(
@@ -235,23 +230,7 @@ test('VR UI ten source reloads', function()
     local loaded, failure = lunette.reload()
     expect.truthy(loaded, context .. ': ' .. tostring(failure))
     expect.falsy(frame:isJoined(), context .. ': source reload invalidates the old frame attachment')
-    expect.raises(function()
-      reader:withFont(function()
-        error 'the retired reader must not enter its callback'
-      end)
-    end, 'theme withFont: the provider is inactive', context .. ': source reload invalidates the old font lease')
     frame:dispose()
-    reader:dispose()
-    for index = 1, acquired do
-      expect.truthy(
-        native.events.render.fontAcquisitions[index].font.released,
-        context .. ': previous file faces are released'
-      )
-    end
-    expect.truthy(
-      #native.events.render.fontAcquisitions > acquired,
-      context .. ': replacement activation acquires its file face'
-    )
     for index = 1, meshes do
       expect.truthy(
         native.events.render.meshAcquisitions[index].released,

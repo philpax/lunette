@@ -32,7 +32,6 @@ export type Service = {
   read inspect: (Service) -> inspection.Snapshot,
   read register: (Service, Owner, Registration) -> plugin.Effect,
   read list: (Service) -> { read [number]: Entry },
-  read names: (Service) -> { string },
   read get: (Service, string) -> Entry?,
   read onChanged: (Service, Owner, ChangedListener) -> plugin.Effect,
 }

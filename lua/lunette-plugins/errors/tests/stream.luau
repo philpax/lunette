@@ -143,34 +143,4 @@ test('a malformed option fails the activation and is reported', function()
   env.session:close()
 end)
 
-test('error delivery defers new subscribers and skips a disposed subscriber', function()
-  local env = start()
-  local heard = {}
-  local pending
-  local late
-  env.service:subscribe(env.owner, {
-    run = function()
-      heard[#heard + 1] = 'first'
-      pending:dispose()
-      if not late then
-        late = env.service:subscribe(env.owner, {
-          run = function()
-            heard[#heard + 1] = 'late'
-          end,
-        })
-      end
-    end,
-  })
-  pending = env.service:subscribe(env.owner, {
-    run = function()
-      heard[#heard + 1] = 'disposed'
-    end,
-  })
-  env.native.raise('first dispatch', 'traceback')
-  expect.equal(table.concat(heard, ','), 'first', 'the registration snapshot and disposal check')
-  env.native.raise('second dispatch', 'traceback')
-  expect.equal(table.concat(heard, ','), 'first,first,late', 'the next report reaches the new subscriber')
-  env.session:close()
-end)
-
 return test

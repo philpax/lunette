@@ -36,7 +36,6 @@ local keyboardDisplay = require '@lunette-plugins/desktop/keyboard'
 local wristMenu = require '@lunette-plugins/desktop/menu'
 local actions = require '@lunette-plugins/desktop/actions'
 local errors = require '@lunette-plugins/desktop/errors'
-local workspace = require '@lunette-plugins/desktop/workspace'
 local workspaces = require '@lunette-plugins/desktop/workspaces'
 local defaultRules = require '@lunette-plugins/desktop/rules'
 local poseMemory = require '@lunette-plugins/desktop/pose-memory'
@@ -47,7 +46,6 @@ local pacing = require '@lunette-plugins/desktop/pacing'
 local scale = require '@lunette-plugins/desktop/scale'
 local manager = require '@lunette-plugins/desktop/manager'
 local settings = require '@lunette-desktop/settings'
-local workspacesConfig = require '@lunette-plugins/desktop/workspaces/config'
 local management = require '@lunette-plugin/management'
 
 local desktop = {}
@@ -61,23 +59,22 @@ export type Options = {
   read entries: { Entry }?,
   read patches: { Patch }?,
   read settings: Settings?,
-  read workspaces: workspaces.Config?,
 }
 
-local OPTION_KEYS: { [string]: boolean } = { entries = true, patches = true, settings = true, workspaces = true }
+local OPTION_KEYS: { [string]: boolean } = { entries = true, patches = true, settings = true }
 local SETTING_IDS: { [string]: string } = {
   menu = 'desktop/menu',
   decorations = 'desktop/decorations',
   arrange = 'desktop/arrange',
   persistence = 'desktop/persistence',
-  wristKeyboard = 'desktop/keyboard',
+  keyboardDisplay = 'desktop/keyboard',
   rules = 'desktop/rules',
   monitors = 'desktop/monitors',
   hint = 'desktop/hint',
   errors = 'desktop/errors',
   pointing = 'desktop/pointing',
   pacing = 'desktop/pacing',
-  workspace = 'desktop/workspace',
+  workspaces = 'desktop/workspaces',
   adoption = 'desktop/adoption',
   manager = 'desktop/manager',
 }
@@ -86,7 +83,7 @@ for name, _ in SETTING_IDS do
   SETTING_KEYS[name] = true
 end
 local SETTING_FIELDS =
-  'menu, decorations, arrange, persistence, wristKeyboard, rules, monitors, hint, errors, pointing, pacing, workspace, adoption, and manager'
+  'menu, decorations, arrange, persistence, keyboardDisplay, rules, monitors, hint, errors, pointing, pacing, workspaces, adoption, and manager'
 
 -- Persistence and arrangement use factories to preserve state across activations. Rule sources precede adoption so they resolve the first window.
 local DEFAULT: { Entry } = plugin.compose {
@@ -124,7 +121,7 @@ local DEFAULT: { Entry } = plugin.compose {
   { id = 'desktop/menu', definition = wristMenu },
   { id = 'desktop/actions', definition = actions },
   { id = 'desktop/errors', definition = errors },
-  { id = 'desktop/workspace', definition = workspace },
+  { id = 'desktop/workspaces', definition = workspaces },
   { id = 'desktop/monitors', definition = monitors },
   { id = 'desktop/rules', definition = defaultRules },
   { id = 'desktop/pose-memory', definition = poseMemory },
@@ -146,7 +143,7 @@ end
 
 type Raw = { [unknown]: unknown }
 
-local function expanded(options: Options, entries: { Entry }): ({ Patch }, { [string]: string })
+local function expanded(options: Options): ({ Patch }, { [string]: string })
   local patches: { Patch } = {}
   local sources: { [string]: string } = {}
   local function claim(id: string, source: string): ()
@@ -156,64 +153,21 @@ local function expanded(options: Options, entries: { Entry }): ({ Patch }, { [st
     end
     sources[id] = source
   end
-  if options.settings ~= nil then
-    local raw = (options.settings :: unknown) :: Raw
-    if type(raw) == 'table' then
-      if raw.bindings ~= nil then
-        error('desktop: settings.bindings is removed; session actions use the wrist menu', 0)
-      end
-      if type(raw.manager) == 'table' and rawget(raw.manager :: Raw, 'toggleKey') ~= nil then
-        error('desktop: manager.toggleKey is removed; open Plugins from the session menu', 0)
-      end
-      if type(raw.wristKeyboard) == 'table' then
-        local keyboardConfig = raw.wristKeyboard :: Raw
-        for _, field in { 'hand', 'size', 'offset', 'haptic' } do
-          if rawget(keyboardConfig, field) ~= nil then
-            error('desktop: wristKeyboard.' .. field .. ' is removed; configure settings.menu instead', 0)
-          end
-        end
-      end
-    end
-    plugin.rejectUnknownFields('desktop: the settings', options.settings, SETTING_KEYS, SETTING_FIELDS, 0)
-    settings.schema.parse(options.settings, 'desktop settings')
-    for name, config in options.settings :: any do
+  local given = options.settings
+  if given ~= nil then
+    plugin.rejectUnknownFields('desktop: the settings', given, SETTING_KEYS, SETTING_FIELDS, 0)
+    local parsed = settings.schema.parse(given, 'desktop settings')
+    for name, config in given :: any do
       local id = SETTING_IDS[name]
       claim(id, 'settings.' .. name)
       patches[#patches + 1] = { id = id, config = config }
     end
-  end
-  if options.workspaces ~= nil then
-    local config = options.workspaces
-    local raw = (config :: unknown) :: Raw
-    if type(raw) == 'table' and raw.modifiers ~= nil then
-      error('desktop: workspaces.modifiers is removed; workspaces use menu actions', 0)
+    -- Adoption places windows in the first workspace unless the adoption settings say otherwise.
+    local chosen = parsed.workspaces
+    if chosen and given.adoption == nil then
+      claim('desktop/adoption', 'settings.workspaces')
+      patches[#patches + 1] = { id = 'desktop/adoption', config = { tags = { chosen.workspaces[1].name } } }
     end
-    plugin.rejectUnknownFields(
-      'desktop: workspaces',
-      config,
-      { workspaces = true, follow = true },
-      'workspaces and follow',
-      0
-    )
-    local resolved = workspacesConfig.schema.parse(config, 'desktop workspaces')
-    local initial = resolved.workspaces[1].name
-    for _, id in ipairs { 'desktop/workspaces', 'desktop/workspace', 'desktop/adoption' } do
-      claim(id, 'workspaces')
-      for _, entry in ipairs(entries) do
-        if entry.id == id and (id == 'desktop/workspaces' or entry.config ~= nil) then
-          error(
-            'desktop: workspaces and the configured entry ' .. id .. ' both configure ' .. id .. '; use raw patches',
-            0
-          )
-        end
-      end
-    end
-    patches[#patches + 1] = { id = 'desktop/workspace', config = { name = initial } }
-    patches[#patches + 1] = { id = 'desktop/adoption', config = { tags = { initial } } }
-    patches[#patches + 1] = {
-      insert = { id = 'desktop/workspaces', definition = workspaces, config = config :: any },
-      before = 'desktop/adoption',
-    }
   end
   return patches, sources
 end
@@ -223,15 +177,9 @@ function desktop.compose(options: Options?): { Entry }
   if options == nil then
     return DEFAULT
   end
-  plugin.rejectUnknownFields(
-    'desktop: the options',
-    options,
-    OPTION_KEYS,
-    'entries, patches, settings, and workspaces',
-    0
-  )
+  plugin.rejectUnknownFields('desktop: the options', options, OPTION_KEYS, 'entries, patches, and settings', 0)
   local entries = plugin.compose(options.entries or DEFAULT)
-  local patches, sources = expanded(options, entries)
+  local patches, sources = expanded(options)
   local configured = plugin.compose(entries, patches)
   if type(options.patches) == 'table' then
     for index, patch in pairs(options.patches) do

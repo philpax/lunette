@@ -57,11 +57,11 @@ test('a failing cleanup attempts every step once, aggregates, and quarantines th
   local unrelatedSource = fake.newWindow(1201)
   local unrelatedPanel = env.panels:fromWindow(env.observer, unrelatedSource)
   local unrelatedClaim = fake.events.claims[#fake.events.claims]
-  local unrelatedTag = env.tags:new(env.observer, 'unrelated-cleanup-tag')
+  local unrelatedTag = env.tags:hold(env.observer, { name = 'unrelated-cleanup-tag' })
   unrelatedTag:add(env.observer, unrelatedPanel)
 
-  local ordinary = env.tags:new(env.observer, 'ordinary-cleanup-tag')
-  local throwing = env.tags:new(env.observer, 'throwing-cleanup-tag')
+  local ordinary = env.tags:hold(env.observer, { name = 'ordinary-cleanup-tag' })
+  local throwing = env.tags:hold(env.observer, { name = 'throwing-cleanup-tag' })
   watch(ordinary, 'remove', 'ordinary.remove')
   watch(throwing, 'remove', 'throwing.remove', 'fixture: membership remove failure')
 
@@ -87,11 +87,11 @@ test('a failing cleanup attempts every step once, aggregates, and quarantines th
     weak[1] = source
     fake.events.windows = { source }
     started = adoption:start(callerOwner, {
-      defaults = { tags = { 'first-cleanup-implicit', 'second-cleanup-implicit', ordinary, throwing } },
-      onPlaced = function(created)
-        panel = created
-      end,
+      defaults = {
+        tags = { 'first-cleanup-implicit', 'second-cleanup-implicit', 'ordinary-cleanup-tag', 'throwing-cleanup-tag' },
+      },
     })
+    panel = env.panels:forSource(source)
     fake.events.windows = {}
   end
   local claim = fake.events.claims[#fake.events.claims]
@@ -128,8 +128,8 @@ test('a failing cleanup attempts every step once, aggregates, and quarantines th
   expect.truthy(panel.dead and claim.dead, 'the panel and its claim')
   expect.falsy(env.tags:find 'first-cleanup-implicit', 'the first tag placement made')
   expect.falsy(env.tags:find 'second-cleanup-implicit', 'the second tag placement made')
-  expect.truthy(not ordinary.dead and #ordinary.members == 0, 'the ordinary tag keeps living, emptied')
-  expect.truthy(not throwing.dead and #throwing.members == 0, 'the throwing tag keeps living, emptied')
+  expect.truthy(not ordinary.dead and #ordinary:panels() == 0, 'the ordinary tag keeps living, emptied')
+  expect.truthy(not throwing.dead and #throwing:panels() == 0, 'the throwing tag keeps living, emptied')
   expect.equal(env.panels:forSource(unrelatedSource), unrelatedPanel, 'the unrelated panel')
   expect.falsy(unrelatedClaim.dead, 'the unrelated claim')
   expect.truthy(unrelatedTag:has(unrelatedPanel), 'the unrelated membership')

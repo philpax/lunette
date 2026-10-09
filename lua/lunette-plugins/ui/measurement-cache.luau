@@ -1,4 +1,4 @@
--- Measurement caches belong to one retained appearance and never retain a font beyond that owner's lease.
+-- Measurement caches belong to one retained appearance and are cleared when its font changes.
 local cache = {}
 export type Cache = {
   font: Font?,

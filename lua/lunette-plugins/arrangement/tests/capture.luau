@@ -5,7 +5,7 @@ local plugin = require '@lunette-plugin'
 local panelsContract = require '@lunette-contracts/panels'
 local tagsContract = require '@lunette-contracts/tags'
 local rulesContract = require '@lunette-contracts/rules'
-local arrangement = require '@lunette-plugins/arrangement'
+local arrangement = require '@lunette-plugins/arrangement/format'
 local persist = require '@lunette-plugins/arrangement/state'
 local fixture = require './support/fixture'
 local vocabulary = require '@lunette-contracts/vocabulary'
@@ -103,8 +103,8 @@ test('capture records pose, metre size, and ordered tag membership', function()
       width = 1.6,
       height = 0.9,
     })
-    tags:new(context, 'main'):add(context, panel)
-    tags:new(context, 'side'):add(context, panel)
+    tags:hold(context, { name = 'main' }):add(context, panel)
+    tags:hold(context, { name = 'side' }):add(context, panel)
     local captured = arrangement.entries(state:capture(panels, tags))[1]
     expect.equal(captured.pose, vocabulary.encodePose(panel.pose), 'the pose')
     expect.near(captured.width, 1.6, TOLERANCE, 'the width')
@@ -160,7 +160,7 @@ test('binding restores membership on existing and newly created tags', function(
     { entry { kind = 'monitor', key = 'fixture.monitor', tags = { 'main', 'side' } } },
     function(state, context, panels, tags, rules)
       local panel = panels:fromMonitor(context, monitor 'fixture.monitor')
-      local main = tags:new(context, 'main')
+      local main = tags:hold(context, { name = 'main' })
       state:bind(context, panels, tags, rules)
       expect.equal(tags:find 'main', main, 'the existing tag')
       expect.truthy(main:has(panel), 'existing membership')
@@ -318,7 +318,7 @@ test('a bind that fails in its initializer leaves no source behind', function()
       consumer:enable()
       expect.equal(consumer:state(), 'failed', 'the consumer')
       expect.truthy(tostring(consumer:diagnostic()):find('another runtime', 1, true), 'the rejected owner')
-      expect.equal(#rules:sources(), 0, 'the rolled-back source')
+      expect.equal(#testing.ruleSources(rules), 0, 'the rolled-back source')
       local reports = testing.takeReports()
       expect.equal(#reports, 1, 'the reported load failure')
       expect.truthy(reports[1]:find('arrangement-test-3', 1, true), 'the failed consumer is named')

@@ -45,7 +45,7 @@ local DEFAULT_IDS = table.concat({
   'desktop/menu',
   'desktop/actions',
   'desktop/errors',
-  'desktop/workspace',
+  'desktop/workspaces',
   'desktop/monitors',
   'desktop/rules',
   'desktop/pose-memory',

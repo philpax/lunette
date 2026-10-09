@@ -1,4 +1,4 @@
--- Sparse appearance layers remain detached; resolved visuals carry the leased font handle.
+-- Sparse appearance layers remain detached; resolved visuals carry the theme service face.
 local schema = require '@lunette-plugin/schema'
 local ui = require '@lunette-contracts/ui'
 local globalTheme = require '@lunette-contracts/theme'
@@ -112,7 +112,7 @@ end
 
 function theme.resolve(base: ui.Theme, value: ui.ThemeOverrides?): ui.Theme
   local copied = theme.copyOverrides(value)
-  assert(not copied or copied.font == nil, 'ui theme: font specifications require a theme service lease')
+  assert(not copied or copied.font == nil, 'ui theme: font specifications resolve through the theme service')
   local result = table.clone(theme.validate(base)) :: { [string]: unknown }
   for key, field in copied or {} do
     result[key] = field

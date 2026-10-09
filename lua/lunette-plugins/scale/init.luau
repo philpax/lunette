@@ -11,21 +11,14 @@ export type Tuning = chooser.Tuning
 
 local config = require '@lunette-plugins/scale/config'
 
-export type IdealBase = config.IdealBase
-export type Ideal = config.Ideal
 export type Settings = config.Settings
 export type Config = config.Config
 
 local function build(_context: plugin.Context, settings: Settings): Service
   local steps = lunette.scaleSteps()
-  local base = chooser.ideal(settings.tuning)
-  local hook = settings.ideal
-  local function wanted(distance: number): number
-    return hook(distance, base)
-  end
   return {
     newChooser = function(_self: Service): Chooser
-      return chooser.new { steps = steps, tuning = settings.tuning, ideal = wanted }
+      return chooser.new(steps, settings.tuning)
     end,
   }
 end

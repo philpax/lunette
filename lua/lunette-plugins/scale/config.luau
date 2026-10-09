@@ -1,12 +1,5 @@
 local schema = require '@lunette-plugin/schema'
 
-export type IdealBase = (number) -> number
-export type Ideal = (number, IdealBase) -> number
-
-local function ideal(distance: number, base: IdealBase): number
-  return base(distance)
-end
-
 local TUNING = schema.object {
   -- Scale varies inversely with distance from this reference.
   reference = schema.default(schema.number { positive = true })(1),
@@ -21,7 +14,6 @@ local TUNING = schema.object {
 }
 local SCHEMA = schema.object {
   tuning = schema.default(TUNING)(TUNING.parse {}),
-  ideal = schema.default(schema.callback(ideal))(ideal),
 }
 
 export type Config = schema.Input<typeof(SCHEMA)>

@@ -9,13 +9,13 @@ local laser = require '@lunette-plugins/laser'
 local keyboard = require '@lunette-plugins/keyboard'
 local pacingProvider = require '@lunette-plugins/pacing'
 local scaleProvider = require '@lunette-plugins/scale'
-local wristKeyboard = require '@lunette-plugins/desktop/keyboard'
+local keyboardDisplay = require '@lunette-plugins/desktop/keyboard'
 local menu = require '@lunette-plugins/desktop/menu'
 local arrange = require '@lunette-plugins/desktop/arrange'
 local pacing = require '@lunette-plugins/desktop/pacing'
 
 local accepted = {
-  desktop.configure('desktop/keyboard', wristKeyboard) { placement = { distance = 0.45 } },
+  desktop.configure('desktop/keyboard', keyboardDisplay) { placement = { distance = 0.45 } },
   desktop.configure('desktop/menu', menu) {
     hand = 'right',
     size = 0.12,
@@ -36,7 +36,7 @@ local accepted = {
 
 local rejected = {
   desktop.configure('desktop/menu', menu) { hand = 'rigth' },
-  desktop.configure('desktop/keyboard', wristKeyboard) { placement = { distance = 'far' } },
+  desktop.configure('desktop/keyboard', keyboardDisplay) { placement = { distance = 'far' } },
   desktop.configure('laser', laser.definition) { style = { length = 'long' } },
   desktop.configure('desktop/arrange', arrange) { layout = 3 },
   desktop.configure('keyboard', keyboard.definition) { rows = 'qwerty' },

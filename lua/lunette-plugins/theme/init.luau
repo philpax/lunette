@@ -1,11 +1,10 @@
--- Resolves the last live owner selection and retains fonts through leases and callback unwind.
+-- Resolves the last live owner selection and caches one face per font specification.
 
 local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/theme'
 local inspection = require '@lunette-contracts/inspection'
 local descriptors = require '@lunette-plugins/theme/descriptors'
 local base = require '@lunette-plugins/theme/base'
-local fonts = require '@lunette-plugins/theme/font-pool'
 local listeners = require '@lunette-plugins/listeners'
 
 export type Service = contract.Service
@@ -13,26 +12,19 @@ export type Service = contract.Service
 type Selection = {
   owner: contract.Owner,
   theme: contract.Theme,
-  face: fonts.Record,
   live: boolean,
-  explicitDisposal: boolean,
-}
-type Lease = {
-  owner: contract.Owner,
-  face: fonts.Record,
-  live: boolean,
-  invocations: number,
 }
 
 local function build(context: plugin.Context, _settings: {}): Service
-  local pool = fonts.new()
   local changed = listeners.new<<(contract.Snapshot) -> ()>>(context)
   local selections: { Selection } = {}
-  local leases: { [Lease]: boolean } = {}
+  -- Faces are never released explicitly: LÖVR frees them when collected, and recorded passes hold their own references.
+  local faces: { [string]: Font } = {}
   local current: contract.Snapshot = table.freeze { revision = 0, theme = base }
   local open = true
   local draining = false
   local pending = false
+  local disposing = false
 
   local function checkActive(operation: string): ()
     assert(open and context:active(), 'theme ' .. operation .. ': the provider is inactive')
@@ -43,7 +35,6 @@ local function build(context: plugin.Context, _settings: {}): Service
       return
     end
     draining = true
-    pool:defer(true)
     local ok, failure = pcall(function(): ()
       while pending and open and context:active() do
         pending = false
@@ -54,16 +45,12 @@ local function build(context: plugin.Context, _settings: {}): Service
       end
     end)
     draining = false
-    local reclaimed, reclaimFailure = pcall(pool.defer, pool, false)
     if not ok then
       error(failure, 0)
     end
-    if not reclaimed then
-      error(reclaimFailure, 0)
-    end
   end
 
-  local function publish(deliver: boolean?): ()
+  local function publish(): ()
     local resolved = base
     for index = #selections, 1, -1 do
       local entry = selections[index]
@@ -77,31 +64,23 @@ local function build(context: plugin.Context, _settings: {}): Service
     end
     current = table.freeze { revision = current.revision + 1, theme = resolved }
     pending = true
-    if deliver ~= false then
+    -- An explicit inverse revokes owner authority while it runs, so delivery waits for the dispose to return.
+    if not disposing then
       notify()
     end
   end
 
-  local function change(run: () -> ()): ()
-    pool:defer(true)
-    local ok, failure = pcall(run)
-    local reclaimed, reclaimFailure = pcall(function(): ()
-      if not draining then
-        pool:defer(false)
-      end
-    end)
-    if not ok then
-      error(failure, 0)
+  local function face(spec: contract.FontSpec): Font
+    local key = descriptors.fontKey(spec)
+    local cached = faces[key]
+    if cached then
+      return cached
     end
-    if not reclaimed then
-      error(reclaimFailure, 0)
-    end
-  end
-
-  local function forgetLease(entry: Lease): ()
-    if not entry.live and entry.invocations == 0 then
-      leases[entry] = nil
-    end
+    local created = if spec.kind == 'default'
+      then lovr.graphics.getDefaultFont()
+      else lovr.graphics.newFont(spec.file, spec.size, spec.spread)
+    faces[key] = created
+    return created
   end
 
   context:effect(function(): () -> ()
@@ -110,38 +89,11 @@ local function build(context: plugin.Context, _settings: {}): Service
       pending = false
       changed:clear()
       current = table.freeze { revision = current.revision, theme = base }
-      local failures: { string } = {}
-      local function cleanup(run: () -> ()): ()
-        local ok, failure = pcall(run)
-        if not ok then
-          failures[#failures + 1] = tostring(failure)
-        end
-      end
-      -- Dependent owners normally finish first; returned objects remain invalid even on failed cleanup.
-      for _, entry in table.clone(selections) do
-        if entry.live then
-          entry.live = false
-          cleanup(function(): ()
-            pool:drop(entry.face, 'selection')
-          end)
-        end
+      for _, entry in selections do
+        entry.live = false
       end
       table.clear(selections)
-      for entry in table.clone(leases) do
-        if entry.live then
-          entry.live = false
-          cleanup(function(): ()
-            pool:drop(entry.face, 'lease')
-          end)
-          forgetLease(entry)
-        end
-      end
-      cleanup(function(): ()
-        pool:close()
-      end)
-      if #failures > 0 then
-        error('theme shutdown: ' .. table.concat(failures, '; '), 0)
-      end
+      table.clear(faces)
     end
   end)
 
@@ -150,161 +102,53 @@ local function build(context: plugin.Context, _settings: {}): Service
       checkActive 'current'
       return current
     end,
-    getFont = function(_self: Service): Font
-      checkActive 'getFont'
-      for index = #selections, 1, -1 do
-        local entry = selections[index]
-        if entry.live then
-          return entry.face.font
-        end
-      end
-      return lovr.graphics.getDefaultFont()
+    font = function(_self: Service, spec: contract.FontSpec?): Font
+      checkActive 'font'
+      return face(descriptors.font.parse(if spec == nil then current.theme.typography.font else spec, 'theme font'))
     end,
     select = function(_self: Service, owner: contract.Owner, overrides: contract.ThemeOverrides): contract.Registration
       checkActive 'select'
       context:checkOwner(owner)
       local captured = descriptors.overrides.parse(overrides, 'theme select')
       local resolved = descriptors.resolve(base, captured)
-      local face = pool:hold(resolved.typography.font, 'selection')
-      local entry: Selection = {
-        owner = owner,
-        theme = resolved,
-        face = face,
-        live = true,
-        explicitDisposal = false,
-      }
-      local ok, effect = pcall(function(): plugin.Effect
-        return context:acquireDeferred(owner, function(): () -> ()
-          selections[#selections + 1] = entry
-          return function(): ()
-            if not entry.live then
-              return
-            end
-            entry.live = false
-            local index = table.find(selections, entry)
-            if index then
-              table.remove(selections, index)
-            end
-            local function restore(): ()
-              pool:drop(entry.face, 'selection')
-              publish(not entry.explicitDisposal)
-            end
-            if entry.explicitDisposal then
-              pool:defer(true)
-              restore()
-            else
-              change(restore)
-            end
+      face(resolved.typography.font)
+      local entry: Selection = { owner = owner, theme = resolved, live = true }
+      local effect = context:acquireDeferred(owner, function(): () -> ()
+        selections[#selections + 1] = entry
+        return function(): ()
+          if not entry.live then
+            return
           end
-        end)
-      end)
-      if not ok then
-        if entry.live then
           entry.live = false
-          local released, releaseFailure = pcall(pool.drop, pool, face, 'selection')
-          if not released then
-            error(tostring(effect) .. '; theme font cleanup: ' .. tostring(releaseFailure), 0)
+          local index = table.find(selections, entry)
+          if index then
+            table.remove(selections, index)
           end
+          publish()
         end
-        error(effect, 0)
-      end
+      end)
       local registration: contract.Registration = table.freeze {
         update = function(_registration: contract.Registration, value: contract.ThemeOverrides): ()
           checkActive 'selection update'
           assert(entry.live and context:owns(owner), 'theme selection update: the registration is disposed')
           local validated = descriptors.overrides.parse(value, 'theme selection update')
           local replacement = descriptors.resolve(base, validated)
-          local acquired = pool:hold(replacement.typography.font, 'selection')
-          local previous = entry.face
+          face(replacement.typography.font)
           entry.theme = replacement
-          entry.face = acquired
-          change(function(): ()
-            pool:drop(previous, 'selection')
-            publish()
-          end)
+          publish()
         end,
         dispose = function(_registration: contract.Registration): ()
-          entry.explicitDisposal = true
+          disposing = true
           local disposed, failure = pcall(effect.dispose, effect)
-          entry.explicitDisposal = false
-          -- Explicit inverses temporarily revoke owner authority; delivery follows its restoration.
-          local notified, notificationFailure = pcall(notify)
-          local reclaimed, reclaimFailure = pcall(function(): ()
-            if not draining then
-              pool:defer(false)
-            end
-          end)
+          disposing = false
+          notify()
           if not disposed then
             error(failure, 0)
-          end
-          if not notified then
-            error(notificationFailure, 0)
-          end
-          if not reclaimed then
-            error(reclaimFailure, 0)
           end
         end,
       }
       publish()
       return registration
-    end,
-    acquireFont = function(_self: Service, owner: contract.Owner, spec: contract.FontSpec?): contract.FontLease
-      checkActive 'acquireFont'
-      context:checkOwner(owner)
-      local captured =
-        descriptors.font.parse(if spec == nil then current.theme.typography.font else spec, 'theme acquireFont')
-      local face = pool:hold(captured, 'lease')
-      local entry: Lease = { owner = owner, face = face, live = true, invocations = 0 }
-      local ok, effect = pcall(function(): plugin.Effect
-        return context:acquireDeferred(owner, function(): () -> ()
-          leases[entry] = true
-          return function(): ()
-            if not entry.live then
-              return
-            end
-            entry.live = false
-            local released, releaseFailure = pcall(pool.drop, pool, face, 'lease')
-            forgetLease(entry)
-            if not released then
-              error(releaseFailure, 0)
-            end
-          end
-        end)
-      end)
-      if not ok then
-        if entry.live then
-          entry.live = false
-          local released, releaseFailure = pcall(pool.drop, pool, face, 'lease')
-          if not released then
-            error(tostring(effect) .. '; theme font cleanup: ' .. tostring(releaseFailure), 0)
-          end
-        end
-        error(effect, 0)
-      end
-      return table.freeze {
-        font = face.font,
-        spec = captured,
-        withFont = function(_lease: contract.FontLease, run: (Font) -> ()): ()
-          checkActive 'withFont'
-          assert(entry.live and context:owns(owner), 'theme withFont: the lease is disposed')
-          assert(type(run) == 'function', 'theme withFont: the callback must be a function')
-          pool:retain(face, 'invocation')
-          entry.invocations += 1
-          local invoked, failure = pcall(run, face.font)
-          entry.invocations -= 1
-          local released, releaseFailure = pcall(pool.drop, pool, face, 'invocation')
-          forgetLease(entry)
-          if not invoked then
-            error(failure, 0)
-          end
-          if not released then
-            error(releaseFailure, 0)
-          end
-        end,
-        dispose = function(_lease: contract.FontLease): ()
-          effect:dispose()
-        end,
-      }
     end,
     onChanged = function(_self: Service, owner: contract.Owner, run: (contract.Snapshot) -> ()): plugin.Effect
       checkActive 'onChanged'
@@ -319,14 +163,7 @@ local function build(context: plugin.Context, _settings: {}): Service
         result[#result + 1] = inspection.registration('selection', 'theme.select', entry.owner, nil, entry.live, {
           rank = index,
           selected = index == #selections,
-          font = descriptors.fontKey(entry.face.spec),
-          invocations = entry.face.holds.invocation,
-        })
-      end
-      for entry in leases do
-        result[#result + 1] = inspection.registration('hold', 'theme.acquireFont', entry.owner, nil, entry.live, {
-          font = descriptors.fontKey(entry.face.spec),
-          invocations = entry.invocations,
+          font = descriptors.fontKey(entry.theme.typography.font),
         })
       end
       return inspection.snapshot(result, { revision = current.revision })

@@ -3,7 +3,6 @@
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/errors'
-local format = require '@lunette-plugins/errors/format'
 local limiter = require '@lunette-plugins/errors/limiter'
 local listeners = require '@lunette-plugins/listeners'
 local inspection = require '@lunette-contracts/inspection'
@@ -32,19 +31,22 @@ local function build(context: plugin.Context, settings: Settings): Service
   end
 
   local function handle(message: string, traceback: string): ()
-    local now = settings.clock()
-    local deliver, suppressed = limit:record(format.key { message = message, traceback = traceback }, now)
+    -- Message and traceback together identify a repeated report.
+    local deliver, suppressed = limit:record(message .. '\n' .. traceback, settings.clock())
     if not deliver then
       return
+    end
+    local text = message .. '\n' .. traceback
+    if suppressed > 0 then
+      text ..= '\n(' .. suppressed .. ' identical error' .. (if suppressed == 1 then ' was' else 's were') .. ' suppressed since the last report)'
     end
     sequence += 1
     local report: contract.Report = table.freeze {
       message = message,
       traceback = traceback,
       suppressed = suppressed,
-      text = format.report(message, traceback, suppressed),
+      text = text,
       sequence = sequence,
-      time = now,
     }
     remember(report)
     if delivering then

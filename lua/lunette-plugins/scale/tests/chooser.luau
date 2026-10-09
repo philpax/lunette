@@ -10,13 +10,8 @@ local LADDER = { 1, 2, 4 }
 
 local TUNING = { reference = 1, raise = 0.1, lower = 0.2, nearest = 0.05 }
 
-local function chooser(options)
-  options = options or {}
-  return scale.new {
-    steps = options.steps or LADDER,
-    tuning = options.tuning or TUNING,
-    ideal = options.ideal,
-  }
+local function chooser(steps)
+  return scale.new(steps or LADDER, TUNING)
 end
 
 local function distanceFor(wanted)
@@ -51,23 +46,14 @@ end)
 
 test('approaching a rung does not change the step until the margin is passed', function()
   local picked = chooser()
-  picked:choose(distanceFor(1))
-  expect.equal(picked:current(), 1, 'the step it settled on')
-
-  local held, changed = picked:choose(distanceFor(2.19))
-  expect.equal(held, 1, 'the step just short of the raise threshold')
-  expect.falsy(changed, 'whether the step changed')
-
-  local raised, moved = picked:choose(distanceFor(2.21))
-  expect.equal(raised, 2, 'the step just past the raise threshold')
-  expect.truthy(moved, 'whether the step changed')
+  expect.equal(picked:choose(distanceFor(1)), 1, 'the step it settled on')
+  expect.equal(picked:choose(distanceFor(2.19)), 1, 'the step just short of the raise threshold')
+  expect.equal(picked:choose(distanceFor(2.21)), 2, 'the step just past the raise threshold')
 end)
 
 test('crossing back needs the lower threshold, not the upper one', function()
   local picked = chooser()
-  picked:choose(distanceFor(2.5))
-  expect.equal(picked:current(), 2, 'the step it settled on')
-
+  expect.equal(picked:choose(distanceFor(2.5)), 2, 'the step it settled on')
   expect.equal(picked:choose(distanceFor(1.9)), 2, 'the step at an ideal below the rung')
   expect.equal(picked:choose(distanceFor(1.61)), 2, 'the step just short of the lower threshold')
   expect.equal(picked:choose(distanceFor(1.59)), 1, 'the step just past the lower threshold')
@@ -86,24 +72,11 @@ end)
 
 test('a jump of several steps arrives in one call', function()
   local picked = chooser()
-  picked:choose(distanceFor(1))
-  expect.equal(picked:current(), 1, 'the step it settled on')
+  expect.equal(picked:choose(distanceFor(1)), 1, 'the step it settled on')
 
   -- A limit of one rung per call re-renders at every rung on the way.
   expect.equal(picked:choose(distanceFor(20)), 4, 'the step after a jump to the far end')
   expect.equal(picked:choose(distanceFor(0.1)), 1, 'the step after a jump back')
-end)
-
-test('resetting drops the hysteresis so the next choice is made outright', function()
-  local picked = chooser()
-  picked:choose(distanceFor(2.5))
-  expect.equal(picked:current(), 2, 'the step it settled on')
-
-  picked:reset()
-  expect.equal(picked:current(), nil, 'the step after a reset')
-  -- An ideal of 1.9 keeps the rung of 2 under hysteresis. With no previous step
-  -- it takes the largest rung no greater than it.
-  expect.equal(picked:choose(distanceFor(1.9)), 1, 'the step chosen after a reset')
 end)
 
 test('every scale a chooser emits is on the ladder it was given', function()
@@ -152,56 +125,12 @@ end)
 
 test('a chooser on the published ladder clamps to its ends', function()
   local published = lunette.scaleSteps()
-  local picked = chooser { steps = published }
+  local picked = chooser(published)
 
   -- The bottom of the published ladder is 1. A far panel produces an ideal
   -- below that, and the step clamps to it.
   expect.equal(picked:choose(1000), published[1], 'the step for a very distant panel')
   expect.equal(picked:choose(0.01), published[#published], 'the step for a very near one')
-end)
-
-test('an ideal replaces the default and the ladder still applies', function()
-  -- Twice the default ideal maps one metre to scale 2.
-  local picked = chooser {
-    ideal = function(distance)
-      return 2 * scale.ideal(TUNING)(distance)
-    end,
-  }
-
-  expect.equal(picked:choose(1), 2, 'the step for twice the ideal at a metre')
-  expect.equal(picked:choose(0.01), 4, 'the step clamps to the ladder')
-end)
-
-test('an ideal that is not a positive number is refused', function()
-  for _, bad in ipairs { 0, -1, 'sharp', 0 / 0 } do
-    expect.raises(function()
-      chooser({
-        ideal = function()
-          return bad
-        end,
-      }):choose(1)
-    end, 'ideal scale', 'an ideal of ' .. tostring(bad))
-  end
-end)
-
-test('a ladder that is not one is refused', function()
-  expect.raises(function()
-    scale.new { steps = {}, tuning = TUNING }
-  end, 'ladder', 'an empty ladder')
-  expect.raises(function()
-    scale.new { steps = 3, tuning = TUNING }
-  end, 'ladder', 'a ladder that is not a table')
-end)
-
-test('a distance that is not a number is refused', function()
-  for _, bad in ipairs { 'near', {}, true } do
-    expect.raises(function()
-      chooser():choose(bad)
-    end, 'distance', 'a distance of ' .. type(bad))
-  end
-  expect.raises(function()
-    chooser():choose(0 / 0)
-  end, 'distance', 'a distance that is not a number')
 end)
 
 return test

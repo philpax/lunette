@@ -1,6 +1,5 @@
--- Resolves panel paint without retaining native font handles in the public style.
+-- Resolves panel paint; the public style names the font by specification.
 
-local plugin = require '@lunette-plugin'
 local contracts = require '@lunette-contracts/panels'
 local theme = require '@lunette-contracts/theme'
 local descriptors = require '@lunette-plugins/theme/descriptors'
@@ -11,15 +10,10 @@ local appearance = {}
 export type Paint = {
   read revision: number,
   read style: contracts.Style,
-  read lease: theme.FontLease,
+  read font: Font,
 }
 
-function appearance.prepare(
-  broker: theme.Service,
-  owner: plugin.Owner,
-  settings: config.Settings,
-  snapshot: theme.Snapshot
-): Paint
+function appearance.prepare(broker: theme.Service, settings: config.Settings, snapshot: theme.Snapshot): Paint
   local global, explicit = snapshot.theme, settings.style
   local style: contracts.Style = table.freeze {
     font = if explicit.font
@@ -39,8 +33,7 @@ function appearance.prepare(
     titleMargin = explicit.titleMargin,
     titleColor = if explicit.titleColor == nil then global.colors.foreground else explicit.titleColor,
   }
-  local lease = broker:acquireFont(owner, style.font)
-  return table.freeze { revision = snapshot.revision, style = style, lease = lease }
+  return table.freeze { revision = snapshot.revision, style = style, font = broker:font(style.font) }
 end
 
 return appearance

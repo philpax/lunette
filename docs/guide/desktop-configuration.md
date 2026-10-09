@@ -19,7 +19,7 @@ desktop.run {
     decorations = { style = { barColor = { 0.3, 0.12, 0.2, 0.95 } } },
     arrange = { layout = 'grid', options = { grid = { columns = 3 } } },
     persistence = { file = 'desktop.state' },
-    wristKeyboard = { placement = { distance = 0.45 } },
+    keyboardDisplay = { placement = { distance = 0.45 } },
   },
   patches = {
     { insert = { id = 'grid-layout', definition = require './grid' } },
@@ -35,24 +35,22 @@ Each section reuses the corresponding plugin module's exported `Config` type. Th
 | `decorations` | `desktop/decorations` |
 | `arrange` | `desktop/arrange` |
 | `persistence` | `desktop/persistence` |
-| `wristKeyboard` | `desktop/keyboard` |
+| `keyboardDisplay` | `desktop/keyboard` |
 | `rules` | `desktop/rules` |
 | `monitors` | `desktop/monitors` |
 | `hint` | `desktop/hint` |
 | `errors` | `desktop/errors` |
 | `pointing` | `desktop/pointing` |
 | `pacing` | `desktop/pacing` |
-| `workspace` | `desktop/workspace` |
+| `workspaces` | `desktop/workspaces` |
 | `adoption` | `desktop/adoption` |
 | [`manager`](runtime-manager.md) | `desktop/manager` |
 
 The `menu` section configures the wrist Menu control in `desktop/menu`. Its descriptor and defaults are in `lua/lunette-plugins/desktop/menu/config.luau`. It accepts `hand`, `size`, a vector `offset`, `haptic`, and `expanded` panel dimensions. The default hand is `left`, the compact size is 0.115 metres, and the offset is `vector.pack(-0.03, -0.01, 0.125)`. The expanded panel defaults to 0.32 by 0.4 metres and 320 by 400 logical pixels, with a row height of 40 logical pixels. Haptics default to strength 0.3 and duration 0.05 seconds.
 
-The `wristKeyboard` section configures only keyboard placement in `desktop/keyboard`. Its descriptor is in `lua/lunette-plugins/desktop/keyboard/config.luau`; `placement.distance`, `placement.drop`, and `placement.tilt` default to 0.55 metres, 0.35 metres, and `math.pi / 6` radians. It does not configure the `keyboard` service provider. A raw patch can replace that provider while settings configure the display provider, as in `examples/keyboard/main.luau`. `desktop/keyboard` publishes `lunette/keyboard-display` and lazily reuses one board. Focusing a local text field shows that board; switching fields keeps its pose. A manual show keeps it visible after editing ends. Explicit hide or X in the keyboard's shared top bar ends the matching field focus without discarding its draft.
+The `keyboardDisplay` section configures only keyboard placement in `desktop/keyboard`. Its descriptor is in `lua/lunette-plugins/desktop/keyboard/config.luau`; `placement.distance`, `placement.drop`, and `placement.tilt` default to 0.55 metres, 0.35 metres, and `math.pi / 6` radians. It does not configure the `keyboard` service provider. A raw patch can replace that provider while settings configure the display provider, as in `examples/keyboard/main.luau`. `desktop/keyboard` publishes `lunette/keyboard-display` and lazily reuses one board. Focusing a local text field shows that board; switching fields keeps its pose. A manual show keeps it visible after editing ends. Explicit hide or X in the keyboard's shared top bar ends the matching field focus without discarding its draft.
 
 `desktop/monitors` starts capture for every host monitor unless `settings.monitors.select` restricts the set. Capture uses the pinned WayVR `wlr-screencopy` implementation when available, with PipeWire and the host portal as the fallback. Direct capture does not require monitor selection. Each decorated monitor panel has Restart mirror and X controls in its titlebar. Select monitors appears only when that monitor does not use direct capture. Restart mirror dismisses and restarts that monitor's capture. Select monitors opens a fresh portal selection for hosts that require permission. Existing mirrors continue while the dialog is pending or cancelled. Cancellation does not reopen the dialog; another selection requires an explicit action. Source reload retains capture streams reused by the replacement configuration. Saved monitor placement restores the width and derives the height from the current monitor aspect ratio. The selection control disables while permission is pending and permits an explicit retry after failure. X stops mirroring and removes the panel without unplugging the host monitor. A window's X sends an application close request and leaves the panel present until the client unmaps it. Grip on panel content or any titlebar control moves the panel. Trigger on the non-button titlebar also moves it; trigger on a button activates that button. The controls follow the panel's pose and visibility. A UI-provider outage removes the controls without stopping capture. The host portal owns the permission dialog. Cursor pixels appear when the backend supports embedded cursor capture. Metadata-only cursor presentation remains unimplemented.
-
-`settings.bindings` and the shipped `desktop/bindings` entry are removed. Reload uses the wrist menu. The neutral `bindings` provider remains available for custom input bindings. The `hand`, `size`, `offset`, and `haptic` fields of `settings.wristKeyboard` are removed; configurations place them in `settings.menu` instead. Composition reports these removed settings rather than ignoring them.
 
 Settings follow the entry's configuration descriptor. Declared objects merge recursively with the entry's existing configuration. Arrays, maps, unions, and atomic values replace; an empty map clears its previous keys. Composition copies and freezes descriptor-declared object and collection containers. Callback and custom values retain their exact references, and non-plain native values such as vectors retain their values. For a factory entry, composition retains configuration layers until the factory supplies a definition. The definition's descriptor then determines merging and copying; managed preflight or instance activation performs validation. A setting and a raw patch cannot name the same entry, even when the patch only disables or replaces it. Composition reports both sources. One combined raw patch supplies the configuration when replacing that entry's definition.
 
@@ -62,7 +60,7 @@ Settings follow the entry's configuration descriptor. Declared objects merge rec
 
 `desktop/actions` registers Keyboard and Reload configuration with the neutral `lunette/menu` broker. Keyboard toggles the shared keyboard display, and its selected state follows the display's visibility. An owner-scoped child registers Keyboard, so a display outage removes only that action. Reload configuration remains available to reload the configuration and its source modules. The shipped desktop registers no physical reload chord.
 
-`desktop/manager` registers Plugins, which toggles the shared-UI manager panel named `desktop/manager`. The action's selected state follows panel visibility. The panel opts into the same top bar as window and monitor decorations, the expanded menu, and the keyboard display. Its contents draw in the scene phase and respect closer panels' depth. Its heading is Plugins, and X hides it and ends its active field focus. The graph and scrollable sidebar rows use custom regions; buttons, text fields, and choices use shared `lunette/ui` controls. Controller input reaches search, configuration editing, graph navigation, inspection, lifecycle actions, recovery, and catalog loading. Search and configuration text fields use the same desktop keyboard instance as application input. The manager registers no physical key or text handlers. Its schema rejects the removed `toggleKey` option and names Plugins in the session menu as its replacement. The [runtime manager guide](runtime-manager.md) describes the controls and session-only limits.
+`desktop/manager` registers Plugins, which toggles the shared-UI manager panel named `desktop/manager`. The action's selected state follows panel visibility. The panel opts into the same top bar as window and monitor decorations, the expanded menu, and the keyboard display. Its contents draw in the scene phase and respect closer panels' depth. Its heading is Plugins, and X hides it and ends its active field focus. The graph and scrollable sidebar rows use custom regions; buttons, text fields, and choices use shared `lunette/ui` controls. Controller input reaches search, configuration editing, graph navigation, inspection, lifecycle actions, recovery, and catalog loading. Search and configuration text fields use the same desktop keyboard instance as application input. The manager registers no physical key or text handlers. The [runtime manager guide](runtime-manager.md) describes the controls and session-only limits.
 
 The [desktop example](../../examples/desktop/main.luau) inserts `hide-windows` and `save-menu`. They register Hide windows, Save arrangement, and Restore arrangement in the menu's Examples group. They are optional example consumers, not default session actions.
 
@@ -101,39 +99,6 @@ A missing font file fails selector activation without publishing that theme. The
 ## Theme acceptance workflows
 
 The operator performs the named workflows below. Broker logic, native font use, and headset appearance remain separate pending gates until observations are recorded. Type checks, installed-asset byte comparisons, and geometry or draw recorders do not establish GPU font rendering, alpha, depth, stereo presentation, or controller ergonomics. The [theme contract](../dev/lua-api.md#runtime-themes) defines resource and notification rules; the [UI guide](ui.md#themes-and-drawing-hooks) defines hook safety and retained appearance.
-
-### theme-broker-lifecycle
-
-The checked [UI configuration](../../examples/ui/main.luau) includes `example/ui/theme-registration`. Its composition entry is active, but its `enabled` configuration defaults to `false`. In that state the initializer acquires no observation panel, actions, selections, listeners, reader leases, or child instances. Entry Enable changes runtime intent only and does not activate the demonstration while the configuration remains false.
-
-The operator starts that configuration with `lunette --config-path examples/ui`, opens Plugins, selects `example/ui/theme-registration`, selects Configure, sets `enabled = true`, and selects Apply. This normal configuration replacement activates the demonstration. The wrist action Open theme lifecycle observation opens its panel. The panel's list selects a numbered action, and Run selected action invokes it. The same actions appear in the wrist menu's Theme lifecycle group. Close observation hides the panel without ending its resources.
-
-Before base comparisons, the operator selects `desktop/theme` in Plugins and selects Disable. No other custom theme selection may remain for a base comparison. The theme provider stays enabled for the UI and recovery path. The observation panel shows the current revision, background, selected registration metadata, registration/listener/reader/invocation counts, child states, and recent action logs. The log retains only 12 lines, so observations and errors are recorded between actions. The existing error presentation and Plugins diagnostics carry reports from the ordinary menu, listener, and frame boundaries; the panel does not replace report history. Absolute revision numbers depend on prior session actions. Comparisons use the revision before and after each action.
-
-[selections.luau](../../examples/ui/theme-registration/selections.luau), [fonts.luau](../../examples/ui/theme-registration/fonts.luau), and [session.luau](../../examples/ui/theme-registration/session.luau) own the action labels, preconditions, and checks. The ordered workflow is:
-
-| Actions | Operation and expected observation |
-|---|---|
-| 1. Select A; 2. Mutate A input | A supplies background `{ 0.12, 0.04, 0.07, 1 }`. Mutating the caller's array and replacing it leaves the detached frozen snapshot and revision unchanged. |
-| 3. Write frozen snapshot (error) | The frozen write raises its original error. A remains unchanged. |
-| 4. Select B; 5. Update inactive A to A2 | B supplies background `{ 0.04, 0.08, 0.24, 1 }`. A's update to `{ 0.04, 0.18, 0.08, 1 }` preserves insertion rank and does not change B or the current revision. |
-| 6. Unknown B key (error); 7. Invalid B color (error); 8. Missing B font (error) | Each live update raises through the menu boundary. B's snapshot, revision, rank, and font metadata remain unchanged. A missing file is an acquisition failure, distinct from validation errors. |
-| 9. Dispose B; reveal A2; 10. Dispose A; restore prior/base | B disposal reveals A2. A disposal restores the preceding complete theme, which is base when the selector and other selections are absent. |
-| 11. Repeat dispose; end A/B owners; 12. Update disposed B (error) | Repeated disposal and child-owner teardown are harmless. Updating disposed B raises without changing the current snapshot or revision. |
-| 13. Arm one-shot reentrant listeners; 14. Trigger L1 (listener error) | L1 removes L2, adds L4, updates the selection twice, creates and ends a temporary selection owner, then raises `theme registration example: L1 deliberate listener error`. Delivery remains nonrecursive. L2 receives nothing. Independent L3 receives the first captured event despite L1's error, then the latest pending revision. L4 receives only that pending round. Event/current revision labels expose coalescing of intermediate revisions. Action 14 can complete while the separate listener error is reported. |
-| 15. Disarm listeners | Listener and selection children end, the prior/base theme returns, and the log summarizes L1/L2/L3/L4 deliveries. The mutator is disarmed before the font workflow. |
-| 16. Select file font; 17. Acquire distinct file reader | The example selects the mounted Space Mono file at size 37 and spread 4, then acquires an independent reader under another child owner. Its measured width and height remain positive. Size 37 distinguishes this face from Arcade's size 32 cache entry. |
-| 18. Failed reader refresh (error); 19. Dispose file selection; measure reader | Failed missing-file acquisition retains the old reader. Action 18's post-error check also disposes the selection. Action 19 repeats that disposal, confirms prior/base restoration, and measures the still-live reader. Inspection retains the reader's file specification while it outlives the selection. |
-| 20. Replace reader with default; inspect; 21. End file reader and selection owners | A successful default acquisition precedes disposal of the old lease. Reader metadata becomes `font=default`. Ending both child owners removes that reader lease, and its invocation count is zero. Default leases owned by ordinary UI consumers can remain. |
-| 22. Acquire file reader for owner ending; 23. End reader inside withFont | The callback enters with a live reader and one invocation. Public child `Instance:disable()` ends the reader effect during the callback. Inspection then reports the reader as not live with one invocation, and the supplied Font still measures successfully. After unwind the reader hold disappears and the invocation count is zero. |
-| 24. Enter ended reader (error); 25. Repeat owner ending with error | The disposed lease rejects entry before its callback runs. Action 25 acquires a fresh reader, disables its child inside `withFont`, measures the supplied Font, then raises `theme registration example: reader owner-ending error`. The original report remains visible, and unwind leaves no retired reader hold. |
-| 26. Arm UI font swap | The next visible probe draw captures `visual.theme.font`, switches the live selection from file to default, and measures the old face before returning. Calling `base` with the old visual cannot submit stale geometry after the revision change. The old face stays valid through hook unwind. The operator waits for the log `Next draw succeeds with live font` before action 27. |
-| 27. Arm UI font swap with draw error | The next probe draw repeats the swap, changes pass transform and colour, then raises `theme registration example: draw hook original error`. The frame boundary reports that original error. Invocation counts return to zero after unwind. The operator waits for `Next draw succeeds with live font` and checks that the probe and observation panel remain in place with normal colour and drawing. Pass restoration and visible rendering remain manual observations. |
-| 28. Close probe and restore preceding theme | The probe is destroyed, reader and selection owners end, the preceding theme returns, and no invocation hold remains. |
-
-During owner ending, the action logs record the synchronous inspection checks; no controller action can pause inside `withFont`. Plugins inspection of the theme provider shows data-only `theme.select`, `theme.onChanged`, and `theme.acquireFont` registrations. A disposed reader with an active invocation remains inspectable as `live = false` with its font specification and invocation count until unwind. Post-action inspection must no longer retain that reader hold. The check concerns the retired size-37 face and its reader, not an empty global font cache or disappearance of all UI leases. The draw actions record old-font measurement, guarded `base` continuation, original error propagation, zero post-unwind invocation counts, and a later successful draw; they do not inspect submitted GPU commands. The numbered actions cover one-level reader-owner ending, not provider shutdown or nested `withFont` invocations. The observation panel reads its live total while drawing under its own UI font invocation, so that displayed total can be positive. Zero-after-unwind checks use the action and post-probe log entries, not an assumption that the panel's draw-time total is always zero.
-
-For final cleanup, the operator sets the example's `enabled = false` and applies it, or uses entry Disable or Remove. Its observation panel, probe, menu actions, subscriptions, selections, leases, and child activations end with that owner. Entry Enable activates it again only if its retained configuration has `enabled = true`. The operator re-enables `desktop/theme` after the base comparisons. No step disables the protected theme provider. These observations cover selection arbitration and manual invocation-lifetime acceptance, not an automated regression suite or GPU evidence.
 
 ### theme-runtime-switch
 
@@ -212,36 +177,35 @@ The review checks the following subjects against current declarations, resolvers
 
 - The [theme contract](../dev/lua-api.md#runtime-themes): exact fields, units, validation, detached immutable snapshots, complete-selection precedence, replacement updates, rank, revisions, disposal, reentrant delivery, and data-only inspection.
 - [Desktop runtime themes](#runtime-themes) and `theme-runtime-switch`: entry/action ids, Dark/Light/Arcade transitions, catalog-following choices and the `theme/arcade` disable/enable fallback, session-only menu selection, changed configured preset, overrides-only edits, source reload, and selector disable/remove/restore behavior.
-- `theme-broker-lifecycle`: the installed active-but-inert example, Configure -> enabled=true -> Apply, all 28 labels and preconditions, original reports, retired reader/invocation observations, and cleanup through public services and child instances.
 - `theme-font-fit`, [module roots](../dev/stdlib.md#module-roots), and the install manifest: strict public FontSpec versus editable configuration, defaults and contradictory fields, live-update preservation versus failed replacement/Recover, bundled asset/licence paths, and pending development/installed native loading.
 - The field checklist and [manager styling](runtime-manager.md#session-styling): every exact field, resolver/consumer, semantic lifecycle colour, bounded compact override, unchanged 800x472 structural minimum, and unchanged keyboard layout/keyUnit/scale.
-- [UI hooks](ui.md#themes-and-drawing-hooks), [window rendering](#window-rendering), and [frame attachments](../dev/lua-api.md#joined-frame-attachments): sparse provider/object/control precedence, zero/nil inheritance, leases/invocation holds, retained drafts/captures, clips, draw/hit agreement, joined seams, independent header/body profiles, and layer/curved/monitor exceptions.
+- [UI hooks](ui.md#themes-and-drawing-hooks), [window rendering](#window-rendering), and [frame attachments](../dev/lua-api.md#joined-frame-attachments): sparse provider/object/control precedence, zero/nil inheritance, retained drafts/captures, clips, draw/hit agreement, joined seams, independent header/body profiles, and layer/curved/monitor exceptions.
 - [Writing plugins](writing-plugins.md#runtime-theme-selections): neutral versus UI-specific theme vocabulary, public registration signatures, owner cleanup, mounted font paths rather than require aliases, and no required custom rounding hook.
 
 The review also checks local links, current theme terminology and capability versions, readable configuration excerpts, and explicit separation of logic checks from pending native font and GPU/headset gates. A reviewed checklist is documentation evidence only; it does not complete the manual workflows.
 
 ## Workspaces
 
-The optional `workspaces` field reuses the configuration type of `@lunette-plugins/desktop/workspaces`. It inserts that consumer before `desktop/adoption`, so its placement listener observes windows present at boot.
+The `workspaces` setting configures `desktop/workspaces`, a default entry. Its default is one `main` workspace, which registers no menu actions.
 
 ```luau
 local desktop = require '@lunette-desktop'
 
 desktop.run {
-  workspaces = {
-    workspaces = { { name = 'work' }, { name = 'web' } },
-    follow = true,
+  settings = {
+    workspaces = {
+      workspaces = { { name = 'work' }, { name = 'web' } },
+      follow = true,
+    },
   },
 }
 ```
 
-The first configured workspace is the initial selected workspace. Expansion patches `desktop/workspace` with its name and `desktop/adoption` with that name as the default tag. `lua/lunette-plugins/desktop/workspaces/config.luau` owns the defaults: `main`, `two`, `three`, and `four`, with `follow = true`. The list requires unique, non-empty names and at least one workspace. Each workspace accepts only `name`; `key` and `modifiers` are removed and report migration errors.
+The first configured workspace is the initial selected workspace. Unless `settings.adoption` is also given, the setting patches `desktop/adoption` with that name as the default tag. `lua/lunette-plugins/desktop/workspaces/config.luau` owns the defaults: one workspace named `main`, with `follow = true`. The list requires unique, non-empty names and at least one workspace. Each workspace accepts only `name`.
 
-A child consumer registers each workspace name in the menu's Workspaces group. Selecting its row switches the selected workspace, and the row's selected state follows the tag selection. A menu outage removes those actions without changing workspace selection, visibility, or follow policy.
+With more than one workspace, a child consumer registers each workspace name in the menu's Workspaces group. Selecting its row switches the selected workspace, and the row's selected state follows the tag selection. A menu outage removes those actions without changing workspace selection, visibility, or follow policy.
 
-The shorthand adds one independently activated consumer. It does not merge the holder, adoption, menu, or placement plugins. It rejects a competing `settings.workspace`, `settings.adoption`, or raw patch for `desktop/workspace`, `desktop/adoption`, or `desktop/workspaces`. It also rejects a preconfigured holder or adoption entry, or an existing workspaces consumer in an explicit entry list. Raw patches remain available for a composition with different coordination rules.
-
-Expansion does not rewrite explicit rule tags or persisted tags. Tags absent from the configured workspace list remain outside this consumer's visibility and follow policy. With `follow = true`, a newly placed panel already in a configured workspace follows the currently selected workspace, including a boot placement from a rule or saved arrangement. `follow = false` preserves that membership. Renaming a workspace does not migrate the saved arrangement; existing saved tag names still apply.
+The setting does not rewrite explicit rule tags or persisted tags. Tags absent from the configured workspace list remain outside this consumer's visibility and follow policy. With `follow = true`, a newly placed panel already in a configured workspace follows the currently selected workspace, including a boot placement from a rule or saved arrangement. `follow = false` preserves that membership. Renaming a workspace does not migrate the saved arrangement; existing saved tag names still apply.
 
 ## Entry patches
 
@@ -333,13 +297,13 @@ The operator performs the following named theme checks. Their observations remai
 - `theme-rendering-exceptions`: the operator verifies that granted layers remain square with rectangular hits under Dark, Light, and Arcade, without radius-driven claim churn or fallback. Base, Dark, and Light monitor bodies stay square. Arcade scene monitors round, and explicit zero restores square bodies with independently rounded header tops. Curved headings remain separate.
 - [theme-runtime-switch](#theme-runtime-switch) and [theme-appearance-matrix](#theme-appearance-matrix): the operator records controller preset/lifecycle behavior and every field's visible consumer or explicit override, including compact manager limits.
 
-The [theme acceptance workflows](#theme-acceptance-workflows) also record theme-broker-lifecycle for arbitration, reentrant delivery, and owner-ending invocation lifetimes, theme-font-fit for development and installed native fonts/editing/recovery, and theme-documentation-check for current declarations and examples. Neither native font nor appearance gates are completed by mesh recorders or byte-identical installed assets. [Runtime themes](../dev/stdlib.md#runtime-themes) states those resource rules.
+The [theme acceptance workflows](#theme-acceptance-workflows) also record theme-font-fit for development and installed native fonts/editing/recovery, and theme-documentation-check for current declarations and examples. Neither native font nor appearance gates are completed by mesh recorders or byte-identical installed assets. [Runtime themes](../dev/stdlib.md#runtime-themes) states those resource rules.
 
 Logic-headless tests do not establish these visual, timing, or comfort results.
 
 ## Known gaps
 
-The manager exposes search and configuration fields through the shared UI controls and shared keyboard. `toggleKey` is removed; the manager configuration schema reports a migration diagnostic for configurations that still set it. Logic-headless behavior does not establish XR or GPU-backed behavior, host-desktop acceptance, or installed-session execution. Manual headset acceptance remains open for readability, controller ergonomics, shaping, bidirectional editing, and IME behavior.
+The manager exposes search and configuration fields through the shared UI controls and shared keyboard. Logic-headless behavior does not establish XR or GPU-backed behavior, host-desktop acceptance, or installed-session execution. Manual headset acceptance remains open for readability, controller ergonomics, shaping, bidirectional editing, and IME behavior.
 
 ## Decisions
 
@@ -351,10 +315,10 @@ Headed desktop panels use one opt-in titlebar implementation from the UI provide
 
 The manager uses scene depth rather than overlay painting because it is a movable panel. Opaque shared UI backing and outline geometry writes depth; rounded cutouts contain no depth-writing geometry. Controls, their contents, and glyphs occupy successive 1 mm rendering offsets without writing depth. The offsets follow drawing nesting rather than the number of sibling controls. This avoids coplanar depth conflicts, keeps transparent glyph bounds out of the depth buffer, and preserves the control order. Intersecting or nearly coincident panels can show draw-order-dependent details within the 3 mm span from the backing to its glyphs. This limited overlap is accepted rather than adding per-panel visibility masks. Pointer feedback remains a final overlay so its landing indicator is visible.
 
-The wrist menu uses UI controls and menu actions so the shipped keyboard, reload, and workspace controls do not require physical key chords. The neutral bindings provider remains available for custom inputs. Keyboard placement stays in `wristKeyboard` for configurations that change the shared display without changing wrist geometry.
+The wrist menu uses UI controls and menu actions so the shipped keyboard, reload, and workspace controls do not require physical key chords. The neutral bindings provider remains available for custom inputs. Keyboard placement is the `keyboardDisplay` setting, named for the shared display rather than the wrist it no longer sits on, so a configuration changes the display without changing wrist geometry.
 
 Settings expand to the existing stable-id patches so common configuration needs fewer imports without changing plugin failure, outage, or cleanup boundaries. The default retains its providers, consumers, and per-start factories.
 
 Shorthand and raw patches cannot configure one entry together. Rejecting the collision avoids order-dependent overrides and keeps the advanced composition rule that each entry has one patch source.
 
-Workspace expansion coordinates the initial holder and adoption defaults and runs the visibility consumer before adoption. It does not migrate explicit or persisted tags because those names are configuration and saved state, not aliases for the initial workspace.
+The workspaces setting points adoption at the first workspace and leaves explicit and persisted tags alone because those names are configuration and saved state, not aliases for the initial workspace.

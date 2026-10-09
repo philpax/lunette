@@ -14,7 +14,6 @@ export type Options = adoption.Options
 export type Properties = adoption.Properties
 
 local SOURCE = 'lunette.adoption'
-local INSTALL_KEYS: { [string]: boolean } = { precedence = true }
 
 type State = {
   active: boolean,
@@ -41,7 +40,6 @@ local function windows(state: State): { lunette.Window }
   return result
 end
 
--- The default precedence for the native pose source.
 local config = require '@lunette-plugins/adoption/config'
 
 export type Settings = config.Settings
@@ -79,19 +77,11 @@ local function build(context: plugin.Context, settings: Settings): Service
       end
       return inspection.snapshot(result, { active = state.active }, { 'filter results require callbacks' })
     end,
-    PRECEDENCE = settings.precedence,
     -- The provider registers the source under the caller's ownership; callers do not require the rules service.
-    install = function(_self: Service, owner: Owner, options: adoption.InstallOptions?): plugin.Effect
+    install = function(_self: Service, owner: Owner): plugin.Effect
       context:checkOwner(owner)
-      if options ~= nil and type(options) ~= 'table' then
-        error('adoption: install options are a table of fields, not a ' .. type(options), 2)
-      end
-      plugin.rejectUnknownFields('adoption install', options or {}, INSTALL_KEYS, 'precedence', 2)
       local rules: rulesContract.Service = context:require(rulesContract.capability)
-      local chosen = options and options.precedence or settings.precedence
-      if type(chosen) ~= 'number' or chosen ~= chosen then
-        error('adoption: precedence is an orderable number', 2)
-      end
+      local chosen = settings.precedence
       local function resolve(window: lunette.Window): rulesContract.Properties?
         if not state.active or not context:active() then
           return nil
@@ -145,7 +135,7 @@ local function build(context: plugin.Context, settings: Settings): Service
         if adopt == false then
           return
         end
-        local created, properties, placed =
+        local created, _properties, placed =
           placement:place(current.context, { window = window, properties = resolved, defaults = settings.defaults })
         if created.dead or not live() then
           placed:dispose()
@@ -194,9 +184,6 @@ local function build(context: plugin.Context, settings: Settings): Service
           end,
         })
         adopted[#adopted + 1] = acquired
-        if settings.onPlaced and not created.dead then
-          settings.onPlaced(created, properties)
-        end
       end
 
       local effect = owner:effect(function(): () -> ()

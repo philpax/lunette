@@ -21,7 +21,6 @@ type Mutable = {
   dead: boolean,
   selected: boolean,
   layout: string?,
-  members: { Panel },
   add: (tags.Tag, Owner, Panel) -> boolean,
   remove: (tags.Tag, Owner, Panel) -> boolean,
   exclude: (tags.Tag, Owner, tags.Exclusion) -> plugin.Effect,
@@ -29,17 +28,14 @@ type Mutable = {
   panels: (tags.Tag) -> { Panel },
   setSelected: (tags.Tag, Owner, tags.Selection) -> boolean,
   setLayout: (tags.Tag, Owner, tags.LayoutChoice) -> boolean,
-  destroy: (tags.Tag, Owner) -> boolean,
 }
 
--- Owned tags end with their creator. Held tags end when their last holder releases them.
+-- A tag ends when its last holder releases it.
 type Record = {
   tag: tags.Tag,
-  owner: Owner?,
   holders: { [Owner]: plugin.Effect },
   inspect: () -> { inspection.Registration },
-  destroyRaw: () -> boolean,
-  retire: () -> boolean,
+  destroy: () -> boolean,
 }
 
 local LISTENER_KEYS: { [string]: boolean } = { tag = true, run = true }
@@ -81,7 +77,7 @@ local function disposeAll(effects: { plugin.Effect }): ()
   end
 end
 
-local function checkOptions(what: string, options: tags.Options): ()
+local function checkOptions(what: string, options: tags.Hold): ()
   if options.index ~= nil and type(options.index) ~= 'number' then
     error(what .. ': index is a number, not a ' .. type(options.index), 3)
   end
@@ -124,10 +120,10 @@ local function create(context: plugin.Context): tags.Service
     return nil
   end
 
-  -- Owned tags end with their owner; held tags end with their last holder.
-  local function make(name: string, settings: tags.Options, tagOwner: Owner?): Record
+  local function make(name: string, settings: tags.Hold): Record
     local created: Mutable
     local record: Record
+    local current: { Panel } = {}
     local held: { Panel } = {}
     local holds: { [Panel]: { [Owner]: plugin.Effect } } = {}
     local exclusions: { [Panel]: { [Owner]: plugin.Effect } } = {}
@@ -140,16 +136,16 @@ local function create(context: plugin.Context): tags.Service
           members[#members + 1] = panel
         end
       end
-      local changed = #members ~= #created.members
+      local changed = #members ~= #current
       if not changed then
         for index, panel in ipairs(members) do
-          if created.members[index] ~= panel then
+          if current[index] ~= panel then
             changed = true
             break
           end
         end
       end
-      created.members = members
+      current = members
       if changed and not created.dead then
         notify(created, 'membership')
       end
@@ -183,9 +179,9 @@ local function create(context: plugin.Context): tags.Service
           exclusions[panel] = nil
         end
       end
-      for index = #created.members, 1, -1 do
-        if created.members[index].dead then
-          table.remove(created.members, index)
+      for index = #current, 1, -1 do
+        if current[index].dead then
+          table.remove(current, index)
         end
       end
       disposeAll(ended)
@@ -193,7 +189,7 @@ local function create(context: plugin.Context): tags.Service
 
     local function members(_self: tags.Tag): { Panel }
       prune()
-      return table.clone(created.members)
+      return table.clone(current)
     end
 
     local selection: overrides.Stack<boolean>
@@ -219,7 +215,7 @@ local function create(context: plugin.Context): tags.Service
       end
     end)
 
-    local function destroyRaw(): boolean
+    local function destroy(): boolean
       if created.dead then
         return false
       end
@@ -248,7 +244,7 @@ local function create(context: plugin.Context): tags.Service
       table.clear(holds)
       table.clear(exclusions)
       table.clear(held)
-      table.clear(created.members)
+      table.clear(current)
       local index = table.find(records, record)
       if index then
         table.remove(records, index)
@@ -261,43 +257,12 @@ local function create(context: plugin.Context): tags.Service
       return true
     end
 
-    local cleanupEffect: plugin.Effect?
-    -- Ends the tag, through its owner's effect when it has one, so the owner
-    -- no longer holds an effect for a tag that has ended.
-    local function retire(): boolean
-      if created.dead then
-        return false
-      end
-      local effect = cleanupEffect
-      if effect then
-        effect:dispose()
-        return true
-      end
-      return destroyRaw()
-    end
-    -- The creator ends tags made with `new`. Tags made with `hold` have no owner
-    -- and end when their last holder releases them.
-    local function destroy(_self: tags.Tag, caller: Owner): boolean
-      context:checkOwner(caller)
-      if created.dead then
-        return false
-      end
-      if tagOwner == nil then
-        error("tags: the tag '" .. name .. "' is held, and ends when its last holder lets go", 2)
-      end
-      if caller ~= tagOwner then
-        error("tags: only the owner that made the tag '" .. name .. "' destroys it", 2)
-      end
-      return retire()
-    end
-
     created = {
       name = name,
       index = settings.index or (#records + 1),
       selected = settings.selected == true,
       layout = settings.layout,
       dead = false,
-      members = {},
       add = function(_self: tags.Tag, caller: Owner, panel: Panel): boolean
         context:checkOwner(caller)
         if created.dead or panel.dead then
@@ -331,28 +296,18 @@ local function create(context: plugin.Context): tags.Service
         settleMembers()
         return true
       end,
-      -- Non-creator owners can remove their own hold or exclude the panel.
+      -- An owner removes its own membership; another owner's membership is excluded instead.
       remove = function(_self: tags.Tag, caller: Owner, panel: Panel): boolean
         context:checkOwner(caller)
         local holders = holds[panel]
         if not holders then
           return false
         end
-        if caller ~= tagOwner then
-          local mine = holders[caller]
-          if not mine then
-            error("tags: the tag '" .. name .. "' holds that panel for another owner; exclude it instead", 2)
-          end
-          mine:dispose()
-          return true
+        local mine = holders[caller]
+        if not mine then
+          error("tags: the tag '" .. name .. "' holds that panel for another owner; exclude it instead", 2)
         end
-        local ended: { plugin.Effect } = {}
-        for _, effect in pairs(holders) do
-          ended[#ended + 1] = effect
-        end
-        forget(panel)
-        settleMembers()
-        disposeAll(ended)
+        mine:dispose()
         return true
       end,
       exclude = function(_self: tags.Tag, caller: Owner, exclusion: tags.Exclusion): plugin.Effect
@@ -434,26 +389,14 @@ local function create(context: plugin.Context): tags.Service
         notify(created, 'layout')
         return true
       end,
-      destroy = destroy,
     }
     local tag: tags.Tag = created
     record = {
       tag = tag,
-      owner = tagOwner,
       holders = {},
-      destroyRaw = destroyRaw,
-      retire = retire,
+      destroy = destroy,
       inspect = function(): { inspection.Registration }
         local result: { inspection.Registration } = {}
-        if tagOwner then
-          result[#result + 1] =
-            inspection.registration('tag', 'tags.new', tagOwner, name, not created.dead and context:owns(tagOwner), {
-              index = created.index,
-              selected = created.selected,
-              layout = created.layout or '',
-              members = #created.members,
-            })
-        end
         for caller in pairs(record.holders) do
           result[#result + 1] = inspection.registration(
             'hold',
@@ -515,42 +458,11 @@ local function create(context: plugin.Context): tags.Service
       end,
     }
     records[#records + 1] = record
-    if tagOwner then
-      local ok, failure = pcall(function(): ()
-        cleanupEffect = tagOwner:effect(function(): () -> ()
-          return function(): ()
-            cleanupEffect = nil
-            destroyRaw()
-          end
-        end)
-      end)
-      if not ok then
-        local index = table.find(records, record)
-        if index then
-          table.remove(records, index)
-        end
-        created.dead = true
-        error(failure, 0)
-      end
-    end
     notify(created, 'created')
     return record
   end
 
-  local function new(self: tags.Service, caller: Owner, name: string, options: tags.Options?): tags.Tag
-    context:checkOwner(caller)
-    if type(name) ~= 'string' then
-      error('tags: a tag name must be a string', 2)
-    end
-    if self:find(name) then
-      error('tags: duplicate tag name ' .. name, 2)
-    end
-    local settings: tags.Options = options or {}
-    checkOptions('tags new', settings)
-    return make(name, settings, caller).tag
-  end
-
-  -- A hold borrows creator-owned tags and keeps holder-owned tags alive until the last holder releases them.
+  -- A hold keeps the tag alive until its last holder releases it.
   local function hold(_self: tags.Service, caller: Owner, wanted: tags.Hold): (tags.Tag, plugin.Effect)
     context:checkOwner(caller)
     if type(wanted) ~= 'table' then
@@ -568,12 +480,7 @@ local function create(context: plugin.Context): tags.Service
         existing = record
       end
     end
-    local record = existing or make(name, wanted, nil)
-    if record.owner ~= nil then
-      return record.tag, context:acquire(caller, function(): () -> ()
-        return function(): () end
-      end)
-    end
+    local record = existing or make(name, wanted)
     local previous = record.holders[caller]
     if previous then
       return record.tag, previous
@@ -585,7 +492,7 @@ local function create(context: plugin.Context): tags.Service
         end
         record.holders[caller] = nil
         if next(record.holders) == nil then
-          record.destroyRaw()
+          record.destroy()
         end
       end
     end)
@@ -601,41 +508,6 @@ local function create(context: plugin.Context): tags.Service
     table.sort(result, function(a: tags.Tag, b: tags.Tag): boolean
       return if a.index == b.index then a.name < b.name else a.index < b.index
     end)
-    return result
-  end
-
-  local function panelsOf(_self: tags.Service, target: tags.Target): { Panel }
-    local record = recordOf(target)
-    if record then
-      return record.tag:panels()
-    end
-    local classified: tags.Tag | { read panels: nil, read [number]: tags.Tag | Panel } = target
-    if classified.panels then
-      return classified:panels()
-    end
-    local view = classified
-    local result: { Panel } = {}
-    local seen: { [Panel]: boolean } = {}
-    local holdsTags: boolean? = nil
-    for index = 1, #view do
-      local item: tags.Tag | (Panel & { read panels: nil }) = view[index]
-      local isTag = item.panels ~= nil
-      if holdsTags ~= nil and holdsTags ~= isTag then
-        error 'tags: an array holds tags or panels, not both'
-      end
-      holdsTags = isTag
-      if item.panels then
-        for _, panel in ipairs(item:panels()) do
-          if not seen[panel] then
-            seen[panel] = true
-            table.insert(result, panel)
-          end
-        end
-      elseif not item.dead and not seen[item] then
-        seen[item] = true
-        table.insert(result, item)
-      end
-    end
     return result
   end
 
@@ -662,36 +534,17 @@ local function create(context: plugin.Context): tags.Service
           result[#result + 1] = entry
         end
       end
-      return inspection.snapshot(result, { tags = #records }, { 'borrowing a creator-owned tag adds no logical hold' })
+      return inspection.snapshot(result, { tags = #records })
     end,
-    new = new,
     hold = hold,
     all = all,
     find = find,
-    current = function(self: tags.Service): { tags.Tag }
-      local result: { tags.Tag } = {}
-      for _, entry in ipairs(self:all()) do
-        if entry.selected then
-          table.insert(result, entry)
-        end
-      end
-      return result
-    end,
-    only = function(self: tags.Service, caller: Owner, chosen: tags.Tag): ()
-      for _, entry in ipairs(self:all()) do
-        entry:setSelected(caller, { selected = entry == chosen })
-      end
-    end,
-    isTag = function(_self: tags.Service, value: unknown): boolean
-      return recordOf(value) ~= nil
-    end,
-    panelsOf = panelsOf,
     onChanged = onChanged,
   }
   context:effect(function(): () -> ()
     return function(): ()
       for _, record in ipairs(table.clone(records)) do
-        record.retire()
+        record.destroy()
       end
       heard:clear()
     end

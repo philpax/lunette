@@ -22,7 +22,7 @@ test('inspection children suspend independently of the manager owner', function(
   owner:enable()
   runtime:drain()
   expect.equal(owner:state(), 'active', 'manager active with missing brokers')
-  expect.equal(#readers, 17, 'every inspectable service represented')
+  expect.equal(#readers, 16, 'every inspectable service represented')
   local initial = brokers.snapshot(readers)
   local surface
   local unavailable

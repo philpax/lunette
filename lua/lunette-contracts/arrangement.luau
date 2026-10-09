@@ -1,18 +1,12 @@
 -- The arrangement service contract: the desktop's saved arrangement, on demand. save refuses to write over a
--- file it could not read or one a newer version wrote unless forced; restore places live panels where the
--- arrangement has them.
+-- file it could not read or one a newer version wrote; restore places live panels where the arrangement has them.
 
 local plugin = require '@lunette-plugin'
 
 local arrangement = {}
 
--- Whether save can overwrite a file whose load failed.
-export type SaveOptions = {
-  read force: boolean?,
-}
-
 export type Service = {
-  read save: (Service, SaveOptions?) -> (boolean, string?),
+  read save: (Service) -> (boolean, string?),
   read restore: (Service) -> number,
 }
 

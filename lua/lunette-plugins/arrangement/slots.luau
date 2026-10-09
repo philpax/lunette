@@ -9,9 +9,6 @@ export type Identified =
   { read kind: 'window', read source: lunette.Window }
   | { read kind: 'monitor', read source: lunette.Monitor }
 
--- The identity saved state is keyed on, or nil for one that is not saved.
-export type KeyFor = (Identified) -> string?
-
 export type Slots = {
   read key: (Slots, Identified) -> string?,
   read held: (Slots, lunette.Window) -> number?,
@@ -20,8 +17,9 @@ export type Slots = {
   read hold: (Slots, lunette.Window) -> number?,
 }
 
--- Uses a window application id or monitor id when it is a non-empty string.
-function slots.defaultKey(target: Identified): string?
+-- The identity saved state is keyed on: a window's application id or a monitor's id when it is a non-empty
+-- string, or nil for a target that is not saved.
+local function key(target: Identified): string?
   if target.source.dead then
     return nil
   end
@@ -37,17 +35,8 @@ function slots.defaultKey(target: Identified): string?
   return key
 end
 
-function slots.new(keyFor: KeyFor?): Slots
-  local identify: KeyFor = keyFor or slots.defaultKey
+function slots.new(): Slots
   local holds: { [number]: Held } = {}
-
-  local function key(target: Identified): string?
-    local answered = identify(target)
-    if answered ~= nil and (type(answered) ~= 'string' or answered == '') then
-      error('desktop.persist: keyFor answers a non-empty string or nil, not ' .. tostring(answered), 0)
-    end
-    return answered
-  end
 
   local function windowKey(window: lunette.Window): string?
     return key { kind = 'window', source = window }

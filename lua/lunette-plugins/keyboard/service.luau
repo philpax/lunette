@@ -71,7 +71,6 @@ local function build(context: plugin.Context, settings: Settings): keyboard.Serv
             options,
             source,
             themeService,
-            context,
             active,
             notify,
             function(): ()

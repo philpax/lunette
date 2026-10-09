@@ -21,27 +21,8 @@ local descriptor = schema.refine(fields)(function(settings: Settings): ()
   end
 end)
 
-local function checkRemovedFields(value: unknown, name: string?): ()
-  if type(value) == 'table' and rawget(value :: { [string]: unknown }, 'toggleKey') ~= nil then
-    local prefix = if name then 'plugin ' .. name .. ': ' else ''
-    error(prefix .. 'toggleKey is removed; open Plugins from the session menu', 0)
-  end
-end
-
--- Keep the descriptor token and witnesses for configured consumers and schema inspection.
-local checked = table.clone((descriptor :: unknown) :: { [string]: unknown })
-checked.parse = function(value: unknown, name: string?): Settings
-  checkRemovedFields(value, name)
-  return descriptor.parse(value, name)
-end
-checked.resolve = function(value: unknown, base: Settings, name: string?): Settings
-  checkRemovedFields(value, name)
-  checkRemovedFields(base, name)
-  return descriptor.resolve(value, base, name)
-end
-
 return {
-  schema = (table.freeze(checked) :: unknown) :: typeof(descriptor),
+  schema = descriptor,
   minimumWidth = layout.minimumWidth,
   minimumHeight = layout.minimumHeight,
 }

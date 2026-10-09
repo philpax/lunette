@@ -33,7 +33,7 @@ end
 
 -- The shipped rule sources retain their configured precedence order across provider outages.
 local function expectSources(env, context)
-  local list = env.rules:sources()
+  local list = testing.ruleSources(env.rules)
   expect.equal(#list, 3, context .. ': the rule sources')
   expect.equal(list[1].precedence, 100, context .. ': the rule list')
   expect.equal(list[2].name, 'desktop.persist', context .. ': the saved arrangement')

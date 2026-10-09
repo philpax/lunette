@@ -43,12 +43,7 @@ function titlebar.new(
     )
   end
   local spec = resolveStyle(options)
-  local lease = themes:acquireFont(context, spec.font)
-  local prepared, style = pcall(styleDefinition.materialize, spec, lease.font)
-  if not prepared then
-    local released, failure = pcall(lease.dispose, lease)
-    error(tostring(style) .. (if released then '' else '; ' .. tostring(failure)), 0)
-  end
+  local style = styleDefinition.materialize(spec, themes:font(spec.font))
   local themeRevision = themes:current().revision
   local dead, highlighted = false, false
   local refreshing = false
@@ -61,15 +56,8 @@ function titlebar.new(
       return
     end
     local nextSpec = resolveStyle(options)
-    local nextLease = themes:acquireFont(context, nextSpec.font)
-    local prepared, nextStyle = pcall(styleDefinition.materialize, nextSpec, nextLease.font)
-    if not prepared then
-      local released, failure = pcall(nextLease.dispose, nextLease)
-      error(tostring(nextStyle) .. (if released then '' else '; ' .. tostring(failure)), 0)
-    end
-    local previous = lease
-    spec, lease, style, themeRevision = nextSpec, nextLease, nextStyle, snapshot.revision
-    previous:dispose()
+    local nextStyle = styleDefinition.materialize(nextSpec, themes:font(nextSpec.font))
+    spec, style, themeRevision = nextSpec, nextStyle, snapshot.revision
   end
   local pose = lovr.math.newMat4()
   local toolbar: ui.Panel? = nil
@@ -277,9 +265,6 @@ function titlebar.new(
           drawing.clear(meshes)
         end,
         function(): ()
-          lease:dispose()
-        end,
-        function(): ()
           if inverse then
             inverse:dispose()
           end
@@ -378,11 +363,11 @@ function titlebar.new(
         update = function(_self: ui.Titlebar, nextOptions: ui.TitlebarOptions): ()
           if not dead then
             local parsed = titlebar.options(nextOptions)
-            local previous, previousLease = options, lease
+            local previous, previousStyle = options, style
             options = parsed
             local ok, failure = pcall(refresh, true)
             if not ok then
-              if lease == previousLease then
+              if style == previousStyle then
                 options = previous
               end
               error(failure, 0)
@@ -402,10 +387,7 @@ function titlebar.new(
           if not width or not height or not targetPose then
             return
           end
-          local currentStyle, drawLease = style, lease
-          drawLease:withFont(function(_font: Font): ()
-            titlebarDraw.render(pass, meshes, target, pose, currentStyle, options.title, reserved, highlighted, joined)
-          end)
+          titlebarDraw.render(pass, meshes, target, pose, style, options.title, reserved, highlighted, joined)
           if toolbar then
             toolbar:draw(pass)
           end

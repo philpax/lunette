@@ -5,11 +5,7 @@ local contract = require '@lunette-contracts/themes'
 local inspection = require '@lunette-contracts/inspection'
 local descriptors = require '@lunette-plugins/theme/descriptors'
 local listeners = require '@lunette-plugins/listeners'
-
-type Registration = {
-  owner: contract.Owner,
-  entry: contract.Entry,
-}
+local registry = require '@lunette-plugins/registry'
 
 type Raw = { [unknown]: unknown }
 
@@ -40,54 +36,18 @@ local function before(first: contract.Entry, second: contract.Entry): boolean
 end
 
 local function create(context: plugin.Context): contract.Service
-  local named: { [string]: Registration } = {}
   local heard = listeners.new<<() -> ()>>(context)
-
-  local function live(name: string): Registration?
-    local registration = named[name]
-    if registration and context:owns(registration.owner) then
-      return registration
-    end
-    return nil
-  end
-
-  local function entries(): { contract.Entry }
-    local result: { contract.Entry } = {}
-    for name in named do
-      local registration = live(name)
-      if registration then
-        result[#result + 1] = registration.entry
-      end
-    end
-    table.sort(result, before)
-    return result
-  end
-
-  local function changed(): ()
+  local named = registry.new<<contract.Entry>>(context, 'themes register', function(): ()
     heard:each('themes: a change listener', function(run: () -> ()): ()
       run()
     end)
-  end
+  end)
 
   return {
     inspect = function(_self: contract.Service): inspection.Snapshot
       local result = heard:inspect 'themes.onChanged'
-      local names: { string } = {}
-      for name in named do
-        names[#names + 1] = name
-      end
-      table.sort(names)
-      for _, name in names do
-        local registration = named[name]
-        local entry = registration.entry
-        result[#result + 1] = inspection.registration(
-          'theme',
-          'themes.register',
-          registration.owner,
-          name,
-          context:owns(registration.owner),
-          { label = entry.label, order = entry.order, font = descriptors.fontKey(entry.theme.typography.font) }
-        )
+      for _, entry in named:inspect('theme', 'themes.register') do
+        result[#result + 1] = entry
       end
       return inspection.snapshot(result)
     end,
@@ -98,41 +58,24 @@ local function create(context: plugin.Context): contract.Service
       local label = checkText('label', raw.label)
       local order = checkOrder(raw.order)
       local complete = descriptors.theme.parse(raw.theme, 'themes register ' .. name)
-      if named[name] then
-        error('themes register: ' .. name .. ' is already registered', 2)
-      end
-      local registration: Registration = {
-        owner = owner,
-        entry = table.freeze { name = name, label = label, order = order, theme = complete },
-      }
-      local effect = context:acquire(owner, function(): () -> ()
-        if named[name] then
-          error('themes register: ' .. name .. ' is already registered', 0)
-        end
-        named[name] = registration
-        return function(): ()
-          if named[name] == registration then
-            named[name] = nil
-            changed()
-          end
-        end
-      end)
-      changed()
-      return effect
+      local entry: contract.Entry = table.freeze { name = name, label = label, order = order, theme = complete }
+      return named:add(
+        owner,
+        name,
+        entry,
+        { label = label, order = order, font = descriptors.fontKey(complete.typography.font) }
+      )
     end,
     list = function(_self: contract.Service): { read [number]: contract.Entry }
-      return entries()
-    end,
-    names = function(_self: contract.Service): { string }
-      local names: { string } = {}
-      for index, entry in entries() do
-        names[index] = entry.name
+      local result: { contract.Entry } = {}
+      for _, registration in named:list() do
+        result[#result + 1] = registration.value
       end
-      return names
+      table.sort(result, before)
+      return result
     end,
     get = function(_self: contract.Service, name: string): contract.Entry?
-      local registration = live(name)
-      return if registration then registration.entry else nil
+      return named:get(name)
     end,
     onChanged = function(_self: contract.Service, owner: contract.Owner, spec: contract.ChangedListener): plugin.Effect
       plugin.rejectUnknownFields('themes onChanged', spec, { run = true }, 'run', 2)

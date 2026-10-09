@@ -13,7 +13,7 @@ local PROVIDERS =
 -- Each consumer group uses fresh factories and reads the arrangement file independently.
 local function placementConsumers(session)
   local instances = {
-    session:use(require '@lunette-plugins/desktop/workspace'),
+    session:use(require '@lunette-plugins/desktop/workspaces'),
     session:use(require '@lunette-plugins/desktop/rules'),
     session:use(require '@lunette-plugins/desktop/pose-memory'),
     session:use(persist.factory()),

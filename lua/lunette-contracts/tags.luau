@@ -7,12 +7,6 @@ local tags = {}
 
 export type Panel = vocabulary.Movable
 
-export type Options = {
-  read index: number?,
-  read selected: boolean?,
-  read layout: string?,
-}
-
 export type Hold = {
   read name: string,
   read index: number?,
@@ -41,7 +35,6 @@ export type Tag = {
   read selected: boolean,
   read layout: string?,
   read dead: boolean,
-  read members: { Panel },
   read add: (Tag, Owner, Panel) -> boolean,
   read remove: (Tag, Owner, Panel) -> boolean,
   read exclude: (Tag, Owner, Exclusion) -> plugin.Effect,
@@ -49,10 +42,7 @@ export type Tag = {
   read panels: (Tag) -> { Panel },
   read setSelected: (Tag, Owner, Selection) -> boolean,
   read setLayout: (Tag, Owner, LayoutChoice) -> boolean,
-  read destroy: (Tag, Owner) -> boolean,
 }
-
-export type Target = Tag | { read [number]: Tag } | { read [number]: Panel }
 
 export type ChangeKind = 'created' | 'destroyed' | 'selection' | 'layout' | 'membership'
 
@@ -71,14 +61,9 @@ local inspection = require '@lunette-contracts/inspection'
 
 export type Service = {
   read inspect: (Service) -> inspection.Snapshot,
-  read new: (Service, Owner, string, Options?) -> Tag,
   read hold: (Service, Owner, Hold) -> (Tag, plugin.Effect),
   read all: (Service) -> { Tag },
   read find: (Service, string) -> Tag?,
-  read current: (Service) -> { Tag },
-  read only: (Service, Owner, Tag) -> (),
-  read isTag: (Service, unknown) -> boolean,
-  read panelsOf: (Service, Target) -> { Panel },
   read onChanged: (Service, Owner, ChangeListener) -> plugin.Effect,
 }
 

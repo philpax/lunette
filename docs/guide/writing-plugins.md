@@ -192,7 +192,7 @@ desktop.configure('desktop/theme', require '@lunette-plugins/desktop/theme') {
 
 An omitted selector override inherits from the chosen complete theme. A later competing selection replaces the whole effective theme rather than merging fields into that theme. Explicit zero remains an override. The editable configuration font accepts `kind = 'default'` or `kind = 'file'` with a VFS path; for a file font, omitted `size` and `spread` project to 32 and 4. Default kind rejects file/size/spread. Disabling `desktop/theme` removes the selector's registration and restores the base theme unless another live registration remains. The `theme` provider must remain enabled for its consumers. [Desktop runtime themes](desktop-configuration.md#runtime-themes) records session choice memory, source reload, and configuration replacement/Recover semantics.
 
-`desktop.configure` takes an entry id and that entry's definition and answers a function that makes a configuration patch for the entry, typed with the definition's options, so the checker reads them. A built-in provider's module holds its definition as `definition`; a desktop consumer's module is its definition, or for `desktop/arrange` a factory of it, which `configure` takes as well. `desktop/persistence` is `@lunette-plugins/arrangement`, which holds its factory as `factory` beside its format functions:
+`desktop.configure` takes an entry id and that entry's definition and answers a function that makes a configuration patch for the entry, typed with the definition's options, so the checker reads them. A built-in provider's module holds its definition as `definition`; a desktop consumer's module is its definition, or for `desktop/arrange` a factory of it, which `configure` takes as well. `desktop/persistence` is `@lunette-plugins/arrangement`, which holds its factory as `factory`:
 
 ```lua
 local desktop = require '@lunette-desktop'
@@ -212,15 +212,11 @@ desktop.run {
 
 `@lunette-contracts/theme` declares `lunette/theme` at schema 1. A consumer declares that capability and reads it through `context:require`. The neutral `theme.Theme` is a complete immutable value with `colors`, `typography`, `metrics`, and `radii`. It differs from the UI-specific `ui.Theme`, whose resolved fields include a borrowed native Font for drawing. Imports and type references remain qualified when both occur in one module. The [field-to-consumer checklist](desktop-configuration.md#theme-field-to-consumer-checklist) records units, concrete mappings, and component limits.
 
-`service:select(owner, overrides)` returns a `theme.Registration`. Each registration resolves sparse overrides over the complete base. The latest live registration wins as one complete value. `registration:update(overrides)` replaces that registration's override layer and preserves its insertion rank. Omitted fields return to base for that registration. Validation and file-font acquisition finish before publication; failures preserve the prior registration and current revision. `registration:dispose()` is idempotent and reveals the preceding live selection or base. Updating a disposed registration raises. Provider shutdown invalidates it.
+`service:select(owner, overrides)` returns a `theme.Registration`. Each registration resolves sparse overrides over the complete base. The latest live registration wins as one complete value. `registration:update(overrides)` replaces that registration's override layer and preserves its insertion rank. Omitted fields return to base for that registration. Validation and file-font loading finish before publication; failures preserve the prior registration and current revision. `registration:dispose()` is idempotent and reveals the preceding live selection or base. Updating a disposed registration raises. Provider shutdown invalidates it.
 
 `service:current()` returns `{ revision, theme }`. Revision starts at zero and changes only for an effective appearance change. Snapshots and nested colours are detached and frozen. `service:onChanged(owner, run)` creates an owner effect and does not call the listener immediately. Each delivery captures one immutable event snapshot and listener set. Disposed listeners are skipped, newly added listeners wait for a later round, and errors report without stopping independent listeners. Reentrant changes commit immediately and queue a later nonrecursive round with the latest revision. A callback's event can differ from `current()`; retained consumers refresh from current data before later drawing, measurement, inspection, or input.
 
-`service:getFont()` is an immediate borrow that cannot be released or retained across a callback or revision. `service:acquireFont(owner, spec?)` returns an owner-scoped `theme.FontLease`; nil acquires the current face, while a supplied strict public `theme.FontSpec` acquires exactly that specification. Public file specifications supply nonempty `file`, positive `size`, and positive `spread`; `{ kind = 'default' }` accepts no additional font fields. Configured plugins project the editable object to this strict union before acquisition. The [font workflow](desktop-configuration.md#theme-font-fit) records editor defaults, validation, mounted assets, and recovery.
-
-A retained consumer prepares its replacement lease and measurements before publishing new state, then disposes the old lease. Failed preparation keeps the old state and lease. `lease:withFont(run)` pins its exact Font through synchronous theme changes, owner/provider ending, nested calls, and error unwind, then propagates the original callback error. A disposed lease rejects entry. Direct `lease.font` access requires a live lease; callback-spanning access uses `withFont`. Hooks borrow their resolved face until invocation returns and must not release or retain it. `service:inspect()` contains owner/registration/font-specification/invocation data, never native handles. The provider never releases the borrowed default Font.
-
-The [checked registration example](ui.md#public-theme-registration-example) uses public theme/UI/menu/frame services and child-instance owners for these operations. Plugins -> select `example/ui/theme-registration` -> Configure -> set `enabled = true` -> Apply activates its otherwise inert entry. [theme-broker-lifecycle](desktop-configuration.md#theme-broker-lifecycle) records its 28 controller actions, original reports, retired holds, and cleanup. Broker arbitration and reentrant lifetimes remain manual gates; the example does not add automatic coverage.
+`service:font(spec?)` answers the face for a strict public `theme.FontSpec`, or for the current theme's specification when it is omitted. Public file specifications supply nonempty `file`, positive `size`, and positive `spread`; `{ kind = 'default' }` accepts no additional font fields. Configured plugins project the editable object to this strict union first. The provider caches one face per specification and never releases one explicitly, so a consumer keeps the face it measured with beside the appearance it published and asks again after a theme change. Failed preparation keeps the old state. `service:inspect()` contains owner, registration, and font-specification data, never native handles. The [font workflow](desktop-configuration.md#theme-font-fit) records editor defaults, validation, mounted assets, and recovery.
 
 Custom compositions that use built-in UI, keyboard, or panels include the theme provider and their declared dependencies. The provider has no private fallback in those consumers. Explicit provider/object/control appearance layers remain sparse so omitted fields inherit current global changes; explicit zero and nil reset retain their documented meanings. A custom keyboard rounding hook is optional because built-in shapes already follow the theme.
 
@@ -507,16 +503,12 @@ web:add(context, panel)
 web:setLayout(context, { layout = 'grid' })
 ```
 
-The shipped `desktop/workspaces` consumer shows one workspace's windows at a time and hides the rest. It is not in the default desktop; `examples/desktop/main.luau` inserts it with two workspaces. The consumer registers a menu action for each workspace; workspace selection does not require a key chord:
+The shipped `desktop/workspaces` consumer shows one workspace's windows at a time and hides the rest. The default desktop has one workspace, `main`; `examples/desktop/main.luau` configures two through settings. With more than one, the consumer registers a menu action for each workspace; workspace selection does not require a key chord:
 
 ```lua
-{
-  insert = {
-    id = 'desktop/workspaces',
-    definition = require '@lunette-plugins/desktop/workspaces',
-    config = {
-      workspaces = { { name = 'main' }, { name = 'side' } },
-    },
+settings = {
+  workspaces = {
+    workspaces = { { name = 'main' }, { name = 'side' } },
   },
 },
 ```
@@ -564,7 +556,7 @@ stream:subscribe(context, {
 
 ## Saving the arrangement
 
-The desktop saves where the windows are whenever one is dropped, and at quit. `desktop/persistence`, whose module is `@lunette-plugins/arrangement`, takes the file it saves to, the format it writes, and `keyFor`, which says what identifies a window across sessions, by default its application id:
+The desktop saves where the windows are whenever one is dropped, and at quit. `desktop/persistence`, whose module is `@lunette-plugins/arrangement`, takes the file it saves to. A window is identified across sessions by its application id:
 
 ```lua
 desktop.configure('desktop/persistence', require('@lunette-plugins/arrangement').factory) { file = 'example.state' },
@@ -572,7 +564,7 @@ desktop.configure('desktop/persistence', require('@lunette-plugins/arrangement')
 
 It also provides `lunette/arrangement`, so a plugin can save or restore windows. `examples/desktop/save-menu.luau` registers Save arrangement and Restore arrangement actions. `examples/desktop/hide-windows.luau` registers an action that toggles owner-scoped visibility overrides for windows. `examples/desktop/main.luau` inserts both examples. [Menu actions](../dev/lua-api.md#menu-actions) specifies the action broker.
 
-A custom format is a `{ read, render }` pair; [Default configuration](../dev/stdlib.md#default-configuration) states what `read` answers so that a file written by a newer version is left alone rather than overwritten.
+A file written by a newer version is left alone rather than overwritten; [Default configuration](../dev/stdlib.md#default-configuration) states the rules.
 
 ## Frame rates and sharpness
 
@@ -583,7 +575,7 @@ desktop.configure('pacing', require('@lunette-plugins/pacing').definition) { tun
 desktop.configure('scale', require('@lunette-plugins/scale').definition) { tuning = { reference = 0.8 } },
 ```
 
-Each provider takes a hook around its rule. `choose(pacer, observation, base)` answers a window's rate, so a hook that caps visible panels at 60 Hz answers 60 when `observation.visible` is true and calls `base` otherwise; `ideal(distance, base)` answers the scale a panel at that distance wants, before the steps apply. A replacement rule is a plugin that provides `lunette/pacing` or `lunette/scale`, installed in the provider entry with `{ id = 'pacing', definition = replacement }`. A different scene policy, such as pacing by gaze direction, is a consumer in place of `desktop/pacing` that keeps the provider. `{ id = 'desktop/pacing', disabled = true }` turns pacing off, and disabling either entry leaves every rate or scale as the client started with. [Frame pacing and output scale](../dev/lua-api.md#frame-pacing-and-output-scale) states the rules.
+A replacement rule is a plugin that provides `lunette/pacing` or `lunette/scale`, installed in the provider entry with `{ id = 'pacing', definition = replacement }`. A different scene policy, such as pacing by gaze direction, is a consumer in place of `desktop/pacing` that keeps the provider. `{ id = 'desktop/pacing', disabled = true }` turns pacing off, and disabling either entry leaves every rate or scale as the client started with. [Frame pacing and output scale](../dev/lua-api.md#frame-pacing-and-output-scale) states the rules.
 
 ## Checking a configuration
 

@@ -54,7 +54,7 @@ test('the workspace entry may come last: the tag it selects is held, not made', 
   fake.events.windows = { window }
   local reordered, workspace = {}, nil
   for _, entry in ipairs(desktop.entries()) do
-    if entry.id == 'desktop/workspace' then
+    if entry.id == 'desktop/workspaces' then
       workspace = entry
     else
       reordered[#reordered + 1] = entry
@@ -74,7 +74,7 @@ test('the workspace entry may come last: the tag it selects is held, not made', 
   local main = assert(env.tags:find 'main')
   expect.truthy(main.selected, 'the workspace selects its tag whoever made it')
   expect.truthy(main:has(env.panels.service:forSource(window)), 'the window joined the tag before the workspace')
-  env.session.instances['desktop/workspace']:disable()
+  env.session.instances['desktop/workspaces']:disable()
   expect.falsy(main.dead, 'the tag outlives the workspace while placements hold it')
   env.session:close()
 end)

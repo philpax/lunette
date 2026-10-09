@@ -30,7 +30,6 @@ export type Host = {
   read clip: () -> ui.Bounds?,
   read textClip: (() -> ui.Bounds?)?,
   read theme: () -> ui.Theme,
-  read withFont: ((Font) -> ()) -> (),
   read callback: (string, () -> (), boolean?) -> boolean,
 }
 

@@ -1,5 +1,5 @@
--- Formats error reports and bounds their displayed lines.
-local format = {}
+-- Bounds the lines an error report displays.
+local errorLines = {}
 
 export type Options = {
   read columns: number,
@@ -39,7 +39,7 @@ local function wrap(text: string, columns: number): { string }
   return lines
 end
 
-function format.lines(state: State, options: Options): { string }
+function errorLines.of(state: State, options: Options): { string }
   if not state.latest then
     return {}
   end
@@ -60,17 +60,4 @@ function format.lines(state: State, options: Options): { string }
   return lines
 end
 
--- Message and traceback together identify a repeated report.
-function format.key(report: { read message: string, read traceback: string? }): string
-  return report.message .. '\n' .. (report.traceback or '')
-end
-
-function format.report(message: string, traceback: string, suppressed: number): string
-  local text = message .. '\n' .. traceback
-  if suppressed > 0 then
-    text ..= '\n(' .. suppressed .. ' identical error' .. (suppressed == 1 and ' was' or 's were') .. ' suppressed since the last report)'
-  end
-  return text
-end
-
-return format
+return errorLines

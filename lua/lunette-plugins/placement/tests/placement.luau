@@ -38,7 +38,7 @@ local function start()
       env.layouts = context:require(layoutsContract.capability)
     end,
   })
-  env.primary = env.tags:new(env.owner, 'primary', { selected = true })
+  env.primary = env.tags:hold(env.owner, { name = 'primary', selected = true })
   env.window = env.native.newWindow(1)
   env.source = env.rules:addSource(env.owner, {
     name = 'fixture',
@@ -64,11 +64,10 @@ test('a placed window takes its resolved properties over the defaults and joins 
   expect.truthy(env.primary:has(panel), 'the placement holds a membership of an existing tag')
   local implicit = env.tags:find 'implicit'
   expect.truthy(implicit and implicit:has(panel), 'a tag nothing declared is made and joined')
-  expect.equal(#env.tags:panelsOf { env.primary, implicit }, 1, 'the panel is answered once across its tags')
   expect.raises(function()
     panel:destroy(env.owner)
   end, nil, 'a placed panel belongs to the placement provider')
-  env.layouts:apply { name = 'arc', panels = env.tags:panelsOf(env.primary) }
+  env.layouts:apply { name = 'arc', panels = env.primary:panels() }
   local x, y, z = panel.pose:getPosition()
   expect.near(x, 0, 1e-5, 'the arc centres a lone panel')
   expect.near(y, 1.5, 1e-5, 'the arc height')
@@ -118,14 +117,14 @@ test('a placement ends with its window, with its effect, and with its owner', fu
   expect.truthy(panel.dead, 'a panel whose window died')
   expect.equal(env.tags:find 'implicit', nil, 'the tag only the placement held')
   expect.equal(env.tags:find 'primary', env.primary, 'a tag its owner made')
-  expect.equal(#env.primary.members, 0, 'the membership ends at once')
+  expect.equal(#env.primary:panels(), 0, 'the membership ends at once')
   placement:dispose()
 
   env.window.dead = false
   local again, _, replaced = place(env, { height = 1, chrome = false })
   replaced:dispose()
   expect.truthy(again.dead, 'disposing a placement removes its panel')
-  expect.equal(#env.primary.members, 0, 'the membership of the disposed placement')
+  expect.equal(#env.primary:panels(), 0, 'the membership of the disposed placement')
 
   local last = place(env, { height = 1, chrome = false })
   env.consumer:disable()

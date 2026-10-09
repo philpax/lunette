@@ -1,7 +1,6 @@
 -- The key bindings service contract: a broker for desktop key chords. The provider takes key presses before
--- delivery, and a matched press goes no further, repeats included. dispatch offers a press from another
--- source, such as an on-screen keyboard. A chord has one owner-scoped registration. See
--- docs/dev/lua-api.md#bindings.
+-- delivery, and a matched press goes no further, repeats included. A chord has one owner-scoped registration.
+-- See docs/dev/lua-api.md#bindings.
 
 local plugin = require '@lunette-plugin'
 
@@ -14,8 +13,7 @@ export type Chord = {
   read modifiers: { read [number]: string }?,
 }
 
--- A press as the dispatcher reads it: the key, every modifier held, and
--- whether it is a repeat.
+-- A press as a binding receives it: the key, every modifier held, and whether it is a repeat.
 export type Press = {
   read key: KeyCode,
   read modifiers: { read [number]: string },
@@ -32,8 +30,6 @@ local inspection = require '@lunette-contracts/inspection'
 export type Service = {
   read inspect: (Service) -> inspection.Snapshot,
   read register: (Service, Owner, Binding) -> plugin.Effect,
-  read dispatch: (Service, Press) -> boolean,
-  read chords: (Service) -> { Chord },
 }
 
 export type Capability = plugin.Capability<Service>

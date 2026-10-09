@@ -1,6 +1,7 @@
 local testing = require '@testing'
 local expect = testing.expect
 local rulesContract = require '@lunette-contracts/rules'
+local policy = require '@lunette-plugins/rules/policy'
 
 local test = testing.suite()
 
@@ -12,9 +13,9 @@ local function start()
 end
 
 test('a match tests named fields by value or predicate, and where over the whole window', function()
-  local session, rules, _, window = start()
+  local window = { id = 1, dead = false, width = 800, height = 600, appId = 'fixture', title = 'Fixture' }
   expect.truthy(
-    rules:matches({
+    policy.matches({
       appId = function(value, source)
         return value == source.appId
       end,
@@ -23,7 +24,7 @@ test('a match tests named fields by value or predicate, and where over the whole
     'a predicate and a literal'
   )
   expect.truthy(
-    rules:matches({
+    policy.matches({
       where = function(source)
         return source == window
       end,
@@ -31,7 +32,7 @@ test('a match tests named fields by value or predicate, and where over the whole
     'where receives the window'
   )
   expect.falsy(
-    rules:matches({
+    policy.matches({
       appId = window.appId,
       where = function()
         return false
@@ -40,9 +41,8 @@ test('a match tests named fields by value or predicate, and where over the whole
     'where refusing overrides a matching field'
   )
   expect.raises(function()
-    rules:matches({ typo = true }, window)
+    policy.matches({ typo = true }, window)
   end, nil, 'an unsupported match key')
-  session:close()
 end)
 
 test('a higher precedence source wins a key, and only the winning evaluator is called', function()
@@ -146,7 +146,7 @@ test('a source name is registered once, and a disposed source lets go of what it
       end,
     })
   end, nil, 'a duplicate source name')
-  expect.equal(#rules:sources(), 1, 'a duplicate does not replace the registration')
+  expect.equal(#testing.ruleSources(rules), 1, 'a duplicate does not replace the registration')
   expect.equal(rules:resolve(window).width, 2, 'the first registration still resolves')
   first:dispose()
   first:dispose()
@@ -159,13 +159,13 @@ test('a source name is registered once, and a disposed source lets go of what it
   })
   testing.collect()
   expect.equal(weak[1], nil, 'the disposed source payload')
-  local registered = rules:sources()[1]
-  expect.equal(#rules:sources(), 1, 'the sources after the replacement')
+  local registered = testing.ruleSources(rules)[1]
+  expect.equal(#testing.ruleSources(rules), 1, 'the sources after the replacement')
   expect.equal(registered.name, 'same', 'the registered name')
   expect.equal(registered.precedence, 100, 'the registered precedence')
   expect.equal(rules:resolve(window).width, 3, 'the replacement resolves')
   replacement:dispose()
-  expect.equal(#rules:sources(), 0, 'the sources after disposal')
+  expect.equal(#testing.ruleSources(rules), 0, 'the sources after disposal')
   session:close()
 end)
 

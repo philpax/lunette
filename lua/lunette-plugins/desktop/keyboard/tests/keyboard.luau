@@ -55,31 +55,6 @@ local function expectDirection(board, axis, expected, label)
   expect.near(direction.z, expected.z, 1e-5, label .. ' z')
 end
 
-test('removed wrist fields point raw configuration to settings.menu', function()
-  for _, field in ipairs { 'hand', 'size', 'offset', 'haptic' } do
-    for _, value in ipairs { false, 'right', 0.2, vector.pack(0.1, 0.2, 0.3), {} } do
-      local config = { [field] = value }
-      for _, parse in ipairs {
-        function()
-          return descriptor.parse(config)
-        end,
-        function()
-          return descriptor.resolve(config, descriptor.parse {})
-        end,
-        function()
-          return definition.resolve(config)
-        end,
-      } do
-        local ok, problem = pcall(parse)
-        expect.equal(ok, false, 'the removed ' .. field .. ' field is rejected')
-        local message = tostring(problem)
-        expect.truthy(message:find('wristKeyboard.' .. field, 1, true), 'the removed field: ' .. message)
-        expect.truthy(message:find('settings.menu', 1, true), 'the replacement settings: ' .. message)
-      end
-    end
-  end
-end)
-
 test('the keyboard provider offers no wrist trigger while hidden or visible', function()
   local env = start {}
   local hiddenCount = #env.surfaces:all()
@@ -197,40 +172,6 @@ test("the provider draws its own keyboard and not another owner's", function()
   expect.truthy((env.drawnBy[shown] or 0) > 0, 'the display keyboard is drawn')
   expect.equal(env.drawnBy[other], nil, "another owner's keyboard is not drawn by the provider")
   env.session:close()
-end)
-
-test('removed wrist settings fail raw provider activation by field and name', function()
-  for _, field in ipairs { 'hand', 'size', 'offset', 'haptic' } do
-    local env = start { [field] = false }
-    local diagnostic = tostring(env.session.instances['desktop/keyboard']:diagnostic())
-    local reports = testing.takeReports()
-    env.session:close()
-    expect.truthy(diagnostic:find('plugin desktop/keyboard: wristKeyboard.' .. field, 1, true), diagnostic)
-    expect.truthy(diagnostic:find('settings.menu', 1, true), diagnostic)
-    expect.equal(#reports, 1, 'one activation failure is reported')
-  end
-end)
-
-test('nested placement settings retain defaults and schema metadata omits wrist fields', function()
-  local settings = descriptor.parse { placement = { distance = 0.8 } }
-  expect.equal(settings.placement.distance, 0.8, 'the configured distance')
-  expect.equal(settings.placement.drop, 0.35, 'the default drop')
-  expect.equal(settings.placement.tilt, math.pi / 6, 'the default tilt')
-  local changed = descriptor.resolve({ placement = { tilt = 0 } }, settings)
-  expect.equal(changed.placement.distance, 0.8, 'the base distance is retained')
-  expect.equal(changed.placement.drop, 0.35, 'the base drop is retained')
-  expect.equal(changed.placement.tilt, 0, 'the configured tilt')
-  local input = { placement = { distance = 0.8 } }
-  expect.equal(descriptor.input(input), input, 'the input witness accepts placement-only configuration')
-  expect.equal(descriptor.output(settings), settings, 'the output witness retains resolved settings')
-  local metadata = descriptor.inspect()
-  expect.equal(metadata.kind, 'object', 'the descriptor remains an object')
-  expect.truthy(metadata.fields.placement, 'the placement metadata remains available')
-  for _, field in ipairs { 'hand', 'size', 'offset', 'haptic' } do
-    expect.equal(metadata.fields[field], nil, 'the removed ' .. field .. ' metadata')
-    expect.equal(settings[field], nil, 'the removed ' .. field .. ' output')
-  end
-  expect.equal(definition.schema.child, metadata, 'the provider retains descriptor metadata')
 end)
 
 test('malformed placement fields fail parsing and resolution without changing the base', function()

@@ -137,7 +137,7 @@ end
 
 local function build(context: plugin.Context, settings: Settings): Service
   local broker = context:require(theme.capability)
-  local paint = appearance.prepare(broker, context, settings, broker:current())
+  local paint = appearance.prepare(broker, settings, broker:current())
   local state: ProviderState
   local function currentPaint(): appearance.Paint
     if not state.active or not context:active() then
@@ -145,18 +145,10 @@ local function build(context: plugin.Context, settings: Settings): Service
     end
     local snapshot = broker:current()
     if snapshot.revision ~= paint.revision then
-      local replacement = appearance.prepare(broker, context, settings, snapshot)
-      local previous = paint
-      paint = replacement
-      previous.lease:dispose()
+      paint = appearance.prepare(broker, settings, snapshot)
     end
     return paint
   end
-  context:effect(function(): () -> ()
-    return function(): ()
-      paint.lease:dispose()
-    end
-  end)
   local host: panel.Host = {
     active = function(): boolean
       return state.active

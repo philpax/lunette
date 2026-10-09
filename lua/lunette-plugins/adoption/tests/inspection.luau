@@ -60,14 +60,11 @@ test('inspection separates adoption from provider-owned placements without enume
   local observed = session:observe(contract.capability)
   local service, owner = observed.service, observed.context
   local installed = service:install(owner)
-  local filterCalls, placedCalls = 0, 0
+  local filterCalls = 0
   local started = service:start(owner, {
     filter = function()
       filterCalls += 1
       return true
-    end,
-    onPlaced = function()
-      placedCalls += 1
     end,
   })
   local placementObserved = session:observe(placementContract.capability)
@@ -76,7 +73,6 @@ test('inspection separates adoption from provider-owned placements without enume
   local claim = native.events.claims[1]
   expect.equal(native.events.enumerations, 1, 'the initial enumeration')
   expect.equal(filterCalls, 1, 'the initial filter call')
-  expect.equal(placedCalls, 1, 'the initial placement callback')
   expect.equal(count(placementService:inspect(), 'placement'), 1, 'the adopted placement')
   expect.equal(count(panelsService:inspect(), 'panel'), 1, 'the adopted panel')
 
@@ -86,7 +82,6 @@ test('inspection separates adoption from provider-owned placements without enume
   local panelSnapshot = panelsService:inspect()
   expect.equal(native.events.enumerations, enumerationsBeforeInspect, 'inspection does not enumerate windows')
   expect.equal(filterCalls, filtersBeforeInspect, 'inspection does not call the filter')
-  expect.equal(placedCalls, 1, 'inspection does not call the placement callback')
   expect.equal(#snapshot.registrations, 3, 'the installation, producer, and adopted window')
   expect.equal(count(snapshot, 'poseSource'), 1, 'the caller-owned pose installation')
   expect.equal(count(snapshot, 'producer'), 1, 'the caller-owned producer')

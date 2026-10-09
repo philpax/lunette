@@ -3,6 +3,7 @@ local expect = testing.expect
 local plugin = require '@lunette-plugin'
 local adoptionContract = require '@lunette-contracts/adoption'
 local panelsContract = require '@lunette-contracts/panels'
+local placementContract = require '@lunette-contracts/placement'
 local rulesContract = require '@lunette-contracts/rules'
 local tagsContract = require '@lunette-contracts/tags'
 local vocabulary = require '@lunette-contracts/vocabulary'
@@ -23,12 +24,14 @@ local function start()
     name = 'adoption-test',
     requires = {
       panels = panelsContract.capability,
+      placement = placementContract.capability,
       tags = tagsContract.capability,
       rules = rulesContract.capability,
       adoption = adoptionContract.capability,
     },
     init = function(context)
       env.panels = context:require(panelsContract.capability)
+      env.placement = context:require(placementContract.capability)
       env.tags = context:require(tagsContract.capability)
       env.rules = context:require(rulesContract.capability)
       env.adoption = context:require(adoptionContract.capability)
@@ -74,14 +77,14 @@ test('install registers the native pose source above the other sources and enume
     end,
   })
   local installed = env.adoption:install(env.owner)
-  local sources = env.rules:sources()
+  local sources = testing.ruleSources(env.rules)
   expect.equal(#sources, 2, 'the sources')
   expect.equal(sources[1].name, 'caller.rules', 'the lower source')
   expect.equal(sources[2].name, 'lunette.adoption', 'the native source')
   expect.equal(sources[2].precedence, vocabulary.PRECEDENCE.native, 'the native precedence')
   expect.equal(env.native.events.enumerations, 0, 'the enumerations install made')
   installed:dispose()
-  expect.equal(#env.rules:sources(), 1, 'the sources after the install ends')
+  expect.equal(#testing.ruleSources(env.rules), 1, 'the sources after the install ends')
   low:dispose()
   env.session:close()
 end)
@@ -89,15 +92,15 @@ end)
 test('a caller requiring adoption alone installs the source, which ends with the caller', function()
   local env = start()
   local function registered()
-    for _, source in env.rules:sources() do
-      if source.name == 'lunette.adoption' and source.precedence == 250 then
+    for _, source in testing.ruleSources(env.rules) do
+      if source.name == 'lunette.adoption' then
         return true
       end
     end
     return false
   end
   local installer = caller(env, 'adoption-test-installer', function(context, adoption)
-    adoption:install(context, { precedence = 250 })
+    adoption:install(context)
   end)
   installer:enable()
   expect.equal(installer:state(), 'active', 'the installer')
@@ -122,11 +125,12 @@ test('start subscribes, then adopts each window once with its resolved propertie
   saved.properties[vocabulary.POSE_PROPERTY] = pose(3)
   fake.events.windows = { saved, ordinary }
   local placed = {}
-  local started = env.adoption:start(env.owner, {
-    onPlaced = function(panel, resolved)
-      placed[#placed + 1] = { panel = panel, resolved = resolved }
+  local listener = env.placement:onPlaced(env.owner, {
+    run = function(placement)
+      placed[#placed + 1] = { panel = placement.panel, resolved = placement.properties }
     end,
   })
+  local started = env.adoption:start(env.owner)
   expect.equal(fake.events.enumerations, 1, 'the enumerations')
   expect.equal(#placed, 2, 'the windows placed')
   expect.equal(placed[1].resolved.title, 'persisted-title', 'the title a lower source gives')
@@ -152,6 +156,7 @@ test('start subscribes, then adopts each window once with its resolved propertie
   expect.equal(fake.events.enumerations, 2, 'the enumerations of the second start')
   expect.equal(#env.panels:all(), 2, 'the surviving windows adopted again')
   again:dispose()
+  listener:dispose()
   installed:dispose()
   persisted:dispose()
   env.session:close()
@@ -186,41 +191,6 @@ test('a window the filter refuses, or a rule gives adopt = false, is left alone'
   env.session:close()
 end)
 
-test('a consumer whose onPlaced raises fails to load, and releases everything it adopted', function()
-  local env = start()
-  local fake = env.native
-  fake.events.windows = { fake.newWindow(101), fake.newWindow(102) }
-  local placements = 0
-  local failedOwner
-  local failed = caller(env, 'adoption-test-failing', function(context, adoption)
-    failedOwner = context
-    adoption:start(context, {
-      onPlaced = function()
-        placements += 1
-        if placements == 2 then
-          error 'fixture: onPlaced failure'
-        end
-      end,
-    })
-  end)
-  failed:enable()
-  local reports = testing.takeReports()
-  expect.equal(#reports, 1, 'the reports')
-  expect.truthy(reports[1]:find('fixture: onPlaced failure', 1, true), 'the reported failure')
-  expect.falsy(failedOwner:active(), 'the failed consumer')
-  expect.equal(#env.panels:all(), 0, 'the panels after the failure')
-  expect.equal(fake.subscriptionCount 'onWindowOpened', 0, 'the subscriptions after the failure')
-  expect.equal(#fake.events.claims, 2, 'the claims made')
-  for index, claim in fake.events.claims do
-    expect.truthy(claim.dead, 'claim ' .. index)
-  end
-  local later = fake.newWindow(103)
-  lastCallback(env) { window = later }
-  expect.equal(placements, 2, 'the placements after a copied callback runs')
-  expect.falsy(env.panels:forSource(later), 'the window the copied callback was given')
-  env.session:close()
-end)
-
 test('a start that fails or is cancelled leaves its callbacks inert, and a retry adopts cleanly', function()
   local env = start()
   local fake = env.native
@@ -252,12 +222,13 @@ test('a start that fails or is cancelled leaves its callbacks inert, and a retry
     cancelled:disable()
     lastCallback(env) { window = fake.newWindow(203) }
   end
+  local counting = env.placement:onPlaced(env.owner, {
+    run = function()
+      placements += 1
+    end,
+  })
   cancelled = caller(env, 'adoption-test-cancelled', function(context, adoption)
-    adoption:start(context, {
-      onPlaced = function()
-        placements += 1
-      end,
-    })
+    adoption:start(context)
   end)
   cancelled:enable()
   expect.equal(placements, 1, 'the placements of the caller')
@@ -278,58 +249,47 @@ test('a start that fails or is cancelled leaves its callbacks inert, and a retry
   cancelling = true
   cancelled:enable()
   require('@lunette').windows = enumerate
-  expect.equal(placements, 1, 'the placements of a cancelled enumeration')
   expect.equal(#env.panels:all(), 0, 'the panels of a cancelled enumeration')
   expect.equal(fake.subscriptionCount 'onWindowOpened', 0, 'the subscriptions after the cancellation')
+  counting:dispose()
   env.session:close()
 end)
 
--- Each way a start can end: disposing it, a raise from onPlaced caught by the caller, a raise that fails the
--- consumer's load, and disabling the consumer.
-local ENDINGS = { 'dispose', 'caught', 'failed-consumer', 'disable' }
+-- Each way a start can end: disposing it, and disabling the consumer.
+local ENDINGS = { 'dispose', 'disable' }
 
 test('every way a start ends releases its panel, claim, tags, and window', function()
   local env = start()
   local fake = env.native
-  local existing = env.tags:new(env.owner, 'existing-adoption-tag')
+  local existing = env.tags:hold(env.owner, { name = 'existing-adoption-tag' })
+  local placed = 0
+  env.placement:onPlaced(env.owner, {
+    run = function()
+      placed += 1
+    end,
+  })
   local weak = setmetatable({}, { __mode = 'v' })
   for round = 1, 2 * #ENDINGS do
     local ending = ENDINGS[(round - 1) % #ENDINGS + 1]
     local claimsBefore = #fake.events.claims
-    local placed = 0
+    placed = 0
     do
       local target = fake.newWindow(400 + round)
       weak[round] = target
       fake.events.windows = { target }
       local options = {
         defaults = { tags = { 'temporary-adoption-tag', 'existing-adoption-tag' } },
-        onPlaced = function()
-          placed += 1
-          if ending == 'caught' or ending == 'failed-consumer' then
-            error 'fixture: placement lifetime failure'
-          end
-        end,
       }
       if ending == 'dispose' then
         local started = env.adoption:start(env.owner, options)
         expect.truthy(env.tags:find 'temporary-adoption-tag', ending .. ': the implicit tag placement made')
         started:dispose()
-      elseif ending == 'caught' then
-        expect.raises(function()
-          env.adoption:start(env.owner, options)
-        end, 'fixture: placement lifetime failure', ending)
       else
         local consumer = caller(env, 'adoption-test-' .. ending, function(context, adoption)
           adoption:start(context, options)
         end)
         consumer:enable()
-        if ending == 'disable' then
-          consumer:disable()
-        else
-          local reports = testing.takeReports()
-          expect.equal(#reports, 1, ending .. ': the reports')
-          expect.truthy(reports[1]:find('fixture: placement lifetime failure', 1, true), ending .. ': the report')
-        end
+        consumer:disable()
         consumer:dispose()
       end
       fake.events.windows = {}
@@ -351,7 +311,7 @@ test('every way a start ends releases its panel, claim, tags, and window', funct
     expect.equal(weak[round], nil, ending .. ': the window after the start ended')
   end
   expect.truthy(env.owner:active(), 'the consumer that watched')
-  expect.equal(#env.rules:sources(), 0, 'the rules sources left')
+  expect.equal(#testing.ruleSources(env.rules), 0, 'the rules sources left')
   env.session:close()
 end)
 

@@ -4,7 +4,7 @@ local desktop = require '@lunette-desktop'
 desktop.run {
   settings = {
     menu = { hand = 'right' },
-    wristKeyboard = { placement = { distance = 0.45 } },
+    keyboardDisplay = { placement = { distance = 0.45 } },
   },
   patches = {
     -- The replacement keeps the `keyboard` id, so existing consumers use the split keyboard.

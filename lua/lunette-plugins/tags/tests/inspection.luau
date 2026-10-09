@@ -52,7 +52,6 @@ test('inspection leaves private target liveness unavailable and logical entries 
   })
   tag:add(observer.context, target)
   local excluded = tag:exclude(observer.context, { panel = target })
-  local members = tag.members
   local changes = 0
   local listener = service:onChanged(observer.context, {
     run = function()
@@ -69,7 +68,6 @@ test('inspection leaves private target liveness unavailable and logical entries 
   expect.equal(rawget(target, 'dead'), nil, 'the death state remains private')
   expect.equal(getterCalls, 0, 'inspection never invokes a getter')
   expect.equal(changes, 0, 'inspection never notifies listeners')
-  expect.equal(tag.members, members, 'inspection leaves the member storage untouched')
   expect.equal(#snapshot.registrations, #before.registrations, 'unchanged logical entries')
   for _, kind in ipairs { 'membership', 'exclusion' } do
     expect.equal(count(snapshot, kind), 1, 'the retained ' .. kind)

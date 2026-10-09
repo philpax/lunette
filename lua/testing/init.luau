@@ -6,6 +6,17 @@ local native = require '@testing/native'
 local session = require '@testing/session'
 local suite = require '@testing/suite'
 
+-- Lists a rules service's sources in resolution order, from its inspection.
+local function ruleSources(rules)
+  local result = {}
+  for _, entry in rules:inspect().registrations do
+    if entry.kind == 'ruleSource' then
+      result[#result + 1] = { name = entry.name, precedence = entry.details.precedence }
+    end
+  end
+  return result
+end
+
 return {
   suite = suite.new,
   expect = expect,
@@ -16,4 +27,5 @@ return {
   takeReports = host.takeReports,
   collect = host.collect,
   host = host,
+  ruleSources = ruleSources,
 }

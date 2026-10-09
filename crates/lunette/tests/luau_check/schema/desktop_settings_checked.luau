@@ -7,18 +7,18 @@ local config: desktopSettings.Config = {
   decorations = { style = { barColor = { 0, 0, 0, 1 } } },
   arrange = { layout = 'grid' },
   persistence = { file = 'desktop.state' },
-  wristKeyboard = { placement = { distance = 0.45 } },
+  keyboardDisplay = { placement = { distance = 0.45 } },
   rules = { rules = {} },
   monitors = { select = { 'DP-1' }, placement = { gap = 0.1 } },
   hint = { text = 'Waiting for windows' },
   errors = { columns = 64 },
   pointing = { laser = { tuning = { reach = 10 }, style = { color = { 1, 1, 1, 1 } } } },
   pacing = { pauseMonitors = true },
-  workspace = { name = 'main' },
+  workspaces = { workspaces = { { name = 'main' } } },
   adoption = { tags = { 'main' } },
 }
 local exportedConfig: desktopSettings.Config = config
-exportedConfig.workspace = { name = 'main' }
+exportedConfig.workspaces = { workspaces = { { name = 'main' } } }
 if config.menu then
   config.menu.hand = 'left'
   config.menu.size = 0.12
@@ -35,8 +35,8 @@ end
 if config.persistence then
   config.persistence.file = 'edited.state'
 end
-if config.wristKeyboard and config.wristKeyboard.placement then
-  config.wristKeyboard.placement.distance = 0.55
+if config.keyboardDisplay and config.keyboardDisplay.placement then
+  config.keyboardDisplay.placement.distance = 0.55
 end
 if config.rules and config.rules.rules then
   config.rules.rules[1] = { match = { appId = 'sample' }, properties = { width = 2 } }
@@ -66,8 +66,8 @@ end
 if config.pacing then
   config.pacing.pauseMonitors = false
 end
-if config.workspace then
-  config.workspace.name = 'work'
+if config.workspaces then
+  config.workspaces.follow = false
 end
 if config.adoption and config.adoption.tags then
   config.adoption.tags[1] = 'work'
@@ -86,8 +86,8 @@ end
 if settings.rules then
   settings.rules.rules[1] = { properties = { width = 3 } } -- reject.
 end
-if settings.wristKeyboard then
-  settings.wristKeyboard.placement.distance = 0.65 -- reject.
+if settings.keyboardDisplay then
+  settings.keyboardDisplay.placement.distance = 0.65 -- reject.
 end
 if settings.pointing and settings.pointing.laser.style and settings.pointing.laser.style.color then
   settings.pointing.laser.style.color[1] = 0.3 -- reject.
@@ -98,6 +98,5 @@ if settings.pacing then
 end
 settings.pacing = nil -- reject.
 config.pacing = { pauseMonitors = 'yes' } -- reject.
-config.bindings = { reload = { key = 'f5' } } -- reject.
 
 return { config = config, settings = projected, metadata = metadata }

@@ -14,22 +14,12 @@ export type Observation = {
   read drew: boolean?,
 }
 
--- One window's pacer. `observe` records an observation and answers the rate
--- in hertz, or nil for unthrottled, and whether the rate differs from the
--- previous answer. `current` answers the latest rate. `isExempt` answers
--- whether a window with that hint, and this pacer's history, is exempt from
--- throttling. `reset` forgets the history and the latest rate.
+-- One window's pacer. `observe` records an observation and answers the rate in hertz, or nil for unthrottled.
 export type Pacer = {
-  read observe: (Pacer, Observation) -> (number?, boolean),
-  read current: (Pacer) -> number?,
-  read isExempt: (Pacer, ContentType?) -> boolean,
-  read reset: (Pacer) -> (),
+  read observe: (Pacer, Observation) -> number?,
 }
 
-local inspection = require '@lunette-contracts/inspection'
-
 export type Service = {
-  read inspect: (Service) -> inspection.Snapshot,
   read newPacer: (Service) -> Pacer,
 }
 

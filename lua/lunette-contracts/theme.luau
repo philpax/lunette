@@ -1,4 +1,4 @@
--- Runtime themes carry immutable style data; font handles remain in owner-scoped leases.
+-- Runtime themes carry immutable style data; the provider caches one face per font specification.
 
 local plugin = require '@lunette-plugin'
 local inspection = require '@lunette-contracts/inspection'
@@ -134,16 +134,10 @@ export type Registration = {
   read update: (Registration, ThemeOverrides) -> (),
   read dispose: (Registration) -> (),
 }
-export type FontLease = {
-  read font: Font,
-  read spec: FontSpec,
-  read withFont: (FontLease, (Font) -> ()) -> (),
-  read dispose: (FontLease) -> (),
-}
 export type Service = {
   read current: (Service) -> Snapshot,
-  read getFont: (Service) -> Font,
-  read acquireFont: (Service, Owner, FontSpec?) -> FontLease,
+  -- Returns the face for a specification, or for the current theme's when it is omitted.
+  read font: (Service, FontSpec?) -> Font,
   read select: (Service, Owner, ThemeOverrides) -> Registration,
   read onChanged: (Service, Owner, (Snapshot) -> ()) -> plugin.Effect,
   read inspect: (Service) -> inspection.Snapshot,

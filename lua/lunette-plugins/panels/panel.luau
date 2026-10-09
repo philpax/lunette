@@ -186,9 +186,7 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
         end)
       end
       if created.chrome then
-        paint.lease:withFont(function(font: Font): ()
-          render(font)
-        end)
+        render(paint.font)
       else
         render(nil)
       end

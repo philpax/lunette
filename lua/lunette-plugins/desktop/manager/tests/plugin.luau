@@ -50,8 +50,6 @@ test('projected manager opens from the menu, moves, draws, closes, and releases 
   lovr.update(0.016)
   lovr.draw(fake.events.pass)
   expect.truthy(#fake.events.draw > 0, 'projected graph draws')
-  lovr.keypressed('f10', 0, false)
-  expect.equal(#all(), 3, 'manager installs no legacy toggle binding')
   public:click(public:pointer(), 'close')
   expect.equal(#all(), 0, 'Close hides the surface')
   running.runtime:close()
@@ -241,25 +239,6 @@ test('manager uses one stable public UI panel and does not revise unchanged geom
   expect.equal(public:open(), panel, 'reopening retains panel identity')
   running.runtime:close()
   expect.equal(panel.dead, true, 'shutdown destroys the panel')
-end)
-
-test('removed manager toggleKey fails parse and resolve with the menu migration diagnostic', function()
-  for _, run in
-    {
-      function()
-        managerConfig.schema.parse({ toggleKey = 'f10' }, 'manager')
-      end,
-      function()
-        managerConfig.schema.resolve({ toggleKey = 'f10' }, managerConfig.schema.parse {}, 'manager')
-      end,
-    }
-  do
-    expect.raises(
-      run,
-      'toggleKey is removed; open Plugins from the session menu',
-      'stale keyboard settings are explicit'
-    )
-  end
 end)
 
 return suite

@@ -138,21 +138,18 @@ render = function(state: records.Panel, pass: Pass, value: ui.Visual, record: re
     hooks[#hooks + 1] = guarded(record.draw, available)
   end
   if available() then
-    local lease = if record then record.lease else state.lease
-    lease:withFont(function(_font: Font): ()
-      local prepared = panelGeometry.prepare(state)
-      local shape = if not record or state.contour
-        then {
-          bounds = prepared.bounds,
-          profile = prepared.profile,
-          border = not state.contour and not panelGeometry.joined(state),
-          faceClip = if record and state.contour
-            then geometry.intersect(record.bounds, panelGeometry.bounds(state))
-            else nil,
-        }
-        else nil
-      draw.render(pass, value, hooks, if record then record.measurements else state.measurements, shape)
-    end)
+    local prepared = panelGeometry.prepare(state)
+    local shape = if not record or state.contour
+      then {
+        bounds = prepared.bounds,
+        profile = prepared.profile,
+        border = not state.contour and not panelGeometry.joined(state),
+        faceClip = if record and state.contour
+          then geometry.intersect(record.bounds, panelGeometry.bounds(state))
+          else nil,
+      }
+      else nil
+    draw.render(pass, value, hooks, if record then record.measurements else state.measurements, shape)
   end
 end
 

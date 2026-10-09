@@ -30,7 +30,6 @@ function render.new(calls)
     calls = sink(),
     _sink = sink,
     font = newFont(),
-    fontAcquisitions = {},
     fontMeasurements = {},
     meshAcquisitions = {},
     shaderAcquisitions = {},
@@ -46,10 +45,7 @@ end
 
 function Recorder:newFont(file, size, spread)
   local spec = table.freeze { kind = 'file', file = file, size = size, spread = spread }
-  local key = file .. ':' .. tostring(size) .. ':' .. tostring(spread)
-  local face = newFont(spec, self)
-  self.fontAcquisitions[#self.fontAcquisitions + 1] = { spec = spec, font = face, key = key }
-  return face
+  return newFont(spec, self)
 end
 
 function Recorder:newMesh(count)
@@ -101,13 +97,6 @@ function Recorder:assertMeshesReleased()
   for _, mesh in self.meshAcquisitions do
     assert(mesh.released, 'render recorder: leaked mesh')
   end
-end
-
-function Recorder:assertFontsReleased()
-  for _, acquisition in self.fontAcquisitions do
-    assert(acquisition.font.released, 'render recorder: leaked font ' .. acquisition.key)
-  end
-  assert(not self.font.released, 'render recorder: default font was released')
 end
 
 function Recorder:within(box, callback)

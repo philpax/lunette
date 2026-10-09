@@ -12,7 +12,9 @@ export type Properties = contracts.Properties
 export type Resolved = contracts.Resolved
 export type Rule = contracts.Rule
 
-type Source = contracts.Source & {
+type Source = {
+  name: string,
+  precedence: number,
   owner: Owner,
   resolve: (lunette.Window) -> Properties?,
   sequence: number,
@@ -56,72 +58,16 @@ end
 local layer = policy.layer
 local evaluate = policy.evaluate
 
-local function matches(_self: Service, match: contracts.Match?, window: lunette.Window): boolean
-  return policy.matches(match, window)
-end
-
-local function checkedRules(service: Service, list: { read [number]: Rule }): { Rule }
-  if type(list) ~= 'table' then
-    error('rules: a rules list is a table, not a ' .. type(list), 3)
-  end
-  -- Reject non-list keys because `ipairs` would skip them.
-  local count = #list
-  for key, _ in list :: { read [unknown]: unknown } do
-    if type(key) ~= 'number' or key ~= math.floor(key) or key < 1 or key > count then
-      error('rules: a rules list is a list, and ' .. tostring(key) .. ' is not one of its positions', 3)
-    end
-  end
-  local checked: { Rule } = {}
-  for index = 1, count do
-    local rule = list[index]
-    if type(rule) ~= 'table' then
-      error('rules: rule ' .. index .. ' is a table, not a ' .. type(rule), 3)
-    end
-    for key, _ in rule :: { [unknown]: unknown } do
-      if key ~= 'match' and key ~= 'properties' then
-        error(
-          'rules: rule '
-            .. index
-            .. ' has an unknown field '
-            .. tostring(key)
-            .. '; the fields are match and properties',
-          3
-        )
-      end
-    end
-    if rule.match ~= nil and type(rule.match) ~= 'table' then
-      error('rules: the match of rule ' .. index .. ' is a table, not a ' .. type(rule.match), 3)
-    end
-    if rule.properties ~= nil and type(rule.properties) ~= 'table' then
-      error('rules: the properties of rule ' .. index .. ' are a table, not a ' .. type(rule.properties), 3)
-    end
-    if rule.match ~= nil then
-      policy.checkMatch(rule.match)
-    end
-    if rule.properties ~= nil then
-      policy.checkProperties(rule.properties)
-    end
-    checked[index] = rule
-  end
-  return checked
-end
-
-local function fromList(service: Service, list: { read [number]: Rule }): (lunette.Window) -> Properties?
-  local checked = checkedRules(service, list)
+local function fromList(list: { read [number]: Rule }): (lunette.Window) -> Properties?
   return function(window: lunette.Window): Properties?
     local collected: Properties? = nil
-    for _, rule in ipairs(checked) do
-      if rule.properties and service:matches(rule.match, window) then
+    for index = 1, #list do
+      local rule = list[index]
+      if rule.properties and policy.matches(rule.match, window) then
         collected = layer(collected or {}, rule.properties)
       end
     end
     return collected
-  end
-end
-
-local function report(state: ProviderState, message: string, level: contracts.LogLevel?): ()
-  if lovr and lovr.log then
-    lovr.log(message, level or 'warn', 'lunette.rules')
   end
 end
 
@@ -158,14 +104,6 @@ local function build(context: plugin.Context, settings: Settings): Service
         )
       end
       return inspection.snapshot(result, nil, { 'resolved properties and matches require callbacks' })
-    end,
-    DEFAULT_PRECEDENCE = settings.precedence,
-    DEFAULT_SOURCE = 'lunette.rules',
-    report = function(_self: Service, fields: contracts.Report)
-      if type(fields) ~= 'table' or type(fields.message) ~= 'string' then
-        error('rules report: a report is a table whose message is a string', 2)
-      end
-      report(state, fields.message, fields.level)
     end,
     addSource = function(_self: Service, owner: Owner, registration: contracts.SourceRegistration): plugin.Effect
       context:checkOwner(owner)
@@ -212,32 +150,17 @@ local function build(context: plugin.Context, settings: Settings): Service
       end)
       return effect
     end,
-    sources = function(_self: Service): { contracts.Source }
-      local described: { contracts.Source } = {}
-      for index, source in ipairs(orderedSources(state)) do
-        described[index] = { name = source.name, precedence = source.precedence }
-      end
-      return described
-    end,
-    fromList = function(_self: Service, list: { read [number]: Rule }): (lunette.Window) -> Properties?
-      return fromList(service, list)
-    end,
     setRules = function(_self: Service, owner: Owner, set: contracts.RuleSet): plugin.Effect
       if type(set) ~= 'table' then
         error('rules: a rule set is a table of fields, not a ' .. type(set), 2)
       end
       plugin.rejectUnknownFields('rules setRules', set, RULE_SET_KEYS, 'name, precedence, and rules', 2)
-      if type(set.rules) ~= 'table' then
-        error('rules: a rule set has a list of rules, not a ' .. type(set.rules), 2)
-      end
+      policy.checkRules(set.rules)
       return service:addSource(owner, {
-        name = set.name or service.DEFAULT_SOURCE,
-        precedence = set.precedence or service.DEFAULT_PRECEDENCE,
-        resolve = service:fromList(set.rules),
+        name = set.name or 'lunette.rules',
+        precedence = set.precedence or settings.precedence,
+        resolve = fromList(set.rules),
       })
-    end,
-    matches = function(_self: Service, match: contracts.Match?, window: lunette.Window): boolean
-      return matches(service, match, window)
     end,
     resolve = function(_self: Service, window: lunette.Window): Resolved
       local collected: Properties = {}

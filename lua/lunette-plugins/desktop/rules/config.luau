@@ -2,29 +2,10 @@ local schema = require '@lunette-plugin/schema'
 local rules = require '@lunette-contracts/rules'
 local policy = require '@lunette-plugins/rules/policy'
 
-local match = schema.custom<<rules.Match>> {
-  runtimeType = 'table',
-  validate = policy.checkMatch,
-}
-local properties = schema.custom<<rules.Properties>> {
-  runtimeType = 'table',
-  validate = policy.checkProperties,
-}
 local rule: schema.Schema<rules.Rule, rules.Rule> = schema.custom<<rules.Rule>> {
   runtimeType = 'table',
   validate = function(value: unknown): rules.Rule
-    assert(type(value) == 'table' and getmetatable(value) == nil, 'a rule is a plain table')
-    local fields = value :: { [unknown]: unknown }
-    for key in fields do
-      assert(key == 'match' or key == 'properties', 'a rule contains only match and properties')
-    end
-    if fields.match ~= nil then
-      match.parse(fields.match)
-    end
-    if fields.properties ~= nil then
-      properties.parse(fields.properties)
-    end
-    return value :: rules.Rule
+    return policy.checkRule(value, 'a rule')
   end,
 }
 -- The rule contract is recursive; typed boundaries avoid repeated type-function expansion.

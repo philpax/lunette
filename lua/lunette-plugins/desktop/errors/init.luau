@@ -3,7 +3,7 @@ local plugin = require '@lunette-plugin'
 local errors = require '@lunette-contracts/errors'
 local frame = require '@lunette-contracts/frame'
 local theme = require '@lunette-contracts/theme'
-local format = require '@lunette-plugins/errors/format'
+local errorLines = require '@lunette-plugins/desktop/errors/lines'
 local passState = require '@lunette-plugins/pass-state'
 local descriptors = require '@lunette-plugins/theme/descriptors'
 
@@ -23,44 +23,42 @@ type Paint = {
   textHeight: number,
   background: theme.Color,
   foreground: theme.Color,
-  font: theme.FontLease,
+  font: Font,
 }
 
 local function draw(pass: Pass, lines: { string }, settings: Settings, paint: Paint): boolean
   if #lines == 0 then
     return false
   end
-  paint.font:withFont(function(face: Font): ()
-    passState.withRestore(pass, function(): ()
-      pass:setShader()
-      pass:setMaterial(nil)
-      pass:setFont(face)
-      local x, y, z = settings.position:unpack()
-      local textHeight = paint.textHeight
-      local height = (#lines + 1) * textHeight * 1.5
-      local background = paint.background
-      pass:setColor(background[1], background[2], background[3], background[4])
-      pass:plane(x, y, z, settings.width, height, 0, 0, 0, 0, 'fill', 1, 1)
-      local foreground = paint.foreground
-      pass:setColor(foreground[1], foreground[2], foreground[3], foreground[4])
-      local top = y + height / 2 - textHeight * 1.5
-      for index, line in ipairs(lines) do
-        pass:text(
-          line,
-          x - settings.width / 2 + textHeight,
-          top - (index - 1) * textHeight * 1.5,
-          z + 0.001,
-          textHeight,
-          0,
-          0,
-          1,
-          0,
-          0,
-          'left',
-          'middle'
-        )
-      end
-    end)
+  passState.withRestore(pass, function(): ()
+    pass:setShader()
+    pass:setMaterial(nil)
+    pass:setFont(paint.font)
+    local x, y, z = settings.position:unpack()
+    local textHeight = paint.textHeight
+    local height = (#lines + 1) * textHeight * 1.5
+    local background = paint.background
+    pass:setColor(background[1], background[2], background[3], background[4])
+    pass:plane(x, y, z, settings.width, height, 0, 0, 0, 0, 'fill', 1, 1)
+    local foreground = paint.foreground
+    pass:setColor(foreground[1], foreground[2], foreground[3], foreground[4])
+    local top = y + height / 2 - textHeight * 1.5
+    for index, line in ipairs(lines) do
+      pass:text(
+        line,
+        x - settings.width / 2 + textHeight,
+        top - (index - 1) * textHeight * 1.5,
+        z + 0.001,
+        textHeight,
+        0,
+        0,
+        1,
+        0,
+        0,
+        'left',
+        'middle'
+      )
+    end
   end)
   return true
 end
@@ -84,7 +82,7 @@ return plugin.consumer<<Config, Settings>>({
         textHeight = settings.textHeight or style.typography.errorTextHeight,
         background = settings.background or style.colors.errorBackground,
         foreground = settings.foreground or style.colors.foreground,
-        font = themeService:acquireFont(context, fontSpec),
+        font = themeService:font(fontSpec),
       }
     end
     local paint = prepare(themeService:current())
@@ -96,10 +94,7 @@ return plugin.consumer<<Config, Settings>>({
       if snapshot.revision == paint.revision then
         return
       end
-      local replacement = prepare(snapshot)
-      local previous = paint
-      paint = replacement
-      previous.font:dispose()
+      paint = prepare(snapshot)
     end
     themeService:onChanged(context, function(_event: theme.Snapshot): ()
       applyCurrent()
@@ -122,7 +117,7 @@ return plugin.consumer<<Config, Settings>>({
         local refreshed, refreshFailure = pcall(applyCurrent)
         local report = shown
         if report then
-          local lines = format.lines(
+          local lines = errorLines.of(
             { latest = report.text, count = report.sequence },
             { columns = settings.columns, lines = settings.lines }
           )

@@ -86,17 +86,17 @@ test("a removal the substitute announces ends the placement's memberships and th
       env.placement = context:require(placementContract.capability)
     end,
   })
-  local held = env.tags:new(env.owner, 'held')
+  local held = env.tags:hold(env.owner, { name = 'held' })
   local window = native.newWindow(40)
   local panel =
-    env.placement:place(env.owner, { window = window, defaults = { tags = { held, 'made-for-placement' } } })
+    env.placement:place(env.owner, { window = window, defaults = { tags = { 'held', 'made-for-placement' } } })
   expect.truthy(held:has(panel), 'the placement holds a membership of the tag given')
   expect.truthy(env.tags:find 'made-for-placement', 'the placement made the tag it named')
   window.dead = true
   env.panels:update()
   expect.truthy(panel.dead, 'the substitute removed the panel')
   expect.falsy(held:has(panel), 'the removal ended the membership')
-  expect.equal(#held.members, 0, 'the members of the held tag')
+  expect.equal(#held:panels(), 0, 'the members of the held tag')
   expect.equal(env.tags:find 'made-for-placement', nil, 'the removal ended the tag the placement made')
   session:close()
 end)

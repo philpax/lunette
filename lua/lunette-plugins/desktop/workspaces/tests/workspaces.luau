@@ -45,6 +45,13 @@ local function start(config)
   return env
 end
 
+-- Selects one tag for the owner and deselects the others.
+local function only(tags, owner, chosen)
+  for _, tag in tags:all() do
+    tag:setSelected(owner, { selected = tag == chosen })
+  end
+end
+
 local function open(env, id)
   return env.placement:place(env.owner, { window = env.native.newWindow(id), defaults = { tags = { 'main' } } })
 end
@@ -125,7 +132,7 @@ test(
     expect.equal(oldInvoke(oldService, oldRow.id, oldRow.registration).kind, 'unavailable', 'an old action is inert')
     local second = open(env, 2)
     expect.truthy(env.web:has(second) and not env.main:has(second), 'follow remains active without the broker')
-    env.tags:only(env.owner, env.main)
+    only(env.tags, env.owner, env.main)
     expect.truthy(not first.hidden and second.hidden, 'external selection updates visibility without the broker')
     env.session.instances.menu:enable()
     expect.truthy(row(env, 'main').selected and not row(env, 'web').selected, 'recovery reads actual tag selection')
@@ -142,7 +149,7 @@ test(
 
 test('external tag selection updates action metadata and the workspace followed by newly placed panels', function()
   local env = start()
-  env.tags:only(env.owner, env.web)
+  only(env.tags, env.owner, env.web)
   expect.truthy(row(env, 'web').selected and not row(env, 'main').selected, 'external selection metadata')
   local panel = open(env, 1)
   expect.truthy(env.web:has(panel) and not env.main:has(panel), 'follow uses the externally chosen workspace')
@@ -182,14 +189,6 @@ test('a malformed workspace list fails the consumer and names the option', funct
       config = { workspaces = { { name = 'a' }, { name = 'a' } } },
       message = 'workspace name a occurs twice',
     },
-    {
-      config = { workspaces = { { name = 'main', key = '1' } } },
-      message = 'workspaces key is removed; choose workspaces from the session menu',
-    },
-    {
-      config = { modifiers = { 'alt' } },
-      message = 'workspaces modifiers are removed; choose workspaces from the session menu',
-    },
   } do
     local env = start(case.config)
     local instance = env.session.instances['desktop/workspaces']
@@ -199,6 +198,13 @@ test('a malformed workspace list fails the consumer and names the option', funct
     expect.equal(#testing.takeReports(), 1, 'the failures reported')
     env.session:close()
   end
+end)
+
+test('a single workspace registers no menu actions', function()
+  local env = start { workspaces = { { name = 'main' } } }
+  expect.truthy(env.main.selected, 'the only workspace is in view')
+  expect.equal(#env.actions.service:list(), 0, 'the menu actions')
+  env.session:close()
 end)
 
 return test

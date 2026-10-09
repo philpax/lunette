@@ -2,13 +2,11 @@
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
-local tags = require '@lunette-contracts/tags'
 local vocabulary = require '@lunette-contracts/vocabulary'
 
 local rules = {}
 
 export type Owner = plugin.Owner
-export type Tag = tags.Tag
 
 export type Valued<T> = T | ((lunette.Window, string) -> T)
 export type Evaluators = { read [string]: (lunette.Window, string) -> unknown }
@@ -23,7 +21,7 @@ export type Properties = {
   read curve: Valued<number>?,
   read hidden: Valued<boolean>?,
   read adopt: Valued<boolean>?,
-  read tags: Valued<{ read [number]: string | Tag }>?,
+  read tags: Valued<{ read [number]: string }>?,
   read evaluate: Evaluators?,
   [string]: unknown,
 }
@@ -38,7 +36,7 @@ export type Resolved = {
   read curve: number?,
   read hidden: boolean?,
   read adopt: boolean?,
-  read tags: { read [number]: string | Tag }?,
+  read tags: { read [number]: string }?,
   [string]: unknown,
 }
 
@@ -62,11 +60,6 @@ export type Rule = {
   read properties: Properties?,
 }
 
-export type Source = {
-  read name: string,
-  read precedence: number,
-}
-
 -- Higher-precedence sources merge later and win on conflicting keys.
 export type SourceRegistration = {
   read name: string,
@@ -74,32 +67,19 @@ export type SourceRegistration = {
   read resolve: (lunette.Window) -> Properties?,
 }
 
--- A rule set defaults to `DEFAULT_SOURCE` and `DEFAULT_PRECEDENCE`. Concurrent sets require distinct names.
+-- A rule set defaults to the source `lunette.rules` at the provider's precedence. Concurrent sets require distinct names.
 export type RuleSet = {
   read name: string?,
   read precedence: number?,
   read rules: { read [number]: Rule },
 }
 
-export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
-
-export type Report = {
-  read message: string,
-  read level: LogLevel?,
-}
-
 local inspection = require '@lunette-contracts/inspection'
 
 export type Service = {
   read inspect: (Service) -> inspection.Snapshot,
-  read DEFAULT_PRECEDENCE: number,
-  read DEFAULT_SOURCE: string,
-  read report: (Service, Report) -> (),
   read addSource: (Service, Owner, SourceRegistration) -> plugin.Effect,
-  read sources: (Service) -> { Source },
-  read fromList: (Service, { read [number]: Rule }) -> (lunette.Window) -> Properties?,
   read setRules: (Service, Owner, RuleSet) -> plugin.Effect,
-  read matches: (Service, Match?, lunette.Window) -> boolean,
   read resolve: (Service, lunette.Window) -> Resolved,
 }
 

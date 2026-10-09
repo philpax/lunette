@@ -58,29 +58,6 @@ local function isMatrix(value: unknown): boolean
   return typeOf(value) == 'Mat4'
 end
 
-local function isTag(value: unknown): boolean
-  if type(value) ~= 'table' then
-    return false
-  end
-  local fields = value :: { [string]: unknown }
-  if
-    type(fields.name) ~= 'string'
-    or not isFinite(fields.index)
-    or type(fields.selected) ~= 'boolean'
-    or type(fields.dead) ~= 'boolean'
-    or (fields.layout ~= nil and type(fields.layout) ~= 'string')
-    or type(fields.members) ~= 'table'
-  then
-    return false
-  end
-  for _, key in { 'add', 'remove', 'exclude', 'has', 'panels', 'setSelected', 'setLayout', 'destroy' } do
-    if type(fields[key]) ~= 'function' then
-      return false
-    end
-  end
-  return true
-end
-
 local function checkTags(value: unknown): ()
   local list = checkedTable(value, 'property tags')
   local count = #list
@@ -90,8 +67,8 @@ local function checkTags(value: unknown): ()
     end
   end
   for index = 1, count do
-    if type(list[index]) ~= 'string' and not isTag(list[index]) then
-      error('rules: property tags contains a string or tag at position ' .. index)
+    if type(list[index]) ~= 'string' then
+      error('rules: property tags names a tag by a string at position ' .. index)
     end
   end
 end
@@ -156,6 +133,37 @@ function policy.checkProperties(value: unknown): rules.Properties
     end
   end
   return value :: rules.Properties
+end
+
+function policy.checkRule(value: unknown, label: string): rules.Rule
+  local fields = checkedTable(value, label)
+  for key in fields do
+    if key ~= 'match' and key ~= 'properties' then
+      error('rules: ' .. label .. ' has an unknown field ' .. tostring(key) .. '; the fields are match and properties')
+    end
+  end
+  if fields.match ~= nil then
+    policy.checkMatch(fields.match)
+  end
+  if fields.properties ~= nil then
+    policy.checkProperties(fields.properties)
+  end
+  return value :: rules.Rule
+end
+
+-- Rejects non-list keys, because `ipairs` would skip them.
+function policy.checkRules(value: unknown): { read [number]: rules.Rule }
+  local list = checkedTable(value, 'a rules list')
+  local count = #list
+  for key in list do
+    if type(key) ~= 'number' or key ~= math.floor(key) or key < 1 or key > count then
+      error('rules: a rules list is a list, and ' .. tostring(key) .. ' is not one of its positions')
+    end
+  end
+  for index = 1, count do
+    policy.checkRule(list[index], 'rule ' .. index)
+  end
+  return value :: { read [number]: rules.Rule }
 end
 
 function policy.matches(match: rules.Match?, window: lunette.Window): boolean

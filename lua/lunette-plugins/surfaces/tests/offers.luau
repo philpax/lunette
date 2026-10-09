@@ -34,7 +34,7 @@ test('an offer name names one offer until its effect or its owner ends, and offe
   consumer(session, 'surfaces-second', function(context, service)
     expect.raises(function()
       service:offer(context, { name = 'fixture', list = function() end })
-    end, 'surfaces offer: fixture is already offered', 'a name already offered')
+    end, 'surfaces offer: fixture is already registered', 'a name already offered')
     offered = service:offer(context, { name = 'second', list = listing 'second' })
   end)
   local listed = broker:all()

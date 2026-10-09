@@ -55,7 +55,7 @@ test('an option of the wrong type is rejected with its path and what it should b
     },
     {
       patch = { id = 'pacing', config = { tuning = { background = 0 } } },
-      message = 'plugin pacing: option tuning.background is not positive',
+      message = 'plugin pacing: option tuning.background is below 1',
     },
     {
       patch = { id = 'desktop/monitors', config = { placement = { center = vector.pack(0, math.huge, -2) } } },
@@ -166,7 +166,7 @@ test('a configured desktop serves what its patches configured, over the defaults
 
   services.rules:setRules(owner, { name = 'probe', rules = {} })
   local precedences = {}
-  for _, source in ipairs(services.rules:sources()) do
+  for _, source in ipairs(testing.ruleSources(services.rules)) do
     precedences[source.name] = source.precedence
   end
   expect.equal(precedences.probe, 150, 'a rule set without a precedence takes the configured one')

@@ -133,25 +133,10 @@ test('provider list registration uses the same validation before any window is p
   local observed = session:observe(rules.capability)
   for _, case in invalidRules do
     expect.raises(function()
-      observed.service:fromList { case.rule }
-    end, case.message, 'fromList validation')
-    expect.raises(function()
       observed.service:setRules(observed.context, { rules = { case.rule } })
     end, case.message, 'setRules validation')
   end
-  expect.equal(#observed.service:sources(), 0, 'invalid rule sets register no source')
-  session:close()
-end)
-
-test('rule validation preserves tags from a live provider', function()
-  local tags = require '@lunette-contracts/tags'
-  local session = testing.start { 'tags' }
-  local observed = session:observe(tags.capability)
-  local tag = observed.service:new(observed.context, 'main')
-  local properties = { tags = { tag } }
-  local resolved = definition.resolve { rules = { { properties = properties } } }
-  expect.equal(resolved.rules[1].properties.tags[1], tag, 'live tag identity')
-  expect.equal(policy.layer({}, properties).tags[1], tag, 'layer tag identity')
+  expect.equal(#testing.ruleSources(observed.service), 0, 'invalid rule sets register no source')
   session:close()
 end)
 
@@ -233,12 +218,6 @@ do
             end,
           },
           {
-            name = 'fromList',
-            run = function()
-              observed.service:fromList(input.rules)
-            end,
-          },
-          {
             name = 'setRules',
             run = function()
               observed.service:setRules(observed.context, input)
@@ -252,7 +231,7 @@ do
         expect.falsy(ok, entry.name .. ' rejects the container metatable')
         expect.truthy(tostring(message):find('plain table', 1, true), tostring(message))
       end
-      expect.equal(#observed.service:sources(), 0, 'rejected containers register no source')
+      expect.equal(#testing.ruleSources(observed.service), 0, 'rejected containers register no source')
       session:close()
     end)
   end

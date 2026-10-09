@@ -2,7 +2,7 @@
 local testing = require '@testing'
 local expect = testing.expect
 local desktop = require '@lunette-desktop'
-local persist = require '@lunette-plugins/arrangement'
+local persist = require '@lunette-plugins/arrangement/format'
 local panelsContract = require '@lunette-contracts/panels'
 local vocabulary = require '@lunette-contracts/vocabulary'
 local plugin = require '@lunette-plugin'

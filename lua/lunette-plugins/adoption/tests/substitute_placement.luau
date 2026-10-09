@@ -44,28 +44,22 @@ test('adoption places through a substitute, and an adoption ends with its caller
   }
   local window = native.newWindow(41)
   native.events.windows = { window }
-  local adopted = {}
   local caller = session:use(plugin.define {
     name = 'substitute-placement-test',
     requires = { adoption = adoptionContract.capability },
     init = function(context)
       local adoption = context:require(adoptionContract.capability)
       adoption:install(context)
-      adoption:start(context, {
-        onPlaced = function(panel)
-          adopted[#adopted + 1] = panel
-        end,
-      })
+      adoption:start(context)
     end,
   })
-  expect.equal(#adopted, 1, 'the adopted panels')
   expect.equal(#placements, 1, 'the placements made through the substitute')
-  expect.equal(adopted[1], placements[1], 'the adopted panel is the substitute placement')
+  local adopted = placements[1]
 
   window.dead = true
   native.events.windows = {}
   caller:disable()
-  expect.truthy(adopted[1].dead, "the panel after the caller's adoption ends")
+  expect.truthy(adopted.dead, "the panel after the caller's adoption ends")
   expect.equal(#placements, 0, 'the placements after the caller unloads')
 
   caller:enable()

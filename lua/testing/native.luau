@@ -197,7 +197,6 @@ function native.new()
       assert(fake.subscriptionCount(name) == 0, 'leaked subscription: ' .. name)
     end
     assert(events.closed == 0, 'cleanup closed caller-owned window')
-    events.render:assertFontsReleased()
     events.render:assertMeshesReleased()
   end
 

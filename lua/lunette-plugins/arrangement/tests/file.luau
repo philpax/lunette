@@ -1,7 +1,7 @@
 local testing = require '@testing'
 local expect = testing.expect
 local rulesContract = require '@lunette-contracts/rules'
-local arrangement = require '@lunette-plugins/arrangement'
+local arrangement = require '@lunette-plugins/arrangement/format'
 local persist = require '@lunette-plugins/arrangement/state'
 local fixture = require './support/fixture'
 
@@ -117,32 +117,6 @@ for _, text in ipairs { futureText(), 'return {' } do
   end)
 end
 
-test('successful force save clears refusal and permits later ordinary saves', function()
-  local fs = filesystem(futureText())
-  local state = newState(fs)
-  withBinding(state, function(binding)
-    expect.equal(binding:save { force = true }, true, 'the forced save')
-    expect.falsy(state:declined(), 'the cleared refusal')
-    expect.equal(binding:save(), true, 'the ordinary save')
-  end)
-  expect.equal(fs.writes, 2, 'the writes')
-  expect.equal(fs.text, arrangement.render(state:arrangement()), 'the rendered bytes')
-  expect.equal(state:loaded().kind, 'fromTheFuture', 'the original load result')
-end)
-
-test('failed force save retains refusal and original bytes', function()
-  local text = futureText()
-  local fs = filesystem(text)
-  local state = newState(fs)
-  local refusal = state:declined()
-  fs.writable = false
-  withBinding(state, function(binding)
-    expect.equal(binding:save { force = true }, false, 'the forced save')
-    expect.equal(state:declined(), refusal, 'the retained refusal')
-  end)
-  expect.equal(fs.text, text, 'the bytes')
-end)
-
 test('new state can read a replacement file without changing an existing refusal', function()
   local fs = filesystem(futureText())
   local refused = newState(fs)
@@ -169,7 +143,7 @@ test('saved bytes restore pose, size, and tags in a new configuration state', fu
       pose = lovr.math.newMat4():translate(-0.5, 1.75, -2.25),
       width = 1.6,
     })
-    tags:new(context, 'main'):add(context, panel)
+    tags:hold(context, { name = 'main' }):add(context, panel)
     expect.equal(binding:save(), true, 'the save')
   end)
   local recovered = newState(fs)
@@ -234,14 +208,14 @@ test('an unloading binding refuses every save while its source is still register
   local ran, failure = false, nil
   withBinding(newState(fs), function(binding, context, _panels, _tags, owner)
     local rules = context:require(rulesContract.capability)
-    expect.equal(#rules:sources(), 2, 'the binding source and the caller rules')
+    expect.equal(#testing.ruleSources(rules), 2, 'the binding source and the caller rules')
     owner:disable()
     expect.truthy(ran, 'the later inverse ran')
     if failure then
       error(failure)
     end
     expect.falsy(binding:active(), 'the binding after unload')
-    expect.equal(#rules:sources(), 0, 'the binding source and the caller rules are removed exactly')
+    expect.equal(#testing.ruleSources(rules), 0, 'the binding source and the caller rules are removed exactly')
   end, function(current, binding)
     local rules = current:require(rulesContract.capability)
     rules:setRules(current, { rules = { { properties = { width = 1 } } } })
@@ -251,9 +225,8 @@ test('an unloading binding refuses every save while its source is still register
         ran = true
         local ok, raised = pcall(function()
           expect.falsy(current:active(), 'the context is inactive before its inverses run')
-          expect.equal(#rules:sources(), 2, 'the persistence source is still registered')
+          expect.equal(#testing.ruleSources(rules), 2, 'the persistence source is still registered')
           expect.falsy(binding:save(), 'an ordinary save')
-          expect.falsy(binding:save { force = true }, 'a forced save')
         end)
         if not ok then
           failure = raised
@@ -289,133 +262,10 @@ test('the default adapter routes reads and writes through the save filesystem', 
   expect.equal(native.events.saved, arrangement.render(state:arrangement()), 'the format-one bytes')
 end)
 
--- The custom format reports versions it cannot represent.
-local LINES_VERSION = 1
-local lines = {
-  read = function(text)
-    local version = tonumber(text:match '^lines (%d+)\n')
-    if not version then
-      return arrangement.broken 'no version line'
-    end
-    if version > LINES_VERSION then
-      return arrangement.fromTheFuture { found = version, supported = LINES_VERSION }
-    end
-    local entries = {}
-    for kind, key, slot, pose in text:gmatch '(%a+)\t([^\t]+)\t(%d+)\t([^\n]+)\n' do
-      entries[#entries + 1] = { kind = kind, key = key, slot = tonumber(slot), pose = pose, tags = {} }
-    end
-    return arrangement.arrangement { file = arrangement.newFile(entries), version = version }
-  end,
-  render = function(file)
-    local out = { 'lines ' .. LINES_VERSION }
-    for _, entry in ipairs(arrangement.entries(file)) do
-      out[#out + 1] = table.concat({ entry.kind, entry.key, tostring(entry.slot), entry.pose }, '\t')
-    end
-    return table.concat(out, '\n') .. '\n'
-  end,
-}
-
-test('a named file in another format round-trips the arrangement', function()
-  local fs = filesystem(nil, 'profile.lines')
-  local state = persist.new { filesystem = fs, file = 'profile.lines', format = lines }
-  expect.equal(persist.path(fs, 'profile.lines'), '/a/save/directory/profile.lines', 'the named path')
-  withBinding(state, function(binding, context, panels)
-    panels:fromMonitor(context, { id = 'fixture.monitor', dead = false, width = 1920, height = 1080 }, {
-      pose = lovr.math.newMat4():translate(1, 2, 3),
-    })
-    expect.equal(binding:save(), true, 'the save')
-  end)
-  expect.truthy(fs.text:find '^lines 1\nmonitor\tfixture.monitor\t1\t', 'the format wrote the file: ' .. fs.text)
-  local recovered = persist.new { filesystem = fs, file = 'profile.lines', format = lines }
-  local entries = arrangement.entries(recovered:arrangement())
-  expect.equal(#entries, 1, 'the entries read back')
-  expect.equal(entries[1].key, 'fixture.monitor', 'the key read back')
-end)
-
-test('a format that reports a later version leaves the file alone', function()
-  local fs = filesystem('lines 7\n', 'profile.lines')
-  local reports = {}
-  local state = persist.new {
-    filesystem = fs,
-    file = 'profile.lines',
-    format = lines,
-    report = function(message)
-      reports[#reports + 1] = message
-    end,
-  }
-  expect.equal(state:loaded().kind, 'fromTheFuture', 'the load')
-  expect.truthy(state:declined():find('written by version 7', 1, true), 'the refusal')
-  withBinding(state, function(binding)
-    expect.equal(binding:save(), false, 'the refused save')
-  end)
-  expect.equal(fs.text, 'lines 7\n', 'the bytes')
-end)
-
-test('a format whose read raises or answers no load is a broken file', function()
-  for _, read in ipairs {
-    function()
-      error 'unreadable'
-    end,
-    function()
-      return { kind = 'arrangement' }
-    end,
-  } do
-    local state = persist.new {
-      filesystem = filesystem 'anything',
-      format = { read = read, render = lines.render },
-      report = function() end,
-    }
-    expect.equal(state:loaded().kind, 'broken', 'the load')
-  end
-end)
-
-test('a malformed file, format, or key function raises at construction', function()
-  for _, dependencies in ipairs {
-    { file = '' },
-    { format = { read = lines.read } },
-    { keyFor = 'title' },
-  } do
-    expect.raises(function()
-      persist.new(dependencies)
-    end, 'desktop.persist', 'the malformed dependency')
-  end
-end)
-
-test('a key function keys windows by title instead of application', function()
-  local fs = filesystem(nil)
-  local state = persist.new {
-    filesystem = fs,
-    keyFor = function(target)
-      if target.kind == 'window' then
-        return target.source.title
-      end
-      return arrangement.defaultKey(target)
-    end,
-  }
-  local function terminal(id, title)
-    return {
-      id = id,
-      appId = 'terminal',
-      title = title,
-      dead = false,
-      width = 800,
-      height = 600,
-      getProperty = function() end,
-    }
-  end
-  withBinding(state, function(binding)
-    local source = persist.source(
-      arrangement.newFile {
-        { kind = 'window', key = 'build', slot = 1, pose = '1 0 0 0 0 1 0 0 0 0 1 0 4 5 6 1', tags = {} },
-      },
-      persist.slots(function(target)
-        return target.source.title
-      end)
-    )
-    expect.truthy(source(terminal(1, 'build')), 'the window titled build has the entry')
-    expect.falsy(source(terminal(2, 'editor')), 'another title of the same application does not')
-    expect.truthy(binding:active(), 'the binding')
-  end)
+test('an empty file name raises at construction', function()
+  expect.raises(function()
+    persist.new { file = '' }
+  end, 'desktop.persist', 'the malformed dependency')
 end)
 
 return test

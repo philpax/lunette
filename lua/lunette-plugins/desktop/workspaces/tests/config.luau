@@ -29,14 +29,6 @@ local function change(operation, ...)
   return model
 end
 
-test('workspace metadata omits removed physical settings', function()
-  local metadata = config.schema.inspect()
-  expect.equal(metadata.fields.modifiers, nil)
-  local workspace = metadata.fields.workspaces.child.child.child
-  expect.equal(workspace.fields.key, nil)
-  expect.equal(workspace.fields.name.kind, 'string')
-end)
-
 test('names-only workspace configuration retains add, remove, and reset editing', function()
   local initial = { workspaces = { { name = 'main' }, { name = 'web' } }, follow = false }
   local model = editor.new(config.schema.inspect(), initial)
@@ -59,26 +51,6 @@ test('names-only workspace configuration retains add, remove, and reset editing'
   local whole = change(editor.reset, reset, {})
   expect.equal(editor.draft(whole).follow, defaults.follow)
   expect.equal(#editor.draft(whole).workspaces, #defaults.workspaces)
-end)
-
-test('workspace migration rejects removed fields in parse, patches, and resolved bases', function()
-  local defaults = config.schema.parse {}
-  for _, case in
-    {
-      { value = { modifiers = { 'alt' } }, message = 'workspaces modifiers are removed' },
-      { value = { workspaces = { { name = 'main', key = '1' } } }, message = 'workspaces key is removed' },
-    }
-  do
-    expect.raises(function()
-      config.schema.parse(case.value, 'desktop/workspaces')
-    end, case.message)
-    expect.raises(function()
-      config.schema.resolve(case.value, defaults, 'desktop/workspaces')
-    end, case.message)
-    expect.raises(function()
-      config.schema.resolve({}, case.value, 'desktop/workspaces')
-    end, case.message)
-  end
 end)
 
 return test

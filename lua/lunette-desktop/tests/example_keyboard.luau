@@ -20,7 +20,7 @@ test('the keyboard example runs, and its split keyboard is shown with its halves
     desktop.compose {
       settings = {
         menu = { hand = 'right' },
-        wristKeyboard = { placement = { distance = 0.45 } },
+        keyboardDisplay = { placement = { distance = 0.45 } },
       },
       patches = {
         { id = 'keyboard', definition = require 'split' },

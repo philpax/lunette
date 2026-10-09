@@ -159,7 +159,10 @@ local function define(): plugin.Definition<Config>
               reported[name] = nil
             elseif not reported[name] then
               reported[name] = true
-              local names = catalog:names()
+              local names: { string } = {}
+              for _, entry in catalog:list() do
+                names[#names + 1] = entry.name
+              end
               local known = if #names == 0
                 then 'no theme is registered'
                 else 'the registered themes are ' .. table.concat(names, ', ')

@@ -325,9 +325,6 @@ test('text-field pointer selects the boundary drawn in a scrolled, clipped, shor
       theme = function()
         return style
       end,
-      withFont = function(run)
-        run(style.font)
-      end,
       callback = function(_, run)
         run()
         return true
