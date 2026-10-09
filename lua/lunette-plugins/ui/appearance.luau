@@ -8,6 +8,11 @@ local draw = require './draw'
 
 local appearance = {}
 
+local function stableRadius(value: number, previous: number): number
+  -- Float matrix decomposition perturbs scale during rigid rotation.
+  return if math.abs(value - previous) <= 1e-6 * math.max(value, previous) then previous else value
+end
+
 local function attempt(label: string, run: () -> (), failures: { string }): ()
   local ok, failure = pcall(run)
   if not ok then
@@ -44,8 +49,10 @@ function appearance.refresh(panel: records.Panel, force: boolean?): ()
   end
   local snapshot = panel.themes:current()
   local sx, sy = panel.pose:getScale()
-  local radiusX = snapshot.theme.radii.uiPanel * panel.logicalWidth / (panel.width * math.abs(sx))
-  local radiusY = snapshot.theme.radii.uiPanel * panel.logicalHeight / (panel.height * math.abs(sy))
+  local measuredX = snapshot.theme.radii.uiPanel * panel.logicalWidth / (panel.width * math.abs(sx))
+  local measuredY = snapshot.theme.radii.uiPanel * panel.logicalHeight / (panel.height * math.abs(sy))
+  local radiusX = if snapshot.revision == panel.themeRevision then stableRadius(measuredX, panel.radiusX) else measuredX
+  local radiusY = if snapshot.revision == panel.themeRevision then stableRadius(measuredY, panel.radiusY) else measuredY
   if
     not force
     and snapshot.revision == panel.themeRevision

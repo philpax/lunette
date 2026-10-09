@@ -13,6 +13,11 @@ local drawing = require '@lunette-plugins/theme/drawing'
 
 local panels = {}
 
+local function stableRadius(value, previous)
+  -- Float matrix decomposition perturbs scale during rigid rotation.
+  return if math.abs(value - previous) <= 1e-6 * math.max(value, previous) then previous else value
+end
+
 function panels.new(provider, owner, options)
   for _, value in { options.width, options.height, options.logicalWidth, options.logicalHeight } do
     assert(geometry.finite(value) and value > 0, 'ui substitute: panel dimensions are finite and positive')
@@ -66,16 +71,23 @@ function panels.new(provider, owner, options)
       provider.refreshBase()
       local base = table.clone(provider.base)
       local sx, sy = panel.surface.pose:getScale()
+      local revision = provider.theme:current().revision
       if provider.overrides.panelRadius == nil then
-        base.panelRadius = provider.radius * panel.surface.pixelWidth / (panel.surface.width * math.abs(sx))
+        local radiusX = provider.radius * panel.surface.pixelWidth / (panel.surface.width * math.abs(sx))
+        base.panelRadius = if revision == panel.themeRevision
+          then stableRadius(radiusX, panel.resolved.panelRadius)
+          else radiusX
       end
       local changed = appearance.resolve(panel, base, panel.overrides)
       local explicit = (panel.overrides and panel.overrides.panelRadius) or provider.overrides.panelRadius
       local radiusY = if explicit ~= nil
         then explicit
         else provider.radius * panel.surface.pixelHeight / (panel.surface.height * math.abs(sy))
+      if revision == panel.themeRevision then
+        radiusY = stableRadius(radiusY, panel.radiusY)
+      end
       changed = changed or (panel.radiusY ~= nil and panel.radiusY ~= radiusY)
-      panel.radiusY = radiusY
+      panel.radiusY, panel.themeRevision = radiusY, revision
       for _, control in table.clone(panel.controls) do
         if control.live() then
           changed = control.refresh() or changed
@@ -110,6 +122,7 @@ function panels.new(provider, owner, options)
   panel.radiusY = if explicit ~= nil
     then explicit
     else provider.radius * panel.surface.pixelHeight / (panel.surface.height * math.abs(initialScaleY))
+  panel.themeRevision = provider.theme:current().revision
   function panel.bounds()
     return { x = 0, y = 0, width = panel.surface.pixelWidth, height = panel.surface.pixelHeight }
   end

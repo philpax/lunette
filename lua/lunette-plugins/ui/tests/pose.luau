@@ -13,10 +13,19 @@ do
   test(provider.name .. ' rigid panel motion preserves a held pointer capture', function()
     local state = fixture.boot { provider = provider.definition }
     local ok, failure = pcall(function()
+      state.themes:select(state.owner, { radii = { uiPanel = 0.008 } })
       fixture.press(state, 'custom')
       local before = state.panel:describe()
-      local pose = lovr.math.newMat4(table.unpack(before.pose)):translate(0.2, 0, 0)
-      state.panel:setPose(pose)
+      local pose
+      for index = 1, 12 do
+        pose = lovr.math
+          .newMat4()
+          :translate(0.2, 1.5, -2)
+          :rotate(index * 0.17, 0.3, 0.8, 0.5)
+          :rotate(math.pi, -0.7071066, 0.0007963618, 0.7071066)
+        state.panel:setPose(pose)
+        state.panel:describe()
+      end
       local after = state.panel:describe()
       expect.truthy(after.revision > before.revision, 'the moved geometry has a new revision')
       for _, event in state.events do
@@ -38,7 +47,7 @@ do
       end
       expect.equal(releases, 1, 'one original gesture releases after motion')
       fixture.press(state, 'run')
-      state.panel:setPose(lovr.math.newMat4(pose):translate(0.2, 0, 0))
+      state.panel:setPose(lovr.math.newMat4(pose):translate(0.2, 0, 0):rotate(0.41, 0.2, 0.9, 0.3))
       local moved, button = state.fixture:discover(state.service, 'public-ui-form', 'run')
       local buttonBounds = button.bounds
       state.fixture:aim(moved, buttonBounds.x + buttonBounds.width / 2, buttonBounds.y + buttonBounds.height / 2)
