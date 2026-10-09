@@ -1,4 +1,4 @@
-//! Linux-only: delivers compositor and layer lifecycle events to Lua callbacks.
+//! Linux-only: delivers compositor lifecycle events to Lua callbacks.
 //!
 //! Each `lun*` event carries one table built at dispatch time, because LÖVR variants cannot hold mlua userdata.
 
@@ -14,30 +14,29 @@ use lunette_compositor::protocol::{
 };
 use lunette_lovr::raw::{CustomEvent, Event as LovrEvent, EventType_EVENT_CUSTOM, lovrEventPush};
 use mlua::{Lua, Table};
+use tracing::info;
 
 use crate::{
     callback_error::report,
     events::macros::events,
-    layers::ClaimId,
     lua::{
-        Claim, LuaTexture, Monitor, Process, Session, Window,
+        LuaTexture, Monitor, Process, Session, Window,
         declarations::NullTexture,
-        values::{GrantedLayer, OutcomeName, StreamName},
+        values::{OutcomeName, StreamName},
     },
 };
 
-/// A compositor or layer event delivered to a Lua callback.
+/// A compositor event delivered to a Lua callback.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LuaEvent {
     /// `lovr.lunwindowopened{ window = … }`.
     WindowOpened { window: WindowId },
     /// `lovr.lunwindowclosed{ window = … }`. The handle is dead because the snapshot no longer lists the window.
     WindowClosed { window: WindowId },
-    /// `lovr.luntitlechanged{ window = …, title = … }`.
-    TitleChanged { window: WindowId, title: String },
-    /// `lovr.lunmonitoradded{ id = …, monitor = … }`.
+    /// `lovr.lunmonitoradded{ monitor = … }`.
     ///
-    /// Startup screens are also reported when the mirror lifecycle first observes them.
+    /// Startup screens are also reported when the mirror lifecycle first observes them. A screen
+    /// unplugged before dispatch is not reported.
     MonitorAdded { monitor: MonitorKey },
     /// `lovr.lunprocessexited{ process = …, outcome = …, … }`.
     ProcessExited {
@@ -50,12 +49,6 @@ pub enum LuaEvent {
         stream: Stream,
         bytes: Vec<u8>,
     },
-    /// `lovr.lunlayergranted{ claim = …, layer = … }`.
-    LayerGranted { claim: ClaimId },
-    /// `lovr.lunlayerrevoked{ claim = … }`.
-    ///
-    /// The claim stays active and can receive a layer again.
-    LayerRevoked { claim: ClaimId },
 }
 
 impl LuaEvent {
@@ -65,18 +58,16 @@ impl LuaEvent {
         match self {
             Self::WindowOpened { .. } => WINDOW_OPENED,
             Self::WindowClosed { .. } => WINDOW_CLOSED,
-            Self::TitleChanged { .. } => TITLE_CHANGED,
             Self::MonitorAdded { .. } => MONITOR_ADDED,
             Self::ProcessExited { .. } => PROCESS_EXITED,
             Self::ProcessOutput { .. } => PROCESS_OUTPUT,
-            Self::LayerGranted { .. } => LAYER_GRANTED,
-            Self::LayerRevoked { .. } => LAYER_REVOKED,
         }
     }
 
     /// Which compositor reports become Lua callbacks.
     ///
-    /// Exhaustive, so a new protocol variant needs an answer here.
+    /// Exhaustive, so a new protocol variant needs an answer here. A client's output is also
+    /// logged here, so it has a record whether or not a handler listens.
     #[must_use]
     pub fn from_compositor(event: &CompositorEvent) -> Option<Self> {
         match event {
@@ -86,10 +77,6 @@ impl LuaEvent {
             CompositorEvent::WindowClosed { window } => {
                 Some(Self::WindowClosed { window: *window })
             }
-            CompositorEvent::TitleChanged { window, title } => Some(Self::TitleChanged {
-                window: *window,
-                title: title.clone(),
-            }),
             CompositorEvent::ProcessExited { process, outcome } => Some(Self::ProcessExited {
                 process: *process,
                 outcome: outcome.clone(),
@@ -98,11 +85,16 @@ impl LuaEvent {
                 process,
                 stream,
                 bytes,
-            } => Some(Self::ProcessOutput {
-                process: *process,
-                stream: *stream,
-                bytes: bytes.clone(),
-            }),
+            } => {
+                log_output(*process, *stream, bytes);
+                Some(Self::ProcessOutput {
+                    process: *process,
+                    stream: *stream,
+                    bytes: bytes.clone(),
+                })
+            }
+            // The snapshot carries the title, and a handler reads it from the window.
+            CompositorEvent::TitleChanged { .. } => None,
             // These belong to the frame loop, and the configuration cannot act on them.
             CompositorEvent::SurfaceDamaged { .. }
             | CompositorEvent::BufferImported { .. }
@@ -111,6 +103,13 @@ impl LuaEvent {
             CompositorEvent::GraphicsReleased | CompositorEvent::GraphicsAdopted { .. } => None,
         }
     }
+}
+
+/// Logs one chunk a client wrote. The bytes are rendered lossily for the log only; the event
+/// carries them intact.
+fn log_output(process: ProcessId, stream: Stream, bytes: &[u8]) {
+    let text = String::from_utf8_lossy(bytes);
+    info!(%process, stream = stream.as_str(), "{}", text.trim_end());
 }
 
 /// A validated event name that fits LÖVR's `CustomEvent` name field.
@@ -260,24 +259,13 @@ events! {
         window: Window<NullTexture> = Window::for_id(Rc::clone(session), *window),
     }
 
-    /// A toplevel changes its title.
-    TITLE_CHANGED = luntitlechanged(_lua, session) as TitleChangedEvent via onTitleChanged
-        from LuaEvent::TitleChanged { window, title } =>
-    {
-        /// The window whose title changed.
-        window: Window<NullTexture> = Window::for_id(Rc::clone(session), *window),
-        /// The new title, duplicated in the payload so a handler comparing against a stored value needs no further read.
-        title: String = title.as_str(),
-    }
-
     /// A host screen appears, including every screen attached at startup.
     MONITOR_ADDED = lunmonitoradded(_lua, session) as MonitorAddedEvent via onMonitorAdded
         from LuaEvent::MonitorAdded { monitor } =>
     {
-        /// The key `lunette-capture` identifies the screen by.
-        id: String = monitor.to_string(),
-        /// The handle, while the screen is still attached. A screen unplugged before dispatch has no handle.
-        monitor: Option<Monitor<NullTexture>> = session
+        /// The screen that appeared.
+        // `deliverable` has already checked the screen is attached, so this is never nil.
+        monitor: Monitor<NullTexture> = session
             .mirrors()
             .state(monitor)
             .map(|state| Monitor::new(Rc::clone(session), state)),
@@ -310,24 +298,6 @@ events! {
         /// The bytes written. A Lua string is a byte string, so non-UTF-8 output arrives intact.
         text: String = lua.create_string(bytes)?,
     }
-
-    /// A claim receives a composition layer, and the panel holding it draws onto the layer.
-    LAYER_GRANTED = lunlayergranted(lua, session) as LayerGrantedEvent via onLayerGranted
-        from LuaEvent::LayerGranted { claim } =>
-    {
-        /// The claim that received the layer.
-        claim: Claim<NullTexture> = Claim::new(Rc::clone(session), *claim),
-        /// The layer it holds. Not kept across frames, because the layer goes away on revoke.
-        layer: GrantedLayer = session.claims().push_layer(lua, *claim)?,
-    }
-
-    /// A claim loses its layer to a higher-priority claim, and its panel draws as an in-scene quad until a layer is granted again.
-    LAYER_REVOKED = lunlayerrevoked(_lua, session) as LayerRevokedEvent via onLayerRevoked
-        from LuaEvent::LayerRevoked { claim } =>
-    {
-        /// The claim that lost the layer.
-        claim: Claim<NullTexture> = Claim::new(Rc::clone(session), *claim),
-    }
 }
 
 /// Names an event, refusing one that does not fit `CustomEvent.name`.
@@ -357,7 +327,7 @@ fn dispatch<T: LuaTexture>(
     };
 
     let listeners = session.listeners(name);
-    if listeners.is_empty() {
+    if listeners.is_empty() || !deliverable(session, &event) {
         return Ok(());
     }
 
@@ -376,6 +346,20 @@ fn dispatch<T: LuaTexture>(
     }
 
     Ok(())
+}
+
+/// Whether the thing an event names still exists, so its payload can carry a live handle.
+///
+/// A screen unplugged between the frame boundary and dispatch is skipped, because the next plug
+/// event and `lunette.monitors()` report the screens that are attached.
+fn deliverable<T>(session: &Session<T>, event: &LuaEvent) -> bool {
+    match event {
+        LuaEvent::MonitorAdded { monitor } => session.mirrors().state(monitor).is_some(),
+        LuaEvent::WindowOpened { .. }
+        | LuaEvent::WindowClosed { .. }
+        | LuaEvent::ProcessExited { .. }
+        | LuaEvent::ProcessOutput { .. } => true,
+    }
 }
 
 /// The `lovr.handlers` table `boot.lua` installs.

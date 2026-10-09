@@ -201,7 +201,7 @@ return function(context: plugin.Context, settings: config.Settings): contract.Se
       if type(listener) ~= 'table' then
         error('keyboard-display onChanged: listener is a plain table', 2)
       end
-      plugin.rejectUnknownFields('keyboard-display onChanged', listener, { run = true }, 'run', 2)
+      plugin.rejectUnknownFields('keyboard-display onChanged', listener, { 'run' }, 2)
       if type(listener.run) ~= 'function' then
         error('keyboard-display onChanged: run is a plain callback', 2)
       end

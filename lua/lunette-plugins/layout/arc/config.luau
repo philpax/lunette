@@ -8,11 +8,11 @@ local TUNING = schema.object {
   center = schema.default(schema.vector())(vector.pack(0, 1.5, 0)),
 }
 -- The schema already requires finite, nonnegative numbers and a finite vector center.
-local CHECKED_TUNING = schema.refine(TUNING)(function(tuning)
+local CHECKED_TUNING = schema.describe(schema.refine(TUNING)(function(tuning)
   if tuning.radius <= 0 then
     error('option radius is a positive number, not ' .. tostring(tuning.radius), 0)
   end
-end, 'A positive radius and nonnegative angular step, span, and edge gap.')
+end)) { description = 'A positive radius and nonnegative angular step, span, and edge gap.' }
 local SCHEMA = schema.object {
   layout = schema.default(schema.string { minLength = 1 }) 'arc',
   tuning = schema.default(CHECKED_TUNING)(CHECKED_TUNING.parse {}),

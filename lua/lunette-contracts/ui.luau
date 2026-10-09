@@ -272,6 +272,6 @@ export type Service = {
   read panels: (Service) -> { read [number]: Panel },
 }
 export type Capability = plugin.Capability<Service>
-ui.capability = plugin.capability<<Service>> { name = 'lunette/ui', schema = 2 }
+ui.capability = plugin.capability<<Service>> { name = 'lunette/ui', version = 2 }
 
 return ui

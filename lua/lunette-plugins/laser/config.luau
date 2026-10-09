@@ -1,3 +1,4 @@
+local lunette = require '@lunette'
 local schema = require '@lunette-plugin/schema'
 local contracts = require '@lunette-contracts/laser'
 local aim = require './aim'
@@ -16,62 +17,26 @@ local function drawLaser(laser: contracts.Laser, pass: Pass, base: DrawBase): ()
   base(laser, pass)
 end
 
-local CONTROL = schema.union(
-  schema.literal<<'trigger'>> 'trigger',
-  schema.union(
-    schema.literal<<'thumbstick'>> 'thumbstick',
-    schema.union(
-      schema.literal<<'thumbrest'>> 'thumbrest',
-      schema.union(
-        schema.literal<<'thumbtap'>> 'thumbtap',
-        schema.union(
-          schema.literal<<'touchpad'>> 'touchpad',
-          schema.union(
-            schema.literal<<'grip'>> 'grip',
-            schema.union(
-              schema.literal<<'menu'>> 'menu',
-              schema.union(
-                schema.literal<<'a'>> 'a',
-                schema.union(
-                  schema.literal<<'b'>> 'b',
-                  schema.union(
-                    schema.literal<<'x'>> 'x',
-                    schema.union(
-                      schema.literal<<'y'>> 'y',
-                      schema.union(
-                        schema.literal<<'dpup'>> 'dpup',
-                        schema.union(
-                          schema.literal<<'dpdown'>> 'dpdown',
-                          schema.union(
-                            schema.literal<<'dpleft'>> 'dpleft',
-                            schema.union(
-                              schema.literal<<'dpright'>> 'dpright',
-                              schema.union(schema.literal<<'bumper'>> 'bumper', schema.literal<<'nib'>> 'nib')
-                            )
-                          )
-                        )
-                      )
-                    )
-                  )
-                )
-              )
-            )
-          )
-        )
-      )
-    )
-  )
-)
-local BUTTON = schema.union(
-  schema.literal<<'left'>> 'left',
-  schema.union(
-    schema.literal<<'right'>> 'right',
-    schema.union(
-      schema.literal<<'middle'>> 'middle',
-      schema.union(schema.literal<<'back'>> 'back', schema.literal<<'forward'>> 'forward')
-    )
-  )
-)
+local CONTROL = schema.enum<<DeviceButton>> {
+  'trigger',
+  'thumbstick',
+  'thumbrest',
+  'thumbtap',
+  'touchpad',
+  'grip',
+  'menu',
+  'a',
+  'b',
+  'x',
+  'y',
+  'dpup',
+  'dpdown',
+  'dpleft',
+  'dpright',
+  'bumper',
+  'nib',
+}
+local BUTTON = schema.enum<<lunette.PointerButton>> { 'left', 'right', 'middle', 'back', 'forward' }
 local MAPPING = schema.object { control = CONTROL, button = BUTTON }
 local STYLE = style.configuration
 local function defaultCallback<F>(callback: F): schema.Schema<F?, F>

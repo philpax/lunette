@@ -9,17 +9,17 @@ local positive = schema.number { positive = true }
 local nonnegative = schema.number { minimum = 0 }
 local color = schema.array(schema.number { minimum = 0, maximum = 1 }, { minLength = 4, maxLength = 4 })
 
-local font = schema.union(
+local font = schema.union {
   schema.object { kind = schema.literal<<'default'>> 'default' },
   schema.object {
     kind = schema.literal<<'file'>> 'file',
     file = schema.string { minLength = 1 },
     size = positive,
     spread = positive,
-  }
-)
+  },
+}
 local editableFontFields = schema.object {
-  kind = schema.default(schema.union(schema.literal<<'default'>> 'default', schema.literal<<'file'>> 'file')) 'default',
+  kind = schema.default(schema.enum<<'default' | 'file'>> { 'default', 'file' }) 'default',
   file = schema.optional(schema.string { minLength = 1 }),
   size = schema.optional(positive),
   spread = schema.optional(positive),
@@ -37,38 +37,7 @@ local editableFont = schema.refine(editableFontFields)(function(value: EditableF
   end
 end)
 
--- Each optional override group mirrors a complete group field by field, so the types follow the complete shapes.
-type function OptionalFields(shape: type): type
-  local result = types.newtable()
-  for key, property in shape:properties() do
-    local child = property.read
-    assert(child, 'theme descriptor field is not readable')
-    local field = types.newtable()
-    for name, witness in child:properties() do
-      local direction = name:value()
-      if direction == 'input' or direction == 'output' then
-        local read = witness.read
-        assert(read, 'theme descriptor witness is not readable')
-        local parameters = read:parameters().head
-        assert(parameters and parameters[1], 'theme descriptor witness has no parameter')
-        local optional = types.optional(parameters[1])
-        field:setreadproperty(name, types.newfunction({ head = { optional } }, { head = { optional } }))
-      end
-    end
-    result:setreadproperty(key, field)
-  end
-  return result
-end
-
-local function optionalFields<S>(shape: S): OptionalFields<S>
-  local result = {}
-  for key, child in shape :: any do
-    result[key] = (schema.optional :: any)(child)
-  end
-  return result :: any
-end
-
-local colorFields = {
+local colors = schema.object {
   background = color,
   elevatedBackground = color,
   foreground = color,
@@ -89,7 +58,7 @@ local colorFields = {
   pointer = color,
   pointerHovered = color,
 }
-local typographyFields = {
+local typography = schema.object {
   font = font,
   bodySize = positive,
   smallSize = positive,
@@ -98,7 +67,7 @@ local typographyFields = {
   errorTextHeight = positive,
   hintTextHeight = positive,
 }
-local metricFields = {
+local metrics = schema.object {
   padding = nonnegative,
   spacing = nonnegative,
   borderWidth = nonnegative,
@@ -107,7 +76,7 @@ local metricFields = {
   titlebarBorderThickness = nonnegative,
   keyboardGap = nonnegative,
 }
-local radiusFields = {
+local radii = schema.object {
   uiPanel = nonnegative,
   uiControl = nonnegative,
   keyboardBacking = nonnegative,
@@ -116,10 +85,6 @@ local radiusFields = {
   window = nonnegative,
   monitor = nonnegative,
 }
-local colors = schema.object(colorFields)
-local typography = schema.object(typographyFields)
-local metrics = schema.object(metricFields)
-local radii = schema.object(radiusFields)
 local themeDescriptor = schema.object {
   colors = colors,
   typography = typography,
@@ -127,10 +92,10 @@ local themeDescriptor = schema.object {
   radii = radii,
 }
 
-local colorOverrides = schema.object(optionalFields(colorFields))
-local typographyOverrides = schema.object(optionalFields(typographyFields))
-local metricOverrides = schema.object(optionalFields(metricFields))
-local radiusOverrides = schema.object(optionalFields(radiusFields))
+local colorOverrides = schema.partial(colors)
+local typographyOverrides = schema.partial(typography)
+local metricOverrides = schema.partial(metrics)
+local radiusOverrides = schema.partial(radii)
 local overrides = schema.object {
   colors = schema.optional(colorOverrides),
   typography = schema.optional(typographyOverrides),

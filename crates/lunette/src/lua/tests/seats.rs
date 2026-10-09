@@ -365,7 +365,7 @@ fn a_new_seat_queues_its_creation_and_is_dead_until_the_compositor_reports_it() 
 
     let dead: bool = run(
         &lua,
-        "seat = lunette.newSeat('left', { layout = 'de', repeatRate = 30 })
+        "seat = lunette.newSeat { name = 'left', layout = 'de', repeatRate = 30 }
          return seat.dead",
     );
     assert!(dead, "a seat exists only once the compositor has made it");
@@ -388,12 +388,24 @@ fn a_new_seat_queues_its_creation_and_is_dead_until_the_compositor_reports_it() 
 }
 
 #[test]
+fn a_seat_without_a_name_is_refused() {
+    let session = us_session(Vec::new());
+    let lua = lua(&session);
+
+    for chunk in ["lunette.newSeat {}", "lunette.newSeat { name = ' ' }"] {
+        let message = error(&lua, chunk);
+        assert!(message.contains("needs a name"), "{chunk}: {message}");
+    }
+    assert!(session.flush().is_empty());
+}
+
+#[test]
 fn a_seat_name_is_refused_while_its_creation_is_queued_in_flight_or_published() {
     {
         let session = us_session(Vec::new());
         let lua = lua(&session);
 
-        let message = error(&lua, "lunette.newSeat('lunette')");
+        let message = error(&lua, "lunette.newSeat { name = 'lunette' }");
 
         assert!(message.contains("already exists"), "{message}");
         assert!(session.flush().is_empty());
@@ -401,14 +413,14 @@ fn a_seat_name_is_refused_while_its_creation_is_queued_in_flight_or_published() 
     {
         let session = us_session(Vec::new());
         let lua = lua(&session);
-        run::<()>(&lua, "lunette.newSeat('laser.left')");
+        run::<()>(&lua, "lunette.newSeat { name = 'laser.left' }");
         assert!(matches!(
             session.flush().as_slice(),
             [Command::CreateSeat { .. }]
         ));
         session.begin(seated(Vec::new(), vec![seat(1, "lunette", "us")]));
 
-        let message = error(&lua, "lunette.newSeat('laser.left')");
+        let message = error(&lua, "lunette.newSeat { name = 'laser.left' }");
 
         assert!(message.contains("already exists"), "{message}");
         assert!(session.flush().is_empty());
@@ -416,9 +428,9 @@ fn a_seat_name_is_refused_while_its_creation_is_queued_in_flight_or_published() 
     {
         let session = us_session(Vec::new());
         let lua = lua(&session);
-        run::<()>(&lua, "lunette.newSeat('laser.left')");
+        run::<()>(&lua, "lunette.newSeat { name = 'laser.left' }");
 
-        let message = error(&lua, "lunette.newSeat('laser.left')");
+        let message = error(&lua, "lunette.newSeat { name = 'laser.left' }");
 
         assert!(message.contains("already exists"), "{message}");
         assert!(matches!(
@@ -433,7 +445,10 @@ fn a_destroyed_seat_name_can_be_reused_whether_or_not_the_seat_was_published() {
     {
         let session = us_session(Vec::new());
         let lua = lua(&session);
-        let old: u64 = run(&lua, "old = lunette.newSeat('laser.left') return old.id");
+        let old: u64 = run(
+            &lua,
+            "old = lunette.newSeat { name = 'laser.left' } return old.id",
+        );
         assert!(matches!(
             session.flush().as_slice(),
             [Command::CreateSeat { .. }]
@@ -445,7 +460,7 @@ fn a_destroyed_seat_name_can_be_reused_whether_or_not_the_seat_was_published() {
 
         let replacement: u64 = run(
             &lua,
-            "assert(old:destroy()) return lunette.newSeat('laser.left').id",
+            "assert(old:destroy()) return lunette.newSeat { name = 'laser.left' }.id",
         );
 
         assert_ne!(old, replacement);
@@ -469,7 +484,10 @@ fn a_destroyed_seat_name_can_be_reused_whether_or_not_the_seat_was_published() {
         for flushed in [false, true] {
             let session = us_session(Vec::new());
             let lua = lua(&session);
-            let old: u64 = run(&lua, "old = lunette.newSeat('laser.left') return old.id");
+            let old: u64 = run(
+                &lua,
+                "old = lunette.newSeat { name = 'laser.left' } return old.id",
+            );
             if flushed {
                 assert!(matches!(
                     session.flush().as_slice(),
@@ -481,7 +499,7 @@ fn a_destroyed_seat_name_can_be_reused_whether_or_not_the_seat_was_published() {
             let replacement: u64 = run(
                 &lua,
                 "assert(old.dead) assert(old:destroy()) assert(not old:destroy())
-                 return lunette.newSeat('laser.left').id",
+                 return lunette.newSeat { name = 'laser.left' }.id",
             );
 
             assert_ne!(old, replacement);
@@ -506,7 +524,7 @@ fn a_destroyed_seat_name_can_be_reused_whether_or_not_the_seat_was_published() {
     {
         let session = us_session(Vec::new());
         let lua = lua(&session);
-        let id: u64 = run(&lua, "return lunette.newSeat('laser.left').id");
+        let id: u64 = run(&lua, "return lunette.newSeat { name = 'laser.left' }.id");
         let _ = session.flush();
         let snapshot = seated(
             Vec::new(),
@@ -520,7 +538,7 @@ fn a_destroyed_seat_name_can_be_reused_whether_or_not_the_seat_was_published() {
         ));
         session.begin(snapshot);
 
-        run::<()>(&lua, "lunette.newSeat('laser.left')");
+        run::<()>(&lua, "lunette.newSeat { name = 'laser.left' }");
 
         assert!(matches!(
             session.flush().as_slice(),
@@ -534,7 +552,7 @@ fn a_seat_name_is_released_when_the_seat_disappears_and_not_reserved_by_a_delaye
     {
         let session = us_session(Vec::new());
         let lua = lua(&session);
-        let id: u64 = run(&lua, "return lunette.newSeat('laser.left').id");
+        let id: u64 = run(&lua, "return lunette.newSeat { name = 'laser.left' }.id");
         let _ = session.flush();
         session.begin(seated(
             Vec::new(),
@@ -542,7 +560,7 @@ fn a_seat_name_is_released_when_the_seat_disappears_and_not_reserved_by_a_delaye
         ));
         session.begin(seated(Vec::new(), vec![seat(1, "lunette", "us")]));
 
-        run::<()>(&lua, "lunette.newSeat('laser.left')");
+        run::<()>(&lua, "lunette.newSeat { name = 'laser.left' }");
 
         assert!(matches!(
             session.flush().as_slice(),
@@ -552,7 +570,10 @@ fn a_seat_name_is_released_when_the_seat_disappears_and_not_reserved_by_a_delaye
     {
         let session = us_session(Vec::new());
         let lua = lua(&session);
-        let id: u64 = run(&lua, "old = lunette.newSeat('laser.left') return old.id");
+        let id: u64 = run(
+            &lua,
+            "old = lunette.newSeat { name = 'laser.left' } return old.id",
+        );
         let _ = session.flush();
         run::<()>(&lua, "assert(old:destroy())");
         let _ = session.flush();
@@ -562,7 +583,7 @@ fn a_seat_name_is_released_when_the_seat_disappears_and_not_reserved_by_a_delaye
             vec![seat(1, "lunette", "us"), seat(id, "laser.left", "us")],
         ));
 
-        run::<()>(&lua, "lunette.newSeat('laser.left')");
+        run::<()>(&lua, "lunette.newSeat { name = 'laser.left' }");
 
         assert!(matches!(
             session.flush().as_slice(),
@@ -632,7 +653,7 @@ fn modifiers_on_a_host_sink_reach_the_provider_as_a_mask() {
 
     run::<()>(
         &lua,
-        "lunette.monitors()[1].sink:modifiers({ 'shift', 'control' })",
+        "lunette.monitors()[1].sink:setModifiers({ 'shift', 'control' })",
     );
 
     let masks: Vec<_> = host
@@ -659,7 +680,7 @@ fn a_modifier_the_host_cannot_represent_is_refused_rather_than_partly_applied() 
     // the caller did not ask for.
     let applied: bool = run(
         &lua,
-        "return lunette.monitors()[1].sink:modifiers({ 'shift', 'mod3' })",
+        "return lunette.monitors()[1].sink:setModifiers({ 'shift', 'mod3' })",
     );
 
     assert!(!applied);

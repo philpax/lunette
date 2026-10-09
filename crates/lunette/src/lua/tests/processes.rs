@@ -106,7 +106,7 @@ fn a_process_handle_reports_what_the_snapshot_says() {
     run::<()>(&lua, "proc = lunette.spawn{ argv = { 'foot' } }");
 
     assert!(
-        !run::<bool>(&lua, "return proc.alive"),
+        run::<bool>(&lua, "return proc.dead"),
         "the compositor has not been told about the process yet"
     );
 
@@ -121,14 +121,12 @@ fn a_process_handle_reports_what_the_snapshot_says() {
         }],
     ));
 
-    let (alive, pid, external): (bool, i32, bool) =
-        run(&lua, "return proc.alive, proc.pid, proc.external");
-    assert!(alive);
+    let (dead, pid): (bool, i32) = run(&lua, "return proc.dead, proc.pid");
+    assert!(!dead);
     assert_eq!(pid, 4242);
-    assert!(!external);
 
     session.begin(snapshot(Vec::new(), Vec::new()));
-    let (alive, pid): (bool, i32) = run(&lua, "return proc.alive, proc.pid");
-    assert!(!alive, "a process absent from the snapshot has ended");
+    let (dead, pid): (bool, i32) = run(&lua, "return proc.dead, proc.pid");
+    assert!(dead, "a process absent from the snapshot has ended");
     assert_eq!(pid, 4242, "an ended process reads its last-known pid");
 }

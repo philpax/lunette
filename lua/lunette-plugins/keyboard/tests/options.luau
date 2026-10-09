@@ -1,6 +1,7 @@
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
+local adapter = require '@lunette-plugin/adapter'
 local keyboardContract = require '@lunette-contracts/keyboard'
 local interactionContract = require '@lunette-contracts/interaction'
 local focusContract = require '@lunette-contracts/focus'
@@ -50,12 +51,12 @@ local function start()
   }
   env.session = testing.start { 'theme', 'drops', 'focus', 'interaction', { id = 'keyboard', definition = definition } }
   local service, owner, pointers, focus
-  env.session:use(plugin.define {
+  env.session:use(adapter.define {
     name = 'keyboard-options-test',
     requires = {
-      keyboard = keyboardContract.capability,
-      interaction = interactionContract.capability,
-      focus = focusContract.capability,
+      keyboardContract.capability,
+      interactionContract.capability,
+      focusContract.capability,
     },
     init = function(context)
       service, owner = context:require(keyboardContract.capability), context
@@ -79,7 +80,7 @@ local function start()
     return nil
   end
   local sink = { monitor = { id = 1 }, domain = 'host', dead = false }
-  function sink:modifiers(held)
+  function sink:setModifiers(held)
     env.sent[#env.sent + 1] = { 'modifiers', table.concat(held, '+') }
     return true
   end

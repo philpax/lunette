@@ -142,8 +142,7 @@ local function build(context: plugin.Context, settings: Settings): Service
         adopted[#adopted + 1] = { start = token, owner = owner, window = window, panel = created, placed = placed }
       end
 
-      local effect = owner:effect(function(): () -> ()
-        context:checkOwner(owner)
+      local effect = context:acquire(owner, function(): () -> ()
         local entry =
           inspection.registration('producer', 'adoption.start', owner, nil, true, { filtered = chosen.filter ~= nil })
         records[#records + 1] = entry

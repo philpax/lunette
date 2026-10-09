@@ -39,12 +39,7 @@ local descriptor = schema.object {
   unlockAngle = schema.default(positive)(math.pi / 60),
   unlockDistance = schema.default(positive)(0.03),
 }
-local overrides = schema.object {
-  enabled = schema.optional(schema.boolean()),
-  threshold = schema.optional(schema.number { minimum = 0, maximum = 1 }),
-  unlockAngle = schema.optional(positive),
-  unlockDistance = schema.optional(positive),
-}
+local overrides = schema.partial(descriptor)
 local lockedFrame: (contracts.Input, State) -> contracts.Input
 local offered: ({ read [number]: contracts.Surface }, contracts.Surface) -> boolean
 

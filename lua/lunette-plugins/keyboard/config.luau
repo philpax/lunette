@@ -13,23 +13,17 @@ local function drawKey(pass: Pass, key: board.RenderedKey, state: board.KeyState
   base(pass, key, state)
 end
 
-local ACTION = schema.union(
+local ACTION = schema.union {
   schema.object { kind = schema.literal<<'hide'>> 'hide' },
-  schema.union(
-    schema.object { kind = schema.literal<<'layer'>> 'layer', layer = schema.string() },
-    schema.union(
-      schema.object { kind = schema.literal<<'text'>> 'text', text = schema.string() },
-      schema.union(
-        schema.object {
-          kind = schema.literal<<'chord'>> 'chord',
-          code = schema.number { minimum = 0, integer = true },
-          modifiers = schema.array(schema.string()),
-        },
-        schema.object { kind = schema.literal<<'custom'>> 'custom', name = schema.string() }
-      )
-    )
-  )
-)
+  schema.object { kind = schema.literal<<'layer'>> 'layer', layer = schema.string() },
+  schema.object { kind = schema.literal<<'text'>> 'text', text = schema.string() },
+  schema.object {
+    kind = schema.literal<<'chord'>> 'chord',
+    code = schema.number { minimum = 0, integer = true },
+    modifiers = schema.array(schema.string()),
+  },
+  schema.object { kind = schema.literal<<'custom'>> 'custom', name = schema.string() },
+}
 local KEY = schema.object {
   code = schema.optional(schema.number { minimum = 0, integer = true }),
   action = schema.optional(ACTION),

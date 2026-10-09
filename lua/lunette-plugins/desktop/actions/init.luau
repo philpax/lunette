@@ -10,7 +10,7 @@ export type Settings = {}
 
 local keyboard = plugin.consumer<<Config, Settings>>({
   name = 'desktop/actions/keyboard',
-  requires = { menu = menu.capability, display = display.capability },
+  requires = { menu.capability, display.capability },
   init = function(context: plugin.Context, _settings: Settings): ()
     local menuService: menu.Service = context:require(menu.capability)
     local displayService: display.Service = context:require(display.capability)
@@ -38,7 +38,7 @@ local keyboard = plugin.consumer<<Config, Settings>>({
 
 return plugin.consumer<<Config, Settings>>({
   name = 'desktop/actions',
-  requires = { menu = menu.capability },
+  requires = { menu.capability },
   init = function(context: plugin.Context, _settings: Settings): ()
     local menuService: menu.Service = context:require(menu.capability)
     menuService:register(context, {
@@ -56,6 +56,6 @@ return plugin.consumer<<Config, Settings>>({
         end
       end,
     })
-    context:child(keyboard, {})
+    context:child(keyboard)
   end,
 }).definition

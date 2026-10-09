@@ -17,6 +17,16 @@ local function ruleSources(rules)
   return result
 end
 
+-- The diagnostic a runtime's snapshot holds for one of its instances.
+local function diagnostic(runtime, instance)
+  for _, entry in runtime:snapshot().instances do
+    if entry.id == instance:id() then
+      return entry.diagnostic
+    end
+  end
+  return nil
+end
+
 return {
   suite = suite.new,
   expect = expect,
@@ -28,4 +38,5 @@ return {
   collect = host.collect,
   host = host,
   ruleSources = ruleSources,
+  diagnostic = diagnostic,
 }

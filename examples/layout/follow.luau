@@ -72,7 +72,7 @@ type ConsumerSettings = {}
 
 return plugin.consumer<<ConsumerConfig, ConsumerSettings>>({
   name = 'follow-layout',
-  requires = { layouts = layouts.capability },
+  requires = { layouts.capability },
   init = function(context: plugin.Context, _settings: ConsumerSettings)
     local service: layouts.Service = context:require(layouts.capability)
     service:register(context, { name = 'follow', apply = follow(), continuous = true })

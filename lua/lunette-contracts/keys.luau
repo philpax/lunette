@@ -37,6 +37,24 @@ keys.MODIFIER_KEYS = table.freeze(modifierKeys)
 -- Modifier order is stable and does not depend on table iteration.
 keys.MODIFIER_ORDER = table.freeze(lunette.modifierNames())
 
+local modifierByName: { [string]: lunette.ModifierName } = {}
+for _, name in keys.MODIFIER_ORDER do
+  modifierByName[name] = name
+end
+
+-- Narrows modifier names to the set the native API takes, refusing any other.
+function keys.nativeModifiers(names: { read [number]: string }): { lunette.ModifierName }
+  local narrowed: { lunette.ModifierName } = {}
+  for index = 1, #names do
+    local name = modifierByName[names[index]]
+    if name == nil then
+      error("'" .. tostring(names[index]) .. "' is not a modifier", 2)
+    end
+    narrowed[index] = name
+  end
+  return narrowed
+end
+
 -- This closed map supplies activations, not inserted text or platform scancodes.
 local fromLovr: { [string]: number } = {
   a = codes.a,

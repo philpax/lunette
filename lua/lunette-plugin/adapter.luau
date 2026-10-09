@@ -1,7 +1,7 @@
 -- The adapter maps typed plugin declarations to native runtime handles.
 
 local native = require '@lunette'
-local options = require '@lunette-plugin/options'
+local fields = require '@lunette-plugin/fields'
 local schema = require '@lunette-plugin/schema'
 
 local adapter = {}
@@ -18,17 +18,17 @@ export type Capability<T> = {
 
 export type CapabilitySpec = {
   read name: string,
-  read schema: number,
+  read version: number,
 }
 
 export type Effect = {
   read dispose: (Effect) -> (),
 }
 
--- An owner releases each acquired effect when its activation ends.
+-- An owner releases each acquired effect when its activation ends. The type is a brand that every context satisfies
+-- and that exposes nothing callable, so a provider registers on an owner only through `Context:acquire`.
 export type Owner = {
-  read services: (never) -> unknown,
-  read effect: (Owner, () -> () -> ()) -> Effect,
+  read active: (never) -> boolean,
 }
 
 export type Subscription<E> = {
@@ -37,10 +37,9 @@ export type Subscription<E> = {
 }
 
 export type Context = {
-  read services: (never) -> unknown,
   read require: <T>(Context, Capability<T>) -> T,
-  read effect: (Owner, () -> () -> ()) -> Effect,
-  read child: <C>(Context, Definition<C>, C) -> Instance<C>,
+  read effect: (Context, () -> () -> ()) -> Effect,
+  read child: <C>(Context, Definition<C>, C?) -> (),
   read checkOwner: (Context, Owner) -> (),
   read owns: (Context, Owner) -> boolean,
   read acquire: (Context, Owner, () -> () -> ()) -> Effect,
@@ -54,7 +53,8 @@ export type Publisher = {
   read provide: <T>(Publisher, Capability<T>, T) -> (),
 }
 
-export type Declaration = { [string]: { read witness: (never) -> unknown } }
+-- A list of capabilities. The facade keys each by its contract for the native graph.
+export type Declaration = { { read witness: (never) -> unknown } }
 
 export type Spec<C> = {
   read name: string,
@@ -88,16 +88,13 @@ export type Instance<C> = {
   read enable: (Instance<C>) -> (),
   read disable: (Instance<C>) -> (),
   read dispose: (Instance<C>) -> (),
-  read reload: (Instance<C>, C) -> (),
   read requestReload: (Instance<C>, C) -> (),
   read state: (Instance<C>) -> native.PluginState,
-  read diagnostic: (Instance<C>) -> string?,
 }
 
 export type Runtime = {
   read use: <C>(Runtime, Definition<C>, C) -> Instance<C>,
   read snapshot: (Runtime) -> native.PluginRuntimeSnapshot,
-  read owns: <C>(Runtime, Instance<C>) -> boolean,
   read ownerId: (Runtime, Owner) -> string?,
   read close: (Runtime) -> (),
   read drain: (Runtime) -> (),
@@ -116,48 +113,69 @@ local function freeze<T>(value: T): T
   return table.freeze(value)
 end
 
-local function declarationSnapshot(value: Declaration): Declaration
-  return freeze(table.clone(value))
-end
+local EMPTY = freeze {}
 
--- Native validation rejects any value that is not a token, so a value without one passes through unchanged.
-local function declarationTokens(declaration: Declaration): ErasedDeclaration
-  local tokens: ErasedDeclaration = {}
-  for field, capability in declaration do
-    tokens[field] = if type(capability) == 'table' then rawget(capability :: any, 'token') or capability else capability
-  end
-  return tokens
-end
-
-local function describeCapability(capability: unknown): string
+local function contractName(capability: unknown): string?
   if type(capability) == 'table' then
     local contract = rawget(capability :: { [string]: unknown }, 'contract')
     if type(contract) == 'string' then
-      return 'capability ' .. contract
-    end
-  end
-  return 'a value that is not a capability'
-end
-
-local function declaredField(declaration: Declaration, capability: unknown): string?
-  for field, declared in declaration do
-    if rawequal(declared, capability) then
-      return field
+      return contract
     end
   end
   return nil
 end
 
-local function memberField(operation: string, declaration: Declaration, capability: unknown): string
-  local field = declaredField(declaration, capability)
-  if field == nil then
-    error(string.format('plugin %s: %s is not declared', operation, describeCapability(capability)), 3)
+-- Copies a declaration after checking that it is a dense list of distinct capabilities.
+local function declarationSnapshot(field: string, value: unknown, level: number): Declaration
+  if value == nil then
+    return freeze {}
   end
-  return field
+  if type(value) ~= 'table' then
+    error('plugin define: ' .. field .. ' is a list of capabilities, not a ' .. type(value), level)
+  end
+  local raw = value :: { [unknown]: unknown }
+  local count = rawlen(raw :: any)
+  local seen: { [string]: boolean } = {}
+  for key, capability in raw do
+    if type(key) ~= 'number' or key < 1 or key > count or key % 1 ~= 0 then
+      error(
+        'plugin define: ' .. field .. ' is a list of capabilities, and ' .. tostring(key) .. ' is not a position',
+        level
+      )
+    end
+    local contract = contractName(capability)
+    if contract == nil then
+      error('plugin define: ' .. field .. ' lists a ' .. type(capability) .. ', not a capability', level)
+    end
+    if seen[contract :: string] then
+      error('plugin define: ' .. field .. ' lists capability ' .. (contract :: string) .. ' twice', level)
+    end
+    seen[contract :: string] = true
+  end
+  return freeze(table.clone(raw :: any)) :: Declaration
 end
 
-local function contractOf(declaration: Declaration, field: string): string
-  return describeCapability(declaration[field])
+local function declarationTokens(declaration: Declaration): ErasedDeclaration
+  local tokens: ErasedDeclaration = {}
+  for _, capability in declaration do
+    tokens[contractName(capability) :: string] = rawget(capability :: any, 'token')
+  end
+  return tokens
+end
+
+local function describeCapability(capability: unknown): string
+  local contract = contractName(capability)
+  return if contract then 'capability ' .. contract else 'a value that is not a capability'
+end
+
+-- Answers the contract that keys a declared capability in the native graph.
+local function memberField(operation: string, declaration: Declaration, capability: unknown): string
+  for _, declared in declaration do
+    if rawequal(declared, capability) then
+      return contractName(capability) :: string
+    end
+  end
+  error(string.format('plugin %s: %s is not declared', operation, describeCapability(capability)), 3)
 end
 
 local function unwrapDefinition<C>(definition: Definition<C>): NativeDefinition
@@ -182,28 +200,32 @@ local function ownerContext(owner: Owner, level: number): NativeContext
   return nativeContext
 end
 
-local rejectUnknownFields = options.rejectUnknownFields
+local rejectUnknownFields = fields.rejectUnknownFields
 
-local subscriptionKeys: { [string]: boolean } = { event = true, run = true }
+-- An owner is the provider's own context or a live dependent of it, for every owner-scoped acquisition alike.
+local function ownedBy(nativeContext: NativeContext, owner: Owner): NativeContext
+  local callerContext = ownerContext(owner, 4)
+  if callerContext ~= nativeContext then
+    nativeContext:checkOwner(callerContext)
+  end
+  return callerContext
+end
 
 local function wrapContext(nativeContext: NativeContext, required: Declaration): Context
   local wrapped = {
-    services = function(_self: Context): unknown
-      return nativeContext:services()
-    end,
     require = function<T>(_self: Context, capability: Capability<T>): T
       local field = memberField('require', required, capability)
       local services = (nativeContext:services() :: unknown) :: ErasedDeclaration
       return (services[field] :: unknown) :: T
     end,
-    effect = function(_self: Owner, acquire: () -> () -> ()): Effect
+    effect = function(_self: Context, acquire: () -> () -> ()): Effect
       local effect: NativeEffect = nativeContext:effect(acquire)
       return (effect :: unknown) :: Effect
     end,
-    child = function<C>(_self: Context, definition: Definition<C>, config: C): Instance<C>
-      local instance: NativeInstance = nativeContext:child(unwrapDefinition(definition), config)
+    child = function<C>(_self: Context, definition: Definition<C>, config: C?): ()
+      local instance: NativeInstance =
+        nativeContext:child(unwrapDefinition(definition), if config == nil then EMPTY else config)
       instance:enable()
-      return (instance :: unknown) :: Instance<C>
     end,
     checkOwner = function(_self: Context, caller: Owner): ()
       nativeContext:checkOwner(ownerContext(caller, 3))
@@ -213,24 +235,16 @@ local function wrapContext(nativeContext: NativeContext, required: Declaration):
       return callerContext ~= nil and nativeContext:owns(callerContext)
     end,
     acquire = function(_self: Context, owner: Owner, acquire: () -> () -> ()): Effect
-      local callerContext = ownerContext(owner, 3)
-      nativeContext:checkOwner(callerContext)
-      local effect: NativeEffect = callerContext:effect(acquire)
+      local effect: NativeEffect = ownedBy(nativeContext, owner):effect(acquire)
       return (effect :: unknown) :: Effect
     end,
     acquireDeferred = function(_self: Context, owner: Owner, acquire: () -> () -> ()): Effect
-      local callerContext = ownerContext(owner, 3)
-      nativeContext:checkOwner(callerContext)
-      local effect: NativeEffect = callerContext:effectDeferred(acquire)
+      local effect: NativeEffect = ownedBy(nativeContext, owner):effectDeferred(acquire)
       return (effect :: unknown) :: Effect
     end,
     resource = function<T>(_self: Context, owner: Owner, acquire: () -> (T, () -> ())): (T, Effect)
-      local callerContext = ownerContext(owner, 3)
-      if callerContext ~= nativeContext then
-        nativeContext:checkOwner(callerContext)
-      end
       local value: T
-      local effect: NativeEffect = callerContext:effect(function(): () -> ()
+      local effect: NativeEffect = ownedBy(nativeContext, owner):effect(function(): () -> ()
         local acquired, inverse = acquire()
         value = acquired
         return inverse
@@ -241,7 +255,7 @@ local function wrapContext(nativeContext: NativeContext, required: Declaration):
       if type(subscription) ~= 'table' then
         error('plugin on: a subscription is a table of fields, not a ' .. type(subscription), 2)
       end
-      rejectUnknownFields('plugin on', subscription, subscriptionKeys, 'event and run', 2)
+      rejectUnknownFields('plugin on', subscription, { 'event', 'run' }, 2)
       local subscribe, handler = subscription.event, subscription.run
       if type(subscribe) ~= 'function' then
         error('plugin on: event is a subscribing function, not a ' .. type(subscribe), 2)
@@ -273,15 +287,13 @@ local function wrapContext(nativeContext: NativeContext, required: Declaration):
   return context
 end
 
-local capabilityKeys: { [string]: boolean } = { name = true, schema = true }
-
 local function validateCapabilitySpec(spec: CapabilitySpec): CapabilitySpec
   local level = 4
   if type(spec) ~= 'table' then
     error('plugin capability: a capability is a table of fields, not a ' .. type(spec), level)
   end
   local raw = (spec :: unknown) :: { [unknown]: unknown }
-  rejectUnknownFields('plugin capability', raw, capabilityKeys, 'name and schema', level)
+  rejectUnknownFields('plugin capability', raw, { 'name', 'version' }, level)
   local name = raw.name
   if type(name) ~= 'string' then
     error('plugin capability: name is a string, not a ' .. type(name), level)
@@ -289,24 +301,24 @@ local function validateCapabilitySpec(spec: CapabilitySpec): CapabilitySpec
   if name == '' then
     error('plugin capability: name is empty', level)
   end
-  local schema = raw.schema
-  if type(schema) ~= 'number' then
-    error('plugin capability: schema is a number, not a ' .. type(schema), level)
+  local version = raw.version
+  if type(version) ~= 'number' then
+    error('plugin capability: version is a number, not a ' .. type(version), level)
   end
-  if schema ~= math.floor(schema) or schema < 1 or schema == math.huge then
-    error('plugin capability: schema is a positive integer, not ' .. tostring(schema), level)
+  if version ~= math.floor(version) or version < 1 or version == math.huge then
+    error('plugin capability: version is a positive integer, not ' .. tostring(version), level)
   end
-  return { name = name, schema = schema }
+  return { name = name, version = version }
 end
 
 function adapter.capability<T>(spec: CapabilitySpec): Capability<T>
-  local fields = validateCapabilitySpec(spec)
+  local checked = validateCapabilitySpec(spec)
   return freeze {
-    token = native.plugin.contract(fields.name, fields.schema),
+    token = native.plugin.contract(checked.name, checked.version),
     witness = function(value: T): T
       return value
     end,
-    contract = fields.name .. '@' .. tostring(fields.schema),
+    contract = checked.name .. '@' .. tostring(checked.version),
   }
 end
 
@@ -365,10 +377,10 @@ local function guardService(value: unknown, contract: string, provider: NativeCo
 end
 
 -- Native validation rejects a record that omits a declared provision.
-local function stagedValues(values: StagedValues, provided: Declaration, provider: NativeContext): StagedValues
+local function stagedValues(values: StagedValues, provider: NativeContext): StagedValues
   local result: StagedValues = {}
-  for field, value in values do
-    result[field] = guardService(value, contractOf(provided, field), provider)
+  for contract, value in values do
+    result[contract] = guardService(value, 'capability ' .. contract, provider)
   end
   return result
 end
@@ -392,8 +404,6 @@ local function publisher(provided: Declaration, staging: Staging): Publisher
   }
 end
 
-local specKeys: { [string]: boolean } = { name = true, requires = true, provides = true, init = true }
-
 type ValidSpec<C> = {
   name: string,
   requires: Declaration,
@@ -402,12 +412,12 @@ type ValidSpec<C> = {
 }
 
 local function validateSpec<C>(spec: Spec<C>): ValidSpec<C>
-  local level = 4
+  local level = 3
   if type(spec) ~= 'table' then
     error('plugin define: a definition is a table of fields, not a ' .. type(spec), level)
   end
   local raw = (spec :: unknown) :: { [unknown]: unknown }
-  rejectUnknownFields('plugin define', raw, specKeys, 'name, requires, provides, and init', level)
+  rejectUnknownFields('plugin define', raw, { 'name', 'requires', 'provides', 'init' }, level)
   local name = raw.name
   if type(name) ~= 'string' then
     error('plugin define: name is a string, not a ' .. type(name), level)
@@ -419,18 +429,10 @@ local function validateSpec<C>(spec: Spec<C>): ValidSpec<C>
   if type(init) ~= 'function' then
     error('plugin define: init is a function, not a ' .. type(init), level)
   end
-  local requires = raw.requires
-  if requires ~= nil and type(requires) ~= 'table' then
-    error('plugin define: requires is a table of capabilities, not a ' .. type(requires), level)
-  end
-  local provides = raw.provides
-  if provides ~= nil and type(provides) ~= 'table' then
-    error('plugin define: provides is a table of capabilities, not a ' .. type(provides), level)
-  end
   return {
     name = name,
-    requires = (requires or {}) :: Declaration,
-    provides = (provides or {}) :: Declaration,
+    requires = declarationSnapshot('requires', raw.requires, level + 1),
+    provides = declarationSnapshot('provides', raw.provides, level + 1),
     init = spec.init,
   }
 end
@@ -443,10 +445,10 @@ function adapter.isDefinition(value: unknown): boolean
 end
 
 function adapter.define<C>(spec: Spec<C>, configuration: Configuration?): Definition<C>
-  local fields = validateSpec(spec)
-  local init = fields.init
-  local requiredSnapshot = declarationSnapshot(fields.requires)
-  local providedSnapshot = declarationSnapshot(fields.provides)
+  local checked = validateSpec(spec)
+  local init = checked.init
+  local requiredSnapshot = checked.requires
+  local providedSnapshot = checked.provides
   local nativeDefinition = native.plugin.define(
     declarationTokens(requiredSnapshot),
     declarationTokens(providedSnapshot),
@@ -468,7 +470,7 @@ function adapter.define<C>(spec: Spec<C>, configuration: Configuration?): Defini
         end
       end)
       local context = wrapContext(nativeContext, requiredSnapshot)
-      ownerLabels[context] = fields.name
+      ownerLabels[context] = checked.name
       local typedConfig = (config :: unknown) :: C
       local provide = publisher(providedSnapshot, staging)
       local returned = select('#', init(context, typedConfig, provide))
@@ -479,12 +481,12 @@ function adapter.define<C>(spec: Spec<C>, configuration: Configuration?): Defini
       if returned ~= 0 then
         error('plugin provision: initializer must return nothing', 0)
       end
-      return stagedValues(values, providedSnapshot, nativeContext)
+      return stagedValues(values, nativeContext)
     end,
-    fields.name
+    checked.name
   )
   local definition = freeze {
-    name = fields.name,
+    name = checked.name,
     requires = requiredSnapshot,
     provides = providedSnapshot,
     init = init,
@@ -505,9 +507,6 @@ function adapter.runtime(): Runtime
     end,
     snapshot = function(_self: Runtime): native.PluginRuntimeSnapshot
       return nativeRuntime:snapshot()
-    end,
-    owns = function<C>(_self: Runtime, instance: Instance<C>): boolean
-      return nativeRuntime:owns((instance :: unknown) :: NativeInstance)
     end,
     ownerId = function(_self: Runtime, owner: Owner): string?
       local context = nativeContexts[(owner :: unknown) :: Context]

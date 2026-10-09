@@ -2,21 +2,22 @@
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
+local adapter = require '@lunette-plugin/adapter'
 
 local test = testing.suite()
 
 local REVOKED = 'capability local/revocation-counter@1 is no longer available because its provider activation has ended'
 
-local COUNTER = plugin.capability { name = 'local/revocation-counter', schema = 1 }
-local DOUBLER = plugin.capability { name = 'local/revocation-doubler', schema = 1 }
+local COUNTER = plugin.capability { name = 'local/revocation-counter', version = 1 }
+local DOUBLER = plugin.capability { name = 'local/revocation-doubler', version = 1 }
 
 -- A counter and a callable doubler, each read by two consumers. `env.kept` and `env.doubler` are the views
 -- the last consumer to load read.
 local function start()
   local env = { seen = {}, counter = COUNTER, doublerCapability = DOUBLER }
-  local provider = plugin.define {
+  local provider = adapter.define {
     name = 'provider',
-    provides = { counter = env.counter, doubler = env.doublerCapability },
+    provides = { env.counter, env.doublerCapability },
     init = function(_context, _config, publish)
       local count = 0
       local service = { LIMIT = 3 }
@@ -38,16 +39,16 @@ local function start()
       )
     end,
   }
-  local consumer = plugin.define {
+  local consumer = adapter.define {
     name = 'consumer',
-    requires = { counter = env.counter, doubler = env.doublerCapability },
+    requires = { env.counter, env.doublerCapability },
     init = function(context, config)
       env.seen[config.name] = context:require(env.counter)
       env.kept = env.seen[config.name]
       env.doubler = context:require(env.doublerCapability)
     end,
   }
-  env.runtime = plugin.runtime()
+  env.runtime = adapter.runtime()
   env.provider = env.runtime:use(provider, {})
   env.provider:enable()
   env.runtime:use(consumer, { name = 'first' }):enable()

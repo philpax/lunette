@@ -15,16 +15,16 @@ export type Config = config.Config
 export type Settings = config.Settings
 
 local required: plugin.Declaration = {
-  panels = panels.capability,
-  placement = placement.capability,
-  tags = tags.capability,
+  panels.capability,
+  placement.capability,
+  tags.capability,
 }
 
 -- Actions run as a child so a menu outage does not change workspace selection or follow.
 local function actions(settings: Settings, held: { tags.Tag }, switch: (number) -> ()): plugin.Definition<ChildConfig>
   return plugin.consumer<<ChildConfig, ChildSettings>>({
     name = 'desktop/workspaces/actions',
-    requires = { menu = menu.capability, tags = tags.capability },
+    requires = { menu.capability, tags.capability },
     init = function(context: plugin.Context, _settings: ChildSettings): ()
       local service: menu.Service = context:require(menu.capability)
       local tagService: tags.Service = context:require(tags.capability)
@@ -172,7 +172,7 @@ return plugin.consumer<<Config, Settings>>({
     switch(current)
     -- One workspace has nothing to switch to.
     if #held > 1 then
-      context:child(actions(settings, held, switch), {})
+      context:child(actions(settings, held, switch))
     end
   end,
 }).definition

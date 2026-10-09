@@ -9,7 +9,7 @@ export type Settings = {}
 
 local definition = plugin.consumer<<Config, Settings>>({
   name = 'theme/arcade',
-  requires = { themes = themes.capability },
+  requires = { themes.capability },
   init = function(context: plugin.Context, _settings: Settings): ()
     local catalog: themes.Service = context:require(themes.capability)
     catalog:register(context, { name = 'arcade', label = 'Arcade', order = 3, theme = preset })

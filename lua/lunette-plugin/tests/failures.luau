@@ -2,6 +2,7 @@
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
+local adapter = require '@lunette-plugin/adapter'
 
 local test = testing.suite()
 
@@ -15,9 +16,9 @@ test('an initializer error fails its instance and is reported with its position 
   local function raiseFromInitializer()
     error 'initializer position failure'
   end
-  local runtime = plugin.runtime()
+  local runtime = adapter.runtime()
   local instance = runtime:use(
-    plugin.define {
+    adapter.define {
       name = 'failing',
       init = function()
         raiseFromInitializer()
@@ -27,7 +28,10 @@ test('an initializer error fails its instance and is reported with its position 
   )
   instance:enable()
   expect.equal(instance:state(), 'failed', 'the failed load')
-  expect.truthy(tostring(instance:diagnostic()):find('initializer position failure', 1, true), 'the diagnostic')
+  expect.truthy(
+    tostring(testing.diagnostic(runtime, instance)):find('initializer position failure', 1, true),
+    'the diagnostic'
+  )
   local report = only(testing.takeReports(), 'initializer position failure')
   expect.truthy(report:find '^plugin load: failing %(instance ', 'the report names the definition: ' .. report)
   expect.truthy(
@@ -41,26 +45,23 @@ test('an initializer error fails its instance and is reported with its position 
 end)
 
 test('a consumer waits unreported for a provider, but a schema mismatch is reported', function()
-  local first = plugin.capability { name = 'local/schema-mismatch', schema = 1 }
-  local second = plugin.capability { name = 'local/schema-mismatch', schema = 2 }
-  local runtime = plugin.runtime()
+  local first = plugin.capability { name = 'local/schema-mismatch', version = 1 }
+  local second = plugin.capability { name = 'local/schema-mismatch', version = 2 }
+  local runtime = adapter.runtime()
   local function consumer(capability)
-    return runtime:use(
-      plugin.define { name = 'consumer', requires = { service = capability }, init = function() end },
-      {}
-    )
+    return runtime:use(adapter.define { name = 'consumer', requires = { capability }, init = function() end }, {})
   end
   local waiting = consumer(first)
   waiting:enable()
   expect.equal(waiting:state(), 'inactive', 'the waiting consumer')
-  local reason = tostring(waiting:diagnostic())
+  local reason = tostring(testing.diagnostic(runtime, waiting))
   expect.truthy(reason:find('waiting for a provider of local/schema-mismatch@1', 1, true), reason)
   expect.equal(#testing.takeReports(), 0, 'waiting is not reported')
   runtime
     :use(
-      plugin.define {
+      adapter.define {
         name = 'provider',
-        provides = { service = first },
+        provides = { first },
         init = function(_context, _config, publish)
           publish:provide(first, {})
         end,
@@ -69,22 +70,22 @@ test('a consumer waits unreported for a provider, but a schema mismatch is repor
     )
     :enable()
   expect.equal(waiting:state(), 'active', 'the consumer once its provider is active')
-  expect.equal(waiting:diagnostic(), nil, 'the diagnostic of the active consumer')
+  expect.equal(testing.diagnostic(runtime, waiting), nil, 'the diagnostic of the active consumer')
   local mismatched = consumer(second)
   mismatched:enable()
   expect.equal(mismatched:state(), 'inactive', 'the mismatched consumer')
-  local diagnostic = tostring(mismatched:diagnostic())
+  local diagnostic = tostring(testing.diagnostic(runtime, mismatched))
   only(testing.takeReports(), diagnostic)
   runtime:close()
 end)
 
 test('a failed disposal quarantines its provider once its consumers have unloaded', function()
-  local echo = plugin.capability { name = 'local/quarantine-echo', schema = 1 }
+  local echo = plugin.capability { name = 'local/quarantine-echo', version = 1 }
   local events = {}
   local kept
-  local definition = plugin.define {
+  local definition = adapter.define {
     name = 'provider',
-    provides = { echo = echo },
+    provides = { echo },
     init = function(context, _config, publish)
       context:effect(function()
         return function()
@@ -106,13 +107,13 @@ test('a failed disposal quarantines its provider once its consumers have unloade
       })
     end,
   }
-  local runtime = plugin.runtime()
+  local runtime = adapter.runtime()
   local provider = runtime:use(definition, {})
   provider:enable()
   local consumer = runtime:use(
-    plugin.define {
+    adapter.define {
       name = 'consumer',
-      requires = { echo = echo },
+      requires = { echo },
       init = function(context)
         local service = context:require(echo)
         kept = service
@@ -133,14 +134,18 @@ test('a failed disposal quarantines its provider once its consumers have unloade
   expect.equal(provider:state(), 'active', 'a provider awaiting quarantine stays active')
   expect.equal(kept:ping 'still served', 'still served', 'a provider awaiting quarantine keeps serving')
   expect.raises(function()
-    provider:reload {}
+    provider:requestReload {}
+    runtime:drain()
   end, nil, 'a provider awaiting quarantine cannot be reloaded')
 
   provider:disable()
   expect.equal(consumer:state(), 'inactive', 'the consumer unloads')
   expect.equal(provider:state(), 'quarantined', 'the provider once it has unloaded')
   expect.equal(table.concat(events, ', '), 'consumer served, provider remaining', 'the cleanup order')
-  expect.truthy(tostring(provider:diagnostic()):find('the doomed inverse fails', 1, true), 'the quarantine cause')
+  expect.truthy(
+    tostring(testing.diagnostic(runtime, provider)):find('the doomed inverse fails', 1, true),
+    'the quarantine cause'
+  )
   only(testing.takeReports(), 'is quarantined after a cleanup failure')
   expect.raises(function()
     provider:enable()
@@ -154,9 +159,9 @@ end)
 
 test('an owner label names the definition, also after the owner unloads', function()
   local held
-  local runtime = plugin.runtime()
+  local runtime = adapter.runtime()
   local instance = runtime:use(
-    plugin.define {
+    adapter.define {
       name = 'labelled-consumer',
       init = function(context)
         held = context

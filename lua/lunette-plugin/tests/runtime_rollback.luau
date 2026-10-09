@@ -115,7 +115,8 @@ test('a cleanup reads its services but acquires nothing, and an owner check acce
   )
   provider:enable()
   consumer:enable()
-  consumer:reload {}
+  consumer:requestReload {}
+  runtime:drain()
   expect.equal(#contexts, 2, 'the activations')
   expect.raises(function()
     providerContext:checkOwner(contexts[1])

@@ -15,7 +15,7 @@ local function fixture(hooks, options)
     end,
   }
   local sink = { dead = false, domain = hooks.domain or 'window' }
-  sink.modifiers = function(_self, modifiers)
+  sink.setModifiers = function(_self, modifiers)
     local event = 'mods:' .. table.concat(modifiers or {}, '+')
     events[#events + 1] = event
     return true

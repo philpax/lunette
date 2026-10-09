@@ -115,8 +115,8 @@ impl LayerBudget {
     }
 }
 
-/// What a frame boundary changed, reported to Lua as `lovr.lunlayergranted`
-/// and `lovr.lunlayerrevoked`.
+/// What a frame boundary changed. Lua reads the result from each claim's
+/// `granted` and `layer` instead.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PoolOutcome {
     /// Claims whose layer becomes granted at this boundary.

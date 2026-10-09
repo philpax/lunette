@@ -203,10 +203,10 @@ local function create(context: plugin.Context): Service
       end
     end
   end
-  local lossObserver = plugin.define {
+  local lossObserver = plugin.consumer<<{}, {}>> {
     name = 'focus/native-loss',
-    requires = { frame = frame.capability },
-    init = function(observer: plugin.Context): ()
+    requires = { frame.capability },
+    init = function(observer: plugin.Context, _settings: {}): ()
       local clock: frame.Service = observer:require(frame.capability)
       clock:onUpdate(observer, {
         phase = 'input',
@@ -222,7 +222,7 @@ local function create(context: plugin.Context): Service
       })
     end,
   }
-  context:child(lossObserver, {})
+  context:child(lossObserver.definition)
 
   local function keymapSeat(): lunette.Seat?
     local entry = current()
@@ -279,7 +279,7 @@ local function create(context: plugin.Context): Service
     end,
     onChanged = function(_self: Service, owner: contract.Owner, listener: contract.Listener): plugin.Effect
       context:checkOwner(owner)
-      plugin.rejectUnknownFields('focus onChanged', listener, { run = true }, 'run', 2)
+      plugin.rejectUnknownFields('focus onChanged', listener, { 'run' }, 2)
       if getmetatable(listener) ~= nil or type(listener.run) ~= 'function' then
         error('focus onChanged: run is a plain callback', 2)
       end

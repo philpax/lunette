@@ -3,7 +3,7 @@ local schema = require '@lunette-plugin/schema'
 local positive = schema.number { positive = true }
 local strength = schema.number { minimum = 0, maximum = 1 }
 local duration = schema.number { minimum = 0 }
-local hand = schema.union(schema.literal<<'left'>> 'left', schema.literal<<'right'>> 'right')
+local hand = schema.enum<<'left' | 'right'>> { 'left', 'right' }
 local haptic = schema.object {
   strength = schema.default(strength)(0.3),
   duration = schema.default(duration)(0.05),

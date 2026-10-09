@@ -84,7 +84,8 @@ fn snapshots_expose_bindings_and_quarantine() -> mlua::Result<()> {
         first:disable()
         assert(not runtime:snapshot().instances[3].failedBindings[1].current)
         second:enable()
-        consumer:reload(false)
+        consumer:requestReload(false)
+        runtime:drain()
         local recovered = runtime:snapshot()
         local node = recovered.instances[3]
         assert(node.state == 'active' and #node.failedBindings == 0)

@@ -1,6 +1,7 @@
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
+local adapter = require '@lunette-plugin/adapter'
 local bindingsContract = require '@lunette-contracts/bindings'
 local frameContract = require '@lunette-contracts/frame'
 
@@ -10,9 +11,9 @@ local function start()
   local env = { ran = {}, delivered = {} }
   env.session = testing.boot { 'frame', 'bindings' }
   env.native = env.session.native
-  env.hotkeys = env.session:use(plugin.define {
+  env.hotkeys = env.session:use(adapter.define {
     name = 'hotkeys',
-    requires = { bindings = bindingsContract.capability, frame = frameContract.capability },
+    requires = { bindingsContract.capability, frameContract.capability },
     init = function(context)
       env.owner = context
       env.bindings = context:require(bindingsContract.capability)

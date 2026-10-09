@@ -1,6 +1,7 @@
 -- Computes keyboard geometry and key legends.
 local lunette = require '@lunette'
 local keyboard = require '@lunette-contracts/keyboard'
+local keys = require '@lunette-contracts/keys'
 
 local layout = {}
 
@@ -118,10 +119,7 @@ function layout.legendFor(entry: Key, seat: lunette.Seat?, modifiers: { read [nu
     return ''
   end
 
-  local held: { string } = {}
-  for index, modifier in modifiers do
-    held[index] = modifier
-  end
+  local held = keys.nativeModifiers(modifiers)
   local text = seat:characterFor(code, held)
   if text and text ~= '' then
     return text

@@ -2,6 +2,7 @@
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
+local adapter = require '@lunette-plugin/adapter'
 local frameContract = require '@lunette-contracts/frame'
 local surfacesContract = require '@lunette-contracts/surfaces'
 
@@ -9,9 +10,9 @@ local test = testing.suite()
 
 test('a raising handler or offer is reported and the ones after it still run', function()
   local ran, broker = {}, nil
-  local raising = plugin.define {
+  local raising = adapter.define {
     name = 'raising',
-    requires = { frame = frameContract.capability, surfaces = surfacesContract.capability },
+    requires = { frameContract.capability, surfacesContract.capability },
     init = function(context)
       local frame = context:require(frameContract.capability)
       broker = context:require(surfacesContract.capability)

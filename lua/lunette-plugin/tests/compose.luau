@@ -1,11 +1,12 @@
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
+local adapter = require '@lunette-plugin/adapter'
 local schema = require '@lunette-plugin/schema'
 
 local test = testing.suite()
 
-local hud = plugin.define { name = 'hud', init = function() end }
+local hud = adapter.define { name = 'hud', init = function() end }
 local labelled = plugin.consumer({
   name = 'labelled',
   schema = schema.object {
@@ -96,7 +97,7 @@ test('a configuration a plugin does not take fails that plugin alone, naming the
   local running = testing.start(plugin.compose(ENTRIES, { { id = 'labelled', config = { colour = 'red' } } }))
   expect.equal(running.instances.labelled:state(), 'failed', 'the misconfigured plugin')
   expect.truthy(
-    tostring(running.instances.labelled:diagnostic()):find(
+    tostring(testing.diagnostic(running.runtime, running.instances.labelled)):find(
       'plugin labelled: option colour is not a declared field',
       1,
       true

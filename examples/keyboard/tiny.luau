@@ -16,7 +16,7 @@ local KEY = 0.05
 
 return plugin.provider<<Config, Settings, keyboard.Service>>({
   name = 'tiny-keyboard',
-  requires = { focus = focusContract.capability },
+  requires = { focusContract.capability },
   capability = keyboard.capability,
   build = function(context: plugin.Context, _settings: Settings): keyboard.Service
     local focus: focusContract.Service = context:require(focusContract.capability)

@@ -301,7 +301,7 @@ fn a_spawn_output_that_is_not_an_output_handle_is_refused() {
     // and the borrow refuses it.
     let message = error(
         &lua,
-        "lunette.spawn{ argv = { 'foot' }, output = lunette.newSeat('left') }",
+        "lunette.spawn{ argv = { 'foot' }, output = lunette.newSeat { name = 'left' } }",
     );
     assert!(
         !message.is_empty(),

@@ -10,7 +10,7 @@ end
 
 return plugin.consumer<<{}, {}>>({
   name = 'desktop/input',
-  requires = { focus = focus.capability, frame = frame.capability },
+  requires = { focus.capability, frame.capability },
   init = function(context: plugin.Context, _settings: {}): ()
     local frameService: frame.Service = context:require(frame.capability)
     local service: focus.Service = context:require(focus.capability)

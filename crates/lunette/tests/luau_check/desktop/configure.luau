@@ -12,11 +12,24 @@ local accepted = {
   plugin.configure('custom-keyboard-id', keyboard) { placement = { distance = 0.45 } },
   plugin.configure('custom-persistence-id', persistence.factory) { file = 'desktop.state' },
 }
+local patches: { desktop.Patch } = {
+  { id = 'desktop/hint', disabled = true },
+  { id = 'desktop/menu', config = { hand = 'left' } },
+  { id = 'desktop/keyboard', definition = keyboard, config = { placement = { distance = 0.5 } } },
+  { insert = { id = 'custom-keyboard-id', definition = keyboard }, after = 'desktop/keyboard' },
+  desktop.configure('desktop/menu', menu) { hand = 'right' },
+}
 local composed = desktop.compose {
+  patches = patches,
   settings = {
     menu = { hand = 'right' },
     arrange = { layout = 'grid', options = { grid = { columns = 3 } } },
   },
+}
+
+local wrongPatches: { desktop.Patch } = {
+  { id = 'desktop/hint', disabled = false }, -- reject.
+  { id = 'desktop/hint' }, -- reject.
 }
 
 local rejected = {
@@ -28,4 +41,4 @@ local rejected = {
   desktop.compose { settings = { arrange = { layout = 3 } } }, -- reject.
 }
 
-return { accepted = accepted, composed = composed, rejected = rejected }
+return { accepted = accepted, composed = composed, rejected = rejected, wrongPatches = wrongPatches }

@@ -9,6 +9,6 @@ export type Service = {
   read elapsed: (Service) -> number,
 }
 
-clock.capability = plugin.capability<<Service>> { name = 'example/clock', schema = 1 }
+clock.capability = plugin.capability<<Service>> { name = 'example/clock', version = 1 }
 
 return clock

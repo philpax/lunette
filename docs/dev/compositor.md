@@ -58,7 +58,7 @@ local proc = lunette.spawn {
 }
 ```
 
-`cwd` optionally sets the working directory, and `env` adds to the session's environment. The handle carries `id`, `alive`, `pid`, and `external`. `lunette.onProcessExited` reports exit, signal, or spawn failure, and `lunette.onProcessOutput` reports captured output.
+`cwd` optionally sets the working directory, and `env` adds to the session's environment. The handle carries `id`, `dead`, and `pid`. `lunette.onProcessExited` reports exit, signal, or spawn failure, and `lunette.onProcessOutput` reports captured output.
 
 ### Attribution
 
@@ -66,7 +66,7 @@ A connecting client is attributed to a process so its output assignment applies.
 
 ### Adoption
 
-A client lunette did not spawn connects through the same socket and is adopted. Running `WAYLAND_DISPLAY=wayland-20 foot` from a host terminal is a supported workflow. An adopted process's handle has `external = true`. lunette does not reap it and samples its liveness through `/proc`.
+A client lunette did not spawn connects through the same socket and is adopted. Running `WAYLAND_DISPLAY=wayland-20 foot` from a host terminal is a supported workflow. lunette does not reap an adopted process and samples its liveness through `/proc`. Lua holds no handle to one, and its disappearance is not reported as an exit, because `/proc` does not record its status.
 
 ### Lifecycle
 
@@ -75,7 +75,7 @@ The native layer reaps children and reports exit. Restarting, closing panels, an
 Two behaviours differ from WayVR:
 
 - lunette calls `setsid` for each child and signals its process group, so a wrapper's descendants are signalled too, and sets `PR_SET_PDEATHSIG` so children do not outlive a crashed lunette. WayVR signals only the direct child.
-- lunette captures each child's stdout and stderr, reports them through `lunette.onProcessOutput`, and logs them. WayVR inherits stdio, which is unreadable inside a headset.
+- lunette captures each child's stdout and stderr, logs each chunk at `info` with the process and stream, and reports it through `lunette.onProcessOutput`. WayVR inherits stdio, which is unreadable inside a headset.
 
 There is no cgroup or systemd scope integration, no seatd integration, and no sandboxing. Spawned applications have lunette's privileges.
 
@@ -86,6 +86,10 @@ The `wl_output` global is lunette's own (`crates/lunette-compositor/src/output.r
 `wl_compositor` is advertised at version 6 rather than smithay's default 5, because version 6 carries `wl_surface.preferred_buffer_scale` and `preferred_buffer_transform`, which deliver scale per surface without relying on `wl_output.scale` from a filtered output. The compositor therefore owes both events to every surface before its first commit, which `send_initial_surface_state` sends from surface and toplevel creation.
 
 The default output stays as the output for unassigned clients, because adopted clients are never assigned one and many toolkits assume at least one output exists. An absent `output` in a spawn request means the default output.
+
+### An adopted process's disappearance is not an exit
+
+`/proc` shows that an adopted process is gone but not how it ended, and the protocol has no unknown status. Reporting `Exited { code: 0 }` invented a status for a process Lua never held a handle to, so the registry drops the entry without an event. An `unknown` outcome was rejected because no consumer could act on it.
 
 ### Frame pacing is a withhold and a timer, not smithay's throttle
 

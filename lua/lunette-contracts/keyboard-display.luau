@@ -18,6 +18,6 @@ export type Service = {
 }
 export type Capability = plugin.Capability<Service>
 
-display.capability = plugin.capability<<Service>> { name = 'lunette/keyboard-display', schema = 1 }
+display.capability = plugin.capability<<Service>> { name = 'lunette/keyboard-display', version = 1 }
 
 return display

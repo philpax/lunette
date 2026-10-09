@@ -1,4 +1,5 @@
 local plugin = require '@lunette-plugin'
+local adapter = require '@lunette-plugin/adapter'
 local panels = require '@lunette-contracts/panels'
 local interaction = require '@lunette-contracts/interaction'
 local keyboard = require '@lunette-contracts/keyboard'
@@ -6,15 +7,15 @@ local drops = require '@lunette-contracts/drops'
 local vocabulary = require '@lunette-contracts/vocabulary'
 local native = require '@lunette'
 type Config = { read title: string, read height: number }
-local definition = plugin.define {
+local definition = adapter.define {
   name = 'definition',
   requires = {
-    panels = panels.capability,
-    interaction = interaction.capability,
-    keyboard = keyboard.capability,
-    drops = drops.capability,
+    panels.capability,
+    interaction.capability,
+    keyboard.capability,
+    drops.capability,
   },
-  provides = { panels = panels.capability, keyboard = keyboard.capability },
+  provides = { panels.capability, keyboard.capability },
   init = function(ctx, config: Config, provide)
     local panelRegistry = ctx:require(panels.capability)
     local input, dropService = ctx:require(interaction.capability), ctx:require(drops.capability)
@@ -45,11 +46,11 @@ local definition = plugin.define {
 
 local widened: plugin.Capability<unknown> = panels.capability -- reject: unknown.
 local confused: plugin.Capability<keyboard.Service> = panels.capability -- reject: Service.
-local runtime = plugin.runtime()
+local runtime = adapter.runtime()
 runtime:use(definition, { title = 42, height = 1 }) -- reject: string.
 local instance = runtime:use(definition, { title = 'fixture', height = 1 })
-instance:reload { title = 'fixture', height = 'tall' } -- reject: number.
-local wrongName = plugin.define { name = 42, init = function(_ctx, _config: Config) end } -- reject: string.
+instance:requestReload { title = 'fixture', height = 'tall' } -- reject: number.
+local wrongName = adapter.define { name = 42, init = function(_ctx, _config: Config) end } -- reject: string.
 
 -- A contract's data properties are read-only, so a substitute provider's record satisfies them covariantly.
 local function mutate(surface: vocabulary.Surface, snapshot: native.PluginRuntimeSnapshot)

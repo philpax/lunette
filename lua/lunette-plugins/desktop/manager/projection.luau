@@ -19,10 +19,10 @@ function projection.snapshot(snapshot: lunette.PluginRuntimeSnapshot): Projected
     instances[instance.id] = instance
     local detail: { string } = {}
     for _, capability in instance.required do
-      detail[#detail + 1] = capability.field .. ': ' .. capability.contract.display
+      detail[#detail + 1] = capability.contract.display
     end
     for _, capability in instance.provided do
-      detail[#detail + 1] = capability.field .. ': ' .. capability.contract.display
+      detail[#detail + 1] = capability.contract.display
     end
     if instance.diagnostic then
       detail[#detail + 1] = instance.diagnostic

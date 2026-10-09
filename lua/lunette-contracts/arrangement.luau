@@ -11,6 +11,6 @@ export type Service = {
 
 export type Capability = plugin.Capability<Service>
 
-arrangement.capability = plugin.capability<<Service>> { name = 'lunette/arrangement', schema = 1 }
+arrangement.capability = plugin.capability<<Service>> { name = 'lunette/arrangement', version = 1 }
 
 return arrangement

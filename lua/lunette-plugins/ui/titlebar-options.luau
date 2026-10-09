@@ -7,14 +7,12 @@ local titlebarOptions = {}
 
 function titlebarOptions.parse(given: ui.TitlebarOptions): ui.TitlebarOptions
   assert(type(given) == 'table' and getmetatable(given) == nil, 'ui titlebar: options are a plain table')
-  plugin.rejectUnknownFields('ui titlebar', given, {
-    title = true,
-    onClose = true,
-    closeId = true,
-    actions = true,
-    style = true,
-    draggable = true,
-  }, 'titlebar option fields', 3)
+  plugin.rejectUnknownFields(
+    'ui titlebar',
+    given,
+    { 'title', 'onClose', 'closeId', 'actions', 'style', 'draggable' },
+    3
+  )
   assert(type(given.title) == 'string', 'ui titlebar: title is a string')
   assert(given.onClose == nil or type(given.onClose) == 'function', 'ui titlebar: onClose is a function')
   assert(
@@ -40,13 +38,7 @@ function titlebarOptions.parse(given: ui.TitlebarOptions): ui.TitlebarOptions
     assert(count == #given.actions, 'ui titlebar: actions are dense')
     for _, action in given.actions do
       assert(type(action) == 'table' and getmetatable(action) == nil, 'ui titlebar: action is a plain table')
-      plugin.rejectUnknownFields('ui titlebar action', action, {
-        id = true,
-        label = true,
-        width = true,
-        enabled = true,
-        run = true,
-      }, 'id, label, width, enabled, and run', 3)
+      plugin.rejectUnknownFields('ui titlebar action', action, { 'id', 'label', 'width', 'enabled', 'run' }, 3)
       assert(
         type(action.id) == 'string' and action.id ~= '' and not ids[action.id],
         'ui titlebar: action ids are unique'

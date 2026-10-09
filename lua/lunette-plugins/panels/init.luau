@@ -98,7 +98,7 @@ end
 local function create(state: ProviderState, owner: Owner, source: panel.Source, options: Options?): panel.State
   state.context:checkOwner(owner)
   local target = panel.new(state.host, owner, source, options)
-  local acquired = owner:effect(function()
+  local acquired = state.context:acquire(owner, function()
     state.panels[#state.panels + 1] = target
     local ok, failure = pcall(panel.claim, target)
     if not ok then
@@ -125,7 +125,7 @@ local function create(state: ProviderState, owner: Owner, source: panel.Source, 
   return target
 end
 
-local LISTENER_KEYS: { [string]: boolean } = { panel = true, run = true }
+local LISTENER_KEYS: { string } = { 'panel', 'run' }
 
 -- Checks a listener table's shape. Each error names the caller of the
 -- service method, two frames up.
@@ -133,7 +133,7 @@ local function checkListener(operation: string, listener: unknown): ()
   if type(listener) ~= 'table' then
     error(string.format('panels %s: a listener is a table of fields, not a %s', operation, type(listener)), 3)
   end
-  plugin.rejectUnknownFields('panels ' .. operation, listener, LISTENER_KEYS, 'panel and run', 3)
+  plugin.rejectUnknownFields('panels ' .. operation, listener, LISTENER_KEYS, 3)
   local run = (listener :: { [string]: unknown }).run
   if type(run) ~= 'function' then
     error(string.format('panels %s: run is a function, not a %s', operation, type(run)), 3)
@@ -333,7 +333,7 @@ end
 return plugin.provider<<Config, Settings, Service>> {
   name = 'panels',
   capability = contracts.capability,
-  requires = { theme = theme.capability },
+  requires = { theme.capability },
   schema = config :: schema.Schema<Config, Settings>,
   build = build,
 }

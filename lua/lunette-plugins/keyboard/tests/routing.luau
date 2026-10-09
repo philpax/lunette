@@ -1,6 +1,7 @@
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
+local adapter = require '@lunette-plugin/adapter'
 local keyboardContract = require '@lunette-contracts/keyboard'
 local focusContract = require '@lunette-contracts/focus'
 
@@ -9,9 +10,9 @@ local test = testing.suite()
 local function start()
   testing.native()
   local env = { session = testing.start { 'theme', 'focus', 'keyboard' } }
-  env.consumer = env.session:use(plugin.define {
+  env.consumer = env.session:use(adapter.define {
     name = 'keyboard-routing-test',
-    requires = { keyboard = keyboardContract.capability, focus = focusContract.capability },
+    requires = { keyboardContract.capability, focusContract.capability },
     init = function(context)
       env.owner = context
       env.service, env.focus = context:require(keyboardContract.capability), context:require(focusContract.capability)
@@ -40,7 +41,7 @@ local function nativeTarget()
     return true
   end
   local sink = { id = 1, domain = 'window', dead = false }
-  function sink:modifiers(held)
+  function sink:setModifiers(held)
     sent[#sent + 1] = { 'modifiers', table.clone(held) }
     return true
   end

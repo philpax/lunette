@@ -116,7 +116,7 @@ export type Service = {
 
 export type Capability = plugin.Capability<Service>
 
-local capability = plugin.capability<<Service>> { name = 'lunette/keyboard', schema = 3 }
+local capability = plugin.capability<<Service>> { name = 'lunette/keyboard', version = 3 }
 
 keyboard.capability = capability
 

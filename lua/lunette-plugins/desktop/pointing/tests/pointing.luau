@@ -1,6 +1,7 @@
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
+local adapter = require '@lunette-plugin/adapter'
 local surfaces = require '@lunette-contracts/surfaces'
 local quad = require '@lunette-contracts/quad'
 local vrUi = require '@testing/vr-ui'
@@ -25,9 +26,9 @@ test('the trigger and thumbstick reach a native sink as a primary button and scr
   }
   local window = fixture.native.newWindow(17)
   local pose = lovr.math.newMat4():translate(0, 1.5, -2)
-  fixture.session:use(plugin.define {
+  fixture.session:use(adapter.define {
     name = 'testing/native-sink',
-    requires = { surfaces = surfaces.capability },
+    requires = { surfaces.capability },
     init = function(context)
       local target =
         { dead = false, grabbable = false, pose = pose, width = 2, height = 1, pixelWidth = 200, pixelHeight = 100 }

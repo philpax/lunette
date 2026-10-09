@@ -13,7 +13,7 @@ export type Settings = schema.Output<typeof(descriptor)>
 
 return plugin.consumer<<Config, Settings>>({
   name = 'uptime',
-  requires = { frame = frame.capability, clock = clock.capability },
+  requires = { frame.capability, clock.capability },
   schema = descriptor,
   init = function(context: plugin.Context, settings: Settings)
     local frames: frame.Service = context:require(frame.capability)

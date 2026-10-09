@@ -14,7 +14,12 @@ local descriptor = schema.object {
   map = schema.default(schema.map(schema.string())) {},
   callback = schema.default(schema.callback(callback))(callback),
   direction = schema.default(schema.vector())(vector.pack(0, 1, 0)),
-  mode = schema.default(schema.union(schema.literal<<'left'>> 'left', schema.literal<<'right'>> 'right')) 'left',
+  mode = schema.default(schema.enum<<'left' | 'right'>> { 'left', 'right' }) 'left',
+  shape = schema.optional(schema.union {
+    schema.object { kind = schema.literal<<'dot'>> 'dot' },
+    schema.object { kind = schema.literal<<'line'>> 'line', length = schema.number() },
+    schema.literal<<'none'>> 'none',
+  }),
   enabled = schema.default(schema.boolean())(true),
 }
 type Config = schema.Input<typeof(descriptor)>
@@ -27,13 +32,14 @@ end
 local function use(value: Settings): number
   return value.count + value.tuning.radius
 end
-local definition = plugin.define {
+local probe = plugin.consumer<<Config, Settings>> {
   name = 'schema-probe',
-  init = function(_context: plugin.Context, value: Config, _publish: plugin.Publisher): ()
-    use(descriptor.parse(value))
+  schema = descriptor,
+  init = function(_context: plugin.Context, value: Settings): ()
+    use(value)
   end,
 }
-local configure = plugin.configure('schema-probe', definition)
+local configure = plugin.configure('schema-probe', probe.definition)
 configure { label = 'sample', tuning = {}, list = { 1 }, map = { key = 'value' }, mode = 'right' }
 local custom = schema.custom {
   runtimeType = 'table',
@@ -45,6 +51,11 @@ local custom = schema.custom {
 local annotated = schema.describe(schema.refine(descriptor)(function(value: Settings): ()
   assert(value.count > 0, 'positive count is required')
 end)) { label = 'Probe' }
+local overrides = schema.partial(descriptor)
+type Overrides = schema.Output<typeof(overrides)>
+local sparse: Overrides = overrides.parse {}
+local sparseCount: number? = sparse.count
+local shaped: Settings = descriptor.parse { label = 'sample', shape = { kind = 'line', length = 1 } }
 local result: Settings = annotated.parse(config)
 local bound: Settings = descriptor.resolve({ tuning = {} }, result)
 local booleanLiteral: false = schema.literal<<false>>(false).parse(false)
@@ -70,6 +81,8 @@ return {
   marker = marker,
   count = count,
   quiet = quietInput,
+  sparse = sparseCount,
+  shaped = shaped,
   disabled = booleanLiteral,
   strings = { stringsInput, defaultStringsInput, stringObjectInput },
 }

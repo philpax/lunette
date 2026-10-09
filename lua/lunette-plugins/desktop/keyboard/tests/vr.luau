@@ -1,6 +1,7 @@
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
+local adapter = require '@lunette-plugin/adapter'
 local ui = require '@lunette-contracts/ui'
 local focus = require '@lunette-contracts/focus'
 local display = require '@lunette-contracts/keyboard-display'
@@ -66,9 +67,9 @@ test('controller clicks on fields share one keyboard that types, and its Hide ke
   }
   local state = {}
   running.session:use(
-    plugin.define {
+    adapter.define {
       name = 'testing/display-vr-fields',
-      requires = { ui = ui.capability },
+      requires = { ui.capability },
       init = function(owner)
         state.service = owner:require(ui.capability)
         local panel = state.service:newPanel(owner, {

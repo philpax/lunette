@@ -2,15 +2,15 @@
 
 `require '@lunette'` is native mechanism: windows, monitors, sinks, seats, outputs, processes, layer claims, clipboard bridging, capture, events, and the plugin runtime. `require '@lunette-plugin'` is the plugin facade, written in Lua. Policy lives in the Lua roots `@lunette-plugin`, `@lunette-contracts`, `@lunette-plugins`, and `@lunette-desktop`, which use only public APIs, and `lunette` remains usable without them. [Module roots](build-and-development.md#module-roots) lists the aliases.
 
-The generated `lua/lunette/init.luau` is the source of truth for the native API's members, fields, and argument shapes, and its comments describe each one. Each module under `lua/lunette-contracts/` is the source of truth for its contract's types, methods, and schema number, and each provider's `config.luau` or descriptor for its options and defaults. This document states the guarantees those files do not make plain. [The native API](../guide/native-api.md) and [Writing plugins](../guide/writing-plugins.md) are the user guides.
+The generated `lua/lunette/init.luau` is the source of truth for the native API's members, fields, and argument shapes, and its comments describe each one. Each module under `lua/lunette-contracts/` is the source of truth for its contract's types, methods, and version, and each provider's `config.luau` or descriptor for its options and defaults. This document states the guarantees those files do not make plain. [The native API](../guide/native-api.md) and [Writing plugins](../guide/writing-plugins.md) are the user guides.
 
 ## Plugin authoring
 
 [Architecture](architecture.md#plugin-runtime) specifies the plugin runtime: contract matching, publication, reservations, retry, quarantine, and epochs. This section specifies the facade over it.
 
-`plugin.capability<<Service>> { name, schema }` declares a contract and binds its native token in one step. A Lua state cannot declare the same name and schema twice in one epoch. The facade does not export the native `contract` function. `lunette check` reports a capability whose service type is `unknown`, which is what omitting `<<Service>>` produces.
+`plugin.capability<<Service>> { name, version }` declares a contract and binds its native token in one step; the capability displays as `name@version`. A Lua state cannot declare the same name and version twice in one epoch. The facade does not export the native `contract` function. `lunette check` reports a capability whose service type is `unknown`, which is what omitting `<<Service>>` produces.
 
-`Publisher:provide` is valid only while the initializer runs; it stages a provision that the runtime publishes with the rest of the instance's provisions when the initializer returns. The runtime does not check service shapes or configuration values against Luau types. Plugin callbacks are synchronous. The facade rejects an unknown field or a wrongly typed value in a definition or capability spec.
+`plugin.provider` and `plugin.consumer` are the definition constructors. A definition's `requires` lists the capabilities it uses, and the facade keys each one by its contract for the native graph, so a duplicate or a value that is not a capability raises. `Publisher:provide` is valid only while the initializer runs; it stages a provision that the runtime publishes with the rest of the instance's provisions when the initializer returns. The runtime does not check service shapes or configuration values against Luau types. Plugin callbacks are synchronous. The facade rejects an unknown field or a wrongly typed value in a definition or capability spec.
 
 The native plugin handles (token, definition, runtime, instance, context, and effect) are nominal types, so a table does not satisfy a parameter that takes one. A contract token belongs to its epoch, and source reload retires the epoch.
 
@@ -20,11 +20,11 @@ A consumer receives each provision through a frozen view shared by every consume
 
 ### Confinement
 
-A plugin changes state outside itself only through its context. Every resource, subscription, and child an initializer creates goes through `Context:effect`, `Context:on`, `Context:child`, `Context:resource`, or an owner-scoped provider method, so unloading the instance reverts it. A direct `lunette.on*` call is untracked: it survives instance reload and the next activation duplicates it.
+A plugin changes state outside itself only through its context. Every resource, subscription, and child an initializer creates goes through `Context:effect`, `Context:on`, `Context:child`, or an owner-scoped provider method, so unloading the instance reverts it. `Context:child(definition, config?)` takes an optional configuration and returns nothing. A direct `lunette.on*` call is untracked: it survives instance reload and the next activation duplicates it.
 
 Effects are flat. An effect created during another effect's acquisition registers first, as a sibling, and inverses run in reverse registration order, so the outer inverse runs before the inner one. An outer inverse that must release the inner resource first disposes it itself. If the activation is cancelled during an acquisition, the inverse runs at once and the call raises. Disposing an effect whose activation has ended does nothing. A handler registered through `Context:on` is not called after the activation ends.
 
-An owner-scoped provider method checks that the owner is a live context bound to the provider's current generation, and registers the resource on the caller's owner. An inverse that raises during the owner's unload quarantines the owner, and the provider keeps serving others. A provider that needs one of its own dependencies for that work calls it with its own context as owner, inside the effect it registers for the caller, so the caller need not depend on the provider's dependencies. Only contexts the facade created are accepted as owners.
+An owner-scoped provider method registers its resource on the caller's owner through one of three context methods. `Context:acquire(owner, acquire)` is the usual form. `Context:resource(owner, acquire)` is the same for an `acquire` that returns a value with its inverse, and returns the value with the effect. `Context:acquireDeferred(owner, acquire)` registers without draining queued lifecycle work before it returns, so that work waits for the next drain boundary; the theme provider's `select` uses it so that no queued activation runs between registering a selection and publishing it. Each accepts the provider's own context or a live dependent bound to the provider's current generation, and raises for any other owner before acquiring. `Context:checkOwner(owner)` raises for an owner that is not a live dependent, and `Context:owns(owner)` answers the same test as a boolean; a provider calls one of them before validating a call whose resource it registers later. An `Owner` exposes nothing callable, so a provider cannot register on an owner except through these methods. An inverse that raises during the owner's unload quarantines the owner, and the provider keeps serving others. A provider that needs one of its own dependencies for that work calls it with its own context as owner, inside the effect it registers for the caller, so the caller need not depend on the provider's dependencies. Only contexts the facade created are accepted as owners.
 
 A change an owner makes to shared state, such as a panel's visibility or a tag's selection, is an override held by that owner, and the most recent live override decides. A name registered with a broker, a key chord, a rules source name, and a laser hand each have one holder, and registering a taken one raises.
 
@@ -32,13 +32,13 @@ An instance reserves the contracts it provides, so several implementations of on
 
 ### Instances
 
-A request on an instance (`enable`, `disable`, `dispose`, `reload`) takes effect immediately and raises at the call when the graph rejects it. `requestReload` accepts the replacement without draining, and `Runtime:drain()` applies it. Instance and owner identities are exact decimal strings.
+A request on an instance (`enable`, `disable`, `dispose`) takes effect immediately and raises at the call when the graph rejects it. `requestReload` accepts a replacement configuration without draining, and `Runtime:drain()` applies it. An instance's diagnostic is read from `Runtime:snapshot()`. Instance and owner identities are exact decimal strings.
 
 ### Provider modules
 
-Every built-in provider module, made by `plugin.provider`, exposes `definition`, `define`, `build`, and `requires`; a consumer module, made by `plugin.consumer`, exposes `definition`, `define`, and `requires`. A module's descriptor validates defaults at construction, bound settings at `define`, options at `build`, and configuration at activation, and each activation resolves its configuration afresh. Declared objects merge recursively; arrays, maps, unions, and atomic values replace. [Configuration schemas](../guide/configuration-schema.md) specifies descriptors.
+A module made by `plugin.provider` or `plugin.consumer` exposes `definition`, built from the defaults, and `define`, which binds other defaults and an optional `name`. A module's descriptor validates defaults at construction, bound settings at `define`, and configuration at activation, and each activation resolves its configuration afresh. Declared objects merge recursively; arrays, maps, unions, and atomic values replace. [Configuration schemas](../guide/configuration-schema.md) specifies descriptors.
 
-`build(context, config)` makes the service without publishing it, so a plugin can wrap it and publish the wrapper under the same contract. Effects `build` registers belong to the wrapping activation. A wrapper changes only what reaches the service from outside, because a built-in calls its own methods through closures. Variation inside a provider is a hook: an option whose value is a function that receives its arguments followed by the default implementation, `hook(args..., base)`. A hook runs on the stack of whatever reached the provider, so its errors are reported there.
+Variation inside a provider is a hook: an option whose value is a function that receives its arguments followed by the default implementation, `hook(args..., base)`. A hook runs on the stack of whatever reached the provider, so its errors are reported there.
 
 ### Composition
 
@@ -146,7 +146,7 @@ An event is delivered against the snapshot of the frame it was drained in, so `o
 
 ### Handles
 
-[Architecture](architecture.md#handles) describes the handle model. Every mutation returns `false` on a dead handle. `window:getTexture()` and `monitor:getTexture()` are valid for the current frame only, because textures rotate as the client cycles buffers; `window:stabilize()` is the persistent alternative ([Rendering](rendering.md#windowstabilize)). `win.commit` comes from a counter every surface shares and never reuses, and is 0 before the first buffer. A handle returned by `newSeat` or `newOutput` is dead, and one returned by `spawn` is not `alive`, until a snapshot contains its object. `lunette.defaultSeat()` returns a fresh handle on each call, so identity comparisons use `seat.id`.
+[Architecture](architecture.md#handles) describes the handle model. Every mutation returns `false` on a dead handle. `window:getTexture()` and `monitor:getTexture()` are valid for the current frame only, because textures rotate as the client cycles buffers; `window:stabilize()` is the persistent alternative ([Rendering](rendering.md#windowstabilize)). `win.commit` comes from a counter every surface shares and never reuses, and is 0 before the first buffer. A handle returned by `newSeat`, `newOutput`, or `spawn` is dead until a snapshot contains its object. Every read returns a fresh handle, and `==` compares two handles by what they name, so two reads of one window, or two sinks for one target, are equal. Ids remain the keys of a table indexed by handle.
 
 `win:setFrameRate` paces the window's frame callbacks with a floor of 1 Hz ([Rendering](rendering.md#frame-pacing)). A monitor's `mirrored` reports an installed stream, which does not prove frames still arrive ([Host desktop](host-desktop.md#identity-and-lifecycle)).
 
@@ -158,7 +158,7 @@ The native property store keeps scalar values per window outside the Lua state, 
 
 ### Layer claims
 
-The host sorts claims stably by priority and grants the top ones. Grants and revocations land on frame boundaries, never between `lovr.update` and `lovr.draw`, so a fresh claim holds nothing in the frame that made it and the in-scene quad is always available. `onLayerGranted` and `onLayerRevoked` run at the boundary before `lovr.update`. A revoked claim stays live and is granted again when a layer frees. A claim is dead only after `claim:release()`, and nothing releases a claim when its handle is collected, because event payloads carry other handles to the same claim. Requested sizes are quantised up to the ladder ([Rendering](rendering.md#the-layer-pool)).
+The host sorts claims stably by priority and grants the top ones. Grants and revocations land on frame boundaries, never between `lovr.update` and `lovr.draw`, so a fresh claim holds nothing in the frame that made it and the in-scene quad is always available. Lua reads the outcome from `claim.granted` and `claim.layer`, which change only at the boundary before `lovr.update`. A revoked claim stays live and is granted again when a layer frees. A claim is dead only after `claim:release()`, and nothing releases a claim when its handle is collected, because other handles to the same claim may still be held. Requested sizes are quantised up to the ladder ([Rendering](rendering.md#the-layer-pool)).
 
 ### Scene rendering
 
@@ -260,6 +260,14 @@ Every plugin runs in the configuration's Lua state with the whole `lunette` API.
 
 A plugin-system call whose positional arguments would not say what they are takes a table of named fields, which also lets the facade reject a misspelt field. An owner-first call with one self-describing argument stays positional, as do surface callbacks that follow LÖVR's ray conventions. `Definition<C>` erases the context and publisher to `never`, because a recursive `Context` stops `Context:child` from checking its configuration.
 
+### A declaration is a list of capabilities
+
+`Context:require` and `Publisher:provide` find a service by capability identity, so a name for each declared capability would reach only the runtime manager's details, beside the contract it repeats. The facade keys each capability by its contract for the native graph. A contract carries a `version` rather than a `schema`, because `schema` names a plugin's configuration descriptor in the same declarations; the native `plugin.contract` keeps its own term.
+
+### One owner rule for every acquisition
+
+`Context:acquire`, `Context:acquireDeferred`, and `Context:resource` accept the same owners: the provider's own context or a checked dependent. The `Owner` type exposes no method, because an `effect` method on the owner would register a resource without the check, and nothing would make a provider call `checkOwner` first.
+
 ### Configuration types and validation share one descriptor
 
 A runtime schema beside hand-written types was rejected because the two diverge. Preflight rejects invalid settings before acquiring resources but cannot guarantee that an initializer succeeds.
@@ -290,7 +298,7 @@ Legend lookup, latch and lock sets, rows, and style stay with the provider; a pr
 
 ### Hooks cover what wrappers cannot
 
-The keyboard's `onKey` and `drawKey`, interaction's `drive` and `constrain`, and the laser's `draw` reach behaviour a wrapper cannot, because the provider calls itself through closures or from a bulk draw. A `pick` hook was not added because `drive` can use the picking module. A whole-keyboard draw hook was not added because `style` covers the plate.
+The keyboard's `onKey` and `drawKey`, interaction's `drive` and `constrain`, and the laser's `draw` reach behaviour a wrapper cannot, because the provider calls itself through closures or from a bulk draw. A provider module that exposed an unpublished `build` for a plugin to wrap and publish under the same contract was rejected: no plugin wrapped a provider, and a wrapper changes only what reaches the service from outside. A `pick` hook was not added because `drive` can use the picking module. A whole-keyboard draw hook was not added because `style` covers the plate.
 
 ### Haptics reach a pointer through its creator
 
@@ -355,6 +363,14 @@ The target owns body drawing and knows whether it is eligible to join, so generi
 ### Grapheme segmentation is native mechanism
 
 Extended grapheme rules are a correctness tail, so the native helper uses `unicode-segmentation` rather than a Lua implementation. Editing policy stays in Lua.
+
+### State a frame reads is not also announced
+
+A claim's grant and a window's title are fields a consumer reads every frame. `onLayerGranted`, `onLayerRevoked`, and `onTitleChanged` were removed because nothing subscribed to them, and two ways to learn one fact let the documented one drift from the one in use. An event returns with the consumer that needs it.
+
+### Handles compare by what they name
+
+Every read returns fresh userdata, so raw equality told two reads of one window apart and every caller compared ids, with a sink needing a different id per domain. `__eq` compares what two handles name. Ids remain, because a table keyed by handle compares keys raw.
 
 ## Known gaps
 

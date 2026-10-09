@@ -12,7 +12,7 @@ type ChildSettings = {}
 export type Config = config.Config
 export type Settings = config.Settings
 
-local required: plugin.Declaration = { panels = panels.capability }
+local required: plugin.Declaration = { panels.capability }
 
 -- Places alternate outward from the center, beginning to the right.
 local function offsetOf(place: number): number
@@ -30,7 +30,7 @@ type Shared = {
 local function tagging(shared: Shared, names: { read [number]: string }): plugin.Definition<ChildConfig>
   return plugin.consumer<<ChildConfig, ChildSettings>>({
     name = 'desktop/monitors/tags',
-    requires = { tags = tags.capability },
+    requires = { tags.capability },
     init = function(context: plugin.Context, _settings: ChildSettings): ()
       local tagService: tags.Service = context:require(tags.capability)
       local function tag(mirror: panels.MonitorPanel): ()
@@ -162,14 +162,12 @@ return plugin.consumer<<Config, Settings>>({
     end
 
     if #settings.tags > 0 then
-      context:child(tagging(shared, settings.tags), {})
+      context:child(tagging(shared, settings.tags))
     end
     context:on {
       event = lunette.onMonitorAdded,
       run = function(event: lunette.MonitorAddedEvent)
-        if event.monitor then
-          mirror(event.monitor)
-        end
+        mirror(event.monitor)
       end,
     }
     local present: { lunette.Monitor } = {}

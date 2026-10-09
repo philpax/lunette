@@ -1,6 +1,7 @@
 local testing = require '@testing'
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
+local adapter = require '@lunette-plugin/adapter'
 local management = require '@lunette-plugin/management'
 local frameProvider = require '@lunette-plugins/frame'
 local desktop = require '@lunette-desktop'
@@ -17,13 +18,13 @@ local fixture = {}
 function fixture.boot(additions)
   local native = testing.native()
   local services = {}
-  local observer = plugin.define {
+  local observer = adapter.define {
     name = 'manager-vr-observer',
     requires = {
-      ui = ui.capability,
-      focus = focus.capability,
-      display = display.capability,
-      surfaces = surfaces.capability,
+      ui.capability,
+      focus.capability,
+      display.capability,
+      surfaces.capability,
     },
     init = function(context)
       services.ui = context:require(ui.capability)

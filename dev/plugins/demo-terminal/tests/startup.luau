@@ -3,12 +3,13 @@ local testing = require '@testing'
 local expect = testing.expect
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
+local adapter = require '@lunette-plugin/adapter'
 local demoTerminal = require '../'
 
 local test = testing.suite()
 
 -- The fake enforces subscription-before-enumeration for the desktop's adoption path.
-local windowObserver = plugin.define {
+local windowObserver = adapter.define {
   name = 'testing/window-observer',
   init = function(context)
     context:on {
@@ -59,7 +60,8 @@ test(
     expect.equal(#native.events.spawned, 0, 'the occupied startup')
     expect.equal(native.events.enumerations, 1, 'the occupied startup enumeration')
     native.events.windows = {}
-    session.instances['dev/demo-terminal']:reload { programs = { 'second-terminal' } }
+    session.instances['dev/demo-terminal']:requestReload { programs = { 'second-terminal' } }
+    session.runtime:drain()
     expect.equal(#native.events.spawned, 0, 'the empty compositor after reload')
     expect.equal(native.events.enumerations, 1, 'reload does not repeat the startup enumeration')
     expect.equal(native.subscriptionCount 'onProcessExited', 1, 'reload replaces the subscription')
@@ -68,7 +70,8 @@ test(
     native, session = fixture {}
     expect.equal(#native.events.spawned, 0, 'the disabled startup')
     expect.equal(native.events.enumerations, 0, 'a disabled startup does not enumerate windows')
-    session.instances['dev/demo-terminal']:reload { programs = { 'first-terminal' } }
+    session.instances['dev/demo-terminal']:requestReload { programs = { 'first-terminal' } }
+    session.runtime:drain()
     expect.equal(#native.events.spawned, 0, 'reload does not repeat the disabled startup')
     expect.equal(#native.events.logs, 0, 'an empty program list is not exhaustion')
     close(native, session)
@@ -79,7 +82,8 @@ test('reload, reactivation, and runtime restart do not duplicate a terminal in t
   local native, session = fixture { 'first-terminal', 'second-terminal' }
   local instance = session.instances['dev/demo-terminal']
   for reload = 1, 10 do
-    instance:reload { programs = { 'replacement-terminal' } }
+    instance:requestReload { programs = { 'replacement-terminal' } }
+    session.runtime:drain()
     expect.equal(#native.events.spawned, 1, 'reload ' .. reload .. ' does not spawn')
     expect.equal(native.subscriptionCount 'onProcessExited', 1, 'reload ' .. reload .. ' leaves one subscription')
   end

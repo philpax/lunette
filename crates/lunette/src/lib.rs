@@ -12,6 +12,8 @@ pub mod host;
 pub mod import;
 pub mod keymaps;
 pub mod layers;
+#[cfg(test)]
+pub(crate) mod log_capture;
 pub mod lua;
 pub mod mirrors;
 pub mod plugin;

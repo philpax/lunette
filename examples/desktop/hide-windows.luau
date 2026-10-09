@@ -8,7 +8,7 @@ export type Settings = {}
 
 return plugin.consumer<<Config, Settings>>({
   name = 'hide-windows',
-  requires = { menu = menu.capability, panels = panels.capability },
+  requires = { menu.capability, panels.capability },
   init = function(context: plugin.Context, _settings: Settings)
     local actions: menu.Service = context:require(menu.capability)
     local panelService: panels.Service = context:require(panels.capability)

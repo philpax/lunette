@@ -1,5 +1,6 @@
 local testing = require '@testing'
 local plugin = require '@lunette-plugin'
+local adapter = require '@lunette-plugin/adapter'
 local ui = require '@lunette-contracts/ui'
 local surfaces = require '@lunette-contracts/surfaces'
 local expect = testing.expect
@@ -88,9 +89,9 @@ end)
 test('owner teardown invalidates its controls without calling it back', function()
   local state = fixture.boot()
   local control
-  local instance = state.fixture.session:use(plugin.define {
+  local instance = state.fixture.session:use(adapter.define {
     name = 'testing/capture-owner',
-    requires = { ui = ui.capability },
+    requires = { ui.capability },
     init = function(context)
       control = state.panel:region(context, {
         id = 'owned',

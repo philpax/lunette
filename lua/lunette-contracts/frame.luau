@@ -94,6 +94,6 @@ frame.DRAW_PHASES = table.freeze { 'input', 'scene', 'pointing', 'overlay', 'fee
 -- The key and text phases in the order they run.
 frame.INPUT_PHASES = table.freeze { 'binding', 'delivery' } :: { InputPhase }
 
-frame.capability = plugin.capability<<Service>> { name = 'lunette/frame', schema = 2 }
+frame.capability = plugin.capability<<Service>> { name = 'lunette/frame', version = 2 }
 
 return frame

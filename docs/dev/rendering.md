@@ -81,7 +81,7 @@ Requested sizes are rounded up to a ladder of discrete steps before keying, so a
 The division between Rust and Lua:
 
 - A claim carries a priority number from Lua, which Lua can change at any time. Rust sorts by it and grants the top claims within the budget; it adds no ranking of its own.
-- `lunette.onLayerGranted` and `lunette.onLayerRevoked` report changes with the claim. The panels provider falls back to the scene on revocation and returns to the layer on grant. When a layer frees, the highest-priority ungranted claim receives it at the next frame boundary.
+- A claim's `granted` and `layer` report the outcome of the latest frame boundary, and the panels provider reads them every frame: it draws in the scene while its claim holds no layer and onto the layer while it holds one. When a layer frees, the highest-priority ungranted claim receives it at the next frame boundary.
 - A granted claim exposes a real LÖVR `Layer`, which becomes invalid on revocation.
 - Rust makes one `setLayers` call per frame from the granted claims. A script that does not use claims can call `lovr.headset.setLayers` itself.
 - Revocation happens at frame boundaries, so Lua never holds a dead `Layer` inside `lovr.draw`.

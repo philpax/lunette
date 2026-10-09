@@ -40,7 +40,7 @@ local function fixture()
     },
     map = schema.default(schema.map(schema.number())) { retained = 4 },
     position = schema.default(schema.vector())(vector.pack(1, 2, 3)),
-    mode = schema.default(schema.union(schema.literal<<'quiet'>> 'quiet', schema.literal<<'paused'>> 'paused')) 'quiet',
+    mode = schema.default(schema.enum { 'quiet', 'paused' }) 'quiet',
     detail = schema.optional(schema.object { label = schema.string(), count = schema.default(schema.number())(7) }),
   }
   return schema.default(shape)(shape.parse {}).inspect()

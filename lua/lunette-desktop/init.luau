@@ -60,7 +60,7 @@ export type Options = {
   read settings: Settings?,
 }
 
-local OPTION_KEYS: { [string]: boolean } = { entries = true, patches = true, settings = true }
+local OPTION_KEYS: { string } = { 'entries', 'patches', 'settings' }
 local SETTING_IDS: { [string]: string } = {
   menu = 'desktop/menu',
   decorations = 'desktop/decorations',
@@ -170,7 +170,7 @@ function desktop.compose(options: Options?): { Entry }
   if options == nil then
     return DEFAULT
   end
-  plugin.rejectUnknownFields('desktop: the options', options, OPTION_KEYS, 'entries, patches, and settings', 0)
+  plugin.rejectUnknownFields('desktop: the options', options, OPTION_KEYS, 0)
   return plugin.compose(options.entries or DEFAULT, patchesFor(options))
 end
 

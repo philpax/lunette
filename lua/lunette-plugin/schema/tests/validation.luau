@@ -16,7 +16,7 @@ end
 local function rejects(descriptor, value, code, path)
   return failure(function()
     return descriptor.parse(value, 'probe')
-  end, 'plugin probe', code, path)
+  end, 'probe', code, path)
 end
 
 test('scalar descriptors reject wrong types, nonfinite numbers, and violated constraints at the field', function()
@@ -42,12 +42,47 @@ test('a vector descriptor takes only native vectors with finite components', fun
 end)
 
 test('a literal union preserves its values and reports a failed match', function()
-  local descriptor = schema.union(schema.literal 'left', schema.union(schema.literal 'right', schema.literal(false)))
+  local descriptor = schema.union { schema.literal 'left', schema.literal 'right', schema.literal(false) }
   for _, value in { 'left', 'right', false } do
     expect.equal(descriptor.parse(value), value)
   end
   local problem = rejects(descriptor, 'other', 'union', '')
   expect.truthy(string.find(tostring(problem), 'matches no alternative', 1, true))
+  expect.raises(function()
+    schema.union { schema.literal 'left' }
+  end, 'at least two alternatives')
+end)
+
+test('an enum accepts each listed string and names them when it rejects a value', function()
+  local descriptor = schema.enum { 'left', 'right' }
+  expect.equal(descriptor.parse 'right', 'right')
+  local problem = rejects(descriptor, 'up', 'enum', '')
+  expect.truthy(string.find(tostring(problem), 'is one of left, right, not up', 1, true))
+  rejects(descriptor, false, 'enum', '')
+  expect.equal(descriptor.inspect().values[2], 'right', 'the metadata lists the values in order')
+  for _, invalid in { {}, { 'left', 'left' }, { 'left', 1 } } do
+    expect.raises(function()
+      schema.enum(invalid)
+    end, 'schema enum')
+  end
+end)
+
+test('a partial object makes every field optional without defaults', function()
+  local descriptor = schema.object {
+    width = schema.default(schema.number { minimum = 0 })(2),
+    label = schema.optional(schema.string()),
+    color = schema.array(schema.number()),
+  }
+  local overrides = schema.partial(descriptor)
+  local empty = overrides.parse {}
+  expect.equal(empty.width, nil, 'a defaulted field has no default')
+  expect.equal(empty.color, nil, 'a required field is optional')
+  expect.equal(overrides.parse({ width = 3 }).width, 3)
+  rejects(overrides, { width = -1 }, 'constraint', 'width')
+  rejects(overrides, { typo = 1 }, 'unknown', 'typo')
+  expect.raises(function()
+    schema.partial(schema.number())
+  end, 'takes an object descriptor')
 end)
 
 test('closed objects reject unknown nested keys and missing required fields', function()
@@ -55,7 +90,7 @@ test('closed objects reject unknown nested keys and missing required fields', fu
   rejects(descriptor, { style = { width = 1, typo = true } }, 'unknown', 'style.typo')
   rejects(descriptor, { style = {} }, 'type', 'style.width')
   local problem = rejects(descriptor, { style = { width = 'wrong' } }, 'type', 'style.width')
-  expect.truthy(string.find(tostring(problem), 'plugin probe: option style.width', 1, true))
+  expect.truthy(string.find(tostring(problem), 'probe: option style.width', 1, true))
 end)
 
 test('arrays reject holes and foreign keys, and maps require string keys', function()
@@ -105,10 +140,10 @@ test('refinements run after nested defaults', function()
 end)
 
 test('explicit union input replaces its base, and omission keeps it', function()
-  local descriptor = schema.union(
+  local descriptor = schema.union {
     schema.object { kind = schema.literal 'number', payload = schema.default(schema.number())(1) },
-    schema.object { kind = schema.literal 'text', payload = schema.default(schema.string()) 'x' }
-  )
+    schema.object { kind = schema.literal 'text', payload = schema.default(schema.string()) 'x' },
+  }
   local numeric = descriptor.parse { kind = 'number', payload = 9 }
   local text = descriptor.parse { kind = 'text', payload = 'base' }
   expect.equal(descriptor.resolve({ kind = 'text' }, numeric).payload, 'x', 'the selected arm supplies its default')
@@ -123,7 +158,7 @@ test('a descriptor deeper than the limit raises a diagnostic instead of exhausti
   end
   local problem = failure(function()
     return wrapped.parse(1, 'depth')
-  end, 'plugin depth', 'depth', '')
+  end, 'depth', 'depth', '')
   expect.truthy(string.find(problem.message, 'exceeds the maximum schema depth of 64', 1, true), problem.message)
 end)
 

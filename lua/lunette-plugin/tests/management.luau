@@ -3,6 +3,7 @@
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
+local adapter = require '@lunette-plugin/adapter'
 local management = require '@lunette-plugin/management'
 local composition = require '@lunette-contracts/composition'
 local schema = require '@lunette-plugin/schema'
@@ -40,14 +41,14 @@ test('start publishes a read-only service that tracks active, inactive, and fail
   local definition = configured(function(_context, settings)
     observed = settings.value
   end)
-  local viewer = plugin.define {
+  local viewer = adapter.define {
     name = 'management-viewer',
-    requires = { composition = composition.capability },
+    requires = { composition.capability },
     init = function(context)
       service = context:require(composition.capability)
     end,
   }
-  local broken = plugin.define {
+  local broken = adapter.define {
     name = 'managed-broken',
     init = function()
       error('managed initialization fails', 0)
@@ -154,7 +155,7 @@ test(
     local definition = configured(function(_context, settings)
       received = settings.value
     end)
-    local broken = plugin.define {
+    local broken = adapter.define {
       name = 'managed-cleanup',
       init = function(context)
         context:effect(function()
@@ -203,8 +204,8 @@ test(
 )
 
 test('protection covers the providers a protected entry depends on and the owners of their children', function()
-  local capability = plugin.capability { name = 'local/management-protected', schema = 1 }
-  local rootCapability = plugin.capability { name = 'local/management-root', schema = 1 }
+  local capability = plugin.capability { name = 'local/management-protected', version = 1 }
+  local rootCapability = plugin.capability { name = 'local/management-root', version = 1 }
   local root = plugin.provider({
     name = 'managed-root',
     capability = rootCapability,
@@ -212,26 +213,26 @@ test('protection covers the providers a protected entry depends on and the owner
       return {}
     end,
   }).definition
-  local child = plugin.define {
+  local child = adapter.define {
     name = 'managed-child',
-    requires = { root = rootCapability },
-    provides = { output = capability },
+    requires = { rootCapability },
+    provides = { capability },
     init = function(context, _config, publish)
       context:require(rootCapability)
       publish:provide(capability, {})
     end,
   }
   local owner
-  local parent = plugin.define {
+  local parent = adapter.define {
     name = 'managed-parent',
     init = function(context)
       owner = context
-      context:child(child, {}):enable()
+      context:child(child)
     end,
   }
-  local viewer = plugin.define {
+  local viewer = adapter.define {
     name = 'managed-protected-viewer',
-    requires = { service = capability },
+    requires = { capability },
     init = function(context)
       context:require(capability)
     end,
@@ -256,10 +257,10 @@ test('protection covers the providers a protected entry depends on and the owner
 end)
 
 test('a provider outage keeps the factory definition and composed configuration of a dependent', function()
-  local capability = plugin.capability { name = 'local/managed-composed-provider', schema = 1 }
-  local provider = plugin.define {
+  local capability = plugin.capability { name = 'local/managed-composed-provider', version = 1 }
+  local provider = adapter.define {
     name = 'managed-composed-provider',
-    provides = { service = capability },
+    provides = { capability },
     init = function(_context, _config, publisher)
       publisher:provide(capability, {})
     end,
@@ -267,7 +268,7 @@ test('a provider outage keeps the factory definition and composed configuration 
   local made, received = 0, nil
   local consumer = plugin.consumer {
     name = 'managed-composed-dependent',
-    requires = { service = capability },
+    requires = { capability },
     schema = schema.object { label = schema.default(schema.string()) 'default' },
     init = function(context, settings)
       context:require(capability)
@@ -296,9 +297,9 @@ end)
 
 test('requestReload defers the reload to the next drain', function()
   local observed
-  local runtime = plugin.runtime()
+  local runtime = adapter.runtime()
   local instance = runtime:use(
-    plugin.define {
+    adapter.define {
       name = 'managed-deferred-reload',
       init = function(_context, config)
         observed = config.value

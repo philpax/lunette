@@ -8,7 +8,7 @@ export type Settings = {}
 
 return plugin.consumer<<Config, Settings>>({
   name = 'save-menu',
-  requires = { arrangement = arrangement.capability, menu = menu.capability },
+  requires = { arrangement.capability, menu.capability },
   init = function(context: plugin.Context, _settings: Settings)
     local saved: arrangement.Service = context:require(arrangement.capability)
     local actions: menu.Service = context:require(menu.capability)

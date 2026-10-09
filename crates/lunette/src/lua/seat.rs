@@ -8,8 +8,8 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc};
 use lunette_compositor::{
     keymap::Keymap,
     protocol::{
-        Command, KeyModifier, KeyboardConfig, Keycode, KeymapConfig, Keysym, ModifierState,
-        RepeatDelay, RepeatPolicy, RepeatRate, SeatId, SeatSnapshot,
+        Command, KeyboardConfig, Keycode, KeymapConfig, Keysym, ModifierState, RepeatDelay,
+        RepeatPolicy, RepeatRate, SeatId, SeatSnapshot,
     },
     state::DEFAULT_SEAT,
 };
@@ -20,6 +20,7 @@ use crate::{
     lua::{
         LuaTexture, Session, Sink,
         declarations::{Options, handle, record},
+        keys::ModifierName,
         values::StrokeQuery,
     },
 };
@@ -35,6 +36,13 @@ pub struct Seat<T> {
     /// The state the snapshot last reported. Absent for a seat the compositor
     /// has not created yet.
     known: RefCell<Option<SeatSnapshot>>,
+}
+
+/// Two handles are equal when they name the same seat.
+impl<T> PartialEq for Seat<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
 }
 
 impl<T> Seat<T> {
@@ -107,9 +115,9 @@ handle! {
     }
 
     /// The modifiers this seat holds, as last sent to clients.
-    field modifiers(_lua, this) -> Vec<String> {
+    field modifiers(_lua, this) -> Vec<ModifierName> {
         this.refresh();
-        Ok(modifier_names(&this.modifiers()))
+        Ok(named(&this.modifiers()))
     }
 
     /// Human-readable layout names from this seat's keymap.
@@ -127,19 +135,6 @@ handle! {
     /// Withdraws this seat's `wl_seat` global or cancels its pending creation. The default seat cannot be removed.
     method destroy(_lua, this) -> bool { Ok(destroy(this)) }
 
-    /// Sets the held modifiers and notifies clients.
-    method setModifiers(_lua, this, names: Option<Vec<String>>) -> bool {
-        let modifiers = read_modifiers(names.as_deref())?;
-        if !this.refresh() {
-            return Ok(false);
-        }
-        this.session.queue(Command::Modifiers {
-            seat: this.id,
-            modifiers,
-        });
-        Ok(true)
-    }
-
     /// Assigns keyboard focus to a window sink, or clears it. The host compositor controls host
     /// focus, so host sinks are refused.
     method setFocus(_lua, this, sink: Option<UserDataRef<Sink<T>>>) -> bool {
@@ -153,8 +148,8 @@ handle! {
     }
 
     /// Returns the keysym for a keycode and modifier set in this seat's keymap.
-    method symbolFor(_lua, this, key: u32, names: Option<Vec<String>>) -> Option<u32> {
-        let modifiers = read_modifiers(names.as_deref())?;
+    method symbolFor(_lua, this, key: u32, names: Option<Vec<ModifierName>>) -> Option<u32> {
+        let modifiers = read_modifiers(names.as_deref());
         Ok(this
             .keymap()
             .and_then(|keymap| keymap.symbol(Keycode::from_evdev(key), &modifiers))
@@ -162,8 +157,8 @@ handle! {
     }
 
     /// Returns the character for a keycode and modifier set.
-    method characterFor(_lua, this, key: u32, names: Option<Vec<String>>) -> Option<String> {
-        let modifiers = read_modifiers(names.as_deref())?;
+    method characterFor(_lua, this, key: u32, names: Option<Vec<ModifierName>>) -> Option<String> {
+        let modifiers = read_modifiers(names.as_deref());
         Ok(this
             .keymap()
             .and_then(|keymap| keymap.character(Keycode::from_evdev(key), &modifiers)))
@@ -183,12 +178,14 @@ handle! {
 ///
 /// # Errors
 ///
-/// Returns an error if the name is empty, already in use, or an option is unknown.
+/// Returns an error if the name is missing, empty, or already in use, or an option is unknown.
 pub(crate) fn new_seat<T: LuaTexture>(
     session: &Rc<Session<T>>,
-    name: &str,
-    options: Option<&Options<NewSeat>>,
+    options: &Options<NewSeat>,
 ) -> mlua::Result<Seat<T>> {
+    let options = options.table();
+    let name: String = options.get::<Option<String>>("name")?.unwrap_or_default();
+    let name = name.as_str();
     if name.trim().is_empty() {
         return Err(mlua::Error::runtime(
             "lunette: a seat needs a name; clients tell two seats apart by it and nothing else",
@@ -201,10 +198,7 @@ pub(crate) fn new_seat<T: LuaTexture>(
         )));
     }
 
-    let keyboard = match options {
-        Some(options) => read_keyboard(options.table())?,
-        None => KeyboardConfig::default(),
-    };
+    let keyboard = read_keyboard(options)?;
     let id = session
         .mint_seat()
         .ok_or_else(|| mlua::Error::runtime("lunette: the seat identifier space is exhausted"))?;
@@ -419,7 +413,7 @@ fn stroke_for<T: LuaTexture>(seat: &Seat<T>, wanted: &Value) -> mlua::Result<Opt
 
     Ok(stroke.map(|stroke| Stroke {
         keycode: stroke.key.evdev(),
-        modifiers: modifier_names(&stroke.modifiers),
+        modifiers: named(&stroke.modifiers),
     }))
 }
 
@@ -428,36 +422,22 @@ record! {
     struct Stroke {
         /// The evdev keycode `sink:key` takes.
         keycode: u32,
-        modifiers: Vec<String>,
+        modifiers: Vec<ModifierName>,
     }
 }
 
-/// A modifier set as the array of names Lua reads and writes.
-fn modifier_names(modifiers: &ModifierState) -> Vec<String> {
-    modifiers
-        .into_iter()
-        .map(|modifier| modifier.as_str().to_owned())
-        .collect()
+/// A modifier set as the array of names Lua reads.
+fn named(modifiers: &ModifierState) -> Vec<ModifierName> {
+    modifiers.into_iter().copied().map(ModifierName).collect()
 }
 
-/// Converts modifier names to a modifier set. Unknown names return an error.
-pub(crate) fn read_modifiers(names: Option<&[String]>) -> mlua::Result<ModifierState> {
-    let Some(names) = names else {
-        return Ok(ModifierState::new());
-    };
-
+/// Converts modifier names to a modifier set. Converting each name refused any outside the set.
+pub(crate) fn read_modifiers(names: Option<&[ModifierName]>) -> ModifierState {
     let mut modifiers = ModifierState::new();
-    for name in names {
-        let modifier = KeyModifier::from_name(name).ok_or_else(|| {
-            mlua::Error::runtime(format!(
-                "lunette: '{name}' is not a modifier; the modifiers are {}",
-                KeyModifier::NAMES.join(", ")
-            ))
-        })?;
-        modifiers.insert(modifier);
+    for name in names.unwrap_or_default() {
+        modifiers.insert(name.0);
     }
-
-    Ok(modifiers)
+    modifiers
 }
 
 /// The keyboard a `lunette.newSeat` option table describes.
@@ -482,10 +462,12 @@ fn read_keyboard(options: &Table) -> mlua::Result<KeyboardConfig> {
 }
 
 record! {
-    /// What `lunette.newSeat` takes. The first five are the RMLVO names
-    /// libxkbcommon compiles a layout from; an absent one takes the system
-    /// default.
+    /// What `lunette.newSeat` takes. `rules` through `options` are the RMLVO
+    /// names libxkbcommon compiles a layout from; an absent one takes the
+    /// system default.
     options NewSeat as SeatOptions {
+        /// What clients see on `wl_seat.name`. It must be non-empty and unused by another seat.
+        name: String,
         rules: Option<String>,
         model: Option<String>,
         layout: Option<String>,

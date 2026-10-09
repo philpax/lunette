@@ -16,8 +16,8 @@ export type ChildConfig = {
   read enabled: boolean,
 }
 
-local clock = plugin.capability<<Clock>> { name = 'fixture/clock', schema = 1 }
+local clock = plugin.capability<<Clock>> { name = 'fixture/clock', version = 1 }
 
-local log = plugin.capability<<Log>> { name = 'fixture/log', schema = 1 }
+local log = plugin.capability<<Log>> { name = 'fixture/log', version = 1 }
 
 return { clock = clock, log = log }

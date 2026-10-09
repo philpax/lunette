@@ -14,7 +14,7 @@ use crate::{
     lua::{LuaTexture, Session, declarations::handle},
 };
 
-/// A process lunette started, or adopted from outside.
+/// A process lunette started.
 #[derive(Debug)]
 pub struct Process<T> {
     id: ProcessId,
@@ -22,15 +22,19 @@ pub struct Process<T> {
     known: RefCell<Known>,
 }
 
+/// Two handles are equal when they name the same process.
+impl<T> PartialEq for Process<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
 impl<T> Process<T> {
     pub(crate) fn new(session: Rc<Session<T>>, id: ProcessId) -> Self {
         Self {
             id,
             session,
-            known: RefCell::new(Known {
-                pid: None,
-                external: false,
-            }),
+            known: RefCell::new(Known { pid: None }),
         }
     }
 
@@ -53,43 +57,31 @@ impl<T> Process<T> {
 #[derive(Clone, Copy, Debug)]
 struct Known {
     pid: Option<Pid>,
-    external: bool,
 }
 
 impl From<&ProcessSnapshot> for Known {
     fn from(process: &ProcessSnapshot) -> Self {
-        Self {
-            pid: process.pid,
-            external: process.external,
-        }
+        Self { pid: process.pid }
     }
 }
 
 handle! {
-    /// A process lunette started, or adopted from outside. The handle exists
-    /// before the process does: `lunette.spawn` queues a request and returns
-    /// in the same call.
+    /// A process lunette started. The handle exists before the process does:
+    /// `lunette.spawn` queues a request and returns in the same call.
     Process<T: LuaTexture> = HandleKind::Process;
 
     field id(_lua, this) -> u64 { Ok(this.id.get()) }
 
-    /// False in three situations this field does not distinguish: the request
+    /// True in three situations this field does not distinguish: the request
     /// has not reached the compositor, the process has ended, and the process
     /// never started. The caller distinguishes the last two by the outcome
-    /// `lovr.lunprocessexited` carries. A handle field cannot represent
+    /// `lunette.onProcessExited` carries. A handle field cannot represent
     /// "not yet".
-    field alive(_lua, this) -> bool { Ok(this.refresh()) }
+    field dead(_lua, this) -> bool { Ok(!this.refresh()) }
 
-    /// Absent until the child is forked, and for an adopted process whose pid cannot be read.
+    /// Absent until the child is forked.
     field pid(_lua, this) -> Option<i32> {
         this.refresh();
         Ok(this.known.borrow().pid.map(Pid::get))
-    }
-
-    /// Whether the process connected from outside. An external process has no
-    /// spawn request from lunette.
-    field external(_lua, this) -> bool {
-        this.refresh();
-        Ok(this.known.borrow().external)
     }
 }

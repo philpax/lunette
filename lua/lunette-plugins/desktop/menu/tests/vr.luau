@@ -1,5 +1,6 @@
 local testing = require '@testing'
 local plugin = require '@lunette-plugin'
+local adapter = require '@lunette-plugin/adapter'
 local ui = require '@lunette-contracts/ui'
 local menu = require '@lunette-contracts/menu'
 local vrUi = require '@testing/vr-ui'
@@ -27,9 +28,9 @@ local function boot(config)
   running:pose(env.hand, lovr.math.newMat4():translate(0, 1.2, -0.5))
   running:tracked(env.hand, true)
   running:step()
-  running.session:use(plugin.define {
+  running.session:use(adapter.define {
     name = 'testing/actions',
-    requires = { menu = menu.capability },
+    requires = { menu.capability },
     init = function(context)
       env.owner, env.menu = context, context:require(menu.capability)
     end,

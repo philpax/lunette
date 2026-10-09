@@ -8,7 +8,7 @@ export type Settings = {}
 
 return plugin.consumer<<Config, Settings>>({
   name = 'hello',
-  requires = { frame = frame.capability },
+  requires = { frame.capability },
   init = function(context: plugin.Context, _settings: Settings)
     local frames: frame.Service = context:require(frame.capability)
     local pose = lovr.math.newMat4():translate(0, 1.6, -1.5):scale(0.1)

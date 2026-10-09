@@ -21,9 +21,9 @@ type Nearest = {
 }
 
 local required: plugin.Declaration = {
-  frame = frame.capability,
-  panels = panels.capability,
-  scale = scale.capability,
+  frame.capability,
+  panels.capability,
+  scale.capability,
 }
 
 local function headPosition(): (number?, number?, number?)

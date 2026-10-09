@@ -7,8 +7,8 @@ local protected = require '@lunette-plugins/protected'
 local registry = require '@lunette-plugins/registry'
 local inspection = require '@lunette-contracts/inspection'
 
-local BINDING_KEYS: { [string]: boolean } = { chord = true, run = true }
-local CHORD_KEYS: { [string]: boolean } = { key = true, modifiers = true }
+local BINDING_KEYS: { string } = { 'chord', 'run' }
+local CHORD_KEYS: { string } = { 'key', 'modifiers' }
 
 local KNOWN: { [string]: number } = {}
 for index, name in ipairs(contract.MODIFIERS) do
@@ -30,7 +30,7 @@ local function identity(key: string, modifiers: { read [number]: string }): stri
 end
 
 local function checked(chord: unknown): (contract.Chord, string, { string })
-  plugin.rejectUnknownFields('bindings register', chord, CHORD_KEYS, 'key and modifiers', 3)
+  plugin.rejectUnknownFields('bindings register', chord, CHORD_KEYS, 3)
   local raw = chord :: { [unknown]: unknown }
   local key = raw.key
   if type(key) ~= 'string' or key == '' then
@@ -101,7 +101,7 @@ local function create(context: plugin.Context): contract.Service
       return inspection.snapshot(bound:inspect('handler', 'bindings.register'))
     end,
     register = function(_self: contract.Service, owner: contract.Owner, binding: contract.Binding): plugin.Effect
-      plugin.rejectUnknownFields('bindings register', binding, BINDING_KEYS, 'chord and run', 2)
+      plugin.rejectUnknownFields('bindings register', binding, BINDING_KEYS, 2)
       local chord, key, modifiers = checked(binding.chord)
       local run = binding.run
       if type(run) ~= 'function' then
@@ -134,6 +134,6 @@ export type Service = contract.Service
 return plugin.provider<<Config, Settings, Service>> {
   name = 'bindings',
   capability = contract.capability,
-  requires = { frame = frame.capability },
+  requires = { frame.capability },
   build = create,
 }

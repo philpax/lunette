@@ -1,7 +1,7 @@
 -- Composition validates plugin entries and patches before a runtime starts.
 
 local adapter = require '@lunette-plugin/adapter'
-local options = require '@lunette-plugin/options'
+local fields = require '@lunette-plugin/fields'
 local schemaRuntime = require '@lunette-plugin/schema/runtime'
 
 local compose = {}
@@ -9,26 +9,29 @@ local compose = {}
 export type Definition = adapter.Definition<any>
 export type Config = { [string]: any }
 
--- Composition calls a factory to read its schema and again on each start, so a factory has no side effects until its
--- definition activates.
-export type Entry = {
-  read id: string,
-  read definition: Definition?,
-  read factory: (() -> Definition)?,
-  read config: Config?,
-}
+-- An entry is made from a definition or from a factory of one. Composition calls a factory to read its schema and again
+-- on each start, so a factory has no side effects until its definition activates.
+export type Entry =
+  {
+    read id: string,
+    read definition: Definition,
+    read config: Config?,
+  }
+  | {
+    read id: string,
+    read factory: () -> Definition,
+    read config: Config?,
+  }
 
--- An `id` patch disables or updates an entry. An `insert` patch appends an entry or places it before or after another entry.
-export type Patch = {
-  read id: string?,
-  read disabled: boolean?,
-  read definition: Definition?,
-  read factory: (() -> Definition)?,
-  read config: Config?,
-  read insert: Entry?,
-  read before: string?,
-  read after: string?,
-}
+-- A keyed patch disables an entry, replaces what it is made from, or merges configuration into it. An insert patch
+-- appends an entry or places it before or after another entry.
+export type Patch =
+  { read id: string, read disabled: true }
+  | { read id: string, read definition: Definition, read config: Config? }
+  | { read id: string, read factory: () -> Definition, read config: Config? }
+  | { read id: string, read config: Config }
+  | { read insert: Entry, read before: string? }
+  | { read insert: Entry, read after: string? }
 
 export type ResolvedEntry = {
   read definition: Definition,
@@ -37,17 +40,16 @@ export type ResolvedEntry = {
 
 type Raw = { [unknown]: unknown }
 
-local ENTRY_KEYS: { [string]: boolean } = { id = true, definition = true, factory = true, config = true }
-local PATCH_KEYS: { [string]: boolean } = {
-  id = true,
-  disabled = true,
-  definition = true,
-  factory = true,
-  config = true,
-  insert = true,
-  before = true,
-  after = true,
+-- The checked form of an entry, which names its source in one of two fields.
+type Settled = {
+  read id: string,
+  read definition: Definition?,
+  read factory: (() -> Definition)?,
+  read config: Config?,
 }
+
+local ENTRY_KEYS: { string } = { 'id', 'definition', 'factory', 'config' }
+local PATCH_KEYS: { string } = { 'id', 'disabled', 'definition', 'factory', 'config', 'insert', 'before', 'after' }
 
 local function fail(message: string): never
   error('compose: ' .. message, 0)
@@ -144,7 +146,7 @@ local function sourced(id: string, definition: Definition?, factory: (() -> Defi
   return made :: Definition
 end
 
-local function settled(id: string, definition: Definition?, factory: (() -> Definition)?, config: unknown): Entry
+local function settled(id: string, definition: Definition?, factory: (() -> Definition)?, config: unknown): Settled
   return table.freeze {
     id = id,
     definition = definition,
@@ -159,7 +161,7 @@ local function checkConfig(what: string, config: unknown): ()
   end
 end
 
-local function checkedEntry(value: unknown, position: string): Entry
+local function checkedEntry(value: unknown, position: string): Settled
   if type(value) ~= 'table' then
     fail(position .. ' is a table of fields, not a ' .. type(value))
   end
@@ -169,7 +171,7 @@ local function checkedEntry(value: unknown, position: string): Entry
     fail(position .. ': id is a non-empty string, not ' .. tostring(id))
   end
   local what = 'entry ' .. (id :: string)
-  options.rejectUnknownFields('compose: ' .. what, raw, ENTRY_KEYS, 'id, definition, factory, and config', 0)
+  fields.rejectUnknownFields('compose: ' .. what, raw, ENTRY_KEYS, 0)
   checkSource(what, raw.definition, raw.factory)
   if raw.definition == nil and raw.factory == nil then
     fail(what .. ' gives neither a definition nor a factory')
@@ -197,7 +199,7 @@ local function checkedList(value: unknown, what: string): { unknown }
   return list :: { unknown }
 end
 
-local function idsOf(entries: { Entry }): string
+local function idsOf(entries: { Settled }): string
   local ids: { string } = {}
   for index, entry in ipairs(entries) do
     ids[index] = entry.id
@@ -205,7 +207,7 @@ local function idsOf(entries: { Entry }): string
   return table.concat(ids, ', ')
 end
 
-local function indexOf(entries: { Entry }, id: string): number?
+local function indexOf(entries: { Settled }, id: string): number?
   for index, entry in ipairs(entries) do
     if entry.id == id then
       return index
@@ -253,7 +255,7 @@ local function checkedKeyed(raw: Raw, position: string): Keyed
   }
 end
 
-local function patched(entry: Entry, patch: Keyed): Entry
+local function patched(entry: Settled, patch: Keyed): Settled
   local definition, factory = entry.definition, entry.factory
   if patch.definition ~= nil or patch.factory ~= nil then
     definition, factory = patch.definition, patch.factory
@@ -269,7 +271,7 @@ end
 
 -- Rejects duplicate ids, missing patch targets, and patches that both disable and update one entry.
 function compose.apply(entries: { Entry }, patches: { Patch }?): { Entry }
-  local result: { Entry } = {}
+  local result: { Settled } = {}
   for index, value in ipairs(checkedList(entries, 'the entry list')) do
     local entry = checkedEntry(value, 'entry ' .. index)
     if indexOf(result, entry.id) then
@@ -286,13 +288,7 @@ function compose.apply(entries: { Entry }, patches: { Patch }?): { Entry }
       fail(position .. ' is a table of fields, not a ' .. type(value))
     end
     local raw = value :: Raw
-    options.rejectUnknownFields(
-      'compose: ' .. position,
-      raw,
-      PATCH_KEYS,
-      'id, disabled, definition, factory, config, insert, before, and after',
-      0
-    )
+    fields.rejectUnknownFields('compose: ' .. position, raw, PATCH_KEYS, 0)
     if raw.insert ~= nil then
       for key, _ in raw do
         if key ~= 'insert' and key ~= 'before' and key ~= 'after' then
@@ -355,7 +351,7 @@ function compose.apply(entries: { Entry }, patches: { Patch }?): { Entry }
       result[index] = patched(result[index], patch)
     end
   end
-  return table.freeze(result)
+  return (table.freeze(result) :: unknown) :: { Entry }
 end
 
 -- The target supplies only the configuration type, so a factory is never called.
@@ -381,7 +377,11 @@ local EMPTY = table.freeze(empty)
 
 -- Calls the entry's factory but initializes and validates nothing.
 function compose.resolveEntry(entry: Entry): ResolvedEntry
-  return table.freeze { definition = sourced(entry.id, entry.definition, entry.factory), config = entry.config or EMPTY }
+  local checked = (entry :: unknown) :: Settled
+  return table.freeze {
+    definition = sourced(checked.id, checked.definition, checked.factory),
+    config = checked.config or EMPTY,
+  }
 end
 
 return compose

@@ -50,7 +50,7 @@ type ConsumerSettings = {}
 
 return plugin.consumer<<ConsumerConfig, ConsumerSettings>>({
   name = 'grid-layout',
-  requires = { layouts = layouts.capability },
+  requires = { layouts.capability },
   init = function(context: plugin.Context, _settings: ConsumerSettings)
     local service: layouts.Service = context:require(layouts.capability)
     -- The registration ends with the plugin activation.

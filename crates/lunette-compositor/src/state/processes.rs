@@ -191,6 +191,12 @@ impl CompositorState {
                         outcome,
                     });
                 }
+                // Lua never holds an adopted process's handle, and its status is unknowable.
+                Report::Vanished { id } => {
+                    debug!(process = %id, "an adopted process is gone");
+                    self.assignments.remove(&id);
+                    self.touch();
+                }
             }
         }
 

@@ -8,21 +8,18 @@
 
 use std::{
     cell::{Cell, RefCell},
-    io::{self, Write},
     rc::Rc,
-    sync::{Arc, Once},
 };
 
 use lunette_compositor::protocol::PixelSize;
-use parking_lot::Mutex;
 use pretty_assertions::assert_eq;
-use tracing_subscriber::{filter::LevelFilter, fmt::MakeWriter};
 
 use crate::{
     layers::{
         ClaimId, LayerBackend, LayerBudget, LayerKey, LayerPool, LayerProperties, LayerSize,
         PoolOutcome, Priority, SessionId, SessionPresence,
     },
+    log_capture::{Logs, install_collecting_subscriber},
     scene::SceneRendering,
     texture::FrameGeneration,
 };
@@ -211,100 +208,6 @@ impl Harness {
     fn replace_session(&mut self) -> PoolOutcome {
         self.regain_session();
         self.resolve()
-    }
-}
-
-/// Collects what the code under test logs, so a test can assert how often
-/// something is reported and what is decided.
-#[derive(Clone, Debug, Default)]
-struct Warnings(Arc<Mutex<Vec<u8>>>);
-
-impl Warnings {
-    /// How many lines mention `needle`.
-    fn mentioning(&self, needle: &str) -> usize {
-        String::from_utf8_lossy(&self.0.lock())
-            .lines()
-            .filter(|line| line.contains(needle))
-            .count()
-    }
-
-    /// Runs `body` with everything the calling thread logs collected into the
-    /// returned `Warnings`.
-    fn capture(body: impl FnOnce()) -> Self {
-        install_collecting_subscriber();
-        let warnings = Self::default();
-        let _collecting = Collecting::start(warnings.clone());
-        body();
-        warnings
-    }
-}
-
-/// Installs the one subscriber the whole test binary logs through.
-///
-/// `tracing` caches a callsite's `Interest` globally, so a per-thread
-/// subscriber can lose a race and collect nothing. One global subscriber
-/// settles the interest for every thread.
-fn install_collecting_subscriber() {
-    static INSTALLED: Once = Once::new();
-
-    INSTALLED.call_once(|| {
-        let subscriber = tracing_subscriber::fmt()
-            .with_ansi(false)
-            .with_max_level(LevelFilter::TRACE)
-            .with_writer(ThreadCollector)
-            .finish();
-        tracing::subscriber::set_global_default(subscriber)
-            .expect("no other subscriber is installed in the test binary");
-    });
-}
-
-thread_local! {
-    /// What the running thread collects into, if it is collecting.
-    static COLLECTING: RefCell<Option<Warnings>> = const { RefCell::new(None) };
-}
-
-/// Directs each event to whatever the thread that emitted it collects into, so
-/// concurrent tests capture only their own output.
-struct ThreadCollector;
-
-impl<'a> MakeWriter<'a> for ThreadCollector {
-    type Writer = ThreadWriter;
-
-    fn make_writer(&'a self) -> Self::Writer {
-        ThreadWriter(COLLECTING.with_borrow(Clone::clone))
-    }
-}
-
-/// Writes to the collector the emitting thread has, and discards the line when
-/// it has none.
-struct ThreadWriter(Option<Warnings>);
-
-impl Write for ThreadWriter {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        if let Some(warnings) = self.0.as_ref() {
-            warnings.0.lock().extend_from_slice(buf);
-        }
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-}
-
-/// Collects into `warnings` until dropped, restoring the collector it
-/// replaced, including when the body panics.
-struct Collecting(Option<Warnings>);
-
-impl Collecting {
-    fn start(warnings: Warnings) -> Self {
-        Self(COLLECTING.with_borrow_mut(|slot| slot.replace(warnings)))
-    }
-}
-
-impl Drop for Collecting {
-    fn drop(&mut self) {
-        COLLECTING.with_borrow_mut(|slot| *slot = self.0.take());
     }
 }
 
@@ -656,7 +559,7 @@ fn a_runtime_refusing_to_allocate_is_reported_once_per_claim_rather_than_every_f
     // would flood the log.
     const REFUSAL: &str = "the runtime refused a composition layer";
 
-    let warnings = Warnings::capture(|| {
+    let warnings = Logs::capture(|| {
         let mut harness = Harness::new(GENEROUS);
         harness.refusing.set(true);
         harness.pool.claim(key(512, 512), priority(1.0));
@@ -677,7 +580,7 @@ fn a_new_session_reports_a_refusal_the_old_one_had_already_reported() {
     // again.
     const REFUSAL: &str = "the runtime refused a composition layer";
 
-    let warnings = Warnings::capture(|| {
+    let warnings = Logs::capture(|| {
         let mut harness = Harness::new(GENEROUS);
         harness.refusing.set(true);
         harness.pool.claim(key(512, 512), priority(1.0));

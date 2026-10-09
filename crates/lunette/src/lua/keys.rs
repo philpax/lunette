@@ -5,7 +5,7 @@
 use lunette_capture::hid::VirtualKey;
 use lunette_compositor::protocol::KeyModifier;
 use lunette_luau::Type;
-use mlua::{IntoLua, Lua, Value};
+use mlua::{FromLua, IntoLua, Lua, Value};
 
 use crate::lua::declarations::{AliasSpec, Aliased, Typed};
 
@@ -47,20 +47,54 @@ impl Aliased for KeyName {
     };
 }
 
+/// One modifier a seat can hold, by its name in Lua.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ModifierName(pub KeyModifier);
+
+impl FromLua for ModifierName {
+    fn from_lua(value: Value, lua: &Lua) -> mlua::Result<Self> {
+        let name = String::from_lua(value, lua)?;
+        KeyModifier::from_name(&name).map(Self).ok_or_else(|| {
+            mlua::Error::runtime(format!(
+                "lunette: '{name}' is not a modifier; the modifiers are {}",
+                KeyModifier::NAMES.join(", ")
+            ))
+        })
+    }
+}
+
+impl IntoLua for ModifierName {
+    fn into_lua(self, lua: &Lua) -> mlua::Result<Value> {
+        self.0.as_str().into_lua(lua)
+    }
+}
+
+impl Typed for ModifierName {
+    fn luau() -> Type {
+        Type::Named("ModifierName")
+    }
+}
+
+impl Aliased for ModifierName {
+    const ALIAS: AliasSpec = AliasSpec {
+        doc: "The name of a modifier a seat can hold, as `lunette.modifierNames()` lists them. The runtime refuses anything else.",
+        name: Self::luau,
+        definition: |_| Type::literals(KeyModifier::NAMES),
+    };
+}
+
 /// Every modifier a seat accepts, in the keymap's modifier order.
-pub fn modifier_names() -> Vec<String> {
-    KeyModifier::NAMES
-        .iter()
-        .map(|name| (*name).to_owned())
-        .collect()
+pub fn modifier_names() -> Vec<ModifierName> {
+    KeyModifier::ALL.iter().copied().map(ModifierName).collect()
 }
 
 /// The modifiers a press toggles, which a keymap reports apart from depressed ones.
-pub fn locking_modifier_names() -> Vec<String> {
+pub fn locking_modifier_names() -> Vec<ModifierName> {
     KeyModifier::ALL
         .iter()
+        .copied()
         .filter(|modifier| modifier.is_lock())
-        .map(|modifier| modifier.as_str().to_owned())
+        .map(ModifierName)
         .collect()
 }
 
@@ -274,6 +308,10 @@ mod tests {
 
     #[test]
     fn the_locking_modifiers_are_the_keymap_locks() {
-        assert_eq!(locking_modifier_names(), ["capsLock", "numLock"]);
+        let names: Vec<&str> = locking_modifier_names()
+            .iter()
+            .map(|modifier| modifier.0.as_str())
+            .collect();
+        assert_eq!(names, ["capsLock", "numLock"]);
     }
 }

@@ -1,6 +1,7 @@
 -- Native mutations retain their original sink and seat until every inverse has been attempted.
 local lunette = require '@lunette'
 local contract = require '@lunette-contracts/focus'
+local keys = require '@lunette-contracts/keys'
 local protected = require '@lunette-plugins/protected'
 
 local native = {}
@@ -83,7 +84,12 @@ function native.new(label: string): Driver
     return unsafe or result
   end
 
-  local function key(target: Target, code: number, modifiers: { string }, valid: () -> boolean): contract.Result
+  local function key(
+    target: Target,
+    code: number,
+    modifiers: { read [number]: string },
+    valid: () -> boolean
+  ): contract.Result
     local refusal = blocked()
     if refusal then
       return refusal
@@ -94,11 +100,11 @@ function native.new(label: string): Driver
     pending[#pending + 1] = {
       label = 'release modifiers',
       run = function(): boolean
-        return live(target) and target.sink:modifiers({}, target.seat)
+        return live(target) and target.sink:setModifiers({}, target.seat)
       end,
     }
     local result = invoke('set modifiers', function(): boolean
-      return target.sink:modifiers(modifiers, target.seat)
+      return target.sink:setModifiers(keys.nativeModifiers(modifiers), target.seat)
     end)
     if result.kind ~= 'consumed' then
       return finish(result)

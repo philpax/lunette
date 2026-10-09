@@ -1,6 +1,7 @@
 -- Starts plugins for tests and boots compositions through LÖVR's callbacks.
 
 local plugin = require '@lunette-plugin'
+local adapter = require '@lunette-plugin/adapter'
 local compose = require '@lunette-plugin/compose'
 local frame = require '@lunette-plugins/frame'
 local drops = require '@lunette-contracts/drops'
@@ -43,9 +44,9 @@ end
 function Session:observe(capability)
   self.observers += 1
   local observed = {}
-  observed.instance = self:use(plugin.define {
+  observed.instance = self:use(adapter.define {
     name = 'testing/observer-' .. self.observers,
-    requires = { service = capability },
+    requires = { capability },
     init = function(context)
       observed.service = context:require(capability)
       observed.context = context
@@ -108,7 +109,7 @@ startSession = function(entries, fake)
   for index, entry in ipairs(entries) do
     resolved[index] = entryOf(entry)
   end
-  local runtime = plugin.runtime()
+  local runtime = adapter.runtime()
   local instances = {}
   local ok, failure = pcall(function()
     for _, entry in ipairs(plugin.compose(resolved)) do

@@ -92,11 +92,11 @@ const OUTCOMES: [(&str, Outcome); 5] = [
         Outcome {
             source: "
                 local testing = require '@testing'
-                local plugin = require '@lunette-plugin'
+                local adapter = require '@lunette-plugin/adapter'
                 local test = testing.suite()
                 local function fail()
-                  local runtime = plugin.runtime()
-                  runtime:use(plugin.define { name = 'meta', init = function() error 'meta: init' end }, {}):enable()
+                  local runtime = adapter.runtime()
+                  runtime:use(adapter.define { name = 'meta', init = function() error 'meta: init' end }, {}):enable()
                   runtime:close()
                 end
                 test('takes', function()
@@ -120,11 +120,11 @@ const OUTCOMES: [(&str, Outcome); 5] = [
         Outcome {
             source: "
                 local testing = require '@testing'
-                local plugin = require '@lunette-plugin'
+                local adapter = require '@lunette-plugin/adapter'
                 local test = testing.suite()
                 test('leaves a failing cleanup', function()
-                  local runtime = plugin.runtime()
-                  runtime:use(plugin.define { name = 'meta', init = function(context)
+                  local runtime = adapter.runtime()
+                  runtime:use(adapter.define { name = 'meta', init = function(context)
                     context:effect(function() return function() error 'meta: cleanup' end end)
                   end }, {}):enable()
                 end)

@@ -5,7 +5,7 @@ local layout = require './toolbar-layout'
 local fields = schema.object {
   visible = schema.default(schema.boolean())(false),
   refreshInterval = schema.default(schema.number { minimum = 0.05, maximum = 5 })(0.25),
-  view = schema.default(schema.union(schema.literal<<'entries'>> 'entries', schema.literal<<'graph'>> 'graph')) 'entries',
+  view = schema.default(schema.enum<<'entries' | 'graph'>> { 'entries', 'graph' }) 'entries',
   position = schema.default(schema.vector())(vector.pack(0, 1.4, -1.2)),
   width = schema.default(schema.number { minimum = 0.1, maximum = 5 })(1.1),
   height = schema.default(schema.number { minimum = 0.1, maximum = 5 })(0.7),

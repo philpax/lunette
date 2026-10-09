@@ -13,9 +13,9 @@ export type Config = config.Config
 export type Settings = config.Settings
 
 local required: plugin.Declaration = {
-  errors = errors.capability,
-  frame = frame.capability,
-  theme = theme.capability,
+  errors.capability,
+  frame.capability,
+  theme.capability,
 }
 
 type Paint = {

@@ -31,7 +31,7 @@ export type Settings = {}
 
 return plugin.consumer<<Config, Settings>>({
   name = 'hello',
-  requires = { frame = frame.capability },
+  requires = { frame.capability },
   init = function(context: plugin.Context, _settings: Settings)
     local frames: frame.Service = context:require(frame.capability)
     local pose = lovr.math.newMat4():translate(0, 1.6, -1.5):scale(0.1)
@@ -45,7 +45,7 @@ return plugin.consumer<<Config, Settings>>({
 }).definition
 ```
 
-`plugin.consumer` takes `name`, `requires`, `schema`, and `init`; `requires` and `schema` are optional. `requires` names the contracts the plugin uses, here the frame contract, which delivers LÖVR's update, draw, key, text, and quit callbacks. `context:require` returns the service behind a required contract. `frames:onDraw(context, ...)` registers a draw handler owned by the plugin's context. The draw phases run in the order `input`, `scene`, `pointing`, `overlay`, and `feedback`.
+`plugin.consumer` takes `name`, `requires`, `schema`, and `init`; `requires` and `schema` are optional. `requires` lists the capabilities of the contracts the plugin uses, here the frame contract, which delivers LÖVR's update, draw, key, text, and quit callbacks. `context:require` returns the service behind a required contract. `frames:onDraw(context, ...)` registers a draw handler owned by the plugin's context. The draw phases run in the order `input`, `scene`, `pointing`, `overlay`, and `feedback`.
 
 The configuration inserts the plugin as a new entry:
 
@@ -71,12 +71,12 @@ export type Service = {
   read elapsed: (Service) -> number,
 }
 
-clock.capability = plugin.capability<<Service>> { name = 'example/clock', schema = 1 }
+clock.capability = plugin.capability<<Service>> { name = 'example/clock', version = 1 }
 
 return clock
 ```
 
-`plugin.capability<<Service>>` attaches the service type, so `context:require(clock.capability)` returns a `clock.Service` that the checker reads. `lunette check` reports a capability declared without a service type. The name is qualified by an authority, here `example`. The schema is a positive integer that the provider and its consumers must share.
+`plugin.capability<<Service>>` attaches the service type, so `context:require(clock.capability)` returns a `clock.Service` that the checker reads. `lunette check` reports a capability declared without a service type. The name is qualified by an authority, here `example`. The version is a positive integer that the provider and its consumers must share.
 
 A plugin that requires a contract is active only while some plugin provides it. When a provider deactivates, every plugin that requires it deactivates first, and each reactivates when a provider returns. A plugin therefore contains no code for a missing service.
 
@@ -115,7 +115,7 @@ export type Settings = schema.Output<typeof(descriptor)>
 
 return plugin.consumer<<Config, Settings>>({
   name = 'uptime',
-  requires = { frame = frame.capability, clock = clock.capability },
+  requires = { frame.capability, clock.capability },
   schema = descriptor,
   init = function(context: plugin.Context, settings: Settings)
     local frames: frame.Service = context:require(frame.capability)
@@ -137,16 +137,17 @@ A plugin changes state outside itself only through its context. `context:on` sub
 The context offers these operations, and each ties what it creates to the activation:
 
 - `context:effect(acquire)` runs `acquire`, which returns the function that undoes it.
-- `context:resource(owner, acquire)` is the form for a provider method: `acquire` returns a value and the function that releases it, and the release is registered on the caller's `owner`.
+- `context:acquire(owner, acquire)` is the usual form for a provider method: it checks that `owner` is the provider's own context or a plugin that requires the provider, and registers the release on that owner.
+- `context:resource(owner, acquire)` is the same for an `acquire` that returns a value and the function that releases it, and returns the value.
 - `context:on { event, run }` subscribes to a native event.
-- `context:child(definition, config)` installs and enables a plugin that ends with this one.
+- `context:child(definition, config?)` installs and enables a plugin that ends with this one.
 - `context:active()` reports whether the activation can still acquire resources.
 
 When an activation ends, its effects are undone in the reverse of the order they were registered. An effect created while another effect's `acquire` runs is registered first, so it is undone after the outer one; an outer release that depends on the inner one being gone releases it itself. A service method that takes an owner registers its resource on that owner, so a plugin passes its own `context` and the resource ends with the plugin.
 
 A schema declares the options. `Config` is the type of the caller's overrides and `Settings` the type of the resolved value passed to `init`. A plugin without a `schema` takes no options. Every field needs a default or an optional descriptor, because the facade resolves an empty configuration when it builds the definition. [Configuration schemas](configuration-schema.md) describes the constructors and merge rules.
 
-The configured module has `definition`, built from the defaults; `define`, which makes another definition with other defaults and an optional `name`; and `requires`. A provider module also has `build`, which makes an unpublished service that another plugin can wrap. A patch supplies configuration:
+The configured module has `definition`, built from the defaults, and `define`, which makes another definition with other defaults and an optional `name`. A patch supplies configuration:
 
 ```luau
 { insert = { id = 'uptime', definition = require './uptime', config = { prefix = 'running for' } } },
@@ -154,9 +155,7 @@ The configured module has `definition`, built from the defaults; `define`, which
 
 Geometric positions, directions, and offsets are native `vector` values made with `vector.pack(x, y, z)`. Vectors are immutable, so `direction = direction:normalize()` keeps the returned value. `Mat4:translate` accepts a vector. Colours, two-dimensional coordinates, lists, and full matrices keep their own representations.
 
-## Wrapping and hooking a built-in provider
-
-A built-in provider module's `build(context, config)` makes its service without publishing it. A plugin that requires `module.requires` can call `build`, wrap the result, and publish the wrapper under the same contract. A wrapper changes only what other plugins see, because a built-in provider calls its own methods directly.
+## Hooking a built-in provider
 
 Behaviour inside a provider changes through a hook: an option whose value is a function that receives the hook's arguments followed by `base`, the default implementation. Calling `base` keeps the default, and not calling it replaces it. The built-in hooks are the keyboard's `onKey` and `drawKey`, interaction's `drive` and `constrain`, the laser's `readInput` and `draw`, placement's `panelOptions`, and the UI provider's `draw`. An error a hook raises is reported where the provider was called from.
 

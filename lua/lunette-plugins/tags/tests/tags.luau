@@ -1,6 +1,7 @@
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
+local adapter = require '@lunette-plugin/adapter'
 local tagsContract = require '@lunette-contracts/tags'
 
 local test = testing.suite()
@@ -10,9 +11,9 @@ local function start()
   local session = testing.start { 'tags' }
   local function consumer(name)
     local handle = {}
-    handle.instance = session:use(plugin.define {
+    handle.instance = session:use(adapter.define {
       name = name,
-      requires = { tags = tagsContract.capability },
+      requires = { tagsContract.capability },
       init = function(context)
         handle.owner = context
         handle.tags = context:require(tagsContract.capability)

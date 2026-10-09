@@ -41,6 +41,6 @@ export type Service = {
   read ownerId: (Service, adapter.Owner) -> string?,
 }
 
-composition.capability = adapter.capability<<Service>> { name = 'lunette/composition', schema = 1 }
+composition.capability = adapter.capability<<Service>> { name = 'lunette/composition', version = 1 }
 
 return composition

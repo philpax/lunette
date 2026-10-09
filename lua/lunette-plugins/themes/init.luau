@@ -9,7 +9,7 @@ local registry = require '@lunette-plugins/registry'
 
 type Raw = { [unknown]: unknown }
 
-local REGISTRATION_KEYS: { [string]: boolean } = { name = true, label = true, order = true, theme = true }
+local REGISTRATION_KEYS: { string } = { 'name', 'label', 'order', 'theme' }
 
 local function checkText(field: string, value: unknown): string
   if type(value) ~= 'string' or value == '' then
@@ -52,7 +52,7 @@ local function create(context: plugin.Context): contract.Service
       return inspection.snapshot(result)
     end,
     register = function(_self: contract.Service, owner: contract.Owner, spec: contract.Registration): plugin.Effect
-      plugin.rejectUnknownFields('themes register', spec, REGISTRATION_KEYS, 'name, label, order, and theme', 2)
+      plugin.rejectUnknownFields('themes register', spec, REGISTRATION_KEYS, 2)
       local raw = (spec :: unknown) :: Raw
       local name = checkText('name', raw.name)
       local label = checkText('label', raw.label)
@@ -78,7 +78,7 @@ local function create(context: plugin.Context): contract.Service
       return named:get(name)
     end,
     onChanged = function(_self: contract.Service, owner: contract.Owner, spec: contract.ChangedListener): plugin.Effect
-      plugin.rejectUnknownFields('themes onChanged', spec, { run = true }, 'run', 2)
+      plugin.rejectUnknownFields('themes onChanged', spec, { 'run' }, 2)
       local raw = (spec :: unknown) :: Raw
       if type(raw.run) ~= 'function' then
         error('themes onChanged: run is a function, not a ' .. type(raw.run), 2)

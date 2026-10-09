@@ -20,7 +20,7 @@ export type Config = config.Config
 return plugin.provider {
   name = 'keyboard',
   capability = keyboard.capability,
-  requires = { focus = focus.capability, theme = theme.capability },
+  requires = { focus.capability, theme.capability },
   schema = config,
   build = build,
 }

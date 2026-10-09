@@ -15,9 +15,9 @@ return plugin.provider<<Config, Settings, Service>> {
   name = 'adoption',
   capability = adoption.capability,
   requires = {
-    panels = panels.capability,
-    placement = placement.capability,
-    rules = rules.capability,
+    panels.capability,
+    placement.capability,
+    rules.capability,
   },
   schema = config,
   build = build,

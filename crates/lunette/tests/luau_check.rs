@@ -23,6 +23,7 @@ fn clean_fixtures_check_without_diagnostics() {
             "luau_check/authoring/positive.luau",
             "luau_check/authoring/contracts_positive.luau",
             "luau_check/schema/positive.luau",
+            "luau_check/native/positive.luau",
             "fixtures/require-relative/lunette/main.luau",
         ]
         .into_iter()
@@ -44,6 +45,13 @@ fn facade_misuse_is_rejected() {
 #[test]
 fn contract_misuse_is_rejected() {
     assert_rejections("luau_check/authoring/contracts_negative.luau");
+}
+
+/// The native declarations refuse modifier names outside the closed set and the removed entry
+/// points.
+#[test]
+fn native_api_misuse_is_rejected() {
+    assert_rejections("luau_check/native/negative.luau");
 }
 
 #[test]

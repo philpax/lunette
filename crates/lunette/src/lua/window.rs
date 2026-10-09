@@ -33,6 +33,13 @@ pub struct Window<T> {
     known: RefCell<Known>,
 }
 
+/// Two handles are equal when they name the same window.
+impl<T> PartialEq for Window<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
 impl<T> Window<T> {
     /// Builds a handle from a snapshot entry.
     pub(crate) fn new(session: Rc<Session<T>>, window: &WindowSnapshot) -> Self {

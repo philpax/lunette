@@ -32,12 +32,12 @@ function brokers.watch(context: plugin.Context): { Reader }
   local function add<T>(name: string, capability: plugin.Capability<T>, inspect: (T) -> inspection.Snapshot): ()
     local reader: Reader = { name = name, inspect = nil }
     readers[#readers + 1] = reader
-    local definition = plugin.define {
+    local child = plugin.consumer<<{}, {}>> {
       name = 'desktop/manager/inspect/' .. name,
-      requires = { service = capability },
-      init = function(child: plugin.Context, _config: {}, _publish: plugin.Publisher): ()
-        local service = child:require(capability)
-        child:effect(function(): () -> ()
+      requires = { capability },
+      init = function(childContext: plugin.Context, _settings: {}): ()
+        local service = childContext:require(capability)
+        childContext:effect(function(): () -> ()
           reader.inspect = function(): inspection.Snapshot
             return inspect(service)
           end
@@ -47,7 +47,7 @@ function brokers.watch(context: plugin.Context): { Reader }
         end)
       end,
     }
-    context:child(definition, {})
+    context:child(child.definition)
   end
   add('frame', frame.capability, function(service: frame.Service): inspection.Snapshot
     return service:inspect()

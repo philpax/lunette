@@ -27,7 +27,7 @@ local function start()
     sink.key = function()
       return true
     end
-    sink.modifiers = function()
+    sink.setModifiers = function()
       return true
     end
   end

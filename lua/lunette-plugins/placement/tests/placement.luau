@@ -1,6 +1,7 @@
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
+local adapter = require '@lunette-plugin/adapter'
 local panelsContract = require '@lunette-contracts/panels'
 local tagsContract = require '@lunette-contracts/tags'
 local rulesContract = require '@lunette-contracts/rules'
@@ -11,13 +12,13 @@ local test = testing.suite()
 local function start()
   local env = { native = testing.native() }
   env.session = testing.start { 'theme', 'panels', 'tags', 'rules', 'placement' }
-  env.consumer = env.session:use(plugin.define {
+  env.consumer = env.session:use(adapter.define {
     name = 'placement-test',
     requires = {
-      panels = panelsContract.capability,
-      tags = tagsContract.capability,
-      rules = rulesContract.capability,
-      placement = placementContract.capability,
+      panelsContract.capability,
+      tagsContract.capability,
+      rulesContract.capability,
+      placementContract.capability,
     },
     init = function(context)
       env.owner = context

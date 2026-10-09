@@ -268,15 +268,6 @@ impl MethodsDescribed for PluginInstance {
                 )?)
             }
 
-            /// Replaces this instance's configuration and reloads it.
-            method reload(lua, this, config: Unknown) -> () {
-                Ok(lifecycle::request_instance(
-                    lua,
-                    &this.runtime,
-                    lifecycle::Request::Reload(this.id, config.0),
-                )?)
-            }
-
             /// Accepts a replacement configuration and reload intent without draining lifecycle work.
             /// The caller drains the runtime separately; rejection leaves configuration unchanged.
             method requestReload(_lua, this, config: Unknown) -> () {
@@ -295,11 +286,6 @@ impl MethodsDescribed for PluginInstance {
             /// Reports this instance's lifecycle state.
             method state(_lua, this) -> PluginState {
                 Ok(lifecycle::instance_state(&this.runtime, this.id))
-            }
-
-            /// Describes why this instance last failed or is not loading, if it has a reason.
-            method diagnostic(_lua, this) -> Option<String> {
-                Ok(lifecycle::instance_diagnostic(&this.runtime, this.id))
             }
         );
     }

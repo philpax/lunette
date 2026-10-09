@@ -22,8 +22,8 @@ type Source = {
   sequence: number,
 }
 
-local SOURCE_KEYS: { [string]: boolean } = { name = true, precedence = true, resolve = true }
-local RULE_SET_KEYS: { [string]: boolean } = { name = true, precedence = true, rules = true }
+local SOURCE_KEYS: { string } = { 'name', 'precedence', 'resolve' }
+local RULE_SET_KEYS: { string } = { 'name', 'precedence', 'rules' }
 
 local function fromList(list: { read [number]: Rule }): (lunette.Window) -> Properties?
   return function(window: lunette.Window): Properties?
@@ -61,7 +61,7 @@ local function build(context: plugin.Context, settings: Settings): Service
     end,
     addSource = function(_self: Service, owner: Owner, registration: contracts.SourceRegistration): plugin.Effect
       context:checkOwner(owner)
-      plugin.rejectUnknownFields('rules addSource', registration, SOURCE_KEYS, 'name, precedence, and resolve', 2)
+      plugin.rejectUnknownFields('rules addSource', registration, SOURCE_KEYS, 2)
       local name, precedence, resolve = registration.name, registration.precedence, registration.resolve
       if type(name) ~= 'string' then
         error('rules: a source is named by a string, not a ' .. type(name), 2)
@@ -79,8 +79,7 @@ local function build(context: plugin.Context, settings: Settings): Service
           error("rules: a source named '" .. name .. "' is already registered", 2)
         end
       end
-      return owner:effect(function(): () -> ()
-        context:checkOwner(owner)
+      return context:acquire(owner, function(): () -> ()
         registrations += 1
         local source: Source = {
           owner = owner,
@@ -103,7 +102,7 @@ local function build(context: plugin.Context, settings: Settings): Service
       end)
     end,
     setRules = function(_self: Service, owner: Owner, set: contracts.RuleSet): plugin.Effect
-      plugin.rejectUnknownFields('rules setRules', set, RULE_SET_KEYS, 'name, precedence, and rules', 2)
+      plugin.rejectUnknownFields('rules setRules', set, RULE_SET_KEYS, 2)
       policy.checkRules(set.rules)
       return service:addSource(owner, {
         name = set.name or 'lunette.rules',

@@ -571,3 +571,31 @@ fn stabilizing_hands_back_the_same_texture_while_the_buffer_rotates() {
     );
     assert_eq!(rotated, 43, "the imported texture rotated underneath it");
 }
+
+#[test]
+fn two_handles_compare_equal_exactly_when_they_name_the_same_thing() {
+    let session = session(vec![
+        window(1, "htop", "foot", PixelSize::new(640, 480)),
+        window(2, "editor", "foot", PixelSize::new(640, 480)),
+    ]);
+    let lua = lua(&session);
+
+    let (same, different, sinks, crossed): (bool, bool, bool, bool) = run(
+        &lua,
+        "local first, second = lunette.windows(), lunette.windows()
+         return first[1] == second[1], first[1] == second[2],
+             first[1].sink == second[1].sink, first[1].sink == second[2].sink",
+    );
+
+    assert!(same, "every read returns fresh userdata for one window");
+    assert!(!different);
+    assert!(sinks, "two sinks for one window are one target");
+    assert!(!crossed);
+    assert!(
+        !run::<bool>(
+            &lua,
+            "return lunette.windows()[1] == lunette.windows()[1].sink"
+        ),
+        "a window and its sink are different kinds of handle"
+    );
+}

@@ -6,10 +6,10 @@ local contract = require '@lunette-contracts/focus'
 local keys = require '@lunette-contracts/keys'
 
 local validation = {}
-local NATIVE = { kind = true, seat = true, sink = true }
-local LOCAL = { kind = true, receiver = true, keymapSeat = true, wantsKeyboard = true }
-local RECEIVER = { key = true, text = true, onFocus = true, onBlur = true }
-local ACTIVATION = { code = true, modifiers = true, isRepeat = true, batch = true, physicalModifiers = true }
+local NATIVE: { string } = { 'kind', 'seat', 'sink' }
+local LOCAL: { string } = { 'kind', 'receiver', 'keymapSeat', 'wantsKeyboard' }
+local RECEIVER: { string } = { 'key', 'text', 'onFocus', 'onBlur' }
+local ACTIVATION: { string } = { 'code', 'modifiers', 'isRepeat', 'batch', 'physicalModifiers' }
 
 local function plain(label: string, value: unknown): ()
   if type(value) ~= 'table' or getmetatable(value) ~= nil then
@@ -20,7 +20,7 @@ end
 function validation.target(target: contract.Target): contract.Target
   plain('focus register', target)
   if target.kind == 'native' then
-    plugin.rejectUnknownFields('focus register native', target, NATIVE, 'kind, seat, and sink', 3)
+    plugin.rejectUnknownFields('focus register native', target, NATIVE, 3)
     if target.sink == nil then
       error('focus register native: sink is required', 3)
     end
@@ -30,21 +30,9 @@ function validation.target(target: contract.Target): contract.Target
     local copy: contract.Target = { kind = 'native', seat = target.seat, sink = target.sink }
     return table.freeze(copy)
   elseif target.kind == 'local' then
-    plugin.rejectUnknownFields(
-      'focus register local',
-      target,
-      LOCAL,
-      'kind, receiver, keymapSeat, and wantsKeyboard',
-      3
-    )
+    plugin.rejectUnknownFields('focus register local', target, LOCAL, 3)
     plain('focus register receiver', target.receiver)
-    plugin.rejectUnknownFields(
-      'focus register receiver',
-      target.receiver,
-      RECEIVER,
-      'key, text, onFocus, and onBlur',
-      3
-    )
+    plugin.rejectUnknownFields('focus register receiver', target.receiver, RECEIVER, 3)
     if type(target.receiver.key) ~= 'function' or type(target.receiver.text) ~= 'function' then
       error('focus register receiver: key and text are functions', 3)
     end
@@ -77,7 +65,7 @@ function validation.options(options: contract.SourceOptions?): contract.SourceOp
   if type(settings) ~= 'table' or getmetatable(settings) ~= nil then
     error('focus source: options are a plain table', 3)
   end
-  plugin.rejectUnknownFields('focus source', settings, { mode = true }, 'mode', 3)
+  plugin.rejectUnknownFields('focus source', settings, { 'mode' }, 3)
   if settings.mode ~= nil and settings.mode ~= 'virtual' and settings.mode ~= 'physical' then
     error('focus source: mode is virtual or physical', 3)
   end
@@ -88,14 +76,7 @@ function validation.activation(value: contract.Activation): string?
   if type(value) ~= 'table' or getmetatable(value) ~= nil then
     return 'the activation is a plain table'
   end
-  local known, failure = pcall(
-    plugin.rejectUnknownFields,
-    'focus activation',
-    value,
-    ACTIVATION,
-    'code, modifiers, isRepeat, batch, and physicalModifiers',
-    0
-  )
+  local known, failure = pcall(plugin.rejectUnknownFields, 'focus activation', value, ACTIVATION, 0)
   if not known then
     return tostring(failure)
   end

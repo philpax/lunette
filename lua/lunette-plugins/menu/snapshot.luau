@@ -16,16 +16,8 @@ export type Metadata = {
 
 type Raw = { [unknown]: unknown }
 
-local ACTION_KEYS: { [string]: boolean } = {
-  id = true,
-  label = true,
-  group = true,
-  order = true,
-  enabled = true,
-  selected = true,
-  run = true,
-}
-local STATE_KEYS: { [string]: boolean } = { enabled = true, selected = true }
+local ACTION_KEYS: { string } = { 'id', 'label', 'group', 'order', 'enabled', 'selected', 'run' }
+local STATE_KEYS: { string } = { 'enabled', 'selected' }
 
 local function plain(operation: string, field: string, value: unknown): Raw
   if type(value) ~= 'table' then
@@ -50,13 +42,7 @@ end
 
 function snapshot.action(value: unknown): (Metadata, () -> ())
   local raw = plain('register', 'action', value)
-  plugin.rejectUnknownFields(
-    'menu register',
-    raw,
-    ACTION_KEYS,
-    'id, label, group, order, enabled, selected, and run',
-    2
-  )
+  plugin.rejectUnknownFields('menu register', raw, ACTION_KEYS, 2)
   local id = snapshot.id('register', raw.id)
   local label = raw.label
   if type(label) ~= 'string' or label == '' then
@@ -89,7 +75,7 @@ end
 
 function snapshot.state(value: unknown): contract.State
   local raw = plain('update', 'state', value)
-  plugin.rejectUnknownFields('menu update', raw, STATE_KEYS, 'enabled and selected', 2)
+  plugin.rejectUnknownFields('menu update', raw, STATE_KEYS, 2)
   return { enabled = flag('update', 'enabled', raw.enabled), selected = flag('update', 'selected', raw.selected) }
 end
 

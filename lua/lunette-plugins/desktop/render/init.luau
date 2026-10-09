@@ -9,7 +9,7 @@ export type Settings = {}
 
 local offering = plugin.consumer<<Config, Settings>>({
   name = 'desktop/render/surfaces',
-  requires = { panels = panels.capability, surfaces = surfaces.capability },
+  requires = { panels.capability, surfaces.capability },
   init = function(context: plugin.Context, _settings: Settings): ()
     local panelService: panels.Service = context:require(panels.capability)
     local surfaceService: surfaces.Service = context:require(surfaces.capability)
@@ -29,8 +29,8 @@ local offering = plugin.consumer<<Config, Settings>>({
 }).definition
 
 local required: plugin.Declaration = {
-  frame = frame.capability,
-  panels = panels.capability,
+  frame.capability,
+  panels.capability,
 }
 
 return plugin.consumer<<Config, Settings>>({
@@ -39,7 +39,7 @@ return plugin.consumer<<Config, Settings>>({
   init = function(context: plugin.Context, _settings: Settings): ()
     local frameService: frame.Service = context:require(frame.capability)
     local panelService: panels.Service = context:require(panels.capability)
-    context:child(offering, {})
+    context:child(offering)
     frameService:onUpdate(context, {
       phase = 'scene',
       run = function(_dt: number)

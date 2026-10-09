@@ -12,6 +12,7 @@ export type Schema<I, O> = {
 }
 export type Metadata = runtime.Node
 export type Error = runtime.Error
+export type ErrorCode = runtime.ErrorCode
 export type Annotation = runtime.Annotation
 export type NumberOptions = {
   read minimum: number?,
@@ -91,6 +92,51 @@ export type function ObjectOutput(shape: type): type
   return result
 end
 
+-- Reads each listed descriptor's witness in `direction`, so a union's types are the union of its alternatives' types.
+type function Alternatives(list: type, direction: type): type
+  local indexer = list:indexer()
+  assert(indexer, 'schema union alternatives are not a list')
+  local element = indexer.readresult
+  local members = if element:is 'union' then element:components() else { element }
+  local results = {}
+  for _, member in members do
+    local found = false
+    for name, field in member:properties() do
+      if name:value() == direction:value() then
+        local witness = field.read
+        assert(witness, 'schema witness is not readable')
+        local parameters = witness:parameters().head
+        assert(parameters and parameters[1], 'schema witness has no parameter')
+        table.insert(results, parameters[1])
+        found = true
+      end
+    end
+    assert(found, 'schema union alternative is not a descriptor')
+  end
+  if #results == 1 then
+    return results[1]
+  end
+  return types.unionof(table.unpack(results))
+end
+
+type UnionInput<L> = Alternatives<L, 'input'>
+type UnionOutput<L> = Alternatives<L, 'output'>
+
+-- Makes every property optional, keeping read-only properties read-only.
+export type function Partial(shape: type): type
+  local result = types.newtable()
+  for key, property in shape:properties() do
+    local value = property.read
+    assert(value, 'schema object field is not readable')
+    if property.write then
+      result:setproperty(key, types.optional(value))
+    else
+      result:setreadproperty(key, types.optional(value))
+    end
+  end
+  return result
+end
+
 function schema.number(options: NumberOptions?): Schema<number, number>
   local properties = runtime.options(options, { minimum = true, maximum = true, integer = true, positive = true })
   runtime.bounds(properties, 'minimum', 'maximum', false)
@@ -132,13 +178,47 @@ function schema.literal<T>(value: T): Schema<T, T>
   return runtime.wrap<<T, T>>(runtime.node('literal', { value = value }))
 end
 
-function schema.union<A, B>(first: A, second: B): Schema<Input<A> | Input<B>, Output<A> | Output<B>>
-  local alternatives = table.freeze { runtime.unwrap(first), runtime.unwrap(second) }
-  return runtime.wrap<<Input<A> | Input<B>, Output<A> | Output<B>>>(
-    runtime.node(
-      'union',
-      { alternatives = alternatives, readOnly = alternatives[1].readOnly or alternatives[2].readOnly }
-    )
+function schema.enum<T>(values: { T }): Schema<T, T>
+  local raw = runtime.plain(values, 'schema enum', {})
+  local count = rawlen(raw :: any)
+  if count == 0 then
+    runtime.fail('schema enum', {}, 'descriptor', 'must list at least one value')
+  end
+  local seen: { [string]: boolean } = {}
+  for key, value in raw do
+    if type(key) ~= 'number' or key < 1 or key > count or key % 1 ~= 0 then
+      runtime.fail('schema enum', {}, 'descriptor', 'must be a dense list of values')
+    end
+    if type(value) ~= 'string' then
+      runtime.fail('schema enum', { key :: number }, 'descriptor', 'must be a string')
+    end
+    if seen[value :: string] then
+      runtime.fail('schema enum', { key :: number }, 'descriptor', 'repeats ' .. (value :: string))
+    end
+    seen[value :: string] = true
+  end
+  return runtime.wrap<<T, T>>(runtime.node('enum', { values = table.freeze(table.clone(raw)) }))
+end
+
+-- `union { first, second, ... }` accepts a value that any alternative accepts, trying them in order.
+function schema.union<L>(alternatives: L): Schema<UnionInput<L>, UnionOutput<L>>
+  local raw = runtime.plain(alternatives, 'schema union', {})
+  local count = rawlen(raw :: any)
+  if count < 2 then
+    runtime.fail('schema union', {}, 'descriptor', 'must list at least two alternatives')
+  end
+  local nodes: { Metadata } = {}
+  local readOnly = false
+  for key, child in raw do
+    if type(key) ~= 'number' or key < 1 or key > count or key % 1 ~= 0 then
+      runtime.fail('schema union', {}, 'descriptor', 'must be a dense list of alternatives')
+    end
+    local node = runtime.unwrap(child)
+    nodes[key :: number] = node
+    readOnly = readOnly or node.readOnly
+  end
+  return runtime.wrap<<UnionInput<L>, UnionOutput<L>>>(
+    runtime.node('union', { alternatives = table.freeze(nodes), readOnly = readOnly })
   )
 end
 
@@ -185,14 +265,33 @@ function schema.default<D>(child: D): (Output<D>) -> Schema<Input<D>?, Output<D>
   end
 end
 
-function schema.refine<D>(child: D): ((Output<D>) -> (), string?) -> Schema<Input<D>, Output<D>>
+-- Derives the descriptor of sparse overrides from an object: each field becomes optional and loses its default.
+function schema.partial<D>(object: D): Schema<Partial<Input<D>>, Partial<Output<D>>>
+  local node = runtime.unwrap(object)
+  if node.kind ~= 'object' then
+    runtime.fail('schema partial', {}, 'descriptor', 'takes an object descriptor, not a ' .. node.kind)
+  end
+  local fields: { [string]: Metadata } = {}
+  for key, field in node.fields :: { read [string]: Metadata } do
+    local child = if field.kind == 'default' or field.kind == 'optional' then field.child :: Metadata else field
+    fields[key] = runtime.node('optional', {
+      child = child,
+      readOnly = child.readOnly,
+      merge = child.merge,
+      label = field.label,
+      description = field.description,
+    })
+  end
+  return runtime.wrap<<Partial<Input<D>>, Partial<Output<D>>>>(
+    runtime.node('object', { fields = table.freeze(fields) })
+  )
+end
+
+function schema.refine<D>(child: D): ((Output<D>) -> ()) -> Schema<Input<D>, Output<D>>
   local node = runtime.unwrap(child)
-  return function(validate: (Output<D>) -> (), description: string?): Schema<Input<D>, Output<D>>
+  return function(validate: (Output<D>) -> ()): Schema<Input<D>, Output<D>>
     if type(validate) ~= 'function' then
       runtime.fail('schema refine', {}, 'descriptor', 'validator must be a function')
-    end
-    if description ~= nil and type(description) ~= 'string' then
-      runtime.fail('schema refine', {}, 'descriptor', 'description must be a string')
     end
     -- The child validates and reconstructs Output<D> before the typed refinement receives it.
     local erased = function(value: unknown): unknown
@@ -200,10 +299,7 @@ function schema.refine<D>(child: D): ((Output<D>) -> (), string?) -> Schema<Inpu
       return value
     end
     return runtime.wrap<<Input<D>, Output<D>>>(
-      runtime.node(
-        'refine',
-        { child = node, validate = erased, description = description, readOnly = node.readOnly, merge = node.merge }
-      )
+      runtime.node('refine', { child = node, validate = erased, readOnly = node.readOnly, merge = node.merge })
     )
   end
 end

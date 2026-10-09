@@ -28,8 +28,8 @@ A `wl_seat` has one pointer and one keyboard, so simultaneous cursors require mu
 Seats are a native primitive that Lua creates:
 
 ```lua
-local left = lunette.newSeat('left')
-local right = lunette.newSeat('right')
+local left = lunette.newSeat { name = 'left' }
+local right = lunette.newSeat { name = 'right' }
 ```
 
 Each seat has its own pointer position, focus, and keyboard state. Hover and focus are separate requests: `sink:pointer` and `sink:leave` move the pointer, and `seat:setFocus` gives the keyboard. A hand pointing at a panel therefore does not take the keyboard from the other hand. Each laser creates its own seat unless its attachment names one, so a configuration that wants one seat passes the same seat to both lasers.
@@ -56,7 +56,7 @@ MIME types are re-offered exactly as the source advertised them, and a request f
 
 Wayland clients take an xkb keymap, raw keycodes, and modifier state, and translate keysyms themselves. The native layer provides:
 
-- `sink:key(keycode, pressed)` and explicit modifier state through `sink:modifiers` or `seat:setModifiers`. The state is set directly, without synthesising presses of a representative key.
+- `sink:key(keycode, pressed)` and explicit modifier state through `sink:setModifiers`. The state is set directly, without synthesising presses of a representative key. Modifier names are the closed set `lunette.ModifierName`, which `lunette.modifierNames()` lists.
 - Keymap queries: `seat:symbolFor` and `seat:characterFor` give the keysym and text for a keycode under modifiers, `seat.layouts` lists the layouts, and `seat:strokeFor` is the reverse lookup from keysym or character to keycode and modifiers.
 - `sink:scroll` for a continuous distance and `sink:scrollDiscrete` for wheel notches. Clients use the difference to decide whether to scroll kinetically.
 

@@ -17,7 +17,7 @@ local function boot(domain)
     f.log[#f.log + 1] = value
   end
   f.seat = observed.context:resource(observed.context, function()
-    local seat = lunette.newSeat 'input-fixture'
+    local seat = lunette.newSeat { name = 'input-fixture' }
     return seat, function()
       seat:destroy()
     end
@@ -33,7 +33,7 @@ local function boot(domain)
       dead = false,
       domain = domain,
       id = 701,
-      modifiers = function(_self, modifiers)
+      setModifiers = function(_self, modifiers)
         record('mods:' .. table.concat(modifiers, '+'))
         return true
       end,

@@ -1,6 +1,7 @@
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
+local adapter = require '@lunette-plugin/adapter'
 local dropsContract = require '@lunette-contracts/drops'
 local interactionContract = require '@lunette-contracts/interaction'
 
@@ -9,9 +10,9 @@ local test = testing.suite()
 local function start()
   local env = { native = testing.native() }
   env.session = testing.start { 'drops', 'focus', 'interaction' }
-  env.consumer = env.session:use(plugin.define {
+  env.consumer = env.session:use(adapter.define {
     name = 'drops-test',
-    requires = { drops = dropsContract.capability, interaction = interactionContract.capability },
+    requires = { dropsContract.capability, interactionContract.capability },
     init = function(context)
       env.drops = context:require(dropsContract.capability)
       env.interaction = context:require(interactionContract.capability)

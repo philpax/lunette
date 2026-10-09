@@ -4,10 +4,28 @@ local runtime = {}
 
 export type Path = { read [number]: string | number }
 type MutablePath = { string | number }
+export type ErrorCode =
+  'type'
+  | 'metatable'
+  | 'descriptor'
+  | 'unknown'
+  | 'cycle'
+  | 'key'
+  | 'constraint'
+  | 'sparse'
+  | 'nil'
+  | 'depth'
+  | 'refinement'
+  | 'union'
+  | 'literal'
+  | 'enum'
+  | 'pattern'
+  | 'custom'
+  | 'default'
 export type Error = {
   read name: string,
   read path: Path,
-  read code: string,
+  read code: ErrorCode,
   read message: string,
 }
 export type Annotation = { read label: string?, read description: string? }
@@ -17,6 +35,7 @@ export type Kind =
   | 'boolean'
   | 'vector'
   | 'literal'
+  | 'enum'
   | 'union'
   | 'object'
   | 'array'
@@ -36,6 +55,7 @@ export type Node = {
   read fields: { read [string]: Node }?,
   read child: Node?,
   read alternatives: { read [number]: Node }?,
+  read values: { read [number]: string }?,
   read value: unknown,
   read minimum: number?,
   read maximum: number?,
@@ -74,7 +94,7 @@ local errorMetatable = table.freeze {
   end,
 }
 
-function runtime.fail(name: string, path: Path, code: string, message: string): never
+function runtime.fail(name: string, path: Path, code: ErrorCode, message: string): never
   error(
     table.freeze(
       setmetatable(
@@ -149,11 +169,11 @@ function runtime.wrap<I, O>(node: Node): {
     end,
     parse = function(value: unknown, name: string?): O
       -- Each constructor connects the erased tree to its witness types; parse validates before this cast.
-      return (runtime.parse(node, value, if name then 'plugin ' .. name else 'schema') :: unknown) :: O
+      return (runtime.parse(node, value, name or 'schema') :: unknown) :: O
     end,
     resolve = function(value: unknown, base: O, name: string?): O
       -- Resolution validates the bound output before applying schema-directed overrides.
-      return (runtime.resolve(node, value, base, if name then 'plugin ' .. name else 'schema') :: unknown) :: O
+      return (runtime.resolve(node, value, base, name or 'schema') :: unknown) :: O
     end,
     inspect = function(): Node
       return node
@@ -302,6 +322,15 @@ parseAt = function(
     if given ~= node.value then
       runtime.fail(name, path, 'literal', 'must equal ' .. tostring(node.value))
     end
+  elseif kind == 'enum' then
+    local listed: { string } = {}
+    for _, value in node.values :: { read [number]: string } do
+      if given == value then
+        return given
+      end
+      table.insert(listed, value)
+    end
+    runtime.fail(name, path, 'enum', 'is one of ' .. table.concat(listed, ', ') .. ', not ' .. tostring(given))
   elseif kind == 'number' then
     if type(given) ~= 'number' then
       runtime.fail(name, path, 'type', 'is a finite number, not a ' .. typeof(given))

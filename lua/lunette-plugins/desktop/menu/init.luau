@@ -14,7 +14,7 @@ export type Settings = config.Settings
 return plugin.consumer<<Config, Settings>>({
   name = 'desktop/menu',
   schema = config.schema,
-  requires = { ui = ui.capability, frame = frame.capability, menu = menu.capability },
+  requires = { ui.capability, frame.capability, menu.capability },
   init = function(context: plugin.Context, settings: Settings): ()
     local uiService: ui.Service = context:require(ui.capability)
     local menuService: menu.Service = context:require(menu.capability)

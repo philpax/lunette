@@ -1,6 +1,7 @@
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
+local adapter = require '@lunette-plugin/adapter'
 local frame = require '@lunette-plugins/frame'
 local frameContract = require '@lunette-contracts/frame'
 
@@ -23,9 +24,9 @@ local function start()
 end
 
 local function consumer(env, name, register)
-  return env.session:use(plugin.define {
+  return env.session:use(adapter.define {
     name = name,
-    requires = { frame = frameContract.capability },
+    requires = { frameContract.capability },
     init = function(context)
       register(context, context:require(frameContract.capability))
     end,

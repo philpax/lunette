@@ -1,6 +1,7 @@
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
+local adapter = require '@lunette-plugin/adapter'
 local layoutsContract = require '@lunette-contracts/layouts'
 
 local test = testing.suite()
@@ -15,9 +16,9 @@ end
 
 local function probe(env, name)
   local found = {}
-  found.instance = env.session:use(plugin.define {
+  found.instance = env.session:use(adapter.define {
     name = name,
-    requires = { layouts = layoutsContract.capability },
+    requires = { layoutsContract.capability },
     init = function(context)
       found.owner = context
       found.layouts = context:require(layoutsContract.capability)
@@ -85,7 +86,7 @@ test("a layout's own option error raises from apply", function()
   local env = start()
   expect.raises(function()
     env.layouts:apply { name = 'arc', panels = { moving(1) }, options = { radious = 1 } }
-  end, 'plugin layout/arc: option radious is not a declared field', 'an unknown arc option')
+  end, 'layout/arc: option radious is not a declared field', 'an unknown arc option')
   env.session:close()
 end)
 

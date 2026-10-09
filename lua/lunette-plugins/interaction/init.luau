@@ -448,7 +448,7 @@ local function build(context: plugin.Context, settings: Settings): Service
     })
     public = (view :: any) :: Pointer
     state.pointer = public
-    local acquired = owner:effect(function()
+    local acquired = context:acquire(owner, function()
       pointers[#pointers + 1] = public
       states[public], owners[public] = state, owner
       return function()
@@ -523,7 +523,7 @@ end
 return plugin.provider<<Config, Settings, Service>> {
   name = 'interaction',
   capability = contracts.capability,
-  requires = { drops = dropsContract.capability, focus = focusContract.capability },
+  requires = { dropsContract.capability, focusContract.capability },
   schema = config,
   build = build,
 }

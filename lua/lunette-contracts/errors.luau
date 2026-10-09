@@ -31,6 +31,6 @@ export type Service = {
 
 export type Capability = plugin.Capability<Service>
 
-errors.capability = plugin.capability<<Service>> { name = 'lunette/errors', schema = 1 }
+errors.capability = plugin.capability<<Service>> { name = 'lunette/errors', version = 1 }
 
 return errors

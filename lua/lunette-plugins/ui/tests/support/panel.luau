@@ -1,4 +1,5 @@
 local plugin = require '@lunette-plugin'
+local adapter = require '@lunette-plugin/adapter'
 local ui = require '@lunette-contracts/ui'
 local frame = require '@lunette-contracts/frame'
 local keyboard = require '@lunette-contracts/keyboard'
@@ -28,14 +29,14 @@ function fixture.boot(options)
     options.provider or 'ui',
   }
   local state = { fixture = running, activations = {}, submits = {}, cancels = {}, events = {} }
-  state.instance = running.session:use(plugin.define {
+  state.instance = running.session:use(adapter.define {
     name = 'testing/public-ui-form',
     requires = {
-      ui = ui.capability,
-      frame = frame.capability,
-      keyboard = keyboard.capability,
-      surfaces = surfaces.capability,
-      theme = theme.capability,
+      ui.capability,
+      frame.capability,
+      keyboard.capability,
+      surfaces.capability,
+      theme.capability,
     },
     init = function(context)
       state.owner = context

@@ -3,9 +3,9 @@ local testing = require '@testing'
 local vrUi = require '@testing/vr-ui'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
+local adapter = require '@lunette-plugin/adapter'
 local desktop = require '@lunette-desktop'
 local laserModule = require '@lunette-plugins/laser'
-local laserContract = require '@lunette-contracts/laser'
 local frameContract = require '@lunette-contracts/frame'
 
 local test = testing.suite()
@@ -34,28 +34,12 @@ test('malformed options raise as the configuration loads, before callbacks bind'
   end
 end)
 
-test('a provider built and wrapped by a patch replaces the built-in, and an inserted plugin draws', function()
-  local attached, drawn = 0, 0
-  local countingLaser = plugin.define {
-    name = 'counting-laser',
-    requires = laserModule.requires,
-    provides = { laser = laserContract.capability },
-    init = function(context, config, publish)
-      local inner = laserModule.build(context, config)
-      publish:provide(
-        laserContract.capability,
-        setmetatable({
-          attach = function(_self, owner, options)
-            attached += 1
-            return inner:attach(owner, options)
-          end,
-        }, { __index = inner })
-      )
-    end,
-  }
-  local overlay = plugin.define {
+test('a patch replaces a built-in definition, and an inserted plugin draws', function()
+  local drawn = 0
+  local replacement = laserModule.define { name = 'replacement-laser', style = { length = 2.5 } }
+  local overlay = adapter.define {
     name = 'overlay',
-    requires = { frame = frameContract.capability },
+    requires = { frameContract.capability },
     init = function(context)
       context:require(frameContract.capability):onDraw(context, {
         phase = 'overlay',
@@ -67,14 +51,13 @@ test('a provider built and wrapped by a patch replaces the built-in, and an inse
   }
   local session = testing.boot(desktop.compose {
     patches = {
-      { id = 'laser', definition = countingLaser, config = { style = { length = 2.5 } } },
+      { id = 'laser', definition = replacement },
       { insert = { id = 'overlay', definition = overlay } },
     },
   })
   local events = session.native.events
   vrUi.hands(session.native)
   expect.equal(session.instances.laser:state(), 'active', 'the replacement laser')
-  expect.equal(attached, 1, 'desktop/pointing attaches through the wrapper')
   session:update()
   session:draw()
   expect.equal(drawn, 1, 'the inserted plugin draws')
@@ -86,7 +69,7 @@ test('a provider built and wrapped by a patch replaces the built-in, and an inse
     end
   end
   table.sort(ends)
-  expect.near(ends[1], -2.5, 1e-9, 'the built laser draws at the configured length')
+  expect.near(ends[1], -2.5, 1e-9, 'the replacement laser draws at its bound length')
   expect.equal(session:quit(), false, 'quit does not veto')
   session:close()
 end)

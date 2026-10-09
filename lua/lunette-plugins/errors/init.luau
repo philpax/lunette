@@ -13,7 +13,7 @@ export type Service = contract.Service
 export type Settings = config.Settings
 export type Config = config.Config
 
-local SUBSCRIBER_KEYS: { [string]: boolean } = { run = true, cleared = true }
+local SUBSCRIBER_KEYS: { string } = { 'run', 'cleared' }
 
 local function build(context: plugin.Context, settings: Settings): Service
   local limit = limiter.new(settings.window, settings.maxKeys)
@@ -82,7 +82,7 @@ local function build(context: plugin.Context, settings: Settings): Service
       if type(subscriber) ~= 'table' then
         error('errors subscribe: a subscriber is a table of fields, not a ' .. type(subscriber), 2)
       end
-      plugin.rejectUnknownFields('errors subscribe', subscriber, SUBSCRIBER_KEYS, 'run and cleared', 2)
+      plugin.rejectUnknownFields('errors subscribe', subscriber, SUBSCRIBER_KEYS, 2)
       if type(subscriber.run) ~= 'function' then
         error('errors subscribe: run is a function, not a ' .. type(subscriber.run), 2)
       end

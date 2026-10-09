@@ -19,9 +19,9 @@ return plugin.provider<<Config, Settings, Service>> {
   name = 'placement',
   capability = placement.capability,
   requires = {
-    panels = panels.capability,
-    rules = rules.capability,
-    tags = tags.capability,
+    panels.capability,
+    rules.capability,
+    tags.capability,
   },
   schema = config :: schema.Schema<Config, Settings>,
   build = build.build,

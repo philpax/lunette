@@ -10,9 +10,9 @@ export type Config = config.Config
 export type Settings = config.Settings
 
 local required: plugin.Declaration = {
-  frame = frame.capability,
-  laser = laser.capability,
-  surfaces = surfaces.capability,
+  frame.capability,
+  laser.capability,
+  surfaces.capability,
 }
 
 return plugin.consumer<<Config, Settings>>({

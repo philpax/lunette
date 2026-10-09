@@ -4,7 +4,7 @@ local adapter = require '@lunette-plugin/adapter'
 local compose = require '@lunette-plugin/compose'
 local contract = require '@lunette-contracts/composition'
 local lunette = require '@lunette'
-local optionsModule = require '@lunette-plugin/options'
+local fields = require '@lunette-plugin/fields'
 local management = {}
 
 export type Options = { read protected: { string }? }
@@ -51,7 +51,7 @@ function management.start(entries: { compose.Entry }, options: Options?): Runnin
   local checked = compose.apply(entries)
   local protectedIds: { [string]: boolean } = { composition = true }
   if options ~= nil then
-    optionsModule.rejectUnknownFields('composition', options, { protected = true }, 'protected', 0)
+    fields.rejectUnknownFields('composition', options, { 'protected' }, 0)
     local ids: unknown = options.protected
     if ids ~= nil and type(ids) ~= 'table' then
       fail 'protected is a list of entry ids'
@@ -340,7 +340,7 @@ function management.start(entries: { compose.Entry }, options: Options?): Runnin
   local ok, problem = pcall(function(): ()
     local definition = adapter.define {
       name = 'composition',
-      provides = { service = contract.capability },
+      provides = { contract.capability },
       init = function(_context: adapter.Context, _config: {}, publish: adapter.Publisher): ()
         publish:provide(contract.capability, service)
       end,

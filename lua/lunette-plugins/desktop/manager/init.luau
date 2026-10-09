@@ -17,11 +17,11 @@ return plugin.consumer<<Config, Settings>>({
   name = 'desktop/manager',
   schema = config.schema,
   requires = {
-    composition = composition.capability,
-    frame = frame.capability,
-    ui = ui.capability,
-    theme = theme.capability,
-    menu = menu.capability,
+    composition.capability,
+    frame.capability,
+    ui.capability,
+    theme.capability,
+    menu.capability,
   },
   init = function(context: plugin.Context, settings: Settings): ()
     local compositionService = context:require(composition.capability)

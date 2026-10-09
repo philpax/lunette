@@ -32,6 +32,13 @@ pub struct Monitor<T> {
     known: RefCell<MonitorState>,
 }
 
+/// Two handles are equal when they name the same screen.
+impl<T> PartialEq for Monitor<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.key == other.key
+    }
+}
+
 impl<T> Monitor<T> {
     pub(crate) fn new(session: Rc<Session<T>>, state: MonitorState) -> Self {
         Self {

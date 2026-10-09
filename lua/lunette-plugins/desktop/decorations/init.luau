@@ -15,7 +15,7 @@ export type Settings = config.Settings
 
 return plugin.consumer<<Config, Settings>>({
   name = 'desktop/decorations',
-  requires = { frame = frame.capability, panels = panels.capability, ui = ui.capability },
+  requires = { frame.capability, panels.capability, ui.capability },
   schema = config.schema,
   init = function(context: plugin.Context, settings: Settings): ()
     local frames = context:require(frame.capability)

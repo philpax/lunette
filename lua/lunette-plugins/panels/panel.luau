@@ -90,7 +90,7 @@ export type Source =
   | { read kind: 'monitor', read source: lunette.Monitor }
 export type State = PanelData & PanelMethods & Source
 
-local VISIBILITY_KEYS: { [string]: boolean } = { hidden = true }
+local VISIBILITY_KEYS: { string } = { 'hidden' }
 
 local function checkCurve(curve: unknown, level: number): number
   if type(curve) ~= 'number' or curve ~= curve or curve < 0 or curve == math.huge then
@@ -194,7 +194,7 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
       if type(visibility) ~= 'table' or type(visibility.hidden) ~= 'boolean' then
         error('panels: setHidden takes { hidden = boolean }', 2)
       end
-      plugin.rejectUnknownFields('panels setHidden', visibility, VISIBILITY_KEYS, 'hidden', 2)
+      plugin.rejectUnknownFields('panels setHidden', visibility, VISIBILITY_KEYS, 2)
       return panel.setHidden(created, caller, visibility.hidden)
     end,
     close = function(_self: Panel, caller: Owner): boolean

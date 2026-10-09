@@ -34,6 +34,6 @@ export type Capability = plugin.Capability<Service>
 
 bindings.MODIFIERS = table.freeze { 'control', 'alt', 'logo', 'shift' } :: { string }
 
-bindings.capability = plugin.capability<<Service>> { name = 'lunette/bindings', schema = 1 }
+bindings.capability = plugin.capability<<Service>> { name = 'lunette/bindings', version = 1 }
 
 return bindings

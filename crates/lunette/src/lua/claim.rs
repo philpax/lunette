@@ -43,7 +43,7 @@ use crate::{
     control::wire::HandleKind,
     layers::{
         ClaimId, ClaimState, LayerBackend, LayerKey, LayerPool, LayerProperties, LayerSize,
-        LovrLayer, PoolOutcome, Priority,
+        LovrLayer, Priority,
     },
     lua::{
         LuaTexture, Session, Window,
@@ -96,7 +96,7 @@ pub trait ClaimRegistry: fmt::Debug {
     /// Assigns layers to the highest-priority claims that fit the budget.
     ///
     /// Called once per frame, at the boundary, by the frame loop.
-    fn resolve(&self, now: FrameGeneration) -> PoolOutcome;
+    fn resolve(&self, now: FrameGeneration);
 
     /// Destroys every layer the pool holds, while the session still exists.
     fn shutdown(&self);
@@ -219,8 +219,8 @@ where
         }
     }
 
-    fn resolve(&self, now: FrameGeneration) -> PoolOutcome {
-        self.pool.borrow_mut().resolve(now)
+    fn resolve(&self, now: FrameGeneration) {
+        self.pool.borrow_mut().resolve(now);
     }
 
     fn shutdown(&self) {
@@ -246,6 +246,13 @@ pub struct Claim<T> {
     source: Option<WindowId>,
     session: Rc<Session<T>>,
     known: RefCell<Known>,
+}
+
+/// Two handles are equal when they name the same claim.
+impl<T> PartialEq for Claim<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
 }
 
 impl<T> Claim<T> {

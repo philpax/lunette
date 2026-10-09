@@ -12,8 +12,8 @@ use std::marker::PhantomData;
 
 pub use lunette_luau::{Arguments, Parameter, Type, Typed, of};
 use mlua::{
-    FromLua, FromLuaMulti, IntoLua, IntoLuaMulti, Lua, MaybeSend, Table, UserDataFields,
-    UserDataMethods, Value,
+    FromLua, FromLuaMulti, IntoLua, IntoLuaMulti, Lua, MaybeSend, MetaMethod, Table,
+    UserDataFields, UserDataMethods, Value,
 };
 
 pub(crate) use crate::lua::declarations::{
@@ -73,11 +73,21 @@ where
     });
 }
 
+/// Registers a handle's described methods, and `==` comparing what two handles name.
+///
+/// Every read returns fresh userdata, so raw equality would tell two reads of one window apart.
+/// Luau calls `__eq` only for operands sharing the metamethod, which mlua keeps per Rust type.
 pub fn add_methods<T, M>(methods: &mut M)
 where
-    T: Described + 'static,
+    T: Described + PartialEq + 'static,
     M: UserDataMethods<T>,
 {
+    methods.add_meta_method(MetaMethod::Eq, |_, this, other: Value| {
+        Ok(other
+            .as_userdata()
+            .and_then(|other| other.borrow::<T>().ok())
+            .is_some_and(|other| *this == *other))
+    });
     T::describe(&mut MethodRegistrar {
         methods,
         handle: PhantomData,

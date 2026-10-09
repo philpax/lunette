@@ -20,6 +20,7 @@ use pretty_assertions::assert_eq;
 
 use super::*;
 use crate::{
+    events::LuaEvent,
     host::HostSinks,
     import::formats::Alpha,
     mirrors::{MirrorRegistry, MonitorState},
@@ -536,5 +537,50 @@ fn two_sinks_in_different_domains_route_independently_in_one_frame() {
                 pressed: true,
             },
         ],
+    );
+}
+
+#[test]
+fn a_monitor_added_event_carries_the_handle_and_is_dropped_once_the_monitor_is_gone() {
+    let sink = RecordingEventSink::default();
+    let mirrors = FakeMirrors::one();
+    let session = Session::new(
+        Box::new(sink.clone()),
+        Rc::new(PoolRegistry::new(LayerPool::new(FakeLayers::new(
+            GENEROUS_LAYER_LIMIT,
+        )))) as Rc<_>,
+        Rc::clone(&mirrors) as Rc<_>,
+        Rc::new(RecordingHost::default()) as Rc<_>,
+    );
+    session.begin(snapshot(Vec::new(), Vec::new()));
+    let lua = lua(&session);
+    run::<()>(
+        &lua,
+        "added = {}
+         lunette.onMonitorAdded(function(event)
+             added[#added + 1] = { name = event.monitor.name, id = event.id }
+         end)",
+    );
+
+    session.push_event(LuaEvent::MonitorAdded { monitor: key(1) });
+    poll(&lua, &sink);
+
+    let (count, name, id): (usize, String, Value) =
+        run(&lua, "return #added, added[1].name, added[1].id");
+    assert_eq!((count, name.as_str()), (1, "Acme X24 on DP-1"));
+    assert_eq!(
+        id,
+        Value::Nil,
+        "the handle names the screen, so the payload carries no key"
+    );
+
+    session.push_event(LuaEvent::MonitorAdded { monitor: key(1) });
+    mirrors.detach_all();
+    poll(&lua, &sink);
+
+    assert_eq!(
+        run::<usize>(&lua, "return #added"),
+        1,
+        "a screen unplugged before dispatch has no handle to hand over"
     );
 }

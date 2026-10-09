@@ -8,14 +8,6 @@ local style = {}
 
 local nonnegative = schema.number { minimum = 0 }
 local strength = schema.number { minimum = 0, maximum = 1 }
-style.overrides = schema.object {
-  length = schema.optional(nonnegative),
-  color = schema.optional(descriptors.color),
-  hoverColor = schema.optional(descriptors.color),
-  cursorRadius = schema.optional(nonnegative),
-  hapticStrength = schema.optional(strength),
-  hapticDuration = schema.optional(nonnegative),
-}
 style.configuration = schema.object {
   length = schema.default(nonnegative)(1.5),
   color = schema.optional(descriptors.color),
@@ -24,6 +16,7 @@ style.configuration = schema.object {
   hapticStrength = schema.default(strength)(0.2),
   hapticDuration = schema.default(nonnegative)(0.01),
 }
+style.overrides = schema.partial(style.configuration)
 
 export type Configured = schema.Output<typeof(style.configuration)>
 

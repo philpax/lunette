@@ -1,6 +1,7 @@
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
+local adapter = require '@lunette-plugin/adapter'
 local interactionContract = require '@lunette-contracts/interaction'
 local focusContract = require '@lunette-contracts/focus'
 local interaction = require '@lunette-plugins/interaction'
@@ -18,9 +19,9 @@ local function start(definition)
     'focus',
     { id = 'interaction', definition = definition or interaction.definition },
   }
-  env.consumer = env.session:use(plugin.define {
+  env.consumer = env.session:use(adapter.define {
     name = 'interaction-test',
-    requires = { interaction = interactionContract.capability, focus = focusContract.capability },
+    requires = { interactionContract.capability, focusContract.capability },
     init = function(context)
       env.owner = context
       env.interaction = context:require(interactionContract.capability)
@@ -53,11 +54,19 @@ local function start(definition)
   function sink:pointer() end
   function sink:scroll() end
   env.sink = sink
+  -- Native sinks compare by what they deliver to, as the handles do.
+  local sameTarget = {
+    __eq = function(first, second)
+      return first.domain == second.domain
+        and first.id == second.id
+        and (first.monitor and first.monitor.id) == (second.monitor and second.monitor.id)
+    end,
+  }
   function env.window(id)
-    return { domain = 'window', id = id, dead = false, button = function() end }
+    return setmetatable({ domain = 'window', id = id, dead = false, button = function() end }, sameTarget)
   end
   function env.host(id)
-    return { domain = 'host', monitor = { id = id }, dead = false, button = function() end }
+    return setmetatable({ domain = 'host', monitor = { id = id }, dead = false, button = function() end }, sameTarget)
   end
   return env
 end
@@ -100,7 +109,7 @@ end
 
 test('a pointer is made only for a context requiring interaction, with tuning merged over the defaults', function()
   local env = start()
-  env.session:use(plugin.define {
+  env.session:use(adapter.define {
     name = 'stranger',
     init = function(context)
       expect.raises(function()

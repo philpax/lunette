@@ -54,6 +54,6 @@ export type Service = {
 
 export type Capability = plugin.Capability<Service>
 
-menu.capability = plugin.capability<<Service>> { name = 'lunette/menu', schema = 1 }
+menu.capability = plugin.capability<<Service>> { name = 'lunette/menu', version = 1 }
 
 return menu

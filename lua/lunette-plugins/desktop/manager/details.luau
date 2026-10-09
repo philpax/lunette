@@ -54,11 +54,11 @@ local function instanceLines(result: { string }, node: lunette.PluginInstanceSna
   result[#result + 1] = 'Owner: ' .. (node.parentId or 'session')
   result[#result + 1] = 'Children: ' .. (if #node.children == 0 then 'none' else joined(node.children))
   result[#result + 1] = 'Direct consumers: ' .. (if #node.dependents == 0 then 'none' else joined(node.dependents))
-  for _, field in node.required do
-    result[#result + 1] = 'Requires ' .. field.field .. ': ' .. field.contract.display
+  for _, capability in node.required do
+    result[#result + 1] = 'Requires ' .. capability.contract.display
   end
-  for _, field in node.provided do
-    result[#result + 1] = 'Provides ' .. field.field .. ': ' .. field.contract.display
+  for _, capability in node.provided do
+    result[#result + 1] = 'Provides ' .. capability.contract.display
   end
   for _, binding in node.bindings do
     result[#result + 1] = 'Bound '

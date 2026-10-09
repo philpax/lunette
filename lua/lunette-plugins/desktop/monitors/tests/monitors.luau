@@ -17,7 +17,7 @@ end
 -- A monitor plugged in while the consumer runs.
 local function hotplug(native, name)
   local monitor = plug(native, name)
-  native.emit('onMonitorAdded', { id = monitor.id, monitor = monitor })
+  native.emit('onMonitorAdded', { monitor = monitor })
   return monitor
 end
 

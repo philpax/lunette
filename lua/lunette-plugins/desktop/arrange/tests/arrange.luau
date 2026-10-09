@@ -1,6 +1,7 @@
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
+local adapter = require '@lunette-plugin/adapter'
 local layoutsContract = require '@lunette-contracts/layouts'
 local placementContract = require '@lunette-contracts/placement'
 local panelsContract = require '@lunette-contracts/panels'
@@ -26,9 +27,9 @@ test('a layout that is not registered is logged once, and the consumer arranges 
   }
   local native = session.native
   local probe = {}
-  session:use(plugin.define {
+  session:use(adapter.define {
     name = 'arrange-test',
-    requires = { layouts = layoutsContract.capability, placement = placementContract.capability },
+    requires = { layoutsContract.capability, placementContract.capability },
     init = function(context)
       probe.owner = context
       probe.layouts = context:require(layoutsContract.capability)

@@ -4,7 +4,7 @@ local interaction = require '@lunette-contracts/interaction'
 return function(provider)
   testing.native()
   local lunette = require '@lunette'
-  local seat = lunette.newSeat 'protocol-fixture'
+  local seat = lunette.newSeat { name = 'protocol-fixture' }
   lunette.defaultSeat = function()
     return seat
   end

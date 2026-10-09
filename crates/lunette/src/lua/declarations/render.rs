@@ -11,7 +11,7 @@ use crate::{
             AliasSpec, Aliased, Handle, NullTexture, Property, PropertyType, Record, Recorded,
             Textured, collect,
         },
-        keys::KeyName,
+        keys::{KeyName, ModifierName},
         module_functions,
         monitor::MonitorSelection,
         output::{NewOutput, SetMode},
@@ -35,7 +35,12 @@ pub fn render() -> String {
         })
         .collect();
 
-    for alias in [Textured::ALIAS, PointerButtonName::ALIAS, KeyName::ALIAS] {
+    for alias in [
+        Textured::ALIAS,
+        PointerButtonName::ALIAS,
+        KeyName::ALIAS,
+        ModifierName::ALIAS,
+    ] {
         render_alias(&mut out, &alias, &handles);
     }
 

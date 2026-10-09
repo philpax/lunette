@@ -1,5 +1,4 @@
 -- Stabilizes the shared picking and drawing ray without changing the pose used for spatial grabs.
-local plugin = require '@lunette-plugin'
 local schema = require '@lunette-plugin/schema'
 local contracts = require '@lunette-contracts/laser'
 
@@ -24,14 +23,8 @@ local descriptor = schema.object {
   positionBeta = schema.default(nonnegative)(40),
   resetAfter = schema.default(positive)(0.2),
 }
-local overrides = schema.object {
-  enabled = schema.optional(schema.boolean()),
-  minCutoff = schema.optional(positive),
-  derivativeCutoff = schema.optional(positive),
-  angularBeta = schema.optional(nonnegative),
-  positionBeta = schema.optional(nonnegative),
-  resetAfter = schema.optional(positive),
-}
+local overrides = schema.partial(descriptor)
+local ray = schema.object { origin = schema.vector(), direction = schema.vector() }
 local coefficient: (number, number) -> number
 local magnitude: (vector) -> number
 
@@ -40,8 +33,7 @@ function aim.resolve(given: contracts.AimOverride?, base: contracts.Aim): contra
 end
 
 function aim.update(previous: State?, frame: contracts.Input, settings: contracts.Aim): (contracts.Input, State?)
-  plugin.checkVector('laser', 'input.origin', frame.origin)
-  plugin.checkVector('laser', 'input.direction', frame.direction)
+  ray.parse({ origin = frame.origin, direction = frame.direction }, 'laser input')
   local dt = frame.dt
   if dt ~= nil and (type(dt) ~= 'number' or dt ~= dt or dt < 0 or dt == math.huge) then
     error('laser: input dt is a finite nonnegative number', 0)

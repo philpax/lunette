@@ -40,7 +40,7 @@ fn table_of(value: &Value) -> &TableValue {
 fn each_handle_kind_serialises_as_its_kind_and_id() {
     let values = returned(
         "return lunette.windows(), lunette.windows()[1], lunette.windows()[1], \
-         lunette.windows()[1].sink, lunette.spawn{ argv = { 'true' } }, lunette.newSeat('second'), \
+         lunette.windows()[1].sink, lunette.spawn{ argv = { 'true' } }, lunette.newSeat { name = 'second' }, \
          lunette.claimLayer{ window = lunette.windows()[1], width = 1024, height = 1024, priority = 1 }",
         2,
     );

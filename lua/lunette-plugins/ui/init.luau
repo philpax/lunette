@@ -150,10 +150,10 @@ return plugin.provider<<Config, Settings, ui.Service>> {
   schema = config,
   capability = ui.capability,
   requires = {
-    focus = focus.capability,
-    surfaces = surfaces.capability,
-    theme = theme.capability,
-    frame = frame.capability,
+    focus.capability,
+    surfaces.capability,
+    theme.capability,
+    frame.capability,
   },
   build = build,
 }

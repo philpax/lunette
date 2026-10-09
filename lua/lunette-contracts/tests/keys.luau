@@ -112,4 +112,12 @@ test('host flags replace later modifiers except for the existing sided Alt disti
   expect.equal(table.concat(names, ','), 'control,logo,capsLock', 'event commands and locks')
 end)
 
+test('native modifier names keep their order and refuse a name outside the set', function()
+  local names = keys.nativeModifiers { 'control', 'logo' }
+  expect.equal(table.concat(names, ','), 'control,logo', 'the names')
+  expect.raises(function()
+    keys.nativeModifiers { 'super' }
+  end, "'super' is not a modifier", 'the host spelling')
+end)
+
 return test

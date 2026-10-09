@@ -1,14 +1,15 @@
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
+local adapter = require '@lunette-plugin/adapter'
 local surfacesContract = require '@lunette-contracts/surfaces'
 
 local test = testing.suite()
 
 local function consumer(session, name, register)
-  local instance = session:use(plugin.define {
+  local instance = session:use(adapter.define {
     name = name,
-    requires = { surfaces = surfacesContract.capability },
+    requires = { surfacesContract.capability },
     init = function(context)
       register(context, context:require(surfacesContract.capability))
     end,

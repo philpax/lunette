@@ -20,6 +20,10 @@ export type PointerButton = 'left' | 'right' | 'middle' | 'back' | 'forward'
 -- Indexing the table with any other name is a type error.
 export type KeyName = 'escape' | 'digit1' | 'digit2' | 'digit3' | 'digit4' | 'digit5' | 'digit6' | 'digit7' | 'digit8' | 'digit9' | 'digit0' | 'minus' | 'equal' | 'backspace' | 'tab' | 'q' | 'w' | 'e' | 'r' | 't' | 'y' | 'u' | 'i' | 'o' | 'p' | 'leftBrace' | 'rightBrace' | 'enter' | 'leftCtrl' | 'a' | 's' | 'd' | 'f' | 'g' | 'h' | 'j' | 'k' | 'l' | 'semicolon' | 'apostrophe' | 'grave' | 'leftShift' | 'backslash' | 'z' | 'x' | 'c' | 'v' | 'b' | 'n' | 'm' | 'comma' | 'dot' | 'slash' | 'rightShift' | 'keypadAsterisk' | 'leftAlt' | 'space' | 'capsLock' | 'f1' | 'f2' | 'f3' | 'f4' | 'f5' | 'f6' | 'f7' | 'f8' | 'f9' | 'f10' | 'numLock' | 'scrollLock' | 'keypad7' | 'keypad8' | 'keypad9' | 'keypadMinus' | 'keypad4' | 'keypad5' | 'keypad6' | 'keypadPlus' | 'keypad1' | 'keypad2' | 'keypad3' | 'keypad0' | 'keypadDot' | 'zenkakuHankaku' | 'intlBackslash' | 'f11' | 'f12' | 'intlRo' | 'katakana' | 'hiragana' | 'henkan' | 'katakanaHiragana' | 'muhenkan' | 'keypadJpComma' | 'keypadEnter' | 'rightCtrl' | 'keypadSlash' | 'sysRq' | 'rightAlt' | 'home' | 'up' | 'pageUp' | 'left' | 'right' | 'end' | 'down' | 'pageDown' | 'insert' | 'delete' | 'mute' | 'volumeDown' | 'volumeUp' | 'power' | 'keypadEqual' | 'pause' | 'keypadComma' | 'hangeul' | 'hanja' | 'intlYen' | 'leftMeta' | 'rightMeta' | 'compose' | 'stop' | 'again' | 'undo' | 'copy' | 'paste' | 'find' | 'cut' | 'help' | 'menu' | 'calculator' | 'sleep' | 'mail' | 'bookmarks' | 'computer' | 'back' | 'forward' | 'nextSong' | 'playPause' | 'previousSong' | 'stopCd' | 'record' | 'rewind' | 'homePage' | 'refresh' | 'scrollUp' | 'scrollDown' | 'f13' | 'f14' | 'f15' | 'f16' | 'f17' | 'f18' | 'f19' | 'f20' | 'f21' | 'f22' | 'f23' | 'f24' | 'search' | 'brightnessDown' | 'brightnessUp' | 'media' | 'switchVideoMode'
 
+-- The name of a modifier a seat can hold, as `lunette.modifierNames()` lists
+-- them. The runtime refuses anything else.
+export type ModifierName = 'shift' | 'capsLock' | 'control' | 'alt' | 'numLock' | 'mod3' | 'logo' | 'mod5'
+
 -- Somewhere pixel input can be delivered. `domain` discriminates the sink: it
 -- names either `window` or `host`. A caller tests `domain` to reach the handle
 -- behind a sink without a nil check; such a check cannot fail.
@@ -48,7 +52,7 @@ type SinkFields = {
   -- Enters text, which the seat resolves to the strokes that produce it.
   read typeText: (self: Sink, text: string, seat: Seat?) -> boolean,
   -- Sets which modifiers the seat holds while delivering to this sink.
-  read modifiers: (self: Sink, names: { string }?, seat: Seat?) -> boolean,
+  read setModifiers: (self: Sink, names: { ModifierName }?, seat: Seat?) -> boolean,
 }
 
 type WindowSink = { read domain: 'window', read window: Window?, read monitor: nil }
@@ -100,7 +104,7 @@ export type Window = {
   -- pacing.
   read setFrameRate: (self: Window, hertz: number?) -> boolean,
   -- Keeps a value for this window across a soft reload. Nil removes the key.
-  read setProperty: (self: Window, key: string, value: boolean | number | string) -> boolean,
+  read setProperty: (self: Window, key: string, value: boolean | number | string | nil) -> boolean,
   -- What was kept under a key, or nil. Readable on a dead handle.
   read getProperty: (self: Window, key: string) -> boolean | number | string | nil,
   -- Every key this window carries.
@@ -157,34 +161,33 @@ export type Monitor = {
   read setPaused: (self: Monitor, paused: boolean) -> boolean,
 }
 
--- A process lunette started, or adopted from outside. The handle exists before
--- the process does: `lunette.spawn` queues a request and returns in the same
--- call.
+-- A process lunette started. The handle exists before the process does:
+-- `lunette.spawn` queues a request and returns in the same call.
 export type Process = {
   read id: number,
-  -- False in three situations this field does not distinguish: the request has
+  -- True in three situations this field does not distinguish: the request has
   -- not reached the compositor, the process has ended, and the process never
   -- started. The caller distinguishes the last two by the outcome
-  -- `lovr.lunprocessexited` carries. A handle field cannot represent "not yet".
-  read alive: boolean,
-  -- Absent until the child is forked, and for an adopted process whose pid
-  -- cannot be read.
+  -- `lunette.onProcessExited` carries. A handle field cannot represent "not
+  -- yet".
+  read dead: boolean,
+  -- Absent until the child is forked.
   read pid: number?,
-  -- Whether the process connected from outside. An external process has no
-  -- spawn request from lunette.
-  read external: boolean,
 }
 
 -- A key and the modifiers to hold with it. Together they produce one keysym.
 export type Stroke = {
   -- The evdev keycode `sink:key` takes.
   keycode: number,
-  modifiers: { string },
+  modifiers: { ModifierName },
 }
 
--- What `lunette.newSeat` takes. The first five are the RMLVO names libxkbcommon
--- compiles a layout from; an absent one takes the system default.
+-- What `lunette.newSeat` takes. `rules` through `options` are the RMLVO names
+-- libxkbcommon compiles a layout from; an absent one takes the system default.
 export type SeatOptions = {
+  -- What clients see on `wl_seat.name`. It must be non-empty and unused by
+  -- another seat.
+  name: string,
   rules: string?,
   model: string?,
   layout: string?,
@@ -207,14 +210,12 @@ export type Seat = {
   -- At most one seat's are.
   read clipboardBridge: boolean,
   -- The modifiers this seat holds, as last sent to clients.
-  read modifiers: { string },
+  read modifiers: { ModifierName },
   -- Human-readable layout names from this seat's keymap.
   read layouts: { string },
   -- Withdraws this seat's `wl_seat` global or cancels its pending creation. The
   -- default seat cannot be removed.
   read destroy: (self: Seat) -> boolean,
-  -- Sets the held modifiers and notifies clients.
-  read setModifiers: (self: Seat, names: { string }?) -> boolean,
   -- Assigns keyboard focus to a window sink, or clears it. The host compositor
   -- controls host focus, so host sinks are refused.
   read setFocus: (self: Seat, sink: Sink?) -> boolean,
@@ -222,9 +223,9 @@ export type Seat = {
   -- Only one seat can be bridged.
   read setClipboardBridge: (self: Seat, bridged: boolean) -> boolean,
   -- Returns the keysym for a keycode and modifier set in this seat's keymap.
-  read symbolFor: (self: Seat, key: number, names: { string }?) -> number?,
+  read symbolFor: (self: Seat, key: number, names: { ModifierName }?) -> number?,
   -- Returns the character for a keycode and modifier set.
-  read characterFor: (self: Seat, key: number, names: { string }?) -> string?,
+  read characterFor: (self: Seat, key: number, names: { ModifierName }?) -> string?,
   -- Returns the keycode and modifiers that produce a character or keysym. A
   -- string must contain one character; a number names a keysym.
   read strokeFor: (self: Seat, wanted: string | number) -> Stroke?,
@@ -354,22 +355,10 @@ export type WindowClosedEvent = {
   window: Window,
 }
 
--- A toplevel changes its title.
-export type TitleChangedEvent = {
-  -- The window whose title changed.
-  window: Window,
-  -- The new title, duplicated in the payload so a handler comparing against a
-  -- stored value needs no further read.
-  title: string,
-}
-
 -- A host screen appears, including every screen attached at startup.
 export type MonitorAddedEvent = {
-  -- The key `lunette-capture` identifies the screen by.
-  id: string,
-  -- The handle, while the screen is still attached. A screen unplugged before
-  -- dispatch has no handle.
-  monitor: Monitor?,
+  -- The screen that appeared.
+  monitor: Monitor,
 }
 
 -- A spawned process ends, or never starts.
@@ -396,23 +385,6 @@ export type ProcessOutputEvent = {
   -- The bytes written. A Lua string is a byte string, so non-UTF-8 output
   -- arrives intact.
   text: string,
-}
-
--- A claim receives a composition layer, and the panel holding it draws onto the
--- layer.
-export type LayerGrantedEvent = {
-  -- The claim that received the layer.
-  claim: Claim,
-  -- The layer it holds. Not kept across frames, because the layer goes away on
-  -- revoke.
-  layer: Layer,
-}
-
--- A claim loses its layer to a higher-priority claim, and its panel draws as an
--- in-scene quad until a layer is granted again.
-export type LayerRevokedEvent = {
-  -- The claim that lost the layer.
-  claim: Claim,
 }
 
 -- The lifecycle state of a plugin instance.
@@ -527,8 +499,6 @@ export type PluginInstance = {
   read disable: (self: PluginInstance) -> (),
   -- Disables and permanently retires this plugin instance.
   read dispose: (self: PluginInstance) -> (),
-  -- Replaces this instance's configuration and reloads it.
-  read reload: (self: PluginInstance, config: unknown) -> (),
   -- Accepts a replacement configuration and reload intent without draining
   -- lifecycle work. The caller drains the runtime separately; rejection leaves
   -- configuration unchanged.
@@ -538,9 +508,6 @@ export type PluginInstance = {
   read id: (self: PluginInstance) -> string,
   -- Reports this instance's lifecycle state.
   read state: (self: PluginInstance) -> PluginState,
-  -- Describes why this instance last failed or is not loading, if it has a
-  -- reason.
-  read diagnostic: (self: PluginInstance) -> string?,
 }
 
 -- A context bound to one plugin activation.
@@ -597,7 +564,7 @@ export type Lunette = {
   read windows: () -> { Window },
   -- Runs a program as a client of this compositor. The handle comes back before
   -- the request reaches the compositor, so it describes a process that does not
-  -- exist yet: `alive` is false until the snapshot lists it.
+  -- exist yet: `dead` is true until the snapshot lists it.
   read spawn: (options: SpawnOptions) -> Process,
   -- The user's own screens, whether or not they are being mirrored.
   read monitors: () -> { Monitor },
@@ -613,12 +580,12 @@ export type Lunette = {
   read claimLayer: (options: ClaimOptions) -> Claim,
   -- A seat with its own pointer, keyboard, and keymap. Dead until the
   -- compositor has created it; the same rule applies to `spawn`.
-  read newSeat: (name: string, options: SeatOptions?) -> Seat,
+  read newSeat: (options: SeatOptions) -> Seat,
   -- Every seat, including the one each session starts with.
   read seats: () -> { Seat },
   -- The seat used when an input call omits its seat argument. Returns nil when
   -- this frame's snapshot has no default seat. Each call returns a fresh
-  -- handle; compare seat ids for identity.
+  -- handle, and `==` compares the seats two handles name.
   read defaultSeat: () -> Seat?,
   -- An output for clients to lay out against.
   read newOutput: (options: OutputOptions) -> Output,
@@ -639,10 +606,10 @@ export type Lunette = {
   -- error with it and continues with the next.
   read reportError: (options: ReportErrorOptions) -> (),
   -- Every modifier name a seat accepts, in the order a keymap numbers them.
-  -- `seat:setModifiers` takes these names, and `seat.modifiers` returns them.
-  read modifierNames: () -> { string },
+  -- `sink:setModifiers` takes these names, and `seat.modifiers` returns them.
+  read modifierNames: () -> { ModifierName },
   -- The subset of `modifierNames()` that toggles on a press.
-  read lockingModifierNames: () -> { string },
+  read lockingModifierNames: () -> { ModifierName },
   -- Every key lunette names, by name, as the evdev keycode `sink:key` takes.
   -- The table is fresh on each call.
   read keyCodes: () -> { [KeyName]: number },
@@ -670,10 +637,6 @@ export type Lunette = {
   -- Calls `handler` whenever this event is delivered, and answers the function
   -- that stops it. Every listener is called, in the order they subscribed, and
   -- a soft reload forgets all of them.
-  read onTitleChanged: (handler: (event: TitleChangedEvent) -> ()) -> () -> (),
-  -- Calls `handler` whenever this event is delivered, and answers the function
-  -- that stops it. Every listener is called, in the order they subscribed, and
-  -- a soft reload forgets all of them.
   read onMonitorAdded: (handler: (event: MonitorAddedEvent) -> ()) -> () -> (),
   -- Calls `handler` whenever this event is delivered, and answers the function
   -- that stops it. Every listener is called, in the order they subscribed, and
@@ -683,14 +646,6 @@ export type Lunette = {
   -- that stops it. Every listener is called, in the order they subscribed, and
   -- a soft reload forgets all of them.
   read onProcessOutput: (handler: (event: ProcessOutputEvent) -> ()) -> () -> (),
-  -- Calls `handler` whenever this event is delivered, and answers the function
-  -- that stops it. Every listener is called, in the order they subscribed, and
-  -- a soft reload forgets all of them.
-  read onLayerGranted: (handler: (event: LayerGrantedEvent) -> ()) -> () -> (),
-  -- Calls `handler` whenever this event is delivered, and answers the function
-  -- that stops it. Every listener is called, in the order they subscribed, and
-  -- a soft reload forgets all of them.
-  read onLayerRevoked: (handler: (event: LayerRevokedEvent) -> ()) -> () -> (),
   -- The native plugin facade.
   read plugin: PluginApi,
 }

@@ -385,6 +385,9 @@ local function choices(metadata: schema.Metadata): { read [number]: unknown }?
   if node.kind == 'literal' then
     return table.freeze { node.value }
   end
+  if node.kind == 'enum' then
+    return node.values
+  end
   if node.kind ~= 'union' or node.readOnly then
     return nil
   end
@@ -610,7 +613,7 @@ flatten = function(
   elseif options then
     control = 'choice'
   elseif node.kind == 'union' then
-    reason = 'only unions of literals have a generic choice editor'
+    reason = 'only enums and unions of literals have a generic choice editor'
   elseif node.kind == 'vector' then
     control = if typeof(value) == 'vector' then 'group' else 'readonly'
     reason = if control == 'readonly' then 'a native vector is required' else nil

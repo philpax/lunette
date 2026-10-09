@@ -10,7 +10,7 @@ export type Settings = {}
 
 return plugin.consumer<<Config, Settings>>({
   name = 'example/ui/form',
-  requires = { ui = ui.capability, menu = menu.capability, frame = frame.capability },
+  requires = { ui.capability, menu.capability, frame.capability },
   init = function(context: plugin.Context, _settings: Settings)
     local widgets: ui.Service = context:require(ui.capability)
     local actions: menu.Service = context:require(menu.capability)

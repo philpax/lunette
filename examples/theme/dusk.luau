@@ -21,7 +21,7 @@ export type Settings = {}
 
 return plugin.consumer<<Config, Settings>>({
   name = 'example/theme/dusk',
-  requires = { themes = themes.capability },
+  requires = { themes.capability },
   init = function(context: plugin.Context, _settings: Settings): ()
     local catalog: themes.Service = context:require(themes.capability)
     catalog:register(context, { name = 'dusk', label = 'Dusk', order = 4, theme = dusk })

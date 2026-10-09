@@ -17,12 +17,12 @@ export type Settings = config.Settings
 local UPDATE_ORDER = -10
 
 local required: plugin.Declaration = {
-  drops = drops.capability,
-  frame = frame.capability,
-  layouts = layouts.capability,
-  panels = panels.capability,
-  placement = placement.capability,
-  tags = tags.capability,
+  drops.capability,
+  frame.capability,
+  layouts.capability,
+  panels.capability,
+  placement.capability,
+  tags.capability,
 }
 
 -- A persisted window pose records a user-selected placement.

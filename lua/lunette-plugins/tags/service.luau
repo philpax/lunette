@@ -37,10 +37,10 @@ type Record = {
   destroy: () -> boolean,
 }
 
-local LISTENER_KEYS: { [string]: boolean } = { tag = true, run = true }
-local HOLD_KEYS: { [string]: boolean } = { name = true, index = true, selected = true, layout = true }
-local EXCLUSION_KEYS: { [string]: boolean } = { panel = true }
-local LAYOUT_KEYS: { [string]: boolean } = { layout = true }
+local LISTENER_KEYS: { string } = { 'tag', 'run' }
+local HOLD_KEYS: { string } = { 'name', 'index', 'selected', 'layout' }
+local EXCLUSION_KEYS: { string } = { 'panel' }
+local LAYOUT_KEYS: { string } = { 'layout' }
 
 -- Attempts every effect disposal, then raises the first failure.
 local function disposeAll(effects: { plugin.Effect }): ()
@@ -268,7 +268,7 @@ local function create(context: plugin.Context): tags.Service
       end,
       exclude = function(_self: tags.Tag, caller: Owner, exclusion: tags.Exclusion): plugin.Effect
         context:checkOwner(caller)
-        plugin.rejectUnknownFields('tags exclude', exclusion, EXCLUSION_KEYS, 'panel', 2)
+        plugin.rejectUnknownFields('tags exclude', exclusion, EXCLUSION_KEYS, 2)
         local panel = exclusion.panel
         if type(panel) ~= 'table' then
           error('tags exclude: panel is a panel, not a ' .. type(panel), 2)
@@ -325,7 +325,7 @@ local function create(context: plugin.Context): tags.Service
       end,
       setLayout = function(_self: tags.Tag, caller: Owner, wanted: tags.LayoutChoice): boolean
         context:checkOwner(caller)
-        plugin.rejectUnknownFields('tags setLayout', wanted, LAYOUT_KEYS, 'layout', 2)
+        plugin.rejectUnknownFields('tags setLayout', wanted, LAYOUT_KEYS, 2)
         if wanted.layout ~= nil and type(wanted.layout) ~= 'string' then
           error('tags setLayout: layout is a layout name, not a ' .. type(wanted.layout), 2)
         end
@@ -413,7 +413,7 @@ local function create(context: plugin.Context): tags.Service
   -- A hold keeps the tag alive until its last holder releases it.
   local function hold(_self: tags.Service, caller: Owner, wanted: tags.Hold): (tags.Tag, plugin.Effect)
     context:checkOwner(caller)
-    plugin.rejectUnknownFields('tags hold', wanted, HOLD_KEYS, 'name, index, selected, and layout', 2)
+    plugin.rejectUnknownFields('tags hold', wanted, HOLD_KEYS, 2)
     local name = wanted.name
     if type(name) ~= 'string' or name == '' then
       error('tags hold: name is a non-empty tag name, not ' .. tostring(name), 2)
@@ -450,7 +450,7 @@ local function create(context: plugin.Context): tags.Service
   end
 
   local function onChanged(_self: tags.Service, caller: Owner, listener: tags.ChangeListener): plugin.Effect
-    plugin.rejectUnknownFields('tags onChanged', listener, LISTENER_KEYS, 'tag and run', 2)
+    plugin.rejectUnknownFields('tags onChanged', listener, LISTENER_KEYS, 2)
     if type(listener.run) ~= 'function' then
       error('tags onChanged: run is a function, not a ' .. type(listener.run), 2)
     end

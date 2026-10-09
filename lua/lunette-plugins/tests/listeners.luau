@@ -1,27 +1,28 @@
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
+local adapter = require '@lunette-plugin/adapter'
 local listeners = require '../listeners'
 
 local test = testing.suite()
 
-local capability = plugin.capability { name = 'test/listeners', schema = 1 }
+local capability = plugin.capability { name = 'test/listeners', version = 1 }
 
 -- The listeners belong to a provider, and a consumer of it owns the registrations.
 local function start()
   local env = { native = testing.native() }
   env.session = testing.start {}
-  env.session:use(plugin.define {
+  env.session:use(adapter.define {
     name = 'listeners-provider',
-    provides = { list = capability },
+    provides = { capability },
     init = function(context, _settings, publish)
       env.list = listeners.new(context)
       publish:provide(capability, env.list)
     end,
   })
-  env.session:use(plugin.define {
+  env.session:use(adapter.define {
     name = 'listeners-consumer',
-    requires = { list = capability },
+    requires = { capability },
     init = function(context)
       env.owner = context
     end,

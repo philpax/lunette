@@ -1,6 +1,7 @@
 local testing = require '@testing'
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
+local adapter = require '@lunette-plugin/adapter'
 local display = require '@lunette-contracts/keyboard-display'
 local menu = require '@lunette-contracts/menu'
 local actions = require '@lunette-plugins/desktop/actions'
@@ -13,9 +14,9 @@ local function boot()
     'menu',
     {
       id = 'display',
-      definition = plugin.define {
+      definition = adapter.define {
         name = 'testing/display',
-        provides = { display = display.capability },
+        provides = { display.capability },
         init = function(context, _, provide)
           state.service = {
             dead = false,

@@ -61,7 +61,7 @@ use crate::{
     lua::{
         claim::{ClaimLayer, claim_layer},
         declarations::{FunctionSpec, NullTexture, Options, Record, Type, module, record},
-        keys::{KeyCodes, locking_modifier_names, modifier_names},
+        keys::{KeyCodes, ModifierName, locking_modifier_names, modifier_names},
         monitor::{MonitorSelection, monitor_selection, monitors, select_monitors},
         output::{NewOutput, new_output, outputs},
         seat::{NewSeat, default_seat, new_seat, seats},
@@ -219,20 +219,13 @@ impl<T> Session<T> {
         self.host.as_ref()
     }
 
-    /// Resolves layer claims and queues grant or revocation events.
+    /// Resolves layer claims at the frame boundary.
     ///
-    /// Call after [`Session::begin`] and before event polling. Claims created during callbacks take
-    /// effect no earlier than the next frame. Revocations are queued before grants because a grant
-    /// may use a layer freed at the same boundary. Handler failures do not undo either transition.
+    /// Call after [`Session::begin`] and before `lovr.update`. Claims created during callbacks take
+    /// effect no earlier than the next frame. Lua reads the outcome from each claim's `granted` and
+    /// `layer`.
     pub fn resolve_layers(&self) {
-        let outcome = self.claims.resolve(self.generation());
-
-        for claim in outcome.revoked {
-            self.push_event(LuaEvent::LayerRevoked { claim });
-        }
-        for claim in outcome.granted {
-            self.push_event(LuaEvent::LayerGranted { claim });
-        }
+        self.claims.resolve(self.generation());
     }
 
     /// Installs a frame snapshot and advances the texture generation.
@@ -512,8 +505,7 @@ module! {
 
     /// Runs a program as a client of this compositor. The handle comes back
     /// before the request reaches the compositor, so it describes a process
-    /// that does not exist yet: `alive` is false until the snapshot lists
-    /// it.
+    /// that does not exist yet: `dead` is true until the snapshot lists it.
     fn spawn(_lua, session, options: Options<Spawn>) -> Process<T> { spawn(session, &options) }
 
     /// The user's own screens, whether or not they are being mirrored.
@@ -531,14 +523,14 @@ module! {
     }
 
     /// A seat with its own pointer, keyboard, and keymap. Dead until the compositor has created it; the same rule applies to `spawn`.
-    fn newSeat(_lua, session, name: String, options: Option<Options<NewSeat>>) -> Seat<T> {
-        new_seat(session, &name, options.as_ref())
+    fn newSeat(_lua, session, options: Options<NewSeat>) -> Seat<T> {
+        new_seat(session, &options)
     }
 
     /// Every seat, including the one each session starts with.
     fn seats(lua, session) -> Vec<Seat<T>> { seats(lua, session) }
 
-    /// The seat used when an input call omits its seat argument. Returns nil when this frame's snapshot has no default seat. Each call returns a fresh handle; compare seat ids for identity.
+    /// The seat used when an input call omits its seat argument. Returns nil when this frame's snapshot has no default seat. Each call returns a fresh handle, and `==` compares the seats two handles name.
     fn defaultSeat(_lua, session) -> Option<Seat<T>> { Ok(default_seat(session)) }
 
     /// An output for clients to lay out against.
@@ -576,11 +568,11 @@ module! {
         Ok(())
     }
 
-    /// Every modifier name a seat accepts, in the order a keymap numbers them. `seat:setModifiers` takes these names, and `seat.modifiers` returns them.
-    fn modifierNames(_lua, _session) -> Vec<String> { Ok(modifier_names()) }
+    /// Every modifier name a seat accepts, in the order a keymap numbers them. `sink:setModifiers` takes these names, and `seat.modifiers` returns them.
+    fn modifierNames(_lua, _session) -> Vec<ModifierName> { Ok(modifier_names()) }
 
     /// The subset of `modifierNames()` that toggles on a press.
-    fn lockingModifierNames(_lua, _session) -> Vec<String> { Ok(locking_modifier_names()) }
+    fn lockingModifierNames(_lua, _session) -> Vec<ModifierName> { Ok(locking_modifier_names()) }
 
     /// Every key lunette names, by name, as the evdev keycode `sink:key` takes. The table is fresh on each call.
     fn keyCodes(_lua, _session) -> KeyCodes { Ok(KeyCodes) }
@@ -627,7 +619,7 @@ fn scale_steps() -> Vec<f64> {
 
 /// `lunette.spawn{ argv = …, env = …, cwd = …, xwayland = … }`.
 ///
-/// A spawn that fails outright is reported through `lovr.lunprocessexited`, not by this call
+/// A spawn that fails outright is reported through `lunette.onProcessExited`, not by this call
 /// raising.
 fn spawn<T: LuaTexture>(
     session: &Rc<Session<T>>,

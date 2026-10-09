@@ -12,7 +12,7 @@ export type Settings = config.Settings
 -- Pose memory is a child, so a drops or panels outage leaves adoption running.
 local poseMemory = plugin.consumer<<{}, {}>>({
   name = 'desktop/adoption/pose-memory',
-  requires = { drops = drops.capability, panels = panels.capability },
+  requires = { drops.capability, panels.capability },
   init = function(context: plugin.Context, _settings: {}): ()
     local dropService: drops.Service = context:require(drops.capability)
     local panelService: panels.Service = context:require(panels.capability)
@@ -33,7 +33,7 @@ local poseMemory = plugin.consumer<<{}, {}>>({
   end,
 }).definition
 
-local required: plugin.Declaration = { adoption = adoption.capability }
+local required: plugin.Declaration = { adoption.capability }
 
 return plugin.consumer<<Config, Settings>>({
   name = 'desktop/adoption',
@@ -43,6 +43,6 @@ return plugin.consumer<<Config, Settings>>({
     local service: adoption.Service = context:require(adoption.capability)
     service:install(context)
     service:start(context, { defaults = { tags = settings.tags }, filter = settings.filter })
-    context:child(poseMemory, {})
+    context:child(poseMemory)
   end,
 }).definition

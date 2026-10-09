@@ -2,6 +2,7 @@
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
+local adapter = require '@lunette-plugin/adapter'
 local desktop = require '@lunette-desktop'
 local vrUi = require '@testing/vr-ui'
 local ui = require '@lunette-contracts/ui'
@@ -16,15 +17,15 @@ local test = testing.suite()
 test('wrist menu actions are VR accessible', function()
   local native = testing.native()
   local services = {}
-  local observer = plugin.define {
+  local observer = adapter.define {
     name = 'session-action-observer',
     requires = {
-      ui = ui.capability,
-      menu = menu.capability,
-      display = display.capability,
-      tags = tags.capability,
-      surfaces = surfaces.capability,
-      theme = theme.capability,
+      ui.capability,
+      menu.capability,
+      display.capability,
+      tags.capability,
+      surfaces.capability,
+      theme.capability,
     },
     init = function(context)
       services.ui = context:require(ui.capability)

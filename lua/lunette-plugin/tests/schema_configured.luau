@@ -1,7 +1,8 @@
--- Covers plugin.consumer and plugin.provider: configuration schemas, bound defaults, and unpublished builds.
+-- Covers plugin.consumer and plugin.provider: configuration schemas and bound defaults.
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
+local adapter = require '@lunette-plugin/adapter'
 local schema = require '@lunette-plugin/schema'
 
 local test = testing.suite()
@@ -17,7 +18,7 @@ local function descriptor()
 end
 
 local function activate(definition, config)
-  local runtime = plugin.runtime()
+  local runtime = adapter.runtime()
   local instance = runtime:use(definition, config or {})
   instance:enable()
   return runtime, instance
@@ -49,7 +50,7 @@ test('define binds nested defaults that activation merges with its configuration
   expect.equal(bound.name, 'schema-renamed', 'the bound name')
   expect.equal(bound.schema.value.count, 7, 'the schema metadata carries the bound default')
   expect.equal(made.definition.resolve({}).count, 2, 'the original definition is unchanged')
-  local runtime = plugin.runtime()
+  local runtime = adapter.runtime()
   runtime:use(bound, { style = { colors = {} } }):enable()
   runtime:use(made.definition, {}):enable()
   expect.equal(observed[1].count, 7, 'the bound default')
@@ -58,7 +59,7 @@ test('define binds nested defaults that activation merges with its configuration
   expect.equal(observed[2].count, 2, 'the schema default')
   expect.truthy(table.isfrozen(observed[1]) and table.isfrozen(observed[1].style), 'the settings are frozen')
   runtime:close()
-  local raw = plugin.define { name = 'schema-raw', init = function() end }
+  local raw = adapter.define { name = 'schema-raw', init = function() end }
   expect.equal(raw.schema, nil, 'a low-level definition has no schema')
   local plain = plugin.consumer { name = 'schema-none', init = function() end }
   expect.raises(function()
@@ -70,7 +71,7 @@ test('an invalid configuration never reaches the builder and fails the activatio
   local built = 0
   local made = plugin.provider {
     name = 'schema-provider',
-    capability = plugin.capability { name = 'local/schema-provider', schema = 1 },
+    capability = plugin.capability { name = 'local/schema-provider', version = 1 },
     schema = schema.refine(descriptor())(function(settings)
       if settings.count > settings.style.width then
         error('count exceeds width', 0)
@@ -87,7 +88,7 @@ test('an invalid configuration never reaches the builder and fails the activatio
     end, 'schema%-provider')
     local runtime, instance = activate(made.definition, config)
     expect.equal(instance:state(), 'failed', 'the misconfigured provider')
-    expect.truthy(tostring(instance:diagnostic()):find('schema-provider', 1, true), 'the diagnostic')
+    expect.truthy(tostring(testing.diagnostic(runtime, instance)):find('schema-provider', 1, true), 'the diagnostic')
     expect.equal(#testing.takeReports(), 1, 'the failed configuration is reported once')
     runtime:close()
   end
@@ -144,12 +145,14 @@ test('an invalid reload fails before init, and a later valid reload uses the bou
     end,
   }
   local runtime, instance = activate(made.define { count = 7, style = { width = 8 } }, { style = { width = 9 } })
-  instance:reload { count = false }
+  instance:requestReload { count = false }
+  runtime:drain()
   expect.equal(instance:state(), 'failed', 'the invalid reload')
   expect.equal(#observed, 1, 'a failed reload does not initialize')
   expect.equal(#testing.takeReports(), 1, 'the invalid reload is reported')
-  instance:reload { style = { width = 10 } }
-  expect.equal(instance:state(), 'active', tostring(instance:diagnostic()))
+  instance:requestReload { style = { width = 10 } }
+  runtime:drain()
+  expect.equal(instance:state(), 'active', tostring(testing.diagnostic(runtime, instance)))
   expect.equal(observed[2].count, 7, 'the reload keeps the bound default')
   expect.equal(observed[2].style.width, 10, 'the reloaded configuration')
   runtime:close()
@@ -174,38 +177,6 @@ test('a definition factory keeps state across its activations but not across run
   first:close()
   testing.start(entries)
   expect.equal(table.concat(observed, ','), '1,2,1', 'factory state is isolated per runtime')
-end)
-
-test('a provider build answers an unpublished service with the original defaults', function()
-  local capability = plugin.capability { name = 'local/configured-build', schema = 1 }
-  local source = plugin.provider {
-    name = 'configured-build-provider',
-    capability = capability,
-    schema = descriptor(),
-    build = function(_context, settings)
-      return { settings = settings }
-    end,
-  }
-  local runtime = plugin.runtime()
-  runtime:use(source.define { count = 4 }, { count = 6 }):enable()
-  runtime
-    :use(
-      plugin.define {
-        name = 'configured-build-observer',
-        requires = { source = capability },
-        init = function(context)
-          local unpublished = source.build(context)
-          expect.equal(unpublished.settings.count, 2, 'build uses the original provider defaults')
-          expect.equal(context:require(capability).settings.count, 6, 'the published service is unchanged')
-          expect.raises(function()
-            source.build(context, { style = { depth = 1 } })
-          end, 'option style.depth is not a declared field')
-        end,
-      },
-      {}
-    )
-    :enable()
-  runtime:close()
 end)
 
 return test

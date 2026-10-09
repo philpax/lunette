@@ -1,6 +1,7 @@
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
+local adapter = require '@lunette-plugin/adapter'
 local tagsContract = require '@lunette-contracts/tags'
 local placementContract = require '@lunette-contracts/placement'
 local panelsContract = require '@lunette-contracts/panels'
@@ -27,12 +28,12 @@ local function start(config)
     },
   }
   env.native = env.session.native
-  env.session:use(plugin.define {
+  env.session:use(adapter.define {
     name = 'workspaces-test',
     requires = {
-      panels = panelsContract.capability,
-      tags = tagsContract.capability,
-      placement = placementContract.capability,
+      panelsContract.capability,
+      tagsContract.capability,
+      placementContract.capability,
     },
     init = function(context)
       env.owner = context
@@ -110,7 +111,7 @@ test('a duplicate workspace name fails the consumer and names the option', funct
   local env = start { workspaces = { { name = 'a' }, { name = 'a' } } }
   local instance = env.session.instances['desktop/workspaces']
   expect.equal(instance:state(), 'failed', 'the consumer')
-  local diagnostic = tostring(instance:diagnostic())
+  local diagnostic = tostring(testing.diagnostic(env.session.runtime, instance))
   expect.truthy(diagnostic:find('workspace name a occurs twice', 1, true), 'the diagnostic: ' .. diagnostic)
   expect.equal(#testing.takeReports(), 1, 'the failures reported')
   env.session:close()

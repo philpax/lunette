@@ -4,7 +4,6 @@ local plugin = require '@lunette-plugin'
 local layouts = require '@lunette-contracts/layouts'
 local geometry = require '@lunette-plugins/layout/arc/geometry'
 local config = require '@lunette-plugins/layout/arc/config'
-local configured = require '@lunette-plugin/configured'
 
 local arc = {}
 
@@ -31,11 +30,11 @@ function arc.layout(tuning: Tuning, label: string): ({ read [number]: layouts.Pa
   end
 end
 
-arc.definition = configured.create<<Config, Settings>>({
+arc.definition = plugin.consumer<<Config, Settings>>({
   name = 'layout/arc',
   schema = config.schema,
-  requires = { layouts = layouts.capability },
-  init = function(context: plugin.Context, settings: Settings, _publish: plugin.Publisher): ()
+  requires = { layouts.capability },
+  init = function(context: plugin.Context, settings: Settings): ()
     local service: layouts.Service = context:require(layouts.capability)
     service:register(context, { name = settings.layout, apply = arc.layout(settings.tuning, 'layout/arc') })
   end,

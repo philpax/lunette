@@ -13,8 +13,8 @@ type Registration = {
 
 type Raw = { [unknown]: unknown }
 
-local LAYOUT_KEYS: { [string]: boolean } = { name = true, apply = true, continuous = true }
-local APPLICATION_KEYS: { [string]: boolean } = { name = true, panels = true, options = true }
+local LAYOUT_KEYS: { string } = { 'name', 'apply', 'continuous' }
+local APPLICATION_KEYS: { string } = { 'name', 'panels', 'options' }
 
 local function checkName(operation: string, name: unknown): string
   if type(name) ~= 'string' or name == '' then
@@ -49,7 +49,7 @@ local function create(context: plugin.Context): contract.Service
       return inspection.snapshot(result, nil, { 'layout applications are transient callbacks' })
     end,
     register = function(_self: contract.Service, owner: contract.Owner, spec: contract.Layout): plugin.Effect
-      plugin.rejectUnknownFields('layouts register', spec, LAYOUT_KEYS, 'name, apply, and continuous', 2)
+      plugin.rejectUnknownFields('layouts register', spec, LAYOUT_KEYS, 2)
       local raw = (spec :: unknown) :: Raw
       local name = checkName('register', raw.name)
       if type(raw.apply) ~= 'function' then
@@ -62,7 +62,7 @@ local function create(context: plugin.Context): contract.Service
       return named:add(owner, name, { apply = spec.apply, continuous = continuous }, { continuous = continuous })
     end,
     apply = function(_self: contract.Service, application: contract.Application): ()
-      plugin.rejectUnknownFields('layouts apply', application, APPLICATION_KEYS, 'name, panels, and options', 2)
+      plugin.rejectUnknownFields('layouts apply', application, APPLICATION_KEYS, 2)
       local raw = (application :: unknown) :: Raw
       local name = checkName('apply', raw.name)
       if type(raw.panels) ~= 'table' then
@@ -95,7 +95,7 @@ local function create(context: plugin.Context): contract.Service
       return table.freeze { name = name, continuous = registration.continuous }
     end,
     onChanged = function(_self: contract.Service, owner: contract.Owner, spec: contract.ChangedListener): plugin.Effect
-      plugin.rejectUnknownFields('layouts onChanged', spec, { run = true }, 'run', 2)
+      plugin.rejectUnknownFields('layouts onChanged', spec, { 'run' }, 2)
       local raw = (spec :: unknown) :: Raw
       if type(raw.run) ~= 'function' then
         error('layouts onChanged: run is a function, not a ' .. type(raw.run), 2)

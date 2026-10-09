@@ -14,10 +14,10 @@ export type Config = config.Config
 export type Settings = config.Settings
 
 local required: plugin.Declaration = {
-  frame = frame.capability,
-  menu = menu.capability,
-  theme = theme.capability,
-  themes = themes.capability,
+  frame.capability,
+  menu.capability,
+  theme.capability,
+  themes.capability,
 }
 
 type Action = {

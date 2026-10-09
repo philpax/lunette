@@ -1,48 +1,51 @@
 local plugin = require '@lunette-plugin'
+local adapter = require '@lunette-plugin/adapter'
 local contracts = require './contracts'
 
 type Config = contracts.Config
 type ChildConfig = contracts.ChildConfig
 
-local child = plugin.define {
+local child = plugin.consumer<<ChildConfig, ChildConfig>> {
   name = 'child',
-  init = function(context: plugin.Context, config: ChildConfig, _publish: plugin.Publisher)
-    assert(config.enabled)
+  init = function(context: plugin.Context, settings: ChildConfig)
+    assert(settings.enabled)
     context:effect(function(): () -> ()
       return function() end
     end)
   end,
 }
 
-local definition = plugin.define {
+local definition = plugin.consumer<<Config, Config>> {
   name = 'positive',
-  requires = { clock = contracts.clock },
-  init = function(context: plugin.Context, config: Config, _publish: plugin.Publisher)
+  requires = { contracts.clock },
+  init = function(context: plugin.Context, settings: Config)
     local service: contracts.Clock = context:require(contracts.clock)
     context:effect(function(): () -> ()
       service:now()
-      assert(#config.prefix > 0)
+      assert(#settings.prefix > 0)
       return function() end
     end)
-    local childInstance: plugin.Instance<ChildConfig> = context:child(child, { enabled = true })
-    childInstance:enable()
-    childInstance:reload { enabled = false }
+    context:child(child.definition, { enabled = true })
+    context:child(child.definition)
   end,
 }
 
-local runtime = plugin.runtime()
-local instance: plugin.Instance<Config> = runtime:use(definition, { prefix = 'fixture' })
+local runtime = adapter.runtime()
+local instance: adapter.Instance<Config> = runtime:use(definition.definition, { prefix = 'fixture' })
 instance:enable()
 instance:disable()
-instance:reload { prefix = 'reload' }
+instance:requestReload { prefix = 'reload' }
 instance:dispose()
 runtime:drain()
 runtime:close()
 
 local function useOwner(context: plugin.Context, caller: plugin.Owner)
   context:checkOwner(caller)
-  caller:effect(function()
+  context:acquire(caller, function()
     return function() end
+  end)
+  local _value: number = context:resource(caller, function(): (number, () -> ())
+    return 1, function() end
   end)
 end
 

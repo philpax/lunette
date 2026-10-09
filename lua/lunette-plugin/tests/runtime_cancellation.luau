@@ -56,7 +56,7 @@ test('an initializer whose own activation is cancelled ends the load as inactive
   instance = runtime:use(definition, {})
   instance:enable()
   expect.equal(instance:state(), 'inactive', 'the cancelled load')
-  expect.equal(instance:diagnostic(), nil, 'the diagnostic of the cancelled load')
+  expect.equal(testing.diagnostic(runtime, instance), nil, 'the diagnostic of the cancelled load')
   runtime:close()
 end)
 

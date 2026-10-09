@@ -7,7 +7,7 @@ local config = require '@lunette-plugins/desktop/rules/config'
 export type Config = config.Config
 export type Settings = config.Settings
 
-local required: plugin.Declaration = { rules = rules.capability }
+local required: plugin.Declaration = { rules.capability }
 
 return plugin.consumer<<Config, Settings>>({
   name = 'desktop/rules',

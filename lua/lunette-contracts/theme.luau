@@ -144,6 +144,6 @@ export type Service = {
 }
 export type Capability = plugin.Capability<Service>
 
-theme.capability = plugin.capability<<Service>> { name = 'lunette/theme', schema = 1 }
+theme.capability = plugin.capability<<Service>> { name = 'lunette/theme', version = 1 }
 
 return theme

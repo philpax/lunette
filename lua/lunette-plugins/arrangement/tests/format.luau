@@ -1,6 +1,7 @@
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
+local adapter = require '@lunette-plugin/adapter'
 local format = require '@lunette-plugins/arrangement/format'
 local persist = require '@lunette-plugins/arrangement/state'
 local panelsContract = require '@lunette-contracts/panels'
@@ -37,12 +38,12 @@ local function withBinding(text: string?, run)
   native.events.saved = text
   local state = persist.new(persist.FILE)
   local session = testing.start { 'theme', 'panels', 'tags', 'rules' }
-  session:use(plugin.define {
+  session:use(adapter.define {
     name = 'arrangement-test',
     requires = {
-      panels = panelsContract.capability,
-      tags = tagsContract.capability,
-      rules = rulesContract.capability,
+      panelsContract.capability,
+      tagsContract.capability,
+      rulesContract.capability,
     },
     init = function(context)
       local panels = context:require(panelsContract.capability)

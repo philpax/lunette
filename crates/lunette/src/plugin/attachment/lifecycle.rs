@@ -135,15 +135,6 @@ pub(super) fn instance_state(runtime: &Weak<RefCell<RuntimeState>>, id: Instance
         .map_or(PluginState::Removed, PluginState::from)
 }
 
-pub(super) fn instance_diagnostic(
-    runtime: &Weak<RefCell<RuntimeState>>,
-    id: InstanceId,
-) -> Option<String> {
-    let runtime = runtime.upgrade()?;
-    let state = runtime.borrow();
-    state.instances.get(&id)?.last_diagnostic.clone()
-}
-
 /// Performs lifecycle work until the graph has no action or the budget expires.
 /// The budget scales with the instance count and bounds repeated transitions.
 pub(super) fn drain_runtime(

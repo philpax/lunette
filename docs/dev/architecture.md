@@ -126,6 +126,6 @@ Source reload is not transactional. It closes the runtimes and clears callbacks 
 
 Realms are open. Cordis's `ctx.isolate` scopes a key to a subtree, so two providers of one key can coexist. lunette has one realm per runtime graph. A separate runtime graph is the coarse substitute, and a broker provider ([Confinement](lua-api.md#confinement)) substitutes for coexisting implementations. No shipped plugin needs a subtree-scoped service.
 
-Configuration reconciliation is open. A running activation keeps the configuration it was loaded with. `instance:reload(config)` unloads and loads the instance, and a changed configuration file is applied by source reload. Applying a configuration in place needs a stable instance identity across reloads and a configuration that `main.luau` declares rather than constructs.
+Configuration reconciliation is open. A running activation keeps the configuration it was loaded with. `instance:requestReload(config)` and the next drain unload and load the instance, and a changed configuration file is applied by source reload. Applying a configuration in place needs a stable instance identity across reloads and a configuration that `main.luau` declares rather than constructs.
 
 Worker-state access is open. Read-only snapshot access from `lovr.thread` and `lovr.task` states may be useful later. The [ownership rules](#ownership-rules) do not preclude it.

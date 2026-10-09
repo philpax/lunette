@@ -1,6 +1,7 @@
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
+local adapter = require '@lunette-plugin/adapter'
 local menuContract = require '@lunette-contracts/menu'
 local themeContract = require '@lunette-contracts/theme'
 local themesContract = require '@lunette-contracts/themes'
@@ -22,12 +23,12 @@ local function boot(config)
     { id = 'desktop/theme', factory = require '@lunette-plugins/desktop/theme', config = config or {} },
   }
   local env = { session = session, native = session.native }
-  session:use(plugin.define {
+  session:use(adapter.define {
     name = 'selector-test',
     requires = {
-      menu = menuContract.capability,
-      theme = themeContract.capability,
-      themes = themesContract.capability,
+      menuContract.capability,
+      themeContract.capability,
+      themesContract.capability,
     },
     init = function(context)
       env.owner = context

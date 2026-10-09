@@ -57,9 +57,9 @@ local INPUT: Spec = {
   phases = { ranks = INPUT_RANKS, names = table.concat(contract.INPUT_PHASES, ', '), default = 'binding' },
 }
 
-local PHASED_KEYS: { [string]: boolean } = { phase = true, order = true, run = true }
-local UNPHASED_KEYS: { [string]: boolean } = { run = true }
-local HOOK_KEYS: { [string]: boolean } = { start = true, stop = true }
+local PHASED_KEYS: { string } = { 'phase', 'order', 'run' }
+local UNPHASED_KEYS: { string } = { 'run' }
+local HOOK_KEYS: { string } = { 'start', 'stop' }
 
 local function validate(operation: string, handler: unknown, spec: Spec): (number, number)
   local level = 3
@@ -71,9 +71,9 @@ local function validate(operation: string, handler: unknown, spec: Spec): (numbe
   end
   local phases = spec.phases
   if phases then
-    plugin.rejectUnknownFields('frame ' .. operation, handler, PHASED_KEYS, 'phase, order, and run', level)
+    plugin.rejectUnknownFields('frame ' .. operation, handler, PHASED_KEYS, level)
   else
-    plugin.rejectUnknownFields('frame ' .. operation, handler, UNPHASED_KEYS, 'run', level)
+    plugin.rejectUnknownFields('frame ' .. operation, handler, UNPHASED_KEYS, level)
   end
   local raw = handler :: { [unknown]: unknown }
   if type(raw.run) ~= 'function' then
@@ -334,15 +334,13 @@ local provider = plugin.provider<<Config, Settings, Service>> {
 }
 frame.definition = provider.definition
 frame.define = provider.define
-frame.build = provider.build
-frame.requires = provider.requires
 
 -- Starts from `lovr.load` and stops after quit handlers. `lovr.quit` always returns false.
 function frame.install(hooks: Hooks): ()
   if type(hooks) ~= 'table' then
     error('frame install: the hooks are a table of fields, not a ' .. type(hooks), 2)
   end
-  plugin.rejectUnknownFields('frame install', hooks, HOOK_KEYS, 'start and stop', 2)
+  plugin.rejectUnknownFields('frame install', hooks, HOOK_KEYS, 2)
   local start, stop = hooks.start, hooks.stop
   if type(start) ~= 'function' or type(stop) ~= 'function' then
     error('frame install: start and stop are functions', 2)

@@ -6,7 +6,7 @@ local protected = require '@lunette-plugins/protected'
 local registry = require '@lunette-plugins/registry'
 local inspection = require '@lunette-contracts/inspection'
 
-local OFFER_KEYS: { [string]: boolean } = { name = true, list = true }
+local OFFER_KEYS: { string } = { 'name', 'list' }
 
 local function create(context: plugin.Context): contract.Service
   local offers = registry.new<<() -> { contract.Surface }>>(context, 'surfaces offer')
@@ -16,7 +16,7 @@ local function create(context: plugin.Context): contract.Service
       return inspection.snapshot(offers:inspect('offer', 'surfaces.offer'), nil, { 'offer results require callbacks' })
     end,
     offer = function(_self: contract.Service, owner: contract.Owner, spec: contract.Offer): plugin.Effect
-      plugin.rejectUnknownFields('surfaces offer', spec, OFFER_KEYS, 'name and list', 2)
+      plugin.rejectUnknownFields('surfaces offer', spec, OFFER_KEYS, 2)
       local name, list = spec.name, spec.list
       if type(name) ~= 'string' or name == '' then
         error('surfaces offer: name is a non-empty string, not ' .. tostring(name), 2)

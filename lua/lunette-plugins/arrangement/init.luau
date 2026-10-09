@@ -11,7 +11,6 @@ local tags = require '@lunette-contracts/tags'
 local logging = require '@lunette-plugins/desktop/logging'
 local state = require '@lunette-plugins/arrangement/state'
 local config = require '@lunette-plugins/arrangement/config'
-local configured = require '@lunette-plugin/configured'
 
 local arrangement = {}
 
@@ -19,11 +18,11 @@ export type Config = config.Config
 export type Settings = config.Settings
 
 local required: plugin.Declaration = {
-  drops = drops.capability,
-  frame = frame.capability,
-  panels = panels.capability,
-  rules = rules.capability,
-  tags = tags.capability,
+  drops.capability,
+  frame.capability,
+  panels.capability,
+  rules.capability,
+  tags.capability,
 }
 
 local function define(): plugin.Definition<Config>
@@ -39,12 +38,12 @@ local function define(): plugin.Definition<Config>
     made, madeFor = fresh, settings.file
     return fresh
   end
-  return configured.create<<Config, Settings>>({
+  return plugin.provider<<Config, Settings, arrangementContract.Service>>({
     name = 'desktop/persistence',
+    capability = arrangementContract.capability,
     schema = config,
     requires = required,
-    provides = { arrangement = arrangementContract.capability },
-    init = function(context: plugin.Context, settings: Settings, publish: plugin.Publisher): ()
+    build = function(context: plugin.Context, settings: Settings): arrangementContract.Service
       local service = stateFor(settings):bind(
         context,
         context:require(panels.capability),
@@ -69,7 +68,7 @@ local function define(): plugin.Definition<Config>
           end
         end,
       })
-      publish:provide(arrangementContract.capability, service)
+      return service
     end,
   }).definition
 end

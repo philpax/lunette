@@ -18,9 +18,9 @@ type Paced = {
 }
 
 local required: plugin.Declaration = {
-  frame = frame.capability,
-  panels = panels.capability,
-  pacing = pacing.capability,
+  frame.capability,
+  panels.capability,
+  pacing.capability,
 }
 
 return plugin.consumer<<Config, Settings>>({

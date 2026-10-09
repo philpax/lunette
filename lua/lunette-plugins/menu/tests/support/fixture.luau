@@ -1,5 +1,6 @@
 local testing = require '@testing'
 local plugin = require '@lunette-plugin'
+local adapter = require '@lunette-plugin/adapter'
 local contract = require '@lunette-contracts/menu'
 
 local fixture = {}
@@ -19,9 +20,9 @@ end
 
 function fixture.probe(env, name)
   local found = {}
-  found.instance = env.session:use(plugin.define {
+  found.instance = env.session:use(adapter.define {
     name = name,
-    requires = { menu = contract.capability },
+    requires = { contract.capability },
     init = function(context)
       found.owner = context
       found.service = context:require(contract.capability)

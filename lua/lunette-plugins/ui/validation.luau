@@ -8,37 +8,38 @@ local theme = require './theme'
 local titlebar = require './titlebar'
 
 local validation = {}
-local copyControl: <T>(T, { [string]: boolean }, string) -> T
+local copyControl: <T>(T, { string }, string) -> T
 local callback: (unknown, string, boolean?) -> ()
 local optional: <T>(schema.Schema<T, T>, unknown, string) -> ()
 local checkSeat: (lunette.Seat?) -> ()
 
-local COMMON =
-  { id = true, bounds = true, label = true, enabled = true, z = true, theme = true, draw = true, exclusive = true }
-local BUTTON = table.clone(COMMON)
-BUTTON.onActivate = true
-local TEXT = table.clone(COMMON)
-TEXT.value, TEXT.onChange, TEXT.onSubmit, TEXT.onCancel, TEXT.validate, TEXT.keymapSeat =
-  true, true, true, true, true, true
-local CHOICE = table.clone(COMMON)
-CHOICE.items, CHOICE.selected, CHOICE.onChange = true, true, true
-local REGION = table.clone(COMMON)
-REGION.items, REGION.onPointer, REGION.receiver, REGION.wantsKeyboard = true, true, true, true
-local PANEL = {
-  name = true,
-  pose = true,
-  width = true,
-  height = true,
-  logicalWidth = true,
-  logicalHeight = true,
-  visible = true,
-  grabbable = true,
-  grabTarget = true,
-  titlebar = true,
-  theme = true,
-  draw = true,
+local COMMON: { string } = { 'id', 'bounds', 'label', 'enabled', 'z', 'theme', 'draw', 'exclusive' }
+local function controlFields(...: string): { string }
+  local result = table.clone(COMMON)
+  for _, field in { ... } do
+    table.insert(result, field)
+  end
+  return result
+end
+local BUTTON = controlFields 'onActivate'
+local TEXT = controlFields('value', 'onChange', 'onSubmit', 'onCancel', 'validate', 'keymapSeat')
+local CHOICE = controlFields('items', 'selected', 'onChange')
+local REGION = controlFields('items', 'onPointer', 'receiver', 'wantsKeyboard')
+local PANEL: { string } = {
+  'name',
+  'pose',
+  'width',
+  'height',
+  'logicalWidth',
+  'logicalHeight',
+  'visible',
+  'grabbable',
+  'grabTarget',
+  'titlebar',
+  'theme',
+  'draw',
 }
-local RECEIVER = { key = true, text = true, onFocus = true, onBlur = true }
+local RECEIVER: { string } = { 'key', 'text', 'onFocus', 'onBlur' }
 local stringValue = schema.string()
 local identifier = schema.string { minLength = 1 }
 local booleanValue = schema.boolean()
@@ -64,7 +65,7 @@ local collectionItems = schema.array(schema.object {
 
 function validation.panel(options: ui.PanelOptions): ui.PanelOptions
   assert(type(options) == 'table' and getmetatable(options) == nil, 'ui panel: options are a plain table')
-  plugin.rejectUnknownFields('ui panel', options, PANEL, 'panel option fields', 3)
+  plugin.rejectUnknownFields('ui panel', options, PANEL, 3)
   identifier.parse(options.name, 'ui panel name')
   local dimensions: { [string]: unknown } = {
     width = options.width,
@@ -149,7 +150,7 @@ function validation.region(options: ui.RegionOptions): ui.RegionOptions
   if rawReceiver ~= nil then
     local raw: unknown = rawReceiver
     assert(type(raw) == 'table' and getmetatable(raw) == nil, 'ui region receiver: a plain table is required')
-    plugin.rejectUnknownFields('ui region receiver', rawReceiver, RECEIVER, 'key, text, onFocus, and onBlur', 3)
+    plugin.rejectUnknownFields('ui region receiver', rawReceiver, RECEIVER, 3)
     callback(rawReceiver.key, 'ui region receiver key', true)
     callback(rawReceiver.text, 'ui region receiver text', true)
     callback(rawReceiver.onFocus, 'ui region receiver onFocus')
@@ -198,10 +199,10 @@ function validation.selected(items: { read [number]: ui.Item }, selected: string
   error 'ui collection selected: id must name an item'
 end
 
-copyControl = function<T>(options: T, allowed: { [string]: boolean }, kind: string): T
+copyControl = function<T>(options: T, allowed: { string }, kind: string): T
   assert(type(options) == 'table' and getmetatable(options) == nil, 'ui ' .. kind .. ': options are a plain table')
   local raw = (options :: unknown) :: { [string]: unknown }
-  plugin.rejectUnknownFields('ui ' .. kind, raw, allowed, 'control option fields', 3)
+  plugin.rejectUnknownFields('ui ' .. kind, raw, allowed, 3)
   identifier.parse(raw.id, 'ui ' .. kind .. ' id')
   optional(stringValue, raw.label, 'ui ' .. kind .. ' label')
   optional(booleanValue, raw.enabled, 'ui ' .. kind .. ' enabled')

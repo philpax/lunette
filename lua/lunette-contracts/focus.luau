@@ -84,22 +84,13 @@ export type Service = {
 
 -- Two native targets name the same route when their seats and sinks match. An omitted seat is the default seat.
 function focus.sameNative(first: Target, second: Target): boolean
-  if first.kind ~= 'native' or second.kind ~= 'native' or first.sink.domain ~= second.sink.domain then
+  if first.kind ~= 'native' or second.kind ~= 'native' then
     return false
   end
-  local firstSeat = first.seat or lunette.defaultSeat()
-  local secondSeat = second.seat or lunette.defaultSeat()
-  if (firstSeat and firstSeat.id) ~= (secondSeat and secondSeat.id) then
-    return false
-  end
-  if first.sink.domain == 'window' then
-    return first.sink.id ~= nil and first.sink.id == second.sink.id
-  end
-  local firstMonitor, secondMonitor = first.sink.monitor, second.sink.monitor
-  return firstMonitor ~= nil and secondMonitor ~= nil and firstMonitor.id == secondMonitor.id
+  return (first.seat or lunette.defaultSeat()) == (second.seat or lunette.defaultSeat()) and first.sink == second.sink
 end
 
 export type Capability = plugin.Capability<Service>
-focus.capability = plugin.capability<<Service>> { name = 'lunette/focus', schema = 2 }
+focus.capability = plugin.capability<<Service>> { name = 'lunette/focus', version = 2 }
 
 return focus

@@ -1,6 +1,7 @@
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
+local adapter = require '@lunette-plugin/adapter'
 local desktop = require '@lunette-desktop'
 local menuContract = require '@lunette-contracts/menu'
 local themeContract = require '@lunette-contracts/theme'
@@ -28,9 +29,9 @@ test('the theme example runs and starts with Dusk, offering it in place of Arcad
         {
           insert = {
             id = 'example-theme-observer',
-            definition = plugin.define {
+            definition = adapter.define {
               name = 'example-theme-observer',
-              requires = { menu = menuContract.capability, theme = themeContract.capability },
+              requires = { menuContract.capability, themeContract.capability },
               init = function(context)
                 observed.menu = context:require(menuContract.capability)
                 observed.theme = context:require(themeContract.capability)

@@ -12,9 +12,9 @@ export type Config = config.Config
 export type Settings = config.Settings
 
 local required: plugin.Declaration = {
-  frame = frame.capability,
-  panels = panels.capability,
-  theme = theme.capability,
+  frame.capability,
+  panels.capability,
+  theme.capability,
 }
 
 type Paint = {

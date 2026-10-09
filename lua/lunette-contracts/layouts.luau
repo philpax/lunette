@@ -44,6 +44,6 @@ export type Service = {
 
 export type Capability = plugin.Capability<Service>
 
-layouts.capability = plugin.capability<<Service>> { name = 'lunette/layouts', schema = 1 }
+layouts.capability = plugin.capability<<Service>> { name = 'lunette/layouts', version = 1 }
 
 return layouts

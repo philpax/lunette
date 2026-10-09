@@ -29,6 +29,13 @@ pub struct Output<T> {
     mode: RefCell<OutputMode>,
 }
 
+/// Two handles are equal when they name the same output.
+impl<T> PartialEq for Output<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
 impl<T> Output<T> {
     pub(crate) fn new(session: Rc<Session<T>>, snapshot: &OutputSnapshot) -> Self {
         Self {

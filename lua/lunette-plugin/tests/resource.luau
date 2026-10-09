@@ -1,16 +1,17 @@
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
+local adapter = require '@lunette-plugin/adapter'
 
 local test = testing.suite()
 
 test('a returned resource releases once on dispose and not again at close', function()
-  local runtime = plugin.runtime()
+  local runtime = adapter.runtime()
   local values = {}
   local effects = {}
   local releases = 0
   local instance = runtime:use(
-    plugin.define {
+    adapter.define {
       name = 'resource-owner',
       init = function(context)
         local value, effect = context:resource(context, function()
@@ -28,7 +29,7 @@ test('a returned resource releases once on dispose and not again at close', func
     {}
   )
   instance:enable()
-  expect.equal(instance:state(), 'active', tostring(instance:diagnostic()))
+  expect.equal(instance:state(), 'active', tostring(testing.diagnostic(runtime, instance)))
   effects[1]:dispose()
   expect.truthy(values[1].dead, 'the first value is released')
   expect.equal(releases, 1, 'the first inverse runs once')
@@ -40,12 +41,12 @@ end)
 
 test('a resource answers no value after acquisition failure or cancellation', function()
   for _, cancel in { false, true } do
-    local runtime = plugin.runtime()
+    local runtime = adapter.runtime()
     local instance
     local context
     local released = 0
     instance = runtime:use(
-      plugin.define {
+      adapter.define {
         name = 'interrupted-resource-owner',
         init = function(owner)
           context = owner

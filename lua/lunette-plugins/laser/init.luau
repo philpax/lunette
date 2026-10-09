@@ -94,7 +94,7 @@ end
 
 local function makeLaser(state: ProviderState, settings: Settings, owner: Owner, hand: Hand, options: Options?): Laser
   local given: Options = options or {}
-  local styleOverrides = style.overrides.parse(given.style or {}, 'laser: style')
+  local styleOverrides = style.overrides.parse(given.style or {}, 'laser style')
   state.refreshStyle()
   local aimSettings = aim.resolve(given.aim, settings.aim)
   local lockSettings = triggerLock.resolve(given.triggerLock, settings.triggerLock)
@@ -106,7 +106,7 @@ local function makeLaser(state: ProviderState, settings: Settings, owner: Owner,
   local interactionService: interaction.Service = state.context:require(interaction.capability)
   local cleanupEffect: plugin.Effect? = nil
   local created, acquired = state.context:resource(owner, function(): (MutableLaser, () -> ())
-    local seat = given.seat or lunette.newSeat(given.name or ('laser.' .. hand))
+    local seat = given.seat or lunette.newSeat { name = given.name or ('laser.' .. hand) }
     local controller = input.controllers[hand]
     -- Haptics use the controller that supplies this hand's input.
     local function pulse(haptic: interaction.Haptic): boolean
@@ -356,7 +356,7 @@ end
 return plugin.provider<<Config, Settings, Service>> {
   name = 'laser',
   capability = contracts.capability,
-  requires = { interaction = interaction.capability, theme = theme.capability },
+  requires = { interaction.capability, theme.capability },
   schema = config,
   build = build,
 }

@@ -1,6 +1,7 @@
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
+local adapter = require '@lunette-plugin/adapter'
 local errorsContract = require '@lunette-contracts/errors'
 local errors = require '@lunette-plugins/errors'
 
@@ -20,9 +21,9 @@ local function start()
       },
     },
   }
-  env.presenter = plugin.define {
+  env.presenter = adapter.define {
     name = 'presenter',
-    requires = { errors = errorsContract.capability },
+    requires = { errorsContract.capability },
     init = function(context)
       env.service, env.owner = context:require(errorsContract.capability), context
       env.service:subscribe(context, {

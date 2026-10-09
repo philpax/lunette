@@ -85,7 +85,7 @@ export type Service = {
 
 export type Capability = plugin.Capability<Service>
 
-local capability = plugin.capability<<Service>> { name = 'lunette/rules', schema = 1 }
+local capability = plugin.capability<<Service>> { name = 'lunette/rules', version = 1 }
 
 rules.capability = capability
 

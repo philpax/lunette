@@ -8,7 +8,7 @@ local native = {}
 
 local installNative, installLovr
 
-local SINK_METHODS = { 'key', 'modifiers', 'pointer', 'motion', 'button', 'scroll', 'enter', 'leave' }
+local SINK_METHODS = { 'key', 'setModifiers', 'pointer', 'motion', 'button', 'scroll', 'enter', 'leave' }
 local SUBSCRIPTIONS = { 'onWindowOpened', 'onWindowClosed', 'onProcessExited', 'onMonitorAdded', 'onError' }
 
 function native.new()
@@ -235,8 +235,8 @@ installNative = function(fake, events, subscribe, clearSubscriptions)
     events.spawned[#events.spawned + 1] = process
     return process
   end
-  lunette.newSeat = function(name)
-    local seat = { id = #events.seats + 1, name = name, dead = false, layouts = { 'fixture' }, modifiers = {} }
+  lunette.newSeat = function(options)
+    local seat = { id = #events.seats + 1, name = options.name, dead = false, layouts = { 'fixture' }, modifiers = {} }
     events.seats[#events.seats + 1] = seat
     function seat:setFocus(sink)
       self.focus = sink
@@ -255,10 +255,6 @@ installNative = function(fake, events, subscribe, clearSubscriptions)
     end
     function seat:symbolFor(code)
       return code
-    end
-    function seat:setModifiers(modifiers)
-      self.modifiers = modifiers or {}
-      return true
     end
     function seat:destroy()
       if self.dead then

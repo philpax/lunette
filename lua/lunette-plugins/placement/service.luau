@@ -30,8 +30,8 @@ type State = {
   listeners: listeners.Listeners<(contract.Placement) -> ()>,
 }
 
-local REQUEST_KEYS: { [string]: boolean } = { window = true, properties = true, defaults = true }
-local LISTENER_KEYS: { [string]: boolean } = { run = true }
+local REQUEST_KEYS: { string } = { 'window', 'properties', 'defaults' }
+local LISTENER_KEYS: { string } = { 'run' }
 
 local function report(message: string, level: ('info' | 'warn')?): ()
   local log = lovr.log
@@ -191,7 +191,7 @@ local function acquire(
 end
 
 local function checkedRequest(request: unknown): contract.Request
-  plugin.rejectUnknownFields('placement place', request, REQUEST_KEYS, 'window, properties, and defaults', 3)
+  plugin.rejectUnknownFields('placement place', request, REQUEST_KEYS, 3)
   local checked = request :: contract.Request
   if checked.window == nil then
     error('placement: a window is placed, and nil is not one', 3)
@@ -279,7 +279,7 @@ function service.build(context: plugin.Context, settings: Settings): contract.Se
       return result
     end,
     onPlaced = function(_self: contract.Service, owner: Owner, listener: contract.PlacedListener): plugin.Effect
-      plugin.rejectUnknownFields('placement onPlaced', listener, LISTENER_KEYS, 'run', 2)
+      plugin.rejectUnknownFields('placement onPlaced', listener, LISTENER_KEYS, 2)
       if type(listener.run) ~= 'function' then
         error('placement: onPlaced run is a function, not a ' .. type(listener.run), 2)
       end

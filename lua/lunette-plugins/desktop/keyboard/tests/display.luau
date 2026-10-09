@@ -1,5 +1,6 @@
 local testing = require '@testing'
 local plugin = require '@lunette-plugin'
+local adapter = require '@lunette-plugin/adapter'
 local lunette = require '@lunette'
 local ui = require '@lunette-contracts/ui'
 local focus = require '@lunette-contracts/focus'
@@ -21,9 +22,9 @@ local function start()
     'desktop/keyboard',
     {
       id = 'fields',
-      definition = plugin.define {
+      definition = adapter.define {
         name = 'testing/display-fields',
-        requires = { ui = ui.capability, focus = focus.capability },
+        requires = { ui.capability, focus.capability },
         init = function(context)
           env.owner = context
           env.focus = context:require(focus.capability)
@@ -65,7 +66,7 @@ local function boards(env)
 end
 
 local function nativeTarget(env)
-  local seat = lunette.newSeat 'display-native'
+  local seat = lunette.newSeat { name = 'display-native' }
   env.owner:effect(function()
     return function()
       seat:destroy()

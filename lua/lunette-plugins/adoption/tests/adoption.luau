@@ -1,6 +1,7 @@
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
+local adapter = require '@lunette-plugin/adapter'
 local adoptionContract = require '@lunette-contracts/adoption'
 local panelsContract = require '@lunette-contracts/panels'
 local placementContract = require '@lunette-contracts/placement'
@@ -17,13 +18,13 @@ test('start adopts each accepted window once with its resolved properties, and r
   local fake = testing.native()
   local session = testing.start { 'theme', 'panels', 'tags', 'rules', 'placement', 'adoption' }
   local env = {}
-  session:use(plugin.define {
+  session:use(adapter.define {
     name = 'adoption-test',
     requires = {
-      panels = panelsContract.capability,
-      placement = placementContract.capability,
-      rules = rulesContract.capability,
-      adoption = adoptionContract.capability,
+      panelsContract.capability,
+      placementContract.capability,
+      rulesContract.capability,
+      adoptionContract.capability,
     },
     init = function(context)
       env.owner = context
@@ -68,10 +69,10 @@ end)
 test('adoption places through a substitute placement provider, and ends with its caller', function()
   local native = testing.native()
   local placements = {}
-  local substitute = plugin.define {
+  local substitute = adapter.define {
     name = 'substitute-placement',
-    requires = { panels = panelsContract.capability },
-    provides = { placement = placementContract.capability },
+    requires = { panelsContract.capability },
+    provides = { placementContract.capability },
     init = function(context, _, publish)
       local panels = context:require(panelsContract.capability)
       publish:provide(placementContract.capability, {
@@ -98,9 +99,9 @@ test('adoption places through a substitute placement provider, and ends with its
     'adoption',
   }
   native.events.windows = { native.newWindow(41) }
-  local caller = session:use(plugin.define {
+  local caller = session:use(adapter.define {
     name = 'substitute-placement-test',
-    requires = { adoption = adoptionContract.capability },
+    requires = { adoptionContract.capability },
     init = function(context)
       local adoption = context:require(adoptionContract.capability)
       adoption:install(context)

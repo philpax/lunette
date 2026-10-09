@@ -15,6 +15,8 @@ probe.accepts {
 }
 probe.accepts { label = 'sample', direction = { 0, 1, 0 } } -- reject: vector?.
 probe.accepts { label = 'sample', mode = 'other' } -- reject: "left" | "right".
+probe.accepts { label = 'sample', shape = { kind = 'line' } } -- reject.
+schema.enum<<'left' | 'right'>> { 'left', 'up' } -- reject: "left" | "right".
 probe.configure { label = 'sample', tuning = { radius = 'wrong' } } -- reject: number?.
 probe.configure {
   label = 'sample',
@@ -67,11 +69,14 @@ settings.map.key = 'edited' -- reject: read-only.
 local fields = descriptor.inspect().fields
 assert(fields)
 fields.number = schema.string().inspect() -- reject: read-only.
-local alternatives = schema.union(schema.number(), schema.string()).inspect().alternatives
+local alternatives = schema.union({ schema.number(), schema.string() }).inspect().alternatives
 assert(alternatives)
 alternatives[1] = schema.string().inspect() -- reject: read-only.
 local function mutate(problem: schema.Error): ()
   problem.path[1] = 'changed' -- reject: read-only.
+  local _code: 'type' = problem.code -- reject: "type".
 end
+local partialSettings = schema.partial(descriptor).parse {}
+local wrongPartial: number = partialSettings.number -- reject: number?.
 
-return { probe, wrongQuiet, wrongInput, wrongOutput, wrongResult, wrongNested, mutate }
+return { probe, wrongQuiet, wrongInput, wrongOutput, wrongResult, wrongNested, mutate, wrongPartial }

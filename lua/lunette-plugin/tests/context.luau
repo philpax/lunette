@@ -2,6 +2,7 @@
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
+local adapter = require '@lunette-plugin/adapter'
 
 local test = testing.suite()
 
@@ -30,9 +31,9 @@ end
 test('a subscription ends with its activation, and a handler kept past it delivers nothing', function()
   local events = source()
   local received = {}
-  local runtime = plugin.runtime()
+  local runtime = adapter.runtime()
   local instance = runtime:use(
-    plugin.define {
+    adapter.define {
       name = 'subscriber',
       init = function(context, config)
         context:on {
@@ -50,7 +51,8 @@ test('a subscription ends with its activation, and a handler kept past it delive
   expect.equal(received[1], 'one:a', 'the first delivery')
 
   local kept = events.listeners[1].handler
-  instance:reload { name = 'two' }
+  instance:requestReload { name = 'two' }
+  runtime:drain()
   expect.truthy(#events.listeners == 1 and events.cancels == 1, 'a reload replaces the subscription')
   events.emit 'b'
   expect.equal(table.concat(received, ' '), 'one:a two:b', 'the deliveries after the reload')
@@ -63,11 +65,11 @@ test('a subscription ends with its activation, and a handler kept past it delive
 end)
 
 test('a resource acquired for an owner ends with that owner, and only a dependent is an owner', function()
-  local resource = plugin.capability { name = 'local/ownership-resource', schema = 1 }
+  local resource = plugin.capability { name = 'local/ownership-resource', version = 1 }
   local events = {}
-  local provider = plugin.define {
+  local provider = adapter.define {
     name = 'provider',
-    provides = { resource = resource },
+    provides = { resource },
     init = function(context, _config, publish)
       publish:provide(resource, {
         owns = function(_self, owner)
@@ -90,9 +92,9 @@ test('a resource acquired for an owner ends with that owner, and only a dependen
   }
   local stranger
   local consumerContext
-  local consumer = plugin.define {
+  local consumer = adapter.define {
     name = 'consumer',
-    requires = { resource = resource },
+    requires = { resource },
     init = function(context)
       consumerContext = context
       local service = context:require(resource)
@@ -107,19 +109,19 @@ test('a resource acquired for an owner ends with that owner, and only a dependen
     end,
   }
   local observed
-  local observer = plugin.define {
+  local observer = adapter.define {
     name = 'observer',
-    requires = { resource = resource },
+    requires = { resource },
     init = function(context)
       observed = context:require(resource)
     end,
   }
 
-  local runtime = plugin.runtime()
+  local runtime = adapter.runtime()
   runtime:use(provider, {}):enable()
   runtime
     :use(
-      plugin.define {
+      adapter.define {
         name = 'stranger',
         init = function(context)
           stranger = context
@@ -130,12 +132,83 @@ test('a resource acquired for an owner ends with that owner, and only a dependen
     :enable()
   local consumerInstance = runtime:use(consumer, {})
   consumerInstance:enable()
-  expect.equal(consumerInstance:state(), 'active', tostring(consumerInstance:diagnostic()))
+  expect.equal(consumerInstance:state(), 'active', tostring(testing.diagnostic(runtime, consumerInstance)))
   expect.equal(table.concat(events, ', '), 'open kept, open explicit, close explicit', 'the resources')
   runtime:use(observer, {}):enable()
   consumerInstance:disable()
   expect.equal(events[4], 'close kept', 'an acquired resource ends with its owner')
   expect.falsy(observed:owns(consumerContext), 'an ended owner is not owned')
+  runtime:close()
+end)
+
+test('every owner-scoped acquisition takes the provider or a dependent and rejects any other context', function()
+  local capability = plugin.capability { name = 'local/ownership-forms', version = 1 }
+  local acquired = {}
+  local forms = {
+    acquire = function(context, owner)
+      return context:acquire(owner, function()
+        table.insert(acquired, 'acquire')
+        return function() end
+      end)
+    end,
+    acquireDeferred = function(context, owner)
+      return context:acquireDeferred(owner, function()
+        table.insert(acquired, 'acquireDeferred')
+        return function() end
+      end)
+    end,
+    resource = function(context, owner)
+      local _, effect = context:resource(owner, function()
+        table.insert(acquired, 'resource')
+        return {}, function() end
+      end)
+      return effect
+    end,
+  }
+  local stranger
+  local provider = adapter.define {
+    name = 'provider',
+    provides = { capability },
+    init = function(context, _config, publish)
+      for _, form in forms do
+        form(context, context)
+      end
+      publish:provide(capability, {
+        each = function(_self, owner)
+          for name, form in forms do
+            form(context, owner)
+            expect.raises(function()
+              form(context, stranger)
+            end, 'does not depend on this provider', name .. ' with a stranger')
+          end
+        end,
+      })
+    end,
+  }
+  local consumer = adapter.define {
+    name = 'consumer',
+    requires = { capability },
+    init = function(context)
+      context:require(capability):each(context)
+    end,
+  }
+  local runtime = adapter.runtime()
+  runtime
+    :use(
+      adapter.define {
+        name = 'stranger',
+        init = function(context)
+          stranger = context
+        end,
+      },
+      {}
+    )
+    :enable()
+  runtime:use(provider, {}):enable()
+  local consumerInstance = runtime:use(consumer, {})
+  consumerInstance:enable()
+  expect.equal(consumerInstance:state(), 'active', tostring(testing.diagnostic(runtime, consumerInstance)))
+  expect.equal(#acquired, 6, 'each form acquires for the provider and for its dependent')
   runtime:close()
 end)
 

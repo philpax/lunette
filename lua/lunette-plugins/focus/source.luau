@@ -209,7 +209,7 @@ function sources.new(
     local character: string? = nil
     if
       not protected.call(receiverLabel(snapshot, 'translate key'), function(): ()
-        character = seat:characterFor(activation.code, modifiers)
+        character = seat:characterFor(activation.code, keys.nativeModifiers(modifiers))
       end)
     then
       return failed 'translating the key raised; see the reported callback error'

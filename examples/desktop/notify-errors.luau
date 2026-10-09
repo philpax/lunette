@@ -11,7 +11,7 @@ export type Settings = schema.Output<typeof(descriptor)>
 
 return plugin.consumer<<Config, Settings>>({
   name = 'notify-errors',
-  requires = { errors = errors.capability },
+  requires = { errors.capability },
   schema = descriptor,
   init = function(context: plugin.Context, settings: Settings)
     local stream: errors.Service = context:require(errors.capability)

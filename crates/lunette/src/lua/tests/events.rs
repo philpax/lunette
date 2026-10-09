@@ -10,11 +10,7 @@ use pretty_assertions::assert_eq;
 
 use crate::{
     events::LuaEvent,
-    lua::tests::{
-        layered_session,
-        layers::{ONE_SLOT, settle},
-        lua, poll, recording_session, run, session, snapshot, window, window_id,
-    },
+    lua::tests::{lua, poll, recording_session, run, session, snapshot, window, window_id},
 };
 
 #[test]
@@ -42,27 +38,6 @@ fn a_window_opening_hands_the_handler_a_handle_and_a_snapshot_that_holds_it() {
         visible, 1,
         "the event and the snapshot the handler reads have to describe the same frame"
     );
-}
-
-#[test]
-fn a_title_change_carries_both_the_window_and_the_new_title() {
-    let (session, sink) =
-        recording_session(vec![window(1, "htop", "foot", PixelSize::new(1280, 720))]);
-    let lua = lua(&session);
-    run::<()>(
-        &lua,
-        "lunette.onTitleChanged(function(event) changed = event end)",
-    );
-
-    session.push_event(LuaEvent::TitleChanged {
-        window: window_id(1),
-        title: "htop — 4 cores".to_owned(),
-    });
-    poll(&lua, &sink);
-
-    let (title, id): (String, u64) = run(&lua, "return changed.title, changed.window.id");
-    assert_eq!(title, "htop — 4 cores");
-    assert_eq!(id, 1);
 }
 
 #[test]
@@ -275,7 +250,7 @@ fn a_handler_that_raises_does_not_take_the_rest_of_the_frame_with_it() {
              seen[#seen + 1] = event.window.id
              if event.window.id == 1 then error('a defect in the configuration') end
          end)
-         lunette.onTitleChanged(function(event) titled = event.title end)",
+         lunette.onWindowClosed(function(event) closed = event.window.id end)",
     );
 
     session.push_event(LuaEvent::WindowOpened {
@@ -284,18 +259,17 @@ fn a_handler_that_raises_does_not_take_the_rest_of_the_frame_with_it() {
     session.push_event(LuaEvent::WindowOpened {
         window: window_id(2),
     });
-    session.push_event(LuaEvent::TitleChanged {
+    session.push_event(LuaEvent::WindowClosed {
         window: window_id(2),
-        title: "renamed".to_owned(),
     });
     poll(&lua, &sink);
 
-    let (count, first, second, titled): (usize, u64, u64, String) =
-        run(&lua, "return #seen, seen[1], seen[2], titled");
+    let (count, first, second, closed): (usize, u64, u64, u64) =
+        run(&lua, "return #seen, seen[1], seen[2], closed");
 
     assert_eq!((count, first, second), (2, 1, 2));
     assert_eq!(
-        titled, "renamed",
+        closed, 2,
         "one bad handler must not swallow a frame's worth of events"
     );
 }
@@ -340,125 +314,6 @@ fn an_event_with_no_handler_is_dispatched_and_dropped() {
     poll(&lua, &sink);
 
     assert_eq!(run::<usize>(&lua, "return #lunette.windows()"), 0);
-}
-
-/// Creates two claims and displaces the first from a one-slot pool.
-fn contending(source: &str) -> (crate::lua::tests::TestSession, mlua::Lua) {
-    let (session, sink, registry) = layered_session(
-        vec![
-            window(1, "first", "foot", PixelSize::new(640, 480)),
-            window(2, "second", "foot", PixelSize::new(640, 480)),
-        ],
-        ONE_SLOT,
-    );
-    let lua = lua(&session);
-    run::<()>(&lua, source);
-    run::<()>(
-        &lua,
-        "held = {}
-         for index = 1, 2 do
-             held[index] = lunette.claimLayer{
-                 window = lunette.windows()[index],
-                 width = 640, height = 480, priority = 6 - index,
-             }
-         end",
-    );
-
-    settle(&session, &registry);
-    poll(&lua, &sink);
-    run::<()>(&lua, "seen = {}");
-
-    // Revocation and grant occur on separate frame boundaries. The recycled layer must be copied
-    // between them.
-    run::<()>(&lua, "held[2]:setPriority(9)");
-    settle(&session, &registry);
-    poll(&lua, &sink);
-
-    (session, lua)
-}
-
-#[test]
-fn a_displaced_claim_is_revoked_before_its_displacer_is_granted() {
-    let (_session, lua) = contending(
-        "seen = {}
-         lunette.onLayerGranted(function(event)
-             seen[#seen + 1] = { name = 'granted', id = event.claim.id }
-         end)
-         lunette.onLayerRevoked(function(event)
-             seen[#seen + 1] = { name = 'revoked', id = event.claim.id }
-         end)",
-    );
-
-    let (count, first, revoked, second, granted): (usize, String, u64, String, u64) = run(
-        &lua,
-        "return #seen, seen[1].name, seen[1].id, seen[2].name, seen[2].id",
-    );
-
-    assert_eq!(count, 2, "exactly one of each, and neither twice");
-    assert_eq!(first, "revoked");
-    assert_eq!(second, "granted");
-    assert_eq!(
-        run::<u64>(&lua, "return held[1].id"),
-        revoked,
-        "the claim that lost the layer is the one the revocation names"
-    );
-    assert_eq!(
-        run::<u64>(&lua, "return held[2].id"),
-        granted,
-        "revoking is what frees the layer the grant takes"
-    );
-}
-
-#[test]
-fn a_grant_carries_the_layer_and_agrees_with_the_claim_the_handler_reads() {
-    let (_session, lua) = contending(
-        "lunette.onLayerGranted(function(event)
-             gained = { layer = event.layer, granted = event.claim.granted, own = event.claim.layer }
-         end)
-         lunette.onLayerRevoked(function(event)
-             lost = { granted = event.claim.granted, layer = event.claim.layer, dead = event.claim.dead }
-         end)",
-    );
-
-    let (layer, granted, own): (Value, bool, Value) =
-        run(&lua, "return gained.layer, gained.granted, gained.own");
-    assert_eq!(
-        layer,
-        Value::Integer(1),
-        "the event carries the Layer itself"
-    );
-    assert!(
-        granted,
-        "the event fires at the boundary the grant lands on, so the claim already reads granted"
-    );
-    assert_eq!(
-        own, layer,
-        "and reading it through the claim is the same Layer"
-    );
-
-    let (still_granted, lost_layer, dead): (bool, Value, bool) =
-        run(&lua, "return lost.granted, lost.layer, lost.dead");
-    assert!(!still_granted);
-    assert_eq!(lost_layer, Value::Boolean(false));
-    assert!(
-        !dead,
-        "a revoked claim is still a claim; it takes a layer again when one frees"
-    );
-}
-
-#[test]
-fn an_error_in_a_handler_undoes_neither_the_grant_nor_the_revocation() {
-    let (_session, lua) = contending(
-        "lunette.onLayerRevoked(function() error('a defect in the configuration') end)
-         lunette.onLayerGranted(function() error('and another') end)",
-    );
-
-    let (first, second): (bool, bool) = run(&lua, "return held[1].granted, held[2].granted");
-    assert_eq!(
-        (first, second),
-        (false, true),
-        "both had already happened in Rust before either handler ran"
-    );
 }
 
 /// A handler error reaches every `lunette.onError` subscriber with its traceback.
@@ -544,12 +399,9 @@ fn a_dispatcher_is_installed_for_every_event_the_module_can_push() {
     assert_eq!(
         names,
         vec![
-            "lunlayergranted".to_owned(),
-            "lunlayerrevoked".to_owned(),
             "lunmonitoradded".to_owned(),
             "lunprocessexited".to_owned(),
             "lunprocessoutput".to_owned(),
-            "luntitlechanged".to_owned(),
             "lunwindowclosed".to_owned(),
             "lunwindowopened".to_owned(),
         ],
