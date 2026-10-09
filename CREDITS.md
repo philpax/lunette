@@ -24,9 +24,9 @@ Host desktop capture: PipeWire through the xdg-desktop-portal ScreenCast interfa
 
 <https://github.com/bjornbytes/lovr>, MIT, by Bjorn Swenson and LÖVR contributors.
 
-lunette dynamically links a fork of LÖVR, carried as the `vendor/lovr` submodule, and uses it for rendering, the OpenXR session, spatialised audio, and the Lua runtime.
+lunette dynamically links a fork of LÖVR, carried as the `vendor/lovr` submodule, and uses it for rendering, the selected headset backend and session, spatialised audio, and the Lua runtime.
 
-Patches under `vendor/lovr` are MIT, matching upstream, not GPL-3.0-only. Relicensing them would make them unmergeable by the project they are written for. Each patch is narrow, additive, and shaped as an upstream pull request; the set is listed in [docs/dev/lovr-integration.md](docs/dev/lovr-integration.md#the-patch-set).
+Patches under `vendor/lovr` are MIT, matching upstream, not GPL-3.0-only. Relicensing them would make them unmergeable by the project they are written for. The default patch rule is narrow and additive, with each patch shaped as an upstream pull request. The internal OpenVR backend is a deliberate exception in scope; it preserves LÖVR session ownership and existing OpenXR behavior and defaults. The set and its exceptions are recorded in [docs/dev/lovr-integration.md](docs/dev/lovr-integration.md#the-patch-set).
 
 ## Space Mono
 
@@ -38,6 +38,12 @@ Space Mono is copyright 2016 The Space Mono Project Authors (<https://github.com
 |---|---|---|
 | `SpaceMono-Regular.ttf` | `1cfa3653dc8ddb7aa9f4ef1c9c581e9516137e6e` | `95837e182baeeada83368f7748db28357f0a1b75c6b84ff7065b5edf933c8e18` |
 | `OFL.txt` | `a72b0a7845bec3214559673ffeba60c816a21841` | `8e4ee42b2553e1e01504e61cb0d46d148cd8c9e5eacaa3622a7df2d4f2955b9f` |
+
+## OpenVR SDK
+
+Valve's OpenVR SDK 2.15.6 is pinned at `0924064316de3effbcd1acf1e309182a2deb1c05` in `vendor/lovr/deps/openvr`. The optional Linux Vulkan backend compiles its loader from source as a static library and uses it for overlay presentation, tracking, input, and events.
+
+The SDK uses Valve's three-clause BSD licence. Its copyright, redistribution conditions, and disclaimer are in `vendor/lovr/deps/openvr/LICENSE`. The installation manifest copies those terms to `$PREFIX/share/lunette/licenses/OpenVR.txt`. Binary distributions that enable the optional loader must reproduce those terms. SteamVR is a separate runtime and is not redistributed.
 
 ## awesome
 

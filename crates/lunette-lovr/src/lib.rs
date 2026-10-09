@@ -1,4 +1,4 @@
-//! Linux x86_64: the FFI surface for the lunette fork of LÖVR.
+//! Linux-only: the FFI surface for the lunette fork of LÖVR.
 //!
 //! [`LogCallback`] takes `va_list` as an opaque pointer, independent of the
 //! libclang rendering. The platform half is the `liblovr.so` the build script
@@ -6,8 +6,8 @@
 //!
 //! This crate is the boundary between Rust and LÖVR. Its build script runs
 //! LÖVR's cmake build, generates bindings with bindgen, and emits the link
-//! directives for `liblovr.so` and the LuaJIT it bundles. Everything the rest
-//! of the workspace needs from LÖVR passes through this crate: the `luax_*`
+//! directives for `liblovr.so` and the Luau runtime it builds. Everything the
+//! rest of the workspace needs from LÖVR passes through this crate: the `luax_*`
 //! entry points, the platform hooks, and the embedded `boot.lua`.
 //!
 //! This crate does not orchestrate. The boot sequence, the frame loop, and the

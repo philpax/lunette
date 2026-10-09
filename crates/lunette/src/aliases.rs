@@ -193,6 +193,10 @@ pub const INSTALL_ARTIFACTS: &[InstallArtifact] = &[
         source: "lua/lunette-plugins/theme/fonts/OFL.txt",
         destination: "lua/lunette-plugins/theme/fonts/OFL.txt",
     },
+    InstallArtifact {
+        source: "vendor/lovr/deps/openvr/LICENSE",
+        destination: "licenses/OpenVR.txt",
+    },
 ];
 
 /// Renders the install manifest as tab-separated source and destination paths.

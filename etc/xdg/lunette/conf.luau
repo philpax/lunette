@@ -6,8 +6,7 @@ function lovr.conf(t)
   -- Save-directory precedence can shadow packaged modules and `main.luau` across sessions. Disabling it keeps the directory readable without overriding packaged files.
   t.saveprecedence = false
 
-  -- A truthy value requests `XR_EXTX_overlay` and shares the primary application's session. A number also sets `sessionLayersPlacement`; `true` uses placement 0.
-  -- The extension enables alpha composition, so undrawn areas reveal the application beneath the overlay.
+  t.headset.backend = 'auto'
   t.headset.overlay = true
 
   -- LÖVR opens a desktop window when this configuration supplies a window table. Set `t.window` to nil to disable it.

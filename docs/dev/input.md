@@ -145,11 +145,13 @@ After cancellation, a held button cannot begin another gesture until an observed
 
 ## XR input
 
-lunette uses LÖVR's input verbatim. `lovr.headset` provides poses, buttons, axes, hand tracking, and haptics, covering everything WayVR's custom action sets provide.
+lunette uses LÖVR's input API. `lovr.headset` provides poses, buttons, axes, and haptics; tracking extensions and controller models depend on the selected backend's capabilities.
+
+The private OpenVR backend initializes its installed action manifest before event polling or action updates. It samples head tracking and hand actions once per accepted frame, using the same origin and relative prediction, regardless of input focus. An open SteamVR dashboard clears buttons, touches, axes, and scheduled haptics, but preserves valid pose actions and velocities. Focus means the dashboard is closed, not exclusive overlay focus. The scene-application `IsInputAvailable` and `ShouldApplicationPause` flags are not consulted. Interaction getters and haptic requests remain suppressed until focus returns; cleared interaction resumes only with a new frame sample. Failed samples and recenter events invalidate tracking. The backend neither raises action-set priority nor substitutes raw controller tracking for pose actions. Grip and aim remain distinct. Touch grip poses are unavailable until their binding transform is verified; aim is not substituted for grip. Hand tracking, skeletons, and controller models remain unsupported in this backend. Native selection and lunette integration are implemented; the selection contract appears in [LÖVR integration](lovr-integration.md#backend-selection). Hardware binding acceptance remains unverified.
 
 Gesture recognition, such as double-tap to show or hide, laser modes, and grab-to-move, is Lua timing logic layered over LÖVR's state. This is also where such tuning is expected to occur.
 
-lunette does not create its own OpenXR action sets. Doing so would require patching LÖVR to expose the `XrInstance` and `XrSession`, and injecting into its once-per-session attach call, for the marginal gain of custom binding names in the runtime's UI. If LÖVR does not provide an input that lunette needs, the preferred fix is to add it to LÖVR.
+lunette does not create action sets outside LÖVR. For OpenXR, it does not create its own action sets. Doing so would require patching LÖVR to expose the `XrInstance` and `XrSession`, and injecting into its once-per-session attach call, for the marginal gain of custom binding names in the runtime's UI. If LÖVR does not provide an input that lunette needs, the preferred fix is to add it to LÖVR.
 
 ## Blocking input to the underlying application
 
@@ -162,6 +164,8 @@ WayVR addresses this with libmonado (WayVR upstream: `src/backend/openxr/blocker
 - Blocking policy is decided in Lua. The standard library's default rule matches WayVR's: block while a laser is hovering a panel. Because this is policy, it is implemented in Lua rather than in the native layer.
 
 Haptics use `lovr.headset.vibrate`. No new native API is added for this. In the plugin layer a pointer carries `vibrate`, which the laser supplies for its hand's controller, so a surface a pointer presses can pulse the hand that pressed it; [Keyboard](lua-api.md#keyboard) states it.
+
+The private OpenVR backend schedules immediate pulses of at most 20 milliseconds. Cancellation stops future pulses but cannot revoke one already accepted by the runtime. Frequency zero selects a nominal 120 Hz, not an SDK-defined default.
 
 ## Decisions
 
@@ -194,6 +198,8 @@ Only a selection lunette owns is ever withdrawn or cleared. `set_selection(null)
 ## Known gaps
 
 Named, not solved.
+
+The private OpenVR controller bindings and haptic frequency mapping require SteamVR hardware validation. Deterministic action tests do not establish runtime binding acceptance. Touch grip poses, hand skeletons, and controller models remain unavailable. Steam Frame controller poses and buttons are bound, and hardware observation confirms panel interaction with both controllers. HMD activity is an in-use inference, not verified wear detection.
 
 Host-to-lunette drag-and-drop. No protocol exists for a drag crossing a compositor boundary. In-compositor drag-and-drop works.
 

@@ -113,7 +113,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y \
-            cmake pkg-config python3 \
+            cmake pkg-config python3 patchelf glslang-tools \
             libclang-dev \
             libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
             libxcb1-dev libxext-dev libxkbcommon-dev \
@@ -174,6 +174,12 @@ jobs:
           # Without this the action saves nothing unless the job passes, and
           # iterating on a red CI recompiles everything each time.
           cache-on-failure: true
+
+      - run: make check-headset
+        if: matrix.half == 'test'
+
+      - run: make check-install
+        if: matrix.half == 'test'
 
       - run: make check-${{ matrix.half }}
 

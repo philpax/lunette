@@ -27,8 +27,8 @@ use crate::{layers::key::LayerKey, scene::SceneRendering};
 pub enum SessionPresence {
     /// A session exists. Layers can be created, submitted, and destroyed.
     Present(SessionId),
-    /// There is no session. Every layer the pool holds names a swapchain
-    /// `xrDestroySession` invalidated, and each one goes to
+    /// There is no usable session. Every layer the pool holds has retired
+    /// backing, and each one goes to
     /// [`LayerBackend::abandon`]. No new layer can be created until a session
     /// exists again.
     Absent,
@@ -94,10 +94,10 @@ pub trait LayerBackend {
 
     /// Creates a layer with the properties `key` fixes.
     ///
-    /// Blocking, and unboundedly so: `lovrLayerCreate` ends in
-    /// `xrWaitSwapchainImage` with `XR_INFINITE_DURATION` inside a retry loop
-    /// that never exits. The pool caps how often it calls this for that
-    /// reason, and calls it at a frame boundary.
+    /// Blocking: `lovrLayerCreate` waits for a swapchain image with
+    /// `XR_INFINITE_DURATION`. Runtime errors return without an endless retry
+    /// loop. The pool caps how often it calls this and calls it at a frame
+    /// boundary.
     ///
     /// `None` when the runtime refused.
     fn create(&mut self, key: LayerKey) -> Option<Self::Layer>;
@@ -120,16 +120,14 @@ pub trait LayerBackend {
     /// Drops the pool's reference to a layer, destroying the layer if no
     /// other reference remains.
     ///
-    /// Sound while the session that owns the layer's swapchain still exists,
-    /// because destruction calls `xrDestroySwapchain` inline.
+    /// Native retirement makes this safe after the owning session ends too.
     fn destroy(&mut self, layer: Self::Layer);
 
     /// Gives up a layer whose session is already gone.
     ///
-    /// Separate from [`LayerBackend::destroy`] because destroying is the
-    /// wrong call after session loss: the swapchain handle inside the layer
-    /// is invalidated by `xrDestroySession`,
-    /// and `lovrLayerDestroy` calls `xrDestroySwapchain` on it unconditionally
-    /// and inline, which is a use-after-free in the runtime.
+    /// Separate from [`LayerBackend::destroy`] to distinguish session loss
+    /// from deliberate pool shutdown. The native backend retires the
+    /// swapchain before the session ends, so both paths release the wrapper
+    /// normally.
     fn abandon(&mut self, layer: Self::Layer);
 }

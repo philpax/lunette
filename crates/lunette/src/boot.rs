@@ -391,7 +391,12 @@ fn finish_terminal(
                     }
                 }
             }
-            Terminal::Exit { .. } => driver.borrow_mut().shutdown(),
+            Terminal::Exit { .. } => {
+                // SAFETY: the headset remains initialized until the Lua state
+                // closes. OpenVR acknowledges a requested exit before teardown.
+                unsafe { raw::lovrHeadsetWillExit() };
+                driver.borrow_mut().shutdown();
+            }
         },
         || {
             // SAFETY: every prior phase has retired Lua callbacks, flushed the

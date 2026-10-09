@@ -8,13 +8,10 @@
   outputs =
     { nixpkgs, ... }:
     let
-      # x86_64-linux only. crates/lunette-lovr/src/lib.rs types the log
-      # callback's varargs as raw::__va_list_tag, which is the name bindgen
-      # gives the System V x86_64 va_list; on aarch64 clang spells it
-      # struct __va_list and bindgen names it differently, so the crate would
-      # not compile. Nothing here has ever been built on aarch64, so the
-      # platform is not declared.
-      systems = [ "x86_64-linux" ];
+      systems = [
+        "x86_64-linux"
+        "aarch64-linux"
+      ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
     in
     {
@@ -62,6 +59,8 @@
               cmake
               pkg-config
               python3Minimal
+              patchelf
+              glslang
 
               # Sets LIBCLANG_PATH and the include flags bindgen needs to parse
               # LOVR's headers.

@@ -1,6 +1,6 @@
 # lunette — design overview
 
-lunette is an XR window manager and Wayland compositor. It is written in Rust, scripted in Lua, and rendered by LÖVR. It runs as an OpenXR overlay, so it composites on top of a running VR application rather than replacing it.
+lunette is an XR window manager and Wayland compositor. It is written in Rust, scripted in Lua, and rendered by LÖVR. It runs as an XR overlay, so it composites on top of a running VR application rather than replacing it. LÖVR owns the session through its OpenXR or internal OpenVR backend. OpenXR overlays require `XR_EXTX_overlay`; OpenVR uses native overlays without submitting scene-compositor frames. OpenVR hardware and visual acceptance remain unverified.
 
 lunette performs three functions. It spawns and manages Wayland applications inside itself. It mirrors the user's existing monitors. It presents both to Lua as textures and input sinks, so that scripts can arrange them in space.
 
@@ -14,7 +14,7 @@ awesome supplies the scripting philosophy: policy lives in Lua, the running stat
 
 WayVR supplies the Linux VR machinery: an embedded smithay compositor, screen capture across multiple host compositors, input injection into the host desktop, and knowledge of which OpenXR extensions work on which runtime.
 
-LÖVR supplies the engine: OpenXR, Vulkan, composition layers, spatialised audio, physics, and a Lua environment.
+LÖVR supplies the engine: headset sessions, Vulkan, composition layers, spatialised audio, physics, and a Lua environment.
 
 The result is a window manager in which a window is not a distinct object type. A window is a texture, an input sink, and a set of metadata. Spatial behaviour is computed in Lua using the engine's own maths library. A script can, for example, use the physics engine to bounce an object off a panel and convert the impact point into a click, because nothing in the native API reserves that decision for itself.
 
@@ -29,14 +29,14 @@ The result is a window manager in which a window is not a distinct object type. 
 
 ## Non-goals
 
-- SteamVR and OpenVR support. lunette targets OpenXR only, and overlay support requires `XR_EXTX_overlay`, which restricts it to Monado and WiVRn.
+- An OpenVR scene application, game injection, or occlusion against another application's depth. OpenVR support is overlay-only. It does not replace the running game.
 - Sandboxing of spawned applications. They run with the same privileges as lunette.
 - Use as a general-purpose desktop compositor. lunette implements a compositor in order to obtain windows, not to host a login session.
 - Multi-user operation. The design assumes one user, one headset, and one session.
 
 ## Architectural principles
 
-1. Mechanism is implemented in Rust; policy is implemented in Lua. Rust owns scarce and stateful resources: GPU objects, Wayland protocol state, OpenXR layer swapchains, and processes. Lua decides how they are used. The test applied throughout the design is whether the standard library could have been written by a third party against the public API. If it could not, the API is incorrect.
+1. Mechanism is implemented in Rust; policy is implemented in Lua. Rust owns scarce and stateful resources: GPU objects, Wayland protocol state, backend-owned layer resources, and processes. Lua decides how they are used. The test applied throughout the design is whether the standard library could have been written by a third party against the public API. If it could not, the API is incorrect.
 2. Lua reads a snapshot and issues requests. The compositor runs on a separate thread. Window state published to Lua is a per-frame snapshot, and mutations are messages applied asynchronously. This reflects the asynchronous nature of Wayland, and matches the arrangement awesome uses with X11.
 3. Rust holds no long-lived references into the Lua state. There are no registry references to callbacks and no native objects with hidden back-pointers. All authoritative state is held in Rust and can be republished into a new Lua state at any time. This property is what makes soft reload possible.
 4. Errors do not terminate the session. Event listeners and plugin callbacks run under protected calls, and the shipped configuration protects each of its frame handlers, so a failing configuration produces an error report on a floating quad. A LÖVR callback a configuration assigns directly is the recorded exception ([The Lua API](lua-api.md#known-gaps)). A configuration that fails to load produces a built-in safe mode with a laser, a panel, and a reload key.
@@ -50,7 +50,7 @@ The result is a window manager in which a window is not a distinct object type. 
 3. Lua calls `sink:pointer(x, y)` and `sink:button('left', true)`. The native layer receives pixel coordinates and has no knowledge of the 3D scene.
 4. The compositor thread determines which `wl_surface` contains that pixel, accounting for input regions, subsurfaces, and popups, and delivers seat events to the client. See [Compositor](compositor.md).
 5. The client redraws and commits a dmabuf. Rust imports it as a `VkImage` on LÖVR's device and wraps it as a LÖVR texture. See [Rendering](rendering.md).
-6. On the next frame the texture is either sampled by Lua's shaders or copied into an OpenXR composition layer.
+6. On the next frame the texture is either sampled by Lua's shaders or copied into a backend-owned composition layer.
 
 ## The documents
 

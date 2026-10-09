@@ -1,5 +1,5 @@
 //! Loads public UI, menu, keyboard-display, and theme modules from installed manifest copies.
-//! Checks that the bundled theme font and licence are copied without changing their bytes.
+//! Checks that the bundled theme font and redistributed licences retain their bytes.
 
 use std::{
     fs,
@@ -45,15 +45,22 @@ fn load(roots: &Roots) -> Result<(), Box<dyn std::error::Error>> {
             copy_file(&source, &destination)?;
         }
     }
-    for asset in [
-        "lua/lunette-plugins/theme/fonts/SpaceMono-Regular.ttf",
-        "lua/lunette-plugins/theme/fonts/OFL.txt",
+    for (source, destination) in [
+        (
+            "lua/lunette-plugins/theme/fonts/SpaceMono-Regular.ttf",
+            "lua/lunette-plugins/theme/fonts/SpaceMono-Regular.ttf",
+        ),
+        (
+            "lua/lunette-plugins/theme/fonts/OFL.txt",
+            "lua/lunette-plugins/theme/fonts/OFL.txt",
+        ),
+        ("vendor/lovr/deps/openvr/LICENSE", "licenses/OpenVR.txt"),
     ] {
-        let repository = fs::read(roots.repository.join(asset))?;
-        let installed = fs::read(installation.path().join(asset))?;
+        let repository = fs::read(roots.repository.join(source))?;
+        let installed = fs::read(installation.path().join(destination))?;
         if installed.is_empty() || installed != repository {
             return Err(format!(
-                "installed roots: asset is empty or differs from the repository: {asset}"
+                "installed roots: asset is empty or differs from the repository: {destination}"
             )
             .into());
         }

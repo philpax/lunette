@@ -124,7 +124,7 @@ end
 
 export type AudioModule = {
   getDevice: (type: AudioType?) -> (string?, userdata?),
-  getDevices: (type: AudioType?) -> { read ["[].id"]: userdata, read ["[].name"]: string, read ["[].default"]: boolean },
+  getDevices: (type: AudioType?) -> {{ read id: userdata, read name: string, read default: boolean }},
   getOrientation: () -> (number, number, number, number),
   getPose: () -> (number, number, number, number, number, number, number),
   getPosition: () -> (number, number, number),
@@ -825,7 +825,7 @@ export type WrapMode =
 declare extern type Buffer extends Object with
   function clear(self, offset: number?, extent: number?, value: number?)
   function getData(self, index: number?, count: number?): {}
-  function getFormat(self): { read ["[].name"]: string, read ["[].type"]: any, read ["[].offset"]: number, read ["[].length"]: number, read ["[].stride"]: number }
+  function getFormat(self): {{ read name: string, read type: any, read offset: number, read length: number, read stride: number }}
   function getLength(self): number
   function getSize(self): number
   function getStride(self): number
@@ -874,7 +874,7 @@ declare extern type Mesh extends Object with
   function getMaterial(self): Material
   function getVertexBuffer(self): Buffer
   function getVertexCount(self): number
-  function getVertexFormat(self): { read ["[][1]"]: string, read ["[][2]"]: DataType, read ["[][3]"]: number }
+  function getVertexFormat(self): {{string | DataType | number}}
   function getVertexStride(self): number
   function getVertices(self, index: number?, count: number?): {{number}}
   function setBaseVertex(self, offset: number?)
@@ -2122,7 +2122,7 @@ export type VectorModule = {
   unpack: (v: vector) -> (number, number, number),
 }
 
-export type LovrConfiguration = { version: string, identity: string, saveprecedence: boolean, modules: { audio: boolean, data: boolean, event: boolean, graphics: boolean, headset: boolean, math: boolean, physics: boolean, system: boolean, task: boolean, thread: boolean, timer: boolean }, audio: { debug: boolean, samplerate: number?, read start: boolean, write start: boolean?, read reverb: { type: "none" | "convolution" | "parametric", rays: number, bounces: number, duration: number, rate: number }, write reverb: { type: "none" | "convolution" | "parametric", rays: number, bounces: number, duration: number, rate: number }? }, graphics: { debug: boolean, vsync: boolean, stencil: boolean, antialias: boolean, lowpower: boolean, hdr: boolean, shadercache: boolean }, headset: { connect: boolean, start: boolean, debug: boolean, read supersample: boolean, write supersample: boolean | number | nil, seated: boolean, read mask: boolean, write mask: boolean?, read antialias: boolean, write antialias: boolean?, stencil: boolean, read dynamicresolution: boolean, write dynamicresolution: boolean?, submitdepth: boolean, read overlay: boolean, write overlay: boolean | number, read controllerskeleton: "none" | "controller" | "natural", write controllerskeleton: "none" | "controller" | "natural" | nil, extensions: {string}? }, math: { globals: boolean }, thread: { read workers: number, write workers: number? }, read window: { read width: number, write width: number?, read height: number, write height: number?, centered: boolean, fullscreen: boolean, resizable: boolean, read title: string, write title: string?, icon: string | Blob | Image | nil }, write window: { read width: number, write width: number?, read height: number, write height: number?, centered: boolean, fullscreen: boolean, resizable: boolean, read title: string, write title: string?, icon: string | Blob | Image | nil }? }
+export type LovrConfiguration = { version: string, identity: string, saveprecedence: boolean, modules: { audio: boolean, data: boolean, event: boolean, graphics: boolean, headset: boolean, math: boolean, physics: boolean, system: boolean, task: boolean, thread: boolean, timer: boolean }, audio: { debug: boolean, samplerate: number?, read start: boolean, write start: boolean?, read reverb: { type: "none" | "convolution" | "parametric", rays: number, bounces: number, duration: number, rate: number }, write reverb: { type: "none" | "convolution" | "parametric", rays: number, bounces: number, duration: number, rate: number }? }, graphics: { debug: boolean, vsync: boolean, stencil: boolean, antialias: boolean, lowpower: boolean, hdr: boolean, shadercache: boolean }, headset: { backend: "auto" | "openxr" | "openvr", connect: boolean, start: boolean, debug: boolean, read supersample: boolean, write supersample: boolean | number | nil, seated: boolean, read mask: boolean, write mask: boolean?, read antialias: boolean, write antialias: boolean?, stencil: boolean, read dynamicresolution: boolean, write dynamicresolution: boolean?, submitdepth: boolean, read overlay: boolean, write overlay: boolean | number, read controllerskeleton: "none" | "controller" | "natural", write controllerskeleton: "none" | "controller" | "natural" | nil, extensions: {string}? }, math: { globals: boolean }, thread: { read workers: number, write workers: number? }, read window: { read width: number, write width: number?, read height: number, write height: number?, centered: boolean, fullscreen: boolean, resizable: boolean, read title: string, write title: string?, icon: string | Blob | Image | nil }, write window: { read width: number, write width: number?, read height: number, write height: number?, centered: boolean, fullscreen: boolean, resizable: boolean, read title: string, write title: string?, icon: string | Blob | Image | nil }? }
 
 declare lovr: {
   getVersion: () -> (number, number, number, string, string),

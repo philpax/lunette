@@ -172,14 +172,12 @@ pub struct ClaimState {
 ///
 /// # What is recycled
 ///
-/// Whole `Layer` objects, not their swapchains. `struct Layer` embeds its
-/// `Swapchain` by value, `lovrLayerDestroy` calls `xrDestroySwapchain` inline,
-/// every swapchain function is `static`, and nothing exposes
-/// `quad.subImage.swapchain`, so a swapchain cannot be moved from one layer to
-/// another. No move is needed: everything a panel varies (pose, metre
+/// Whole backend-owned `Layer` objects, not individual backend resources.
+/// The pool recycles each layer as a unit; it does not transfer resources
+/// between layers. No move is needed: everything a panel varies (pose, metre
 /// dimensions, curve, colour, viewport, origin) has a setter and is not part
-/// of `LayerInfo`, so a layer of a given [`LayerKey`] serves any panel with
-/// that key, and a layer kept in the pool keeps its swapchain.
+/// of `LayerInfo`, so a backend-owned layer of a given [`LayerKey`] serves any
+/// panel with that key.
 #[derive(Debug)]
 pub struct LayerPool<B: LayerBackend> {
     backend: B,

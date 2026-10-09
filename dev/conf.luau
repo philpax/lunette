@@ -2,6 +2,7 @@
 function lovr.conf(t)
   t.identity = 'lunette-dev'
   t.saveprecedence = false
+  t.headset.backend = 'auto'
   t.headset.overlay = true
   t.window.title = 'lunette development'
   t.window.width = 1280

@@ -796,7 +796,7 @@ A selection the newly bridged seat already held is not pushed to the host retroa
 
 ## Layer claims
 
-A panel renders either as an in-scene quad or on an OpenXR composition layer. The second is sharper, because the runtime composites the source at its native resolution instead of resampling lunette's own resampling of it. Layers are scarce, so a panel asks for one:
+A panel renders either as an in-scene quad or on a backend-owned composition layer. The layer is sharper because the backend composites the source at its native resolution instead of resampling lunette's rendered quad. Layers are scarce, so a panel asks for one:
 
 ```lua
 local claim = lunette.claimLayer{
@@ -838,14 +838,14 @@ Releasing is explicit. Nothing releases a claim when its handle is collected, be
 
 ## Scene rendering
 
-Once every panel is on a composition layer there is nothing left for lunette to draw itself, and drawing an empty projection layer costs a swapchain acquire, a render pass, and a multisample resolve every frame for no picture.
+Once every panel is on a backend-owned composition layer there is nothing left for lunette to draw itself. Drawing an empty scene still costs a render pass and a multisample resolve every frame for no picture, plus a swapchain acquire on OpenXR or eye-output copies and handoffs on OpenVR.
 
 ```lua
 lunette.setSceneEnabled(false)   -- skip lunette's own scene rendering.
 print(lunette.sceneEnabled())    -- what was last asked for.
 ```
 
-Skipping means `lovr.draw` is not called and the projection layer is left out of the frame. The XR frame is still submitted, and the composition layers still are, so panels on layers keep updating; what stops is lunette's own rendering. [Rendering](rendering.md#frame-pacing) records what an idle frame still costs.
+Skipping means `lovr.draw` is not called and lunette's scene is left out of the frame. The headset frame is still submitted, and backend-owned composition layers still are, so panels on layers keep updating; what stops is lunette's own rendering. [Rendering](rendering.md#frame-pacing) records what an idle frame still costs.
 
 A change takes effect at the next frame boundary rather than immediately, because the frame's layer list has already been submitted with the answer the frame started with. A configuration therefore sets this from `lovr.update` and reads the effect on the frame after.
 

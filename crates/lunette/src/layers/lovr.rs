@@ -112,8 +112,8 @@ impl LayerBackend for LovrLayers {
         };
 
         // SAFETY: the thread guarantee above. Every pointer names a layer this
-        // pool holds a reference to, so none is destroyed by the release of
-        // the previous list that this call performs before retaining the new one.
+        // pool holds a reference to. LÖVR validates and retains the replacement
+        // list before releasing the previous list.
         unsafe { lovrHeadsetSetLayers(pointers.as_mut_ptr(), count, scene.drawn()) }
     }
 
@@ -126,12 +126,9 @@ impl LayerBackend for LovrLayers {
         unsafe { lovrRelease(layer.0.as_ptr().cast::<c_void>(), Some(lovrLayerDestroy)) };
     }
 
-    /// The layer is intentionally not released, which leaks it. Releasing
-    /// the reference here would run `lovrLayerDestroy`, and that calls
-    /// `xrDestroySwapchain` on a handle `xrDestroySession` has already
-    /// invalidated. A few hundred bytes, on a path taken once per lost session,
-    /// is the cheaper of the two.
-    fn abandon(&mut self, _layer: Self::Layer) {}
+    fn abandon(&mut self, layer: Self::Layer) {
+        self.destroy(layer);
+    }
 }
 
 /// LÖVR's side of the blit seam.

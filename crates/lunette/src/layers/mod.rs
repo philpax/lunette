@@ -1,22 +1,24 @@
-//! Linux-only: the pool of OpenXR composition layers that panels are promoted
-//! onto.
+//! Linux-only: the pool of backend-owned composition layers that panels are
+//! promoted onto.
 //!
 //! lunette's renderer resamples a panel drawn on an in-scene quad.
 //! The runtime resamples it a second time.
 //! A panel on a composition layer is composited once, at its native resolution.
 //! That is the whole of the sharpness difference. Layers are scarce.
-//! The pool allocates a layer to a panel when Lua's claim on it is granted.
+//! The pool allocates a backend-owned layer to a panel when Lua's claim on it
+//! is granted.
 //!
 //! # Reason for the pool
 //!
-//! `lovrLayerCreate` allocates an OpenXR swapchain with images, memory, and
+//! Creating a layer can require backend resources, so claim churn must not
+//! create and destroy a layer for every promotion. Rust owns and reuses the
+//! complete backend-owned layers via a free list keyed by [`LayerKey`], and
+//! creates at most [`LayerPool::CREATIONS_PER_FRAME`] per frame boundary.
+//!
+//! On OpenXR, `lovrLayerCreate` allocates a swapchain with images, memory, and
 //! runtime state, synchronously on the calling thread, ending in
-//! `xrWaitSwapchainImage` with `XR_INFINITE_DURATION` inside a retry loop with
-//! no exit condition. A panel manager promoting and demoting panels as the
-//! user looks around would allocate one every few frames if Lua created layers
-//! directly. Rust owns the layers, reuses them via a free list keyed by
-//! [`LayerKey`], and creates at most [`LayerPool::CREATIONS_PER_FRAME`] per
-//! frame boundary.
+//! `xrWaitSwapchainImage` with `XR_INFINITE_DURATION`. Runtime errors end the
+//! wait without an endless retry.
 //!
 //! # The division with Lua
 //!
