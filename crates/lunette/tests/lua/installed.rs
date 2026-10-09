@@ -47,12 +47,12 @@ fn load(roots: &Roots) -> Result<(), Box<dyn std::error::Error>> {
     }
     for (source, destination) in [
         (
-            "lua/lunette-plugins/theme/fonts/SpaceMono-Regular.ttf",
-            "lua/lunette-plugins/theme/fonts/SpaceMono-Regular.ttf",
+            "lua/lunette-plugins/theme/arcade/fonts/SpaceMono-Regular.ttf",
+            "lua/lunette-plugins/theme/arcade/fonts/SpaceMono-Regular.ttf",
         ),
         (
-            "lua/lunette-plugins/theme/fonts/OFL.txt",
-            "lua/lunette-plugins/theme/fonts/OFL.txt",
+            "lua/lunette-plugins/theme/arcade/fonts/OFL.txt",
+            "lua/lunette-plugins/theme/arcade/fonts/OFL.txt",
         ),
         ("vendor/lovr/deps/openvr/LICENSE", "licenses/OpenVR.txt"),
     ] {
@@ -84,6 +84,11 @@ fn load(roots: &Roots) -> Result<(), Box<dyn std::error::Error>> {
          assert(theme.capability ~= nil and themeProvider.definition ~= nil)
          local themeSelector = require '@lunette-plugins/desktop/theme'
          assert(themeSelector ~= nil)
+         local themes = require '@lunette-contracts/themes'
+         local themeCatalog = require '@lunette-plugins/themes'
+         assert(themes.capability ~= nil and themeCatalog.definition ~= nil)
+         local arcadeTheme = require '@lunette-plugins/theme/arcade'
+         assert(arcadeTheme.definition ~= nil and arcadeTheme.preset.typography.font.kind == 'file')
          assert(require('@lunette').textBoundaries('é')[2] == 4)",
     )
     .set_name("@installed-ui-main.luau")

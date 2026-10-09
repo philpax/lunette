@@ -3,6 +3,9 @@
 local plugin = require '@lunette-plugin'
 local frame = require '@lunette-plugins/frame'
 local theme = require '@lunette-plugins/theme'
+local themeCatalog = require '@lunette-plugins/themes'
+local standardThemes = require '@lunette-plugins/theme/standard'
+local arcadeTheme = require '@lunette-plugins/theme/arcade'
 local themeSelector = require '@lunette-plugins/desktop/theme'
 local surfaces = require '@lunette-plugins/surfaces'
 local panels = require '@lunette-plugins/panels'
@@ -89,6 +92,9 @@ local SETTING_FIELDS =
 local DEFAULT: { Entry } = plugin.compose {
   { id = 'frame', definition = frame.definition },
   { id = 'theme', definition = theme.definition },
+  { id = 'themes', definition = themeCatalog.definition },
+  { id = 'theme/standard', definition = standardThemes.definition },
+  { id = 'theme/arcade', definition = arcadeTheme.definition },
   { id = 'surfaces', definition = surfaces.definition },
   { id = 'panels', definition = panels.definition },
   { id = 'drops', definition = drops.definition },

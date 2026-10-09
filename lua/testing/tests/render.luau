@@ -26,7 +26,7 @@ local function lastDraw(recorder)
 end
 
 local function managerStyle(recorder)
-  local theme = require('@lunette-plugins/theme/presets').BASE
+  local theme = require '@lunette-plugins/theme/base'
   local appearance = require '../ui-substitute/appearance'
   local visual = table.clone(appearance.global { theme = theme })
   visual.font = recorder.font

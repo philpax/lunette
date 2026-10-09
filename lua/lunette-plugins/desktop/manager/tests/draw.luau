@@ -4,16 +4,16 @@ local frameContract = require '@lunette-contracts/frame'
 local management = require '@lunette-plugin/management'
 local controller = require '../controller'
 local drawing = require '../draw'
-local presets = require '@lunette-plugins/theme/presets'
+local base = require '@lunette-plugins/theme/base'
 local uiTheme = require '@lunette-plugins/ui/theme'
 local draw = {
   hit = drawing.hit,
   wrapDetails = function(font, records, sidebar)
-    return drawing.wrapDetails(font, records, sidebar, presets.BASE.typography.bodySize)
+    return drawing.wrapDetails(font, records, sidebar, base.typography.bodySize)
   end,
   render = function(pass, state, options)
-    local visual = uiTheme.materialize(uiTheme.global(presets.BASE, 0), lovr.graphics.getDefaultFont())
-    return drawing.render(pass, state, options, { theme = presets.BASE, visual = visual })
+    local visual = uiTheme.materialize(uiTheme.global(base, 0), lovr.graphics.getDefaultFont())
+    return drawing.render(pass, state, options, { theme = base, visual = visual })
   end,
 }
 local graph = require '../graph'
@@ -260,8 +260,8 @@ test('clips all graph geometry in logical coordinates without a framebuffer scis
   state.camera = { x = 0, y = 0, zoom = 1 }
   local bounds = { x = 20, y = 80, width = 700, height = 600 }
   local clip = { x = 40, y = 100, width = 500, height = 330 }
-  local visual = uiTheme.materialize(uiTheme.global(presets.BASE, 0), lovr.graphics.getDefaultFont())
-  drawing.graph(pass, state, bounds, { theme = presets.BASE, visual = visual }, clip)
+  local visual = uiTheme.materialize(uiTheme.global(base, 0), lovr.graphics.getDefaultFont())
+  drawing.graph(pass, state, bounds, { theme = base, visual = visual }, clip)
   local faces = {}
   for _, command in fake.events.draw do
     expect.truthy(command[1] ~= 'setScissor', 'the inset clip stays in logical coordinates')
@@ -299,9 +299,9 @@ test('honours visibility filters and highlights selected nodes and edges', funct
   for _, command in fake.events.draw do
     if
       command[1] == 'setColor'
-      and command[2][1] == presets.BASE.colors.focus[1]
-      and command[2][2] == presets.BASE.colors.focus[2]
-      and command[2][3] == presets.BASE.colors.focus[3]
+      and command[2][1] == base.colors.focus[1]
+      and command[2][2] == base.colors.focus[2]
+      and command[2][3] == base.colors.focus[3]
     then
       selected += 1
     end
@@ -314,9 +314,9 @@ test('honours visibility filters and highlights selected nodes and edges', funct
   for _, command in fake.events.draw do
     if
       command[1] == 'setColor'
-      and command[2][1] == presets.BASE.colors.focus[1]
-      and command[2][2] == presets.BASE.colors.focus[2]
-      and command[2][3] == presets.BASE.colors.focus[3]
+      and command[2][1] == base.colors.focus[1]
+      and command[2][2] == base.colors.focus[2]
+      and command[2][3] == base.colors.focus[3]
     then
       selected += 1
     end

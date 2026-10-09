@@ -30,9 +30,9 @@ Patches under `vendor/lovr` are MIT, matching upstream, not GPL-3.0-only. Relice
 
 ## Space Mono
 
-Space Mono is copyright 2016 The Space Mono Project Authors (<https://github.com/googlefonts/spacemono>). The bundled font is licensed under the SIL Open Font License, Version 1.1. The licence is preserved in `lua/lunette-plugins/theme/fonts/OFL.txt`.
+Space Mono is copyright 2016 The Space Mono Project Authors (<https://github.com/googlefonts/spacemono>). The bundled font is licensed under the SIL Open Font License, Version 1.1. The licence is preserved in `lua/lunette-plugins/theme/arcade/fonts/OFL.txt`.
 
-`lua/lunette-plugins/theme/fonts/SpaceMono-Regular.ttf` and its licence are unmodified copies from the official `google/fonts` repository at revision `8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5`. The pinned upstream files are [SpaceMono-Regular.ttf](https://raw.githubusercontent.com/google/fonts/8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5/ofl/spacemono/SpaceMono-Regular.ttf) and [OFL.txt](https://raw.githubusercontent.com/google/fonts/8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5/ofl/spacemono/OFL.txt).
+`lua/lunette-plugins/theme/arcade/fonts/SpaceMono-Regular.ttf` and its licence are unmodified copies from the official `google/fonts` repository at revision `8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5`. The pinned upstream files are [SpaceMono-Regular.ttf](https://raw.githubusercontent.com/google/fonts/8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5/ofl/spacemono/SpaceMono-Regular.ttf) and [OFL.txt](https://raw.githubusercontent.com/google/fonts/8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5/ofl/spacemono/OFL.txt).
 
 | File | Git blob | SHA256 |
 |---|---|---|

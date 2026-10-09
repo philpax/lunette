@@ -186,12 +186,12 @@ pub const INSTALL_ARTIFACTS: &[InstallArtifact] = &[
         destination: "lua/.luaurc",
     },
     InstallArtifact {
-        source: "lua/lunette-plugins/theme/fonts/SpaceMono-Regular.ttf",
-        destination: "lua/lunette-plugins/theme/fonts/SpaceMono-Regular.ttf",
+        source: "lua/lunette-plugins/theme/arcade/fonts/SpaceMono-Regular.ttf",
+        destination: "lua/lunette-plugins/theme/arcade/fonts/SpaceMono-Regular.ttf",
     },
     InstallArtifact {
-        source: "lua/lunette-plugins/theme/fonts/OFL.txt",
-        destination: "lua/lunette-plugins/theme/fonts/OFL.txt",
+        source: "lua/lunette-plugins/theme/arcade/fonts/OFL.txt",
+        destination: "lua/lunette-plugins/theme/arcade/fonts/OFL.txt",
     },
     InstallArtifact {
         source: "vendor/lovr/deps/openvr/LICENSE",

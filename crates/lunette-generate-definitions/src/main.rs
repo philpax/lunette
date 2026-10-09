@@ -75,6 +75,11 @@ const ALIAS_FILES: &[AliasFile] = &[
         "../../lua",
         lunette::aliases::installed_luaurc,
     ),
+    (
+        "examples/theme/.luaurc",
+        "../../lua",
+        lunette::aliases::installed_luaurc,
+    ),
 ];
 
 fn main() -> ExitCode {

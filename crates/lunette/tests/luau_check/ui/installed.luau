@@ -8,6 +8,9 @@ local displayProvider = require '@lunette-plugins/desktop/keyboard'
 local theme = require '@lunette-contracts/theme'
 local themeProvider = require '@lunette-plugins/theme'
 local themeSelector = require '@lunette-plugins/desktop/theme'
+local themes = require '@lunette-contracts/themes'
+local themeCatalog = require '@lunette-plugins/themes'
+local arcadeTheme = require '@lunette-plugins/theme/arcade'
 
 local definition = provider.definition
 local requires = provider.requires
@@ -35,4 +38,7 @@ return {
   theme.capability,
   themeProvider.definition,
   themeSelector,
+  themes.capability,
+  themeCatalog.definition,
+  arcadeTheme.definition,
 }

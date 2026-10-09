@@ -2,7 +2,7 @@
 
 A lunette configuration is a LÖVR project whose `main.luau` composes the shipped desktop and adds or replaces plugins in it. A plugin is a definition: a name, the contracts it requires and provides, and an initializer that runs when the plugin loads. Everything a plugin creates while it loads is undone when it unloads.
 
-The code in this guide is in four example configurations, `examples/first-plugin`, `examples/keyboard`, `examples/layout`, and `examples/desktop`. `make check` typechecks all four and runs them in the desktop test harness, so the code here is code that works. [The Lua API](../dev/lua-api.md#plugin-authoring) is the specification this guide follows.
+The code in this guide is in five example configurations, `examples/first-plugin`, `examples/keyboard`, `examples/layout`, `examples/theme`, and `examples/desktop`. `make check` typechecks all five and runs them in the desktop test harness, so the code here is code that works. [The Lua API](../dev/lua-api.md#plugin-authoring) is the specification this guide follows.
 
 ## A configuration to work in
 
@@ -178,7 +178,7 @@ Geometric positions, directions, and offsets are native `vector` values, constru
 
 A patch with an entry's `id` changes that entry. A schema-backed definition resolves `config` through its descriptor: declared objects merge key by key, while arrays, maps, unions, and atomic values replace. Raw and legacy definitions retain recursive string-keyed table merging. `disabled = true` removes the entry, and `definition` replaces what the entry is made from. An unknown id raises when the configuration loads.
 
-The shipped desktop selects the Dark theme through `desktop/theme`. Its Appearance actions select Dark, Light, or Arcade. Configuration sets the initial preset and can override selected fields without replacing the preset:
+The shipped desktop selects the Dark theme through `desktop/theme`. Its Appearance actions select any registered theme: Dark, Light, or Arcade on the shipped desktop. Configuration names the initial theme and can override selected fields without replacing it:
 
 ```lua
 desktop.configure(require '@lunette-plugins/desktop/theme') {
@@ -190,7 +190,7 @@ desktop.configure(require '@lunette-plugins/desktop/theme') {
 },
 ```
 
-An omitted selector override inherits from the selected complete preset. A later competing selection replaces the whole effective theme rather than merging fields into that preset. Explicit zero remains an override. The editable configuration font accepts `kind = 'default'` or `kind = 'file'` with a VFS path; for a file font, omitted `size` and `spread` project to 32 and 4. Default kind rejects file/size/spread. Disabling `desktop/theme` removes the selector's registration and restores the base theme unless another live registration remains. The `theme` provider must remain enabled for its consumers. [Desktop runtime themes](desktop-configuration.md#runtime-themes) records session preset memory, source reload, and configuration replacement/Recover semantics.
+An omitted selector override inherits from the chosen complete theme. A later competing selection replaces the whole effective theme rather than merging fields into that theme. Explicit zero remains an override. The editable configuration font accepts `kind = 'default'` or `kind = 'file'` with a VFS path; for a file font, omitted `size` and `spread` project to 32 and 4. Default kind rejects file/size/spread. Disabling `desktop/theme` removes the selector's registration and restores the base theme unless another live registration remains. The `theme` provider must remain enabled for its consumers. [Desktop runtime themes](desktop-configuration.md#runtime-themes) records session choice memory, source reload, and configuration replacement/Recover semantics.
 
 `desktop.configure` takes a plugin's definition and answers a function that makes a configuration patch for the entry named by the definition's name, typed with that definition's options, so the checker reads them. A built-in provider's module holds its definition as `definition`; a desktop consumer's module is its definition, or for `desktop/arrange` a factory of it, which `configure` takes as well. `desktop/persistence` is `@lunette-plugins/arrangement`, which holds its factory as `factory` beside its format functions:
 
@@ -223,6 +223,22 @@ A retained consumer prepares its replacement lease and measurements before publi
 The [checked registration example](ui.md#public-theme-registration-example) uses public theme/UI/menu/frame services and child-instance owners for these operations. Plugins -> select `example/ui/theme-registration` -> Configure -> set `enabled = true` -> Apply activates its otherwise inert entry. [theme-broker-lifecycle](desktop-configuration.md#theme-broker-lifecycle) records its 28 controller actions, original reports, retired holds, and cleanup. Broker arbitration and reentrant lifetimes remain manual gates; the example does not add automatic coverage.
 
 Custom compositions that use built-in UI, keyboard, or panels include the theme provider and their declared dependencies. The provider has no private fallback in those consumers. Explicit provider/object/control appearance layers remain sparse so omitted fields inherit current global changes; explicit zero and nil reset retain their documented meanings. A custom keyboard rounding hook is optional because built-in shapes already follow the theme.
+
+## Adding a theme
+
+The themes that `desktop/theme` offers come from the `lunette/themes` catalog. A plugin adds one by registering a complete theme under a name, and its menu row lasts as long as the registration. `examples/theme/dusk.luau` registers Dusk, the standard Dark theme with a warmer palette:
+
+```luau
+local dusk = descriptors.resolve(standard.presets.dark, {
+  colors = { background = { 0.10, 0.05, 0.06, 1 }, focus = { 1, 0.60, 0.25, 1 } },
+})
+
+catalog:register(context, { name = 'dusk', label = 'Dusk', order = 4, theme = dusk })
+```
+
+A registered theme is complete. `descriptors.resolve` fills the omitted fields from the theme it starts from, which here is Dark; starting from the square base would give square controls. `order` places the row among the others, which are Dark at 1, Light at 2, and Arcade at 3. A name that another live registration holds raises.
+
+`examples/theme/main.luau` inserts the plugin, names Dusk as the selector's `preset`, and disables `theme/arcade`. Arcade is an ordinary plugin of this kind, so disabling its entry removes its row and nothing else. [Theme catalog](../dev/lua-api.md#theme-catalog) states the contract, and [Desktop runtime themes](desktop-configuration.md#runtime-themes) states how the selector falls back when a chosen theme leaves the catalog.
 
 ## Extending the built-in keyboard
 

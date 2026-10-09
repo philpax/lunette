@@ -51,8 +51,8 @@ class InstallTest(unittest.TestCase):
             'import shutil, sys\n'
             'if "--manifest" in sys.argv:\n'
             '    for path in ("lua/lunette-desktop", '
-            '"lua/lunette-plugins/theme/fonts/SpaceMono-Regular.ttf", '
-            '"lua/lunette-plugins/theme/fonts/OFL.txt"):\n'
+            '"lua/lunette-plugins/theme/arcade/fonts/SpaceMono-Regular.ttf", '
+            '"lua/lunette-plugins/theme/arcade/fonts/OFL.txt"):\n'
             '        print(path + "\\t" + path)\n'
             'else:\n'
             '    shutil.copytree(sys.argv[1], sys.argv[2], dirs_exist_ok=True)\n')

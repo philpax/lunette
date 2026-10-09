@@ -4,7 +4,7 @@ local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/theme'
 local inspection = require '@lunette-contracts/inspection'
 local descriptors = require '@lunette-plugins/theme/descriptors'
-local presets = require '@lunette-plugins/theme/presets'
+local base = require '@lunette-plugins/theme/base'
 local fonts = require '@lunette-plugins/theme/font-pool'
 local listeners = require '@lunette-plugins/listeners'
 
@@ -29,7 +29,7 @@ local function build(context: plugin.Context, _settings: {}): Service
   local changed = listeners.new<<(contract.Snapshot) -> ()>>(context)
   local selections: { Selection } = {}
   local leases: { [Lease]: boolean } = {}
-  local current: contract.Snapshot = table.freeze { revision = 0, theme = presets.BASE }
+  local current: contract.Snapshot = table.freeze { revision = 0, theme = base }
   local open = true
   local draining = false
   local pending = false
@@ -64,7 +64,7 @@ local function build(context: plugin.Context, _settings: {}): Service
   end
 
   local function publish(deliver: boolean?): ()
-    local resolved = presets.BASE
+    local resolved = base
     for index = #selections, 1, -1 do
       local entry = selections[index]
       if entry.live then
@@ -109,7 +109,7 @@ local function build(context: plugin.Context, _settings: {}): Service
       open = false
       pending = false
       changed:clear()
-      current = table.freeze { revision = current.revision, theme = presets.BASE }
+      current = table.freeze { revision = current.revision, theme = base }
       local failures: { string } = {}
       local function cleanup(run: () -> ()): ()
         local ok, failure = pcall(run)
@@ -164,7 +164,7 @@ local function build(context: plugin.Context, _settings: {}): Service
       checkActive 'select'
       context:checkOwner(owner)
       local captured = descriptors.overrides.parse(overrides, 'theme select')
-      local resolved = descriptors.resolve(presets.BASE, captured)
+      local resolved = descriptors.resolve(base, captured)
       local face = pool:hold(resolved.typography.font, 'selection')
       local entry: Selection = {
         owner = owner,
@@ -213,7 +213,7 @@ local function build(context: plugin.Context, _settings: {}): Service
           checkActive 'selection update'
           assert(entry.live and context:owns(owner), 'theme selection update: the registration is disposed')
           local validated = descriptors.overrides.parse(value, 'theme selection update')
-          local replacement = descriptors.resolve(presets.BASE, validated)
+          local replacement = descriptors.resolve(base, validated)
           local acquired = pool:hold(replacement.typography.font, 'selection')
           local previous = entry.face
           entry.theme = replacement

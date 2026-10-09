@@ -5,7 +5,7 @@ local builtIn = require '@lunette-plugins/ui'
 local substitute = require '@testing/ui-substitute'
 local render = require '@testing/render'
 local schema = require '@lunette-plugin/schema'
-local presets = require '@lunette-plugins/theme/presets'
+local base = require '@lunette-plugins/theme/base'
 local boot = require './support/boot'
 local expect = testing.expect
 local test = testing.suite()
@@ -70,7 +70,7 @@ local function background(call, state)
     return false
   end
   local color = call.state.setColor
-  local expected = presets.BASE.colors.elevatedBackground
+  local expected = base.colors.elevatedBackground
   return color and color[1][1] == expected[1] and color[1][2] == expected[2] and color[1][3] == expected[3]
 end
 

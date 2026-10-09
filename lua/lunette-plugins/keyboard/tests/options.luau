@@ -8,7 +8,7 @@ local keyboard = require '@lunette-plugins/keyboard'
 local theme = require '@lunette-contracts/theme'
 local appearance = require '@lunette-plugins/keyboard/appearance'
 local config = require '@lunette-plugins/keyboard/config'
-local presets = require '@lunette-plugins/theme/presets'
+local arcade = require '@lunette-plugins/theme/arcade/preset'
 
 local test = testing.suite()
 
@@ -265,7 +265,7 @@ test('define checks what the generic validation cannot see into', function()
     appearance.project(config.parse({ style = { font = { kind = 'file', file = 'keyboard.ttf' } } }).style)
   expect.equal(projected.font.size, 32, 'editable file fonts project their nominal size')
   expect.equal(projected.font.spread, 4, 'editable file fonts project their spread')
-  local resolved = appearance.resolve(presets.arcade, projected, {
+  local resolved = appearance.resolve(arcade, projected, {
     font = { kind = 'default' },
     keyColor = { 0.7, 0.6, 0.5, 1 },
     keyRadius = 0,
