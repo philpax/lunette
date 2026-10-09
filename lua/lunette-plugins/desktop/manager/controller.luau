@@ -386,7 +386,7 @@ refresh = function(state: State): ()
     state.draft, state.draftEntry, state.row = nil, nil, nil
     cancelEdit(state)
   end
-  if state.tab == 'configure' and entry and entry.configurable and entry.schema and not state.draft then
+  if state.tab == 'configure' and entry and entry.schema and not state.draft then
     state.draft = editor.new(entry.schema, entry.config)
     state.draftEntry = entry.id
     state.row = nil
@@ -419,7 +419,7 @@ refresh = function(state: State): ()
   if state.tab == 'catalog' then
     state.lines = { 'Known session entries', 'Select a removed entry, then Load.' }
     refreshRows(state)
-  elseif state.tab == 'configure' and entry and entry.configurable and entry.schema then
+  elseif state.tab == 'configure' and entry and entry.schema then
     state.lines = { entry.id .. ': configuration draft', 'Callbacks and opaque values remain read-only.' }
     refreshRows(state)
     if state.message == '' then

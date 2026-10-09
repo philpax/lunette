@@ -1,12 +1,11 @@
 -- Handlers run by phase, order, and registration. A key or text handler that returns true consumes the event.
 
 local plugin = require '@lunette-plugin'
-local owner = require '@lunette-contracts/owner'
 local keys = require '@lunette-contracts/keys'
 
 local frame = {}
 
-export type Owner = owner.Owner
+export type Owner = plugin.Owner
 export type UpdatePhase = 'input' | 'scene' | 'pointing' | 'overlay'
 export type DrawPhase = UpdatePhase | 'feedback'
 -- Retained for callers that share a phase between update and draw.

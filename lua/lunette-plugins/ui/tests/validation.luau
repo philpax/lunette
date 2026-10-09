@@ -2,17 +2,7 @@ local testing = require '@testing'
 local surfaces = require '@lunette-contracts/surfaces'
 local expect = testing.expect
 local fixture = require './support/panel'
-local suite = testing.suite()
-
-local function test(name, run)
-  suite(name, function()
-    local ok, failure = pcall(run)
-    fixture.closeAll()
-    if not ok then
-      error(failure, 0)
-    end
-  end)
-end
+local test = testing.suite()
 
 local function bounds()
   return { x = 10, y = 260, width = 370, height = 30 }
@@ -386,4 +376,4 @@ for _, action in { 'destroy-region', 'destroy-panel', 'disable', 'hide', 'bounds
   end)
 end
 
-return suite
+return test

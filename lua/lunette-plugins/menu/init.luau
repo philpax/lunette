@@ -5,10 +5,9 @@ local contract = require '@lunette-contracts/menu'
 local inspection = require '@lunette-contracts/inspection'
 local protected = require '@lunette-plugins/protected'
 local snapshot = require '@lunette-plugins/menu/snapshot'
-local config = require '@lunette-plugins/menu/config'
 
-export type Config = config.Config
-export type Settings = config.Settings
+export type Config = {}
+export type Settings = {}
 export type Service = contract.Service
 
 type Entry = {
@@ -164,7 +163,6 @@ end
 
 return plugin.provider<<Config, Settings, Service>> {
   name = 'menu',
-  schema = config,
   capability = contract.capability,
   build = create,
 }

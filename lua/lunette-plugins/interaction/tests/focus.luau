@@ -73,7 +73,7 @@ local function click(pointer, sink)
 end
 
 local function registrations(env)
-  return env.focus:inspect().logicalRegistrationCount
+  return #env.focus:inspect().registrations
 end
 
 test('clicking the same app after a local field refocuses its existing target', function()

@@ -68,7 +68,7 @@ test('inspection captures owner counts and state without invoking callbacks', fu
   })
   local snapshot = env.service:inspect()
   expect.truthy(table.isfrozen(snapshot) and table.isfrozen(snapshot.registrations), 'inspection is frozen')
-  expect.equal(snapshot.logicalRegistrationCount, 1, 'one logical registration')
+  expect.equal(#snapshot.registrations, 1, 'one logical registration')
   local entry = snapshot.registrations[1]
   expect.equal(entry.owner, owned.owner, 'the actual registering owner')
   expect.equal(entry.kind, 'handler', 'the shared inspection kind')
@@ -81,8 +81,8 @@ test('inspection captures owner counts and state without invoking callbacks', fu
   expect.equal(entry.details.selected, true, 'the selected state')
   expect.equal(#testing.takeReports(), 0, 'inspection reports no callbacks')
   effect:dispose()
-  expect.equal(env.service:inspect().logicalRegistrationCount, 0, 'disposal forgets the registration')
-  expect.equal(snapshot.logicalRegistrationCount, 1, 'an earlier snapshot is stable')
+  expect.equal(#env.service:inspect().registrations, 0, 'disposal forgets the registration')
+  expect.equal(#snapshot.registrations, 1, 'an earlier snapshot is stable')
   env.session:close()
 end)
 

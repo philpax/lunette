@@ -138,7 +138,6 @@ local DEFAULT: { Entry } = plugin.compose {
 
 -- The returned configuration functions check values against the definition's options.
 desktop.configure = plugin.configure
-desktop.configureEntry = plugin.configureEntry
 
 -- Entries start in list order, and the list and its entries are frozen.
 function desktop.entries(): { Entry }

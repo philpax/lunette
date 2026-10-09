@@ -120,9 +120,7 @@ pub fn test_file(relative: &Path, source: Source) -> Result<TestFile, DiscoveryE
                 .ok_or_else(|| DiscoveryError::Unrooted(relative.to_path_buf()))?;
             let alias = DEVELOPMENT_ALIASES
                 .iter()
-                .find(|alias| {
-                    alias.directory == directory && alias.resolution == Resolution::Mounted
-                })
+                .find(|alias| alias.name == directory && alias.resolution == Resolution::Mounted)
                 .ok_or_else(|| DiscoveryError::Unrooted(relative.to_path_buf()))?;
             let module = format!("@{}/{rest}", alias.name);
             (name, module)

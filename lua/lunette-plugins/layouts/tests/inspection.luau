@@ -20,7 +20,7 @@ test('inspection reports layouts and listeners without applying or notifying', f
     end,
   })
   local snapshot = service:inspect()
-  expect.equal(snapshot.logicalRegistrationCount, 2, 'the layout and listener')
+  expect.equal(#snapshot.registrations, 2, 'the layout and listener')
   for _, entry in ipairs(snapshot.registrations) do
     expect.equal(entry.owner, owner, 'the actual registering owner')
     if entry.kind == 'layout' then
@@ -29,7 +29,7 @@ test('inspection reports layouts and listeners without applying or notifying', f
   end
   listener:dispose()
   effect:dispose()
-  expect.equal(service:inspect().logicalRegistrationCount, 0, 'the disposed registrations')
+  expect.equal(#service:inspect().registrations, 0, 'the disposed registrations')
   session:close()
 end)
 

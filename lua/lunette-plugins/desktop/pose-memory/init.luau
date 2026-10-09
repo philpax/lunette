@@ -1,13 +1,11 @@
 -- The window property persists dropped poses across Lua state reloads.
 local plugin = require '@lunette-plugin'
-local schema = require '@lunette-plugin/schema'
 local drops = require '@lunette-contracts/drops'
 local panels = require '@lunette-contracts/panels'
 local vocabulary = require '@lunette-contracts/vocabulary'
 
-local descriptor = schema.object {}
-export type Config = schema.Input<typeof(descriptor)>
-export type Settings = schema.Output<typeof(descriptor)>
+export type Config = {}
+export type Settings = {}
 
 local required: plugin.Declaration = {
   drops = drops.capability,
@@ -17,7 +15,6 @@ local required: plugin.Declaration = {
 return plugin.consumer<<Config, Settings>>({
   name = 'desktop/pose-memory',
   requires = required,
-  schema = descriptor,
   init = function(context: plugin.Context, _settings: Settings): ()
     local dropService: drops.Service = context:require(drops.capability)
     local panelService: panels.Service = context:require(panels.capability)

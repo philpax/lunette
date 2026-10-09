@@ -13,11 +13,11 @@ local test = testing.suite()
 
 local function rejection(patch)
   testing.native()
-  local running = plugin.start(desktop.compose { patches = { patch } })
+  local running = testing.start(desktop.compose { patches = { patch } })
   local instance = running.instances[patch.id]
   expect.equal(instance:state(), 'failed', patch.id)
   local diagnostic = tostring(instance:diagnostic())
-  running.runtime:close()
+  running:close()
   expect.equal(#testing.takeReports(), 1, 'the failure of ' .. patch.id .. ' is reported')
   return diagnostic
 end
@@ -33,13 +33,7 @@ test('every entry rejects an option it does not take, naming itself and the opti
       diagnostic = rejection { id = entry.id, config = { bogus = 1 } }
     end
     expect.truthy(
-      diagnostic:find(
-        if entry.id == 'theme'
-          then 'plugin theme: unknown option bogus; theme takes no options'
-          else 'plugin ' .. entry.id .. ': option bogus is not a declared field',
-        1,
-        true
-      ),
+      diagnostic:find('plugin ' .. entry.id .. ': option bogus is not a declared field', 1, true),
       entry.id .. ': ' .. diagnostic
     )
   end
@@ -61,7 +55,7 @@ test('an option of the wrong type is rejected with its path and what it should b
     },
     {
       patch = { id = 'pacing', config = { tuning = { background = 0 } } },
-      message = 'plugin pacing: option tuning.background is a rate in hertz above zero, not 0',
+      message = 'plugin pacing: option tuning.background is not positive',
     },
     {
       patch = { id = 'desktop/monitors', config = { placement = { center = vector.pack(0, math.huge, -2) } } },

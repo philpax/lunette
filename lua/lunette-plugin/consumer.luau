@@ -11,8 +11,6 @@ export type Spec<C, S> = {
   read name: string,
   read requires: adapter.Declaration?,
   read schema: schema.Schema<C, S>?,
-  read defaults: S?,
-  read validate: ((S, string) -> ())?,
   read init: (adapter.Context, S) -> (),
 }
 
@@ -27,8 +25,6 @@ local specKeys: { [string]: boolean } = {
   name = true,
   requires = true,
   schema = true,
-  defaults = true,
-  validate = true,
   init = true,
 }
 
@@ -36,29 +32,18 @@ function consumer.create<C, S>(spec: Spec<C, S>): Consumer<C>
   if type(spec) ~= 'table' then
     error('plugin consumer: a consumer is a table of fields, not a ' .. type(spec), 3)
   end
-  options.rejectUnknownFields(
-    'plugin consumer',
-    spec,
-    specKeys,
-    'name, requires, schema, defaults, validate, and init',
-    3
-  )
-  local name, init, validate = spec.name, spec.init, spec.validate
+  options.rejectUnknownFields('plugin consumer', spec, specKeys, 'name, requires, schema, and init', 3)
+  local name, init = spec.name, spec.init
   if type(name) ~= 'string' or name == '' then
     error('plugin consumer: name is a non-empty string, not ' .. tostring(name), 3)
   end
   if type(init) ~= 'function' then
     error('plugin consumer: init is a function, not a ' .. type(init), 3)
   end
-  if validate ~= nil and type(validate) ~= 'function' then
-    error('plugin consumer: validate is a function, not a ' .. type(validate), 3)
-  end
   local made = configured.create<<C, S>> {
     name = name,
     requires = spec.requires,
     schema = spec.schema,
-    defaults = spec.defaults,
-    validate = validate,
     init = function(context: adapter.Context, settings: S, _publish: adapter.Publisher): ()
       return init(context, settings)
     end,

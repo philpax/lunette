@@ -18,6 +18,7 @@ end
 test('the shipped configuration starts on load and survives ten production reloads', function()
   local native = testing.native()
   local events, emit, newWindow = native.events, native.emit, native.newWindow
+  local hands = vrUi.hands(native)
   testing.host.useConfiguration 'etc/xdg/lunette'
 
   -- The configuration's definitions are inert until LÖVR loads it.
@@ -60,9 +61,9 @@ test('the shipped configuration starts on load and survives ten production reloa
   expect.truthy(wrist > 0 and firstBeam > wrist, 'the beams draw after the wrist surfaces')
 
   -- The right beam presses the panel in front, which focuses it; text, named keys, and chords reach it.
-  events.trigger = true
+  hands:button('right', 'trigger', true)
   lovr.update(0.016)
-  events.trigger = false
+  hands:button('right', 'trigger', false)
   lovr.update(0.016)
   local before = #events.input
   lovr.textinput('Qq', 0)

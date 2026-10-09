@@ -186,10 +186,7 @@ fn ui_regions_require_pointer_event_discrimination() {
 fn ui_modules_resolve_from_installed_manifest_roots() {
     let installation = TempDir::with_prefix("lunette-ui-installed-")
         .unwrap_or_else(|error| panic!("installed roots: temporary directory: {error}"));
-    for entry in install_manifest().lines() {
-        let (source, destination) = entry
-            .split_once('\t')
-            .unwrap_or_else(|| panic!("installed roots: malformed manifest entry: {entry}"));
+    for (source, destination) in install_manifest() {
         copy_install_artifact(
             &repository().join(source),
             &installation.path().join(destination),
@@ -427,7 +424,7 @@ fn plugin_handles_are_not_satisfied_by_tables_or_other_handles() {
     assert_rejections(
         "luau_check/authoring/opaque_handles.luau",
         include_str!("luau_check/authoring/opaque_handles.luau"),
-        &[(5, 20, 5, 22), (6, 12, 6, 14), (7, 12, 7, 17)],
+        &[(5, 12, 5, 14), (6, 12, 6, 17)],
     );
 }
 
@@ -530,8 +527,8 @@ fn schema_outputs_metadata_and_error_paths_reject_mutation() {
 #[test]
 fn immutable_runtime_snapshot_lists_reject_assignment_removal_and_writable_substitution() {
     for (path, first, last) in [
-        ("luau_check/inspection/assignment.luau", 5, 15),
-        ("luau_check/inspection/removal.luau", 5, 11),
+        ("luau_check/inspection/assignment.luau", 5, 12),
+        ("luau_check/inspection/removal.luau", 5, 10),
         ("luau_check/inspection/writable_substitution.luau", 17, 22),
     ] {
         let report = check(vec![fixture(path)]);

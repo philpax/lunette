@@ -12,7 +12,7 @@ local frame = require '@lunette-contracts/frame'
 local theme = require '@lunette-contracts/theme'
 local composition = {}
 
-function composition.options(provider, observed, ledger, form)
+function composition.options(observed, ledger, form)
   local observer = plugin.define {
     name = 'vr-migration-observer',
     requires = {
@@ -110,9 +110,6 @@ function composition.options(provider, observed, ledger, form)
     { insert = { id = 'vr-migration-observer', definition = observer } },
     { insert = { id = 'vr-migration-probe', definition = probe } },
   }
-  if provider == 'substitute' then
-    patches[#patches + 1] = { id = 'ui', definition = require('@testing/ui-substitute').definition }
-  end
   return { patches = patches }
 end
 

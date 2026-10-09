@@ -40,7 +40,7 @@ test('a capability made before the shutdown is named as retired', function()
   expect.equal(#testing.host.shutdown(), 0, 'the failures of the shutdown')
   expect.raises(function()
     plugin.define { name = 'retired', requires = { old = old }, init = function() end }
-  end, "declaration field 'old' contains a capability from a retired contract epoch")
+  end, "the token in declaration field 'old' is from a retired epoch")
 end)
 
 return test

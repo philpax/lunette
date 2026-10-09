@@ -41,11 +41,8 @@ end
 
 local function withPanel(run)
   local state = boot()
-  local ok, failure = pcall(run, state)
+  run(state)
   state.fixture:close()
-  if not ok then
-    error(failure, 0)
-  end
 end
 
 local function region(state, id, x, options)

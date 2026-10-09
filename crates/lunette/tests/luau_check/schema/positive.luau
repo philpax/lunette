@@ -33,7 +33,7 @@ local definition = plugin.define {
     use(descriptor.parse(value))
   end,
 }
-local configure = plugin.configure(definition)
+local configure = plugin.configure('schema-probe', definition)
 configure { label = 'sample', tuning = {}, list = { 1 }, map = { key = 'value' }, mode = 'right' }
 local custom = schema.custom {
   runtimeType = 'table',

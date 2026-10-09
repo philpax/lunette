@@ -22,8 +22,6 @@ typedef struct
     // The files to check, as paths, which are also their module names.
     const char* const* roots;
     size_t root_count;
-    bool strict;
-    bool old_solver;
 } lunette_luau_request;
 
 typedef struct

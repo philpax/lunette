@@ -4,9 +4,7 @@ local ui = require '@lunette-contracts/ui'
 local theme = require '@lunette-contracts/theme'
 local descriptors = require '@lunette-plugins/theme/descriptors'
 local styles = {}
-local positive = schema.refine(schema.number())(function(value: number): ()
-  assert(value > 0, 'must be positive')
-end)
+local positive = schema.number { positive = true }
 local nonnegative = schema.number { minimum = 0 }
 local function fields(font)
   return {

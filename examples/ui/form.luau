@@ -1,19 +1,16 @@
 -- A third-party form uses the configured UI provider and the desktop's shared keyboard.
 local plugin = require '@lunette-plugin'
-local schema = require '@lunette-plugin/schema'
 local ui = require '@lunette-contracts/ui'
 local menu = require '@lunette-contracts/menu'
 local frame = require '@lunette-contracts/frame'
-local surface = require '@lunette-contracts/surface'
+local vocabulary = require '@lunette-contracts/vocabulary'
 
-local descriptor = schema.object {}
-export type Config = schema.Input<typeof(descriptor)>
-export type Settings = schema.Output<typeof(descriptor)>
+export type Config = {}
+export type Settings = {}
 
 return plugin.consumer<<Config, Settings>>({
   name = 'example/ui/form',
   requires = { ui = ui.capability, menu = menu.capability, frame = frame.capability },
-  schema = descriptor,
   init = function(context: plugin.Context, _settings: Settings)
     local widgets: ui.Service = context:require(ui.capability)
     local actions: menu.Service = context:require(menu.capability)
@@ -31,7 +28,7 @@ return plugin.consumer<<Config, Settings>>({
     })
     local presses, taps, cancelled = 0, 0, 0
     local text, mode, destination = '', 'quiet', 'destination-1'
-    local held: { [surface.Pointer]: boolean } = {}
+    local held: { [vocabulary.Pointer]: boolean } = {}
 
     panel:button(context, {
       id = 'press',
@@ -82,7 +79,7 @@ return plugin.consumer<<Config, Settings>>({
       id = 'preview',
       label = 'Live preview: tap to count',
       bounds = { x = 24, y = 412, width = 552, height = 124 },
-      onPointer = function(event: surface.PointerEvent)
+      onPointer = function(event: vocabulary.PointerEvent)
         if event.kind == 'press' then
           if event.button == 'left' then
             held[event.pointer] = true

@@ -2,13 +2,12 @@
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
-local owner = require '@lunette-contracts/owner'
 local panels = require '@lunette-contracts/panels'
 local rules = require '@lunette-contracts/rules'
 
 local placement = {}
 
-export type Owner = owner.Owner
+export type Owner = plugin.Owner
 export type Properties = rules.Resolved
 
 -- Missing properties resolve through rules; defaults fill properties that remain unset.

@@ -16,12 +16,12 @@ local arcCenter: arc.Config = { tuning = { center = { 0, 1, 0 } } }
 local laserSettings: laser.Settings = {}
 local keyboardSettings: keyboard.Settings = {}
 
-plugin.configure(laser.definition) {
+plugin.configure('laser', laser.definition) {
   draw = function(_value: number): number
     return 0
   end,
 }
-plugin.configure(keyboard.definition) {
+plugin.configure('keyboard', keyboard.definition) {
   onKey = function(_value: number): number
     return 0
   end,

@@ -152,17 +152,17 @@ return plugin.consumer<<Config, Settings>>({
 
 A plugin changes state outside itself only through its context. `context:on` subscribes to a native event for as long as the plugin is loaded. `context:effect` registers any other resource with the function that releases it. A service method that takes an owner, such as `frames:onDraw(context, ...)` or `keyboard:new(context)`, ties what it creates to that owner, and the provider releases it when the owner unloads. A direct `lunette.onWindowOpened(handler)` call in `init` is not tracked: the subscription outlives the plugin, and a reloaded plugin subscribes a second time.
 
-`plugin.consumer<<Config, Settings>>` takes `name`, `requires`, `schema`, `defaults`, `validate`, and `init`. `requires` and `validate` are optional. A schema and legacy defaults cannot both be supplied. `Config` describes the caller's overrides. `Settings` describes the resolved settings passed to `init(context, settings)`. The context remains a `plugin.Context`; each service is read with `context:require(capability)` after its capability is declared in `requires`.
+`plugin.consumer<<Config, Settings>>` takes `name`, `requires`, `schema`, and `init`. `requires` and `schema` are optional; a consumer without a schema takes no options. `Config` describes the caller's overrides. `Settings` describes the resolved settings passed to `init(context, settings)`. The context remains a `plugin.Context`; each service is read with `context:require(capability)` after its capability is declared in `requires`.
 
 Schema-backed modules derive both types from the descriptor. The constructors are available through `require '@lunette-plugin/schema'` and `plugin.schema`. The checked uptime consumer above shows the complete pattern and returns the configured definition with `.definition`.
 
-The helper parses an empty configuration when it constructs a configured definition. Every required field therefore needs a schema default or an optional descriptor, and invalid defaults raise before the definition is returned. That check does not run the plugin initializer. The desktop's `compose` parses desktop settings and expands them into entry patches before activation. `management.start` resolves every managed entry configuration before activating any instance, so a preflight error aborts startup. In contrast, `plugin.start` and direct native runtime use validate an entry's configuration as that instance activates; a validation or initializer error fails that instance without aborting other entries. [Configuration schemas](configuration-schema.md) describes the constructors, merge rules, type derivation, and checker limitations. `plugin.provider<<Config, Settings, Service>>` accepts the same schema and passes resolved settings to `build(context, settings)`.
+The helper parses an empty configuration when it constructs a configured definition. Every required field therefore needs a schema default or an optional descriptor, and invalid defaults raise before the definition is returned. That check does not run the plugin initializer. The desktop's `compose` parses desktop settings and expands them into entry patches before activation. `management.start` resolves every managed entry configuration before activating any instance, so a preflight error aborts startup. Direct native runtime use validates an entry's configuration as that instance activates; a validation or initializer error fails that instance without aborting other entries. [Configuration schemas](configuration-schema.md) describes the constructors, merge rules, type derivation, and checker limitations. `plugin.provider<<Config, Settings, Service>>` accepts the same schema and passes resolved settings to `build(context, settings)`.
 
-The helper returns `definition`, `define`, and `requires`. `definition` uses the resolved initial settings. `define { name = 'other-uptime', prefix = 'running for' }` creates a definition with different defaults and an optional name. Runtime configuration resolves over those bound defaults. Schema objects merge declared fields recursively; arrays and maps replace their bound values. Settings and plain configuration containers are copied and frozen according to the descriptor. Callbacks and custom values retain their exact references, and native vectors retain their values. Constructing the helper or calling `define` does not call `init` or acquire resources. State declared inside `init` is local to that activation and is recreated when the plugin activates again. An entry's `factory` can enclose state shared by that runtime's activations; `plugin.start` calls each entry's factory once.
+The helper returns `definition`, `define`, and `requires`. `definition` uses the resolved initial settings. `define { name = 'other-uptime', prefix = 'running for' }` creates a definition with different defaults and an optional name. Runtime configuration resolves over those bound defaults. Schema objects merge declared fields recursively; arrays and maps replace their bound values. Settings and plain configuration containers are copied and frozen according to the descriptor. Callbacks and custom values retain their exact references, and native vectors retain their values. Constructing the helper or calling `define` does not call `init` or acquire resources. State declared inside `init` is local to that activation and is recreated when the plugin activates again. An entry's `factory` can enclose state shared by that runtime's activations; each start calls an entry's factory once.
 
-`plugin.definitionSchema(definition)` and `definition.schema` expose the immutable schema metadata. Its root is a default descriptor whose `child` is the supplied descriptor and whose `value` is that definition's resolved defaults. `definition.resolve(config)` validates an unknown configuration against those bound defaults without constructing a plugin. It also runs `validate(settings, name)` when supplied. Low-level `plugin.define` retains its raw configuration initializer and does not attach schema metadata.
+`definition.schema` exposes the immutable schema metadata. Its root is a default descriptor whose `child` is the supplied descriptor and whose `value` is that definition's resolved defaults. `definition.resolve(config)` validates an unknown configuration against those bound defaults without constructing a plugin. Low-level `plugin.define` retains its raw configuration initializer and does not attach schema metadata.
 
-Legacy modules may still supply `defaults`, or omit both `defaults` and `schema` when they take no options. They use the option resolution of `plugin.options`, which rejects unknown options and values whose types differ from their defaults. Legacy definitions have a preflight resolver but no schema metadata. For both authoring forms, `validate(settings, name)` runs for the initial settings, for `define` overrides, for preflight resolution, and for runtime configuration. Schema-backed validation runs after the descriptor's constraints and refinements. Validation must not acquire resources or change external state. With `plugin.start` or direct native runtime activation, a runtime validation error fails that instance and is reported while other entries continue. Managed startup validates all entry configurations before activation and aborts on a preflight error. A patch gives the configuration:
+A constraint across several fields is a `schema.refine` over the descriptor. It runs for the initial settings, for `define` overrides, for preflight resolution, and for runtime configuration, after the descriptor's own constraints, and must not acquire resources or change external state. A patch gives the configuration:
 
 ```lua
 { insert = { id = 'uptime', definition = require './uptime', config = { prefix = 'running for' } } },
@@ -176,12 +176,12 @@ Geometric positions, directions, and offsets are native `vector` values, constru
 
 [Desktop configuration](desktop-configuration.md) describes the typed consumer settings, workspace configuration, and entry-specific patches. Raw patches retain access to every plugin replacement and insertion.
 
-A patch with an entry's `id` changes that entry. A schema-backed definition resolves `config` through its descriptor: declared objects merge key by key, while arrays, maps, unions, and atomic values replace. Raw and legacy definitions retain recursive string-keyed table merging. `disabled = true` removes the entry, and `definition` replaces what the entry is made from. An unknown id raises when the configuration loads.
+A patch with an entry's `id` changes that entry. A schema-backed definition resolves `config` through its descriptor: declared objects merge key by key, while arrays, maps, unions, and atomic values replace. Raw definitions and factories, whose schema is unknown until start, merge string-keyed tables recursively. `disabled = true` removes the entry, and `definition` replaces what the entry is made from. An unknown id raises when the configuration loads.
 
 The shipped desktop selects the Dark theme through `desktop/theme`. Its Appearance actions select any registered theme: Dark, Light, or Arcade on the shipped desktop. Configuration names the initial theme and can override selected fields without replacing it:
 
 ```lua
-desktop.configure(require '@lunette-plugins/desktop/theme') {
+desktop.configure('desktop/theme', require '@lunette-plugins/desktop/theme') {
   preset = 'arcade',
   overrides = {
     colors = { focus = { 1, 0.5, 0.1, 1 } },
@@ -192,7 +192,7 @@ desktop.configure(require '@lunette-plugins/desktop/theme') {
 
 An omitted selector override inherits from the chosen complete theme. A later competing selection replaces the whole effective theme rather than merging fields into that theme. Explicit zero remains an override. The editable configuration font accepts `kind = 'default'` or `kind = 'file'` with a VFS path; for a file font, omitted `size` and `spread` project to 32 and 4. Default kind rejects file/size/spread. Disabling `desktop/theme` removes the selector's registration and restores the base theme unless another live registration remains. The `theme` provider must remain enabled for its consumers. [Desktop runtime themes](desktop-configuration.md#runtime-themes) records session choice memory, source reload, and configuration replacement/Recover semantics.
 
-`desktop.configure` takes a plugin's definition and answers a function that makes a configuration patch for the entry named by the definition's name, typed with that definition's options, so the checker reads them. A built-in provider's module holds its definition as `definition`; a desktop consumer's module is its definition, or for `desktop/arrange` a factory of it, which `configure` takes as well. `desktop/persistence` is `@lunette-plugins/arrangement`, which holds its factory as `factory` beside its format functions:
+`desktop.configure` takes an entry id and that entry's definition and answers a function that makes a configuration patch for the entry, typed with the definition's options, so the checker reads them. A built-in provider's module holds its definition as `definition`; a desktop consumer's module is its definition, or for `desktop/arrange` a factory of it, which `configure` takes as well. `desktop/persistence` is `@lunette-plugins/arrangement`, which holds its factory as `factory` beside its format functions:
 
 ```lua
 local desktop = require '@lunette-desktop'
@@ -200,13 +200,13 @@ local laser = require '@lunette-plugins/laser'
 
 desktop.run {
   patches = {
-    desktop.configure(laser.definition) { style = { color = { 1, 0.4, 0.2, 0.6 } } },
-    desktop.configure(require '@lunette-plugins/desktop/keyboard') { hand = 'right', placement = { distance = 0.45 } },
+    desktop.configure('laser', laser.definition) { style = { color = { 1, 0.4, 0.2, 0.6 } } },
+    desktop.configure('desktop/keyboard', require '@lunette-plugins/desktop/keyboard') { hand = 'right', placement = { distance = 0.45 } },
   },
 }
 ```
 
-`desktop.configure(require '@lunette-plugins/desktop/keyboard') { hand = 'rigth' }` is a type error, where `{ id = 'desktop/keyboard', config = { hand = 'rigth' } }` passes `lunette check`: a patch list mixes entries, so a plain patch's `config` has no type of its own. A misspelt key is not a type error in Luau either way. Runtime validation rejects it during configuration resolution, with an error naming its path. Each built-in provider's options are listed in [the standard library](../dev/stdlib.md#contracts-and-providers) and, for the keyboard, in [Keyboard](../dev/lua-api.md#keyboard).
+`desktop.configure('desktop/keyboard', require '@lunette-plugins/desktop/keyboard') { hand = 'rigth' }` is a type error, where `{ id = 'desktop/keyboard', config = { hand = 'rigth' } }` passes `lunette check`: a patch list mixes entries, so a plain patch's `config` has no type of its own. A misspelt key is not a type error in Luau either way. Runtime validation rejects it during configuration resolution, with an error naming its path. Each built-in provider's options are listed in [the standard library](../dev/stdlib.md#contracts-and-providers) and, for the keyboard, in [Keyboard](../dev/lua-api.md#keyboard).
 
 ## Runtime theme selections
 
@@ -335,7 +335,7 @@ The implementation acquires the board through `context:resource(owner, acquire)`
 
 ## Local VR controls
 
-The [UI guide](ui.md) describes owner-scoped flat VR panels, buttons, single-line text fields, choices, lists, and regions through the neutral `lunette/ui` contract. Its excerpts come from the checked `examples/ui` form, which registers a wrist-menu action and uses the shared desktop keyboard. It records logical geometry, focus routing, themes, draw-hook safety, grapheme selection, and provider replacement tokens. The form, wrist menu, and runtime manager run unchanged against the built-in and independent substitute UI providers in logic-headless scenarios. The runtime manager uses the same UI contract for its controller-accessible search and configuration workflows.
+The [UI guide](ui.md) describes owner-scoped flat VR panels, buttons, single-line text fields, choices, lists, and regions through the neutral `lunette/ui` contract. Its excerpts come from the checked `examples/ui` form, which registers a wrist-menu action and uses the shared desktop keyboard. It records logical geometry, focus routing, themes, draw-hook safety, grapheme selection, and provider replacement tokens. The form, wrist menu, and runtime manager run against the built-in UI provider in logic-headless scenarios. The runtime manager uses the same UI contract for its controller-accessible search and configuration workflows.
 
 Rounded UI keeps declared dimensions and control bounds unchanged. The backing uses its full silhouette; controls, custom regions, descriptions, and input use a conservative rectangular content clip inside it. Rectangular control targets remain usable within that clip, and text stays inside its rounded face's safe bounds. Hooks must obey `visual.clip`, preserve overflow reporting, and keep declared geometry when calling `base`. The clip is cooperative rather than stencil or offscreen enforcement of arbitrary shaders and stack operations. [Themes and drawing hooks](ui.md#themes-and-drawing-hooks) states pass restoration, font borrows, and no-write detail ordering.
 
@@ -410,7 +410,7 @@ Two patches add the grid and choose it:
 
 ```lua
 { insert = { id = 'grid-layout', definition = require './grid' } },
-desktop.configure(require '@lunette-plugins/desktop/arrange') {
+desktop.configure('desktop/arrange', require '@lunette-plugins/desktop/arrange') {
   layout = 'grid',
   options = { grid = { columns = 3 } },
 },
@@ -428,9 +428,9 @@ The interaction provider turns each frame of a laser's input into hovering, clic
 
 ```lua
 local interaction = require '@lunette-plugins/interaction'
-local surface = require '@lunette-contracts/surface'
+local vocabulary = require '@lunette-contracts/vocabulary'
 
-return function(target: surface.Surface, pose: Mat4, base: interaction.ConstrainBase): Mat4
+return function(target: vocabulary.Surface, pose: Mat4, base: interaction.ConstrainBase): Mat4
   local kept = base(target, pose)
   local x, y, z = kept:getPosition()
   local forwardX, _, forwardZ = kept:mul(0, 0, -1, 0)
@@ -442,7 +442,7 @@ end
 A hook is an option, so a patch gives it:
 
 ```lua
-desktop.configure(require('@lunette-plugins/interaction').definition) { constrain = require './upright' },
+desktop.configure('interaction', require('@lunette-plugins/interaction').definition) { constrain = require './upright' },
 ```
 
 `drive(pointer, input, surfaces, base)` runs for every frame of every pointer, and `base` is the default mapping: grip to grab, buttons to click, the stick to scroll or push. A hook that calls `base` with changed input remaps it, and one that does not call `base` drives the pointer's primitives, `hover`, `setButton`, `beginGrab`, `dragTo`, and `endGrab`, itself. `@lunette-plugins/interaction/picking` has the default's picking and scrolling for such a hook. `focusOnPress = false` stops a click from giving the keyboard to what it clicks.
@@ -450,7 +450,7 @@ desktop.configure(require('@lunette-plugins/interaction').definition) { constrai
 Which controller button presses which pointer button is the laser's `buttons` option, a list that replaces the default:
 
 ```lua
-desktop.configure(require('@lunette-plugins/laser').definition) {
+desktop.configure('laser', require('@lunette-plugins/laser').definition) {
   buttons = {
     { control = 'trigger', button = 'left' },
     { control = 'a', button = 'right' },
@@ -475,7 +475,7 @@ The shipped desktop registers configuration reload as the `desktop/reload` menu 
 Panels draw no ordinary frame unless native chrome is enabled. The `desktop/decorations` entry uses the shared UI titlebar for native panels without chrome. A supporting flat scene target joins its body to that header and draws the single outline, including when `chrome = false`. The titlebar retains its text, actions, and owning grab behavior. Its `style` is configuration, as in `examples/desktop/main.luau`:
 
 ```lua
-desktop.configure(require '@lunette-plugins/desktop/decorations') { style = { barColor = { 0.3, 0.12, 0.2, 0.95 } } },
+desktop.configure('desktop/decorations', require '@lunette-plugins/desktop/decorations') { style = { barColor = { 0.3, 0.12, 0.2, 0.95 } } },
 ```
 
 Decorations of another kind are a plugin that does what `lua/lunette-plugins/desktop/decorations/init.luau` does: it hears panels arrive and leave through `panels:onAdded` and `panels:onRemoved`, draws in the frame's `scene` phase, and offers its bars with `surfaces:offer`. A bar is a surface whose `setPose` moves its panel, and it carries the panel's `kind` and `source`, so dropping it counts as dropping the panel. Disabling `desktop/decorations` and inserting such a plugin replaces it.
@@ -528,7 +528,7 @@ A window that opens goes to the workspace in view. A workspace consumer of anoth
 `desktop/rules` takes the rule list. A rule matches named fields of a window, such as `appId` or `title`, or `where`, a function of the whole window, and its properties say where the window goes and how big it is. `examples/desktop/main.luau` sizes picture-in-picture windows by their title:
 
 ```lua
-desktop.configure(require '@lunette-plugins/desktop/rules') {
+desktop.configure('desktop/rules', require '@lunette-plugins/desktop/rules') {
   rules = {
     {
       match = {
@@ -567,7 +567,7 @@ stream:subscribe(context, {
 The desktop saves where the windows are whenever one is dropped, and at quit. `desktop/persistence`, whose module is `@lunette-plugins/arrangement`, takes the file it saves to, the format it writes, and `keyFor`, which says what identifies a window across sessions, by default its application id:
 
 ```lua
-desktop.configure(require('@lunette-plugins/arrangement').factory) { file = 'example.state' },
+desktop.configure('desktop/persistence', require('@lunette-plugins/arrangement').factory) { file = 'example.state' },
 ```
 
 It also provides `lunette/arrangement`, so a plugin can save or restore windows. `examples/desktop/save-menu.luau` registers Save arrangement and Restore arrangement actions. `examples/desktop/hide-windows.luau` registers an action that toggles owner-scoped visibility overrides for windows. `examples/desktop/main.luau` inserts both examples. [Menu actions](../dev/lua-api.md#menu-actions) specifies the action broker.
@@ -579,12 +579,12 @@ A custom format is a `{ read, render }` pair; [Default configuration](../dev/std
 The desktop includes pacing and output scaling providers. `desktop/pacing` reduces the frame rate of a hidden panel's window unless its type is exempt, and `desktop/scale` raises an output's scale as the head approaches the nearest panel, in steps, so a client re-lays out only when it crosses one. The provider rules and their tuning are configured through the `pacing` and `scale` entries:
 
 ```lua
-desktop.configure(require('@lunette-plugins/pacing').definition) { tuning = { background = 5, exemptTypes = { photo = true } } },
-desktop.configure(require('@lunette-plugins/scale').definition) { tuning = { reference = 0.8 } },
+desktop.configure('pacing', require('@lunette-plugins/pacing').definition) { tuning = { background = 5, exemptTypes = { photo = true } } },
+desktop.configure('scale', require('@lunette-plugins/scale').definition) { tuning = { reference = 0.8 } },
 ```
 
 Each provider takes a hook around its rule. `choose(pacer, observation, base)` answers a window's rate, so a hook that caps visible panels at 60 Hz answers 60 when `observation.visible` is true and calls `base` otherwise; `ideal(distance, base)` answers the scale a panel at that distance wants, before the steps apply. A replacement rule is a plugin that provides `lunette/pacing` or `lunette/scale`, installed in the provider entry with `{ id = 'pacing', definition = replacement }`. A different scene policy, such as pacing by gaze direction, is a consumer in place of `desktop/pacing` that keeps the provider. `{ id = 'desktop/pacing', disabled = true }` turns pacing off, and disabling either entry leaves every rate or scale as the client started with. [Frame pacing and output scale](../dev/lua-api.md#frame-pacing-and-output-scale) states the rules.
 
 ## Checking a configuration
 
-`lunette check` typechecks every `.lua` and `.luau` file in the configuration directory a session would load, and every module they require, in strict mode, against the runtime's definitions. Naming files or directories, as in `lunette check main.luau`, checks those instead. The checker reports type errors, an accidental global, a local used before it is declared, and a capability with an unknown service type. It checks the options of a `desktop.configure` patch but not a plain patch's `config`. The checker does not execute descriptors or plugin initializers. Invalid defaults can fail during definition construction, invalid desktop settings during composition, and invalid managed entry configuration during startup preflight. Initializer errors and configuration errors supplied directly through `plugin.start` or the native runtime fail the affected activation and are reported through the runtime error path.
+`lunette check` typechecks every `.lua` and `.luau` file in the configuration directory a session would load, and every module they require, in strict mode, against the runtime's definitions. Naming files or directories, as in `lunette check main.luau`, checks those instead. The checker reports type errors, an accidental global, a local used before it is declared, and a capability with an unknown service type. It checks the options of a `desktop.configure` patch but not a plain patch's `config`. The checker does not execute descriptors or plugin initializers. Invalid defaults can fail during definition construction, invalid desktop settings during composition, and invalid managed entry configuration during startup preflight. Initializer errors and configuration errors supplied directly through the native runtime fail the affected activation and are reported through the runtime error path.

@@ -1,14 +1,13 @@
 -- Layouts are owner-scoped named registrations. A layout receives caller-selected panels and owns no panels or tags.
 
 local plugin = require '@lunette-plugin'
-local owner = require '@lunette-contracts/owner'
-local surface = require '@lunette-contracts/surface'
+local vocabulary = require '@lunette-contracts/vocabulary'
 
 local layouts = {}
 
-export type Owner = owner.Owner
+export type Owner = plugin.Owner
 
-export type Panel = surface.Movable
+export type Panel = vocabulary.Movable
 
 -- `apply` receives live panels in caller-supplied order. Each layout validates its own options.
 export type Layout = {

@@ -19,7 +19,7 @@ test('inspection reports source ownership and precedence without resolution', fu
   expect.equal(entry.name, 'fixture.rules', 'the supplied source name')
   expect.equal(entry.details.precedence, 17, 'the source precedence')
   effect:dispose()
-  expect.equal(service:inspect().logicalRegistrationCount, 0, 'the disposed source')
+  expect.equal(#service:inspect().registrations, 0, 'the disposed source')
   session:close()
 end)
 

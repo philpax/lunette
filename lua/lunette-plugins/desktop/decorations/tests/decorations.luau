@@ -165,7 +165,7 @@ test("a removed panel's bar is dead and no longer offered", function()
   expect.equal(#env.surfaces.service:all(), 0, 'the surfaces offered after the panel is removed')
   expect.truthy(outline.released, 'target teardown releases the attached outline mesh')
   local releases = 0
-  for _, mesh in env.native.events.meshReleases do
+  for _, mesh in env.native.events.render.meshReleases do
     if mesh == outline then
       releases += 1
     end

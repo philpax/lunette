@@ -3,16 +3,12 @@ local plugin = require '@lunette-plugin'
 local arrangement = require '@lunette-contracts/arrangement'
 local menu = require '@lunette-contracts/menu'
 
-local schema = require '@lunette-plugin/schema'
-
-local descriptor = schema.object {}
-export type Config = schema.Input<typeof(descriptor)>
-export type Settings = schema.Output<typeof(descriptor)>
+export type Config = {}
+export type Settings = {}
 
 return plugin.consumer<<Config, Settings>>({
   name = 'save-menu',
   requires = { arrangement = arrangement.capability, menu = menu.capability },
-  schema = descriptor,
   init = function(context: plugin.Context, _settings: Settings)
     local saved: arrangement.Service = context:require(arrangement.capability)
     local actions: menu.Service = context:require(menu.capability)

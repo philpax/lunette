@@ -1,13 +1,11 @@
 -- Delivers physical keys and committed text through the focused route after binding handlers.
 local plugin = require '@lunette-plugin'
-local schema = require '@lunette-plugin/schema'
 local focus = require '@lunette-contracts/focus'
 local frame = require '@lunette-contracts/frame'
 local keys = require '@lunette-contracts/keys'
 
-local descriptor = schema.object {}
-export type Config = schema.Input<typeof(descriptor)>
-export type Settings = schema.Output<typeof(descriptor)>
+export type Config = {}
+export type Settings = {}
 
 local required: plugin.Declaration = {
   focus = focus.capability,
@@ -28,7 +26,6 @@ end
 return plugin.consumer<<Config, Settings>>({
   name = 'desktop/input',
   requires = required,
-  schema = descriptor,
   init = function(context: plugin.Context, _settings: Settings): ()
     local frameService: frame.Service = context:require(frame.capability)
     local blockText = frameService.blockText

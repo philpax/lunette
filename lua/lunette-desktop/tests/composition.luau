@@ -1,5 +1,6 @@
 -- Composition preserves default entry order, checks patches during load, and supports provider replacement and plugin insertion.
 local testing = require '@testing'
+local vrUi = require '@testing/vr-ui'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
 local desktop = require '@lunette-desktop'
@@ -70,7 +71,7 @@ test('the default entries are listed in order, frozen, and each is configured by
   expect.equal(ids(desktop.compose()), DEFAULT_IDS, 'a composition without patches')
   expect.truthy(table.isfrozen(entries) and table.isfrozen(entries[1]), 'the default entries are frozen')
   for _, entry in ipairs(entries) do
-    local patch = desktop.configureEntry(entry.id, entry.definition or entry.factory) {}
+    local patch = desktop.configure(entry.id, entry.definition or entry.factory) {}
     expect.equal(patch.id, entry.id, 'the configure patch of ' .. entry.id)
   end
 end)
@@ -124,6 +125,7 @@ test('a provider built and wrapped by a patch replaces the built-in, and an inse
     },
   })
   local events = session.native.events
+  vrUi.hands(session.native)
   expect.equal(session.instances.laser:state(), 'active', 'the replacement laser')
   expect.equal(attached, 1, 'desktop/pointing attaches through the wrapper')
   session:update()

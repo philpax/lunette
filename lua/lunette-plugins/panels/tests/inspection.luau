@@ -40,9 +40,8 @@ test('panel inspection separates logical ownership from layer resources and reus
   source.dead = true
   local deadSource = service:inspect()
   local entry = registration(deadSource, 'panel', source.id)
-  expect.equal(deadSource.logicalRegistrationCount, shown.logicalRegistrationCount, 'the retained logical entry')
+  expect.equal(#deadSource.registrations, #shown.registrations, 'the retained logical entry')
   expect.equal(entry.live, false, 'a dead source makes the registration unavailable')
-  expect.equal(entry.dead, true, 'the dead-source registration status')
   expect.equal(entry.details.sourceDead, true, 'the inspected source state')
   expect.equal(target.dead, false, 'inspection does not retire the panel')
   expect.equal(service:all()[1], target, 'inspection does not prune the panel')
@@ -60,7 +59,7 @@ test('panel inspection separates logical ownership from layer resources and reus
 
   hidden:dispose()
   target:destroy(owner)
-  expect.equal(service:inspect().logicalRegistrationCount, 0, 'the released registrations')
+  expect.equal(#service:inspect().registrations, 0, 'the released registrations')
   session:close()
 end)
 

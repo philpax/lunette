@@ -14,9 +14,7 @@ export type State = {
   directionVelocity: vector,
 }
 
-local positive = schema.refine(schema.number())(function(value: number): ()
-  assert(value > 0, 'must be positive')
-end)
+local positive = schema.number { positive = true }
 local nonnegative = schema.number { minimum = 0 }
 local descriptor = schema.object {
   enabled = schema.default(schema.boolean())(true),

@@ -1,7 +1,6 @@
 -- Owns shared titlebar drawing, action controls, and an owning surface's trigger-drag background.
 local plugin = require '@lunette-plugin'
 local ui = require '@lunette-contracts/ui'
-local surface = require '@lunette-contracts/surface'
 local themesContract = require '@lunette-contracts/theme'
 local surfaces = require '@lunette-contracts/surfaces'
 local quad = require '@lunette-contracts/quad'
@@ -23,7 +22,7 @@ function titlebar.new(
   context: plugin.Context,
   owner: ui.Owner,
   name: string,
-  target: surface.Surface,
+  target: vocabulary.Surface,
   given: ui.TitlebarOptions,
   visible: (() -> boolean)?,
   service: ui.Service,
@@ -301,7 +300,7 @@ function titlebar.new(
     return true
   end
   local function raycast(
-    _self: surface.Surface,
+    _self: vocabulary.Surface,
     origin: vector,
     direction: vector,
     backFace: boolean?
@@ -335,13 +334,13 @@ function titlebar.new(
   end
   local methods = {
     raycast = raycast,
-    setPose = function(_self: surface.Surface, nextPose: Mat4): ()
+    setPose = function(_self: vocabulary.Surface, nextPose: Mat4): ()
       if live() and target.setPose then
         target:setPose(lovr.math.newMat4(nextPose):translate(0, -offset(), 0))
         sync()
       end
     end,
-    setHighlighted = function(_self: surface.Surface, value: boolean): ()
+    setHighlighted = function(_self: vocabulary.Surface, value: boolean): ()
       highlighted = value
       sync()
     end,
@@ -366,7 +365,7 @@ function titlebar.new(
       end
       return methods[key]
     end,
-  })) :: surface.Surface
+  })) :: vocabulary.Surface
   local handle = table.freeze(setmetatable({}, {
     __index = function(_self: unknown, key: string): unknown
       if key == 'dead' then
@@ -427,7 +426,7 @@ function titlebar.new(
     })
     offer = offers:offer(context, {
       name = name .. '/drag',
-      list = function(): { surface.Surface }
+      list = function(): { vocabulary.Surface }
         sync()
         return if live() then { bar } else {}
       end,

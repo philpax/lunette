@@ -143,7 +143,7 @@ function session.new(context: plugin.Context, themes: theme.Service): Session
         .. '\nSelected: '
         .. selected
         .. '\nRegistrations '
-        .. tostring(observed.logicalRegistrationCount)
+        .. tostring(#observed.registrations)
         .. '; readers '
         .. tostring(readers)
         .. '; listeners '

@@ -40,6 +40,11 @@ test('numeric string and collection constraints apply at the declared field', fu
   for _, label in { 'a', 'abcde', '12' } do
     rejects(descriptor, { count = 2, label = label }, 'constraint', 'label')
   end
+  local positive = schema.number { positive = true }
+  expect.equal(positive.parse(0.5), 0.5)
+  for _, value in { 0, -1 } do
+    rejects(positive, value, 'constraint', '')
+  end
   rejects(schema.array(schema.number(), { minLength = 1 }), {}, 'constraint', '')
   rejects(schema.map(schema.string(), { maxLength = 0 }), { one = 'value' }, 'constraint', '')
 end)

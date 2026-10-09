@@ -7,7 +7,7 @@ use std::{
     sync::Arc,
 };
 
-use mlua::{Function, Lua, Table, Value};
+use mlua::{Function, Lua, Value};
 
 use crate::plugin::{
     attachment::{
@@ -31,10 +31,6 @@ pub(super) struct AttachmentHost {
     /// an earlier epoch is recognised and rejected.
     pub(super) epoch: u64,
     pub(super) reporter: Option<Reporter>,
-    /// Capability wrappers bound in retired epochs, as the keys of a Lua
-    /// table with weak keys. A wrapper stays recognisable while anything can
-    /// still pass it, and the table does not keep it alive.
-    pub(super) retired_wrappers: Option<Table>,
 }
 
 impl AttachmentHost {
@@ -46,26 +42,7 @@ impl AttachmentHost {
             callback_depth: 0,
             epoch: 0,
             reporter: None,
-            retired_wrappers: None,
         }
-    }
-}
-
-impl AttachmentHost {
-    /// Reports whether the wrapper in `field` of `declaration` was bound in a
-    /// retired epoch.
-    pub(super) fn holds_retired_wrapper(&self, declaration: &Table, field: &str) -> bool {
-        let Some(retired) = &self.retired_wrappers else {
-            return false;
-        };
-        let Ok(Value::Table(wrapper)) = declaration.raw_get::<Value>(field) else {
-            return false;
-        };
-        retired
-            .raw_get::<Option<bool>>(wrapper)
-            .ok()
-            .flatten()
-            .unwrap_or(false)
     }
 }
 

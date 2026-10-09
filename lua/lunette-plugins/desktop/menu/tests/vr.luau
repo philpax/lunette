@@ -5,110 +5,100 @@ local test = testing.suite()
 
 local function withMenu(provider, config, run)
   local env = fixture.boot(provider, config)
-  local ok, message = pcall(run, env)
+  run(env)
   env.running:close()
-  if not ok then
-    error(message, 0)
-  end
 end
 
-for _, provider in
-  {
-    { name = 'real', entry = 'ui' },
-    { name = 'substitute', entry = { id = 'ui', definition = require('@testing/ui-substitute').definition } },
-  }
-do
-  test(provider.name .. ' UI opens invokes repeats and closes through release controls', function()
-    withMenu(provider.entry, nil, function(env)
-      local action = env:register('draft', { label = 'Draft', selected = true })
-      expect.equal(env:description().width, 0.115)
-      env:press 'open'
-      expect.equal(env:description().width, 0.115, 'press does not open')
-      env:release()
-      expect.equal(env:description().width, 0.32)
-      local _, row = env.running:discover(env.ui, 'desktop/menu', 'actions', 'draft')
-      expect.truthy(row.label:find('Draft', 1, true))
-      expect.truthy(row.label:find('[selected]', 1, true))
-      env:click('actions', 'draft')
-      env:click('actions', 'draft')
-      expect.equal(action.calls(), 2, 'the same row can run repeatedly')
-      env:click 'close'
-      expect.equal(env:description().width, 0.115)
-      env.running:draw()
-      expect.truthy(#env.running:drawCalls() > 0)
-      expect.equal(#env.ui:panels(), 1, 'one retained panel')
-    end)
+test('UI opens invokes repeats and closes through release controls', function()
+  withMenu('ui', nil, function(env)
+    local action = env:register('draft', { label = 'Draft', selected = true })
+    expect.equal(env:description().width, 0.115)
+    env:press 'open'
+    expect.equal(env:description().width, 0.115, 'press does not open')
+    env:release()
+    expect.equal(env:description().width, 0.32)
+    local _, row = env.running:discover(env.ui, 'desktop/menu', 'actions', 'draft')
+    expect.truthy(row.label:find('Draft', 1, true))
+    expect.truthy(row.label:find('[selected]', 1, true))
+    env:click('actions', 'draft')
+    env:click('actions', 'draft')
+    expect.equal(action.calls(), 2, 'the same row can run repeatedly')
+    env:click 'close'
+    expect.equal(env:description().width, 0.115)
+    env.running:draw()
+    expect.truthy(#env.running:drawCalls() > 0)
+    expect.equal(#env.ui:panels(), 1, 'one retained panel')
   end)
+end)
 
-  test(provider.name .. ' UI updates rows and cancels a removed registration before replacement', function()
-    withMenu(provider.entry, nil, function(env)
-      local old = env:register 'draft'
-      env:open()
-      env:press('actions', 'draft')
-      env.running:step()
-      env.running:step()
-      env:release()
-      expect.equal(old.calls(), 1, 'unchanged snapshots preserve a held row')
-      env:press('actions', 'draft')
-      old.effect:dispose()
-      local replacement = env:register 'draft'
-      env.running:step()
-      env:release()
-      expect.equal(old.calls(), 1)
-      expect.equal(replacement.calls(), 0, 'a replacement never receives the stale gesture')
-      env:click('actions', 'draft')
-      expect.equal(replacement.calls(), 1)
-      env.actions.service:update(replacement.owner, replacement.effect, { enabled = false, selected = true })
-      env.running:step()
-      local description = env:description()
-      local found
-      for _, control in description.controls do
-        for _, item in control.items do
-          if item.id == 'draft' then
-            found = item
-          end
+test('UI updates rows and cancels a removed registration before replacement', function()
+  withMenu('ui', nil, function(env)
+    local old = env:register 'draft'
+    env:open()
+    env:press('actions', 'draft')
+    env.running:step()
+    env.running:step()
+    env:release()
+    expect.equal(old.calls(), 1, 'unchanged snapshots preserve a held row')
+    env:press('actions', 'draft')
+    old.effect:dispose()
+    local replacement = env:register 'draft'
+    env.running:step()
+    env:release()
+    expect.equal(old.calls(), 1)
+    expect.equal(replacement.calls(), 0, 'a replacement never receives the stale gesture')
+    env:click('actions', 'draft')
+    expect.equal(replacement.calls(), 1)
+    env.actions.service:update(replacement.owner, replacement.effect, { enabled = false, selected = true })
+    env.running:step()
+    local description = env:description()
+    local found
+    for _, control in description.controls do
+      for _, item in control.items do
+        if item.id == 'draft' then
+          found = item
         end
       end
-      expect.equal(found.enabled, false)
-      expect.truthy(found.label:find('[selected]', 1, true))
-      replacement.instance:disable()
-      env.running:step()
-      for _, control in env:description().controls do
-        expect.equal(#control.items, 0)
-      end
-    end)
+    end
+    expect.equal(found.enabled, false)
+    expect.truthy(found.label:find('[selected]', 1, true))
+    replacement.instance:disable()
+    env.running:step()
+    for _, control in env:description().controls do
+      expect.equal(#control.items, 0)
+    end
   end)
+end)
 
-  test(provider.name .. ' UI scrolls late actions and tracking loss cancels held rows', function()
-    withMenu(provider.entry, nil, function(env)
-      env:open()
-      local last
-      for index = 1, 24 do
-        last = env:register('item-' .. index, { order = index })
-      end
-      env.running:step()
-      expect.raises(function()
-        env.running:discover(env.ui, 'desktop/menu', 'actions', 'item-24')
-      end, 'no visible')
-      for _ = 1, 10 do
-        env:scroll(-1)
-      end
-      env:click('actions', 'item-24')
-      expect.equal(last.calls(), 1)
-      env:press('actions', 'item-24')
-      env.running:tracked(env.hand, false)
-      env.running:step()
-      expect.equal(env:description().visible, false)
-      env.running:tracked(env.hand, true)
-      env.running:step()
-      env:release()
-      expect.equal(last.calls(), 1)
-      expect.equal(env:description().width, 0.115, 'reacquisition stays closed')
-      env:open()
-      env:click 'close'
-    end)
+test('UI scrolls late actions and tracking loss cancels held rows', function()
+  withMenu('ui', nil, function(env)
+    env:open()
+    local last
+    for index = 1, 24 do
+      last = env:register('item-' .. index, { order = index })
+    end
+    env.running:step()
+    expect.raises(function()
+      env.running:discover(env.ui, 'desktop/menu', 'actions', 'item-24')
+    end, 'no visible')
+    for _ = 1, 10 do
+      env:scroll(-1)
+    end
+    env:click('actions', 'item-24')
+    expect.equal(last.calls(), 1)
+    env:press('actions', 'item-24')
+    env.running:tracked(env.hand, false)
+    env.running:step()
+    expect.equal(env:description().visible, false)
+    env.running:tracked(env.hand, true)
+    env.running:step()
+    env:release()
+    expect.equal(last.calls(), 1)
+    expect.equal(env:description().width, 0.115, 'reacquisition stays closed')
+    env:open()
+    env:click 'close'
   end)
-end
+end)
 
 for _, hand in { 'left', 'right' } do
   test(hand .. ' wrist tracking loss cancels a held compact button until a fresh press', function()

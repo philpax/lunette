@@ -45,14 +45,12 @@ local function grid(panels: { read [number]: layouts.Panel }, given: unknown?): 
   end
 end
 
-local consumerSchema = schema.object {}
-type ConsumerConfig = schema.Input<typeof(consumerSchema)>
-type ConsumerSettings = schema.Output<typeof(consumerSchema)>
+type ConsumerConfig = {}
+type ConsumerSettings = {}
 
 return plugin.consumer<<ConsumerConfig, ConsumerSettings>>({
   name = 'grid-layout',
   requires = { layouts = layouts.capability },
-  schema = consumerSchema,
   init = function(context: plugin.Context, _settings: ConsumerSettings)
     local service: layouts.Service = context:require(layouts.capability)
     -- The registration ends with the plugin activation.

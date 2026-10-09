@@ -82,7 +82,8 @@ fn a_connected_client_does_not_notice_a_reload() {
     );
 
     let lua = configured_state();
-    lunette::reload::reload(&lua, &|| ()).expect("the reload succeeds");
+    lunette::reload::reload(&lua, &lunette::mirrors::NoMonitors, &|| ())
+        .expect("the reload succeeds");
 
     // The client still communicates, and the compositor still responds. A
     // disconnected client's next round trip would fail at this point.

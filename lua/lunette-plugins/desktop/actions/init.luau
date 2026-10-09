@@ -1,18 +1,15 @@
 -- Retains Reload during keyboard outages and scopes Keyboard to its display activation.
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
-local schema = require '@lunette-plugin/schema'
 local menu = require '@lunette-contracts/menu'
 local display = require '@lunette-contracts/keyboard-display'
 local logging = require '@lunette-plugins/desktop/logging'
 
-local descriptor = schema.object {}
-export type Config = schema.Input<typeof(descriptor)>
-export type Settings = schema.Output<typeof(descriptor)>
+export type Config = {}
+export type Settings = {}
 
 local keyboard = plugin.consumer<<Config, Settings>>({
   name = 'desktop/actions/keyboard',
-  schema = descriptor,
   requires = { menu = menu.capability, display = display.capability },
   init = function(context: plugin.Context, _settings: Settings): ()
     local menuService: menu.Service = context:require(menu.capability)
@@ -42,7 +39,6 @@ local keyboard = plugin.consumer<<Config, Settings>>({
 
 return plugin.consumer<<Config, Settings>>({
   name = 'desktop/actions',
-  schema = descriptor,
   requires = { menu = menu.capability },
   init = function(context: plugin.Context, _settings: Settings): ()
     local menuService: menu.Service = context:require(menu.capability)

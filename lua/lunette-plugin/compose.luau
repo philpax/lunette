@@ -34,11 +34,6 @@ export type ResolvedEntry = {
   read config: Config,
 }
 
-export type Running = {
-  read runtime: adapter.Runtime,
-  read instances: { read [string]: adapter.Instance<any> },
-}
-
 type Raw = { [unknown]: unknown }
 
 local ENTRY_KEYS: { [string]: boolean } = { id = true, definition = true, factory = true, config = true }
@@ -132,7 +127,20 @@ local function schemaMerged(base: unknown, over: unknown, metadata: schemaRuntim
   return result
 end
 
-local function legacyMerged(base: Raw, over: Raw, seen: { [Raw]: { [Raw]: Raw } }?): Raw
+-- Empty tables replace because they do not distinguish records from lists.
+local function isRecord(value: unknown): boolean
+  if type(value) ~= 'table' or getmetatable(value :: any) ~= nil or rawlen(value :: any) > 0 then
+    return false
+  end
+  for key, _ in value :: Raw do
+    if type(key) ~= 'string' then
+      return false
+    end
+  end
+  return next(value :: Raw) ~= nil
+end
+
+local function recordMerged(base: Raw, over: Raw, seen: { [Raw]: { [Raw]: Raw } }?): Raw
   local copied = seen or {}
   local previous: { [Raw]: Raw } = copied[base] or {}
   local known = previous[over]
@@ -144,8 +152,8 @@ local function legacyMerged(base: Raw, over: Raw, seen: { [Raw]: { [Raw]: Raw } 
   previous[over] = result
   for key, value in over do
     local prior = result[key]
-    result[key] = if options.isRecord(prior) and options.isRecord(value)
-      then legacyMerged(prior :: Raw, value :: Raw, copied)
+    result[key] = if isRecord(prior) and isRecord(value)
+      then recordMerged(prior :: Raw, value :: Raw, copied)
       else value
   end
   return result
@@ -303,7 +311,7 @@ local function patched(entry: Entry, patch: Keyed): Entry
       config = frozenCopy(schemaMerged(config, over, metadata), metadata) :: Config
     else
       local pending = if config then layers[config] else nil
-      local merged = frozenCopy(legacyMerged((config or {}) :: Raw, over :: Raw)) :: Config
+      local merged = frozenCopy(recordMerged((config or {}) :: Raw, over :: Raw)) :: Config
       if factory then
         local sequence = if pending then table.clone(pending) else {}
         if not pending and config then
@@ -409,25 +417,13 @@ function compose.apply(entries: { Entry }, patches: { Patch }?): { Entry }
   return table.freeze(result)
 end
 
--- The returned function accepts the definition's configuration type. A factory runs once to obtain the entry name.
-function compose.configure<C>(target: adapter.Definition<C> | () -> adapter.Definition<C>): (C) -> Patch
-  local definition: unknown = if type(target) == 'function' then target() else target
-  local name = type(definition) == 'table' and (definition :: Raw).name
-  if type(name) ~= 'string' then
-    error('compose: configure takes a plugin definition or a factory of one, not a ' .. type(target), 2)
-  end
-  return function(config: C): Patch
-    return { id = name :: string, config = config :: any }
-  end
-end
-
 -- The target supplies the configuration type; the entry id supplies the patch target. This never calls a factory.
-function compose.configureEntry<C>(id: string, target: adapter.Definition<C> | () -> adapter.Definition<C>): (C) -> Patch
+function compose.configure<C>(id: string, target: adapter.Definition<C> | () -> adapter.Definition<C>): (C) -> Patch
   if type(id) ~= 'string' or id == '' then
-    error('compose: configureEntry: id is a non-empty string, not ' .. tostring(id), 2)
+    error('compose: configure: id is a non-empty string, not ' .. tostring(id), 2)
   end
   if type(target) ~= 'function' and (type(target) ~= 'table' or type((target :: Raw).name) ~= 'string') then
-    error('compose: configureEntry takes a plugin definition or a factory of one, not a ' .. type(target), 2)
+    error('compose: configure takes a plugin definition or a factory of one, not a ' .. type(target), 2)
   end
   return function(config: C): Patch
     return { id = id, config = config :: any }
@@ -450,27 +446,6 @@ function compose.resolveEntry(entry: Entry): ResolvedEntry
     config = table.freeze(empty)
   end
   return table.freeze { definition = definition, config = config }
-end
-
--- Starts entries in order and drains the runtime. A failure closes the runtime; configuration errors remain instance load failures.
-function compose.start(entries: { Entry }): Running
-  local checked = compose.apply(entries)
-  local runtime = adapter.runtime()
-  local instances: { [string]: adapter.Instance<any> } = {}
-  local ok, failure = pcall(function(): ()
-    for _, entry in ipairs(checked) do
-      local resolved = compose.resolveEntry(entry)
-      local instance = runtime:use(resolved.definition, resolved.config)
-      instances[entry.id] = instance
-      instance:enable()
-    end
-    runtime:drain()
-  end)
-  if not ok then
-    runtime:close()
-    error(failure, 0)
-  end
-  return table.freeze { runtime = runtime, instances = table.freeze(instances) }
 end
 
 return compose

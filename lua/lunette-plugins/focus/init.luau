@@ -9,10 +9,9 @@ local protected = require '@lunette-plugins/protected'
 local routes = require '@lunette-plugins/focus/routes'
 local validation = require '@lunette-plugins/focus/validation'
 local source = require '@lunette-plugins/focus/source'
-local config = require '@lunette-plugins/focus/config'
 
-export type Config = config.Config
-export type Settings = config.Settings
+export type Config = {}
+export type Settings = {}
 export type Service = contract.Service
 
 type Entry = {
@@ -447,7 +446,6 @@ end
 
 return plugin.provider<<Config, Settings, Service>> {
   name = 'focus',
-  schema = config,
   capability = contract.capability,
   build = create,
 }

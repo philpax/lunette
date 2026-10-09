@@ -4,7 +4,6 @@
 //! mounts the Lua module roots into LÖVR's virtual filesystem before configuration code runs.
 
 use std::{
-    cell::RefCell,
     env,
     ffi::{CStr, OsString, c_int},
     mem,
@@ -20,7 +19,7 @@ use lunette::{
     control::{Budget, CHUNKS_PER_FRAME, ChunkQueue, answer},
     frame::{FrameDriver, Startup},
     layers::{LovrBlits, LovrLayers},
-    lua::{PoolRegistry, Session, install_on_state},
+    lua::{PoolRegistry, Session, install},
     plugin::host,
     require, safe_mode,
     texture::LovrTexture,
@@ -151,7 +150,7 @@ fn run_session(
         //
         // SAFETY: the state was created above, is closed only after
         // `run_steps` returns, and no reference into it is kept.
-        if let Err(error) = install_on_state(&lua_handle, session) {
+        if let Err(error) = install(&lua_handle, session) {
             error!("lua: the lunette module could not be registered: {error}");
             return Outcome::LoadFailed;
         }
@@ -361,9 +360,8 @@ enum Terminal {
 
 /// Retires the live Lua runtime and closes one terminal session.
 ///
-/// The production terminal order is owned by [`host::terminal_shutdown`]. This
-/// function supplies the boot session's concrete subscriber, frame, native, and
-/// external-state operations to that shared sequence.
+/// The order is fixed: retire plugin runtimes, clear subscribers, flush the
+/// final frame, quiesce or stop native state, and close Lua last.
 fn finish_terminal(
     state: *mut lua::lua_State,
     thread: *mut lua::lua_State,
@@ -373,44 +371,39 @@ fn finish_terminal(
     lua_handle: &Lua,
     terminal: Terminal,
 ) -> Outcome {
-    let driver = RefCell::new(driver);
-    host::terminal_shutdown(
-        || host::shutdown(lua_handle, "terminal shutdown"),
-        || session.clear_subscribers(),
-        || driver.borrow_mut().end_frame(),
-        || match terminal {
-            Terminal::Restart => {
-                driver.borrow_mut().quiesce();
-                // SAFETY: `boot.lua` leaves the restart cookie at thread stack index 2.
-                unsafe {
-                    raw::luax_checkvariant(thread.cast(), 2, cookie);
-                    // An object cookie holds a reference counted by the state
-                    // that is about to close, so it cannot cross the restart.
-                    if cookie.__bindgen_anon_1.type_ == raw::VariantType_TYPE_OBJECT {
-                        *cookie = mem::zeroed();
-                    }
+    host::shutdown(lua_handle, "terminal shutdown");
+    session.clear_subscribers();
+    driver.end_frame();
+    match terminal {
+        Terminal::Restart => {
+            driver.quiesce();
+            // SAFETY: `boot.lua` leaves the restart cookie at thread stack index 2.
+            unsafe {
+                raw::luax_checkvariant(thread.cast(), 2, cookie);
+                // An object cookie holds a reference counted by the state
+                // that is about to close, so it cannot cross the restart.
+                if cookie.__bindgen_anon_1.type_ == raw::VariantType_TYPE_OBJECT {
+                    *cookie = mem::zeroed();
                 }
             }
-            Terminal::Exit { .. } => {
-                // SAFETY: the headset remains initialized until the Lua state
-                // closes. OpenVR acknowledges a requested exit before teardown.
-                unsafe { raw::lovrHeadsetWillExit() };
-                driver.borrow_mut().shutdown();
-            }
-        },
-        || {
-            // SAFETY: every prior phase has retired Lua callbacks, flushed the
-            // frame, and quiesced or stopped native users of the state.
-            unsafe {
-                close_lua_state(
-                    state,
-                    thread,
-                    lua_handle,
-                    matches!(terminal, Terminal::Exit { .. }),
-                )
-            };
-        },
-    );
+        }
+        Terminal::Exit { .. } => {
+            // SAFETY: the headset remains initialized until the Lua state
+            // closes. OpenVR acknowledges a requested exit before teardown.
+            unsafe { raw::lovrHeadsetWillExit() };
+            driver.shutdown();
+        }
+    }
+    // SAFETY: every prior phase has retired Lua callbacks, flushed the
+    // frame, and quiesced or stopped native users of the state.
+    unsafe {
+        close_lua_state(
+            state,
+            thread,
+            lua_handle,
+            matches!(terminal, Terminal::Exit { .. }),
+        )
+    };
 
     match terminal {
         Terminal::Restart => Outcome::Restart,
@@ -496,7 +489,7 @@ fn mount_descriptions(roots: &ModuleRoots) -> Vec<MountDescription> {
         .map(|root| MountDescription {
             source: root.source.clone(),
             mount_point: root.mount_point(),
-            required: root.required_for_installation(),
+            required: root.required(),
         })
         .collect()
 }

@@ -2,13 +2,12 @@
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
-local owner = require '@lunette-contracts/owner'
 local tags = require '@lunette-contracts/tags'
 local vocabulary = require '@lunette-contracts/vocabulary'
 
 local rules = {}
 
-export type Owner = owner.Owner
+export type Owner = plugin.Owner
 export type Tag = tags.Tag
 
 export type Valued<T> = T | ((lunette.Window, string) -> T)

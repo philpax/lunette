@@ -4,8 +4,7 @@
 )]
 
 use crate::plugin::graph::{
-    Action, Blocker, ContractKey, Graph, InstanceId, InstanceSnapshot, Intent, LifecycleState,
-    LoadOutcome,
+    Action, ContractKey, Graph, InstanceId, InstanceSnapshot, Intent, LifecycleState, LoadOutcome,
 };
 
 fn node(graph: &Graph, id: InstanceId) -> InstanceSnapshot {
@@ -49,15 +48,11 @@ fn snapshot_tracks_actual_allocations_failed_bindings_substitution_and_generatio
     let consumer = graph
         .install(vec![key.clone()], vec![], None)
         .expect("consumer");
-    assert_eq!(node(&graph, first).blockers, vec![Blocker::Disabled]);
     graph.request(Intent::Enable(first)).expect("enable");
     graph.request(Intent::Enable(consumer)).expect("enable");
     let loading = begin(&mut graph, first);
     assert_eq!(node(&graph, first).activation, Some(loading));
     assert_eq!(node(&graph, first).generation, None);
-    assert!(
-        matches!(node(&graph, consumer).blockers.as_slice(), [Blocker::ProviderPending { provider, .. }] if *provider == first)
-    );
     graph
         .complete_load(first, loading, LoadOutcome::Success)
         .expect("publish");
@@ -71,10 +66,6 @@ fn snapshot_tracks_actual_allocations_failed_bindings_substitution_and_generatio
     assert_eq!(node(&graph, consumer).state, LifecycleState::Failed);
     assert!(node(&graph, consumer).bindings.is_empty());
     assert_eq!(node(&graph, consumer).failed_bindings, bindings);
-    assert_eq!(
-        node(&graph, consumer).blockers,
-        vec![Blocker::FailedBindingsUnchanged]
-    );
     assert!(node(&graph, first).dependents.is_empty());
     let before = graph.snapshot();
     assert_eq!(before, graph.snapshot());
@@ -190,59 +181,6 @@ fn snapshot_retains_retired_children_only_until_allocation_ends_and_reports_quar
     assert!(retained.cleanup_failed && retained.intent.retired);
     assert!(retained.children.is_empty());
     graph.request(Intent::Shutdown).expect("shutdown");
-    assert!(graph.snapshot().shutdown_requested);
     assert!(graph.next_action().is_none());
     assert!(graph.snapshot().instances.is_empty());
-}
-
-#[test]
-fn inspection_reports_every_unmet_requirement_without_inventing_binding_edges() {
-    let mut graph = Graph::new();
-    let missing = ContractKey::new("inspection/missing", 1);
-    let disabled = ContractKey::new("inspection/disabled", 1);
-    let mismatch = ContractKey::new("inspection/mismatch", 2);
-    let disabled_provider = graph
-        .install(vec![], vec![disabled.clone()], None)
-        .expect("disabled provider");
-    let mismatch_provider = graph
-        .install(
-            vec![],
-            vec![ContractKey::new("inspection/mismatch", 1)],
-            None,
-        )
-        .expect("mismatched provider");
-    let consumer = graph
-        .install(vec![missing, disabled, mismatch], vec![], None)
-        .expect("consumer");
-    graph.request(Intent::Enable(consumer)).expect("enable");
-    let inspection = node(&graph, consumer);
-    assert!(inspection.bindings.is_empty());
-    assert!(node(&graph, disabled_provider).dependents.is_empty());
-    assert!(node(&graph, mismatch_provider).dependents.is_empty());
-    assert_eq!(inspection.blockers.len(), 3);
-    assert!(graph.snapshot().diagnostics.is_empty());
-}
-
-#[test]
-fn inspecting_missing_requirements_does_not_record_or_consume_diagnostics() {
-    let mut graph = Graph::new();
-    let id = graph
-        .install(
-            vec![ContractKey::new("inspection/missing", 1)],
-            vec![],
-            None,
-        )
-        .expect("consumer");
-    graph.request(Intent::Enable(id)).expect("enable");
-    let before = graph.snapshot();
-    assert!(!node(&graph, id).blockers.is_empty());
-    assert!(before.diagnostics.is_empty());
-    assert_eq!(before, graph.snapshot());
-    assert!(graph.next_action().is_none());
-    let pending = graph.snapshot();
-    assert_eq!(pending.diagnostics.len(), 1);
-    assert_eq!(pending, graph.snapshot());
-    assert_eq!(pending.diagnostics, graph.take_diagnostics());
-    assert!(graph.snapshot().diagnostics.is_empty());
-    assert!(node(&graph, id).last_diagnostic.is_some());
 }

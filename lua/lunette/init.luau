@@ -440,8 +440,6 @@ export type LayerRevokedEvent = {
 export type PluginState = 'inactive' | 'loading' | 'active' | 'unloading' | 'failed' | 'quarantined' | 'removed'
 export type PluginAuthority = 'detached' | 'resources' | 'cleanup'
 export type PluginEffectState = 'armed' | 'cleaning' | 'disarmed'
-export type PluginDiagnosticSeverity = 'waiting' | 'error'
-export type PluginBlockerKind = 'shutdown' | 'disabled' | 'retired' | 'quarantined' | 'replacementRequested' | 'parentUnavailable' | 'providerUnavailable' | 'contractHeld' | 'providerPending' | 'failedBindingsUnchanged' | 'missingProvider' | 'providerDisabled' | 'schemaMismatch' | 'providerQuarantined' | 'contractQuarantined' | 'dependencyCycle' | 'publishConflict' | 'activationsExhausted'
 
 -- Immutable data copied from one synchronous runtime inspection.
 export type PluginContractSnapshot = {
@@ -466,29 +464,9 @@ export type PluginBindingSnapshot = {
 
 -- Immutable data copied from one synchronous runtime inspection.
 export type PluginEffectSnapshot = {
-  read ownerId: string,
-  read sourceId: string,
   read activationId: string,
   read ordinal: string,
   read state: PluginEffectState,
-}
-
--- Immutable data copied from one synchronous runtime inspection.
-export type PluginBlockerSnapshot = {
-  read kind: PluginBlockerKind,
-  read message: string,
-  read contract: PluginContractSnapshot?,
-  read provided: PluginContractSnapshot?,
-  read relatedId: string?,
-  read generationId: string?,
-  read instanceIds: { read [number]: string },
-}
-
--- Immutable data copied from one synchronous runtime inspection.
-export type PluginDiagnosticSnapshot = {
-  read instanceId: string,
-  read severity: PluginDiagnosticSeverity,
-  read blocker: PluginBlockerSnapshot,
 }
 
 -- Immutable data copied from one synchronous runtime inspection.
@@ -510,18 +488,14 @@ export type PluginInstanceSnapshot = {
   read replacementRequested: boolean,
   read cleanupFailed: boolean,
   read authority: PluginAuthority,
-  read blockers: { read [number]: PluginBlockerSnapshot },
   read diagnostic: string?,
   read lastFailure: string?,
-  read lastGraphDiagnostic: PluginBlockerSnapshot?,
   read effects: { read [number]: PluginEffectSnapshot },
 }
 
 -- Immutable data copied from one synchronous runtime inspection.
 export type PluginRuntimeSnapshot = {
   read instances: { read [number]: PluginInstanceSnapshot },
-  read diagnostics: { read [number]: PluginDiagnosticSnapshot },
-  read shutdownRequested: boolean,
   read draining: boolean,
   read closing: boolean,
   read closed: boolean,
@@ -631,8 +605,6 @@ export type PluginEffect = {
 export type PluginApi = {
   -- Declares a qualified contract identity for the current Lua state epoch.
   read contract: (name: string, schema: number) -> PluginContractToken,
-  -- Binds one erased native wrapper to a contract token.
-  read bind: (token: PluginContractToken, wrapper: unknown) -> (),
   -- Defines a reusable plugin from required and provided contract records. The
   -- optional name labels it in diagnostics; without one, it is named for where
   -- its initializer is defined.

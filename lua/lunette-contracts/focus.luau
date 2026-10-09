@@ -2,13 +2,12 @@
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
-local owner = require '@lunette-contracts/owner'
 local inspection = require '@lunette-contracts/inspection'
 local keys = require '@lunette-contracts/keys'
 
 local focus = {}
 
-export type Owner = owner.Owner
+export type Owner = plugin.Owner
 
 -- Keys are evdev activations, not held-key streams. Committed UTF-8 text is a separate operation.
 export type KeyEvent = {

@@ -312,13 +312,15 @@ fn captured_frame_transform_reads_through_reused_monitor_textures() {
         None
     );
     session.with_monitor_textures(|textures| {
-        textures.install_pixels(
+        textures.install(
             key(1),
+            None,
             FakeTexture(7),
             TextureDescription {
                 size: PixelSize::new(1920, 1080),
                 alpha: Alpha::Opaque,
             },
+            FrameTransform::Undefined,
         );
     });
     for (transform, name) in [

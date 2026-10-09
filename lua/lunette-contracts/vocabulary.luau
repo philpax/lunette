@@ -1,7 +1,7 @@
 -- Shared recursive types and constants avoid dependencies between provider contracts.
 
 local lunette = require '@lunette'
-local owner = require '@lunette-contracts/owner'
+local plugin = require '@lunette-plugin'
 
 local vocabulary = {}
 
@@ -182,7 +182,7 @@ export type FrameAttachment = {
 }
 
 type SurfaceFields = {
-  read attachFrame: ((Surface, owner.Owner, FrameStyle) -> FrameAttachment)?,
+  read attachFrame: ((Surface, plugin.Owner, FrameStyle) -> FrameAttachment)?,
   read dead: boolean,
   read grabbable: boolean?,
   -- A primary-button edge begins a spatial grab instead of a click on this surface.
@@ -208,7 +208,7 @@ type SurfaceFields = {
 
 -- Luau rejects the recursive `SurfaceFields` alias and makes `setPose` ambiguous in an intersection.
 type MovableFields = {
-  read attachFrame: ((Surface, owner.Owner, FrameStyle) -> FrameAttachment)?,
+  read attachFrame: ((Surface, plugin.Owner, FrameStyle) -> FrameAttachment)?,
   read dead: boolean,
   read grabbable: boolean?,
   read triggerGrabbable: boolean?,

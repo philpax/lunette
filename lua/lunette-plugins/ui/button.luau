@@ -1,19 +1,19 @@
 -- A button activates only on a primary release inside the original gesture.
 local ui = require '@lunette-contracts/ui'
-local surface = require '@lunette-contracts/surface'
 local control = require '@lunette-plugins/ui/control'
 local validation = require './validation'
+local vocabulary = require '@lunette-contracts/vocabulary'
 
 local button = {}
 
 function button.new(options: ui.ButtonOptions, host: control.Host): control.Widget
   options = validation.button(options)
-  local pressed: { [surface.Pointer]: boolean } = {}
+  local pressed: { [vocabulary.Pointer]: boolean } = {}
   local widget: control.Widget = {
     kind = 'button',
     methods = {},
     wantsKeyboard = false,
-    pointer = function(event: surface.PointerEvent, _item: string?): ()
+    pointer = function(event: vocabulary.PointerEvent, _item: string?): ()
       if event.kind == 'press' then
         if event.button == 'left' and event.inside then
           pressed[event.pointer] = true

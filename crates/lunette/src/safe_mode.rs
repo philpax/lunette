@@ -332,36 +332,6 @@ mod tests {
         assert_eq!(planes, 0, "there is no window to draw");
     }
 
-    #[test]
-    fn it_spawns_a_terminal_and_falls_through_to_the_next_when_one_will_not_start() {
-        let lua = started();
-
-        call(&lua, "load", ());
-        let first = spawns(&lua);
-        assert_eq!(first.len(), 1, "load should spawn one candidate");
-
-        let event = lua
-            .load("return { process = { id = 1 }, outcome = 'spawnFailed' }")
-            .eval::<Table>()
-            .expect("the event should build");
-        recorder(&lua)
-            .get::<Function>("processExited")
-            .expect("safe mode subscribes to process exits")
-            .call::<()>(event)
-            .expect("the process exit handler runs");
-
-        let second = spawns(&lua);
-        assert_eq!(
-            second.len(),
-            2,
-            "a failed spawn should try the next candidate"
-        );
-        assert_ne!(
-            second[0], second[1],
-            "the next candidate is a different program"
-        );
-    }
-
     /// A hand aimed at the middle of the panel puts the pointer at the middle of
     /// the window, and a trigger press reaches the sink as a button.
     ///
@@ -676,16 +646,6 @@ mod tests {
             .pairs::<String, Value>()
             .filter_map(Result::ok)
             .map(|(name, _)| name)
-            .collect()
-    }
-
-    /// The programs requested from the fake `lunette.spawn`, in order.
-    fn spawns(lua: &Lua) -> Vec<String> {
-        recorder(lua)
-            .get::<Table>("spawns")
-            .expect("spawns should be recorded")
-            .sequence_values::<String>()
-            .filter_map(Result::ok)
             .collect()
     }
 

@@ -1,11 +1,10 @@
 -- The most recent live owner override decides the value. Ending an override reveals the next live override.
 
 local plugin = require '@lunette-plugin'
-local owner = require '@lunette-contracts/owner'
 
 local overrides = {}
 
-type Owner = owner.Owner
+type Owner = plugin.Owner
 
 type Entry<T> = { owner: Owner, value: T, effect: plugin.Effect? }
 

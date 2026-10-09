@@ -38,86 +38,10 @@ fn snapshot_lists_declare_readonly_indexers_without_changing_vec_types() {
 }
 
 #[test]
-fn effect_history_is_complete_until_next_load_or_removal_and_retains_no_callbacks()
--> mlua::Result<()> {
-    let lua = lua()?;
-    lua.load(r#"
-        local p = native.plugin
-        local runtime = p.runtime()
-        local context
-        local cleaned = 0
-        local weakCallbacks = setmetatable({}, {__mode = 'k'})
-        local instance = runtime:use(p.define({}, {}, function(current)
-            context = current
-            return {}
-        end, 'history'), nil)
-        instance:enable()
-        local activation = runtime:snapshot().instances[1].activationId
-        for _ = 1, 512 do
-            local effect = context:effect(function()
-                local inverse = function() cleaned += 1 end
-                weakCallbacks[inverse] = true
-                return inverse
-            end)
-            effect:dispose()
-        end
-        local history = runtime:snapshot()
-        assert(cleaned == 512 and #history.instances[1].effects == 512)
-        for index, effect in history.instances[1].effects do
-            assert(effect.ownerId == instance:id() and effect.sourceId == instance:id())
-            assert(effect.activationId == activation and effect.ordinal == tostring(index - 1))
-            assert(effect.state == 'disarmed')
-        end
-        historyFixture = {callbacks = weakCallbacks, history = history, runtime = runtime}
-        historyFixture.finish = function()
-        instance:disable()
-        assert(#runtime:snapshot().instances[1].effects == 512)
-        assert(cleaned == 512)
-        instance:reload(nil)
-        local reloaded = runtime:snapshot()
-        assert(reloaded.instances[1].activationId ~= activation)
-        assert(#reloaded.instances[1].effects == 0)
-        assert(#history.instances[1].effects == 512)
-        local replacement = context:effect(function()
-            local inverse = function() cleaned += 1 end
-            weakCallbacks[inverse] = true
-            return inverse
-        end)
-        replacement:dispose()
-        local latest = runtime:snapshot()
-        assert(#latest.instances[1].effects == 1 and latest.instances[1].effects[1].ordinal == '512')
-        instance:dispose()
-        assert(#runtime:snapshot().instances == 0 and #latest.instances[1].effects == 1)
-        runtime:close()
-        historyFixture.latest = latest
-        end
-    "#).exec()?;
-    lua.gc_collect()?;
-    lua.load(
-        r#"
-        assert(next(historyFixture.callbacks) == nil)
-        assert(#historyFixture.runtime:snapshot().instances[1].effects == 512)
-        historyFixture.finish()
-        historyFixture.finish = nil
-    "#,
-    )
-    .exec()?;
-    lua.gc_collect()?;
-    lua.load(
-        r#"
-        assert(next(historyFixture.callbacks) == nil)
-        assert(#historyFixture.history.instances[1].effects == 512)
-        assert(#historyFixture.latest.instances[1].effects == 1)
-        historyFixture = nil
-    "#,
-    )
-    .exec()
-}
-
-#[test]
 fn snapshots_are_detached_immutable_and_reentrant_during_load_and_cleanup() -> mlua::Result<()> {
     let lua = lua()?;
-    lua.load(r#"
+    lua.load(
+        r#"
         local p = native.plugin
         local runtime = p.runtime()
         local foreign = p.runtime()
@@ -155,8 +79,6 @@ fn snapshots_are_detached_immutable_and_reentrant_during_load_and_cleanup() -> m
         assert(active.instances[1].state == 'active' and active.instances[1].enabled)
         assert(active.instances[1].generationId == active.instances[1].activationId)
         assert(active.instances[1].effects[1].state == 'armed')
-        assert(active.instances[1].effects[1].ownerId == instance:id())
-        assert(active.instances[1].effects[1].sourceId == instance:id())
         assert(cleaned == 0)
         for _, operation in {
             function() active.closed = true end,
@@ -181,13 +103,15 @@ fn snapshots_are_detached_immutable_and_reentrant_during_load_and_cleanup() -> m
         assert(loading.instances[1].state == 'loading')
         runtime:close()
         local closed = runtime:snapshot()
-        assert(closed.closed and closed.closing and closed.shutdownRequested and not closed.draining)
+        assert(closed.closed and closed.closing and not closed.draining)
         assert(#closed.instances == 0)
         assert(runtime:owns(instance))
         assert(runtime:ownerId(retained) == instance:id())
         assert(foreign:ownerId(retained) == nil)
         foreign:close()
-    "#).exec()
+    "#,
+    )
+    .exec()
 }
 
 #[test]
@@ -196,9 +120,7 @@ fn snapshots_keep_exact_current_and_failed_binding_ids_and_freeze_their_nested_d
     let lua = lua()?;
     lua.load(r#"
         local p = native.plugin
-        local token = p.contract('inspection/exact', 4)
-        local wrapper = table.freeze({})
-        p.bind(token, wrapper)
+        local wrapper = p.contract('inspection/exact', 4)
         local runtime = p.runtime()
         local providerDefinition = p.define({}, {service = wrapper}, function() return {service = {}} end, 'same label')
         local first = runtime:use(providerDefinition, nil)
@@ -248,76 +170,6 @@ fn snapshots_keep_exact_current_and_failed_binding_ids_and_freeze_their_nested_d
         assert(historicalBinding.current)
         runtime:close()
     "#).exec()
-}
-
-#[test]
-fn snapshots_do_not_plan_or_consume_pending_diagnostics() -> mlua::Result<()> {
-    let lua = lua()?;
-    lua.load(r#"
-        local p = native.plugin
-        local token = p.contract('inspection/missing', 2)
-        local wrapper = table.freeze({})
-        p.bind(token, wrapper)
-        local runtime = p.runtime()
-        local instance = runtime:use(p.define({clock = wrapper}, {}, function() error('must not load') end, 'waiting'), nil)
-        instance:enable()
-        local snapshot = runtime:snapshot()
-        local node = snapshot.instances[1]
-        assert(node.id == instance:id() and node.state == 'inactive' and node.enabled)
-        assert(node.required[1].field == 'clock')
-        assert(node.required[1].contract.name == 'inspection/missing')
-        assert(node.required[1].contract.schema == 2)
-        assert(node.required[1].contract.display == 'inspection/missing@2')
-        assert(node.blockers[1].kind == 'missingProvider' and #node.bindings == 0)
-        runtime:close()
-    "#).exec()?;
-    let runtime = crate::plugin::attachment::runtime(&lua, ())?;
-    {
-        let wrapper = lua.create_table()?;
-        wrapper.set_readonly(true);
-        let token =
-            crate::plugin::attachment::contract(&lua, ("inspection/pending".to_owned(), 1))?;
-        let userdata = lua.create_userdata(token)?;
-        crate::plugin::attachment::bind(
-            &lua,
-            (
-                userdata.borrow::<crate::plugin::attachment::PluginContractToken>()?,
-                crate::plugin::attachment::Unknown(mlua::Value::Table(wrapper.clone())),
-            ),
-        )?;
-        let required = lua.create_table()?;
-        required.set("service", wrapper)?;
-        let definition = crate::plugin::attachment::define(
-            &lua,
-            (
-                crate::plugin::attachment::Unknown(mlua::Value::Table(required)),
-                crate::plugin::attachment::Unknown(mlua::Value::Table(lua.create_table()?)),
-                crate::plugin::attachment::PluginInit(lua.create_function(|_, ()| Ok(()))?),
-                Some("pending diagnostic".to_owned()),
-            ),
-        )?;
-        let instance = crate::plugin::attachment::lifecycle::use_definition(
-            &runtime.state,
-            definition.data,
-            mlua::Value::Nil,
-            None,
-        )?;
-        let mut state = runtime.state.borrow_mut();
-        state
-            .graph
-            .request(crate::plugin::graph::Intent::Enable(instance.id))
-            .map_err(mlua::Error::external)?;
-        assert!(state.graph.next_action().is_none());
-    }
-    let before = runtime.state.borrow().graph.snapshot();
-    let _first = super::snapshot(&runtime.state)?;
-    let _second = super::snapshot(&runtime.state)?;
-    assert_eq!(before, runtime.state.borrow().graph.snapshot());
-    assert_eq!(
-        runtime.state.borrow_mut().graph.take_diagnostics(),
-        before.diagnostics
-    );
-    Ok(())
 }
 
 #[test]

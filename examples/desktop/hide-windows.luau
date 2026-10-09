@@ -3,16 +3,12 @@ local plugin = require '@lunette-plugin'
 local menu = require '@lunette-contracts/menu'
 local panels = require '@lunette-contracts/panels'
 
-local schema = require '@lunette-plugin/schema'
-
-local descriptor = schema.object {}
-export type Config = schema.Input<typeof(descriptor)>
-export type Settings = schema.Output<typeof(descriptor)>
+export type Config = {}
+export type Settings = {}
 
 return plugin.consumer<<Config, Settings>>({
   name = 'hide-windows',
   requires = { menu = menu.capability, panels = panels.capability },
-  schema = descriptor,
   init = function(context: plugin.Context, _settings: Settings)
     local actions: menu.Service = context:require(menu.capability)
     local panelService: panels.Service = context:require(panels.capability)

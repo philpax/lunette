@@ -9,7 +9,7 @@ local schema = require '@lunette-plugin/schema'
 local test = testing.suite()
 
 local fixture = require './support/management_fixture'
-local entry, knownEntry = fixture.entry, fixture.knownEntry
+local entry = fixture.entry
 local configured, report = fixture.configured, fixture.report
 
 test('start publishes a protected service and tracks enabled disabled and failed entries', function()
@@ -44,8 +44,8 @@ test('start publishes a protected service and tracks enabled disabled and failed
   expect.equal(observed, 4)
   expect.equal(entry(service, 'composition').protected, true)
   expect.equal(entry(service, 'settings').state, 'active')
-  expect.equal(entry(service, 'settings').configurable, true)
-  expect.equal(entry(service, 'viewer').configurable, false)
+  expect.truthy(entry(service, 'settings').schema ~= nil, 'a configured definition carries its schema')
+  expect.equal(entry(service, 'viewer').schema, nil, 'a raw definition has none')
   expect.equal(entry(service, 'broken').state, 'failed')
   expect.truthy(entry(service, 'broken').diagnostic:find('managed initialization fails', 1, true))
   report 'managed initialization fails'
@@ -81,60 +81,6 @@ test('invalid configurations are rejected before disposing the live activation',
   expect.equal(#testing.takeReports(), 0)
   running.runtime:close()
   expect.equal(releases, 1)
-end)
-
-test('factory and definition additions preflight configuration before registering an instance', function()
-  local running = management.start {}
-  local factories, initialized = 0, 0
-  local definition = configured(function()
-    initialized += 1
-  end)
-  for _, source in { 'definition', 'factory' } do
-    local added = { id = source, config = { value = 'invalid' } }
-    if source == 'definition' then
-      added.definition = definition
-    else
-      added.factory = function()
-        factories += 1
-        return definition
-      end
-    end
-    expect.raises(function()
-      running.service:add(added)
-    end, 'managed%-settings')
-    expect.equal(entry(running.service, source), nil)
-    expect.equal(knownEntry(running.service, source), nil, 'failed new additions never enter the catalog')
-    expect.equal(#running.service:snapshot().instances, 1)
-  end
-  expect.equal(factories, 1)
-  expect.equal(initialized, 0)
-  expect.equal(#testing.takeReports(), 0)
-  local ok, problem = pcall(function()
-    running.service:add {
-      id = 'bad-factory',
-      factory = function()
-        return {}
-      end,
-    }
-  end)
-  expect.equal(ok, false)
-  expect.equal(problem.code, 'definition')
-  expect.equal(problem.entryId, 'bad-factory')
-  expect.equal(problem.field, 'name')
-  expect.truthy(table.isfrozen(problem))
-  expect.equal(#running.service:snapshot().instances, 1, 'invalid definition never reaches native use')
-  expect.equal(entry(running.service, 'bad-factory'), nil)
-  running.service:add {
-    id = 'valid',
-    factory = function()
-      factories += 1
-      return definition
-    end,
-  }
-  running.service:reload 'valid'
-  expect.equal(factories, 2, 'reload retains the definition from the factory')
-  expect.equal(initialized, 2)
-  running.runtime:close()
 end)
 
 test('start preflights all definitions before any activation and rejects reserved or unknown protected ids', function()
@@ -229,66 +175,17 @@ test('a disabled or initially failed entry never replaces recovery history with 
   failed.runtime:close()
 end)
 
-test('only schema-backed definitions are configurable and opaque values preserve identity', function()
-  local legacy =
-    plugin.consumer({ name = 'managed-legacy', defaults = { value = 1 }, init = function() end }).definition
+test('a definition without a schema cannot be configured', function()
   local raw = plugin.define { name = 'managed-raw', init = function() end }
-  local running = management.start { { id = 'legacy', definition = legacy }, { id = 'raw', definition = raw } }
-  for _, id in { 'legacy', 'raw' } do
-    expect.raises(function()
-      running.service:configure(id, { value = 2 })
-    end, 'no configuration schema')
-  end
-  local custom = { marker = true }
-  local callback = function() end
-  local position = vector.pack(1, 2, 3)
-  local received
-  local descriptor = schema.object {
-    value = schema.default(schema.number())(1),
-    custom = schema.default(schema.custom {
-      runtimeType = 'table',
-      validate = function(value)
-        expect.equal(value, custom)
-        return value
-      end,
-    })(custom),
-    callback = schema.default(schema.callback(callback))(callback),
-    position = schema.default(schema.vector())(position),
-  }
-  local opaque = plugin.consumer({
-    name = 'managed-opaque',
-    schema = descriptor,
-    init = function(_context, settings)
-      received = settings
-    end,
-  }).definition
-  running.service:add {
-    id = 'opaque',
-    definition = opaque,
-    config = { custom = custom, callback = callback, position = position },
-  }
-  expect.equal(received.custom, custom)
-  expect.equal(entry(running.service, 'opaque').config.custom, custom)
-  expect.equal(received.callback, callback)
-  expect.equal(received.position, position)
-  local nextConfig = { value = 5, custom = custom, callback = callback, position = position }
-  running.service:configure('opaque', nextConfig)
-  nextConfig.value = 100
-  expect.equal(entry(running.service, 'opaque').config.value, 5)
-  expect.equal(received.custom, custom)
+  local running = management.start { { id = 'raw', definition = raw } }
+  expect.raises(function()
+    running.service:configure('raw', { value = 2 })
+  end, 'no configuration schema')
   running.runtime:close()
 end)
 
 test('removal clears bookkeeping unless cleanup quarantines the entry', function()
-  local running = management.start {}
   local normal = plugin.define { name = 'managed-normal', init = function() end }
-  running.service:add { id = 'normal', definition = normal }
-  running.service:remove 'normal'
-  expect.equal(entry(running.service, 'normal'), nil)
-  expect.raises(function()
-    running.service:enable 'normal'
-  end, 'unknown entry')
-  running.service:add { id = 'normal', definition = normal }
   local broken = plugin.define {
     name = 'managed-cleanup',
     init = function(context)
@@ -299,7 +196,14 @@ test('removal clears bookkeeping unless cleanup quarantines the entry', function
       end)
     end,
   }
-  running.service:add { id = 'broken', definition = broken }
+  local running = management.start { { id = 'normal', definition = normal }, { id = 'broken', definition = broken } }
+  running.service:remove 'normal'
+  expect.equal(entry(running.service, 'normal'), nil)
+  expect.raises(function()
+    running.service:enable 'normal'
+  end, 'unknown entry')
+  running.service:restore 'normal'
+  expect.equal(entry(running.service, 'normal').state, 'active')
   expect.raises(function()
     running.service:remove 'broken'
   end, 'quarantined')
@@ -307,7 +211,7 @@ test('removal clears bookkeeping unless cleanup quarantines the entry', function
   expect.equal(entry(running.service, 'broken').state, 'quarantined')
   expect.truthy(entry(running.service, 'broken').diagnostic:find('managed cleanup fails', 1, true))
   expect.raises(function()
-    running.service:add { id = 'broken', definition = normal }
+    running.service:restore 'broken'
   end, 'already exists')
   expect.raises(function()
     running.service:reload 'broken'
@@ -375,33 +279,6 @@ test('management protection follows dependency bindings and the owners of child 
   expect.equal(owner:active(), false, 'owner inspection grants no activation authority')
 end)
 
-test('protection is recomputed when a previously missing provider is added', function()
-  local capability = plugin.capability { name = 'local/management-dynamic', schema = 1 }
-  local viewer = plugin.define {
-    name = 'managed-waiting-viewer',
-    requires = { service = capability },
-    init = function(context)
-      context:require(capability)
-    end,
-  }
-  local running = management.start({ { id = 'manager', definition = viewer } }, { protected = { 'manager' } })
-  testing.takeReports()
-  local provider = plugin.provider({
-    name = 'managed-dynamic-provider',
-    capability = capability,
-    build = function()
-      return {}
-    end,
-  }).definition
-  running.service:add { id = 'provider', definition = provider }
-  expect.equal(entry(running.service, 'manager').state, 'active')
-  expect.equal(entry(running.service, 'provider').protected, true)
-  expect.raises(function()
-    running.service:disable 'provider'
-  end, 'cannot be changed')
-  running.runtime:close()
-end)
-
 test('service inspection is detached immutable and does not drain runtime intent', function()
   local definition = configured(function() end)
   local config = { value = 3 }
@@ -465,7 +342,6 @@ test('malformed composition input and recursive containers fail before activatio
 end)
 
 test('a runtime callback can inspect management but cannot reenter an entry change', function()
-  local running = management.start {}
   local observed
   local viewer = plugin.define {
     name = 'managed-reentrant-viewer',
@@ -478,9 +354,53 @@ test('a runtime callback can inspect management but cannot reenter an entry chan
       end, 'runtime is draining')
     end,
   }
-  running.service:add { id = 'viewer', definition = viewer }
+  local running = management.start { { id = 'viewer', definition = viewer } }
   expect.truthy(observed and table.isfrozen(observed))
   expect.equal(entry(running.service, 'viewer').state, 'active')
+  running.runtime:close()
+end)
+
+test('provider outages retain the factory definition and composed configuration', function()
+  local capability = plugin.capability { name = 'local/managed-composed-provider', schema = 1 }
+  local provider = plugin.define {
+    name = 'managed-composed-provider',
+    provides = { service = capability },
+    init = function(_context, _config, publisher)
+      publisher:provide(capability, {})
+    end,
+  }
+  local made, loads, received = 0, 0, nil
+  local consumer = plugin.consumer {
+    name = 'managed-composed-dependent',
+    requires = { service = capability },
+    schema = schema.object { map = schema.default(schema.map(schema.string())) {} },
+    init = function(context, settings)
+      context:require(capability)
+      loads += 1
+      received = settings.map
+    end,
+  }
+  local entries = plugin.compose {
+    { id = 'provider', definition = provider },
+    {
+      id = 'dependent',
+      factory = function()
+        made += 1
+        return consumer.definition
+      end,
+      config = { map = { old = 'old' } },
+    },
+  }
+  entries = plugin.compose(entries, { { id = 'dependent', config = { map = {} } } })
+  local running = management.start(entries)
+  expect.equal(next(received), nil)
+  running.service:disable 'provider'
+  expect.equal(entry(running.service, 'dependent').state, 'inactive')
+  running.service:enable 'provider'
+  expect.equal(entry(running.service, 'dependent').state, 'active')
+  expect.equal(next(received), nil)
+  expect.equal(loads, 2)
+  expect.equal(made, 1, 'provider recovery retains the source definition')
   running.runtime:close()
 end)
 

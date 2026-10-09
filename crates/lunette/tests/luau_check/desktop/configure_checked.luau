@@ -1,5 +1,5 @@
 -- A configure patch is checked against its definition's options, with the
--- configuration type inferred from the definition or factory it is given.
+-- configuration type inferred from the definition or factory it names.
 -- The first block is correct and checks cleanly; each call in the second
 -- carries one error, which the test finds by line. A misspelt key is not
 -- among them: Luau does not flag an extra key in a table literal, and the
@@ -15,8 +15,8 @@ local arrange = require '@lunette-plugins/desktop/arrange'
 local pacing = require '@lunette-plugins/desktop/pacing'
 
 local accepted = {
-  desktop.configure(wristKeyboard) { placement = { distance = 0.45 } },
-  desktop.configure(menu) {
+  desktop.configure('desktop/keyboard', wristKeyboard) { placement = { distance = 0.45 } },
+  desktop.configure('desktop/menu', menu) {
     hand = 'right',
     size = 0.12,
     offset = vector.pack(-0.03, -0.01, 0.125),
@@ -29,20 +29,20 @@ local accepted = {
       rowHeight = 40,
     },
   },
-  desktop.configure(laser.definition) { style = { length = 3, color = { 1, 0.4, 0.2, 0.6 } } },
-  desktop.configure(arrange) { layout = 'grid', options = { grid = { columns = 3 } } },
-  desktop.configure(pacing) { pauseMonitors = true },
+  desktop.configure('laser', laser.definition) { style = { length = 3, color = { 1, 0.4, 0.2, 0.6 } } },
+  desktop.configure('desktop/arrange', arrange) { layout = 'grid', options = { grid = { columns = 3 } } },
+  desktop.configure('desktop/pacing', pacing) { pauseMonitors = true },
 }
 
 local rejected = {
-  desktop.configure(menu) { hand = 'rigth' },
-  desktop.configure(wristKeyboard) { placement = { distance = 'far' } },
-  desktop.configure(laser.definition) { style = { length = 'long' } },
-  desktop.configure(arrange) { layout = 3 },
-  desktop.configure(keyboard.definition) { rows = 'qwerty' },
-  desktop.configure(pacingProvider.definition) { tuning = { background = 'low' } },
-  desktop.configure(scaleProvider.definition) { tuning = { raise = true } },
-  desktop.configure(pacing) { pauseMonitors = 1 },
+  desktop.configure('desktop/menu', menu) { hand = 'rigth' },
+  desktop.configure('desktop/keyboard', wristKeyboard) { placement = { distance = 'far' } },
+  desktop.configure('laser', laser.definition) { style = { length = 'long' } },
+  desktop.configure('desktop/arrange', arrange) { layout = 3 },
+  desktop.configure('keyboard', keyboard.definition) { rows = 'qwerty' },
+  desktop.configure('pacing', pacingProvider.definition) { tuning = { background = 'low' } },
+  desktop.configure('scale', scaleProvider.definition) { tuning = { raise = true } },
+  desktop.configure('desktop/pacing', pacing) { pauseMonitors = 1 },
 }
 
 return { accepted, rejected }

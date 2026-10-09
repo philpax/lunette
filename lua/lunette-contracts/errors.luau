@@ -1,11 +1,10 @@
 -- The error stream rate-limits repeated reports, stores bounded history, and notifies subscribers. The host logs errors independently.
 
 local plugin = require '@lunette-plugin'
-local owner = require '@lunette-contracts/owner'
 
 local errors = {}
 
-export type Owner = owner.Owner
+export type Owner = plugin.Owner
 
 -- `sequence` counts delivered reports since the provider started or was cleared. `time` records when the provider received the report.
 export type Report = {

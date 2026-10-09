@@ -69,14 +69,6 @@ function native.new()
     return count
   end
 
-  function fake.forgetSubscriptions()
-    for _, list in pairs(events.subscriptions) do
-      for _, record in ipairs(list) do
-        record.active = false
-      end
-    end
-  end
-
   function fake.raise(message, traceback)
     local listeners = {}
     for _, record in ipairs(events.subscriptions.onError or {}) do
@@ -106,7 +98,6 @@ function native.new()
     for name in pairs(events.subscriptions) do
       assert(fake.subscriptionCount(name) == 0, 'subscription outlived plugin shutdown: ' .. name)
     end
-    fake.forgetSubscriptions()
   end
 
   function fake.newOutput(id, scale)
@@ -322,17 +313,15 @@ installLovr = function(events)
   end)
   local font = recorder.font
   events.render = recorder
-  events.fontAcquisitions = recorder.fontAcquisitions
-  events.fontReleases = recorder.fontReleases
-  events.fontMeasurements = recorder.fontMeasurements
-  events.meshAcquisitions = recorder.meshAcquisitions
-  events.meshReleases = recorder.meshReleases
   lovr.graphics = {
     newMesh = function(count)
       return recorder:newMesh(count)
     end,
     newFont = function(file, size, spread)
       return recorder:newFont(file, size, spread)
+    end,
+    newShader = function(vertex, fragment)
+      return recorder:newShader(vertex, fragment)
     end,
     getDefaultFont = function()
       return font
@@ -348,6 +337,7 @@ installLovr = function(events)
       return events.held[key] == true
     end,
   }
+  -- A hand without controller state is untracked; the head keeps a fixed pose.
   local function controller(device)
     if device and device:find('left', 1, true) then
       return events.controllers.left
@@ -356,18 +346,13 @@ installLovr = function(events)
     end
     return nil
   end
-  local function position(device)
-    local state = controller(device)
-    if state then
-      return state.origin:unpack()
-    end
-    -- The legacy left hand stays outside the panel area to isolate the right-hand beam.
-    return (if device and device:find('left', 1, true) then -5 else 0) + (events.handX or 0), 1.5, 0
-  end
   lovr.headset = {
     isTracked = function(device)
       local state = controller(device)
-      return not state or state.tracked
+      if state then
+        return state.tracked
+      end
+      return device == 'head'
     end,
     getPose = function(device)
       local state = controller(device)
@@ -376,10 +361,15 @@ installLovr = function(events)
         local angle, ax, ay, az = state.pose:getOrientation()
         return x, y, z, angle, ax, ay, az
       end
-      local x, y, z = position(device)
-      return x, y, z, 0, 0, 1, 0
+      return 0, 1.5, 0, 0, 0, 1, 0
     end,
-    getPosition = position,
+    getPosition = function(device)
+      local state = controller(device)
+      if state then
+        return state.origin:unpack()
+      end
+      return 0, 1.5, 0
+    end,
     getDirection = function(device)
       local state = controller(device)
       if state then
@@ -389,10 +379,7 @@ installLovr = function(events)
     end,
     isDown = function(device, button)
       local state = controller(device)
-      if state then
-        return state.buttons[button] == true
-      end
-      return (button == 'trigger' and events.trigger == true) or (button == 'grip' and events.grip == true)
+      return state ~= nil and state.buttons[button] == true
     end,
     getDeltaTime = function()
       return events.dt or 0.016
@@ -400,10 +387,7 @@ installLovr = function(events)
     getAxis = function(device, axis)
       local state = controller(device)
       if axis == 'trigger' then
-        if state then
-          return state.trigger or (if state.buttons.trigger then 1 else 0)
-        end
-        return if events.trigger then 1 else 0
+        return if state then state.trigger or (if state.buttons.trigger then 1 else 0) else 0
       end
       if state then
         return state.axisX, state.axisY

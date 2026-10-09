@@ -5,7 +5,6 @@ local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local contracts = require '@lunette-contracts/laser'
 local interaction = require '@lunette-contracts/interaction'
-local vocabulary = require '@lunette-contracts/vocabulary'
 local input = require '@lunette-plugins/laser/input'
 local draw = require '@lunette-plugins/laser/draw'
 local aim = require '@lunette-plugins/laser/aim'
@@ -300,43 +299,10 @@ local function build(context: plugin.Context, settings: Settings): Service
   return service
 end
 
-local POINTER_BUTTONS: { [string]: boolean } = {}
-for _, button in ipairs(vocabulary.POINTER_BUTTONS) do
-  POINTER_BUTTONS[button] = true
-end
-
-local CONTROLS: { [string]: boolean } = {}
-for _, control in ipairs(input.CONTROLS) do
-  CONTROLS[control] = true
-end
-
--- The mapping list replaces defaults, so validation checks every supplied entry.
-local function validate(settings: Settings, name: string): ()
-  for index = 1, #settings.buttons do
-    local mapping = settings.buttons[index]
-    local where = string.format('plugin %s: option buttons[%d]', name, index)
-    if type(mapping) ~= 'table' then
-      error(where .. ' is a table of control and button, not a ' .. type(mapping), 0)
-    end
-    for key, _ in mapping :: { [unknown]: unknown } do
-      if key ~= 'control' and key ~= 'button' then
-        error(where .. ' has an unknown field ' .. tostring(key) .. '; the fields are control and button', 0)
-      end
-    end
-    if not CONTROLS[mapping.control] then
-      error(where .. '.control is a controller button, not ' .. tostring(mapping.control), 0)
-    end
-    if not POINTER_BUTTONS[mapping.button] then
-      error(where .. '.button is a pointer button, not ' .. tostring(mapping.button), 0)
-    end
-  end
-end
-
 return plugin.provider<<Config, Settings, Service>> {
   name = 'laser',
   capability = contracts.capability,
   requires = { interaction = interaction.capability, theme = theme.capability },
   schema = config,
-  validate = validate,
   build = build,
 }

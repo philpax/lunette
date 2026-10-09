@@ -2,12 +2,12 @@
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local ui = require '@lunette-contracts/ui'
-local surface = require '@lunette-contracts/surface'
 local records = require '@lunette-plugins/ui/panel-state'
 local geometry = require '@lunette-plugins/ui/geometry'
 local order = require '@lunette-plugins/ui/control-order'
 local protected = require '@lunette-plugins/protected'
 local panelGeometry = require './panel-geometry'
+local vocabulary = require '@lunette-contracts/vocabulary'
 
 local input = {}
 
@@ -68,7 +68,7 @@ end
 local function deliver(
   panel: Panel,
   control: Control,
-  event: surface.PointerEvent,
+  event: vocabulary.PointerEvent,
   item: string?,
   terminal: boolean?
 ): ()
@@ -85,7 +85,7 @@ end
 
 local function getCapture(
   panel: Panel,
-  pointer: surface.Pointer,
+  pointer: vocabulary.Pointer,
   button: lunette.PointerButton,
   terminal: boolean
 ): records.Capture?
@@ -103,14 +103,14 @@ local function getCapture(
   return capture
 end
 
-local function hover(panel: Panel, pointer: surface.Pointer, selected: Control?, event: surface.PointerEvent): ()
+local function hover(panel: Panel, pointer: vocabulary.Pointer, selected: Control?, event: vocabulary.PointerEvent): ()
   local previous = panel.hovered[pointer]
   if previous == selected then
     return
   end
   panel.hovered[pointer] = selected
   if previous then
-    local copied: surface.PointerEvent = {
+    local copied: vocabulary.PointerEvent = {
       kind = 'leave',
       pointer = pointer,
       x = event.x,
@@ -121,7 +121,7 @@ local function hover(panel: Panel, pointer: surface.Pointer, selected: Control?,
     deliver(panel, previous, table.freeze(copied), nil)
   end
   if selected and panel.hovered[pointer] == selected then
-    local copied: surface.PointerEvent = {
+    local copied: vocabulary.PointerEvent = {
       kind = 'enter',
       pointer = pointer,
       x = event.x,
@@ -133,7 +133,7 @@ local function hover(panel: Panel, pointer: surface.Pointer, selected: Control?,
   end
 end
 
-local function capturedByAnother(panel: Panel, control: Control, pointer: surface.Pointer): boolean
+local function capturedByAnother(panel: Panel, control: Control, pointer: vocabulary.Pointer): boolean
   if not control.exclusive then
     return false
   end
@@ -150,9 +150,9 @@ local function capturedByAnother(panel: Panel, control: Control, pointer: surfac
 end
 
 -- Destruction, disabling, and geometry replacement detach local state before any observer runs.
-function input.prepareCancel(panel: Panel, selected: Control?, reason: surface.CancelReason): () -> ()
+function input.prepareCancel(panel: Panel, selected: Control?, reason: vocabulary.CancelReason): () -> ()
   local pending: { () -> () } = {}
-  local affected: { [surface.Pointer]: boolean } = {}
+  local affected: { [vocabulary.Pointer]: boolean } = {}
   local function consume(delivery: records.PendingInput): ()
     local index = table.find(panel.pendingInput, delivery)
     if index then
@@ -168,7 +168,7 @@ function input.prepareCancel(panel: Panel, selected: Control?, reason: surface.C
       end
     end
   end
-  local function queue(control: Control, event: surface.PointerEvent, item: string?): ()
+  local function queue(control: Control, event: vocabulary.PointerEvent, item: string?): ()
     local delivery: records.PendingInput = {
       control = control,
       run = function(): ()
@@ -185,7 +185,7 @@ function input.prepareCancel(panel: Panel, selected: Control?, reason: surface.C
       if not selected or capture.control == selected then
         buttons[button] = nil
         affected[pointer] = true
-        local copied: surface.PointerEvent = {
+        local copied: vocabulary.PointerEvent = {
           kind = 'cancel',
           pointer = pointer,
           button = button,
@@ -203,7 +203,7 @@ function input.prepareCancel(panel: Panel, selected: Control?, reason: surface.C
   for pointer, control in panel.hovered do
     if not selected or control == selected then
       panel.hovered[pointer] = nil
-      local copied: surface.PointerEvent = { kind = 'leave', pointer = pointer, inside = false, captured = false }
+      local copied: vocabulary.PointerEvent = { kind = 'leave', pointer = pointer, inside = false, captured = false }
       queue(control, table.freeze(copied), nil)
     end
   end
@@ -238,11 +238,11 @@ function input.prepareCancel(panel: Panel, selected: Control?, reason: surface.C
   end
 end
 
-function input.cancel(panel: Panel, selected: Control?, reason: surface.CancelReason): ()
+function input.cancel(panel: Panel, selected: Control?, reason: vocabulary.CancelReason): ()
   input.prepareCancel(panel, selected, reason)()
 end
 
-function input.event(panel: Panel, event: surface.PointerEvent): ()
+function input.event(panel: Panel, event: vocabulary.PointerEvent): ()
   if event.kind ~= 'cancel' and event.kind ~= 'leave' then
     panel.refresh()
   end
@@ -270,7 +270,7 @@ function input.event(panel: Panel, event: surface.PointerEvent): ()
       return
     end
     local selected = capture.control
-    local copied: surface.PointerEvent = {
+    local copied: vocabulary.PointerEvent = {
       kind = 'move',
       pointer = pointer,
       x = x,
@@ -311,7 +311,7 @@ function input.event(panel: Panel, event: surface.PointerEvent): ()
       return
     end
     local selected = capture.control
-    local copied: surface.PointerEvent = {
+    local copied: vocabulary.PointerEvent = {
       kind = 'release',
       pointer = pointer,
       x = x,
@@ -332,7 +332,7 @@ function input.event(panel: Panel, event: surface.PointerEvent): ()
       return
     end
     local selected = capture.control
-    local copied: surface.PointerEvent = {
+    local copied: vocabulary.PointerEvent = {
       kind = 'cancel',
       pointer = pointer,
       x = x,

@@ -25,26 +25,6 @@ local controllers: { [string]: Device } = {
   right = 'hand/right',
 }
 
-input.CONTROLS = table.freeze {
-  'trigger',
-  'thumbstick',
-  'thumbrest',
-  'thumbtap',
-  'touchpad',
-  'grip',
-  'menu',
-  'a',
-  'b',
-  'x',
-  'y',
-  'dpup',
-  'dpdown',
-  'dpleft',
-  'dpright',
-  'bumper',
-  'nib',
-} :: { DeviceButton }
-
 -- Reads one frame of a hand from the headset, or nothing while the hand is
 -- not tracked. Each mapping whose control is down holds its pointer button.
 function input.fromHeadset(hand: Hand, headset: HeadsetModule, mappings: { read [number]: Mapping }): Input?

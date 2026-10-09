@@ -7,11 +7,8 @@ local function scenario(run)
   testing.native()
   local session = testing.start { 'focus' }
   local observed = session:observe(contract.capability)
-  local ok, failure = pcall(run, observed.service, observed.context)
+  run(observed.service, observed.context)
   session:close()
-  if not ok then
-    error(failure, 0)
-  end
 end
 
 local function receiver()
@@ -86,7 +83,7 @@ test('local registration validates closed plain metadata before acquiring effect
       expect.raises(function()
         service:register(owner, case[1])
       end, case[2], 'named invalid target')
-      expect.equal(service:inspect().logicalRegistrationCount, 0, 'invalid data acquires no registration')
+      expect.equal(#service:inspect().registrations, 0, 'invalid data acquires no registration')
     end
   end)
 end)

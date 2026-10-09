@@ -17,7 +17,7 @@ use std::{
     sync::Arc,
 };
 
-use mlua::{Lua, UserDataRef, Value};
+use mlua::{Lua, Value};
 
 pub(crate) use self::snapshot::records as snapshot_records;
 pub use self::{
@@ -25,7 +25,7 @@ pub use self::{
         AttachmentError, ContextOperation, ContextReason, FailureCause, FailurePhase,
         PluginFailure, PluginLabel, ProvisionError,
     },
-    snapshot::{PluginAuthority, PluginBlockerKind, PluginDiagnosticSeverity, PluginEffectState},
+    snapshot::{PluginAuthority, PluginEffectState},
     state::Reporter,
     types::{
         PluginAcquire, PluginContext, PluginDefinition, PluginEffect, PluginInit, PluginInstance,
@@ -37,9 +37,7 @@ use self::{
     state::{AttachmentHost, DeclarationField, DefinitionData, RuntimeState},
 };
 pub use crate::plugin::contracts::PluginContractToken;
-use crate::plugin::contracts::{
-    ContractError, ContractName, ContractRegistry, ValidatedDeclaration,
-};
+use crate::plugin::contracts::{ContractName, ContractRegistry, ValidatedDeclaration};
 
 /// Installs the state-bound contract registry without changing its epoch.
 pub fn install(lua: &Lua) -> Result<(), AttachmentError> {
@@ -81,12 +79,6 @@ pub fn shutdown_all(lua: &Lua) -> Vec<AttachmentError> {
         state.collect_failures = false;
     }
     clear_host_references(&host);
-    if let Err(source) = retire_wrappers(lua, &host) {
-        errors.push(AttachmentError::Lua {
-            operation: "retire capability wrappers",
-            source,
-        });
-    }
     let mut state = host.borrow_mut();
     state.runtimes.clear();
     state.registry = ContractRegistry::new();
@@ -110,27 +102,6 @@ pub fn contract(lua: &Lua, (name, schema): (String, u64)) -> mlua::Result<Plugin
     let registry = host.borrow().registry.clone();
     Ok(registry
         .declare(contract_name, schema)
-        .map_err(AttachmentError::Contract)?)
-}
-
-/// Binds one erased native wrapper to one contract token.
-pub fn bind(
-    lua: &Lua,
-    (token, wrapper): (UserDataRef<PluginContractToken>, Unknown),
-) -> mlua::Result<()> {
-    let host = require_host(lua)?;
-    let table = match wrapper.0 {
-        Value::Table(table) => table,
-        other => {
-            return Err(AttachmentError::WrapperNotTable {
-                found: other.type_name(),
-            }
-            .into());
-        }
-    };
-    let registry = host.borrow().registry.clone();
-    Ok(registry
-        .bind_token(&token, &table)
         .map_err(AttachmentError::Contract)?)
 }
 
@@ -198,25 +169,12 @@ fn require_host(lua: &Lua) -> Result<Rc<RefCell<AttachmentHost>>, AttachmentErro
     host_inner(lua).ok_or(AttachmentError::NotInstalled)
 }
 
-/// Reports retired wrappers separately from unbound wrappers after an epoch change.
 fn validate_declaration(
     host: &AttachmentHost,
     declaration: Value,
 ) -> Result<ValidatedDeclaration, AttachmentError> {
-    let table = match &declaration {
-        Value::Table(table) => Some(table.clone()),
-        _ => None,
-    };
     host.registry
         .validate_declaration(declaration)
-        .map_err(|error| match (error, table) {
-            (ContractError::UnboundWrapper { key }, Some(table))
-                if host.holds_retired_wrapper(&table, &key) =>
-            {
-                ContractError::RetiredWrapper { key }
-            }
-            (error, _) => error,
-        })
         .map_err(AttachmentError::Contract)
 }
 
@@ -228,33 +186,6 @@ fn declaration_fields(declaration: &ValidatedDeclaration) -> Vec<DeclarationFiel
             key: key.clone(),
         })
         .collect()
-}
-
-/// Records the wrappers bound to the registry that is about to be replaced,
-/// so a declaration that still holds one is rejected as retired.
-fn retire_wrappers(lua: &Lua, host: &Rc<RefCell<AttachmentHost>>) -> mlua::Result<()> {
-    let (retired, wrappers) = {
-        let state = host.borrow();
-        (
-            state.retired_wrappers.clone(),
-            state.registry.bound_wrappers(),
-        )
-    };
-    let retired = match retired {
-        Some(retired) => retired,
-        None => {
-            let retired = lua.create_table()?;
-            let metatable = lua.create_table()?;
-            metatable.set("__mode", "k")?;
-            retired.set_metatable(Some(metatable))?;
-            host.borrow_mut().retired_wrappers = Some(retired.clone());
-            retired
-        }
-    };
-    for wrapper in wrappers {
-        retired.raw_set(wrapper, true)?;
-    }
-    Ok(())
 }
 
 /// Releases every definition's initializer so escaped definitions do not

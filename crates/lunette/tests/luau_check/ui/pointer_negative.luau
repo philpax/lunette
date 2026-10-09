@@ -1,8 +1,8 @@
 local lunette = require '@lunette'
 local ui = require '@lunette-contracts/ui'
-local surface = require '@lunette-contracts/surface'
+local vocabulary = require '@lunette-contracts/vocabulary'
 
-local function onPointer(event: surface.PointerEvent): ()
+local function onPointer(event: vocabulary.PointerEvent): ()
   local button: lunette.PointerButton? = event.button -- reject.
   if event.kind == 'move' then
     local requiredButton: lunette.PointerButton = event.button -- reject.
@@ -11,7 +11,7 @@ local function onPointer(event: surface.PointerEvent): ()
     local invalidButton: lunette.PointerButton? = event.button -- reject.
     assert(invalidButton == button)
   elseif event.kind == 'release' then
-    local reason: surface.CancelReason = event.reason -- reject.
+    local reason: vocabulary.CancelReason = event.reason -- reject.
     assert(reason ~= 'grab')
   elseif event.kind == 'enter' then
     local dx: number = event.dx -- reject.

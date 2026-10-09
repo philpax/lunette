@@ -231,7 +231,7 @@ test('the tiny substitute shares source routing and actual visibility notificati
   expect.truthy(board:destroy())
   expect.truthy(env.sources[1].dead)
   expect.equal(table.concat(changes, ','), 'hide,show,destroy')
-  expect.equal(env.service:inspect().logicalRegistrationCount, 0)
+  expect.equal(#env.service:inspect().registrations, 0)
   expect.falsy(board:pressKey(21))
   expect.falsy(board:destroy())
   env.session:close()
@@ -256,7 +256,7 @@ test('owner shutdown destroys its board before the final visibility notification
   expect.truthy(env.sources[1].dead)
   expect.equal(next(env.listeners), nil)
   expect.equal(table.concat(changes, ','), 'destroy')
-  expect.equal(env.service:inspect().logicalRegistrationCount, 0)
+  expect.equal(#env.service:inspect().registrations, 0)
   env.session:close()
 end)
 

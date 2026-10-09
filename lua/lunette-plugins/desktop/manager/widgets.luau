@@ -1,13 +1,13 @@
 -- Retains public UI handles while the controller owns composition and draft decisions.
 local plugin = require '@lunette-plugin'
 local ui = require '@lunette-contracts/ui'
-local surface = require '@lunette-contracts/surface'
 local theme = require '@lunette-contracts/theme'
 local styles = require './theme'
 local controller = require './controller'
 local geometry = require './graph-geometry'
 local draw = require './draw'
 local view = require './view'
+local vocabulary = require '@lunette-contracts/vocabulary'
 
 local widgets = {}
 
@@ -110,7 +110,7 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
   end
   local used: { [string]: boolean } = {}
   local graphItems: { read [number]: ui.RegionItem } = {}
-  local graphPointer: surface.Pointer? = nil
+  local graphPointer: vocabulary.Pointer? = nil
   local publishedView: view.State = table.clone(state.view)
   local rowPress: { [string]: string } = {}
   local scrollRemainder = 0
@@ -263,7 +263,7 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
     controller.invoke(state, id)
     update()
   end
-  local function scroll(event: surface.PointerEvent): ()
+  local function scroll(event: vocabulary.PointerEvent): ()
     if not ready() then
       return
     end
@@ -277,7 +277,7 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
       end
     end
   end
-  local function graphEvent(event: surface.PointerEvent): ()
+  local function graphEvent(event: vocabulary.PointerEvent): ()
     if event.kind == 'cancel' then
       if event.button == 'left' and event.pointer == graphPointer then
         graphPointer = nil
@@ -352,7 +352,7 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
             draw.details(pass, controller.options(state), visual.clip, 'rows', style)
           end)
         end,
-        onPointer = function(event: surface.PointerEvent): ()
+        onPointer = function(event: vocabulary.PointerEvent): ()
           if event.kind == 'cancel' then
             if event.button == 'left' then
               rowPress[id] = nil

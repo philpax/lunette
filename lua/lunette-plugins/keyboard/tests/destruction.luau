@@ -57,7 +57,7 @@ for _, tiny in { false, true } do
             callbacks += 1
             local sources, listeners = focusRegistrations(env.focus)
             observed = {
-              boards = env.keyboard:inspect().logicalRegistrationCount,
+              boards = #env.keyboard:inspect().registrations,
               sources = sources,
               listeners = listeners,
               dead = board.dead,
@@ -228,7 +228,7 @@ for _, tiny in { false, true } do
         if change.reason == 'destroy' then
           callbacks += 1
           observed = {
-            boards = env.keyboard:inspect().logicalRegistrationCount,
+            boards = #env.keyboard:inspect().registrations,
             sources = state.sourceCount,
             listeners = state.listenerCount,
             dead = board.dead,
@@ -306,7 +306,7 @@ for _, tiny in { false, true } do
       expect.equal(state.sourceCount, 0)
       expect.equal(state.sourceReleases, 1)
       expect.equal(state.listenerCount, 0)
-      expect.equal(env.keyboard:inspect().logicalRegistrationCount, 0)
+      expect.equal(#env.keyboard:inspect().registrations, 0)
       expect.equal(callbacks, 0, 'failed construction has no final visibility notification')
       testing.collect()
       expect.equal(weak.callback, nil)
@@ -353,7 +353,7 @@ test('a route listener acquisition failure releases the partially constructed ke
   expect.equal(state.sourceCount, 0)
   expect.equal(state.sourceReleases, 1)
   expect.equal(state.listenerCount, 0)
-  expect.equal(env.keyboard:inspect().logicalRegistrationCount, 0)
+  expect.equal(#env.keyboard:inspect().registrations, 0)
   expect.equal(callbacks, 0)
   env.session:close()
 end)

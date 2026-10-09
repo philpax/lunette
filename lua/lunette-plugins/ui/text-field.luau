@@ -1,13 +1,13 @@
 -- A panel-owned text field delegates focus routing and protected callbacks to its private host.
 local ui = require '@lunette-contracts/ui'
 local focus = require '@lunette-contracts/focus'
-local surface = require '@lunette-contracts/surface'
 local keys = require '@lunette-contracts/keys'
 local control = require './control'
 local edit = require './text-edit'
 local measurement = require './measurement-cache'
 local textGeometry = require './text-field-geometry'
 local validation = require './validation'
+local vocabulary = require '@lunette-contracts/vocabulary'
 
 local textField = {}
 
@@ -15,7 +15,7 @@ local validate: (State, number) -> boolean
 local apply: (State, edit.State, boolean) -> ()
 local setError: (State, string?) -> ()
 local key: (State, focus.KeyEvent) -> boolean
-local pointer: (State, surface.PointerEvent) -> ()
+local pointer: (State, vocabulary.PointerEvent) -> ()
 local pointerCaret: (State, number) -> number?
 local visual: (State, ui.Visual) -> ui.Visual
 local hasModifier: (focus.KeyEvent, string) -> boolean
@@ -28,7 +28,7 @@ type State = {
   revision: number,
   error: string?,
   focused: boolean,
-  dragging: surface.Pointer?,
+  dragging: vocabulary.Pointer?,
 }
 
 function textField.new(options: ui.TextFieldOptions, host: control.Host): control.Widget
@@ -110,7 +110,7 @@ function textField.new(options: ui.TextFieldOptions, host: control.Host): contro
         host.changed()
       end
     end,
-    pointer = function(event: surface.PointerEvent, _itemId: string?): ()
+    pointer = function(event: vocabulary.PointerEvent, _itemId: string?): ()
       pointer(state, event)
     end,
     items = function(_bounds: ui.Bounds, _theme: ui.Theme): { ui.ItemDescription }
@@ -232,7 +232,7 @@ key = function(state: State, event: focus.KeyEvent): boolean
   return true
 end
 
-pointer = function(state: State, event: surface.PointerEvent): ()
+pointer = function(state: State, event: vocabulary.PointerEvent): ()
   if not state.host.live() then
     return
   end

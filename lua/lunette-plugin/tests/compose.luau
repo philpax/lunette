@@ -1,23 +1,22 @@
--- Covers composition: patches that merge, replace, disable, and insert entries, the configure patch, the
--- malformed patches each named by id, a factory called once per start, and a rejected configuration failing
--- only its own plugin.
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
+local schema = require '@lunette-plugin/schema'
 
 local test = testing.suite()
 
 local hud = plugin.define { name = 'hud', init = function() end }
-local labelled = plugin.define {
+local labelled = plugin.consumer({
   name = 'labelled',
-  init = function(_context, config)
-    plugin.options {
-      name = 'labelled',
-      defaults = { label = 'none', style = { size = 1, color = { 0, 0, 1 } } },
-      config = config,
-    }
-  end,
-}
+  schema = schema.object {
+    label = schema.default(schema.string()) 'none',
+    style = schema.default(schema.object {
+      size = schema.default(schema.number())(1),
+      color = schema.default(schema.array(schema.number())) { 0, 0, 1 },
+    }) { size = 1, color = { 0, 0, 1 } },
+  },
+  init = function() end,
+}).definition
 
 local function ids(entries)
   local result = {}
@@ -67,59 +66,22 @@ test('an insert goes at the end, or before or after the entry it names', functio
   )
 end)
 
-test("a configure patch is the plain patch for its definition's name", function()
-  local patch = plugin.configure(labelled) { label = 'hud' }
-  expect.equal(patch.id, 'labelled', 'the id')
-  expect.equal(plugin.compose(ENTRIES, { patch })[2].config.label, 'hud', 'the configuration it carries')
-  local factory = function()
-    return labelled
-  end
-  expect.equal(plugin.configure(factory)({}).id, 'labelled', "a factory's definition names the patch")
-  expect.raises(function()
-    plugin.configure('labelled' :: any)
-  end, 'configure takes a plugin definition or a factory of one, not a string')
-end)
-
-test('entry configuration names the entry id and calls no factory before either start', function()
-  local made, initialized = 0, {}
+test('a configure patch targets its entry id and calls no factory', function()
+  local made = 0
   local function factory()
     made += 1
-    local activation = 0
-    return plugin.define {
-      name = 'different-definition-name',
-      init = function(_context, config)
-        activation += 1
-        initialized[#initialized + 1] = { activation = activation, label = config.label }
-      end,
-    }
+    return labelled
   end
-  local patch = plugin.configureEntry('stable-id', factory) { label = 'configured' }
-  expect.equal(patch.id, 'stable-id', 'the entry id, not the definition name')
-  local entries = plugin.compose({ { id = 'stable-id', factory = factory } }, { patch })
-  expect.equal(made, 0, 'configuration and composition invoke no factory')
-  local first, second = plugin.start(entries), plugin.start(entries)
-  expect.equal(made, 2, 'each start constructs a fresh definition')
-  expect.equal(#initialized, 2, 'both instances initialize')
-  for _, record in ipairs(initialized) do
-    expect.equal(record.activation, 1, 'definition state is fresh for each start')
-    expect.equal(record.label, 'configured', 'the typed patch persists into each start')
-  end
-  first.instances['stable-id']:disable()
-  first.instances['stable-id']:enable()
-  expect.equal(made, 2, 'reactivation retains the per-start definition')
-  expect.equal(initialized[3].activation, 2, 'definition state survives reactivation')
-  first.runtime:close()
-  second.runtime:close()
-  expect.equal(plugin.configureEntry('first', hud)({}).id, 'first', 'a definition also uses the supplied id')
-end)
-
-test('entry configuration rejects an empty id and an invalid source without invoking it', function()
+  local patch = plugin.configure('labelled', factory) { label = 'hud' }
+  expect.equal(patch.id, 'labelled', 'the id')
+  expect.equal(plugin.compose(ENTRIES, { patch })[2].config.label, 'hud', 'the configuration it carries')
+  expect.equal(made, 0, 'configuration invokes no factory')
   expect.raises(function()
-    plugin.configureEntry('', hud)
-  end, 'configureEntry: id is a non%-empty string')
+    plugin.configure('', labelled)
+  end, 'configure: id is a non%-empty string')
   expect.raises(function()
-    plugin.configureEntry('first', 'hud' :: any)
-  end, 'configureEntry takes a plugin definition or a factory of one')
+    plugin.configure('labelled', 'labelled' :: any)
+  end, 'configure takes a plugin definition or a factory of one, not a string')
 end)
 
 test('a malformed composition raises before anything is defined, naming the id', function()
@@ -141,37 +103,20 @@ test('a malformed composition raises before anything is defined, naming the id',
   end
 end)
 
-test('a factory is called once for each start and never by compose', function()
-  local made = 0
-  local entries = {
-    {
-      id = 'counted',
-      factory = function()
-        made += 1
-        return hud
-      end,
-    },
-  }
-  plugin.compose(entries)
-  expect.equal(made, 0, 'compose calls no factory')
-  local first, second = plugin.start(entries), plugin.start(entries)
-  expect.equal(made, 2, 'each start calls it')
-  expect.equal(first.instances.counted:state(), 'active', 'the instance of its definition')
-  first.runtime:close()
-  second.runtime:close()
-end)
-
 test('a configuration a plugin does not take fails that plugin alone, naming the option', function()
-  local running = plugin.start(plugin.compose(ENTRIES, { { id = 'labelled', config = { colour = 'red' } } }))
+  local running = testing.start(plugin.compose(ENTRIES, { { id = 'labelled', config = { colour = 'red' } } }))
   expect.equal(running.instances.labelled:state(), 'failed', 'the misconfigured plugin')
   expect.truthy(
-    tostring(running.instances.labelled:diagnostic()):find('plugin labelled: unknown option colour', 1, true),
+    tostring(running.instances.labelled:diagnostic()):find(
+      'plugin labelled: option colour is not a declared field',
+      1,
+      true
+    ),
     'the diagnostic'
   )
   expect.equal(running.instances.last:state(), 'active', 'the plugin after it')
   local reports = testing.takeReports()
   expect.equal(#reports, 1, 'the failure is reported')
-  running.runtime:close()
 end)
 
 return test

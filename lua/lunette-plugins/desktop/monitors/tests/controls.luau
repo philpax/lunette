@@ -34,11 +34,8 @@ end
 
 local function withBoot(provider, run)
   local running, monitor, widgets, registry = boot(provider)
-  local ok, message = pcall(run, running, monitor, widgets, registry)
+  run(running, monitor, widgets, registry)
   running:close()
-  if not ok then
-    error(message, 0)
-  end
 end
 
 local function toolbar(widgets)
@@ -63,72 +60,65 @@ local function selection(widgets)
   error('the monitor has no selection control', 0)
 end
 
-for _, provider in
-  {
-    { name = 'real', entry = 'ui' },
-    { name = 'substitute', entry = { id = 'ui', definition = require('@testing/ui-substitute').definition } },
-  }
-do
-  test(provider.name .. ' UI keeps capture recovery in automatically mirrored monitor titlebars', function()
-    withBoot(provider.entry, function(running, monitor, widgets, registry)
-      local native = running.native
-      expect.equal(native.events.mirrored, 1, 'capture starts without a menu action')
-      expect.equal(native.events.monitorSelections, nil, 'controls do not prompt automatically')
-      for _, action in running.session:observe(menu.capability).service:list() do
-        expect.falsy(action.id == 'desktop/monitors/select', 'the wrist menu has no monitor selection action')
-      end
-      local mirror = assert(registry.service:forSource(monitor))
-      local controls = toolbar(widgets)
-      local x, y, z = position(controls)
-      expect.near(x, mirror.width / 2 - controls:describe().width / 2, 1e-5)
-      expect.near(y, select(2, mirror.pose:getPosition()) + mirror.height / 2 + 0.025, 1e-5)
-      expect.near(z, select(3, mirror.pose:getPosition()) + 0.001, 1e-5)
-      running:clickControl(widgets, 'desktop/decorations/monitor/screen-a', 'restart/monitor/screen-a')
-      expect.equal(native.events.unmirrored, 1, 'only the selected monitor is dismissed')
-      expect.equal(native.events.mirrored, 2, 'the selected monitor restarts')
-      running:clickControl(widgets, 'desktop/decorations/monitor/screen-a', 'select/monitor/screen-a')
-      expect.equal(native.events.monitorSelections, 1)
-      expect.equal(selection(widgets).enabled, false)
-      expect.equal(selection(widgets).label, 'Waiting for permission')
-      for _ = 1, 4 do
-        running:step()
-      end
-      expect.equal(native.events.monitorSelections, 1, 'pending selection does not prompt again')
-      native.events.monitorSelection = { state = 'failed', message = 'selection cancelled' }
+test('UI keeps capture recovery in automatically mirrored monitor titlebars', function()
+  withBoot('ui', function(running, monitor, widgets, registry)
+    local native = running.native
+    expect.equal(native.events.mirrored, 1, 'capture starts without a menu action')
+    expect.equal(native.events.monitorSelections, nil, 'controls do not prompt automatically')
+    for _, action in running.session:observe(menu.capability).service:list() do
+      expect.falsy(action.id == 'desktop/monitors/select', 'the wrist menu has no monitor selection action')
+    end
+    local mirror = assert(registry.service:forSource(monitor))
+    local controls = toolbar(widgets)
+    local x, y, z = position(controls)
+    expect.near(x, mirror.width / 2 - controls:describe().width / 2, 1e-5)
+    expect.near(y, select(2, mirror.pose:getPosition()) + mirror.height / 2 + 0.025, 1e-5)
+    expect.near(z, select(3, mirror.pose:getPosition()) + 0.001, 1e-5)
+    running:clickControl(widgets, 'desktop/decorations/monitor/screen-a', 'restart/monitor/screen-a')
+    expect.equal(native.events.unmirrored, 1, 'only the selected monitor is dismissed')
+    expect.equal(native.events.mirrored, 2, 'the selected monitor restarts')
+    running:clickControl(widgets, 'desktop/decorations/monitor/screen-a', 'select/monitor/screen-a')
+    expect.equal(native.events.monitorSelections, 1)
+    expect.equal(selection(widgets).enabled, false)
+    expect.equal(selection(widgets).label, 'Waiting for permission')
+    for _ = 1, 4 do
       running:step()
-      expect.equal(selection(widgets).enabled, true)
-      expect.truthy(selection(widgets).label:find('selection cancelled', 1, true))
-      expect.equal(native.events.monitorSelections, 1, 'cancellation does not retry')
-      running:clickControl(widgets, 'desktop/decorations/monitor/screen-a', 'select/monitor/screen-a')
-      expect.equal(native.events.monitorSelections, 2, 'an explicit retry starts a fresh request')
-      local hidden = mirror:setHidden(registry.context, { hidden = true })
-      running:step()
-      expect.equal(controls:describe().visible, false)
-      hidden:dispose()
-      mirror:setPose(lovr.math.newMat4():translate(1, 2, -3):rotate(0.4, 0, 1, 0))
-      running:step()
-      local expected = lovr.math
-        .newMat4(mirror.pose)
-        :translate(mirror.width / 2 - controls:describe().width / 2, mirror.height / 2 + 0.025, 0.001)
-      local expectedX, expectedY, expectedZ = expected:getPosition()
-      x, y, z = position(controls)
-      expect.near(x, expectedX, 1e-5)
-      expect.near(y, expectedY, 1e-5)
-      expect.near(z, expectedZ, 1e-5)
-      running.session.instances.ui:disable()
-      expect.truthy(controls.dead, 'a UI outage disposes the toolbar')
-      expect.falsy(mirror.dead, 'a UI outage leaves capture active')
-      running.session.instances.ui:enable()
-      running:step()
-      widgets = running.session:observe(ui.capability).service
-      expect.falsy(toolbar(widgets).dead, 'UI recovery recreates the toolbar')
-      monitor.dead = true
-      registry.service:update()
-      running:step()
-      expect.equal(#widgets:panels(), 0, 'monitor removal disposes its toolbar')
-    end)
+    end
+    expect.equal(native.events.monitorSelections, 1, 'pending selection does not prompt again')
+    native.events.monitorSelection = { state = 'failed', message = 'selection cancelled' }
+    running:step()
+    expect.equal(selection(widgets).enabled, true)
+    expect.truthy(selection(widgets).label:find('selection cancelled', 1, true))
+    expect.equal(native.events.monitorSelections, 1, 'cancellation does not retry')
+    running:clickControl(widgets, 'desktop/decorations/monitor/screen-a', 'select/monitor/screen-a')
+    expect.equal(native.events.monitorSelections, 2, 'an explicit retry starts a fresh request')
+    local hidden = mirror:setHidden(registry.context, { hidden = true })
+    running:step()
+    expect.equal(controls:describe().visible, false)
+    hidden:dispose()
+    mirror:setPose(lovr.math.newMat4():translate(1, 2, -3):rotate(0.4, 0, 1, 0))
+    running:step()
+    local expected = lovr.math
+      .newMat4(mirror.pose)
+      :translate(mirror.width / 2 - controls:describe().width / 2, mirror.height / 2 + 0.025, 0.001)
+    local expectedX, expectedY, expectedZ = expected:getPosition()
+    x, y, z = position(controls)
+    expect.near(x, expectedX, 1e-5)
+    expect.near(y, expectedY, 1e-5)
+    expect.near(z, expectedZ, 1e-5)
+    running.session.instances.ui:disable()
+    expect.truthy(controls.dead, 'a UI outage disposes the toolbar')
+    expect.falsy(mirror.dead, 'a UI outage leaves capture active')
+    running.session.instances.ui:enable()
+    running:step()
+    widgets = running.session:observe(ui.capability).service
+    expect.falsy(toolbar(widgets).dead, 'UI recovery recreates the toolbar')
+    monitor.dead = true
+    registry.service:update()
+    running:step()
+    expect.equal(#widgets:panels(), 0, 'monitor removal disposes its toolbar')
   end)
-end
+end)
 
 test('panel selection displays a refused request without a prompt loop', function()
   withBoot('ui', function(running, _monitor, widgets)

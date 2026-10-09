@@ -1,12 +1,11 @@
 -- Menu actions belong to registering owners; rendering and action policy belong to consumers.
 
 local plugin = require '@lunette-plugin'
-local owner = require '@lunette-contracts/owner'
 local inspection = require '@lunette-contracts/inspection'
 
 local menu = {}
 
-export type Owner = owner.Owner
+export type Owner = plugin.Owner
 
 export type Action = {
   read id: string,

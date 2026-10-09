@@ -13,21 +13,13 @@ pub struct Request {
     pub definitions: Option<PathBuf>,
     /// Root files checked as separate modules.
     pub roots: Vec<PathBuf>,
-    pub strict: bool,
-    /// Uses the legacy Luau type solver.
-    pub old_solver: bool,
 }
 
 impl Request {
-    /// Creates a strict request using the current type solver.
+    /// Creates a request, which the checker runs in strict mode with the current type solver.
     #[must_use]
     pub fn new(definitions: Option<PathBuf>, roots: Vec<PathBuf>) -> Self {
-        Self {
-            definitions,
-            roots,
-            strict: true,
-            old_solver: false,
-        }
+        Self { definitions, roots }
     }
 }
 
@@ -140,8 +132,6 @@ pub fn check(request: &Request) -> Result<Report, Error> {
             .map_or(ptr::null(), |path| path.as_ptr()),
         roots: root_pointers.as_ptr(),
         root_count: root_pointers.len(),
-        strict: request.strict,
-        old_solver: request.old_solver,
     };
 
     // SAFETY: every pointer in `raw` is valid for the call, and the callee
@@ -297,8 +287,6 @@ mod ffi {
         pub definitions: *const c_char,
         pub roots: *const *const c_char,
         pub root_count: usize,
-        pub strict: bool,
-        pub old_solver: bool,
     }
 
     #[repr(C)]

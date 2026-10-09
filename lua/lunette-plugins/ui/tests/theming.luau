@@ -4,12 +4,7 @@ local fixture = require './support/panel'
 local test = testing.suite()
 
 local function run(options, scenario)
-  local state = fixture.boot(options)
-  local ok, failure = pcall(scenario, state)
-  fixture.closeAll()
-  if not ok then
-    error(failure, 0)
-  end
+  scenario(fixture.boot(options))
 end
 
 test('UI theme and draw hook theming preserves input', function()

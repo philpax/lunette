@@ -8,15 +8,6 @@ local theme = require '@lunette-contracts/theme'
 local vrUi = require '@testing/vr-ui'
 
 local fixture = {}
-local opened = {}
-
-function fixture.closeAll()
-  local pending = opened
-  opened = {}
-  for _, running in ipairs(pending) do
-    running:close()
-  end
-end
 
 function fixture.boot(options)
   options = options or {}
@@ -36,7 +27,6 @@ function fixture.boot(options)
     'desktop/pointing',
     options.provider or 'ui',
   }
-  opened[#opened + 1] = running
   local state =
     { fixture = running, activations = {}, changes = {}, submits = {}, cancels = {}, events = {}, loads = 0 }
   state.instance = running.session:use(plugin.define {
@@ -125,7 +115,6 @@ function fixture.boot(options)
         },
         onPointer = function(event)
           state.events[#state.events + 1] = event
-          running:recordPointer(event)
         end,
       })
       context:require(frame.capability):onDraw(context, {

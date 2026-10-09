@@ -126,18 +126,6 @@ pub fn install<T: LuaTexture>(lua: &Lua, session: &Rc<Session<T>>) -> mlua::Resu
     preload.set(MODULE_NAME, loader)
 }
 
-/// Registers the module on the Lua state created by the boot sequence.
-///
-/// The same mlua handle is used for the state's lifetime so its allocator and per-state data remain
-/// attached.
-///
-/// # Errors
-///
-/// Returns the errors documented by [`install`].
-pub fn install_on_state<T: LuaTexture>(lua: &Lua, session: &Rc<Session<T>>) -> mlua::Result<()> {
-    install(lua, session)
-}
-
 /// Holds session state shared by Lua handles and the frame loop.
 ///
 /// The session outlives Lua states and runs on the main thread. The Lua API is available only in
@@ -649,15 +637,7 @@ module! {
 
     /// Shuts down plugin runtimes, retires their contract epoch, and re-runs the configuration in the same Lua state, keeping the compositor, the clients, and their textures. Answers whether it loaded, and the error if it did not.
     fn reload(lua, session) -> (bool, Option<String>) {
-        if crate::plugin::host::callback_active(lua) {
-            return reload_from_lua(lua, &|| session.clear_subscribers());
-        }
-        let owns_reload = session.mirrors().begin_reload();
-        let result = reload_from_lua(lua, &|| session.clear_subscribers());
-        if owns_reload {
-            session.mirrors().finish_reload();
-        }
-        result
+        reload_from_lua(lua, session.mirrors(), &|| session.clear_subscribers())
     }
 
     /// Tears the session down and starts it again, graphics device included.

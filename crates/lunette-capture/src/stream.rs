@@ -113,16 +113,23 @@ impl fmt::Debug for CaptureStream {
     }
 }
 
-/// A captured frame ready for import.
+/// A captured frame ready for import or upload.
 ///
-/// Owns its descriptors and carries only buffer layout, DRM format, modifier,
-/// and transform data. The type crosses the thread boundary without a graphics
+/// Owns its descriptors or pixels and carries the DRM format, modifier, and
+/// transform. The type crosses the thread boundary without a graphics
 /// dependency.
 #[derive(Debug)]
-pub struct CapturedFrame {
-    format: CaptureFormat,
-    planes: SmallVec<[CapturedPlane; MAX_PLANES]>,
-    pixels: Option<Vec<u8>>,
+pub enum CapturedFrame {
+    /// Dmabuf planes, imported as an image.
+    Dmabuf {
+        format: CaptureFormat,
+        planes: SmallVec<[CapturedPlane; MAX_PLANES]>,
+    },
+    /// Packed shared-memory pixels, owned independently of the capture callback.
+    Pixels {
+        format: CaptureFormat,
+        pixels: Vec<u8>,
+    },
 }
 
 impl CapturedFrame {
@@ -145,18 +152,27 @@ impl CapturedFrame {
 
     #[must_use]
     pub const fn format(&self) -> CaptureFormat {
-        self.format
+        match self {
+            Self::Dmabuf { format, .. } | Self::Pixels { format, .. } => *format,
+        }
     }
 
+    /// The dmabuf planes, or `None` for a shared-memory frame.
     #[must_use]
-    pub fn planes(&self) -> &[CapturedPlane] {
-        &self.planes
+    pub fn planes(&self) -> Option<&[CapturedPlane]> {
+        match self {
+            Self::Dmabuf { planes, .. } => Some(planes),
+            Self::Pixels { .. } => None,
+        }
     }
 
-    /// Packed shared-memory pixels, owned independently of the capture callback.
+    /// The packed pixels, or `None` for a dmabuf frame.
     #[must_use]
     pub fn pixels(&self) -> Option<&[u8]> {
-        self.pixels.as_deref()
+        match self {
+            Self::Dmabuf { .. } => None,
+            Self::Pixels { pixels, .. } => Some(pixels),
+        }
     }
 
     /// Builds a frame from an exported destination whose descriptor stays live for the call.
@@ -173,7 +189,7 @@ impl CapturedFrame {
         let descriptor = descriptor
             .try_clone_to_owned()
             .map_err(|cause| FrameError::DuplicateDescriptor { plane: 0, cause })?;
-        Ok(Self {
+        Ok(Self::Dmabuf {
             format,
             planes: [CapturedPlane {
                 descriptor,
@@ -182,7 +198,6 @@ impl CapturedFrame {
             }]
             .into_iter()
             .collect(),
-            pixels: None,
         })
     }
 
@@ -214,10 +229,9 @@ impl CapturedFrame {
             .chunks_exact(stride as usize)
             .flat_map(|line| line[..row].iter().copied())
             .collect();
-        Ok(Self {
+        Ok(Self::Pixels {
             format: CaptureFormat::from_wlx(&frame.format)?,
-            planes: SmallVec::new(),
-            pixels: Some(pixels),
+            pixels,
         })
     }
 
@@ -230,9 +244,8 @@ impl CapturedFrame {
         format: CaptureFormat,
         planes: impl IntoIterator<Item = (OwnedFd, u32, u32)>,
     ) -> Self {
-        Self {
+        Self::Dmabuf {
             format,
-            pixels: None,
             planes: planes
                 .into_iter()
                 .map(|(descriptor, offset, stride)| CapturedPlane {
@@ -262,11 +275,7 @@ impl CapturedFrame {
             .map(|(index, plane)| CapturedPlane::from_wlx(index, plane))
             .collect::<Result<_, _>>()?;
 
-        Ok(Self {
-            format,
-            planes,
-            pixels: None,
-        })
+        Ok(Self::Dmabuf { format, planes })
     }
 }
 
@@ -756,10 +765,9 @@ mod tests {
         let captured =
             CapturedFrame::from_wlx(&WlxFrame::Dmabuf(frame)).expect("a well-formed dmabuf frame");
 
-        assert_eq!(captured.planes().len(), 3);
+        let planes = captured.planes().expect("a dmabuf frame has planes");
         assert_eq!(
-            captured
-                .planes()
+            planes
                 .iter()
                 .map(|plane| (plane.offset(), plane.stride()))
                 .collect::<Vec<_>>(),
@@ -782,7 +790,9 @@ mod tests {
             CapturedFrame::from_wlx(&WlxFrame::Dmabuf(frame)).expect("a well-formed dmabuf frame");
 
         assert_ne!(
-            captured.planes()[0].descriptor().as_raw_fd(),
+            captured.planes().expect("a dmabuf frame has planes")[0]
+                .descriptor()
+                .as_raw_fd(),
             borrowed,
             "the frame kept the callback's own descriptor number, which PipeWire may close",
         );
@@ -852,7 +862,7 @@ mod tests {
         .expect("shared-memory frames are supported");
         drop(file);
         assert_eq!(frame.pixels(), Some(pixels.as_slice()));
-        assert!(frame.planes().is_empty());
+        assert!(frame.planes().is_none());
     }
 
     #[test]

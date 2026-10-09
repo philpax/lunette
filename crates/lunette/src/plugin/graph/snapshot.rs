@@ -1,16 +1,14 @@
 //! Detached inspection records for the lifecycle graph.
 
 use crate::plugin::graph::{
-    ActivationId, Binding, ContractKey, Diagnostic, DiagnosticKind, Graph, InstanceId, IntentState,
-    LifecycleState, ProviderGeneration, lifecycle::Phase,
+    ActivationId, Binding, ContractKey, Graph, InstanceId, IntentState, LifecycleState,
+    ProviderGeneration, lifecycle::Phase,
 };
 
 /// A coherent, read-only copy of graph state. Inspection does not plan transitions.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct GraphSnapshot {
-    pub shutdown_requested: bool,
     pub instances: Vec<InstanceSnapshot>,
-    pub diagnostics: Vec<Diagnostic>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -32,46 +30,16 @@ pub struct InstanceSnapshot {
     pub dependents: Vec<InstanceId>,
     pub replacement_requested: bool,
     pub cleanup_failed: bool,
-    pub blockers: Vec<Blocker>,
-    pub last_diagnostic: Option<DiagnosticKind>,
-}
-
-/// Current conditions derived from the same lookups and checks as lifecycle planning.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum Blocker {
-    Shutdown,
-    Disabled,
-    Retired,
-    Quarantined,
-    ReplacementRequested,
-    ParentUnavailable {
-        parent: InstanceId,
-    },
-    ProviderUnavailable {
-        binding: Binding,
-    },
-    ContractHeld {
-        contract: ContractKey,
-        owner: InstanceId,
-    },
-    ProviderPending {
-        required: ContractKey,
-        provider: InstanceId,
-    },
-    FailedBindingsUnchanged,
-    Diagnostic(DiagnosticKind),
 }
 
 #[cfg(test)]
 mod tests;
 
 impl Graph {
-    /// Copies all currently retained instances without draining actions or diagnostics.
+    /// Copies all currently retained instances without draining actions.
     #[must_use]
     pub fn snapshot(&self) -> GraphSnapshot {
         GraphSnapshot {
-            shutdown_requested: self.shutdown_requested,
-            diagnostics: self.diagnostics.clone(),
             instances: self
                 .instances
                 .iter()
@@ -118,8 +86,6 @@ impl Graph {
                         replacement_requested: allocation
                             .is_some_and(|allocation| allocation.replace),
                         cleanup_failed: node.is_quarantined(),
-                        blockers: self.inspection_blockers(*id),
-                        last_diagnostic: node.last_diagnostic.clone(),
                     }
                 })
                 .collect(),

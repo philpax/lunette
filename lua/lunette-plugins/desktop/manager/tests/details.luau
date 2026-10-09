@@ -44,8 +44,6 @@ end)
 test('missing selections and unconfigured entries produce explicit details', function()
   local projected = projection.snapshot {
     instances = {},
-    diagnostics = {},
-    shutdownRequested = false,
     draining = false,
     closing = false,
     closed = false,

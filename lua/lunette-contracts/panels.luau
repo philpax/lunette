@@ -2,15 +2,13 @@
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
-local owner = require '@lunette-contracts/owner'
-local surface = require '@lunette-contracts/surface'
 local vocabulary = require '@lunette-contracts/vocabulary'
 local theme = require '@lunette-contracts/theme'
 
 local panels = {}
 
-export type Owner = owner.Owner
-export type Surface = surface.Surface
+export type Owner = plugin.Owner
+export type Surface = vocabulary.Surface
 export type Source = lunette.Textured
 export type Kind = 'window' | 'monitor'
 

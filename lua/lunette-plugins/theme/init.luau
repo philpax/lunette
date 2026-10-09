@@ -337,6 +337,5 @@ end
 return plugin.provider<<{}, {}, Service>> {
   name = 'theme',
   capability = contract.capability,
-  defaults = {},
   build = build,
 }

@@ -4,11 +4,10 @@
 -- docs/dev/lua-api.md#bindings.
 
 local plugin = require '@lunette-plugin'
-local owner = require '@lunette-contracts/owner'
 
 local bindings = {}
 
-export type Owner = owner.Owner
+export type Owner = plugin.Owner
 
 export type Chord = {
   read key: KeyCode,

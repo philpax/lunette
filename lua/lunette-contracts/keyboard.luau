@@ -3,16 +3,14 @@
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
-local owner = require '@lunette-contracts/owner'
-local surface = require '@lunette-contracts/surface'
 local theme = require '@lunette-contracts/theme'
 local vocabulary = require '@lunette-contracts/vocabulary'
 
 local keyboard = {}
 
-export type Owner = owner.Owner
-export type Surface = surface.Surface
-export type Pointer = surface.Pointer
+export type Owner = plugin.Owner
+export type Surface = vocabulary.Surface
+export type Pointer = vocabulary.Pointer
 
 -- What a key does other than send its keycode. `hide` hides the keyboard;
 -- `layer` shows the named layer, where `base` names the rows; `text` types its
@@ -110,7 +108,7 @@ export type Keyboard = {
   read visible: boolean,
   read raycast: (Surface, vector, vector, boolean?) -> (number?, number?, number?),
   read project: ((Surface, vector, vector) -> (number?, number?, number?))?,
-  read onPointer: ((Surface, surface.PointerEvent) -> ())?,
+  read onPointer: ((Surface, vocabulary.PointerEvent) -> ())?,
   read setPose: (Surface, Mat4) -> (),
   read setSize: (Surface, number?, number?) -> (),
   read onHover: (Surface, number?, number?, Pointer) -> (),

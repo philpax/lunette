@@ -3,7 +3,6 @@ local plugin = require '@lunette-plugin'
 local ui = require '@lunette-contracts/ui'
 local surfaces = require '@lunette-contracts/surfaces'
 local focus = require '@lunette-contracts/focus'
-local surface = require '@lunette-contracts/surface'
 local quad = require '@lunette-contracts/quad'
 local records = require '@lunette-plugins/ui/panel-state'
 local handles = require '@lunette-plugins/ui/control-handle'
@@ -61,7 +60,7 @@ function panel.new(
   providerTheme: ui.ThemeOverrides,
   providerDraw: ui.DrawHook?,
   generation: ui.Generation,
-  decorate: (string, surface.Surface, ui.TitlebarOptions) -> ui.Titlebar,
+  decorate: (string, vocabulary.Surface, ui.TitlebarOptions) -> ui.Titlebar,
   disposed: () -> (),
   retained: ((records.Panel) -> ())?
 ): ui.Panel
@@ -145,7 +144,7 @@ function panel.new(
   local function live(): boolean
     return not state.dead and context:active() and context:owns(owner)
   end
-  local function cancel(reason: surface.CancelReason): ()
+  local function cancel(reason: vocabulary.CancelReason): ()
     local wasCancelling = state.cancelling
     state.cancelling = true
     local ok, failure = pcall(input.cancel, state, nil, reason)
@@ -229,9 +228,9 @@ function panel.new(
       chrome:sync()
     end
   end
-  local surfaceBase: surface.Surface = {
+  local surfaceBase: vocabulary.Surface = {
     attachFrame = function(
-      _self: surface.Surface,
+      _self: vocabulary.Surface,
       frameOwner: plugin.Owner,
       style: vocabulary.FrameStyle
     ): vocabulary.FrameAttachment
@@ -246,7 +245,7 @@ function panel.new(
     dead = false,
     grabbable = state.grabbable,
     grabTarget = if options.grabTarget
-      then function(_self: surface.Surface): surface.Surface?
+      then function(_self: vocabulary.Surface): vocabulary.Surface?
         return options.grabTarget
       end
       else nil,
@@ -254,7 +253,7 @@ function panel.new(
     width = state.width,
     height = state.height,
     raycast = function(
-      _self: surface.Surface,
+      _self: vocabulary.Surface,
       origin: vector,
       direction: vector,
       backFace: boolean?
@@ -276,7 +275,7 @@ function panel.new(
       end
       return nil, nil, nil
     end,
-    project = function(_self: surface.Surface, origin: vector, direction: vector): (number?, number?, number?)
+    project = function(_self: vocabulary.Surface, origin: vector, direction: vector): (number?, number?, number?)
       state.refresh()
       return quad.project({
         pose = state.pose,
@@ -286,13 +285,13 @@ function panel.new(
         pixelHeight = state.logicalHeight,
       }, origin, direction)
     end,
-    onPointer = function(_self: surface.Surface, event: surface.PointerEvent): ()
+    onPointer = function(_self: vocabulary.Surface, event: vocabulary.PointerEvent): ()
       input.event(state, event)
     end,
-    setPose = function(_self: surface.Surface, given: Mat4): ()
+    setPose = function(_self: vocabulary.Surface, given: Mat4): ()
       setPose(given)
     end,
-    setSize = function(_self: surface.Surface, width: number?, height: number?): ()
+    setSize = function(_self: vocabulary.Surface, width: number?, height: number?): ()
       local nextWidth = width or state.width
       local nextHeight = height or (state.height * nextWidth / state.width)
       setSize(nextWidth, nextHeight, nil, nil)
@@ -310,7 +309,7 @@ function panel.new(
     setSize = surfaceBase.setSize,
   }
   -- The checked surface supplies its methods; the metatable reads current geometry from the panel record.
-  local offeredSurface: surface.Surface = table.freeze(setmetatable({}, {
+  local offeredSurface: vocabulary.Surface = table.freeze(setmetatable({}, {
     __index = function(_self: unknown, key: string): unknown
       if key == 'dead' then
         return state.dead or not state.visible
@@ -326,7 +325,7 @@ function panel.new(
     __newindex = function(): ()
       error('ui: a panel surface is read-only', 2)
     end,
-  })) :: surface.Surface
+  })) :: vocabulary.Surface
   state.surface = offeredSurface
   local base: ui.Panel = {
     dead = false,
@@ -532,7 +531,7 @@ function panel.new(
   local ok, failure = pcall(function(): ()
     offered = services.surfaces:offer(context, {
       name = options.name,
-      list = function(): { surface.Surface }
+      list = function(): { vocabulary.Surface }
         return if live() and state.visible then { offeredSurface } else {}
       end,
     })

@@ -8,11 +8,10 @@
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
-local owner = require '@lunette-contracts/owner'
 local rules = require '@lunette-contracts/rules'
 local panels = require '@lunette-contracts/panels'
 
-export type Owner = owner.Owner
+export type Owner = plugin.Owner
 export type Properties = rules.Resolved
 export type Options = {
   read defaults: Properties?,

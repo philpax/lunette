@@ -18,7 +18,7 @@ test('inspection describes an acquired chord without invoking its handler', func
   expect.equal(entry.details.key, 'a', 'the key')
   expect.equal(entry.details.modifiers, 'control', 'the modifier')
   effect:dispose()
-  expect.equal(service:inspect().logicalRegistrationCount, 0, 'disposed bindings')
+  expect.equal(#service:inspect().registrations, 0, 'disposed bindings')
   session:close()
 end)
 

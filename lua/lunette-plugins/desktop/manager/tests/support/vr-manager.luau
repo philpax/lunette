@@ -61,7 +61,7 @@ function fixture.testCases(suite, failOnReports)
   end
 end
 
-function fixture.boot(provider, additions, config)
+function fixture.boot(additions, config)
   local native = testing.native()
   local services, owner = {}, nil
   local observer = plugin.define {
@@ -104,9 +104,6 @@ function fixture.boot(provider, additions, config)
     { id = 'keyboard', definition = keyboardProvider.define { rows = rows, layers = {} } },
     { insert = { id = 'manager-vr-observer', definition = observer } },
   }
-  if provider == 'substitute' then
-    patches[#patches + 1] = { id = 'ui', definition = require('@testing/ui-substitute').definition }
-  end
   for _, entry in additions or {} do
     patches[#patches + 1] = { insert = entry }
   end

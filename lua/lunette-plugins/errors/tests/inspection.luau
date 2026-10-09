@@ -28,11 +28,11 @@ test('inspection reads subscriber and history state without sampling the clock o
     end,
   })
   local snapshot = service:inspect()
-  expect.equal(snapshot.logicalRegistrationCount, 2, 'the subscriber and native listener registrations')
+  expect.equal(#snapshot.registrations, 2, 'the subscriber and native listener registrations')
   expect.equal(snapshot.registrations[1].owner, owner, 'the subscriber owner')
   expect.equal(snapshot.state.history, 0, 'the history size')
   effect:dispose()
-  expect.equal(service:inspect().logicalRegistrationCount, 1, 'only the provider listener remains')
+  expect.equal(#service:inspect().registrations, 1, 'only the provider listener remains')
   session:close()
 end)
 

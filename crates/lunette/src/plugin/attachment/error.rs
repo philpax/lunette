@@ -22,8 +22,6 @@ pub enum AttachmentError {
     EpochExhausted,
     /// A definition belongs to a retired epoch.
     StaleDefinition { plugin: Arc<str> },
-    /// A capability wrapper is not a table.
-    WrapperNotTable { found: &'static str },
     /// A plugin context cannot perform an operation.
     Context {
         operation: ContextOperation,
@@ -65,10 +63,6 @@ impl fmt::Display for AttachmentError {
             Self::StaleDefinition { plugin } => write!(
                 formatter,
                 "plugin definition: {plugin} belongs to a retired contract epoch"
-            ),
-            Self::WrapperNotTable { found } => write!(
-                formatter,
-                "plugin contract: a wrapper must be a table, not a {found}"
             ),
             Self::Context { operation, reason } => {
                 write!(formatter, "plugin {operation}: {reason}")

@@ -230,7 +230,7 @@ test('nested placement settings retain defaults and schema metadata omits wrist 
     expect.equal(metadata.fields[field], nil, 'the removed ' .. field .. ' metadata')
     expect.equal(settings[field], nil, 'the removed ' .. field .. ' output')
   end
-  expect.equal(plugin.definitionSchema(definition).child, metadata, 'the provider retains descriptor metadata')
+  expect.equal(definition.schema.child, metadata, 'the provider retains descriptor metadata')
 end)
 
 test('malformed placement fields fail parsing and resolution without changing the base', function()

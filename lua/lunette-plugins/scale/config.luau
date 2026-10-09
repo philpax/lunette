@@ -9,11 +9,15 @@ end
 
 local TUNING = schema.object {
   -- Scale varies inversely with distance from this reference.
-  reference = schema.default(schema.number { minimum = 0 })(1),
+  reference = schema.default(schema.number { positive = true })(1),
   -- The wider lower margin reduces oscillation near a rung.
   raise = schema.default(schema.number { minimum = 0 })(0.06),
-  lower = schema.default(schema.number { minimum = 0, maximum = 1 })(0.12),
-  nearest = schema.default(schema.number { minimum = 0 })(0.05),
+  lower = schema.default(schema.refine(schema.number { minimum = 0 })(function(value: number): ()
+    if value >= 1 then
+      error('is not below 1', 0)
+    end
+  end))(0.12),
+  nearest = schema.default(schema.number { positive = true })(0.05),
 }
 local SCHEMA = schema.object {
   tuning = schema.default(TUNING)(TUNING.parse {}),

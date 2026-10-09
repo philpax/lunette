@@ -24,9 +24,6 @@ function projection.snapshot(snapshot: lunette.PluginRuntimeSnapshot): Projected
     for _, capability in instance.provided do
       detail[#detail + 1] = capability.field .. ': ' .. capability.contract.display
     end
-    for _, blocker in instance.blockers do
-      detail[#detail + 1] = blocker.message
-    end
     if instance.diagnostic then
       detail[#detail + 1] = instance.diagnostic
     end

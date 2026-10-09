@@ -67,14 +67,12 @@ local function follow(): ({ read [number]: layouts.Panel }, unknown?) -> ()
   end
 end
 
-local consumerSchema = schema.object {}
-type ConsumerConfig = schema.Input<typeof(consumerSchema)>
-type ConsumerSettings = schema.Output<typeof(consumerSchema)>
+type ConsumerConfig = {}
+type ConsumerSettings = {}
 
 return plugin.consumer<<ConsumerConfig, ConsumerSettings>>({
   name = 'follow-layout',
   requires = { layouts = layouts.capability },
-  schema = consumerSchema,
   init = function(context: plugin.Context, _settings: ConsumerSettings)
     local service: layouts.Service = context:require(layouts.capability)
     service:register(context, { name = 'follow', apply = follow(), continuous = true })

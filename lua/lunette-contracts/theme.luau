@@ -1,12 +1,11 @@
 -- Runtime themes carry immutable style data; font handles remain in owner-scoped leases.
 
 local plugin = require '@lunette-plugin'
-local owner = require '@lunette-contracts/owner'
 local inspection = require '@lunette-contracts/inspection'
 
 local theme = {}
 
-export type Owner = owner.Owner
+export type Owner = plugin.Owner
 export type Color = { read [number]: number }
 export type DefaultFontSpec = { read kind: 'default' }
 export type FileFontSpec = {

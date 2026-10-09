@@ -145,10 +145,10 @@ test('the development wrist menu toggles the theme-driven keyboard and survives 
   toggle()
   local first, firstMeshes = drawKeyboard(fixture)
   expect.equal(keyboardCount(), 1, 'one keyboard surface is offered while visible')
-  expect.equal(services().keyboard:inspect().logicalRegistrationCount, 1, 'one keyboard is created')
+  expect.equal(#services().keyboard:inspect().registrations, 1, 'one keyboard is created')
   toggle()
   expect.equal(keyboardCount(), 0, 'hiding removes the keyboard from the surface service')
-  expect.equal(services().keyboard:inspect().logicalRegistrationCount, 1, 'hiding retains the keyboard')
+  expect.equal(#services().keyboard:inspect().registrations, 1, 'hiding retains the keyboard')
   native.events.draw = {}
   fixture:draw()
   for _, call in ipairs(native.events.draw) do
@@ -162,7 +162,7 @@ test('the development wrist menu toggles the theme-driven keyboard and survives 
   fixture:clickControl(previousUi, 'desktop/menu', 'actions', 'right', 'desktop/reload')
   expect.truthy(first.dead, 'source reload destroys the old keyboard')
   expect.equal(keyboardCount(), 0, 'source reload removes the old keyboard surface')
-  expect.equal(services().keyboard:inspect().logicalRegistrationCount, 0, 'source reload starts with no keyboard')
+  expect.equal(#services().keyboard:inspect().registrations, 0, 'source reload starts with no keyboard')
   toggle()
   local replacement = drawKeyboard(fixture)
   expect.truthy(replacement ~= first, 'source reload creates a replacement keyboard')

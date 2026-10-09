@@ -2,7 +2,6 @@
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local ui = require '@lunette-contracts/ui'
-local surface = require '@lunette-contracts/surface'
 local focus = require '@lunette-contracts/focus'
 local globalTheme = require '@lunette-contracts/theme'
 local control = require '@lunette-plugins/ui/control'
@@ -84,11 +83,11 @@ export type Panel = {
   controls: { Control },
   owners: owners.Registry,
   nextOrder: number,
-  surface: surface.Surface?,
-  captures: { [surface.Pointer]: { [lunette.PointerButton]: Capture } },
+  surface: vocabulary.Surface?,
+  captures: { [vocabulary.Pointer]: { [lunette.PointerButton]: Capture } },
   pendingInput: { PendingInput },
-  hovered: { [surface.Pointer]: Control },
-  pointerHover: { [surface.Pointer]: boolean },
+  hovered: { [vocabulary.Pointer]: Control },
+  pointerHover: { [vocabulary.Pointer]: boolean },
   context: plugin.Context,
   focus: focus.Service,
 }

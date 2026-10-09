@@ -5,11 +5,9 @@ local panels = require '@lunette-contracts/panels'
 local tags = require '@lunette-contracts/tags'
 
 local config = require '@lunette-plugins/desktop/monitors/config'
-local schema = require '@lunette-plugin/schema'
 
-local childSchema = schema.object {}
-type ChildConfig = schema.Input<typeof(childSchema)>
-type ChildSettings = schema.Output<typeof(childSchema)>
+type ChildConfig = {}
+type ChildSettings = {}
 
 export type Config = config.Config
 export type Settings = config.Settings
@@ -33,7 +31,6 @@ local function tagging(shared: Shared, names: { read [number]: string }): plugin
   return plugin.consumer<<ChildConfig, ChildSettings>>({
     name = 'desktop/monitors/tags',
     requires = { tags = tags.capability },
-    schema = childSchema,
     init = function(context: plugin.Context, _settings: ChildSettings): ()
       local tagService: tags.Service = context:require(tags.capability)
       local function tag(mirror: panels.MonitorPanel): ()

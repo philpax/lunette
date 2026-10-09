@@ -40,16 +40,4 @@ for _, name in { 'built-in', 'tiny', 'split', 'rounded' } do
   end)
 end
 
-test('a substitute widget provider requests the same automatic display without a UI dependency', function()
-  local env = fixture.start { ui = { id = 'ui', definition = require('@testing/ui-substitute').definition } }
-  expect.truthy(env.first:focus())
-  local board = fixture.shown(env)
-  expect.truthy(board)
-  expect.truthy(board:typeText '!')
-  expect.equal(env.first:value(), 'draft!')
-  expect.truthy(env.first:blur())
-  expect.equal(fixture.shown(env), nil)
-  env.session:close()
-end)
-
 return test

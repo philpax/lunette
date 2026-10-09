@@ -54,7 +54,7 @@ test('wrist menu actions are VR accessible and session actions do not register p
     reloads += 1
     return true
   end
-  expect.equal(services.bindings:inspect().logicalRegistrationCount, 0, 'no shipped session chord is registered')
+  expect.equal(#services.bindings:inspect().registrations, 0, 'no shipped session chord is registered')
   for _, key in { 'f5', '1', '2' } do
     lovr.keypressed(key, 0, false)
     native.events.held.lalt = true

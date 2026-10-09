@@ -10,4 +10,4 @@ testing.host.useConfiguration 'lua/lunette-desktop/tests/support/vr-migration'
 local observed = {}
 local ledger = { activations = 0, ended = 0, actions = 0, events = {}, releases = 0, cancels = 0 }
 _G.vrMigration = { services = observed, ledger = ledger }
-desktop.run(composition.options(_G.vrMigrationProvider, observed, ledger, form))
+desktop.run(composition.options(observed, ledger, form))

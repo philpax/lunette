@@ -133,46 +133,20 @@ local function preflight(definition: adapter.Definition<any>, config: unknown): 
 end
 
 local function checkedDefinition(id: string, value: unknown): adapter.Definition<any>
-  local field = 'definition'
-  if type(value) == 'table' and getmetatable(value) == nil then
-    local raw = value :: Raw
-    for _, name in { 'name', 'requires', 'provides', 'init', 'schema', 'resolve' } do
-      local item = raw[name]
-      local expected = if name == 'name'
-        then 'string'
-        elseif name == 'init' or name == 'resolve' then 'function'
-        else 'table'
-      if
-        (item ~= nil or (name ~= 'schema' and name ~= 'resolve'))
-        and (type(item) ~= expected or (name == 'name' and item == ''))
-      then
-        field = name
-        break
-      end
-      field = ''
-    end
-    if field == '' then
-      return value :: adapter.Definition<any>
-    end
+  local raw = value :: Raw
+  local valid = type(value) == 'table'
+    and getmetatable(value) == nil
+    and type(raw.name) == 'string'
+    and raw.name ~= ''
+    and type(raw.requires) == 'table'
+    and type(raw.provides) == 'table'
+    and type(raw.init) == 'function'
+    and (raw.schema == nil or type(raw.schema) == 'table')
+    and (raw.resolve == nil or type(raw.resolve) == 'function')
+  if not valid then
+    fail('entry ' .. id .. ': definition is not a plugin definition')
   end
-  local problem: contract.DefinitionError =
-    { entryId = id, field = field, code = 'definition', message = 'is not a plugin definition' }
-  error(
-    table.freeze(setmetatable(
-      problem,
-      table.freeze {
-        __tostring = function(current: contract.DefinitionError): string
-          return 'composition: entry '
-            .. current.entryId
-            .. ': definition field '
-            .. current.field
-            .. ' '
-            .. current.message
-        end,
-      }
-    )),
-    0
-  )
+  return value :: adapter.Definition<any>
 end
 
 local function prepared(entry: compose.Entry): Prepared
@@ -396,7 +370,6 @@ function management.start(entries: { compose.Entry }, options: Options?): Runnin
           name = definition.name,
           installed = records[id] ~= nil,
           schema = definition.schema,
-          configurable = definition.schema ~= nil and definition.resolve ~= nil,
         }
       end
       return table.freeze(result)
@@ -420,7 +393,6 @@ function management.start(entries: { compose.Entry }, options: Options?): Runnin
             config = record.config,
             previousConfig = if record.hasPrevious then record.previous else nil,
             schema = record.definition.schema,
-            configurable = record.definition.schema ~= nil and record.definition.resolve ~= nil,
             state = node.state,
             enabled = node.enabled,
             protected = protectedIds[id] == true or protected[node.id] == true,
@@ -467,18 +439,6 @@ function management.start(entries: { compose.Entry }, options: Options?): Runnin
           fail('entry ' .. id .. ' has no previous configuration')
         end
         replace(record, preflight(record.definition, record.previous), true)
-      end)
-    end,
-    add = function(_self: contract.Service, entry: compose.Entry): ()
-      change(function(): ()
-        local checkedEntry = checkedEntries({ entry })[1]
-        if records[checkedEntry.id] then
-          fail('entry ' .. checkedEntry.id .. ' already exists')
-        end
-        local source = prepared(checkedEntry)
-        install(source)
-        records[source.id].instance:enable()
-        runtime:drain()
       end)
     end,
     restore = function(_self: contract.Service, id: string): ()

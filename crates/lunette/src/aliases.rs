@@ -7,11 +7,8 @@ use std::{fmt::Write as _, path::PathBuf};
 /// A root a configuration requires by name, and where that name resolves.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Alias {
+    /// The alias, which is also the root's directory under the standard-library root.
     pub name: &'static str,
-    /// The directory under the standard-library root. The checker reads it,
-    /// and the session mounts it for a mounted root.
-    pub directory: &'static str,
-
     pub resolution: Resolution,
 }
 
@@ -29,28 +26,24 @@ pub enum Resolution {
 /// The native API, whose on-disk form is its declarations.
 pub const LUNETTE: Alias = Alias {
     name: "lunette",
-    directory: "lunette",
     resolution: Resolution::Native,
 };
 
 /// The single plugin facade mounted by a running session.
 pub const LUNETTE_PLUGIN: Alias = Alias {
     name: "lunette-plugin",
-    directory: "lunette-plugin",
     resolution: Resolution::Mounted,
 };
 
 /// Types shared by the plugin facade and plugin implementations.
 pub const LUNETTE_CONTRACTS: Alias = Alias {
     name: "lunette-contracts",
-    directory: "lunette-contracts",
     resolution: Resolution::Mounted,
 };
 
 /// Every built-in plugin, provider or consumer, mounted by a running session.
 pub const LUNETTE_PLUGINS: Alias = Alias {
     name: "lunette-plugins",
-    directory: "lunette-plugins",
     resolution: Resolution::Mounted,
 };
 
@@ -58,7 +51,6 @@ pub const LUNETTE_PLUGINS: Alias = Alias {
 /// The default configuration requires it; safe mode does not.
 pub const LUNETTE_DESKTOP: Alias = Alias {
     name: "lunette-desktop",
-    directory: "lunette-desktop",
     resolution: Resolution::Mounted,
 };
 
@@ -66,7 +58,6 @@ pub const LUNETTE_DESKTOP: Alias = Alias {
 /// installed one. Test files require it; no installed module does.
 pub const TESTING: Alias = Alias {
     name: "testing",
-    directory: "testing",
     resolution: Resolution::Mounted,
 };
 
@@ -103,17 +94,11 @@ impl ModuleRoot {
         format!("@{}", self.alias)
     }
 
-    /// Whether the root is optional in a source tree or installation. Only the
-    /// development-only testing root is.
+    /// Whether a session requires the root. Only the development-only testing
+    /// root is optional.
     #[must_use]
-    pub fn optional(&self) -> bool {
-        self.alias == TESTING.name
-    }
-
-    /// Whether the root is required in a shipped installation.
-    #[must_use]
-    pub fn required_for_installation(&self) -> bool {
-        !self.optional() && self.resolution != Resolution::Native
+    pub fn required(&self) -> bool {
+        self.alias != TESTING.name
     }
 }
 
@@ -155,7 +140,7 @@ impl ModuleRoots {
             .iter()
             .map(|alias| ModuleRoot {
                 alias: alias.name.to_owned(),
-                source: source.join(alias.directory),
+                source: source.join(alias.name),
                 resolution: alias.resolution,
             })
             .collect();
@@ -199,20 +184,20 @@ pub const INSTALL_ARTIFACTS: &[InstallArtifact] = &[
     },
 ];
 
-/// Renders the install manifest as tab-separated source and destination paths.
+/// Lists the install manifest as source and destination paths.
 ///
 /// Module roots include `.luau` files outside `tests` directories. Explicit files
 /// are installed regardless of extension. The testing root is not installed.
 #[must_use]
-pub fn install_manifest() -> String {
-    let mut output = String::new();
-    for alias in INSTALLED_ALIASES {
-        let _ = writeln!(output, "lua/{0}\tlua/{0}", alias.directory);
-    }
-    for artifact in INSTALL_ARTIFACTS {
-        let _ = writeln!(output, "{}\t{}", artifact.source, artifact.destination);
-    }
-    output
+pub fn install_manifest() -> Vec<(String, String)> {
+    let roots = INSTALLED_ALIASES.iter().map(|alias| {
+        let directory = format!("lua/{}", alias.name);
+        (directory.clone(), directory)
+    });
+    let artifacts = INSTALL_ARTIFACTS
+        .iter()
+        .map(|artifact| (artifact.source.to_owned(), artifact.destination.to_owned()));
+    roots.chain(artifacts).collect()
 }
 
 /// Renders a development `.luaurc` whose aliases resolve against `root`.
@@ -233,11 +218,7 @@ fn render_luaurc(root: &str, aliases: &[Alias]) -> String {
     let mut out = String::from("{\n  \"languageMode\": \"strict\",\n  \"aliases\": {\n");
     for (index, alias) in aliases.iter().enumerate() {
         let separator = if index + 1 == aliases.len() { "" } else { "," };
-        let _ = writeln!(
-            out,
-            "    \"{}\": \"{root}/{}\"{separator}",
-            alias.name, alias.directory
-        );
+        let _ = writeln!(out, "    \"{0}\": \"{root}/{0}\"{separator}", alias.name);
     }
     out.push_str("  }\n}\n");
     out
@@ -299,7 +280,7 @@ mod tests {
         assert_eq!(
             installed
                 .mounted()
-                .filter(|root| root.required_for_installation())
+                .filter(|root| root.required())
                 .map(|root| root.alias.as_str())
                 .collect::<Vec<_>>(),
             vec![
@@ -310,7 +291,7 @@ mod tests {
             ]
         );
         assert!(
-            !installed.iter().any(ModuleRoot::optional),
+            installed.iter().all(ModuleRoot::required),
             "every installed root is required"
         );
         assert_eq!(
@@ -328,8 +309,8 @@ mod tests {
     }
 
     /// Every alias is a name a Luau require path can carry, no two roots
-    /// share an alias or a directory, and the installed roots are development
-    /// roots with the same resolution.
+    /// share an alias, and the installed roots are development roots with the
+    /// same resolution.
     #[test]
     fn the_built_in_roots_are_distinct_valid_aliases() {
         let valid = |name: &str| {
@@ -341,15 +322,9 @@ mod tests {
                 })
         };
         let mut names = HashSet::new();
-        let mut directories = HashSet::new();
         for alias in DEVELOPMENT_ALIASES {
             assert!(valid(alias.name), "{} is a valid alias", alias.name);
             assert!(names.insert(alias.name), "{} is unique", alias.name);
-            assert!(
-                directories.insert(alias.directory),
-                "{} is unique",
-                alias.directory
-            );
         }
         assert!(
             INSTALLED_ALIASES
@@ -362,10 +337,18 @@ mod tests {
     fn the_install_manifest_lists_every_installed_root_and_not_testing() {
         let manifest = install_manifest();
         for alias in INSTALLED_ALIASES {
-            let line = format!("lua/{0}\tlua/{0}", alias.directory);
-            assert!(manifest.lines().any(|entry| entry == line), "{line}");
+            let directory = format!("lua/{}", alias.name);
+            assert!(
+                manifest.contains(&(directory.clone(), directory.clone())),
+                "{directory}"
+            );
         }
-        assert!(!manifest.contains("testing"));
+        assert!(
+            manifest
+                .iter()
+                .all(|(source, destination)| !source.contains("testing")
+                    && !destination.contains("testing"))
+        );
     }
 
     #[test]

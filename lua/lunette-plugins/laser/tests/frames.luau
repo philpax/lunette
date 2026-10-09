@@ -2,11 +2,13 @@ local testing = require '@testing'
 local expect = testing.expect
 local laserContract = require '@lunette-contracts/laser'
 local laser = require '@lunette-plugins/laser'
+local vrUi = require '@testing/vr-ui'
 
 local test = testing.suite()
 
 local function start(definition)
   local env = { native = testing.native() }
+  env.controls = vrUi.hands(env.native)
   env.session = testing.start {
     'theme',
     'drops',
@@ -17,6 +19,12 @@ local function start(definition)
   local consumer = env.session:observe(laserContract.capability)
   env.service, env.owner = consumer.service, consumer.context
   return env
+end
+
+-- Holds or releases the trigger on both hands.
+local function trigger(env, held)
+  env.controls:button('left', 'trigger', held)
+  env.controls:button('right', 'trigger', held)
 end
 
 local function calls(env, name)
@@ -114,7 +122,7 @@ test('the readInput and draw hooks wrap the defaults for every laser, and button
     end,
   }
   local env = start(hooked)
-  env.native.events.trigger = true
+  trigger(env, true)
   env.service:attach(env.owner)
 
   env.service:update {}
@@ -155,7 +163,7 @@ end)
 
 test('the default reader maps the trigger to the left button', function()
   local env = start()
-  env.native.events.trigger = true
+  trigger(env, true)
   env.service:attach(env.owner)
   env.service:update {}
   local input = env.service:forHand('left').input
@@ -184,7 +192,7 @@ for _, reader in ipairs { 'default', 'custom' } do
     lovr.headset.isTracked = function(device)
       return tracked and originalTracked(device)
     end
-    env.native.events.trigger = held
+    trigger(env, held)
     local options = if reader == 'custom'
       then {
         readInput = function()
@@ -211,15 +219,15 @@ for _, reader in ipairs { 'default', 'custom' } do
     beam:update { target }
     expect.equal(#events, 2, 'a held trigger after reacquisition cannot press again')
     held = false
-    env.native.events.trigger = false
+    trigger(env, false)
     beam:update { target }
     held = true
-    env.native.events.trigger = true
+    trigger(env, true)
     beam:update { target }
     expect.equal(#events, 3, 'a fresh edge starts one new gesture')
     expect.equal(events[3].kind, 'press', 'delivery resumes after an observed release')
     held = false
-    env.native.events.trigger = false
+    trigger(env, false)
     beam:update { target }
     expect.equal(events[4].kind, 'release', 'a real release remains distinct from cancel')
     env.session:close()

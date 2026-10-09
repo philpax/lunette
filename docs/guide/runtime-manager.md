@@ -39,11 +39,11 @@ The graph custom region supports selection and dragging. Dragging pans the graph
 
 The toolbar switches between required providers, consumers, all graph relationships, and affected instances. A separate control switches between direct and transitive traversal. Clear filter and Clear selection reset the search and selection state. Previous and Next scroll the sidebar, configuration rows, and catalog. Catalog loading, entry lifecycle actions, and explicit recovery use the same controller-accessible controls. These actions do not use physical key bindings.
 
-Dependency relationships identify actual allocated providers and their published generations. They do not guess a provider from a declared service name. Ownership relationships identify child instances. Parallel bindings and self-loops have separate selectable routes. Search includes names, identities, declarations, blockers, and diagnostic text.
+Dependency relationships identify actual allocated providers and their published generations. They do not guess a provider from a declared service name. Ownership relationships identify child instances. Parallel bindings and self-loops have separate selectable routes. Search includes names, identities, declarations, and diagnostic text.
 
 ## Inspection
 
-The sidebar describes the selected instance's enabled intent, phase, retirement, authority, owner, children, current bindings, failed activation bindings, replacement request, cleanup state, and diagnostics. It lists native effects by owner, source, activation, ordinal, and armed, cleaning, or disarmed state. The native source identifies the actual acquisition owner; it does not infer which broker operation caused it.
+The sidebar describes the selected instance's enabled intent, phase, retirement, authority, owner, children, current bindings, failed activation bindings, replacement request, cleanup state, and diagnostics. It lists native effects by activation, ordinal, and armed, cleaning, or disarmed state.
 
 Broker inspection lists owner-scoped offers, handlers, listeners, panels, focus targets and input sources, tag holds and memberships, overrides, rule sources, placements, layouts, adoption resources, keyboards, lasers, and pointers. Logical registrations and native effects have separate counts. Broker snapshots label facts that cannot be observed without invoking user callbacks. Inspection never invokes an offer, rule resolver, filter, handler, or clock, and does not prune dead tag members. Independent inspection consumers suspend during their broker's outage and reconnect when a provider returns. Tag membership and exclusion status describes the retained registration and owner. Separate `targetLiveness` metadata reports raw target death or marks the observation unavailable rather than invoking a getter.
 
@@ -69,9 +69,9 @@ The shipped composition protects `desktop/manager`, `desktop/menu`, `desktop/key
 
 ## Custom compositions
 
-`@lunette-plugin/management.start(entries, options)` returns one frozen record, `{ runtime, service }`, containing the runtime and the published composition service. It validates entry shapes, runs factories, and resolves managed configuration for every entry before activating any instance; a preflight error aborts startup. A factory runs once for its managed definition; provider outages and reloads retain that definition. `options.protected` names entry ids whose required providers and parent owners also need protection. The service's `add(entry)` accepts an already loaded definition or factory. No module download or arbitrary source-path resolver is added.
+`@lunette-plugin/management.start(entries, options)` returns one frozen record, `{ runtime, service }`, containing the runtime and the published composition service. It validates entry shapes, runs factories, and resolves managed configuration for every entry before activating any instance; a preflight error aborts startup. A factory runs once for its managed definition; provider outages and reloads retain that definition. `options.protected` names entry ids whose required providers and parent owners also need protection. Entries come only from the composition; the service restores known entries but adds no new source, downloads no module, and resolves no source path.
 
-A custom frame installation can call `management.start` in its start callback and close the returned runtime in its stop callback. `frame.run` and `plugin.start` remain available for compositions without management. A custom composition that uses the projected manager includes its frame, UI, theme, menu, and composition providers, the UI provider's focus and surface dependencies, and the pointing and keyboard path. It protects the manager and its input path.
+A custom frame installation can call `management.start` in its start callback and close the returned runtime in its stop callback. A custom composition that uses the projected manager includes its frame, UI, theme, menu, and composition providers, the UI provider's focus and surface dependencies, and the pointing and keyboard path. It protects the manager and its input path.
 
 ## Known gaps
 

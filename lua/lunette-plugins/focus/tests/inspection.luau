@@ -43,7 +43,7 @@ test('inspection lists route registrations and sources without native getters or
   local before = setFocusCalls
   local snapshot = service:inspect()
   expect.equal(setFocusCalls, before, 'inspection makes no native focus calls')
-  expect.equal(snapshot.logicalRegistrationCount, 3, 'one target, listener, and source')
+  expect.equal(#snapshot.registrations, 3, 'one target, listener, and source')
   expect.equal(count(snapshot, 'focus'), 1, 'one logical route registration')
   expect.equal(snapshot.state.sourceCount, 1, 'one source')
   for _, entry in ipairs(snapshot.registrations) do
@@ -53,7 +53,7 @@ test('inspection lists route registrations and sources without native getters or
   changed:dispose()
   input:destroy()
   target:destroy()
-  expect.equal(service:inspect().logicalRegistrationCount, 0, 'all released registrations disappear')
+  expect.equal(#service:inspect().registrations, 0, 'all released registrations disappear')
   session:close()
 end)
 

@@ -1,13 +1,14 @@
 //! Loads public UI, menu, keyboard-display, and theme modules from installed manifest copies.
-//! Checks that the bundled theme font and redistributed licences retain their bytes.
+//! Checks that the bundled theme font and redistributed licences retain their bytes, and that no
+//! installed source or the shipped configuration requires a development-only root.
 
 use std::{
     fs,
-    path::{Component, Path},
+    path::{Component, Path, PathBuf},
 };
 
 use libtest_mimic::Trial;
-use lunette::aliases::install_manifest;
+use lunette::aliases::{DEVELOPMENT_ALIASES, INSTALLED_ALIASES, install_manifest};
 use tempfile::TempDir;
 
 use crate::state::{self, Roots};
@@ -21,11 +22,8 @@ pub fn trial(roots: Roots) -> Trial {
 
 fn load(roots: &Roots) -> Result<(), Box<dyn std::error::Error>> {
     let installation = TempDir::with_prefix("lunette-ui-load-")?;
-    for line in install_manifest().lines() {
-        let (source, destination) = line
-            .split_once('\t')
-            .ok_or("install manifest: missing destination")?;
-        let destination = Path::new(destination);
+    for (source, destination) in install_manifest() {
+        let destination = Path::new(&destination);
         if destination.as_os_str().is_empty()
             || destination
                 .components()
@@ -65,6 +63,10 @@ fn load(roots: &Roots) -> Result<(), Box<dyn std::error::Error>> {
             .into());
         }
     }
+    reject_development_roots(&[
+        installation.path().join("lua"),
+        roots.repository.join("etc/xdg/lunette"),
+    ])?;
     let installed = Roots::of_repository(installation.path().to_path_buf());
     let lua = state::new(&installed)?;
     lua.load(
@@ -103,6 +105,54 @@ fn load(roots: &Roots) -> Result<(), Box<dyn std::error::Error>> {
         .exists()
     {
         return Err("installed roots: UI tests were copied".into());
+    }
+    Ok(())
+}
+
+/// Fails when an installed source or the shipped configuration names a root that an
+/// installation lacks.
+fn reject_development_roots(directories: &[PathBuf]) -> Result<(), Box<dyn std::error::Error>> {
+    let development_only: Vec<String> = DEVELOPMENT_ALIASES
+        .iter()
+        .filter(|alias| !INSTALLED_ALIASES.contains(alias))
+        .map(|alias| format!("@{}", alias.name))
+        .collect();
+    let mut sources = Vec::new();
+    for directory in directories {
+        collect_sources(directory, &mut sources)?;
+    }
+    for path in sources {
+        let text = fs::read_to_string(&path)?;
+        if development_only.iter().any(|root| {
+            text.contains(&format!("'{root}/"))
+                || text.contains(&format!("\"{root}/"))
+                || text.contains(&format!("'{root}'"))
+                || text.contains(&format!("\"{root}\""))
+        }) {
+            return Err(format!(
+                "installed roots: {} requires a development-only root",
+                path.display()
+            )
+            .into());
+        }
+    }
+    Ok(())
+}
+
+fn collect_sources(
+    directory: &Path,
+    found: &mut Vec<PathBuf>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    for entry in fs::read_dir(directory)? {
+        let path = entry?.path();
+        if path.is_dir() {
+            collect_sources(&path, found)?;
+        } else if path
+            .extension()
+            .is_some_and(|extension| extension == "luau")
+        {
+            found.push(path);
+        }
     }
     Ok(())
 }

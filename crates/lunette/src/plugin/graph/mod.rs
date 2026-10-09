@@ -20,7 +20,7 @@ pub use self::{
     lifecycle::{
         Action, Graph, Intent, IntentState, LifecycleState, LoadOutcome, LoadResolution, Stage,
     },
-    snapshot::{Blocker, GraphSnapshot, InstanceSnapshot},
+    snapshot::{GraphSnapshot, InstanceSnapshot},
 };
 
 #[cfg(test)]

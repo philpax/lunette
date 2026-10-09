@@ -1,5 +1,5 @@
 local ui = require '@lunette-contracts/ui'
-local surface = require '@lunette-contracts/surface'
+local vocabulary = require '@lunette-contracts/vocabulary'
 
 local bounds: ui.Bounds = { x = 0, y = 0, width = 100, height = 40 }
 
@@ -18,7 +18,7 @@ local function misuse(panel: ui.Panel, owner: ui.Owner, field: ui.TextField, cho
   end
   local validate: (string) -> string? = wrongValidator -- reject.
   local hook: ui.DrawHook = function(_pass: Pass, _visual: ui.Description, _base: ui.Renderer): () end -- reject.
-  local pointer: (surface.PointerEvent) -> () = function(_event: string): () end -- reject.
+  local pointer: (vocabulary.PointerEvent) -> () = function(_event: string): () end -- reject.
   panel:button(owner, { id = 'button', bounds = bounds, onActivate = function(_value: string): () end }) -- reject.
   panel:textField(owner, { id = 'field', bounds = bounds, value = 1 }) -- reject.
   local numberCallback = function(_value: number): () end

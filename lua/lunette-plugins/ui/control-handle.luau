@@ -2,7 +2,6 @@
 local plugin = require '@lunette-plugin'
 local ui = require '@lunette-contracts/ui'
 local focus = require '@lunette-contracts/focus'
-local surface = require '@lunette-contracts/surface'
 local records = require '@lunette-plugins/ui/panel-state'
 local control = require '@lunette-plugins/ui/control'
 local owners = require '@lunette-plugins/ui/control-owners'
@@ -12,6 +11,7 @@ local theme = require '@lunette-plugins/ui/theme'
 local appearance = require './appearance'
 local drawing = require './draw'
 local protected = require '@lunette-plugins/protected'
+local vocabulary = require '@lunette-contracts/vocabulary'
 
 local handles = {}
 
@@ -141,7 +141,7 @@ function handles.create(panel: records.Panel, owner: ui.Owner, options: ui.Optio
   local host: control.Host = {
     live = current,
     interactive = interactive,
-    captured = function(pointer: surface.Pointer, button): boolean
+    captured = function(pointer: vocabulary.Pointer, button): boolean
       if initializing or not interactive() then
         return false
       end
@@ -154,7 +154,7 @@ function handles.create(panel: records.Panel, owner: ui.Owner, options: ui.Optio
         panel.revision += 1
       end
     end,
-    cancel = function(reason: surface.CancelReason): ()
+    cancel = function(reason: vocabulary.CancelReason): ()
       if not initializing and current() then
         input.cancel(panel, record, reason)
       end

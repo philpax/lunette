@@ -1,14 +1,13 @@
 -- Owner-scoped VR panels share declared logical geometry for input, drawing, and inspection.
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
-local owner = require '@lunette-contracts/owner'
-local surface = require '@lunette-contracts/surface'
 local focus = require '@lunette-contracts/focus'
 local theme = require '@lunette-contracts/theme'
+local vocabulary = require '@lunette-contracts/vocabulary'
 
 local ui = {}
 
-export type Owner = owner.Owner
+export type Owner = plugin.Owner
 export type OwnerIdentity = { read kind: 'ui-owner' }
 export type Bounds = { read x: number, read y: number, read width: number, read height: number }
 export type Point = { read x: number, read y: number }
@@ -148,7 +147,7 @@ export type ListOptions = Options & {
 }
 export type RegionOptions = Options & {
   read items: { read [number]: RegionItem }?,
-  read onPointer: ((surface.PointerEvent) -> ())?,
+  read onPointer: ((vocabulary.PointerEvent) -> ())?,
   read receiver: focus.Receiver?,
   read wantsKeyboard: boolean?,
 }
@@ -246,7 +245,7 @@ export type PanelOptions = {
   read visible: boolean?,
   read grabbable: boolean?,
   -- Grip moves this offered owning surface instead of the UI panel itself.
-  read grabTarget: surface.Surface?,
+  read grabTarget: vocabulary.Surface?,
   read theme: ThemeOverrides?,
   read draw: DrawHook?,
   read titlebar: TitlebarOptions?,
@@ -269,7 +268,7 @@ export type Panel = {
 }
 export type Service = {
   read newPanel: (Service, Owner, PanelOptions) -> Panel,
-  read newTitlebar: (Service, Owner, string, surface.Surface, TitlebarOptions, (() -> boolean)?) -> Titlebar,
+  read newTitlebar: (Service, Owner, string, vocabulary.Surface, TitlebarOptions, (() -> boolean)?) -> Titlebar,
   read panels: (Service) -> { read [number]: Panel },
 }
 export type Capability = plugin.Capability<Service>

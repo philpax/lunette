@@ -70,14 +70,13 @@ test('inspection leaves private target liveness unavailable and logical entries 
   expect.equal(getterCalls, 0, 'inspection never invokes a getter')
   expect.equal(changes, 0, 'inspection never notifies listeners')
   expect.equal(tag.members, members, 'inspection leaves the member storage untouched')
-  expect.equal(snapshot.logicalRegistrationCount, before.logicalRegistrationCount, 'unchanged logical entries')
+  expect.equal(#snapshot.registrations, #before.registrations, 'unchanged logical entries')
   for _, kind in ipairs { 'membership', 'exclusion' } do
     expect.equal(count(snapshot, kind), 1, 'the retained ' .. kind)
     local entry, initial = registration(snapshot, kind), registration(before, kind)
     expect.equal(entry.details.targetLiveness, 'unavailable', 'the unobserved target liveness')
     expect.equal(initial.details.targetLiveness, 'unavailable', 'the initially unobserved target liveness')
     expect.equal(entry.live, true, 'the logical entry remains live')
-    expect.equal(entry.dead, false, 'target death does not end the logical entry')
     expect.equal(entry.owner, initial.owner, 'the retained owner')
     expect.equal(entry.name, initial.name, 'the retained tag name')
     expect.equal(entry.source, if kind == 'membership' then 'tags.add' else 'tags.exclude', 'the entry source')
@@ -89,7 +88,7 @@ test('inspection leaves private target liveness unavailable and logical entries 
   expect.equal(count(service:inspect(), 'exclusion'), 0, 'normal pruning ends the private dead exclusion')
   excluded:dispose()
   hold:dispose()
-  expect.equal(service:inspect().logicalRegistrationCount, 0, 'all effects end normally')
+  expect.equal(#service:inspect().registrations, 0, 'all effects end normally')
   expect.equal(count(snapshot, 'membership'), 1, 'the detached membership after disposal')
   expect.equal(
     registration(snapshot, 'membership').details.targetLiveness,
@@ -141,8 +140,8 @@ test('inspection retains discriminated window and monitor source IDs for members
     effect:dispose()
   end
   hold:dispose()
-  expect.equal(service:inspect().logicalRegistrationCount, 0, 'the disposed entries')
-  expect.equal(snapshot.logicalRegistrationCount, 5, 'the detached entry count')
+  expect.equal(#service:inspect().registrations, 0, 'the disposed entries')
+  expect.equal(#snapshot.registrations, 5, 'the detached entry count')
   for _, fixture in ipairs(fixtures) do
     for _, kind in ipairs { 'membership', 'exclusion' } do
       local entry = registration(snapshot, kind, fixture.id)
@@ -201,7 +200,6 @@ test('inspection keeps tag holders and memberships separate and never prunes dea
   for _, entry in ipairs(dead.registrations) do
     if entry.kind == 'membership' or entry.kind == 'exclusion' then
       expect.equal(entry.live, true, 'the logical entry remains live')
-      expect.equal(entry.dead, false, 'target death does not end the logical entry')
       expect.equal(entry.details.targetLiveness, 'dead', 'the observed dead target')
       expect.equal(entry.source, if entry.kind == 'membership' then 'tags.add' else 'tags.exclude', 'the entry source')
     end
@@ -212,7 +210,7 @@ test('inspection keeps tag holders and memberships separate and never prunes dea
   expect.equal(count(service:inspect(), 'membership'), 0, 'normal membership cleanup')
   otherHold:dispose()
   hold:dispose()
-  expect.equal(service:inspect().logicalRegistrationCount, 0, 'the tag and overrides end at the last hold')
+  expect.equal(#service:inspect().registrations, 0, 'the tag and overrides end at the last hold')
   expect.equal(count(snapshot, 'membership'), 2, 'the detached initial memberships')
   expect.equal(
     registration(snapshot, 'membership').details.targetLiveness,

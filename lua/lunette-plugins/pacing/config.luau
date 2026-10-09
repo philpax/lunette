@@ -16,12 +16,12 @@ local EXEMPT_TYPES = schema.object {
 }
 local TUNING = schema.object {
   -- The native floor keeps clients answering input.
-  background = schema.default(schema.number { minimum = 0 })(1),
+  background = schema.default(schema.number { positive = true })(1),
   -- Videos remain smooth while exempt clients redraw less often.
-  exempt = schema.default(schema.number { minimum = 0 })(30),
+  exempt = schema.default(schema.number { positive = true })(30),
   -- About a second avoids treating two same-coloured video frames as idle.
   history = schema.default(schema.number { minimum = 1, integer = true })(90),
-  busy = schema.default(schema.number { minimum = 0, maximum = 1 })(0.5),
+  busy = schema.default(schema.number { positive = true, maximum = 1 })(0.5),
   exemptTypes = schema.default(EXEMPT_TYPES)(EXEMPT_TYPES.parse {}),
 }
 local SCHEMA = schema.object {

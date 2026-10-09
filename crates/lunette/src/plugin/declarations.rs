@@ -10,9 +10,8 @@ use mlua::{FromLuaMulti, Function, IntoLuaMulti, Lua, MaybeSend, Table};
 use crate::{
     lua::declarations::{Signature, collect_methods, function_type, render_doc},
     plugin::attachment::{
-        self, PluginAuthority, PluginBlockerKind, PluginContext, PluginContractToken,
-        PluginDefinition, PluginDiagnosticSeverity, PluginEffect, PluginEffectState,
-        PluginInstance, PluginRuntime, PluginState,
+        self, PluginAuthority, PluginContext, PluginContractToken, PluginDefinition, PluginEffect,
+        PluginEffectState, PluginInstance, PluginRuntime, PluginState,
     },
 };
 
@@ -90,11 +89,6 @@ pub(crate) fn render_types(out: &mut String) {
     for (name, names) in [
         (PluginAuthority::luau(), PluginAuthority::NAMES),
         (PluginEffectState::luau(), PluginEffectState::NAMES),
-        (
-            PluginDiagnosticSeverity::luau(),
-            PluginDiagnosticSeverity::NAMES,
-        ),
-        (PluginBlockerKind::luau(), PluginBlockerKind::NAMES),
     ] {
         let _ = writeln!(out, "export type {name} = {}", Type::literals(names));
     }
@@ -136,18 +130,12 @@ pub(crate) fn render_types(out: &mut String) {
     out.push_str("}\n");
 }
 
-const FUNCTIONS: [FunctionSpec; 4] = [
+const FUNCTIONS: [FunctionSpec; 3] = [
     FunctionSpec {
         name: "contract",
         parameters: &["name", "schema"],
         doc: "Declares a qualified contract identity for the current Lua state epoch.",
         callback: native!(attachment::contract),
-    },
-    FunctionSpec {
-        name: "bind",
-        parameters: &["token", "wrapper"],
-        doc: "Binds one erased native wrapper to a contract token.",
-        callback: native!(attachment::bind),
     },
     FunctionSpec {
         name: "define",

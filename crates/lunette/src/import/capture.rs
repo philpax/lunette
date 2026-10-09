@@ -369,7 +369,10 @@ struct BufferKey {
 
 impl BufferKey {
     fn of(frame: &CapturedFrame) -> Result<Self, CaptureImportError> {
-        let first = frame.planes().first().ok_or(CaptureImportError::NoPlanes)?;
+        let first = frame
+            .planes()
+            .and_then(<[_]>::first)
+            .ok_or(CaptureImportError::NoPlanes)?;
 
         Ok(Self {
             buffer: identify_buffer(first.descriptor()).map_err(CaptureImportError::Identify)?,
@@ -386,11 +389,10 @@ impl BufferKey {
 /// callback only.
 fn build_dmabuf(frame: CapturedFrame) -> Result<Dmabuf, CaptureImportError> {
     let format = frame.format();
-    let planes = frame.planes();
-
-    if planes.is_empty() {
-        return Err(CaptureImportError::NoPlanes);
-    }
+    let planes = frame
+        .planes()
+        .filter(|planes| !planes.is_empty())
+        .ok_or(CaptureImportError::NoPlanes)?;
     if planes.len() > MAX_PLANES {
         return Err(CaptureImportError::TooManyPlanes {
             planes: planes.len(),

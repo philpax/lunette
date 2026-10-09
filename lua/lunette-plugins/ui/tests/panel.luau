@@ -1,16 +1,7 @@
 local testing = require '@testing'
 local expect = testing.expect
 local fixture = require './support/panel'
-local suite = testing.suite()
-local function test(name, run)
-  suite(name, function()
-    local ok, failure = pcall(run)
-    fixture.closeAll()
-    if not ok then
-      error(failure, 0)
-    end
-  end)
-end
+local test = testing.suite()
 
 local function click(state, id, hand, item)
   state.fixture:clickControl(state.service, 'public-ui-form', id, hand, item)
@@ -190,4 +181,4 @@ test('panel hide tracking loss and theme replacement cancel active gestures', fu
   state.fixture:close()
 end)
 
-return suite
+return test

@@ -27,7 +27,7 @@ desktop.run {
 }
 ```
 
-Each section reuses the corresponding plugin module's exported `Config` type. The checker rejects a wrong value such as `menu = { hand = 'rigth' }`. `desktop.compose` parses the declared settings and expands them into entry patches before activation, so an invalid settings value aborts composition. When `plugin.start` or the native runtime starts definitions directly, configuration validation occurs as each instance activates; an invalid value fails that instance without aborting other entries. Unknown settings sections fail composition before LÖVR callbacks are bound.
+Each section reuses the corresponding plugin module's exported `Config` type. The checker rejects a wrong value such as `menu = { hand = 'rigth' }`. `desktop.compose` parses the declared settings and expands them into entry patches before activation, so an invalid settings value aborts composition. When the native runtime starts definitions directly, configuration validation occurs as each instance activates; an invalid value fails that instance without aborting other entries. Unknown settings sections fail composition before LÖVR callbacks are bound.
 
 | Settings section | Entry id |
 |---|---|
@@ -84,7 +84,7 @@ local theme = require '@lunette-plugins/desktop/theme'
 
 local entries = desktop.compose {
   patches = {
-    desktop.configureEntry('desktop/theme', theme) {
+    desktop.configure('desktop/theme', theme) {
       preset = 'light',
       overrides = { radii = { uiControl = 4 } },
     },
@@ -247,7 +247,7 @@ Expansion does not rewrite explicit rule tags or persisted tags. Tags absent fro
 
 `entries` replaces the default entry list. `patches` retains the full composition API: configure, replace, disable, or insert entries by stable id. `desktop.entries()` exposes the default list, and `desktop.compose(options)` returns the frozen expanded list without starting any plugins. A missing settings target in a custom list raises a composition error.
 
-`plugin.configureEntry(id, target)(config)` makes a typed configuration patch for an actual entry id. The target is a definition or definition factory that supplies the configuration type. The helper never invokes a factory. The desktop exports the same helper as `desktop.configureEntry`.
+`plugin.configure(id, target)(config)` makes a typed configuration patch for an actual entry id. The target is a definition or definition factory that supplies the configuration type. The helper never invokes a factory. The desktop exports the same helper as `desktop.configure`.
 
 ```luau
 local desktop = require '@lunette-desktop'
@@ -255,14 +255,12 @@ local persistence = require '@lunette-plugins/arrangement'
 
 local entries = desktop.compose {
   patches = {
-    desktop.configureEntry('desktop/persistence', persistence.factory) { file = 'desktop.state' },
+    desktop.configure('desktop/persistence', persistence.factory) { file = 'desktop.state' },
   },
 }
 ```
 
 The supplied id may differ from the definition's name. The patch only carries the id and configuration; it does not replace the definition. A factory still runs once per runtime start, and its returned definition survives provider outages within that runtime. Separate starts construct fresh definitions.
-
-The existing `plugin.configure(target)(config)` and `desktop.configure(target)(config)` remain compatible. They use the definition's name as the id and invoke a factory to discover that name. `configureEntry` is the appropriate helper when an id differs from a name or configuration must not construct a definition.
 
 [Writing plugins](writing-plugins.md) describes provider substitution and plugin authoring. The [desktop example](../../examples/desktop/main.luau) combines settings, typed entry patches, workspaces, and inserted plugins.
 
@@ -306,7 +304,7 @@ A grip press while pointing at a movable panel starts a grab and cancels an acti
 
 ## Window rendering
 
-The built-in panels provider draws windows and monitor mirrors in the scene by default. This allows scene depth and session controls to cover window content. A typed patch `desktop.configureEntry('panels', require('@lunette-plugins/panels').definition) { rendering = 'layer' }` opts windows into backend-owned composition layers. Those layers can produce sharper text, but the backend composites them after the scene, without its depth ordering. A window falls back to scene rendering while its layer claim is not granted. Monitor mirrors remain in the scene in either mode.
+The built-in panels provider draws windows and monitor mirrors in the scene by default. This allows scene depth and session controls to cover window content. A typed patch `desktop.configure('panels', require('@lunette-plugins/panels').definition) { rendering = 'layer' }` opts windows into backend-owned composition layers. Those layers can produce sharper text, but the backend composites them after the scene, without its depth ordering. A window falls back to scene rendering while its layer claim is not granted. Monitor mirrors remain in the scene in either mode.
 
 Scene-rendered content rounds according to the effective window or monitor radius. A clipped mesh preserves source-local pixel mapping, then applies monitor rotation and flip. Curved scene content follows the cylinder instead of flattening its clipped contour. The same emitted perimeter controls initial hits, and cutouts contain no content or depth-writing outline geometry. Native pointer motion stops on a miss, while a release still reaches the original pressed sink; rounding adds no native capture projection. Base, Dark, and Light keep monitor content square. Arcade explicitly uses a 0.012 m monitor radius. Setting `overrides.radii.monitor = 0` on `desktop/theme`, or an explicit provider or panel `monitorRadius = 0`, restores square scene content and rectangular hits.
 

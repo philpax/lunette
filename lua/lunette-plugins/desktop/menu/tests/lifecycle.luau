@@ -9,11 +9,8 @@ local test = testing.suite()
 
 local function withMenu(run)
   local env = fixture.boot()
-  local ok, message = pcall(run, env)
+  run(env)
   env.running:close()
-  if not ok then
-    error(message, 0)
-  end
 end
 
 test('replacement after the scene snapshot cannot receive an armed row release', function()

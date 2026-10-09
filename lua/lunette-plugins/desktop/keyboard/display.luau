@@ -5,11 +5,11 @@ local focus = require '@lunette-contracts/focus'
 local keyboard = require '@lunette-contracts/keyboard'
 local frame = require '@lunette-contracts/frame'
 local surfaces = require '@lunette-contracts/surfaces'
-local surface = require '@lunette-contracts/surface'
 local ui = require '@lunette-contracts/ui'
 local protected = require '@lunette-plugins/protected'
 local place = require '@lunette-plugins/desktop/keyboard/placement'
 local config = require '@lunette-plugins/desktop/keyboard/config'
+local vocabulary = require '@lunette-contracts/vocabulary'
 
 type Listener = { owner: contract.Owner, run: ((contract.Change) -> ())? }
 type Hide = { intentRevision: number, changed: boolean }
@@ -301,7 +301,7 @@ return function(context: plugin.Context, settings: config.Settings): contract.Se
   })
   offers:offer(context, {
     name = 'keyboard-display',
-    list = function(): { surface.Surface }
+    list = function(): { vocabulary.Surface }
       local target = board
       return if live() and visible and target and not target.dead then { target } else {}
     end,

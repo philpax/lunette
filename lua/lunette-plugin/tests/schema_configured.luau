@@ -26,11 +26,7 @@ local function activate(definition, config)
   return runtime, instance
 end
 
-test('the facade exposes the standalone schema constructors', function()
-  expect.equal(plugin.schema, schema)
-end)
-
-test('configured helpers reject unknown fields, false descriptors, and schema with defaults', function()
+test('configured helpers reject unknown fields and false descriptors', function()
   local capability = plugin.capability { name = 'local/schema-malformed', schema = 1 }
   for _, make in
     {
@@ -61,9 +57,6 @@ test('configured helpers reject unknown fields, false descriptors, and schema wi
         make { name = 'schema-invalid', schema = invalid }
       end, 'schema')
     end
-    expect.raises(function()
-      make { name = 'schema-conflict', schema = descriptor(), defaults = {} }
-    end, 'schema and defaults cannot both be supplied')
     expect.raises(function()
       make { name = 'schema-required', schema = schema.object { required = schema.string() } }
     end, 'required')
@@ -107,43 +100,21 @@ test('define binds nested defaults for preflight and activation without changing
   runtime:close()
 end)
 
-test('a definition initializer resolves configuration and rejects it before user code', function()
-  local observed = {}
-  local made = plugin.consumer {
-    name = 'schema-direct-init',
-    schema = descriptor(),
-    init = function(_context, settings)
-      observed[#observed + 1] = settings
-    end,
-  }
-  local bound = made.define { count = 7, style = { width = 8 } }
-  bound.init(nil, { style = { width = 9 } }, nil)
-  expect.equal(observed[1].count, 7)
-  expect.equal(observed[1].style.width, 9)
-  expect.raises(function()
-    bound.init(nil, { style = { width = 'wrong' } }, nil)
-  end, 'schema%-direct%-init')
-  expect.equal(#observed, 1, 'invalid configuration never reaches user code')
-end)
-
-test('definitions expose immutable schema metadata with their bound default', function()
+test('definitions expose schema metadata with their bound default', function()
   local source = descriptor()
   local made = plugin.consumer { name = 'schema-metadata', schema = source, init = function() end }
   local bound = made.define { count = 9, style = { width = 10 } }
-  local metadata = plugin.definitionSchema(bound)
-  expect.equal(metadata, bound.schema)
+  local metadata = bound.schema
   expect.equal(metadata.kind, 'default')
   expect.equal(metadata.child, source.inspect(), 'metadata retains the parser descriptor')
   expect.equal(metadata.value.count, 9)
   expect.equal(metadata.value.style.width, 10)
   expect.equal(made.definition.schema.value.count, 2)
-  expect.truthy(table.isfrozen(bound) and table.isfrozen(metadata) and table.isfrozen(metadata.value.style))
+  local plain = plugin.consumer { name = 'schema-none', init = function() end }
+  expect.equal(plain.definition.schema.child.kind, 'object', 'a consumer without a schema takes an empty object')
   expect.raises(function()
-    metadata.value.style.width = 0
-  end, 'readonly')
-  local legacy = plugin.consumer { name = 'schema-legacy', defaults = { count = 3 }, init = function() end }
-  expect.equal(plugin.definitionSchema(legacy.definition), nil)
-  expect.equal(legacy.definition.resolve({ count = 4 }).count, 4, 'legacy preflight is retained')
+    plain.definition.resolve { count = 4 }
+  end, 'plugin schema%-none: option count is not a declared field')
   local raw = plugin.define { name = 'schema-raw', init = function() end }
   expect.equal(raw.schema, nil)
   expect.equal(raw.resolve, nil, 'low-level definitions do not change their configuration contract')
@@ -152,7 +123,7 @@ test('definitions expose immutable schema metadata with their bound default', fu
   end, 'unknown field schema')
 end)
 
-test('schema refinements and legacy validate run before definition build and activation', function()
+test('schema refinements run before definition build and activation', function()
   local built = 0
   local capability = plugin.capability { name = 'local/schema-provider', schema = 1 }
   local refined = schema.refine(descriptor())(function(settings)
@@ -164,11 +135,6 @@ test('schema refinements and legacy validate run before definition build and act
     name = 'schema-provider',
     capability = capability,
     schema = refined,
-    validate = function(settings, name)
-      if settings.note == 'forbidden' then
-        error('plugin ' .. name .. ': forbidden note', 0)
-      end
-    end,
     build = function(_context, settings)
       built += 1
       return settings
@@ -177,7 +143,7 @@ test('schema refinements and legacy validate run before definition build and act
   expect.equal(made.build(nil, {}).count, 2)
   expect.equal(made.build(nil, { count = 3 }).count, 3)
   expect.equal(built, 2)
-  for _, config in { { count = 5 }, { count = 'wrong' }, { unknown = true }, { note = 'forbidden' } } do
+  for _, config in { { count = 5 }, { count = 'wrong' }, { unknown = true } } do
     expect.raises(function()
       made.build(nil, config)
     end, 'schema%-provider')
@@ -199,26 +165,19 @@ test('schema refinements and legacy validate run before definition build and act
   expect.equal(instance:state(), 'active', tostring(instance:diagnostic()))
   expect.equal(built, 3)
   runtime:close()
-end)
-
-test('invalid initial schema settings fail before a configured callback', function()
-  local initialized, validated = 0, 0
+  local initialized = 0
   expect.raises(function()
     plugin.consumer {
       name = 'schema-invalid-base',
       schema = schema.refine(descriptor())(function()
         error('invalid base', 0)
       end),
-      validate = function()
-        validated += 1
-      end,
       init = function()
         initialized += 1
       end,
     }
   end, 'invalid base')
-  expect.equal(initialized, 0)
-  expect.equal(validated, 0, 'schema validation precedes the optional validator')
+  expect.equal(initialized, 0, 'invalid defaults fail at construction')
 end)
 
 test('callbacks custom values and native vectors retain identity through bound resolution', function()
@@ -301,6 +260,82 @@ test('schema-backed initializers retain the no-return contract', function()
   local reports = testing.takeReports()
   expect.equal(#reports, 1)
   expect.truthy(reports[1]:find('initializer must return nothing', 1, true), reports[1])
+  runtime:close()
+end)
+
+test('a definition factory retains state across its activations but not across runtimes', function()
+  local factories = 0
+  local observed = {}
+  local function factory()
+    factories += 1
+    local count = 0
+    return plugin.consumer({
+      name = 'configured-factory',
+      init = function()
+        count += 1
+        observed[#observed + 1] = count
+      end,
+    }).definition
+  end
+  local entries = { { id = 'configured-factory', factory = factory } }
+  local first = testing.start(entries)
+  first.instances['configured-factory']:disable()
+  first.instances['configured-factory']:enable()
+  first:close()
+  testing.start(entries)
+  expect.equal(factories, 2, 'each runtime calls the factory once')
+  expect.equal(table.concat(observed, ','), '1,2,1', 'factory state is isolated per runtime')
+end)
+
+test('provider define and unpublished build share the consumer configuration rules', function()
+  local capability = plugin.capability { name = 'local/configured-parity', schema = 1 }
+  local built, consumerSettings, service = 0, nil, nil
+  local source = plugin.provider {
+    name = 'configured-parity-provider',
+    capability = capability,
+    schema = descriptor(),
+    build = function(_context, settings)
+      built += 1
+      return { settings = settings }
+    end,
+  }
+  local sink = plugin.consumer {
+    name = 'configured-parity-consumer',
+    schema = descriptor(),
+    init = function(_context, settings)
+      consumerSettings = settings
+    end,
+  }
+  local over = { count = 4, style = { width = 8 } }
+  local provided = source.define(over)
+  local consumed = sink.define(over)
+  expect.equal(built, 0, 'provider construction does not build a service')
+  local runtime = plugin.runtime()
+  local config = { count = 6 }
+  runtime:use(provided, config):enable()
+  runtime:use(consumed, config):enable()
+  runtime
+    :use(
+      plugin.define {
+        name = 'configured-parity-observer',
+        requires = { source = capability },
+        init = function(context)
+          service = context:require(capability)
+          expect.raises(function()
+            source.build(context, { style = { depth = 1 } })
+          end, 'option style.depth is not a declared field')
+          local unpublished = source.build(context)
+          expect.equal(unpublished.settings.count, 2, 'build uses the original provider defaults')
+          expect.truthy(unpublished ~= service, 'build returns an unpublished service')
+          expect.equal(context:require(capability).settings.count, 6, 'build does not replace the published service')
+        end,
+      },
+      {}
+    )
+    :enable()
+  expect.equal(service.settings.count, consumerSettings.count, 'the runtime override agrees')
+  expect.equal(service.settings.style.width, consumerSettings.style.width, 'the defined nested default agrees')
+  expect.equal(built, 2, 'only activation and explicit build construct services')
   runtime:close()
 end)
 

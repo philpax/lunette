@@ -2,7 +2,7 @@
 -- Structural substitution is checked without importing the unchecked test-scaffolding root.
 
 local ui = require '@lunette-contracts/ui'
-local surface = require '@lunette-contracts/surface'
+local vocabulary = require '@lunette-contracts/vocabulary'
 
 local ownerIdentity: ui.OwnerIdentity = { kind = 'ui-owner' }
 table.freeze(ownerIdentity)
@@ -159,7 +159,7 @@ local independentlyTypedService = {
     _: ui.Service,
     _: ui.Owner,
     _: string,
-    _: surface.Surface,
+    _: vocabulary.Surface,
     _: ui.TitlebarOptions,
     _: (() -> boolean)?
   ): ui.Titlebar

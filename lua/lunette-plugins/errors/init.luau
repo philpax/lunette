@@ -17,18 +17,6 @@ export type Config = config.Config
 
 local SUBSCRIBER_KEYS: { [string]: boolean } = { run = true, cleared = true }
 
-local function validate(settings: Settings, name: string): ()
-  if not (settings.window >= 0) then
-    error('plugin ' .. name .. ': option window is zero or more seconds, not ' .. settings.window, 0)
-  end
-  for _, option in ipairs { 'maxKeys', 'history' } do
-    local value = (settings :: any)[option]
-    if value < 1 or value ~= math.floor(value) then
-      error('plugin ' .. name .. ': option ' .. option .. ' is a whole number of at least 1, not ' .. value, 0)
-    end
-  end
-end
-
 local function build(context: plugin.Context, settings: Settings): Service
   local limit = limiter.new(settings.window, settings.maxKeys)
   local history: { contract.Report } = {}
@@ -137,6 +125,5 @@ return plugin.provider<<Config, Settings, Service>> {
   name = 'errors',
   capability = contract.capability,
   schema = config,
-  validate = validate,
   build = build,
 }

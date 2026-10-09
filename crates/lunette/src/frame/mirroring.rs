@@ -142,10 +142,7 @@ impl FrameDriver {
                 match unsafe { LovrTexture::upload(&pixels) } {
                     Ok(texture) => {
                         let displaced = self.session.with_monitor_textures(|textures| {
-                            let displaced =
-                                textures.install_pixels(monitor.clone(), texture, description);
-                            textures.refresh_frame(&monitor, transform);
-                            displaced
+                            textures.install(monitor.clone(), None, texture, description, transform)
                         });
                         if let Some(displaced) = displaced {
                             displaced.release_ref();
@@ -204,10 +201,13 @@ impl FrameDriver {
             );
             let description = crate::texture::describe(&ImportedBuffer::Image(image));
             let displaced = self.session.with_monitor_textures(|textures| {
-                let displaced =
-                    textures.install(monitor.clone(), image.image, texture, description);
-                textures.refresh_frame(&monitor, transform);
-                displaced
+                textures.install(
+                    monitor.clone(),
+                    Some(image.image),
+                    texture,
+                    description,
+                    transform,
+                )
             });
             if let Some(displaced) = displaced {
                 displaced.release_ref();

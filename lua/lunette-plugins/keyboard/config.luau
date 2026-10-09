@@ -4,6 +4,7 @@ local keys = require '@lunette-contracts/keys'
 local board = require '@lunette-plugins/keyboard/board'
 local rows = require '@lunette-plugins/keyboard/rows'
 local appearance = require '@lunette-plugins/keyboard/appearance'
+local validation = require '@lunette-plugins/keyboard/validation'
 
 local function onKey(target: board.Board, key: board.RenderedKey, pointer: board.Pointer, base: board.Press): ()
   base(target, key, pointer)
@@ -70,7 +71,10 @@ local function configuration<K, D>(keyHook: K, drawHook: D)
   }
 end
 local function described<K, D>(keyHook: K, drawHook: D)
-  local descriptor = configuration(keyHook, drawHook)
+  -- Rows, layers, and modifiers refer to one another, so they are checked together.
+  local descriptor = schema.refine(configuration(keyHook, drawHook))(function(settings): ()
+    validation.settings(settings :: any)
+  end)
   type Input = schema.Input<typeof(descriptor)>
   type Output = schema.Output<typeof(descriptor)>
   local named: schema.Schema<Input, Output> = descriptor

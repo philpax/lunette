@@ -3,7 +3,6 @@ local plugin = require '@lunette-plugin'
 local ui = require '@lunette-contracts/ui'
 local focus = require '@lunette-contracts/focus'
 local surfaces = require '@lunette-contracts/surfaces'
-local surface = require '@lunette-contracts/surface'
 local panel = require '@lunette-plugins/ui/panel'
 local config = require '@lunette-plugins/ui/config'
 local owners = require '@lunette-plugins/ui/control-owners'
@@ -16,6 +15,7 @@ local frame = require '@lunette-contracts/frame'
 local records = require '@lunette-plugins/ui/panel-state'
 local panelGeometry = require '@lunette-plugins/ui/panel-geometry'
 local input = require '@lunette-plugins/ui/input'
+local vocabulary = require '@lunette-contracts/vocabulary'
 
 export type Config = config.Config
 export type Settings = config.Settings
@@ -86,7 +86,7 @@ local function build(context: plugin.Context, settings: Settings): ui.Service
       _self: ui.Service,
       owner: ui.Owner,
       name: string,
-      target: surface.Surface,
+      target: vocabulary.Surface,
       options: ui.TitlebarOptions,
       visible: (() -> boolean)?
     ): ui.Titlebar

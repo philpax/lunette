@@ -34,10 +34,11 @@ local providers = {
 test('every built-in provider exposes frozen metadata and a side-effect-free configuration resolver', function()
   for _, provider in providers do
     local definition = provider.definition
-    local metadata = plugin.definitionSchema(definition)
+    local metadata = definition.schema
     expect.truthy(metadata and table.isfrozen(metadata), definition.name .. ' metadata')
     expect.equal(metadata.kind, 'default', definition.name .. ' bound defaults')
-    expect.equal(metadata.child.kind, 'object', definition.name .. ' object shape')
+    local shape = if metadata.child.kind == 'refine' then metadata.child.child else metadata.child
+    expect.equal(shape.kind, 'object', definition.name .. ' object shape')
     local settings = definition.resolve(nil)
     expect.truthy(table.isfrozen(settings), definition.name .. ' settings')
     expect.raises(function()
@@ -69,7 +70,8 @@ test('keyboard rows and layers replace and retain structured editable metadata',
   expect.equal(next(settings.layers), nil, 'empty map replaces')
   expect.equal(settings.style.gap, 0.01, 'style override')
   expect.equal(settings.style.keyUnit, 0.028, 'key units retain the non-theme structural default')
-  local fields = definition.schema.child.fields
+  expect.equal(definition.schema.child.kind, 'refine', 'rows, layers, and modifiers are checked together')
+  local fields = definition.schema.child.child.fields
   expect.equal(fields.rows.child.kind, 'array', 'rows array')
   expect.equal(fields.rows.child.child.child.kind, 'object', 'key object')
   expect.falsy(fields.rows.readOnly, 'editable rows')

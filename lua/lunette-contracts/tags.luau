@@ -1,12 +1,11 @@
 -- Tags borrow panels. Membership, exclusion, selection, and layout changes last for the owning activation.
 
 local plugin = require '@lunette-plugin'
-local owner = require '@lunette-contracts/owner'
-local surface = require '@lunette-contracts/surface'
+local vocabulary = require '@lunette-contracts/vocabulary'
 
 local tags = {}
 
-export type Panel = surface.Movable
+export type Panel = vocabulary.Movable
 
 export type Options = {
   read index: number?,
@@ -21,7 +20,7 @@ export type Hold = {
   read layout: string?,
 }
 
-export type Owner = owner.Owner
+export type Owner = plugin.Owner
 
 export type Selection = {
   read selected: boolean,

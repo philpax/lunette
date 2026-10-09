@@ -1,8 +1,6 @@
 local schema = require '@lunette-plugin/schema'
 
-local positive = schema.refine(schema.number())(function(value: number): ()
-  assert(value > 0, 'must be a positive number')
-end)
+local positive = schema.number { positive = true }
 local placement = schema.object {
   center = schema.default(schema.vector())(vector.pack(0, 1.5, -2)),
   width = schema.default(positive)(2),

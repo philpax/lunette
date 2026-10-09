@@ -55,13 +55,9 @@ use tracing_subscriber::{EnvFilter, filter::LevelFilter};
 
 /// Selects the check command before any boot work. The configuration
 /// directory is resolved first, because a check given no paths checks it.
-fn check_dispatch(command: Option<&cli::Command>) -> Option<(&[PathBuf], Option<&Path>, bool)> {
+fn check_dispatch(command: Option<&cli::Command>) -> Option<(&[PathBuf], Option<&Path>)> {
     match command {
-        Some(cli::Command::Check {
-            roots,
-            definitions,
-            old_solver,
-        }) => Some((roots, definitions.as_deref(), *old_solver)),
+        Some(cli::Command::Check { roots, definitions }) => Some((roots, definitions.as_deref())),
         None => None,
     }
 }
@@ -99,9 +95,9 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     };
 
-    if let Some((roots, definitions, old_solver)) = check_dispatch(arguments.command.as_ref()) {
+    if let Some((roots, definitions)) = check_dispatch(arguments.command.as_ref()) {
         let configuration = config_directory(arguments.config_path.as_deref(), searched);
-        return check::run(roots, configuration, definitions, old_solver);
+        return check::run(roots, configuration, definitions);
     }
 
     if let Some(destination) = &arguments.dump_config {
@@ -654,14 +650,12 @@ mod tests {
         let command = cli::Command::Check {
             roots: vec![PathBuf::from("config.luau")],
             definitions: Some(PathBuf::from("definitions.luau")),
-            old_solver: true,
         };
 
-        let (roots, definitions, old_solver) =
+        let (roots, definitions) =
             check_dispatch(Some(&command)).expect("the check command must be selected");
         assert_eq!(roots, [PathBuf::from("config.luau")]);
         assert_eq!(definitions, Some(Path::new("definitions.luau")));
-        assert!(old_solver);
         assert!(check_dispatch(None).is_none());
     }
 

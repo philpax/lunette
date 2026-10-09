@@ -1,7 +1,7 @@
 local lunette = require '@lunette'
-local surface = require '@lunette-contracts/surface'
 local interaction = require '@lunette-contracts/interaction'
-local owner = require '@lunette-contracts/owner'
+local plugin = require '@lunette-plugin'
+local vocabulary = require '@lunette-contracts/vocabulary'
 
 type SurfaceMetadata = { read dead: boolean, read width: number? }
 type PointerMetadata = { read dead: boolean, read distance: number? }
@@ -42,26 +42,26 @@ local function inspectEvent(event: interaction.PointerEvent): ()
   end
 end
 
-local function genericReceiver<T>(_self: T, event: surface.PointerEvent): ()
+local function genericReceiver<T>(_self: T, event: vocabulary.PointerEvent): ()
   inspectEvent(event)
 end
 
-local function legacySurface(): surface.Surface
+local function legacySurface(): vocabulary.Surface
   return {
     kind = nil,
     dead = false,
     raycast = function(
-      _self: surface.Surface,
+      _self: vocabulary.Surface,
       _origin: vector,
       _direction: vector,
       _captured: boolean?
     ): (number?, number?, number?)
       return nil, nil, nil
     end,
-    onHover = function(_self: surface.Surface, _x: number?, _y: number?, _pointer: surface.Pointer): () end,
-    onLeave = function(_self: surface.Surface, _pointer: surface.Pointer): () end,
-    onPress = function(_self: surface.Surface, _x: number?, _y: number?, _pointer: surface.Pointer): () end,
-    onRelease = function(_self: surface.Surface, _pointer: surface.Pointer): () end,
+    onHover = function(_self: vocabulary.Surface, _x: number?, _y: number?, _pointer: vocabulary.Pointer): () end,
+    onLeave = function(_self: vocabulary.Surface, _pointer: vocabulary.Pointer): () end,
+    onPress = function(_self: vocabulary.Surface, _x: number?, _y: number?, _pointer: vocabulary.Pointer): () end,
+    onRelease = function(_self: vocabulary.Surface, _pointer: vocabulary.Pointer): () end,
   }
 end
 
@@ -81,19 +81,23 @@ local function protocolSurface(): interaction.Surface
       return nil, nil, nil
     end,
     onPointer = genericReceiver,
-    attachFrame = function(_: surface.Surface, _: owner.Owner, _: surface.FrameStyle): surface.FrameAttachment
+    attachFrame = function(
+      _: vocabulary.Surface,
+      _: plugin.Owner,
+      _: vocabulary.FrameStyle
+    ): vocabulary.FrameAttachment
       return {
-        update = function(_: surface.FrameAttachment, _: surface.FrameStyle) end,
-        isJoined = function(_: surface.FrameAttachment): boolean
+        update = function(_: vocabulary.FrameAttachment, _: vocabulary.FrameStyle) end,
+        isJoined = function(_: vocabulary.FrameAttachment): boolean
           return false
         end,
-        dispose = function(_: surface.FrameAttachment) end,
+        dispose = function(_: vocabulary.FrameAttachment) end,
       }
     end,
   }
 end
 
-local function inspectSurface(target: surface.Surface, pointer: surface.Pointer): ()
+local function inspectSurface(target: vocabulary.Surface, pointer: vocabulary.Pointer): ()
   local surfaceMetadata: SurfaceMetadata = target
   local pointerMetadata: PointerMetadata = pointer
   local dead: boolean = surfaceMetadata.dead or pointerMetadata.dead
@@ -103,8 +107,8 @@ local function inspectSurface(target: surface.Surface, pointer: surface.Pointer)
   assert(dead or width == nil or distance == nil)
 end
 
-local function exerciseEvents(pointer: surface.Pointer): { surface.PointerEvent }
-  local enter: surface.PointerEvent = {
+local function exerciseEvents(pointer: vocabulary.Pointer): { vocabulary.PointerEvent }
+  local enter: vocabulary.PointerEvent = {
     kind = 'enter',
     pointer = pointer,
     x = 0,
@@ -138,7 +142,7 @@ local function exerciseEvents(pointer: surface.Pointer): { surface.PointerEvent 
     inside = true,
     button = 'right',
   }
-  local release: surface.PointerEvent = {
+  local release: vocabulary.PointerEvent = {
     kind = 'release',
     pointer = pointer,
     x = 4,
@@ -157,7 +161,7 @@ local function exerciseEvents(pointer: surface.Pointer): { surface.PointerEvent 
     dx = 1,
     dy = -1,
   }
-  local cancel: surface.PointerEvent = {
+  local cancel: vocabulary.PointerEvent = {
     kind = 'cancel',
     pointer = pointer,
     x = 6,

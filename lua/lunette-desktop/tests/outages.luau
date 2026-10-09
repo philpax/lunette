@@ -7,12 +7,14 @@ local rulesContract = require '@lunette-contracts/rules'
 local surfacesContract = require '@lunette-contracts/surfaces'
 local displayContract = require '@lunette-contracts/keyboard-display'
 local menuContract = require '@lunette-contracts/menu'
+local vrUi = require '@testing/vr-ui'
 
 local test = testing.suite()
 
 local function start()
   local env = { session = testing.boot(desktop.entries()) }
   env.native, env.events = env.session.native, env.session.native.events
+  env.hands = vrUi.hands(env.native)
   env.instances = env.session.instances
   local panels = env.session:observe(panelsContract.capability)
   local rules = env.session:observe(rulesContract.capability)
@@ -180,9 +182,9 @@ test('a neutral bindings outage leaves session menu actions and typing working',
   events.windows = { native.newWindow(1) }
   native.emit('onWindowOpened', { window = events.windows[1] })
   env.session:update()
-  events.trigger = true
+  env.hands:button('right', 'trigger', true)
   env.session:update()
-  events.trigger = false
+  env.hands:button('right', 'trigger', false)
   env.session:update()
   env.instances.bindings:disable()
   expect.equal(env.instances['desktop/actions']:state(), 'active', 'session actions do not need the bindings broker')

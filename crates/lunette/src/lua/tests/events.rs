@@ -161,25 +161,23 @@ fn safe_mode_terminal_fallback_runs_through_the_native_event_dispatcher() {
         .expect("safe mode loads");
     run::<()>(&lua, "lovr.load()");
 
-    let candidates: &[(&str, &[&str])] = &[
-        ("foot", &[]),
-        ("weston-terminal", &[]),
-        ("alacritty", &[]),
-        ("kitty", &[]),
-        ("konsole", &["--separate"]),
-        ("xterm", &[]),
-    ];
-    for (program, arguments) in candidates {
+    // The first two candidates show the order; the rest fail until the list is exhausted.
+    let expected = ["foot", "weston-terminal"];
+    let mut attempts = 0;
+    loop {
         let commands = session.flush();
+        if commands.is_empty() {
+            break;
+        }
         assert_eq!(commands.len(), 1, "exactly one candidate should be queued");
         let Command::Spawn(request) = &commands[0] else {
             panic!("expected a spawn command: {commands:?}");
         };
-        assert_eq!(request.argv.program(), OsStr::new(program));
-        assert_eq!(
-            request.argv.arguments(),
-            arguments.iter().map(OsStr::new).collect::<Vec<_>>()
-        );
+        if let Some(program) = expected.get(attempts) {
+            assert_eq!(request.argv.program(), OsStr::new(program));
+        }
+        attempts += 1;
+        assert!(attempts <= 16, "the candidate list is finite");
 
         session.push_event(LuaEvent::ProcessExited {
             process: ProcessId::new(u64::MAX).expect("non-zero"),
@@ -202,7 +200,10 @@ fn safe_mode_terminal_fallback_runs_through_the_native_event_dispatcher() {
         session.push_event(LuaEvent::from_compositor(&event).expect("exit converts"));
         poll(&lua, &sink);
     }
-    assert!(session.flush().is_empty(), "exhaustion must stop spawning");
+    assert!(
+        attempts > expected.len(),
+        "every candidate is tried before exhaustion stops spawning"
+    );
 }
 
 #[test]

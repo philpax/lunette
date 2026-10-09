@@ -5,9 +5,7 @@ local theme = require '@lunette-contracts/theme'
 
 local descriptors = {}
 
-local positive = schema.refine(schema.number())(function(value: number): ()
-  assert(value > 0, 'must be positive')
-end)
+local positive = schema.number { positive = true }
 local nonnegative = schema.number { minimum = 0 }
 local color = schema.array(schema.number { minimum = 0, maximum = 1 }, { minLength = 4, maxLength = 4 })
 

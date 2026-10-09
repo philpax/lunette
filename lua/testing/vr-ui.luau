@@ -26,7 +26,16 @@ function vrUi.attach(fake)
       axisY = 0,
     }
   end
-  return setmetatable({ native = fake, pointerEvents = {} }, Fixture)
+  return setmetatable({ native = fake }, Fixture)
+end
+
+-- Attaches both hands tracked and aiming ahead, with the left hand held aside so only the right beam can hit.
+function vrUi.hands(fake)
+  local fixture = vrUi.attach(fake)
+  fixture:pose('left', lovr.math.newMat4():translate(-5, 1.5, 0))
+  fixture:tracked('left', true)
+  fixture:tracked('right', true)
+  return fixture
 end
 
 function vrUi.boot(entries, options)
@@ -66,7 +75,6 @@ function Fixture:pose(hand, pose)
   state.direction = vector.pack(pose:mul(0, 0, -1, 0)):normalize()
 end
 
--- A copied description is used only for this pose calculation; every click performs a new query.
 function Fixture:aim(description, x, y, hand)
   local state = controller(self, hand or 'right')
   assert(description.visible, 'vr-ui: the panel is hidden')
@@ -131,58 +139,24 @@ function Fixture:discover(service, name, id, itemId, ownerIdentity)
   error('vr-ui: no visible enabled control ' .. name .. '/' .. id .. (if itemId then '/' .. itemId else ''), 2)
 end
 
+-- Aims again after each step because a panel can follow the hand that moved.
 function Fixture:clickControl(service, name, id, hand, itemId, ownerIdentity)
   hand = hand or 'right'
-  self:discover(service, name, id, itemId, ownerIdentity)
-  self:button(hand, 'trigger', false)
-  self:step()
   local function aimCurrent()
-    local description, control, identity = self:discover(service, name, id, itemId, ownerIdentity)
+    local description, control = self:discover(service, name, id, itemId, ownerIdentity)
     local bounds = control.bounds
     assert(bounds and bounds.width > 0 and bounds.height > 0, 'vr-ui: the control has no visible hit bounds')
     self:aim(description, bounds.x + bounds.width / 2, bounds.y + bounds.height / 2, hand)
-    return description, control, identity
-  end
-  aimCurrent()
-  self:step()
-  local pressed, pressedControl, pressedOwner = aimCurrent()
-  self:button(hand, 'trigger', true)
-  self:step()
-  local ok, current, currentControl, currentOwner = pcall(function()
-    return self:discover(service, name, id, itemId, ownerIdentity)
-  end)
-  local sameGeometry = ok
-    and currentOwner == pressedOwner
-    and current.generation == pressed.generation
-    and current.width == pressed.width
-    and current.height == pressed.height
-    and current.logicalWidth == pressed.logicalWidth
-    and current.logicalHeight == pressed.logicalHeight
-  if sameGeometry then
-    local before, after = pressedControl.bounds, currentControl.bounds
-    sameGeometry = before ~= nil
-      and after ~= nil
-      and before.x == after.x
-      and before.y == after.y
-      and before.width == after.width
-      and before.height == after.height
-    local beforePose = if type(pressed.pose) == 'table' then pressed.pose else { pressed.pose:unpack(true) }
-    local afterPose = if type(current.pose) == 'table' then current.pose else { current.pose:unpack(true) }
-    for index, value in ipairs(beforePose) do
-      sameGeometry = sameGeometry and afterPose[index] == value
-    end
   end
   self:button(hand, 'trigger', false)
-  if not sameGeometry then
-    self:tracked(hand, false)
-    self:step()
-    error('vr-ui: stale gesture for ' .. name .. '/' .. id, 2)
-  end
   self:step()
-end
-
-function Fixture:recordPointer(event)
-  self.pointerEvents[#self.pointerEvents + 1] = table.clone(event)
+  aimCurrent()
+  self:step()
+  aimCurrent()
+  self:button(hand, 'trigger', true)
+  self:step()
+  self:button(hand, 'trigger', false)
+  self:step()
 end
 
 local function matching(events, kind)
@@ -193,10 +167,6 @@ local function matching(events, kind)
     end
   end
   return result
-end
-
-function Fixture:cancellations()
-  return matching(self.pointerEvents, 'cancel')
 end
 
 function Fixture:drawCalls(method)

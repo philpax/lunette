@@ -13,7 +13,12 @@ export type Schema<I, O> = {
 export type Metadata = runtime.Node
 export type Error = runtime.Error
 export type Annotation = runtime.Annotation
-export type NumberOptions = { read minimum: number?, read maximum: number?, read integer: boolean? }
+export type NumberOptions = {
+  read minimum: number?,
+  read maximum: number?,
+  read integer: boolean?,
+  read positive: boolean?,
+}
 export type LengthOptions = { read minLength: number?, read maxLength: number? }
 export type StringOptions = LengthOptions & { read pattern: string? }
 export type Custom<T> = { read runtimeType: string, read validate: (unknown) -> T }
@@ -87,10 +92,12 @@ export type function ObjectOutput(shape: type): type
 end
 
 function schema.number(options: NumberOptions?): Schema<number, number>
-  local properties = runtime.options(options, { minimum = true, maximum = true, integer = true })
+  local properties = runtime.options(options, { minimum = true, maximum = true, integer = true, positive = true })
   runtime.bounds(properties, 'minimum', 'maximum', false)
-  if properties.integer ~= nil and type(properties.integer) ~= 'boolean' then
-    runtime.fail('schema', { 'integer' }, 'descriptor', 'must be a boolean')
+  for _, flag in { 'integer', 'positive' } do
+    if properties[flag] ~= nil and type(properties[flag]) ~= 'boolean' then
+      runtime.fail('schema', { flag }, 'descriptor', 'must be a boolean')
+    end
   end
   return runtime.wrap<<number, number>>(runtime.node('number', properties))
 end

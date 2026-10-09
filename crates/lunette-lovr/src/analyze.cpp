@@ -50,9 +50,9 @@ struct DirectoryConfigResolver : Luau::ConfigResolver
     Luau::Config defaults;
     mutable std::unordered_map<std::string, Luau::Config> cache;
 
-    explicit DirectoryConfigResolver(Luau::Mode mode)
+    DirectoryConfigResolver()
     {
-        defaults.mode = mode;
+        defaults.mode = Luau::Mode::Strict;
     }
 
     const Luau::Config& getConfig(const Luau::ModuleName& name, const Luau::TypeCheckLimits&) const override
@@ -286,11 +286,9 @@ lunette_luau_report* check_within(const lunette_luau_request* request)
     // module is checked, and the frontend discards them otherwise.
     options.retainFullTypeGraphs = true;
 
-    DirectoryConfigResolver config(request->strict ? Luau::Mode::Strict : Luau::Mode::Nonstrict);
+    DirectoryConfigResolver config;
     PathResolver files;
-    Luau::SolverMode solver = request->old_solver ? Luau::SolverMode::Old : Luau::SolverMode::New;
-
-    Luau::Frontend frontend(solver, &files, &config, options);
+    Luau::Frontend frontend(Luau::SolverMode::New, &files, &config, options);
     Luau::registerBuiltinGlobals(frontend, frontend.globals);
 
     if (request->definitions != nullptr)

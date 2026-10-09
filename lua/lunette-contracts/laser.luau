@@ -4,17 +4,16 @@
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
-local owner = require '@lunette-contracts/owner'
 local interaction = require '@lunette-contracts/interaction'
-local surface = require '@lunette-contracts/surface'
+local vocabulary = require '@lunette-contracts/vocabulary'
 
 local laser = {}
 
-export type Owner = owner.Owner
+export type Owner = plugin.Owner
 export type Hand = 'left' | 'right'
 export type Device = 'hand/left/point' | 'hand/right/point' | 'hand/left' | 'hand/right'
 export type Input = interaction.Input
-export type Surface = surface.Surface
+export type Surface = vocabulary.Surface
 export type Color = { read [number]: number }
 
 export type Style = {

@@ -84,7 +84,7 @@ function actions.build(
     end
     state.tab, state.scroll = 'inspect', 0
   end)
-  button('configure', 'Configure', entry ~= nil and entry.configurable, function()
+  button('configure', 'Configure', entry ~= nil and entry.schema ~= nil, function()
     if state.tab ~= 'configure' then
       state.edit, state.text = nil, ''
     end
@@ -114,7 +114,7 @@ function actions.build(
   button('remove', 'Remove', mutable, function()
     state.service:remove(id)
   end)
-  button('apply', 'Apply', mutable and entry ~= nil and entry.configurable and state.draft ~= nil, function()
+  button('apply', 'Apply', mutable and entry ~= nil and entry.schema ~= nil and state.draft ~= nil, function()
     local model = state.draft
     if model then
       state.service:configure(id, editor.draft(model))

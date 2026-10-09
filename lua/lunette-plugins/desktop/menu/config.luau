@@ -1,8 +1,6 @@
 local schema = require '@lunette-plugin/schema'
 
-local positive = schema.refine(schema.number())(function(value: number): ()
-  assert(value > 0, 'must be a positive number')
-end)
+local positive = schema.number { positive = true }
 local logicalWidth = schema.refine(positive)(function(value: number): ()
   assert(value >= 120, 'must be at least 120 logical pixels')
 end)

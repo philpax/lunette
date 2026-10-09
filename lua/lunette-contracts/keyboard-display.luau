@@ -1,11 +1,10 @@
 -- Owns one session keyboard's visibility. Local focus can request it without making it manually visible.
 local plugin = require '@lunette-plugin'
-local owner = require '@lunette-contracts/owner'
 local focus = require '@lunette-contracts/focus'
 
 local display = {}
 
-export type Owner = owner.Owner
+export type Owner = plugin.Owner
 export type Change = {
   read visible: boolean,
   read reason: 'show' | 'hide' | 'user-hide' | 'destroy',

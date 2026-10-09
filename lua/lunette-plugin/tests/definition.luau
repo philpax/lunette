@@ -65,7 +65,7 @@ test('a plain table is not a capability', function()
       requires = { source = { name = 'local/plain', schema = 1 } },
       init = init,
     }
-  end, 'unbound capability wrapper')
+  end, "declaration field 'source' must contain a native contract token, not a table")
 end)
 
 test('a definition freezes what it declares, whatever happens to the table it was given', function()

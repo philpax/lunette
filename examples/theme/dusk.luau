@@ -1,7 +1,6 @@
 -- Registers Dusk, the standard Dark theme with a warmer palette, beside the shipped themes.
 
 local plugin = require '@lunette-plugin'
-local schema = require '@lunette-plugin/schema'
 local themes = require '@lunette-contracts/themes'
 local descriptors = require '@lunette-plugins/theme/descriptors'
 local standard = require '@lunette-plugins/theme/standard'
@@ -17,13 +16,11 @@ local dusk = descriptors.resolve(standard.presets.dark, {
   },
 })
 
-local descriptor = schema.object {}
-export type Config = schema.Input<typeof(descriptor)>
-export type Settings = schema.Output<typeof(descriptor)>
+export type Config = {}
+export type Settings = {}
 
 return plugin.consumer<<Config, Settings>>({
   name = 'example/theme/dusk',
-  schema = descriptor,
   requires = { themes = themes.capability },
   init = function(context: plugin.Context, _settings: Settings): ()
     local catalog: themes.Service = context:require(themes.capability)

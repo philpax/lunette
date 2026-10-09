@@ -60,9 +60,11 @@ impl<T> MonitorTextures<T> {
         self.entries.get(monitor).and_then(|entry| entry.image)
     }
 
-    /// Records a monitor's new texture, returning the one it displaces.
+    /// Records a monitor's new texture and the transform of the frame it
+    /// shows, returning the texture it displaces.
     ///
-    /// The caller releases what comes back. Destroying a LOVR texture is an
+    /// The image is `None` for a texture uploaded from shared memory rather
+    /// than imported memory. The caller releases what comes back. Destroying a LOVR texture is an
     /// FFI call this type cannot make, and [`TextureLedger::install`] returns
     /// the displaced texture for the same reason.
     ///
@@ -70,41 +72,22 @@ impl<T> MonitorTextures<T> {
     pub fn install(
         &mut self,
         monitor: MonitorKey,
-        image: ImageHandle,
+        image: Option<ImageHandle>,
         texture: T,
         description: TextureDescription,
+        transform: FrameTransform,
     ) -> Option<T> {
         self.entries
             .insert(
                 monitor,
                 Entry {
                     texture,
-                    image: Some(image),
+                    image,
                     description,
-                    transform: FrameTransform::Undefined,
+                    transform,
                 },
             )
             .map(|displaced| displaced.texture)
-    }
-
-    /// Records a texture uploaded from shared memory rather than imported memory.
-    pub fn install_pixels(
-        &mut self,
-        monitor: MonitorKey,
-        texture: T,
-        description: TextureDescription,
-    ) -> Option<T> {
-        self.entries
-            .insert(
-                monitor,
-                Entry {
-                    texture,
-                    image: None,
-                    description,
-                    transform: FrameTransform::Undefined,
-                },
-            )
-            .map(|entry| entry.texture)
     }
 
     /// The texture a monitor's mirror last produced.
@@ -132,7 +115,7 @@ impl<T> MonitorTextures<T> {
         self.entries.get(monitor).map(|entry| entry.transform)
     }
 
-    /// Updates capture metadata even when a buffer or uploaded texture is reused.
+    /// Updates capture metadata when a buffer or uploaded texture is reused.
     pub fn refresh_frame(&mut self, monitor: &MonitorKey, transform: FrameTransform) {
         if let Some(entry) = self.entries.get_mut(monitor) {
             entry.transform = transform;
@@ -230,11 +213,13 @@ mod tests {
     fn capture_transform_refreshes_reused_and_refilled_textures() {
         for imported in [false, true] {
             let mut textures = MonitorTextures::new();
-            if imported {
-                textures.install(monitor(1), image(7), 10_u32, description());
-            } else {
-                textures.install_pixels(monitor(1), 10_u32, description());
-            }
+            textures.install(
+                monitor(1),
+                imported.then(|| image(7)),
+                10_u32,
+                description(),
+                FrameTransform::Undefined,
+            );
             for transform in [
                 FrameTransform::Undefined,
                 FrameTransform::Normal,
@@ -259,7 +244,13 @@ mod tests {
     #[test]
     fn an_uploaded_monitor_texture_has_no_imported_image() {
         let mut textures = MonitorTextures::new();
-        textures.install_pixels(monitor(1), 10_u32, description());
+        textures.install(
+            monitor(1),
+            None,
+            10_u32,
+            description(),
+            FrameTransform::Undefined,
+        );
         assert_eq!(textures.texture(&monitor(1)), Some(&10));
         assert_eq!(textures.image(&monitor(1)), None);
         assert_eq!(textures.monitors(), vec![monitor(1)]);
@@ -268,8 +259,20 @@ mod tests {
     #[test]
     fn a_monitors_texture_comes_back_under_its_own_key() {
         let mut textures = MonitorTextures::new();
-        textures.install(monitor(1), image(1), 10_u32, description());
-        textures.install(monitor(2), image(2), 20_u32, description());
+        textures.install(
+            monitor(1),
+            Some(image(1)),
+            10_u32,
+            description(),
+            FrameTransform::Undefined,
+        );
+        textures.install(
+            monitor(2),
+            Some(image(2)),
+            20_u32,
+            description(),
+            FrameTransform::Undefined,
+        );
 
         assert_eq!(textures.texture(&monitor(1)), Some(&10));
         assert_eq!(textures.texture(&monitor(2)), Some(&20));
@@ -288,7 +291,13 @@ mod tests {
         // PipeWire cycles a small fixed pool, so almost every frame after the
         // first few arrives on an image that is already installed.
         let mut textures = MonitorTextures::new();
-        textures.install(monitor(1), image(7), 10_u32, description());
+        textures.install(
+            monitor(1),
+            Some(image(7)),
+            10_u32,
+            description(),
+            FrameTransform::Undefined,
+        );
 
         assert_eq!(textures.image(&monitor(1)), Some(image(7)));
         assert_eq!(textures.image(&monitor(2)), None);
@@ -297,9 +306,21 @@ mod tests {
     #[test]
     fn installing_over_a_monitor_hands_back_the_texture_it_displaced() {
         let mut textures = MonitorTextures::new();
-        textures.install(monitor(1), image(1), 10_u32, description());
+        textures.install(
+            monitor(1),
+            Some(image(1)),
+            10_u32,
+            description(),
+            FrameTransform::Undefined,
+        );
 
-        let displaced = textures.install(monitor(1), image(2), 11_u32, description());
+        let displaced = textures.install(
+            monitor(1),
+            Some(image(2)),
+            11_u32,
+            description(),
+            FrameTransform::Undefined,
+        );
 
         assert_eq!(displaced, Some(10));
         assert_eq!(textures.texture(&monitor(1)), Some(&11));
@@ -311,7 +332,13 @@ mod tests {
         let mut textures = MonitorTextures::new();
 
         assert_eq!(
-            textures.install(monitor(1), image(1), 10_u32, description()),
+            textures.install(
+                monitor(1),
+                Some(image(1)),
+                10_u32,
+                description(),
+                FrameTransform::Undefined
+            ),
             None
         );
     }
@@ -321,7 +348,13 @@ mod tests {
         // A dismissed mirror produces no further frames, so a texture left
         // behind would be a still picture that looks live.
         let mut textures = MonitorTextures::new();
-        textures.install(monitor(1), image(1), 10_u32, description());
+        textures.install(
+            monitor(1),
+            Some(image(1)),
+            10_u32,
+            description(),
+            FrameTransform::Undefined,
+        );
 
         assert_eq!(textures.forget(&monitor(1)), Some(10));
         assert_eq!(textures.texture(&monitor(1)), None);
@@ -342,8 +375,20 @@ mod tests {
     #[test]
     fn every_installed_texture_is_offered_a_barrier() {
         let mut textures = MonitorTextures::new();
-        textures.install(monitor(1), image(1), 10_u32, description());
-        textures.install(monitor(2), image(2), 20_u32, description());
+        textures.install(
+            monitor(1),
+            Some(image(1)),
+            10_u32,
+            description(),
+            FrameTransform::Undefined,
+        );
+        textures.install(
+            monitor(2),
+            Some(image(2)),
+            20_u32,
+            description(),
+            FrameTransform::Undefined,
+        );
 
         let mut seen: Vec<u32> = textures.textures().copied().collect();
         seen.sort_unstable();
@@ -354,8 +399,20 @@ mod tests {
     #[test]
     fn teardown_hands_back_every_texture_once() {
         let mut textures = MonitorTextures::new();
-        textures.install(monitor(1), image(1), 10_u32, description());
-        textures.install(monitor(2), image(2), 20_u32, description());
+        textures.install(
+            monitor(1),
+            Some(image(1)),
+            10_u32,
+            description(),
+            FrameTransform::Undefined,
+        );
+        textures.install(
+            monitor(2),
+            Some(image(2)),
+            20_u32,
+            description(),
+            FrameTransform::Undefined,
+        );
 
         let mut taken = textures.take_all();
         taken.sort_unstable();
@@ -370,7 +427,13 @@ mod tests {
         // The size recorded here is what a mirrored monitor reports, and it
         // must match the captured output's resolution.
         let mut textures = MonitorTextures::new();
-        textures.install(monitor(1), image(1), 10_u32, description());
+        textures.install(
+            monitor(1),
+            Some(image(1)),
+            10_u32,
+            description(),
+            FrameTransform::Undefined,
+        );
 
         assert_eq!(
             textures.describe(&monitor(1)).map(|held| held.size),

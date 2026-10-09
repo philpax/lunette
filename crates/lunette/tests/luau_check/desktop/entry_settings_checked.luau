@@ -9,11 +9,11 @@ local workspaces = require '@lunette-plugins/desktop/workspaces'
 local workspaceConfig = require '@lunette-plugins/desktop/workspaces/config'
 
 local accepted = {
-  plugin.configureEntry('custom-keyboard-id', wristKeyboard) { placement = { distance = 0.45 } },
-  plugin.configureEntry('custom-menu-id', menu) { hand = 'right' },
-  desktop.configureEntry('custom-arrange-id', arrange) { layout = 'grid' },
-  plugin.configureEntry('custom-persistence-id', persistence.factory) { file = 'desktop.state' },
-  plugin.configureEntry<<wristKeyboard.Config>>('explicit-config-id', wristKeyboard) {
+  plugin.configure('custom-keyboard-id', wristKeyboard) { placement = { distance = 0.45 } },
+  plugin.configure('custom-menu-id', menu) { hand = 'right' },
+  desktop.configure('custom-arrange-id', arrange) { layout = 'grid' },
+  plugin.configure('custom-persistence-id', persistence.factory) { file = 'desktop.state' },
+  plugin.configure<<wristKeyboard.Config>>('explicit-config-id', wristKeyboard) {
     placement = { distance = 0.45 },
   },
 }
@@ -28,10 +28,10 @@ local composed = desktop.compose {
 }
 
 local rejected = {
-  plugin.configureEntry('custom-keyboard-id', wristKeyboard) { placement = { distance = 'far' } }, -- reject.
-  desktop.configureEntry('custom-arrange-id', arrange) { layout = 3 }, -- reject.
-  plugin.configureEntry('custom-persistence-id', persistence.factory) { file = 3 }, -- reject.
-  plugin.configureEntry<<wristKeyboard.Config>>('explicit-config-id', wristKeyboard) {
+  plugin.configure('custom-keyboard-id', wristKeyboard) { placement = { distance = 'far' } }, -- reject.
+  desktop.configure('custom-arrange-id', arrange) { layout = 3 }, -- reject.
+  plugin.configure('custom-persistence-id', persistence.factory) { file = 3 }, -- reject.
+  plugin.configure<<wristKeyboard.Config>>('explicit-config-id', wristKeyboard) {
     placement = { distance = 'far' }, -- reject.
   },
   desktop.compose { settings = { menu = { hand = 'rigth' } } }, -- reject.

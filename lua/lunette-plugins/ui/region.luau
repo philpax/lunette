@@ -1,9 +1,9 @@
 -- Custom regions retain declared item geometry while sharing pointer and focus delivery.
 local ui = require '@lunette-contracts/ui'
-local surface = require '@lunette-contracts/surface'
 local control = require '@lunette-plugins/ui/control'
 local geometry = require '@lunette-plugins/ui/geometry'
 local validation = require './validation'
+local vocabulary = require '@lunette-contracts/vocabulary'
 
 local region = {}
 
@@ -24,7 +24,7 @@ function region.new(options: ui.RegionOptions, host: control.Host): control.Widg
     },
     receiver = options.receiver,
     wantsKeyboard = options.wantsKeyboard == true,
-    pointer = function(event: surface.PointerEvent, _item: string?): ()
+    pointer = function(event: vocabulary.PointerEvent, _item: string?): ()
       if event.kind == 'press' and event.button == 'left' and event.inside and options.receiver then
         local pointer, button = event.pointer, event.button
         host.focus()

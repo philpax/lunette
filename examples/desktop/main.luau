@@ -31,9 +31,9 @@ desktop.run {
   workspaces = { workspaces = { { name = 'main' }, { name = 'side' } } },
   patches = {
     -- Carried panels stay level, whatever the hand does.
-    desktop.configureEntry('interaction', interaction.definition) { constrain = require './upright' },
+    desktop.configure('interaction', interaction.definition) { constrain = require './upright' },
     -- The A button right-clicks, beside the trigger's left click.
-    desktop.configureEntry('laser', laser.definition) {
+    desktop.configure('laser', laser.definition) {
       buttons = {
         { control = 'trigger', button = 'left' },
         { control = 'a', button = 'right' },

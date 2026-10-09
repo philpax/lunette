@@ -3,7 +3,6 @@
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local contracts = require '@lunette-contracts/panels'
-local surface = require '@lunette-contracts/surface'
 local layer = require '@lunette-plugins/panels/layer'
 local shape = require '@lunette-plugins/panels/shape'
 local drawing = require '@lunette-plugins/panels/draw'
@@ -83,12 +82,12 @@ type PanelData = {
 }
 
 type PanelMethods = {
-  read attachFrame: (surface.Surface, Owner, vocabulary.FrameStyle) -> vocabulary.FrameAttachment,
-  read setHighlighted: (surface.Surface, boolean) -> (),
-  read setPose: (surface.Surface, Mat4) -> (),
-  read setSize: (surface.Surface, number?, number?) -> (),
-  read raycast: (surface.Surface, vector, vector, boolean?) -> (number?, number?, number?),
-  read sink: (surface.Surface) -> lunette.Sink?,
+  read attachFrame: (vocabulary.Surface, Owner, vocabulary.FrameStyle) -> vocabulary.FrameAttachment,
+  read setHighlighted: (vocabulary.Surface, boolean) -> (),
+  read setPose: (vocabulary.Surface, Mat4) -> (),
+  read setSize: (vocabulary.Surface, number?, number?) -> (),
+  read raycast: (vocabulary.Surface, vector, vector, boolean?) -> (number?, number?, number?),
+  read sink: (vocabulary.Surface) -> lunette.Sink?,
   read sourceSize: (Panel) -> (number?, number?),
   read update: (Panel) -> (),
   read draw: (Panel, Pass) -> (),
@@ -133,25 +132,25 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
   end
   local exposed: PanelMethods = {
     attachFrame = function(
-      _self: surface.Surface,
+      _self: vocabulary.Surface,
       caller: Owner,
       style: vocabulary.FrameStyle
     ): vocabulary.FrameAttachment
       return frame.attach(created, caller, style)
     end,
-    setHighlighted = function(_self: surface.Surface, value: boolean)
+    setHighlighted = function(_self: vocabulary.Surface, value: boolean)
       if not created.dead then
         created.highlighted = value
       end
     end,
-    setPose = function(_self: surface.Surface, pose: Mat4)
+    setPose = function(_self: vocabulary.Surface, pose: Mat4)
       created.pose:set(pose)
     end,
-    setSize = function(_self: surface.Surface, width: number?, height: number?)
+    setSize = function(_self: vocabulary.Surface, width: number?, height: number?)
       panel.resize(created, width, height)
     end,
     raycast = function(
-      _self: surface.Surface,
+      _self: vocabulary.Surface,
       origin: vector,
       direction: vector,
       backFace: boolean?
@@ -162,7 +161,7 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
       host.paint()
       return host.settings.shape.raycast(created, origin, direction, backFace, raycastBase)
     end,
-    sink = function(_self: surface.Surface): lunette.Sink?
+    sink = function(_self: vocabulary.Surface): lunette.Sink?
       if created.dead or created.source.dead then
         return nil
       end

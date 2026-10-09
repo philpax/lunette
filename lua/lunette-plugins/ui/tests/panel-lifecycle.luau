@@ -8,11 +8,8 @@ local expect = testing.expect
 local test = testing.suite()
 
 local function withSession(running, run)
-  local ok, failure = pcall(run, running)
+  run(running)
   running:close()
-  if not ok then
-    error(failure, 0)
-  end
 end
 
 local function owner(running, name, init)

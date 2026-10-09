@@ -13,7 +13,6 @@ local function node(id, name)
     state = 'active',
     required = {},
     provided = {},
-    blockers = {},
     bindings = {},
   }
 end
@@ -34,7 +33,7 @@ test('projection uses exact ids and allocation generations and never guesses a b
   local pending = node('4', 'pending')
   pending.state = 'inactive'
   pending.required = consumer.required
-  pending.blockers = { { message = 'missing sample/service' } }
+  pending.diagnostic = 'missing sample/service'
   local result = projection.snapshot { instances = { provider, duplicate, consumer, pending } }
   expect.equal(#result.graph.nodes, 4, 'every instance remains distinct')
   expect.equal(#result.graph.edges, 1, 'declarations produce no speculative binding')
@@ -43,10 +42,7 @@ test('projection uses exact ids and allocation generations and never guesses a b
   expect.equal(edge.to, '2', 'the recorded provider id')
   expect.equal(edge.generation, '19', 'the allocation generation')
   expect.equal(result.bindings[edge.id], consumer.bindings[1], 'the binding detail is inspectable')
-  expect.truthy(
-    result.instances['4'].blockers[1].message:find('missing', 1, true),
-    'waiting details remain inspectable'
-  )
+  expect.truthy(result.instances['4'].diagnostic:find('missing', 1, true), 'waiting details remain inspectable')
   expect.raises(function()
     result.graph.nodes[1].id = 'forged'
   end, 'readonly', 'the projected node cannot mutate')

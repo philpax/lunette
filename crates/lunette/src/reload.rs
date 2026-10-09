@@ -16,12 +16,13 @@ use std::{cell::Cell, error::Error, fmt};
 use mlua::{Function, Lua, Table, Value};
 use tracing::{info, warn};
 
-use crate::plugin::host;
+use crate::{mirrors::MirrorRegistry, plugin::host};
 
 /// Applies the configuration on disk to the running session.
 ///
 /// Plugin shutdown failures are reported, and shutdown continues. Errors while clearing
-/// callbacks or loaded modules stop the reload.
+/// callbacks or loaded modules stop the reload. Mirrors stay acquired while the
+/// replacement configuration runs, so it can reuse them; the rest are released after.
 ///
 /// # Errors
 ///
@@ -30,13 +31,40 @@ use crate::plugin::host;
 /// `main.luau` has torn the previous configuration down. The session
 /// continues with whatever the failed run installed, not the previous
 /// configuration.
-pub fn reload(lua: &Lua, forget_subscriptions: &dyn Fn()) -> Result<(), ReloadError> {
+pub fn reload(
+    lua: &Lua,
+    mirrors: &dyn MirrorRegistry,
+    forget_subscriptions: &dyn Fn(),
+) -> Result<(), ReloadError> {
     // Prevent recursive reloads from exhausting the Lua stack.
     let _guard = ReloadGuard::acquire().ok_or(ReloadError::Reentered)?;
     if host::callback_active(lua) {
         return Err(ReloadError::CallbackActive);
     }
+    let owns_reload = mirrors.begin_reload();
+    let result = replace_configuration(lua, forget_subscriptions);
+    if owns_reload {
+        mirrors.finish_reload();
+    }
+    result
+}
 
+/// Returns success and an optional error message without raising.
+pub fn reload_from_lua(
+    lua: &Lua,
+    mirrors: &dyn MirrorRegistry,
+    forget_subscriptions: &dyn Fn(),
+) -> mlua::Result<(bool, Option<String>)> {
+    match reload(lua, mirrors, forget_subscriptions) {
+        Ok(()) => Ok((true, None)),
+        Err(error) => {
+            warn!("{error}");
+            Ok((false, Some(error.to_string())))
+        }
+    }
+}
+
+fn replace_configuration(lua: &Lua, forget_subscriptions: &dyn Fn()) -> Result<(), ReloadError> {
     host::shutdown(lua, "reload");
 
     let globals = lua.globals();
@@ -48,20 +76,6 @@ pub fn reload(lua: &Lua, forget_subscriptions: &dyn Fn()) -> Result<(), ReloadEr
 
     info!("the configuration was reloaded");
     Ok(())
-}
-
-/// Returns success and an optional error message without raising.
-pub(crate) fn reload_from_lua(
-    lua: &Lua,
-    forget_subscriptions: &dyn Fn(),
-) -> mlua::Result<(bool, Option<String>)> {
-    match reload(lua, forget_subscriptions) {
-        Ok(()) => Ok((true, None)),
-        Err(error) => {
-            warn!("{error}");
-            Ok((false, Some(error.to_string())))
-        }
-    }
 }
 
 /// The reason a reload fails.
@@ -274,6 +288,7 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     use super::*;
+    use crate::mirrors::NoMonitors;
 
     /// A Lua state carrying what `boot.lua` leaves behind and a `main` module
     /// whose source the test chooses.
@@ -337,7 +352,7 @@ mod tests {
             state("runs.main = runs.main + 1 function lovr.load() runs.load = runs.load + 1 end");
         run(&lua, "require 'main' lovr.load()");
 
-        reload(&lua, &|| ()).expect("the reload succeeds");
+        reload(&lua, &NoMonitors, &|| ()).expect("the reload succeeds");
 
         assert_eq!(
             number(&lua, "runs.main"),
@@ -358,7 +373,7 @@ mod tests {
         let lua = state("function lovr.load(arguments) received = arguments end");
         run(&lua, "require 'main'");
 
-        reload(&lua, &|| ()).expect("the reload succeeds");
+        reload(&lua, &NoMonitors, &|| ()).expect("the reload succeeds");
 
         assert_eq!(
             lua.load("return received[1]")
@@ -372,7 +387,7 @@ mod tests {
     fn a_configuration_without_plugin_runtime_reloads() {
         let lua = state("runs.main = runs.main + 1");
 
-        reload(&lua, &|| ()).expect("a session without a plugin runtime reloads");
+        reload(&lua, &NoMonitors, &|| ()).expect("a session without a plugin runtime reloads");
 
         assert_eq!(number(&lua, "runs.main"), 1);
     }
@@ -385,7 +400,7 @@ mod tests {
             "package.loaded['lovr.headset'] = { name = 'headset' }",
         );
 
-        reload(&lua, &|| ()).expect("the reload succeeds");
+        reload(&lua, &NoMonitors, &|| ()).expect("the reload succeeds");
 
         assert_eq!(
             lua.load("return package.loaded['lovr.graphics'].name")
@@ -420,7 +435,7 @@ mod tests {
         );
         let lua = state("");
 
-        reload(&lua, &|| ()).expect("the reload succeeds");
+        reload(&lua, &NoMonitors, &|| ()).expect("the reload succeeds");
 
         for name in &libraries {
             assert!(
@@ -443,7 +458,7 @@ mod tests {
              package.loaded['@lunette'] = { n = 1 }",
         );
 
-        reload(&lua, &|| ()).expect("the reload succeeds");
+        reload(&lua, &NoMonitors, &|| ()).expect("the reload succeeds");
 
         for name in [
             "@lunette-plugins/arrangement",
@@ -472,7 +487,7 @@ mod tests {
         run(&lua, "require 'main'");
 
         set_main(&lua, "function lovr.draw() end");
-        reload(&lua, &|| ()).expect("the reload succeeds");
+        reload(&lua, &NoMonitors, &|| ()).expect("the reload succeeds");
 
         assert!(
             lua.load("return lovr.keypressed == nil and lovr.lunwindowopened == nil")
@@ -494,7 +509,7 @@ mod tests {
     fn boot_lua_s_own_defaults_survive() {
         let lua = state("");
 
-        reload(&lua, &|| ()).expect("the reload succeeds");
+        reload(&lua, &NoMonitors, &|| ()).expect("the reload succeeds");
 
         assert!(
             lua.load("return lovr.log ~= nil and lovr.run ~= nil")
@@ -511,7 +526,7 @@ mod tests {
         let lua = state("");
         run(&lua, "lovr.handlers.lunwindowopened = function() end");
 
-        reload(&lua, &|| ()).expect("the reload succeeds");
+        reload(&lua, &NoMonitors, &|| ()).expect("the reload succeeds");
 
         assert!(
             lua.load("return rawget(lovr.handlers, 'lunwindowopened') ~= nil")
@@ -527,7 +542,8 @@ mod tests {
         run(&lua, "require 'main'");
 
         set_main(&lua, "error('a deliberate defect')");
-        let error = reload(&lua, &|| ()).expect_err("a configuration that raises fails the reload");
+        let error = reload(&lua, &NoMonitors, &|| ())
+            .expect_err("a configuration that raises fails the reload");
 
         assert!(
             error.to_string().contains("a deliberate defect"),
@@ -536,7 +552,8 @@ mod tests {
         // The session is still usable, which is the difference between this
         // and safe mode: the Lua state runs, and the next reload works.
         set_main(&lua, "runs.main = runs.main + 1");
-        reload(&lua, &|| ()).expect("the session can be reloaded again after a failure");
+        reload(&lua, &NoMonitors, &|| ())
+            .expect("the session can be reloaded again after a failure");
         assert_eq!(number(&lua, "runs.main"), 2);
     }
 
@@ -544,7 +561,8 @@ mod tests {
     fn a_lovr_load_that_raises_is_reported_separately() {
         let lua = state("function lovr.load() error('a deliberate defect') end");
 
-        let error = reload(&lua, &|| ()).expect_err("lovr.load raising fails the reload");
+        let error =
+            reload(&lua, &NoMonitors, &|| ()).expect_err("lovr.load raising fails the reload");
 
         assert!(
             matches!(error, ReloadError::Load(_)),
@@ -572,7 +590,7 @@ mod tests {
                     let module = lua.create_table()?;
                     module.set(
                         "reload",
-                        lua.create_function(|lua, ()| reload_from_lua(lua, &|| ()))?,
+                        lua.create_function(|lua, ()| reload_from_lua(lua, &NoMonitors, &|| ()))?,
                     )?;
                     Ok(module)
                 })
@@ -580,7 +598,7 @@ mod tests {
             )
             .expect("the module is reachable");
 
-        reload(&lua, &|| ()).expect("the outer reload succeeds");
+        reload(&lua, &NoMonitors, &|| ()).expect("the outer reload succeeds");
 
         assert!(
             !lua.load("return ok").eval::<bool>().expect("readable"),

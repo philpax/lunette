@@ -76,7 +76,7 @@ local function use(service: menu.Service, owner: menu.Owner, action: menu.Action
   return 'unavailable'
 end
 
-local configured: plugin.Patch = plugin.configure(provider.definition) {}
+local configured: plugin.Patch = plugin.configure('menu', provider.definition) {}
 local definition: plugin.Definition<{}> = plugin.define<<{}>> {
   name = 'fixture/menu-substitute',
   provides = { menu = menu.capability },

@@ -1,13 +1,13 @@
 local lunette = require '@lunette'
-local surface = require '@lunette-contracts/surface'
 local interaction = require '@lunette-contracts/interaction'
+local vocabulary = require '@lunette-contracts/vocabulary'
 
 type PointerEvent = interaction.PointerEvent
 type PointerButton = lunette.PointerButton
 type CancelReason = interaction.CancelReason
-type ProjectWrong = (surface.Surface, vector, vector) -> (number?, string?, number?)
+type ProjectWrong = (vocabulary.Surface, vector, vector) -> (number?, string?, number?)
 
-local function misuse(target: surface.Surface, pointer: surface.Pointer, event: PointerEvent)
+local function misuse(target: vocabulary.Surface, pointer: vocabulary.Pointer, event: PointerEvent)
   local invalidButton: PointerButton = 'center' -- reject.
   local invalidKind: PointerEvent = { kind = 'hover', pointer = pointer, captured = false, inside = false } -- reject.
   local invalidReason: CancelReason = 'timeout' -- reject.
@@ -17,26 +17,26 @@ local function misuse(target: surface.Surface, pointer: surface.Pointer, event: 
   local invalidDeltas: PointerEvent =
     { kind = 'scroll', pointer = pointer, dx = 0, dy = 'down', captured = false, inside = true } -- reject.
 
-  local wrongProjectResult: surface.Surface = { -- reject.
+  local wrongProjectResult: vocabulary.Surface = { -- reject.
     kind = nil,
     dead = false,
     raycast = function(
-      _self: surface.Surface,
+      _self: vocabulary.Surface,
       _origin: vector,
       _direction: vector,
       _captured: boolean?
     ): (number?, number?, number?)
       return nil, nil, nil
     end,
-    project = function(_self: surface.Surface, _origin: vector, _direction: vector): (number?, string?, number?)
+    project = function(_self: vocabulary.Surface, _origin: vector, _direction: vector): (number?, string?, number?)
       return nil, 'invalid', nil
     end,
   }
-  local wrongCallbackReceiver: surface.Surface = { -- reject.
+  local wrongCallbackReceiver: vocabulary.Surface = { -- reject.
     kind = nil,
     dead = false,
     raycast = function(
-      _self: surface.Surface,
+      _self: vocabulary.Surface,
       _origin: vector,
       _direction: vector,
       _captured: boolean?
@@ -50,7 +50,7 @@ local function misuse(target: surface.Surface, pointer: surface.Pointer, event: 
   target.dead = true -- reject.
   pointer.distance = 1 -- reject.
   local wrongProject: ProjectWrong = function(
-    _self: surface.Surface,
+    _self: vocabulary.Surface,
     _origin: vector,
     _direction: vector
   ): (number?, string?, number?)

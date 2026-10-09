@@ -11,7 +11,7 @@ test('placement inspection preserves release ownership separately from the panel
   local service, owner = observed.service, observed.context
   local target, _, effect = service:place(owner, { window = native.newWindow(23), properties = {} })
   local snapshot = service:inspect()
-  expect.equal(snapshot.logicalRegistrationCount, 1, 'the placement registration')
+  expect.equal(#snapshot.registrations, 1, 'the placement registration')
   expect.equal(snapshot.registrations[1].owner, owner, 'the caller release owner')
   local panelOwner = session:observe(panels.capability).service:inspect().registrations[1].owner
   expect.equal(panelOwner == owner, false, 'the downstream panel is provider-owned')
@@ -20,11 +20,11 @@ test('placement inspection preserves release ownership separately from the panel
       error 'inspection announced a placement'
     end,
   })
-  expect.equal(service:inspect().logicalRegistrationCount, 2, 'the placement and listener')
+  expect.equal(#service:inspect().registrations, 2, 'the placement and listener')
   listener:dispose()
   effect:dispose()
   expect.equal(target.dead, true, 'the panel cleanup')
-  expect.equal(service:inspect().logicalRegistrationCount, 0, 'the released placement')
+  expect.equal(#service:inspect().registrations, 0, 'the released placement')
   session:close()
 end)
 

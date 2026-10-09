@@ -65,11 +65,8 @@ end
 
 local function withActions(run, menuEntry)
   local env = boot(menuEntry)
-  local ok, message = pcall(run, env)
+  run(env)
   env.session:close()
-  if not ok then
-    error(message, 0)
-  end
 end
 
 test('session actions register exact ids ordering and keyboard selected updates', function()

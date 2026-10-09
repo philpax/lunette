@@ -13,10 +13,10 @@ test('inspection shows drop listeners without notification delivery', function()
     end,
   })
   local snapshot = service:inspect()
-  expect.equal(snapshot.logicalRegistrationCount, 1, 'the listener count')
+  expect.equal(#snapshot.registrations, 1, 'the listener count')
   expect.equal(snapshot.registrations[1].owner, owner, 'the listener owner')
   effect:dispose()
-  expect.equal(service:inspect().logicalRegistrationCount, 0, 'the disposed listener')
+  expect.equal(#service:inspect().registrations, 0, 'the disposed listener')
   session:close()
 end)
 

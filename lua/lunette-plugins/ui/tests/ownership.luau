@@ -22,11 +22,8 @@ local function test(name, run)
       'desktop/pointing',
       'ui',
     }
-    local ok, failure = pcall(run, running)
+    run(running)
     running:close()
-    if not ok then
-      error(failure, 0)
-    end
   end)
 end
 

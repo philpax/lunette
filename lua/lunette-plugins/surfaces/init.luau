@@ -90,15 +90,12 @@ local function create(context: plugin.Context): contract.Service
   }
 end
 
-local config = require '@lunette-plugins/surfaces/config'
-
-export type Config = config.Config
-export type Settings = config.Settings
+export type Config = {}
+export type Settings = {}
 export type Service = contract.Service
 
 return plugin.provider<<Config, Settings, Service>> {
   name = 'surfaces',
-  schema = config,
   capability = contract.capability,
   build = create,
 }

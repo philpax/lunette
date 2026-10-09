@@ -10,7 +10,7 @@ local frameProvider = require '@lunette-plugins/frame'
 
 local scenario = {}
 
-function scenario.boot(provider)
+function scenario.boot()
   local services = {}
   local ledger = { activations = 0, ended = 0, actions = 0, events = {}, releases = 0, cancels = 0 }
   testing.host.useConfiguration 'examples/ui'
@@ -29,7 +29,7 @@ function scenario.boot(provider)
     return wrapped
   end
   frameProvider.install { start = function() end, stop = function() end }
-  local entries = desktop.compose(composition.options(provider, services, ledger, form))
+  local entries = desktop.compose(composition.options(services, ledger, form))
   local ok, running = pcall(management.start, entries, {
     protected = { 'desktop/manager', 'desktop/menu', 'desktop/actions', 'desktop/keyboard', 'desktop/pointing' },
   })

@@ -25,12 +25,12 @@ local pacingInput: pacing.Config = { tuning = { exemptTypes = { none = true } } 
 local scaleInput: scale.Config = { tuning = { reference = 2 } }
 local arcInput: arc.Config = { tuning = { center = vector.pack(0, 2, 0) } }
 
-plugin.configure(laser.definition)(laserInput)
-plugin.configure(keyboard.definition)(keyboardInput)
-plugin.configure(panels.definition)(panelInput)
-plugin.configure(pacing.definition)(pacingInput)
-plugin.configure(scale.definition)(scaleInput)
-plugin.configure(arc.definition)(arcInput)
+plugin.configure('laser', laser.definition)(laserInput)
+plugin.configure('keyboard', keyboard.definition)(keyboardInput)
+plugin.configure('panels', panels.definition)(panelInput)
+plugin.configure('pacing', pacing.definition)(pacingInput)
+plugin.configure('scale', scale.definition)(scaleInput)
+plugin.configure('layout/arc', arc.definition)(arcInput)
 
 local readInput: laser.ReadInput = laserOutput.readInput
 local onKey: keyboard.OnKey = keyboardOutput.onKey

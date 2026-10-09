@@ -6,12 +6,11 @@
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
-local owner = require '@lunette-contracts/owner'
 local vocabulary = require '@lunette-contracts/vocabulary'
 
 local interaction = {}
 
-export type Owner = owner.Owner
+export type Owner = plugin.Owner
 export type Tuning = vocabulary.Tuning
 export type TuningOverride = {
   read reach: number?,

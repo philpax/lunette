@@ -287,7 +287,7 @@ for _, kind in { 'built-in', 'tiny' } do
       expect.equal(#cancelled, 3, 'every pointer and button cancellation runs')
       expect.equal(#f.keys, if kind == 'tiny' then 4 else 2, 'cancellation never types')
       if change == 'destroy' then
-        expect.equal(f.service:inspect().logicalRegistrationCount, 0, 'board registration is released')
+        expect.equal(#f.service:inspect().registrations, 0, 'board registration is released')
         for _, entry in f.focus:inspect().registrations do
           expect.truthy(entry.source ~= 'focus.newSource', 'source cleanup runs after cancellation failure')
         end
@@ -387,7 +387,7 @@ for _, kind in { 'built-in', 'tiny' } do
         notifications[#notifications + 1] = change
         expect.truthy(f.board.dead, 'destruction commits before its notification')
         expect.falsy(f.board.visible, 'a destroyed board cannot become visible')
-        expect.equal(f.service:inspect().logicalRegistrationCount, 0, 'destruction removes the board registration')
+        expect.equal(#f.service:inspect().registrations, 0, 'destruction removes the board registration')
         for _, entry in f.focus:inspect().registrations do
           expect.truthy(entry.source ~= 'focus.newSource', 'source teardown precedes destruction notification')
         end

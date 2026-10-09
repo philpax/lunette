@@ -3,7 +3,7 @@
 use std::collections::BTreeSet;
 
 use crate::plugin::graph::{
-    Action, Binding, Blocker, ContractKey, DiagnosticKind, Graph, InstanceId,
+    Action, Binding, ContractKey, DiagnosticKind, Graph, InstanceId,
     lifecycle::{Phase, Stage},
 };
 
@@ -25,6 +25,7 @@ impl Graph {
         self.plan_load()
     }
 
+    /// Reports whether the allocation of `instance` must end.
     ///
     /// It must end when the instance is disabled, retired, reloaded, or shut
     /// down, when its parent will unload, or when any provider it is bound to
@@ -164,101 +165,6 @@ impl Graph {
         }
     }
 
-    /// Inspects current prerequisites with the planner's exact lookups, without recording diagnostics.
-    pub(super) fn inspection_blockers(&self, instance: InstanceId) -> Vec<Blocker> {
-        let Some(node) = self.instances.get(&instance) else {
-            return Vec::new();
-        };
-        let mut blockers = Vec::new();
-        if self.shutdown_requested {
-            blockers.push(Blocker::Shutdown);
-        }
-        if !node.intent.enabled {
-            blockers.push(Blocker::Disabled);
-        }
-        if node.intent.retired {
-            blockers.push(Blocker::Retired);
-        }
-        if node.is_quarantined() {
-            blockers.push(Blocker::Quarantined);
-        }
-        if let Some(parent) = node.parent.filter(|parent| self.will_unload(*parent)) {
-            blockers.push(Blocker::ParentUnavailable { parent });
-        }
-        if let Some(allocation) = node.phase.allocation() {
-            if allocation.replace {
-                blockers.push(Blocker::ReplacementRequested);
-            }
-            for binding in &allocation.bindings {
-                if !self.binding_is_current(binding) || self.will_unload(binding.provider) {
-                    blockers.push(Blocker::ProviderUnavailable {
-                        binding: binding.clone(),
-                    });
-                }
-            }
-            if let Some(rejection) = &allocation.rejection {
-                blockers.push(Blocker::Diagnostic(rejection.clone()));
-            }
-            return blockers;
-        }
-        if !blockers.is_empty() {
-            return blockers;
-        }
-        if let Some(blocker) = self.own_contract_blocker(instance) {
-            match blocker {
-                OwnBlocker::Quarantined(kind) => blockers.push(Blocker::Diagnostic(kind)),
-                OwnBlocker::Held => {
-                    blockers.extend(
-                        self.rivals(instance, node)
-                            .filter(|(_, _, other)| {
-                                other.phase.allocation().is_some() || other.claims()
-                            })
-                            .map(|(key, owner, _)| Blocker::ContractHeld {
-                                contract: key.clone(),
-                                owner,
-                            }),
-                    );
-                }
-            }
-            return blockers;
-        }
-        match self.resolve(instance) {
-            Resolution::Bound(bindings) => {
-                if matches!(&node.phase, Phase::Failed { against } if *against == bindings) {
-                    blockers.push(Blocker::FailedBindingsUnchanged);
-                }
-                if self.next_activation == u64::MAX {
-                    blockers.push(Blocker::Diagnostic(DiagnosticKind::ActivationsExhausted));
-                }
-            }
-            Resolution::Blocked(_) | Resolution::Waiting => {
-                if let Some(instances) = self.declared_cycle(instance) {
-                    blockers.push(Blocker::Diagnostic(DiagnosticKind::DependencyCycle {
-                        instances,
-                    }));
-                }
-                for required in &node.required {
-                    match self.resolve_requirement(instance, required) {
-                        RequirementResolution::Bound(_) => {}
-                        RequirementResolution::Pending(provider) => {
-                            blockers.push(Blocker::ProviderPending {
-                                required: required.clone(),
-                                provider,
-                            })
-                        }
-                        RequirementResolution::Blocked(kind) => {
-                            let blocker = Blocker::Diagnostic(kind);
-                            if !blockers.contains(&blocker) {
-                                blockers.push(blocker);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        blockers
-    }
-
     /// Finds a conflicting instance that still holds a provided contract.
     fn own_contract_blocker(&self, instance: InstanceId) -> Option<OwnBlocker> {
         let node = self.instances.get(&instance)?;
@@ -289,7 +195,7 @@ impl Graph {
         for required in &node.required {
             match self.resolve_requirement(instance, required) {
                 RequirementResolution::Bound(binding) => bindings.push(binding),
-                RequirementResolution::Pending(_) => pending = true,
+                RequirementResolution::Pending => pending = true,
                 RequirementResolution::Blocked(kind) => {
                     problem.get_or_insert(kind);
                 }
@@ -335,7 +241,7 @@ impl Graph {
                             generation,
                         })
                     }
-                    _ => RequirementResolution::Pending(provider),
+                    _ => RequirementResolution::Pending,
                 }
             }
             Lookup::Quarantined(provider) => blocked(DiagnosticKind::ProviderQuarantined {
@@ -454,7 +360,7 @@ enum Resolution {
 
 enum RequirementResolution {
     Bound(Binding),
-    Pending(InstanceId),
+    Pending,
     Blocked(DiagnosticKind),
 }
 

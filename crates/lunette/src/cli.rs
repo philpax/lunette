@@ -69,10 +69,6 @@ pub enum Command {
         /// The definitions to check against, naming the runtime globals.
         #[arg(long, value_name = "FILE")]
         definitions: Option<PathBuf>,
-
-        /// Typecheck with the old solver, not the current one.
-        #[arg(long)]
-        old_solver: bool,
     },
 }
 
@@ -104,11 +100,7 @@ const DEFAULT_CONFIGURATION: [&str; CONFIG_ARTIFACTS.len()] = [
 /// load the configuration either.
 pub fn dump(destination: &Path, standard_library: &Path) -> Result<Vec<PathBuf>, DumpError> {
     let roots = ModuleRoots::installed(standard_library);
-    if let Some(missing) = roots
-        .iter()
-        .filter(|root| !root.optional())
-        .find(|root| !root.source.is_dir())
-    {
+    if let Some(missing) = roots.iter().find(|root| !root.source.is_dir()) {
         return Err(DumpError::NoModuleData {
             root: missing.source.clone(),
             standard_library: standard_library.to_owned(),

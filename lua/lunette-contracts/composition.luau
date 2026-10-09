@@ -6,17 +6,9 @@
 -- Editors must preserve opaque values and source-defined configuration rather than reconstructing them from editable fields.
 
 local adapter = require '@lunette-plugin/adapter'
-local compose = require '@lunette-plugin/compose'
 local lunette = require '@lunette'
 local schema = require '@lunette-plugin/schema'
 local composition = {}
-
-export type DefinitionError = {
-  read entryId: string,
-  read field: string,
-  read code: 'definition',
-  read message: string,
-}
 
 export type Entry = {
   read id: string,
@@ -25,7 +17,6 @@ export type Entry = {
   read config: unknown,
   read previousConfig: unknown,
   read schema: schema.Metadata?,
-  read configurable: boolean,
   read state: lunette.PluginState,
   read enabled: boolean,
   read protected: boolean,
@@ -40,7 +31,6 @@ export type KnownEntry = {
   read name: string,
   read installed: boolean,
   read schema: schema.Metadata?,
-  read configurable: boolean,
 }
 
 export type Service = {
@@ -52,9 +42,6 @@ export type Service = {
   read reload: (Service, string) -> (),
   read configure: (Service, string, unknown) -> (),
   read recover: (Service, string) -> (),
-  -- An explicit source can replace an uninstalled known id after preflight and native registration succeed.
-  -- Installed ids, including quarantined entries, reject add and restore.
-  read add: (Service, compose.Entry) -> (),
   -- Restore uses only a known session definition and its last accepted configuration; it never resolves a module path.
   read restore: (Service, string) -> (),
   read remove: (Service, string) -> (),

@@ -302,10 +302,8 @@ local function create(context: plugin.Context): (contract.Service, Dispatcher)
   return service, dispatcher
 end
 
-local config = require '@lunette-plugins/frame/config'
-
-export type Config = config.Config
-export type Settings = config.Settings
+export type Config = {}
+export type Settings = {}
 export type Service = contract.Service
 
 -- Callback binding belongs to the provider effect, including when a plugin wraps its service.
@@ -327,7 +325,6 @@ end
 
 local provider = plugin.provider<<Config, Settings, Service>> {
   name = 'frame',
-  schema = config,
   capability = contract.capability,
   build = build,
 }
@@ -388,27 +385,6 @@ function frame.install(hooks: Hooks): ()
     protected.call('lovr.quit', stop)
     return false
   end
-end
-
--- Validates entries before binding callbacks, then starts and closes their runtime through LÖVR callbacks.
-function frame.run(entries: { plugin.Entry }): ()
-  local checked = plugin.compose(entries)
-  local running: plugin.Running? = nil
-  frame.install {
-    start = function(): ()
-      if running then
-        return
-      end
-      running = plugin.start(checked)
-    end,
-    stop = function(): ()
-      local current = running
-      running = nil
-      if current then
-        current.runtime:close()
-      end
-    end,
-  }
 end
 
 return frame

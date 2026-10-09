@@ -5,7 +5,6 @@ local keyboard = require '@lunette-contracts/keyboard'
 local theme = require '@lunette-contracts/theme'
 local board = require './board'
 local create = require './instance'
-local validation = require './validation'
 local inspection = require '@lunette-contracts/inspection'
 local protected = require '@lunette-plugins/protected'
 local config = require './config'
@@ -16,9 +15,7 @@ local function settingsFor(settings: Settings, options: keyboard.Options?): Sett
   if not options or (options.rows == nil and options.layers == nil) then
     return settings
   end
-  local merged = config.resolve({ rows = options.rows, layers = options.layers }, settings, 'keyboard')
-  validation.settings(merged, 'keyboard')
-  return merged
+  return config.resolve({ rows = options.rows, layers = options.layers }, settings, 'keyboard')
 end
 
 local function build(context: plugin.Context, settings: Settings): keyboard.Service

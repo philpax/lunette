@@ -1,17 +1,14 @@
 -- Registers the Dark and Light themes with the theme catalog.
 
 local plugin = require '@lunette-plugin'
-local schema = require '@lunette-plugin/schema'
 local themes = require '@lunette-contracts/themes'
 local presets = require '@lunette-plugins/theme/standard/presets'
 
-local descriptor = schema.object {}
-export type Config = schema.Input<typeof(descriptor)>
-export type Settings = schema.Output<typeof(descriptor)>
+export type Config = {}
+export type Settings = {}
 
 local definition = plugin.consumer<<Config, Settings>>({
   name = 'theme/standard',
-  schema = descriptor,
   requires = { themes = themes.capability },
   init = function(context: plugin.Context, _settings: Settings): ()
     local catalog: themes.Service = context:require(themes.capability)

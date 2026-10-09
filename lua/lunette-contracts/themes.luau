@@ -2,13 +2,12 @@
 -- chosen theme through `lunette/theme`.
 
 local plugin = require '@lunette-plugin'
-local owner = require '@lunette-contracts/owner'
 local inspection = require '@lunette-contracts/inspection'
 local theme = require '@lunette-contracts/theme'
 
 local themes = {}
 
-export type Owner = owner.Owner
+export type Owner = plugin.Owner
 
 -- `order` sorts choices before their names do and defaults to zero.
 export type Registration = {

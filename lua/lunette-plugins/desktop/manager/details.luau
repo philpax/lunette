@@ -77,9 +77,6 @@ local function instanceLines(result: { string }, node: lunette.PluginInstanceSna
       .. ', generation '
       .. binding.generationId
   end
-  for _, blocker in node.blockers do
-    result[#result + 1] = 'Blocked (' .. blocker.kind .. '): ' .. blocker.message
-  end
   if node.diagnostic then
     result[#result + 1] = 'Diagnostic: ' .. node.diagnostic
   end
@@ -90,16 +87,7 @@ local function instanceLines(result: { string }, node: lunette.PluginInstanceSna
   result[#result + 1] = 'Cleanup failed: ' .. tostring(node.cleanupFailed)
   result[#result + 1] = 'Native effects: ' .. #node.effects
   for _, effect in node.effects do
-    result[#result + 1] = 'Effect '
-      .. effect.ordinal
-      .. ': '
-      .. effect.state
-      .. '; owner #'
-      .. effect.ownerId
-      .. '; source #'
-      .. effect.sourceId
-      .. '; activation '
-      .. effect.activationId
+    result[#result + 1] = 'Effect ' .. effect.ordinal .. ': ' .. effect.state .. '; activation ' .. effect.activationId
   end
 end
 

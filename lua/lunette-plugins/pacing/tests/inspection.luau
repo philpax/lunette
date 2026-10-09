@@ -22,7 +22,7 @@ test('inspection labels unowned pacers without guessing their callers or evaluat
   local after = service:inspect()
   expect.equal(before.state.createdPacers, 0, 'the detached creation count')
   expect.equal(after.state.createdPacers, 1, 'the creation count')
-  expect.equal(after.logicalRegistrationCount, 0, 'unowned objects are not owner registrations')
+  expect.equal(#after.registrations, 0, 'unowned objects are not owner registrations')
   expect.truthy(#after.unobservable > 0, 'the attribution limitation')
   session:close()
 end)

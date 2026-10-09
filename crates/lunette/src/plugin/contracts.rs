@@ -5,14 +5,13 @@
 
 use std::{
     cell::RefCell,
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, HashSet},
     error::Error,
-    ffi::c_void,
     fmt,
     rc::{Rc, Weak},
 };
 
-use mlua::{Table, UserData, Value};
+use mlua::{UserData, Value};
 
 use crate::plugin::graph::ContractKey;
 
@@ -112,20 +111,11 @@ pub enum ContractError {
     DeclarationKeyNotUtf8,
     /// A declaration value is not native token userdata.
     DeclarationValueNotToken { key: String, actual: String },
-    /// The token belongs to another registry.
-    ForeignToken { site: TokenSite },
-    /// The token belongs to an epoch retired by registry replacement.
-    RetiredToken { site: TokenSite },
-    /// The capability wrapper belongs to a retired epoch.
-    RetiredWrapper { key: String },
-    /// Native binding requires an immutable capability wrapper.
-    WrapperNotFrozen,
-    /// The token already has a capability wrapper.
-    TokenAlreadyBound,
-    /// The capability wrapper is already bound to another token.
-    WrapperAlreadyBound,
-    /// A bound capability wrapper is required, but the value is a table.
-    UnboundWrapper { key: String },
+    /// The token in a declaration field belongs to another registry.
+    ForeignToken { key: String },
+    /// The token in a declaration field belongs to an epoch retired by
+    /// registry replacement.
+    RetiredToken { key: String },
     /// Lua table iteration failed while copying a declaration.
     LuaIteration { message: String },
 }
@@ -173,32 +163,13 @@ impl fmt::Display for ContractError {
                 formatter,
                 "plugin contract: declaration field '{key}' must contain a native contract token, not a {actual}"
             ),
-            Self::ForeignToken { site } => write!(
+            Self::ForeignToken { key } => write!(
                 formatter,
-                "plugin contract: {site} is from another registry"
+                "plugin contract: the token in declaration field '{key}' is from another registry"
             ),
-            Self::RetiredToken { site } => {
-                write!(formatter, "plugin contract: {site} is from a retired epoch")
-            }
-            Self::RetiredWrapper { key } => write!(
+            Self::RetiredToken { key } => write!(
                 formatter,
-                "plugin contract: declaration field '{key}' contains a capability from a retired contract epoch"
-            ),
-            Self::WrapperNotFrozen => write!(
-                formatter,
-                "plugin contract: a capability wrapper must be frozen before native binding"
-            ),
-            Self::TokenAlreadyBound => write!(
-                formatter,
-                "plugin contract: a contract token can be bound to only one capability wrapper"
-            ),
-            Self::WrapperAlreadyBound => write!(
-                formatter,
-                "plugin contract: a capability wrapper is already bound to another contract token"
-            ),
-            Self::UnboundWrapper { key } => write!(
-                formatter,
-                "plugin contract: declaration field '{key}' contains an unbound capability wrapper"
+                "plugin contract: the token in declaration field '{key}' is from a retired epoch"
             ),
             Self::LuaIteration { message } => {
                 write!(
@@ -211,25 +182,6 @@ impl fmt::Display for ContractError {
 }
 
 impl Error for ContractError {}
-
-/// Identifies where a contract token was presented in an error.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum TokenSite {
-    /// The token is the value of a declaration field.
-    Field(String),
-    /// The token stands alone, as it does when it is bound to a capability
-    /// wrapper, and is named by the contract it was declared for.
-    Contract(ContractKey),
-}
-
-impl fmt::Display for TokenSite {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Field(key) => write!(formatter, "the token in declaration field '{key}'"),
-            Self::Contract(key) => write!(formatter, "the token for {key}"),
-        }
-    }
-}
 
 /// A registry shared by the runtimes in one state epoch. Cloning shares it.
 #[derive(Clone)]
@@ -249,7 +201,6 @@ impl ContractRegistry {
         Self {
             inner: Rc::new(RegistryInner {
                 contracts: RefCell::new(HashSet::new()),
-                bindings: RefCell::new(HashMap::new()),
             }),
         }
     }
@@ -275,73 +226,8 @@ impl ContractRegistry {
         })
     }
 
-    /// Verifies a native token and returns its contract. An error names the
-    /// token by the contract it was declared for.
-    pub fn validate_token(
-        &self,
-        token: &PluginContractToken,
-    ) -> Result<ContractKey, ContractError> {
-        self.check_token(token, || TokenSite::Contract(token.key.clone()))
-    }
-
-    fn check_token(
-        &self,
-        token: &PluginContractToken,
-        site: impl FnOnce() -> TokenSite,
-    ) -> Result<ContractKey, ContractError> {
-        let Some(token_registry) = token.registry.upgrade() else {
-            return Err(ContractError::RetiredToken { site: site() });
-        };
-        if !Rc::ptr_eq(&self.inner, &token_registry) {
-            return Err(ContractError::ForeignToken { site: site() });
-        }
-        Ok(token.key.clone())
-    }
-
-    /// Binds a frozen wrapper to one native contract token.
-    ///
-    /// Each token and wrapper has one binding. The registry retains the table to
-    /// prevent its identity from being reused after collection.
-    pub fn bind_token(
-        &self,
-        token: &PluginContractToken,
-        wrapper: &Table,
-    ) -> Result<(), ContractError> {
-        let key = self.validate_token(token)?;
-        if !wrapper.is_readonly() {
-            return Err(ContractError::WrapperNotFrozen);
-        }
-        let pointer = wrapper.to_pointer();
-        let mut bindings = self.inner.bindings.borrow_mut();
-        if bindings.values().any(|binding| binding.token == key) {
-            return Err(ContractError::TokenAlreadyBound);
-        }
-        if bindings.contains_key(&pointer) {
-            return Err(ContractError::WrapperAlreadyBound);
-        }
-        bindings.insert(
-            pointer,
-            WrapperBinding {
-                token: key,
-                table: wrapper.clone(),
-            },
-        );
-        Ok(())
-    }
-
-    /// Returns wrappers for the host to mark as retired when it replaces this registry.
-    #[must_use]
-    pub fn bound_wrappers(&self) -> Vec<Table> {
-        self.inner
-            .bindings
-            .borrow()
-            .values()
-            .map(|binding| binding.table.clone())
-            .collect()
-    }
-
     /// Validates and copies a Lua declaration record whose keys are strings and
-    /// whose values are tokens or wrappers bound in this registry.
+    /// whose values are tokens declared in this registry.
     pub fn validate_declaration(
         &self,
         value: Value,
@@ -351,11 +237,6 @@ impl ContractRegistry {
                 actual: value.type_name().to_owned(),
             });
         };
-        self.validate_table(&table)
-    }
-
-    /// Validates and copies a Lua declaration table.
-    pub fn validate_table(&self, table: &Table) -> Result<ValidatedDeclaration, ContractError> {
         let mut bindings = BTreeMap::new();
         for pair in table.pairs::<Value, Value>() {
             let (key, value) = pair.map_err(|error| ContractError::LuaIteration {
@@ -380,9 +261,8 @@ impl ContractRegistry {
                             actual: String::from("userdata"),
                         }
                     })?;
-                    self.validate_token_for_key(&token, &key)?
+                    check_token(&self.inner, &token, &key)?
                 }
-                Value::Table(wrapper) => self.validate_wrapper_for_key(&wrapper, &key)?,
                 other => {
                     return Err(ContractError::DeclarationValueNotToken {
                         key,
@@ -394,41 +274,28 @@ impl ContractRegistry {
         }
         Ok(ValidatedDeclaration { bindings })
     }
-
-    fn validate_token_for_key(
-        &self,
-        token: &PluginContractToken,
-        key: &str,
-    ) -> Result<ContractKey, ContractError> {
-        self.check_token(token, || TokenSite::Field(key.to_owned()))
-    }
-
-    fn validate_wrapper_for_key(
-        &self,
-        wrapper: &Table,
-        key: &str,
-    ) -> Result<ContractKey, ContractError> {
-        let bindings = self.inner.bindings.borrow();
-        let Some(binding) = bindings.get(&wrapper.to_pointer()) else {
-            return Err(ContractError::UnboundWrapper {
-                key: key.to_owned(),
-            });
-        };
-        if !wrapper.is_readonly() {
-            return Err(ContractError::WrapperNotFrozen);
-        }
-        Ok(binding.token.clone())
-    }
 }
 
 struct RegistryInner {
     contracts: RefCell<HashSet<ContractKey>>,
-    bindings: RefCell<HashMap<*const c_void, WrapperBinding>>,
 }
 
-struct WrapperBinding {
-    token: ContractKey,
-    table: Table,
+fn check_token(
+    registry: &Rc<RegistryInner>,
+    token: &PluginContractToken,
+    key: &str,
+) -> Result<ContractKey, ContractError> {
+    let Some(token_registry) = token.registry.upgrade() else {
+        return Err(ContractError::RetiredToken {
+            key: key.to_owned(),
+        });
+    };
+    if !Rc::ptr_eq(registry, &token_registry) {
+        return Err(ContractError::ForeignToken {
+            key: key.to_owned(),
+        });
+    }
+    Ok(token.key.clone())
 }
 
 fn validate_name_component(component: &'static str, value: &str) -> Result<(), ContractError> {

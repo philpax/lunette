@@ -1,12 +1,10 @@
 -- Frame attachments retain detached, validated header outline appearance.
 
 local schema = require '@lunette-plugin/schema'
-local surface = require '@lunette-contracts/surface'
+local vocabulary = require '@lunette-contracts/vocabulary'
 
 local frameStyle = {}
-local positive = schema.refine(schema.number())(function(value: number): ()
-  assert(value > 0, 'must be positive')
-end)
+local positive = schema.number { positive = true }
 local nonnegative = schema.number { minimum = 0 }
 local descriptor = schema.object {
   headerHeight = positive,
@@ -16,11 +14,11 @@ local descriptor = schema.object {
   borderColor = schema.array(schema.number { minimum = 0, maximum = 1 }, { minLength = 4, maxLength = 4 }),
 }
 
-function frameStyle.validate(value: surface.FrameStyle): surface.FrameStyle
+function frameStyle.validate(value: vocabulary.FrameStyle): vocabulary.FrameStyle
   return descriptor.parse(value, 'theme frame style')
 end
 
-function frameStyle.equal(a: surface.FrameStyle, b: surface.FrameStyle): boolean
+function frameStyle.equal(a: vocabulary.FrameStyle, b: vocabulary.FrameStyle): boolean
   if
     a.headerHeight ~= b.headerHeight
     or a.headerRadius ~= b.headerRadius

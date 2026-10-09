@@ -1,7 +1,7 @@
 -- Choice and list controllers share immutable items, clipped row geometry, and pointer captures.
 local ui = require '@lunette-contracts/ui'
-local surface = require '@lunette-contracts/surface'
 local control = require './control'
+local vocabulary = require '@lunette-contracts/vocabulary'
 
 local collection = {}
 
@@ -11,7 +11,7 @@ export type Controller = {
   read selected: () -> string?,
   read setOpen: (boolean) -> (),
   read scroll: (number) -> (),
-  read pointer: (surface.PointerEvent, string?) -> (),
+  read pointer: (vocabulary.PointerEvent, string?) -> (),
   read items: (ui.Bounds, ui.Theme) -> { read [number]: ui.ItemDescription },
   read visual: (ui.Visual) -> ui.Visual,
 }
@@ -36,7 +36,7 @@ function collection.new(kind: Kind, options: ui.ListOptions, host: control.Host)
   local offset = 0
   local revision = 0
   local inputClip: ui.Bounds? = nil
-  local presses: { [surface.Pointer]: Press } = {}
+  local presses: { [vocabulary.Pointer]: Press } = {}
   local onChange = options.onChange
   if onChange ~= nil and type(onChange) ~= 'function' then
     error('ui ' .. kind .. ': onChange is a function', 2)
@@ -94,7 +94,7 @@ function collection.new(kind: Kind, options: ui.ListOptions, host: control.Host)
     return table.freeze(result)
   end
 
-  local function itemAt(event: surface.PointerEvent, id: string?): ui.ItemDescription?
+  local function itemAt(event: vocabulary.PointerEvent, id: string?): ui.ItemDescription?
     if id == nil then
       return nil
     end
@@ -199,7 +199,7 @@ function collection.new(kind: Kind, options: ui.ListOptions, host: control.Host)
     end)
   end
 
-  local function pointer(event: surface.PointerEvent, id: string?): ()
+  local function pointer(event: vocabulary.PointerEvent, id: string?): ()
     if event.kind == 'cancel' then
       if event.button == 'left' then
         presses[event.pointer] = nil

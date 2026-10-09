@@ -32,9 +32,7 @@ local READY: { read kind: 'ready' } = { kind = 'ready' }
 local ESCAPED: { read kind: 'escaped' } = { kind = 'escaped' }
 table.freeze(READY)
 table.freeze(ESCAPED)
-local positive = schema.refine(schema.number())(function(value: number): ()
-  assert(value > 0, 'must be positive')
-end)
+local positive = schema.number { positive = true }
 local descriptor = schema.object {
   enabled = schema.default(schema.boolean())(true),
   threshold = schema.default(schema.number { minimum = 0, maximum = 1 })(0.1),

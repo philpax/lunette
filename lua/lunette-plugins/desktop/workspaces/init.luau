@@ -6,11 +6,9 @@ local placement = require '@lunette-contracts/placement'
 local tags = require '@lunette-contracts/tags'
 
 local config = require '@lunette-plugins/desktop/workspaces/config'
-local schema = require '@lunette-plugin/schema'
 
-local childSchema = schema.object {}
-type ChildConfig = schema.Input<typeof(childSchema)>
-type ChildSettings = schema.Output<typeof(childSchema)>
+type ChildConfig = {}
+type ChildSettings = {}
 
 export type Workspace = config.Workspace
 export type Config = config.Config
@@ -27,7 +25,6 @@ local function actions(settings: Settings, held: { tags.Tag }, switch: (number) 
   return plugin.consumer<<ChildConfig, ChildSettings>>({
     name = 'desktop/workspaces/actions',
     requires = { menu = menu.capability, tags = tags.capability },
-    schema = childSchema,
     init = function(context: plugin.Context, _settings: ChildSettings): ()
       local service: menu.Service = context:require(menu.capability)
       local tagService: tags.Service = context:require(tags.capability)

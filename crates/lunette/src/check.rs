@@ -42,12 +42,7 @@ fn resolve_definitions(named: Option<&Path>) -> Option<PathBuf> {
 /// Typechecks the named roots or the configuration directory and draws diagnostics.
 ///
 /// A skipped root fails the run.
-pub fn run(
-    named: &[PathBuf],
-    configuration: &Path,
-    definitions: Option<&Path>,
-    old_solver: bool,
-) -> ExitCode {
+pub fn run(named: &[PathBuf], configuration: &Path, definitions: Option<&Path>) -> ExitCode {
     let roots = match targets(named, configuration) {
         Ok(roots) => roots,
         Err(error) => {
@@ -61,10 +56,7 @@ pub fn run(
         None => return ExitCode::FAILURE,
     };
 
-    let request = Request {
-        old_solver,
-        ..Request::new(Some(definitions), roots)
-    };
+    let request = Request::new(Some(definitions), roots);
 
     let report = match analyze::check(&request) {
         Ok(report) => report,

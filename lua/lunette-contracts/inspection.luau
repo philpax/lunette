@@ -36,14 +36,11 @@ export type Registration = {
   read name: string?,
   read owner: plugin.Owner,
   read live: boolean,
-  read dead: boolean,
   read details: Details,
 }
 
 export type Snapshot = {
   read registrations: { read [number]: Registration },
-  -- Logical registrations are not native effects; one registration can acquire several effects.
-  read logicalRegistrationCount: number,
   read state: Details,
   read unobservable: { read [number]: string },
 }
@@ -62,20 +59,13 @@ function inspection.registration(
     owner = owner,
     name = name,
     live = live,
-    dead = not live,
     details = table.freeze(table.clone(details or {})),
   }
 end
 
 function inspection.snapshot(registrations: { Registration }, state: Details?, unobservable: { string }?): Snapshot
-  local copies: { Registration } = {}
-  for index, entry in ipairs(registrations) do
-    copies[index] =
-      inspection.registration(entry.kind, entry.source, entry.owner, entry.name, entry.live, entry.details)
-  end
   return table.freeze {
-    registrations = table.freeze(copies),
-    logicalRegistrationCount = #copies,
+    registrations = table.freeze(table.clone(registrations)),
     state = table.freeze(table.clone(state or {})),
     unobservable = table.freeze(table.clone(unobservable or {})),
   }

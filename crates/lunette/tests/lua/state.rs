@@ -21,6 +21,7 @@ use lunette::{
         keys::{KeyCodes, locking_modifier_names, modifier_names},
         text_boundaries,
     },
+    mirrors::NoMonitors,
     plugin::{
         attachment::{self, PluginFailure},
         declarations,
@@ -184,18 +185,15 @@ fn host(lua: &Lua) -> mlua::Result<Table> {
             // The reload cannot be stopped from inside the clearing, so a
             // clearing that raised is raised once the reload has returned.
             let failure = std::cell::RefCell::new(None);
-            let outcome = reload::reload(lua, &|| {
+            let outcome = reload::reload_from_lua(lua, &NoMonitors, &|| {
                 if let Err(error) = clear.call::<()>(()) {
                     failure.borrow_mut().replace(error);
                 }
-            });
+            })?;
             if let Some(error) = failure.into_inner() {
                 return Err(error);
             }
-            match outcome {
-                Ok(()) => Ok((true, None)),
-                Err(error) => Ok((false, Some(error.to_string()))),
-            }
+            Ok(outcome)
         })?,
     )?;
     host.set(
@@ -332,7 +330,7 @@ fn locate(sources: &Sources, name: &str) -> mlua::Result<(PathBuf, String)> {
                     mlua::Error::runtime(format!("require: module '{name}' names no module root"))
                 })?;
             (
-                sources.roots.lua.join(root.directory),
+                sources.roots.lua.join(root.name),
                 format!("@{alias}/"),
                 rest.to_owned(),
             )

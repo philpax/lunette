@@ -1,9 +1,11 @@
 -- Starts plugins for tests and boots compositions through LÖVR's callbacks.
 
 local plugin = require '@lunette-plugin'
+local compose = require '@lunette-plugin/compose'
 local frame = require '@lunette-plugins/frame'
 local drops = require '@lunette-contracts/drops'
 local native = require '@testing/native'
+local suite = require '@testing/suite'
 
 local session = {}
 
@@ -73,8 +75,13 @@ function Session:quit()
   return lovr.quit()
 end
 
--- Closes the runtime and verifies release of native resources when the fake API is installed.
+-- Closes the runtime and verifies release of native resources when the fake API is installed. A closed session
+-- ignores a second close.
 function Session:close()
+  if self.closed then
+    return
+  end
+  self.closed = true
   self.runtime:close()
   if self.native then
     self.native.assertResourcesReleased()
@@ -101,13 +108,30 @@ startSession = function(entries, fake)
   for index, entry in ipairs(entries) do
     resolved[index] = entryOf(entry)
   end
-  local running = plugin.start(resolved)
-  return setmetatable({
-    runtime = running.runtime,
-    instances = running.instances,
+  local runtime = plugin.runtime()
+  local instances = {}
+  local ok, failure = pcall(function()
+    for _, entry in ipairs(plugin.compose(resolved)) do
+      local source = compose.resolveEntry(entry)
+      local instance = runtime:use(source.definition, source.config)
+      instances[entry.id] = instance
+      instance:enable()
+    end
+    runtime:drain()
+  end)
+  if not ok then
+    runtime:close()
+    error(failure, 0)
+  end
+  local started = setmetatable({
+    runtime = runtime,
+    instances = instances,
     native = fake,
     observers = 0,
+    closed = false,
   }, Session)
+  suite.opened(started)
+  return started
 end
 
 return session

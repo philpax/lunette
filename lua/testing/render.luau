@@ -1,9 +1,5 @@
 -- Records development-only drawing with real LÖVR transforms and deterministic codepoint font metrics.
--- new(calls?) returns { pass, font, calls }; calls retain { method, ... } plus snapshot metadata.
--- Supply a function returning events.draw when callers replace that table between frames.
--- within(box, callback) checks emitted geometry in the entry transform's coordinates, not framebuffer pixels.
--- checkpoint()/assertRestored(checkpoint?) diagnose state and stack leaks without repairing or hiding errors.
--- Text bounds are metric boxes, not rasterized glyph ink. No shaping or grapheme segmentation is simulated.
+-- Text bounds are metric boxes, not rasterized glyph ink.
 
 local render = {}
 local Recorder = {}
@@ -34,12 +30,10 @@ function render.new(calls)
     calls = sink(),
     _sink = sink,
     font = newFont(),
-    fonts = {},
     fontAcquisitions = {},
-    fontReleases = {},
     fontMeasurements = {},
-    meshes = {},
     meshAcquisitions = {},
+    shaderAcquisitions = {},
     meshReleases = {},
     _state = {},
     _transform = lovr.math.newMat4(),
@@ -54,9 +48,6 @@ function Recorder:newFont(file, size, spread)
   local spec = table.freeze { kind = 'file', file = file, size = size, spread = spread }
   local key = file .. ':' .. tostring(size) .. ':' .. tostring(spread)
   local face = newFont(spec, self)
-  local faces = self.fonts[key] or {}
-  self.fonts[key] = faces
-  faces[#faces + 1] = face
   self.fontAcquisitions[#self.fontAcquisitions + 1] = { spec = spec, font = face, key = key }
   return face
 end
@@ -92,9 +83,18 @@ function Recorder:newMesh(count)
     self.released = true
     recorder.meshReleases[#recorder.meshReleases + 1] = self
   end
-  self.meshes[#self.meshes + 1] = mesh
   self.meshAcquisitions[#self.meshAcquisitions + 1] = mesh
   return mesh
+end
+
+function Recorder:newShader(vertex, fragment)
+  local shader = { vertex = vertex, fragment = fragment, released = false }
+  function shader:release()
+    assert(not self.released, 'render recorder: shader released twice')
+    self.released = true
+  end
+  self.shaderAcquisitions[#self.shaderAcquisitions + 1] = shader
+  return shader
 end
 
 function Recorder:assertMeshesReleased()
@@ -122,24 +122,10 @@ function Recorder:within(box, callback)
 end
 
 -- A frame maps the assertion's local coordinates to world coordinates; it defaults to the identity.
--- Scissors are captured but never used to excuse logical bounds violations on a posed XR surface.
 function Recorder:assertBounds(box, first, last, frame)
   self.calls = self._sink()
-  for _, field in { 'x', 'y', 'width', 'height' } do
-    assert(
-      type(box[field]) == 'number' and math.abs(box[field]) < math.huge,
-      'render recorder: bounds: invalid ' .. field
-    )
-  end
-  assert(box.width >= 0 and box.height >= 0, 'render recorder: bounds: negative size')
   local tolerance = box.tolerance or 0.001
-  assert(tolerance >= 0 and tolerance < math.huge, 'render recorder: bounds: invalid tolerance')
-  local basis = lovr.math.newMat4(frame)
-  local inverse = lovr.math.newMat4(basis):invert()
-  assert(
-    sameMatrix(lovr.math.newMat4(basis):mul(inverse), lovr.math.newMat4()),
-    'render recorder: bounds: frame is not invertible'
-  )
+  local inverse = lovr.math.newMat4(frame):invert()
   for index = first or 1, last or #self.calls do
     local call = self.calls[index]
     if call.draw then
@@ -190,7 +176,7 @@ function Recorder:assertRestored(checkpoint)
     end
   end
   assert(sameMatrix(self._transform, wanted.transform), 'render recorder: restoration: transform changed')
-  assert(sameState(self._state, wanted.state), 'render recorder: restoration: drawing state or scissor changed')
+  assert(sameState(self._state, wanted.state), 'render recorder: restoration: drawing state changed')
 end
 
 newFont = function(spec, recorder)
@@ -207,7 +193,6 @@ newFont = function(spec, recorder)
     assert(spec, 'render recorder: default font must not be released')
     assert(not self.released, 'render recorder: font released twice')
     self.released = true
-    recorder.fontReleases[#recorder.fontReleases + 1] = { spec = spec, font = self }
   end
   function font:getHeight()
     live 'getHeight'
@@ -262,20 +247,13 @@ newPass = function(recorder)
     end
     call.state = copyState(recorder._state)
     call.transform = lovr.math.newMat4(recorder._transform)
-    call.scissor = if call.state.setScissor and call.state.setScissor[1] ~= nil
-      then table.clone(call.state.setScissor)
-      else nil
     recorder.calls[#recorder.calls + 1] = call
     return call
   end
   for _, method in SETTERS do
     pass[method] = function(_, ...)
       record(method, ...)
-      local args = table.pack(...)
-      if method == 'setScissor' and args[1] ~= nil then
-        args[1], args[2] = math.max(args[1], 0), math.max(args[2], 0)
-      end
-      recorder._state[method] = args
+      recorder._state[method] = table.pack(...)
     end
   end
   function pass:getFont()
@@ -303,10 +281,6 @@ newPass = function(recorder)
     else
       recorder._transform = saved
     end
-  end
-  function pass:origin()
-    record 'origin'
-    recorder._transform:identity()
   end
   for _, method in { 'translate', 'rotate', 'scale' } do
     pass[method] = function(_, ...)

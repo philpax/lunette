@@ -1,12 +1,4 @@
 //! Immutable inspection data, detached from native runtime and callback authority.
-//!
-//! Effect inspection retains every registered inverse's metadata for the current or most recently
-//! ended activation, including disarmed entries. It does not retain inverse callbacks. The history
-//! has no size bound within an activation: native metadata and each copied snapshot cost linear
-//! space in that activation's registration count. A new load clears the preceding activation's
-//! history; instance removal and runtime closure release it. This preserves complete acquisition
-//! order for inspection rather than silently pruning disarmed entries. Retained snapshots own
-//! their copies and remain unchanged after those native records are released.
 
 use std::{cell::RefCell, rc::Rc};
 
@@ -20,7 +12,7 @@ use crate::{
             state::{ActivationAuthority, DeclarationField, RuntimeState},
             types::PluginState,
         },
-        graph::{Binding, Blocker, ContractKey, DiagnosticKind, Graph, InstanceId, Severity},
+        graph::{Binding, ContractKey, Graph, InstanceId},
     },
 };
 
@@ -44,40 +36,6 @@ closed_set! {
     }
 }
 
-closed_set! {
-    /// Whether a graph diagnostic waits for configuration or requires a change.
-    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-    pub enum PluginDiagnosticSeverity {
-        Waiting = "waiting",
-        Error = "error",
-    }
-}
-
-closed_set! {
-    /// Current planner conditions, not allocation edges.
-    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-    pub enum PluginBlockerKind {
-        Shutdown = "shutdown",
-        Disabled = "disabled",
-        Retired = "retired",
-        Quarantined = "quarantined",
-        ReplacementRequested = "replacementRequested",
-        ParentUnavailable = "parentUnavailable",
-        ProviderUnavailable = "providerUnavailable",
-        ContractHeld = "contractHeld",
-        ProviderPending = "providerPending",
-        FailedBindingsUnchanged = "failedBindingsUnchanged",
-        MissingProvider = "missingProvider",
-        ProviderDisabled = "providerDisabled",
-        SchemaMismatch = "schemaMismatch",
-        ProviderQuarantined = "providerQuarantined",
-        ContractQuarantined = "contractQuarantined",
-        DependencyCycle = "dependencyCycle",
-        PublishConflict = "publishConflict",
-        ActivationsExhausted = "activationsExhausted",
-    }
-}
-
 macro_rules! snapshot_enum {
     ($($name:ident),+ $(,)?) => {$(
         impl Typed for $name {
@@ -90,12 +48,7 @@ macro_rules! snapshot_enum {
         }
     )+};
 }
-snapshot_enum!(
-    PluginEffectState,
-    PluginAuthority,
-    PluginDiagnosticSeverity,
-    PluginBlockerKind
-);
+snapshot_enum!(PluginEffectState, PluginAuthority);
 
 /// All lists in a snapshot are immutable, including their elements.
 #[derive(Debug)]
@@ -156,25 +109,9 @@ snapshot_record!(PluginBindingSnapshot {
     current => "current": bool,
 });
 snapshot_record!(PluginEffectSnapshot {
-    owner_id => "ownerId": String,
-    source_id => "sourceId": String,
     activation_id => "activationId": String,
     ordinal => "ordinal": String,
     state => "state": PluginEffectState,
-});
-snapshot_record!(PluginBlockerSnapshot {
-    kind => "kind": PluginBlockerKind,
-    message => "message": String,
-    contract => "contract": Option<PluginContractSnapshot>,
-    provided => "provided": Option<PluginContractSnapshot>,
-    related_id => "relatedId": Option<String>,
-    generation_id => "generationId": Option<String>,
-    instance_ids => "instanceIds": SnapshotList<String>,
-});
-snapshot_record!(PluginDiagnosticSnapshot {
-    instance_id => "instanceId": String,
-    severity => "severity": PluginDiagnosticSeverity,
-    blocker => "blocker": PluginBlockerSnapshot,
 });
 snapshot_record!(PluginInstanceSnapshot {
     id => "id": String,
@@ -194,16 +131,12 @@ snapshot_record!(PluginInstanceSnapshot {
     replacement_requested => "replacementRequested": bool,
     cleanup_failed => "cleanupFailed": bool,
     authority => "authority": PluginAuthority,
-    blockers => "blockers": SnapshotList<PluginBlockerSnapshot>,
     diagnostic => "diagnostic": Option<String>,
     last_failure => "lastFailure": Option<String>,
-    last_graph_diagnostic => "lastGraphDiagnostic": Option<PluginBlockerSnapshot>,
     effects => "effects": SnapshotList<PluginEffectSnapshot>,
 });
 snapshot_record!(PluginRuntimeSnapshot {
     instances => "instances": SnapshotList<PluginInstanceSnapshot>,
-    diagnostics => "diagnostics": SnapshotList<PluginDiagnosticSnapshot>,
-    shutdown_requested => "shutdownRequested": bool,
     draining => "draining": bool,
     closing => "closing": bool,
     closed => "closed": bool,
@@ -246,25 +179,13 @@ pub(super) fn snapshot(runtime: &Rc<RefCell<RuntimeState>>) -> mlua::Result<Plug
                 ActivationAuthority::Resources(_) => PluginAuthority::Resources,
                 ActivationAuthority::Cleanup(_) => PluginAuthority::Cleanup,
             },
-            blockers: SnapshotList(
-                node.blockers
-                    .into_iter()
-                    .map(|blocker| blocker_snapshot(&state, blocker))
-                    .collect(),
-            ),
             diagnostic: record.last_diagnostic.clone(),
             last_failure: record.last_failure.clone(),
-            last_graph_diagnostic: node
-                .last_diagnostic
-                .map(|kind| diagnostic_blocker(&state, kind)),
             effects: SnapshotList(
                 record
                     .effect_states
                     .iter()
                     .map(|(ordinal, effect)| PluginEffectSnapshot {
-                        owner_id: instance_id(node.id),
-                        // Native registration knows the context that owns the inverse, not a broker caller.
-                        source_id: instance_id(node.id),
                         activation_id: effect.activation.raw().to_string(),
                         ordinal: ordinal.to_string(),
                         state: effect.state,
@@ -275,21 +196,6 @@ pub(super) fn snapshot(runtime: &Rc<RefCell<RuntimeState>>) -> mlua::Result<Plug
     }
     Ok(PluginRuntimeSnapshot {
         instances: SnapshotList(instances),
-        diagnostics: SnapshotList(
-            graph
-                .diagnostics
-                .into_iter()
-                .map(|diagnostic| PluginDiagnosticSnapshot {
-                    instance_id: instance_id(diagnostic.instance),
-                    severity: match diagnostic.kind.severity() {
-                        Severity::Waiting => PluginDiagnosticSeverity::Waiting,
-                        Severity::Error => PluginDiagnosticSeverity::Error,
-                    },
-                    blocker: diagnostic_blocker(&state, diagnostic.kind),
-                })
-                .collect(),
-        ),
-        shutdown_requested: graph.shutdown_requested,
         draining: state.draining,
         closing: state.closing,
         closed: state.closed,
@@ -302,8 +208,6 @@ pub(crate) fn records() -> Vec<Record> {
         PluginCapabilitySnapshot::RECORD,
         PluginBindingSnapshot::RECORD,
         PluginEffectSnapshot::RECORD,
-        PluginBlockerSnapshot::RECORD,
-        PluginDiagnosticSnapshot::RECORD,
         PluginInstanceSnapshot::RECORD,
         PluginRuntimeSnapshot::RECORD,
     ]
@@ -339,176 +243,6 @@ fn binding_snapshot(graph: &Graph, binding: Binding) -> PluginBindingSnapshot {
         contract: contract_snapshot(binding.contract),
         provider_id: instance_id(binding.provider),
         generation_id: binding.generation.raw().to_string(),
-    }
-}
-
-fn blocker_snapshot(state: &RuntimeState, blocker: Blocker) -> PluginBlockerSnapshot {
-    let (kind, message, contract, related_id, generation_id) = match blocker {
-        Blocker::Diagnostic(kind) => return diagnostic_blocker(state, kind),
-        Blocker::Shutdown => (
-            PluginBlockerKind::Shutdown,
-            "runtime shutdown requested".to_owned(),
-            None,
-            None,
-            None,
-        ),
-        Blocker::Disabled => (
-            PluginBlockerKind::Disabled,
-            "instance is not enabled".to_owned(),
-            None,
-            None,
-            None,
-        ),
-        Blocker::Retired => (
-            PluginBlockerKind::Retired,
-            "instance is permanently retired".to_owned(),
-            None,
-            None,
-            None,
-        ),
-        Blocker::Quarantined => (
-            PluginBlockerKind::Quarantined,
-            "an inverse failed; the instance cannot load again".to_owned(),
-            None,
-            None,
-            None,
-        ),
-        Blocker::ReplacementRequested => (
-            PluginBlockerKind::ReplacementRequested,
-            "this allocation must end before another can load".to_owned(),
-            None,
-            None,
-            None,
-        ),
-        Blocker::FailedBindingsUnchanged => (
-            PluginBlockerKind::FailedBindingsUnchanged,
-            "the last load failed against the current provider bindings".to_owned(),
-            None,
-            None,
-            None,
-        ),
-        Blocker::ParentUnavailable { parent } => (
-            PluginBlockerKind::ParentUnavailable,
-            format!("parent {} is not available", state.label(parent)),
-            None,
-            Some(instance_id(parent)),
-            None,
-        ),
-        Blocker::ProviderUnavailable { binding } => (
-            PluginBlockerKind::ProviderUnavailable,
-            format!(
-                "bound provider {} at {} is not available",
-                state.label(binding.provider),
-                binding.generation
-            ),
-            Some(contract_snapshot(binding.contract)),
-            Some(instance_id(binding.provider)),
-            Some(binding.generation.raw().to_string()),
-        ),
-        Blocker::ContractHeld { contract, owner } => (
-            PluginBlockerKind::ContractHeld,
-            format!(
-                "contract {contract} is still held by {}",
-                state.label(owner)
-            ),
-            Some(contract_snapshot(contract)),
-            Some(instance_id(owner)),
-            None,
-        ),
-        Blocker::ProviderPending { required, provider } => (
-            PluginBlockerKind::ProviderPending,
-            format!(
-                "provider {} of {required} is not ready",
-                state.label(provider)
-            ),
-            Some(contract_snapshot(required)),
-            Some(instance_id(provider)),
-            None,
-        ),
-    };
-    PluginBlockerSnapshot {
-        kind,
-        message,
-        contract,
-        related_id,
-        generation_id,
-        provided: None,
-        instance_ids: SnapshotList(Vec::new()),
-    }
-}
-
-fn diagnostic_blocker(state: &RuntimeState, diagnostic: DiagnosticKind) -> PluginBlockerSnapshot {
-    let message = diagnostic.describe(&|id| state.label(id).to_string());
-    let (kind, contract, provided, related_id, instance_ids) = match diagnostic {
-        DiagnosticKind::MissingProvider { required } => (
-            PluginBlockerKind::MissingProvider,
-            Some(required),
-            None,
-            None,
-            Vec::new(),
-        ),
-        DiagnosticKind::ProviderDisabled { required, provider } => (
-            PluginBlockerKind::ProviderDisabled,
-            Some(required),
-            None,
-            Some(provider),
-            Vec::new(),
-        ),
-        DiagnosticKind::SchemaMismatch {
-            required,
-            provided,
-            provider,
-        } => (
-            PluginBlockerKind::SchemaMismatch,
-            Some(required),
-            Some(provided),
-            Some(provider),
-            Vec::new(),
-        ),
-        DiagnosticKind::ProviderQuarantined { required, provider } => (
-            PluginBlockerKind::ProviderQuarantined,
-            Some(required),
-            None,
-            Some(provider),
-            Vec::new(),
-        ),
-        DiagnosticKind::ContractQuarantined { key, owner } => (
-            PluginBlockerKind::ContractQuarantined,
-            Some(key),
-            None,
-            Some(owner),
-            Vec::new(),
-        ),
-        DiagnosticKind::PublishConflict { key, owner } => (
-            PluginBlockerKind::PublishConflict,
-            Some(key),
-            None,
-            Some(owner),
-            Vec::new(),
-        ),
-        DiagnosticKind::DependencyCycle { instances } => (
-            PluginBlockerKind::DependencyCycle,
-            None,
-            None,
-            None,
-            instances,
-        ),
-        DiagnosticKind::ActivationsExhausted => (
-            PluginBlockerKind::ActivationsExhausted,
-            None,
-            None,
-            None,
-            Vec::new(),
-        ),
-    };
-    PluginBlockerSnapshot {
-        kind,
-        message,
-        contract: contract.map(contract_snapshot),
-        provided: provided.map(contract_snapshot),
-        related_id: related_id.map(instance_id),
-        generation_id: None,
-        instance_ids: SnapshotList(instance_ids.into_iter().map(instance_id).collect()),
     }
 }
 

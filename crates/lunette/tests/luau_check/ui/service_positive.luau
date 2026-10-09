@@ -1,6 +1,6 @@
 local ui = require '@lunette-contracts/ui'
 local plugin = require '@lunette-plugin'
-local surface = require '@lunette-contracts/surface'
+local vocabulary = require '@lunette-contracts/vocabulary'
 
 local function substitute(panel: ui.Panel): ui.Service
   return {
@@ -12,7 +12,7 @@ local function substitute(panel: ui.Panel): ui.Service
       _self: ui.Service,
       _owner: ui.Owner,
       _name: string,
-      _target: surface.Surface,
+      _target: vocabulary.Surface,
       _options: ui.TitlebarOptions,
       _visible: (() -> boolean)?
     ): ui.Titlebar

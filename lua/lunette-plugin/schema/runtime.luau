@@ -40,6 +40,7 @@ export type Node = {
   read minimum: number?,
   read maximum: number?,
   read integer: boolean?,
+  read positive: boolean?,
   read minLength: number?,
   read maxLength: number?,
   read pattern: string?,
@@ -65,6 +66,10 @@ end
 
 local errorMetatable = table.freeze {
   __tostring = function(problem: Error): string
+    -- A whole-configuration refinement names its own option paths.
+    if #problem.path == 0 and problem.code == 'refinement' then
+      return problem.name .. ': ' .. problem.message
+    end
     return problem.name .. ': option ' .. pathText(problem.path) .. ' ' .. problem.message
   end,
 }
@@ -312,6 +317,9 @@ parseAt = function(
     end
     if node.integer and value % 1 ~= 0 then
       runtime.fail(name, path, 'constraint', 'is not an integer')
+    end
+    if node.positive and value <= 0 then
+      runtime.fail(name, path, 'constraint', 'is not positive')
     end
   elseif kind == 'string' then
     if type(given) ~= 'string' then

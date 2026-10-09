@@ -2,16 +2,20 @@ use std::error::Error;
 
 use mlua::{Lua, Value};
 
-use super::contracts::{ContractError, ContractName, ContractRegistry};
+use super::{
+    contracts::{ContractError, ContractName, ContractRegistry, PluginContractToken},
+    graph::ContractKey,
+};
 
 #[test]
 fn contract_registry_identity() -> Result<(), Box<dyn Error>> {
+    let lua = Lua::new();
     let registry = ContractRegistry::new();
     let first = registry.declare(contract_name("example", "clock"), 1)?;
     let different_schema = registry.declare(contract_name("example", "clock"), 2)?;
     assert_ne!(
-        registry.validate_token(&first)?,
-        registry.validate_token(&different_schema)?
+        token_key(&lua, &registry, &first)?,
+        token_key(&lua, &registry, &different_schema)?
     );
 
     let duplicate = registry.declare(contract_name("example", "clock"), 1);
@@ -31,8 +35,8 @@ fn contract_registry_identity() -> Result<(), Box<dyn Error>> {
 
     let other_authority = registry.declare(contract_name("other", "clock"), 1)?;
     assert_ne!(
-        registry.validate_token(&first)?,
-        registry.validate_token(&other_authority)?
+        token_key(&lua, &registry, &first)?,
+        token_key(&lua, &registry, &other_authority)?
     );
     Ok(())
 }
@@ -62,19 +66,10 @@ fn declaration_shape_rejected() -> Result<(), Box<dyn Error>> {
         Err(ContractError::DeclarationValueNotToken { .. })
     ));
 
-    let foreign_registry = ContractRegistry::new();
-    let foreign_token = foreign_registry.declare(contract_name("example", "clock"), 1)?;
-    let foreign = lua.create_table()?;
-    foreign.set("clock", foreign_token)?;
-    assert!(matches!(
-        registry.validate_declaration(Value::Table(foreign)),
-        Err(ContractError::ForeignToken { .. })
-    ));
-
     let valid = lua.create_table()?;
     valid.set("clock", token.clone())?;
     let copied = registry.validate_declaration(Value::Table(valid.clone()))?;
-    let token_id = registry.validate_token(&token)?;
+    let token_id = token_key(&lua, &registry, &token)?;
     assert_eq!(copied.iter().collect::<Vec<_>>(), [("clock", &token_id)]);
 
     valid.set("clock", true)?;
@@ -82,114 +77,48 @@ fn declaration_shape_rejected() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// Tokens from a replaced registry are retired, and their identities can be declared again.
+/// Tokens from a replaced registry are retired, tokens from another live
+/// registry are foreign, and each error names the declaration field.
 #[test]
 fn stale_contract_epoch() -> Result<(), Box<dyn Error>> {
-    let old = ContractRegistry::new().declare(contract_name("example", "clock"), 1)?;
-
-    let registry = ContractRegistry::new();
-    assert!(matches!(
-        registry.validate_token(&old),
-        Err(ContractError::RetiredToken { .. })
-    ));
-    let current = registry.declare(contract_name("example", "clock"), 1)?;
-    registry.validate_token(&current)?;
-    Ok(())
-}
-
-#[test]
-fn frozen_wrapper_binding_is_exact_and_one_time() -> Result<(), Box<dyn Error>> {
     let lua = Lua::new();
+    let old = ContractRegistry::new().declare(contract_name("example", "clock"), 1)?;
     let registry = ContractRegistry::new();
-    let clock = registry.declare(contract_name("example", "clock"), 1)?;
-    let log = registry.declare(contract_name("example", "log"), 1)?;
-
-    let mutable = lua.create_table()?;
-    assert!(matches!(
-        registry.bind_token(&clock, &mutable),
-        Err(ContractError::WrapperNotFrozen)
-    ));
-    mutable.set_readonly(true);
-    registry.bind_token(&clock, &mutable)?;
-
-    let declaration = lua.create_table()?;
-    declaration.set("clock", mutable.clone())?;
-    let copied = registry.validate_declaration(Value::Table(declaration))?;
     assert_eq!(
-        copied.iter().collect::<Vec<_>>(),
-        [("clock", &registry.validate_token(&clock)?)]
+        token_key(&lua, &registry, &old)
+            .err()
+            .map(|error| error.to_string()),
+        Some(String::from(
+            "plugin contract: the token in declaration field 'field' is from a retired epoch"
+        ))
     );
 
-    assert!(matches!(
-        registry.bind_token(&clock, &mutable),
-        Err(ContractError::TokenAlreadyBound)
-    ));
-    assert!(matches!(
-        registry.bind_token(&log, &mutable),
-        Err(ContractError::WrapperAlreadyBound)
-    ));
-
-    let repackaged = lua.create_table()?;
-    repackaged.set("token", mutable)?;
-    repackaged.set_readonly(true);
-    let repackaged_declaration = lua.create_table()?;
-    repackaged_declaration.set("clock", repackaged)?;
-    assert!(matches!(
-        registry.validate_declaration(Value::Table(repackaged_declaration)),
-        Err(ContractError::UnboundWrapper { .. })
-    ));
-    Ok(())
-}
-
-#[test]
-fn a_wrapper_bound_in_another_registry_is_unbound() -> Result<(), Box<dyn Error>> {
-    let lua = Lua::new();
-    let previous = ContractRegistry::new();
-    let token = previous.declare(contract_name("example", "clock"), 1)?;
-    let wrapper = lua.create_table()?;
-    wrapper.set_readonly(true);
-    previous.bind_token(&token, &wrapper)?;
-
-    let registry = ContractRegistry::new();
-    let declaration = lua.create_table()?;
-    declaration.set("clock", wrapper)?;
-    assert!(matches!(
-        registry.validate_declaration(Value::Table(declaration)),
-        Err(ContractError::UnboundWrapper { .. })
-    ));
-    Ok(())
-}
-
-/// Token errors identify the declaration field or the declared contract.
-#[test]
-fn token_errors_name_the_field_or_contract() -> Result<(), Box<dyn Error>> {
-    let lua = Lua::new();
-    let registry = ContractRegistry::new();
     let foreign_registry = ContractRegistry::new();
     let foreign = foreign_registry.declare(contract_name("example", "clock"), 1)?;
-
-    let declaration = lua.create_table()?;
-    declaration.set("timer", foreign.clone())?;
-    let declared = registry
-        .validate_declaration(Value::Table(declaration))
-        .err()
-        .map(|error| error.to_string());
     assert_eq!(
-        declared.as_deref(),
-        Some("plugin contract: the token in declaration field 'timer' is from another registry")
+        token_key(&lua, &registry, &foreign)
+            .err()
+            .map(|error| error.to_string()),
+        Some(String::from(
+            "plugin contract: the token in declaration field 'field' is from another registry"
+        ))
     );
 
-    let wrapper = lua.create_table()?;
-    wrapper.set_readonly(true);
-    let bound = registry
-        .bind_token(&foreign, &wrapper)
-        .err()
-        .map(|error| error.to_string());
-    assert_eq!(
-        bound.as_deref(),
-        Some("plugin contract: the token for example/clock@1 is from another registry")
-    );
+    let current = registry.declare(contract_name("example", "clock"), 1)?;
+    token_key(&lua, &registry, &current)?;
     Ok(())
+}
+
+fn token_key(
+    lua: &Lua,
+    registry: &ContractRegistry,
+    token: &PluginContractToken,
+) -> Result<ContractKey, Box<dyn Error>> {
+    let declaration = lua.create_table()?;
+    declaration.set("field", token.clone())?;
+    let copied = registry.validate_declaration(Value::Table(declaration))?;
+    let key = copied.iter().map(|(_, key)| key.clone()).next();
+    key.ok_or_else(|| "the declaration copies its field".into())
 }
 
 fn contract_name(authority: &str, name: &str) -> ContractName {

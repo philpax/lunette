@@ -28,17 +28,11 @@ local function summarize(runtime: native.PluginRuntime): string
     end
     for _, effect in instance.effects do
       local state: native.PluginEffectState = effect.state
-      table.insert(names, effect.ownerId .. ':' .. effect.sourceId .. ':' .. effect.ordinal .. ':' .. state)
+      table.insert(names, effect.activationId .. ':' .. effect.ordinal .. ':' .. state)
     end
-    for _, blocker in instance.blockers do
-      table.insert(names, blocker.message)
-      for _, relatedId in blocker.instanceIds do
-        table.insert(names, relatedId)
-      end
+    if instance.diagnostic then
+      table.insert(names, instance.diagnostic)
     end
-  end
-  for _, diagnostic in snapshot.diagnostics do
-    table.insert(names, diagnostic.instanceId .. ':' .. diagnostic.severity .. ':' .. diagnostic.blocker.message)
   end
   local first = snapshot.instances[1]
   if first then

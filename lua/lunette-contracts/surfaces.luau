@@ -1,13 +1,12 @@
 -- Offers are owner-scoped and queried on demand each frame. A failing offer contributes no surfaces.
 
 local plugin = require '@lunette-plugin'
-local owner = require '@lunette-contracts/owner'
-local surface = require '@lunette-contracts/surface'
+local vocabulary = require '@lunette-contracts/vocabulary'
 
 local surfaces = {}
 
-export type Owner = owner.Owner
-export type Surface = surface.Surface
+export type Owner = plugin.Owner
+export type Surface = vocabulary.Surface
 
 export type Offer = {
   read name: string,

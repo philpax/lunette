@@ -92,7 +92,9 @@ fn main() -> ExitCode {
 
     let arguments = env::args().collect::<Vec<_>>();
     if arguments.iter().any(|argument| argument == "--manifest") {
-        print!("{}", lunette::aliases::install_manifest());
+        for (source, destination) in lunette::aliases::install_manifest() {
+            println!("{source}\t{destination}");
+        }
         return ExitCode::SUCCESS;
     }
 

@@ -120,6 +120,15 @@ local function declarationSnapshot(value: Declaration): Declaration
   return freeze(table.clone(value))
 end
 
+-- Native validation rejects any value that is not a token, so a value without one passes through unchanged.
+local function declarationTokens(declaration: Declaration): ErasedDeclaration
+  local tokens: ErasedDeclaration = {}
+  for field, capability in declaration do
+    tokens[field] = if type(capability) == 'table' then rawget(capability :: any, 'token') or capability else capability
+  end
+  return tokens
+end
+
 local function describeCapability(capability: unknown): string
   if type(capability) == 'table' then
     local contract = rawget(capability :: { [string]: unknown }, 'contract')
@@ -292,16 +301,13 @@ end
 
 function adapter.capability<T>(spec: CapabilitySpec): Capability<T>
   local fields = validateCapabilitySpec(spec)
-  local token = native.plugin.contract(fields.name, fields.schema)
-  local capability = freeze {
-    token = token,
+  return freeze {
+    token = native.plugin.contract(fields.name, fields.schema),
     witness = function(value: T): T
       return value
     end,
     contract = fields.name .. '@' .. tostring(fields.schema),
   }
-  native.plugin.bind(token, capability)
-  return capability
 end
 
 local function revoked(contract: string): string
@@ -447,8 +453,8 @@ function adapter.define<C>(spec: Spec<C>, configuration: Configuration?): Defini
   local requiredSnapshot = declarationSnapshot(fields.requires)
   local providedSnapshot = declarationSnapshot(fields.provides)
   local nativeDefinition = native.plugin.define(
-    (requiredSnapshot :: unknown) :: ErasedDeclaration,
-    (providedSnapshot :: unknown) :: ErasedDeclaration,
+    declarationTokens(requiredSnapshot),
+    declarationTokens(providedSnapshot),
     function(nativeContext: NativeContext, config: unknown): unknown
       local staging: Staging = {
         open = true,

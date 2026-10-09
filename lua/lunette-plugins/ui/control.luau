@@ -2,7 +2,7 @@
 local lunette = require '@lunette'
 local ui = require '@lunette-contracts/ui'
 local focus = require '@lunette-contracts/focus'
-local surface = require '@lunette-contracts/surface'
+local vocabulary = require '@lunette-contracts/vocabulary'
 
 local control = {}
 
@@ -13,7 +13,7 @@ export type Widget = {
   read keymapSeat: lunette.Seat?,
   read wantsKeyboard: boolean,
   read onFocus: ((boolean) -> ())?,
-  read pointer: (surface.PointerEvent, string?) -> (),
+  read pointer: (vocabulary.PointerEvent, string?) -> (),
   read items: (ui.Bounds, ui.Theme) -> { read [number]: ui.ItemDescription },
   read visual: (ui.Visual) -> ui.Visual,
   read clearMeasurements: (() -> ())?,
@@ -21,9 +21,9 @@ export type Widget = {
 export type Host = {
   read live: () -> boolean,
   read interactive: () -> boolean,
-  read captured: (surface.Pointer, lunette.PointerButton) -> boolean,
+  read captured: (vocabulary.Pointer, lunette.PointerButton) -> boolean,
   read changed: () -> (),
-  read cancel: (surface.CancelReason) -> (),
+  read cancel: (vocabulary.CancelReason) -> (),
   read focus: () -> boolean,
   read blur: () -> boolean,
   read bounds: () -> ui.Bounds,
