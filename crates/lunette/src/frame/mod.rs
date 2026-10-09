@@ -35,8 +35,6 @@ use crate::{
 };
 
 /// What the entry point resolved before any thread existed, for the compositor to be built from later.
-///
-/// The socket is here because the display name must be exported while the process is single-threaded.
 #[derive(Debug)]
 pub struct Startup {
     pub socket: WaylandSocket,

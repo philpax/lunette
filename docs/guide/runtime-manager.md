@@ -1,6 +1,8 @@
 # Runtime manager
 
-The shipped desktop includes `desktop/manager`. The Plugins action in the wrist menu toggles its projected flat panel, and its selected state follows panel visibility. The shared titlebar labels the panel Plugins and supplies an X button that hides it. The X button and wrist toggle use the same cancellation and focus cleanup. The surface can be moved with the normal pointer grab controls. Its width, height, position, logical pixel width, and initial visibility come from `lua/lunette-plugins/desktop/manager/config.luau`. The manager uses the public `lunette/ui` service from `@lunette-contracts/ui`; the built-in provider is `@lunette-plugins/ui`. The graph and scrollable sidebar content use custom regions. Buttons, text fields, and choices use shared controls with stable ids. The UI provider can be replaced by another implementation of the same contract.
+`desktop/manager` is the shipped desktop's plugin manager. The wrist menu's Plugins action toggles its panel, and the action shows whether the panel is visible. The panel's titlebar reads Plugins, and its X hides the panel. The panel moves like any other, as [Panel movement](desktop-configuration.md#panel-movement) describes. It is built on the public `lunette/ui` service, so it works with any provider of that contract.
+
+The `manager` setting configures it; `lua/lunette-plugins/desktop/manager/config.luau` holds the options and defaults:
 
 ```luau
 require('@lunette-desktop').run {
@@ -8,77 +10,56 @@ require('@lunette-desktop').run {
     manager = {
       visible = true,
       position = vector.pack(0, 1.4, -1.2),
+      view = 'graph',
     },
   },
 }
 ```
 
-Trigger on the shared titlebar background moves the panel. Grip moves and rotates the panel with the controller. While holding grip, the vertical thumbstick adjusts distance. A second grip scales the panel by hand separation. The [panel movement settings](desktop-configuration.md#panel-movement) define reach and resize bounds.
-
-External runtime changes refresh while the manager is visible at `refreshInterval`, which defaults to 0.25 seconds. Opening the panel and control actions refresh immediately. The hidden panel does not poll snapshots. Drawing uses the retained controls between refreshes; snapshot and graph reconstruction do not run on every display frame. The manager draws in the scene phase and respects the depth of closer panels rather than painting as an overlay. This bounds refresh work but does not establish headset frame-time performance.
+`visible` shows the panel at start. `view` opens the entry list, `entries`, or the graph, `graph`. `width` and `height` are in metres, and `pixels` is the logical width; the logical canvas is at least 800x472. While the panel is visible, the manager refreshes its snapshot of the runtime every `refreshInterval` seconds, 0.25 by default. Opening the panel and pressing a control refresh at once, and a hidden panel does not refresh. The panel draws in the scene and is occluded by closer panels.
 
 ## Session styling
 
-The manager follows the current `lunette/theme` service. Shared controls inherit the session font, colors, border width, and radii through `lunette/ui`. The graph and sidebar use the same leased font and semantic colors. Active plugins use the success color. Loading, unloading, and blocked states use the warning color. Failed and quarantined states use the error color on the error background. Inactive, removed, and disabled states use muted text. Selection uses the focus color. Ownership and dependency relationships use their respective edge colors.
+The manager follows the current theme. Its graph and sidebar use the theme font and these colours: `success` for active entries, `warning` for loading, unloading, and blocked entries, `error` on `errorBackground` for failed and quarantined entries, `mutedForeground` for inactive, removed, and disabled entries, `focus` for the selection, and the two edge colours for relationships. A theme change keeps the panel, drafts, and focus.
 
-A theme revision updates retained styling without replacing the panel, clearing a draft, or changing focus. A font or body-size change rewraps the retained inspection records inside the UI draw hook without taking a new runtime or broker snapshot. The hook supplies the effective UI font, including an explicit UI-provider font override, and the UI lease remains held through measurement and pass-state restoration. General entry, catalog, and configuration rows use the session row height and spacing. Inspection text uses the session body size, and secondary text uses the small size. Font replacement acquires and measures the new face before releasing the previous lease. A failed refresh retains the previous manager style and retries before drawing, measurement, or input.
+The toolbar and editors have fixed sizes, so `lua/lunette-plugins/desktop/manager/widgets.luau` caps some theme tokens inside them. Each cap takes the smaller of the token and the bound:
 
-The fixed toolbar and editor containers use bounded compact overrides. `lua/lunette-plugins/desktop/manager/widgets.luau` defines their limits. The 26-unit toolbar buttons use padding at most 3 logical units and a small font size at most 16. The 34-unit search, text, and boolean fields use padding at most 5 and a body font size at most 20. The 102-unit choice container uses row height at most 40, padding at most 5, spacing at most 6, and a body font size at most 20. Each limit takes the smaller of the session token and the bound. These exceptions preserve the toolbar layout and its 800x472 logical minimum. They retain the session font, colors, border width, and bounds-clamped radii. A palette-only change does not replace compact override layers or cancel an active control gesture.
+- Toolbar buttons, 26 units high: padding at most 3 and `smallSize` at most 16.
+- Search, text, and boolean fields, 34 units high: padding at most 5 and `bodySize` at most 20.
+- The choice editor, 102 units high: row height at most 40, padding at most 5, spacing at most 6, and `bodySize` at most 20.
 
-The operator-run [theme-appearance-matrix](desktop-configuration.md#theme-appearance-matrix) and [theme-font-fit](desktop-configuration.md#theme-font-fit) check Configure, Apply, Enable, Recover, Remove, all graph toolbar labels, editor values, and complete scrollable descriptions at the default canvas and the unchanged 800x472 minimum. The [field-to-consumer checklist](desktop-configuration.md#theme-field-to-consumer-checklist) identifies each theme token and the exact compact limits. These observations remain pending.
+## Entries and graph
 
-## Entry management
+The panel opens on Entries, a list of entry ids with their state and whether they are protected. Selecting an entry shows its details. Enable, Disable, Reload, Recover, and Remove act on the selection. Inspect, Configure, and Catalog switch the sidebar.
 
-The manager opens with Entries. Each row identifies the entry id, runtime state, and protection status. Selecting a row opens its details. Enable, Disable, Reload, Recover, and Remove apply to that selection. Protected entries cannot be disabled or removed. Inspect, Configure, and Catalog switch the sidebar content; configuration actions appear only in Configure, and Load appears only in Catalog. Close remains in the first toolbar row.
+Graph shows the entries as a graph of ownership and dependency relationships, and Entries returns to the list. Dragging the graph pans it, scrolling zooms around the pointer, and Zoom in, Zoom out, Focus, and Fit adjust the view. Providers, Consumers, All, and Affected choose which relationships to show, and Transitive follows them beyond direct neighbours. Search opens a text field with the shared keyboard and filters both views by name, identity, declaration, and diagnostic text. Clear filter and Clear selection reset those states. A dependency relationship names the provider the runtime actually bound, not a guess from the declared contract.
 
-Search and dependency filters apply to both Entries and Graph. The Graph control opens the diagnostic relationship view; Entries returns to the list. `settings.manager.view = 'graph'` selects the graph initially. `lua/lunette-plugins/desktop/manager/config.luau` defines the settings and defaults.
+Inspect describes the selected instance: its intent, phase, owner, children, bindings, pending replacement, cleanup state, diagnostics, and the effects each activation acquired. It also lists the owner-scoped registrations that each broker holds for the instance, such as panels, focus targets, tags, rules, layouts, keyboards, and pointers. Inspection never calls plugin callbacks.
 
-## Graph controls
-
-The graph custom region supports selection and dragging. Dragging pans the graph, and scrolling over it zooms around the pointer. Zoom in and Zoom out change the scale around the canvas centre. Focus centres the selected instance, and Fit fits the graph within the supported zoom range. Search opens a shared text field and the shared keyboard. Clear filter and Clear selection end those states. These controls remain reachable through controller input. Large graphs remain pannable when the minimum zoom cannot fit every node.
-
-The toolbar switches between required providers, consumers, all graph relationships, and affected instances. A separate control switches between direct and transitive traversal. Clear filter and Clear selection reset the search and selection state. Previous and Next scroll the sidebar, configuration rows, and catalog. Catalog loading, entry lifecycle actions, and explicit recovery use the same controller-accessible controls. These actions do not use physical key bindings.
-
-Dependency relationships identify actual allocated providers and their published generations. They do not guess a provider from a declared service name. Ownership relationships identify child instances. Parallel bindings and self-loops have separate selectable routes. Search includes names, identities, declarations, and diagnostic text.
-
-## Inspection
-
-The sidebar describes the selected instance's enabled intent, phase, retirement, authority, owner, children, current bindings, failed activation bindings, replacement request, cleanup state, and diagnostics. It lists native effects by activation, ordinal, and armed, cleaning, or disarmed state.
-
-Broker inspection lists owner-scoped offers, handlers, listeners, panels, focus targets and input sources, tag holds and memberships, overrides, rule sources, placements, layouts, adoption resources, keyboards, lasers, and pointers. Logical registrations and native effects have separate counts. Broker snapshots label facts that cannot be observed without invoking user callbacks. Inspection never invokes an offer, rule resolver, filter, handler, or clock, and does not prune dead tag members. Independent inspection consumers suspend during their broker's outage and reconnect when a provider returns. Tag membership and exclusion status describes the retained registration and owner. Separate `targetLiveness` metadata reports raw target death or marks the observation unavailable rather than invoking a getter.
-
-Previous and Next scroll the sidebar. Omitted visual lines have an overflow indicator; scrolling keeps the remaining records reachable.
+Every control works with the controllers, and none has a key binding.
 
 ## Configuration and recovery
 
-Configure opens schema-derived controls for the selected entry. Boolean rows use a button, and literal choices use a choice control. Numeric and string values, and map keys requested by Add, use a shared text field and the shared keyboard. Confirm accepts the field edit, Cancel discards that edit, and Clear empties its text. Apply is separate: it validates and submits the complete configuration draft. Add appends an array element or starts map-key entry, and Remove value removes an element. Reset restores the descriptor's bound default. Optional values can be set or unset when doing so preserves opaque data. Text-field drafts remain available when focus leaves the field. Rejected edits keep the draft and report the error.
+Configure shows controls built from the selected entry's schema. A boolean is a button, a literal choice is a choice control, and a number, a string, or a new map key is edited in a text field with the shared keyboard. Confirm accepts a field edit, Cancel discards it, and Clear empties the field. Add appends an array element or starts a map key, Remove value removes an element, Reset restores the schema default, and Set and Unset toggle an optional value. Apply validates the whole draft and replaces the entry's configuration. A rejected draft stays in place with its error.
 
-Strings that already fit the single-line UTF-8 field remain literal. Other schema strings use a reversible printable-ASCII representation in the edit field: `\\` for a backslash, `\n`, `\r`, and `\t` for common control characters, and `\xHH` for other bytes. Confirm decodes only edits opened in that escaped representation. Ordinary literal strings do not interpret backslashes. Invalid escape sequences retain the pending text and diagnostic. The original string bytes remain unchanged until a successful Confirm changes the draft, followed by Apply.
+A string that is not valid single-line UTF-8 is edited in an escaped form: `\\`, `\n`, `\r`, `\t`, and `\xHH`. Confirm decodes only a field opened in that form. Callbacks and custom values are read-only, and Apply passes them through unchanged.
 
-Callbacks, custom values, and undeclared opaque data remain read-only. A draft retains their exact references. The manager does not reconstruct the configuration from only visible controls. Apply validates the complete draft before requesting replacement. A parser or refinement error leaves the active configuration in place and appears in the sidebar.
+Replacing a configuration restarts the entry. If the new activation fails, the entry stays failed, and Recover retries the last configuration that was active. Replacement is not transactional: the old activation has already ended. Disable withdraws the entry and Enable restarts it. Reload restarts it with its current configuration. Remove disposes the entry; if its cleanup fails, the entry is quarantined, and its native resources are released only by restarting the session. Catalog lists every entry the session has known, and Load reinstalls a removed entry with its last definition and configuration.
 
-An initializer failure after replacement leaves the entry failed. Recover explicitly retries the most recent configuration observed active. A failed recovery retains that history. Replacement is not transactional and does not restore the old activation automatically. Disable withdraws the entry's intent; Enable retries it. Reload uses its current configuration. Remove disposes the entry; cleanup failure instead retains a quarantined entry and its reservation. Catalog lists every known session entry. Selecting a removed entry and clicking Load installs its retained definition and configuration again. It does not resolve a new source path. A quarantined native resource requires a session restart.
-
-The theme selector uses this same configuration and recovery path. Enabling optional `overrides.typography.font` seeds `{ kind = 'default' }`; the editor exposes its kind choice and optional file, size, and spread fields. Whole-object validation rejects contradictory combinations before replacement and preserves the draft. A valid missing-file path can pass validation but fail initializer acquisition after the old activation ends. Recover retries the last configuration observed active and can also fail if that configuration's file is missing. [theme-font-fit](desktop-configuration.md#theme-font-fit) gives the controller sequence and distinguishes failed live theme updates from failed entry replacement.
-
-A rejected replacement leaves the configuration unchanged. An accepted request can still raise if lifecycle draining reaches its action budget. In that case the current configuration and recovery history retain the accepted request, and the inspector reports the pending or failed state. An action error does not imply that no state changed.
-
-The shipped composition protects `desktop/manager`, `desktop/menu`, `desktop/keyboard`, `desktop/pointing`, and `desktop/actions`, when present, and the providers and parent owners reached through their actual current or failed bindings. This retains the wrist menu, shared keyboard, pointing, and reload recovery path. Optional broker inspection consumers do not protect every inspected provider. Protected entries remain inspectable. Direct calls to the native runtime bypass this composition-service policy.
+The shipped desktop protects `desktop/manager`, `desktop/menu`, `desktop/keyboard`, `desktop/pointing`, and `desktop/actions`, with the providers and parent owners they are bound to. Protected entries cannot be disabled or removed, which keeps the wrist menu, the keyboard, pointing, and reload available.
 
 ## Custom compositions
 
-`@lunette-plugin/management.start(entries, options)` returns one frozen record, `{ runtime, service }`, containing the runtime and the published composition service. It validates entry shapes, runs factories, and resolves managed configuration for every entry before activating any instance; a preflight error aborts startup. A factory runs once for its managed definition; provider outages and reloads retain that definition. `options.protected` names entry ids whose required providers and parent owners also need protection. Entries come only from the composition; the service restores known entries but adds no new source, downloads no module, and resolves no source path.
+`@lunette-plugin/management.start(entries, options)` starts a composition and returns `{ runtime, service }`, the plugin runtime and the `lunette/composition` service the manager uses. It installs that service as the reserved `composition` entry. It runs each factory and validates every entry's configuration before activating any, so an invalid configuration stops startup. `options.protected` lists entry ids to protect along with their providers and owners. The service manages only the entries the composition started with.
 
-A custom frame installation can call `management.start` in its start callback and close the returned runtime in its stop callback. A custom composition that uses the projected manager includes its frame, UI, theme, menu, and composition providers, the UI provider's focus and surface dependencies, and the pointing and keyboard path. It protects the manager and its input path.
+A composition that includes the manager also includes its frame, UI, theme, and menu providers, the UI provider's focus and surface providers, and the pointing and keyboard entries, and protects the manager and its input path. `desktop.run` in `lua/lunette-desktop/init.luau` is the reference.
 
 ## Known gaps
 
-Changes affect the current session only. The manager writes no configuration file, downloads no package, unloads no native library, and changes no source file. Source reload starts from the configuration's entry list again.
+Changes last for the session. The manager writes no configuration file, downloads no package, and changes no source file; a source reload starts again from the configuration's entry list.
 
-Native disarmed-effect metadata retains the complete activation history. A long-lived activation with repeated acquisitions has inspection storage and snapshot cost proportional to that history, even after callable inverses are released. The history ends on the next activation, instance removal, or runtime closure. Existing snapshots retain their own copies after the native history is released.
+The native record of an activation's effects grows with every acquisition until the activation ends, so a long-lived activation that acquires repeatedly has inspection cost proportional to its history.
 
-Opaque custom references can remain mutable outside the manager. Preserving their identity does not make a detached copy of their contents. Runtime validation cannot prove that a custom validator is pure or that its claimed static type is correct.
+While a graph pan is held, the graph keeps the layout it had at the press and moves on release.
 
-During a captured graph pan, the manager retains the published graph geometry and drawing until release or cancellation. This avoids cancelling the gesture when the custom region's items change. The graph moves on release rather than continuously during the drag. Toolbar navigation and graph scrolling cancel a pending graph gesture before changing its view. A pending click resolves against the graph displayed at press, and a removed instance is not replaced by a newer instance with the same entry id.
-
-The graph, controls, drafts, lifecycle service, and projected drawing remain subject to manual headset acceptance. Headset readability, GPU rendering, controller ergonomics, and installed-session behavior are not established by this guide.
+Headset readability, GPU rendering, controller ergonomics, and installed-session behaviour remain unverified.

@@ -1,14 +1,12 @@
 # Desktop configuration
 
-The shipped configuration starts the default desktop with `require('@lunette-desktop').run()`. `lua/lunette-desktop/init.luau` owns the default entries and the configuration types. Its settings expand into patches for those entries. Each provider and consumer remains independently replaceable and retains its own runtime lifetime.
+The shipped configuration starts the default desktop with `require('@lunette-desktop').run()`. `lua/lunette-desktop/init.luau` owns the default entry list and the settings types. Settings expand into patches for those entries, and each provider and consumer stays independently replaceable.
 
-`lunette --dump-config` copies the shipped configuration and writes a `.luaurc` that names the installation's module roots. A custom configuration uses that directory. `lunette check` checks the configuration without starting a session. The checked configurations under `examples/desktop/`, `examples/keyboard/`, and `examples/layout/` demonstrate settings, provider replacement, and layout registration.
-
-An alternate configuration starts with `lunette --config-path /path/to/config`. The path names a directory containing `main.luau` and, optionally, `conf.luau`. A relative path resolves from the working directory. The shipped desktop opens no application automatically. The repository's `dev/` configuration adds a terminal plugin for development; [The development loop](../dev/build-and-development.md#the-development-loop) states its launch command.
+`lunette --dump-config` copies the shipped configuration and writes a `.luaurc` that names the installation's module roots. `lunette check` checks a configuration without starting a session. `lunette --config-path DIR` starts the configuration in `DIR`, which holds `main.luau` and optionally `conf.luau`; a relative path resolves from the working directory. The shipped desktop opens no application. [The development loop](../dev/build-and-development.md#the-development-loop) describes the repository's `dev/` configuration, which adds a terminal.
 
 ## Settings
 
-`desktop.run` and `desktop.compose` accept the same options. Common consumer options go in `settings`, without importing each consumer's definition or factory.
+`desktop.run` and `desktop.compose` take the same options: `settings`, `patches`, and `entries`. Settings configure the desktop consumers without importing their modules:
 
 ```luau
 local desktop = require '@lunette-desktop'
@@ -27,60 +25,55 @@ desktop.run {
 }
 ```
 
-Each section reuses the corresponding plugin module's exported `Config` type. The checker rejects a wrong value such as `menu = { hand = 'rigth' }`. `desktop.compose` parses the declared settings and expands them into entry patches before activation, so an invalid settings value aborts composition. When the native runtime starts definitions directly, configuration validation occurs as each instance activates; an invalid value fails that instance without aborting other entries. Unknown settings sections fail composition before LÖVR callbacks are bound.
+Each section has the type of its entry's `Config`, so the checker rejects a value such as `menu = { hand = 'rigth' }`. Composition parses the settings when the configuration loads and raises on an invalid value or an unknown section. Each section's defaults are in its entry's `config.luau` under `lua/lunette-plugins/desktop/`, or `lua/lunette-plugins/arrangement/config.luau` for `persistence`.
 
-| Settings section | Entry id |
-|---|---|
-| `menu` | `desktop/menu` |
-| `decorations` | `desktop/decorations` |
-| `arrange` | `desktop/arrange` |
-| `persistence` | `desktop/persistence` |
-| `keyboardDisplay` | `desktop/keyboard` |
-| `rules` | `desktop/rules` |
-| `monitors` | `desktop/monitors` |
-| `hint` | `desktop/hint` |
-| `errors` | `desktop/errors` |
-| `pointing` | `desktop/pointing` |
-| `pacing` | `desktop/pacing` |
-| `workspaces` | `desktop/workspaces` |
-| `adoption` | `desktop/adoption` |
-| [`manager`](runtime-manager.md) | `desktop/manager` |
+| Section | Entry | Configures |
+|---|---|---|
+| `menu` | `desktop/menu` | The wrist menu's hand, size, offset, haptics, and expanded panel. |
+| `decorations` | `desktop/decorations` | The native titlebar style. |
+| `arrange` | `desktop/arrange` | The layout for unplaced windows, per-layout options, and tags. |
+| `persistence` | `desktop/persistence` | The arrangement file. |
+| `keyboardDisplay` | `desktop/keyboard` | The shared keyboard's placement. |
+| `rules` | `desktop/rules` | The window rule list. |
+| `monitors` | `desktop/monitors` | The mirrored monitors, their placement, and tags. |
+| `hint` | `desktop/hint` | The empty-scene hint. |
+| `errors` | `desktop/errors` | The error overlay. |
+| `pointing` | `desktop/pointing` | Laser options for both hands. |
+| `pacing` | `desktop/pacing` | Whether hidden monitors pause capture. |
+| `workspaces` | `desktop/workspaces` | The workspace list. |
+| `adoption` | `desktop/adoption` | The tags and filter for adopted windows. |
+| `manager` | `desktop/manager` | The [runtime manager](runtime-manager.md) panel. |
 
-The `menu` section configures the wrist Menu control in `desktop/menu`. Its descriptor and defaults are in `lua/lunette-plugins/desktop/menu/config.luau`. It accepts `hand`, `size`, a vector `offset`, `haptic`, and `expanded` panel dimensions. The default hand is `left`, the compact size is 0.115 metres, and the offset is `vector.pack(-0.03, -0.01, 0.125)`. The expanded panel defaults to 0.32 by 0.4 metres and 320 by 400 logical pixels, with a row height of 40 logical pixels. Haptics default to strength 0.3 and duration 0.05 seconds.
-
-The `keyboardDisplay` section configures only keyboard placement in `desktop/keyboard`. Its descriptor is in `lua/lunette-plugins/desktop/keyboard/config.luau`; `placement.distance`, `placement.drop`, and `placement.tilt` default to 0.55 metres, 0.35 metres, and `math.pi / 6` radians. It does not configure the `keyboard` service provider. A raw patch can replace that provider while settings configure the display provider, as in `examples/keyboard/main.luau`. `desktop/keyboard` publishes `lunette/keyboard-display` and lazily reuses one board. Focusing a local text field shows that board; switching fields keeps its pose. A manual show keeps it visible after editing ends. Explicit hide or X in the keyboard's shared top bar ends the matching field focus without discarding its draft.
-
-`desktop/monitors` starts capture for every host monitor unless `settings.monitors.select` restricts the set. Capture uses the pinned WayVR `wlr-screencopy` implementation when available, with PipeWire and the host portal as the fallback. Direct capture does not require monitor selection. Each decorated monitor panel has Restart mirror and X controls in its titlebar. Select monitors appears only when that monitor does not use direct capture. Restart mirror dismisses and restarts that monitor's capture. Select monitors opens a fresh portal selection for hosts that require permission. Existing mirrors continue while the dialog is pending or cancelled. Cancellation does not reopen the dialog; another selection requires an explicit action. Source reload retains capture streams reused by the replacement configuration. Saved monitor placement restores the width and derives the height from the current monitor aspect ratio. The selection control disables while permission is pending and permits an explicit retry after failure. X stops mirroring and removes the panel without unplugging the host monitor. A window's X sends an application close request and leaves the panel present until the client unmaps it. Grip on panel content or any titlebar control moves the panel. Trigger on the non-button titlebar also moves it; trigger on a button activates that button. The controls follow the panel's pose and visibility. A UI-provider outage removes the controls without stopping capture. The host portal owns the permission dialog. Cursor pixels appear when the backend supports embedded cursor capture. Metadata-only cursor presentation remains unimplemented.
-
-Settings follow the entry's configuration descriptor. Declared objects merge recursively with the entry's existing configuration. Arrays, maps, unions, and atomic values replace; an empty map clears its previous keys. Composition copies and freezes descriptor-declared object and collection containers. Callback and custom values retain their exact references, and non-plain native values such as vectors retain their values. For a factory entry, composition retains configuration layers until the factory supplies a definition. The definition's descriptor then determines merging and copying; managed preflight or instance activation performs validation. A setting and a raw patch cannot name the same entry, even when the patch only disables or replaces it. Composition reports both sources. One combined raw patch supplies the configuration when replacing that entry's definition.
+A section merges into its entry's configuration through the entry's schema: declared objects merge field by field, and arrays, maps, unions, and scalar values replace. A setting and a patch cannot name the same entry; composition raises an error naming both. Replacing an entry's definition and configuring it therefore happens in one patch.
 
 ## Wrist menu
 
-`desktop/menu` renders the wrist Menu button and its expanded action list through the neutral `lunette/ui` contract. The tracked configured hand carries the control. A laser trigger press and release on Menu opens the action list; X in its shared top bar returns to the compact button. The list scrolls when its actions exceed the visible area. Tracking loss hides and closes the menu and cancels an armed action. A cancelled gesture cannot activate an action after tracking returns.
+`desktop/menu` draws a Menu button on the configured hand. Trigger on it opens the action list, and X in the list's titlebar closes it. Losing the hand's tracking hides and closes the menu and cancels a pending press. The menu shows the actions that plugins register with `lunette/menu`:
 
-`desktop/actions` registers Keyboard and Reload configuration with the neutral `lunette/menu` broker. Keyboard toggles the shared keyboard display, and its selected state follows the display's visibility. An owner-scoped child registers Keyboard, so a display outage removes only that action. Reload configuration remains available to reload the configuration and its source modules. The shipped desktop registers no physical reload chord.
+- `desktop/actions` registers Keyboard, which toggles the shared keyboard, and Reload configuration, which reloads the configuration and its source modules.
+- `desktop/manager` registers Plugins, which toggles the [runtime manager](runtime-manager.md).
+- `desktop/theme` registers one row per theme in the Appearance group.
+- `desktop/workspaces` registers one row per workspace when more than one is configured.
 
-`desktop/manager` registers Plugins, which toggles the shared-UI manager panel named `desktop/manager`. The action's selected state follows panel visibility. The panel opts into the same top bar as window and monitor decorations, the expanded menu, and the keyboard display. Its contents draw in the scene phase and respect closer panels' depth. Its heading is Plugins, and X hides it and ends its active field focus. The graph and scrollable sidebar rows use custom regions; buttons, text fields, and choices use shared `lunette/ui` controls. Controller input reaches search, configuration editing, graph navigation, inspection, lifecycle actions, recovery, and catalog loading. Search and configuration text fields use the same desktop keyboard instance as application input. The manager registers no physical key or text handlers. The [runtime manager guide](runtime-manager.md) describes the controls and session-only limits.
+A selected row shows the state it toggles. The shipped desktop binds no key chords.
 
-The [desktop example](../../examples/desktop/main.luau) inserts `hide-windows` and `save-menu`. They register Hide windows, Save arrangement, and Restore arrangement in the menu's Examples group. They are optional example consumers, not default session actions.
+`desktop/keyboard` provides `lunette/keyboard-display`, one shared keyboard reused across fields and applications. Focusing a UI text field shows it. Hiding it ends that field's focus and keeps the field's text. The `keyboardDisplay` setting places it; the `keyboard` entry is the provider that builds it, and a patch can replace that provider, as `examples/keyboard/main.luau` does.
+
+## Monitors and titlebars
+
+`desktop/monitors` mirrors every host monitor, or those named in `settings.monitors.select`. Capture uses wlr-screencopy when the host supports it, and otherwise the desktop portal and PipeWire, which ask the user for permission. A monitor's titlebar has Restart mirror, which restarts its capture; Select monitors, shown only for portal capture, which asks the portal again; and X, which stops the mirror and removes the panel. Cancelling the portal dialog keeps the existing mirrors. A window's X asks the application to close, and the panel stays until the application unmaps it.
+
+Saved monitor placement restores the panel's width and derives its height from the monitor's current aspect ratio. Source reload keeps the capture streams that the new configuration still uses.
 
 ## Runtime themes
 
-`desktop/theme` selects the runtime theme through `lunette/theme`, chooses it from the `lunette/themes` catalog, and registers actions with `lunette/menu`. `lua/lunette-plugins/desktop/theme/config.luau` owns its configuration descriptor and defaults. `preset` names a catalog theme and defaults to `dark`. `overrides` defaults to an empty object. The shipped themes are plugins: `theme/standard` registers Dark and Light, and `theme/arcade` registers Arcade. Dark uses rounded desktop controls, Light uses the same geometry with a light palette, and Arcade replaces the palette, typography, spacing, and radii. A configuration adds a theme by inserting a plugin that registers one, and removes Arcade by disabling `theme/arcade`. [Adding a theme](writing-plugins.md#adding-a-theme) shows both.
-
-The wrist menu's Appearance group contains one `Theme: <label>` row for each registered theme, in catalog order: Theme: Dark, Theme: Light, and Theme: Arcade on the shipped desktop. Exactly one row is selected while a theme is shown. These actions update one theme registration in place. A failed update preserves the prior theme and menu selections and reports the error through the normal menu boundary. A successful update does not restart the theme provider or its consumers.
-
-The selector shows the session's chosen theme while it is registered, then the configured theme, and otherwise holds no selection. Disabling `theme/arcade` while Arcade is chosen removes its row and shows the configured theme. Re-enabling it shows Arcade again, unless another theme was chosen in the meantime. A configured or chosen name that no plugin registers is logged once as a warning after the first frame, with the registered names.
-
-Disabling or removing `desktop/theme` releases its theme selection and menu actions. With no other theme selection, the provider returns to its square base theme. Re-enabling or restoring the entry retains the session's chosen theme. A provider outage also retains that choice across reactivation. Reload configuration rebuilds the factory definition and resets selection to the configured preset. Menu selections are session state and are not written to the configuration or arrangement file.
-
-The entry's Configure action in Plugins exposes `preset` as a text field and sparse `overrides`. A changed configured preset takes precedence over the current menu selection after successful activation. Applying configuration with the same preset, including an overrides-only edit, retains the current menu selection. Configuration replacement reloads this consumer through the normal manager lifecycle; it does not replace the provider. A typed patch uses the selector module's direct factory export:
+`desktop/theme` selects a theme from the `lunette/themes` catalog and applies it through `lunette/theme`. Its configuration has `preset`, a catalog name defaulting to `dark`, and `overrides`, which change fields of the chosen theme. The shipped themes are plugins: `theme/standard` registers Dark and Light, and `theme/arcade` registers Arcade, with its own palette, font, metrics, and radii. [Adding a theme](writing-plugins.md#adding-a-theme) shows a configuration that adds a theme and removes Arcade.
 
 ```luau
 local desktop = require '@lunette-desktop'
 local theme = require '@lunette-plugins/desktop/theme'
 
-local entries = desktop.compose {
+desktop.run {
   patches = {
     desktop.configure('desktop/theme', theme) {
       preset = 'light',
@@ -90,108 +83,18 @@ local entries = desktop.compose {
 }
 ```
 
-`overrides` accepts sparse `colors`, `typography`, `metrics`, and `radii` objects. `lua/lunette-plugins/theme/descriptors.luau` owns their fields and validation. Colours are four-component RGBA arrays with values from 0 to 1. Typography dimensions and positive metrics must be greater than zero; padding, spacing, border widths, gaps, and radii may be zero. The selector resolves the chosen complete theme with these overrides before passing it to the public theme service.
+The Appearance group has a `Theme: <label>` row for each registered theme, in catalog order. Choosing one changes the theme in place, without restarting any plugin. A choice lasts for the session and is not saved. The selector shows the chosen theme while it is registered, and otherwise the configured one. Disabling `theme/arcade` while Arcade is chosen shows the configured theme, and re-enabling it shows Arcade again unless the user chose another theme in between. A name that no plugin registers is logged as a warning after the first frame. Reload configuration and a changed `preset` return to the configured theme; an edit to `overrides` alone keeps the session's choice. Disabling `desktop/theme` returns the provider to its square base theme.
 
-The editable `overrides.typography.font` is an object with a `kind` choice and optional `file`, `size`, and `spread` fields. `{ kind = 'default' }` rejects those optional fields. `{ kind = 'file', file = 'fonts/example.ttf' }` requires a non-empty path and projects omitted `size` and `spread` to 32 and 4. Supplied size and spread must be positive. Plugins can traverse and edit these fields; Apply validates the whole font object. The public `ThemeOverrides` contract remains strict: a file font passed directly to the service supplies its file, size, and spread.
+`overrides` takes sparse `colors`, `typography`, `metrics`, and `radii` objects. `lua/lunette-plugins/theme/descriptors.luau` owns their fields and validation. Colours are RGBA arrays with components from 0 to 1. Text sizes, row height, and titlebar height are positive; padding, spacing, borders, gaps, and radii may be zero.
 
-A missing font file fails selector activation without publishing that theme. The theme provider remains active and returns to the base theme when no other selection remains. A failed configuration replacement uses the manager's existing recovery path. Recover reapplies the last active configuration; it does not retain the failed configuration's theme or change configuration replacement into a transaction. A missing font during a menu selection leaves the existing registration, chosen theme, and menu selections unchanged.
-
-## Theme acceptance workflows
-
-The operator performs the named workflows below. Broker logic, native font use, and headset appearance remain separate pending gates until observations are recorded. Type checks, installed-asset byte comparisons, and geometry or draw recorders do not establish GPU font rendering, alpha, depth, stereo presentation, or controller ergonomics. The [theme contract](../dev/lua-api.md#runtime-themes) defines resource and notification rules; the [UI guide](ui.md#themes-and-drawing-hooks) defines hook safety and retained appearance.
-
-### theme-runtime-switch
-
-On the normal desktop, the operator keeps a Plugins configuration draft and shared keyboard open, then uses Appearance choices through Dark -> Light -> Arcade -> Dark. Exactly one preset row is selected after each successful choice. Dark/Light preserve held captures. Arcade cancels only affected geometry captures without activation and retains drafts, focus, poses, panel and control identities, and keyboard scale.
-
-After selecting Arcade, the operator disables and re-enables `desktop/theme`, then removes it and restores it through Catalog -> Load. Base appears when no other selection remains, all selector actions end with its owner, and Arcade returns within the same session. A changed configured preset takes precedence after successful activation. An overrides-only edit with the same configured preset retains the session choice. Reload configuration resets it to configuration. With Arcade chosen, the operator disables `theme/arcade`: its row disappears and the configured theme appears. Re-enabling it restores Arcade; choosing Light first and then re-enabling it keeps Light. A failed live preset/font update through the example preserves the prior registration and revision; a failed menu choice also preserves menu selections. Preset choices update in place without reconstructing providers or widgets. Configure/Apply uses normal consumer replacement instead.
-
-### theme-appearance-matrix
-
-The operator compares Dark, Light, and Arcade across native window and mirror headings/actions, an explicit `chrome = true` native title, compact and expanded menus, Plugins Entries/Graph/Configure/sidebar/diagnostics, keyboard backing/keys/legends/hover/held states, errors, hints, and pointer feedback. Normal, hovered, pressed, disabled, focused, selected, active, blocked, failed, and diagnostic states remain distinguishable. Captured application pixels and application-owned widgets do not change colour.
-
-Each field in the [field-to-consumer checklist](#theme-field-to-consumer-checklist) receives a recorded observation or a named explicit override. Arcade changes the font, text dimensions, padding, spacing, row height, border widths, radii, and semantic/state colours. Larger shared metrics remain visible in general manager rows/details and roomy UI. Configure, Apply, Enable, Recover, Remove, graph toolbar labels, editor values, and full scrollable descriptions remain readable at the default manager canvas and its unchanged 800x472 logical minimum. Toolbar and field dimensions do not enlarge to accommodate Arcade. Join, clip, and capture checks include Arcade's larger dimensions and scene monitor radius.
-
-### theme-font-fit
-
-In Plugins -> `desktop/theme` -> Configure, the operator enables optional `overrides.typography.font`. Its initial editable value is `{ kind = 'default' }`. The editor exposes the kind choice and optional file, size, and spread fields. The operator selects file, enters a nonempty VFS path with the shared keyboard, optionally sets positive size/spread, and applies the complete draft. Omitted file-font size/spread project to 32/4; direct public file specifications require both values. Default kind rejects file/size/spread. File kind rejects an absent or empty path, and supplied nonpositive values fail validation. Contradictory drafts remain editable and do not replace the active configuration. Disabling optional size/spread uses file defaults; unsetting the whole font override inherits the preset. Returning to default kind requires unsetting file/size/spread before Apply.
-
-The operator checks draw and measurement agreement for fields/carets/selections, manager wrapping and compact controls, shared headings, explicit native chrome, and keyboard legends. Manager toolbars and text/boolean/choice values remain usable at default and 800x472 canvas sizes. A syntactically valid missing-file replacement ends the old selector activation, fails the new entry, and reveals another selection or base. Recover retries the last configuration observed active. If that configuration's file is also missing, Recover can fail again; restoring the asset or applying a valid/default configuration is required. Configuration replacement is not transactional. The public example's invalid live update instead leaves its live registration unchanged.
-
-Dark and Light use the borrowed default face. Arcade uses `{ kind = 'file', file = '@lunette-plugins/theme/arcade/fonts/SpaceMono-Regular.ttf', size = 32, spread = 4 }`. The `@lunette-plugins` prefix here is a LÖVR VFS mount path, not require alias resolution. The [install manifest](../../crates/lunette/src/aliases.rs) installs the font and `OFL.txt` under `$PREFIX/share/lunette/lua/lunette-plugins/theme/arcade/fonts/`; [session boot](../../crates/lunette/src/boot.rs) mounts that root before configuration execution. The operator selects Arcade in a development session and a session installed to an isolated prefix using the [installation commands](../dev/build-and-development.md#where-things-live-at-runtime). Observations record the prefix, mounted path, native acquisition result, readable fit, and return to default. Module loading and byte-identical installed assets do not establish mounted native Font loading. Installation and session launch remain operator work.
-
-### Theme field-to-consumer checklist
-
-`lua/lunette-contracts/theme.luau` and [descriptors.luau](../../lua/lunette-plugins/theme/descriptors.luau) own the exact fields and validation. [base.luau](../../lua/lunette-plugins/theme/base.luau), [standard/presets.luau](../../lua/lunette-plugins/theme/standard/presets.luau), and [arcade/preset.luau](../../lua/lunette-plugins/theme/arcade/preset.luau) own the theme values. Each row is an acceptance subject, not a completed visual result. Colours are RGBA arrays in [0,1]. Font paths are nonempty VFS paths, with positive file size/spread. Other dimensions are finite; text sizes, row height, and titlebar height are positive, while padding, spacing, borders, gaps, and radii permit zero.
-
-The table uses component paths relative to `lua/lunette-plugins/`. [ui/theme.luau](../../lua/lunette-plugins/ui/theme.luau) maps global fields to UI overrides; [ui/draw.luau](../../lua/lunette-plugins/ui/draw.luau) renders controls, text, outlines, and states. [ui/appearance.luau](../../lua/lunette-plugins/ui/appearance.luau) refreshes retained panels and converts metre radii using each world-scale axis. [ui/titlebar-style.luau](../../lua/lunette-plugins/ui/titlebar-style.luau) resolves shared headers. [keyboard/appearance.luau](../../lua/lunette-plugins/keyboard/appearance.luau), [panels/appearance.luau](../../lua/lunette-plugins/panels/appearance.luau), and [laser/style.luau](../../lua/lunette-plugins/laser/style.luau) resolve those components. [desktop/manager/draw.luau](../../lua/lunette-plugins/desktop/manager/draw.luau) renders semantic graph/sidebar appearance; [desktop/manager/widgets.luau](../../lua/lunette-plugins/desktop/manager/widgets.luau) derives retained compact overrides. [desktop/errors/init.luau](../../lua/lunette-plugins/desktop/errors/init.luau) and [desktop/hint/init.luau](../../lua/lunette-plugins/desktop/hint/init.luau) resolve their presentation.
-
-| Exact field | Consumer and acceptance subject | Explicit override or limit |
-|---|---|---|
-| `colors.background` | UI backing, keyboard plate, and manager footer. Compare owned backings under all presets. | UI `background` and keyboard `plateColor` override inheritance. Application pixels remain unchanged. |
-| `colors.elevatedBackground` | Shared titlebar `barColor` and manager sidebar backing. | Provider/per-titlebar `barColor` overrides the header. |
-| `colors.foreground` | UI text, shared/native title text, keyboard legends, errors, hints, and manager text. | UI `foreground`, title `titleColor`, keyboard `legendColor`, and error/hint `foreground` remain explicit layers. |
-| `colors.mutedForeground` | Manager inactive/removed/disabled status text, read-only rows, graph notices, and footer. | An explicit UI foreground affects ordinary manager text, not this semantic status token. |
-| `colors.control` | Normal UI controls, keyboard keys, and manager graph nodes/rows. | UI `control` and keyboard `keyColor` override inheritance. |
-| `colors.hovered` | Hovered UI controls, keyboard keys, and shared header highlight. | UI `hovered`, keyboard `hoverColor`, and titlebar `barHighlightColor` override inheritance. |
-| `colors.pressed` | Held UI controls and keyboard keys. | UI `pressed` and keyboard `heldColor` override inheritance. |
-| `colors.disabled` | Disabled UI control faces, including unavailable manager actions. | UI `disabled` overrides inheritance; graph disabled text uses `mutedForeground`. |
-| `colors.border` | UI outlines and disabled legends, native panel outlines, shared header outlines, and manager node borders. | UI `border`, panels/titlebar `borderColor` override inheritance. A joined header governs the complete outline. |
-| `colors.focus` | UI focus/caret/overflow marks, highlighted native/header borders, and manager selection outlines. | UI `focus`, panels/titlebar `borderHighlightColor` override inheritance. |
-| `colors.selection` | UI text selection and selected collection items, plus manager selected rows. | UI `selection` overrides inheritance. Graph selection outlines use `focus`. |
-| `colors.error` | UI validation messages/outlines and manager failed/quarantined graph status text. | UI `error` overrides validation drawing; error-overlay text uses `foreground`. |
-| `colors.errorBackground` | Error-overlay backing and failed/quarantined manager node backing. | Errors `background` remains explicit with its existing permissive four-number validation. |
-| `colors.success` | Manager active-state text through `draw.nodeColor`. | Graph lifecycle semantics remain independent of ordinary UI text overrides. |
-| `colors.warning` | Manager blocked/loading/unloading text and toolbar overflow notice. | Graph lifecycle semantics remain independent of ordinary UI text overrides. |
-| `colors.ownershipEdge` | Unselected manager ownership relationships. | Selected graph edges use resolved UI `focus`. |
-| `colors.dependencyEdge` | Unselected manager dependency relationships. | Selected graph edges use resolved UI `focus`. |
-| `colors.pointer` | Laser beam/landing feedback in its normal state. | Provider/per-laser `color` overrides inheritance; filters, length, cursor size, and haptics do not change. |
-| `colors.pointerHovered` | Laser feedback while hovering a target. | Provider/per-laser `hoverColor` overrides inheritance; feedback phase and trigger lock do not change. |
-| `typography.font` | Leased UI drawing/carets/selections, manager wrapping, shared/native chrome titles, keyboard legends, errors, and hints. Check the same face in drawing and measurement. | Component font specifications override inheritance. The public form's custom preview deliberately uses the default Font and fixed text colour; its controls and the separate font probe follow their resolved face. |
-| `typography.bodySize` | Logical UI `fontSize` and manager inspection/row text. | The manager's 34-unit fields and 102-unit choice editor cap it at 20. Explicit UI `fontSize` remains an override. |
-| `typography.smallSize` | Logical manager relationship labels, footer, secondary text, and toolbar labels. | The 26-unit toolbar caps it at 16; general secondary text retains the token. |
-| `typography.titleHeight` | Metre shared-titlebar and native `chrome = true` title height. | Provider/per-titlebar and panels `titleHeight` override inheritance. |
-| `typography.keyboardLegendHeight` | Metre keyboard legend height through `appearance.resolve` and `appearance.scaled`. | Keyboard `legendHeight` overrides inheritance. Existing board scale multiplies the resolved height. |
-| `typography.errorTextHeight` | Metre error-overlay text height. | Errors `textHeight` overrides inheritance; report layout and line limits remain unchanged. |
-| `typography.hintTextHeight` | Metre empty-scene hint text height. | Hint `size` overrides inheritance; text and position remain unchanged. |
-| `metrics.padding` | Logical UI text/caret inset and collection viewport; roomy controls show Arcade's larger padding. | Toolbar uses `min(padding, 3)`; fields and choices use `min(padding, 5)`. Custom manager region insets remain structural. |
-| `metrics.spacing` | Logical UI collection stride and manager general row/configuration spacing. | Choices use `min(spacing, 6)`; toolbar gaps remain structural. |
-| `metrics.borderWidth` | Logical UI backing/control outline width, including shared manager controls. | UI `borderWidth` overrides inheritance. Width clamps to bounds; focus/error outlines retain a minimum of 2 logical units. Native/header outlines use `titlebarBorderThickness`. |
-| `metrics.rowHeight` | Logical UI collection rows and general manager entry/catalog/configuration rows. | The choice editor uses `min(rowHeight, 40)`; fixed toolbar/field heights and caller bounds remain unchanged. |
-| `metrics.titlebarHeight` | Metre shared header height and proportional action dimensions. | Provider/per-titlebar `barHeight` overrides inheritance. Joined margin is zero; separate margin remains placement policy. |
-| `metrics.titlebarBorderThickness` | Metre native chrome and shared/joined outline thickness. | Panels/titlebar `borderThickness` overrides inheritance. A joined header supersedes the body outline override. |
-| `metrics.keyboardGap` | Metre visible key-face gap. | Keyboard `gap` overrides inheritance and is multiplied by retained board scale. `keyUnit`, rows, layers, and rectangular key targets do not change. |
-| `radii.uiPanel` | Metre UI backing silhouette, safe content clip, and initial perimeter hit. | UI `panelRadius` overrides use logical units. Inherited radius converts independently along actual x/y world scale; declared dimensions remain unchanged. |
-| `radii.uiControl` | Logical UI control faces, outlines, and text-safe bounds, including manager controls. | UI `controlRadius` overrides inheritance and clamps to bounds. Control targets remain rectangular within the panel content clip. |
-| `radii.keyboardBacking` | Metre keyboard backing silhouette. | Keyboard `backingRadius` overrides inheritance and follows retained scale. Board and key-unit hit targets remain rectangular; layout and `keyUnit` do not change. |
-| `radii.keyboardKey` | Metre keyboard key faces. | Keyboard `keyRadius` overrides inheritance and follows retained scale. Declared key-unit hit targets remain rectangular. |
-| `radii.titlebar` | Metre header top corners when joined, or all header corners when separate, plus action/grab cutouts. | Provider/per-titlebar `cornerRadius` overrides inheritance. Top radii clamp to the header height, independently of body radii. |
-| `radii.window` | Metre scene window content silhouette, UV-preserving mesh, and initial hit perimeter. | The panels provider's style `windowRadius` overrides inheritance; explicit zero restores square scene geometry. Granted layer content and hits stay rectangular. |
-| `radii.monitor` | Metre scene monitor content silhouette and transformed UV/hit agreement. | Base/Dark/Light are zero; Arcade is 0.012 m. The panels provider's style `monitorRadius = 0` restores square content independently of rounded header tops. |
-
-[Runtime manager session styling](runtime-manager.md#session-styling) records the compact limits. Each limit takes the smaller of the resolved token and its bound. Toolbar buttons remain 26 logical units high, fields remain 34, and the choice container remains 102. The manager's 800x472 minimum, structural toolbar layout, panel dimensions, and logical scale remain unchanged. Font, colours, border width, and bounds-clamped radii still inherit in compact controls. Palette-only updates do not call cancelling style setters. Keyboard `keyUnit`, rows, layers, and `setSize` scale remain unchanged; theme-derived gap, legends, and radii use that scale. Depth offsets, haptics, panel placement, pointer filtering, and input routing are not theme fields.
-
-### theme-documentation-check
-
-The review checks the following subjects against current declarations, resolvers, and the checked examples:
-
-- The [theme contract](../dev/lua-api.md#runtime-themes): exact fields, units, validation, detached immutable snapshots, complete-selection precedence, replacement updates, rank, revisions, disposal, reentrant delivery, and data-only inspection.
-- [Desktop runtime themes](#runtime-themes) and `theme-runtime-switch`: entry/action ids, Dark/Light/Arcade transitions, catalog-following choices and the `theme/arcade` disable/enable fallback, session-only menu selection, changed configured preset, overrides-only edits, source reload, and selector disable/remove/restore behavior.
-- `theme-font-fit`, [module roots](../dev/stdlib.md#module-roots), and the install manifest: strict public FontSpec versus editable configuration, defaults and contradictory fields, live-update preservation versus failed replacement/Recover, bundled asset/licence paths, and pending development/installed native loading.
-- The field checklist and [manager styling](runtime-manager.md#session-styling): every exact field, resolver/consumer, semantic lifecycle colour, bounded compact override, unchanged 800x472 structural minimum, and unchanged keyboard layout/keyUnit/scale.
-- [UI hooks](ui.md#themes-and-drawing-hooks), [window rendering](#window-rendering), and [frame attachments](../dev/lua-api.md#joined-frame-attachments): sparse provider/object/control precedence, zero/nil inheritance, retained drafts/captures, clips, draw/hit agreement, joined seams, independent header/body profiles, and layer/curved/monitor exceptions.
-- [Writing plugins](writing-plugins.md#runtime-theme-selections): neutral versus UI-specific theme vocabulary, public registration signatures, owner cleanup, mounted font paths rather than require aliases, and no required custom rounding hook.
-
-The review also checks local links, current theme terminology and capability versions, readable configuration excerpts, and explicit separation of logic checks from pending native font and GPU/headset gates. A reviewed checklist is documentation evidence only; it does not complete the manual workflows.
+`overrides.typography.font` is `{ kind = 'default' }` or `{ kind = 'file', file = path, size?, spread? }`. A file font's `size` and `spread` default to 32 and 4, and `default` takes no other fields. `file` is a path in LÖVR's virtual filesystem. A missing font file fails the selector's activation, and the provider shows the base theme until a valid configuration is applied.
 
 ## Workspaces
 
-The `workspaces` setting configures `desktop/workspaces`, a default entry. Its default is one `main` workspace, which registers no menu actions.
+`desktop/workspaces` shows the windows of one workspace at a time. The default is one workspace, `main`, with no menu rows.
 
 ```luau
-local desktop = require '@lunette-desktop'
-
-desktop.run {
+require('@lunette-desktop').run {
   settings = {
     workspaces = {
       workspaces = { { name = 'work' }, { name = 'web' } },
@@ -201,40 +104,35 @@ desktop.run {
 }
 ```
 
-The first configured workspace is the initial selected workspace. Unless `settings.adoption` is also given, the setting patches `desktop/adoption` with that name as the default tag. `lua/lunette-plugins/desktop/workspaces/config.luau` owns the defaults: one workspace named `main`, with `follow = true`. The list requires unique, non-empty names and at least one workspace. Each workspace accepts only `name`.
-
-With more than one workspace, a child consumer registers each workspace name in the menu's Workspaces group. Selecting its row switches the selected workspace, and the row's selected state follows the tag selection. A menu outage removes those actions without changing workspace selection, visibility, or follow policy.
-
-The setting does not rewrite explicit rule tags or persisted tags. Tags absent from the configured workspace list remain outside this consumer's visibility and follow policy. With `follow = true`, a newly placed panel already in a configured workspace follows the currently selected workspace, including a boot placement from a rule or saved arrangement. `follow = false` preserves that membership. Renaming a workspace does not migrate the saved arrangement; existing saved tag names still apply.
+Each workspace is a tag. Names are non-empty and unique, and the first workspace is selected at start. Unless `settings.adoption` is given, adoption puts new windows in the first workspace. With more than one workspace, the Workspaces group of the menu has a row for each. With `follow = true`, the default, a newly placed panel in a configured workspace moves to the selected one; `follow = false` leaves it where a rule or the saved arrangement put it. Tags outside the configured list are not shown or hidden by this consumer.
 
 ## Entry patches
 
-`entries` replaces the default entry list. `patches` retains the full composition API: configure, replace, disable, or insert entries by stable id. `desktop.entries()` exposes the default list, and `desktop.compose(options)` returns the frozen expanded list without starting any plugins. A missing settings target in a custom list raises a composition error.
-
-`plugin.configure(id, target)(config)` makes a typed configuration patch for an actual entry id. The target is a definition or definition factory that supplies the configuration type. The helper never invokes a factory. The desktop exports the same helper as `desktop.configure`.
+`patches` configure, replace, disable, or insert entries by id, and `entries` replaces the default list. `desktop.entries()` returns the default list, and `desktop.compose(options)` returns the patched list without starting anything. `desktop.configure(id, target)` makes a typed configuration patch:
 
 ```luau
-local desktop = require '@lunette-desktop'
 local persistence = require '@lunette-plugins/arrangement'
 
-local entries = desktop.compose {
+desktop.run {
   patches = {
     desktop.configure('desktop/persistence', persistence.factory) { file = 'desktop.state' },
   },
 }
 ```
 
-The supplied id may differ from the definition's name. The patch only carries the id and configuration; it does not replace the definition. A factory still runs once per runtime start, and its returned definition survives provider outages within that runtime. Separate starts construct fresh definitions.
-
-[Writing plugins](writing-plugins.md) describes provider substitution and plugin authoring. The [desktop example](../../examples/desktop/main.luau) combines settings, typed entry patches, workspaces, and inserted plugins.
+A factory entry builds a fresh definition each time the runtime starts, and keeps it across provider outages within that runtime. [Configuring a built-in plugin](writing-plugins.md#configuring-a-built-in-plugin) describes patches, and [`examples/desktop/main.luau`](../../examples/desktop/main.luau) combines settings, typed patches, workspaces, and inserted plugins.
 
 ## Pointer aim
 
-The built-in laser provider stabilizes each controller's aim origin and direction before picking and drawing. The beam, landing indicator, UI input, and application mouse coordinates use the same stabilized ray. The controller pose used for panel grabs stays unfiltered. Trigger edges and scrolling remain immediate.
+The laser provider smooths each controller's aim before picking and drawing, so the beam, landing indicator, UI input, and application pointer coordinates use one ray. The grab pose, button edges, and scrolling are not filtered. `lua/lunette-plugins/laser/aim.luau` owns the settings and defaults:
 
-`lua/lunette-plugins/laser/aim.luau` owns the aim settings and defaults. Smoothing is enabled by default. `minCutoff` controls stationary smoothing in hertz; lower values suppress more jitter and add lag. `angularBeta` and `positionBeta` increase responsiveness during deliberate rotation and translation. `derivativeCutoff` controls speed-estimate smoothing in hertz. Tracking loss, a zero direction, or a frame interval above `resetAfter` clears history. Readers without a positive `dt` pass through without temporal smoothing.
+- `enabled` turns smoothing on or off.
+- `minCutoff`, in hertz, sets stationary smoothing; a lower value suppresses more jitter and adds lag.
+- `angularBeta` and `positionBeta` raise responsiveness during deliberate rotation and translation.
+- `derivativeCutoff`, in hertz, smooths the speed estimate.
+- `resetAfter`, in seconds, is the frame gap that clears the filter, as tracking loss does.
 
-The desktop's pointing settings override the provider defaults for both hands. The following configuration disables smoothing for comparison:
+The `pointing` setting overrides these for both hands; a `laser` patch sets the provider defaults, and `laser:new` and `laser:attach` take per-laser overrides. This configuration disables smoothing:
 
 ```luau
 require('@lunette-desktop').run {
@@ -244,81 +142,118 @@ require('@lunette-desktop').run {
 }
 ```
 
-The same `aim` object accepts `minCutoff`, `angularBeta`, `positionBeta`, `derivativeCutoff`, and `resetAfter`. A patch for the `laser` provider configures its defaults; `laser:new` and `laser:attach` accept per-laser overrides. Pointer feedback draws in the final `feedback` phase, after scene geometry and overlay UI, including Plugins. OpenXR composition layers have separate runtime ordering; [Window rendering](#window-rendering) states that limit.
-
-Trigger pressure above 10% holds the previously displayed ray while hovering a panel. A turn above 3 degrees or translation above 3 centimetres unlocks it for the remainder of the pull, allowing dragging. Releasing the trigger retains the held position for that frame, so a release does not move the click to a neighbouring control. Grip and spatial grabs bypass the lock. Tracking loss, a frame gap above `aim.resetAfter`, or removal of the target clears it. `lua/lunette-plugins/laser/trigger-lock.luau` owns these defaults. The independent `triggerLock` settings accept `enabled`, `threshold` as pressure from 0 to 1, `unlockAngle` in radians, and `unlockDistance` in metres:
+The trigger lock holds the displayed ray once trigger pressure passes `threshold`, so a click lands on the control the user aimed at. Turning more than `unlockAngle` radians or moving more than `unlockDistance` metres releases the lock for the rest of the pull, which keeps dragging possible. Grip grabs ignore the lock. `lua/lunette-plugins/laser/trigger-lock.luau` owns the defaults: `threshold = 0.1`, `unlockAngle = math.pi / 60`, and `unlockDistance = 0.03`. `triggerLock = { enabled = false }` disables it.
 
 ```luau
 require('@lunette-desktop').run {
   settings = {
     pointing = {
-      laser = { triggerLock = { threshold = 0.1, unlockAngle = math.pi / 60, unlockDistance = 0.03 } },
+      laser = { triggerLock = { threshold = 0.2 } },
     },
   },
 }
 ```
 
-Setting `triggerLock.enabled = false` disables the lock without disabling smoothing. Custom input readers can supply `Input.trigger`; omitting it bypasses the lock. Source reload applies changes to these Lua modules and settings without restarting the process. A plugin instance reload alone does not clear cached source modules.
+Pointer feedback draws in the final `feedback` phase, over scene geometry and overlay UI.
 
 ## Panel movement
 
-A grip press while pointing at a movable panel starts a grab and cancels an active trigger gesture. The panel follows controller-relative translation and rotation. While holding grip, the vertical thumbstick axis adjusts distance, and a second grip on the same panel scales it by hand separation. Releasing grip ends the grab and records placement for application panels.
-
-`lua/lunette-plugins/interaction/config.luau` defines the reach and resize bounds. The `constrain` pose hook can supply a custom placement constraint.
+Grip while pointing at a movable panel grabs it and cancels any trigger gesture. The panel follows the controller's translation and rotation. While gripping, the thumbstick's vertical axis changes distance, and a second grip on the same panel scales it by hand separation. Releasing grip drops the panel and records its placement. Trigger on a titlebar outside its buttons also moves the panel. `lua/lunette-plugins/interaction/config.luau` defines the reach and resize bounds, and the interaction provider's `constrain` hook can restrict where a carried panel goes.
 
 ## Window rendering
 
-The built-in panels provider draws windows and monitor mirrors in the scene by default. This allows scene depth and session controls to cover window content. A typed patch `desktop.configure('panels', require('@lunette-plugins/panels').definition) { rendering = 'layer' }` opts windows into backend-owned composition layers. Those layers can produce sharper text, but the backend composites them after the scene, without its depth ordering. A window falls back to scene rendering while its layer claim is not granted. Monitor mirrors remain in the scene in either mode.
+The panels provider draws windows and monitor mirrors in the scene, where they take part in depth testing with other panels and session controls. `desktop.configure('panels', require('@lunette-plugins/panels').definition) { rendering = 'layer' }` gives windows backend-owned composition layers instead. Layers can show sharper text, but the backend composites them after the scene, without depth ordering. A window whose layer claim is not granted falls back to the scene. Monitor mirrors always draw in the scene.
 
-Scene-rendered content rounds according to the effective window or monitor radius. A clipped mesh preserves source-local pixel mapping, then applies monitor rotation and flip. Curved scene content follows the cylinder instead of flattening its clipped contour. The same emitted perimeter controls initial hits, and cutouts contain no content or depth-writing outline geometry. Native pointer motion stops on a miss, while a release still reaches the original pressed sink; rounding adds no native capture projection. Base, Dark, and Light keep monitor content square. Arcade explicitly uses a 0.012 m monitor radius. Setting `overrides.radii.monitor = 0` on `desktop/theme`, or the panels provider's style `monitorRadius = 0`, restores square scene content and rectangular hits.
-
-Flat headed scene windows and monitor mirrors join their shared titlebar and content. Only the titlebar's top outer corners and the body's bottom outer corners round. The meeting edges are square, with zero gap and one outer ring. Header and body radii remain independent; a square monitor body can retain a rounded header top. The header's border thickness, depth, and normal or highlighted colour govern the whole joined outline, including native panels with `chrome = false`. Hovered and held action faces stay inside the header silhouette. Its corner cutouts cannot receive invisible actions or grabs. Removing or hiding the heading restores the body's own all-corner profile and outline.
-
-A granted backend-owned composition layer retains square content and rectangular hits under every preset. Radius changes neither alter claims nor force fallback into the scene. A window whose claim is not granted uses its rounded scene profile. A curved body retains a separate flat titlebar even though its scene content rounds independently. Decorations do not imply clipped layer pixels or a continuous curved frame. [Rendering](../dev/rendering.md#rounded-scene-geometry) states these limits.
+Scene content rounds its corners with the theme's `window` and `monitor` radii, and its pointer hits follow the same outline. Dark and Light keep monitors square, and Arcade rounds them by 0.012 m. The panels provider's style `windowRadius` and `monitorRadius` override the theme. A flat panel with a titlebar draws the titlebar and body as one outline. Layer content, and the titlebar of a curved panel, stay rectangular. [Rendering](../dev/rendering.md#rounded-scene-geometry) states the rules.
 
 ## Headset verification
 
-Native capture and seat changes require a new process; source reload alone does not replace the running binary. `make run` builds and starts the repository development configuration. The manual acceptance checklist covers the following results:
+Logic-headless tests do not establish visual, timing, or comfort results. Native capture and seat changes need a new process; `make run` builds and starts the development configuration. The operator checks the following in a headset:
 
-- A gray ramp and familiar desktop content have matching brightness in the host display and mirror, including translucent window edges.
-- A plane-rendered application window and the Plugins contents have the expected scene depth ordering. A closer panel occludes the manager, and the manager occludes farther panel content. No default window receives an OpenXR composition layer.
-- Every configured monitor starts capture automatically. Direct capture opens no portal selection when the host supports it. Restart mirror in the monitor titlebar restarts that capture. Select monitors in the titlebar opens a fresh portal selection when required, both granted monitors update, cancellation retains existing capture, and an explicit retry remains possible. X removes the mirror panel without unplugging the monitor; a window's X permits an application confirmation dialog. The host cursor appears with embedded-cursor capture. A portrait monitor has the correct panel aspect, image orientation, and pointer coordinates.
-- Keyboard legends, menu rows, titlebar actions, and Plugins controls remain complete without striped depth conflicts while moving the head and controllers. Laser rendering does not change panel visibility. The landing indicator remains visible over Plugins, the menu, the keyboard, and application panels.
-- A stationary controller produces a steadier cursor with aim smoothing enabled than disabled. Slow aiming reaches small controls without sticking, and fast sweeps remain responsive. Trigger pressure above 10% holds the displayed target through press and release. Deliberate movement unlocks it without repeatedly relocking during the same pull. Text selection, graph panning, and application dragging remain usable. Tracking reacquisition does not sweep the cursor through the previous position. These checks cover both hands and the available headset refresh rates.
-- Plugins toggles a readable entry list with runtime states, and its selected state follows visibility. The panel displays the shared Plugins heading and X. Entry selection, Disable, Enable, Graph, Configure, Catalog, and X work with controller input. Manager-open frame time is compared with manager-closed frame time.
-- Grip on panel content or a titlebar button moves and rotates the panel with the controller. Trigger on the non-button titlebar moves it without application clicks; trigger on a button invokes only that action. The vertical axis adjusts distance, and two-hand resizing remains usable.
-- Reload configuration can run repeatedly without duplicate `laser.left` or `laser.right` seat errors, stale menu controls, or additional keyboard instances.
+- A grey ramp and desktop content match in brightness between the host display and the mirror, including translucent window edges.
+- Scene windows and the Plugins panel occlude each other by depth, and no window receives a composition layer by default.
+- Every configured monitor starts capture. Direct capture opens no portal dialog. Restart mirror, Select monitors, and X behave as described in [Monitors and titlebars](#monitors-and-titlebars). The cursor appears with embedded-cursor capture. A portrait monitor has the right aspect, orientation, and pointer coordinates.
+- Keyboard legends, menu rows, titlebar actions, and Plugins controls show no depth striping while the head and controllers move. The landing indicator stays visible over all of them.
+- Aim smoothing steadies a stationary controller, slow aiming reaches small controls, and fast sweeps stay responsive. The trigger lock holds a click on its target, deliberate movement releases it, and text selection, graph panning, and dragging still work. Both hands and every available refresh rate are covered.
+- Plugins toggles a readable entry list, and its selection, Disable, Enable, Graph, Configure, Catalog, and X work with the controllers. Frame time with the manager open is compared with it closed.
+- Grip on panel content or a titlebar button moves the panel; trigger on a titlebar button runs only that action.
+- Reload configuration repeats without duplicate laser seats, stale menu rows, or extra keyboards.
+- `theme-rounded-content`: flat and curved windows and rotated monitors under Dark, Arcade, and zero and custom radii show no stretched pixels, and corner hits match visible content.
+- `theme-joined-frame`: a titlebar and its body meet at a square seam with one outline, from several angles and while resizing.
+- `theme-widget-edges`: controls and custom regions near rounded edges clip and hit consistently during selection, scrolling, and held input.
+- `theme-rendering-exceptions`: granted layers stay square under every theme, and curved panels keep a separate titlebar.
 
-The operator performs the following named theme checks. Their observations remain pending; geometry and draw recorders do not complete them.
+## Theme acceptance workflows
 
-- `theme-rounded-content`: the operator inspects flat and curved windows and transformed or portrait monitors under Dark and Arcade, explicit zero, and custom radii. A checkerboard behind corner cutouts remains visible. Corner and straight-edge hits match visible content without stretched pixels, missing centre pixels, or phantom depth. Native releases stay paired. Arcade scene monitors trim corners; explicit zero restores square pixels and hits.
-- `theme-joined-frame`: the operator inspects flat windows and mirrors from several angles and during resizing. Header top corners and independent body bottom corners meet at a square, exact, gap-free seam with one outline. Header border overrides and highlight govern the complete outline, including `chrome = false`. The rightmost action remains clipped while hovered or held. Top cutouts miss grabs and actions; adjacent visible faces retain owning grabs and actions. Descriptions agree with the safe clip. Heading hide or removal restores the ordinary body.
-- `theme-widget-edges`: the operator inspects controls and custom graph or sidebar regions near rounded edges during selection, scrolling, and held input. Content-safe clips, descriptions, and rectangular control hits agree. Overflow remains visible without striping or painter instability. Accepted millimetre-range intersections retain their documented limit.
-- `theme-rendering-exceptions`: the operator verifies that granted layers remain square with rectangular hits under Dark, Light, and Arcade, without radius-driven claim churn or fallback. Base, Dark, and Light monitor bodies stay square. Arcade scene monitors round, and explicit zero restores square bodies with independently rounded header tops. Curved headings remain separate.
-- [theme-runtime-switch](#theme-runtime-switch) and [theme-appearance-matrix](#theme-appearance-matrix): the operator records controller preset/lifecycle behavior and every field's visible consumer or explicit override, including compact manager limits.
+The operator runs these workflows in a headset. Logic tests and geometry recorders do not complete them.
 
-The [theme acceptance workflows](#theme-acceptance-workflows) also record theme-font-fit for development and installed native fonts/editing/recovery, and theme-documentation-check for current declarations and examples. Neither native font nor appearance gates are completed by mesh recorders or byte-identical installed assets. [Runtime themes](../dev/stdlib.md#runtime-themes) states those resource rules.
+### theme-runtime-switch
 
-Logic-headless tests do not establish these visual, timing, or comfort results.
+With a Plugins configuration draft and the shared keyboard open, the operator chooses Dark, Light, Arcade, and Dark again from the Appearance group. Exactly one row is selected after each choice. Drafts, focus, panel poses, and keyboard scale survive each switch; Arcade's geometry change cancels held gestures without activating them. The operator then disables and re-enables `desktop/theme` and `theme/arcade`, and reloads the configuration, and checks the fallbacks described in [Runtime themes](#runtime-themes).
+
+### theme-appearance-matrix
+
+The operator compares Dark, Light, and Arcade across window and mirror titlebars, a `chrome = true` native title, the compact and expanded menus, every Plugins view, the keyboard, errors, hints, and pointer feedback. Each control state stays distinguishable, and application pixels do not change colour. Every field in the [checklist](#theme-field-to-consumer-checklist) has a recorded observation. Plugins stays readable under Arcade at its 800x472 minimum canvas.
+
+### theme-font-fit
+
+In Plugins, the operator configures `desktop/theme` with `overrides.typography.font`, chooses `file`, enters a font path with the shared keyboard, and applies it. Text in fields, carets, selections, the manager, titlebars, and keyboard legends is drawn and measured with the same face. A missing file fails the entry, and Recover retries the last active configuration. Arcade's bundled font, `@lunette-plugins/theme/arcade/fonts/SpaceMono-Regular.ttf`, is a virtual filesystem path that session boot mounts; the operator confirms it loads in a development session and in a session installed to an isolated prefix.
+
+### Theme field-to-consumer checklist
+
+`lua/lunette-contracts/theme.luau` declares the fields and `lua/lunette-plugins/theme/descriptors.luau` validates them. The values are in `theme/base.luau`, `theme/standard/presets.luau`, and `theme/arcade/preset.luau` under `lua/lunette-plugins/`. Each field reaches the components below unless a component option overrides it.
+
+| Field | Consumers | Component override |
+|---|---|---|
+| `colors.background` | UI backing, keyboard plate, manager footer | UI `background`, keyboard `plateColor` |
+| `colors.elevatedBackground` | Titlebars, manager sidebar | Titlebar `barColor` |
+| `colors.foreground` | UI text, titles, keyboard legends, errors, hints, manager text | UI `foreground`, titlebar `titleColor`, keyboard `legendColor`, errors and hint `foreground` |
+| `colors.mutedForeground` | Manager inactive, disabled, and secondary text | None |
+| `colors.control` | UI controls, keyboard keys, manager nodes | UI `control`, keyboard `keyColor` |
+| `colors.hovered` | Hovered controls and keys, titlebar highlight | UI `hovered`, keyboard `hoverColor`, titlebar `barHighlightColor` |
+| `colors.pressed` | Held controls and keys | UI `pressed`, keyboard `heldColor` |
+| `colors.disabled` | Disabled controls | UI `disabled` |
+| `colors.border` | UI, panel, and titlebar outlines, manager node borders | UI `border`, panels and titlebar `borderColor` |
+| `colors.focus` | Focus marks, carets, highlighted borders, manager selection | UI `focus`, panels and titlebar `borderHighlightColor` |
+| `colors.selection` | Text selection, selected items and rows | UI `selection` |
+| `colors.error` | Validation messages, failed manager states | UI `error` |
+| `colors.errorBackground` | Error overlay, failed manager nodes | Errors `background` |
+| `colors.success` | Active manager states | None |
+| `colors.warning` | Loading, unloading, and blocked manager states | None |
+| `colors.ownershipEdge`, `colors.dependencyEdge` | Manager graph relationships | None |
+| `colors.pointer`, `colors.pointerHovered` | Laser beam and landing indicator | Laser `color`, `hoverColor` |
+| `typography.font` | UI text, manager, titles, keyboard legends, errors, hints | Each component's `font` |
+| `typography.bodySize` | UI `fontSize`, manager rows | UI `fontSize` |
+| `typography.smallSize` | Manager labels, footer, and toolbar | None |
+| `typography.titleHeight` | Titlebar and native chrome titles, in metres | Titlebar and panels `titleHeight` |
+| `typography.keyboardLegendHeight` | Keyboard legends, in metres | Keyboard `legendHeight` |
+| `typography.errorTextHeight` | Error overlay text, in metres | Errors `textHeight` |
+| `typography.hintTextHeight` | Hint text, in metres | Hint `size` |
+| `metrics.padding`, `metrics.spacing`, `metrics.rowHeight` | UI controls and collections, manager rows | UI `padding`, `spacing`, `rowHeight` |
+| `metrics.borderWidth` | UI outlines | UI `borderWidth` |
+| `metrics.titlebarHeight` | Titlebar height, in metres | Titlebar `barHeight` |
+| `metrics.titlebarBorderThickness` | Native chrome and titlebar outlines, in metres | Panels and titlebar `borderThickness` |
+| `metrics.keyboardGap` | Gap between key faces, in metres | Keyboard `gap` |
+| `radii.uiPanel` | UI panel backing, in metres | UI `panelRadius`, in logical units |
+| `radii.uiControl` | UI control faces, in logical units | UI `controlRadius` |
+| `radii.keyboardBacking`, `radii.keyboardKey` | Keyboard backing and keys, in metres | Keyboard `backingRadius`, `keyRadius` |
+| `radii.titlebar` | Titlebar corners, in metres | Titlebar `cornerRadius` |
+| `radii.window`, `radii.monitor` | Scene window and monitor content, in metres | Panels `windowRadius`, `monitorRadius` |
+
+The manager caps some tokens in its fixed-size toolbar and editors, as [Session styling](runtime-manager.md#session-styling) lists. Theme fields do not change keyboard layout, `keyUnit`, depth offsets, haptics, panel placement, or input routing.
 
 ## Known gaps
 
-The manager exposes search and configuration fields through the shared UI controls and shared keyboard. Logic-headless behavior does not establish XR or GPU-backed behavior, host-desktop acceptance, or installed-session execution. Manual headset acceptance remains open for readability, controller ergonomics, shaping, bidirectional editing, and IME behavior.
+Logic-headless tests do not establish XR or GPU-backed behaviour, host-desktop acceptance, or installed-session execution. The headset checks above remain open, including text readability, controller ergonomics, shaping, bidirectional editing, and input methods.
 
 ## Decisions
 
-Aim smoothing runs before picking so surface selection and rendered feedback use one ray. The adaptive low-pass follows the [1 Euro filter](https://gery.casiez.net/1euro/) approach with separate vector-speed gains for position and direction. It keeps the raw grab pose and button edges because filtering those would delay manipulation and clicks. Per-widget cursor smoothing would require each consumer to keep its rendering and dispatched coordinates synchronized. The shared provider avoids that duplication. The default gains require headset tuning; logic checks do not establish comfort.
+Aim smoothing runs before picking, so selection and feedback use one ray. It follows the [1 Euro filter](https://gery.casiez.net/1euro/) with separate speed gains for position and direction. The grab pose and button edges stay raw because filtering them would delay manipulation and clicks. Smoothing in each widget was rejected because every consumer would have to keep its drawn and dispatched coordinates in step. The default gains need headset tuning.
 
-The trigger lock uses analog pressure before the digital click edge because controller movement during a pull can move the cursor off a small control. It holds the shared ray rather than individual widget coordinates so native windows and UI panels behave alike. Coarse movement disables the lock until release to preserve dragging and avoid repeated locks. The thresholds require headset tuning.
+The trigger lock acts on analog pressure before the click edge, because the controller moves during a pull. It holds the shared ray rather than per-widget coordinates, so native windows and UI panels behave alike. Coarse movement releases it until the trigger is released, which keeps dragging and avoids repeated locking.
 
-Headed desktop panels use one opt-in titlebar implementation from the UI provider. Consumers supply the title, close callback, and extra actions rather than reconstructing the drawing and input controls. This keeps heading style and close behavior consistent while preserving each consumer's visibility and native close semantics. The optional target-owned attachment supplies only header outline style and joining eligibility, without adding a general container API. Scene meshes and conservative content clips avoid stencil and offscreen requirements, retain caller bounds and ergonomic rectangular control targets, and leave hook clipping cooperative. Granted layers remain square to preserve raw-copy sharpness and claims; flat headings over curved content stay separate because a continuous curved header is outside this relationship. Native motion and original-sink release pairing stay unchanged rather than adding capture projection.
+Session controls are menu actions and UI controls, so the keyboard, reload, theme, and workspace controls work without key chords. The bindings provider stays available for custom input. The keyboard setting is `keyboardDisplay` because it places the shared display, not the wrist.
 
-The manager uses scene depth rather than overlay painting because it is a movable panel. Opaque shared UI backing and outline geometry writes depth; rounded cutouts contain no depth-writing geometry. Controls, their contents, and glyphs occupy successive 1 mm rendering offsets without writing depth. The offsets follow drawing nesting rather than the number of sibling controls. This avoids coplanar depth conflicts, keeps transparent glyph bounds out of the depth buffer, and preserves the control order. Intersecting or nearly coincident panels can show draw-order-dependent details within the 3 mm span from the backing to its glyphs. This limited overlap is accepted rather than adding per-panel visibility masks. Pointer feedback remains a final overlay so its landing indicator is visible.
+Settings expand to ordinary patches by entry id, so a configuration needs fewer imports while each plugin keeps its own failure, outage, and cleanup boundaries. A setting and a patch for the same entry are rejected rather than ordered, so each entry has one source of configuration.
 
-The wrist menu uses UI controls and menu actions so the shipped keyboard, reload, and workspace controls do not require physical key chords. The neutral bindings provider remains available for custom inputs. Keyboard placement is the `keyboardDisplay` setting, named for the shared display rather than the wrist it no longer sits on, so a configuration changes the display without changing wrist geometry.
-
-Settings expand to the existing stable-id patches so common configuration needs fewer imports without changing plugin failure, outage, or cleanup boundaries. The default retains its providers, consumers, and per-start factories.
-
-Shorthand and raw patches cannot configure one entry together. Rejecting the collision avoids order-dependent overrides and keeps the advanced composition rule that each entry has one patch source.
-
-The workspaces setting points adoption at the first workspace and leaves explicit and persisted tags alone because those names are configuration and saved state, not aliases for the initial workspace.
+The workspaces setting points adoption at the first workspace and leaves rule and saved tags alone, because those names are configuration and saved state.

@@ -1,63 +1,57 @@
 # Roadmap
 
-## Milestone 0 — the vertical slice
+## Milestone 0: the vertical slice
 
-The purpose of this milestone is de-risking. Nothing else.
+Milestone 0 existed to retire risk. The Rust host boots LÖVR, starts an embedded smithay compositor with one output, spawns one client, imports its dmabuf, draws it on a quad in the scene, casts a ray from a controller, and clicks the quad. It has no composition layers, monitor mirroring, standard library, `lunctl`, reload, or second seat.
 
-Rust host boots LÖVR, an embedded smithay compositor with one hardcoded output starts, one client is spawned, its dmabuf is imported, it is drawn on a quad in-scene, a ray is cast from a controller, and the quad is clicked.
+It tested two unknowns that would have changed the downstream design: whether LÖVR's Vulkan path accepts a foreign image imported from `VK_QUEUE_FAMILY_FOREIGN_EXT` with implicit sync, and whether the split between the compositor thread and the main thread, with Lua reading snapshots, holds up in use. [Milestone 0 findings](2026-08-06-milestone-0-findings.md) records the measurements, which come from one NVIDIA driver, and the gates still outstanding.
 
-No composition layers, no monitor mirroring, no standard library, no `lunctl`, no reload, no seats beyond one.
+## v1: the daily driver
 
-Two unknowns carry the most risk. Both are cheaper to resolve in a 2000-line prototype than after a standard library exists.
+v1 is the point at which the system is usable for daily work. Each step is usable on its own.
 
-1. The LÖVR Vulkan patch. It is unverified whether `TextureInfo.handle` accepts a foreign image without further changes, whether LÖVR's internal layout and queue-family handling tolerates an image that arrived from `VK_QUEUE_FAMILY_FOREIGN_EXT` in an undefined layout, and whether implicit sync is sufficient in practice.
-2. The thread split. It is unverified whether the compositor-thread and main-thread division holds under load, and whether the snapshot model is as workable in use as in specification.
+1. Composition layers and the claim pool: legible text, layer recycling, priority claims, grant and revoke events, and fallback to scene quads ([Rendering](rendering.md#the-layer-pool)).
+2. Monitor mirroring and host input injection: portal capture correlated to outputs by logical geometry, and uinput injection ([Host desktop](host-desktop.md)).
+3. Keyboard, seats, and clipboard: typing, two hands, and copy and paste across the host boundary ([Input](input.md)).
+4. The panel standard library: panels, interaction, layouts, rules, and placement as built-in providers on the plugin runtime ([Standard library](stdlib.md)).
+5. Reload, `lunctl`, and error handling ([The Lua API](lua-api.md)).
+6. Per-window outputs, fractional scale, and frame pacing, applied by the `desktop/pacing` and `desktop/scale` entries and on by default (issue #38) ([Compositor](compositor.md#outputs), [Rendering](rendering.md#frame-pacing)).
 
-An unfavourable result for either unknown changes the downstream design.
+Mirroring comes before the standard library because seeing and driving the real desktop in VR is useful on its own, and it exercises capture, injection, input domains, and the layer pool against real content.
 
-## v1 — the daily driver
+All six steps are implemented and covered by hardware-free tests. The shipped desktop runs `@lunette-desktop`, and logic-headless tests drive it over the fake native API through provider outages, persistence, monitor hotplug, reopened windows, and ten production source reloads.
 
-The point at which the system is usable for daily work. Each step is usable on its own.
+## VR session UI
 
-1. Composition layers and the claim pool. The point at which text becomes legible. Layer recycling, priority claims, grant/revoke events, degradation to in-scene quads. ([Rendering](rendering.md#the-layer-pool))
-2. Monitor mirroring and host input injection. The point at which the system becomes useful: the user can see and drive the real desktop from inside VR. Portal capture with streams correlated to outputs by logical geometry, uinput injection. ([Host desktop](host-desktop.md))
-3. Keyboard, seats, clipboard. Typing works, two hands work, copy-paste crosses the boundary. ([Input](input.md), [Host desktop](host-desktop.md#clipboard))
-4. Panel standard library. Panels, interaction, layouts, and rules, as built-in providers on the plugin runtime. ([Standard library](stdlib.md))
-5. Reload, `lunctl`, error handling. The iteration loop closes; the window manager becomes inspectable from a shell. ([The Lua API](lua-api.md))
-6. Per-window outputs, fractional scale, frame pacing. Sharpness and efficiency. The policy is the pacing and scale providers, applied by the `desktop/pacing` and `desktop/scale` entries, on by default (issue #38). ([Compositor](compositor.md#outputs), [Rendering](rendering.md#frame-pacing), [The Lua API](lua-api.md#frame-pacing-and-output-scale))
+Every session workflow is reachable through VR controls. The `lunette/ui` provider supplies owner-scoped flat panels with buttons, text fields, choices, lists, regions, and shared titlebars ([UI panels](lua-api.md#ui-panels)). The wrist menu renders `lunette/menu` actions: Keyboard toggles the shared keyboard display, Reload configuration reloads, Plugins opens the runtime manager, the theme selector lists catalog themes, and a configuration with several workspaces adds workspace choices. The runtime manager inspects and edits the plugin composition with controller input and the shared keyboard. The checked `examples/ui` configuration adds a third-party form through the public contracts, and logic-headless tests run its controller workflow.
 
-Mirroring lands before the standard library on purpose. Seeing the real desktop in VR carries the project further than a window abstraction alone, and it exercises capture, injection, input domains, and the layer pool against real content.
+The toolkit does not implement text shaping, bidirectional editing, IME or preedit composition, or general layout containers.
 
-## Local VR UI
+## Human gates
 
-The bounded UI toolkit declares `lunette/ui` at schema 1 and supplies owner-scoped flat panels, buttons, single-line text fields, choices, lists, and regions through `@lunette-plugins/ui`. Input, drawing, and detached descriptions share declared logical geometry. Themes and draw hooks change appearance without changing hit bounds. Frozen provider and creation-owner activation tokens distinguish replacements that reuse panel names and control ids. Control ids span all live panels per actual creation owner, and different owners can reuse an id in one panel. A description identifies a live control through the generation token, owner token, and id without exposing contexts or scripting authority. Native `lunette.textBoundaries`, backed by `unicode-segmentation` 1.13.3, supplies whole-grapheme editing offsets. [UI panels](lua-api.md#ui-panels) states the contract, and the [UI guide](../guide/ui.md) gives a public-contract checker fixture.
+The automated checks run without a headset, GPU-backed session, or host desktop. The following remain unverified and need an operator:
 
-The neutral `lunette/menu` action broker and `lunette/keyboard-display` shared display are implemented. `desktop/menu` renders the tracked wrist Menu button and scrollable action list through `lunette/ui`. `desktop/actions` registers Keyboard and Reload configuration, and the optional workspace consumer registers name-only workspace choices. Keyboard toggles the shared display. Plugins opens the manager panel. The manager uses shared UI controls for search, configuration, graph navigation, inspection, lifecycle actions, recovery, and catalog loading. The graph uses a custom region; stable control IDs identify controls in panel descriptions. Pure graph and editor logic, detailed runtime snapshots, actual dependency bindings, and opaque-value preservation remain unchanged. The manager has no `toggleKey` option or global frame key/text handlers. Its schema rejects legacy `toggleKey` with a migration diagnostic that directs the configuration to open Plugins from the session menu.
-
-`settings.menu` owns wrist geometry and haptics; `settings.keyboardDisplay` configures keyboard placement only. The neutral bindings provider remains available for custom inputs. The desktop example uses `save-menu` and `hide-windows` menu actions. The configuration descriptors and default entry list remain the sources of truth for those options.
-
-The checked `examples/ui` configuration provides a movable public-contract form with button, field, choice, list, and custom drawing. Logic-headless scenarios run the form, manager Search, and application hand-off against both UI implementations, including twelve provider-outage rows and ten production source reloads per implementation. Those scenarios preserve one shared keyboard and invalidate ended controls, captures, focus targets, and menu registrations.
-
-The remaining UI work is installed-session execution, GPU-backed drawing and pass restoration, and every control workflow in the headset without a physical keyboard or mouse.
-
-Installed-session execution, production LÖVR virtual-filesystem mounting, and GPU-backed drawing remain unverified here. The named follow-up `manual_xr_widget_and_manager_acceptance` remains open. It covers controller-only discovery, both-hand capture, grab and scroll, keyboard readability and placement, text editing and errors, long-list overflow, manager close and reopen, application focus hand-off, and reload on the target headset and runtime. No test or documentation review establishes those perceptual or GPU properties.
-
-The current toolkit does not implement full text shaping, bidirectional editing, IME or preedit composition, general layout containers, or a complete desktop widget framework. Grapheme segmentation does not establish those capabilities. Type-check and logic-headless fixtures do not establish the hardware acceptance gates.
+- An actual XR or GPU-backed boot of the shipped configuration, and execution of an installed session.
+- `manual_xr_widget_and_manager_acceptance`: controller-only discovery, two-hand capture, grab and scroll, keyboard readability and placement, text editing and errors, long-list overflow, manager close and reopen, focus hand-off to applications, and reload, on the target headset and runtime.
+- The theme and rounded-geometry gates in [Desktop configuration](../guide/desktop-configuration.md): `theme-runtime-switch`, `theme-appearance-matrix`, `theme-font-fit`, `theme-documentation-check`, `theme-rounded-content`, `theme-joined-frame`, `theme-widget-edges`, and `theme-rendering-exceptions`.
+- Host-desktop acceptance of capture, injection, the clipboard bridge, and physical keypad lock state.
+- OpenVR controller bindings and haptics on SteamVR beyond the observed controllers ([Input](input.md#known-gaps)).
 
 ## Beyond v1
 
-Roughly WayVR's feature surface, plus the items this architecture makes easier.
+Roughly WayVR's feature surface, plus what this architecture makes easier:
 
-- Dashboard, launcher, notifications, additional watch or wrist controls, settings, and taskbar, as example configurations rather than library code. The shipped wrist menu already exposes session and workspace actions.
+- Dashboard, launcher, notifications, settings, and taskbar, as example configurations rather than library code.
 - [Per-application spatial audio](audio.md).
 - Explicit sync (`linux-drm-syncobj-v1`) and the LÖVR external-semaphore patch.
 - `ext-image-copy-capture-v1` in `wlx-capture`, contributed upstream.
-- libei injection via the portal.
-- IME integration (fcitx5 and similar).
-- GPU-headless test harness.
+- libei injection through the portal.
+- Input blocking through libmonado ([Input](input.md#blocking-input-to-the-underlying-application)).
+- IME integration, such as fcitx5.
+- A GPU-headless test harness.
 
-## Upstream work, opportunistically
+## Upstream work
 
-- LÖVR: external-memory device extensions, foreign image import, configurable `MAX_LAYERS`.
-- `wlx-capture`: selecting every monitor in one portal dialog and correlating the returned streams to outputs by logical geometry, `ext-image-copy-capture-v1`.
-- WayVR: anything from the above that applies to it.
+- LÖVR: external-memory device extensions, foreign image import, and a configurable `MAX_LAYERS`.
+- `wlx-capture`: selecting every monitor in one portal dialog and correlating the streams to outputs by logical geometry, and `ext-image-copy-capture-v1`.
+- WayVR: whatever of the above applies to it.

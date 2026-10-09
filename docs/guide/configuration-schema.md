@@ -1,6 +1,6 @@
 # Configuration schemas
 
-`@lunette-plugin/schema` provides immutable configuration descriptors. A descriptor supplies runtime parsing, editor metadata, and the Luau input and output types. `lua/lunette-plugin/schema/init.luau` is the constructor API, and `runtime.luau` owns the parser tree. Inspection returns that same tree rather than a separately maintained description.
+`@lunette-plugin/schema` builds immutable configuration descriptors. One descriptor supplies runtime parsing, the metadata the [runtime manager](runtime-manager.md) edits, and the Luau input and output types. `lua/lunette-plugin/schema/init.luau` is the constructor API, and `runtime.luau` holds the parser.
 
 ## Declaring a shape
 
@@ -29,37 +29,35 @@ local config: Config = { title = 'Sample', style = {} }
 local settings: Settings = descriptor.parse(config, 'sample')
 ```
 
-`Config` accepts omitted defaulted fields and keeps its object fields, arrays, and maps writable. `Settings` requires their resolved values and makes schema-declared object fields and collection indexers read-only. Optional fields remain optional in both types. The shape is declared once; neither type repeats its fields. `Schema<I, O>` describes a descriptor with input type `I` and output type `O`. A method that only reads resolved collections accepts `{ read [number]: T }` or `{ read [string]: T }`; a method that edits a collection needs a separate mutable copy.
+`Config` makes defaulted fields optional and keeps containers writable. `Settings` requires every defaulted value and makes object fields and collections read-only. Optional fields are optional in both. A function that only reads a resolved collection takes `{ read [number]: T }` or `{ read [string]: T }`.
 
-`default(child)(value)` is curried. Its value has the child's output type. The constructor validates the value immediately and snapshots declared containers. Separate calls prevent generic inference from widening nested fields while checking a default.
+`default(child)(value)` is curried. It validates the value when the descriptor is built. A literal takes an explicit singleton type argument, as in `schema.literal<<'quiet'>>('quiet')`.
 
-`parse(value, name?)` accepts an unknown runtime value and returns the output type. It raises for invalid input. Passing a name gives diagnostics the prefix `plugin <name>`. A required root object does not accept nil; an omitted root needs an explicit `default` wrapper.
+`parse(value, name?)` validates an unknown value and returns the output, or raises. A name prefixes errors with `plugin <name>`. A required root object rejects nil; a root that may be omitted needs a `default`.
+
+`resolve(value, base, name?)` applies `value` over an existing output `base`. Object fields inherit from the base before the descriptor's defaults, and arrays and maps replace. The plugin facade uses it to apply an entry's configuration over a definition's defaults.
 
 ## Constructors
 
-| Constructor | Runtime rule |
+| Constructor | Accepts |
 |---|---|
-| `number(options?)` | A finite number, with optional `minimum`, `maximum`, `integer`, and `positive` constraints. `positive` excludes zero. |
-| `string(options?)` | A string, with optional `minLength`, `maxLength`, and Lua `pattern` constraints. Length counts bytes. |
+| `number(options?)` | A finite number, with optional `minimum`, `maximum`, `integer`, and `positive`, which excludes zero. |
+| `string(options?)` | A string, with optional `minLength`, `maxLength`, and a Lua `pattern`. Lengths count bytes. |
 | `boolean()` | A boolean. |
-| `vector()` | A native vector with finite x, y, and z components. |
-| `literal<T>(value)` | The exact string or boolean value. An explicit singleton argument preserves the closed static type. |
-| `union(first, second)` | A value accepted by either child. More alternatives use nested unions. |
-| `object(shape)` | A plain table containing only declared string fields. Each field is parsed even when absent. |
-| `array(child, options?)` | A dense, one-based plain table of child values. |
-| `map(child, options?)` | A plain table of string keys and child values. |
+| `vector()` | A native vector with finite components. |
+| `literal<T>(value)` | Exactly that string or boolean. |
+| `union(first, second)` | A value either child accepts. More alternatives nest. |
+| `object(shape)` | A plain table with only the declared string fields. |
+| `array(child, options?)` | A dense, one-based list of child values, with optional `minLength` and `maxLength`. |
+| `map(child, options?)` | A table of string keys to child values, with optional `minLength` and `maxLength`. |
 | `optional(child)` | Nil or a child value. |
-| `default(child)(value)` | The declared value for absent input, otherwise a child value. Nil defaults are rejected. |
-| `refine(child)(validate, description?)` | A child value followed by a typed validator that raises on failure. |
-| `callback(witness)` | A function with the witness's static signature. Runtime validation checks only the function kind. |
-| `custom<T> { runtimeType, validate }` | An atomic code-backed value. `runtimeType` names its `typeof`, and `validate(unknown)` returns the original value typed as `T` or raises. |
-| `describe(child) { label?, description? }` | A descriptor carrying optional editor text. |
+| `default(child)(value)` | A child value, or `value` when absent. A nil default is rejected. |
+| `refine(child)(validate, description?)` | A child value that `validate` accepts; `validate` raises to reject. |
+| `callback(witness)` | A function. The witness gives its static type; the runtime checks only that it is a function. |
+| `custom<T> { runtimeType, validate }` | A value whose `typeof` is `runtimeType` and that `validate` accepts. |
+| `describe(child) { label?, description? }` | A child value, with text for an editor. |
 
-Arrays and maps accept `minLength` and `maxLength`. Bounds must be finite and ordered. Length bounds must be nonnegative integers. Constructor options and object shapes reject metatables and unknown options. Array outputs cannot contain nil. Custom validators cannot replace an entry with nil or any other value.
-
-Objects merge declared fields recursively. A supplied empty object retains sibling defaults. Arrays and maps replace completely, including when the supplied collection is empty. Supplied union values also replace completely. An alternative uses its own declared defaults rather than inheriting fields from the previous union value, even when both values match the same alternative. Omission retains and validates the base value. Metadata records object merging separately from replacement. A map is not inferred from a default table's keys.
-
-`resolve(value, base, name?)` validates an existing output value and applies input over it. Object fields inherit the base before descriptor defaults. Arrays and maps still replace. This permits a definition to retain its resolved settings as the base for later configuration. Invalid bases and overrides raise; false and other invalid values never become an empty configuration.
+Objects merge field by field, and an empty object keeps every default. Arrays, maps, and union values replace entirely, even when empty. Constructors reject unknown options and tables with metatables.
 
 ## Code-backed fields
 
@@ -76,28 +74,26 @@ local interval = schema.refine(schema.object {
 end, 'An ordered interval.')
 ```
 
-Refinements receive the parsed output after defaults and nested validation. They support constraints across fields without a second shape declaration. A plugin may retain an additional validator at its integration boundary.
+A refinement receives the parsed output, after defaults and nested validation, and expresses a constraint across fields.
 
-Custom validators validate their value contract, including metatables and cycles. The parser does not traverse, copy, or freeze custom values. Validation must return the input value without transforming or mutating it. The runtime enforces return identity with `rawequal`; a fresh table or changed scalar raises a structured `custom` error stating that the validator must return the original value. `__eq` does not satisfy this contract. A validator narrows the original `unknown` value to `T` after checking it. Construction validates defaults, and parsing and resolution validate defaults and bases again. Repeated validation therefore preserves the original reference rather than applying a transformation repeatedly. Callback references and native vectors also retain their identity or value. Descriptor and metadata immutability does not make an externally owned custom reference immutable.
+A custom validator checks a value and returns it unchanged. The parser raises if the validator returns a different value, compared with `rawequal`. The parser does not copy, traverse, or freeze a custom value, and callbacks and vectors also keep their identity.
 
-## Inspection and diagnostics
+## Inspection and errors
 
-`inspect()` returns immutable `Metadata`. Its `kind` distinguishes object, array, map, scalar, wrapper, and code-backed nodes. The tree includes `fields`, `child`, `alternatives`, constraints, defaults, labels, and descriptions where applicable. Both the metadata properties and the indexers in `fields` and `alternatives` are read-only. `merge` is `object` or `replace`. Callback and custom nodes have `readOnly = true` for a generic editor. Wrappers preserve that flag. Their code and value references remain available to code-aware tools; inspection does not serialize them.
+`inspect()` returns the descriptor's immutable metadata tree. Each node has a `kind`, and, where they apply, `fields`, `child`, `alternatives`, constraints, defaults, labels, and descriptions. `merge` is `object` or `replace`. Callback and custom nodes have `readOnly = true`, so a generic editor leaves them alone.
 
-A parser failure raises an immutable `Error` table with `name`, `path`, `code`, and `message`. The path has a read-only indexer and contains string fields and numeric array indices. `tostring(error)` renders the name prefix and option path. Nested failures retain their full path. Union failures include the alternative diagnostics. String matching runs under a protected call at the current field path because some malformed patterns raise only for particular inputs. Wrong numeric types are described with `typeof` without invoking an input's `__tostring`. A container rejects its metatable before field access or iteration. Cycles reached through declared containers raise rather than recurse indefinitely. Traversal permits at most 64 descriptor child steps from the root, including wrappers and union alternatives. A deeper traversal raises a structured `depth` error at the current path before exhausting the parser stack. Custom values are atomic and do not undergo this traversal. Shared noncyclic tables are copied independently.
+A parse failure raises an immutable error with `name`, `path`, `code`, and `message`, and `tostring(error)` renders the name and option path. A union failure includes each alternative's error. Recursive tables raise an error, and parsing stops below 64 nested descriptor levels with a `depth` error.
 
 ## Decisions
 
-The runtime tree is the source of editor metadata because a separately declared editor schema can diverge from runtime validation. Type witnesses project the same constructor composition into Luau types. Witness functions are not validators.
+The runtime tree is the source of editor metadata, because a separately declared editor schema could disagree with validation. Type functions derive the Luau types from the same constructors.
 
-Custom schemas validate rather than normalize. Identity-preserving validation keeps callbacks, metatable-backed objects, and other code-backed customization intact when defaults and bases are validated repeatedly. Returning a transformed value would apply that transformation at construction and again during parsing or resolution. The runtime rejects that return instead of silently replacing the value.
+Custom schemas validate rather than transform. Defaults and bases are validated more than once, so a transforming validator would apply its transformation repeatedly; the parser rejects a changed value instead.
 
-Defaults use a curried API because the pinned Luau checker widens nested read properties with a two-argument generic default constructor. Singleton literals use explicit singleton type arguments because standalone generic calls widen strings and booleans in the pinned checker. A singleton expression annotation also works: `schema.literal('quiet' :: 'quiet')`.
+`default` is curried because the pinned Luau checker widens nested read-only properties through a two-argument generic. Literals take explicit singleton type arguments because a generic call widens strings and booleans; `schema.literal('quiet' :: 'quiet')` also works.
 
 ## Known gaps
 
-The pinned Luau checker accepts some wrong dictionary values in function arguments and in optional dictionary assignments, including equivalent dictionary types without descriptors. Required map input and output assignments retain their value types and have negative checker fixtures. Runtime map validation rejects wrong values in every case.
+The pinned Luau checker accepts some wrong dictionary values in function arguments and optional dictionary assignments, and it does not reject every unknown object field. Runtime parsing rejects both. Callback signatures are checked only statically. The runtime cannot prove that a custom validator's `T` is correct or that the validator leaves its input unchanged.
 
-The checker does not statically reject every unknown object field; runtime objects are closed. Callback signatures are static only. Runtime reflection cannot validate their parameter and return types. The runtime checks a custom value's `typeof` and return identity, but cannot prove the validator's claimed `T` or prevent the validator from mutating its input. Correct narrowing and side-effect-free validation remain the author's responsibility.
-
-Every configured provider and consumer exposes a descriptor; one whose spec omits `schema` takes an empty object, so it accepts no options. Raw definitions remain valid without descriptors. The [runtime manager](runtime-manager.md) offers controls only for definitions with descriptor metadata. It changes the session without writing a persistence format.
+A definition made with `plugin.define` has no descriptor, and the runtime manager offers no configuration controls for it. A configured provider or consumer without a `schema` has an empty object descriptor and takes no options.
