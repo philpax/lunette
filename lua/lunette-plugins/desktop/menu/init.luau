@@ -1,0 +1,150 @@
+-- Renders owner-scoped menu actions on a tracked wrist through the neutral UI service.
+local plugin = require '@lunette-plugin'
+local ui = require '@lunette-contracts/ui'
+local menu = require '@lunette-contracts/menu'
+local frame = require '@lunette-contracts/frame'
+local config = require '@lunette-plugins/desktop/menu/config'
+local geometry = require '@lunette-plugins/desktop/menu/geometry'
+local rows = require '@lunette-plugins/desktop/menu/rows'
+
+export type Hand = config.Hand
+export type Config = config.Config
+export type Settings = config.Settings
+
+return plugin.consumer<<Config, Settings>> {
+  name = 'desktop/menu',
+  schema = config.schema,
+  requires = { ui.capability, frame.capability, menu.capability },
+  init = function(context: plugin.Context, settings: Settings): ()
+    local uiService: ui.Service = context:require(ui.capability)
+    local menuService: menu.Service = context:require(menu.capability)
+    local frameService: frame.Service = context:require(frame.capability)
+    local compact = geometry.layout(settings, false)
+    local panel = uiService:newPanel(context, {
+      name = 'desktop/menu',
+      width = compact.width,
+      height = compact.height,
+      logicalWidth = compact.logicalWidth,
+      logicalHeight = compact.logicalHeight,
+      visible = false,
+      grabbable = false,
+      theme = {
+        hapticStrength = settings.haptic.strength,
+        hapticDuration = settings.haptic.duration,
+        rowHeight = settings.expanded.rowHeight,
+      },
+    })
+    local device: Device = if settings.hand == 'left' then 'hand/left' else 'hand/right'
+    local opened, tracked = false, false
+    local button: ui.Button? = nil
+    local list: ui.List? = nil
+    local snapshot: rows.Snapshot = {}
+    local function live(): boolean
+      return context:active() and not panel.dead
+    end
+    local function rebuild(value: boolean): ()
+      if not live() then
+        return
+      end
+      opened = value
+      if button and not button.dead then
+        button:destroy()
+      end
+      if list and not list.dead then
+        list:destroy()
+      end
+      button, list = nil, nil
+      snapshot = {}
+      local layout = geometry.layout(settings, opened)
+      panel:setSize(layout.width, layout.height, layout.logicalWidth, layout.logicalHeight)
+      panel:setTitlebar(if opened
+        then {
+          title = 'Menu',
+          draggable = false,
+          onClose = function(): ()
+            if live() and tracked then
+              rebuild(false)
+            end
+          end,
+        }
+        else nil)
+      if not opened then
+        button = panel:button {
+          id = 'open',
+          label = 'Menu',
+          bounds = layout.button,
+          onActivate = function(): ()
+            if live() and tracked then
+              rebuild(true)
+            end
+          end,
+        }
+      end
+      if opened and layout.actions then
+        snapshot = menuService:list()
+        list = panel:list {
+          id = 'actions',
+          label = 'Actions',
+          bounds = layout.actions,
+          items = rows.items(snapshot),
+          onChange = function(id: string): ()
+            local current = list
+            if not live() or not tracked or not opened or not current or current.dead then
+              return
+            end
+            local descriptor = rows.find(snapshot, id)
+            current:setSelected(nil)
+            if descriptor and descriptor.enabled then
+              -- Failed results are already reported by the broker; unavailable registrations are inert.
+              menuService:invoke(descriptor.id, descriptor.token)
+            end
+          end,
+        }
+      end
+    end
+    rebuild(false)
+    menuService:onChanged(context, {
+      run = function(): ()
+        local current = list
+        if live() and opened and current and not current.dead then
+          snapshot = menuService:list()
+          current:setItems(rows.items(snapshot))
+        end
+      end,
+    })
+    frameService:onUpdate(context, {
+      phase = 'scene',
+      order = 1,
+      run = function(_dt: number): ()
+        if not live() then
+          return
+        end
+        local nextTracked = lovr.headset.isTracked(device)
+        if not nextTracked then
+          if tracked then
+            panel:setVisible(false)
+            if opened then
+              rebuild(false)
+            end
+          end
+          tracked = false
+          return
+        end
+        panel:setPose(geometry.pose(device, settings.offset))
+        if not tracked then
+          panel:setVisible(true)
+        end
+        tracked = true
+      end,
+    })
+    frameService:onDraw(context, {
+      phase = 'scene',
+      order = 1,
+      run = function(pass: Pass): ()
+        if live() and tracked then
+          panel:draw(pass)
+        end
+      end,
+    })
+  end,
+}

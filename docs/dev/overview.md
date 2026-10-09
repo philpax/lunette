@@ -1,68 +1,64 @@
-# lunette — design overview
+# Design overview
 
-lunette is an XR window manager and Wayland compositor. It is written in Rust, scripted in Lua, and rendered by LÖVR. It runs as an XR overlay, so it composites on top of a running VR application rather than replacing it. LÖVR owns the session through its OpenXR or internal OpenVR backend. OpenXR overlays require `XR_EXTX_overlay`; OpenVR uses native overlays without submitting scene-compositor frames. OpenVR hardware and visual acceptance remain unverified.
+lunette is an XR window manager and Wayland compositor. Rust hosts it, Luau scripts it, and LÖVR renders it. It runs as an XR overlay, so it composites on top of a running VR application. LÖVR owns the headset session through its OpenXR backend, which requires `XR_EXTX_overlay`, or through its internal OpenVR backend, which uses native overlays.
 
-lunette performs three functions. It spawns and manages Wayland applications inside itself. It mirrors the user's existing monitors. It presents both to Lua as textures and input sinks, so that scripts can arrange them in space.
-
-This document states the scope and principles of the system. The area documents listed at the end contain the detail.
+lunette spawns Wayland applications inside itself, mirrors the user's monitors, and presents both to Lua as textures and input sinks. Lua arranges them in space.
 
 ## Origins
 
-Three projects inform the design.
+awesome supplies the scripting model: policy lives in Lua, the running state is inspectable from a shell, and the standard library is source that a user can read, fork, or ignore.
 
-awesome supplies the scripting philosophy: policy lives in Lua, the running state is inspectable and mutable from a shell prompt, and the standard library is a library that can be read, forked, or ignored.
+WayVR supplies the Linux VR machinery: an embedded smithay compositor, screen capture across host compositors, input injection into the host desktop, and knowledge of which OpenXR extensions work on which runtime.
 
-WayVR supplies the Linux VR machinery: an embedded smithay compositor, screen capture across multiple host compositors, input injection into the host desktop, and knowledge of which OpenXR extensions work on which runtime.
+LÖVR supplies the engine: headset sessions, Vulkan, composition layers, spatial audio, physics, and a Lua environment.
 
-LÖVR supplies the engine: headset sessions, Vulkan, composition layers, spatialised audio, physics, and a Lua environment.
-
-The result is a window manager in which a window is not a distinct object type. A window is a texture, an input sink, and a set of metadata. Spatial behaviour is computed in Lua using the engine's own maths library. A script can, for example, use the physics engine to bounce an object off a panel and convert the impact point into a click, because nothing in the native API reserves that decision for itself.
+A window is not a distinct object type. It is a texture, an input sink, and metadata. Lua computes spatial behaviour with the engine's own maths, so a script can, for example, convert a physics impact on a panel into a click.
 
 ## Goals
 
 - Operate a computer inside XR: spawn applications, lay them out, type into them, and view the host desktop.
-- Run as an overlay alongside VR applications at low enough cost that the underlying application is not disturbed.
+- Run as an overlay at a cost low enough that the underlying application is not disturbed.
 - Retain full access to LÖVR. Any operation available in a LÖVR project is available in lunette.
-- Avoid special cases. Windows and mirrored monitors reach Lua through one interface, built from primitives sufficient to implement the standard library.
-- Keep the standard library optional and readable. It is installed as Lua source on disk.
-- Support in-headset iteration through sub-second configuration reload that does not terminate running applications.
+- Present windows and mirrored monitors to Lua through one interface, built from primitives sufficient to implement the standard library.
+- Keep the standard library optional and readable. It is installed as Luau source.
+- Support in-headset iteration through configuration reload that does not terminate running applications.
 
 ## Non-goals
 
-- An OpenVR scene application, game injection, or occlusion against another application's depth. OpenVR support is overlay-only. It does not replace the running game.
-- Sandboxing of spawned applications. They run with the same privileges as lunette.
-- Use as a general-purpose desktop compositor. lunette implements a compositor in order to obtain windows, not to host a login session.
+- An OpenVR scene application, game injection, or occlusion against another application's depth. OpenVR support is overlay-only.
+- Sandboxing of spawned applications. They run with lunette's privileges.
+- Use as a general-purpose desktop compositor. lunette implements a compositor to obtain windows, not to host a login session.
 - Multi-user operation. The design assumes one user, one headset, and one session.
 
 ## Architectural principles
 
-1. Mechanism is implemented in Rust; policy is implemented in Lua. Rust owns scarce and stateful resources: GPU objects, Wayland protocol state, backend-owned layer resources, and processes. Lua decides how they are used. The test applied throughout the design is whether the standard library could have been written by a third party against the public API. If it could not, the API is incorrect.
-2. Lua reads a snapshot and issues requests. The compositor runs on a separate thread. Window state published to Lua is a per-frame snapshot, and mutations are messages applied asynchronously. This reflects the asynchronous nature of Wayland, and matches the arrangement awesome uses with X11.
-3. Rust holds no long-lived references into the Lua state. There are no registry references to callbacks and no native objects with hidden back-pointers. All authoritative state is held in Rust and can be republished into a new Lua state at any time. This property is what makes soft reload possible.
-4. Errors do not terminate the session. Every user callback runs under `xpcall`. A failing configuration produces an error panel. A configuration that fails to load produces a built-in safe mode with a laser, a panel, and a reload key.
-5. The two API roots carry different contracts. `require '@lunette'` provides native mechanism. `require '@mullion'` provides the Lua standard library. The names differ so that the distinction is visible, and so that removing the second line is a recognisable option.
-6. Changes are contributed upstream where possible. The LÖVR fork remains narrow and additive, and its patches are shaped as upstream pull requests. Improvements to capture and injection are offered back to WayVR.
+1. Rust implements mechanism and Lua implements policy. Rust owns scarce and stateful resources: GPU objects, Wayland protocol state, composition layers, and processes. Lua decides how they are used. The standard library must be writable by a third party against the public API; where it is not, the API is defective.
+2. Lua reads a snapshot and issues requests. The compositor runs on its own thread. Window state reaches Lua as a per-frame snapshot, and mutations are messages applied asynchronously. [Architecture](architecture.md#the-snapshot-model) states the model.
+3. Rust holds no long-lived references into the Lua state outside the plugin attachment. All authoritative native state can be republished into a new Lua state, which is what makes reload and restart possible.
+4. Errors do not terminate the session. Event listeners, plugin callbacks, and frame handlers run under protected calls and report through one error boundary. A configuration that fails to load starts the built-in safe mode, which shows the error, spawns a terminal on a panel with a laser, and reloads on F5. [The Lua API](lua-api.md#errors) states the boundaries.
+5. Native mechanism and Lua policy have different roots. `@lunette` is native mechanism. `@lunette-plugin`, `@lunette-contracts`, `@lunette-plugins`, and `@lunette-desktop` are the Lua standard library, and every policy it ships is a plugin that a configuration can replace or omit. [Standard library](stdlib.md) describes them.
+6. Changes go upstream where possible. The LÖVR fork's patches are shaped as upstream pull requests, and capture and injection fixes are offered to WayVR.
 
 ## Path of an input event
 
 1. LÖVR reports a controller pose through `lovr.headset`. See [Input](input.md).
-2. Lua intersects the resulting ray with geometry it drew, and converts the intersection to pixel coordinates. See [The Lua API](lua-api.md).
-3. Lua calls `sink:pointer(x, y)` and `sink:button('left', true)`. The native layer receives pixel coordinates and has no knowledge of the 3D scene.
-4. The compositor thread determines which `wl_surface` contains that pixel, accounting for input regions, subsurfaces, and popups, and delivers seat events to the client. See [Compositor](compositor.md).
-5. The client redraws and commits a dmabuf. Rust imports it as a `VkImage` on LÖVR's device and wraps it as a LÖVR texture. See [Rendering](rendering.md).
-6. On the next frame the texture is either sampled by Lua's shaders or copied into a backend-owned composition layer.
+2. Lua intersects the ray with geometry it drew and converts the hit to pixel coordinates.
+3. Lua calls `sink:pointer(x, y)` and `sink:button('left', true)`. The native layer receives pixels and has no knowledge of the scene.
+4. The compositor thread finds the `wl_surface` under that pixel, accounting for input regions, subsurfaces, and popups, and delivers seat events. See [Compositor](compositor.md).
+5. The client commits a dmabuf. Rust imports it as a `VkImage` on LÖVR's device and wraps it as a LÖVR texture. See [Rendering](rendering.md).
+6. On the next frame, Lua samples the texture in the scene or the host copies it into a composition layer.
 
 ## The documents
 
-1. [Architecture](architecture.md) — processes, threads, ownership, and the snapshot model.
-2. [LÖVR integration](lovr-integration.md) — the fork, the patch set, linking, boot, and restart semantics.
-3. [Rendering](rendering.md) — texture import, composition layers, the layer pool, frame pacing, and damage.
-4. [Compositor](compositor.md) — the Wayland server: outputs, scale, decorations, XWayland, and process management.
-5. [Host desktop](host-desktop.md) — monitor capture, input injection, and clipboard bridging.
-6. [Input](input.md) — sinks, seats, keyboards, XR input, and input blocking.
-7. [The Lua API](lua-api.md) — namespaces, handles, events, reload, error handling, and `lunctl`.
-8. [Standard library](stdlib.md) — the scope of `mullion`, in tiers, with a minimum viable version of each.
-9. [Audio](audio.md) — per-application spatialisation, deferred but specified.
-10. [Build and development](build-and-development.md) — repository layout, build system, Nix, development loop, and testing.
-11. [Roadmap](roadmap.md) — milestones in order, and the purpose of each.
-12. [Credits](../../CREDITS.md) — whose work lunette is built on, under what licence, and how each project is used. Each document records the decisions and the gaps of its own subject.
+- [Architecture](architecture.md): threads, ownership, the snapshot model, and the plugin runtime.
+- [LÖVR integration](lovr-integration.md): the fork, the patch set, linking, boot, and restart.
+- [Rendering](rendering.md): texture import, composition layers, the layer pool, frame pacing, and rounded geometry.
+- [Compositor](compositor.md): the Wayland server, outputs, scale, decorations, XWayland, and processes.
+- [Host desktop](host-desktop.md): monitor capture, input injection, and the clipboard bridge.
+- [Input](input.md): sinks, seats, keyboards, keyboard routing, pointer input, and XR input.
+- [The Lua API](lua-api.md): the native API, plugin authoring, the contracts, reload, errors, and `lunctl`.
+- [Standard library](stdlib.md): the module roots, the built-in plugins, and the shipped desktop.
+- [Audio](audio.md): per-application spatial audio, specified and deferred.
+- [Build and development](build-and-development.md): layout, build, Nix, the development loop, and testing.
+- [Roadmap](roadmap.md): milestones and the human acceptance gates.
+- [Credits](../../CREDITS.md): the projects lunette builds on and their licences.

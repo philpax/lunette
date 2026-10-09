@@ -1,3 +1,7 @@
+# OpenVR backend implementation plan
+
+This is the historical implementation plan for the OpenVR work merged from `main`. Its baseline findings and branch restrictions describe that work before the merge into `plugin-system`. Current behavior and remaining validation gates are specified in [LÖVR integration](../lovr-integration.md), [Rendering](../rendering.md), [Input](../input.md), and [Build and development](../build-and-development.md).
+
 ## Goal
 
 Implement a complete Linux SteamVR OpenVR overlay backend inside the current LÖVR fork, integrate it into lunette, and make coherent local commits along the way in the affected repositories. Preserve the LÖVR-facing rendering/input contract and useful standalone fallback; do not merge the plugin-system branch.

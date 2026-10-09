@@ -1,8 +1,4 @@
-//! The Luau type checker, built from the Luau that the LÖVR fork vendors.
-//!
-//! `lunette check` and the standing check both run through this module, so
-//! the command and the CI check are one code path. The C surface this module
-//! wraps is `analyze.cpp`.
+//! Luau type checker built from the interpreter vendored by the LÖVR fork.
 
 use std::{
     ffi::{CStr, CString, NulError, c_char},
@@ -11,44 +7,31 @@ use std::{
     ptr, slice,
 };
 
-/// The parameters of one check.
 #[derive(Clone, Debug)]
 pub struct Request {
-    /// The check loads the definitions into the global scope at the start.
+    /// Definitions loaded into the global scope before checking roots.
     pub definitions: Option<PathBuf>,
-    /// The files to check. Each is its own module name.
+    /// Root files checked as separate modules.
     pub roots: Vec<PathBuf>,
-    pub strict: bool,
-    /// The old type solver, which is not upstream's default.
-    pub old_solver: bool,
 }
 
 impl Request {
-    /// A strict check of `roots` against `definitions`, on the new solver.
+    /// Creates a request, which the checker runs in strict mode with the current type solver.
     #[must_use]
     pub fn new(definitions: Option<PathBuf>, roots: Vec<PathBuf>) -> Self {
-        Self {
-            definitions,
-            roots,
-            strict: true,
-            old_solver: false,
-        }
+        Self { definitions, roots }
     }
 }
 
-/// The results of one check.
 #[derive(Clone, Debug, Default)]
 pub struct Report {
     pub diagnostics: Vec<Diagnostic>,
-    /// The roots the check reads. A root absent from this list is skipped; no
-    /// count of diagnostics reveals the skip.
+    /// Roots the checker read. Missing roots are reported separately from diagnostics.
     pub checked: Vec<PathBuf>,
 }
 
 impl Report {
-    /// Whether the report contains a diagnostic other than a lint warning.
-    ///
-    /// Lint warnings do not fail a build; every other kind does.
+    /// Whether the report contains a diagnostic other than a lint warning, which does not fail a build.
     #[must_use]
     pub fn is_clean(&self) -> bool {
         !self
@@ -118,11 +101,11 @@ impl fmt::Display for Kind {
 
 /// Checks `request`.
 ///
+/// Checks may run on several threads at once. The checker sets Luau's process-global language flags once, on the first check.
+///
 /// # Errors
 ///
-/// If a path holds an interior NUL, or the checker cannot run: the
-/// definitions file is unreadable, or it does not load. When a definitions
-/// file does not load, the error contains the diagnostics from the load.
+/// If a path holds an interior NUL, or the definitions file is unreadable or does not load. A load failure carries its diagnostics.
 pub fn check(request: &Request) -> Result<Report, Error> {
     let definitions = request
         .definitions
@@ -144,8 +127,6 @@ pub fn check(request: &Request) -> Result<Report, Error> {
             .map_or(ptr::null(), |path| path.as_ptr()),
         roots: root_pointers.as_ptr(),
         root_count: root_pointers.len(),
-        strict: request.strict,
-        old_solver: request.old_solver,
     };
 
     // SAFETY: every pointer in `raw` is valid for the call, and the callee
@@ -201,9 +182,7 @@ unsafe fn collect(report: *mut ffi::lunette_luau_report) -> Result<Report, Error
     let checked = if report.checked.is_null() {
         Vec::new()
     } else {
-        // SAFETY: the pointer is non-null, and the count belongs to the
-        // callee's report. Each string is NUL-terminated and remains valid
-        // until the report is freed.
+        // SAFETY: the pointer is non-null, the count belongs to the callee's report, and each string is NUL-terminated until the report is freed.
         unsafe { slice::from_raw_parts(report.checked, report.checked_count) }
             .iter()
             // SAFETY: the pointer for the string is valid for the
@@ -234,8 +213,7 @@ unsafe fn diagnostic(raw: &ffi::lunette_luau_diagnostic) -> Diagnostic {
         ffi::LUNETTE_LUAU_LINT_WARNING => Kind::LintWarning,
         _ => Kind::TypeError,
     };
-    // SAFETY: the caller guarantees the strings. Each string is
-    // NUL-terminated and remains valid until the report is freed.
+    // SAFETY: the caller guarantees the strings.
     let module = unsafe { CStr::from_ptr(raw.module) }
         .to_string_lossy()
         .into_owned();
@@ -261,9 +239,7 @@ unsafe fn diagnostic(raw: &ffi::lunette_luau_diagnostic) -> Diagnostic {
 pub enum Error {
     /// A path holds an interior NUL.
     Path(NulError),
-    /// The checker rejects the request. `diagnostics` holds the diagnostics
-    /// the checker produces alongside the rejection. When a definitions file
-    /// fails to load, those diagnostics state why.
+    /// The checker rejects the request. `diagnostics` holds what it produced alongside the rejection, including why a definitions file fails to load.
     Failed {
         reason: String,
         diagnostics: Vec<Diagnostic>,
@@ -301,8 +277,6 @@ mod ffi {
         pub definitions: *const c_char,
         pub roots: *const *const c_char,
         pub root_count: usize,
-        pub strict: bool,
-        pub old_solver: bool,
     }
 
     #[repr(C)]
@@ -385,9 +359,7 @@ mod tests {
         assert_eq!(diagnostic.line, 1, "the line");
     }
 
-    /// A root that cannot be read produces no diagnostics. Without the
-    /// skipped-roots report, an unresolved require would silently skip a
-    /// whole file.
+    /// A root that cannot be read produces no diagnostics, so without the skipped-roots report an unresolved require would skip a whole file silently.
     #[test]
     fn an_unreadable_root_is_reported_as_skipped() {
         let directory = tempfile::TempDir::new().expect("a temporary directory");

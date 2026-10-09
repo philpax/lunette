@@ -1,507 +1,399 @@
 # The Lua API
 
-## Two roots
+`require '@lunette'` is native mechanism: windows, monitors, sinks, seats, outputs, processes, layer claims, clipboard bridging, capture, events, and the plugin runtime. `require '@lunette-plugin'` is the plugin facade, written in Lua. Policy lives in the Lua roots `@lunette-plugin`, `@lunette-contracts`, `@lunette-plugins`, and `@lunette-desktop`, which use only public APIs, and `lunette` remains usable without them. [Module roots](build-and-development.md#module-roots) lists the aliases.
 
-```lua
-local lunette = require '@lunette'  -- native mechanism.
-local mullion = require '@mullion'  -- the Lua standard library, optional.
-```
+The generated `lua/lunette/init.luau` is the source of truth for the native API's members, fields, and argument shapes, and its comments describe each one. Each module under `lua/lunette-contracts/` is the source of truth for its contract's types, methods, and version, and each provider's `config.luau` or descriptor for its options and defaults. This document states the guarantees those files do not make plain. [The native API](../guide/native-api.md) and [Writing plugins](../guide/writing-plugins.md) are the user guides.
 
-The two names carry different contracts. `lunette` covers surfaces, textures, sinks, seats, outputs, processes, layers, clipboard, and capture. It is implemented in Rust and represents the full capability of the system. `mullion` covers panels, layouts, rules, signals, keybindings, and chrome. It is implemented in Lua, installed as readable files, and can be replaced.
+## Plugin authoring
 
-awesome makes the same split by name, distinguishing `awesome`, `client`, and `screen` from `awful`. This is why writing a replacement for `awful` is a recognised option in that project. Nesting the standard library under `lunette.*` would present a single API in which part happens to be implemented in Lua, obscuring the distinction.
+[Architecture](architecture.md#plugin-runtime) specifies the plugin runtime: contract matching, publication, reservations, retry, quarantine, and epochs. This section specifies the facade over it.
 
-The two roots are usable independently. `mullion` is written against the same public `lunette` API available to any other caller. If `mullion` ever requires something private, this indicates a defect in the `lunette` API.
+`plugin.capability<<Service>> { name, version }` declares a contract and binds its native token in one step; the capability displays as `name@version`. A Lua state cannot declare the same name and version twice in one epoch. The facade does not export the native `contract` function. `lunette check` reports a capability whose service type is `unknown`, which is what omitting `<<Service>>` produces.
 
-## The config
+`plugin.provider` and `plugin.consumer` are the definition constructors. A definition's `requires` lists the capabilities it uses, and the facade keys each one by its contract for the native graph, so a duplicate or a value that is not a capability raises. `Publisher:provide` is valid only while the initializer runs; it stages a provision that the runtime publishes with the rest of the instance's provisions when the initializer returns. The runtime does not check service shapes or configuration values against Luau types. Plugin callbacks are synchronous. The facade rejects an unknown field or a wrongly typed value in a definition or capability spec.
 
-`~/.config/lunette/main.lua` is a LÖVR project. It defines `lovr.draw`, `lovr.update`, and the other LÖVR callbacks, and it `require`s lunette's libraries like any other module. Nothing is hidden, and no loop runs on the user's behalf without being defined in this file.
+The native plugin handles (token, definition, runtime, instance, context, and effect) are nominal types, so a table does not satisfy a parameter that takes one. A contract token belongs to its epoch, and source reload retires the epoch.
 
-If this file does not exist, `$SYSCONFDIR/xdg/lunette/main.lua` is used directly. This matches awesome's approach, and avoids stale copies of a configuration the user never edited. `lunette --dump-config` produces a copy for the user to start editing.
+### Services
 
-A config that never mentions `mullion` is a supported configuration.
+A consumer receives each provision through a frozen view shared by every consumer of that provider generation. Once the provider has begun unloading, reading, iterating, or calling through the view raises an error naming the contract, including through a reference kept past the consumer's own activation. Assigning a field always raises. A method receives the view as `self`, so a provider keeps mutable state in its own locals. The view checks a method when it is read, so a function read while the provider was live stays callable, and objects a method returned carry their own `dead` state. `pairs` and `#` see an empty table.
 
-## Events
+### Confinement
 
-The native layer pushes events through LÖVR's own event queue, so lunette events interleave with `lovr.keypressed` and other LÖVR callbacks in a defined order. A listener subscribes through the module and is answered with the function that cancels it:
+A plugin changes state outside itself only through its context. Every resource, subscription, and child an initializer creates goes through `Context:effect`, `Context:on`, `Context:child`, or an owner-scoped provider method, so unloading the instance reverts it. `Context:child(definition, config?)` takes an optional configuration and returns nothing. A direct `lunette.on*` call is untracked: it survives instance reload and the next activation duplicates it.
 
-```lua
-local cancel = lunette.onWindowOpened(function(event)
-  print(event.window.title)
-end)
-```
+Effects are flat. An effect created during another effect's acquisition registers first, as a sibling, and inverses run in reverse registration order, so the outer inverse runs before the inner one. An outer inverse that must release the inner resource first disposes it itself. If the activation is cancelled during an acquisition, the inverse runs at once and the call raises. Disposing an effect whose activation has ended does nothing. A handler registered through `Context:on` is not called after the activation ends.
 
-Several listeners may wait on one event. They are called in the order they subscribed, each under a protected call, and a listener that raises does not stop the ones after it — a library and a configuration listening for the same event are peers, neither displacing the other.
+An owner-scoped provider method registers its resource on the caller's owner through one of three context methods. `Context:acquire(owner, acquire)` is the usual form. `Context:resource(owner, acquire)` is the same for an `acquire` that returns a value with its inverse, and returns the value with the effect. `Context:acquireDeferred(owner, acquire)` registers without draining queued lifecycle work before it returns, so that work waits for the next drain boundary; the theme provider's `select` uses it so that no queued activation runs between registering a selection and publishing it. Each accepts the provider's own context or a live dependent bound to the provider's current generation, and raises for any other owner before acquiring. `Context:checkOwner(owner)` raises for an owner that is not a live dependent, and `Context:owns(owner)` answers the same test as a boolean; a provider calls one of them before validating a call whose resource it registers later. An `Owner` exposes nothing callable, so a provider cannot register on an owner except through these methods. An inverse that raises during the owner's unload quarantines the owner, and the provider keeps serving others. A provider that needs one of its own dependencies for that work calls it with its own context as owner, inside the effect it registers for the caller, so the caller need not depend on the provider's dependencies. Only contexts the facade created are accepted as owners.
 
-`crates/lunette/src/events/mod.rs` declares each event once — its name, the fields its payload carries, and the expression that fills each one — and both the subscription and its payload type are generated from that declaration. The handler's parameter is typed without an annotation: `event` above is a `WindowOpenedEvent`, and `lunprocessexited` hands over a `ProcessExitedEvent` whose `outcome` is the union of the three names it can hold.
+A change an owner makes to shared state, such as a panel's visibility or a tag's selection, is an override held by that owner, and the most recent live override decides. A name registered with a broker, a key chord, a rules source name, and a laser hand each have one holder, and registering a taken one raises.
 
-A soft reload forgets every subscription before it re-runs the configuration, so a listener registered by the configuration that has gone is not called again. A module that subscribes cancels in its teardown hook, which is what `mullion.error` does.
+An instance reserves the contracts it provides, so several implementations of one contract compose through a broker, as section 6.2 of the Cordis paper describes: one plugin provides the contract, and implementations register with it through an owner-scoped method. Layouts, themes, menu actions, bindings, rule sources, and surface offers are brokers.
 
-`boot.lua`'s poll loop unpacks four arguments, so a payload of more than four values would not arrive. Every event carries a table instead, including the events with one field, so the shape does not differ between callbacks and a field added later is not a change to a signature.
+### Instances
 
-`event.outcome` on `lunprocessexited` says which of `event.code`, `event.signal`, and `event.message` is present, and `ProcessExitedEvent` carries the three names it can take. A program that never started is reported this way and no other, so a mistyped `argv` reaches the configuration here.
+A request on an instance (`enable`, `disable`, `dispose`) takes effect immediately and raises at the call when the graph rejects it. `requestReload` accepts a replacement configuration without draining, and `Runtime:drain()` applies it. An instance's diagnostic is read from `Runtime:snapshot()`. Instance and owner identities are exact decimal strings.
 
-An event is delivered against the snapshot of the frame it was drained in. `onWindowClosed` therefore hands over a handle that is already dead; it still reports the title, size, and identifier the window had.
+### Provider modules
 
-An error raised by one of these handlers is reported and does not stop the frame's remaining events from being delivered.
+A module made by `plugin.provider` or `plugin.consumer` exposes `definition`, built from the defaults, and `define`, which binds other defaults and an optional `name`. A module's descriptor validates defaults at construction, bound settings at `define`, and configuration at activation, and each activation resolves its configuration afresh. Declared objects merge recursively; arrays, maps, unions, and atomic values replace. [Configuration schemas](../guide/configuration-schema.md) specifies descriptors.
 
-A pointer picks from surfaces rather than from panels alone. A surface answers where a ray meets it and how far away that is; a panel is one, backed by a window or a monitor, and a virtual keyboard is another, drawing itself. `mullion.stdlib` states the contract. Nothing in `lunette` knows about it: picking, hovering, and grabbing are policy, and the native layer supplies only the sink a panel routes to.
+Variation inside a provider is a hook: an option whose value is a function that receives its arguments followed by the default implementation, `hook(args..., base)`. A hook runs on the stack of whatever reached the provider, so its errors are reported there.
 
-Signals are implemented in Lua. The native layer pushes flat events; `mullion` builds `connect_signal`, `emit_signal`, property-change signals, and per-window signal tables on top of them. awesome's signal system is approximately 100 lines of Lua, an amount of machinery small enough to leave replaceable.
+### Composition
 
-## Handles
+A composition is a list of entries, `{ id, definition, config }`, where `definition` is a plugin definition or a factory of one. `plugin.compose(entries, patches)` returns the entries with the patches applied, validated, and frozen, and defines and enables nothing. `lua/lunette-plugin/compose.luau` is the source of truth for the patch rules. A patch that names an unknown or duplicate id, changes nothing, or both disables and changes an entry raises, because a patch that matches nothing does not do what it says.
 
-Window, monitor, process, seat, output, and claim handles are persistent objects with stable identity, refreshed at frame start. See [Architecture](architecture.md#handles) for the model and for why dead handles go inert rather than raising.
+`@lunette-plugin/management.start` is the one start path. It preflights every configuration through its definition's `resolve` before creating the runtime, so a configuration error aborts startup before any entry activates, while initializer failures stay local to their instances. The entry id `composition` is reserved. [Session composition and inspection](stdlib.md#session-composition-and-inspection) states entry management and recovery.
 
-Reads are snapshot fields. Mutations are requests:
+## Contracts
 
-```lua
-print(win.title)             -- last frame's value.
-print(win.appId)             -- the client's application identifier.
-print(win.width, win.height) -- the surface's size in pixels.
-print(win.opaque)            -- true when the buffer's fourth component is padding, not alpha.
-print(win.contentType)       -- 'none', 'photo', 'video', or 'game': what the client says it draws.
-win:resize(1920, 1080)       -- a configure request; the client may ignore it.
-win:setFrameRate(10)         -- how often this client is let draw; nil for unthrottled.
-win:close()                  -- a close request, not a kill; watch for lunette.onWindowClosed.
-win:getTexture()             -- this frame's pixels; never cache it.
-win:stabilize()              -- a persistent texture, at a copy per damaged frame.
-win:setProperty('pose', p)   -- keeps a value for this window across a reload.
-win:getProperty('pose')      -- what was kept, or nil.
-win:properties()             -- every key this window is carrying, as a table.
-```
+Every registration that takes an owner returns an effect and ends when the effect is disposed or the owner unloads. An owner-scoped override, such as a hidden panel or a selected tag, returns an effect the same way. A change notification is `on<Event>(owner, { run })`, where `run` receives the change's payload, and returns an effect. A listener or callback a provider invokes for another plugin runs under its own protected call and is reported through `lunette.reportError` without stopping the others. A call with a field the contract does not name raises at the call. Every broker that holds owner-scoped registrations implements `inspect()`, which returns registration metadata as data and invokes no plugin callback, and the plugin manager reads each one.
 
-`win:close()` sends the xdg-toplevel close request. The client decides what to do with it: an editor with unsaved work puts up a prompt, and a client is free to ignore it entirely. The window goes when the client unmaps it, which arrives as `lunette.onWindowClosed`.
+### Frame dispatch
 
-`win:resize(width, height)` configures the toplevel. The client resizes at its own pace, and `win.width` and `win.height` change when it commits a buffer — which may be at a different size, because a client is free to honour its own minimum or to round to a character cell. Nothing waits for that. The dimensions are whole pixel counts of at least one, and a value that is not raises.
+`lunette/frame` delivers LÖVR's callbacks to plugins, and `lunette/surfaces` lists the surfaces a pointer can pick. Update handlers run in the phases `input`, `scene`, `pointing`, and `overlay`, and draw handlers in those and then `feedback`. `input` reads devices before the scene moves, `scene` updates and draws panels, `pointing` picks against this frame's surface poses, `overlay` draws UI over the scene, and `feedback` draws pointer beams after everything else. Within a phase, handlers run by ascending `order`, then in registration order. Key and text handlers run `binding` before `delivery`, and a handler that returns `true` consumes the event. Quit handlers cannot veto the quit.
 
-Both return `false` on a dead handle, without raising. Both are requests, so neither reports what the client did; that arrives as an event or as a changed snapshot field.
+Every handler and every surface offer's `list` runs under its own protected call. A raising key or text handler consumes nothing, and an offer that raises or returns something other than a table contributes no surfaces. [Input](input.md#physical-input-batches) specifies input batches and text blocking.
 
-`win:setFrameRate(hz)` sets how often the compositor answers this window's frame callbacks, which is how often its client draws. `nil` returns it to unthrottled, which is where every window starts; throttling is asked for rather than imposed. The rate is a finite number of hertz above zero, and a value that is not raises.
+`frame.install { start, stop }` assigns the LÖVR callbacks once. `lovr.load` calls `start`; the other callbacks reach whichever frame activation is loaded and do nothing while none is. `lovr.quit` runs the quit handlers, then `stop` under a protected call, and returns `false`.
 
-The rate is a ceiling with a floor under it. A rate below approximately 1 Hz is paced at 1 Hz rather than honoured, because a client answered no frame callbacks stops pumping its event loop and stops answering input with it — the difference between a panel that is cheap and one that appears hung. [Rendering](rendering.md#frame-pacing) states the rest. Which window deserves which rate is policy and belongs in `mullion`; this is the mechanism it is built on.
+### Joined frame attachments
 
-`win:stabilize()` is described in [Rendering](rendering.md#windowstabilize).
+A surface may implement the optional `attachFrame(owner, style)` from `@lunette-contracts/vocabulary`, which passes resolved header style to the target. It is not a general transform or layout relationship. Attach and update validate and freeze the whole style before changing anything. A target permits one live attachment, and a second raises. Disposal is idempotent, and updating a disposed attachment or one whose target is dead raises.
 
-`win.opaque` reports that the window's current buffer has no alpha channel, so its fourth component is padding a caller forces to one rather than sampling. It is a property of the buffer and changes when the client renegotiates its format, so it is read each frame alongside the texture. [Rendering](rendering.md#alpha) states what a consumer does with it, and why premultiplied blending is the other half of the same subject.
+The target computes `isJoined()` on each call: a panel joins while it is live, visible, flat, and drawn in the scene rather than on a granted layer, and a UI panel while it is live and visible. An ineligible attachment stays dormant and can join again. A joined target draws one outline in the header's border style around body and header, even when panel `chrome` is false; the titlebar draws its own face, text, and actions. [Joined flat frames](rendering.md#joined-flat-frames) defines the geometry. The shared titlebar holds one attachment per supporting target and disposes it when the heading hides, the titlebar is destroyed, or the owner unloads. The UI provider synchronizes retained titlebars in the `scene` phase at order 1000, after source and decoration updates and before picking.
 
-`win.contentType` is `wp_content_type_v1`, and is a hint rather than a fact. The protocol has no events and no way to ask, and adoption is thin and uneven: a client playing video commonly reports `'none'`, and one reporting `'video'` may be paused on a still frame. It is reported rather than acted on, and `mullion.pacing` combines it with an observed commit rate to decide what is exempt from throttling. A configuration that wants a different rule has both halves.
+### Keyboard
 
-`win.width` and `win.height` are pixels, and report the size the client last committed rather than the size last requested of it. They are part of the native surface rather than something the standard library derives, because converting a ray hit on a panel into a pixel coordinate for `sink:pointer` needs them, and `mullion` reaches for nothing the public API does not expose.
+A keyboard is owned, placed, offered, and drawn by its owner, because a service-wide draw would show keyboards the drawing owner does not offer. A keyboard is pressed through its surface, and each keyboard delivers through a virtual `lunette/focus` source ([Input](input.md#virtual-activations-and-committed-text)). Rows, layers, and style are the provider's configuration. Visibility changes reach `onVisibilityChanged` after the state changes, and an unchanged visibility reports nothing.
 
-## Per-window properties
+A theme change refreshes each keyboard before its next input or draw. Key legends do not write depth. Each key hook and the whole draw restore pass state and transforms, including on error. The built-in provider validates rows by option path.
 
-A soft reload discards the Lua state, so anything a configuration must remember across one cannot be kept in Lua. `win.userdata` holds a Lua value and goes with the state; the property store is native and does not:
+The keyboard display (`lunette/keyboard-display`, provided by the `desktop/keyboard` entry from `@lunette-plugins/keyboard-display`) owns the visibility of the one session keyboard. A focused local target that wants a keyboard shows it, and ending that editing hides it; a manual show survives the end of editing. An explicit hide, the titlebar close, or the board's hide action blurs only the matching local target. [Input](input.md#keyboard-routing) states the routing these rules follow.
 
-```lua
-win:setProperty('pose', '0 1.6 -1.5')  -- a number, a string, a boolean, or nil to remove.
-win:getProperty('pose')                -- what was kept, or nil.
-win:properties()                       -- { pose = '0 1.6 -1.5' }, a fresh table each call.
-```
+### Pointers and drops
 
-The two are for different lifetimes and both are wanted. State a rule can derive comes back when the rules re-run, and `userdata` is the right place for it. A pose the user placed by hand, a size they dragged, or a tag they assigned by hand is derivable from nothing, and a reload that lost it would scramble a hand-arranged workspace.
+[Input](input.md#surface-pointer-input) specifies pointer capture, cancellation, and the event kinds. A pointer pulses its device through the `vibrate` function its creator supplied, and returns false when there is none.
 
-A property is a number, a string, or a boolean. A table raises, with the key named: a table holds Lua values, which is the same problem one level down. A caller wanting structure encodes it into a string and knows that it did. A number that is not finite raises for the reason a layer priority that is not does — it is a defect in the caller's maths, and one that came back after a reload would be much harder to trace. `nil` removes the key.
+`lunette/drops` is a broker for the end of a grab. The interaction provider emits a drop whenever a grab ends. A surface that moves a panel on its behalf, such as a titlebar, carries the panel's `kind` and `source`, so a listener finds the panel with `panels:forSource`. The desktop's pose memory, arrangement save, and arrangement exemption hear drops only here, so a replacement that carries surfaces must emit a drop when a grab ends.
 
-`win:setProperty` returns `false` on a dead handle, like every other mutation; the entries of a window that has gone are dropped, so there would be nothing to store into. `win:getProperty` still answers on one, for the reason a dead handle still reports its title: `lunette.onWindowClosed` is dispatched against the frame the window has already left, and a handler tidying up after a panel is exactly who wants to read what that panel stored.
+### Lasers
 
-`win:properties()` exists so that what survived a reload can be discovered rather than guessed at. A configuration that stores under a key it computed — a tag name, a monitor identity — cannot enumerate its own keys once the state holding them has gone.
+A hand has one laser owner at a time. `attach` answers a laser for each hand, and a laser handle names its hand and pointer; the provider keeps the rest. The provider smooths each laser's ray with an adaptive low-pass filter before the pointer sees it; picking, delivered coordinates, and drawing use the same filtered ray, and the grab pose, buttons, and scroll are unfiltered. History resets on tracking loss, a zero ray, or a gap longer than `aim.resetAfter`.
 
-Entries live as long as the window and not as long as the Lua state. A reload leaves them untouched; a window closing drops them.
+While analog trigger pressure exceeds the lock threshold over a live offered surface, the laser holds the previous ray, so pulling the trigger does not move the hit. Rotation or movement past the unlock bounds releases the hold for the rest of the pull; grip, a grab, tracking loss, a large frame gap, or the surface going away cancels it. A reader without analog pressure never locks. `lua/lunette-plugins/laser/aim.luau` and `trigger-lock.luau` define the fields, and [Pointer aim](../guide/desktop-configuration.md#pointer-aim) describes tuning.
 
-`win.id` is stable for the window's whole life, and a soft reload does not change it. The compositor thread is not restarted by one — that is what a soft reload is — so the identifiers it minted are the identifiers it keeps, and re-associating with a window after a reload is a matter of reading `win.id` again. A hard restart does not change this either. It destroys the graphics device and the XR session, but the compositor thread survives both, so the identifiers stay valid across it — see [LÖVR integration](lovr-integration.md#restart-semantics). What does not survive a restart is the Lua state, so anything the configuration wants to carry across is written to the property store or keyed on something durable such as `win.appId` or a monitor's identity.
+### Panels
 
-Writing any of this to disk is the standard library's own business. The store is live state; what of it is worth keeping across a restart is a decision `mullion` makes.
+Giving a panel only `width` or only `height` derives the other from the source's aspect ratio and recomputes it when the source's size changes; giving both keeps the rectangle. A monitor's aspect ratio comes from its oriented logical size. A hidden panel is not drawn or picked and gives up its layer at once, but stays in `all` and `forSource`. `panel:close(owner)` asks a window's client to close without removing the panel, or dismisses a monitor's capture and removes its panel.
 
-## Outputs
+Scene content is clipped to the rounded corners for drawing and hits, while a granted layer stays rectangular ([Rounded scene geometry](rendering.md#rounded-scene-geometry)). A positive `curve` makes the panel part of a vertical cylinder of radius `1 / curve`, the value `Layer:setCurve` takes, with its width measured along the arc; picking, scene drawing, and a granted layer follow the same arc. Panels draw no chrome by default.
 
-An output is a virtual monitor lunette shows to the clients assigned to it. It is not one of the user's own screens — those are monitors, below — and it is not a panel; it is what a client sees when it asks what display it is on.
+### Runtime themes
 
-```lua
-local out = lunette.newOutput{ width = 1920, height = 1080, scale = 1.5, refresh = 90 }
-local steps = lunette.scaleSteps()   -- the scale ladder, ascending.
+`theme:current()` returns an immutable snapshot whose revision increases only when the effective theme changes. The last live selection decides the whole effective theme; updating a selection keeps its rank and replaces its layer, and disposing it reveals the previous live selection or the base. Invalid overrides, including a font file that fails to load, raise and change nothing. `onChanged` runs after each change, not on subscription. State commits before delivery, and a change made during delivery schedules another round instead of recursing, so intermediate revisions can coalesce and a consumer refreshes from `current()`.
 
-for _, output in ipairs(lunette.outputs()) do
-    print(output.id)                     -- the compositor's identifier.
-    print(output.dead)                   -- whether the compositor has this output right now.
-    print(output.width, output.height)   -- the mode, in pixels.
-    print(output.scale)                  -- the scale factor, fractional.
-    print(output.refresh)                -- hertz, not the millihertz the protocol carries.
-    output:setMode{ scale = 2 }          -- change the mode; unnamed fields are kept.
-    output:destroy()                     -- withdraw the output.
-end
-```
+Consumers resolve appearance in the order base theme, global theme, provider configuration, and object options. Omitted fields inherit and explicit zeros remain. A consumer prepares new measurements before it publishes a new appearance and keeps the old appearance if preparation fails. A palette-only change keeps pointer captures; a font or geometry change cancels the captures it affects after the new appearance is in place. The provider caches one face per font specification and leaves release to garbage collection.
 
-`lunette.newOutput` returns a handle before the compositor has made the output, so `output.dead` is true in the frame that created it — the same rule `lunette.newSeat` and `lunette.spawn` follow. Until then the handle reports the mode it was asked for.
+`lunette/themes` is a catalog broker of named complete themes and selects nothing. `register` validates and detaches the theme.
 
-`width` and `height` are required and are whole pixel counts; a monitor with no size is not one a client can lay out against. `scale` defaults to 1 and `refresh` defaults to 60. A scale or a refresh rate that is not finite and positive raises, because a client told its monitor has a scale of zero divides by it.
+### UI panels
 
-`refresh` is in hertz here and in millihertz on the wire. Nothing above the native boundary deals in millihertz.
+`lunette/ui` panels share one declared geometry for input, drawing, descriptions, and inspection: top-left, y-down logical coordinates and half-open control bounds, clipped to the panel. Higher `z` wins an overlap, then later registration. A control belongs to its panel's owner unless its options name another `owner`, and a control id is unique per creation owner across the provider's live panels. `ui:inspect()` reports each live panel with its pose and size, each control with its clipped bounds, and each list, choice, or region item. `ui:newTitlebar(owner, spec)` takes the titlebar options together with `name`, `target`, and an optional `visible` predicate.
 
-Refresh is advertisement, not pacing. It is what a client reads off `wl_output.mode` and reasons about; how often the compositor actually answers a surface's frame callbacks is `window:setFrameRate`, which is separate.
+A pointer button captures the control it pressed until release or cancellation. A release activates only that control and only inside it; cancellation never activates. An exclusive control refuses a second pointer while held. Hiding, disabling, destroying, resizing, or replacing bounds or items cancels the affected captures, and `Panel:setPose` keeps them. Hover does not take keyboard focus. A text field holds valid single-line UTF-8 and edits at grapheme boundaries from `lunette.textBoundaries`. `setValue` calls no callback.
 
-`output:setMode` keeps the fields it was not given, so `setMode{ scale = 2 }` changes the scale alone. Clients reallocate their buffers and re-lay-out in response, and some — GTK in particular — do it aggressively, so a configuration that adjusts this continuously will see them struggle. `mullion` moves between discrete steps with hysteresis for that reason.
+Theme overrides resolve from the global theme to the provider, panel, and control, and draw hooks wrap in the order provider, panel, control without changing hit bounds. Each hook invocation restores pass state and transforms, including on error. Draw errors propagate to the frame boundary, and widget callback errors are reported with the control owner. `lua/lunette-plugins/ui/depth.luau` owns the depth offsets that separate backing, controls, contents, and glyphs.
 
-`lunette.scaleSteps()` answers with the scale ladder, ascending, as plain numbers. It is the same ladder a claimed layer's requested size is quantised against ([Rendering](rendering.md#the-layer-pool)), and it is one ladder rather than two so that raising a panel's scale asks the pool for a rung the free list already holds instead of forcing an allocation. Each call returns its own table, so writing into what one call handed back does not change what the next reads. `mullion.scale` moves along it with hysteresis; a configuration that wants different steps is choosing among these, not adding to them.
+Panels and controls end with their creation owners, with the provider, and at source reload. A control's focus target is registered under the UI provider and held by the control. A frozen `ui.Generation` token identifies a provider activation, and a frozen `ui.OwnerIdentity` token a creation-owner activation; the generation, owner, and id together identify a live control. Descriptions grant no authority.
 
-`lunette.spawn{ output = out }` is how a client is assigned one, and it takes an output handle rather than an identifier so that a number in range cannot be mistaken for one. The assignment is made at spawn and lasts the client's life; there is no way to move a running client to another output, because the filter is only consulted when a client reads the registry or binds, so a change would have to withdraw the global and create a new one — which the client experiences as a monitor unplugged and replugged. Changing the mode of the output a client is already on is the supported operation.
+### Bindings, menu actions, and layouts
 
-A session starts with one output, and it is what a client that was assigned none is shown. Every client adopted from outside lunette is one of those, since nothing spawned it and so nothing named an output for it, and a client with no `wl_output` at all cannot pick a scale or a refresh rate. That one refuses to be destroyed, as the seat every session starts with does: `output:destroy()` on it returns `false`. Destroying any other output moves its clients to that starting output rather than leaving them on one that no longer exists: their assignment is cleared, their windows are reconfigured against the starting output's bounds, and the starting output's global is withdrawn and advertised again so a client that has already read the registry is offered it. Those clients see one monitor unplugged and another plugged in, which is the same cost `lunette.spawn{ output = out }` records for the reassignment it does not offer. Transform and physical size are not settable: the physical size is derived from the mode so that a client's density guess agrees with the scale lunette advertises.
+The bindings provider takes presses in the `binding` phase itself, so a bound press never reaches a client. Dispatching from `desktop/input` to the broker was rejected because a bindings outage would then stop all typing. A chord matches exactly the named modifiers, in any order, so a binding for H does not fire for Control-H. A matching press runs once and is consumed; a repeat is consumed without running, and a raising `run` still consumes.
 
-## Monitors
+The menu broker holds actions and renders nothing. `register` returns a registration whose `update` changes the action's `enabled` and `selected` state and answers false once the action is gone. `onChanged` runs after an action is registered, updated, or removed, so a renderer lists actions again only then. `invoke(id, token)` with a listed row's token refuses a replacement that took the same id since the row was listed. `run` executes under the registering owner's protected context.
 
-`lunette.monitors()` returns the user's own screens, which lunette mirrors through the screencast portal rather than hosting. They are not compositor windows and they are not outputs; a window belongs to a client lunette runs, and a monitor belongs to the machine lunette runs on.
+The layouts broker calls a named layout with the live panels a caller passes and holds no panels or tags. A layout takes no options from the caller; its options are the configuration of the plugin that registers it. `continuous` marks a layout the consumer applies every frame; the broker applies nothing itself.
 
-```lua
-for _, monitor in ipairs(lunette.monitors()) do
-    print(monitor.id)              -- the saved identity, stable across a restart.
-    print(monitor.name)            -- as a user would recognise it: 'Acme X24 on DP-1'.
-    print(monitor.width, monitor.height)               -- the resolution, in pixels.
-    print(monitor.x, monitor.y)                        -- where it sits, in logical coordinates.
-    print(monitor.logicalWidth, monitor.logicalHeight) -- how large it is there.
-    print(monitor.mirrored)        -- whether a capture stream is running.
-    print(monitor.pending)         -- whether one has been asked for and not arrived.
-    monitor:getTexture()           -- this frame's pixels, or false.
-    monitor:mirror()               -- start capturing; may prompt.
-    monitor:setPaused(true)        -- stop the stream, keep the node.
-    monitor:dismiss()              -- stop capturing; no ongoing cost.
-end
-```
+### Tags
 
-The list is ordered by identity rather than by the order the host enumerated the screens, so an arrangement derived from it does not change when a cable is replugged and nothing else has.
+A tag lasts while any owner holds it, and `hold` options apply only when it creates the tag. A panel is a member while some owner holds its membership and no owner excludes it. `exclude(owner, panel)` returns an effect, so a plugin moves a window another plugin placed and the window returns when the excluding owner lets go. `remove` drops only the caller's own membership. Selection is an owner-held override: `setSelected(owner, selected)` returns the owner's one override effect, the most recent live override decides, and disposing it reveals the previous one. A panel that dies leaves its tags without a tag change, because `panels:onRemoved` announces it.
 
-`monitor.id` is the identity described in [Host desktop](host-desktop.md#identity-and-lifecycle): the make and model where the host reports one, a connector name where it does not, and the monitor's logical position where neither is available. It survives a restart and survives the monitor moving to a different port, so it is what a table of per-monitor state is keyed by.
+### Rules and placement
 
-`monitor.width` and `monitor.height` are pixels — the size a captured frame arrives at. `monitor.logicalWidth` and `monitor.logicalHeight` are the compositor's logical coordinates, which differ from pixels by the scale factor on a scaled display. Pointer positions are in the logical space; a texture is in the pixel one.
+Rule sources merge in ascending precedence, so a higher precedence wins. `vocabulary.PRECEDENCE` names the shipped precedences, so a configuration places its own source relative to them ([Placement](stdlib.md#placement)). Rule property keys the placement provider does not map pass through to the resolved properties.
 
-`monitor:mirror()` is a request. It returns immediately, and may put a portal dialog on the user's screen: nothing waits for one, because a frame cannot. `monitor.pending` is true while a request is outstanding, and `monitor.mirrored` becomes true some frames later — or never, if the user declines. A configuration that treats mirroring as synchronous draws an empty panel. It returns `false` only when the monitor is gone or the portal could not be asked at all.
+`lunette/placement` is the one component that depends on rules, panels, and tags. `place` returns the placement, its panel and resolved properties, and the effect that ends it. A placement ends when its effect is disposed, its owner unloads, or its panel is removed. `placement:onPlaced` hears every placement, whoever made it. The `panelOptions` hook is where a resolved property reaches a panel. The pose memory child of `desktop/adoption` writes a dropped window's pose to its `lunette.pose` property and registers the source that answers it.
 
-Capture starts lazily. Nothing is requested of the portal until the first `monitor:mirror()`, so a configuration that mirrors nothing never prompts.
+### Errors stream
 
-`monitor:dismiss()` stops the capture for real: the stream is torn down, so a dismissed monitor has no ongoing cost. The portal session is kept, so mirroring the monitor again does not prompt a second time. It returns `false` when nothing was running, which is not an error — dismissing twice is how a configuration says "make sure this is off".
+`lunette/errors` subscribes to `lunette.onError` for its activation, withholds identical reports for a window, and keeps a bounded history. `onReport` listeners receive each delivered report. A report raised while listeners run, such as a listener's own error, enters the history without being delivered, so a raising presenter cannot feed itself.
 
-`monitor:getTexture()` returns the texture holding the monitor's latest captured frame, and is valid for that frame only — PipeWire cycles a small pool of buffers and the texture rotates with them. Call it again each frame rather than caching it. It returns `false` in three ordinary cases: the monitor is gone, it is not mirrored, and it is mirrored but has produced no frame yet, which is what a still desktop looks like since an unchanging monitor sends nothing at all.
+### Frame pacing and output scale
 
-The texture matches the captured output's resolution, which is `monitor.width` by `monitor.height`.
+How often each window's client draws and which scale each output's clients render at are policy over `window:setFrameRate` and `output:setMode`. Each contract hands out a pure, resource-free chooser, a pacer per window or a chooser per output, and `desktop/pacing` and `desktop/scale` read the scene and apply the answers ([Pacing and scale](stdlib.md#pacing-and-scale)).
 
-`monitor:setPaused(paused)` is the middle case, for a panel that has left the user's view. The stream stops producing but is not given up, so resuming costs nothing. Reach for `dismiss` when the user closed the panel, and for `setPaused` when they merely turned away.
+A pacer leaves a visible window unthrottled. It runs a hidden window at the `exempt` rate when the window's content type is exempt or at least the `busy` fraction of recent samples drew, and at the `background` rate otherwise. A chooser returns a rung of `lunette.scaleSteps()` from the distance to the nearest panel showing the output's clients, and moves between rungs with hysteresis, because some toolkits re-lay out expensively on each scale change. The ladder is the one the layer pool quantises to ([Rendering](rendering.md#the-layer-pool)). `@lunette-plugins/pacing/pacer` and `@lunette-plugins/scale/chooser` are the rules.
 
-`lunette.onMonitorAdded` fires for each monitor at startup and for each one attached afterwards. It carries `event.id`, and `event.monitor` when the screen is still attached by the time the handler runs.
+## Native API
 
-## Sinks and input domains
+### Events
 
-A sink is somewhere pixel-space input can be delivered. `window.sink` names one for a window lunette hosts, and `monitor.sink` names one for a mirrored screen, and the two behave differently in a way that is exposed rather than hidden:
+Native events travel LÖVR's event queue, so they interleave with `lovr.keypressed` and the other LÖVR callbacks in a defined order. A module function subscribes a listener and returns the function that cancels it. Listeners run in subscription order, each under a protected call. `crates/lunette/src/events/mod.rs` declares each event once, and the subscription function and typed payload are generated from it.
 
-```lua
-print(sink.domain)             -- 'window' or 'host'.
-print(sink.window)             -- the window a window sink reaches, or nil.
-print(sink.monitor)            -- the monitor a host sink reaches, or nil.
-print(sink.id)                 -- the compositor's identifier, or nil for a host sink.
-sink:pointer(x, y)             -- pixel coordinates on the target.
-sink:button('left', true)      -- press; false releases.
-sink:leave()                   -- the pointer stops hovering; focus is untouched.
-sink:scroll(dx, dy)            -- a continuous distance, in surface-local pixels.
-sink:scrollDiscrete(dx, dy)    -- whole wheel notches.
-sink:key(keycode, true)        -- an evdev keycode; false releases.
-sink:modifiers{ 'shift' }      -- the modifiers held from now on.
-sink:typeText('café')          -- text, whether or not the layout can express it.
-```
+An event is delivered against the snapshot of the frame it was drained in, so `onWindowClosed` hands over a dead handle that still reports the window's last values. A process that never started is reported only through `onProcessExited`. Source reload clears every native subscription.
 
-A window sink's events go to that client through its seat, so each window has independent focus and its own cursor. A host sink's go to the user's desktop through lunette's input provider, and every host sink shares one cursor and one keyboard focus, because the host has one of each. Two hands pointing at two mirrored monitors cannot produce two cursors. [Host desktop](host-desktop.md#the-input-domain-leak) states why that is surfaced rather than papered over.
+### Handles
 
-`sink:pointer` and `sink:button` take pixel coordinates on their target — the window's committed size, or the monitor's resolution. A coordinate that is not finite raises, because it is a defect in the caller's maths rather than a race. Every method returns `false` on a dead handle without raising: a client can exit, and a monitor can be unplugged, between the raycast and the click.
+[Architecture](architecture.md#handles) describes the handle model. Every mutation returns `false` on a dead handle. `window:getTexture()` and `monitor:getTexture()` are valid for the current frame only, because textures rotate as the client cycles buffers; `window:stabilize()` is the persistent alternative ([Rendering](rendering.md#windowstabilize)). `win.commit` comes from a counter every surface shares and never reuses, and is 0 before the first buffer. A handle returned by `newSeat`, `newOutput`, or `spawn` is dead until a snapshot contains its object. Every read returns a fresh handle, and `==` compares two handles by what they name, so two reads of one window, or two sinks for one target, are equal. Ids remain the keys of a table indexed by handle.
 
-`monitor.sink` exists whether or not the monitor is mirrored. Pointing at the host desktop does not require lunette to be showing it.
+`win:setFrameRate` paces the window's frame callbacks with a floor of 1 Hz ([Rendering](rendering.md#frame-pacing)). A monitor's `mirrored` reports an installed stream, which does not prove frames still arrive ([Host desktop](host-desktop.md#identity-and-lifecycle)).
 
-`sink:leave()` is hover, not focus. It withdraws the pointer from whatever it was over without changing which sink holds the keyboard, so a panel library can highlight what one hand is pointing at without that hand taking the keyboard from the other. It returns `false` on a host sink: the host cursor is always somewhere on the host desktop, and there is no position that means "nowhere".
+### Per-window properties
 
-The two scroll methods are separate because the protocol keeps the two sources apart. A notched wheel sends whole steps and a trackpad sends a continuous distance, and a client uses the difference to decide whether to scroll kinetically. An axis whose delta is zero sends nothing. A host sink takes both axes and converts to wheel detents, at ten surface-local pixels per detent.
+The native property store keeps scalar values per window outside the Lua state, keyed by window id, so they survive source reload and hard restart. A table or a non-finite number raises. `getProperty` still answers on a dead handle, so an `onWindowClosed` handler can read what the window stored. Entries live until the window closes. Writing them to disk is policy.
 
-`sink:key(keycode, pressed)` takes an evdev keycode, which is what `wl_keyboard` carries and what `seat:strokeFor` hands back. On a window sink it goes to the seat's keyboard and so reaches whichever client that seat is focused on; a seat with no focus delivers to nobody. On a host sink it reaches whatever the host compositor currently focuses, and lunette does not choose what that is. A keycode outside the set lunette's host provider declared is refused with `false` rather than sent, because the kernel would otherwise drop it without a word.
+`win.id` is stable for the window's life across source reload and hard restart, because the compositor thread survives both ([LÖVR integration](lovr-integration.md#restart-semantics)).
 
-`sink:modifiers(names)` replaces the modifiers held, rather than pressing modifier keys. `lunette.modifierNames()` answers with the names it takes, in the order a keymap numbers them, and an unrecognised one raises; `KeyModifier` in `crates/lunette-compositor/src/protocol/input.rs` is where the set is declared and everything else derives from it. A host sink refuses a set containing `mod3`, because neither the virtual-keyboard protocol nor uinput has a bit for it and applying the rest would leave the host holding something the caller did not ask for.
+### Layer claims
 
-`sink:typeText(text)` is an escape hatch, and explicitly stateful. Text the active layout can type goes down the ordinary path and changes nothing; the rest makes lunette generate a temporary keymap, upload it, type against it, and put the client's own back. So it must not be interleaved with `sink:key` on the same seat, and a client may see its keymap change while it runs — which is legal, and is the price of entering text no layout binds. Text needing more distinct keysyms than one keymap holds is split into runs that fit rather than refused. It is refused on a host sink, because lunette does not own the host's keyboard well enough to promise the layout it took can be given back.
+The host sorts claims stably by priority and grants the top ones. Grants and revocations land on frame boundaries, never between `lovr.update` and `lovr.draw`, so a fresh claim holds nothing in the frame that made it and the in-scene quad is always available. Lua reads the outcome from `claim.granted` and `claim.layer`, which change only at the boundary before `lovr.update`. A revoked claim stays live and is granted again when a layer frees. A claim is dead only after `claim:release()`, and nothing releases a claim when its handle is collected, because other handles to the same claim may still be held. Requested sizes are quantised up to the ladder ([Rendering](rendering.md#the-layer-pool)).
 
-Every one of these methods takes an optional trailing seat. Leaving it off addresses the seat every session starts with, which is what a configuration that never calls `lunette.newSeat` wants. A host sink ignores the argument: the host has one cursor and one keyboard focus however many hands point at it.
+### Scene rendering
 
-## Seats
-
-A `wl_seat` carries exactly one pointer and one keyboard, so two simultaneous cursors need two seats and the protocol offers nothing else. [Input](input.md#seats) states why.
-
-```lua
-local left = lunette.newSeat('left', { layout = 'de', repeatDelay = 200, repeatRate = 50 })
-
-for _, seat in ipairs(lunette.seats()) do
-    print(seat.id, seat.name)      -- the identifier, and what clients see on wl_seat.name.
-    print(seat.dead)               -- whether the compositor has this seat right now.
-    print(seat.modifiers)          -- an array of names; what clients were last told.
-    print(seat.layouts)            -- an array of one: 'English (US)', not 'us'.
-    print(seat.clipboardBridge)    -- whether this seat's selections are the host's.
-    seat:setFocus(win.sink)        -- gives this seat's keyboard to a sink; nil withdraws it.
-    seat:setModifiers{ 'shift' }   -- the same request sink:modifiers makes.
-    seat:symbolFor(30)             -- the keysym a keycode produces, or nil.
-    seat:characterFor(30, { 'shift' })  -- the text it types, or nil.
-    seat:strokeFor('A')            -- { keycode = 30, modifiers = { 'shift' } }, or nil.
-    seat:setClipboardBridge(true)  -- makes this seat's selections the host's.
-    seat:destroy()                 -- withdraws the seat.
-end
-```
-
-`lunette.newSeat(name, options)` returns a handle before the compositor has made the seat, so `seat.dead` is true in the frame that created it — the same rule `lunette.spawn` follows. The name is what clients tell two seats apart by, and it is the only thing on the wire that does, so a name another seat already has raises.
-
-The options are the five names libxkbcommon compiles a layout from — `rules`, `model`, `layout`, `variant`, and `options` — plus `repeatDelay` in milliseconds and `repeatRate` in repeats per second. An absent layout name takes the desktop's own default, read from the `XKB_DEFAULT_*` variables, which is what a user who configured a layout for their session expects lunette to inherit. Key repeat defaults to a 200ms delay and 50Hz, and a rate of zero disables it; the timing is policy, so it lives here rather than in the native layer. A layout that does not compile is reported in the log and the seat never appears.
-
-A seat carries exactly one layout, so `layout` naming several — `'us,de'` — is refused and the seat never appears. Every keymap query answers for the seat's one layout and nothing can read or set an active group, so a seat with two would answer for the first whichever one the user had switched to. A configuration wanting two layouts makes two seats. [Input](input.md#decisions) records the reasoning and what lifting it would take.
-
-An inherited default naming several layouts is treated differently, because a desktop configured with `us,de` is ordinary and the user did not ask lunette for anything. The list is narrowed to its first entry, with the matching entry of the variant list, and the seat is created on that one layout. The narrowing is reported in the log, with the note that a second layout wants a second seat. So `layout = 'us,de'` leaves the seat uncreated, and `XKB_DEFAULT_LAYOUT=us,de` does not.
-
-`seat:setFocus(sink)` is what gives a client the keyboard. Nothing infers focus from pointer motion — that heuristic is what makes a second hand steal focus by hovering — so a configuration that wants focus-follows-hover writes it. `nil` withdraws focus. A host sink returns `false`: which window on the host desktop holds the keyboard is the host compositor's decision.
-
-`seat.layouts` is an array of one, for the reason above; it is an array because that is what `wl_keyboard`'s keymap carries and a second entry becomes possible if group switching ever lands. It, `seat:symbolFor`, `seat:characterFor`, and `seat:strokeFor` are the keymap queries [Input](input.md#keyboard) asks for. They are what lets a virtual keyboard draw correct legends and produce correct keycodes without reimplementing xkb in Lua. All of them answer from the seat's own layout, so two seats on different layouts answer differently.
-
-`seat:strokeFor(value)` is the reverse lookup. A string is read as the character to type and a number as a keysym, and the answer prefers the fewest modifiers and then the lowest keycode, so a digit resolves to the number row rather than the keypad. It returns `nil` for anything the layout cannot express — that is what `sink:typeText` is for — and raises on a string of more than one character, because a stroke produces one keysym.
-
-`seat.clipboardBridge` and `seat:setClipboardBridge(bridged)` are the host clipboard's one connection to a seat. The host desktop has one clipboard and one primary selection while every seat has its own, so exactly one seat is bridged: its selections are the host's in both directions, and every other seat's stay inside lunette. Bridging a seat takes the bridge off whichever seat had it, and passing `false` on a seat that is not the bridged one does nothing, so a configuration can call either without first asking which seat holds it. The seat every session starts with is bridged, so a configuration that never mentions the clipboard behaves as a single-seat compositor does. [Input](input.md#clipboard) states the mapping and [its decisions](input.md#decisions) state why it is one seat rather than all of them.
-
-A selection the newly bridged seat already held is not pushed to the host retroactively; the next copy on that seat crosses. Both calls return `false` on a dead seat, like every other seat method.
-
-`seat:destroy()` withdraws the seat. The seat every session starts with refuses: a session with no seat can deliver no input.
-
-## Layer claims
-
-A panel renders either as an in-scene quad or on an OpenXR composition layer. The second is sharper, because the runtime composites the source at its native resolution instead of resampling lunette's own resampling of it. Layers are scarce, so a panel asks for one:
-
-```lua
-local claim = lunette.claimLayer{
-    window = win,               -- the source whose pixels the layer carries.
-    width = win.width,          -- the requested size, in whole pixels.
-    height = win.height,
-    priority = 10,              -- where this ranks against every other claim.
-}
-
-print(claim.granted)         -- whether it holds a layer this frame.
-print(claim.layer)           -- the LÖVR Layer, or false; never cache it.
-print(claim.width, claim.height) -- the layer's size, not the requested size.
-print(claim.window)          -- the source it was made for.
-print(claim.priority)        -- the number last supplied.
-claim:setPriority(20)        -- reranks it; takes effect at the next boundary.
-claim:release()              -- withdraws it, returning the layer to the pool.
-```
-
-`claim.layer` is a real LÖVR `Layer`, not a wrapper, so `setPose`, `setDimensions`, `setCurve`, `setViewport`, `getTexture`, and the rest are the documented `Layer` methods. It is `false` whenever the claim holds none.
-
-The priority is Lua's own number and lunette never invents it. Rust sorts by it, stably, and assigns the top N; focus, gaze, distance, a rule ranking video above a terminal, and hysteresis to stop grants flapping are all cases of computing a different number. A priority that is not orderable — nan — raises, because a claim silently keeping its old ranking would be diagnosed as the pool misbehaving.
-
-`claim.width` and `claim.height` report the layer's size rather than the size that was asked for. Requested sizes are quantised to a ladder of discrete steps, described in [Rendering](rendering.md#the-layer-pool), so the layer is at least as large as the request and usually larger. A caller setting the layer's viewport wants the rung.
-
-Grants and revocations land on frame boundaries and never mid-frame, so a panel's realisation cannot change between its `lovr.update` and its `lovr.draw`. A fresh claim therefore holds nothing in the call that made it, and may hold nothing indefinitely if higher-priority claims keep the pool full. Both paths are live from the start: the in-scene quad is the fallback, not a degraded mode.
-
-Grants and revocations also arrive as callbacks, so a panel does not have to poll for them:
-
-```lua
-function lunette.onLayerGranted(event)  -- event.claim, event.layer.
-function lunette.onLayerRevoked(event)  -- event.claim.
-```
-
-Both fire at the boundary the change lands on, before `lovr.update`, so a handler reading `event.claim.granted` agrees with the event it was handed. `lunlayerrevoked` carries no layer because there is none by then. An error raised in either handler is reported and changes nothing: both had already happened before the handler ran.
-
-Revocation does not kill the claim. `claim.granted` goes false and `claim.layer` answers `false`, and the claim takes a layer again as soon as one frees and nothing outranks it — which is what makes the upgrade automatic. A claim is dead only after `claim:release()`, and a dead handle reads its last-known values and answers `false` from its methods.
-
-Releasing is explicit. Nothing releases a claim when its handle is collected, because the grant and revoke events carry a second handle to the same claim and collecting that one would withdraw a live claim. A configuration that drops a panel releases the panel's claim.
-
-## Scene rendering
-
-Once every panel is on a composition layer there is nothing left for lunette to draw itself, and drawing an empty projection layer costs a swapchain acquire, a render pass, and a multisample resolve every frame for no picture.
-
-```lua
-lunette.setSceneEnabled(false)   -- skip lunette's own scene rendering.
-print(lunette.sceneEnabled())    -- what was last asked for.
-```
-
-Skipping means `lovr.draw` is not called and the projection layer is left out of the frame. The XR frame is still submitted, and the composition layers still are, so panels on layers keep updating; what stops is lunette's own rendering. [Rendering](rendering.md#frame-pacing) records what an idle frame still costs.
-
-A change takes effect at the next frame boundary rather than immediately, because the frame's layer list has already been submitted with the answer the frame started with. A configuration therefore sets this from `lovr.update` and reads the effect on the frame after.
-
-Deciding is the configuration's, and lunette has no way to check. Everything drawn in `lovr.draw` is the configuration's own: a panel that holds no layer, a panel's chrome, a laser, an error panel, or anything else it draws. Turning the scene off while still drawing means the drawing does not happen, and the value defaults to on so that a configuration that never mentions it behaves as it always did. `mullion` does not set it, and the shipped configuration does not either: it draws chrome around every panel and a laser for every hand, so its scene is never empty.
+`lunette.setSceneEnabled(false)` stops `lovr.draw` and leaves the scene out of the frame, while the headset frame and composition layers are still submitted. The change applies at the next frame boundary, and the value survives source reload. Everything drawn in `lovr.draw` belongs to the configuration, so the decision is the configuration's. The default is on, and nothing shipped turns it off. [Skipping the scene](rendering.md#skipping-the-scene) states the mechanism.
 
 ## Reload
 
-There are two reload paths, both of which preserve running applications.
+Source reload and hard restart keep running applications, because the compositor owns the Wayland socket outside the Lua state. Plugin instance reload is separate and replaces one activation. [Architecture](architecture.md#survival-across-lifecycle-events) tabulates what each event keeps.
 
-`lunette.reload()` performs a soft reload. It clears `package.loaded` for user and standard-library namespaces and re-runs `main.lua`. The LÖVR modules, XR session, GPU objects, compositor, and clients all remain running. The reload is effectively instant, with no visual disruption. It is the default reload path. Iterating on layout code in-headset with sub-second reloads is a significant benefit of this design.
+`lunette.reload()` performs a source reload in the current Lua state, in this order: it shuts down plugin runtimes and retires the contract epoch, clears native event subscriptions, clears the configuration's LÖVR callbacks and `lovr.lun*` handlers, removes unprotected entries from `package.loaded`, and runs `main.luau` and then `lovr.load` with the startup `arg`. The LÖVR modules, XR session, GPU objects, compositor, clients, globals, and the Lua state remain. `crates/lunette/src/reload.rs` lists the protected `package.loaded` roots and the cleared callbacks. Plugin effects are the only cleanup a reload runs.
 
-The risk of soft reload is that timers, signal connections, coroutines, and stashed handles from the old configuration persist unless something tears them down. `mullion` provides an explicit teardown hook that soft reload calls to address this. The hooks run first, before anything is cleared, so a hook still has the modules and callbacks it is tearing down. One raising is reported and does not stop the rest, which is the registry's own contract.
+`lunette.reload()` returns `true`, or `false` and a message, and never raises. A reload that fails after `main.luau` starts leaves whatever the failed run installed; safe mode is only for startup. A reload requested during a reload or from inside a plugin callback is refused.
 
-The order is: teardown hooks, then the callbacks `main.lua` owns, then `package.loaded`, then `main.lua`, then `lovr.load`. `lovr.load` runs because `main.lua` conventionally defines callbacks and does its setup there, so a reload that ran only the file would install the new callbacks and never run the new setup. It receives the same `arg` it is given at startup.
-
-What survives is stated as roots rather than as a list of what goes, so that a module added later is cleared without the mechanism being updated. `lovr.*` and the interpreter's own modules — `string`, `table`, `math`, `os`, `package`, `coroutine`, `io`, `debug`, `bit`, `jit`, `ffi` — are kept; everything else goes. `crates/lunette/src/reload.rs` is the source of truth for both that set and the callbacks cleared, which deliberately exclude the ones `boot.lua` defines defaults for: `boot.lua` runs once per Lua state, and a soft reload does not make a new one, so clearing `lovr.log` would remove a default nothing would put back.
-
-The Lua state itself is not closed. Globals survive; what goes is what `main.lua` owns. A configuration that must carry something across a reload has the global table and the per-window property store; `lunette.restart()` is the operation that discards everything.
-
-Clearing the callbacks matters for the case the file no longer mentions them. Re-running `main.lua` redefines the callbacks it still defines, but a callback the user *deleted* would otherwise stay bound to the old function and keep being called, so a reload would silently keep executing code that is no longer in the file.
-
-`lunette.reload()` answers `true`, or `false` and a message. It does not raise, and it does not fall into safe mode: safe mode is for a `main.lua` that fails to load at startup, and a reload that fails leaves the session running so the user can fix the file and reload again. A reload that reached `main.lua` and failed there has already torn the previous configuration down, so the session continues with whatever the failed run installed before it raised.
-
-A reload asked for from inside a reload is refused with that message rather than performed. A configuration that reloads as it loads would otherwise recurse until the stack ran out, and taking the process down takes every connected client with it. In practice this means `lovr.load` is not a place to call it from; a key binding or a `lunctl` chunk is.
-
-`lunette.restart()` performs a hard restart, using LÖVR's `lovr.event.restart`. This closes the entire Lua state and rebuilds it, tearing down graphics and the XR session with it. See [LÖVR integration](lovr-integration.md#restart-semantics). The result is a clean slate, with a visible hitch and brief blackness in the headset. It is used when a soft reload is not sufficient.
-
-A restart runs the teardown hooks and nothing else the reload runs. The reload also clears the callbacks and `package.loaded`, because the state it clears them in carries on; a restart closes that state a moment later, so clearing them is work with no observer. The hooks are the part that is not about Lua at all: a seat, a pointer, or an output the configuration created belongs to the compositor, which keeps running, and the only handle that could release it is in the state about to close. Without the hooks the next configuration asks for a seat by the name the last one used, is told the name is taken, and raises inside `lovr.load`.
-
-The hooks run before the frame's mutations are delivered, so what they release reaches the compositor on the same frame. They run when the event loop takes the restart, not when it is asked for, so `lunette.restart()`, a bare `lovr.event.restart()`, and LÖVR's own `lovr.filechanged` all tear down the same way.
-
-The call pushes the event and returns; the restart is taken once the frame's callbacks have returned and the event loop reads it. Nothing is performed inline, so there is no counterpart to the reload's refusal: a restart asked for from `lovr.load`, from inside a reload, or twice in one frame is one restart at the end of that frame. `lunette.restart()` raises only if `lovr.event.restart` cannot be reached, which is a broken build rather than a mistake in the configuration.
-
-Wayland clients survive both, because Rust holds the socket outside the Lua state.
+`lunette.restart()` performs a hard restart through `lovr.event.restart` after the frame's callbacks return, so several requests in one frame are one restart. The host shuts down plugin runtimes and clears native subscribers before the state closes, whichever way the restart was requested ([LÖVR integration](lovr-integration.md#restart-semantics)).
 
 ## Errors
 
-Every user callback runs under `xpcall` with a traceback. An error is logged, emits `lunette.onError`, and displays a floating error panel; execution then continues. Identical repeated errors are rate-limited, so an error recurring every frame does not fill the display.
+Three kinds of callback run under a protected call: `lunette.on*` listeners, plugin initializers and inverses, and handlers that a Lua dispatcher protects and reports through `lunette.reportError`. An error in one is logged with its traceback and sent to every `lunette.onError` listener, and execution continues with the next listener, drain step, or handler. `crates/lunette/src/callback_error.rs` is the native boundary; it does not rate-limit. The frame, surfaces, and panels providers report each raising handler through `lunette.reportError`, so one handler's error does not stop the error display that draws after it. A plugin failure during a drain is reported with a context naming the definition and instance. An instance waiting for a provider is logged, not reported.
 
-The handler itself is `mullion` code and can be replaced wholesale, since `lovr.errhand` is overridable. It is `mullion.error`, and the two boundaries it serves are not the same one. A callback that raises is caught at the callback boundary, reported, and the frame continues. An error that escaped every callback boundary reaches `lovr.errhand`, by which point LÖVR has already unwound the frame loop and wants a replacement one back; there is no frame left to continue, so the handler reports and hands the loop decision on.
+LÖVR's own callbacks are not protected by the host. An error in `lovr.update` or `lovr.draw` unwinds to `boot.lua`'s handler, which without a `lovr.errhand` ends the process with status 1. The frame provider protects every handler bound through it, and a configuration that assigns `lovr.update` or `lovr.draw` itself protects its own body.
 
-The native side of the callback boundary is `crates/lunette/src/callback_error.rs`. It splits the message from the traceback, finds `mullion.error` in `package.loaded`, and calls `errors.handle`; everything after that — the limiter, the wording, the panel, `lunette.onError` — is Lua's. It deliberately does not rate-limit, because two limiters keyed differently produce gaps that neither explains. A session that never loaded `mullion` is supported and gets the log and a direct `lunette.onError` instead, with no rate limiting at all: the limiter is in the standard library, and a session without one has none.
-
-The panel is `mullion.error.panel`, which wraps `mullion.error`'s `report` seam and draws the most recent report on a quad in front of the user. It is a separate module because drawing needs a `Pass` and reporting does not, and because a configuration that wants a different error surface should be able to leave it out rather than displace it. The shipped `etc/xdg/lunette/main.lua` installs it in `lovr.load` and draws it last in `lovr.draw`.
-
-The native layer owns exactly one failure path: if `main.lua` fails to load, safe mode starts. This is a minimal built-in configuration with a laser, one panel, a way to spawn a terminal, and a reload key. Without this fallback, a configuration error would produce a black headset with no way to recover, requiring the user to remove the headset and edit Lua at a desk every time.
-
-The trigger is a wrapper around `lovr.boot`, installed after `boot.lua`'s chunk has run and before its coroutine is first resumed. `lovr.boot` is the function whose failure means the configuration did not start: a source that will not mount, a missing `main.lua`, a `conf.lua` that raised, a syntax error, and an error at the top level of `main.lua` all raise inside it. So does a `lovr.load` that raises, because `lovr.boot` ends with `return lovr.run()` and `lovr.run` calls `lovr.load` before it returns the frame loop. That is intended: `lovr.load` is where a configuration builds the state its later callbacks assume, and a session whose `lovr.load` raised halfway is not one those callbacks can run in. Everything after `lovr.load` happens once the frame loop has been returned, and goes to the callback boundary above instead. `lovr.errhand` would be the wrong hook, because it is reached by every error that escaped a callback boundary and because it belongs to the configuration. Safe mode replaces the callbacks a half-run `main.lua` installed, so a configuration that raised partway through does not keep running alongside it, and the load error is shown on the panel rather than only logged.
-
-Safe mode is compiled into the binary rather than installed, and `crates/lunette/src/safe_mode.lua` is what it runs. It requires `lunette` and nothing else — never `mullion`, since a broken standard library is one of the reasons `main.lua` may have failed — so it resembles the shipped configuration without sharing code with it. [Decisions](#decisions) below records why the duplication is deliberate.
-
-Safe mode tries `foot`, `weston-terminal`, `alacritty`, `kitty`, `konsole`, and `xterm`, in that order. `crates/lunette/src/safe_mode.lua` owns the candidate list and arguments. A `spawnFailed` outcome delivered through `lunette.onProcessExited` advances to the next candidate only when its process identifier matches the current attempt. An exit or signal from a process that started stops the search; closing a terminal does not open another. Exhausting the list reports that no terminal emulator could be spawned and leaves safe mode available for reload. Konsole receives `--separate` so an existing host instance cannot take the request over its existing display connection.
+The native layer owns one recovery path: if `main.luau` fails to load, safe mode starts. The trigger wraps `lovr.boot`, which raises for a source that will not mount, a missing `main.luau`, a raising `conf.luau`, a syntax error, an error at the top level of `main.luau`, and an error in `lovr.load`. Safe mode replaces whatever callbacks the failed configuration installed and shows the load error on a panel, with a laser, a terminal launcher, and a reload key. `crates/lunette/src/safe_mode.luau` is compiled into the binary, requires only `lunette`, and lists the terminals it tries; it advances to the next only when spawning the current one fails.
 
 ## lunctl
 
-`lunctl` sends a Lua chunk to the running instance over a Unix socket at `$XDG_RUNTIME_DIR/lunette/lunette-0.sock`, mode 0600 inside a directory lunette creates at 0700. The chunk is evaluated on the Lua thread between frames within a wall-clock budget, and the result is serialised back.
+`lunctl` sends a Lua chunk to the running session over the Unix socket `$XDG_RUNTIME_DIR/lunette/lunette-0.sock`, mode 0600, inside a directory lunette creates at 0700. The session evaluates the chunk on the Lua thread between frames within a time budget and sends the result back.
 
-The directory is what makes the 0600 requirement enforceable, and reproducing the path without it would reintroduce a race. `UnixListener::bind` creates the inode with `0777 & ~umask` and offers no pre-creation hook; `fchmod` on the listener's descriptor does nothing on Linux, because for a socket the descriptor refers to the socket object rather than to the inode; binding and then widening the permissions leaves a window in which a connection can be accepted and stays valid afterwards; and `umask` is process-global and not thread-safe. A directory only the owner can traverse closes all of that, whatever the socket's own mode says. `$XDG_RUNTIME_DIR` is checked for the same property at startup rather than trusted, because the specification that mandates it is not an enforcement.
+The directory enforces the permission: a socket inode is created with `0777 & ~umask`, `fchmod` on a socket descriptor does not reach the inode, and loosening permissions after `bind` leaves a window for a connection. `$XDG_RUNTIME_DIR` is checked for the same property at startup. There is no network transport.
 
-```console
-$ lunctl 'return #lunette.windows()'
-3
-$ lunctl 'for _, w in ipairs(lunette.windows()) do print(w.appId, w.title) end'
-$ lunctl "local arc = require '@mullion/layout/arc' arc(require('@mullion/tag').current())"
-```
+A chunk resolves a free name from the globals and then from loaded modules, trying the name as written and then under `@`, so `lunette` finds `@lunette`. A name the chunk assigns becomes a global for later chunks. The exit status distinguishes a chunk that ran, raised, did not compile, exceeded its budget, or returned a result that cannot be represented, from a session that did not evaluate it or cannot be reached, and from wrong usage; `crates/lunette/src/bin/lunctl.rs` defines the codes. `LUNETTE_CONTROL=off` disables the socket.
 
-A chunk resolves a module by its own name, so `lunette` is reachable without a `require` even though a configuration binds it to a local. The lookup is globals first and modules second, and a module name is tried as written and then under the `@` root the session registers it at, so `lunette` finds `@lunette`. Only a module already loaded or holding a registered loader resolves this way: an unknown name is `nil`, as Lua specifies, rather than a module that could not be found. A name a chunk assigns is written to the globals, so the next chunk sees it.
+## Language binding
 
-`mullion`'s submodules are not reachable through the root, here or anywhere. The root deliberately re-exports nothing, so `mullion.layout.arc` is `nil` and the submodule is required by its own path.
-
-This is the most significant inheritance from awesome, more significant than any layout algorithm. awesome's design allows the whole window manager to be inspected and mutated from a shell prompt while it runs, which is a substantial part of its usability. `lunctl` also serves as the end-to-end test harness: it spawns a client, evaluates assertions, and tears down.
-
-A caller that wants a typed protocol can build one in Lua on top of this mechanism.
-
-`lunctl` has three modes, which is awesome-client's shape: a chunk as an argument, a chunk on standard input, and an interactive prompt when standard input is a terminal. It has no line editing of its own; `rlwrap lunctl` supplies it. `--socket PATH` names a socket other than the resolved one, which is what the end-to-end tests drive.
-
-The exit status says what happened, so a script can branch on it: `0` the chunk ran, `1` it raised, `2` it did not compile, `3` it ran past its time budget and was abandoned, `4` it returned something the protocol cannot carry, or more of it than one message holds, `5` the session did not evaluate it, `6` the session could not be reached, and `64` `lunctl` was invoked wrongly, which includes a chunk larger than one message carries. An answer too large is reported as the answer it is, not as a session that could not be reached: the session closing the connection would reach the client as an end of file, and a chunk that succeeded would be reported as a session that is not running. A load error and a runtime error stay apart because a caller acts differently on each; awesome collapses both into one string.
-
-A top-level string prints without quotes and a string inside a table prints with them. The top level is what a shell captures, so `$(lunctl 'return win.title')` is the title rather than the title in quotes. A handle prints as `<window 3>`: its kind and the identity the session keys it on, and nothing a client could dereference.
-
-Three things learned from awesome's version (awesome upstream: `lib/awful/remote.lua`):
-
-- awesome's remote control is exposed on the session D-Bus, reachable by every process in the session, including Flatpak applications granted `--socket=session-bus`. This makes it possible for a sandboxed application to ask the window manager to run arbitrary Lua. A 0600 socket in `$XDG_RUNTIME_DIR` provides the same capability with a smaller attack surface.
-- awesome enables remote control unintentionally. The manpage implies it is opt-in, but `lib/awful/init.lua:28` requires `awful.remote` unconditionally, so every configuration that calls `require("awful")` has arbitrary code execution enabled. lunctl is enabled deliberately, documented as equivalent to root access on the user's session, with a switch to disable it.
-- awesome's serialisation is limited to booleans, numbers, and strings; every other value is converted with `tostring`. This is adequate for a REPL but insufficient for tooling. lunctl serialises nested tables, and represents handles as opaque ids.
-
-No network transport is provided. The type is a Unix listener and nothing accepts a host or a port, so there is no configuration that makes this listen on a network address.
-
-`LUNETTE_CONTROL=off` is the switch that disables it. Unset and empty leave it on, because in-headset iteration is what it exists for; any other value that is not `on` turns it off and warns. Since unset already means on, the only reason to set the variable is to turn the endpoint off, so an unrecognised value is a misspelt `off` rather than a misspelt `on`, and answering one by opening an endpoint equivalent to root access on the user's session is the failure worth protecting against.
-
-## Bindings
-
-The API is bound with `mlua`, which creates the session's Luau state and owns it for the session's lifetime. LÖVR steps that same state through the raw C entry points, and `mlua` reads and writes it through the Luau feature. The boot sequence keeps ownership with mlua and never closes a state it created a second time.
-
-This choice is motivated by failure mode, not throughput. A Lua mistake should raise a catchable error rather than crash the window manager, because the premise of this project is that users write Lua that reshapes the system. mlua's per-call cost is negligible relative to the cost of a compositor and a GPU frame.
-
-Luau has no FFI. A script that wants a C ABI directly has the standard library and the `lunette` API, and nothing else; calling native code from a configuration is not part of the contract. The `lunette check` command is available to catch a configuration that reaches for it.
-
-The API is available only in the main Lua state. `lovr.thread` and `lovr.task` states do not receive it.
+The API is bound with `mlua`, which creates the session's Luau state and owns it for the session. LÖVR steps the same state through the raw C entry points. Luau has no FFI, so a configuration reaches native code only through LÖVR and `lunette`.
 
 ## Decisions
 
-Choices made deliberately, recorded with their reasoning, so they are not relitigated by accident.
+### mlua on Luau
 
-mlua, on Luau, not the raw C API or LuaJIT FFI. A Lua mistake must raise a catchable error, not crash the window manager. lunette runs Luau (via mlua and the LÖVR-linked fork) so that the standard library and configurations are statically checked, and because a typed dialect catches the two defect classes the interpreter alone does not (a local referenced before its declaration, and an accidental global). LuaJIT was a supported build mode until the standard library carried annotations LuaJIT cannot parse, at which point the mode was removed rather than kept as something that builds and cannot run.
+A Lua mistake must raise a catchable error rather than crash the window manager, and mlua's per-call cost is negligible beside a compositor frame. Luau lets the standard library and configurations be statically checked. LuaJIT is not a build mode, because the standard library's annotations do not parse there.
 
-Control socket over Lua eval, not a typed protocol. awesome's design has held for seventeen years. lunette changes the transport (a 0600 Unix socket, not the session D-Bus), makes it deliberate rather than incidental, and serialises properly.
+### Control socket over Lua eval
 
-`LUNETTE_CONTROL` fails closed: anything that is not `on` disables the socket. The first version failed open on an unrecognised value, on the reasoning that the failure worth protecting against is one that silently enables the endpoint — which is right, and was implemented backwards. Unset and empty already mean enabled, so nobody sets the variable to turn the endpoint on; the only reason to set it is to turn it off, and every unrecognised value is therefore a misspelt `off` — `false`, `0`, `no`, `disabled`. Answering one by opening a socket that evaluates arbitrary Lua, having warned on stderr that a user who set the variable in a systemd unit or a `.desktop` file will never read, is the failure the switch exists to prevent. The cost is a session whose `lunctl` stopped working because of a typo, which is visible the moment it is used and is fixed by writing `on`.
+awesome's remote Lua evaluation is a large part of its usability, and `lunctl` keeps it with a 0600 Unix socket instead of the session D-Bus, an explicit switch, and full serialisation. The plugin API is an in-process composition mechanism and does not narrow the remote protocol.
 
-Per-window state lives in a native store as well as in `win.userdata`, and the redundancy is the point. `userdata` is a Lua table on a Lua handle, and a soft reload discards the Lua state, so nothing in it survives one. That is the right lifetime for most of what a configuration attaches: state a rule derived comes back when the rules re-run, and keeping a stale copy of it across a reload would defeat the reload. What it is the wrong lifetime for is state no rule can derive — a pose the user placed by hand, a size they dragged, a tag they assigned by hand — which a reload that lost it would scramble, on the one operation the design promises is instant and invisible. So `win:setProperty` and `win:getProperty` keep those in Rust, where the reload cannot reach. The lineage is awesome's, which keeps per-client state in X properties on the window because those outlive the window manager's own process and lets a restart skip or alter rule application when it finds some; lunette has no X server, so the store is native. The store holds a number, a string, or a boolean and refuses a table by name, because a table would hold Lua values and put the same problem one level down; a caller wanting structure encodes it into a string and knows that it did. The alternative considered was making `userdata` itself survive by serialising it at teardown, and it was not taken for that reason — it can hold a function, a coroutine, or a handle, none of which serialises, so it would either fail on ordinary contents or silently drop them. Entries are keyed by `WindowId` and last as long as the window, which works because a soft reload does not restart the compositor thread and so does not change an identifier. A hard restart does, and anything that has to cross one is `mullion`'s to write to disk under a key the compositor did not mint.
+### LUNETTE_CONTROL fails closed
 
-Safe mode is a Lua chunk compiled into the binary, not a file installed beside the default configuration. It exists for the moment `main.lua` fails to load, and a broken standard library, a missing install, or a `LUNETTE_STDLIB_PATH` pointing at nothing is one of the reasons it might have — so a fallback that read anything off disk would be unavailable in a fair share of the cases it exists for. It therefore requires `lunette` and nothing else, never `mullion`, and does its own ray-plane solve for one fixed axis-aligned panel rather than reaching for `mullion.panel`. That duplicates a little of the shipped configuration, which is the price of always working, and both sites say so, so neither is later simplified by pointing at the other. `crates/lunette/src/safe_mode.lua` is the chunk and `safe_mode.rs` embeds it with `include_str!`, so it stays a Lua file that an editor highlights and a diff can be read against `etc/xdg/lunette/main.lua`. The alternative considered was installing it as a third file under `$SYSCONFDIR`, which reads better and fails in exactly the case the feature is for.
+Only an unset, empty, or `on` value enables the socket. An unrecognised value is most likely a misspelt `off`, and opening a socket that evaluates arbitrary Lua on a warning nobody reads was rejected.
 
 ### The lunctl time budget is best-effort
 
-Decided 2026-08-06, built in Phase 7 Task 6. Mechanism changed 2026-08-10 when lunette moved from LuaJIT to Luau: a LuaJIT count hook became a native `lua_callbacks(L)->interrupt` that raises via `lua_error` once the wall clock passes the budget.
-
-A `lunctl` chunk runs under a native interrupt callback that raises once the wall clock passes its budget. The interrupt fires at safepoints (loop back edges, calls, returns, GC), which is the bound Luau offers; it is the first safepoint at or after the deadline, not one every N instructions as the LuaJIT hook was. The chunk is abandoned at that safepoint. Three things escape it, and none is fixable from inside Lua.
-
-Compiled code still reaches an interrupt: the VM checks the callback at safepoints, so even a compiled function is interrupted at call or loop-back-edge boundaries. LÖVR builds Luau without native codegen, so the interpreter is the engine and safepoints fire at every back edge; the escape that LuaJIT's `jit.off` existed to close (a compiled trace never returning to the interpreter) does not arise.
-
-A function the chunk merely calls is bounded by the next call or loop-back-edge interrupt safepoint, not by a hook count. This was the LuaJIT escape (a hot callee entered its trace and the hook did not fire); under Luau it is closed by the same safepoint the chunk itself runs under, unless the callee is a native call.
-
-The bound stays advisory. An `error()` raised from the interrupt is catchable, so a `pcall` inside the user's own chunk swallows it; and a loop inside a C function, a blocking allocator, or a native call is uninterruptible by any VM callback — the loop does not reach a safepoint. This is the same best-effort posture the LuaJIT hook had, re-expressed for the interrupt mechanism.
-
-A hard bound would need a watchdog outside Lua. Since the chunk holds the Lua thread, the only thing such a watchdog could do is abort the process — turning a bad `lunctl` command into a crash that takes every connected client with it. That is worse than the hang it prevents, so it is not built. `lunette-v1.AC8.2`'s first clause is stated as best-effort in the design plan for the same reason, and the tests assert the escape as the behaviour it is rather than as an aspiration.
+A chunk runs under a Luau interrupt callback that raises once the deadline passes, at the next safepoint. A `pcall` in the chunk can catch it, and a loop in native code never reaches a safepoint. A hard bound would need a watchdog that aborts the process, which takes every client with it, so it is not built.
 
 ### lunctl refuses what it cannot represent
 
-Decided 2026-08-07, building Phase 7 Task 7.
+The serialiser errors on functions, coroutines, foreign userdata, non-scalar keys, and cycles, naming the path, rather than falling back to `tostring`, which is the defect in awesome's remote control. Shared subtables are duplicated and a node cap bounds the result. Traversal is raw, so metamethods cannot change what is reported. A reply too large for one message is reported as `Reply::Oversized` rather than by closing the connection, which the client would misreport as an unreachable session. A handle serialises as its kind and session identity, never an address.
 
-A serialiser meets values with no wire form: functions, coroutines, userdata that is not a lunette handle, and table or function keys. It errors on each, naming the path to the offending value, rather than falling back to `tostring`. Dropping content silently is a correctness bug per `CONTRIBUTING.md`, and the `tostring` fallback is exactly what [lunctl](#lunctl) criticises awesome's remote control for.
+### Per-window state lives in a native store
 
-Three further cases needed an answer, and each is a source of silent corruption if left implicit.
+Source reload recreates configuration locals, but a pose or size placed by hand cannot be derived again. The store lives outside the Lua state and holds scalars only; a caller that needs structure encodes a string. Serialising arbitrary Lua values across reload was rejected because it fails on functions, coroutines, and handles.
 
-**A cycle is an error, not a back-reference.** A back-reference would be more faithful, and it would make the value tree a graph that every consumer — including `lunctl`'s own renderer — has to be total over. A `lunctl` chunk that wants to inspect a cyclic structure can break the cycle itself; a renderer that has to guard against one cannot.
+### Safe mode is compiled in
 
-**Shared subtables are duplicated, and identity is not preserved.** That follows from the choice above: without back-references there is nothing to share with. The node cap is what keeps a wide directed acyclic graph from expanding without bound, and it produces a clean error rather than an allocation failure.
-
-**Metamethods are not honoured.** Traversal is raw, so what is serialised is what the table actually holds. `__index` can fabricate fields that do not exist and `__pairs` can hide ones that do, and a wire format whose contents depend on which of those a caller happened to install is not an inspection tool.
-
-**An answer too large to send is an answer, not a closed connection.** The frame cap is checked before anything is written, so a reply that does not fit leaves the session with nothing on the socket and something to say. Closing instead reaches the client as an end of file, which it can only report as a session it could not reach — a lie about a session that is running and a chunk that succeeded. So `Reply::Oversized` carries the size back, and `Reply::Malformed` does the same for a request the session could not read. Both are new tags, which is why the protocol version is 2. The node cap does not make this unreachable: it bounds how many values a reply holds and not how many bytes, so an ordinary chunk returning one long string reaches it without being pathological.
-
-A handle serialises as its kind and the identity the session keys it on, never as `tostring(handle)`. Addresses are reused after collection, so an id derived from one could come to refer to a different object — a defect that appears only under memory pressure. The identity is `win.id` and its siblings, which Phase 6 recorded as the stable thing; the userdata itself is minted fresh on every read and is not identity-stable at all.
+A broken installation is one reason `main.luau` fails to load, so safe mode reads nothing from disk and requires only `lunette`. It solves its own ray-plane intersection rather than using the panels provider; the duplication is the price of always working. Installing it as a file under `$SYSCONFDIR` was rejected because it fails in exactly that case. Safe mode wraps `lovr.boot` rather than defining `lovr.errhand`, because `lovr.boot` is the boundary whose failure means the configuration did not start, and `lovr.errhand` belongs to the configuration.
 
 ### The declarations are generated from the registration
 
-`lua/lunette/init.luau` is what the type checker reads `require '@lunette'` as, because Luau resolves a require to a file on disk and a definitions file can only declare globals. It is generated rather than written: each property and method is declared once, beside the closure that answers it, and the same declaration registers it with mlua and states its type, its parameter names, and its prose.
-
-The Luau type comes from the Rust one. `LuauType` maps a Rust type to its spelling — `f64` to `number`, `Option<T>` to `T?`, a handle to its own name — so a signature is derived rather than restated, and the spelling of a type exists in one impl rather than in every signature that uses it. Where Rust says less than Luau does, a wrapper type carries the difference: a texture that may be `false`, a string that is one of four words, an option table that validates its own keys as it is read. An option table's accepted names are the declaration's field names, so a table the runtime refuses cannot be one the type offers.
-
-The alternative was a hand-written stub kept in step by hand, which is what this replaced. It drifted: one reading of it against the Rust found `sink:scrollDiscrete`, `window.contentType`, `lunette.setSceneEnabled`, `lunette.sceneEnabled`, and `lunette.restart` declared nowhere, each of which made a documented call fail the check. A second list is a second thing to forget, and nothing was checking.
+Luau resolves a require to a file and a definitions file declares only globals, so `lua/lunette/init.luau` is what the checker reads for `require '@lunette'`. Each member is declared beside its Rust closure, and `LuauType` derives its Luau spelling from the Rust type, so the declaration cannot drift from the registration. A hand-written stub was rejected because nothing would check it.
 
 ### An event is subscribed to, not assigned
 
-`lunette.onWindowOpened(handler)` answers the function that cancels the subscription, and several listeners may wait on one event. The events were `lovr.lunwindowopened` and its siblings before this: a function a configuration assigned, which is how LÖVR's own callbacks work.
+An event has several listeners, the configuration and the libraries it loads, and an assigned callback gives each event one slot. A module function also types its handler, which a callback on the `lovr` global cannot. Assigned `lovr.lun*` callbacks and assignment on the module table were rejected because both keep the single slot.
 
-The convention was reversed because assignment gives each event exactly one handler for the whole session, and lunette has two parties who want to hear: the configuration, and whatever library it loaded. Both workarounds that produced were in `mullion` before the change. `mullion.panel` polled `claim.granted` every frame rather than handle the grant, because taking the callback would have taken it from the configuration. `mullion.error` did take `lovr.lunerror`, and then called by hand whatever handler it had displaced. LÖVR shows the same cost in its own house: `lovr.errhand` is a slot, so `mullion.error` saves the previous handler and calls it, which is the dance a slot forces on anyone polite enough to do it.
+### A Lua dispatcher reports through the native boundary
 
-The typing followed from the same place. A Luau definitions file declares globals and cannot name a module's exported types, so a callback on `lovr` could not say it takes a payload carrying a `Window`, and every payload was declared `any`. A module function can, so a handler's parameter is typed with no annotation.
+`lunette.reportError` lets a Lua dispatcher report a handler's error as a raising callback is reported, and continue. Reporting through `lovr.log` alone was rejected because no `onError` listener would hear it. Raising was rejected because it stops the later handlers, including the error display.
 
-What it costs is a second convention in a file that already has LÖVR's: `function lovr.draw(pass)` sits a few lines from `lunette.onWindowOpened(function(event)`, and this document asks elsewhere for one convention rather than two. The two are different things — a frame hook has one owner and a notification has any number — and giving them the same shape is what produced the workarounds above. That is the trade, made knowingly.
+### Plugin failures are reported, not raised from the request
 
-`lunette.onWindowOpened = handler` was the alternative: assignment on the module table, which keeps LÖVR's feel and would have been typed, since the module can name its own types. It keeps the single slot, which is the defect, so it answers the smaller half of the problem and not the larger.
+One drain loads and unloads many instances, so raising one instance's failure from another's request blames the wrong caller. An operation a caller performs directly, such as `effect:dispose()`, raises its own failure.
 
-Only the way a listener is reached changed. The events still travel LÖVR's queue and are still drained through `lovr.handlers`, so they interleave with `lovr.keypressed` as they did, and the layering above stands: the native layer pushes flat events, and per-object and per-window signals are `mullion`'s.
+### A published service is a view that its provider's activation revokes
 
-### Errors and safe mode
+Handing consumers the provider's own table was rejected: a reference kept past unload would reach torn-down state, every provider would need its own liveness guard, and consumers would share one mutable table. The view checks the provider's activation, not the consumer's, because a consumer's inverses call services while the consumer unloads, and dependents always unload before their providers. The view checks reads instead of wrapping methods, because a wrapper adds a stack frame that would misattribute errors raised at level 2.
 
-The native side of the callback boundary rate-limits nothing. `crates/lunette/src/callback_error.rs` splits the message from the traceback and hands both to `mullion.error`, which owns the limiter, the wording, and the panel. Two limiters keyed differently would produce gaps that neither of them explains: an occurrence suppressed natively never reaches the Lua one, whose window then starts from the wrong occurrence. The cost is that a session with no standard library loaded has no limiter at all, and logs an error raised every frame every frame. That is stated in [Errors](#errors) rather than papered over.
+### Consumer resources are released on the consumer's owner
 
-The error panel is a module of its own, `mullion.error.panel`, rather than part of `mullion.error`. Drawing needs a `Pass` and reporting does not, and `mullion.error` is loaded by sessions that switch the graphics module off — the spec run is one. It wraps the handler's documented `report` seam rather than being wired in from the handler, so a configuration that wants a different error surface leaves it out instead of displacing it.
+Registering the release on the provider's context was rejected because one failing inverse would quarantine the provider for every consumer. Owner-scoped changes are overrides rather than reverts, because a revert's outcome depends on unload order and can restore an ended owner's value. A taken name raises, because replacing or sharing the registration would end or share a resource another owner still holds.
 
-Safe mode is triggered by wrapping `lovr.boot`, not by installing a `lovr.errhand`. `lovr.boot` is the function whose failure means the configuration did not load. `lovr.errhand` is reached by every error that escaped a callback boundary and belongs to the configuration — `mullion.error` installs one — so taking it would both over-trigger and displace policy.
+### The plugin runtime does not defend against a malicious plugin
 
-The boundary the wrapper draws is one callback wider than "the configuration did not load", and that is deliberate rather than unnoticed. `lovr.boot` ends with `return lovr.run()`, and `lovr.run` calls `lovr.load` before it returns the frame loop, so a `lovr.load` that raises is caught by the wrapper and replaced with safe mode rather than being reported through `mullion.error` like every other callback. Treating it as a load failure is the right answer: `lovr.load` is where a configuration builds the state its later callbacks assume, and a session whose `lovr.load` raised halfway is not one those callbacks can run in. Everything after `lovr.load` — `lovr.update`, `lovr.draw`, and the `lun*` callbacks — happens after the frame loop has been returned, and goes to [the callback boundary](#errors) instead.
+Every plugin runs in the configuration's Lua state with the whole `lunette` API. The runtime's checks catch honest mistakes and stale handles; they are not a security boundary. Sandboxing would need a Lua state per plugin and a narrowed API ([Overview](overview.md#non-goals)).
+
+### A child is enabled when it is installed
+
+`Context:child` enables its instance, matching Cordis's `ctx.plugin`, because every caller would otherwise enable it at once. A conflicting reservation raises in the parent's initializer and fails the parent.
+
+### Plugin calls take named fields
+
+A plugin-system call whose positional arguments would not say what they are takes a table of named fields, which also lets the facade reject a misspelt field. An owner-first call with one self-describing argument stays positional, as do surface callbacks that follow LÖVR's ray conventions. `Definition<C>` erases the context and publisher to `never`, because a recursive `Context` stops `Context:child` from checking its configuration.
+
+### A declaration is a list of capabilities
+
+`Context:require` and `Publisher:provide` find a service by capability identity, so a name for each declared capability would reach only the runtime manager's details, beside the contract it repeats. The facade keys each capability by its contract for the native graph. A contract carries a `version` rather than a `schema`, because `schema` names a plugin's configuration descriptor in the same declarations; the native `plugin.contract` keeps its own term.
+
+### One owner rule for every acquisition
+
+`Context:acquire`, `Context:acquireDeferred`, and `Context:resource` accept the same owners: the provider's own context or a checked dependent. The `Owner` type exposes no method, because an `effect` method on the owner would register a resource without the check, and nothing would make a provider call `checkOwner` first.
+
+### Configuration types and validation share one descriptor
+
+A runtime schema beside hand-written types was rejected because the two diverge. Preflight rejects invalid settings before acquiring resources but cannot guarantee that an initializer succeeds.
+
+### Composition has one start path
+
+`plugin.compose` needs only the facade, so a configuration composes its own list without the desktop. A second start path that validated at activation was rejected because the two would disagree on when a bad option fails.
+
+### A typed patch is made from the definition
+
+`plugin.configure(id, target)` returns a function of the configuration. Inferring from the definition and the literal in one call widens literal options such as `hand = 'right'` to `string` and reports a correct call as an error. The patch carries `target`, and composition raises when the entry with that id is made from another definition, because the target only supplies a type and a mismatch would check the options against the wrong entry. The shipped desktop's settings are a typed table keyed by entry id over the entries' own descriptors; they restate the configurable part of the entry list, which a test keeps in step, and an inserted entry configures itself through its insert's `config`.
+
+### Frame dispatch and the surface list are contracts
+
+A configuration-local callback registry was rejected because a plugin could reach it only by copying the file. Phases name why a handler runs where it does, so a new handler need not read every other consumer's order numbers. The `binding` and `delivery` phases let a hotkey consume a key before it reaches the target.
+
+### The checker reports a capability with an unknown service type
+
+`crates/lunette-lovr/src/analyze.cpp` reports calls whose result is a capability at `unknown`. Making the omission a type error in the facade's signature was rejected: a type function on the return type pushed every `Context:require` past the checker's complexity limit, and one on the parameter crashed the vendored solver across modules.
+
+### A keyboard is laid out from keys
+
+Keys carry `x`, `height`, and spacers, as keyboard-layout-editor's format does, so split keyboards, tall keys, and arrow clusters can be written. A uniform grid was rejected because it expresses none of them. An action is a union discriminated by `kind`, and `custom` lets a hook give a key a meaning the provider lacks.
+
+### The keyboard contract is what consumers call
+
+Legend lookup, latch and lock sets, rows, and style stay with the provider; a provider hook may name the provider's own `Board` type where a contract may not. A keyboard has no programmatic key or text methods and no per-keyboard rows or style: consumers press it through its surface, a plugin that types sends text through its own focus source, and every substitute provider would otherwise implement methods nothing calls. Route changes clear modifiers at once so a modifier chosen for one receiver cannot reach the next. `Keyboard` restates the surface fields rather than intersecting `Surface`, because an intersection holds two function types for `setPose` and makes calls ambiguous; `vocabulary.Movable` exists for the same reason.
+
+### Hooks cover what wrappers cannot
+
+The keyboard's `onKey` and `drawKey`, interaction's `drive` and `constrain`, and the laser's `draw` reach behaviour a wrapper cannot, because the provider calls itself through closures or from a bulk draw. A provider module that exposed an unpublished `build` for a plugin to wrap and publish under the same contract was rejected: no plugin wrapped a provider, and a wrapper changes only what reaches the service from outside. A `pick` hook was not added because `drive` can use the picking module. A whole-keyboard draw hook was not added because `style` covers the plate.
+
+### Haptics reach a pointer through its creator
+
+Only a pointer's creator knows the device. A separate feedback contract keyed by pointer was rejected as one more agreement for one function.
+
+### Pointer buttons are a map
+
+`Input.buttons` maps each held pointer button to true, so a right click or a remapped trigger needs no new provider. Which controller button holds which pointer button is device knowledge, so it is the laser's `buttons` option. A pointer's grab offset, two-handed partner, and pressed sink stay private, because exposing them would oblige every replacement to reproduce them.
+
+### Layouts are a broker
+
+A contract per layout, varied by replacing its provider, was rejected: it allows one layout at a time and shapes the contract like its first implementation. A layout is chosen by a name that a configuration carries. A tag carries no layout: a per-tag override was removed because no shipped plugin set one, so `desktop/arrange` applies its one configured layout to every tag.
+
+### Drops are a broker of their own
+
+Announcing drops through panels was rejected because interaction would require panels only to emit. Putting the event on the interaction contract was rejected because every listener would then go down with an interaction outage. Pose memory is a child of `desktop/adoption`, so a replacement interaction does not have to know about it.
+
+### A broker announces its own changes
+
+A renderer of a registry learns of a change from the registry. Polling `list()` every frame and comparing the rows was rejected because the broker already knows when its state changes. Every notification takes a listener table, so a later field, such as the tags contract's `tag` filter, needs no new signature.
+
+### Overrides return effects and take their value
+
+An owner-scoped override returns the effect that ends it, so selecting a tag and hiding a panel undo the same way. A single-field option table such as `{ hidden = true }` was replaced by the value itself, because the table carried no second field. Handles keep `destroy` and effects keep `dispose`: a handle is a resource the caller uses, and an effect is only its ending.
+
+### Focus is a contract of its own
+
+Keyboard routing is separate from interaction, so a keyboard or a local receiver needs no pointer provider. [Input](input.md#decisions) records the routing decisions.
+
+### Decorations are a consumer
+
+A decorator broker in the panels provider was rejected because the panels contract's listeners already give a consumer what it needs.
+
+### Tags are held and excluded
+
+`hold` shares a tag among its holders, so entries need no start order. Letting any owner remove any membership was rejected because the change would not end with its owner.
+
+### Placement is a contract of its own
+
+Placement is the integration component of section 6.5 of the Cordis paper. Mapping properties to panel options inside rules was rejected because rules would then require panels and tags. Placement announces every placement, so a plugin that places windows itself is arranged like an adopted one.
+
+### Presenters are consumers of one error stream
+
+A contract that carried a quad's position was rejected because a notification presenter would have to fake it.
+
+### Pacing and scale hand out choosers
+
+A rule with history or hysteresis needs state per window or output, and a chooser owned by its caller avoids telling the service when each one ends. A service that applied rates itself was rejected because reading the scene is a separate choice from the rule.
+
+### A window names its output and its latest commit
+
+Scaling by nearest panel needs a window's output, and pacing needs to know whether a client drew; both are mechanism. Comparing textures across frames was rejected because a texture lives for one frame and a client alternating two buffers repeats them.
+
+### Theme selection has a stable provider
+
+The theme service is separate from the replaceable selector, so disabling the selector restores the base without removing a service the recovery UI requires. Last-live arbitration over whole themes avoids mixing palettes field by field. Faces are released by garbage collection, because recorded passes hold their own references and deterministic leasing cost more than the few faces a session loads.
+
+### Themes are an open catalog
+
+A plugin calling `theme:select` with its theme was rejected because it would contend with the selector and never appear among its choices. Entries are complete themes so none silently inherits the base.
+
+### UI activation tokens are frozen tables
+
+A numeric generation counter restarts after replacement and can repeat a panel's name and revision. Control ids are namespaced by owner rather than by panel, because one owner may build controls across panels and several owners may contribute to one.
+
+### Joined frames expose a narrow optional relationship
+
+The target owns body drawing and knows whether it is eligible to join, so generic surfaces need not expose layer or curve state. A general container or transform API was rejected as unneeded. Dormant attachments persist so temporary layer grants or hiding cause no per-frame churn ([Rendering](rendering.md#joining-follows-the-actual-rendering-path)).
+
+### Grapheme segmentation is native mechanism
+
+Extended grapheme rules are a correctness tail, so the native helper uses `unicode-segmentation` rather than a Lua implementation. Editing policy stays in Lua.
+
+### State a frame reads is not also announced
+
+A claim's grant and a window's title are fields a consumer reads every frame. `onLayerGranted`, `onLayerRevoked`, and `onTitleChanged` were removed because nothing subscribed to them, and two ways to learn one fact let the documented one drift from the one in use. An event returns with the consumer that needs it.
+
+### Handles compare by what they name
+
+Every read returns fresh userdata, so raw equality told two reads of one window apart and every caller compared ids, with a sink needing a different id per domain. `__eq` compares what two handles name. Ids remain, because a table keyed by handle compares keys raw.
 
 ## Known gaps
 
-Named, not solved.
+Native events are named `lun*` inside LÖVR's event namespace. A collision with a future LÖVR event is unlikely but not excluded.
 
-The `lovr.lun*` prefix squats in LÖVR's callback namespace permanently. It is distinctive enough that a collision is unlikely, but this remains an assumption rather than a guarantee.
+`lunctl` has root-equivalent access to the user's session; anything that can write to the socket controls the session.
 
-`lunctl` has root-equivalent access to the session. Anything that can write to the socket controls the machine. This follows from the single-user assumption, stated explicitly, and the socket is never network-reachable.
+Source reload and hard restart run no cleanup for Lua modules outside the plugin runtime.
+
+An error in a LÖVR callback that no Lua dispatcher protects ends the session with status 1. Recovering in the host would need each callback called under its own protected call, and a frame that unwinds between `lovr.headset.getPass` and `lovr.headset.submit` would still have to end the XR frame it began. A `lovr.errhand` that returns the previous loop skips the rest of the frame, including its submit.
+
+A monitor panel cannot hold a composition layer, because `lunette.claimLayer` takes windows. The curved arc mesh and rounded scene geometry have not been seen on a GPU-backed session, and real font loading in installed and development sessions is unverified.
+
+Text shaping, bidirectional editing, and IME composition are absent from the UI toolkit, and draw hooks cannot make arbitrary pass misuse safe. [Input](input.md#known-gaps) records the routing limits.
+
+## Deliberately left open
+
+Contract authorities are a naming convention and are not authenticated. Any module can declare a contract under any authority, including `lunette`, and the first declaration in an epoch holds the name and schema. Binding an authority to the package that may declare under it is left to plugin packaging and distribution, #39.

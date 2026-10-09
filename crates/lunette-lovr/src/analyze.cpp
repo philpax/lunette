@@ -1,17 +1,19 @@
 // The Luau type checker, as a C surface for `lunette check`.
 //
-// The frontend setup mirrors `CLI/src/Analyze.cpp`. The standing check and
-// the user-facing command both use this checker, so the two cannot differ.
+// The frontend setup mirrors `CLI/src/Analyze.cpp`.
 
-#include "Luau/AnalyzeRequirer.h"
+#include "analyze_navigation.h"
 #include "Luau/BuiltinDefinitions.h"
 #include "Luau/Config.h"
 #include "Luau/ExperimentalFlags.h"
 #include "Luau/Frontend.h"
 #include "Luau/RequireNavigator.h"
+#include "Luau/Type.h"
+#include "Luau/TypePack.h"
 
 #include <cstring>
 #include <fstream>
+#include <mutex>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -47,9 +49,9 @@ struct DirectoryConfigResolver : Luau::ConfigResolver
     Luau::Config defaults;
     mutable std::unordered_map<std::string, Luau::Config> cache;
 
-    explicit DirectoryConfigResolver(Luau::Mode mode)
+    DirectoryConfigResolver()
     {
-        defaults.mode = mode;
+        defaults.mode = Luau::Mode::Strict;
     }
 
     const Luau::Config& getConfig(const Luau::ModuleName& name, const Luau::TypeCheckLimits&) const override
@@ -67,16 +69,13 @@ struct DirectoryConfigResolver : Luau::ConfigResolver
         Luau::Config config = (parent == directory || directory == "." || directory.empty())
             ? defaults
             : forDirectory(parent);
-        // The mode is not inherited from a parent's `.luaurc`. The caller
-        // chooses the mode, and a `.luaurc` that omits it must not lower it.
+        // A `.luaurc` that omits the mode must not lower the caller's choice.
         config.mode = defaults.mode;
 
         if (std::optional<std::string> contents = slurp(directory + "/" + Luau::kConfigName))
         {
-            // Aliases are parsed when the alias options are set. An alias
-            // carries the directory of the `.luaurc` that declared it, so a
-            // relative alias resolves against that directory. The working
-            // directory is not used.
+            // A relative alias resolves against its `.luaurc`'s directory,
+            // not the working directory.
             Luau::ConfigOptions options;
             options.aliasOptions = Luau::ConfigOptions::AliasOptions{directory, true};
             Luau::parseConfig(*contents, config, options);
@@ -86,8 +85,7 @@ struct DirectoryConfigResolver : Luau::ConfigResolver
     }
 };
 
-// Resolves a module by path. A require goes through Luau's own navigator, so
-// a require means here what it means in an editor.
+// Resolves a module with Luau's require traversal and a filesystem context that follows symlinks.
 struct PathResolver : Luau::FileResolver
 {
     std::optional<Luau::SourceCode> readSource(const Luau::ModuleName& name) override
@@ -104,10 +102,7 @@ struct PathResolver : Luau::FileResolver
         if (literal == nullptr || context == nullptr)
             return std::nullopt;
 
-        // A `.luau` configuration is not executed. Executing one needs a
-        // `lua_State` and a time limit passed through the navigator. Lunette
-        // writes and documents `.luaurc`.
-        FileNavigationContext navigation{context->name};
+        CheckerNavigationContext navigation{context->name};
         Luau::Require::ErrorHandler silent;
         Luau::Require::Navigator navigator(navigation, silent);
 
@@ -123,14 +118,20 @@ struct PathResolver : Luau::FileResolver
     }
 };
 
-// The flag set is the same as luau-analyze's setLuauFlagsDefault. Without it
-// the checker accepts a different language: `declare class` still parses,
-// although current Luau no longer accepts the syntax.
+// Matches luau-analyze's setLuauFlagsDefault, without which the checker
+// accepts a different language.
+//
+// The flags are process-global and checks may run concurrently, so they are
+// set once. A static initializer cannot, because the flags register from other
+// translation units' static initializers in an unspecified order.
 void enableDefaultFlags()
 {
-    for (Luau::FValue<bool>* flag = Luau::FValue<bool>::list; flag; flag = flag->next)
-        if (strncmp(flag->name, "Luau", 4) == 0 && !Luau::isAnalysisFlagExperimental(flag->name))
-            flag->value = true;
+    static std::once_flag once;
+    std::call_once(once, [] {
+        for (Luau::FValue<bool>* flag = Luau::FValue<bool>::list; flag; flag = flag->next)
+            if (strncmp(flag->name, "Luau", 4) == 0 && !Luau::isAnalysisFlagExperimental(flag->name))
+                flag->value = true;
+    });
 }
 
 char* copy(const std::string& text)
@@ -140,7 +141,6 @@ char* copy(const std::string& text)
     return owned;
 }
 
-// Collects the inputs to the report.
 struct Collector
 {
     std::vector<lunette_luau_diagnostic> diagnostics;
@@ -159,6 +159,54 @@ struct Collector
         diagnostics.push_back(diagnostic);
     }
 };
+
+// Whether a type is `{ read witness: (T) -> T }` at T = unknown. An
+// uninstantiated `plugin.capability` leaves T unknown, and every read through
+// it then goes unchecked silently.
+bool isUnnamedCapability(Luau::TypeId type)
+{
+    const Luau::TableType* table = Luau::get<Luau::TableType>(Luau::follow(type));
+    if (table == nullptr || table->props.size() != 1 || table->indexer)
+        return false;
+
+    auto witness = table->props.find("witness");
+    if (witness == table->props.end() || !witness->second.readTy)
+        return false;
+
+    const Luau::FunctionType* function = Luau::get<Luau::FunctionType>(Luau::follow(*witness->second.readTy));
+    if (function == nullptr)
+        return false;
+
+    auto [arguments, tail] = Luau::flatten(function->argTypes);
+    return arguments.size() == 1 && !tail && Luau::get<Luau::UnknownType>(Luau::follow(arguments[0])) != nullptr;
+}
+
+// Finds each call whose result is a capability with an unknown service type.
+struct UnnamedCapabilities : Luau::AstVisitor
+{
+    const Luau::Module& module;
+    std::vector<Luau::Location> found;
+
+    explicit UnnamedCapabilities(const Luau::Module& module)
+        : module(module)
+    {
+    }
+
+    bool visit(Luau::AstExprCall* call) override
+    {
+        if (const Luau::TypePackId* results = module.astTypePacks.find(call))
+        {
+            std::optional<Luau::TypeId> first = Luau::first(*results);
+            if (first && isUnnamedCapability(*first))
+                found.push_back(call->location);
+        }
+        return true;
+    }
+};
+
+const char* const kUnnamedCapability =
+    "this capability's service type is unknown, so nothing read through it is checked; name it with "
+    "plugin.capability<<Service>> { ... }";
 
 lunette_luau_report* fail(const std::string& message, Collector& collected)
 {
@@ -183,11 +231,8 @@ lunette_luau_report* check_within(const lunette_luau_request* request);
 extern "C"
 {
 
-// The function is `noexcept`, and the body is wrapped. Rust declares this
-// `extern "C"`, not `extern "C-unwind"`, so an exception crossing the boundary
-// is undefined behaviour. The frontend's construction, the definitions load,
-// and `freeze` can all raise, and the body catches exceptions and turns them
-// into a failure report.
+// Rust declares this `extern "C"`, so an exception crossing the boundary is
+// undefined behaviour, and every exception becomes a failure report.
 lunette_luau_report* lunette_luau_check(const lunette_luau_request* request) noexcept
 {
     try
@@ -222,12 +267,13 @@ lunette_luau_report* check_within(const lunette_luau_request* request)
 
     Luau::FrontendOptions options;
     options.runLintChecks = true;
+    // The unnamed-capability check reads each expression's type after the
+    // module is checked, and the frontend discards them otherwise.
+    options.retainFullTypeGraphs = true;
 
-    DirectoryConfigResolver config(request->strict ? Luau::Mode::Strict : Luau::Mode::Nonstrict);
+    DirectoryConfigResolver config;
     PathResolver files;
-    Luau::SolverMode solver = request->old_solver ? Luau::SolverMode::Old : Luau::SolverMode::New;
-
-    Luau::Frontend frontend(solver, &files, &config, options);
+    Luau::Frontend frontend(Luau::SolverMode::New, &files, &config, options);
     Luau::registerBuiltinGlobals(frontend, frontend.globals);
 
     if (request->definitions != nullptr)
@@ -241,8 +287,6 @@ lunette_luau_report* check_within(const lunette_luau_request* request)
 
         if (!loaded.success)
         {
-            // The loader reports both failure modes: a definitions file that
-            // does not parse, and one that parses and does not typecheck.
             const std::string module = request->definitions;
             for (const Luau::ParseError& error : loaded.parseResult.errors)
                 collected.add(LUNETTE_LUAU_SYNTAX_ERROR, module, error.getLocation(), error.getMessage());
@@ -260,9 +304,7 @@ lunette_luau_report* check_within(const lunette_luau_request* request)
     {
         const std::string root = request->roots[index];
 
-        // The frontend asserts on a module it cannot read, so each root is
-        // read first. An unreadable root becomes a syntax error and is not
-        // passed to the frontend.
+        // The frontend asserts on a module it cannot read.
         if (!files.readSource(root))
         {
             collected.add(LUNETTE_LUAU_SYNTAX_ERROR, root, Luau::Location(), "the file could not be read");
@@ -280,6 +322,16 @@ lunette_luau_report* check_within(const lunette_luau_request* request)
                     collected.add(LUNETTE_LUAU_SYNTAX_ERROR, module, error.location, syntax->message);
                 else
                     collected.add(LUNETTE_LUAU_TYPE_ERROR, module, error.location, Luau::toString(error));
+            }
+
+            Luau::ModulePtr module = frontend.moduleResolver.getModule(root);
+            const Luau::SourceModule* source = frontend.getSourceModule(root);
+            if (module && source && source->root)
+            {
+                UnnamedCapabilities unnamed(*module);
+                source->root->visit(&unnamed);
+                for (const Luau::Location& location : unnamed.found)
+                    collected.add(LUNETTE_LUAU_TYPE_ERROR, root, location, kUnnamedCapability);
             }
 
             for (const Luau::LintWarning& warning : result.lintResult.errors)

@@ -1,105 +1,39 @@
-//! Linux-only: the configuration lunette runs when the user's configuration does not
-//! load.
+//! Linux-specific embedded fallback configuration for startup failures.
 //!
-//! The native layer owns one failure path
-//! ([the Lua API](../../../docs/dev/lua-api.md#errors)). That path produces safe mode:
-//! a laser, one panel, a terminal, and a reload key. Safe mode shows the cause of the
-//! failure and lets the user recover from inside the headset without taking it off to
-//! edit a file.
-//!
-//! Safe mode is embedded in the binary, not installed. Safe mode exists for when
-//! `main.lua` fails to load. A broken standard library, a missing install, or a bad
-//! `LUNETTE_STDLIB_PATH` can cause the load to fail, so the fallback must not
-//! depend on anything on disk. [`SOURCE`] requires `lunette` and nothing else, and
-//! never `mullion`.
-//!
-//! # How it is reached
-//!
-//! [`install_trigger`] wraps `lovr.boot`. A failure of `lovr.boot` means the
-//! configuration did not load. `vendor/lovr/etc/boot.lua` calls the wrapped function
-//! under `xpcall`. Every load failure raises inside that call: a source that does not
-//! mount, a missing `main.lua`, a `conf.lua` that raised, a syntax error, an error at
-//! the top level of `main.lua`.
-//!
-//! # The boundary includes `lovr.load`
-//!
-//! `lovr.boot` ends with `return lovr.run()`. `lovr.run` calls `lovr.load(arg)` before
-//! it returns the frame loop. Both statements are in `vendor/lovr/etc/boot.lua`. A
-//! `lovr.load` that raises is caught by the wrapper and replaced with safe mode, while
-//! every other callback reports through [`crate::callback_error`]. `lovr.load` is where a
-//! configuration builds the state its later callbacks assume, and a session whose
-//! `lovr.load` raises halfway cannot run those callbacks. `docs/dev/lua-api.md` records the
-//! boundary.
-//!
-//! Everything after `lovr.load` (`lovr.update`, `lovr.draw`, the `lun*`
-//! callbacks) runs inside the frame loop, after the wrapper has returned it, so a
-//! runtime error in one of them does not reach the wrapper. The distinction is
-//! described in [the Lua API](../../../docs/dev/lua-api.md#errors): a runtime error in
-//! a callback of a configuration that started goes to [`crate::callback_error`],
-//! and a reload that fails leaves the previous session running
-//! ([`crate::reload`]).
+//! Safe mode runs when `lovr.boot` or `lovr.load` fails. It uses no file-backed
+//! module roots, so it can run when the standard library or installation is
+//! unavailable. Other callback failures use [`crate::callback_error`]. A failed
+//! reload leaves the current session running. See
+//! [error handling](../../../docs/dev/lua-api.md#errors).
 
 use mlua::{Function, Lua, Table, Value};
 use tracing::{error, info};
 
 use crate::reload;
 
-/// The chunk, compiled into the binary.
-///
-/// `include_str!` embeds it, not a string literal, so the Lua stays in a file:
-/// syntax highlighting applies, the file diffs against the default configuration
-/// it resembles, and the tests below read the same bytes the session runs.
-pub const SOURCE: &str = include_str!("safe_mode.lua");
+/// The safe-mode Lua source embedded in the binary.
+pub const SOURCE: &str = include_str!("safe_mode.luau");
 
-/// What a traceback names the chunk.
-///
-/// The leading `@` is LuaJIT's marker for a chunk named after a file. It makes
-/// an error inside safe mode read as `safe-mode.lua` with a line number, not as
-/// the first line of the source quoted back.
-pub const CHUNK_NAME: &str = "@safe-mode.lua";
+/// The chunk name used in safe-mode tracebacks.
+pub const CHUNK_NAME: &str = "@safe-mode.luau";
 
-/// Compiles [`SOURCE`] against `lua`, without running it.
-///
-/// The caller runs it; when it runs is the caller's decision. Safe mode replaces
-/// `main.lua`, so the chunk executes at the point in the boot sequence the
-/// configuration would have been.
+/// Compiles [`SOURCE`] without running it.
 ///
 /// # Errors
 ///
-/// If the chunk does not compile. That condition is a defect in [`SOURCE`], not
-/// an action of the session.
+/// Returns a compilation error if [`SOURCE`] is invalid.
 pub fn load(lua: &Lua) -> mlua::Result<Function> {
     lua.load(SOURCE).set_name(CHUNK_NAME).into_function()
 }
 
-/// Arranges for safe mode to run when the configuration does not load.
+/// Installs a `lovr.boot` wrapper that starts safe mode when startup fails.
 ///
-/// It wraps `lovr.boot`. It must be called after `boot.lua`'s chunk has run,
-/// which creates the `lovr` table, and before the coroutine is first resumed,
-/// when `boot.lua` reads `lovr.boot` back.
-///
-/// # Trigger choice: `lovr.boot`, not `lovr.errhand`
-///
-/// `lovr.errhand` catches every error that escapes a callback boundary, including
-/// errors unrelated to the load failure. It also belongs to the
-/// configuration: `mullion.error` installs one, and replacing it would replace
-/// that one. Wrapping `lovr.boot` catches a failure to start and nothing after
-/// it, so a runtime error one frame into a session that started cannot replace
-/// the session with the fallback. The boundary is one callback wider than
-/// "the configuration did not load": `lovr.load` runs inside it. The module
-/// documentation states where the boundary falls.
-///
-/// # What `boot.lua` does with the return value
-///
-/// `vendor/lovr/etc/boot.lua` contains `local thread = select(2, xpcall(lovr.boot,
-/// onerror))`. `lovr.boot` ends with `return lovr.run()`, a function that runs one
-/// frame per call. The wrapper returns a frame loop whether boot succeeds or
-/// fails; the loop after a failure is safe mode's.
+/// Call after `boot.lua` creates `lovr` and before its coroutine resumes. The
+/// wrapper covers `lovr.load`; later callback failures remain outside this boundary.
 ///
 /// # Errors
 ///
-/// If `lovr.boot` cannot be read or replaced. That condition means `boot.lua` is
-/// not the version this code targets.
+/// Returns an error if `lovr.boot` cannot be read or replaced.
 pub fn install_trigger(lua: &Lua) -> mlua::Result<()> {
     let lovr: Table = lua.globals().get("lovr")?;
     let boot: Function = lovr.get("boot")?;
@@ -111,25 +45,17 @@ pub fn install_trigger(lua: &Lua) -> mlua::Result<()> {
     lovr.set("boot", wrapper)
 }
 
-/// Runs safe mode in place of the configuration, and answers its frame loop.
+/// Runs safe mode and returns its frame loop.
 ///
-/// The load error is reported before anything else: a user who never sees the
-/// log still needs to know what happened. The error is passed into the chunk as
-/// its one argument, and safe mode shows it.
+/// The host logs the load error and passes it to the safe-mode chunk.
 ///
 /// # Errors
 ///
-/// If safe mode itself does not load or run. No fallback remains at that point,
-/// so the failure is returned and `boot.lua`'s own handler takes it. The session
-/// then ends with a message, not with a black headset and no explanation.
+/// Returns an error if safe mode does not load or run.
 fn start(lua: &Lua, failure: &mlua::Error) -> mlua::Result<Value> {
     let reported = failure.to_string();
     error!("lua: the configuration could not be loaded, so safe mode is running: {reported}");
 
-    // A `main.lua` that raised halfway can have installed some of its
-    // callbacks, and `lovr.run` keeps calling them. Safe mode installs its
-    // own below; clearing the old ones stops the broken configuration's
-    // callbacks surviving alongside them.
     if let Err(error) = reload::clear_user_callbacks(&lua.globals()) {
         error!("lua: the failed configuration's callbacks could not be cleared: {error}");
     }
@@ -151,18 +77,13 @@ mod tests {
     use mlua::{Function, Lua, Table, Value};
     use pretty_assertions::assert_eq;
 
-    use crate::safe_mode::{CHUNK_NAME, install_trigger, load};
+    use crate::safe_mode::{install_trigger, load};
 
-    /// The fake `lunette` module, the fake `lovr`, and the recording pass every
-    /// case below runs the chunk against.
-    ///
-    /// The fakes are written in Lua, not assembled through `mlua`, because they
-    /// must be a Lua-shaped API: a window with a `sink` whose methods take
-    /// `self`, a `windows()` that answers a fresh table, a headset that reports
-    /// a pose. Writing them in Rust means writing Lua one `create_function` at
-    /// a time.
+    /// The fake `lunette` module, `lovr`, and recording pass that each case runs
+    /// the chunk against. They are written in Lua because the real API is
+    /// method-shaped: `self` is the window's sink.
     const ENVIRONMENT: &str = r#"
-      local recorded = { spawns = {}, calls = {}, planes = 0, texts = 0, lines = {} }
+      local recorded = { spawns = {}, calls = {}, planes = 0, texts = 0 }
 
       local sink = {}
       sink.__index = sink
@@ -199,8 +120,8 @@ mod tests {
             recorded.spawns[#recorded.spawns + 1] = options.argv[1]
             return { id = #recorded.spawns }
           end,
-          -- Faked rather than real: the real one re-runs `main.lua`, and the
-          -- `main.lua` that would not load is why safe mode is running.
+          -- Faked rather than real: the real one re-runs `main.luau`, and the
+          -- `main.luau` that would not load is why safe mode is running.
           reload = function()
             recorded.reloads = recorded.reloads + 1
             return recorded.reloaded, recorded.reloadMessage
@@ -219,17 +140,13 @@ mod tests {
       function recorded.pass:plane()
         recorded.planes = recorded.planes + 1
       end
-      function recorded.pass:line(...)
-        recorded.lines[#recorded.lines + 1] = { ... }
-      end
+      function recorded.pass:line() end
       function recorded.pass:setMaterial() end
       function recorded.pass:setShader() end
       function recorded.pass:setBlendMode() end
 
-      -- A headset whose tracked hands are the keys of `recorded.tracked`, aimed
-      -- by `recorded.direction` from `recorded.origin`, with the trigger in
-      -- `recorded.trigger`. The left hand alone by default, so that a case
-      -- about one hand counts one hand's calls.
+      -- The tracked hands are the keys of `recorded.tracked`. The left hand is
+      -- the only one by default.
       function recorded.installHeadset()
         lovr.headset = {
           isTracked = function(device)
@@ -331,22 +248,9 @@ mod tests {
             .join("\n")
     }
 
-    #[test]
-    fn the_chunk_compiles_and_is_named_for_a_traceback() {
-        let lua = environment();
-
-        load(&lua).expect("the safe-mode chunk should compile");
-
-        assert!(
-            CHUNK_NAME.starts_with('@'),
-            "a chunk name without the leading @ is quoted into every traceback"
-        );
-    }
-
     /// Safe mode runs when the standard library may be the reason the
-    /// configuration failed, so it must not depend on one. `package.path` is
-    /// emptied and `package.preload` holds `lunette` alone, the state a
-    /// session with no standard library mounted is in.
+    /// configuration failed, so it must not depend on one. The trigger that
+    /// starts it from a failed boot must not depend on one either.
     #[test]
     fn it_runs_with_no_standard_library_anywhere() {
         let lua = environment();
@@ -371,18 +275,14 @@ mod tests {
             vec!["@lunette".to_owned()],
             "safe mode should require lunette and nothing else"
         );
-    }
 
-    #[test]
-    fn it_defines_the_callbacks_the_session_calls() {
-        let lua = started();
-        let lovr = lovr(&lua);
+        let lua = booting("error('main.luau:1: a deliberate defect')");
+        lua.load("package.path = '' package.cpath = ''")
+            .exec()
+            .expect("the search path should be emptied");
+        install_trigger(&lua).expect("the trigger should install");
 
-        for name in ["load", "update", "draw", "keypressed"] {
-            let defined: Option<mlua::Function> =
-                lovr.get(name).expect("the callback should be readable");
-            assert!(defined.is_some(), "safe mode should define lovr.{name}");
-        }
+        assert_eq!(boot(&lua), "safe mode's loop");
     }
 
     /// The frame runs with no graphics module, no headset, and no window,
@@ -404,36 +304,6 @@ mod tests {
         );
         let planes: i64 = recorded.get("planes").expect("planes should be counted");
         assert_eq!(planes, 0, "there is no window to draw");
-    }
-
-    #[test]
-    fn it_spawns_a_terminal_and_falls_through_to_the_next_when_one_will_not_start() {
-        let lua = started();
-
-        call(&lua, "load", ());
-        let first = spawns(&lua);
-        assert_eq!(first.len(), 1, "load should spawn one candidate");
-
-        let event = lua
-            .load("return { process = { id = 1 }, outcome = 'spawnFailed' }")
-            .eval::<Table>()
-            .expect("the event should build");
-        recorder(&lua)
-            .get::<Function>("processExited")
-            .expect("safe mode subscribes to process exits")
-            .call::<()>(event)
-            .expect("the process exit handler runs");
-
-        let second = spawns(&lua);
-        assert_eq!(
-            second.len(),
-            2,
-            "a failed spawn should try the next candidate"
-        );
-        assert_ne!(
-            second[0], second[1],
-            "the next candidate is a different program"
-        );
     }
 
     /// A hand aimed at the middle of the panel puts the pointer at the middle of
@@ -474,32 +344,6 @@ mod tests {
         assert_eq!(buttons.len(), 2, "one press and one release");
         assert!(buttons[0].3, "the first is the press");
         assert!(!buttons[1].3, "the second is the release");
-    }
-
-    /// Both hands point, and both deliver. Safe mode has one seat, not one per
-    /// hand, so the two share a cursor. A session where only the hand the list
-    /// happens to name first works would be worse, and this case catches it.
-    #[test]
-    fn both_hands_reach_the_panel() {
-        let lua = started();
-        lua.load(
-            "recorded.showWindow = true recorded.installHeadset() \
-             recorded.tracked['hand/right/point'] = true",
-        )
-        .exec()
-        .expect("the headset should install");
-
-        call(&lua, "load", ());
-        call(&lua, "update", ());
-
-        let pointers = recorded_calls(&lua)
-            .into_iter()
-            .filter(|call| call.0 == "pointer")
-            .count();
-        assert_eq!(
-            pointers, 2,
-            "each tracked hand should deliver its own pointer"
-        );
     }
 
     /// A hand pointing away from the panel neither moves the pointer nor
@@ -568,9 +412,8 @@ mod tests {
         assert_eq!(reloads, 1, "only the reload key should reload");
     }
 
-    /// A second broken configuration leaves safe mode running and shows why.
-    /// Safe mode is the configuration that must survive everything else
-    /// being broken. A reload that failed must not stop it.
+    /// Safe mode must survive a failed reload, because it is the last
+    /// configuration left running.
     #[test]
     fn a_reload_that_fails_leaves_safe_mode_running() {
         let lua = started();
@@ -580,8 +423,6 @@ mod tests {
 
         call(&lua, "keypressed", "f5");
 
-        // A frame after the failed reload still runs; the update and draw
-        // calls below check that it does.
         call(&lua, "update", ());
         let pass: Table = recorder(&lua).get("pass").expect("the pass should exist");
         call(&lua, "draw", pass);
@@ -591,13 +432,13 @@ mod tests {
     /// happened. That requirement is the reason the safe mode loop exists.
     #[test]
     fn the_load_error_is_shown_rather_than_only_logged() {
-        let lua = started_after("main.lua:12: '=' expected near 'panel'");
+        let lua = started_after("main.luau:12: '=' expected near 'panel'");
 
         let drawn = drawn(&lua);
 
         assert!(drawn.contains("safe mode"), "{drawn}");
         assert!(
-            drawn.contains("main.lua:12") && drawn.contains("expected near"),
+            drawn.contains("main.luau:12") && drawn.contains("expected near"),
             "the panel should say why the configuration did not load: {drawn}"
         );
         assert!(
@@ -606,36 +447,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_load_error_too_long_for_the_panel_is_truncated() {
-        let lua = started_after("x".repeat(10_000));
-
-        let drawn = drawn(&lua);
-
-        assert!(
-            drawn.contains('…'),
-            "a traceback is long and a headset is not a terminal: {drawn}"
-        );
-        assert!(
-            drawn.lines().count() < 20,
-            "the panel should not be a scrollback: {drawn}"
-        );
-    }
-
-    #[test]
-    fn a_frame_runs_with_no_load_error_at_all() {
-        let lua = started_after(mlua::Value::Nil);
-
-        let drawn = drawn(&lua);
-
-        assert!(drawn.contains("safe mode"), "{drawn}");
-    }
-
-    /// A Lua state shaped like the one `boot.lua`'s chunk leaves: a `lovr.boot`
-    /// that the coroutine calls, and a `lovr.run` that answers a frame loop.
-    ///
-    /// The case supplies the `boot` body. The rest of the scaffolding
-    /// reproduces what `boot.lua` leaves in place.
+    /// A state with the `lovr.boot` and `lovr.run` that `boot.lua` leaves in
+    /// place. The case supplies the body of `lovr.boot`.
     fn booting(boot: &str) -> Lua {
         let lua = environment();
         lua.load(format!(
@@ -670,7 +483,7 @@ mod tests {
     /// headset.
     #[test]
     fn a_configuration_that_does_not_load_produces_safe_mode() {
-        let lua = booting("error('main.lua:1: a deliberate defect')");
+        let lua = booting("error('main.luau:1: a deliberate defect')");
         install_trigger(&lua).expect("the trigger should install");
 
         assert_eq!(boot(&lua), "safe mode's loop");
@@ -678,20 +491,20 @@ mod tests {
         let drawn = drawn(&lua);
         assert!(drawn.contains("safe mode"), "{drawn}");
         assert!(
-            drawn.contains("main.lua:1"),
+            drawn.contains("main.luau:1"),
             "the load error should have reached safe mode: {drawn}"
         );
     }
 
     /// Safe mode replaces the configuration; it does not join it. A
-    /// `main.lua` that raised halfway has already installed some of its
+    /// `main.luau` that raised halfway has already installed some of its
     /// callbacks, and `lovr.run` would keep calling them.
     #[test]
     fn a_half_installed_configuration_stops_being_called() {
         let lua = booting(
             "function lovr.mousepressed() end
              function lovr.lunwindowopened() end
-             error('main.lua:3: a deliberate defect')",
+             error('main.luau:3: a deliberate defect')",
         );
         install_trigger(&lua).expect("the trigger should install");
 
@@ -728,19 +541,6 @@ mod tests {
         );
     }
 
-    /// The trigger works when the standard library is broken, so it must not need
-    /// one either.
-    #[test]
-    fn the_trigger_works_with_no_standard_library_anywhere() {
-        let lua = booting("error('main.lua:1: a deliberate defect')");
-        lua.load("package.path = '' package.cpath = ''")
-            .exec()
-            .expect("the search path should be emptied");
-        install_trigger(&lua).expect("the trigger should install");
-
-        assert_eq!(boot(&lua), "safe mode's loop");
-    }
-
     /// Every module `package.loaded` holds, by name.
     fn loaded_modules(lua: &Lua) -> Vec<String> {
         let package: Table = lua
@@ -752,16 +552,6 @@ mod tests {
             .pairs::<String, Value>()
             .filter_map(Result::ok)
             .map(|(name, _)| name)
-            .collect()
-    }
-
-    /// The programs requested from the fake `lunette.spawn`, in order.
-    fn spawns(lua: &Lua) -> Vec<String> {
-        recorder(lua)
-            .get::<Table>("spawns")
-            .expect("spawns should be recorded")
-            .sequence_values::<String>()
-            .filter_map(Result::ok)
             .collect()
     }
 

@@ -1,22 +1,6 @@
-//! Linux-only: carries PipeWire frames from its callback thread to the main thread.
+//! Linux-only: carries captured frames from backend callbacks to the main thread.
 //!
-//! The callback converts each frame into owned metadata and queues it. The main
-//! thread performs every Vulkan import through the same path as a Wayland
-//! client's buffer, so this crate does not depend on a graphics API or GPU queue.
-//!
-//! # Queue policy
-//!
-//! The bounded [`FrameQueue`] keeps the callback and frame loop independent. A
-//! full queue discards its oldest frame, and [`FrameQueue::take_latest`] discards
-//! older queued frames when the consumer reads. The queue counts both kinds of
-//! discard, and the stream counts conversion refusals, so diagnostics can
-//! distinguish a busy consumer from frames the importer cannot represent.
-//!
-//! # Descriptor lifetime
-//!
-//! A `FramePlane` descriptor belongs to the PipeWire buffer and is valid only
-//! during the callback. The callback duplicates it before placing the frame in
-//! the queue, because the queued frame outlives that callback.
+//! The main thread performs every Vulkan import, so this crate does not depend on a graphics API.
 
 use std::{
     collections::VecDeque,
@@ -30,8 +14,7 @@ use std::{
 use parking_lot::Mutex;
 use smallvec::SmallVec;
 use tracing::{debug, info, warn};
-// Re-exported so callers can provide importer formats without naming the
-// underlying `wlx-capture` dependency.
+// Re-exported so callers can provide importer formats without naming `wlx-capture`.
 pub use wlx_capture::{DrmFormat, DrmFourcc, DrmModifier};
 use wlx_capture::{
     WlxCapture,
@@ -56,9 +39,7 @@ pub struct CaptureStream {
 impl CaptureStream {
     /// Connects to a PipeWire node and starts delivering frames.
     ///
-    /// `formats` contains the DRM formats and modifiers the caller's importer
-    /// accepts. This crate does not depend on a graphics API, so the caller
-    /// supplies that information.
+    /// `formats` contains the DRM formats and modifiers the caller's importer accepts.
     #[must_use]
     pub fn start(name: impl Into<Arc<str>>, node: NodeId, formats: &[DrmFormat]) -> Self {
         let name = name.into();
@@ -90,8 +71,7 @@ impl CaptureStream {
 
     /// Stops the stream producing without releasing the portal session.
     ///
-    /// Pause differs from dropping the stream. Pausing makes the panel
-    /// temporarily invisible. Dropping dismisses the monitor.
+    /// Pausing hides the panel temporarily, while dropping the stream dismisses the monitor.
     pub fn pause(&mut self) {
         control(&mut self.capture).pause();
         debug!(stream = %self.name, "paused a capture stream");
@@ -113,15 +93,23 @@ impl fmt::Debug for CaptureStream {
     }
 }
 
-/// A captured frame ready for import.
+/// A captured frame ready for import or upload.
 ///
-/// Owns its descriptors and carries only buffer layout, DRM format, modifier,
-/// and transform data. The type crosses the thread boundary without a graphics
-/// dependency.
+/// It crosses the thread boundary without a graphics dependency.
 #[derive(Debug)]
-pub struct CapturedFrame {
-    format: CaptureFormat,
-    planes: SmallVec<[CapturedPlane; MAX_PLANES]>,
+pub enum CapturedFrame {
+    /// Dmabuf planes, imported as an image.
+    Dmabuf {
+        format: CaptureFormat,
+        planes: SmallVec<[CapturedPlane; MAX_PLANES]>,
+    },
+    /// Packed shared-memory pixels, owned independently of the capture callback.
+    ///
+    /// The format is little-endian `Argb8888` or `Xrgb8888` with no row padding, and an `Xrgb8888` frame has its unused byte set opaque.
+    Pixels {
+        format: CaptureFormat,
+        pixels: Vec<u8>,
+    },
 }
 
 impl CapturedFrame {
@@ -129,13 +117,12 @@ impl CapturedFrame {
     ///
     /// # Errors
     ///
-    /// Returns a specific error when the frame type or dmabuf layout is not
-    /// representable by the importer.
+    /// Returns an error when the frame type or dmabuf layout is not representable by the importer.
     pub fn from_wlx(frame: &WlxFrame) -> Result<Self, FrameError> {
         match frame {
             WlxFrame::Dmabuf(dmabuf) => Self::from_dmabuf(dmabuf),
             WlxFrame::Implicit(_) => Err(FrameError::Implicit),
-            WlxFrame::MemFd(_) => Err(FrameError::SharedMemory { kind: "a memfd" }),
+            WlxFrame::MemFd(frame) => Self::from_memfd(frame),
             WlxFrame::MemPtr(_) => Err(FrameError::SharedMemory {
                 kind: "a mapped pointer",
             }),
@@ -144,24 +131,98 @@ impl CapturedFrame {
 
     #[must_use]
     pub const fn format(&self) -> CaptureFormat {
-        self.format
+        match self {
+            Self::Dmabuf { format, .. } | Self::Pixels { format, .. } => *format,
+        }
     }
 
+    /// The dmabuf planes, or `None` for a shared-memory frame.
     #[must_use]
-    pub fn planes(&self) -> &[CapturedPlane] {
-        &self.planes
+    pub fn planes(&self) -> Option<&[CapturedPlane]> {
+        match self {
+            Self::Dmabuf { planes, .. } => Some(planes),
+            Self::Pixels { .. } => None,
+        }
+    }
+
+    /// Builds a frame from an exported destination whose descriptor stays live for the call.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FrameError::DuplicateDescriptor`] if the descriptor cannot be retained.
+    pub fn from_exported(
+        format: CaptureFormat,
+        descriptor: BorrowedFd<'_>,
+        offset: u32,
+        stride: u32,
+    ) -> Result<Self, FrameError> {
+        let descriptor = descriptor
+            .try_clone_to_owned()
+            .map_err(|cause| FrameError::DuplicateDescriptor { plane: 0, cause })?;
+        Ok(Self::Dmabuf {
+            format,
+            planes: [CapturedPlane {
+                descriptor,
+                offset,
+                stride,
+            }]
+            .into_iter()
+            .collect(),
+        })
+    }
+
+    /// Copies shared-memory pixels out during the callback, converting them to
+    /// the layout [`Self::Pixels`] states in the same pass.
+    fn from_memfd(frame: &wlx_capture::frame::MemFdFrame) -> Result<Self, FrameError> {
+        let stride = u32::try_from(frame.plane.stride).map_err(|_| FrameError::NegativeStride {
+            plane: 0,
+            stride: frame.plane.stride,
+        })?;
+        let mut format = CaptureFormat::from_wlx(&frame.format)?;
+        let packing = Packing::of(format.fourcc).ok_or(UNSUPPORTED_SHARED_MEMORY)?;
+        let length = pixel_length(&frame.format, stride)?;
+        let raw = frame
+            .plane
+            .fd
+            .ok_or(FrameError::MissingDescriptor { plane: 0 })?;
+        // SAFETY: upstream holds the descriptor throughout its callback.
+        let borrowed = unsafe { BorrowedFd::borrow_raw(raw) };
+        let descriptor = borrowed
+            .try_clone_to_owned()
+            .map_err(|cause| FrameError::DuplicateDescriptor { plane: 0, cause })?;
+        let file = std::fs::File::from(descriptor);
+        let mut source = vec![0; length];
+        std::os::unix::fs::FileExt::read_exact_at(
+            &file,
+            &mut source,
+            u64::from(frame.plane.offset),
+        )
+        .map_err(FrameError::ReadPixels)?;
+        let row = frame.format.width as usize * 4;
+        let mut pixels = Vec::with_capacity(row * frame.format.height as usize);
+        for line in source.chunks_exact(stride as usize) {
+            for &[blue, green, red, alpha] in line[..row].as_chunks::<4>().0 {
+                let (blue, red) = if packing.swap {
+                    (red, blue)
+                } else {
+                    (blue, red)
+                };
+                let alpha = if packing.opaque { u8::MAX } else { alpha };
+                pixels.extend_from_slice(&[blue, green, red, alpha]);
+            }
+        }
+        format.fourcc = packing.fourcc;
+        Ok(Self::Pixels { format, pixels })
     }
 
     /// Builds a frame from parts for tests that do not run PipeWire.
-    ///
-    /// The production path is [`Self::from_wlx`].
     #[cfg(any(test, feature = "test-fakes"))]
     #[must_use]
     pub fn from_parts(
         format: CaptureFormat,
         planes: impl IntoIterator<Item = (OwnedFd, u32, u32)>,
     ) -> Self {
-        Self {
+        Self::Dmabuf {
             format,
             planes: planes
                 .into_iter()
@@ -192,8 +253,57 @@ impl CapturedFrame {
             .map(|(index, plane)| CapturedPlane::from_wlx(index, plane))
             .collect::<Result<_, _>>()?;
 
-        Ok(Self { format, planes })
+        Ok(Self::Dmabuf { format, planes })
     }
+}
+
+const UNSUPPORTED_SHARED_MEMORY: FrameError = FrameError::SharedMemory {
+    kind: "an unsupported shared-memory layout",
+};
+
+/// How a shared-memory format converts to the packed layout.
+struct Packing {
+    fourcc: DrmFourcc,
+    /// Whether the red and blue bytes trade places.
+    swap: bool,
+    /// Whether the fourth byte is padding to be set opaque.
+    opaque: bool,
+}
+
+impl Packing {
+    const fn of(fourcc: DrmFourcc) -> Option<Self> {
+        let (fourcc, swap, opaque) = match fourcc {
+            DrmFourcc::Argb8888 => (DrmFourcc::Argb8888, false, false),
+            DrmFourcc::Xrgb8888 => (DrmFourcc::Xrgb8888, false, true),
+            DrmFourcc::Abgr8888 => (DrmFourcc::Argb8888, true, false),
+            DrmFourcc::Xbgr8888 => (DrmFourcc::Xrgb8888, true, true),
+            _ => return None,
+        };
+        Some(Self {
+            fourcc,
+            swap,
+            opaque,
+        })
+    }
+}
+
+/// The bytes a shared-memory frame occupies from its offset.
+fn pixel_length(format: &FrameFormat, stride: u32) -> Result<usize, FrameError> {
+    let row = format
+        .width
+        .checked_mul(4)
+        .ok_or(UNSUPPORTED_SHARED_MEMORY)?;
+    if stride < row {
+        return Err(UNSUPPORTED_SHARED_MEMORY);
+    }
+    let length = usize::try_from(stride)
+        .ok()
+        .and_then(|stride| stride.checked_mul(format.height as usize))
+        .ok_or(UNSUPPORTED_SHARED_MEMORY)?;
+    if length > isize::MAX as usize {
+        return Err(UNSUPPORTED_SHARED_MEMORY);
+    }
+    Ok(length)
 }
 
 /// An owned descriptor and layout for one dmabuf plane.
@@ -232,9 +342,7 @@ impl CapturedPlane {
             stride: plane.stride,
         })?;
 
-        // SAFETY: PipeWire keeps the descriptor valid for this callback. The
-        // borrowed descriptor does not outlive the call, and the duplicate owns
-        // the descriptor used by the queued frame.
+        // SAFETY: PipeWire keeps the descriptor valid for this callback, and the duplicate owns the descriptor the queued frame uses.
         let borrowed = unsafe { BorrowedFd::borrow_raw(raw) };
         let descriptor =
             borrowed
@@ -277,8 +385,7 @@ impl CaptureFormat {
 
 /// A frame's non-empty dimensions.
 ///
-/// The wire format permits zero, but an empty frame cannot produce an image and
-/// is rejected at the capture boundary.
+/// An empty frame cannot produce an image, so the capture boundary rejects it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct FrameSize {
     width: NonZeroU32,
@@ -313,9 +420,10 @@ impl fmt::Display for FrameSize {
 
 /// The frame orientation carried across the capture boundary.
 ///
-/// An undefined transform from `wlx-capture` maps to [`Self::Normal`].
+/// Undefined samples identically to Normal.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum FrameTransform {
+    Undefined,
     #[default]
     Normal,
     Rotated90,
@@ -328,9 +436,10 @@ pub enum FrameTransform {
 }
 
 impl FrameTransform {
-    fn from_wlx(transform: Transform) -> Self {
+    pub fn from_wlx(transform: Transform) -> Self {
         match transform {
-            Transform::Undefined | Transform::Normal => Self::Normal,
+            Transform::Undefined => Self::Undefined,
+            Transform::Normal => Self::Normal,
             Transform::Rotated90 => Self::Rotated90,
             Transform::Rotated180 => Self::Rotated180,
             Transform::Rotated270 => Self::Rotated270,
@@ -345,7 +454,6 @@ impl FrameTransform {
 /// A bounded queue that discards old entries and never blocks the producer.
 ///
 /// PipeWire's process callback and the frame loop must not wait for each other.
-/// The queue keeps newer frames and counts discarded entries.
 #[derive(Debug)]
 pub struct FrameQueue<T> {
     capacity: NonZeroUsize,
@@ -382,10 +490,7 @@ impl<T> FrameQueue<T> {
         pushed
     }
 
-    /// Returns the newest entry and discards older queued entries.
-    ///
-    /// Discarded entries count as dropped whether queue capacity or a slow frame
-    /// loop caused them.
+    /// Returns the newest entry and discards older queued entries, counting them as dropped.
     #[must_use]
     pub fn take_latest(&self) -> Option<T> {
         let mut inner = self.inner.lock();
@@ -456,13 +561,13 @@ pub struct FrameCounts {
 /// Why a captured frame could not reach the importer.
 #[derive(Debug)]
 pub enum FrameError {
-    /// The frame was blitted into a destination buffer, but this crate supplies
-    /// no destination buffer.
+    /// The generic conversion has no exporter to identify the completed buffer.
     Implicit,
-    /// The stream negotiated shared memory. v1 imports dmabufs only.
+    /// The shared-memory frame has no supported descriptor-backed pixel layout.
     SharedMemory {
         kind: &'static str,
     },
+    ReadPixels(std::io::Error),
     EmptyFrame {
         width: u32,
         height: u32,
@@ -488,13 +593,11 @@ impl fmt::Display for FrameError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "capture: ")?;
         match self {
-            Self::Implicit => f.write_str(
-                "the frame was blitted into a buffer lunette supplied, and lunette supplies none",
-            ),
-            Self::SharedMemory { kind } => write!(
-                f,
-                "the stream delivered {kind} rather than a dmabuf, which v1 does not import"
-            ),
+            Self::Implicit => f.write_str("the completed buffer requires its capture exporter"),
+            Self::SharedMemory { kind } => {
+                write!(f, "the stream delivered {kind}, which cannot be copied")
+            }
+            Self::ReadPixels(_) => f.write_str("the shared-memory pixels could not be read"),
             Self::EmptyFrame { width, height } => {
                 write!(f, "a frame of {width}x{height} has no image in it")
             }
@@ -521,7 +624,7 @@ impl fmt::Display for FrameError {
 impl Error for FrameError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::DuplicateDescriptor { cause, .. } => Some(cause),
+            Self::DuplicateDescriptor { cause, .. } | Self::ReadPixels(cause) => Some(cause),
             Self::Implicit
             | Self::SharedMemory { .. }
             | Self::EmptyFrame { .. }
@@ -535,35 +638,25 @@ impl Error for FrameError {
 
 /// The number of frames held before the oldest is discarded.
 ///
-/// Two entries cover one frame being drawn and one arriving. A deeper queue adds
-/// latency without adding throughput.
+/// Two entries cover one frame being drawn and one arriving, and a deeper queue adds only latency.
 const QUEUE_DEPTH: NonZeroUsize = NonZeroUsize::MIN.saturating_add(1);
 
-/// Data passed to the PipeWire callback.
-///
-/// The callback has a bare `fn` type, so this wrapper carries the queue through
-/// its user-data parameter.
+/// Data passed to the PipeWire callback through its user-data parameter, because the callback has a bare `fn` type.
 struct Delivery(Arc<FrameQueue<CapturedFrame>>);
 
 /// The callback's channel payload type.
 ///
-/// `deliver` queues each frame in [`FrameQueue`] and returns `None`, so
-/// `WlxCapture`'s channel never receives a value. Keeping frames out of that
-/// channel avoids its full-queue policy, which discards newest frames.
+/// Frames go to [`FrameQueue`] instead, because `WlxCapture`'s channel discards the newest frames when full.
 type Never = std::convert::Infallible;
 
 /// Selects the `WlxCapture` implementation used by a call.
 ///
-/// `PipewireCapture<R>` implements `WlxCapture<U, R>` for every `U`, so the
-/// wrapper fixes `U` and avoids ambiguous method calls.
+/// `PipewireCapture<R>` implements `WlxCapture<U, R>` for every `U`, so fixing `U` avoids ambiguous method calls.
 fn control(capture: &mut PipewireCapture<Never>) -> &mut impl WlxCapture<Delivery, Never> {
     capture
 }
 
 /// Converts one frame on PipeWire's callback thread.
-///
-/// `WlxCapture::init` accepts a bare `fn`, so the queue arrives through
-/// [`Delivery`].
 fn deliver(delivery: &Delivery, frame: WlxFrame) -> Option<Never> {
     let queue = &delivery.0;
 
@@ -574,8 +667,7 @@ fn deliver(delivery: &Delivery, frame: WlxFrame) -> Option<Never> {
             }
         }
         Err(error) => match queue.record_refusal() {
-            // Warn once per stream because a persistent refusal would otherwise
-            // emit one warning for every frame.
+            // Warn once per stream, because a persistent refusal would warn every frame.
             Refusal::First => {
                 warn!(%error, "a captured frame could not be carried to the importer")
             }
@@ -659,10 +751,9 @@ mod tests {
         let captured =
             CapturedFrame::from_wlx(&WlxFrame::Dmabuf(frame)).expect("a well-formed dmabuf frame");
 
-        assert_eq!(captured.planes().len(), 3);
+        let planes = captured.planes().expect("a dmabuf frame has planes");
         assert_eq!(
-            captured
-                .planes()
+            planes
                 .iter()
                 .map(|plane| (plane.offset(), plane.stride()))
                 .collect::<Vec<_>>(),
@@ -685,7 +776,9 @@ mod tests {
             CapturedFrame::from_wlx(&WlxFrame::Dmabuf(frame)).expect("a well-formed dmabuf frame");
 
         assert_ne!(
-            captured.planes()[0].descriptor().as_raw_fd(),
+            captured.planes().expect("a dmabuf frame has planes")[0]
+                .descriptor()
+                .as_raw_fd(),
             borrowed,
             "the frame kept the callback's own descriptor number, which PipeWire may close",
         );
@@ -693,13 +786,13 @@ mod tests {
     }
 
     #[test]
-    fn a_stream_that_reported_no_transform_is_treated_as_unrotated() {
+    fn a_stream_that_reports_no_transform_leaves_the_frame_undefined() {
         let (frame, _owners) = dmabuf_frame(1);
 
         let captured =
             CapturedFrame::from_wlx(&WlxFrame::Dmabuf(frame)).expect("a well-formed dmabuf frame");
 
-        assert_eq!(captured.format().transform, FrameTransform::Normal);
+        assert_eq!(captured.format().transform, FrameTransform::Undefined);
     }
 
     #[test]
@@ -726,13 +819,70 @@ mod tests {
     #[test]
     fn an_implicit_frame_is_rejected_rather_than_ignored() {
         let error = CapturedFrame::from_wlx(&WlxFrame::Implicit(Transform::Normal))
-            .expect_err("lunette supplies no buffer to blit into");
+            .expect_err("generic conversion cannot identify the exporter's buffer");
 
         assert!(matches!(error, FrameError::Implicit), "{error}");
         assert!(
-            error.to_string().contains("lunette supplies none"),
+            error.to_string().contains("requires its capture exporter"),
             "{error}"
         );
+    }
+
+    #[test]
+    fn shared_memory_pixels_are_copied_packed_and_converted_before_the_callback_returns() {
+        let file = smithay_free_memfd();
+        let bytes = [
+            99, 99, 1, 2, 3, 4, 80, 80, 80, 80, 5, 6, 7, 8, 90, 90, 90, 90,
+        ];
+        std::os::unix::fs::FileExt::write_all_at(&file, &bytes, 0).expect("pixels can be written");
+        let mut format = format();
+        format.width = 1;
+        format.height = 2;
+        format.drm_format.code = DrmFourcc::Xbgr8888;
+        let frame = CapturedFrame::from_wlx(&WlxFrame::MemFd(wlx_capture::frame::MemFdFrame {
+            format,
+            plane: FramePlane {
+                fd: Some(file.as_raw_fd()),
+                offset: 2,
+                stride: 8,
+            },
+            mouse: None,
+        }))
+        .expect("padded shared memory is supported");
+        drop(file);
+
+        let CapturedFrame::Pixels { format, pixels } = frame else {
+            panic!("a shared-memory frame carries pixels");
+        };
+        assert_eq!(format.fourcc, DrmFourcc::Xrgb8888);
+        assert_eq!(pixels, [3, 2, 1, 255, 7, 6, 5, 255]);
+    }
+
+    #[test]
+    fn a_truncated_shared_memory_frame_reports_a_pixel_read_failure() {
+        let file = smithay_free_memfd();
+        let mut format = format();
+        format.width = 1;
+        format.height = 1;
+        let error = CapturedFrame::from_wlx(&WlxFrame::MemFd(wlx_capture::frame::MemFdFrame {
+            format,
+            plane: FramePlane {
+                fd: Some(file.as_raw_fd()),
+                offset: 0,
+                stride: 4,
+            },
+            mouse: None,
+        }))
+        .expect_err("the descriptor contains no pixels");
+        assert!(matches!(error, FrameError::ReadPixels(_)));
+    }
+
+    fn smithay_free_memfd() -> std::fs::File {
+        // SAFETY: the literal is NUL-terminated and the descriptor is owned on success.
+        let raw = unsafe { libc::memfd_create(c"capture-test".as_ptr(), libc::MFD_CLOEXEC) };
+        assert!(raw >= 0, "memfd_create succeeds");
+        // SAFETY: memfd_create returned a new owned descriptor.
+        unsafe { std::fs::File::from_raw_fd(raw) }
     }
 
     #[test]
@@ -743,7 +893,7 @@ mod tests {
             size: 0,
             mouse: None,
         }))
-        .expect_err("v1 imports dmabufs only");
+        .expect_err("safe conversion does not dereference arbitrary mapped pointers");
 
         assert!(
             error.to_string().contains("a mapped pointer"),
@@ -823,8 +973,7 @@ mod tests {
 
         assert!(CapturedFrame::from_wlx(&WlxFrame::Dmabuf(frame)).is_err());
 
-        // SAFETY: conversion borrowed and duplicated the descriptor; this test
-        // still owns the original descriptor and closes it here.
+        // SAFETY: conversion duplicated the descriptor, and this test still owns the original.
         drop(unsafe { OwnedFd::from_raw_fd(raw) });
         drop(write);
     }

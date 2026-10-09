@@ -1,29 +1,6 @@
-//! Linux-only: `lunctl`, the client for lunette's control socket.
+//! Linux-only: `lunctl` sends Lua chunks to the running session's control socket.
 //!
-//! Sends a Lua chunk to the running session and prints what came back
-//! ([the Lua API](../../../docs/dev/lua-api.md#lunctl)). Three modes exist,
-//! matching awesome-client: a chunk as an argument, a chunk on standard input,
-//! and an interactive prompt when standard input is a terminal.
-//!
-//! # Shell composition
-//!
-//! The exit status differs by outcome, so a script can branch on it: a chunk
-//! that raised, a chunk that did not compile, and a session that could not be
-//! reached each have their own code. [`Status`] enumerates them. A
-//! top-level string prints without quotes, so `$(lunctl 'return win.title')` is
-//! the bare title. A string inside a table is quoted, because there it has to
-//! be told apart from a name.
-//!
-//! # Part of lunette
-//!
-//! The wire format is `lunette`'s. This binary is a second target in the
-//! `lunette` crate and uses the codec directly. A separate crate would have to
-//! depend on `lunette` or carry a second copy of the codec. A protocol with two
-//! implementations that have to agree diverges at the first version bump unless
-//! both change together.
-//!
-//! This is an application entry point, so it reads the environment. Nothing the
-//! program reads from the environment is used outside [`socket_path`].
+//! See [the Lua API](../../../docs/dev/lua-api.md#lunctl).
 
 use std::{
     env,
@@ -93,7 +70,7 @@ const HELP: &str = "usage: lunctl [--socket PATH] [CHUNK ...]
 Evaluates a Lua chunk in the running lunette session and prints the result.
 
   lunctl 'return #lunette.windows()'   evaluate each argument in turn
-  lunctl < script.lua                  evaluate what arrives on standard input
+  lunctl < script.luau                 evaluate what arrives on standard input
   lunctl                               an interactive prompt, on a terminal
 
   --socket PATH   the control socket, instead of
@@ -110,10 +87,7 @@ exit status
   6  the session could not be reached
  64  lunctl was invoked wrongly";
 
-/// What one invocation of `lunctl` exits with.
-///
-/// Each failure keeps its own code, so a script can tell a typo in its chunk
-/// from a session that could not be reached.
+/// The process exit status for one invocation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Status {
     Ok,
@@ -149,11 +123,10 @@ struct Invocation {
     mode: Mode,
 }
 
-/// Which of the three modes this invocation is in.
 #[derive(Debug, PartialEq, Eq)]
 enum Mode {
     Help,
-    /// Chunks named on the command line, evaluated in order.
+    /// Chunks named on the command line.
     Chunks(Vec<String>),
     /// One chunk read from standard input.
     Stdin,
@@ -161,11 +134,6 @@ enum Mode {
     Repl,
 }
 
-/// Reads the command line.
-///
-/// The mode is decided from the arguments alone, except that the choice between
-/// [`Mode::Stdin`] and [`Mode::Repl`] depends on whether standard input is a
-/// terminal.
 fn parse(arguments: &[OsString]) -> Result<Invocation, String> {
     let mut socket = None;
     let mut chunks = Vec::new();
@@ -210,11 +178,7 @@ fn parse(arguments: &[OsString]) -> Result<Invocation, String> {
     Ok(Invocation { socket, mode })
 }
 
-/// Where the control socket is, given the runtime directory.
-///
-/// The function is pure: it takes the value and returns the path, and never
-/// reads the variable itself. The rule it implements is testable and stated
-/// once.
+/// Resolves the control socket under an absolute runtime directory.
 fn socket_path(runtime_directory: Option<&Path>) -> Option<PathBuf> {
     let runtime_directory = runtime_directory.filter(|path| path.is_absolute())?;
     Some(runtime_directory.join(DIRECTORY_NAME).join(SOCKET_NAME))
@@ -226,7 +190,6 @@ fn read_stdin() -> io::Result<String> {
     Ok(chunk)
 }
 
-/// Evaluates each chunk in turn, stopping at the first that did not run.
 fn run_chunks(socket: &Path, chunks: &[String]) -> Status {
     for chunk in chunks {
         let status = evaluate_and_report(socket, chunk);
@@ -237,11 +200,6 @@ fn run_chunks(socket: &Path, chunks: &[String]) -> Status {
     Status::Ok
 }
 
-/// The interactive prompt.
-///
-/// No line editing and no history exist here. `rlwrap lunctl` supplies both,
-/// as it does for awesome-client. Reimplementing a readline is not the purpose
-/// of this program.
 fn repl(socket: &Path) -> Status {
     let stdin = io::stdin();
     let mut line = String::new();
@@ -268,11 +226,7 @@ fn repl(socket: &Path) -> Status {
             continue;
         }
 
-        // An expression is tried first, as Lua's own standalone interpreter
-        // does. Typing `lunette.windows()` then prints the windows. A call
-        // statement evaluates and prints nothing. A line that is a statement
-        // does not compile with `return` in front of it, and is then sent as
-        // it was typed.
+        // Tries an expression first, so a bare value prints its result.
         let expression = format!("return {chunk}");
         match exchange(socket, &expression) {
             Ok(Reply::LoadError(_)) => report(&exchange(socket, chunk)),
@@ -283,12 +237,10 @@ fn repl(socket: &Path) -> Status {
 
 const PROMPT: &str = "lunctl> ";
 
-/// Sends one chunk, prints what came back, and determines the exit status.
 fn evaluate_and_report(socket: &Path, chunk: &str) -> Status {
     report(&exchange(socket, chunk))
 }
 
-/// One request and one reply, over one connection.
 fn exchange(socket: &Path, chunk: &str) -> Result<Reply, Unanswered> {
     let mut stream = UnixStream::connect(socket).map_err(|error| {
         Unanswered::Unreachable(format!(
@@ -299,9 +251,6 @@ fn exchange(socket: &Path, chunk: &str) -> Result<Reply, Unanswered> {
 
     match write_request(&mut stream, chunk) {
         Ok(()) => {}
-        // The refusal happens here and not at the session. The frame is checked
-        // before it is written, so nothing is sent when this error occurs. The
-        // invocation is wrong; the session is not reached.
         Err(WireError::TooLarge { length }) => return Err(Unanswered::ChunkTooLarge { length }),
         Err(error) => return Err(Unanswered::Unreachable(error.to_string())),
     }
@@ -310,19 +259,14 @@ fn exchange(socket: &Path, chunk: &str) -> Result<Reply, Unanswered> {
 }
 
 /// Why an exchange produced no reply.
-///
-/// Two distinct outcomes: a chunk too large to send is a mistake in the
-/// invocation, and a socket that is not there means the session is not
-/// running. A script branches differently on each.
 #[derive(Debug)]
 enum Unanswered {
     /// The chunk is larger than one message carries, so it was never sent.
     ChunkTooLarge { length: usize },
-    /// The socket, the write, or the read failed.
+    /// The socket, write, or read failed before a reply arrived.
     Unreachable(String),
 }
 
-/// Prints a reply, and says what to exit with.
 fn report(reply: &Result<Reply, Unanswered>) -> Status {
     let reply = match reply {
         Ok(reply) => reply,
@@ -362,9 +306,7 @@ fn report(reply: &Result<Reply, Unanswered>) -> Status {
             Status::Abandoned
         }
         Reply::Unrepresentable(message) => {
-            // The message prints unchanged. The serialiser's message already
-            // leads with this subsystem's prefix. A second prefix would print
-            // `lunctl: lunctl:`.
+            // The protocol error already includes the `lunctl:` prefix.
             eprintln!("{message}");
             Status::Unrepresentable
         }
@@ -403,11 +345,9 @@ fn report(reply: &Result<Reply, Unanswered>) -> Status {
     }
 }
 
-/// A returned value, as it prints at the top level.
+/// Renders a top-level value for shell output.
 ///
-/// A string prints bare here and quoted anywhere else. The top level is what a
-/// shell captures, and quoting there would make `$(lunctl 'return win.title')`
-/// the title in quotes.
+/// Top-level strings are unquoted; nested strings are quoted.
 fn top_level(value: &Value) -> String {
     match value {
         Value::String(bytes) => String::from_utf8_lossy(bytes).into_owned(),
@@ -446,9 +386,8 @@ fn number_text(number: f64) -> String {
 
 /// A Lua string, quoted and escaped.
 ///
-/// Lua strings are byte strings. A byte that is not printable text is written
-/// as `\xNN`. The printed form can be pasted back into a chunk and means the
-/// same thing.
+/// A byte that is not text is written as `\xNN`, so the printed form can be
+/// pasted back into a chunk.
 fn quoted(bytes: &[u8]) -> String {
     let mut rendered = String::with_capacity(bytes.len() + 2);
     rendered.push('\'');
@@ -518,9 +457,7 @@ fn key_text(key: &Key) -> String {
 
 /// A handle, as its kind and its identifier.
 ///
-/// That is all a handle is on this side of the socket: `lunctl` holds no
-/// session and can dereference nothing. The id lets a caller pass the handle
-/// back in a later chunk.
+/// The id lets a caller pass the handle back in a later chunk.
 fn handle_text(handle: &Handle) -> String {
     match &handle.id {
         Some(id) => format!("<{} {id}>", handle.kind),
@@ -564,8 +501,6 @@ mod tests {
 
     #[test]
     fn the_socket_can_be_named_instead_of_resolved() {
-        // The end-to-end tests use this, so a test session's socket does not
-        // have to be the one in the user's runtime directory.
         let Ok(invocation) = parse(&arguments(&["--socket", "/tmp/x.sock", "return 1"])) else {
             panic!("it parses");
         };
@@ -600,9 +535,7 @@ mod tests {
 
     #[test]
     fn a_relative_or_absent_runtime_directory_names_nothing() {
-        // The XDG specification requires an absolute path. Resolving a relative
-        // one against the working directory would connect to whatever happened
-        // to be there.
+        // The XDG specification requires an absolute path.
         assert_eq!(socket_path(Some(Path::new("run/user"))), None);
         assert_eq!(socket_path(None), None);
     }
@@ -635,7 +568,6 @@ mod tests {
 
     #[test]
     fn a_top_level_string_prints_bare_and_a_nested_one_prints_quoted() {
-        // The top level is what a shell captures.
         assert_eq!(
             top_level(&Value::String(b"a terminal".to_vec())),
             "a terminal"
@@ -684,8 +616,7 @@ mod tests {
             key_text(&Key::String(b"with space".to_vec())),
             "['with space']"
         );
-        // A reserved word is not a name: `end = 1` does not parse, and the
-        // printed form is a valid subscript.
+        // A reserved word is not a name, because `end = 1` does not parse.
         assert_eq!(key_text(&Key::String(b"end".to_vec())), "['end']");
         assert_eq!(key_text(&Key::String(b"function".to_vec())), "['function']");
         assert_eq!(key_text(&Key::Integer(4)), "[4]");
@@ -727,7 +658,6 @@ mod tests {
 
     #[test]
     fn a_string_that_is_not_text_prints_as_bytes_rather_than_being_replaced() {
-        // The printed form can be pasted back into a chunk and means the same.
         assert_eq!(quoted(&[0xff, 0xfe]), r"'\xff\xfe'");
         assert_eq!(quoted(b"a\nb"), r"'a\nb'");
         assert_eq!(quoted(b"it's"), r"'it\'s'");

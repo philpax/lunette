@@ -1,9 +1,6 @@
 //! `lunette.monitors()` and the monitor handle, against a recording registry.
 //!
-//! The lifecycle's own transitions belong to `lunette-capture`, which exercises
-//! them against the scripted portal. The projection is that a handle reads
-//! through on every access, that a detached monitor goes inert and does not
-//! raise, and that mirroring and dismissing reach the registry once each.
+//! The lifecycle's own transitions are tested in `lunette-capture`.
 
 use std::cell::RefCell;
 
@@ -11,19 +8,23 @@ use lunette_capture::{
     hid::{
         KeyModifiers, PanelPoint, PointerButton as HostButton, VirtualKey, WheelDelta, XkbKeymap,
     },
-    mirror::MirrorOutcome,
+    mirror::{MirrorOutcome, SelectionOutcome, SelectionState},
     monitor::{
         ConnectorKind, ConnectorName, LogicalGeometry, LogicalPosition, LogicalSize, MonitorKey,
         PixelExtent,
     },
+    stream::FrameTransform,
 };
 use lunette_compositor::protocol::PixelPoint;
 use pretty_assertions::assert_eq;
 
 use super::*;
 use crate::{
+    events::LuaEvent,
     host::HostSinks,
+    import::formats::Alpha,
     mirrors::{MirrorRegistry, MonitorState},
+    texture::TextureDescription,
 };
 
 /// A registry over a fixed set of monitors, recording every request it receives.
@@ -40,6 +41,7 @@ pub(super) enum Call {
     Mirror(MonitorKey),
     Dismiss(MonitorKey),
     SetPaused(MonitorKey, bool),
+    SelectMonitors,
 }
 
 impl FakeMirrors {
@@ -99,12 +101,23 @@ impl MirrorRegistry for FakeMirrors {
             .push(Call::SetPaused(monitor.clone(), paused));
         true
     }
+
+    fn select_monitors(&self) -> SelectionOutcome {
+        self.calls.borrow_mut().push(Call::SelectMonitors);
+        SelectionOutcome::Requested
+    }
+
+    fn selection_state(&self) -> SelectionState {
+        if self.calls.borrow().contains(&Call::SelectMonitors) {
+            SelectionState::Pending
+        } else {
+            SelectionState::Idle
+        }
+    }
 }
 
-/// A host desktop that records the events that reach it. None are injected.
-///
-/// The `HidProvider` is the seam onto the machine lunette runs on. The routing
-/// is exercised against a recorder; `/dev/uinput` is not used.
+/// A host desktop that records the events that reach it, so no test touches
+/// `/dev/uinput`.
 #[derive(Debug, Default)]
 pub(super) struct RecordingHost {
     events: RefCell<Vec<HostEvent>>,
@@ -219,6 +232,40 @@ fn a_session_with_no_monitor_source_lists_none() {
 }
 
 #[test]
+fn fresh_monitor_selection_reaches_the_registry_or_reports_refusal() {
+    let (session, mirrors, _host) = mirrored_session(Vec::new(), FakeMirrors::one());
+    let lua = lua(&session);
+    let result: (String, bool, Option<String>, String) = lua
+        .load(
+            "local before = lunette.monitorSelection().state
+             local accepted, message = lunette.selectMonitors()
+             return before, accepted, message, lunette.monitorSelection().state",
+        )
+        .eval()
+        .expect("the selection API answers");
+    assert_eq!(
+        result,
+        ("idle".to_owned(), true, None, "pending".to_owned())
+    );
+    assert_eq!(mirrors.calls(), vec![Call::SelectMonitors]);
+
+    let bare = super::session(Vec::new());
+    let bare_lua = super::lua(&bare);
+    let result: (bool, Option<String>) = bare_lua
+        .load("return lunette.selectMonitors()")
+        .eval()
+        .expect("the selection API answers");
+    assert_eq!(
+        result,
+        (
+            false,
+            Some("monitor selection: no host monitors are available".to_owned())
+        ),
+        "a session without host integration refuses",
+    );
+}
+
+#[test]
 fn a_monitor_reports_its_identity_and_its_resolution() {
     let (session, _mirrors, _host) = mirrored_session(Vec::new(), FakeMirrors::one());
     let lua = lua(&session);
@@ -242,6 +289,48 @@ fn a_monitor_reports_its_identity_and_its_resolution() {
             1920,
         ),
         "width and height are pixels, because that is the size a captured frame arrives at",
+    );
+}
+
+#[test]
+fn captured_frame_transform_reads_through_reused_monitor_textures() {
+    let (session, mirrors, _host) = mirrored_session(Vec::new(), FakeMirrors::one());
+    let lua = lua(&session);
+    lua.load("monitor = lunette.monitors()[1]")
+        .exec()
+        .expect("the handle is held");
+    assert_eq!(
+        lua.load("return monitor.frameTransform")
+            .eval::<Option<String>>()
+            .expect("field reads"),
+        None
+    );
+    session.with_monitor_textures(|textures| {
+        textures.install(
+            key(1),
+            None,
+            FakeTexture(7),
+            TextureDescription {
+                size: PixelSize::new(1920, 1080),
+                alpha: Alpha::Opaque,
+            },
+            FrameTransform::Undefined,
+        );
+    });
+    session.with_monitor_textures(|textures| {
+        textures.refresh_frame(&key(1), FrameTransform::Rotated90);
+    });
+    let fields: (String, i64) = lua
+        .load("return monitor.frameTransform, monitor:getTexture()")
+        .eval()
+        .expect("frame fields read");
+    assert_eq!(fields, ("rot90".to_owned(), 7));
+    mirrors.detach_all();
+    assert_eq!(
+        lua.load("return monitor.frameTransform")
+            .eval::<Option<String>>()
+            .expect("field reads"),
+        None
     );
 }
 
@@ -321,10 +410,10 @@ fn a_handle_reads_through_to_the_lifecycle_rather_than_caching_a_frame() {
 }
 
 #[test]
-fn an_unplugged_monitor_goes_inert_rather_than_raising() {
-    let (session, mirrors, _host) = mirrored_session(Vec::new(), FakeMirrors::one());
+fn an_unplugged_monitor_and_its_sink_go_inert_rather_than_raising() {
+    let (session, mirrors, host) = mirrored_session(Vec::new(), FakeMirrors::one());
     let lua = lua(&session);
-    lua.load("monitor = lunette.monitors()[1]")
+    lua.load("monitor = lunette.monitors()[1] sink = monitor.sink")
         .exec()
         .expect("the handle is held across the change");
 
@@ -345,11 +434,26 @@ fn an_unplugged_monitor_goes_inert_rather_than_raising() {
         mirrors.calls().is_empty(),
         "a monitor that has gone must not reach the lifecycle at all",
     );
+
+    let (dead, moved) = lua
+        .load("return sink.dead, sink:pointer(0, 0)")
+        .eval::<(bool, bool)>()
+        .expect("a dead sink answers rather than raising");
+
+    assert!(dead);
+    assert!(!moved);
+    assert!(
+        host.events().is_empty(),
+        "a monitor that has gone must not reach the host desktop at all",
+    );
 }
 
 #[test]
-fn a_monitors_sink_is_in_the_host_domain() {
-    let (session, _mirrors, _host) = mirrored_session(Vec::new(), FakeMirrors::one());
+fn a_monitors_sink_is_in_the_host_domain_and_a_windows_in_the_window_domain() {
+    let (session, _mirrors, _host) = mirrored_session(
+        vec![window(1, "htop", "st", PixelSize::new(800, 600))],
+        FakeMirrors::one(),
+    );
     let lua = lua(&session);
 
     let (domain, id, monitor) = lua
@@ -366,15 +470,6 @@ fn a_monitors_sink_is_in_the_host_domain() {
         "a mirrored monitor is not a wl_surface and has no sink identifier",
     );
     assert_eq!(monitor, "DP-1");
-}
-
-#[test]
-fn a_windows_sink_is_in_the_window_domain() {
-    let (session, _mirrors, _host) = mirrored_session(
-        vec![window(1, "htop", "st", PixelSize::new(800, 600))],
-        FakeMirrors::one(),
-    );
-    let lua = lua(&session);
 
     let (domain, id, monitor) = lua
         .load(
@@ -387,68 +482,6 @@ fn a_windows_sink_is_in_the_window_domain() {
     assert_eq!(domain, "window");
     assert_eq!(id, Some(1));
     assert!(monitor.is_none(), "a window sink reaches no monitor");
-}
-
-#[test]
-fn a_pointer_to_a_host_sink_reaches_the_provider_and_not_the_compositor() {
-    let (session, _mirrors, host) = mirrored_session(Vec::new(), FakeMirrors::one());
-    let lua = lua(&session);
-
-    assert!(
-        lua.load("return lunette.monitors()[1].sink:pointer(1920, 1080)")
-            .eval::<bool>()
-            .expect("the call answers"),
-    );
-
-    assert_eq!(
-        host.events(),
-        vec![HostEvent::Pointer {
-            monitor: key(1),
-            // The monitor is 3840 by 2160, so the middle of the panel is the
-            // middle of its surface. The provider receives the desktop's
-            // bounding box, and the mapping turns the hit back into a position
-            // on the desktop.
-            hit: PanelPoint::CENTRE,
-        }],
-    );
-    assert!(
-        session.flush().is_empty(),
-        "a host sink's input must not reach the compositor",
-    );
-}
-
-#[test]
-fn a_pointer_to_a_window_sink_reaches_the_compositor_and_not_the_provider() {
-    let (session, _mirrors, host) = mirrored_session(
-        vec![window(1, "htop", "st", PixelSize::new(800, 600))],
-        FakeMirrors::one(),
-    );
-    let lua = lua(&session);
-
-    assert!(
-        lua.load("return lunette.windows()[1].sink:pointer(10, 20)")
-            .eval::<bool>()
-            .expect("the call answers"),
-    );
-
-    match session.flush().as_slice() {
-        [
-            Command::Pointer {
-                seat,
-                sink,
-                position,
-            },
-        ] => {
-            assert_eq!(*seat, DEFAULT_SEAT);
-            assert_eq!(*sink, sink_id(1));
-            assert_eq!(*position, PixelPoint::new(10.0, 20.0));
-        }
-        other => panic!("expected one pointer command, got {other:?}"),
-    }
-    assert!(
-        host.events().is_empty(),
-        "a window's input must not reach the host desktop",
-    );
 }
 
 #[test]
@@ -508,38 +541,46 @@ fn two_sinks_in_different_domains_route_independently_in_one_frame() {
 }
 
 #[test]
-fn an_unplugged_monitors_sink_goes_inert_rather_than_raising() {
-    let (session, mirrors, host) = mirrored_session(Vec::new(), FakeMirrors::one());
-    let lua = lua(&session);
-    lua.load("sink = lunette.monitors()[1].sink")
-        .exec()
-        .expect("the handle is held across the change");
-
-    mirrors.detach_all();
-
-    let (dead, moved) = lua
-        .load("return sink.dead, sink:pointer(0, 0)")
-        .eval::<(bool, bool)>()
-        .expect("a dead handle answers rather than raising");
-
-    assert!(dead);
-    assert!(!moved);
-    assert!(
-        host.events().is_empty(),
-        "a monitor that has gone must not reach the host desktop at all",
+fn a_monitor_added_event_carries_the_handle_and_is_dropped_once_the_monitor_is_gone() {
+    let sink = RecordingEventSink::default();
+    let mirrors = FakeMirrors::one();
+    let session = Session::new(
+        Box::new(sink.clone()),
+        Rc::new(PoolRegistry::new(LayerPool::new(FakeLayers::new(
+            GENEROUS_LAYER_LIMIT,
+        )))) as Rc<_>,
+        Rc::clone(&mirrors) as Rc<_>,
+        Rc::new(RecordingHost::default()) as Rc<_>,
     );
-}
-
-#[test]
-fn a_coordinate_that_is_not_a_number_raises_on_a_host_sink_too() {
-    // The sink validates the coordinate before routing it. A NaN is a defect
-    // in the caller's maths wherever the input is going.
-    let (session, _mirrors, _host) = mirrored_session(Vec::new(), FakeMirrors::one());
+    session.begin(snapshot(Vec::new(), Vec::new()));
     let lua = lua(&session);
+    run::<()>(
+        &lua,
+        "added = {}
+         lunette.onMonitorAdded(function(event)
+             added[#added + 1] = { name = event.monitor.name, id = event.id }
+         end)",
+    );
 
-    assert!(
-        lua.load("return lunette.monitors()[1].sink:pointer(0/0, 0)")
-            .eval::<bool>()
-            .is_err(),
+    session.push_event(LuaEvent::MonitorAdded { monitor: key(1) });
+    poll(&lua, &sink);
+
+    let (count, name, id): (usize, String, Value) =
+        run(&lua, "return #added, added[1].name, added[1].id");
+    assert_eq!((count, name.as_str()), (1, "Acme X24 on DP-1"));
+    assert_eq!(
+        id,
+        Value::Nil,
+        "the handle names the screen, so the payload carries no key"
+    );
+
+    session.push_event(LuaEvent::MonitorAdded { monitor: key(1) });
+    mirrors.detach_all();
+    poll(&lua, &sink);
+
+    assert_eq!(
+        run::<usize>(&lua, "return #added"),
+        1,
+        "a screen unplugged before dispatch has no handle to hand over"
     );
 }

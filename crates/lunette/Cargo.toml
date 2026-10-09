@@ -43,6 +43,7 @@ tracing.workspace = true
 # `env-filter` is not in the default feature set.
 # Without it, the binary's log level cannot be changed through `RUST_LOG`.
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
+unicode-segmentation.workspace = true
 
 [dev-dependencies]
 # `CapturedFrame::from_parts` exists under the `test-fakes` feature,
@@ -52,8 +53,17 @@ lunette-capture = { path = "../lunette-capture", features = ["test-fakes"] }
 # `TestCompositor`, for the integration test that runs the host-output enumeration
 # against a real Wayland compositor with no graphics device.
 lunette-compositor = { path = "../lunette-compositor", features = ["test-fakes"] }
+libtest-mimic.workspace = true
 pretty_assertions.workspace = true
+proptest.workspace = true
 tempfile.workspace = true
+
+# The Lua test runner discovers its tests at run time, one per test file under
+# `lua/`, which the built-in harness cannot express.
+[[test]]
+name = "lua"
+path = "tests/lua/main.rs"
+harness = false
 
 [lints]
 workspace = true

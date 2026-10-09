@@ -60,6 +60,7 @@
               pkg-config
               python3Minimal
               patchelf
+              glslang
 
               # Sets LIBCLANG_PATH and the include flags bindgen needs to parse
               # LOVR's headers.

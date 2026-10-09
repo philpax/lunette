@@ -65,6 +65,80 @@ fn us_session(windows: Vec<WindowSnapshot>) -> TestSession {
 }
 
 #[test]
+fn default_seat_is_chosen_by_id_and_nil_when_absent_and_a_retained_handle_goes_dead() {
+    {
+        let session = session(Vec::new());
+        let lua = lua(&session);
+        let mut default = seat(DEFAULT_SEAT.get(), "primary", "us");
+        default.clipboard_bridge = false;
+        let mut other = seat(2, "lunette", "de");
+        other.clipboard_bridge = true;
+
+        for seats in [
+            vec![other.clone(), default.clone()],
+            vec![default.clone(), other],
+            vec![default],
+        ] {
+            session.begin(seated(Vec::new(), seats));
+
+            let (id, name, dead, bridged): (u64, String, bool, bool) = run(
+                &lua,
+                "local s = lunette.defaultSeat()
+                 return s.id, s.name, s.dead, s.clipboardBridge",
+            );
+
+            assert_eq!(id, DEFAULT_SEAT.get());
+            assert_eq!(name, "primary");
+            assert!(!dead);
+            assert!(
+                !bridged,
+                "the clipboard bridge does not identify the default seat"
+            );
+            assert!(
+                session.flush().is_empty(),
+                "lookup must not queue a command"
+            );
+        }
+    }
+    {
+        let session = session(Vec::new());
+        let lua = lua(&session);
+
+        assert!(run::<bool>(&lua, "return lunette.defaultSeat() == nil"));
+        session.begin(seated(Vec::new(), vec![seat(2, "left", "us")]));
+        assert!(run::<bool>(&lua, "return lunette.defaultSeat() == nil"));
+
+        session.begin(seated(
+            Vec::new(),
+            vec![seat(DEFAULT_SEAT.get(), "primary", "us")],
+        ));
+        run::<()>(&lua, "held = lunette.defaultSeat() assert(not held.dead)");
+        session.begin(seated(Vec::new(), vec![seat(2, "left", "us")]));
+
+        let (absent, id, name, dead, focused, destroyed): (bool, u64, String, bool, bool, bool) =
+            run(
+                &lua,
+                "return lunette.defaultSeat() == nil, held.id, held.name, held.dead,
+                    held:setFocus(nil), held:destroy()",
+            );
+
+        assert!(
+            absent,
+            "the previous snapshot must not supply a default seat"
+        );
+        assert_eq!(id, DEFAULT_SEAT.get());
+        assert_eq!(
+            name, "primary",
+            "a retained handle keeps its last-known name"
+        );
+        assert!(dead);
+        assert!(!focused, "a dead seat cannot receive focus commands");
+        assert!(!destroyed);
+        assert!(session.flush().is_empty());
+    }
+}
+
+#[test]
 fn a_seat_reports_its_name_and_the_layouts_its_keymap_carries() {
     let session = session(Vec::new());
     session.begin(seated(Vec::new(), vec![seat(1, "lunette", "us")]));
@@ -138,12 +212,6 @@ fn reverse_lookup_returns_a_keycode_and_modifiers_lua_can_feed_back() {
         "shift"
     );
     assert_eq!(again, "A");
-}
-
-#[test]
-fn reverse_lookup_prefers_the_unmodified_key() {
-    let session = us_session(Vec::new());
-    let lua = lua(&session);
 
     let (keycode, count): (u32, usize) = run(
         &lua,
@@ -153,22 +221,6 @@ fn reverse_lookup_prefers_the_unmodified_key() {
 
     assert_eq!(keycode, KEY_A);
     assert_eq!(count, 0);
-}
-
-#[test]
-fn reverse_lookup_of_a_character_the_layout_cannot_express_is_nil() {
-    let session = us_session(Vec::new());
-    let lua = lua(&session);
-
-    let stroke: Option<Table> = run(&lua, "return lunette.seats()[1]:strokeFor('\u{2603}')");
-
-    assert!(stroke.is_none(), "a snowman is not on a us keyboard");
-}
-
-#[test]
-fn reverse_lookup_accepts_a_keysym_a_forward_lookup_produced() {
-    let session = us_session(Vec::new());
-    let lua = lua(&session);
 
     let keycode: u32 = run(
         &lua,
@@ -182,19 +234,23 @@ fn reverse_lookup_accepts_a_keysym_a_forward_lookup_produced() {
 }
 
 #[test]
-fn reverse_lookup_refuses_a_string_that_is_not_one_character() {
+fn reverse_lookup_of_a_character_the_layout_cannot_express_is_nil() {
+    let session = us_session(Vec::new());
+    let lua = lua(&session);
+
+    let stroke: Option<Table> = run(&lua, "return lunette.seats()[1]:strokeFor('\u{2603}')");
+
+    assert!(stroke.is_none(), "a snowman is not on a us keyboard");
+}
+
+#[test]
+fn a_lookup_refuses_a_string_or_modifier_it_cannot_read() {
     let session = us_session(Vec::new());
     let lua = lua(&session);
 
     let message = error(&lua, "lunette.seats()[1]:strokeFor('abc')");
 
     assert!(message.contains("typeText"), "{message}");
-}
-
-#[test]
-fn an_unrecognised_modifier_name_raises_rather_than_being_skipped() {
-    let session = us_session(Vec::new());
-    let lua = lua(&session);
 
     let message = error(&lua, "lunette.seats()[1]:characterFor(30, {'shft'})");
 
@@ -222,7 +278,7 @@ fn a_key_on_a_window_sink_queues_a_command_for_the_seat_that_sent_it() {
 }
 
 #[test]
-fn a_focus_request_names_the_sink_and_the_seat() {
+fn a_focus_request_names_the_sink_and_the_seat_and_can_be_withdrawn() {
     let session = us_session(vec![window(1, "term", "foot", PixelSize::new(800, 600))]);
     let lua = lua(&session);
 
@@ -238,12 +294,6 @@ fn a_focus_request_names_the_sink_and_the_seat() {
         }
         other => panic!("expected one focus command, got {other:?}"),
     }
-}
-
-#[test]
-fn focus_can_be_withdrawn() {
-    let session = us_session(Vec::new());
-    let lua = lua(&session);
 
     run::<()>(&lua, "lunette.seats()[1]:setFocus(nil)");
 
@@ -275,13 +325,21 @@ fn a_seat_reports_whether_its_selections_are_the_hosts() {
 }
 
 #[test]
-fn bridging_a_seat_names_it_and_unbridging_names_no_seat() {
+fn bridging_a_seat_names_it_unbridging_names_no_seat_and_rebridging_queues_nothing() {
     let session = session(Vec::new());
     session.begin(seated(
         Vec::new(),
         vec![seat(1, "lunette", "us"), seat(2, "left", "us")],
     ));
     let lua = lua(&session);
+
+    // A configuration may ask every frame without knowing which seat holds the bridge.
+    run::<()>(
+        &lua,
+        "lunette.seats()[1]:setClipboardBridge(true)
+         lunette.seats()[1]:setClipboardBridge(true)",
+    );
+    assert!(session.flush().is_empty());
 
     run::<()>(&lua, "lunette.seats()[2]:setClipboardBridge(true)");
 
@@ -301,29 +359,13 @@ fn bridging_a_seat_names_it_and_unbridging_names_no_seat() {
 }
 
 #[test]
-fn asking_for_the_bridge_a_seat_already_has_queues_nothing() {
-    // A configuration may call this every frame without knowing which seat
-    // holds it. A command per frame would republish the snapshot forever.
-    let session = us_session(Vec::new());
-    let lua = lua(&session);
-
-    run::<()>(
-        &lua,
-        "lunette.seats()[1]:setClipboardBridge(true)
-         lunette.seats()[1]:setClipboardBridge(true)",
-    );
-
-    assert!(session.flush().is_empty());
-}
-
-#[test]
 fn a_new_seat_queues_its_creation_and_is_dead_until_the_compositor_reports_it() {
     let session = us_session(Vec::new());
     let lua = lua(&session);
 
     let dead: bool = run(
         &lua,
-        "seat = lunette.newSeat('left', { layout = 'de', repeatRate = 30 })
+        "seat = lunette.newSeat { name = 'left', layout = 'de', repeatRate = 30 }
          return seat.dead",
     );
     assert!(dead, "a seat exists only once the compositor has made it");
@@ -346,24 +388,208 @@ fn a_new_seat_queues_its_creation_and_is_dead_until_the_compositor_reports_it() 
 }
 
 #[test]
-fn a_second_seat_with_an_existing_name_is_refused() {
+fn a_seat_without_a_name_is_refused() {
     let session = us_session(Vec::new());
     let lua = lua(&session);
 
-    let message = error(&lua, "lunette.newSeat('lunette')");
-
-    assert!(message.contains("already exists"), "{message}");
+    for chunk in ["lunette.newSeat {}", "lunette.newSeat { name = ' ' }"] {
+        let message = error(&lua, chunk);
+        assert!(message.contains("needs a name"), "{chunk}: {message}");
+    }
     assert!(session.flush().is_empty());
 }
 
 #[test]
-fn a_seat_option_that_does_not_exist_is_refused() {
-    let session = us_session(Vec::new());
-    let lua = lua(&session);
+fn a_seat_name_is_refused_while_its_creation_is_queued_in_flight_or_published() {
+    {
+        let session = us_session(Vec::new());
+        let lua = lua(&session);
 
-    let message = error(&lua, "lunette.newSeat('left', { laoyut = 'de' })");
+        let message = error(&lua, "lunette.newSeat { name = 'lunette' }");
 
-    assert!(message.contains("is not an option here"), "{message}");
+        assert!(message.contains("already exists"), "{message}");
+        assert!(session.flush().is_empty());
+    }
+    {
+        let session = us_session(Vec::new());
+        let lua = lua(&session);
+        run::<()>(&lua, "lunette.newSeat { name = 'laser.left' }");
+        assert!(matches!(
+            session.flush().as_slice(),
+            [Command::CreateSeat { .. }]
+        ));
+        session.begin(seated(Vec::new(), vec![seat(1, "lunette", "us")]));
+
+        let message = error(&lua, "lunette.newSeat { name = 'laser.left' }");
+
+        assert!(message.contains("already exists"), "{message}");
+        assert!(session.flush().is_empty());
+    }
+    {
+        let session = us_session(Vec::new());
+        let lua = lua(&session);
+        run::<()>(&lua, "lunette.newSeat { name = 'laser.left' }");
+
+        let message = error(&lua, "lunette.newSeat { name = 'laser.left' }");
+
+        assert!(message.contains("already exists"), "{message}");
+        assert!(matches!(
+            session.flush().as_slice(),
+            [Command::CreateSeat { .. }]
+        ));
+    }
+}
+
+#[test]
+fn a_destroyed_seat_name_can_be_reused_whether_or_not_the_seat_was_published() {
+    {
+        let session = us_session(Vec::new());
+        let lua = lua(&session);
+        let old: u64 = run(
+            &lua,
+            "old = lunette.newSeat { name = 'laser.left' } return old.id",
+        );
+        assert!(matches!(
+            session.flush().as_slice(),
+            [Command::CreateSeat { .. }]
+        ));
+        session.begin(seated(
+            Vec::new(),
+            vec![seat(1, "lunette", "us"), seat(old, "laser.left", "us")],
+        ));
+
+        let replacement: u64 = run(
+            &lua,
+            "assert(old:destroy()) return lunette.newSeat { name = 'laser.left' }.id",
+        );
+
+        assert_ne!(old, replacement);
+        match session.flush().as_slice() {
+            [
+                Command::DestroySeat { seat: destroyed },
+                Command::CreateSeat {
+                    seat: created,
+                    name,
+                    ..
+                },
+            ] => {
+                assert_eq!(destroyed.get(), old);
+                assert_eq!(created.get(), replacement);
+                assert_eq!(name, "laser.left");
+            }
+            other => panic!("expected ordered destruction and recreation, got {other:?}"),
+        }
+    }
+    {
+        for flushed in [false, true] {
+            let session = us_session(Vec::new());
+            let lua = lua(&session);
+            let old: u64 = run(
+                &lua,
+                "old = lunette.newSeat { name = 'laser.left' } return old.id",
+            );
+            if flushed {
+                assert!(matches!(
+                    session.flush().as_slice(),
+                    [Command::CreateSeat { .. }]
+                ));
+                session.begin(seated(Vec::new(), vec![seat(1, "lunette", "us")]));
+            }
+
+            let replacement: u64 = run(
+                &lua,
+                "assert(old.dead) assert(old:destroy()) assert(not old:destroy())
+                 return lunette.newSeat { name = 'laser.left' }.id",
+            );
+
+            assert_ne!(old, replacement);
+            let commands = session.flush();
+            let mutations = if flushed {
+                commands.as_slice()
+            } else {
+                &commands[1..]
+            };
+            match mutations {
+                [
+                    Command::DestroySeat { seat: destroyed },
+                    Command::CreateSeat { seat: created, .. },
+                ] => {
+                    assert_eq!(destroyed.get(), old);
+                    assert_eq!(created.get(), replacement);
+                }
+                other => panic!("expected cancellation and recreation, got {other:?}"),
+            }
+        }
+    }
+    {
+        let session = us_session(Vec::new());
+        let lua = lua(&session);
+        let id: u64 = run(&lua, "return lunette.newSeat { name = 'laser.left' }.id");
+        let _ = session.flush();
+        let snapshot = seated(
+            Vec::new(),
+            vec![seat(1, "lunette", "us"), seat(id, "laser.left", "us")],
+        );
+        session.begin(Arc::clone(&snapshot));
+        run::<()>(&lua, "assert(lunette.seats()[2]:destroy())");
+        assert!(matches!(
+            session.flush().as_slice(),
+            [Command::DestroySeat { .. }]
+        ));
+        session.begin(snapshot);
+
+        run::<()>(&lua, "lunette.newSeat { name = 'laser.left' }");
+
+        assert!(matches!(
+            session.flush().as_slice(),
+            [Command::CreateSeat { .. }]
+        ));
+    }
+}
+
+#[test]
+fn a_seat_name_is_released_when_the_seat_disappears_and_not_reserved_by_a_delayed_cancellation() {
+    {
+        let session = us_session(Vec::new());
+        let lua = lua(&session);
+        let id: u64 = run(&lua, "return lunette.newSeat { name = 'laser.left' }.id");
+        let _ = session.flush();
+        session.begin(seated(
+            Vec::new(),
+            vec![seat(1, "lunette", "us"), seat(id, "laser.left", "us")],
+        ));
+        session.begin(seated(Vec::new(), vec![seat(1, "lunette", "us")]));
+
+        run::<()>(&lua, "lunette.newSeat { name = 'laser.left' }");
+
+        assert!(matches!(
+            session.flush().as_slice(),
+            [Command::CreateSeat { .. }]
+        ));
+    }
+    {
+        let session = us_session(Vec::new());
+        let lua = lua(&session);
+        let id: u64 = run(
+            &lua,
+            "old = lunette.newSeat { name = 'laser.left' } return old.id",
+        );
+        let _ = session.flush();
+        run::<()>(&lua, "assert(old:destroy())");
+        let _ = session.flush();
+        session.begin(seated(Vec::new(), vec![seat(1, "lunette", "us")]));
+        session.begin(seated(
+            Vec::new(),
+            vec![seat(1, "lunette", "us"), seat(id, "laser.left", "us")],
+        ));
+
+        run::<()>(&lua, "lunette.newSeat { name = 'laser.left' }");
+
+        assert!(matches!(
+            session.flush().as_slice(),
+            [Command::CreateSeat { .. }]
+        ));
+    }
 }
 
 #[test]
@@ -427,7 +653,7 @@ fn modifiers_on_a_host_sink_reach_the_provider_as_a_mask() {
 
     run::<()>(
         &lua,
-        "lunette.monitors()[1].sink:modifiers({ 'shift', 'control' })",
+        "lunette.monitors()[1].sink:setModifiers({ 'shift', 'control' })",
     );
 
     let masks: Vec<_> = host
@@ -454,7 +680,7 @@ fn a_modifier_the_host_cannot_represent_is_refused_rather_than_partly_applied() 
     // the caller did not ask for.
     let applied: bool = run(
         &lua,
-        "return lunette.monitors()[1].sink:modifiers({ 'shift', 'mod3' })",
+        "return lunette.monitors()[1].sink:setModifiers({ 'shift', 'mod3' })",
     );
 
     assert!(!applied);
@@ -557,7 +783,7 @@ fn type_text_on_a_window_sink_queues_the_text_for_the_compositor() {
 }
 
 #[test]
-fn type_text_is_refused_on_a_host_sink() {
+fn a_host_sink_refuses_text_and_focus() {
     let (session, _, host) = mirrored_session(Vec::new(), FakeMirrors::one());
     session.begin(seated(Vec::new(), vec![seat(1, "lunette", "us")]));
     let lua = lua(&session);
@@ -569,13 +795,6 @@ fn type_text_is_refused_on_a_host_sink() {
         "the technique needs a keymap lunette can take back, and the host's is not lunette's"
     );
     assert_eq!(host.events(), Vec::new());
-}
-
-#[test]
-fn a_host_sink_cannot_be_focused() {
-    let (session, _, _) = mirrored_session(Vec::new(), FakeMirrors::one());
-    session.begin(seated(Vec::new(), vec![seat(1, "lunette", "us")]));
-    let lua = lua(&session);
 
     let focused: bool = run(
         &lua,

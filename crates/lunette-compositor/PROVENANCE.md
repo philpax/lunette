@@ -49,7 +49,7 @@ The upstream path is relative to `wayvr/src/`. A file assembled from more than o
 | `backend/wayvr/client.rs`, `backend/wayvr/mod.rs` (`WaylandEnv`, `ExternalProcessRequest`) | `src/client.rs` |
 | `backend/wayvr/image_importer.rs` (the `wl_shm` path) | `crates/lunette/src/import/shm.rs` |
 
-`hit_test.rs` comes across without its two couplings. The `Arc<ImageView>` on `RenderedSurface` is read only for a size, so the size arrives as a value and the image stays with whoever draws — which is what keeps this crate free of a graphics dependency. `PointerHit`, the UV transform, and the panel layer go entirely, because Lua performs the ray intersection and hands down pixel coordinates ([docs/dev/input.md](../../docs/dev/input.md)). `BORDER_SIZE` and `BAR_SIZE` are WayVR's titlebar chrome and are mullion's job.
+`hit_test.rs` comes across without its two couplings. The `Arc<ImageView>` on `RenderedSurface` is read only for a size, so the size arrives as a value and the image stays with whoever draws — which is what keeps this crate free of a graphics dependency. `PointerHit`, the UV transform, and the panel layer go entirely, because Lua performs the ray intersection and hands down pixel coordinates ([docs/dev/input.md](../../docs/dev/input.md)). `BORDER_SIZE` and `BAR_SIZE` are WayVR's titlebar chrome, which is the job of the `desktop/decorations` consumer.
 
 `comp.rs` and `process.rs` each land in more than one file because a single one
 would be past the size threshold in [CONTRIBUTING.md](../../CONTRIBUTING.md).

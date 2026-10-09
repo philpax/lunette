@@ -1,0 +1,14 @@
+-- The shipped desktop is composed by `@lunette-desktop`. Settings configure entries by id, and patches insert, replace, or disable entries:
+--
+--   local desktop = require '@lunette-desktop'
+--   desktop.run {
+--     settings = {
+--       laser = { style = { color = { 1, 0.4, 0.2, 0.6 } } },
+--       ['layout/arc'] = { tuning = { radius = 2 } },
+--     },
+--     patches = {
+--       { id = 'keyboard', disabled = true },
+--       { insert = { id = 'my-hud', definition = require('./hud').definition } },
+--     },
+--   }
+require('@lunette-desktop').run()

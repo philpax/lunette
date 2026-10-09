@@ -1,62 +1,35 @@
-//! Linux-only: what happens to an error raised inside a configuration's
-//! callback.
+//! Linux-only: reports errors raised by configuration callbacks.
 //!
-//! [The Lua API](../../../docs/dev/lua-api.md#errors) says the callback boundary
-//! logs, notifies every `lunette.onError` listener, draws a panel, and
-//! rate-limits identical errors. The native side implements the first two. The
-//! limiter, the wording of a report, and the panel are policy in
-//! `mullion.error`, which subscribes like any other listener and is never
-//! looked up.
-//!
-//! # No native limiter
-//!
-//! A native limiter and a Lua limiter, keyed differently, produce gaps: an
-//! error suppressed natively never reaches the Lua limiter, whose window then
-//! starts from the wrong occurrence. Every listener is notified, and each
-//! listener handles the error independently.
-//!
-//! # Sessions without the standard library
-//!
-//! A configuration that never requires `mullion` is supported, and so is one
-//! whose standard library is missing. There is then no limiter: the error is
-//! logged and each listener is notified, and an error raised every frame is
-//! logged every frame. Requiring `mullion.error` installs the limiter that
-//! suppresses the repetition.
-//!
-//! A listener that raises does not stop the ones after it. A session whose
-//! standard library itself raises still reaches every other listener.
+//! [The Lua API](../../../docs/dev/lua-api.md#errors) defines the callback boundary. The error
+//! stream provider owns rate limiting. A listener failure does not stop later listeners.
 
-#[cfg(test)]
-use mlua::Table;
 use mlua::{Function, IntoLua, Lua};
 use tracing::error;
 
 use crate::lua::ErrorEvent;
 
-/// Reports an error a configuration's callback raised.
+/// Reports a callback error to every listener.
 ///
-/// `context` names the boundary the error came through, the callback's own
-/// name, and leads the message, so a report says which callback failed without
-/// the reader having to read the traceback.
-///
-/// Never raises. The callback boundary has no reporting path below this one,
-/// so a failure would leave the error unreported.
+/// The context prefixes the message so the boundary is identifiable without its traceback.
 pub fn report(lua: &Lua, listeners: &[Function], context: &str, error: &mlua::Error) {
-    let traced = TracedError::of(context, error);
+    report_traced(lua, listeners, &TracedError::of(context, error));
+}
 
+/// Reports an error with a separate message and traceback.
+///
+/// Listener failures are logged because this is the last reporting boundary.
+pub fn report_traced(lua: &Lua, listeners: &[Function], traced: &TracedError) {
     error!("lua: {}\n{}", traced.message, traced.traceback);
 
-    if let Err(failure) = offer_to_listeners(lua, listeners, &traced) {
+    if let Err(failure) = offer_to_listeners(lua, listeners, traced) {
         error!("lua: a lunette.onError listener raised while being told about it: {failure}");
     }
 }
 
 /// An error's message and the traceback that goes with it, kept apart.
 ///
-/// `mullion.error` keys its rate limit on both. One message raised from two
-/// places is two defects, and conflating them would hide the second behind the
-/// first. The listener receives the two separately, and mlua reports them
-/// joined.
+/// The error stream provider keys its rate limit on both fields, so identical messages from
+/// different tracebacks remain distinct.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TracedError {
     /// The raised error, with the boundary leading it.
@@ -66,13 +39,10 @@ pub struct TracedError {
 }
 
 impl TracedError {
-    /// Splits what mlua reports into the two halves a report is made of.
+    /// Separates the error message from its traceback.
     ///
-    /// `Function::call` installs `luaL_traceback` as the message handler
-    /// (mlua-0.12.0/src/function.rs), which appends the traceback to the error
-    /// string with [`TRACEBACK_MARKER`] between them. An error raised by a Rust
-    /// callback arrives as [`mlua::Error::CallbackError`], which already
-    /// carries the two apart.
+    /// `Function::call` appends the traceback after [`TRACEBACK_MARKER`]. Rust callback errors
+    /// arrive as [`mlua::Error::CallbackError`] with the message and traceback already separate.
     #[must_use]
     pub fn of(context: &str, error: &mlua::Error) -> Self {
         let (message, traceback) = match error {
@@ -103,17 +73,12 @@ fn split(reported: &str) -> (String, String) {
     }
 }
 
-/// Calls every `lunette.onError` listener with the error.
-///
-/// Every listener runs, including the ones after a listener that raised: a
-/// panel that fails to draw does not stop a logger from receiving the error.
+/// Calls every `lunette.onError` listener, even when an earlier listener raises.
 fn offer_to_listeners(lua: &Lua, listeners: &[Function], traced: &TracedError) -> mlua::Result<()> {
     if listeners.is_empty() {
         return Ok(());
     }
 
-    // Built through the declared type, so a listener sees the fields the
-    // declaration names.
     let payload = ErrorEvent {
         message: traced.message.clone(),
         traceback: traced.traceback.clone(),
@@ -129,68 +94,6 @@ fn offer_to_listeners(lua: &Lua, listeners: &[Function], traced: &TracedError) -
     raised
 }
 
-/// Loads `mullion.error` into `lua` and captures what it reports.
-///
-/// The two modules are compiled in, not read at run time, so a case covers
-/// the files that ship and touches no filesystem. Reports land in the global
-/// `reports`, and a case counts them.
-///
-/// The `lun*` dispatch tests in [`crate::lua::tests`] use it too.
-///
-/// # Panics
-///
-/// The function panics when either module does not load. That condition is a
-/// defect in the standard library, not a consequence of the case.
-#[cfg(test)]
-#[expect(
-    clippy::expect_used,
-    reason = "a failed expectation is how a test fixture reports a defect in the tree it loads"
-)]
-pub(crate) fn install_standard_library_handler(lua: &Lua) {
-    const MULLION_ERROR: &str = include_str!("../../../lua/mullion/error/init.lua");
-    const MULLION_TEARDOWN: &str = include_str!("../../../lua/mullion/teardown.lua");
-
-    let loaded: Table = lua
-        .globals()
-        .get::<Table>("package")
-        .expect("package exists")
-        .get("loaded")
-        .expect("package.loaded exists");
-
-    let teardown: Table = lua
-        .load(MULLION_TEARDOWN)
-        .set_name("@mullion/teardown.lua")
-        .call(())
-        .expect("the teardown registry loads");
-    loaded
-        .set("@mullion/teardown", teardown)
-        .expect("the registry is reachable");
-
-    let module: Table = lua
-        .load(MULLION_ERROR)
-        .set_name("@mullion/error/init.lua")
-        .call(())
-        .expect("the error handler loads");
-    loaded
-        .set("@mullion/error", module)
-        .expect("the handler is reachable");
-
-    lua.load(
-        "reports = {}
-         package.loaded['@mullion/error'].report = function(text)
-             reports[#reports + 1] = text
-         end",
-    )
-    .exec()
-    .expect("the report sink is replaced");
-
-    // Installing subscribes: the boundary notifies its subscribers and looks
-    // nothing up.
-    lua.load("package.loaded['@mullion/error'].install()")
-        .exec()
-        .expect("the handler subscribes");
-}
-
 #[cfg(test)]
 #[expect(
     clippy::expect_used,
@@ -201,25 +104,23 @@ mod tests {
 
     use super::*;
 
-    /// The named global, as a listener `report` can be handed.
     fn listener(lua: &Lua, name: &str) -> Function {
         lua.globals()
             .get::<Function>(name)
             .expect("the handler is a function")
     }
 
-    /// A state with `lovr` on it, which the reporting path requires.
+    /// The reporting path requires `lovr`.
     fn state() -> Lua {
         let lua = crate::test_lua::session_lua();
         lua.load("lovr = {}").exec().expect("lovr is reachable");
         lua
     }
 
-    /// Raises inside a Lua function called the way a callback is, so the error
-    /// arrives with the traceback mlua appends.
+    /// Raises the way a callback does, so the error carries the traceback mlua appends.
     fn raised(lua: &Lua, body: &str) -> mlua::Error {
         lua.load(body)
-            .set_name("main.lua")
+            .set_name("main.luau")
             .into_function()
             .expect("the chunk compiles")
             .call::<()>(())
@@ -227,7 +128,7 @@ mod tests {
     }
 
     #[test]
-    fn a_traceback_is_separated_from_the_message_it_was_appended_to() {
+    fn a_traceback_is_separated_from_its_message_or_empty_when_absent() {
         let lua = crate::test_lua::session_lua();
         let traced = TracedError::of("lovr.lunwindowopened", &raised(&lua, "error('it broke')"));
 
@@ -251,10 +152,6 @@ mod tests {
             "the traceback should be the traceback: {}",
             traced.traceback
         );
-    }
-
-    #[test]
-    fn an_error_with_no_traceback_reports_an_empty_one() {
         assert_eq!(
             split("lua: it broke"),
             ("lua: it broke".to_owned(), String::new())
@@ -262,20 +159,7 @@ mod tests {
     }
 
     #[test]
-    fn a_message_that_is_not_a_string_still_reports() {
-        let lua = crate::test_lua::session_lua();
-        let traced = TracedError::of("lovr.lunwindowopened", &raised(&lua, "error({ code = 1 })"));
-
-        assert!(
-            !traced.message.is_empty(),
-            "an error raised with a table is still an error and still has to be reported"
-        );
-    }
-
-    /// A session with no standard library still notifies the configuration, so
-    /// a `lovr.lunerror` written without `mullion` still runs.
-    #[test]
-    fn lunerror_is_called_directly_when_there_is_no_standard_library() {
+    fn a_listener_is_called_directly_with_the_message_and_traceback() {
         let lua = state();
         lua.load("seen = {} function record(event) seen[#seen + 1] = event end")
             .exec()
@@ -299,29 +183,28 @@ mod tests {
     }
 
     #[test]
-    fn a_configuration_with_no_lunerror_is_not_an_error() {
+    fn a_listener_that_raises_does_not_stop_later_listeners() {
         let lua = state();
+        lua.load(
+            "seen = {} function refuse() error('the handler said no') end \
+             function record(event) seen[#seen + 1] = event end",
+        )
+        .exec()
+        .expect("the handlers install");
+        let listeners = [listener(&lua, "refuse"), listener(&lua, "record")];
 
         report(
             &lua,
-            &[],
+            &listeners,
             "lunette.lunwindowopened",
             &raised(&lua, "error('it broke')"),
         );
-    }
 
-    #[test]
-    fn a_lunerror_that_raises_does_not_take_the_session_with_it() {
-        let lua = state();
-        lua.load("function record() error('the handler said no') end")
-            .exec()
-            .expect("the handler installs");
-
-        report(
-            &lua,
-            &[],
-            "lunette.lunwindowopened",
-            &raised(&lua, "error('it broke')"),
-        );
+        let (count, message): (usize, String) = lua
+            .load("return #seen, seen[1].message")
+            .eval()
+            .expect("the payload is readable");
+        assert_eq!(count, 1);
+        assert!(message.contains("it broke"), "{message}");
     }
 }

@@ -314,11 +314,11 @@ fn an_adopted_process_that_disappears_is_reported_once() {
     gone.kill(4242);
     let reports = registry.poll(&gone);
     assert_eq!(reports.len(), 1);
-    assert!(matches!(reports[0], Report::Exited { id: reported, .. } if reported == id));
+    assert!(matches!(reports[0], Report::Vanished { id: reported } if reported == id));
 
     assert!(
         registry.poll(&gone).is_empty(),
-        "an exit is reported once, not on every poll"
+        "a disappearance is reported once, not on every poll"
     );
     assert!(registry.is_empty());
 }

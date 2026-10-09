@@ -19,10 +19,10 @@ pub enum Type {
     Optional(Box<Type>),
     /// `A | B`.
     Union(Vec<Type>),
-    /// `A & B`.
-    Intersection(Vec<Type>),
     /// `{ T }`.
     Array(Box<Type>),
+    /// `{ read [number]: T }`. Its elements can be read but not assigned or removed.
+    ReadonlyArray(Box<Type>),
     /// `{ [K]: V }`.
     Map { key: Box<Type>, value: Box<Type> },
     /// `(self: R, name: P) -> T`.
@@ -61,6 +61,12 @@ impl Type {
         Self::Array(Box::new(self))
     }
 
+    /// `{ read [number]: T }`.
+    #[must_use]
+    pub fn readonly_array(self) -> Self {
+        Self::ReadonlyArray(Box::new(self))
+    }
+
     /// `{ [K]: V }`.
     #[must_use]
     pub fn map(key: Self, value: Self) -> Self {
@@ -85,12 +91,11 @@ impl Type {
     const fn binds_looser_than_optional(&self) -> bool {
         matches!(
             self,
-            Self::Union(_) | Self::Intersection(_) | Self::Function { .. } | Self::Optional(_)
+            Self::Union(_) | Self::Function { .. } | Self::Optional(_)
         )
     }
 
-    /// Whether this needs parentheses to be a member of a union or an
-    /// intersection.
+    /// Whether this needs parentheses to be a member of a union.
     ///
     /// A function type needs parentheses: `((A) -> B) | C`. An optional does
     /// not. `A | B?` is already the union that `(A | B)?` is.
@@ -111,9 +116,13 @@ impl Type {
                 out.push('?');
             }
             Self::Union(members) => render_joined(out, members, " | "),
-            Self::Intersection(members) => render_joined(out, members, " & "),
             Self::Array(element) => {
                 out.push_str("{ ");
+                element.render(out);
+                out.push_str(" }");
+            }
+            Self::ReadonlyArray(element) => {
+                out.push_str("{ read [number]: ");
                 element.render(out);
                 out.push_str(" }");
             }
@@ -249,6 +258,23 @@ mod tests {
         assert_eq!(
             Type::map(Type::STRING, union).to_string(),
             "{ [string]: number | string }"
+        );
+    }
+
+    #[test]
+    fn a_readonly_array_has_a_readonly_numeric_indexer_and_renders_its_elements() {
+        let array = Type::NUMBER.readonly_array();
+        assert_eq!(array, Type::ReadonlyArray(Box::new(Type::NUMBER)));
+        assert_eq!(array.to_string(), "{ read [number]: number }");
+
+        let union = Type::Union(vec![Type::NUMBER, Type::STRING]);
+        assert_eq!(
+            union.readonly_array().to_string(),
+            "{ read [number]: number | string }"
+        );
+        assert_eq!(
+            Type::STRING.readonly_array().readonly_array().to_string(),
+            "{ read [number]: { read [number]: string } }"
         );
     }
 

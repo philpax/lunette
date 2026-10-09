@@ -1,13 +1,10 @@
-//! Window handles: what a handle reports, what it does, and how a dead handle
-//! behaves.
-//!
-//! A handle whose window the snapshot no longer lists reads its last-known
-//! values, returns `false` from its methods, and raises nothing. A window can
-//! close in the middle of a frame, and raising over that would crash the
-//! session for a routine event.
+//! Tests window handle snapshots, mutations, textures, and dead-handle behavior.
+
+use std::sync::Arc;
 
 use lunette_compositor::protocol::{
-    Command, ContentType, FramePacing, PixelSize, ToplevelState, ToplevelStates,
+    Command, ContentType, FramePacing, OutputId, OutputMode, OutputScale, OutputSnapshot,
+    PixelSize, RefreshRate, Snapshot, ToplevelState, ToplevelStates, WindowSnapshot,
 };
 use pretty_assertions::assert_eq;
 
@@ -18,7 +15,7 @@ use crate::{
 };
 
 #[test]
-fn a_snapshot_of_two_windows_becomes_two_handles() {
+fn a_snapshot_of_two_windows_becomes_two_handles_and_an_empty_one_none() {
     let session = session(vec![
         window(1, "htop", "foot", PixelSize::new(1280, 720)),
         window(
@@ -57,14 +54,10 @@ fn a_snapshot_of_two_windows_becomes_two_handles() {
     );
     assert_eq!(second_title, "editor");
     assert_eq!(second_width, 1920);
-}
 
-#[test]
-fn windows_are_empty_before_anything_has_mapped() {
-    let session = session(Vec::new());
-    let lua = lua(&session);
-
-    assert_eq!(run::<usize>(&lua, "return #lunette.windows()"), 0);
+    let empty = crate::lua::tests::session(Vec::new());
+    let empty_lua = crate::lua::tests::lua(&empty);
+    assert_eq!(run::<usize>(&empty_lua, "return #lunette.windows()"), 0);
 }
 
 #[test]
@@ -112,7 +105,7 @@ fn a_dead_handle_reads_its_last_known_values_and_raises_nothing() {
 }
 
 #[test]
-fn every_method_of_a_dead_handle_returns_false() {
+fn every_method_and_mutation_of_a_dead_handle_returns_false() {
     let session = session(vec![window(1, "htop", "foot", PixelSize::new(1280, 720))]);
     session.with_textures(|textures| {
         textures.install(
@@ -133,11 +126,18 @@ fn every_method_of_a_dead_handle_returns_false() {
         &lua,
         "return held:getTexture(), sink:pointer(4, 5), sink:button('left', true), sink.dead",
     );
+    let (closed, resized, stabilized): (bool, bool, bool) = run(
+        &lua,
+        "return held:close(), held:resize(800, 600), held:stabilize()",
+    );
 
     assert!(!texture);
     assert!(!pointer);
     assert!(!button);
     assert!(sink_dead);
+    assert!(!closed);
+    assert!(!resized);
+    assert!(!stabilized);
     assert!(
         session.flush().is_empty(),
         "a refused mutation must not reach the compositor"
@@ -166,12 +166,13 @@ fn get_texture_answers_with_the_texture_the_ledger_holds() {
 }
 
 #[test]
-fn a_window_whose_buffer_has_no_alpha_channel_reports_itself_opaque() {
-    // An X-variant fourcc maps to an alpha Vulkan format, so the padding byte
-    // arrives as alpha and is usually zero. Sampling it as alpha would render
-    // an `XR24` client fully invisible; the format mapping records these as
-    // opaque instead.
-    let session = session(vec![window(1, "htop", "foot", PixelSize::new(64, 32))]);
+fn a_window_reports_itself_opaque_only_when_its_buffer_has_no_alpha_channel() {
+    // An `XR24` padding byte arrives as alpha and is usually zero, so sampling
+    // it as alpha would render the client invisible.
+    let session = session(vec![
+        window(1, "htop", "foot", PixelSize::new(64, 32)),
+        window(2, "editor", "foot", PixelSize::new(64, 32)),
+    ]);
     session.with_textures(|textures| {
         textures.install(
             surface_id(1),
@@ -188,39 +189,26 @@ fn a_window_whose_buffer_has_no_alpha_channel_reports_itself_opaque() {
         run::<bool>(&lua, "return lunette.windows()[1].opaque"),
         "a consumer forces alpha to one for these, and this is what tells it to"
     );
-}
+    assert!(
+        !run::<bool>(&lua, "return lunette.windows()[2].opaque"),
+        "a window with no buffer has nothing to force alpha on"
+    );
 
-#[test]
-fn a_window_whose_buffer_carries_alpha_does_not_report_itself_opaque() {
-    let session = session(vec![window(1, "htop", "foot", PixelSize::new(64, 32))]);
     session.with_textures(|textures| {
         textures.install(
             surface_id(1),
-            FakeTexture(42),
+            FakeTexture(43),
             TextureDescription {
                 size: PixelSize::new(64, 32),
                 alpha: Alpha::Present,
             },
         )
     });
-    let lua = lua(&session);
-
     assert!(!run::<bool>(&lua, "return lunette.windows()[1].opaque"));
 }
 
 #[test]
-fn a_window_with_no_buffer_yet_is_not_reported_opaque() {
-    let session = session(vec![window(1, "htop", "foot", PixelSize::new(64, 32))]);
-    let lua = lua(&session);
-
-    assert!(
-        !run::<bool>(&lua, "return lunette.windows()[1].opaque"),
-        "there is no texture to draw, so there is nothing to force alpha on"
-    );
-}
-
-#[test]
-fn get_texture_answers_false_before_the_client_has_committed_anything() {
+fn get_texture_and_stabilize_answer_false_before_the_client_has_committed_anything() {
     let session = session(vec![window(1, "htop", "foot", PixelSize::new(64, 32))]);
     let lua = lua(&session);
 
@@ -228,13 +216,15 @@ fn get_texture_answers_false_before_the_client_has_committed_anything() {
         &lua,
         "return lunette.windows()[1]:getTexture()"
     ));
+
+    assert!(!run::<bool>(
+        &lua,
+        "return lunette.windows()[1]:stabilize()"
+    ));
 }
 
 #[test]
 fn a_texture_handle_is_refused_once_its_frame_has_passed() {
-    // Not reachable from Lua, which resolves a reference in the call that
-    // creates it. `getTexture` relies on the ledger's rule, so the test states
-    // the rule at the Lua boundary in addition to `texture/ledger.rs`.
     let session = session(Vec::new());
     session.with_textures(|textures| {
         textures.install(
@@ -347,17 +337,93 @@ fn a_window_reports_the_content_type_its_client_set() {
         run::<String>(&lua, "return lunette.windows()[1].contentType"),
         "video"
     );
-}
 
-#[test]
-fn a_window_whose_client_said_nothing_reports_none() {
-    let session = session(vec![window(1, "foot", "foot", PixelSize::new(64, 32))]);
-    let lua = lua(&session);
-
+    session.begin(snapshot(
+        vec![window(1, "mpv", "mpv", PixelSize::new(64, 32))],
+        Vec::new(),
+    ));
     assert_eq!(
         run::<String>(&lua, "return lunette.windows()[1].contentType"),
         "none",
         "the protocol's own default, and what most clients report"
+    );
+}
+
+/// A snapshot holding `windows` and one output for each of `outputs`.
+fn with_outputs(windows: Vec<WindowSnapshot>, outputs: &[(u64, f64)]) -> Arc<Snapshot> {
+    Arc::new(Snapshot {
+        windows,
+        outputs: outputs
+            .iter()
+            .map(|&(raw, scale)| OutputSnapshot {
+                output: OutputId::new(raw).expect("non-zero"),
+                mode: OutputMode {
+                    size: PixelSize::new(1920, 1080),
+                    scale: OutputScale::new(scale).expect("the test names a positive scale"),
+                    refresh: RefreshRate::from_millihertz(60_000),
+                },
+            })
+            .collect(),
+        ..Snapshot::default()
+    })
+}
+
+#[test]
+fn a_window_reports_the_output_its_client_is_shown_or_none() {
+    let mut spawned = window(1, "foot", "foot", PixelSize::new(64, 32));
+    spawned.output = OutputId::new(2).expect("non-zero");
+    let session = session(Vec::new());
+    session.begin(with_outputs(vec![spawned], &[(1, 1.0), (2, 1.5)]));
+    let lua = lua(&session);
+
+    let (id, scale): (u64, f64) = run(
+        &lua,
+        "local output = lunette.windows()[1].output
+         return output.id, output.scale",
+    );
+
+    assert_eq!((id, scale), (2, 1.5));
+
+    session.begin(with_outputs(
+        vec![window(1, "foot", "foot", PixelSize::new(64, 32))],
+        &[],
+    ));
+    assert!(
+        run::<bool>(&lua, "return lunette.windows()[1].output == nil"),
+        "an output missing from the snapshot reports none"
+    );
+}
+
+#[test]
+fn a_window_s_commit_changes_with_each_buffer_and_is_zero_before_the_first_and_after_death() {
+    let session = session(vec![window(1, "mpv", "mpv", PixelSize::new(64, 32))]);
+    let lua = lua(&session);
+    let description = TextureDescription {
+        size: PixelSize::new(64, 32),
+        alpha: Alpha::Present,
+    };
+
+    let before: u64 = run(&lua, "return lunette.windows()[1].commit");
+    session.with_textures(|textures| textures.install(surface_id(1), FakeTexture(1), description));
+    let first: u64 = run(&lua, "return lunette.windows()[1].commit");
+    let unchanged: u64 = run(&lua, "return lunette.windows()[1].commit");
+    session.with_textures(|textures| textures.install(surface_id(1), FakeTexture(2), description));
+    let second: u64 = run(&lua, "return lunette.windows()[1].commit");
+
+    assert_eq!(before, 0, "nothing committed yet");
+    assert_ne!(first, 0, "a committed buffer has a commit");
+    assert_eq!(
+        first, unchanged,
+        "reading twice without a commit answers the same"
+    );
+    assert_ne!(first, second, "a new buffer changes the commit");
+
+    run::<()>(&lua, "held = lunette.windows()[1]");
+    session.begin(snapshot(Vec::new(), Vec::new()));
+    assert_eq!(
+        run::<u64>(&lua, "return held.commit"),
+        0,
+        "a dead window's commit is zero"
     );
 }
 
@@ -480,7 +546,6 @@ fn stabilizing_hands_back_the_same_texture_while_the_buffer_rotates() {
     );
     assert_ne!(stable, imported, "the copy is lunette's, not the client's");
 
-    // The install stands in for the client committing its next buffer.
     session.with_textures(|textures| {
         textures.install(
             surface_id(1),
@@ -508,44 +573,29 @@ fn stabilizing_hands_back_the_same_texture_while_the_buffer_rotates() {
 }
 
 #[test]
-fn stabilizing_answers_false_before_the_client_has_committed_anything() {
-    let session = session(vec![window(1, "htop", "foot", PixelSize::new(64, 32))]);
+fn two_handles_compare_equal_exactly_when_they_name_the_same_thing() {
+    let session = session(vec![
+        window(1, "htop", "foot", PixelSize::new(640, 480)),
+        window(2, "editor", "foot", PixelSize::new(640, 480)),
+    ]);
     let lua = lua(&session);
 
-    assert!(!run::<bool>(
+    let (same, different, sinks, crossed): (bool, bool, bool, bool) = run(
         &lua,
-        "return lunette.windows()[1]:stabilize()"
-    ));
-}
-
-#[test]
-fn every_mutation_of_a_dead_handle_returns_false() {
-    let session = session(vec![window(1, "htop", "foot", PixelSize::new(64, 32))]);
-    session.with_textures(|textures| {
-        textures.install(
-            surface_id(1),
-            FakeTexture(42),
-            TextureDescription {
-                size: PixelSize::new(64, 32),
-                alpha: Alpha::Present,
-            },
-        )
-    });
-    let lua = lua(&session);
-    run::<()>(&lua, "held = lunette.windows()[1]");
-
-    session.begin(snapshot(Vec::new(), Vec::new()));
-
-    let (closed, resized, stabilized): (bool, bool, bool) = run(
-        &lua,
-        "return held:close(), held:resize(800, 600), held:stabilize()",
+        "local first, second = lunette.windows(), lunette.windows()
+         return first[1] == second[1], first[1] == second[2],
+             first[1].sink == second[1].sink, first[1].sink == second[2].sink",
     );
 
-    assert!(!closed);
-    assert!(!resized);
-    assert!(!stabilized);
+    assert!(same, "every read returns fresh userdata for one window");
+    assert!(!different);
+    assert!(sinks, "two sinks for one window are one target");
+    assert!(!crossed);
     assert!(
-        session.flush().is_empty(),
-        "a refused mutation must not reach the compositor"
+        !run::<bool>(
+            &lua,
+            "return lunette.windows()[1] == lunette.windows()[1].sink"
+        ),
+        "a window and its sink are different kinds of handle"
     );
 }

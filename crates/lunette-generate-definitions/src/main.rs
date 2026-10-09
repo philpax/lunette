@@ -1,35 +1,10 @@
-//! Generates the Luau definitions the type checker loads.
+//! Generates and checks the Luau definitions used by the type checker.
 //!
-//! Runs lovr-docs' own `api/main.lua` against the pinned metadata using the Luau
-//! embedded in LÖVR, adds what lovr-docs does not describe, and writes
-//! `etc/lunette/definitions.luau`.
-//!
-//! The driver runs the aggregator; it does not consume the aggregate.
-//! `api/init.lua` is a generated file of some forty-six thousand lines, and
-//! consuming it means a fix to a per-file document has no effect until that
-//! file is regenerated. Nothing enforces that regeneration step. Running the
-//! aggregator reads the per-file documents directly.
-//!
-//! `api/main.lua` is written to run inside LÖVR. It walks the tree with
-//! `lovr.filesystem`, loads each document with `require`, reads `arg` for the
-//! generator's name, and finishes by calling `lovr.event.quit`. The driver
-//! supplies each of those over the on-disk directory. It also supplies
-//! `io.popen`, which the aggregator uses to read the current branch. The
-//! driver returns the fork's branch, so the aggregator's `dev` checks stay
-//! off.
-//!
-//! The driver does not port the generator. It executes the literal lovr-docs
-//! generator, so the definitions cannot diverge from the metadata. The
-//! generator is standalone: it reads its `api` argument (the aggregated table
-//! from `api/init.lua`), builds an `out` table, and writes it to
-//! `lovr.filesystem.getSource() .. '/luau/lovr.d.luau'`. The driver supplies
-//! the two `lovr` globals the generator uses, points `getSource` at a
-//! temporary directory, runs the generator, and reads the file it writes.
-//!
-//! `--check` generates into memory and compares against what is checked in,
-//! reporting the first line that differs and exiting non-zero. CONTRIBUTING.md
-//! requires a generated document to be verified. The command performs that
-//! verification for the generated files.
+//! The driver runs lovr-docs' aggregator and Luau generator against pinned
+//! metadata with the Luau embedded in LÖVR. It supplies the filesystem and
+//! runtime globals those scripts require. Generated definitions include the
+//! native API declarations and module aliases. `--check` compares generated
+//! output with checked-in files and reports the first differing line.
 
 use std::{
     env, fs,
@@ -39,6 +14,9 @@ use std::{
 
 use mlua::{Lua, Table};
 use tracing::{error, info};
+
+#[cfg(test)]
+mod tests;
 
 /// The aggregator script, and the directory the script and its documents are read from.
 const AGGREGATOR: &str = "vendor/lovr-docs/api/main.lua";
@@ -59,46 +37,46 @@ const CHECKER_DEFINITIONS: &str = "etc/lunette/definitions.luau";
 /// registration surface. The lovr-docs metadata does not describe it.
 const MODULE_DECLARATIONS: &str = "lua/lunette/init.luau";
 
-/// The `.luaurc` files the checker reads to resolve a `@root`, and the path
-/// each one reaches the standard library by. The path is written as Luau
-/// resolves it: relative to the file's own directory.
+type AliasFile = (&'static str, &'static str, fn(&str) -> String);
+
+/// The generated alias files and their paths to the Lua roots.
 ///
-/// The files are generated because the session mounts the same roots from
-/// [`lunette::aliases`]. A root added to one and not the other is a
-/// configuration that runs but cannot be checked.
-const ALIAS_FILES: &[(&str, &str)] = &[
-    ("lua/.luaurc", "."),
-    ("etc/xdg/lunette/.luaurc", "../../../lua"),
+/// Development aliases include the testing root. Installed aliases omit it.
+const ALIAS_FILES: &[AliasFile] = &[
+    ("lua/.luaurc", ".", lunette::aliases::luaurc),
+    ("dev/.luaurc", "../lua", lunette::aliases::luaurc),
+    (
+        "etc/xdg/lunette/.luaurc",
+        "../../../lua",
+        lunette::aliases::installed_luaurc,
+    ),
+    (
+        "etc/lunette/installed.luaurc",
+        ".",
+        lunette::aliases::installed_luaurc,
+    ),
 ];
 
-/// What the checker needs that lovr-docs does not describe.
-///
-/// Luau declares the standard functions itself, with accurate types.
-/// Declaring them in the definitions would replace accurate types with `any`.
-/// The runtime has no `io`, and declaring one would let four calls pass the
-/// checker; those calls fail at runtime.
-const FORK_GLOBALS: &str = "
--- The shipped configuration sets this once, deliberately, to remember that the
--- demonstration window was already spawned across soft reloads. Written through
--- `_G` so the assignment is visible to the checker.
-declare _G: {
-    lunetteDemonstrationSpawned: boolean,
-    -- Anything else a configuration leaves on the global table.
-    [string]: any,
-}
-
-";
+/// Every directory here is an example configuration, and each gets installed aliases.
+const EXAMPLES: &str = "examples";
 
 fn main() -> ExitCode {
-    // Diagnostics go to stderr. A caller that redirects stdout receives no
-    // diagnostics in it. Neither mode writes to stdout.
+    // Keep diagnostics on stderr so `--manifest` can write machine-readable stdout.
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
         .without_time()
         .with_target(false)
         .init();
 
-    let checking = env::args().any(|argument| argument == "--check");
+    let arguments = env::args().collect::<Vec<_>>();
+    if arguments.iter().any(|argument| argument == "--manifest") {
+        for (source, destination) in lunette::aliases::install_manifest() {
+            println!("{source}\t{destination}");
+        }
+        return ExitCode::SUCCESS;
+    }
+
+    let checking = arguments.iter().any(|argument| argument == "--check");
 
     match run(checking) {
         Ok(true) => ExitCode::SUCCESS,
@@ -110,13 +88,8 @@ fn main() -> ExitCode {
     }
 }
 
-/// Generates the generated files, and either writes them or compares them.
-///
-/// Returns whether the run is a success. A comparison that differs is a
-/// failure; a write always succeeds or returns the error that stopped it.
+/// Generates the output files and writes them or compares them with checked-in files.
 fn run(checking: bool) -> Result<bool, Box<dyn std::error::Error>> {
-    // The workspace root, relative to CARGO_MANIFEST_DIR
-    // (crates/lunette-generate-definitions).
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let root = root.canonicalize()?;
 
@@ -125,9 +98,6 @@ fn run(checking: bool) -> Result<bool, Box<dyn std::error::Error>> {
     let api_root = root.join(API_ROOT);
     install_generator_globals(&lua, &api_root)?;
 
-    // `api/main.lua` puts its work in `lovr.load` and runs the generator from
-    // there. Loading the chunk defines `lovr.load`; calling the function
-    // executes the generator.
     let aggregator = fs::read_to_string(root.join(AGGREGATOR))?;
     lua.load(&aggregator)
         .set_name("@lovr-docs/api/main.lua")
@@ -137,26 +107,30 @@ fn run(checking: bool) -> Result<bool, Box<dyn std::error::Error>> {
     let load: mlua::Function = lovr.get("load")?;
     load.call::<()>(())?;
 
-    // The generator writes to getSource()/luau/lovr.d.luau. Find where
-    // getSource points.
     let filesystem: Table = lovr.get("filesystem")?;
     let get_source: mlua::Function = filesystem.get("getSource")?;
     let source_dir: String = get_source.call(())?;
     let generated = PathBuf::from(source_dir).join("luau").join("lovr.d.luau");
     let text = fs::read_to_string(&generated)?;
 
-    let definitions = format!("{FORK_GLOBALS}\n{text}");
-    let declarations = lunette::lua::declarations::render();
-
     let mut generated = vec![
-        (CHECKER_DEFINITIONS, definitions),
-        (MODULE_DECLARATIONS, declarations),
+        (PathBuf::from(CHECKER_DEFINITIONS), text),
+        (
+            PathBuf::from(MODULE_DECLARATIONS),
+            lunette::lua::declarations::render(),
+        ),
     ];
     generated.extend(
         ALIAS_FILES
             .iter()
-            .map(|(path, root)| (*path, lunette::aliases::luaurc(root))),
+            .map(|(path, root, render)| (PathBuf::from(path), render(root))),
     );
+    for example in examples(&root)? {
+        generated.push((
+            example.join(".luaurc"),
+            lunette::aliases::installed_luaurc("../../lua"),
+        ));
+    }
 
     if checking {
         let mut current = true;
@@ -185,10 +159,20 @@ fn run(checking: bool) -> Result<bool, Box<dyn std::error::Error>> {
     Ok(true)
 }
 
-/// Compares a checked-in file against what the generator produced.
-///
-/// Reports the first line that differs, with its number, and the differing
-/// line in both versions. A missing file is reported as such.
+/// The example configuration directories, relative to the repository root, in name order.
+fn examples(root: &Path) -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
+    let mut examples = Vec::new();
+    for entry in fs::read_dir(root.join(EXAMPLES))? {
+        let entry = entry?;
+        if entry.file_type()?.is_dir() {
+            examples.push(Path::new(EXAMPLES).join(entry.file_name()));
+        }
+    }
+    examples.sort();
+    Ok(examples)
+}
+
+/// Compares generated output with a checked-in file and reports the first difference.
 fn compare(path: &Path, generated: &str) -> Result<bool, Box<dyn std::error::Error>> {
     let Ok(current) = fs::read_to_string(path) else {
         error!(path = %path.display(), "the file is not there");

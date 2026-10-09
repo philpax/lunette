@@ -394,7 +394,7 @@ impl Overrun {
 
 /// Gives `function` an environment in which a module resolves by its own name.
 ///
-/// `docs/dev/lua-api.md` documents `lunctl 'return #lunette.windows()'`. A
+/// `docs/guide/native-api.md` documents `lunctl 'return #lunette.windows()'`. A
 /// configuration reaches the API through `local lunette = require '@lunette'`, so
 /// the name is a local and is not a global anywhere. Without this, every
 /// documented example indexes a nil.
@@ -606,7 +606,7 @@ mod tests {
 
     #[test]
     fn a_chunk_reaches_a_preloaded_module_by_its_bare_name() {
-        // Every example in docs/dev/lua-api.md takes this form.
+        // Every example in docs/guide/native-api.md takes this form.
         let lua = with_preloaded_module();
 
         assert_eq!(
@@ -657,8 +657,7 @@ mod tests {
 
     #[test]
     fn a_name_a_chunk_sets_is_visible_to_the_next_chunk() {
-        // docs/dev/lua-api.md's `$(lunctl 'return win.title')` reads what an earlier
-        // chunk stored.
+        // A later lunctl call reads what an earlier chunk stored.
         let lua = crate::test_lua::session_lua();
 
         returned(evaluate(&lua, "remembered = 5", Budget::DEFAULT, scalars));

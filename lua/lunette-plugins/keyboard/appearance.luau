@@ -1,0 +1,136 @@
+-- Resolves sparse keyboard appearance over global tokens without owning native resources.
+
+local schema = require '@lunette-plugin/schema'
+local theme = require '@lunette-contracts/theme'
+local descriptors = require '@lunette-plugins/theme/descriptors'
+
+local appearance = {}
+
+-- A style resolved for drawing at the keyboard's current scale.
+export type Style = {
+  read font: Font,
+  read backingRadius: number,
+  read keyRadius: number,
+  read keyUnit: number,
+  read gap: number,
+  read plateDepth: number,
+  read legendDepth: number,
+  read margin: number,
+  read plateColor: { read [number]: number },
+  read keyColor: { read [number]: number },
+  read heldColor: { read [number]: number },
+  read hoverColor: { read [number]: number },
+  read legendColor: { read [number]: number },
+  read legendHeight: number,
+}
+
+local positive = schema.number { positive = true }
+local nonnegative = schema.number { minimum = 0 }
+
+local function style<F>(font: F)
+  return schema.object {
+    font = schema.optional(font),
+    backingRadius = schema.optional(nonnegative),
+    keyRadius = schema.optional(nonnegative),
+    keyUnit = schema.optional(positive),
+    gap = schema.optional(nonnegative),
+    plateDepth = schema.optional(nonnegative),
+    legendDepth = schema.optional(nonnegative),
+    margin = schema.optional(nonnegative),
+    plateColor = schema.optional(descriptors.color),
+    keyColor = schema.optional(descriptors.color),
+    heldColor = schema.optional(descriptors.color),
+    hoverColor = schema.optional(descriptors.color),
+    legendColor = schema.optional(descriptors.color),
+    legendHeight = schema.optional(positive),
+  }
+end
+
+local options = style(descriptors.font)
+local editableStyle = style(descriptors.editableFont)
+export type EditableStyleConfig = schema.Input<typeof(editableStyle)>
+export type EditableStyle = schema.Output<typeof(editableStyle)>
+-- A sparse style whose omitted fields fall through to the theme.
+export type Options = schema.Output<typeof(options)>
+
+appearance.editableStyle = editableStyle
+
+local BASE: Options = options.parse {
+  font = { kind = 'default' },
+  backingRadius = 0,
+  keyRadius = 0,
+  keyUnit = 0.028,
+  gap = 0.004,
+  plateDepth = 0.002,
+  legendDepth = 0.001,
+  margin = 0.008,
+  plateColor = { 0.1, 0.1, 0.13, 0.92 },
+  keyColor = { 0.2, 0.2, 0.24, 1 },
+  heldColor = { 0.35, 0.55, 0.95, 1 },
+  hoverColor = { 0.4, 0.42, 0.5, 1 },
+  legendColor = { 1, 1, 1, 1 },
+  legendHeight = 0.012,
+}
+
+function appearance.project(value: EditableStyle): Options
+  local projected: { [string]: unknown } = table.clone(value) :: any
+  projected.font = if value.font then descriptors.projectFont(value.font, 'keyboard style.font') else nil
+  return options.parse(projected)
+end
+
+function appearance.resolve(global: theme.Theme, provider: Options): Options
+  local tokens = options.resolve({
+    font = global.typography.font,
+    backingRadius = global.radii.keyboardBacking,
+    keyRadius = global.radii.keyboardKey,
+    gap = global.metrics.keyboardGap,
+    plateColor = global.colors.background,
+    keyColor = global.colors.control,
+    heldColor = global.colors.pressed,
+    hoverColor = global.colors.hovered,
+    legendColor = global.colors.foreground,
+    legendHeight = global.typography.keyboardLegendHeight,
+  }, BASE, 'keyboard style')
+  return options.resolve(provider, tokens, 'keyboard style')
+end
+
+function appearance.scaled(value: Options, font: Font, scale: number): Style
+  return {
+    font = font,
+    backingRadius = (value.backingRadius :: number) * scale,
+    keyRadius = (value.keyRadius :: number) * scale,
+    keyUnit = (value.keyUnit :: number) * scale,
+    gap = (value.gap :: number) * scale,
+    margin = (value.margin :: number) * scale,
+    plateDepth = (value.plateDepth :: number) * scale,
+    legendDepth = (value.legendDepth :: number) * scale,
+    legendHeight = (value.legendHeight :: number) * scale,
+    plateColor = value.plateColor :: theme.Color,
+    keyColor = value.keyColor :: theme.Color,
+    heldColor = value.heldColor :: theme.Color,
+    hoverColor = value.hoverColor :: theme.Color,
+    legendColor = value.legendColor :: theme.Color,
+  }
+end
+
+function appearance.meshChanged(first: Style, second: Style): boolean
+  return first.keyUnit ~= second.keyUnit
+    or first.gap ~= second.gap
+    or first.margin ~= second.margin
+    or first.backingRadius ~= second.backingRadius
+    or first.keyRadius ~= second.keyRadius
+end
+
+function appearance.geometryChanged(first: Style, second: Style): boolean
+  return first.font ~= second.font
+    or first.keyUnit ~= second.keyUnit
+    or first.gap ~= second.gap
+    or first.margin ~= second.margin
+    or first.plateDepth ~= second.plateDepth
+    or first.legendDepth ~= second.legendDepth
+    or first.legendHeight ~= second.legendHeight
+    or first.backingRadius ~= second.backingRadius
+    or first.keyRadius ~= second.keyRadius
+end
+
+return appearance

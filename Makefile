@@ -1,25 +1,16 @@
 # Building and installing lunette.
 #
-# Cargo builds the binary. The install step puts the runtime files where a
-# session that did not build in place can find them. docs/dev/build-and-development.md
-# states the paths, and the install targets realise them.
-#
-# Three sets ship:
+# docs/dev/build-and-development.md states the installed paths. Five sets ship:
 #
 #   $(PREFIX)/bin/lunette              the binary
 #   $(PREFIX)/bin/lunctl               the control client
 #   $(PREFIX)/lib/lunette/             LOVR and the shared libraries it needs
-#   $(PREFIX)/share/lunette/lua/       the mullion standard library
-#   $(SYSCONFDIR)/xdg/lunette/         the default configuration
+#   $(PREFIX)/share/lunette/            Lua modules and LÖVR definitions
+#   $(SYSCONFDIR)/xdg/lunette/          the default configuration
 #
-# PREFIX and SYSCONFDIR reach the binary as LUNETTE_PREFIX and
-# LUNETTE_SYSCONFDIR, which crates/lunette/src/main.rs reads through
-# `option_env!` and compiles in as the defaults it resolves against. The
-# build and the install that follows it must be told the prefix once, here,
-# not twice.
-#
-# DESTDIR is honoured for staged installs, per the GNU conventions: it prefixes
-# every destination and is never compiled into anything.
+# PREFIX and SYSCONFDIR are compiled into the binary through `option_env!`, so
+# the build and the install share one prefix. DESTDIR prefixes every
+# destination and is never compiled in.
 
 PREFIX ?= /usr/local
 SYSCONFDIR ?= /etc
@@ -33,15 +24,16 @@ INSTALL ?= install
 PATCHELF ?= patchelf
 INSTALL_PROGRAM ?= $(INSTALL) -m 755
 INSTALL_DATA ?= $(INSTALL) -m 644
+FIND ?= find
 
-# Cargo names the `dev` profile's directory `debug`; every other profile's
-# directory is its own name.
+# Cargo names the `dev` profile's directory `debug`.
 profile_dir := $(if $(filter dev,$(PROFILE)),debug,$(PROFILE))
 build_dir := $(CARGO_TARGET_DIR)/$(profile_dir)
 
 bindir := $(DESTDIR)$(PREFIX)/bin
 libdir := $(DESTDIR)$(PREFIX)/lib/lunette
-luadir := $(DESTDIR)$(PREFIX)/share/lunette/lua
+datadir := $(DESTDIR)$(PREFIX)/share/lunette
+luadir := $(datadir)/lua
 confdir := $(DESTDIR)$(SYSCONFDIR)/xdg/lunette
 
 export LUNETTE_PREFIX = $(PREFIX)
@@ -49,17 +41,18 @@ export LUNETTE_SYSCONFDIR = $(SYSCONFDIR)
 
 .PHONY: all build run install install-binary install-lua install-config check check-install check-format check-headset check-headset-runtime check-rust check-clippy check-test check-definitions check-luau clean
 
+# The generator owns the install list. It omits the testing root.
+install_manifest := $(CARGO) run -p lunette-generate-definitions -- --manifest
+
 all: build
 
 build:
 	$(CARGO) build --profile $(PROFILE) --workspace
 
 run:
-	LUNETTE_STDLIB_PATH="$(CURDIR)/lua" LUNETTE_CONFIG_PATH="$(CURDIR)/etc/xdg/lunette" $(CARGO) run -p lunette --bin lunette -- $(ARGS)
+	LUNETTE_STDLIB_PATH="$(CURDIR)/lua" LUNETTE_CONFIG_PATH="$(CURDIR)/dev" $(CARGO) run -p lunette --bin lunette -- $(ARGS)
 
-# `check` runs the standing checks CONTRIBUTING.md lists, in the order
-# .github/workflows/ci.yml runs them. Each check is its own target; a failure
-# can be repeated on its own.
+# The standing checks, in the order .github/workflows/ci.yml runs them.
 check: check-format check-install check-headset check-rust check-definitions check-luau
 
 check-install:
@@ -78,12 +71,10 @@ check-headset-runtime:
 
 check-format:
 	$(CARGO) +nightly fmt --all -- --check
-	stylua --check lua etc/xdg/lunette
+	stylua --check lua etc/xdg/lunette examples dev crates/lunette/tests/luau_check
 
-# The target splits in two because clippy and the tests share no artifacts.
-# The clippy build runs through RUSTC_WORKSPACE_WRAPPER and produces its own
-# artifact set. CI runs the halves as separate jobs at the same time.
-# `check-rust` runs both.
+# Split in two because clippy builds through RUSTC_WORKSPACE_WRAPPER and shares
+# no artifacts with the tests, so CI runs the halves in parallel.
 check-rust: check-clippy check-test
 
 check-clippy:
@@ -94,17 +85,14 @@ check-test:
 	$(CARGO) test --workspace
 	$(CARGO) test --workspace --no-default-features
 
-# Both generated files are checked in: the LOVR definitions from lovr-docs,
-# and the `lunette` module from the Rust registration surface. A stale
-# artifact fails the `--check` run, and is not left to surface later.
+# Fails when a checked-in generated artifact is stale.
 check-definitions:
 	$(CARGO) run -p lunette-generate-definitions -- --check
 
-# The check includes `lua/spec/suite.lua` and `lua/spec/expect.lua`, which
-# are ordinary modules. The spec files and `lua/spec/runner.lua` are not
-# included; see CONTRIBUTING.md.
+# Tests and lua/testing stay out, because they build partial handles and fake
+# natives that strict checking would force them to cast.
 check-luau:
-	$(CARGO) run -p lunette --bin lunette -- check --definitions etc/lunette/definitions.luau $$(find lua/mullion -type f \( -name '*.lua' -o -name '*.luau' \) -print | sort) lua/spec/suite.lua lua/spec/expect.lua etc/xdg/lunette/main.lua
+	$(CARGO) run -p lunette --bin lunette -- check --definitions etc/lunette/definitions.luau $$(find lua/lunette lua/lunette-plugin lua/lunette-contracts lua/lunette-plugins lua/lunette-desktop -type d -name tests -prune -o -type f -name '*.luau' -print | sort) etc/xdg/lunette/main.luau etc/xdg/lunette/conf.luau $$(find examples dev -type d -name tests -prune -o -type f -name '*.luau' -print | sort)
 
 install: install-binary install-lua install-config
 
@@ -120,25 +108,6 @@ install-binary: build
 	done; IFS=$$old_ifs; \
 	test -n "$$lovr_build" || \
 		{ echo "make: the linked liblovr.so was not found in $(build_dir)/lunette's rpath" >&2; exit 1; }; \
-	cache_dir=$$lovr_build; \
-	while ! test -f "$$cache_dir/CMakeCache.txt" && test "$$cache_dir" != /; do \
-		cache_dir=$$(dirname "$$cache_dir"); \
-	done; \
-	cache="$$cache_dir/CMakeCache.txt"; \
-	if grep -q '^LOVR_ENABLE_OPENVR:BOOL=ON$$' "$$cache"; then \
-		openvr=enabled; \
-	elif grep -q '^LOVR_ENABLE_OPENVR:BOOL=OFF$$' "$$cache"; then \
-		openvr=disabled; \
-	else \
-		echo "make: cannot determine OpenVR build state from $$cache" >&2; exit 1; \
-	fi; \
-	assets='actions.json bindings_vive_controller.json bindings_knuckles.json bindings_oculus_touch.json bindings_frame_controller.json'; \
-	if test "$$openvr" = enabled || test -e "$$lovr_build/lovr-openvr"; then \
-		for asset in $$assets; do \
-			test -f "$$lovr_build/lovr-openvr/$$asset" || \
-				{ echo "make: $$openvr OpenVR build has an incomplete action bundle: $$lovr_build/lovr-openvr/$$asset is missing" >&2; exit 1; }; \
-		done; \
-	fi; \
 	$(INSTALL) -d -m 755 "$(bindir)" "$(libdir)"; \
 	$(INSTALL_PROGRAM) "$(build_dir)/lunette" "$(bindir)/lunette"; \
 	$(INSTALL_PROGRAM) "$(build_dir)/lunctl" "$(bindir)/lunctl"; \
@@ -147,29 +116,36 @@ install-binary: build
 	$(PATCHELF) --set-rpath '$$ORIGIN:$$ORIGIN/../lib/lunette' "$(bindir)/lunette" "$(bindir)/lunctl"; \
 	if test -d "$$lovr_build/lovr-openvr"; then \
 		$(INSTALL) -d -m 755 "$(libdir)/lovr-openvr"; \
-		for asset in $$assets; do \
-			$(INSTALL_DATA) "$$lovr_build/lovr-openvr/$$asset" "$(libdir)/lovr-openvr/$$asset"; \
-		done; \
+		$(INSTALL_DATA) "$$lovr_build"/lovr-openvr/* "$(libdir)/lovr-openvr/"; \
 	fi
 
-# `lua/spec/` is not installed: the tests cover the standard library and are
-# not part of it.
-#
-# The tree is walked, not listed. A module added under a new subdirectory
-# installs without an edit to this rule. A file the rule misses resolves in
-# the working tree, where LUNETTE_STDLIB_PATH points during development, and
-# is absent from an installed session. The defect appears only in an installed
-# session and nowhere in the working tree.
+# Required manifest entries fail when absent; optional roots may be omitted.
 install-lua:
 	@set -e; \
-	cd lua && find mullion -type f -name '*.lua' | while read -r file; do \
-		$(INSTALL) -d "$(luadir)/$$(dirname "$$file")"; \
-		$(INSTALL_DATA) "$$file" "$(luadir)/$$file"; \
+	manifest="$$( $(install_manifest) )" || exit $$?; \
+	printf '%s\n' "$$manifest" | while read -r source destination; do \
+		if test -d "$$source"; then \
+			files="$$($(FIND) "$$source" -type d -name tests -prune -o -type f -name '*.luau' -print)" || exit $$?; \
+			if test -n "$$files"; then \
+				printf '%s\n' "$$files" | while IFS= read -r file; do \
+					relative="$${file#$$source/}"; \
+					$(INSTALL) -d "$(DESTDIR)$(PREFIX)/share/lunette/$$(dirname "$$destination/$$relative")" || exit $$?; \
+					$(INSTALL_DATA) "$$file" "$(DESTDIR)$(PREFIX)/share/lunette/$$destination/$$relative" || exit $$?; \
+				done || exit $$?; \
+			fi; \
+		elif test -f "$$source"; then \
+			$(INSTALL) -d "$(DESTDIR)$(PREFIX)/share/lunette/$$(dirname "$$destination")" || exit $$?; \
+			$(INSTALL_DATA) "$$source" "$(DESTDIR)$(PREFIX)/share/lunette/$$destination" || exit $$?; \
+		else \
+			echo "make: install artifact is missing: $$source" >&2; exit 1; \
+		fi; \
 	done
 
+# The files cli::DEFAULT_CONFIGURATION embeds. The source .luaurc is excluded,
+# because dump-config generates one with absolute installed roots.
 install-config:
 	$(INSTALL) -d "$(confdir)"
-	$(INSTALL_DATA) etc/xdg/lunette/main.lua etc/xdg/lunette/conf.lua "$(confdir)/"
+	$(INSTALL_DATA) etc/xdg/lunette/main.luau etc/xdg/lunette/conf.luau "$(confdir)/"
 
 clean:
 	$(CARGO) clean

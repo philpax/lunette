@@ -1,10 +1,7 @@
 //! What `lunctl` gets back when a chunk returns the session's own handles.
 //!
-//! The serialiser's own tests use a fake handle, because they exercise the
-//! tagging convention. These tests use the real handles against a real
-//! snapshot. A handle type registered without its tag, or with the wrong one,
-//! fails in these tests. At a shell prompt the same mistake appears as a
-//! `lunctl` error.
+//! These tests use real handles, so a handle type registered without its tag,
+//! or with the wrong one, fails here.
 
 use lunette_compositor::protocol::PixelSize;
 use pretty_assertions::assert_eq;
@@ -40,8 +37,13 @@ fn table_of(value: &Value) -> &TableValue {
 }
 
 #[test]
-fn a_window_handle_serialises_as_its_kind_and_id() {
-    let values = returned("return lunette.windows()", 2);
+fn each_handle_kind_serialises_as_its_kind_and_id() {
+    let values = returned(
+        "return lunette.windows(), lunette.windows()[1], lunette.windows()[1], \
+         lunette.windows()[1].sink, lunette.spawn{ argv = { 'true' } }, lunette.newSeat { name = 'second' }, \
+         lunette.claimLayer{ window = lunette.windows()[1], width = 1024, height = 1024, priority = 1 }",
+        2,
+    );
 
     assert_eq!(
         table_of(&values[0]).array,
@@ -56,72 +58,31 @@ fn a_window_handle_serialises_as_its_kind_and_id() {
             }),
         ],
     );
-}
-
-/// The userdata is created fresh on every read, so two reads of one window are
-/// two objects. The id carries the window's identity on the wire.
-#[test]
-fn two_reads_of_one_window_agree_on_the_wire() {
-    let values = returned("return lunette.windows()[1], lunette.windows()[1]", 1);
-
-    assert_eq!(values[0], values[1]);
-}
-
-#[test]
-fn a_sink_handle_reached_through_a_window_serialises_too() {
-    let values = returned("return lunette.windows()[1].sink", 1);
-
-    let Value::Handle(handle) = &values[0] else {
-        panic!("{:?} is not a handle", values[0]);
-    };
-    assert_eq!(handle.kind, HandleKind::Sink);
-    assert!(
-        handle.id.is_some(),
-        "a sink onto a window is named by the surface it reaches"
-    );
-}
-
-#[test]
-fn a_process_handle_serialises_as_its_kind_and_id() {
-    let values = returned("return lunette.spawn{ argv = { 'true' } }", 0);
-
+    // Each read creates fresh userdata, so the id carries a window's identity.
     assert_eq!(
-        values,
-        vec![Value::Handle(Handle {
+        values[1], values[2],
+        "two reads of one window agree on the wire"
+    );
+    assert_eq!(
+        values[4],
+        Value::Handle(Handle {
             kind: HandleKind::Process,
             id: Some(HandleId::Number(1)),
-        })],
+        }),
     );
+    for (value, kind) in [
+        (&values[3], HandleKind::Sink),
+        (&values[5], HandleKind::Seat),
+        (&values[6], HandleKind::Claim),
+    ] {
+        let Value::Handle(handle) = value else {
+            panic!("{value:?} is not a handle");
+        };
+        assert_eq!(handle.kind, kind);
+        assert!(handle.id.is_some(), "{kind:?} carries an id");
+    }
 }
 
-#[test]
-fn a_seat_handle_serialises_as_its_kind_and_id() {
-    let values = returned("return lunette.newSeat('second')", 0);
-
-    let Value::Handle(handle) = &values[0] else {
-        panic!("{:?} is not a handle", values[0]);
-    };
-    assert_eq!(handle.kind, HandleKind::Seat);
-    assert!(handle.id.is_some());
-}
-
-#[test]
-fn a_claim_handle_serialises_as_its_kind_and_id() {
-    let values = returned(
-        "return lunette.claimLayer{ window = lunette.windows()[1], width = 1024, height = 1024, \
-          priority = 1 }",
-        1,
-    );
-
-    let Value::Handle(handle) = &values[0] else {
-        panic!("{:?} is not a handle", values[0]);
-    };
-    assert_eq!(handle.kind, HandleKind::Claim);
-    assert!(handle.id.is_some());
-}
-
-/// What `lunctl 'for _, w in ipairs(lunette.windows()) do ... end'` is for: a
-/// nested table of scalars and handles, arriving intact at the other end.
 #[test]
 fn a_nested_table_of_windows_survives_the_wire() {
     let values = returned(
@@ -157,8 +118,8 @@ fn a_nested_table_of_windows_survives_the_wire() {
     );
 }
 
-/// A texture is a LÖVR object with no wire form. Refusing it keeps the
-/// protocol from the `tostring` fallback that the design rejects.
+/// Refusing a value with no wire form keeps the protocol from a `tostring`
+/// fallback.
 #[test]
 fn a_chunk_returning_something_unrepresentable_is_told_so() {
     let session = session(vec![window(1, "a terminal", "org.example.Term", size())]);

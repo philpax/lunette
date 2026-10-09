@@ -1,138 +1,101 @@
 # Host desktop
 
-Mirroring the user's monitors and injecting input into them is a separate problem from running the compositor. WayVR has addressed it over several years. lunette reuses that work rather than reimplementing it.
-
-wlx-capture remains an external git-pinned dependency rather than a vendored copy. It handles capture edge cases across Linux compositors, none of that work depends on lunette's architecture, and it continues to receive fixes as PipeWire and host compositors change. It provides a dmabuf and has no dependency on how lunette uses it.
+Mirroring the user's monitors and injecting input into them is separate from running the compositor. lunette reuses WayVR's work for both. `wlx-capture` is an external dependency pinned at WayVR revision `98f800c644719d3f23a20e50bd3237c29a8082cb`, not a vendored copy ([CONTRIBUTING.md](../../CONTRIBUTING.md) states why the pin names the monorepo). `crates/lunette-capture` wraps it and the input providers.
 
 ## Capture
 
-`wlx-capture` ships four backends: `pipewire` (via xdg-desktop-portal over D-Bus), `wlr_dmabuf`, `wlr_screencopy`, and `xshm` for X11.
+lunette prefers direct `wlr-screencopy` and falls back to PipeWire through xdg-desktop-portal.
 
-PipeWire via the portal is the default backend. It works on niri, GNOME, KDE, and other Wayland compositors, and is expected to remain supported over time. WayVR uses the same approach (WayVR upstream: `src/overlays/screen/pw.rs`). It uses a Wayland client only to enumerate outputs (WayVR upstream: `src/overlays/screen/mod.rs`) and falls back to xshm on X11.
+Direct capture is used when the host advertises the version 3 screencopy manager and the pinned `WlxClient` initializes and matches the monitor uniquely by logical position and size. lunette constructs the pinned `WlrScreencopyCapture`, as WayVR's `wayvr/src/overlays/screen/wl.rs` does, with one upstream Wayland client per stream. A missing global, a connection failure, or an absent or ambiguous match selects the portal path for that monitor. Direct capture requests no portal session and stores no restore token.
 
-This backend requires a portal permission dialog on first use. A restore token is persisted so the user does not re-approve on every launch.
+The portal path serves hosts without direct capture, such as GNOME, KDE, and niri. The first use shows a permission dialog. lunette requests every monitor in one dialog and stores the restore token so later sessions do not prompt again.
 
-### One divergence: monitor identification
+The direct exporter follows WayVR's `wayvr/src/overlays/screen/capture.rs`: it picks the first single-plane modifier supported for both import and export, allocates two exportable images, and alternates them. When DMA export fails, upstream falls back to shared memory; lunette copies those pixels during the callback, removes row padding, normalises the supported 32-bit layouts, and uploads them on the frame thread.
 
-WayVR's onboarding asks the user to select screens in a prescribed order, because the portal hands out anonymous streams. lunette requests every monitor in one dialog and correlates each returned stream to a `wl_output` by comparing the stream's `position` and `size` against the output's logical geometry. That works on every portal backend, and it is what wlx-overlay-s does on X11. The portal's `mapping_id` is not the mechanism: two of the three backends do not supply a usable one, and `wl_output.name` supplies a real connector name on all three. The evidence is recorded under [Decisions](#decisions) below.
+The built-in panels apply each frame's UV transform with WayVR's `ScreenPipeline::transform_uv` permutations, covering every rotation and flip. Portal frames report `undefined` and direct frames report the output transform; `undefined` and `normal` sample unchanged. Panel proportions use the output's logical geometry.
 
-This is an improvement over WayVR's approach and is a candidate for contributing upstream.
+`ext-image-copy-capture-v1`, the successor to `wlr-screencopy`, is planned as an addition to `wlx-capture`.
 
-`ext-image-copy-capture-v1` support is planned as a later addition. It is the successor to the deprecated `wlr-screencopy`. Adding it to `wlx-capture` benefits WayVR as well.
+### Monitor identification
+
+lunette correlates each portal stream with a `wl_output` by comparing the stream's `position` and `size` with the output's logical geometry, as wlx-overlay-s does. WayVR instead asks the user to select screens in a prescribed order. The portal's `mapping_id` is not read ([Decisions](#decisions)).
 
 ### Enumeration
 
-The monitors themselves come from the host compositor, over a Wayland connection lunette opens as a client. It binds each `wl_output`, and `zxdg_output_manager_v1` where the compositor offers one, and reads the make, the model, the connector name, the transform, the mode, and the logical geometry. The connection stays open, so a monitor plugged in, unplugged, or moved while lunette runs is seen; the roster is rebuilt and handed to both the mirror lifecycle and the pointer mapping together, so the two cannot disagree about what is attached.
+lunette connects to the host compositor as a Wayland client, binds each `wl_output` and `zxdg_output_manager_v1` where offered, and reads the make, model, connector name, transform, mode, and logical geometry. The connection stays open. On hotplug or rearrangement the roster is rebuilt and handed to the mirrors and the pointer mapping together.
 
-Logical geometry comes from `zxdg_output_v1` where it exists. Where it does not, it is derived from `wl_output.mode` and `wl_output.scale`, with the axes swapped for a rotated output. The derived form is integer division and so is wrong on a fractional scale, which is why it is the fallback rather than the mechanism.
+Logical geometry comes from `zxdg_output_v1`. Without it, lunette derives it from the mode and scale with axes swapped for rotation; that integer division is wrong for fractional scales.
 
-The socket is resolved by the binary before it exports its own `WAYLAND_DISPLAY`, and passed to `lunette-capture` as a path. `wlx-capture`'s own `WlxClient` reads the variable itself, which after that export names lunette's compositor rather than the host's.
+The binary resolves the host socket and passes its path to the output watcher. It keeps the host's `WAYLAND_DISPLAY`, because the pinned `WlxClient` has only an environment-based constructor, and removes `WAYLAND_SOCKET` once during single-threaded startup. Spawned applications receive lunette's display from the compositor's spawner. A session started with only an inherited `WAYLAND_SOCKET` has no host enumeration or direct capture.
 
-An X11 host has no `wl_output`, so lunette sees no monitors on one. `wlx-capture` has an X11 path; v1 does not use it.
+An X11 host has no `wl_output`, so lunette sees no monitors there.
 
 ### Identity and lifecycle
 
-Monitors receive stable identities, so Lua layout rules survive a replug or a reboot. The identity is the make and model reported in `wl_output.geometry`, falling back to a connector name such as `DP-2` where one is available, and to the monitor's logical position where neither is. The descriptor comes first because it survives a monitor moving to a different port. A Wayland client cannot read a serial, so two monitors of the same model are indistinguishable by descriptor; the second of them is identified by its connector alone, and lunette says so rather than picking one silently.
+A monitor's identity is its make and model from `wl_output.geometry`, then its connector name such as `DP-2`, then its logical position. The descriptor comes first because it survives a change of port. A Wayland client cannot read a serial, so of two monitors with the same make and model the second is identified by its connector alone, and lunette logs that. The connector name comes from `wl_output.name` (version 4); a name that does not parse as a DRM connector is treated as absent.
 
-The connector name comes from `wl_output.name`, added in `wl_output` version 4, whose documented content is the connector. Both wlroots and mutter send it, which makes it a better source than the portal's `mapping_id` on every backend. A name that does not parse as a DRM connector is treated as absent rather than stored as one.
+Capture starts lazily. `monitor:mirror()` tries direct capture and requests a portal session only for a monitor that needs the fallback. A configuration that never mirrors and never asks for monitor selection never prompts. An explicit selection requests a fresh portal grant and replaces portal streams but keeps direct ones; portal revocation also leaves direct capture running.
 
-Capture starts lazily and can be stopped from Lua. Nothing is asked of the portal until the first `monitor:mirror()`, so a configuration that mirrors nothing never prompts.
+Streams negotiate against the DRM formats lunette's importer accepts, which exist only once LÖVR has a graphics device. A monitor mirrored earlier opens on the first frame after the device exists. Frames arrive on the backend's worker into a bounded newest-frame queue. The frame loop imports dmabufs through the client import path and answers a recurring buffer with the image it already made. The exporter creates images but submits no GPU work.
 
-A capture stream negotiates against the DRM formats lunette's importer accepts, and those are a property of the graphics device LÖVR creates several steps into the boot sequence. A monitor mirrored before then is remembered, and its stream opens on the first frame after the device exists. This is the same deferral the compositor thread uses, for the same reason.
+Restore tokens are stored in `$XDG_STATE_HOME/lunette/screencast-tokens.toml`, or under `$HOME/.local/state`. They are state, not configuration, and the configuration directory may be read-only.
 
-Frames arrive on PipeWire's own thread and are forwarded raw to the frame loop, which imports them through the same dmabuf path a hosted client's buffer takes. There is one import path and one GPU queue in the process. The importer answers a recurring PipeWire buffer with the image it already made, so a monitor cycling a pool of four buffers allocates four textures and then allocates nothing further.
+For portal streams, `monitor:setPaused(true)` deactivates the stream and keeps its session, and `monitor:dismiss()` drops and joins the worker while the portal session survives. Direct capture delegates pause, requests, and stream drop to upstream; its pause does nothing, and dropping it neither cancels nor joins its worker. A graphics restart replaces the sources, and a device-lifetime guard stops a detached upstream exporter from calling Vulkan through the old device.
 
-The restore tokens are kept in `$XDG_STATE_HOME/lunette/screencast-tokens.toml`, falling back to `$HOME/.local/state`. They are state rather than configuration, so they do not live in the configuration directory, which may be the read-only system one.
-
-Stopping and pausing are separate operations, because they cost different things. `monitor:setPaused(true)` deactivates the PipeWire stream but keeps it, for a panel that has left the user's view; resuming costs nothing. `monitor:dismiss()` drops the stream entirely, which stops PipeWire's thread and closes its descriptors, so a dismissed screen has no ongoing cost at all. The portal session survives a dismissal, so mirroring the monitor again does not prompt a second time; only a session the user revokes, or one the backend loses, produces another dialog.
-
-WayVR does not make this distinction. Dismissal there maps to visibility alone (`backend/openxr/overlay.rs:208-223`), and `pause()` is an empty no-op in three of its four capture backends — only the PipeWire one honours it, by deactivating the stream (`pipewire/capture.rs:144`). There is no way to stop a capture and release its resources.
-
-[The Lua API](lua-api.md#monitors) states the surface: `lunette.monitors()`, and the fields and operations on a monitor handle.
+`lua/lunette/init.luau` declares the monitor handle.
 
 ## Input injection
 
-Input injection into the host desktop goes through the `HidProvider` trait, whose shape follows WayVR's (WayVR upstream: `src/subsystem/hid/provider/mod.rs`). There are three providers:
+Host input goes through the `HidProvider` trait, shaped after WayVR's (`src/subsystem/hid/provider/mod.rs`). The providers are:
 
-- uinput: the preferred provider. It creates kernel-level virtual devices, so it works on any compositor and on X11, and can position the cursor absolutely given the monitor layout. It requires `/dev/uinput` access, granted by a udev rule or `input` group membership. Note that the `input` group also grants read access to every input device on the machine.
-- wl_virtual: using `zwlr_virtual_pointer_v1` plus `zwp_virtual_keyboard_v1`. It requires no special permissions, but requires the host compositor to implement these protocols, which only the wlroots family does. KWin and mutter do not.
-- dummy: performs no injection.
+- uinput: kernel virtual devices that work on any compositor and on X11, with absolute positioning from the monitor layout. It needs `/dev/uinput` access through a udev rule or the `input` group, which also grants read access to every input device.
+- wl_virtual: `zwlr_virtual_pointer_v1` and `zwp_virtual_keyboard_v1`, which need no permissions but exist only on wlroots compositors. It uploads an XKB keymap so typing follows the user's layout.
+- dummy: injects nothing.
 
-The providers are an ordered chain rather than a switch. uinput is tried first because it works regardless of the host compositor, then `wl_virtual`, then the dummy. Each mechanism is actually attempted, and every failure passed over is kept and reported, so a user is told what was tried and what each attempt said. A configuration override moves a named provider to the front; the rest of the chain still stands behind it. WayVR has no such chain: `HidWrapper::new` (`subsystem/input.rs:22-41`) calls one initialiser and installs the dummy on failure.
+`hid::open` tries the providers as an ordered chain, uinput then wl_virtual, and falls back to the dummy. Every failure is recorded and reported. `ProviderOrder::preferring` moves one provider to the front. WayVR instead calls one initialiser and installs the dummy on failure. A fatal send failure during a session replaces the provider with the dummy and logs the reason.
 
-A host compositor that goes away degrades the session to the dummy provider with a logged reason. It does not abort lunette.
-
-libei via the portal's RemoteDesktop interface is the intended long-term replacement and is planned as a future provider.
-
-Keymaps are a parameter. `lunette-capture` takes a layout in XKB's version 1 text format and uploads it to `zwp_virtual_keyboard_v1`, so typing into a mirrored monitor respects the user's real keyboard layout; reading that layout off the host is the binary's job, not the library's. There is nothing to upload under uinput, which injects raw keycodes below the display server and leaves the layout to the host.
+libei through the portal's RemoteDesktop interface is the planned long-term provider.
 
 ## Pointer mapping
 
-A hit on a mirrored panel is normalised over the panel's surface. The monitor's mapping turns it into a position inside that monitor's logical rectangle, applying the monitor's rotation and flip, and clamping to the rectangle first. The provider then places that position on the host desktop, which it knows only as a bounding box.
+A hit on a mirrored panel is normalised over the panel's desktop-oriented surface. The monitor's mapping clamps it to that monitor and converts it to a position in the monitor's logical rectangle. The output transform is not applied again, because rendering already corrects captured pixels. This matches WayVR's transformed UVs followed by its inverse mouse transform. The provider places the position on the host desktop, which it knows only as a bounding box.
 
-The split matters. A `HidProvider` has no concept of a monitor: uinput's device spans the whole desktop in a fixed normalised range, and `zwlr_virtual_pointer_v1` takes the desktop extent on every call. Per-monitor targeting is upstream of both.
-
-Every dimension is logical, never pixels. On a display scaled by two the two differ by that factor, and a pointer mapped through pixels lands wrong by exactly that ratio.
-
-Clamping happens per monitor rather than to the bounding box. A non-rectangular arrangement leaves dead zones inside the box, and a hit clamped only to the box can land in the gap between two screens.
-
-The desktop's origin and extent are recomputed on every output change and handed to the provider again. Neither provider needs anything recreated for it, which is what uinput's fixed normalised range buys.
-
-### Known unknown: absolute uinput devices under GNOME
-
-Whether mutter maps a bare `ABS_X`/`ABS_Y` uinput device across the whole monitor layout or binds it to a single display is unverified. wlroots spans the layout unless `wlr_cursor_map_to_output` is used, which is opt-in; GNOME may treat an absolute device as tablet-like and bind it to one display instead.
-
-If it does bind to one, GNOME has no working absolute pointer path in v1: `zwlr_virtual_pointer_v1` is unavailable there too, and the honest answer is libei, which v1 does not implement. This is verified by observation on GNOME, not assumed.
+Per-monitor targeting happens before the provider, because no provider knows about monitors. All dimensions are logical. Clamping is per monitor, so a hit cannot land in a gap of a non-rectangular arrangement. The desktop's origin and extent are recomputed on every output change.
 
 ## The input domain leak
 
-Windows and mirrored monitors share an interface, but they do not share semantics. This difference is exposed to Lua rather than hidden.
+Windows and mirrored monitors share the sink interface but not its semantics. Each compositor window has independent focus and its own cursor per seat. Every mirrored monitor is driven by one `HidProvider` acting on a host desktop with one cursor and one keyboard focus. Two hands pointing at two monitors cannot produce two cursors, and typing at a monitor goes to whatever the host has focused.
 
-Compositor windows have independent focus and pointer state. Each window can be pointed at by a different seat, with its own cursor. Mirrored monitors do not have this property: all mirrored monitors are driven by one `HidProvider` acting on a host desktop that has exactly one cursor and one keyboard focus. Two seats pointing at two mirrored monitors cannot produce two cursors. Typing at a mirrored monitor goes wherever the host compositor currently has focus, not necessarily to the monitor the user is looking at.
-
-Every sink carries an input domain. Sinks in the same domain share cursor position and keyboard focus. All mirrored monitors belong to the `host` domain; each compositor window is independently addressable. Lua can query the input domain, so a panel library can report which target the host desktop currently has focused, rather than presenting inaccurate state.
-
-The domain is a type rather than a flag, so routing is an exhaustive match: a domain added later cannot be silently unhandled. It is also per sink rather than global, which is what makes two hands pointing at two kinds of surface expressible. WayVR has one global `InputFocus { PhysicalScreen, WayVR }` (`subsystem/input.rs:10`), toggled for the whole session, and cannot express it.
-
-The two domains route down different pipelines. A window sink's pointer and button events queue as compositor commands and are flushed at frame end, reaching the client through its seat. A host sink's are normalised over the monitor's own resolution, mapped through that monitor's logical rectangle, and handed to the `HidProvider`, which accumulates them and sends once per frame. Neither reaches the other's pipeline, in the same frame or any other.
-
-`sink.domain` reads `'window'` or `'host'`. `sink.window` names the window a window sink reaches and `sink.monitor` names the monitor a host sink reaches; each is nil in the other domain, so a caller that has to know which it is holding is never left guessing from a number.
+Every sink carries an input domain. `sink.domain` is `'window'` or `'host'`, and `sink.window` or `sink.monitor` names the target in its domain and is nil in the other. Routing matches on the domain exhaustively. A window sink's events become compositor commands flushed at frame end and reach the client through its seat. A host sink's events are mapped through the monitor's logical rectangle and accumulated by the provider, which sends once per frame. WayVR has one global `InputFocus` and cannot express two hands on two kinds of surface.
 
 ## Clipboard
 
-Copying in an application on the host desktop and pasting into a terminal running inside lunette involves two compositors with two clipboards. Nothing bridges them unless lunette does.
+lunette bridges the clipboard and primary selection between its clients and the host. The compositor advertises `wl_data_device`, `zwp_primary_selection_v1`, `zwlr_data_control_v1`, and `ext_data_control_v1` to its clients, and uses the host's data-control protocols as a client. One designated seat's selections are the host's; `seat:setClipboardBridge` chooses it. Transfers pass file descriptors between the owning processes, and lunette buffers nothing. [Input](input.md#clipboard) states the contract.
 
-WayVR bridges both directions, using `smithay-clipboard` plus `subsystem/clipboard/{wl,x11}.rs` on the host side, and `data_device`, `primary_selection`, `data_control`, and `ext_data_control` on the compositor side. lunette follows the same approach.
-
-The split:
-
-- The native layer exposes clipboard read, write, and offer-changed events for the host and for each internal seat. Format negotiation, including MIME type lists, incremental transfers over file descriptors, and large payloads, does not enter Lua. Lua sees that a format such as `text/plain` is available and can request it. A 40 MB image offer is proxied without being copied into a Lua string.
-- The standard library runs the mirroring loop. The default is bidirectional and always on, because a clipboard that does not cross the boundary provides limited value. A per-seat opt-out exists for an isolated scratch panel.
-
-Primary selection is mirrored by default as well. Middle-click paste is one of the two mechanisms by which text moves on Linux, and mirroring it matches user expectations. As a consequence, every selection made in a VR terminal overwrites the host primary selection. A single switch disables this.
-
-## Known gap: drag-and-drop across the boundary
-
-In-compositor drag-and-drop between two lunette windows is provided almost entirely by smithay's `data_device`. Dragging between the host desktop and lunette is not supported: the drag would have to cross a compositor boundary, and no protocol exists for this. WayVR does not support it either.
+Drag-and-drop between the host desktop and lunette is not supported, because no protocol carries a drag across a compositor boundary. WayVR does not support it either. Drag-and-drop between lunette windows is smithay's `data_device`.
 
 ## Decisions
 
-Choices made deliberately, recorded with their reasoning, so they are not relitigated by accident.
+Portal streams are correlated by logical geometry, not by `mapping_id`. ScreenCast portal version 5 added `mapping_id` to match libei regions, and its content is backend-defined: xdg-desktop-portal-wlr sends the output name, mutter sends a random UUID only for a ScreenCast attached to a RemoteDesktop session, and xdg-desktop-portal-kde sends nothing. `wl_output.name` provides a real connector name on wlroots and mutter from the connection lunette already holds, so `mapping_id` is not read.
 
-Monitors are correlated to portal streams by logical geometry, not by the portal's `mapping_id`. `mapping_id` looks like exactly the right tool and will be proposed again, so the evidence is recorded here. It was introduced in ScreenCast portal version 5 to match a libei region in a RemoteDesktop session, not to name an output, and its content is backend-defined. xdg-desktop-portal-wlr sets it to the `wl_output` name, which on wlroots is the DRM connector name (`src/screencast/screencast.c:666-668`) — the case that makes it look right. mutter sets it to `g_uuid_string_random()` from a per-EIS table (`src/backends/meta-eis.c:526-538`), which names nothing and changes every session, and emits it only when the ScreenCast session is attached to a RemoteDesktop session (`src/backends/meta-screen-cast-stream.c:426-440`); a plain ScreenCast session on GNOME gets none. xdg-desktop-portal-kde never emits it. So the field yields a connector name on wlroots, an unstable random string on GNOME under one session shape, and nothing on KDE. The portable mechanism is correlating each stream's `position` and `size` against `wl_output` logical geometry, which is what wlx-overlay-s itself does. `mapping_id` is not read at all, because `wl_output.name` supersedes it: version 4 of `wl_output` added a `name` event whose documented content is the connector name, and both wlroots and mutter send it. That is a real connector name on every backend rather than on one, and it arrives from the compositor lunette is already talking to rather than from the portal. It is still parsed against the kernel's list of connector types before being stored, because a compositor is free to put anything there and a name that is not a connector must not be recorded as one.
+Monitor identity omits the serial, which a Wayland client cannot read; only the DRM owner sees the EDID. niri keys on make, model, and serial and falls back to the connector. lunette uses the same shape without the serial and demotes the second of two identical monitors to its connector. Where no connector is available either, it falls back to logical position and warns, because silently attaching a mirror to the wrong screen is worse.
 
-Monitor identity is make and model, then connector, then position, and is weaker than a compositor's. A Wayland client cannot read a serial: the `wl_output.geometry` event carries make and model only, and the EDID blob is available to whoever owns the DRM device. niri, which does own it, keys on `"{make} {model} {serial}"` and falls back to the connector. lunette copies that shape without the serial, so two monitors of the same model report one descriptor and cannot be told apart by it. The later of the two is therefore demoted to its connector alone, following niri's rule for the case where a serial does collide; where no connector is available either — GNOME or KDE with two identical monitors — the fallback is the monitor's logical position, and lunette warns that the identity will not survive the monitors being rearranged. The alternative is silence, and a mirrored monitor attaching to the wrong screen after a restart is confusing in a way an explicit warning is not.
+The host's outputs are enumerated by lunette's own explicit-socket watcher rather than `WlxClient`. The watcher owns identity, logical geometry, and hotplug for both capture and input, and `WlxClient` ignores `wl_output.name` and needs more globals. Direct capture matches `WlxClient`'s outputs to the roster by unique logical geometry, never by enumeration order.
 
-The host's outputs are enumerated with `wayland-client` directly rather than through `wlx-capture`'s `WlxClient`. `WlxClient` connects through `WAYLAND_DISPLAY` itself and takes no socket parameter, and `CONTRIBUTING.md` forbids a library reading the environment. That is not a stylistic objection here: lunette's entry point overwrites `WAYLAND_DISPLAY` with lunette's own socket before any other thread exists, because it has to be written while the process is single-threaded, so anything reading the variable afterwards enumerates lunette's compositor and finds one virtual output. The socket is therefore resolved by the binary before that write and passed down as a path, which is the arrangement `WlVirtualConfig` already uses for the same reason. Writing the enumeration against `wayland-client` also costs nothing: it is already in the tree, `WlxClient` carries a dmabuf and screencopy client lunette has no use for, and the eight events that matter are `wl_output`'s `geometry`, `mode`, `scale`, and `name`, plus `zxdg_output_v1`'s `logical_position` and `logical_size`.
+Direct capture uses the pinned WayVR implementation as it is, without a second screencopy implementation or upstream API changes. Its cancellation, pause, and failure-reporting limits are accepted and recorded in [Known gaps](#known-gaps).
 
-Restore tokens are stored in a versioned file that an older lunette refuses to rewrite. The portal's restore token is single-use: the backend invalidates the one it was given and returns a new one in every `Start` response, so the store is rewritten after every grant rather than only when nothing was held. The granted `persist_mode` is recorded, never the requested one, because a backend may downgrade it and xdg-desktop-portal-wlr does (`src/screencast/screencast.c:171-181`). The file declares a format version, and a file from a later version yields no store at all rather than an empty one; the case that corrupts rather than fails is an old writer rendering its own fields over a newer file, which drops everything it does not know about. Anything unrecognised within a version this lunette does understand is refused rather than ignored, for the same reason: a field silently dropped on read is a field lost on the next write. The format is TOML, because the file holds a monitor's make and model, which is whatever its EDID says, and quoting arbitrary text is not worth handrolling.
+Restore tokens are rewritten after every grant, because a token is single-use and each `Start` response returns a new one. The granted `persist_mode` is recorded, never the requested one, because a backend may downgrade it. The file is versioned TOML. A file from a later version yields no store, because an older writer would drop fields it does not know; unknown fields within a known version are rejected for the same reason. TOML is used because the file holds EDID make and model strings.
 
 ## Known gaps
 
-Named, not solved.
+The pinned screencopy backend has no cancellation or joined drop, its pause is empty, and a worker blocked in its event loop can stay detached after a monitor is dismissed or unplugged. Its asynchronous failures do not reach lunette, so a started direct stream can stay marked as mirrored with no frames, and there is no runtime failover to the portal.
 
-wlx-capture discards the granted `persist_mode` before lunette can read it. `parse_start_response` (`wlx-capture/src/pipewire/mod.rs:686-691`) reads `streams` and `restore_token` and drops it, so lunette records that the backend stated no persistence rather than what it granted. It is an upstream change and it is not load-bearing — a stated persistence mode is a diagnostic — and the seam models the field, so lifting it upstream is a change to one adapter. `parse_streams` (`mod.rs:693-733`) likewise drops `mapping_id`, which no longer matters: the connector name comes from `wl_output.name`.
+The binary opens the input chain with `HidConfig::default()`. It supplies no wl_virtual configuration and no keymap, so wl_virtual reports itself unconfigured and uinput or the dummy is used. No configuration option changes the provider order.
 
-A rotated monitor's reported resolution is the panel's mode, unrotated. `wl_output.mode` describes the panel, and whether a capture stream of a rotated output delivers frames in the panel's orientation or the desktop's has not been verified on any backend. The stream reports its own frame size and that is what the texture ends up being; `monitor.width` and `monitor.height` report the mode. The two agree on every unrotated monitor, which is every monitor observed so far.
+Whether mutter maps an absolute uinput device across the whole layout or binds it to one display is unverified. If it binds to one, GNOME has no working absolute pointer path until libei is implemented.
 
-Dynamic output scale makes some clients flicker. GTK in particular re-lays-out aggressively. This is mitigated by discrete steps and hysteresis in Lua, not eliminated.
+`wlx-capture`'s `parse_start_response` drops the granted `persist_mode`, so lunette records that the backend stated none. Lifting this upstream changes one adapter.
+
+`monitor.width` and `monitor.height` report the host's unrotated mode, while textures use the captured frame's dimensions. Host disconnect, hotplug during capture, rotation, portrait presentation, and GPU-backed capture need manual acceptance.
+
+Dynamic output scale makes some clients, GTK in particular, flicker. Discrete scale steps with hysteresis reduce it.

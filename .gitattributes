@@ -1,0 +1,2 @@
+# Preserve the unmodified upstream SIL OFL licence, including its trailing space.
+lua/lunette-plugins/theme/fonts/OFL.txt whitespace=-blank-at-eol

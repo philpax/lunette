@@ -140,7 +140,7 @@ impl Aliased for PointerButtonName {
     };
 }
 
-/// A value a property can hold, as the caller passes it in.
+/// A value a property can hold, as the caller passes it in, or nil to remove the key.
 #[derive(Debug)]
 pub struct PropertyArgument(pub Value);
 
@@ -150,9 +150,10 @@ impl FromLua for PropertyArgument {
     }
 }
 
+/// The property scalars with `nil` appended, because `nil` removes the key.
 impl Typed for PropertyArgument {
     fn luau() -> Type {
-        property_value()
+        property_value_or_nil()
     }
 }
 
@@ -170,12 +171,17 @@ impl IntoLua for StoredProperty {
 /// The reader of a property sees what a key holds. The scalars precede `nil` in declaration order.
 impl Typed for StoredProperty {
     fn luau() -> Type {
-        let Type::Union(mut members) = property_value() else {
-            unreachable!("a property value is the union of the scalars it may hold")
-        };
-        members.push(Type::NIL);
-        Type::Union(members)
+        property_value_or_nil()
     }
+}
+
+/// The property scalars followed by `nil`.
+fn property_value_or_nil() -> Type {
+    let Type::Union(mut members) = property_value() else {
+        unreachable!("a property value is the union of the scalars it may hold")
+    };
+    members.push(Type::NIL);
+    Type::Union(members)
 }
 
 /// Every property a window carries.
@@ -207,25 +213,6 @@ impl FromLua for StrokeQuery {
 impl Typed for StrokeQuery {
     fn luau() -> Type {
         Type::Union(vec![Type::STRING, Type::NUMBER])
-    }
-}
-
-/// A layer a granted claim holds.
-///
-/// Distinct from [`MaybeLayer`]. A grant carries one layer, and the event
-/// declares the layer, never `false`.
-#[derive(Debug)]
-pub struct GrantedLayer(pub Value);
-
-impl IntoLua for GrantedLayer {
-    fn into_lua(self, _: &Lua) -> mlua::Result<Value> {
-        Ok(self.0)
-    }
-}
-
-impl Typed for GrantedLayer {
-    fn luau() -> Type {
-        Type::Named("Layer")
     }
 }
 

@@ -6,22 +6,18 @@ license.workspace = true
 
 [dependencies]
 lunette-luau.workspace = true
-# The Linux input ABI constants and ioctl requests are defined in
-# `src/hid/evdev.rs`. That file documents the reasons the crate does not use `input-linux`.
+# `src/hid/evdev.rs` defines the input ABI and states why `input-linux` is not used.
 libc.workspace = true
-# The frame queue uses a synchronous lock and never holds it across an await, so a
-# non-poisoning guard is sufficient.
 parking_lot.workspace = true
 serde = { workspace = true, features = ["derive"] }
 # A frame has at most four planes, so the usual case fits in the inline buffer.
 smallvec.workspace = true
-# Serializes restore tokens as TOML. The file contains arbitrary EDID text.
-# Handling its quoting and escaping in a hand-rolled format is error-prone.
+# Restore tokens contain arbitrary EDID text, which a hand-rolled format would
+# have to escape.
 toml.workspace = true
 tracing.workspace = true
 wayland-client.workspace = true
-# The `unstable` feature exposes the `zv1` module used for logical output
-# geometry through `zxdg_output_manager_v1`.
+# `unstable` exposes `zxdg_output_manager_v1` for logical output geometry.
 wayland-protocols = { workspace = true, features = ["client", "unstable"] }
 # `zwp_virtual_keyboard_v1` is generated in the misc protocol set, although
 # wlroots implements it.
@@ -30,13 +26,13 @@ wayland-protocols-wlr = { workspace = true, features = ["client"] }
 wlx-capture.workspace = true
 
 [features]
-# Enables the scripted portal and recording input provider used by tests. The
-# feature is off by default; the crate's unit tests enable the modules with
-# `cfg(test)`, while integration tests enable them through this feature.
+# Exposes the scripted portal and recording input provider to integration tests.
 test-fakes = []
 
 [dev-dependencies]
 pretty_assertions.workspace = true
+# Checks `VirtualKey` against xkeyboard-config's evdev keycodes.
+xkbcommon.workspace = true
 
 [lints]
 workspace = true

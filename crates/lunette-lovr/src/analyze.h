@@ -1,4 +1,4 @@
-// The C surface over Luau's frontend. The implementation is in analyze.cpp.
+// The C surface over Luau's frontend.
 
 #ifndef LUNETTE_ANALYZE_H
 #define LUNETTE_ANALYZE_H
@@ -22,8 +22,6 @@ typedef struct
     // The files to check, as paths, which are also their module names.
     const char* const* roots;
     size_t root_count;
-    bool strict;
-    bool old_solver;
 } lunette_luau_request;
 
 typedef struct
@@ -42,8 +40,8 @@ typedef struct
 {
     lunette_luau_diagnostic* diagnostics;
     size_t diagnostic_count;
-    // The roots that produced a source module. A missing root means the
-    // checker never read that root; the diagnostic count does not show this.
+    // The roots that produced a source module, which shows a skipped root
+    // that the diagnostics do not.
     char** checked;
     size_t checked_count;
     // Why no check ran, or null. Diagnostics may still be present.

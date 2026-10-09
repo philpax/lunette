@@ -2,240 +2,209 @@
 
 ## The fork
 
-LÖVR lives at `vendor/lovr` as a git submodule pointing at `philpax/lovr`, a fork of `bjornbytes/lovr`, with lunette's patches on its `lunette` branch. That branch is rebased onto upstream `dev` rather than merged, so the patch set stays a series that can be read and proposed one commit at a time.
+`vendor/lovr` is a submodule pointing at `philpax/lovr`, a fork of `bjornbytes/lovr`, with lunette's patches on its `lunette` branch. The branch is rebased onto upstream `dev`, so the patches stay a readable series. LÖVR's `deps/` (glfw, lua, luajit, luau, openxr, openvr, glslang, joltc, msdfgen, phonon, tracy, and vulkan-headers) and `plugins/lua-enet` and `plugins/lovr-http` are nested submodules, so the clone is recursive.
 
-Its `deps/` are themselves submodules (glfw, lua, luajit, luau, openxr, openvr, glslang, joltc, msdfgen, phonon, tracy, vulkan-headers), as are `plugins/lua-enet` and `plugins/lovr-http`, so cloning is recursive.
+Patches are narrow and additive by default: new accessors, struct fields, and build options, with no behavioural change to an existing path. An upstream defect fix changes the path it fixes and states why the fix belongs upstream. The OpenVR backend is a deliberate, larger exception. It keeps LÖVR as the owner of every headset session, and it must preserve OpenXR behaviour and defaults.
 
-The patches live on a branch rather than as a rebased series against each upstream commit. Every file that needs a change would otherwise require constant rebasing, since LÖVR moves weekly. A branch resolves each conflict once.
+`vendor/lovr/deps/luau` points at `philpax/luau`'s `lunette/luau-bump` branch, a fork of `bjornbytes/luau`'s `lovr` branch. That fork is merged from upstream `luau-lang/luau` `master` rather than rebased. It keeps the LÖVR additions upstream Luau lacks: the quaternion type and library, the vector methods layered on Luau's native vector, and the Lua 5.1 C API shims (`lua_errorL`, two-argument `lua_pushcfunction` and `lua_pushcclosure`, `luaL_ref` and `luaL_unref`, and `luaL_getsubtable`). It also carries what mlua needs: `lua_getmetatablepointer`, `lua_gcdump`, and a `LUAI_MAXCSTACK` large enough for mlua's registry arithmetic. Commit `e6430ad0` fixes optional-callback contextual inference ([below](#optional-callback-contextual-inference-in-luau)). A merge is verified by running `lunette check`.
 
-The default rule keeps patches narrow and additive: new accessors, new struct fields, and new build options. They introduce no behavioral change to an existing path. An upstream defect fix changes the affected path and states why the fix belongs upstream. The internal OpenVR backend is a larger deliberate exception. It preserves LÖVR session ownership instead of adding an outside XR runtime. Its private dispatch and lifecycle changes must preserve existing OpenXR behavior and defaults.
+A submodule commit is pushed to its fork before the parent pointer that names it, or a fresh clone cannot resolve it. The LÖVR and Luau commits named here are on `origin/lunette` and `origin/lunette/luau-bump`.
 
-The series is ordered by how long a patch is expected to live, oldest-lived first, so that a patch which lands upstream is dropped from the top without disturbing what sits below it.
-
-Integration plumbing, at the base. What LÖVR-as-a-library needs to be embedded the way lunette embeds it: the `deps/luau` pin, `LOVR_EXPORT_LUA_SYMBOLS`, and `LOVR_LUAU_ANALYSIS`. These are not written against a feature anyone has asked for, so they are not proposed upstream, and they are expected to stay. Each is a build option defaulting to off, which is what keeps them narrow: an upstream build that does not set them compiles exactly as it did before.
-
-Upstream defects, next. Bugs on a path lunette uses that are nobody's fault but upstream's: the module loader registered into `package.searchers` under `LOVR_USE_LUAU`, where Luau reads `package.loaders`, and `conf.lua` going unread when a project has no `main.lua`. These are reported upstream and disappear when fixed there.
-
-Upstreamable features, on top. Work other LÖVR users want: external texture import, the layer limits, the session accessor. Each is shaped as a pull request. If they land, the divergence from upstream shrinks to the base.
-
-Nothing has been proposed upstream yet.
-
-LÖVR's Lua is Luau, from a second submodule: `vendor/lovr/deps/luau` points at `philpax/luau`'s `lunette/luau-bump` branch, lunette's fork of `bjornbytes/luau`'s `lovr` branch against upstream `luau-lang/luau`. The fork is merged from upstream rather than rebased, so the sync is a merge of `master` into the branch. What lunette keeps fork-owned is the LÖVR work upstream Luau does not carry: the quaternion type and `quaternion.*` library, the vector call surface mullion depends on, and the Lua 5.1 C-API shims (`lua_errorL`, the two-argument `lua_pushcfunction`/`lua_pushcclosure`, `luaL_ref`/`luaL_unref`, `luaL_getsubtable`). Upstream Luau now provides a native vector type, which the fork adopts; the fork layers the LÖVR-facing vector methods on top of it. The fork also carries what lunette's bindings need that upstream's `Custom/` component would otherwise provide in full: `lua_getmetatablepointer`, `lua_gcdump`, and a `LUAI_MAXCSTACK` large enough for mlua's registry-index arithmetic. Sync cadence is per LÖVR release; a merge is exercised by running `lunette check` against the tree it typechecks.
-
-The Luau fork also carries narrow upstream defect fixes where checker behavior misrepresents an accurate declaration. The nested `deps/luau` fork implements the reviewed optional callback contextual-inference fix in local commit `e6430ad0`. A local nested commit and its parent gitlinks do not establish public availability. No push is authorized by this work. Fresh clones cannot resolve unpublished fork commits until publication occurs.
+Nothing has been proposed upstream.
 
 ## The patch set
 
-The three tiers are described above, and the series is ordered as they are listed here.
+The series on `lunette`, oldest first:
+
+| Commit | Patch | Kind |
+|---|---|---|
+| `869696fa` | Point `deps/luau` at the lunette Luau fork | Integration |
+| `e6c5d3e6` | `LOVR_EXPORT_LUA_SYMBOLS` | Integration |
+| `b613c516` | `LOVR_LUAU_ANALYSIS` | Integration |
+| `a2771c65` | Register the module loader where Luau looks for it | Upstream defect |
+| `be05835e` | Enable external-memory and DRM format modifier extensions when available | Upstreamable |
+| `d16940bd` | `TextureInfo.foreign` for images that already hold contents | Upstreamable |
+| `0ab06f49` | `gpu_import_acquire` and `gpu_import_release` | Upstreamable |
+| `a90cee55` | Enforce the foreign contract in the Vulkan backend | Upstreamable |
+| `1c9c1947` | Raise `MAX_LAYERS` to 64 | Upstreamable |
+| `85995c71` | Expose the runtime's composition layer limit | Upstreamable |
+| `a6129bec` | Expose which session is running | Upstreamable |
+| `5edba6e8` | Bump `deps/luau` past the dropped checker CLI patch | Integration |
+| `6b974d23` | Load `conf.lua` when the project has no `main.lua` | Upstream defect |
+| `14ed0ea4` | Report whether a main session is visible | Upstreamable |
+| `1d284e6f` | Prefer `main.luau` under Luau | Upstreamable |
+| `b28c6574` | Append modifier snapshots to keyboard events | Upstreamable |
+| `c63249d1` to `490231a2` | The private headset operations boundary and the OpenVR backend, twelve commits | Exception |
+| `ef8b5dcf` | Make native initialization paths explicit | Upstream defect |
+
+`git -C vendor/lovr log --oneline upstream/dev..lunette` lists the series.
 
 ### Integration plumbing
 
-#### The `deps/luau` pin
-
-`deps/luau` points at lunette's Luau fork rather than `bjornbytes/luau`, for the reasons given above.
+These exist because lunette embeds LÖVR as a library. They are build options that default to off and are not proposed upstream.
 
 #### `LOVR_EXPORT_LUA_SYMBOLS`
 
-LÖVR built shared carries a Lua, and an embedder may want to link the Lua C API out of it rather than bring a second one — which is what mlua does here. Nothing in LÖVR references those symbols, so `--as-needed` drops the archive members defining them and the exports go with them. The option adds `--undefined=` for each, which forces the member in and lets the default visibility export it, and links `Luau.Require` and `Luau.Config` so `luarequire_pushproxyrequire` exists to export.
+mlua links the Lua C API from `liblovr.so` rather than carrying a second Lua. Nothing in LÖVR references those symbols, so `--as-needed` drops them. The option adds `--undefined=` for each symbol and links `Luau.Require` and `Luau.Config` so `luarequire_pushproxyrequire` exists to export.
 
 #### `LOVR_LUAU_ANALYSIS`
 
-Luau ships a type checker LÖVR does not build. `lunette check` drives it, and it has to be linked into the library rather than into the consumer's binary: two copies of Luau in one process unify their FFlag statics as GNU unique symbols, so a flag registers onto `FValue<bool>::list` twice, its `next` points at itself, and static initialisation spins on the first traversal. Nothing references the archive, so `--undefined=` will not do — it takes one symbol at a time, and the surface is C++ — and the whole archive goes in.
+The option links Luau's type checker into `liblovr.so` as a whole archive, for `lunette check`. It must live in the library rather than the binary: two copies of Luau in one process unify their FFlag statics as GNU unique symbols, a flag registers twice, and static initialisation loops. It adds several megabytes.
 
-Off by default, and it costs several megabytes in the library.
-
-Four things about driving it are worth stating, because each was found by a check that appeared to pass.
-
-A check can pass while checking nothing, and this is the failure mode of the whole area. `luau-analyze --formatter=plain` exits zero unconditionally, because luacheck's contract is that the output is parsed rather than the status read. `declare pcall: any` and its neighbours overwrite Luau's own correctly-typed builtins. An unresolved require makes the analyzer skip the file entirely, so a plain error elsewhere in it goes unreported. A definitions file that fails to load means nothing is checked at all, and the low diagnostic count reads as success. `lunette check` fails on any diagnostic that is not a lint warning and on any root it never read, which is what closes the third and fourth. A low count is a claim to verify: inject `local _x: number = 's'` and confirm it is caught.
-
-The flags decide which language is checked. `luau-analyze` calls `setLuauFlagsDefault()`, which enables every non-experimental `Luau*` flag, and without it the checker accepts a dialect current Luau has replaced: `declare class` still parses. `analyze.cpp` replicates that loop. If `lunette check` and `luau-analyze` disagree, suspect the flags first.
-
-Optional callbacks retain their accurate optional declarations. Named callback definitions must receive the same contextual parameter types as anonymous functions when the expected type is a function-or-nil union. The named-function inference path strips nil from the selected function context, matching anonymous-function inference. This fixes a checker defect without making callbacks mandatory or requiring annotations at every call site. Targeted regressions and the rebuilt normal checker validate this path; they do not establish a full Luau suite pass.
-
-ariadne indexes a `Source` by character and Luau reports by byte. An offset reads too far by however many multi-byte characters precede it, which in this tree is LÖVR's `ö`.
-
-`.luaurc` carries neither the definitions nor the platform. `platform` is rejected and reported as a diagnostic, and `definitions` is ignored in silence; both are luau-lsp client settings rather than configuration file keys. An editor also needs `"languageMode": "strict"` in `.luaurc`, without which luau-lsp reports nothing for errors `lunette check` reports, which fails in the worse direction.
-
-#### The private headset operations boundary
-
-The public `lovrHeadset*` and `lovrLayer*` functions forward through a fixed private operations table. `headset_openxr.c` holds the existing OpenXR and simulator implementation. The table covers every existing entry point, including layers and Vulkan callbacks. WebXR retains its separate implementation. The extraction preserves existing OpenXR and simulator behavior. The private selector extends this boundary as specified in [Backend selection](#backend-selection).
-
-A layer records its creator and its process-monotonic session generation. Its methods dispatch through that creator, including destruction after a session ends. Submission validates the complete replacement list before retaining its entries or releasing the previous list. A layer from an inactive generation cannot be submitted.
-
-Session textures, their descendant views, and session passes become CPU tombstones when their backing is retired. Metadata remains readable. GPU operations and new views fail, including in unchecked builds. Retirement establishes GPU quiescence before invalidating backing, drains deferred destruction before releasing runtime images, and disconnects the runtime before destroying the Vulkan device. Callers serialize retirement with graphics use. A device-loss result permits destruction; another wait error preserves resources for a later retry. The device teardown callback tolerates partial initialization and does not recursively destroy the device.
-
-External texture handoff retains the owned root texture through restoration submission and releases the temporary reference after unlocking graphics. Its callback runs under the graphics queue lock. The callback may submit work on the supplied queue and release texture or material references. Final texture and material destruction is deferred until restoration finishes and the graphics lock is released; it must not call graphics APIs, record commands, or initiate graphics or session teardown. Graphics entry points that acquire the graphics lock reject callback reentry. Queue-lock callbacks also refuse reentry rather than recursively acquiring the plain mutex.
-
-Selective session retirement uses `lovrGraphicsQuiesceSessionResources` before invalidating only the affected resources and `lovrGraphicsDrainSessionResources` afterward. Both acquire the graphics lock, but neither invalidates unrelated resources. The caller holds lifecycle exclusivity throughout quiescence, invalidation, deferred destruction, and runtime image destruction. The drain requires successful quiescence and no intervening queue work. Device teardown preparation uses the same queue lock, while deferred destruction runs under lifecycle exclusivity.
-
-#### The optional OpenVR backend
-
-`LOVR_ENABLE_OPENVR` defaults to off and builds Valve's pinned SDK loader as a position-independent static library on Linux Vulkan builds. The SDK source remains unmodified, and all output goes into the CMake build directory. The private connection adapter uses the SDK's C function tables, initializes only an overlay application, reports the SDK version, and releases failed connections.
-
-The private backend implements presentation, tracking, input, and events. Native selection and lunette integration are implemented and reviewed. lunette enables the optional backend on Linux through `crates/lunette-lovr/build.rs` and explicitly selects `auto` in the shipped configuration. Generated declarations describe the validated selector. The private panel backend owns session-registered render textures and passes, packs stereo output into a single two-dimensional image, and submits through the guarded Vulkan handoff. Runtime overlay destruction precedes backing invalidation. A failed destruction preserves the backing and connection for retry. The created-panel cap is 62, reserving two overlays for the projection eyes within the local ceiling of 64. It includes panels omitted from submission and panels awaiting cleanup. This is a conservative local budget, not an SDK guarantee of global overlay capacity.
-
-The private main scene renders into a two-layer color texture and copies each eye into an independent two-dimensional output. Two projection overlays receive each captured eye in the overlay API's conventions: the view matrix that maps the tracking origin to the eye, and the asymmetric frustum with the downward edge's tangent in `fTop`. The scene uses transparent clear, internal depth and antialiasing, and finite or infinite reverse-Z. Supersampling scales each eye's dimensions. Scene backing has fixed dimensions; a runtime resolution change requires a session restart. Dynamic resolution is not implemented. It submits no scene-compositor frames and provides no game-depth occlusion.
-
-Frame update owns the bounded overlay wait and predicted head snapshot. Resource getters do not wait. The clock is sampled after the wait. Accepted display timestamps equal the predicted timestamp relative to the session epoch, and their deltas are nonnegative. Equal predictions have zero delta. Invalid timing, including a regressed prediction, exposes no tracked pose and reports zero display time and delta as unavailable. It leaves the accepted timestamp baseline unchanged for recovery. Selection follows the separate contract below.
-
-Own visibility reflects the owned runtime overlays. Focus means the SteamVR dashboard is closed, so the controllers are not driving it; it does not mean exclusive overlay focus. `IsInputAvailable` and `ShouldApplicationPause` describe the scene application, and an overlay application sees no input and a pause request from them whenever it runs, so they are not consulted. Mount state is inferred from the SDK's HMD activity mapping, which can reflect movement or proximity rather than physical wear. Main-scene visibility is separate and conservative: a dashboard, scene process, active scene state, missing evidence, or an event-drain limit keeps it visible. Only affirmative dashboard-hidden and no-scene evidence makes it false.
-
-Haptics use locally scheduled immediate pulses of at most 20 milliseconds. Stopping or replacing vibration, or requesting zero strength or duration, cancels future pulses, not a pulse already accepted by the runtime. Frame-driven scheduling can leave gaps between pulses and does not guarantee continuous vibration. Frequency zero maps to a nominal 120 Hz because the OpenVR action API has no documented default-frequency sentinel. This mapping remains hardware-unverified. Runtime quit requests produce a quit event without automatic acknowledgment. The native-only `lovrHeadsetWillExit` notification acknowledges a runtime quit only after the host commits to terminal exit, before shutdown. It is not exposed to Lua. A vetoed quit, soft reload, hard restart, presentation stop, or runtime disconnect does not establish process exit.
-
-Private input helpers resolve action handles and produce coherent hand snapshots. Their installed action bundle resides in `lovr-openvr/` beside the canonical actual owning native artifact, not beside a symlink to it. Relative shared-library paths fail explicitly rather than resolving against a changed working directory. Assets require trusted ownership and no untrusted write permissions or symlinks throughout their ancestry. A `/tmp` runtime fixture does not satisfy this trust contract. Returned paths are not pinned against later replacement. The controller bindings remain provisional, and Touch grip poses remain unbound pending transform verification. Steam Frame controllers bind grip and aim to the profile's `openxr_grip` and `openxr_aim` poses, which carry OpenXR's semantics, and map the left hand's d-pad to the face buttons through the profile's mirror mappings. A controller type with no binding file receives SteamVR's remapping of another type's binding, which carries that binding's gaps. The backend initializes the action manifest before polling system events or updating actions. Head and hand getters consume the frame's snapshots; a failed or invalid update clears stale tracking and input. Tracking calls share an origin and numerical relative prediction, but sample at separate instants; the snapshots do not promise identical sampling times.
-
-Native tests use injected runtime and GPU operations and exercise actual managed graphics ownership. Staged shared-library and executable fixtures exercise real asset resolution. A separate missing-runtime case calls the real loader with an isolated absent runtime path. These checks do not establish SteamVR binding acceptance, runtime rendering, or visual correctness.
+`crates/lunette-lovr/src/analyze.cpp` drives the checker. It enables every non-experimental `Luau*` flag, as `luau-analyze`'s `setLuauFlagsDefault()` does; without that the checker accepts an obsolete dialect. `lunette check` fails on any diagnostic that is not a lint warning, and on any root it never read, because an unresolved require skips a file and an unloadable definitions file checks nothing. ariadne indexes source by character while Luau reports bytes, so offsets are converted. `.luaurc` carries neither definitions nor platform; those are luau-lsp client settings, and `"languageMode": "strict"` is required for an editor to report what `lunette check` reports.
 
 ### Upstream defects
 
 #### The module loader under `LOVR_USE_LUAU`
 
-`luax_registerloader` inserts into `package.searchers` unless `LUA_VERSION_NUM` is 501. Luau defines no `LUA_VERSION_NUM` and its package library reads `package.loaders`, so under `LOVR_USE_LUAU` the loader is registered where nothing looks. The patch adds `LOVR_USE_LUAU` to that condition.
+`luax_registerloader` inserted into `package.searchers` unless `LUA_VERSION_NUM` is 501. Luau defines no `LUA_VERSION_NUM` and reads `package.loaders`. The patch adds `LOVR_USE_LUAU` to the condition.
 
 #### `conf.lua` ignored when `main.lua` is absent
 
-`boot.lua` loads `conf.lua` in the `else` of the check for the main file, so a project that mounts and has a `conf.lua` but no `main.lua` boots on LÖVR's defaults: every module started, and a desktop window opened. The two are independent — one configures the runtime, the other is the program — and the coupling reads as an artefact of threading one `ok, failure` pair through a chain of `elseif`s. The patch loads `conf.lua` whenever the source mounts and checks for the main file after, so the error path a missing `main.lua` produces is the one the project configured.
+`boot.lua` loaded `conf.lua` only when a main file existed, so a project without one booted with every module and a desktop window. The patch loads `conf.lua` whenever the source mounts, then checks for the main file. lunette's safe mode depends on this: a configuration missing its main file must not start modules it disabled.
 
-lunette is where this shows up as more than a wrong error screen. Safe mode is the fallback for a configuration that did not load, and a missing `main.lua` is one of the ways that happens; before the patch that one case started the audio, graphics, and headset modules the configuration had switched off and opened a window an XR overlay never wanted.
+#### Native initialization paths
+
+`lovrModelAnimate` ends through `lovrUnreachable` for an invalid animation property instead of leaving its locals uninitialised. The bitmap font loader keeps its image-path presence and length checks under `LOVR_UNCHECKED`, because the font file is external data. `openxrLayerSetCurve` reads layer dimensions after validating the session rather than through a getter whose early return leaves locals indeterminate.
 
 #### Optional callback contextual inference in Luau
 
-The typed nested configuration exposes this checker defect through `lovr.conf`. The declaration correctly permits an absent callback and gives a present callback the closed configuration type, including the backend selector union. Named callback inference must unwrap the optional function context just as anonymous callback inference does. The narrow fix belongs in `vendor/lovr/deps/luau`, not in configuration metadata or calling code. The reviewed fix strips nil from the selected function context. Seven focused regressions pass with each solver configuration. The rebuilt normal checker also accepts both configuration cases, and definition verification and the project's Luau checks pass. The full upstream Luau suite retains 212 failures reproduced on the baseline; no full-suite pass is claimed.
-
-Making `lovr.conf` mandatory is rejected because it misstates the runtime contract. An explicit `LovrConfig` parameter annotation is a sound public typing fallback. Exporting a global type alias can make that fallback available without weakening configuration checking. Requiring annotations is rejected as the general remedy for ergonomic reasons: unannotated named callbacks should contextualize just as anonymous callbacks do. The chosen narrow checker fix restores that inference for optional callbacks. It must preserve rejection of invalid configuration fields and backend values rather than weakening the context to an unconstrained table.
+This fix is in `deps/luau`. Luau stripped nil from an anonymous function's expected function-or-nil type but not from a named function's, so a named `lovr.conf` callback lost the closed configuration type. The fix strips nil on the named path. Making `lovr.conf` mandatory was rejected because it misstates the runtime, and requiring a `LovrConfiguration` annotation at every site was rejected as the general remedy. Focused regressions pass under each solver configuration; the full upstream Luau suite has 212 failures that also occur on the baseline.
 
 ### Upstreamable features
 
+Each is shaped as an upstream pull request.
+
 #### External-memory device extensions
 
-LÖVR requests no external-memory extensions when it creates the Vulkan device, so a dmabuf cannot be imported onto that device at all. The patch enables `VK_KHR_external_memory`, `VK_KHR_external_memory_fd`, `VK_EXT_external_memory_dma_buf`, `VK_EXT_image_drm_format_modifier`, and `VK_EXT_queue_family_foreign` when the physical device advertises them, and leaves them off when it does not. `VK_KHR_image_format_list`, which `VK_EXT_image_drm_format_modifier` depends on, is already enabled upstream as `formatList`.
-
-The five are optional, not required: a driver lacking them still starts, and lunette falls back to the `wl_shm` path. Because they are optional, the patch also reports which were enabled, through five new fields on `gpu_features` and `GraphicsFeatures`. `ash::Device::load` cannot fail — a missing entry point becomes a stub that panics on call — so asking is the only way to know.
-
-LÖVR requests `apiVersion = VK_MAKE_VERSION(1, 1, 0)` in its `VkApplicationInfo` (`src/core/gpu_vk.c`, in `gpu_init`). Vulkan 1.1 is therefore the floor for the import path, and `vkBindImageMemory2` and `vkGetPhysicalDeviceFormatProperties2` are core rather than extension entry points. Neither needs a `KHR` suffix or a separate loader.
+LÖVR enables `VK_KHR_external_memory`, `VK_KHR_external_memory_fd`, `VK_EXT_external_memory_dma_buf`, `VK_EXT_image_drm_format_modifier`, and `VK_EXT_queue_family_foreign` when the physical device advertises them, and reports which it enabled through new fields on `gpu_features` and `GraphicsFeatures`. They are optional: without them lunette uses the `wl_shm` path. The report is necessary because `ash::Device::load` turns a missing entry point into a stub that panics when called. LÖVR requests Vulkan 1.1, so `vkBindImageMemory2` and `vkGetPhysicalDeviceFormatProperties2` are core.
 
 #### Foreign image import
 
-`TextureInfo` already carries a `handle` field (`vendor/lovr/src/modules/graphics/graphics.h`), and `gpu_texture_info` likewise, so LÖVR can already wrap an existing `VkImage`. What is missing is everything around it. The image is created by the native layer from imported memory, arrives in a foreign queue family (`VK_QUEUE_FAMILY_FOREIGN_EXT`), and has an undefined layout. LÖVR must not assume it owns the image's lifecycle.
-
-The patch adds `gpu_import_acquire` and `gpu_import_release` to `src/core/gpu_vk.c`, modelled on `gpu_xr_acquire`. They take an explicit old layout and source queue family, and pass `VK_QUEUE_FAMILY_IGNORED` where the existing path assumes family 0.
-
-This patch carries the most unknowns of the set. Milestone 0 exists to resolve them ([Roadmap](roadmap.md)).
+`TextureInfo.handle` already wraps an existing `VkImage`. `TextureInfo.foreign` marks one that already holds contents, so LÖVR skips the empty upload whose `VK_IMAGE_LAYOUT_UNDEFINED` barrier would allow the driver to discard them; the OpenXR path, which also passes a handle, keeps that transition. `gpu_import_acquire` and `gpu_import_release`, modelled on `gpu_xr_acquire`, take an explicit old layout and source queue family. The Vulkan backend records the flag and rejects a foreign texture without a handle, and an import barrier on a texture that is not foreign.
 
 #### Raise `MAX_LAYERS`
 
-`MAX_LAYERS` was hard-coded to 10 (`vendor/lovr/src/modules/headset/headset.h:9`). The patch raises it to 64. Ten is low for a window manager that wants a layer per panel.
-
-The constant is not made configurable. A build option would still be a compile-time bound, and true runtime configurability would mean heap-allocating the static array in the headset module and the three stack arrays in the submit path, on a hot path, to replace a number that only has to be a ceiling above the pool's budget. The budget is a policy number, and it lives in Rust.
-
-At 64 the cost is about 6.5KB of frame stack in `lovrHeadsetSubmit`, most of it `stereoLayers`, and half a kilobyte of static state.
-
-The two checks that guard those arrays count differently. `lovrHeadsetSetLayers` (`headset.c:2766`) counts the two composition layers a stereo layer submits; `l_lovrHeadsetSetLayers` (`l_headset.c:806`, `:817`) counts `Layer` objects. The native check binds. The patch records this in a comment and does not reconcile it, because reconciling it would change the behaviour of an existing path.
+`MAX_LAYERS` rises from 10 to 64. A configurable bound was rejected: a build option is still compile-time, and runtime configuration would heap-allocate arrays on the submit path to replace a ceiling. The cost is about 6.5 KB of stack in `lovrHeadsetSubmit`. `lovrHeadsetSetLayers` counts the composition layers a stereo layer submits, while `l_lovrHeadsetSetLayers` counts `Layer` objects; the native check binds, and the patch documents the difference without changing it.
 
 #### Expose the runtime's composition layer limit
 
-`XrSystemGraphicsProperties::maxLayerCount` is the most composition layers `xrEndFrame` accepts, and LÖVR never read it. The patch adds `lovrHeadsetGetLayerLimit`, and `lovr.headset.getLayerLimit` on the Lua side, reading the value out of the `xrGetSystemProperties` call LÖVR already makes at connect. It reads as zero before there is a system to ask.
-
-This is a safety requirement rather than a convenience. The specification requires `XR_ERROR_LAYER_LIMIT_EXCEEDED` once the count goes over; Monado does not implement that check, and writes past the end of a fixed array instead. Under `XR_EXTX_overlay` the array is shared with the primary application, whose layer count lunette cannot observe, so lunette budgets well below the reported limit rather than up to it. See [Rendering](rendering.md).
-
-Monado reports 128 with a simulated HMD on Linux, which is `XRT_MAX_LAYERS`.
+`lovrHeadsetGetLayerLimit` and `lovr.headset.getLayerLimit` report `XrSystemGraphicsProperties::maxLayerCount`, or zero before a system exists. Monado does not return `XR_ERROR_LAYER_LIMIT_EXCEEDED` and writes past a fixed array instead, and under `XR_EXTX_overlay` that array is shared with the primary application, so lunette budgets well below the limit ([Rendering](rendering.md#the-layer-pool)).
 
 #### Expose which session is running
 
-`lovrHeadsetIsActive` answers whether a session exists, and nothing answers which one. The patch adds `lovrHeadsetGetSessionGeneration`, and `lovr.headset.getSessionGeneration` on the Lua side: a counter incremented in `lovrHeadsetStart` when `xrCreateSession` succeeds, answered as zero while there is no session. The counter lives outside the headset module's state struct, which `lovrHeadsetDestroy` zeroes, so a session after a module restart cannot carry a number an earlier one had.
-
-The boolean cannot answer the question anything holding session-owned objects has to ask. `lovr.headset.stop()` and `lovr.headset.start()` are both bound, and a configuration that calls the pair inside one callback — to reconfigure the session, which is the ordinary reason to call `stop` at all — destroys every swapchain in between while `isActive` reads true on both sides of it. lunette's layer pool reads the generation at every frame boundary for that reason, and treats a changed one as a session loss ([Rendering](rendering.md)).
+`lovrHeadsetGetSessionGeneration` and `lovr.headset.getSessionGeneration` report a counter incremented on each successful session creation, or zero without a session. It lives outside the headset state that `lovrHeadsetDestroy` zeroes. `lovrHeadsetIsActive` cannot distinguish a session from its replacement after `stop` and `start` in one callback; the layer pool uses the generation for that ([Rendering](rendering.md#a-lost-session-is-observed-by-the-pool-and-by-identity)).
 
 #### Report whether a main session is visible
 
-An overlay session shares the runtime with whatever holds the primary one, and `XR_EXTX_overlay` reports the primary session's visibility through `XR_TYPE_EVENT_DATA_MAIN_SESSION_VISIBILITY_CHANGED_EXTX`. LÖVR's event loop handled every other event the module reacts to and dropped that one, so an overlay could not tell whether anything was behind it. The patch handles the event, keeps the flag beside `mounted` in the headset module's state, and answers it as `lovrHeadsetIsMainSessionVisible` and `lovr.headset.isMainSessionVisible`.
+LÖVR handles `XR_TYPE_EVENT_DATA_MAIN_SESSION_VISIBILITY_CHANGED_EXTX` and reports it through `lovrHeadsetIsMainSessionVisible` and `lovr.headset.isMainSessionVisible`. An overlay draws its own background only when nothing is behind it, as WayVR decides its skybox. The flag starts false, so a runtime that never sends the event reads as nothing behind. A matching lovr-docs patch adds the binding to the generated definitions.
 
-An overlay that draws a background of its own is what needs it. Drawn while another application is presenting, an opaque background covers that application's frame; drawn when nothing else is, it is the only thing in the headset. WayVR decides its skybox the same way, on `!main_session_visible` and an opaque blend mode (WayVR upstream: `src/backend/openxr/mod.rs`).
+#### `main.luau` as the entry point under Luau
 
-The flag starts false and stays false for a session that never requested the extension, so a runtime that never sends the event reads as nothing behind. That is the direction worth being wrong in: an overlay alone in a headset draws its background, and one sharing the headset does not cover another application by accident. The metadata for the Lua binding is a matching patch to the lovr-docs fork, which is what puts it in the generated definitions.
+A Luau build already preferred `conf.luau` and searched `?.luau` first, but `boot.lua` named only `main.lua`. Under Luau, the patch makes a folder or archive use `main.luau` when present and `main.lua` otherwise, accepts a single `.luau` file on the command line, and names `main.luau` in the missing-file error. The choice waits until the source is mounted. A build without Luau is unchanged. A configuration with only `main.lua` therefore still boots.
+
+#### Physical key modifier snapshots
+
+`lovr.keypressed` gains an optional fourth argument, and `lovr.keyreleased` an argument after the scancode: a read-only table of Shift, Control, Alt, Super, CapsLock, and NumLock state from the physical event. The GLFW backend enables `GLFW_LOCK_KEY_MODS`; a backend without a reliable snapshot passes nil. lunette uses it to tell keypad navigation from numeric input, which its virtual seat state cannot answer. Matching lovr-docs metadata generates the declarations.
+
+### The OpenVR backend
+
+#### The private headset operations boundary
+
+The public `lovrHeadset*` and `lovrLayer*` functions forward through a fixed private operations table. `headset_openxr.c` holds the OpenXR and simulator implementation unchanged in behaviour; WebXR keeps its own. Selection is described in [Backend selection](#backend-selection).
+
+A layer records its creating backend and session generation and dispatches through that backend, including destruction after its session ends. Submission validates the whole replacement list before retaining it. A layer from an inactive generation cannot be submitted.
+
+When a session's graphics are retired, its textures, their views, and its passes become CPU tombstones: metadata stays readable and GPU operations fail, including in unchecked builds. Retirement waits for GPU quiescence before invalidating backing, drains deferred destruction before releasing runtime images, and disconnects the runtime before destroying the Vulkan device. `lovrGraphicsQuiesceSessionResources` and `lovrGraphicsDrainSessionResources` bracket a selective retirement and touch no unrelated resource. A device-loss result permits destruction; any other wait error keeps resources for a retry.
+
+External texture handoff runs its callback under the graphics queue lock. The callback may submit on the supplied queue and release references; final destruction is deferred until the lock is released. Graphics entry points reject reentry from the callback.
+
+#### Connection, presentation, and input
+
+`LOVR_ENABLE_OPENVR`, off by default, builds Valve's pinned SDK loader as a static library on Linux Vulkan builds without modifying the SDK. The backend connects only as an overlay application, through the SDK's C function tables.
+
+Panels render into session-registered textures, are packed into one two-dimensional image per overlay, and are submitted through the guarded Vulkan handoff. Overlay destruction precedes backing invalidation, and a failed destruction keeps both for a retry. At most 62 panels exist, leaving two of the 64 local slots for projection eyes; omitted panels and panels awaiting cleanup count.
+
+The main scene renders into a two-layer texture with transparent clear, internal depth, MSAA, and reverse-Z, and each eye is copied to its own two-dimensional output for a projection overlay. A runtime resolution change needs a session restart. The backend submits no scene-compositor frames and so gives no occlusion against a game's depth.
+
+Frame update performs the bounded overlay wait and samples a predicted head snapshot; resource getters do not wait. Accepted display timestamps equal the predicted time relative to the session epoch and never decrease. A regressed or invalid prediction exposes no pose and reports zero time and delta.
+
+Focus means the SteamVR dashboard is closed. `IsInputAvailable` and `ShouldApplicationPause` describe the scene application and always report no input and a pause to an overlay, so they are not consulted. Mount state comes from the SDK's HMD activity, which can reflect motion or proximity. Main-scene visibility is false only on affirmative evidence that the dashboard is hidden and no scene runs.
+
+Haptics are scheduled locally as immediate pulses of at most 20 ms. Stop, replacement, or zero strength cancels future pulses but not one already accepted. Frequency zero maps to 120 Hz, because the action API has no default-frequency sentinel. A runtime quit request produces a quit event without acknowledgement; `lovrHeadsetWillExit`, called only once the host commits to exiting, acknowledges it. It is not exposed to Lua.
+
+The action manifest and bindings live in `lovr-openvr/` beside the real `liblovr.so`, with the trust rules in [Build and development](build-and-development.md#where-things-live-at-runtime). The backend initializes the manifest before polling events. Bindings exist for Vive, Knuckles, Touch, and Steam Frame controllers. Touch grip poses stay unbound until their transform is verified. Steam Frame controllers bind grip and aim to `openxr_grip` and `openxr_aim` and map the left d-pad to the face buttons. A controller type without a binding gets SteamVR's remapping of another type's binding, with its gaps. A failed update clears stale tracking and input.
+
+Native tests ([Build and development](build-and-development.md#native-headset-tests)) inject runtime and GPU operations; they do not establish binding acceptance or visual correctness.
 
 ### Rejected: a static library target
 
-LÖVR offers `LOVR_BUILD_EXE` and `LOVR_BUILD_SHARED` but no static target. Adding one would not produce a single binary. glfw, msdfgen, phonon, and joltc are each built shared, through `BUILD_SHARED_LIBS`, `GLFW_LIBRARY_TYPE`, or `JPH_BUILD_SHARED` depending on the dependency, so a statically linked `lunette` would still ship those libraries beside itself and would still need the rpath handling a static link is meant to remove. The single-binary property costs more than one build option, which is why v1 links LÖVR dynamically ([Build and development](build-and-development.md#building)). Revisit when packaging demands it.
+LÖVR offers `LOVR_BUILD_EXE` and `LOVR_BUILD_SHARED` but no static target. A static target would not produce a single binary: glfw, msdfgen, phonon, and joltc are built shared regardless, so `lunette` would still ship them and need rpath handling. lunette links LÖVR dynamically ([Build and development](build-and-development.md#building)).
 
 ### Possibly later
 
-- External semaphore import, so client work can be ordered against LÖVR's reads under `linux-drm-syncobj-v1`. Not needed for v1; see [Rendering](rendering.md#synchronisation).
-- `VkSamplerYcbcrConversion`, for sampling multi-planar buffers directly rather than converting.
+- External semaphore import, to order client work against LÖVR's reads under `linux-drm-syncobj-v1` ([Rendering](rendering.md#synchronisation)).
+- `VkSamplerYcbcrConversion`, to sample multi-planar buffers directly.
 
 ## Capabilities available without a patch
 
-The following require no change to LÖVR.
-
-- Vulkan handle access. `gpu_vk_get_instance`, `gpu_vk_get_physical_device`, `gpu_vk_get_device`, and `gpu_vk_get_queue` already exist (`vendor/lovr/src/core/gpu_vk.c`) and are forward-declared for the headset module (`vendor/lovr/src/modules/headset/headset.c:45-48`). Building with `LOVR_BUILD_WITH_SYMBOLS=ON` sets the target's C visibility to default, so `liblovr.so` exports them and Rust can call them directly. Only `lovr.graphics.getDevice()` is limited to names and IDs; the C layer is not.
-- Embedding without `main()`. `LOVR_BUILD_SHARED=ON` turns `LOVR_BUILD_EXE` off (`vendor/lovr/CMakeLists.txt:98-100`), which excludes `src/main.c` from the build and defines `LOVR_OMIT_MAIN`. lunette replicates in Rust, against the exported symbols, what `main.c` does: create the `lua_State`, open the libraries, call `luax_preload`, set `arg`, run `boot.lua`, and step the closure it returns. LÖVR needs no embedding entry point of its own.
-- Overlay sessions. `XR_EXTX_overlay` is requested when `t.headset.overlay` is set (`headset.c:509`), and LÖVR switches the layer to alpha-blended when overlay or passthrough is active (`headset.c:3067`).
-- Composition layers. `lovr.headset.newLayer` takes position, orientation, dimensions, `curve`, viewport, and `getTexture`. Quad and cylinder layers are the same mechanism WayVR uses for legible screens.
-- `setLayers{ main = false }` leaves the projection layer out of `xrEndFrame`. It saves almost nothing on its own — the colour swapchain is acquired inside `getPass` and `getTexture`, so what saves the work is not calling those ([Rendering](rendering.md#skipping-the-scene)).
-- Custom events. `lovr.event.push(name, ...)` dispatches through `lovr.handlers`, which `__index`es `lovr` (`etc/boot.lua:345`), so a pushed `'lunwindowopened'` reaches lunette's own dispatcher, which calls everyone who subscribed through `lunette.onWindowOpened`. Native-to-Lua event delivery needs no new machinery. The poll loop unpacks four arguments, so payloads travel as a single table.
-- Filesystem mounting. `lovr.filesystem.setSource`/`mount`/`setRequirePath` allow LÖVR to be pointed at the user's config directory and to mount the standard library.
-- Spatialised audio, via bundled Steam Audio. This makes [per-application audio](audio.md) a matter of routing rather than DSP.
-- Windowless operation. `etc/boot.lua` opens a window only when `conf.window` is set, and `lovr.graphics.newReadback` gives pixel readback, so GPU-headless testing is available.
-- Luau by default (`LOVR_USE_LUAU ON`). LÖVR builds the vendored Luau fork with `LOVR_USE_LUAU`; lunette's Lua is Luau, and `lunette check` over the standard library and configurations is a standing check.
+- Vulkan handles. `gpu_vk_get_instance`, `gpu_vk_get_physical_device`, `gpu_vk_get_device`, and `gpu_vk_get_queue` exist, and `LOVR_BUILD_WITH_SYMBOLS` exports them from `liblovr.so`.
+- Embedding without `main()`. `LOVR_BUILD_SHARED` excludes `src/main.c`. lunette does in Rust what `main.c` does: creates the `lua_State`, opens the libraries, calls `luax_preload`, sets `arg`, runs `boot.lua`, and steps the closure it returns.
+- Overlay sessions. `t.headset.overlay` requests `XR_EXTX_overlay`.
+- Composition layers through `lovr.headset.newLayer`, with pose, size, `curve`, viewport, and `getTexture`.
+- Custom events. `lovr.event.push(name, ...)` dispatches through `lovr.handlers`, which `__index`es `lovr`, so native events reach lunette's dispatcher without new machinery. The poll loop unpacks four arguments, so payloads travel as one table.
+- Filesystem mounting through `lovr.filesystem.setSource`, `mount`, and `setRequirePath`.
+- Spatialised audio through the bundled Steam Audio ([Audio](audio.md)).
+- Windowless operation and `lovr.graphics.newReadback`, for GPU-headless testing.
 
 ## Boot
 
-lunette keeps LÖVR's `lovr.run` rather than replacing it. Its loop already has the required shape, and staying on it means `lovr.update`/`lovr.draw` behave exactly as LÖVR's documentation describes. Replacing it later is a one-file change, if a need for control it cannot express arises.
+lunette keeps LÖVR's `lovr.run`, so `lovr.update` and `lovr.draw` behave as LÖVR documents. The loop cannot skip scene rendering, because it calls `lovr.headset.getPass` before anything decides whether to draw; lunette wraps `getPass` and `getTexture` where `package.preload` registers the headset module ([Rendering](rendering.md#skipping-the-scene)). The wrapper is a Lua closure, so Rust holds no reference into a state that a reload discards.
 
-The one thing that loop cannot express is skipping scene rendering: it calls `lovr.headset.getPass` before it has looked at whether there is anything to draw. Rather than fork the loop for it, lunette wraps that function and `lovr.headset.getTexture` where `package.preload` registers the headset module, so each answers nothing while the scene is skipped ([Rendering](rendering.md#skipping-the-scene)). The wrapper is a Lua closure over the original, so nothing on the Rust side holds a reference into the state a reload discards.
+Each frame:
 
-Per-frame work injects around the existing steps:
+1. Frame start: drain the compositor channel, refresh window handles, and complete texture imports.
+2. `lovr.update` runs.
+3. Layer copies are recorded for damaged surfaces that hold granted layers.
+4. `lovr.draw` runs.
+5. Frame end: `setLayers` is called once from granted claims, and queued requests go to the compositor thread.
 
-1. Frame start: drain the compositor channel, refresh window handles, complete texture imports.
-2. `lovr.update` runs user code.
-3. Layer blits are issued into LÖVR's command stream for damaged surfaces holding granted layers.
-4. `lovr.draw` runs user code.
-5. Frame end: `setLayers` is called once from granted claims; requests queued by Lua are sent to the compositor thread.
-
-Config resolution: `~/.config/lunette/main.lua` if it exists, otherwise `$SYSCONFDIR/xdg/lunette/main.lua`. `lunette --dump-config` writes a copy to start from. This mirrors awesome, which falls back to the system `rc.lua` rather than copying one on first run. This avoids stale forks of a config the user never edited, and lets upgrades improve the default for users who have not customised it.
+The configuration directory resolves as [Build and development](build-and-development.md#where-things-live-at-runtime) states, ending at the system default in `$SYSCONFDIR/xdg/lunette`. As in awesome, the system configuration is used in place rather than copied on first run, so an unedited configuration follows upgrades. `lunette --dump-config` writes a copy to edit.
 
 ## Backend selection
 
-The selector is private native configuration, not a dynamic plugin API. `t.headset.backend` accepts only `auto`, `openxr`, or `openvr`, represented by a native enum and validated by the Lua parser. Configuration metadata in `vendor/lovr-docs` is the source of truth for the typed nested headset configuration and its closed backend union. Generated declarations must reflect it rather than a hand-written broad table. The upstream default remains `openxr`. `etc/xdg/lunette/conf.lua` explicitly selects `auto`. `getDriver()` continues to name the runtime, not the selector. The implemented private selector follows the frozen-selection contract below.
+`t.headset.backend` accepts `auto`, `openxr`, or `openvr`, as a native enum validated by the Lua parser. The configuration metadata in `vendor/lovr-docs` defines the typed headset configuration and the closed union, and the declarations are generated from it. The upstream default is `openxr`; `etc/xdg/lunette/conf.luau` selects `auto`. `getDriver()` names the runtime, not the selector.
 
-- `connect = false` selects desktop simulation without connecting either XR API.
-- Explicit `openxr` preserves existing OpenXR behavior, including ordinary primary-session fallback when the overlay extension is absent.
-- Explicit `openvr` connects only as an overlay application, even when `overlay` is false. Failure falls back to desktop simulation with an actionable diagnostic. It never tries OpenXR.
-- `auto` with an overlay request first probes OpenXR with overlay support required. That probe must not create a primary session. If it fails, selection tries OpenVR, then ordinary OpenXR with its existing fallback behavior, then desktop simulation.
-- `auto` without an overlay request tries ordinary OpenXR, then desktop simulation. It never selects an OpenVR overlay for a standalone request.
+- `connect = false` selects desktop simulation.
+- `openxr` behaves as upstream, including ordinary session fallback when the overlay extension is absent.
+- `openvr` connects as an overlay application even when `overlay` is false. On failure it falls back to desktop simulation with a diagnostic, never to OpenXR.
+- `auto` with an overlay request probes OpenXR with the overlay extension required, without creating a primary session. On failure it tries OpenVR, then ordinary OpenXR, then desktop simulation.
+- `auto` without an overlay request tries ordinary OpenXR, then desktop simulation.
 
-Each failed attempt releases all temporary runtime state before the next attempt. At most one runtime connection exists at a time. Pending cleanup blocks further connection attempts and GPU creation until cleanup succeeds. Meaningful failure reasons remain available without treating an absent runtime as a fatal error when desktop fallback succeeds.
-
-Selection freezes before Vulkan instance and device creation. GPU initialization and presentation-start failure do not trigger fallback. Stop and start reuse the selected backend and its connection on the same GPU. Full teardown releases the connection before destroying Vulkan resources; a fresh initialization can select again.
-
-The facade owns canonical configuration and Vulkan extension storage. Backend configuration and extension pointers borrow that storage for the connection lifetime. Required runtime extensions are merged and deduplicated without losing optional external-memory feature reporting. The selected backend chooses the required adapter; a missing required adapter fails before device creation rather than silently choosing another GPU.
+Each failed attempt releases its runtime state before the next, and at most one connection exists. Pending cleanup blocks further attempts and GPU creation. Selection freezes before Vulkan instance and device creation; a GPU or presentation-start failure does not trigger fallback. Stop and start reuse the selected backend and connection. Full teardown releases the connection before destroying Vulkan, and a fresh initialization selects again. The selected backend chooses the required adapter, and a missing one fails before device creation.
 
 ## Restart semantics
 
-`lovr.event.restart` returns to `main.c`'s outer loop, which closes the entire Lua state and builds a fresh one in the same process, passing a `cookie` variant across. LÖVR's module state is anchored in that Lua state, so restart tears down graphics and the XR session too. The selected runtime sees the overlay session leave and return.
+`lovr.event.restart` closes the Lua state and builds a new one in the same process. LÖVR's module state lives in that Lua state, so graphics and the XR session restart too, and the runtime sees the overlay session leave and return.
 
-Imported textures die and re-import, and that is a protocol rather than a consequence. Closing the Lua state runs `gpu_destroy`, which destroys the `VkDevice` every imported image was created against, and the compositor thread holds a window onto that device. So the device is taken back from the compositor and its acknowledgement waited for before the state closes, and a new one is lent to it afterwards; the compositor then re-imports the buffers its clients still hold. `crates/lunette/src/restart.rs` states the ordering, which is exacting: performing the steps in another order is a use-after-free on the GPU rather than anything that reports itself.
+Before the state closes, the device is taken back from the compositor thread and its acknowledgement awaited, because closing runs `gpu_destroy`. A new device is lent afterwards and the compositor re-imports the buffers its clients hold. `crates/lunette/src/restart.rs` states the ordering; any other order is a use-after-free on the GPU. Wayland clients survive, because Rust owns them outside the Lua state and a dmabuf descriptor outlives the device it was imported into. A shared-memory client's pixels were copied at import, so its surface returns at its next commit.
 
-Wayland clients survive, because they are owned by Rust outside the Lua state and because the compositor never speaks Vulkan to one — it imports descriptors, and a descriptor outlives the device it was imported into. A client that has drawn nothing since the restart gets its content back without redrawing. A shared-memory client is the exception: its pixels are copied out and its buffer released at import time, so there is nothing retained to re-import and the surface is restored by the client's next commit.
-
-This is why two reload paths exist ([The Lua API](lua-api.md#reload)): soft reload for the common case, hard restart for when soft reload is not enough.
+Soft reload covers the common case and hard restart the rest ([The Lua API](lua-api.md#reload)).
 
 ## Error handling
 
-lunette overrides `lovr.errhand`. LÖVR's default shows an error screen and stops, which suits a game but not a window manager. The standard library installs a handler that logs the error, emits an event, and shows a floating error panel, rate-limiting identical repeats. Users can replace this handler, which is why it lives in Lua.
-
-The native layer owns only the load-time fallback. If `main.lua` fails to load at all, no user handler exists yet, so a built-in safe mode takes over.
+lunette does not set `lovr.errhand`. An error reaching `boot.lua`'s handler has already unwound the frame loop, and the handler ends the process. Event listeners, plugin callbacks, and the frame provider's handlers therefore run under protected calls; each error is logged and emitted through `lunette.onError`. A raw `lovr.update` or `lovr.draw` in a configuration is unprotected ([The Lua API](lua-api.md#errors)). If `main.luau` fails to load, a built-in safe mode takes over.
 
 ## Decisions
 
-Choices made deliberately, recorded with their reasoning, so they are not relitigated by accident.
+Backend selection freezes before GPU creation so runtime callbacks, Vulkan extensions, and the adapter all belong to one backend. Live switching and fallback after GPU creation were rejected because the device already encodes those choices. The overlay-required OpenXR probe precedes ordinary OpenXR so a missing extension does not claim a primary session before OpenVR can supply an overlay.
 
-Frozen selection prevents runtime callbacks, Vulkan extensions, and adapter choice from belonging to different backends. Live switching and fallback after GPU creation are rejected because the device already encodes those choices. Required-overlay probing precedes ordinary OpenXR fallback so a missing extension does not claim a primary session before SteamVR can supply an overlay.
+OpenVR presentation uses native panels and two projection overlays rather than scene-compositor submission, so lunette remains an overlay. The overlay Vulkan descriptor cannot select a layer of an array image, so each eye has its own output. A regressed prediction is reported as unavailable rather than advancing a synthetic clock that does not match the sampled pose.
 
-OpenVR presentation uses native panels and two projection overlays rather than scene-compositor submission. The overlay Vulkan descriptor cannot select a layer from an array image, so each projection eye has an independent two-dimensional output. The render snapshot owns its origin, eye transforms, and frusta through submission. Accepted predicted display timestamps remain exact and nondecreasing; a regressed prediction is unavailable instead of advancing a synthetic clock that no longer describes the sampled pose.
+`SetOverlayTransformProjection` takes the inverse of the eye pose and a frustum of `tan(angleLeft)`, `tan(angleRight)`, `tan(angleDown)`, and `tan(angleUp)`, whose vertical pair is reversed relative to `GetProjectionRaw`. The SDK documents neither. Passing the eye pose and raw tangents made scene content move with the head while native panels stayed fixed. SteamVR's own OpenXR runtime makes the call this way, and `lovrOpenVRProjectionEye` matches it; its test derives the expected frustum from field-of-view angles. The rendered image still uses the eye pose and raw tangents.
 
-`SetOverlayTransformProjection` takes the inverse of the eye pose and a frustum whose vertical pair is reversed relative to `GetProjectionRaw`. The SDK documents neither; the parameter is named `pmatTrackingOriginToOverlayTransform`, and the frustum is described only as tangents. Passing the eye pose and the raw tangents, the first implementation's reading, made SteamVR invert the eye's rotation, place the eye below the floor, and shift the image vertically by the frustum's asymmetry, so scene content moved with head motion while native panels stayed put. SteamVR's own OpenXR runtime, which composes overlay sessions' projection layers through the same call, passes the inverse of the eye's pose in standing space and fills the frustum as `tan(angleLeft)`, `tan(angleRight)`, `tan(angleDown)`, `tan(angleUp)`; `lovrOpenVRProjectionEye` produces the same arguments, and its test derives the expected frustum from field-of-view angles in that convention rather than from the raw tangents. The rendered image itself is unaffected: it uses the eye pose and the raw tangents directly.
+OpenVR haptics use bounded pulses because the action interface cannot cancel a submitted vibration; the cost is possible gaps between pulses. Quit acknowledgement waits for a commitment to exit, because a quit callback can veto termination and a reload destroys the backend without exiting.
 
-OpenVR haptics use bounded immediate pulses because its action interface provides no cancellation method. A full-duration submission would make stop and replacement unable to cancel the remaining vibration. Local scheduling limits the uncancellable remainder to one pulse, at the cost of possible gaps between frame-driven submissions. Runtime quit acknowledgment belongs to an explicit process-exit commitment, not session teardown, because a quit callback can veto termination and a reload can destroy the backend without exiting.
+Generated declarations describe what LÖVR means, and the generator is where a wrong one is fixed. An argument with a documented default is optional, every callback is optional, and a function with both an empty and a variadic variant drops the empty one so calls are not ambiguous. Workarounds in calling code changed behaviour each time: returning `true` from `lovr.quit` vetoed the quit, and returning `true` from `lovr.draw` dropped the frame.
 
-The generated declarations say what LÖVR means, and the generator is where that is fixed. An argument with a documented default is optional; a callback is optional, because nothing sets one by default; a function with an empty variant and a variadic one drops the empty variant, because both accept a call with no arguments and Luau then reports the call as ambiguous. Each of these was first worked around in the calling code, and each workaround changed behaviour: `lovr.quit` returned `true` and vetoed the quit, `lovr.draw` returned `true` and dropped the frame, the laser's cursor was drawn at eight segments where the default is forty-eight, and fifteen sites spelled out an identity matrix. A declaration that is wrong about the runtime is worse than one that is missing, because the code bends to fit it.
+An array LÖVR reads from its caller is declared read-only, `{ read [number]: T }`, and an array it returns stays read-write. Luau compares a read-write indexer invariantly, so table literals matched no overload and `{integer}` did not satisfy `{number}`. The multicolour text table of `Pass:text` and `Font`'s `getLines`, `getVertices`, and `getWidth` is declared `{*}` rather than `{}`, because the new solver treats a string as a subtype of `{}` and reported every string call as ambiguous.

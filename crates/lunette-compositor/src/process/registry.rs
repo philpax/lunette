@@ -161,20 +161,16 @@ impl ProcessRegistry {
                 Kind::External { pid, alive } => {
                     if *alive && !inspector.is_running(*pid) {
                         *alive = false;
-                        // `/proc` reports disappearance but not the adopted process's exit status.
-                        // The protocol has no unknown status; the report
-                        // carries the neutral exit code 0.
-                        reports.push(Report::Exited {
-                            id,
-                            outcome: ProcessOutcome::Exited { code: 0 },
-                        });
+                        // `/proc` reports disappearance but not the adopted process's exit status,
+                        // so this is not reported as an exit.
+                        reports.push(Report::Vanished { id });
                     }
                 }
             }
         }
 
         for report in &reports {
-            if let Report::Exited { id, .. } = report {
+            if let Report::Exited { id, .. } | Report::Vanished { id } = report {
                 self.entries.retain(|entry| entry.id != *id);
             }
         }
@@ -210,6 +206,8 @@ pub(crate) enum Report {
         id: ProcessId,
         outcome: ProcessOutcome,
     },
+    /// An adopted process is gone. Its exit status is unknowable.
+    Vanished { id: ProcessId },
 }
 
 #[derive(Clone, Copy, Debug)]

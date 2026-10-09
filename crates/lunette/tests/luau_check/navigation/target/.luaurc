@@ -1,0 +1,12 @@
+{
+  "languageMode": "strict",
+  "aliases": {
+    "target": "../dependencies",
+    "chain": "@target",
+    "current": "./",
+    "bare": "sibling",
+    "collision": "./ambiguous/child",
+    "missing": "./missing/../sibling",
+    "reserved": "./.config/dependency"
+  }
+}

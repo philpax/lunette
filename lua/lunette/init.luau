@@ -16,6 +16,14 @@ export type Textured = Window | Monitor
 -- Which pointer button an event names. The runtime refuses anything else.
 export type PointerButton = 'left' | 'right' | 'middle' | 'back' | 'forward'
 
+-- The name of a key `lunette.keyCodes()` answers with an evdev code for.
+-- Indexing the table with any other name is a type error.
+export type KeyName = 'escape' | 'digit1' | 'digit2' | 'digit3' | 'digit4' | 'digit5' | 'digit6' | 'digit7' | 'digit8' | 'digit9' | 'digit0' | 'minus' | 'equal' | 'backspace' | 'tab' | 'q' | 'w' | 'e' | 'r' | 't' | 'y' | 'u' | 'i' | 'o' | 'p' | 'leftBrace' | 'rightBrace' | 'enter' | 'leftCtrl' | 'a' | 's' | 'd' | 'f' | 'g' | 'h' | 'j' | 'k' | 'l' | 'semicolon' | 'apostrophe' | 'grave' | 'leftShift' | 'backslash' | 'z' | 'x' | 'c' | 'v' | 'b' | 'n' | 'm' | 'comma' | 'dot' | 'slash' | 'rightShift' | 'keypadAsterisk' | 'leftAlt' | 'space' | 'capsLock' | 'f1' | 'f2' | 'f3' | 'f4' | 'f5' | 'f6' | 'f7' | 'f8' | 'f9' | 'f10' | 'numLock' | 'scrollLock' | 'keypad7' | 'keypad8' | 'keypad9' | 'keypadMinus' | 'keypad4' | 'keypad5' | 'keypad6' | 'keypadPlus' | 'keypad1' | 'keypad2' | 'keypad3' | 'keypad0' | 'keypadDot' | 'zenkakuHankaku' | 'intlBackslash' | 'f11' | 'f12' | 'intlRo' | 'katakana' | 'hiragana' | 'henkan' | 'katakanaHiragana' | 'muhenkan' | 'keypadJpComma' | 'keypadEnter' | 'rightCtrl' | 'keypadSlash' | 'sysRq' | 'rightAlt' | 'home' | 'up' | 'pageUp' | 'left' | 'right' | 'end' | 'down' | 'pageDown' | 'insert' | 'delete' | 'mute' | 'volumeDown' | 'volumeUp' | 'power' | 'keypadEqual' | 'pause' | 'keypadComma' | 'hangeul' | 'hanja' | 'intlYen' | 'leftMeta' | 'rightMeta' | 'compose' | 'stop' | 'again' | 'undo' | 'copy' | 'paste' | 'find' | 'cut' | 'help' | 'menu' | 'calculator' | 'sleep' | 'mail' | 'bookmarks' | 'computer' | 'back' | 'forward' | 'nextSong' | 'playPause' | 'previousSong' | 'stopCd' | 'record' | 'rewind' | 'homePage' | 'refresh' | 'scrollUp' | 'scrollDown' | 'f13' | 'f14' | 'f15' | 'f16' | 'f17' | 'f18' | 'f19' | 'f20' | 'f21' | 'f22' | 'f23' | 'f24' | 'search' | 'brightnessDown' | 'brightnessUp' | 'media' | 'switchVideoMode'
+
+-- The name of a modifier a seat can hold, as `lunette.modifierNames()` lists
+-- them. The runtime refuses anything else.
+export type ModifierName = 'shift' | 'capsLock' | 'control' | 'alt' | 'numLock' | 'mod3' | 'logo' | 'mod5'
+
 -- Somewhere pixel input can be delivered. `domain` discriminates the sink: it
 -- names either `window` or `host`. A caller tests `domain` to reach the handle
 -- behind a sink without a nil check; such a check cannot fail.
@@ -44,7 +52,7 @@ type SinkFields = {
   -- Enters text, which the seat resolves to the strokes that produce it.
   read typeText: (self: Sink, text: string, seat: Seat?) -> boolean,
   -- Sets which modifiers the seat holds while delivering to this sink.
-  read modifiers: (self: Sink, names: { string }?, seat: Seat?) -> boolean,
+  read setModifiers: (self: Sink, names: { ModifierName }?, seat: Seat?) -> boolean,
 }
 
 type WindowSink = { read domain: 'window', read window: Window?, read monitor: nil }
@@ -53,132 +61,133 @@ type HostSink = { read domain: 'host', read window: nil, read monitor: Monitor? 
 
 export type Sink = SinkFields & (WindowSink | HostSink)
 
--- A mapped toplevel. A handle keeps answering once its window has gone, with
--- the values it cached, and every mutation it offers is refused.
+-- A mapped toplevel. A dead handle answers with cached values and refuses every
+-- mutation.
 export type Window = {
-  -- Stable for the window's whole life and across a soft reload, so a table of
-  -- per-window state keys by it.
+  -- Stable across frames and soft reloads. Per-window properties use this
+  -- identifier.
   read id: number,
   read dead: boolean,
   read title: string?,
   read appId: string?,
-  -- Pixels, and the size the client last committed, not the size last asked of
+  -- The size in pixels the client last committed, not the size last asked of
   -- it.
   read width: number,
   read height: number,
-  -- Whether the fourth component of this window's pixels is padding, not alpha.
-  -- A client negotiating an X-variant fourcc leaves that component at a value
-  -- it wrote, and a caller drawing such a texture forces alpha to one and does
-  -- not sample it. False for a window with no texture yet, because there is
-  -- nothing to draw.
+  -- Whether the fourth pixel component is padding, so a consumer treats it as
+  -- opaque. False until a texture exists.
   read opaque: boolean,
-  -- What the client says it draws, as `wp_content_type_v1` reports it. The
-  -- report is a hint: adoption is thin, and a client playing video may report
-  -- 'none'.
+  -- The content type reported by `wp_content_type_v1`. It is a hint, and
+  -- clients may report `none` while playing video.
   read contentType: 'none' | 'photo' | 'video' | 'game',
   -- Where input for this window goes. Nil only for a handle that has never seen
-  -- its window in a snapshot; a dead window still names its sink.
+  -- its window in a snapshot.
   read sink: Sink?,
-  -- This frame's pixels. False while the client is gone or has committed
-  -- nothing. Textures rotate as the client cycles its buffers, so the texture
-  -- does not carry across frames.
+  -- The output assigned to the window. Returns `nil` if no snapshot has
+  -- described the window or its output.
+  read output: Output?,
+  -- A counter that changes when the client commits a buffer. Returns zero
+  -- before the first commit or after the window closes.
+  read commit: number,
+  -- This frame's pixels, or `false` when the client is gone or has committed no
+  -- buffer. The texture rotates with the client's buffers, so do not cache it
+  -- across frames.
   read getTexture: (self: Textured) -> Texture | false,
-  -- A texture whose identity outlives the frame, at the cost of copying the
-  -- surface on every frame it is damaged.
+  -- Returns a persistent texture copy, updated whenever the surface is damaged.
   read stabilize: (self: Window) -> Texture | false,
-  -- Asks the client to close the window. The request is not a kill: the client
-  -- decides what to do with it.
+  -- Requests that the client close the window. The client controls whether it
+  -- unmaps.
   read close: (self: Window) -> boolean,
-  -- Configures the toplevel to a size in pixels. The client resizes at its own
-  -- pace and may settle on a different size.
+  -- Requests a pixel size. The client may commit a different size.
   read resize: (self: Window, width: number, height: number) -> boolean,
-  -- A ceiling on how often this window's client is let draw, in hertz. Nil
-  -- returns it to unthrottled.
+  -- Sets the client's frame-rate ceiling in hertz. `nil` restores unthrottled
+  -- pacing.
   read setFrameRate: (self: Window, hertz: number?) -> boolean,
   -- Keeps a value for this window across a soft reload. Nil removes the key.
-  read setProperty: (self: Window, key: string, value: boolean | number | string) -> boolean,
-  -- What was kept under a key, or nil. Readable on a dead handle; the mutations
-  -- are not.
+  read setProperty: (self: Window, key: string, value: boolean | number | string | nil) -> boolean,
+  -- What was kept under a key, or nil. Readable on a dead handle.
   read getProperty: (self: Window, key: string) -> boolean | number | string | nil,
-  -- Every key this window is carrying, so what survived a reload can be
-  -- discovered.
+  -- Every key this window carries.
   read properties: (self: Window) -> { [string]: boolean | number | string },
 }
 
--- One of the user's own screens, mirrored through the screencast portal and not
--- hosted by this compositor.
+-- The latest fresh monitor-selection request's state, independent of running
+-- capture.
+export type MonitorSelection = {
+  -- Ready describes the portal grant, not a received frame.
+  state: 'idle' | 'pending' | 'ready' | 'failed',
+  -- The portal error when state is failed.
+  message: string?,
+}
+
+-- One of the user's own screens, mirrored by direct capture or the screencast
+-- portal and not hosted by this compositor.
 export type Monitor = {
-  -- The saved identity, and what a table of per-monitor state is keyed by.
-  -- Stable across a restart and across the monitor moving to another port.
+  -- The saved identity, stable across a restart and a change of port.
   read id: string,
   -- The identity as a user would recognise it, such as `Acme X24 on DP-1`.
   read name: string,
   read dead: boolean,
   -- Whether a capture stream is running for this monitor.
   read mirrored: boolean,
-  -- Whether a mirror has been asked for and has not arrived. True while a
-  -- portal dialog is on the user's screen, and false once the user accepts or
-  -- declines.
+  -- Whether the active stream uses wlr-screencopy, with no portal selection.
+  read directCapture: boolean,
+  -- Whether a mirror has been asked for and has not arrived, such as while a
+  -- portal dialog is open.
   read pending: boolean,
-  -- The monitor's resolution, which is the size a captured frame arrives at.
-  -- Zero on both axes when the host reports no mode.
+  -- The host-reported mode in pixels, not necessarily the captured texture
+  -- size. Zero on both axes when the host reports no mode.
   read width: number,
   read height: number,
-  -- Where the monitor is on the host desktop, in the compositor's logical
-  -- coordinates and not in pixels. A pointer is placed in this space.
+  -- The monitor's position on the host desktop, in logical coordinates.
   read x: number,
   read y: number,
   read logicalWidth: number,
   read logicalHeight: number,
-  -- Where input for this monitor goes: a sink in the host domain, present
-  -- whether or not the monitor is mirrored. Pointing at the host desktop does
-  -- not require lunette to be showing it.
+  -- The current frame's UV transform, or nil before a frame is installed.
+  read frameTransform: ('undefined' | 'normal' | 'rot90' | 'rot180' | 'rot270' | 'flipped' | 'flipped90' | 'flipped180' | 'flipped270')?,
+  -- The host-domain sink for this monitor, present whether or not it is
+  -- mirrored.
   read sink: Sink,
-  -- The latest captured frame of this monitor. False while the monitor is gone,
-  -- while it is not mirrored, or while it has produced no frame yet. These
-  -- cases return `false` and not an error; a still desktop has no frame,
-  -- because a monitor that is not changing sends nothing.
+  -- The latest captured frame, or false while the monitor is gone, not
+  -- mirrored, or has no frame yet. The texture rotates, so read it each frame.
   read getTexture: (self: Textured) -> Texture | false,
-  -- Requests this screen to be captured. True once a stream is running or has
-  -- been asked for. A dialog the user has not answered is a true, and `pending`
-  -- reports the frame has not landed.
+  -- Requests this screen to be captured. True once a stream is installed or
+  -- requested; the portal fallback may prompt first.
   read mirror: (self: Monitor) -> boolean,
-  -- Stops capturing this screen, tearing the stream down. The portal session is
-  -- kept, so mirroring again does not prompt.
+  -- Removes the active mirror and texture.
   read dismiss: (self: Monitor) -> boolean,
-  -- Stops the stream without giving up the session, for a panel that has left
-  -- the user's view.
+  -- Pauses or resumes the mirror without giving up its session.
   read setPaused: (self: Monitor, paused: boolean) -> boolean,
 }
 
--- A process lunette started, or adopted from outside. The handle exists before
--- the process does: `lunette.spawn` queues a request and returns in the same
--- call.
+-- A process lunette started. The handle exists before the process does:
+-- `lunette.spawn` queues a request and returns in the same call.
 export type Process = {
   read id: number,
-  -- False in three situations this field does not distinguish: the request has
+  -- True in three situations this field does not distinguish: the request has
   -- not reached the compositor, the process has ended, and the process never
   -- started. The caller distinguishes the last two by the outcome
-  -- `lovr.lunprocessexited` carries. A handle field cannot represent "not yet".
-  read alive: boolean,
-  -- Absent until the child is forked, and for an adopted process whose pid
-  -- cannot be read.
+  -- `lunette.onProcessExited` carries. A handle field cannot represent "not
+  -- yet".
+  read dead: boolean,
+  -- Absent until the child is forked.
   read pid: number?,
-  -- Whether the process connected from outside. An external process has no
-  -- spawn request from lunette.
-  read external: boolean,
 }
 
 -- A key and the modifiers to hold with it. Together they produce one keysym.
 export type Stroke = {
   -- The evdev keycode `sink:key` takes.
   keycode: number,
-  modifiers: { string },
+  modifiers: { ModifierName },
 }
 
--- What `lunette.newSeat` takes. The first five are the RMLVO names libxkbcommon
--- compiles a layout from; an absent one takes the system default.
+-- What `lunette.newSeat` takes. `rules` through `options` are the RMLVO names
+-- libxkbcommon compiles a layout from; an absent one takes the system default.
 export type SeatOptions = {
+  -- What clients see on `wl_seat.name`. It must be non-empty and unused by
+  -- another seat.
+  name: string,
   rules: string?,
   model: string?,
   layout: string?,
@@ -191,47 +200,38 @@ export type SeatOptions = {
 -- A seat with its own pointer and keyboard. Clients see it as `wl_seat`.
 export type Seat = {
   read id: number,
-  -- What clients see on `wl_seat.name`. The name field is the only thing on the
-  -- wire that tells two seats apart.
+  -- What clients see on `wl_seat.name`, the only thing on the wire that tells
+  -- two seats apart.
   read name: string,
   -- True before the compositor creates the seat and after the seat is
-  -- destroyed. The two cases are indistinguishable, and nothing can be
-  -- delivered to either.
+  -- destroyed.
   read dead: boolean,
   -- Whether this seat's clipboard and primary selection are the host desktop's.
-  -- At most one seat's are, because the host has one of each.
+  -- At most one seat's are.
   read clipboardBridge: boolean,
-  -- The modifiers this seat holds. The value matches the last notification sent
-  -- to clients.
-  read modifiers: { string },
-  -- Every layout the seat's keymap carries, as a user reads them: `English
-  -- (US)`, not `us`.
+  -- The modifiers this seat holds, as last sent to clients.
+  read modifiers: { ModifierName },
+  -- Human-readable layout names from this seat's keymap.
   read layouts: { string },
-  -- Withdraws the seat's `wl_seat` global. The default seat is refused: every
-  -- command that names no seat resolves to it.
+  -- Withdraws this seat's `wl_seat` global or cancels its pending creation. The
+  -- default seat cannot be removed.
   read destroy: (self: Seat) -> boolean,
-  -- Sets which modifiers this seat holds. Clients are told, so a modifier left
-  -- held stays held.
-  read setModifiers: (self: Seat, names: { string }?) -> boolean,
-  -- Gives this seat's keyboard to a sink, or takes it away. A host sink is
-  -- refused: which window holds the host's focus is the host compositor's
-  -- decision.
+  -- Assigns keyboard focus to a window sink, or clears it. The host compositor
+  -- controls host focus, so host sinks are refused.
   read setFocus: (self: Seat, sink: Sink?) -> boolean,
-  -- Makes this seat's selections the host desktop's, or stops them being. One
-  -- seat at a time, because the host has one clipboard.
+  -- Bridges this seat's clipboard and primary selection to the host desktop.
+  -- Only one seat can be bridged.
   read setClipboardBridge: (self: Seat, bridged: boolean) -> boolean,
-  -- Which keysym a keycode produces with those modifiers held, under this
-  -- seat's keymap.
-  read symbolFor: (self: Seat, key: number, names: { string }?) -> number?,
-  -- Which character a keycode produces with those modifiers held.
-  read characterFor: (self: Seat, key: number, names: { string }?) -> string?,
-  -- Which key and modifiers produce a character or a keysym. A string is read
-  -- as the character to type, and a number as a keysym.
+  -- Returns the keysym for a keycode and modifier set in this seat's keymap.
+  read symbolFor: (self: Seat, key: number, names: { ModifierName }?) -> number?,
+  -- Returns the character for a keycode and modifier set.
+  read characterFor: (self: Seat, key: number, names: { ModifierName }?) -> string?,
+  -- Returns the keycode and modifiers that produce a character or keysym. A
+  -- string must contain one character; a number names a keysym.
   read strokeFor: (self: Seat, wanted: string | number) -> Stroke?,
 }
 
--- What `output:setMode` changes. Every field is optional. A field left out
--- keeps the value the output already has.
+-- Optional output fields. Omitted fields retain their current values.
 export type OutputMode = {
   width: number?,
   height: number?,
@@ -239,9 +239,7 @@ export type OutputMode = {
   refresh: number?,
 }
 
--- What `lunette.newOutput` takes. The size is required. There is no previous
--- mode to take it from, and a client cannot lay out against an output with no
--- size.
+-- Output creation options. Width and height are required.
 export type OutputOptions = {
   width: number,
   height: number,
@@ -259,11 +257,10 @@ export type Output = {
   -- The refresh rate in hertz. The protocol carries millihertz.
   read refresh: number,
   -- Changes the mode, keeping the fields the table does not name. Clients
-  -- reallocate and re-lay-out in response. A caller that changes the mode
-  -- continuously makes clients do so continuously.
+  -- reallocate and re-lay-out in response.
   read setMode: (self: Output, mode: OutputMode) -> boolean,
-  -- Withdraws the output's `wl_output` global. The output every session starts
-  -- with is refused. A client assigned no output is shown it.
+  -- Withdraws the output's `wl_output` global. The default output is refused,
+  -- because a client assigned no output is shown it.
   read destroy: (self: Output) -> boolean,
 }
 
@@ -335,47 +332,40 @@ export type ErrorEvent = {
   traceback: string,
 }
 
+-- What `lunette.reportError` takes.
+export type ReportErrorOptions = {
+  -- The dispatcher or operation the error came through. It leads the message.
+  context: string,
+  -- The error itself.
+  message: string,
+  -- Where it was raised, as Lua reports it.
+  traceback: string?,
+}
+
 -- A toplevel maps, and this frame's snapshot includes it.
 export type WindowOpenedEvent = {
   -- The window that opened.
   window: Window,
 }
 
--- A toplevel closes. The handle is already dead, because the snapshot the
--- handler reads no longer lists the window; the handle still reports the
--- window's last title, size, and identifier.
+-- A toplevel closes. The handle is already dead but still reports the window's
+-- last title, size, and identifier.
 export type WindowClosedEvent = {
   -- The window that closed.
   window: Window,
 }
 
--- A toplevel changes its title.
-export type TitleChangedEvent = {
-  -- The window whose title changed.
-  window: Window,
-  -- The new title. Also readable as `event.window.title`; duplicated in the
-  -- payload because the callback reports a change, and a handler comparing
-  -- against a stored value needs the new value without a further read of the
-  -- window.
-  title: string,
-}
-
--- A host screen appears. The event includes every screen attached at lunette
--- startup.
+-- A host screen appears, including every screen attached at startup.
 export type MonitorAddedEvent = {
-  -- The key `lunette-capture` identifies the screen by.
-  id: string,
-  -- The handle, while the screen is still attached. A screen unplugged between
-  -- the report and the dispatch has no handle; the payload carries its name.
-  monitor: Monitor?,
+  -- The screen that appeared.
+  monitor: Monitor,
 }
 
 -- A spawned process ends, or never starts.
 export type ProcessExitedEvent = {
   -- The process that ends.
   process: Process,
-  -- Which of the three fields below the event carries. A string, where field
-  -- presence would force a handler to test each field in turn, and a failed
+  -- Which of the three fields below the event carries. A string, so a failed
   -- spawn is not mistaken for an exit with no code.
   outcome: 'exited' | 'signalled' | 'spawnFailed',
   -- The status it exited with.
@@ -393,25 +383,180 @@ export type ProcessOutputEvent = {
   -- Which stream the process writes to.
   stream: 'stdout' | 'stderr',
   -- The bytes written. A Lua string is a byte string, so non-UTF-8 output
-  -- arrives intact; decoding remains the configuration's decision.
+  -- arrives intact.
   text: string,
 }
 
--- A claim receives a composition layer, and the panel holding it draws onto the
--- layer.
-export type LayerGrantedEvent = {
-  -- The claim that received the layer.
-  claim: Claim,
-  -- The layer it holds. Not kept across frames: the layer it names goes away on
-  -- revoke.
-  layer: Layer,
+-- The lifecycle state of a plugin instance.
+export type PluginState = 'inactive' | 'loading' | 'active' | 'unloading' | 'failed' | 'quarantined' | 'removed'
+export type PluginAuthority = 'detached' | 'resources' | 'cleanup'
+export type PluginEffectState = 'armed' | 'cleaning' | 'disarmed'
+
+-- Immutable data copied from one synchronous runtime inspection.
+export type PluginContractSnapshot = {
+  read name: string,
+  read schema: number,
+  read display: string,
 }
 
--- A claim loses its layer to a higher-priority claim, and the panel holding it
--- draws as an in-scene quad until a layer is granted again.
-export type LayerRevokedEvent = {
-  -- The claim that lost the layer.
-  claim: Claim,
+-- Immutable data copied from one synchronous runtime inspection.
+export type PluginCapabilitySnapshot = {
+  read field: string,
+  read contract: PluginContractSnapshot,
+}
+
+-- Immutable data copied from one synchronous runtime inspection.
+export type PluginBindingSnapshot = {
+  read contract: PluginContractSnapshot,
+  read providerId: string,
+  read generationId: string,
+  read current: boolean,
+}
+
+-- Immutable data copied from one synchronous runtime inspection.
+export type PluginEffectSnapshot = {
+  read activationId: string,
+  read ordinal: string,
+  read state: PluginEffectState,
+}
+
+-- Immutable data copied from one synchronous runtime inspection.
+export type PluginInstanceSnapshot = {
+  read id: string,
+  read parentId: string?,
+  read name: string,
+  read enabled: boolean,
+  read retired: boolean,
+  read state: PluginState,
+  read activationId: string?,
+  read generationId: string?,
+  read required: { read [number]: PluginCapabilitySnapshot },
+  read provided: { read [number]: PluginCapabilitySnapshot },
+  read bindings: { read [number]: PluginBindingSnapshot },
+  read failedBindings: { read [number]: PluginBindingSnapshot },
+  read children: { read [number]: string },
+  read dependents: { read [number]: string },
+  read replacementRequested: boolean,
+  read cleanupFailed: boolean,
+  read authority: PluginAuthority,
+  read diagnostic: string?,
+  read lastFailure: string?,
+  read effects: { read [number]: PluginEffectSnapshot },
+}
+
+-- Immutable data copied from one synchronous runtime inspection.
+export type PluginRuntimeSnapshot = {
+  read instances: { read [number]: PluginInstanceSnapshot },
+  read draining: boolean,
+  read closing: boolean,
+  read closed: boolean,
+}
+
+-- An opaque native token naming one contract declaration.
+export type PluginContractToken = {
+  -- A type brand that makes this handle nominal. The field does not exist at
+  -- runtime.
+  read __pluginContractToken: 'PluginContractToken',
+}
+
+-- A reusable plugin definition.
+export type PluginDefinition = {
+  -- A type brand that makes this handle nominal. The field does not exist at
+  -- runtime.
+  read __pluginDefinition: 'PluginDefinition',
+}
+
+-- A runtime-local plugin graph.
+export type PluginRuntime = {
+  -- A type brand that makes this handle nominal. The field does not exist at
+  -- runtime.
+  read __pluginRuntime: 'PluginRuntime',
+  -- Installs a definition with its configuration.
+  read use: (self: PluginRuntime, definition: PluginDefinition, config: unknown) -> PluginInstance,
+  -- Copies coherent runtime state without lifecycle work, callbacks, or
+  -- diagnostic consumption.
+  read snapshot: (self: PluginRuntime) -> PluginRuntimeSnapshot,
+  -- Reports whether this runtime installed the exact instance handle, including
+  -- a retired handle.
+  read owns: (self: PluginRuntime, instance: PluginInstance) -> boolean,
+  -- Returns a context's owning instance identity only when it belongs to this
+  -- exact runtime, including after its activation ends.
+  read ownerId: (self: PluginRuntime, context: PluginContext) -> string?,
+  -- Disposes every instance in this runtime.
+  read close: (self: PluginRuntime) -> (),
+  -- Performs pending lifecycle work and reports graph diagnostics.
+  read drain: (self: PluginRuntime) -> (),
+}
+
+-- A plugin installed in a runtime.
+export type PluginInstance = {
+  -- A type brand that makes this handle nominal. The field does not exist at
+  -- runtime.
+  read __pluginInstance: 'PluginInstance',
+  -- Enables this plugin instance and reserves its provided contracts.
+  read enable: (self: PluginInstance) -> (),
+  -- Disables this plugin instance.
+  read disable: (self: PluginInstance) -> (),
+  -- Disables and permanently retires this plugin instance.
+  read dispose: (self: PluginInstance) -> (),
+  -- Accepts a replacement configuration and reload intent without draining
+  -- lifecycle work. The caller drains the runtime separately; rejection leaves
+  -- configuration unchanged.
+  read requestReload: (self: PluginInstance, config: unknown) -> (),
+  -- Returns this handle's exact runtime-local identity, without consulting its
+  -- name or lifecycle.
+  read id: (self: PluginInstance) -> string,
+  -- Reports this instance's lifecycle state.
+  read state: (self: PluginInstance) -> PluginState,
+}
+
+-- A context bound to one plugin activation.
+export type PluginContext = {
+  -- A type brand that makes this handle nominal. The field does not exist at
+  -- runtime.
+  read __pluginContext: 'PluginContext',
+  -- Returns the services supplied by required contracts.
+  read services: (self: PluginContext) -> unknown,
+  -- Acquires a resource and registers its inverse for cleanup.
+  read effect: (self: PluginContext, acquire: () -> () -> ()) -> PluginEffect,
+  -- Acquires a resource and registers its inverse without draining queued
+  -- lifecycle work.
+  read effectDeferred: (self: PluginContext, acquire: () -> () -> ()) -> PluginEffect,
+  -- Installs a child definition owned by this activation.
+  read child: (self: PluginContext, definition: PluginDefinition, config: unknown) -> PluginInstance,
+  -- Checks that another context is a live dependent of this plugin's current
+  -- generation.
+  read checkOwner: (self: PluginContext, caller: PluginContext) -> (),
+  -- Reports whether another context is a live dependent of this plugin's
+  -- current generation: whether checkOwner would accept it.
+  read owns: (self: PluginContext, caller: PluginContext) -> boolean,
+  -- Reports whether this context's activation is still live.
+  read active: (self: PluginContext) -> boolean,
+  -- Reports whether this context's activation is published and has not begun
+  -- unloading, so its services may be read.
+  read serving: (self: PluginContext) -> boolean,
+}
+
+-- A one-shot resource effect.
+export type PluginEffect = {
+  -- A type brand that makes this handle nominal. The field does not exist at
+  -- runtime.
+  read __pluginEffect: 'PluginEffect',
+  -- Runs this effect's inverse once. Disposing an effect whose activation,
+  -- instance, or runtime has ended does nothing.
+  read dispose: (self: PluginEffect) -> (),
+}
+
+-- The native plugin facade.
+export type PluginApi = {
+  -- Declares a qualified contract identity for the current Lua state epoch.
+  read contract: (name: string, schema: number) -> PluginContractToken,
+  -- Defines a reusable plugin from required and provided contract records. The
+  -- optional name labels it in diagnostics; without one, it is named for where
+  -- its initializer is defined.
+  read define: (required: unknown, provided: unknown, init: (context: PluginContext, config: unknown) -> unknown, name: string?) -> PluginDefinition,
+  -- Creates an independent plugin runtime in the current Lua state.
+  read runtime: () -> PluginRuntime,
 }
 
 export type Lunette = {
@@ -419,19 +564,29 @@ export type Lunette = {
   read windows: () -> { Window },
   -- Runs a program as a client of this compositor. The handle comes back before
   -- the request reaches the compositor, so it describes a process that does not
-  -- exist yet: `alive` is false until the snapshot lists it.
+  -- exist yet: `dead` is true until the snapshot lists it.
   read spawn: (options: SpawnOptions) -> Process,
   -- The user's own screens, whether or not they are being mirrored.
   read monitors: () -> { Monitor },
+  -- Requests fresh host-monitor selection without a restore token. Existing
+  -- captures continue until success. False returns a refusal message.
+  read selectMonitors: () -> (boolean, string?),
+  -- The latest explicit selection's status. A failed or pending request can
+  -- coexist with running captures.
+  read monitorSelection: () -> MonitorSelection,
   -- Requests a composition layer for a window's pixels. Claims are ranked at
   -- the frame boundary, so a fresh claim is granted no earlier than the next
   -- frame.
   read claimLayer: (options: ClaimOptions) -> Claim,
   -- A seat with its own pointer, keyboard, and keymap. Dead until the
   -- compositor has created it; the same rule applies to `spawn`.
-  read newSeat: (name: string, options: SeatOptions?) -> Seat,
+  read newSeat: (options: SeatOptions) -> Seat,
   -- Every seat, including the one each session starts with.
   read seats: () -> { Seat },
+  -- The seat used when an input call omits its seat argument. Returns nil when
+  -- this frame's snapshot has no default seat. Each call returns a fresh
+  -- handle, and `==` compares the seats two handles name.
+  read defaultSeat: () -> Seat?,
   -- An output for clients to lay out against.
   read newOutput: (options: OutputOptions) -> Output,
   -- Every output, including the default one.
@@ -445,15 +600,29 @@ export type Lunette = {
   -- stops it. The standard library's error module subscribes to draw a panel;
   -- without a subscription, the error reaches the log and nothing else.
   read onError: (handler: (event: ErrorEvent) -> ()) -> () -> (),
+  -- Reports an error as a raising callback is reported: it is logged and every
+  -- `lunette.onError` listener is notified. `context` leads the message. A
+  -- dispatcher that protects each of several handlers reports one handler's
+  -- error with it and continues with the next.
+  read reportError: (options: ReportErrorOptions) -> (),
   -- Every modifier name a seat accepts, in the order a keymap numbers them.
-  -- `seat:setModifiers` takes these names, and `seat.modifiers` returns them.
-  read modifierNames: () -> { string },
+  -- `sink:setModifiers` takes these names, and `seat.modifiers` returns them.
+  read modifierNames: () -> { ModifierName },
+  -- The subset of `modifierNames()` that toggles on a press.
+  read lockingModifierNames: () -> { ModifierName },
+  -- Every key lunette names, by name, as the evdev keycode `sink:key` takes.
+  -- The table is fresh on each call.
+  read keyCodes: () -> { [KeyName]: number },
+  -- Returns a fresh array of one-based byte offsets for extended grapheme
+  -- clusters, including the terminal offset `#text + 1`. Empty text returns `{
+  -- 1 }`. The text must be valid UTF-8; invalid byte strings raise an error.
+  read textBoundaries: (text: string) -> { number },
   -- The ladder a layer's requested size is quantised up, ascending. A panel
   -- whose scale Lua raises requests a size the free list already holds.
   read scaleSteps: () -> { number },
-  -- Discards the Lua state and re-runs the configuration, keeping the
-  -- compositor, the clients, and their textures. Answers whether it loaded, and
-  -- the error if it did not.
+  -- Shuts down plugin runtimes, retires their contract epoch, and re-runs the
+  -- configuration in the same Lua state, keeping the compositor, the clients,
+  -- and their textures. Answers whether it loaded, and the error if it did not.
   read reload: () -> (boolean, string?),
   -- Tears the session down and starts it again, graphics device included.
   read restart: () -> (),
@@ -468,10 +637,6 @@ export type Lunette = {
   -- Calls `handler` whenever this event is delivered, and answers the function
   -- that stops it. Every listener is called, in the order they subscribed, and
   -- a soft reload forgets all of them.
-  read onTitleChanged: (handler: (event: TitleChangedEvent) -> ()) -> () -> (),
-  -- Calls `handler` whenever this event is delivered, and answers the function
-  -- that stops it. Every listener is called, in the order they subscribed, and
-  -- a soft reload forgets all of them.
   read onMonitorAdded: (handler: (event: MonitorAddedEvent) -> ()) -> () -> (),
   -- Calls `handler` whenever this event is delivered, and answers the function
   -- that stops it. Every listener is called, in the order they subscribed, and
@@ -481,14 +646,8 @@ export type Lunette = {
   -- that stops it. Every listener is called, in the order they subscribed, and
   -- a soft reload forgets all of them.
   read onProcessOutput: (handler: (event: ProcessOutputEvent) -> ()) -> () -> (),
-  -- Calls `handler` whenever this event is delivered, and answers the function
-  -- that stops it. Every listener is called, in the order they subscribed, and
-  -- a soft reload forgets all of them.
-  read onLayerGranted: (handler: (event: LayerGrantedEvent) -> ()) -> () -> (),
-  -- Calls `handler` whenever this event is delivered, and answers the function
-  -- that stops it. Every listener is called, in the order they subscribed, and
-  -- a soft reload forgets all of them.
-  read onLayerRevoked: (handler: (event: LayerRevokedEvent) -> ()) -> () -> (),
+  -- The native plugin facade.
+  read plugin: PluginApi,
 }
 
 return (nil :: any) :: Lunette

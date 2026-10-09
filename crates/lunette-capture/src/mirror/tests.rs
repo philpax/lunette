@@ -27,22 +27,30 @@ use crate::{
 fn roster() -> Roster {
     let mut roster = Roster::new();
     for (index, connector) in ["DP-1", "DP-2"].into_iter().enumerate() {
-        let x = i32::try_from(index).expect("a small index") * 1920;
-        roster.add(MonitorReport {
-            name: MonitorName::new(
-                ConnectorName::parse(connector),
-                Some("Acme".to_owned()),
-                Some(format!("X{index}")),
-            ),
-            geometry: LogicalGeometry::new(
-                LogicalPosition::new(x, 0),
-                LogicalSize::new(1920, 1080),
-            ),
-            pixels: PixelExtent::new(1920, 1080),
-            transform: SurfaceTransform::Normal,
-        });
+        roster.add(report(index, connector));
     }
     roster
+}
+
+/// The roster after the first monitor of [`roster`] is unplugged.
+fn second_only() -> Roster {
+    let mut roster = Roster::new();
+    roster.add(report(1, "DP-2"));
+    roster
+}
+
+fn report(index: usize, connector: &str) -> MonitorReport {
+    let x = i32::try_from(index).expect("a small index") * 1920;
+    MonitorReport {
+        name: MonitorName::new(
+            ConnectorName::parse(connector),
+            Some("Acme".to_owned()),
+            Some(format!("X{index}")),
+        ),
+        geometry: LogicalGeometry::new(LogicalPosition::new(x, 0), LogicalSize::new(1920, 1080)),
+        pixels: PixelExtent::new(1920, 1080),
+        transform: SurfaceTransform::Normal,
+    }
 }
 
 fn key(roster: &Roster, index: usize) -> MonitorKey {
@@ -69,6 +77,109 @@ fn response(streams: Vec<PortalStream>, token: &str) -> SessionResponse {
     }
 }
 
+struct DirectSource {
+    log: StreamLog,
+    direct: Option<MonitorKey>,
+}
+
+impl MonitorStreams for DirectSource {
+    fn open_direct(&mut self, monitor: &crate::monitor::Monitor) -> DirectOpen {
+        if self.direct.as_ref() != Some(monitor.key()) {
+            return DirectOpen::Unavailable;
+        }
+        let stream = RecordingSource::new(self.log.clone())
+            .open("direct", NodeId::new(99).expect("a non-zero recording id"))
+            .expect("the recording source opens");
+        DirectOpen::Opened(stream)
+    }
+
+    fn open(&mut self, name: &str, node: NodeId) -> Option<Box<dyn MonitorStream>> {
+        RecordingSource::new(self.log.clone()).open(name, node)
+    }
+}
+
+#[test]
+fn direct_capture_waits_for_graphics_without_opening_a_portal_dialog() {
+    let roster = roster();
+    let first = key(&roster, 0);
+    let mut mirrors = MirrorSet::new(FakePortal::new(), CursorPolicy::Visible, TokenStore::new());
+    mirrors.attach(roster);
+    assert_eq!(mirrors.mirror(&first), MirrorOutcome::Requested);
+    assert!(mirrors.portal().requests.is_empty());
+    assert_eq!(mirrors.poll(), Progress::Idle);
+    let log = StreamLog::new();
+    mirrors.set_streams(Box::new(DirectSource {
+        log,
+        direct: Some(first.clone()),
+    }));
+    assert_eq!(mirrors.poll(), Progress::Started(vec![first]));
+    assert!(mirrors.portal().requests.is_empty());
+}
+
+#[test]
+fn unavailable_direct_capture_uses_the_existing_portal() {
+    let log = StreamLog::new();
+    let mut mirrors = mirrors(&log);
+    mirrors.set_streams(Box::new(DirectSource {
+        log: log.clone(),
+        direct: None,
+    }));
+    let first = key(&roster(), 0);
+    assert_eq!(mirrors.mirror(&first), MirrorOutcome::Requested);
+    assert_eq!(pump(&mut mirrors), Progress::Started(vec![first]));
+    assert_eq!(mirrors.portal().requests.len(), 1);
+    assert_eq!(log.opened(), vec![NodeId::new(11).expect("a node")]);
+}
+
+#[test]
+fn direct_capture_survives_a_successful_explicit_portal_selection() {
+    let log = StreamLog::new();
+    let first = key(&roster(), 0);
+    let second = key(&roster(), 1);
+    let mut portal = FakePortal::new();
+    portal.will_grant(response(vec![stream(12, 1)], "selected"));
+    let mut mirrors = MirrorSet::new(portal, CursorPolicy::Visible, TokenStore::new());
+    mirrors.attach(roster());
+    mirrors.set_streams(Box::new(DirectSource {
+        log: log.clone(),
+        direct: Some(first.clone()),
+    }));
+    assert_eq!(mirrors.mirror(&first), MirrorOutcome::Mirroring);
+    assert_eq!(mirrors.select_monitors(), SelectionOutcome::Requested);
+    assert_eq!(pump(&mut mirrors), Progress::Started(vec![second.clone()]));
+    assert!(mirrors.is_mirroring(&first));
+    assert!(mirrors.is_mirroring(&second));
+    assert!(log.dropped().is_empty());
+    assert!(mirrors.take_replaced_monitors().is_empty());
+    mirrors.revoke_session();
+    assert!(mirrors.is_mirroring(&first));
+    assert!(!mirrors.is_mirroring(&second));
+}
+
+#[test]
+fn direct_capture_bypasses_the_portal_and_is_dropped_on_dismissal_and_unplug() {
+    let log = StreamLog::new();
+    let first = key(&roster(), 0);
+    let mut mirrors = mirrors(&log);
+    mirrors.set_streams(Box::new(DirectSource {
+        log: log.clone(),
+        direct: Some(first.clone()),
+    }));
+    assert_eq!(mirrors.mirror(&first), MirrorOutcome::Mirroring);
+    assert!(mirrors.portal().requests.is_empty());
+    assert!(mirrors.take_changed_tokens().is_none());
+    assert_eq!(mirrors.poll(), Progress::Idle);
+    assert_eq!(log.opened().len(), 1);
+    assert!(mirrors.set_paused(&first, true));
+    assert!(mirrors.set_paused(&first, false));
+    assert!(mirrors.dismiss(&first));
+    assert_eq!(mirrors.mirror(&first), MirrorOutcome::Mirroring);
+    mirrors.attach(Roster::new());
+    assert!(!mirrors.is_wanted(&first));
+    assert_eq!(log.dropped().len(), 2);
+    assert!(mirrors.portal().requests.is_empty());
+}
+
 fn mirrors(log: &StreamLog) -> MirrorSet<FakePortal> {
     let mut portal = FakePortal::new();
     portal.will_grant(response(vec![stream(11, 0), stream(12, 1)], "fresh"));
@@ -79,8 +190,7 @@ fn mirrors(log: &StreamLog) -> MirrorSet<FakePortal> {
     mirrors
 }
 
-/// The bound turns a non-terminating portal script into a test failure, so the
-/// suite does not hang.
+/// The bound turns a non-terminating portal script into a test failure instead of a hang.
 fn pump(mirrors: &mut MirrorSet<FakePortal>) -> Progress {
     for _ in 0..16 {
         let progress = mirrors.poll();
@@ -251,7 +361,6 @@ fn revoking_when_nothing_was_ever_asked_for_asks_for_nothing() {
 
 #[test]
 fn a_monitor_no_attached_screen_carries_is_refused_rather_than_requested() {
-    // This models a stored key whose monitor is no longer attached.
     let log = StreamLog::new();
     let mut mirrors = mirrors(&log);
     let absent = MonitorKey::Connector(
@@ -270,18 +379,7 @@ fn a_detached_monitor_loses_its_mirror() {
     let _ = mirrors.mirror(&key(&roster, 0));
     let _ = pump(&mut mirrors);
 
-    let mut remaining = Roster::new();
-    remaining.add(MonitorReport {
-        name: MonitorName::new(
-            ConnectorName::parse("DP-2"),
-            Some("Acme".to_owned()),
-            Some("X1".to_owned()),
-        ),
-        geometry: LogicalGeometry::new(LogicalPosition::new(1920, 0), LogicalSize::new(1920, 1080)),
-        pixels: PixelExtent::new(1920, 1080),
-        transform: SurfaceTransform::Normal,
-    });
-    let change = mirrors.attach(remaining);
+    let change = mirrors.attach(second_only());
 
     assert_eq!(change.removed, vec![key(&roster, 0)]);
     assert!(change.added.is_empty());
@@ -478,6 +576,168 @@ fn a_session_covering_none_of_the_wanted_monitors_starts_nothing() {
 }
 
 #[test]
+fn fresh_selection_omits_restore_and_replaces_streams_only_after_a_grant() {
+    let log = StreamLog::new();
+    let roster = roster();
+    let mut portal = FakePortal::new();
+    portal.will_grant(response(vec![stream(11, 0)], "initial"));
+    portal.will_grant(response(vec![stream(21, 0), stream(22, 1)], "replacement"));
+    let mut mirrors = MirrorSet::new(portal, CursorPolicy::Visible, TokenStore::new());
+    mirrors.set_streams(Box::new(RecordingSource::new(log.clone())));
+    mirrors.attach(roster.clone());
+    let first = key(&roster, 0);
+    let second = key(&roster, 1);
+    let _ = mirrors.mirror(&first);
+    let _ = mirrors.mirror(&second);
+    let _ = pump(&mut mirrors);
+    assert!(mirrors.is_mirroring(&first));
+    assert!(!mirrors.is_mirroring(&second));
+
+    assert_eq!(mirrors.select_monitors(), SelectionOutcome::Requested);
+    assert_eq!(mirrors.select_monitors(), SelectionOutcome::Busy);
+    assert_eq!(mirrors.portal().requests.len(), 2);
+    assert!(mirrors.portal().requests[1].restore_token.is_none());
+    assert_eq!(mirrors.portal().requests[1].cursor, CursorPolicy::Visible);
+    assert!(
+        mirrors.is_mirroring(&first),
+        "selection keeps the old capture"
+    );
+    assert!(mirrors.take_replaced_monitors().is_empty());
+    assert_eq!(mirrors.poll(), Progress::Waiting);
+    assert_eq!(mirrors.selection_state(), SelectionState::Pending);
+    assert_eq!(
+        pump(&mut mirrors),
+        Progress::Started(vec![first.clone(), second.clone()])
+    );
+    assert_eq!(mirrors.take_replaced_monitors(), vec![first]);
+    assert!(mirrors.take_replaced_monitors().is_empty());
+    assert_eq!(mirrors.selection_state(), SelectionState::Ready);
+    assert!(mirrors.is_mirroring(&second));
+    assert_eq!(
+        log.entries().len(),
+        4,
+        "one old stream stops and both new streams open"
+    );
+}
+
+#[test]
+fn declining_fresh_selection_preserves_capture_and_can_be_retried_explicitly() {
+    let log = StreamLog::new();
+    let roster = roster();
+    let mut portal = FakePortal::new();
+    portal.will_grant(response(vec![stream(11, 0)], "initial"));
+    portal.will_fail(PortalError::Refused { code: 1 });
+    portal.will_grant(response(vec![stream(21, 0)], "replacement"));
+    let mut mirrors = MirrorSet::new(portal, CursorPolicy::Visible, TokenStore::new());
+    mirrors.set_streams(Box::new(RecordingSource::new(log)));
+    mirrors.attach(roster.clone());
+    let first = key(&roster, 0);
+    let _ = mirrors.mirror(&first);
+    let _ = pump(&mut mirrors);
+    assert_eq!(mirrors.select_monitors(), SelectionOutcome::Requested);
+    assert_eq!(
+        pump(&mut mirrors),
+        Progress::Failed(PortalError::Refused { code: 1 })
+    );
+    assert!(mirrors.is_mirroring(&first));
+    assert_eq!(
+        mirrors.selection_state(),
+        SelectionState::Failed(PortalError::Refused { code: 1 })
+    );
+    for _ in 0..8 {
+        assert_eq!(mirrors.poll(), Progress::Idle);
+    }
+    assert_eq!(
+        mirrors.portal().requests.len(),
+        2,
+        "no repeated prompt after cancellation"
+    );
+    assert_eq!(mirrors.select_monitors(), SelectionOutcome::Requested);
+    let _ = pump(&mut mirrors);
+    assert_eq!(mirrors.selection_state(), SelectionState::Ready);
+}
+
+#[test]
+fn dismissal_during_selection_does_not_reopen_the_monitor() {
+    let log = StreamLog::new();
+    let mut mirrors = mirrors(&log);
+    mirrors
+        .portal
+        .will_grant(response(vec![stream(21, 0), stream(22, 1)], "selected"));
+    let first = key(mirrors.roster(), 0);
+    let second = key(mirrors.roster(), 1);
+    let _ = mirrors.mirror(&first);
+    let _ = pump(&mut mirrors);
+    assert_eq!(mirrors.select_monitors(), SelectionOutcome::Requested);
+    assert!(mirrors.dismiss(&first));
+    assert_eq!(pump(&mut mirrors), Progress::Started(vec![second.clone()]));
+    assert!(!mirrors.is_wanted(&first));
+    assert!(!mirrors.is_mirroring(&first));
+    assert!(mirrors.is_mirroring(&second));
+    assert_eq!(mirrors.mirror(&first), MirrorOutcome::Mirroring);
+}
+
+#[test]
+fn revocation_during_selection_does_not_start_a_competing_request() {
+    let log = StreamLog::new();
+    let mut mirrors = mirrors(&log);
+    mirrors
+        .portal
+        .will_grant(response(vec![stream(21, 0)], "selected"));
+    let first = key(mirrors.roster(), 0);
+    let _ = mirrors.mirror(&first);
+    let _ = pump(&mut mirrors);
+    assert_eq!(mirrors.select_monitors(), SelectionOutcome::Requested);
+    mirrors.revoke_session();
+    assert_eq!(mirrors.portal().requests.len(), 2);
+    assert_eq!(pump(&mut mirrors), Progress::Started(vec![first]));
+    assert_eq!(mirrors.selection_state(), SelectionState::Ready);
+}
+
+#[test]
+fn a_monitor_unplugged_during_selection_is_neither_reopened_nor_given_a_token() {
+    let log = StreamLog::new();
+    let mut mirrors = mirrors(&log);
+    mirrors
+        .portal
+        .will_grant(response(vec![stream(21, 0), stream(22, 1)], "selected"));
+    let first = key(mirrors.roster(), 0);
+    let second = key(mirrors.roster(), 1);
+    let _ = mirrors.mirror(&first);
+    let _ = pump(&mut mirrors);
+    assert_eq!(mirrors.select_monitors(), SelectionOutcome::Requested);
+    let change = mirrors.attach(second_only());
+    assert_eq!(change.removed, vec![first.clone()]);
+    assert_eq!(pump(&mut mirrors), Progress::Started(vec![second.clone()]));
+    assert_eq!(mirrors.selection_state(), SelectionState::Ready);
+    assert!(!mirrors.is_wanted(&first));
+    assert!(!mirrors.is_mirroring(&first));
+    assert!(mirrors.is_mirroring(&second));
+    let tokens = mirrors
+        .take_changed_tokens()
+        .expect("the grant records tokens");
+    assert!(tokens.token_for(&first).is_none());
+}
+
+#[test]
+fn uncorrelated_selection_retains_the_previous_capture_and_tokens() {
+    let log = StreamLog::new();
+    let mut mirrors = mirrors(&log);
+    mirrors
+        .portal
+        .will_grant(response(vec![stream(21, 8)], "unmatched"));
+    let first = key(mirrors.roster(), 0);
+    let _ = mirrors.mirror(&first);
+    let _ = pump(&mut mirrors);
+    let _ = mirrors.take_changed_tokens();
+    assert_eq!(mirrors.select_monitors(), SelectionOutcome::Requested);
+    assert!(matches!(pump(&mut mirrors), Progress::Failed(_)));
+    assert!(mirrors.is_mirroring(&first));
+    assert!(mirrors.take_changed_tokens().is_none());
+    assert_eq!(log.entries().len(), 1);
+}
+
+#[test]
 fn a_running_mirror_carries_no_frame_until_one_arrives() {
     let log = StreamLog::new();
     let mut mirrors = mirrors(&log);
@@ -490,9 +750,7 @@ fn a_running_mirror_carries_no_frame_until_one_arrives() {
 
 #[test]
 fn a_monitor_mirrored_before_the_source_exists_starts_once_it_does() {
-    // The source is unavailable until the graphics device supplies the DRM
-    // formats accepted by the importer. A mirror requested earlier remains wanted
-    // until the source can open it.
+    // The source is unavailable until the graphics device supplies the importer's DRM formats.
     let log = StreamLog::new();
     let roster = roster();
     let mut portal = FakePortal::new();
@@ -502,7 +760,8 @@ fn a_monitor_mirrored_before_the_source_exists_starts_once_it_does() {
     mirrors.attach(roster.clone());
     let _ = mirrors.mirror(&key(&roster, 0));
 
-    assert_eq!(pump(&mut mirrors), Progress::Started(Vec::new()));
+    assert_eq!(pump(&mut mirrors), Progress::Idle);
+    assert!(mirrors.portal().requests.is_empty());
     assert!(
         log.entries().is_empty(),
         "no stream can be opened before a source exists"
@@ -516,9 +775,9 @@ fn a_monitor_mirrored_before_the_source_exists_starts_once_it_does() {
     mirrors.set_streams(Box::new(RecordingSource::new(log.clone())));
 
     assert_eq!(
-        mirrors.poll(),
+        pump(&mut mirrors),
         Progress::Started(vec![key(&roster, 0)]),
-        "the first frame after the source arrives is what opens the stream",
+        "the source first chooses the portal, then opens the granted stream",
     );
     assert!(mirrors.is_mirroring(&key(&roster, 0)));
     assert_eq!(log.entries().len(), 1);

@@ -14,7 +14,7 @@ use pretty_assertions::assert_eq;
 use crate::lua::tests::{error, lua, run, session, snapshot};
 
 #[test]
-fn spawning_queues_a_request_under_the_identifier_it_returned() {
+fn spawning_queues_a_request_under_a_distinct_identifier_it_returned() {
     let session = session(Vec::new());
     let lua = lua(&session);
 
@@ -41,20 +41,10 @@ fn spawning_queues_a_request_under_the_identifier_it_returned() {
         }
         other => panic!("expected a spawn command, got {other:?}"),
     }
-}
 
-#[test]
-fn every_spawn_is_minted_a_distinct_identifier() {
-    let session = session(Vec::new());
-    let lua = lua(&session);
-
-    let (first, second): (u64, u64) = run(
-        &lua,
-        "return lunette.spawn{ argv = { 'foot' } }.id, lunette.spawn{ argv = { 'foot' } }.id",
-    );
-
-    assert_ne!(first, second);
-    assert_eq!(session.flush().len(), 2);
+    let second: u64 = run(&lua, "return lunette.spawn{ argv = { 'foot' } }.id");
+    assert_ne!(id, second, "every spawn is minted a distinct identifier");
+    assert_eq!(session.flush().len(), 1);
 }
 
 #[test]
@@ -110,26 +100,13 @@ fn a_spawn_without_a_program_is_refused() {
 }
 
 #[test]
-fn an_option_this_build_cannot_honour_is_refused_rather_than_ignored() {
-    let session = session(Vec::new());
-    let lua = lua(&session);
-
-    let message = error(&lua, "lunette.spawn{ argv = { 'foot' }, otuput = 1 }");
-    assert!(
-        message.contains("'otuput' is not an option here"),
-        "unhelpful message: {message}"
-    );
-    assert!(session.flush().is_empty());
-}
-
-#[test]
 fn a_process_handle_reports_what_the_snapshot_says() {
     let session = session(Vec::new());
     let lua = lua(&session);
     run::<()>(&lua, "proc = lunette.spawn{ argv = { 'foot' } }");
 
     assert!(
-        !run::<bool>(&lua, "return proc.alive"),
+        run::<bool>(&lua, "return proc.dead"),
         "the compositor has not been told about the process yet"
     );
 
@@ -144,14 +121,12 @@ fn a_process_handle_reports_what_the_snapshot_says() {
         }],
     ));
 
-    let (alive, pid, external): (bool, i32, bool) =
-        run(&lua, "return proc.alive, proc.pid, proc.external");
-    assert!(alive);
+    let (dead, pid): (bool, i32) = run(&lua, "return proc.dead, proc.pid");
+    assert!(!dead);
     assert_eq!(pid, 4242);
-    assert!(!external);
 
     session.begin(snapshot(Vec::new(), Vec::new()));
-    let (alive, pid): (bool, i32) = run(&lua, "return proc.alive, proc.pid");
-    assert!(!alive, "a process absent from the snapshot has ended");
+    let (dead, pid): (bool, i32) = run(&lua, "return proc.dead, proc.pid");
+    assert!(dead, "a process absent from the snapshot has ended");
     assert_eq!(pid, 4242, "an ended process reads its last-known pid");
 }

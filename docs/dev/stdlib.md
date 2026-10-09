@@ -1,168 +1,228 @@
 # Standard library
 
-`mullion` is Lua, installed to `$PREFIX/share/lunette/lua/`, readable and forkable. It is written against the same public API available to a downstream user. If it ever needs something private from `lunette`, that is a bug in the API, not a licence to add a back door.
+The Lua standard library is installed below `$PREFIX/share/lunette/lua/`. `@lunette-plugin` is the typed plugin facade, `@lunette-contracts` holds the neutral service contracts, `@lunette-plugins` holds every built-in plugin, and `@lunette-desktop` holds the entry list that the shipped configuration runs. Every policy the library ships is a plugin written against the public `lunette` API, and a configuration can replace or omit any of them. A configuration can also use `lunette` without loading any of it. [Plugin authoring](lua-api.md#plugin-authoring) and [Architecture](architecture.md#plugin-runtime) specify the plugin model.
 
-Nothing here is settled. Much of it will be in flux, and it should be. What follows describes the intended tiers and the minimum viable version of each, not a committed API surface. Concrete signatures land once the thing has been used.
+## Module roots
 
-## How it is reached
+The source tree is `lua/`. A session mounts the file-backed roots through LÖVR's virtual filesystem, and the checker resolves aliases from generated `.luaurc` files. [Build and development](build-and-development.md#module-roots) lists each root's alias, source directory, runtime resolution, and installation.
 
-The tree lives at `lua/mullion/` in the source and at `$PREFIX/share/lunette/lua/mullion/` once installed. The binary mounts the directory above it into LÖVR's virtual filesystem before `main.lua` runs, so `require '@mullion'` resolves `mullion/init.lua` and a configuration's first line may be that require. [Build and development](build-and-development.md#where-things-live-at-runtime) gives the search order, and [Decisions](#decisions) below records how the mount is installed and why it is read-only.
+A relative require follows Luau's require-by-string rules in the checker and in a session alike. A module's path is its file's path without the extension, and a directory's `init.luau` is the module the directory names. `./` and `../` start from the directory holding the requiring module, and `@self` from the module itself, so in `keyboard/init.luau`, `./draw` is a sibling of `keyboard` and `@self/draw` is inside it. LÖVR's loader takes a path from the root of the virtual filesystem, so the session wraps `require` (`crates/lunette/src/require`) to resolve a relative path against the requiring chunk's file first. The resolved name, such as `@lunette-plugins/keyboard/draw`, is what `package.loaded` is keyed by. A relative path cannot leave the root it starts in, name the root itself, or contain `.` in a component; each raises at the requiring line. A chunk with no file, such as one `lunctl eval` sends, resolves as a module at the configuration root and has no `@self`.
 
-`mullion` itself is the root module and re-exports nothing. Each submodule is required by its own path: `require '@mullion/signal'`, `require '@mullion/layout/arc'`. The tiers are independent and a configuration that wants one should not load the rest to get it. `mullion.layout.arc` and `mullion.tag.current` are the two names [The Lua API](lua-api.md) already attests.
+The checker follows directory symlinks and keeps the module path the configuration used, so `dev/examples` reuses the checked-in examples without copying them.
 
-The mount is read-only. A configuration that could overwrite the standard library it is running on top of could make a session unbootable in a way a reload cannot repair, since the reload would read the overwritten copy.
+## Contracts and providers
 
-## What the tree holds
+A contract module in `@lunette-contracts` declares a service type and exports a capability that pairs it with an authority-qualified name and version. Vocabulary shared by several contracts lives in a neutral contract module, so a service type never imports a provider. `@lunette-contracts/vocabulary` holds the surface and pointer types, the per-window pose property `lunette.pose` with `encodePose` and `decodePose`, and `PRECEDENCE`, the named precedences of rule sources. `@lunette-contracts/keys` holds the key vocabulary: the evdev codes from `lunette.keyCodes()`, the modifier each modifier key holds, the host modifier snapshot type, and which modifiers make a command chord. The frame provider translates LÖVR key names and modifiers, and the focus provider holds the physical delivery policy ([Input](input.md#physical-input-batches)). `@lunette-contracts/quad` holds flat-quad ray intersection.
 
-| Module | What it is |
-|---|---|
-| `mullion` | The root. It re-exports nothing and holds no state. |
-| `mullion.signal` | `connect`, `weakConnect`, `disconnect`, `emit`, and `setProperty`, which announces `property::<key>`. |
-| `mullion.teardown` | The hook registry a soft reload runs. Hooks are keyed by name and run in reverse registration order. |
-| `mullion.error` | The `lovr.errhand` replacement [The Lua API](lua-api.md#errors) puts here, and the rate limiter it reports through. It subscribes through `lunette.onError`, which `crates/lunette/src/callback_error.rs` tells about every error a listener raised. |
-| `mullion.error.panel` | The floating panel a report is shown on. It wraps `mullion.error`'s `report` seam, and is separate because drawing needs a `Pass` and a session with no graphics module still wants the handler. |
-| `mullion.panel` | Tier 1. A source bound to a pose and a metre size, on a composition layer or an in-scene quad, with `rayQuadHit` for turning a ray into a pixel coordinate. The quad path draws with premultiplied blending, and through `panel.opaqueShader` for a source whose buffer has no alpha channel ([Rendering](rendering.md#alpha)). |
-| `mullion.panel.raycast` | Where a ray meets a quad, in the quad's own pixels. Pure, and separate because a panel's realisation and a matrix inversion have nothing in common. `mullion.panel` re-exports `hit` as `rayQuadHit`. |
-| `mullion.pose` | A `mat4` as a string, and back. The property store refuses a table and a file on disk holds text, so both want the same sixteen numbers. |
-| `mullion.interaction` | Tier 2. A pointer over a set of surfaces: what it hovers, what it clicks, what it scrolls, and what it has grabbed. It reads no device and draws nothing. A surface answers a raycast; a panel is one, and so is a keyboard. |
-| `mullion.interaction.types` | The vocabulary the pointer protocol is written in: `Surface`, `Pointer`, `Input`, and `Tuning`. Types and nothing else, so a module that names one does not depend on the tier that implements them — `mullion.panel` is tier 1 and names `Surface`. `mullion.interaction` re-exports every one of them. |
-| `mullion.laser` | Tier 2. One per hand. It reads a pointer device, drives an interaction pointer with what it read, owns that hand's seat, and draws the beam. |
-| `mullion.keycodes` | Where the keys are, in evdev keycodes, and which of them are modifiers. A description of a physical keyboard, with no layout in it. |
-| `mullion.keyboard` | Tier 2. A virtual keyboard whose legends and keycodes come from a seat's own keymap rather than from a table of its own. It is a surface, so the grip that moves a panel moves it too. |
-| `mullion.scale` | Which scale an output is set to, chosen from `lunette.scaleSteps()` with hysteresis. Pure: a chooser is handed a distance and answers with a scale. |
-| `mullion.pacing` | Which windows are exempt from frame-rate throttling, from the content-type hint and the observed commit rate. Pure: a pacer is handed what its caller observed and answers with a rate. |
-| `mullion.tag` | Tier 3. Named groups of panels. A panel belongs to a set of tags and selection is multi, so `mullion.tag.current` answers tags rather than one tag. |
-| `mullion.layout.arc` | Tier 3. Panels on a curve around the user, facing inwards. Callable, because [The Lua API](lua-api.md) attests it as a call. |
-| `mullion.rules` | Tier 3. What a window should look like, decided before anything draws it. Several sources compose with a declared precedence, and the `appId` table is one of them. |
-| `mullion.persist` | Tier 3. Arrangements that outlive the process. It captures panels, writes them to the save directory, and restores them as one of `mullion.rules`'s sources. |
-| `mullion.persist.format` | The arrangement file's text and its versions. Pure, and separate because the version matrix is worth reasoning about without a filesystem in the way. |
-| `mullion.adopt` | Tier 3. The windows a soft reload found already open. `adopt.windows` re-enumerates them, and `adopt.install` registers the native property store as the highest of `mullion.rules`'s sources, so a hand-placed panel comes back where the user left it rather than where a rule would have chosen. |
+Each built-in plugin is a provider or consumer module ([Provider modules](lua-api.md#provider-modules)) that validates its configuration with a schema. A replacement provider implements the existing contract; the contract is not weakened to fit it. Objects a provider method returns, such as panels, pointers, lasers, keyboards, and tags, outlive the call and check their own state. [Confinement](lua-api.md#confinement) states how consumer resources and overrides are owned and released.
 
-`mullion.interaction` and `mullion.laser` are one tier split in two because one of them can be tested and the other cannot. Everything that decides — which surface a ray hits, where a grab puts it, what a thumbstick deflection is worth in surface pixels — is in `mullion.interaction`, which is handed its input and reaches for no device.
+The built-in providers:
 
-A surface is what a pointer picks from. It answers `raycast(origin, direction)`, both `vec3`s, with a coordinate in its own frame and a distance, and it may answer `sink` for pixel input, `onHover`, `onLeave`, `onPress`, and `onRelease` for input it handles itself, and `grabbable` to decline being picked up. It carries `kind` and `source` when it is over a window or a monitor, and neither when it is over nothing, which is what tells a panel from a keyboard without asking either. A surface declares those methods with `Surface` as the receiver: a receiver is a parameter, so an implementer naming its own type there could not answer the contract, and `mullion.interaction.types` exists so that every tier can name it. A panel is a surface backed by a pixel source, and routes hits to a sink. A keyboard is a surface that draws itself, and routes hits to keys. The distinction that keeps them apart is not the geometry: a panel is laid out by `mullion.layout`, belongs to a tag, and has its pose remembered across a restart, and none of those is wanted for chrome that happens to be a rectangle. `mullion.laser` is the shell around it: `lovr.headset`, `lunette.newSeat`, and `Pass`.
+| Id | Contract | Requires | Options |
+|---|---|---|---|
+| `frame` | `lunette/frame` 2 | none | none |
+| `theme` | `lunette/theme` 1 | none | none |
+| `themes` | `lunette/themes` 1 | none | none |
+| `surfaces` | `lunette/surfaces` 1 | none | none |
+| `panels` | `lunette/panels` 3 | theme | `style`, `priority`, `height`, `aspect`, `chrome`, `rendering` |
+| `drops` | `lunette/drops` 1 | none | none |
+| `focus` | `lunette/focus` 2 | frame | none |
+| `bindings` | `lunette/bindings` 1 | frame | none |
+| `interaction` | `lunette/interaction` 2 | drops, focus | `tuning`, `focusOnPress`, `drive`, `constrain` |
+| `laser` | `lunette/laser` 1 | interaction, theme | `style`, `aim`, `triggerLock`, `buttons`, `readInput`, `draw` |
+| `keyboard` | `lunette/keyboard` 3 | focus, theme | `rows`, `layers`, `style`, `modifierKeys`, `locks`, `onKey`, `drawKey` |
+| `ui` | `lunette/ui` 2 | focus, surfaces, theme, frame | `theme`, `titlebarStyle`, `draw` |
+| `menu` | `lunette/menu` 1 | none | none |
+| `tags` | `lunette/tags` 1 | none | none |
+| `rules` | `lunette/rules` 1 | none | `precedence` |
+| `placement` | `lunette/placement` 1 | panels, rules, tags | `panelOptions` |
+| `adoption` | `lunette/adoption` 1 | panels, placement, rules | none |
+| `layouts` | `lunette/layouts` 1 | none | none |
+| `errors` | `lunette/errors` 1 | none | `window`, `maxKeys`, `history`, `clock` |
+| `pacing` | `lunette/pacing` 1 | none | `tuning` |
+| `scale` | `lunette/scale` 1 | none | `tuning` |
 
-Two of these are here rather than with the reload mechanism that calls them, and both for the same reason: every module that holds state registers a teardown hook, so the registry has to exist before the first module does, and the error handler is stated to be `mullion` code. `mullion.interaction.types` is the exception that shows the rule: it declares types and returns an empty table, so a reload has nothing of its to discard.
+`layout/arc` registers the arc layout with the layouts broker and takes `layout`, the name it registers, and `tuning`. `theme/standard` and `theme/arcade` register themes with the catalog and take no options. `desktop/keyboard`, at `@lunette-plugins/keyboard-display`, provides `lunette/keyboard-display` 1, and `desktop/persistence`, at `@lunette-plugins/arrangement`, provides `lunette/arrangement` 1. Each contract module under `lua/lunette-contracts/` declares its service, each plugin's `config.luau` or descriptor its options, and [Contracts](lua-api.md#contracts) states their guarantees. Consumers that follow a panel's life use the panels contract's `onAdded` and `onRemoved` listeners rather than any provider's private modules.
 
-`lua/spec/` mirrors the tree and holds the specs. It is not installed: it covers the standard library and is not part of it. The specs run inside the binary, through `cargo test`, because the tree they are required through is LÖVR's virtual filesystem rather than the process's.
+## Runtime themes
 
-Three of them are about the suite rather than about a module. `spec/mullion/coverage_spec.lua` reads the module tree from the mount and fails when a module has neither a spec nor a recorded exemption, so an absence is deliberate. `spec/mullion/reload_spec.lua` requires every module twice against one registry and fails when a teardown hook or a global accumulates, which is what makes the rule above checkable rather than aspirational. `spec/runner_spec.lua` covers discovery, which is the one failure nothing else can catch: a discovery that skipped a directory would report the cases it found as passing and say nothing about the ones it never loaded.
+`@lunette-plugins/theme` provides `lunette/theme` over the square base theme in `lua/lunette-plugins/theme/base.luau`. [Runtime themes](lua-api.md#runtime-themes) specifies selection, notification, and the font cache.
 
-## Tier 1 — surfaces and panels
+`@lunette-plugins/themes` provides `lunette/themes`, a catalog of owner-scoped named registrations of complete themes. It selects nothing. `theme/standard` registers Dark and Light, which differ only in palette, and `theme/arcade` registers Arcade, which uses saturated colours, larger text and spacing, other radii, and the bundled Space Mono Regular face with its OFL licence. Arcade exists to show a theme that a plugin supplies and a configuration can disable.
 
-The irreducible core. A panel binds a pixel source to a pose and a size in metres, decides between a composition layer and in-scene geometry, converts ray hits to pixel coordinates, and draws chrome.
+`desktop/theme` selects a catalog theme by name. Its `preset` defaults to `dark`, and its sparse `overrides` apply over whichever theme it shows. It registers a `Theme: <label>` action in the session menu's Appearance group for each catalog entry and follows catalog changes. A choice updates the selector's one registration, so the new theme replaces the old one whole. The selector shows the user's choice while it is registered, then the configured theme, and otherwise holds no selection. A name that is not registered is logged once, after the first frame update so that entries registering later are not reported. The selector keeps the user's choice across activations in one runtime while the configured preset is unchanged.
 
-Minimum viable: create a panel from a window or a monitor, place it with a `mat4`, draw it in-scene, raycast a quad, feed the sink. Enough for a config to put a terminal on a wall and click it.
+The keyboard, panels, UI, and laser providers and the `desktop/hint`, `desktop/errors`, and `desktop/manager` consumers read the theme.
 
-Design constraint: a panel is an abstraction built over the primitives, not a privileged object. Windows and sinks can be used without ever creating one.
+Panels, UI panels, and the keyboard draw rounded faces from `lua/lunette-plugins/theme/rounded-geometry.luau`. Initial hits test the same perimeter the mesh draws, and controls keep rectangular targets inside a conservative content clip. A titlebar can join its target's frame through `Surface.attachFrame`, so the pair draws one outline. Granted composition layers stay rectangular. [Rendering](rendering.md#rounded-scene-geometry) specifies the geometry, and [Joined frame attachments](lua-api.md#joined-frame-attachments) the attachment.
 
-A panel reads `claim.granted` each frame rather than handling `lunette.onLayerGranted`. Grants and revocations land on frame boundaries and never mid-frame, so the two agree, and polling is one code path where handling the events would be two. The original reason is no longer one: a panel could not take `lovr.lunlayergranted` without taking it from the configuration, and events are subscribed to now, so several listeners may wait on one ([The Lua API](lua-api.md#an-event-is-subscribed-to-not-assigned)). Polling stays on the shorter-path argument alone.
+## UI toolkit
 
-A panel over a monitor never claims a layer. `lunette.claimLayer` takes a window and nothing else, so a mirrored screen has no way to ask for one and always draws as an in-scene quad. That is a gap in the native API rather than a decision the standard library made, and closing it is a change to `claimLayer`.
+`@lunette-plugins/ui` provides `lunette/ui`: owner-scoped flat VR panels with buttons, single-line text fields, choices, lists, and regions, and a shared titlebar for any surface. It offers visible panels as surfaces and installs no draw handler; each consumer draws its own panels. [UI panels](lua-api.md#ui-panels) specifies the contract, and the [UI guide](../guide/ui.md) gives a contract-only example.
 
-## Tier 2 — interaction
+## Configuration descriptors
 
-Grab-to-move, grab-to-resize, laser pointers with per-hand cursors, hover and focus feedback, pointer modes (WayVR's laser-colour-selects-click-type idea), scroll, and a virtual keyboard.
+`@lunette-plugin/schema` derives runtime validation, editor metadata, and the Luau `Input` and `Output` types from one descriptor. Objects reject unknown fields and merge declared defaults. Arrays and maps replace whole, including when empty. Numbers and vectors require finite components. A callback is checked as a function. Errors carry a path and a code. A schema-backed definition exposes its metadata and a resolver that validates configuration without running the initializer. [Configuration schema](../guide/configuration-schema.md) documents the constructors.
 
-This tier is tuning-heavy. Feel accounts for most of the work.
+## Default configuration
 
-Minimum viable: one laser per hand, hover highlight, trigger-to-click, grab-to-move, and a keyboard that can type into the focused sink.
+`etc/xdg/lunette/main.luau` calls `require('@lunette-desktop').run()`. The desktop is a list of entries, `{ id, definition, config }`, where `definition` is a definition or a factory that makes one once per runtime. Every plugin module returns a record whose `definition` field is what an entry names. `lua/lunette-desktop/init.luau` is the source of truth for the entries and their order. It lists the providers above, `layout/arc`, `theme/standard`, `theme/arcade`, and the `desktop/` consumers below, all from `@lunette-plugins`. `entries()` answers the list.
 
-Grab-to-resize is deferred rather than dropped. It is in the description above and not in the minimum viable line, and it shares every constant grab-to-move has: the dead zone that decides when a hand movement is deliberate, the reach, and the haptics. Tuning both at once means tuning neither, so resize lands once move has been used in a headset.
+`run { settings = { ... }, patches = { ... } }` applies settings and patches with `plugin.compose`, binds the LÖVR callbacks with `frame.install`, and starts the list through `@lunette-plugin/management` at load. `compose(options)` answers the patched list without starting it, for tests and tools that inspect a composition. Composition runs before any callback is bound, so a malformed patch fails the configuration's load and safe mode reports it. [Composition](lua-api.md#composition) states the patch rules.
 
-Hover and focus stay separate here for the reason [Input](input.md#seats) gives for keeping them separate in the compositor. A laser hovering a panel sends `sink:pointer` and takes `sink:leave` off whatever it left; only a click calls `seat:setFocus`. Inferring focus from pointer motion in Lua would be the heuristic the native layer deliberately does not have, one language further out.
+```lua
+require('@lunette-desktop').run {
+  settings = { ['desktop/menu'] = { hand = 'right' } },
+  patches = {
+    { id = 'keyboard', disabled = true },
+    { insert = { id = 'my-hud', definition = hud.definition }, before = 'desktop/adoption' },
+  },
+}
+```
 
-## Tier 3 — layout and policy
+`settings` configures every default entry that takes options, keyed by entry id and typed by the entry's `Config`. `lua/lunette-desktop/settings.luau` composes the entries' own descriptors and is checked against the entry list by a test. Each setting expands to one ordinary configuration patch for its id, and a setting and a patch for the same id raise an error. Patches insert, replace, or disable entries. [Desktop configuration](../guide/desktop-configuration.md) gives examples.
 
-The awesome-derived part. Tags and workspaces, layout algorithms (an arc around the user, a grid on a wall, a stack, follow-head-with-lag), rules ("Firefox spawns on the left wall, 2m wide"), signals, and persistence of the arrangement between sessions.
+The shipped desktop opens no application. The development configuration inserts a terminal plugin ([The development loop](build-and-development.md#the-development-loop)).
 
-Layout in 3D has no useful ancestor. awesome's algorithms are two-dimensional and GPLv2, so this tier is reimplemented from scratch regardless. The open question is what "tiling" means when the walls are wherever the user decided they are.
+The desktop consumers:
 
-Minimum viable: one layout function that arranges the current tag's panels in an arc at a comfortable radius, a rules table matched on `appId`, and layout save/restore to `lovr.filesystem`'s save directory.
-
-Rules and restore are separate sources composed with a declared precedence, rather than one list. After a restart a window that was hand-placed should come back where it was, and a window opening fresh should be placed by rule; as one list, whichever the configuration happened to write second wins, and which of the two cases is wrong depends on that ordering. `mullion.persist` registers above the rules table by default, and a configuration that wants its rules to win says so with a number.
-
-A soft reload wants the same composition against a shorter-lived store. `mullion.adopt` registers the native property store above both, because the store holds what the user did in this session and the file holds what they did in the last one. It also carries the re-enumeration: a reload discards the Lua state, the window-opened event was delivered to the state that has gone, and `adopt.windows` is how the new one hears about the windows that are still open. A configuration that only ever placed windows from that callback comes back from a reload showing nothing at all.
-
-The arrangement is written to `lovr.filesystem.getSaveDirectory()`, which derives from the identity rather than from the source — so it is not the configuration directory and is asked for rather than assumed. The file carries no `.lua` extension, so that a session cannot write something the require path would resolve as a module. A file written by a later version is left alone rather than parsed and rewritten, because rewriting it would drop the fields this version cannot represent. Two things enforce that. A load from a later version carries no arrangement, so there is nothing to hand the save; and the module remembers that the load was declined, so a save built freshly out of live panels is refused too. The second is what the first cannot cover: capturing panels constructs an arrangement that knows nothing about what was read, and a session that quits normally saves on the way out. A caller that has decided to overwrite it anyway says so in words. The refusal is forgotten once the module knows what is on disk again: a load that could be used clears it, and so does a write, including the forced one that overwrote the file the refusal was about.
-
-## Tier 4 — furniture
-
-A dashboard and launcher, notifications (`org.freedesktop.Notifications`), a watch or wrist menu, settings UI, a taskbar, IME integration.
-
-Most of WayVR's code lives at this tier, and it is the most opinionated part of the design.
-
-It ships as the default `main.lua` and example modules, not as library code. Tiers 1 through 3 are things every user needs and would write identically; tier 4 is the user's desktop, and it should be readable Lua sitting in the user's config, forked without ceremony.
-
-Minimum viable: the default config spawns a terminal, shows it on a panel, and provides a laser and a reload key. Nothing more.
-
-`etc/xdg/lunette/main.lua` is that config, and it is the source of truth for what ships. It declares one tag, attaches a laser to each hand, spawns the first terminal emulator it finds, places each window through `mullion.rules` and arranges the ones no source gave a pose to on an arc, and binds a reload key on the desktop window. It carries two things past the line above, both because an acceptance criterion is about them: a rules table matched on `appId`, and a saved arrangement installed as a second source and written back when a panel is dropped or the session quits. It installs `mullion.adopt` as a third source and adopts the windows already open in `lovr.load`, which is what makes the reload key keep a hand-arranged workspace rather than rearranging it.
-
-Safe mode deliberately resembles it and shares no code with it. It is compiled into the binary and requires `lunette` alone, because a broken `mullion` is one of the reasons the user's configuration may have failed; [The Lua API](lua-api.md#errors) and its [decisions](lua-api.md#errors-and-safe-mode) state the rest.
-
-## 2D widgets
-
-Deferred. Titlebars and menus need some form of widget support, but the ambition is deliberately low: a thin immediate-mode helper over LÖVR's `Pass`, not a widget toolkit with a layout engine.
-
-Anything more ambitious should be a real Wayland client, spawned rather than built, because that gets the entire application ecosystem, real text rendering, and accessibility for free. A GTK settings app running inside lunette is preferable to a hand-rolled widget tree.
-
-It may end up as a recommended-but-separate library rather than part of `mullion`. The user is free to bring their own.
-
-## What lives here versus in Rust
-
-The recurring test, applied throughout the design:
-
-| Concern | Where | Why |
+| Entry | Does | Options |
 |---|---|---|
-| Layer priority ranking | Lua | Focus and gaze are application knowledge |
-| Layer pool and recycling | Rust | Scarce, expensive, needs one owner |
-| Raycasting | Lua | It is geometry, and geometry belongs to the user |
-| Hit-testing within a surface | Rust | It is protocol |
-| Key repeat | Lua | Timing policy |
-| Keymap generation for `typeText` | Rust | Impossible from Lua |
-| Frame rate per panel | Lua | Depends on where the user is looking |
-| Frame callback delivery | Rust | It is protocol |
-| Clipboard mirroring policy | Lua | Some users want isolation |
-| Clipboard format negotiation | Rust | fds and MIME lists should not enter Lua |
-| Restart-on-crash for a spawned app | Lua | It is a preference |
-| Reaping children | Rust | It is the kernel |
+| `desktop/render` | Updates and draws panels in the `scene` phase. A child offers the shown panels as surfaces, so a surfaces outage stops pointing and leaves panels drawing. | None. |
+| `desktop/hint` | Draws a line of text while no panel exists. | `text`, `position`, `textHeight`, `foreground`, `font`. |
+| `desktop/decorations` | Gives each native panel without its own chrome a shared UI titlebar with a close button, and monitor panels Restart mirror and monitor selection actions. Grip on the panel or titlebar, or trigger on the titlebar background, moves the panel. | `style`, overriding the UI provider's `titlebarStyle`. |
+| `desktop/pointing` | Attaches both lasers with the `laser` entry's configuration, updates them against every offered surface in the `pointing` phase, and draws them in the `feedback` phase. | None. |
+| `desktop/input` | Delivers physical keys and committed text through a physical focus source in the `delivery` phase. It requires no bindings provider. | None. |
+| `desktop/keyboard` | Provides `lunette/keyboard-display`: one lazily made virtual keyboard with a shared titlebar, shown when a focused local field wants it. | `placement`: `distance`, `drop`, `tilt`. |
+| `desktop/menu` | Renders the tracked wrist Menu button and scrollable action list through `lunette/ui` and invokes `lunette/menu` actions. Tracking loss closes it. | `hand`, `size`, `offset`, `haptic`, `expanded`. |
+| `desktop/actions` | Registers Reload configuration. A child registers Keyboard, which toggles the keyboard display, so a display outage leaves Reload. | None. |
+| `desktop/errors` | Shows the latest report of the error stream on a quad in the `overlay` phase. | `position`, `width`, `textHeight`, `columns`, `lines`, `background`, `foreground`, `font`. |
+| `desktop/workspaces` | Holds a tag per workspace and hides panels of unselected workspaces. | `names`, default `{ 'main' }`; `follow`, default true. |
+| `desktop/monitors` | Starts capture and places monitor panels in a row, including hotplugged monitors. A child adds mirrors to configured tags. | `select`, `placement`, `tags`. |
+| `desktop/rules` | Registers its rule list with `rules:setRules`. | `rules`; the default sizes and places Firefox. |
+| `desktop/persistence` | Saves and restores the arrangement and provides `lunette/arrangement`. A factory. | `file`, default `arrangement.state`. |
+| `desktop/arrange` | Arranges placed windows that have no pose, tag by tag, with its layout from the layouts broker. A factory. | `layout`, default `arc`; `tags`, every tag and untagged windows when empty. |
+| `desktop/adoption` | Adopts windows. Its pose memory child writes a dropped window's pose to `lunette.pose` and registers the native rule source that reads it back. | `tags`, default none; `filter`; `precedence` of the pose source, default `PRECEDENCE.native`. |
+| `desktop/pacing` | Sets each window panel's frame rate from its `lunette/pacing` pacer and pauses hidden monitor captures. | `pauseMonitors`, default true. |
+| `desktop/scale` | Sets each output's scale from its `lunette/scale` chooser for the nearest shown window panel. | None. |
+| `desktop/manager` | The runtime manager panel, described below. | `visible`, `refreshInterval`, `view`, `position`, `width`, `height`, `pixels`. |
+| `desktop/theme` | The theme selector, described above. A factory. | `preset`, `overrides`. |
+
+Each entry's `config.luau` returns `{ schema = descriptor }` and owns its schema and defaults. Geometric options are native vectors built with `vector.pack`, and colours are RGBA lists that `theme/descriptors.luau` validates.
+
+### Placement
+
+Placement is `desktop/workspaces`, `desktop/rules`, `desktop/persistence`, `desktop/arrange`, and `desktop/adoption`. The placement provider joins rules, panels, and tags: it resolves a window's properties, makes its panel, and holds the tags the properties name. Rule sources apply in ascending precedence: configured rules at `PRECEDENCE.rules` (100), the saved arrangement at `PRECEDENCE.persisted` (200), and the native pose property at `PRECEDENCE.native` (300). Saved state supplies pose, size, and tags; the native source supplies a hand-placed pose. The rule list and the saved arrangement must be registered before adoption resolves the first window, so a rules source a configuration inserts goes `before = 'desktop/adoption'`. Tags are held, so whichever entry names a workspace tag first makes it, and the entries need no other order.
+
+Drops reach pose memory, persistence, and arrangement through `lunette/drops`, which the interaction provider emits to when a grab ends. None of them requires interaction.
+
+`desktop/arrange` arranges when it activates, when a placement is announced, when a panel is removed, when a layout registers or unregisters, and when a tag changes. Its candidates are live placements made without a pose, less panels dropped while it was active and windows with a `lunette.pose` property. The chosen tags are taken selected first, then the rest, and each tag arranges its candidates that no earlier tag took, with the configured layout. Without configured tags, candidates in no tag are arranged last as one group. A layout's options are the configuration of the plugin that registers it, such as `layout/arc`'s `tuning`. A layout registered as `continuous` is also applied every frame in the `scene` phase. A missing layout is logged once per name.
+
+A persistence state reads a versioned file written by `@lunette-plugins/arrangement/format`. A file it cannot read, or one from a newer version, is reported and never overwritten. A window is saved under its application id and a monitor under its id. A window holds a slot from the creation of its panel until it dies, so a window that closes and reopens returns to its slot. A monitor panel that appears later is restored as it appears. A saved entry that matches nothing is reported once per arrangement. The state is made at the first activation and kept across activations with the same `file`. The rules source and arrival listener are effects of the activation. `desktop/persistence` saves when a drop is announced and at quit; a quit-save failure is reported and does not veto the quit.
+
+`desktop/workspaces` selects the first workspace already selected, or the first in the list. A panel in a workspace's tag and in no selected one is hidden through a visibility override, which it withdraws rather than overriding to show, so a panel another plugin hid stays hidden. A window placed into no workspace joins the shown one, and so do placed windows in no workspace when the consumer activates; adoption therefore needs no workspace tag. With `follow`, a window placed into workspaces none of which is shown also moves into the shown one. With more than one workspace, a child registers `desktop/workspace/<name>` actions in the Workspaces menu group, so a menu outage leaves selection and visibility unchanged.
+
+### Pacing and scale
+
+`desktop/pacing` passes each window panel's hidden state, the window's `contentType`, and whether its `commit` changed to a pacer kept for the window. It observes commits only while the window is unthrottled, because a throttled client's commits describe the throttle. With the default tuning, a hidden panel's window runs at 1 Hz, a hidden video, game, or busy window at 30 Hz, and a shown panel's window unthrottled. A window whose panel is removed returns to unthrottled. While `pauseMonitors` is true, a hidden monitor panel's capture is paused.
+
+`desktop/scale` measures from the head to the centre of every shown window panel, takes the nearest for each `window.output`, and sets the output's scale when its chooser's step changes. An output with no shown window panel keeps its scale, and nothing changes while the headset reports no head.
+
+Unloading either entry reverts what it set. A scale is restored only if it is still the one the entry set.
+
+## Session composition and inspection
+
+`@lunette-plugin/management` owns the running entries and their configuration and provides `lunette/composition`, whose service lists, enables, disables, reloads, configures, removes, restores, and recovers entries. Configuration is validated through the definition's resolver before any cleanup. A failed initializer stays failed and inspectable, and `recover` reloads the last configuration observed active. Replacement is not transactional, and a cleanup failure leaves a quarantined entry. The catalog keeps each known entry's identity and order after removal, and `restore` reinstalls it from its retained definition and configuration.
+
+The service protects itself and the configured entries, following their current and failed provider bindings and parent ownership. `desktop.run` protects `desktop/manager`, `desktop/menu`, `desktop/keyboard`, `desktop/pointing`, and `desktop/actions`, so the controls needed for recovery stay available. Code that mutates the raw runtime bypasses this policy.
+
+`Runtime:snapshot()` returns detached records without running callbacks or draining work: instances, declared capabilities, current and failed bindings, generations, activations, ownership, dependents, diagnostics, and effect states. Brokers expose `inspect()` through their contracts, returning primitive metadata about registrations and owners without invoking any user callback.
+
+`desktop/manager` is a movable `lunette/ui` panel, hidden initially, with a Plugins titlebar. The Plugins menu action, `desktop/manager/open`, toggles it. It lists entries with their state and protection, and selecting one opens its details and lifecycle actions. A Graph view shows the dependency graph with pan, zoom, search, and dependency traversal. The sidebar shows bindings, effects, broker registrations, and a configuration editor that preserves callbacks and opaque values; Apply runs composition preflight. The manager refreshes its snapshots every `refreshInterval` while visible and registers no global key or text handler. Independent child consumers inspect each broker, so a broker outage does not withdraw the panel.
+
+## Module lifecycle
+
+Source reload runs every module again ([Reload](lua-api.md#reload)), so a module keeps no module-level state, and a non-plugin module that holds native resources releases them itself.
+
+Each module's tests are in a `tests` directory beside it, as [CONTRIBUTING.md](../../CONTRIBUTING.md#lua-tests) states. `lua/lunette-desktop/tests` drives the shipped desktop: startup and ten production reloads, provider outages, persistence through hotplug and reopened windows, settings, protection, and each example configuration. The tests run over the fake native API in `lua/testing` and do not establish an XR or GPU-backed boot, host-desktop acceptance, or an installed session.
+
+Safe mode is compiled into the binary and requires only `@lunette`, so a missing or broken module tree cannot prevent recovery.
+
+## Policy and mechanism
+
+| Concern | Owner |
+|---|---|
+| Window and monitor handles, sinks, outputs, layers, and capture | `lunette` |
+| Panel layout, picking, pointer behaviour, and frame-rate policy | Providers and consumers |
+| Contract identity, provider bindings, lifecycle, and cleanup | The native plugin runtime |
+| Service and configuration types | Luau contracts and definitions |
+
+The panels provider adapts native pixels to Lua geometry. Its `rendering` defaults to `'plane'`, so window content takes part in scene depth. `'layer'` puts windows into composition layers with scene fallback. Monitor panels stay in the scene because the layer claim API accepts windows only. Pointer hover never takes keyboard focus; with `focusOnPress`, a press does.
 
 ## Decisions
 
-Choices made deliberately, recorded with their reasoning, so they are not relitigated by accident.
+The Lua roots stay separate from `lunette`. Distinct roots keep a Lua implementation from looking like native mechanism and let a configuration replace any provider.
 
-A contract's data properties are declared `read`. Luau compares a read-write property invariantly and a read-only one covariantly (`Analysis/src/Subtyping.cpp`), so a contract whose properties are read-write is satisfied by nothing that narrows one: `pose: Mat4` does not answer `pose: Mat4?`, and a type carrying no such field at all does not answer an optional one. Both are what an implementer does. This was arrived at after trying the alternatives, so the alternatives are recorded: declaring the implementer as `Contract & { extras }` works and forces every implementer to name the contract, which a lower tier cannot; declaring the contract's properties read-write and hoping is what produced the intersection in the first place.
+Contracts stay separate from providers, so plugins typecheck against a service without importing its implementation.
 
-A method's receiver names the contract, and an implementer names it too. A receiver is a parameter, parameters are contravariant, and an implementer naming its own type there asks that every implementer accept every other one. Writing `any` on both sides typechecks and checks nothing. `mullion.interaction.types` exists so that a tier 1 module can name `Surface` without requiring the tier that drives one: naming a type in Luau means requiring the module that declares it, which is a runtime require and not a type-level one.
+Panel lifecycle is announced through the panels contract. A consumer that imported the provider's private modules could not work with a replacement, and a module-global registry of per-panel cleanups outlives activations. A panel is released before its owner's effect is disposed, because the runtime withholds an owner's authority while its inverse runs, and a removal announced from the inverse would reach the owner's own listeners as if the owner were gone.
 
-A closed set is a union, and where its members differ it is discriminated. A panel's source is `lunette.Window | lunette.Monitor` rather than a shape either might fit, a panel is discriminated on `kind`, and a surface carries the handle its kind names, so testing the kind reaches the handle. This replaced a structural `Source` that both fitted, which had let `source.opaque` be read on monitors, where the field does not exist.
+A saved slot is held by its window. Taking a slot on every resolve would let `rules:resolve` consume slots. Freeing a slot when the panel is removed would let a provider outage, which removes every panel while the windows remain, shuffle windows between slots.
 
-Standard library on disk, not embedded. It should be legible to someone who has the binary and not the source.
+The arrangement is saved on a drop and at quit. Saving on panel removal was rejected because removal happens mostly during outages, reloads, and unloads, when the desktop is coming apart. A drop is the moment the user finishes placing a panel.
 
-The standard library is mounted by wrapping the `package.preload` entry LÖVR builds `lovr.filesystem` from. `vendor/lovr/etc/boot.lua:76` creates that module and `:183` requires `main.lua`, both on the first resume of the coroutine the host drives, so there is no moment between them the host can reach from outside: before the resume the module does not exist, and after it the configuration has already run. Wrapping the loader puts the mount between the two, which is what a configuration whose first line is `require '@mullion'` needs. The tree is mounted at `@mullion`, and the development-only `spec/` tree is mounted at `@spec`, so Luau's require-by-string resolver and LÖVR's loader use the same paths. The explicit mount point means a configuration can no longer shadow a mullion module by placing a file of the same name at the filesystem root. The `@` is visible in tracebacks as a doubled `@@` because LÖVR uses `@` as its own chunk-name marker; this is cosmetic but user-visible. The wrapper is a C closure holding the original loader and the paths as Lua upvalues rather than a Rust closure holding Lua values, so Rust keeps no reference into a state a soft reload will discard. The alternatives considered were pointing `package.path` at the tree, which works but takes the standard library out of the virtual filesystem the rest of the session reads through, and patching `boot.lua`, which is upstream's file and would make every LÖVR bump a merge.
+The desktop is an installed root changed by patches. Consumers composed by a fixed sequence in `main.luau` were rejected: a configuration could not reuse one without copying it. Patches name what they change by a stable id. Unknown ids and two patches for one id raise, because a patch that matches nothing does not do what it says.
 
-Resolution has two candidates and no third: `LUNETTE_STDLIB_PATH` when it is set, and `$PREFIX/share/lunette/lua` otherwise. A relative override is taken as it stands, unlike the XDG variables, because pointing the variable at a working tree is the whole development loop for `mullion`. A `./lua` fallback was considered, so that a build tree worked without the variable, and was not taken: it makes what a session loads depend on the directory it happened to be started from, which is a property no user can see and no configuration can state.
+Settings keyed by entry id expand to one patch each, so an entry has one name in settings, patches, errors, and the runtime manager. Short setting keys were rejected because several named a `desktop/` consumer while a patch with the same id named a provider. A typed configure patch per entry was rejected as the configuration path because its target had to be found among module shapes and could name another entry's definition. A combined desktop plugin was rejected because it would require the union of its consumers' dependencies and lose independent outages.
 
-The shipped configuration sets `saveprecedence = false`, which LÖVR defaults to true. The default mounts the save directory ahead of every other archive, so a file written there shadows the one it is named after — the mechanism a packaged LÖVR application is patched through. For lunette it is a trap: a session that writes `mullion/init.lua` or `main.lua` into its save directory replaces the standard library or the configuration for every session after it, and a reload cannot undo it because the reload reads the shadowing copy too. Turning it off leaves the save directory mounted and readable and only stops it winning a name collision. The mount itself is read-only regardless, since a physfs mount is: `lovr.filesystem.write` cannot modify a file in the standard library on disk. A configuration that sets `saveprecedence` back to true gets LÖVR's behaviour and the hazard with it.
+Every shipped plugin is under `@lunette-plugins`. A provider's folder is its contract, and any other plugin's folder is its entry id, so the path follows from what a patch or log line names. `desktop/persistence` provides `lunette/arrangement`, so it is `@lunette-plugins/arrangement` under the provider rule and keeps its id. Grouping consumers by domain was rejected because the path would differ from the id.
 
-### The video exemption is a hint plus a heuristic, and lives in Lua
+Shared helpers live with what they describe. An optional root of helpers would make a shipped provider depend on a root an installation may lack. The key names are the native API's, read from `lunette-capture`'s `VirtualKey`, so they cannot drift from what the sinks emit; a hand-written table was rejected for that reason.
 
-`wp_content_type_v1` is advertised and read at commit, and that is all the native layer does with it. There is no handler trait, no events, and no way for a compositor to ask; a client sets a value or it does not, and adoption is thin enough that a client actually playing video usually reports `none`. Treating the hint as a detector would throttle most video players and exempt some paused ones.
+Configuration merges records and replaces everything else. A colour list or a vector is one value, and merging `{ 1 }` into `{ 0.5, 0.5, 1, 1 }` by position would make a colour nobody wrote. Descriptors replace inference from defaults because optional values, unions, callbacks, and empty collections need an explicit type.
 
-So the hint is reported as `win.contentType`, a closed set rather than a string on the wire, and `mullion.pacing` decides. It exempts a window when the hint says so **or** when the observed commit rate is close to full, because each covers the other's blind spot: the hint catches a video paused on a still frame, which commits nothing, and the commit rate catches a player that sets no hint at all. Putting either half in the compositor would be policy in the mechanism layer, which `CONTRIBUTING.md` forbids and which a configuration could then not replace.
+Geometric values are native vectors. Numeric tables lose the geometric type and need scalar arithmetic.
 
-`mullion.pacing` rather than an addition to `mullion.scale`. The two answer different questions — how sharp a panel is, and how often its client draws — and a file named for one is a poor place to put the other. The pacer is pure for the reason the scale chooser is: it is handed what its caller observed and answers with a rate, so a whole session's worth of policy is exercised without a headset, a clock, or a window.
+Plugin modules share one shape, a record whose `definition` is a definition or a factory, so an entry names any module the same way.
+
+Placement is several entries, following the integration component of section 6.5 of the Cordis paper. One policy entry was rejected because replacing the layout, the rules, or persistence would mean copying all of it. Pose memory is one consumer that both writes the pose on a drop and registers the rule source that reads it, because either half without the other loses hand-placed poses across reloads. A provider method for the reading half was rejected because a substitute adoption provider would carry half a feature. It is a child of `desktop/adoption`, enabled before the start, so its source is registered before the first window resolves. `desktop/arrange` learns of placements from the placement contract, which carries the resolved properties; `panels:onAdded` reaches every panel without them.
+
+A dropped panel leaves the arrangement. Re-arranging on a drop would move the other windows as the user lets go of one. A kept `lunette.pose` property also excludes a window, so a window dragged during an outage of `desktop/arrange` is not arranged again; a record in the drops broker would end with the broker's activation.
+
+A window in several tags is arranged by its first selected tag, so its pose comes from a layout the user is looking at. A layout's options are the configuration of the plugin that registers it. Options carried by the tag were rejected because a tag is shared state, and options passed with each application were rejected because they gave the arc a second, untyped home.
+
+Rendering, mirroring, and the hint are separate entries, so a configuration replaces one without the others. Offering panels is a child of `desktop/render` that requires surfaces, so a surfaces outage leaves panels drawing. Mirrors take the lowest free place in the row and are not re-laid, because the saved arrangement restores a mirror as it appears.
+
+Workspaces are one default entry with one `main` workspace, so the shipped menu shows no Workspaces group until a configuration names a second. `desktop/workspaces` puts a window placed into no workspace in the shown one, so the link holds however the workspace list was configured. Composition pointing adoption at the first workspace was rejected because only the setting did it, and an equivalent patch or a Configure edit left new windows outside every workspace. Its menu actions are a child so a menu outage does not reveal hidden windows. Workspace chords are not shipped because session controls must be reachable through VR input.
+
+Pacing and scale are providers (issue #38), and the desktop entries read the scene and apply them. A different rule is a different provider, and a different reading of the scene is a different consumer. Both entries are on by default and revert on unload, because a disabled entry must not leave outputs at a step it chose.
+
+A relative require resolves against the requiring file, as in the checker and editors. Resolving against the configuration root would let a plugin in a subdirectory check clean and fail to load. Replacing LÖVR's require with Luau's require library was rejected because it keys its cache apart from `package.loaded`, which reload clears.
+
+Settings are typed by a table keyed by entry id that reuses each entry's descriptor. A patch type discriminated by `id` was rejected because it needs an arm for inserted entries, which would accept a mistyped option for any shipped entry.
+
+Small VR controls come from a replaceable `lunette/ui` provider, so a configuration can replace control policy without importing a widget implementation. Larger interfaces remain Wayland clients.
+
+Menu actions are a broker separate from rendering, so the wrist menu, the UI provider, or the broker can be replaced independently. Enabled and selected state are explicit owner updates, so listing runs no action code. The keyboard display observes focus metadata rather than being required by each widget, which avoids a dependency cycle.
+
+Pointer feedback draws in its own final `feedback` phase. Raising the pointing draw's order was insufficient because order applies only within a phase, and moving the pointing update after overlays would change interaction timing.
+
+Shared UI geometry offsets controls, contents, and glyphs by 1 mm steps without depth writes, so coplanar parts do not conflict and depth does not accumulate across controls. Intersecting panels can show draw-order artefacts within that span; per-panel masks were not added.
+
+A grab keeps the panel's pose relative to the controller. Upright-only movement was rejected after headset testing found it less usable.
+
+The manager refreshes its snapshots on an interval while visible, because rebuilding them every frame repeats work unrelated to the display rate.
+
+Every source is `.luau` because every source uses Luau syntax, and an editor that sees `.lua` reports the annotations as errors. The fork resolves `main.luau` first ([LÖVR integration](lovr-integration.md#mainluau-as-the-entry-point-under-luau)).
 
 ## Known gaps
 
-Named, not solved.
-
-Soft reload can leak. Timers, signal connections, and coroutines from a previous config persist unless torn down. `mullion` provides the hook; nothing forces its use.
+The desktop tests do not establish an XR or GPU-backed boot, host-desktop acceptance, or an installed session. Geometry recorders do not rasterise edges, alpha, depth, or fonts. The theme and rounded-geometry gates in [Desktop configuration](../guide/desktop-configuration.md) remain pending.
 
 ## Deliberately left open
 
-Questions this design does not answer yet.
+Pacing reads whether a panel is hidden, not whether it is in view, gazed at, or distant ([Rendering](rendering.md#frame-pacing)). Pacing by view direction risks a stutter as the head turns back, and the choice is left until it can be tried on hardware.
 
-2D widget toolkit. Deferred, and may end up as a recommended separate library rather than part of `mullion`. Ambitious UI should be a real Wayland client, spawned rather than built in.
+The arc is the only shipped layout. `examples/layout` holds grid and follow layouts as examples.
 
-Layout algorithms. There is no prior implementation to copy and no comparable system to consult.
+Issues #15, #36, and #39 hold deferred follow-up work.

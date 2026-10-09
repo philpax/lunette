@@ -1,69 +1,19 @@
-//! Linux-only: whether lunette renders a scene of its own, and what it costs
-//! not to.
+//! Linux-only: controls whether LÖVR acquires and renders the projection layer.
 //!
-//! An overlay whose panels are all on composition layers has nothing left to
-//! put in a projection layer. `docs/dev/rendering.md` calls that skipping the
-//! projection layer, and the name understates what is skipped.
-//!
-//! # What `setLayers{ main = false }` saves
-//!
-//! `lovrHeadsetSetLayers`'s third argument becomes `state.showMainLayer`,
-//! and all that does at submit is leave the `XrCompositionLayerProjection`
-//! out of `XrFrameEndInfo::layers` (`headset.c`). The render pass, the
-//! multisample resolve, and the swapchain wait have all already happened by
-//! then.
-//!
-//! The saving is in not asking for the pass. The colour swapchain is acquired
-//! lazily, inside `lovrHeadsetGetTexture` and `lovrHeadsetGetPass`, so a
-//! frame that calls neither skips the acquire, the `xrWaitSwapchainImage`,
-//! the pass, and the resolve. A frame that calls one of them and then sets
-//! `main = false` performs the acquire and the wait, then discards the
-//! result.
-//!
-//! # The two calls, not the flag
-//!
-//! `vendor/lovr/etc/boot.lua` calls `lovr.headset.getPass()` unconditionally,
-//! before it has looked at whether `lovr.draw` exists, and `lovr.mirror`
-//! calls `lovr.headset.getTexture()` for the desktop window. lunette runs
-//! that loop unmodified; `docs/dev/lovr-integration.md` records keeping LÖVR's
-//! `lovr.run`. The two calls are wrapped: while the scene is skipped each
-//! answers nothing, `boot.lua` then gets no headset pass, and `lovr.draw` is
-//! not called.
-//!
-//! The XR frame is submitted either way. `lovr.headset.submit()` is outside the
-//! branch, and `docs/dev/rendering.md` is explicit that an overlay submits every
-//! cycle. Leaving the runtime's frame loop would also leave the composition
-//! layers unsubmitted.
-//!
-//! # The flush
-//!
-//! `if headset or window then lovr.graphics.submit(headset, window) end`
-//! (`boot.lua`) is the only thing that submits `state.stream`, and the
-//! frame's layer copies are recorded into it (`lovrGraphicsSubmit`,
-//! `graphics.c`; `lovrGraphicsPresent` does not touch it). With no window
-//! open and no headset pass, that line does not run, and
-//! `lovr.headset.submit()` still releases every layer's swapchain image, so
-//! the runtime would composite from an image whose copy is still unsubmitted.
-//! The gate submits the stream itself on a skipped frame that recorded
-//! copies, before answering nothing.
+//! A skipped frame still submits an XR frame so composition layers reach the runtime.
 
 use mlua::{Function, Lua, Table, Value};
 use tracing::debug;
 
 /// Whether lunette renders its own scene this frame.
 ///
-/// Latched at the frame boundary, not read live. The `setLayers` call at the
-/// start of a frame and the gate that runs in the middle of it read the same
-/// value. Reading live would leave a projection layer that nothing drew into
-/// presenting stale content for half a frame.
+/// The value is latched at the frame boundary so layer submission and the gate use the same state.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SceneRendering {
-    /// `lovr.draw` runs, the projection layer is submitted, and the frame
-    /// costs what it always did.
+    /// `lovr.draw` runs and the projection layer is submitted.
     #[default]
     Drawn,
-    /// No pass is acquired, `lovr.draw` is not called, and the projection
-    /// layer is left out of `xrEndFrame`.
+    /// Skips pass acquisition, `lovr.draw`, and projection-layer submission.
     Skipped,
 }
 
@@ -85,50 +35,32 @@ impl SceneRendering {
 /// What the gate does about one call to `getPass` or `getTexture`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Gate {
-    /// Call LÖVR. This is every frame that draws a scene.
+    /// Call LÖVR.
     Through,
     /// Answer nothing.
     Skip,
-    /// Answer nothing, having first submitted LÖVR's stream: this frame
-    /// recorded layer copies that nothing else will submit. The module note
-    /// explains why the flush is needed.
+    /// Submits LÖVR's stream first, because this frame recorded layer copies.
     SkipAfterFlush,
 }
 
 impl Gate {
-    /// Whether the call is answered or passed through.
     const fn skips(self) -> bool {
         matches!(self, Self::Skip | Self::SkipAfterFlush)
     }
 
-    /// Whether LÖVR's stream is submitted before answering.
     const fn flushes(self) -> bool {
         matches!(self, Self::SkipAfterFlush)
     }
 }
 
-/// Wraps `lovr.headset`'s two swapchain-acquiring entry points with `decide`.
+/// Wraps `lovr.headset`'s swapchain-acquiring methods with `decide`.
 ///
-/// Called once per Lua state, before `boot.lua` runs. The wrap is of the
-/// `package.preload` loader, not of the module: the module does not exist
-/// until `lovr.boot` requires it, which happens inside the same resume that
-/// goes on to run `main.lua`.
-///
-/// A state with no LÖVR in it, such as every test state and any state where
-/// the headset module was not preloaded, is left alone. There is nothing to
-/// gate there and nothing to report.
-///
-/// # Rust holds no reference into Lua
-///
-/// The wrapper is a Lua closure over the original loader, built by the chunk
-/// below; `decide` is a Rust closure that captures no Lua value. This is the
-/// same prohibition [`crate::lua`] states, for the same reason: a soft reload
-/// discards the Lua state, and a `Function` cached on the Rust side would
-/// outlive the state that owned it.
+/// The `package.preload` loader is wrapped because the headset module is created during boot.
+/// Lua owns the wrapper, so no reference outlives a state during reload.
 ///
 /// # Errors
 ///
-/// If `package.preload` cannot be reached, or the chunk cannot be loaded.
+/// Returns an error if `package.preload` is unavailable or the wrapper chunk fails to load.
 pub fn install_gate(lua: &Lua, decide: impl Fn() -> Gate + 'static) -> mlua::Result<()> {
     let preload: Table = lua.globals().get::<Table>("package")?.get("preload")?;
 
@@ -139,8 +71,6 @@ pub fn install_gate(lua: &Lua, decide: impl Fn() -> Gate + 'static) -> mlua::Res
         return Ok(());
     };
 
-    // The two booleans are the shape the chunk consumes. `Gate` is the type
-    // the rest of the codebase uses; the translation happens once, here.
     let decide = lua.create_function(move |_, ()| {
         let gate = decide();
         Ok((gate.skips(), gate.flushes()))
@@ -153,16 +83,9 @@ pub fn install_gate(lua: &Lua, decide: impl Fn() -> Gate + 'static) -> mlua::Res
 /// The `package.preload` key LÖVR's headset module is registered under.
 const HEADSET_MODULE: &str = "lovr.headset";
 
-/// Builds the loader that gates the module the original loader answers with.
+/// Wraps `getPass` and `getTexture`, the methods that acquire the colour swapchain.
 ///
-/// Built in Lua. The original loader and the original methods stay as
-/// upvalues of a Lua closure, which the state collects when it is discarded.
-/// Registry references on the Rust side would outlive the discarded state.
-///
-/// `getPass` and `getTexture` are the two entry points that acquire the colour
-/// swapchain (`headset.c`); every other function on the module is untouched.
-/// `lovr.headset.submit` keeps its original behaviour: the XR frame is
-/// submitted whether or not lunette drew into it.
+/// `lovr.headset.submit` is not wrapped, because every XR frame must be submitted.
 const GATE_CHUNK: &str = r"
 local wrap = function(loader, decide)
   local gate = function(original)
@@ -248,8 +171,7 @@ mod tests {
 
             let gate = Rc::new(Cell::new(Gate::Through));
             let reader = Rc::clone(&gate);
-            // Reads the gate once and clears the flush, as `Session::scene_gate`
-            // does, so a frame flushes once however many gated calls it makes.
+            // Clears the flush as `Session::scene_gate` does, so a frame flushes once.
             install_gate(&lua, move || {
                 let gate = reader.get();
                 if gate == Gate::SkipAfterFlush {
@@ -321,8 +243,6 @@ mod tests {
 
     #[test]
     fn a_skipped_frame_that_recorded_copies_submits_the_stream_itself() {
-        // Otherwise `lovr.headset.submit` releases each layer's swapchain image
-        // while the copy into it is still queued in LÖVR's stream.
         let fake = Fake::new();
         fake.gate.set(Gate::SkipAfterFlush);
 
@@ -337,8 +257,6 @@ mod tests {
 
     #[test]
     fn a_later_skipped_frame_flushes_nothing_of_its_own() {
-        // The gate flushes only when instructed. `Session::scene_gate`
-        // provides the instruction.
         let fake = Fake::new();
         fake.gate.set(Gate::SkipAfterFlush);
         fake.frame();

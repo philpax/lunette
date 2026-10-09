@@ -7,7 +7,10 @@
     reason = "a failed expectation is how a test reports a failure; the ban is on production code"
 )]
 
-use std::ffi::{OsStr, OsString};
+use std::{
+    ffi::{OsStr, OsString},
+    time::{Duration, Instant},
+};
 
 use pretty_assertions::assert_eq;
 use smithay::backend::allocator::{Format, Fourcc, Modifier};
@@ -24,7 +27,7 @@ use crate::{
         input::evdev_button,
     },
     test_client::TestClient,
-    testing::TestCompositor,
+    testing::{DEADLINE, TestCompositor},
 };
 
 fn with_one_window() -> (TestCompositor, TestClient) {
@@ -421,6 +424,38 @@ fn a_client_that_matches_no_process_is_adopted_as_external() {
         Some(snapshot.processes[0].process),
         "an adopted process still owns the windows of the client it came with"
     );
+}
+
+/// `/proc` cannot say how an adopted process ended, so its disappearance is
+/// not reported as an exit with an invented status.
+#[test]
+fn an_adopted_process_that_disappears_is_dropped_without_an_exit() {
+    let mut compositor = TestCompositor::new();
+    let mut client = TestClient::connect(&mut compositor);
+    client.open_toplevel(&mut compositor);
+    client.attach_buffer(&mut compositor, PixelSize::new(320, 240));
+    assert_eq!(compositor.snapshot().processes.len(), 1);
+
+    let connecting = i32::try_from(std::process::id()).expect("a plausible pid");
+    compositor.proc().kill(connecting);
+
+    let expiry = Instant::now() + DEADLINE;
+    let mut exits = Vec::new();
+    while !compositor.snapshot().processes.is_empty() {
+        assert!(
+            Instant::now() < expiry,
+            "the adopted process was not dropped within {DEADLINE:?}"
+        );
+        compositor.step_for(Duration::from_millis(10));
+        exits.extend(
+            compositor
+                .drain_events()
+                .into_iter()
+                .filter(|event| matches!(event, Event::ProcessExited { .. })),
+        );
+    }
+
+    assert!(exits.is_empty(), "{exits:?}");
 }
 
 #[test]

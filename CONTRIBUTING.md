@@ -2,214 +2,250 @@
 
 ## What this is
 
-lunette is an XR window manager and Wayland compositor. It runs as an OpenXR overlay, spawns Wayland applications inside itself, mirrors the user's monitors, and presents both to Lua as textures and input sinks. The host is a Rust binary that dynamically links LÖVR; the scripting layer is Luau; the compositor is smithay, vendored from WayVR.
+lunette is an XR window manager and Wayland compositor. It runs as an overlay through LÖVR's selected OpenXR or OpenVR backend, spawns Wayland applications inside itself, mirrors the user's monitors, and presents both to Lua as textures and input sinks. The host is a Rust binary that dynamically links LÖVR, the scripting layer is Luau, and the compositor is smithay, vendored from WayVR.
 
-The project is licensed GPL-3.0-only, because it uses WayVR's GPL-3.0-only code. Contributions are accepted under that licence.
+The project is licensed GPL-3.0-only because it uses WayVR's GPL-3.0-only code. Contributions are accepted under that licence.
 
 <!-- contributing-templates: files=general.md,rust.md @ 57e7c55206a089254c37b212bb3ad43574cde20c -->
 
 ## Current status
 
-The workspace builds, links LÖVR, and opens a window running a Lua configuration. Nothing above that exists yet: no compositor, no capture, no standard library. The first milestone is a vertical slice whose purpose is de-risking two specific unknowns; see [docs/dev/roadmap.md](docs/dev/roadmap.md).
+The workspace contains the compositor, capture, native API, Luau checker, standard library, and plugin runtime. The shipped configuration runs `@lunette-desktop`, which composes the built-in providers and desktop consumers in `@lunette-plugins` as entries that a configuration changes through settings or patches by id. Session controls are VR menu actions and shared UI panels, including a runtime plugin manager and runtime themes. The desktop saves its arrangement when a grab drops a panel and at quit, and arranges unplaced windows with a layout chosen by name. Lua integration tests cover provider outages, placement precedence, save failures, monitor hotplug, reopened windows, and ten production source reloads. `make check` passes. An XR or GPU-backed boot, host-desktop acceptance, and installed-session execution remain unverified. [The roadmap](docs/dev/roadmap.md) records the remaining milestones, and [the standard library](docs/dev/stdlib.md) records the manual gates.
 
 ## Repository layout
 
-The layout is recorded in [docs/dev/build-and-development.md](docs/dev/build-and-development.md). In summary:
+[docs/dev/build-and-development.md](docs/dev/build-and-development.md) records the layout. In summary:
 
 ```
-crates/lunette/                       the binaries: lunette and lunctl, Lua injection, frame orchestration
+crates/lunette/                       the lunette and lunctl binaries, Lua injection, frame orchestration
 crates/lunette-compositor/            smithay; vendored fork of WayVR's backend/wayvr
 crates/lunette-lovr/                  cmake build and FFI surface for LÖVR
 crates/lunette-luau/                  the Luau type language, and the closed-set macro
-crates/lunette-capture/               wrappers over wlx-capture and HidProvider
-crates/lunette-generate-definitions/  generates the Luau definitions, declarations, and .luaurc files
-lua/lunette/                          the generated declarations for the native API
-lua/mullion/                          the mullion standard library
-lua/spec/                             the standard library's own specs
+crates/lunette-capture/               host output enumeration, monitor capture, and host-input providers
+crates/lunette-generate-definitions/  generates the Luau definitions, declarations, .luaurc files, and install manifest
+lua/lunette/                          generated declarations for the native API
+lua/lunette-plugin/                   typed plugin facade, composition, schemas, and runtime management
+lua/lunette-contracts/                neutral plugin service contracts
+lua/lunette-plugins/                  every built-in plugin, provider or consumer
+lua/lunette-desktop/                  the shipped desktop's entry list and settings
+lua/testing/                          development-only Lua test scaffolding
 etc/lunette/                          the generated Luau definitions
 etc/xdg/lunette/                      the default configuration
+examples/                             example configurations, checked and tested like the default one
+dev/                                  repository-only development configuration and plugins
 vendor/lovr/                          submodule, LÖVR with lunette's patch branch (recursive)
 vendor/lovr-docs/                     submodule, the API metadata and the Luau generator the definitions come from
 vendor/mlua/                          submodule, mlua with lunette's Luau ABI patches
 docs/dev/                             the design specification
+docs/guide/                           user-facing guides
 ```
 
-`lunette-compositor` must not depend on `lunette-lovr`. Logic-headless testing depends on that separation. It does depend on `lunette-luau`, which carries no Lua binding of its own: mlua is a feature there, off by default and turned on only by `lunette`.
+`lunette-compositor` must not depend on `lunette-lovr`, because logic-headless testing depends on that separation. It does depend on `lunette-luau`, which has no Lua binding of its own: mlua is a feature there, off by default and enabled only by `lunette`.
 
 ## Documentation
 
-`docs/dev/` is the design specification, not a description of the code. It is normative. A change that alters behaviour described there updates the relevant document in the same change.
+`docs/dev/` is the design specification. It is normative and describes the design, not the code. `docs/guide/` is for users writing configurations and plugins. It is not normative, follows the specification, and changes with it. Its examples live under `examples/`, where they are checked and tested. A change that alters behaviour described in either updates the relevant document in the same change.
 
-A document that has decisions, known gaps, or deliberately-open questions about its own subject records them in a `Decisions`, `Known gaps`, or `Deliberately left open` section at its end. A decision carries the reasoning that produced it and, where an alternative was rejected, what it was and why; a change that reverses one updates that section and states why. This exists so that settled questions are not reopened by accident, and it puts each decision beside its subject, so a reader of the document sees what shaped it. Facts that belong to no one document, such as licensing, are in [CREDITS.md](CREDITS.md).
+A document records decisions, known gaps, and deliberately open questions about its own subject in `Decisions`, `Known gaps`, and `Deliberately left open` sections at its end. A decision states its reasoning and, where an alternative was rejected, what it was and why. A change that reverses a decision updates that section and states why. This keeps settled questions from being reopened by accident, and keeps each decision beside its subject. Facts that belong to no one document, such as licensing, are in [CREDITS.md](CREDITS.md).
 
-The documents use a plain technical register: short declarative sentences, active voice, no second person, no emphasis formatting. New documentation matches it.
+The documents use a plain technical register: short declarative sentences, active voice, no second person, and no emphasis formatting. New documentation matches it.
 
 ## Vendored code
 
-`crates/lunette-compositor` is a hard vendor of WayVR's `backend/wayvr`. It carries WayVR's copyright and licence, and its provenance is stated at the top of each file taken from it.
+`crates/lunette-compositor` is a hard vendor of WayVR's `backend/wayvr`. It carries WayVR's copyright and licence, and each file taken from it states its provenance at the top.
 
-Vendored code is exempt from the house style in this document until it is rewritten. Reformatting it wholesale destroys the ability to diff against upstream when a fix is worth taking. Bring a file up to house style when a change touches it substantially, not in drive-by churn.
+Vendored code is exempt from the house style until it is rewritten, because wholesale reformatting destroys the ability to diff against upstream when a fix is worth taking. Bring a file up to house style when a change touches it substantially, not as drive-by churn.
 
-`wlx-capture` is a git-pinned external dependency, not a vendor. Fixes to it go upstream. Upstream is the `wlx-capture` directory of the WayVR monorepo, not the standalone `galister/wlx-capture` repository: that repository stopped at 0.5.4, which pulls `ashpd` with an `async-std` executor and a personal fork of pipewire-rs, while 0.6.0 removed both and exists only inside the monorepo with no independent tag. The pin therefore names a WayVR revision, and repointing it at the standalone repository is a regression rather than a tidy-up.
+`wlx-capture` is a git-pinned external dependency, not a vendor, and fixes to it go upstream. Upstream is the `wlx-capture` directory of the WayVR monorepo. The standalone `galister/wlx-capture` repository stopped at 0.5.4, which pulls `ashpd` with an `async-std` executor and a personal fork of pipewire-rs; 0.6.0 removed both and exists only inside the monorepo, with no independent tag. The pin therefore names a WayVR revision, and repointing it at the standalone repository is a regression.
 
 ## The forks
 
-`vendor/lovr` is a submodule pointing at `philpax/lovr`, a fork of upstream LÖVR, with lunette's patches on its `lunette` branch. That branch is rebased onto upstream `dev` rather than merged, so the patch set stays a readable series. Its own `deps/` are nested submodules, so clone recursively.
+`vendor/lovr` is a submodule pointing at `philpax/lovr`, a fork of upstream LÖVR, with lunette's patches on its `lunette` branch. That branch is rebased onto upstream `dev`, not merged, so the patch set stays a readable series. Its `deps/` are nested submodules, so clone recursively.
 
-Patches to LÖVR stay narrow and additive: new accessors, new struct fields, new build options. No behavioural changes to existing paths, with one exception: a patch that fixes an upstream defect changes the path it fixes, and says in its message which defect and why the fix belongs upstream rather than here. Each patch is shaped as an upstream pull request. The patch set is listed in [docs/dev/lovr-integration.md](docs/dev/lovr-integration.md), which also records what has been proposed and what has not.
+Patches to LÖVR stay narrow and additive: new accessors, new struct fields, and new build options. An upstream defect fix changes the path it fixes and states the defect and why the fix belongs upstream. The internal OpenVR backend is a larger deliberate exception that preserves LÖVR's session ownership and its existing OpenXR behaviour and defaults. The narrow patches are shaped as upstream pull requests. [docs/dev/lovr-integration.md](docs/dev/lovr-integration.md) lists the patch set and its exceptions, and records which have been proposed upstream.
 
-Three more forks carry patches the same way: `philpax/lovr-docs` on `lunette`, for the API metadata and its Luau generator; `philpax/mlua` on `lunette`, for the Luau ABI the LÖVR fork presents; and `philpax/luau` on `lunette/luau-bump`, which sits beneath `vendor/lovr` as its `deps/luau`. A change to any of them is a commit in the submodule, pushed to the fork, and the pointer bumped here in the same change; a pointer that names an unpushed commit fails every clone but the one it was made on. The recorded URLs are HTTPS so an anonymous clone resolves. A checkout that pushes repoints `origin` at the fork over SSH and keeps the original as `upstream`, which is what makes a rebase onto upstream reachable from the same checkout; in `deps/luau` the parent it was forked from, `bjornbytes/luau`, is a third remote named `lovr`.
+Three more forks carry patches the same way: `philpax/lovr-docs` on `lunette`, for the API metadata and its Luau generator; `philpax/mlua` on `lunette`, for the Luau ABI the LÖVR fork presents; and `philpax/luau` on `lunette/luau-bump`, which is `vendor/lovr`'s `deps/luau`. A change to any fork is a commit in the submodule, pushed to the fork, with the pointer bumped here in the same change. A pointer to an unpushed commit fails every clone but the one it was made in. The recorded URLs are HTTPS so an anonymous clone resolves. A checkout that pushes repoints `origin` at the fork over SSH and keeps the original as `upstream`, so a rebase onto upstream works from the same checkout. In `deps/luau`, the parent fork, `bjornbytes/luau`, is a third remote named `lovr`.
 
 ## Lua conventions
 
-There is no upstream Lua template. These conventions apply to the `mullion` standard library and to example configurations.
+These conventions apply to the Lua tree under `lua/`, the example configurations, and the development configuration under `dev/`. There is no upstream Lua template.
 
-- Target Luau, which accepts Lua 5.1 syntax and adds type annotations. Do not use LuaJIT-only or 5.2+ syntax that Luau rejects, and no `goto` (Luau has none).
-- Write a contract's data properties as `read`. Luau compares a read-write property invariantly, so `pose: Mat4` does not satisfy `pose: Mat4?` and a type carrying no such field does not satisfy an optional one. A read-only property is compared covariantly and both do. `interaction.Surface` is the worked example.
-- Name the contract as a method's receiver, in the contract and in the implementer both. A receiver is a parameter and parameters are contravariant, so an implementer naming its own type there cannot answer the contract; `any` on both sides typechecks and checks nothing. Where the tiers forbid naming it — a tier 1 module cannot require a tier 2 one, and naming a type means requiring the module that declares it — put the vocabulary in a types-only module, as `mullion.interaction.types` is.
-- Model a closed set as a union, and discriminate it where its members differ. A field that tells the arms apart is what narrows the others: testing `panel.kind` is what reaches the `lunette.Window` behind a window panel.
-- Fix a wrong declaration in the metadata or the generator, never in the calling code. Every workaround for a declaration that misdescribes LÖVR has changed behaviour: returning `true` from `lovr.quit` to satisfy its declared return vetoed the quit, and spelling an identity matrix out as sixteen numbers followed from an ambiguous constructor.
-- Use camelCase for functions and fields, matching LÖVR. Users write LÖVR code, and a second convention in the same file is friction with no benefit.
-- The standard library uses only the public `lunette` API. If it needs something the API does not expose, that is a defect in the API, not grounds for a private path.
-- Keep the two roots distinct. `lunette` is native mechanism; `mullion` is policy implemented in Lua. Do not add policy to `lunette` or expect mechanism from `mullion`.
+- Target Luau, which accepts Lua 5.1 syntax and adds type annotations. Do not use LuaJIT-only or Lua 5.2+ syntax that Luau rejects. Luau has no `goto`.
+- Name every Lua source `.luau`, including a configuration's `main.luau` and `conf.luau`. The extension tells an editor that the source is Luau.
+- Write a contract's data properties as `read`. Luau compares a read-write property invariantly, so `pose: Mat4` does not satisfy `pose: Mat4?`, and a type without the field does not satisfy an optional one. A read-only property is compared covariantly, and both do. `interaction.Surface` is the worked example.
+- Name the contract type as a method's receiver in both the service declaration and the implementation. A receiver is a parameter, and parameters are contravariant, so an implementation that names its own type there cannot satisfy the contract. `any` on both sides typechecks and checks nothing.
+- Put shared vocabulary in a neutral module when importing either service implementation would create a dependency cycle or unnecessary coupling. `lua/lunette-contracts/vocabulary.luau` is one.
+- Model a closed set as a union, and discriminate it where its members differ. A field that tells the members apart narrows the rest: testing `panel.kind` reaches the `lunette.Window` behind a window panel.
+- Fix a wrong declaration in the metadata or the generator, never in the calling code. Every workaround for a declaration that misdescribes LÖVR has changed behaviour: returning `true` from `lovr.quit` to satisfy its declared return vetoed the quit, and spelling an identity matrix as sixteen numbers followed from an ambiguous constructor.
+- Use camelCase for functions and fields, matching LÖVR. Users write LÖVR code, and a second convention in the same file adds friction with no benefit.
+- Use native `vector` values for three-dimensional positions, directions, and offsets. Construct them with `vector.pack`, keep `vector` fields in Config and Settings, and validate them with `schema.vector()`, which requires finite components. Vectors are immutable, so the caller keeps the value that a method such as `normalize` returns. Pass vectors to `Mat4:translate` directly, or unpack them at a scalar API boundary. Colours, two-dimensional coordinates, numeric lists, and full pose matrices keep their own representations.
+- The standard library uses only the public `lunette` API. A missing capability is a defect in the API, not grounds for a private path.
+- Keep module responsibilities distinct. `lunette` is native mechanism, and policy is Lua, written as providers and consumers. Do not add policy to the native API or expect native mechanism from a provider. The plugin facade, contracts, plugins, and shipped desktop have separate roots, and the desktop root only composes plugins.
+- A shipped plugin lives in `lunette-plugins` whatever its role: a provider under the contract it provides, and any other plugin under its entry id. `desktop/pacing` is `@lunette-plugins/desktop/pacing`, and `desktop/persistence`, which provides `lunette/arrangement`, is `@lunette-plugins/arrangement`.
+- A helper lives beside what it describes, in a contract's vocabulary or a provider's pure module, not in a root of helpers.
+- Development-only plugins live under `dev/plugins/`, and `dev/main.luau` inserts them through relative requires. They are checked and tested but not installed, and they add no shipped desktop settings or runtime aliases. `make run` selects the development configuration and the source module roots from the repository root.
 - The lunette API is available only in the main Lua state. Do not use it from `lovr.thread` or `lovr.task` states.
-- Every module is safe to `require` twice, and registers a teardown hook. Soft reload discards the Lua state; a module that leaks timers, signal connections, or coroutines across a reload is a defect.
+- Keep a plugin's optional `Config` separate from the resolved `Settings` its implementation receives. Use `plugin.provider` or `plugin.consumer` for configured definitions, and read services explicitly through `context:require`.
+- Every module is safe to `require` twice. During source reload the host keeps the Lua state, shuts down the plugin runtimes, clears subscriptions and user modules, starts a new plugin contract epoch, and runs each cleared module's body again when the new configuration requires it. A module therefore keeps no module-level state that a second run would duplicate.
+- Resources a plugin acquires are effects of its context or of its caller's owner, and the plugin runtime releases them. There is no teardown registry: the host does not clean up native resources a module holds outside a plugin.
+- Register a resource on a caller's owner with `context:acquire(owner, acquire)`, and use `context:resource(owner, acquire)` when the acquisition returns a value as well as an effect. `acquire` returns the value and its inverse together, and releases its partial resources if it raises before returning. The helper returns only after native registration succeeds, and it does not replace context-owned cleanup.
 - Never assume a handle survives a frame. Check `handle.dead` before use.
-- Never cache the result of `window:getTexture()` across frames. Textures rotate as the client cycles its buffers. Use `window:stabilize()` when a persistent texture is genuinely wanted.
-- Raise errors normally. Callbacks run under `xpcall`, and the handler reports them. Do not swallow errors to keep a frame alive.
+- Never cache the result of `window:getTexture()` across frames, because textures rotate as the client cycles its buffers. Use `window:stabilize()` when a persistent texture is needed.
+- Raise errors normally, and do not swallow them to keep a frame alive. Event listeners and plugin callbacks run under a protected call, the frame provider protects each update, draw, key, text, and quit handler, and the boundary reports what they raise. A LÖVR callback assigned outside such a dispatcher is not protected; [Errors](docs/dev/lua-api.md#errors) states the boundaries.
 - The file-size threshold is around 500 lines, lower than the Rust threshold because Lua modules carry less ceremony.
 - Comments end with a period. Headings and titles use sentence case.
 
 ### Formatting
 
-`stylua.toml` configures StyLua for the tree, and `stylua --check lua etc/xdg/lunette` is one of the standing checks. The settings describe what the tree already did rather than imposing something new: two-space indent, single quotes, no parentheses around a call's single string or table argument, and a 120-column width, which is where the code already sat.
+`stylua.toml` configures StyLua, and `stylua --check lua etc/xdg/lunette examples dev crates/lunette/tests/luau_check` is a standing check. The settings record the style the tree already used: two-space indent, single quotes, no parentheses around a call's single string or table argument, and a 120-column width. `syntax = "Luau"` is set because the Lua grammars reject type annotations.
 
-`syntax = "Luau"` is set because the tree carries type annotations that the Lua grammars reject.
+`.styluaignore` exempts the generated `lua/lunette/init.luau`, because the generator writes one declaration per line and does not reproduce StyLua's line breaking.
 
 ### The Luau static check
 
-`lunette check` typechecks `lua/mullion` and the shipped configuration against the generated definitions. It is the same in-process checker the user-facing command and `make check` run, so the two paths cannot drift.
+`make check-luau` runs the Luau checker against the generated definitions over `lua/lunette`, `lua/lunette-plugin`, `lua/lunette-contracts`, `lua/lunette-plugins`, `lua/lunette-desktop`, the shipped configuration, the configurations under `examples/`, and the development configuration and plugins under `dev/`. It skips every `tests` directory and `lua/testing`. The user-facing `lunette check` command uses the same checker. Session startup does not run the checker.
 
-The checker is strict mode. `etc/lunette/definitions.luau` declares the runtime: it is generated from lovr-docs by `crates/lunette-generate-definitions`, so a missing `lovr` field is fixed by correcting the metadata or the generator rather than by hand-editing the output. Luau declares the standard functions itself, and there is no `io` at runtime, so neither is declared here. mullion modules carry their own types.
+The checker runs in strict mode. `etc/lunette/definitions.luau` declares the LÖVR runtime. `crates/lunette-generate-definitions` generates it from lovr-docs, so a missing `lovr` field is fixed in the metadata or the generator, not by editing the output. Luau declares the standard functions itself, and the runtime has no `io`, so neither is declared there. Lua modules carry their own service and configuration types. The checker checks those shapes but does not prove that a plugin graph is wired correctly; the plugin runtime validates declarations and providers.
 
-`lua/spec/suite.lua` and `lua/spec/expect.lua` are checked: they are ordinary modules that happen to be used by tests. The spec files themselves are not, and neither is `lua/spec/runner.lua`. The runner requires by a name it computes from a directory walk, which is the one require form the checker cannot follow. The spec files construct the windows, seats, and sources they drive the standard library with as the smallest table each case needs, and the handle types are exact, so checking them would mean either building a whole handle per case or casting each one. Both make the tests worse at the thing they are for. A case that needs a real shape gets it from the module under test.
+Test files and `lua/testing` are not checked. A test builds the windows, seats, and sources it needs as the smallest table each case requires, and the fake native API installs functions onto the `@lunette` table, while the handle types are exact. Checking tests would mean building a whole handle per case or casting each one, and both make the tests worse. A case that needs a real shape gets it from the module under test.
 
 The check catches the two defect classes static analysis exists for: a local referenced before its declaration (`Unknown global`), and an accidental global (`GlobalUsedAsLocal`).
 
+### Lua tests
+
+A module's tests live in a `tests` directory beside it, never among its sources: `lua/lunette-plugins/pacing/tests/pacer.luau` covers `lua/lunette-plugins/pacing/pacer.luau`. Every `.luau` file directly inside a `tests` directory is a test file. Helpers shared by test files go in `tests/support/` and are required relatively, as `require './support/fixture'`. Any other file under a `tests` directory fails discovery, so a test file placed one directory too deep is reported rather than silently skipped. Scaffolding used by tests in more than one place goes in `lua/testing`, the development-only `@testing` root, and nowhere else.
+
+A test file returns a suite of named cases:
+
+```luau
+local testing = require '@testing'
+local expect = testing.expect
+local test = testing.suite()
+
+test('a case named as a sentence', function()
+  expect.equal(1 + 1, 2, 'the sum')
+end)
+
+return test
+```
+
+`crates/lunette/tests/lua/` discovers test files under `lua/` and `dev/` and runs each file as its own test, in a fresh Lua state where the module roots resolve from the working tree, `lovr.math` is LÖVR's own, and the plugin runtime is the real one. `testing.native()` installs the fake native API, `testing.start(entries)` starts plugins in a new runtime, and `testing.boot(entries)` starts a composition driven through LÖVR's callbacks. A session opened during a case closes when the case ends. `@testing/vr-ui` drives desktop pointing through the fake XR boundary, and `@testing/render` records drawing. A file fails when it returns no suite or an empty one, when a case raises, when a case leaves a plugin failure report that it did not take with `testing.takeReports()`, and when closing a session fails. [Build and development](docs/dev/build-and-development.md#testing) describes the runner. Neither the tests nor `lua/testing` are installed.
+
 ### The module roots
 
-`require '@mullion/panel'` resolves twice by two mechanisms that cannot see each other. A running session answers it from LÖVR's virtual filesystem, where `crates/lunette/src/boot.rs` mounts the standard library; the checker and a user's editor answer it from a `.luaurc` on disk, which is Luau's own mechanism and is why a require means the same thing in both. `@lunette` is a third case: it is `package.preload`, so nothing on disk answers it at runtime, while the checker reads the generated declarations at `lua/lunette/init.luau`.
+[Build and development](docs/dev/build-and-development.md#module-roots) lists each root's alias, source directory, runtime resolution, and installation. File-backed aliases resolve through LÖVR's virtual filesystem in a session and through `.luaurc` files in the checker and editor. `@lunette` is registered through `package.preload`.
 
-`crates/lunette/src/aliases.rs` states the roots once and everything derives from it. The session mounts what it says to mount; `lua/.luaurc` and `etc/xdg/lunette/.luaurc` are generated from it and verified by `make check-definitions`; and `lunette --dump-config` writes one beside the configuration it copies, naming this installation's standard library by an absolute path.
+A relative require, `./`, `../`, or `@self`, resolves against the requiring file by Luau's require-by-string rules, in the checker and in a session alike. `crates/lunette/src/require` wraps the session's `require` so that LÖVR's loader, which knows only the root of its virtual filesystem, agrees with the checker. [Module roots](docs/dev/stdlib.md#module-roots) states the rules.
 
-That last one is why a configuration is copied with the command rather than by hand. A `.luaurc` in the tree resolves its aliases relative to itself, so a copy of it beside a user's own configuration names a directory that is not there and every `require` fails to resolve — for `lunette check` and for their editor both.
+`crates/lunette/src/aliases.rs` describes the roots and their runtime resolution. The generator derives the `.luaurc` files from those descriptors, and `make check-definitions` verifies them. The Rust install manifest names the installed roots and generated declarations, and `make install` consumes it. `lunette --dump-config` writes a `.luaurc` beside the copied configuration that names the installation's Lua root by absolute path. A configuration is copied with that command, not by hand, because a `.luaurc` in the tree resolves its aliases relative to itself: a copy beside a user's configuration names a directory that does not exist, and every `require` fails to resolve, in `lunette check` and in the editor.
 
 ## General conventions
 
 ### Correctness over convenience
 
-- Model the full error space—no shortcuts or simplified error handling.
+- Model the full error space, with no shortcuts or simplified error handling.
 - Handle all edge cases, including race conditions, signal timing, and platform differences.
-- Use the type system to encode correctness constraints: newtypes, builder patterns, type states, lifetimes. Never use a bare string or integer where the domain has a meaning for it; a recognised closed set of values rides as an enum, not as bare strings.
+- Encode correctness constraints in the type system: newtypes, builder patterns, type states, and lifetimes. Never use a bare string or integer where the domain gives it a meaning; a recognised closed set of values is an enum, not bare strings.
 - Prefer compile-time guarantees over runtime checks where possible.
 - Use message passing or the actor model to avoid data races in concurrent code.
-- **Never silently drop content you can't represent.** When adapting data between formats, return an error for anything the target can't express. A caller may then choose to ignore it; silent data loss is a correctness bug, not a convenience.
-- Validate at each layer the data crosses, not only where the bug happened to surface. One check is bypassed by the next code path, refactor, or test double; the goal is to make the bad state structurally impossible, not locally absent.
-- Getting the details right is really important!
+- Never silently drop content that cannot be represented. When adapting data between formats, return an error for anything the target cannot express. The caller may choose to ignore it; silent data loss is a correctness bug.
+- Validate at each layer the data crosses, not only where a bug happened to surface. The next code path, refactor, or test double bypasses a single check. The goal is to make the bad state structurally impossible, not locally absent.
+- Get the details right.
 
 ### User experience as a primary driver
 
-- Provide structured, helpful error messages that can be rendered with an appropriate library at a later stage.
+- Every session UI renders in VR space, and every action is reachable through VR controls, including opening and closing panels, navigation, search, configuration, and text entry. Projected flat panels are valid VR UI. No session workflow requires a flatscreen interface, a physical keyboard, or a mouse, and the VR path stays complete without keyboard or mouse bindings. Developer command-line tools and logic-headless test runners are outside this requirement.
+- Provide structured, helpful error messages that a later stage can render with an appropriate library.
 - Make progress reporting responsive and informative.
-- Maintain consistency across platforms even when underlying OS capabilities differ. Use OS-native logic rather than trying to emulate Unix on Windows (or vice versa).
-- Write user-facing messages in clear, present tense: "Frobnicator now supports..." not "Frobnicator now supported..."
+- Keep behaviour consistent across platforms even when the underlying OS capabilities differ. Use OS-native logic rather than emulating Unix on Windows or the reverse.
+- Write user-facing messages in clear present tense: "Frobnicator now supports..." not "Frobnicator now supported...".
 
 ### Pragmatic incrementalism
 
-- "Not overly generic"—prefer specific, composable logic over abstract frameworks.
-- Evolve the design incrementally rather than attempting perfect upfront architecture.
-- **The rule of three**: don't abstract until you've seen the pattern three times. Three similar lines beat a premature abstraction, which is harder to remove than it was to add.
-- Don't build for hypothetical future requirements.
+- Prefer specific, composable logic over abstract frameworks.
+- Evolve the design incrementally rather than attempting a perfect upfront architecture.
+- Apply the rule of three: do not abstract a pattern before it appears three times. Three similar lines beat a premature abstraction, which is harder to remove than it was to add.
+- Do not build for hypothetical future requirements.
 
 ### Dependencies
 
-- Neither reflex is right: reaching for a dependency for something trivial and handrolling something with a long correctness tail are both mistakes, and the second is the more expensive one.
-- Handroll it when it's small, self-contained, and you can see the whole problem — a builder, a wrapper, a couple of pure functions.
-- Take the dependency when the problem has a tail you'd otherwise discover in production: dates and timezones, Unicode, text encodings, compression, TLS, anything cryptographic. Never handroll cryptography.
-- Prefer an existing dependency (including one of its feature flags) over a new one, and a focused library over a framework you'd use 5% of.
-- Where the project documents a chosen stack, use it rather than silently introducing an alternative to something already covered.
-- When it's genuinely unclear, ask rather than picking silently. Either direction is cheap to change early and annoying to change late.
+- Reaching for a dependency for something trivial and handrolling something with a long correctness tail are both mistakes, and the second is the more expensive.
+- Handroll code that is small and self-contained, where the whole problem is visible: a builder, a wrapper, a couple of pure functions.
+- Take the dependency when the problem has a tail that would otherwise surface in production: dates and timezones, Unicode, text encodings, compression, TLS, and anything cryptographic. Never handroll cryptography.
+- Prefer an existing dependency, including one of its feature flags, over a new one, and a focused library over a framework of which 5% would be used.
+- Where the project documents a chosen stack, use it rather than silently introducing an alternative.
+- When the choice is unclear, ask rather than picking silently. Either direction is cheap to change early and costly to change late.
 
 ### Boundaries and compatibility
 
-- A library never reads environment variables. Configuration — keys, URLs, feature flags, paths — arrives as parameters, and only the application entry point reads the environment. Otherwise the library can't be tested without manipulating the environment, and it's silently coupled to a deployment.
-- When changing anything serialised to disk or sent over a wire, walk the whole version matrix: old reader with new data, new reader with old data, and **old writer with new data**.
-  - That third case is the one that gets missed. A default lets an old reader parse new data, but an old writer then drops the fields it doesn't know about on write-back — which corrupts the file rather than failing on it.
-  - Bump the format version when you add the field, not when you first depend on it.
+- A library never reads environment variables. Configuration, such as keys, URLs, feature flags, and paths, arrives as parameters, and only the application entry point reads the environment. Otherwise the library cannot be tested without changing the environment, and it is silently coupled to a deployment.
+- When changing anything serialised to disk or sent over a wire, walk the whole version matrix: old reader with new data, new reader with old data, and old writer with new data.
+  - The third case is the one that gets missed. A default lets an old reader parse new data, but an old writer then drops the fields it does not know on write-back, which corrupts the file instead of failing.
+  - Bump the format version when the field is added, not when code first depends on it.
 
 ### Functional core, imperative shell
 
-- Keep decision logic in pure functions that take data in and return data out. Keep I/O, concurrency primitives, and orchestration in a thin shell at the edges.
-- The shape is gather, then process, then persist: the shell collects the inputs, the core decides, the shell writes the result. A core function that reaches out to read something mid-decision is the thing this is meant to prevent.
-- Isolate coupling to the outside world — filesystem, clock, network, subprocesses, devices — behind a small seam: a trait, an interface, a dependency struct, with a production implementation and a test fake. Tests are deterministic because they substitute the fake, not because they clean up after the real thing.
-- The payoff is testability. A pure core needs no fakes at all, and a thin shell has little logic left worth mocking. When a test needs elaborate setup to reach the behaviour it's checking, that's usually the code's shape talking, not the test's.
+- Keep decision logic in pure functions that take data and return data. Keep I/O, concurrency primitives, and orchestration in a thin shell at the edges.
+- The shape is gather, process, persist: the shell collects the inputs, the core decides, and the shell writes the result. A core function that reads something mid-decision is what this rule prevents.
+- Isolate coupling to the outside world, such as the filesystem, clock, network, subprocesses, and devices, behind a small seam: a trait, an interface, or a dependency struct, with a production implementation and a test fake. Tests are deterministic because they substitute the fake, not because they clean up after the real thing.
+- The payoff is testability. A pure core needs no fakes, and a thin shell has little logic worth mocking. A test that needs elaborate setup to reach the behaviour it checks usually points at the shape of the code.
 
 ### Code organisation
 
-The language-specific files set the file-size threshold and the naming conventions; these apply everywhere.
+The language sections set the file-size threshold and naming conventions. These rules apply everywhere.
 
-- Name a file for what it holds, not for a category. No `utils`, `helpers`, `common`, or `misc` — they become dumping grounds, and nothing stops unrelated code being added to a file whose name claims nothing. A file named for string formatting, or date arithmetic, or API error handling is one it's hard to put the wrong thing in. (Each language file gives the casing to use.)
-- Within a file, put the public API first, then the private implementation below it: constants, helpers, and internal types. Order the private items by use, so each appears roughly in the order the public API reaches for it (topological order).
-- Split a file along natural seams — distinct data types, feature groups, functional areas — not arbitrarily at the line limit. A cohesive single-concern file that slightly exceeds the threshold beats a fragmented one.
-- Group a wide folder into subfolders by domain or role. A flat folder of 20+ files is a signal that subfolders are wanted.
+- Name a file for what it holds, not for a category. No `utils`, `helpers`, `common`, or `misc`: such files become dumping grounds, because a name that claims nothing excludes nothing. A file named for string formatting, date arithmetic, or API error handling is hard to put the wrong thing in. The language sections give the casing.
+- Within a file, put the public API first and the private implementation below it: constants, helpers, and internal types. Order the private items by use, roughly in the order the public API reaches for them.
+- Split a file along natural seams, such as distinct data types, feature groups, or functional areas, not arbitrarily at the line limit. A cohesive single-concern file slightly over the threshold beats a fragmented one.
+- Group a wide folder into subfolders by domain or role. A flat folder of 20 or more files calls for subfolders.
 - Test files follow the same thresholds as the code they test.
 
 ### Testing
 
 - Test comprehensively, including edge cases, race conditions, and stress tests.
-- Pay attention to what facilities already exist for testing, and aim to reuse them.
+- Reuse the existing test facilities.
 - When fixing a bug, add the failing regression test first, then make it pass.
-- **Use real instances of what you control, and fakes for what you don't.** Your own database or filesystem is a managed dependency: talking to it is an implementation detail you can refactor freely, so test against the real thing. A third-party API, an SMTP server, a message bus is unmanaged: that conversation is observable behaviour, so put it behind a fake.
-- **Don't mock what you don't own.** Wrap the third-party library in your own thin interface and substitute that, rather than mocking the library's own surface. It makes the test simpler and the design better.
+- Use real instances of what the project controls, and fakes for what it does not. The project's own database or filesystem is a managed dependency: talking to it is an implementation detail that can be refactored freely, so tests use the real thing. A third-party API, an SMTP server, or a message bus is unmanaged: that conversation is observable behaviour, so it goes behind a fake.
+- Do not mock what the project does not own. Wrap the third-party library in a thin interface of the project's own and substitute that, rather than mocking the library's surface. The test is simpler and the design better.
 - Never add a method to production code that only tests call. Cleanup and inspection helpers belong in test utilities.
-- Wait for conditions, not for durations. Poll for the state you're expecting with a timeout, rather than sleeping long enough that it's *probably* ready — the latter passes locally and fails in CI. A fixed sleep is right only when the thing under test is itself about timing, like a debounce, and then the comment says why that duration.
-- Clean up long-lived resources: containers, VMs, processes, cloud objects. Don't bother scrubbing database rows and log entries — perfect data cleanup is a fool's errand that makes multi-step integration tests nearly impossible. A test that needs pristine state should mint unique identifiers instead of depending on an empty table.
-- Don't write a test that only exercises serialisation or a derived implementation. A round-trip earns its place only when it guards a real wire: a versioned payload, a public API, or a file format.
-- No personal names in fixtures, and never the author's own identity. Anonymise every test and fixture to invented placeholders; do not seed one from any real person's name, handles, or biographical details, even when real data reproduces the behaviour under test. Reproduce the *shape* of what you observed, never the actual content.
+- Wait for conditions, not durations. Poll for the expected state with a timeout instead of sleeping long enough that it is probably ready, which passes locally and fails in CI. A fixed sleep is right only when the behaviour under test is about timing, such as a debounce, and then a comment explains the duration.
+- Clean up long-lived resources: containers, VMs, processes, and cloud objects. Do not scrub database rows and log entries; perfect data cleanup makes multi-step integration tests nearly impossible. A test that needs pristine state mints unique identifiers instead of depending on an empty table.
+- Do not write a test that only exercises serialisation or a derived implementation. A round-trip test earns its place only when it guards a real wire: a versioned payload, a public API, or a file format.
+- No personal names in fixtures, and never the author's own identity. Anonymise every test and fixture to invented placeholders. Do not seed one from a real person's name, handles, or biographical details, even when real data reproduces the behaviour under test. Reproduce the shape of what was observed, never its content.
 
-Where a function has a property worth stating, prefer a property-based test over a handful of examples. Reach for the strongest property that applies — roughly, in increasing order of strength: doesn't crash, preserves the type, holds an invariant, is idempotent (`f(f(x)) == f(x)`), round-trips (`decode(encode(x)) == x`). An oracle property, where a new implementation must agree with the old one, is the tool for a rewrite.
+Where a function has a property worth stating, prefer a property-based test to a handful of examples. Use the strongest property that applies. In increasing order of strength: does not crash, preserves the type, holds an invariant, is idempotent (`f(f(x)) == f(x)`), and round-trips (`decode(encode(x)) == x`). An oracle property, where a new implementation must agree with the old one, is the tool for a rewrite.
 
-Two ways a property test can look fine and test nothing. It can be tautological, comparing an expression against itself. Or it can restate the function's own logic in the assertion, in which case a bug in your reasoning appears in both halves and cancels out. Include the degenerate cases — empty, single element — explicitly rather than trusting the generator to find them.
+A property test can look sound and test nothing in two ways. It can be tautological, comparing an expression with itself. Or it can restate the function's logic in the assertion, so that a reasoning error appears in both halves and cancels out. Include the degenerate cases, such as empty and single-element inputs, explicitly rather than trusting the generator to find them.
 
 ### Documentation
 
-- Use inline comments to explain "why," not just "what".
-- Don't add narrative comments in function bodies. Only add a comment if what you're doing is non-obvious or special in some way, or if something needs a deeper "why" explanation.
-- Module-level documentation should explain purpose and responsibilities.
-- Comments and docs describe the present state. Reserve past-tense narration for the rare case where history explains a standing "why".
-- Keep the user-facing docs in sync with the code. Where a document restates something the code owns — a config default, an example config file, a generated reference, an API surface — name the code as the source of truth and update the document in the same change. A code change that lands without its doc update isn't finished.
-- Better still, generate the document from the code and check it in CI. Don't rely on anyone remembering.
-- **Always** use periods at the end of code comments.
-- **Never** use title case in headings and titles. Always use sentence case.
-- Always use the Oxford comma.
-- Don't omit articles ("a", "an", "the"). Write "the file has a newer version" not "file has newer version".
+- Use inline comments to explain why, not only what.
+- Do not add narrative comments in function bodies. Comment only code that is non-obvious or special, or that needs a deeper explanation of why.
+- Module-level documentation explains the module's purpose and responsibilities.
+- Comments and documents describe the present state. Reserve past-tense narration for the rare case where history explains a standing reason.
+- Keep the user-facing docs in sync with the code. Where a document restates something the code owns, such as a configuration default, an example configuration, a generated reference, or an API surface, name the code as the source of truth and update the document in the same change. A code change without its documentation update is not finished.
+- Where possible, generate the document from the code and check it in CI rather than relying on memory.
+- End code comments with a period.
+- Use sentence case for headings and titles, never title case.
+- Use the Oxford comma.
+- Keep articles ("a", "an", "the"). Write "the file has a newer version", not "file has newer version".
 
-The two sections that follow are the Rust template. They apply to Rust code in this repository. The Lua conventions above apply to Lua.
+The two sections that follow are the Rust template. They apply to Rust code in this repository, and the Lua conventions above apply to Lua.
 
 ## Code style
 
 ### Rust edition and linting
 
-- Use Rust 2024 edition.
-- Format with **nightly rustfmt**: `cargo +nightly fmt --all`. `rustfmt.toml` opts into `imports_granularity = "Crate"` and `group_imports = "StdExternalCrate"`, which are nightly-only — stable rustfmt prints a warning about each and then silently skips them, so a stable-formatted file is *not* equivalent to a nightly-formatted one.
-- Ensure the checks pass at the end of each complete task (you don't need to do this for intermediate steps). `make check` runs all of them and `.github/workflows/ci.yml` calls the same targets, so a check added to the Makefile is added to both. The Makefile carries the commands; what each target is for:
-  - `make check-format` — nightly rustfmt, and stylua over the Luau (see [formatting](#formatting))
-  - `make check-headset` — hardware-free native headset tests through CMake and CTest, including harness failure propagation and missing-runtime cleanup.
-  - `make check-install` — hardware-free installation tests using real ELF fixtures, fake Cargo, and the Makefile installation rules. It requires Python, a C compiler, and patchelf.
-  - `make check-rust`, which is `make check-clippy` and `make check-test`, each over both feature sets. CI runs the two as separate jobs at the same time, because clippy builds through `RUSTC_WORKSPACE_WRAPPER` and shares no artifacts with a normal build: in series the workspace is compiled twice, one after the other.
-  - `make check-definitions` — regenerates every generated artifact into memory and fails if any differs from what is checked in, naming the first line that differs. Run `cargo run -p lunette-generate-definitions` and commit the result. It covers `etc/lunette/definitions.luau`, `lua/lunette/init.luau`, and the `.luaurc` files (see [the module roots](#the-module-roots)).
-  - `make check-luau` — the Luau type checker over `lua/mullion`, the spec harness, and the shipped config (see [the static check](#the-luau-static-check))
-- Configure clippy's restriction lints in `[workspace.lints.clippy]` in the workspace root's `Cargo.toml`, with each crate opting in via `[lints] workspace = true`:
+- Use the Rust 2024 edition.
+- Format with nightly rustfmt: `cargo +nightly fmt --all`. `rustfmt.toml` sets `imports_granularity = "Crate"` and `group_imports = "StdExternalCrate"`, which are nightly-only. Stable rustfmt warns about each and then skips them, so a file formatted with stable rustfmt differs from one formatted with nightly.
+- Make the checks pass at the end of each complete task; intermediate steps need not pass. `make check` runs all of them, and `.github/workflows/ci.yml` calls the same targets, so a check added to the Makefile is added to both. The Makefile holds the commands. The targets are:
+  - `make check-format`: nightly rustfmt, and StyLua over the Luau (see [formatting](#formatting)).
+  - `make check-headset`: hardware-free native headset tests through CMake and CTest, including harness failure propagation and missing-runtime cleanup. It builds the shader compiler from the vendored `deps/glslang`.
+  - `make check-install`: hardware-free installation tests using real ELF fixtures, fake Cargo, and the Makefile installation rules. It requires Python, a C compiler, and patchelf.
+  - `make check-rust`, which is `make check-clippy` and `make check-test`, each over both feature sets. CI runs the two as separate parallel jobs, because clippy builds through `RUSTC_WORKSPACE_WRAPPER` and shares no artifacts with a normal build; in series the workspace would be compiled twice.
+  - `make check-definitions`: regenerates every generated artifact in memory and fails if any differs from the checked-in copy, naming the first differing line. Run `cargo run -p lunette-generate-definitions` and commit the result. It covers `etc/lunette/definitions.luau`, `lua/lunette/init.luau`, and the `.luaurc` files (see [the module roots](#the-module-roots)).
+  - `make check-luau`: the Luau type checker over the shipped Lua roots outside their `tests` directories, the shipped and development configurations, and the examples (see [the static check](#the-luau-static-check)).
+- Configure clippy's restriction lints in `[workspace.lints.clippy]` in the workspace root's `Cargo.toml`, and opt each crate in with `[lints] workspace = true`:
 
   ```toml
   [workspace.lints.clippy]
@@ -217,133 +253,133 @@ The two sections that follow are the Rust template. They apply to Rust code in t
   expect_used = "warn"
   ```
 
-- The end-of-task and CI clippy commands pass `-- -D warnings`, so any warning fails those checks; a plain `cargo clippy` run reports warnings but doesn't fail on them.
-- Use `cargo clippy` in place of `cargo build` — it typechecks and lints in one pass, so a separate build buys nothing.
-- Iterate in debug. Reach for `--release` only when benchmarking or packaging.
-- No `unwrap()` or `expect()` in production code; tests are fine. The restriction lints are configured at `warn` and `-D warnings` promotes any warning to a hard error, including inside `#[cfg(test)]`, so a test module whose cases use `expect` carries `#[expect(clippy::expect_used, reason = "...")]` — naming the lints it actually uses, with a reason stating the rule. The vendored `lunette-compositor` crate does not opt in via `[lints] workspace = true`: it carries WayVR's code, whose tests use `expect` liberally, and it is exempt from house style until rewritten.
-- Never silence a lint without a concrete reason documented in a comment above it. In almost all cases the right move is to restructure the code.
-- When you do suppress one, prefer `#[expect(...)]` to `#[allow(...)]`. `expect` warns once the suppression is no longer needed, so stale suppressions can't quietly accumulate as the code changes around them.
+- The end-of-task and CI clippy commands pass `-- -D warnings`, so any warning fails them. A plain `cargo clippy` run reports warnings without failing.
+- Use `cargo clippy` in place of `cargo build`. It typechecks and lints in one pass, so a separate build adds nothing.
+- Iterate in debug. Use `--release` only for benchmarking or packaging.
+- No `unwrap()` or `expect()` in production code; tests may use them. The restriction lints are at `warn`, and `-D warnings` makes every warning an error, including inside `#[cfg(test)]`. A test module whose cases use `expect` therefore carries `#[expect(clippy::expect_used, reason = "...")]`, naming the lints it actually uses, with a reason stating the rule. The vendored `lunette-compositor` crate does not opt in with `[lints] workspace = true`: it carries WayVR's code, whose tests use `expect` freely, and it is exempt from house style until rewritten.
+- Never silence a lint without a concrete reason in a comment above it. Restructuring the code is almost always the right fix.
+- When suppressing a lint, use `#[expect(...)]` rather than `#[allow(...)]`. `expect` warns when the suppression becomes unnecessary, so stale suppressions cannot accumulate.
 
 ### Type system patterns
 
-- **Builder patterns** for complex construction (e.g. `TestRunnerBuilder`).
-- **Type states** encoded in generics when state transitions matter.
-- **Lifetimes** used extensively to avoid cloning (e.g. `TestInstance<'a>`).
-- **Newtypes** for domain types, per the general rule against bare primitives.
-- **`#[non_exhaustive]`** on public types in a library crate with a stable API, so a new variant or field isn't a breaking change. Internal crates don't need it.
-- **Parameter structs over long argument lists**: when a function approaches the `clippy::too_many_arguments` threshold, bundle the cohesive parameters into a struct rather than threading more positional arguments. A request struct, or a shared seam like `Engine { store, graph, clock }` that several call shapes pass along.
-  - **Never** silence that lint with an `allow`. The lint firing means a struct is wanted. The one exception is a signature you don't own — an FFI shim, or a hook mirroring a foreign ABI — where the `allow` is the honest annotation.
+- Builder patterns for complex construction, such as `TestRunnerBuilder`.
+- Type states encoded in generics when state transitions matter.
+- Lifetimes used extensively to avoid cloning, such as `TestInstance<'a>`.
+- Newtypes for domain types, following the general rule against bare primitives.
+- `#[non_exhaustive]` on public types in a library crate with a stable API, so a new variant or field is not a breaking change. Internal crates do not need it.
+- Parameter structs instead of long argument lists. When a function approaches the `clippy::too_many_arguments` threshold, bundle the cohesive parameters into a struct: a request struct, or a shared seam such as `Engine { store, graph, clock }` that several call shapes pass along.
+  - Never silence that lint with an `allow`; the lint firing means a struct is wanted. The one exception is a signature the project does not own, such as an FFI shim or a hook mirroring a foreign ABI, where the `allow` is the honest annotation.
 
 ### Error handling
 
-- Do not use `thiserror`. Instead, manually implement `std::fmt::Display` and `std::error::Error` for a given error `struct` or `enum`. `Error::source` returns the wrapped cause where there is one, so the chain stays walkable.
-- Group errors by category with an `ErrorKind` enum when appropriate.
-- Provide rich error context using structured error types.
-- Two-tier error model:
-  - `ExpectedError`: User/external errors with semantic exit codes.
-  - Internal errors: Programming errors that may panic or use internal error types.
-- Every error's `Display` leads with a `<context>:` prefix naming the subsystem or operation it belongs to, then the cause: `event store: …`, `lua: block commit failed: …`, `could not open the event log at /path: …`. Messages stay lowercase, so they compose.
-  - An aggregating error prefixes its own layer's context and delegates to the inner error. A chained error then reads as nested context: `turn: lua: block commit failed: event store: …`.
-  - Add resource context — a path, an id — at the layer that has it. Avoid bare "failed to {x}" glue; name the operation instead.
+- Do not use `thiserror`. Implement `std::fmt::Display` and `std::error::Error` by hand for each error `struct` or `enum`. `Error::source` returns the wrapped cause where there is one, so the chain stays walkable.
+- Group errors by category with an `ErrorKind` enum where appropriate.
+- Provide rich error context through structured error types.
+- Use a two-tier error model:
+  - `ExpectedError`: user and external errors, with semantic exit codes.
+  - Internal errors: programming errors, which may panic or use internal error types.
+- Every error's `Display` starts with a `<context>:` prefix naming the subsystem or operation, followed by the cause: `event store: …`, `lua: block commit failed: …`, `could not open the event log at /path: …`. Messages stay lowercase so they compose.
+  - An aggregating error prefixes its own layer's context and delegates to the inner error, so a chain reads as nested context: `turn: lua: block commit failed: event store: …`.
+  - Add resource context, such as a path or an id, at the layer that has it. Avoid bare "failed to {x}" glue; name the operation.
 
 ### Async patterns
 
 - Do not introduce async to a project without async.
-- Use `tokio` for async runtime (multi-threaded).
-- Use async for I/O and concurrency, keep other code synchronous.
-- Use `parking_lot::Mutex` for synchronous locks (the default); its guard is non-poisoning and must never be held across an `.await`. Reserve `tokio::sync::Mutex` for the rare guard that must survive an `.await`, since most locks are acquired, used, and dropped within a synchronous span.
-- Use bounded `mpsc` channels; an unbounded channel hides backpressure.
+- Use `tokio`, multi-threaded, as the async runtime.
+- Use async for I/O and concurrency, and keep other code synchronous.
+- Use `parking_lot::Mutex` for synchronous locks by default. Its guard does not poison and must never be held across an `.await`. Reserve `tokio::sync::Mutex` for the rare guard that must survive an `.await`; most locks are acquired, used, and dropped within a synchronous span.
+- Use bounded `mpsc` channels. An unbounded channel hides backpressure.
 
 ### Logging
 
-- Use `tracing` for diagnostic and operational logging throughout, emitting at meaningful points, not noisily.
+- Use `tracing` for diagnostic and operational logging, emitting at meaningful points rather than noisily.
 - Install the subscriber only in binaries, and send logs to stderr.
-- Operator and diagnostic programs route their output through `tracing` too. Reserve `stdout`/`println!` for genuine machine-readable command output.
+- Operator and diagnostic programs also route their output through `tracing`. Reserve stdout and `println!` for machine-readable command output.
 
 ### Module organisation
 
-- Use `mod.rs` files to re-export public items; nontrivial logic lives in submodules, not in `mod.rs` itself.
-- Keep module boundaries strict with restricted visibility, but prefer `pub(crate)` and `pub(super)` over `pub(in <path>)`. The `pub(in …)` form scopes to a named ancestor, which is precise but reads as a smell; reach for it only when neither `pub(crate)` nor `pub(super)` expresses the intended scope.
+- Use `mod.rs` files to re-export public items. Nontrivial logic lives in submodules, not in `mod.rs`.
+- Keep module boundaries strict with restricted visibility. Prefer `pub(crate)` and `pub(super)` to `pub(in <path>)`, which is precise but reads as a smell; use it only when neither of the others expresses the scope.
 - Use `#[cfg(unix)]` and `#[cfg(windows)]` for conditional compilation.
-- **Always** import types or functions at the very top of the module, with the one exception being `cfg()`-gated functions. Never import types or modules within function contexts, other than this `cfg()`-gated exception.
-- It is okay to import enum variants for pattern matching, though.
-- Re-exports follow the same rule: a `pub use` belongs at the top of the module with the imports, not beside the item it re-exports. In a `mod.rs`, the `mod` declarations come first, then the `pub use` block, so the module's public surface reads as one list.
-- A path used more than once in a module gets imported at the top — the specific items, not the module — rather than repeated in full at each call site.
-  - A path used once may stay fully-qualified. Unless it's unwieldy, meaning more than three module segments deep, in which case import it anyway.
-  - And when the module already imports a sibling from the same parent, import the new item alongside it rather than writing it inline.
-- **Always** anchor intra-crate paths at `crate::`, never `super::`. Write `crate::graph::Graph`, not `super::Graph` or `super::super::Graph`. The one exception is a test module, where `use super::*;` (pulling the parent module into the `#[cfg(test)]` block) is the idiomatic form and stays.
-- Prefer a single grouped `use` statement per crate root rather than several siblings under it, collapsing shared prefixes: `use axum::{extract::State, http::StatusCode, routing::get};`, not three separate lines. Group imports into three blocks separated by blank lines: `std`, external crates, then `crate`/`super`/`self`. `imports_granularity = "Crate"` and `group_imports = "StdExternalCrate"` in `rustfmt.toml` enforce both automatically under nightly rustfmt.
+- Import types and functions at the top of the module. The one exception is a `cfg()`-gated function. Never import types or modules inside a function.
+- Importing enum variants for pattern matching is fine.
+- Re-exports follow the same rule: a `pub use` belongs at the top of the module with the imports, not beside the item it re-exports. In a `mod.rs`, the `mod` declarations come first, then the `pub use` block, so the public surface reads as one list.
+- A path used more than once in a module is imported at the top, as the specific items rather than the module, instead of being repeated in full at each call site.
+  - A path used once may stay fully qualified, unless it is more than three module segments deep, in which case it is imported.
+  - When the module already imports a sibling from the same parent, import the new item beside it rather than writing it inline.
+- Anchor intra-crate paths at `crate::`, never `super::`. Write `crate::graph::Graph`, not `super::Graph` or `super::super::Graph`. The exception is a test module, where `use super::*;` is the idiomatic way to pull in the parent.
+- Use one grouped `use` statement per crate root, collapsing shared prefixes: `use axum::{extract::State, http::StatusCode, routing::get};`, not three separate lines. Group imports into three blocks separated by blank lines: `std`, external crates, then `crate`, `super`, and `self`. `imports_granularity = "Crate"` and `group_imports = "StdExternalCrate"` in `rustfmt.toml` enforce both under nightly rustfmt.
 
 ### Code organisation
 
-The general code-organisation rules apply; these are the Rust specifics.
+The general code-organisation rules apply. These are the Rust specifics.
 
-- **The file hierarchy is the architecture diagram.** A newcomer should be able to read the directory listing and infer what the project does.
-  - A subsystem with a public entry point is a folder module whose `mod.rs` states the boundary, with private submodules inside. Only `lib.rs`, `main.rs`, and genuinely cross-cutting types like `errors.rs` stay as top-level single files.
-  - Avoid a top-level single file where a folder grouping is natural. If several files are semantically related, or file A is only consumed by file B, merge them.
-- **The file-size threshold is around 1000 lines.** Split into a folder and re-export the public items from `mod.rs`, so consumers see a stable API.
-  - Splitting is cheaper than it looks: methods on one type can spread across several `impl` blocks in different files of the same module, so there's no visibility or trait plumbing to do.
-  - A large inline `#[cfg(test)] mod tests` counts toward the total. Extracting it to a sibling `tests.rs` is often the whole fix.
-  - Existing oversized files are grandfathered. Split one when a change touches it substantially, not in drive-by churn.
+- The file hierarchy is the architecture diagram. A newcomer reading the directory listing can infer what the project does.
+  - A subsystem with a public entry point is a folder module whose `mod.rs` states the boundary, with private submodules inside. Only `lib.rs`, `main.rs`, and cross-cutting types such as `errors.rs` stay as top-level single files.
+  - Avoid a top-level single file where a folder grouping is natural. If several files are semantically related, or file A is used only by file B, merge them.
+- The file-size threshold is around 1000 lines. Past it, split the file into a folder and re-export the public items from `mod.rs`, so consumers see a stable API.
+  - Methods on one type can spread across several `impl` blocks in different files of the same module, so splitting needs no visibility or trait plumbing.
+  - A large inline `#[cfg(test)] mod tests` counts toward the total. Moving it to a sibling `tests.rs` is often the whole fix.
+  - Existing oversized files are grandfathered. Split one when a change touches it substantially, not as drive-by churn.
 - Shared helpers for a split test module live in its `mod.rs`.
 
 ### Control flow and state machines
 
-- Avoid rightward drift. If a function is nesting three `select!` blocks or four levels of `match`/`if let`, extract each arm into a named function that takes a context struct. The control flow at the top level should read like an outline.
-- Model each state machine as an explicit `enum` with named variants, even if only one field differs between them. Favour an exhaustive `match` plus a `transition` helper over scattered `if let` chains.
-- Where a subsystem transitions through phases that own different local state (e.g. `Idle`, `Starting`, `Running`, `Draining`), extract each phase body into its own function and pass a typed context struct. This is the pragmatic version of the typestate pattern for actor-style loops; it keeps invariants local without requiring full type-parameterised phases.
-- Invalid transitions should be unrepresentable at the boundary where they're consumed. If `transition()` returns `Option<State>`, the caller should never `.unwrap()` it in production — either enumerate the legal inputs ahead of time, or make the caller total.
+- Avoid rightward drift. When a function nests three `select!` blocks or four levels of `match` or `if let`, extract each arm into a named function that takes a context struct, so the top level reads like an outline.
+- Model each state machine as an explicit `enum` with named variants, even when only one field differs between them. Prefer an exhaustive `match` with a `transition` helper to scattered `if let` chains.
+- Where a subsystem passes through phases that own different local state, such as `Idle`, `Starting`, `Running`, and `Draining`, extract each phase body into its own function that takes a typed context struct. This is the pragmatic form of the typestate pattern for actor-style loops; it keeps invariants local without fully type-parameterised phases.
+- Make invalid transitions unrepresentable at the boundary where they are consumed. If `transition()` returns `Option<State>`, production code never `.unwrap()`s it: either enumerate the legal inputs ahead of time or make the caller total.
 
 ### Platform coupling
 
-- A file that depends on platform-specific facilities says so on the first line of its module-level docstring: `//! Linux-only: reads /proc/{pid}/cmdline.` The convention is explicit enough that a port to a second platform — or a reviewer — knows exactly what the contract is.
-- The outside-world seams take the form of traits — `Fs`, `ProcessSpawner`, `GpuProbe`, `Clock` — bundled into one dependency struct that production and test construct differently. A second OS implementation then falls out of the same shape the fakes already needed.
-- When a second platform does land, gate the existing impl with `#[cfg(target_os = "…")]` and add the alternative under a sibling gate; the trait definition stays platform-neutral.
+- A file that depends on platform-specific facilities says so on the first line of its module docstring: `//! Linux-only: reads /proc/{pid}/cmdline.` A port to a second platform, or a reviewer, then knows the contract.
+- Outside-world seams are traits, such as `Fs`, `ProcessSpawner`, `GpuProbe`, and `Clock`, bundled into one dependency struct that production and tests construct differently. A second OS implementation then follows the shape the fakes already required.
+- When a second platform lands, gate the existing implementation with `#[cfg(target_os = "…")]` and add the alternative under a sibling gate. The trait definition stays platform-neutral.
 
 ### Reaching through smart pointers
 
-- To borrow the value inside a lock guard, a `Box`, or an `Arc`, prefer `.as_ref()` / `.as_mut()` over a manual double-deref: write `state.lock().as_ref()`, not `&**state.lock()`. The named form reads as "borrow the value" rather than as deref bookkeeping. The same applies to an `Arc<dyn Trait>`: `model.as_ref()`, not `&**model`.
+- To borrow the value inside a lock guard, a `Box`, or an `Arc`, use `.as_ref()` or `.as_mut()` rather than a manual double dereference: `state.lock().as_ref()`, not `&**state.lock()`. The named form reads as borrowing the value rather than as dereference bookkeeping. The same applies to an `Arc<dyn Trait>`: `model.as_ref()`, not `&**model`.
 
 ### Serde
 
-- Use `#[serde(deny_unknown_fields)]` on config types, and `#[serde(default)]` on new fields so they stay backwards-compatible.
-- Use `serde_ignored` when deserialising config, so a typo'd or stale field is reported rather than ignored.
-- Avoid `#[serde(untagged)]` when deserialising — the error messages it produces are useless. Write a custom visitor instead.
-- Reserve `#[serde(flatten)]` for the case it is genuinely for: extending a shared struct with local fields, or a `toml::Table` catch-all that preserves unknown fields across a round-trip. Note that it interacts badly with `serde_ignored` and with `deny_unknown_fields`.
+- Use `#[serde(deny_unknown_fields)]` on configuration types, and `#[serde(default)]` on new fields so they stay backwards-compatible.
+- Use `serde_ignored` when deserialising configuration, so a misspelt or stale field is reported rather than ignored.
+- Avoid `#[serde(untagged)]` when deserialising, because its error messages are useless. Write a custom visitor instead.
+- Reserve `#[serde(flatten)]` for its real use: extending a shared struct with local fields, or a `toml::Table` catch-all that preserves unknown fields across a round-trip. It interacts badly with `serde_ignored` and with `deny_unknown_fields`.
 
 ### Memory and performance
 
-- Be deliberate about when you clone and when you borrow. Share immutable data behind `Arc`/`Rc` or borrow it; where the data has a natural tree or graph shape, share the nodes rather than cloning subtrees.
-- Use `smol_str` for efficient small string storage.
-- Use `smallvec` for collections that are usually small, to avoid heap allocations in the common case.
-- Stream data (e.g. iterators) where possible rather than buffering.
+- Decide deliberately when to clone and when to borrow. Share immutable data behind `Arc` or `Rc`, or borrow it. Where data has a natural tree or graph shape, share the nodes rather than cloning subtrees.
+- Use `smol_str` for small strings.
+- Use `smallvec` for collections that are usually small, to avoid heap allocation in the common case.
+- Stream data, for example with iterators, rather than buffering it where possible.
 
 ### Dependency versions
 
-- **Applications, binaries, and workspace-internal crates: pin exactly.** Cargo's default caret range lets resolution drift between `cargo update` runs; `serde = "=1.0.219"` makes a bump a reviewable change instead of an ambient one.
-- **Crates published to a registry: use the narrowest range that works.** An exact pin in a published library breaks diamond-dependency unification — if two of a consumer's dependencies pin different patch versions of the same crate, they get two copies or a hard resolution failure. Publish a range and let the consumer's lockfile do the pinning.
+- Pin exactly in applications, binaries, and workspace-internal crates. Cargo's default caret range lets resolution drift between `cargo update` runs, and `serde = "=1.0.219"` makes a bump a reviewable change.
+- Use the narrowest working range in crates published to a registry. An exact pin in a published library breaks diamond-dependency unification: if two of a consumer's dependencies pin different patch versions of one crate, the consumer gets two copies or a resolution failure. Publish a range and let the consumer's lockfile pin.
 - Manage shared versions in the workspace root's `[workspace.dependencies]` and reference them with `{ workspace = true }`.
-- Check the current version before adding or bumping a crate rather than writing one from memory.
-- Comment on a non-obvious dependency choice, including a feature-flag choice made for a reason.
+- Check the current version of a crate before adding or bumping it, rather than writing one from memory.
+- Comment on a non-obvious dependency choice, including a feature flag chosen for a reason.
 
 ## Testing
 
 ### Testing tools
 
-- **test-case**: For parameterised tests.
-- **proptest**: For property-based testing.
-- **insta**: For snapshot testing.
-- **libtest-mimic**: For custom test harnesses.
-- **pretty_assertions**: For better assertion output.
-- Use `cargo nextest run` in place of `cargo test` where it's available.
+- test-case, for parameterised tests.
+- proptest, for property-based tests.
+- insta, for snapshot tests.
+- libtest-mimic, for custom test harnesses.
+- pretty_assertions, for readable assertion output.
+- Use `cargo nextest run` in place of `cargo test` where it is available.
 
 ### Testing conventions
 
 - Unit tests live in the same file as the code under test, in a `#[cfg(test)] mod tests` block. Integration tests live under `tests/`.
-- Never `#[ignore]` a test, and never let one silently skip. A test that cannot run in an environment is gated by a `cfg` or a feature, so its absence is visible.
-- Tests must be deterministic: no real subprocesses, no real filesystem, no wall-clock sleeps, no network. Route each of those through the seam traits above and substitute the fake. Gate a fake behind `#[cfg(any(test, feature = "test-fakes"))]` when integration tests need it too.
-- Compositor tests are a narrow exception to the filesystem half of that rule. A test connects its client over an in-process `UnixStream::pair()` — `Connection::from_socket` on the client side, `DisplayHandle::insert_client` on the compositor side — which binds nothing and touches no filesystem, so the rule holds unchanged for almost all of them. The few tests covering the listener itself — bind, listen, accept, and socket-path selection — may bind a real socket in a per-test temporary directory, because that code path is the thing under test and cannot be reached any other way. The exception covers the listener and nothing else: it does not license real subprocesses, real network access, or wall-clock sleeps, and the rule about waiting for conditions above still governs how a test waits for a client to map a surface.
-- The exit-status test is a narrow exception to the subprocess half of the same rule. `crates/lunette/tests/exit_status.rs` spawns the real binary against a checked-in fixture configuration directory and asserts the status the process exits with. The status is a property of the process rather than a value any function returns — `boot::run` yields an opaque `ExitCode`, and the code that produces it cannot be reached without a live LÖVR Lua thread — so there is no in-process form of the test. The exception covers the exit status and nothing else: the fixtures disable the audio, graphics, and headset modules and open no window, so the run needs no display, no XR runtime, and no sound device, and it neither sleeps nor reaches the network. It does write LÖVR's save directory, which `lovr.filesystem.setIdentity` creates unconditionally: each run points `XDG_DATA_HOME` at its own temporary directory and each fixture carries a distinct identity, so the write lands inside that directory, two parallel runs cannot race to create one shared leaf, and the result does not depend on `HOME` or on the running uid having a passwd entry.
-- Installation tests are a narrow exception to the subprocess and filesystem rules. `crates/lunette/tests/fixtures/install.py` invokes the actual Makefile with fake Cargo and real ELF fixtures in isolated temporary directories under `target/`. Installation paths, permissions, and dynamic-library resolution are the behavior under test, so replacing those operations would remove the acceptance oracle. These tests use no headset, graphics hardware, runtime, network, or wall-clock sleeps.
-- Never call `Connection::connect_to_env()` in a test. It calls `env::remove_var("WAYLAND_SOCKET")` internally, which mutates the process environment and is unsound in a multithreaded test binary. `Connection::from_socket` is the only form tests use.
-- Time is the narrow exception when everything already runs on `tokio::time`: `#[tokio::test(start_paused = true)]` plus `tokio::time::advance` gives virtual time without needing another seam.
+- Never `#[ignore]` a test, and never let one skip silently. A test that cannot run in an environment is gated by a `cfg` or a feature, so its absence is visible.
+- Tests are deterministic: no real subprocesses, no real filesystem, no wall-clock sleeps, and no network. Route each through the seam traits above and substitute the fake. Gate a fake behind `#[cfg(any(test, feature = "test-fakes"))]` when integration tests need it too.
+- A compositor test connects its client over an in-process `UnixStream::pair()`, with `Connection::from_socket` on the client side and `DisplayHandle::insert_client` on the compositor side, which binds nothing and touches no filesystem. A test waits for conditions when it waits for a client to map a surface.
+- The exit-status test is a narrow exception to the subprocess part of the same rule. `crates/lunette/tests/exit_status.rs` spawns the real binary against checked-in fixture configuration directories under `crates/lunette/tests/fixtures/` and asserts the process's exit status. The status is a property of the process, not a value a function returns: `boot::run` yields an opaque `ExitCode`, and the code that produces it needs a live LÖVR Lua thread, so the test has no in-process form. The exception covers the exit status only. The fixtures disable the audio, graphics, and headset modules and open no window, so the run needs no display, XR runtime, or sound device, and it neither sleeps nor uses the network. It does write LÖVR's save directory, which `lovr.filesystem.setIdentity` always creates. Each run points `XDG_DATA_HOME` at its own temporary directory and each fixture has a distinct identity, so the write lands inside that directory, two parallel runs cannot race to create one shared leaf, and the result does not depend on `HOME` or on the running uid having a passwd entry.
+- Installation tests are a narrow exception to the subprocess and filesystem rules. `crates/lunette/tests/fixtures/install.py` runs the actual Makefile with fake Cargo and real ELF fixtures in isolated temporary directories under `target/`. Installation paths, permissions, and dynamic-library resolution are the behaviour under test, so replacing those operations would remove the oracle. These tests use no headset, graphics hardware, runtime, network, or wall-clock sleeps.
+- Never call `Connection::connect_to_env()` in a test. It calls `env::remove_var("WAYLAND_SOCKET")`, which mutates the process environment and is unsound in a multithreaded test binary. Tests use only `Connection::from_socket`.
+- Time is a narrow exception when everything already runs on `tokio::time`: `#[tokio::test(start_paused = true)]` with `tokio::time::advance` gives virtual time without another seam.

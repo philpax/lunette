@@ -1,36 +1,14 @@
 //! Linux-only: turns a client's committed buffers into images the frame thread
 //! can draw.
 //!
-//! This module implements `lunette-compositor`'s [`BufferImporter`] seam. It
-//! is in this crate because the compositor crate must not gain a graphics
-//! dependency: its tests run with no device, no XR runtime, and no headset
-//! attached. Everything Vulkan is on this side of that line.
-//!
-//! Three concerns, one per submodule. [`device`] borrows the device LÖVR
-//! created and verifies the capabilities import requires. [`formats`]
-//! relates a client's DRM fourcc to a `VkFormat` and a LÖVR `TextureFormat`.
-//! [`dmabuf`] performs the import and owns the images it creates. [`shm`]
-//! does the same job for shared memory. It stops at pixels because the upload
-//! is a submission, and submissions belong to the frame thread. [`capture`]
-//! is the second consumer of [`dmabuf`]: a mirrored monitor's frame arrives
-//! from PipeWire's thread as plain descriptors and is imported on the main
-//! thread, not in the callback that produced it.
-//!
-//! # Threading
-//!
-//! [`Importer`] runs on the compositor thread. It shares two things with the
-//! frame thread: the [`GraphicsDevice`], which both threads may use
-//! concurrently, and the [`ImageArena`], where the images it creates are
-//! handed over to be destroyed.
-//!
-//! [`CaptureImporter`] runs on the frame thread, against the same device and
-//! the same arena. Two importers, one import path: an image created for a
-//! mirrored monitor is retired and destroyed by the same machinery that
-//! destroys a client's image.
+//! The compositor's [`BufferImporter`] seam is implemented here because the
+//! compositor crate must
+//! not gain a graphics dependency.
 
 pub mod capture;
 pub mod device;
 pub mod dmabuf;
+pub(crate) mod export;
 pub mod formats;
 pub mod shm;
 
@@ -51,8 +29,8 @@ pub use crate::import::{
 
 /// The compositor's access to the graphics device.
 ///
-/// One per compositor thread, moved into it at construction. The `Box<dyn>` on
-/// the far side of the [`BufferImporter`] boundary keeps the compositor crate
+/// One per compositor thread. The `Box<dyn>` behind [`BufferImporter`] keeps
+/// the compositor crate
 /// free of `ash`.
 #[derive(Debug)]
 pub struct Importer {
@@ -60,7 +38,8 @@ pub struct Importer {
 }
 
 impl Importer {
-    /// Builds an importer against a device and the arena that retires its images.
+    /// Builds an importer against a device and the arena that retires its
+    /// images.
     ///
     /// The arena is a parameter because the frame thread needs a handle to it
     /// too, and this constructor runs inside the compositor thread's closure.
@@ -73,9 +52,9 @@ impl Importer {
 }
 
 impl BufferImporter for Importer {
-    /// Always true. An `Importer` exists while its device exists; a restart
-    /// replaces it with the compositor crate's `NoGraphics` importer, which
-    /// returns false.
+    /// Always true, because a restart replaces the importer with the compositor
+    /// crate's
+    /// `NoGraphics` importer.
     fn accepts_imports(&self) -> bool {
         true
     }
@@ -94,9 +73,9 @@ impl BufferImporter for Importer {
         shm::repack(pixels, layout).map_err(|error| ImportFailed::new(error.to_string()))
     }
 
-    /// The dmabuf path holds cached imports between commits. A shared-memory
-    /// buffer is copied out and released in the import that read it. `sweep`
-    /// evicts stale entries from the dmabuf cache.
+    /// A shared-memory buffer is released in the import that read it, so only
+    /// the dmabuf cache has
+    /// entries to evict.
     fn sweep(&mut self) {
         self.dmabuf.evict_gone_buffers();
     }

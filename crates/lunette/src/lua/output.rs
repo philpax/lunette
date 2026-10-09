@@ -1,16 +1,7 @@
-//! Linux: the output handle Lua holds.
+//! Linux-only: implements virtual output handles for Lua.
 //!
-//! An output is a virtual monitor lunette shows to the clients assigned to it.
-//! WayVR has one shared output for everything. Every application gets the
-//! same scale factor, and a client querying its display gets an answer
-//! unrelated to the panel it is on. `docs/dev/compositor.md` states why lunette
-//! does not use one shared output.
-//!
-//! # Units
-//!
-//! `refresh` is hertz in Lua and millihertz on the wire. A user writes hertz and
-//! `wl_output.mode` carries millihertz. The module converts between the two;
-//! no other code does.
+//! Each output has its own size, scale, and refresh rate. Lua expresses refresh rates in hertz; the
+//! Wayland protocol uses millihertz.
 
 use std::{cell::RefCell, rc::Rc};
 
@@ -34,9 +25,15 @@ use crate::{
 pub struct Output<T> {
     id: OutputId,
     session: Rc<Session<T>>,
-    /// The output reports the mode most recently requested
-    /// while the compositor has not created the output and after the output has gone.
+    /// The last mode requested or seen, reported while the snapshot does not list the output.
     mode: RefCell<OutputMode>,
+}
+
+/// Two handles are equal when they name the same output.
+impl<T> PartialEq for Output<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
 }
 
 impl<T> Output<T> {
@@ -52,12 +49,7 @@ impl<T> Output<T> {
         self.id
     }
 
-    /// Brings the cache up to date, reporting whether the output exists now.
-    ///
-    /// It is false while the compositor has not created the output and after the
-    /// compositor has destroyed it. A caller cannot distinguish the two states
-    /// and treats them the same way. Nothing can be shown on an output that is
-    /// not there.
+    /// Refreshes the cached mode and returns whether the output exists in the current snapshot.
     fn refresh(&self) -> bool {
         let snapshot = self.session.snapshot();
         let Some(current) = snapshot
@@ -102,20 +94,17 @@ handle! {
     }
 
     /// Changes the mode, keeping the fields the table does not name. Clients
-    /// reallocate and re-lay-out in response. A caller that changes the mode
-    /// continuously makes clients do so continuously.
+    /// reallocate and re-lay-out in response.
     method setMode(_lua, this, mode: Options<SetMode>) -> bool { set_mode(this, &mode) }
 
-    /// Withdraws the output's `wl_output` global. The output every session
-    /// starts with is refused. A client assigned no output is shown it.
+    /// Withdraws the output's `wl_output` global. The default output is
+    /// refused, because a client assigned no output is shown it.
     method destroy(_lua, this) -> bool { Ok(destroy(this)) }
 }
 
 /// `lunette.newOutput{ width = 1920, height = 1080, scale = 1.5, refresh = 90 }`.
 ///
-/// The call returns the handle while the compositor has not made the output.
-/// `output.dead` is true in the frame that created the handle.
-/// `lunette.newSeat` and `lunette.spawn` follow the same rule.
+/// The handle is dead until a later frame's snapshot lists the output.
 ///
 /// # Errors
 ///
@@ -157,11 +146,7 @@ pub(crate) fn outputs<T: LuaTexture>(
         .collect())
 }
 
-/// `output:setMode{ … }`: changes the mode, keeping the fields not named.
-///
-/// Clients reallocate and re-lay-out in response. A caller that changes the
-/// mode continuously makes clients do so continuously. `mullion` moves between
-/// discrete steps with hysteresis because of that.
+/// Changes the output mode while preserving fields omitted from the options.
 fn set_mode<T: LuaTexture>(output: &Output<T>, options: &Options<SetMode>) -> mlua::Result<bool> {
     let current = *output.mode.borrow();
     let mode = read_mode(options.table(), Some(current))?;
@@ -177,13 +162,8 @@ fn set_mode<T: LuaTexture>(output: &Output<T>, options: &Options<SetMode>) -> ml
     Ok(true)
 }
 
-/// `output:destroy()`: withdraws the output's `wl_output` global.
-///
-/// The output every session starts with is refused, as the default seat is. A
-/// client assigned no output is shown it, and every client adopted from
-/// outside lunette is one of those. A session without it has clients that can
-/// see no monitor. The compositor refuses it too. This check reports the
-/// refusal directly. A configuration does not read the log to learn it.
+/// Withdraws a virtual output, except for the default output required by clients without an
+/// assignment.
 fn destroy<T: LuaTexture>(output: &Output<T>) -> bool {
     if output.id == DEFAULT_OUTPUT {
         return false;
@@ -198,13 +178,9 @@ fn destroy<T: LuaTexture>(output: &Output<T>) -> bool {
     true
 }
 
-/// The mode an option table describes.
+/// Builds an output mode from options, preserving omitted fields when `current` is present.
 ///
-/// `current` supplies the fields the table does not name. `setMode{ scale = 2 }`
-/// changes the scale and nothing else. `current` is absent for a creation,
-/// where width and height are required and the other two fields take a default.
-/// A monitor with no size means nothing, and a monitor with no stated refresh
-/// rate is a 60Hz one.
+/// Creation requires a size and defaults scale to 1 and refresh to 60 Hz.
 fn read_mode(options: &Table, current: Option<OutputMode>) -> mlua::Result<OutputMode> {
     let held = current.map(|current| current.size);
     let width = options
@@ -247,8 +223,7 @@ fn read_mode(options: &Table, current: Option<OutputMode>) -> mlua::Result<Outpu
 }
 
 record! {
-    /// What `output:setMode` changes. Every field is optional. A field left
-    /// out keeps the value the output already has.
+    /// Optional output fields. Omitted fields retain their current values.
     options SetMode as OutputMode {
         width: Option<f64>,
         height: Option<f64>,
@@ -258,9 +233,7 @@ record! {
 }
 
 record! {
-    /// What `lunette.newOutput` takes. The size is required. There is no
-    /// previous mode to take it from, and a client cannot lay out against an
-    /// output with no size.
+    /// Output creation options. Width and height are required.
     options NewOutput as OutputOptions {
         width: f64,
         height: f64,

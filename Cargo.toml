@@ -41,12 +41,18 @@ cc = "=1.4.0"
 cmake = "=0.1.58"
 getrandom = "=0.3.4"
 libc = "=0.2.189"
+# The Lua test runner reports each test file as a test of its own, with the
+# filtering and output of the built-in harness.
+libtest-mimic = "=0.8.2"
 clap = { version = "=4.6.6", features = ["derive"] }
 lunette-luau = { path = "crates/lunette-luau" }
 mlua = "=0.12.0"
 mlua-sys = "=0.11.0"
 parking_lot = "=0.12.5"
 pretty_assertions = "=1.4.1"
+# The plugin graph's model checker generates operation sequences and shrinks
+# a failing one to a minimal reproduction.
+proptest = "=1.11.0"
 serde = "=1.0.229"
 smallvec = "=1.15.2"
 # `default-features = false` is set here, not at the member. The default
@@ -66,6 +72,8 @@ tempfile = "=3.27.0"
 toml = "=1.1.4"
 tracing = "=0.1.44"
 tracing-subscriber = "=0.3.23"
+# Extended grapheme clusters follow Unicode rules rather than a local approximation.
+unicode-segmentation = "=1.13.3"
 wayland-client = "=0.31.15"
 wayland-protocols = "=0.32.13"
 # The host-input provider uses `zwp_virtual_keyboard_v1`.
@@ -91,6 +99,7 @@ wayland-protocols-wlr = { version = "=0.3.12", default-features = false }
 xkbcommon = { version = "=0.8.0", features = ["wayland"] }
 wlx-capture = { git = "https://github.com/wayvr-org/wayvr", rev = "98f800c644719d3f23a20e50bd3237c29a8082cb", default-features = false, features = [
     "pipewire",
+    "wlr",
 ] }
 
 # mlua is vendored as a submodule at vendor/mlua (`philpax/mlua` `lunette`, a
@@ -99,8 +108,9 @@ wlx-capture = { git = "https://github.com/wayvr-org/wayvr", rev = "98f800c644719
 # LUA_TQUATERNION value type shifts Luau's type-tag numbering, and mlua-sys
 # compiles its luau ffi constants against upstream Luau. The submodule carries
 # the fork-aligned constants (one file, `mlua-sys/src/luau/lua.rs`) plus the ABI
-# matches for the fork (cstack 1M, two-arg userdata dtor) that the LÖVR build
-# provides, and pins mlua's reference thread under a string key so LÖVR's own
+# matches for the fork (cstack 1M, two-arg userdata dtor, and the
+# `lua_CompileOptions` layout of the Luau the fork is synced to) that the LÖVR
+# build provides, and pins mlua's reference thread under a string key so LÖVR's own
 # registry use cannot collide with it.
 [patch.crates-io]
 mlua = { path = "vendor/mlua" }

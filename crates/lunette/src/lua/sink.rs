@@ -36,7 +36,7 @@
 //!
 //! Every method takes an optional trailing seat. Absent means the default
 //! seat, the seat a configuration that never calls `lunette.newSeat` has. A
-//! host sink ignores the argument, as `docs/dev/lua-api.md` records: the host has
+//! host sink ignores the argument, as `docs/guide/native-api.md` records: the host has
 //! one cursor and one keyboard focus however many hands point at it.
 
 use std::rc::Rc;
@@ -60,6 +60,7 @@ use crate::{
     lua::{
         LuaTexture, Monitor, Seat, Session, Window,
         declarations::{Nil, handle},
+        keys::ModifierName,
         seat::read_modifiers,
         values::{HostDomain, PointerButtonName, SinkDomain, WindowDomain},
     },
@@ -72,8 +73,15 @@ pub struct Sink<T> {
     session: Rc<Session<T>>,
 }
 
+/// Two handles are equal when they deliver to the same target.
+impl<T> PartialEq for Sink<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.target == other.target
+    }
+}
+
 /// What a sink names and how its input routes.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum SinkTarget {
     /// A surface this compositor hosts.
     Window(SinkId),
@@ -281,13 +289,13 @@ handle! {
     }
 
     /// Sets which modifiers the seat holds while delivering to this sink.
-    method modifiers(
+    method setModifiers(
         _lua,
         this,
-        names: Option<Vec<String>>,
+        names: Option<Vec<ModifierName>>,
         seat: Option<UserDataRef<Seat<T>>>,
     ) -> bool {
-        let modifiers = read_modifiers(names.as_deref())?;
+        let modifiers = read_modifiers(names.as_deref());
         let seat = seat_of(seat.as_deref());
         if !this.alive() {
             return Ok(false);
@@ -462,9 +470,9 @@ fn key_pressed<T>(sink: &Sink<T>, seat: SeatId, key: Keycode, pressed: bool) -> 
     }
 }
 
-/// `sink:modifiers(names, seat)`: replaces the modifiers held on this sink.
+/// `sink:setModifiers(names, seat)`: replaces the modifiers held on this sink.
 ///
-/// Modifiers are explicit state: the caller names them with `sink:modifiers`,
+/// Modifiers are explicit state: the caller names them with `sink:setModifiers`,
 /// they are not synthesised keypresses. `docs/dev/input.md` requires that on the
 /// window side, and the host provider already implements it on the other.
 fn modifiers_held<T>(sink: &Sink<T>, seat: SeatId, modifiers: &ModifierState) -> bool {

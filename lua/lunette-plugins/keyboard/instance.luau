@@ -1,0 +1,488 @@
+-- A board owns routed input, scaled appearance, and its theme face.
+local lunette = require '@lunette'
+local focus = require '@lunette-contracts/focus'
+local keyboard = require '@lunette-contracts/keyboard'
+local quad = require '@lunette-contracts/quad'
+local vocabulary = require '@lunette-contracts/vocabulary'
+local theme = require '@lunette-contracts/theme'
+local appearance = require './appearance'
+local board = require './board'
+local drawing = require './draw'
+local meshDrawing = require '@lunette-plugins/theme/drawing'
+local passState = require '@lunette-plugins/pass-state'
+local layout = require './layout'
+local config = require './config'
+
+local function extentOf(settings: config.Settings): (number, number)
+  local width, height = layout.extentOf(settings.rows)
+  for _, rows in settings.layers do
+    local layerWidth, layerHeight = layout.extentOf(rows)
+    width, height = math.max(width, layerWidth), math.max(height, layerHeight)
+  end
+  return width, height
+end
+
+local function create(
+  settings: config.Settings,
+  source: focus.Source,
+  themeService: theme.Service,
+  active: () -> boolean,
+  notify: (keyboard.VisibilityChange) -> (),
+  dispose: () -> ()
+): (board.Board, () -> (), () -> (), () -> ())
+  local unitsWide, unitsHigh = extentOf(settings)
+  local providerStyle = appearance.project(settings.style)
+  local pose = lovr.math.newMat4()
+  local snapshot = themeService:current()
+  local nominal = appearance.resolve(snapshot.theme, providerStyle)
+  local font = themeService:font(nominal.font)
+  local scale = 1
+  local style = appearance.scaled(nominal, font, scale)
+  local appliedRevision, geometryRevision = snapshot.revision, 0
+  local meshCache = meshDrawing.newCache()
+  local keyCaches: { [number]: { [number]: meshDrawing.Cache } } = {}
+  local locks: { [lunette.ModifierName]: boolean } = {}
+  for index = 1, #settings.locks do
+    locks[settings.locks[index]] = true
+  end
+  local latched: { [lunette.ModifierName]: boolean } = {}
+  local locked: { [lunette.ModifierName]: boolean } = {}
+  local hovered: { [board.Pointer]: board.RenderedKey } = {}
+  local captures: { [board.Pointer]: { [lunette.PointerButton]: boolean } } = {}
+  local created: board.Board
+  local state = {
+    kind = nil,
+    source = nil,
+    dead = false,
+    grabbable = true,
+    pose = pose,
+    width = unitsWide * style.keyUnit,
+    height = unitsHigh * style.keyUnit,
+    visible = true,
+    layer = 'base',
+  }
+
+  local function modifiers(): { lunette.ModifierName }
+    local held: { lunette.ModifierName } = {}
+    for _, name in ipairs(lunette.modifierNames()) do
+      if latched[name] or locked[name] then
+        held[#held + 1] = name
+      end
+    end
+    return held
+  end
+
+  local function clearModifiers(): ()
+    table.clear(latched)
+    table.clear(locked)
+  end
+
+  local function clearInput(): ()
+    clearModifiers()
+    source:reset()
+  end
+
+  local function cancelPointers(reason: vocabulary.CancelReason): { string }
+    local active = captures
+    captures = {}
+    table.clear(hovered)
+    local failures: { string } = {}
+    for pointer in active do
+      local ok, failure = pcall(function(): ()
+        pointer:cancel(created, reason)
+      end)
+      if not ok then
+        failures[#failures + 1] = tostring(failure)
+      end
+    end
+    return failures
+  end
+
+  local function finish(failures: { string }): ()
+    if #failures > 0 then
+      error(table.concat(failures, '\n'), 0)
+    end
+  end
+
+  local function keyCache(key: board.RenderedKey): meshDrawing.Cache
+    local heights = keyCaches[key.width]
+    if not heights then
+      heights = {}
+      keyCaches[key.width] = heights
+    end
+    local cached = heights[key.height]
+    if not cached then
+      cached = meshDrawing.newCache()
+      heights[key.height] = cached
+    end
+    return cached
+  end
+
+  local function clearMeshes(failures: { string }): ()
+    local caches = { meshCache }
+    for _, heights in keyCaches do
+      for _, cached in heights do
+        caches[#caches + 1] = cached
+      end
+    end
+    table.clear(keyCaches)
+    for _, cached in caches do
+      local cleared, failure = pcall(meshDrawing.clear, cached)
+      if not cleared then
+        failures[#failures + 1] = tostring(failure)
+      end
+    end
+  end
+
+  local function refresh(): ()
+    if state.dead or not active() then
+      return
+    end
+    local latest = themeService:current()
+    if latest.revision == appliedRevision then
+      return
+    end
+    local nextNominal = appearance.resolve(latest.theme, providerStyle)
+    local nextFont = themeService:font(nextNominal.font)
+    local nextStyle = appearance.scaled(nextNominal, nextFont, scale)
+    local width, height = unitsWide * nextStyle.keyUnit, unitsHigh * nextStyle.keyUnit
+    local geometryChanged = appearance.geometryChanged(style, nextStyle)
+    local meshChanged = appearance.meshChanged(style, nextStyle)
+    nominal, font, style, appliedRevision = nextNominal, nextFont, nextStyle, latest.revision
+    state.width, state.height = width, height
+    local failures: { string } = {}
+    if geometryChanged then
+      geometryRevision += 1
+      failures = cancelPointers 'control-removed'
+    end
+    if meshChanged then
+      clearMeshes(failures)
+    end
+    finish(failures)
+  end
+
+  local function rowsOf(layer: string): { read [number]: keyboard.KeyRow }
+    return if layer == 'base' then settings.rows else settings.layers[layer]
+  end
+
+  local function keys(): { board.RenderedKey }
+    if state.dead or not active() then
+      return {}
+    end
+    local seat, held = source:keymapSeat(), modifiers()
+    return layout.keysOf(rowsOf(state.layer), {
+      keyUnit = style.keyUnit,
+      modifierKeys = settings.modifierKeys,
+      legendFor = function(entry: keyboard.Key): string
+        return layout.legendFor(entry, seat, held)
+      end,
+    })
+  end
+
+  local function raycast(
+    _self: keyboard.Surface,
+    origin: vector,
+    direction: vector,
+    backFace: boolean?
+  ): (number?, number?, number?)
+    if state.dead or not state.visible or not active() then
+      return nil, nil, nil
+    end
+    return quad.hit({
+      pose = state.pose,
+      width = state.width,
+      height = state.height,
+      pixelWidth = state.width,
+      pixelHeight = state.height,
+      backFace = backFace,
+    }, origin, direction)
+  end
+
+  local function project(_self: keyboard.Surface, origin: vector, direction: vector): (number?, number?, number?)
+    if state.dead or not state.visible or not active() then
+      return nil, nil, nil
+    end
+    return quad.project({
+      pose = state.pose,
+      width = state.width,
+      height = state.height,
+      pixelWidth = state.width,
+      pixelHeight = state.height,
+    }, origin, direction)
+  end
+
+  local function pressKey(code: number): boolean
+    if state.dead or not active() then
+      return false
+    end
+    local modifier = settings.modifierKeys[code]
+    if modifier then
+      local set = if locks[modifier] then locked else latched
+      set[modifier] = not set[modifier] or nil
+      return true
+    end
+    local held = modifiers()
+    table.clear(latched)
+    return source:key({ code = code, modifiers = held, isRepeat = false }).kind == 'consumed'
+  end
+
+  local function typeText(text: string): boolean
+    if state.dead or not active() then
+      return false
+    end
+    table.clear(latched)
+    return source:text(text).kind == 'consumed'
+  end
+
+  local function chord(code: number, held: { read [number]: lunette.ModifierName }): ()
+    if not state.dead and active() then
+      table.clear(latched)
+      source:key { code = code, modifiers = held, isRepeat = false }
+    end
+  end
+
+  local function setLayer(_self: board.Board, layer: string): ()
+    if layer ~= 'base' and settings.layers[layer] == nil then
+      error('keyboard: there is no layer named ' .. tostring(layer), 2)
+    end
+    if not state.dead and state.layer ~= layer then
+      state.layer = layer
+      geometryRevision += 1
+      local failures = cancelPointers 'control-removed'
+      clearMeshes(failures)
+      finish(failures)
+    end
+  end
+
+  local function visibility(visible: boolean, reason: 'show' | 'hide' | 'user-hide'): ()
+    if state.dead or state.visible == visible then
+      return
+    end
+    state.visible = visible
+    local failures: { string } = {}
+    if not visible then
+      clearModifiers()
+      failures = cancelPointers 'hidden'
+      if not state.dead then
+        local ok, failure = pcall(function(): ()
+          source:reset()
+        end)
+        if not ok then
+          failures[#failures + 1] = tostring(failure)
+        end
+      end
+    end
+    if not state.dead then
+      notify { visible = visible, reason = reason }
+    end
+    finish(failures)
+  end
+
+  local function setVisible(_self: keyboard.Keyboard, visible: boolean): ()
+    visibility(visible, if visible then 'show' else 'hide')
+  end
+
+  -- What a key does when nothing overrides it: the base of `onKey`.
+  local function perform(self: board.Board, key: board.RenderedKey, _pointer: board.Pointer): ()
+    local code, action = key.code, key.action
+    if code then
+      pressKey(code)
+    elseif not action then
+      return
+    elseif action.kind == 'hide' then
+      visibility(false, 'user-hide')
+    elseif action.kind == 'layer' then
+      setLayer(self, action.layer)
+    elseif action.kind == 'text' then
+      typeText(action.text)
+    elseif action.kind == 'chord' then
+      chord(action.code, action.modifiers)
+    end
+  end
+
+  local function isHovered(key: board.RenderedKey): boolean
+    for _, entry in hovered do
+      if entry.source == key.source then
+        return true
+      end
+    end
+    return false
+  end
+
+  local function isHeld(key: board.RenderedKey, held: { read [number]: lunette.ModifierName }): boolean
+    local action = key.action
+    if action and action.kind == 'layer' then
+      return action.layer ~= 'base' and action.layer == state.layer
+    end
+    if key.modifier ~= nil then
+      for index = 1, #held do
+        if held[index] == key.modifier then
+          return true
+        end
+      end
+    end
+    return false
+  end
+
+  local function hover(x: number?, y: number?, pointer: board.Pointer): ()
+    hovered[pointer] = if not state.dead
+        and active()
+        and state.visible
+        and x
+        and y
+      then layout.keyAt(keys(), x, y)
+      else nil
+  end
+
+  local function activate(x: number?, y: number?, pointer: board.Pointer): ()
+    if state.dead or not active() or not state.visible or not x or not y then
+      return
+    end
+    local revision = geometryRevision
+    local key = layout.keyAt(keys(), x, y)
+    if key then
+      settings.onKey(
+        created,
+        key,
+        pointer,
+        function(target: board.Board, entry: board.RenderedKey, input: board.Pointer): ()
+          if not state.dead and active() and state.visible and geometryRevision == revision then
+            perform(target, entry, input)
+          end
+        end
+      )
+    end
+  end
+
+  local function onPointer(_self: keyboard.Surface, event: vocabulary.PointerEvent): ()
+    if event.kind == 'press' and event.captured and not state.dead and active() and state.visible then
+      local buttons = captures[event.pointer] or {}
+      captures[event.pointer] = buttons
+      buttons[event.button] = true
+    end
+    local pointer = event.pointer
+    if event.kind == 'cancel' or event.kind == 'release' then
+      local buttons, button = captures[pointer], event.button
+      if buttons and button then
+        buttons[button] = nil
+        if next(buttons) == nil then
+          captures[pointer] = nil
+        end
+      end
+      if event.kind == 'cancel' then
+        hovered[pointer] = nil
+      end
+    elseif event.kind == 'leave' then
+      hovered[pointer] = nil
+    elseif event.kind == 'enter' or event.kind == 'move' then
+      hover(if event.inside then event.x else nil, if event.inside then event.y else nil, pointer)
+    elseif event.kind == 'press' and not state.dead and state.visible then
+      if event.button == 'left' and event.inside then
+        activate(event.x, event.y, pointer)
+      end
+    end
+  end
+
+  local methods = {
+    setPose = function(_self: keyboard.Surface, wanted: Mat4): ()
+      if not state.dead then
+        state.pose:set(wanted)
+      end
+    end,
+    -- Uniform scaling preserves key proportions.
+    setSize = function(_self: keyboard.Surface, wanted: number?, _height: number?): ()
+      if
+        state.dead
+        or not active()
+        or not wanted
+        or wanted ~= wanted
+        or wanted <= 0
+        or wanted >= math.huge
+        or state.width <= 0
+      then
+        return
+      end
+      if wanted == state.width then
+        return
+      end
+      local nextScale = scale * wanted / state.width
+      local nextStyle = appearance.scaled(nominal, font, nextScale)
+      scale, style = nextScale, nextStyle
+      geometryRevision += 1
+      state.width, state.height = unitsWide * style.keyUnit, unitsHigh * style.keyUnit
+      local failures = cancelPointers 'control-removed'
+      clearMeshes(failures)
+      finish(failures)
+    end,
+    raycast = raycast,
+    project = project,
+    onPointer = onPointer,
+    setVisible = setVisible,
+    setLayer = setLayer,
+    keys = function(_self: board.Board): { board.RenderedKey }
+      return keys()
+    end,
+    draw = function(_self: keyboard.Keyboard, pass: Pass): ()
+      refresh()
+      if state.dead or not active() or not state.visible then
+        return
+      end
+      local revision, activeStyle, activeFont = geometryRevision, style, font
+      local width, height = state.width, state.height
+      local rendered, held = keys(), modifiers()
+      local function current(): boolean
+        return not state.dead and active() and state.visible and geometryRevision == revision
+      end
+      passState.withRestore(pass, function(): ()
+        pass:setShader()
+        pass:setMaterial(nil)
+        pass:setFont(activeFont)
+        pass:setCullMode 'none'
+        if not current() then
+          return
+        end
+        drawing.plate(pass, meshCache, state.pose, width, height, activeStyle)
+        for _, key in ipairs(rendered) do
+          if not current() then
+            break
+          end
+          passState.withRestore(pass, function(): ()
+            pass:setFont(activeFont)
+            settings.drawKey(pass, key, {
+              keyboard = created,
+              pose = drawing.keyPose(state.pose, key, width, height),
+              style = activeStyle,
+              held = isHeld(key, held),
+              hovered = isHovered(key),
+            }, function(target: Pass, entry: board.RenderedKey, keyState: board.KeyState): ()
+              if current() then
+                target:setFont(activeFont)
+                drawing.key(target, keyCache(entry), entry, keyState, activeFont)
+              end
+            end)
+          end)
+        end
+      end)
+    end,
+    destroy = function(_self: keyboard.Keyboard): boolean
+      if state.dead then
+        return false
+      end
+      dispose()
+      return true
+    end,
+  }
+  created = setmetatable(state, { __index = methods })
+  local function destroyState(): ()
+    state.dead = true
+    state.visible = false
+    clearModifiers()
+    geometryRevision += 1
+    local failures = cancelPointers 'control-removed'
+    clearMeshes(failures)
+    finish(failures)
+  end
+  return created, destroyState, clearInput, refresh
+end
+
+return create

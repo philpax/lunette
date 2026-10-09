@@ -12,6 +12,7 @@ use lunette_compositor::{
 use pretty_assertions::assert_eq;
 
 use super::*;
+use crate::log_capture::Logs;
 
 fn window_id(raw: u64) -> WindowId {
     WindowId::new(raw).expect("non-zero")
@@ -65,12 +66,9 @@ fn every_event_this_build_delivers_has_a_distinct_name() {
     assert_eq!(
         names,
         vec![
-            "lunlayergranted",
-            "lunlayerrevoked",
             "lunmonitoradded",
             "lunprocessexited",
             "lunprocessoutput",
-            "luntitlechanged",
             "lunwindowclosed",
             "lunwindowopened",
         ],
@@ -145,10 +143,8 @@ fn the_window_lifecycle_reaches_lua() {
             window: window_id(1),
             title: "htop".to_owned(),
         }),
-        Some(LuaEvent::TitleChanged {
-            window: window_id(1),
-            title: "htop".to_owned(),
-        })
+        None,
+        "a handler reads the title from the window"
     );
 }
 
@@ -169,6 +165,23 @@ fn a_spawn_that_never_started_reaches_lua_as_an_exit() {
         }),
         "a mistyped program name has no other way of reaching the configuration"
     );
+}
+
+/// A client that fails at startup leaves its stderr in the log whether or not
+/// a handler listens.
+#[test]
+fn client_output_is_logged_as_it_is_converted() {
+    let logs = Logs::capture(|| {
+        let converted = LuaEvent::from_compositor(&CompositorEvent::ProcessOutput {
+            process: process_id(5),
+            stream: Stream::Stderr,
+            bytes: b"cannot open display\n\xff".to_vec(),
+        });
+        assert!(converted.is_some(), "the output still reaches Lua");
+    });
+
+    assert_eq!(logs.mentioning("cannot open display"), 1);
+    assert_eq!(logs.mentioning("stderr"), 1, "the log names the stream");
 }
 
 #[test]
@@ -249,19 +262,17 @@ fn an_event_of_another_name_does_not_disturb_the_order() {
     queue.push(LuaEvent::WindowOpened {
         window: window_id(1),
     });
-    queue.push(LuaEvent::TitleChanged {
+    queue.push(LuaEvent::WindowClosed {
         window: window_id(1),
-        title: "htop".to_owned(),
     });
     queue.push(LuaEvent::WindowOpened {
         window: window_id(2),
     });
 
     assert_eq!(
-        queue.take(TITLE_CHANGED),
-        Some(LuaEvent::TitleChanged {
+        queue.take(WINDOW_CLOSED),
+        Some(LuaEvent::WindowClosed {
             window: window_id(1),
-            title: "htop".to_owned(),
         })
     );
     assert_eq!(
@@ -292,8 +303,8 @@ fn clearing_drops_what_was_never_dispatched() {
 fn a_recording_sink_reports_each_push_once() {
     let sink = RecordingEventSink::default();
     sink.push(WINDOW_OPENED);
-    sink.push(TITLE_CHANGED);
+    sink.push(WINDOW_CLOSED);
 
-    assert_eq!(sink.take(), vec![WINDOW_OPENED, TITLE_CHANGED]);
+    assert_eq!(sink.take(), vec![WINDOW_OPENED, WINDOW_CLOSED]);
     assert_eq!(sink.take(), Vec::new());
 }
