@@ -21,7 +21,7 @@ test('display listeners require a declared live owner and a plain callback table
     service:onChanged(owner, { run = function() end, extra = true })
   end, 'unknown')
   expect.raises(function()
-    env.rawDisplay.dead = false
+    env.rawDisplay.show = env.rawDisplay.hide
   end, 'readonly')
   env.session:close()
 end)
@@ -38,7 +38,6 @@ test('an observer can unload the display during show without skipping board dest
     end,
   })
   expect.falsy(run(raw), 'show reports that its activation ended')
-  expect.truthy(raw.dead)
   expect.equal(fixture.boardCount(env), 0)
   expect.falsy(run(raw), 'a cached method is inert after teardown')
   env.session:close()

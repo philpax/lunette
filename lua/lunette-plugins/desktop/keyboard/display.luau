@@ -45,12 +45,7 @@ return function(context: plugin.Context, settings: config.Settings): contract.Se
   local function notify(reason: 'show' | 'hide' | 'user-hide' | 'destroy'): ()
     revision += 1
     local ownRevision = revision
-    local change: contract.Change = table.freeze {
-      visible = visible,
-      reason = reason,
-      target = localTarget(),
-      revision = revision,
-    }
+    local change: contract.Change = table.freeze { visible = visible, reason = reason }
     for _, listener in ipairs(table.clone(listeners)) do
       local run = listener.run
       if run and context:owns(listener.owner) then
@@ -320,7 +315,7 @@ return function(context: plugin.Context, settings: config.Settings): contract.Se
     end,
   })
 
-  local methods = {
+  local service: contract.Service = {
     show = function(_self: contract.Service): boolean
       return show()
     end,
@@ -358,12 +353,5 @@ return function(context: plugin.Context, settings: config.Settings): contract.Se
       end)
     end,
   }
-  return setmetatable({}, {
-    __index = function(_self: unknown, key: string): unknown
-      return if key == 'dead' then not live() else methods[key]
-    end,
-    __newindex = function(): ()
-      error('keyboard-display: service is readonly', 2)
-    end,
-  }) :: contract.Service
+  return table.freeze(service)
 end

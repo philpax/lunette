@@ -35,11 +35,7 @@ test('inspection lists route registrations and sources without native getters or
       error 'inspection delivered focus'
     end,
   })
-  local input = service:newSource(owner, {
-    nativeTarget = function()
-      error 'inspection queried a target'
-    end,
-  })
+  local input = service:newSource(owner, { mode = 'virtual' })
   local before = setFocusCalls
   local snapshot = service:inspect()
   expect.equal(setFocusCalls, before, 'inspection makes no native focus calls')

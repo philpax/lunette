@@ -20,8 +20,6 @@ export type Options = {
   read title: string?,
   read chrome: boolean?,
   read curve: number?,
-  read windowRadius: number?,
-  read monitorRadius: number?,
 }
 
 export type Visibility = {
@@ -43,8 +41,6 @@ export type Style = {
 
 type PanelFields = {
   read attachFrame: ((Surface, Owner, vocabulary.FrameStyle) -> vocabulary.FrameAttachment)?,
-  read windowRadius: number,
-  read monitorRadius: number,
   read pose: Mat4,
   read width: number,
   read height: number,
@@ -55,14 +51,11 @@ type PanelFields = {
   read hidden: boolean,
   read highlighted: boolean,
   read granted: boolean,
-  read appliedWidth: number?,
-  read appliedHeight: number?,
   read dead: boolean,
   read sink: (Surface) -> lunette.Sink?,
   read raycast: (Surface, vector, vector, boolean?) -> (number?, number?, number?),
   read setPose: (Surface, Mat4) -> (),
   read setSize: (Surface, number?, number?) -> (),
-  read sourceSize: (Panel) -> (number?, number?),
   read update: (Panel) -> (),
   read draw: (Panel, Pass) -> (),
   read setHidden: (Panel, Owner, Visibility) -> plugin.Effect,
@@ -88,7 +81,6 @@ local inspection = require '@lunette-contracts/inspection'
 
 export type Service = {
   read inspect: (Service) -> inspection.Snapshot,
-  read STYLE: Style,
   read fromWindow: (Service, Owner, lunette.Window, Options?) -> WindowPanel,
   read fromMonitor: (Service, Owner, lunette.Monitor, Options?) -> MonitorPanel,
   read all: (Service) -> { Panel },

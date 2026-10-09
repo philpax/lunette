@@ -8,8 +8,6 @@ local frame = {}
 export type Owner = plugin.Owner
 export type UpdatePhase = 'input' | 'scene' | 'pointing' | 'overlay'
 export type DrawPhase = UpdatePhase | 'feedback'
--- Retained for callers that share a phase between update and draw.
-export type Phase = UpdatePhase
 export type InputPhase = 'binding' | 'delivery'
 
 -- IDs increase within one provider activation, not across replacements.
@@ -98,9 +96,6 @@ frame.UPDATE_PHASES = table.freeze { 'input', 'scene', 'pointing', 'overlay' } :
 
 -- Feedback draws beams and landing indicators after all scene and overlay UI.
 frame.DRAW_PHASES = table.freeze { 'input', 'scene', 'pointing', 'overlay', 'feedback' } :: { DrawPhase }
-
--- Retained as the shared subset; new callers use the operation's explicit phase set.
-frame.PHASES = frame.UPDATE_PHASES
 
 -- The key and text phases in the order they run.
 frame.INPUT_PHASES = table.freeze { 'binding', 'delivery' } :: { InputPhase }

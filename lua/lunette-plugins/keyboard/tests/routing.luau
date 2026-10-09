@@ -93,7 +93,15 @@ end
 local function action(board, kind)
   for _, key in board:keys() do
     if key.action and key.action.kind == kind then
-      board:onPress(key.x + key.width / 2, key.y + key.height / 2, {})
+      board:onPointer {
+        kind = 'press',
+        pointer = {},
+        button = 'left',
+        x = key.x + key.width / 2,
+        y = key.y + key.height / 2,
+        inside = true,
+        captured = false,
+      }
       return
     end
   end
@@ -102,11 +110,7 @@ end
 
 test('one owned source handles keys, text, chords, and legends without native routing', function()
   local env = start()
-  local target = function()
-    error 'the keyboard must leave native targeting to its source'
-  end
   local board = env.service:new(env.owner, {
-    target = target,
     rows = {
       {
         { code = 30 },
@@ -116,7 +120,6 @@ test('one owned source handles keys, text, chords, and legends without native ro
     },
   })
   expect.equal(#env.sources, 1, 'one source per keyboard')
-  expect.equal(env.sources[1].options.nativeTarget, target, 'the native-only adapter reaches the source')
   expect.equal(board:keys()[1].legend, 'layout-a', 'the source supplies the keymap seat')
   expect.truthy(board:pressKey(30), 'a consumed activation')
   expect.equal(env.activations[1].code, 30)
@@ -210,17 +213,12 @@ test('the tiny substitute shares source routing and actual visibility notificati
   testing.host.useConfiguration 'examples/keyboard'
   local env = start(require 'tiny')
   local changes = {}
-  local target = function()
-    error 'tiny must leave targeting to its source'
-  end
   local board = env.service:new(env.owner, {
-    target = target,
     onVisibilityChanged = function(change)
       changes[#changes + 1] = change.reason
     end,
   })
   expect.equal(#env.sources, 1)
-  expect.equal(env.sources[1].options.nativeTarget, target)
   expect.truthy(board:pressKey(21))
   expect.equal(env.activations[1].code, 21)
   expect.truthy(board:typeText 'tiny text')
@@ -257,18 +255,6 @@ test('owner shutdown destroys its board before the final visibility notification
   expect.equal(next(env.listeners), nil)
   expect.equal(table.concat(changes, ','), 'destroy')
   expect.equal(#env.service:inspect().registrations, 0)
-  env.session:close()
-end)
-
-test('a route changed during source selection cannot inherit keyboard locks', function()
-  local env = start()
-  local board = env.service:new(env.owner)
-  board:pressKey(42)
-  board:pressKey(58)
-  env.changeOnKey = true
-  expect.truthy(board:pressKey(30))
-  expect.equal(#env.activations[1].modifiers, 0, 'the source receives no modifiers from the prior route')
-  expect.equal(#board:modifiers(), 0)
   env.session:close()
 end)
 

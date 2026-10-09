@@ -9,7 +9,6 @@ local function misuse(
   listener: display.Listener,
   context: plugin.Context
 )
-  service.dead = false -- reject.
   service.show = service.hide -- reject.
   service:show(owner) -- reject.
   service.hide(owner) -- reject.
@@ -19,18 +18,10 @@ local function misuse(
   listener.run = function(_change: display.Change): () end -- reject.
   change.visible = true -- reject.
   change.reason = 'show' -- reject.
-  change.target = nil -- reject.
-  change.revision = 0 -- reject.
-  local wrongReason: display.Change = { visible = false, reason = 'focus', revision = 1 } -- reject.
-  local missingRevision: display.Change = { visible = false, reason = 'hide' } -- reject.
-  local wrongTarget: display.Change = { visible = false, reason = 'hide', revision = 1, target = service } -- reject.
+  local wrongReason: display.Change = { visible = false, reason = 'focus' } -- reject.
   local wrongResult: number = service:show() -- reject.
   local wrongToken: focus.Service = context:require(display.capability) -- reject.
-  type Narrow = { read dead: boolean, read extra: boolean }
-  local receiver: (display.Service) -> boolean = function(_self: Narrow): boolean -- reject.
-    return true
-  end
-  return { wrongReason, missingRevision, wrongTarget, wrongResult, wrongToken, receiver }
+  return { wrongReason, wrongResult, wrongToken }
 end
 
 return misuse

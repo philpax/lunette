@@ -1,4 +1,3 @@
-local lunette = require '@lunette'
 local keyboard = require '@lunette-contracts/keyboard'
 
 local function reason(change: keyboard.VisibilityChange): string
@@ -16,7 +15,7 @@ local function reason(change: keyboard.VisibilityChange): string
   end
 end
 
-local function consume(service: keyboard.Service, owner: keyboard.Owner, window: lunette.Window)
+local function consume(service: keyboard.Service, owner: keyboard.Owner)
   local events: { keyboard.VisibilityChange } = {
     { visible = true, reason = 'show' },
     { visible = false, reason = 'hide' },
@@ -24,9 +23,6 @@ local function consume(service: keyboard.Service, owner: keyboard.Owner, window:
     { visible = false, reason = 'destroy' },
   }
   local options: keyboard.Options = {
-    target = function(): (lunette.Seat?, lunette.Sink?)
-      return lunette.defaultSeat(), window.sink
-    end,
     onVisibilityChanged = function(change: keyboard.VisibilityChange): ()
       assert(#reason(change) > 0)
     end,

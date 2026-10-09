@@ -6,14 +6,9 @@ local function misuse(
   owner: focus.Owner,
   source: focus.Source,
   result: focus.Result,
-  activation: focus.Activation,
-  handle: focus.TargetHandle
+  activation: focus.Activation
 )
   local wrongMode: focus.SourceOptions = { mode = 'keyboard' } -- reject.
-  local function oldFocused(): focus.TargetHandle
-    return handle
-  end
-  local oldTarget: focus.SourceOptions = { nativeTarget = oldFocused } -- reject.
   service:newSource({}, { mode = 'physical' }) -- reject.
   source:key(30) -- reject.
   source:key { code = 'a' } -- reject.
@@ -34,7 +29,7 @@ local function misuse(
   source.dead = false -- reject.
   activation.batch = 2 -- reject.
   result.kind = 'unhandled' -- reject.
-  return { wrongMode, oldTarget, accepted, nativeSeat, unrefined, missingMessage, invalidResult }
+  return { wrongMode, accepted, nativeSeat, unrefined, missingMessage, invalidResult }
 end
 
 local function snapshotMisuse(source: focus.Source, activation: focus.Activation)

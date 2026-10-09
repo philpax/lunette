@@ -106,20 +106,4 @@ function routes.current(state: State): Route?
   return if current and live(current.target) then current else nil
 end
 
-function routes.sameNative(state: State, first: contract.Target, second: contract.Target): boolean
-  if first.kind ~= 'native' or second.kind ~= 'native' or first.sink.domain ~= second.sink.domain then
-    return false
-  end
-  local firstSeat = first.seat or state.defaultSeat()
-  local secondSeat = second.seat or state.defaultSeat()
-  if (firstSeat and firstSeat.id) ~= (secondSeat and secondSeat.id) then
-    return false
-  end
-  if first.sink.domain == 'window' then
-    return first.sink.id == second.sink.id
-  end
-  local firstMonitor, secondMonitor = first.sink.monitor, second.sink.monitor
-  return firstMonitor ~= nil and secondMonitor ~= nil and firstMonitor.id == secondMonitor.id
-end
-
 return routes

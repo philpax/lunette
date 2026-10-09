@@ -62,7 +62,6 @@ for _, mode in { 'field focus', 'manual show' } do
       expect.truthy(env.display.service:isVisible())
       expect.equal(#changes, 1, 'only the final show transition notifies')
       expect.equal(changes[1].reason, 'show')
-      expect.equal(changes[1].target, env.focus:focused(), 'the show identifies the final focused field')
       expect.truthy(board:typeText '!')
       if mode == 'field focus' then
         expect.equal(env.first:value(), 'draft')
@@ -89,7 +88,6 @@ for _, method in { 'hide', 'toggle' } do
             snapshots[#snapshots + 1] = {
               focused = env.focus:focused(),
               visible = env.display.service:isVisible(),
-              target = change.target,
               notificationVisible = change.visible,
             }
             env.second:focus()
@@ -101,11 +99,8 @@ for _, method in { 'hide', 'toggle' } do
       expect.equal(snapshots[1].focused, nil, 'blur completes before the display observer')
       expect.falsy(snapshots[1].visible)
       expect.falsy(snapshots[1].notificationVisible)
-      expect.equal(snapshots[1].target, nil, 'the committed hide has no local focus target')
       expect.equal(#changes, 2, 'the observer focus publishes one new show')
       expect.equal(changes[2].reason, 'show')
-      expect.equal(changes[2].target, env.focus:focused())
-      expect.truthy(changes[2].revision > changes[1].revision)
       expect.equal(fixture.shown(env), board)
       expect.truthy(board:typeText '!')
       expect.equal(env.first:value(), 'draft', 'the old field remains blurred')
@@ -181,7 +176,6 @@ test('a newer automatic hide notifies after cancellation supersedes a public hid
     expect.truthy(changes[1].visible)
     expect.equal(changes[2].reason, 'hide')
     expect.falsy(changes[2].visible)
-    expect.truthy(changes[2].revision > changes[1].revision)
     expect.equal(env.focus:focused(), nil)
     expect.falsy(env.display.service:isVisible())
     expect.equal(fixture.boardCount(env), 1, 'the hidden board remains the only instance')

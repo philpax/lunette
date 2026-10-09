@@ -1,7 +1,6 @@
 -- The keyboard service contract. Key geometry is data here because a configuration writes rows for
 -- whichever provider serves it; behaviour, layout, drawing, and layers are the provider's.
 
-local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local theme = require '@lunette-contracts/theme'
 local vocabulary = require '@lunette-contracts/vocabulary'
@@ -77,21 +76,17 @@ export type StyleOptions = {
   read legendHeight: number?,
 }
 
-export type Target = () -> (lunette.Seat?, lunette.Sink?)
-
 export type VisibilityChange = {
   read visible: boolean,
   read reason: 'show' | 'hide' | 'user-hide' | 'destroy',
 }
 
--- Rows, layers, and style override the provider's for this keyboard. The native-only
--- target adapter never supersedes a focused local receiver. Visibility callbacks belong to the owner.
+-- Rows, layers, and style override the provider's for this keyboard. Visibility callbacks belong to the owner.
 export type Options = {
   read rows: { read [number]: KeyRow }?,
   read layers: { read [string]: { read [number]: KeyRow } }?,
   read style: StyleOptions?,
   read pose: Mat4?,
-  read target: Target?,
   read onVisibilityChanged: ((VisibilityChange) -> ())?,
 }
 
@@ -108,12 +103,9 @@ export type Keyboard = {
   read visible: boolean,
   read raycast: (Surface, vector, vector, boolean?) -> (number?, number?, number?),
   read project: ((Surface, vector, vector) -> (number?, number?, number?))?,
-  read onPointer: ((Surface, vocabulary.PointerEvent) -> ())?,
+  read onPointer: (Surface, vocabulary.PointerEvent) -> (),
   read setPose: (Surface, Mat4) -> (),
   read setSize: (Surface, number?, number?) -> (),
-  read onHover: (Surface, number?, number?, Pointer) -> (),
-  read onLeave: (Surface, Pointer) -> (),
-  read onPress: (Surface, number?, number?, Pointer) -> (),
   read setVisible: (Keyboard, boolean) -> (),
   read pressKey: (Keyboard, number) -> boolean,
   read typeText: (Keyboard, string) -> boolean,

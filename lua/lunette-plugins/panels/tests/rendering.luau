@@ -80,11 +80,11 @@ test('opt-in window layers skip scene content only while their claim is granted'
 end)
 
 test('monitor and translucent window planes use colour shaders and restore inherited state', function()
-  local native, session, observer, window, shaders = fixture()
+  local native, session, observer, window, shaders = fixture { style = { windowRadius = 0.1, monitorRadius = 0.1 } }
   local monitor = native.newMonitor 'display-1'
   monitor.getTexture = window.getTexture
-  local translucent = observer.service:fromWindow(observer.context, window, { windowRadius = 0.1 })
-  local mirror = observer.service:fromMonitor(observer.context, monitor, { monitorRadius = 0.1 })
+  local translucent = observer.service:fromWindow(observer.context, window)
+  local mirror = observer.service:fromMonitor(observer.context, monitor)
   local pass, recorder = native.events.pass, native.events.render
   pass:setShader 'caller shader'
   pass:setMaterial 'caller material'

@@ -19,10 +19,9 @@ local keyboard = plugin.consumer<<Config, Settings>>({
       label = 'Keyboard',
       group = 'Session',
       order = 10,
-      enabled = not displayService.dead,
-      selected = not displayService.dead and displayService:isVisible(),
+      selected = displayService:isVisible(),
       run = function(): ()
-        if context:active() and not displayService.dead then
+        if context:active() then
           displayService:toggle()
         end
       end,
@@ -30,7 +29,7 @@ local keyboard = plugin.consumer<<Config, Settings>>({
     displayService:onChanged(context, {
       run = function(change: display.Change): ()
         if context:active() then
-          menuService:update(context, toggle, { enabled = not displayService.dead, selected = change.visible })
+          menuService:update(context, toggle, { selected = change.visible })
         end
       end,
     })

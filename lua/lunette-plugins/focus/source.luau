@@ -17,7 +17,6 @@ export type Snapshot = {
 }
 export type Routing = {
   read snapshot: () -> Snapshot,
-  read reconcile: (lunette.Seat?, lunette.Sink?) -> boolean,
   read keymapSeat: () -> lunette.Seat?,
   read listen: (() -> ()) -> () -> (),
   read dispose: (() -> ())?,
@@ -68,38 +67,13 @@ local function printable(value: string): boolean
   return scalar >= 0x20 and (scalar < 0x7f or scalar > 0x9f)
 end
 
-local function sameSeat(a: lunette.Seat?, b: lunette.Seat?): boolean
-  local first = a or lunette.defaultSeat()
-  local second = b or lunette.defaultSeat()
-  return (first and first.id) == (second and second.id)
-end
-
-local function sameSink(a: lunette.Sink, b: lunette.Sink): boolean
-  if a.domain ~= b.domain then
-    return false
-  end
-  if a.domain == 'window' and b.domain == 'window' then
-    return a.id ~= nil and a.id == b.id
-  end
-  if a.domain == 'host' and b.domain == 'host' then
-    return a.monitor ~= nil and b.monitor ~= nil and a.monitor.id == b.monitor.id
-  end
-  return false
-end
-
 function sources.new(
   context: plugin.Context,
   owner: contract.Owner,
   options: contract.SourceOptions?,
   routing: Routing
 ): (contract.Source, () -> ())
-  local mode: 'virtual' | 'physical'
-  local selector: (() -> (lunette.Seat?, lunette.Sink?))?
-  do
-    local settings = validation.options(options)
-    mode = settings.mode or 'virtual'
-    selector = settings.nativeTarget
-  end
+  local mode: 'virtual' | 'physical' = validation.options(options).mode or 'virtual'
   local currentRouting: Routing? = routing
   local sourceLabel = 'focus: source owner ' .. plugin.ownerLabel(owner)
   local driver = native.new(sourceLabel)
@@ -164,60 +138,6 @@ function sources.new(
       return failed 'the receiver text callback raised; see the reported callback error'
     end
     return if accepted then CONSUMED else UNHANDLED
-  end
-
-  local function selectRoute(): (Snapshot?, contract.Result?)
-    local route = currentRouting
-    if route == nil then
-      return nil, refused 'the source is no longer live'
-    end
-    local snapshot = route.snapshot()
-    local target = snapshot.target
-    if target ~= nil and target.kind == 'local' then
-      return snapshot, nil
-    end
-    local choose = selector
-    if choose == nil then
-      return snapshot, nil
-    end
-    local token = generation
-    local seat: lunette.Seat? = nil
-    local sink: lunette.Sink? = nil
-    if not protected.call(sourceLabel .. ': native target', function(): ()
-      seat, sink = choose()
-    end) then
-      return nil, failed 'the native target callback raised; see the reported callback error'
-    end
-    if not valid(snapshot, token) then
-      return nil, refused 'the route changed while selecting a native target'
-    end
-    local selectedSink = sink
-    local selectedSeat = seat
-    if selectedSink == nil or selectedSink.dead or (selectedSeat ~= nil and selectedSeat.dead) then
-      return nil, refused 'the native target is unavailable'
-    end
-    local reconciled = false
-    if
-      not protected.call(sourceLabel .. ': reconcile native target', function(): ()
-        reconciled = route.reconcile(selectedSeat, selectedSink)
-      end)
-    then
-      return nil, failed 'reconciling the native target raised; see the reported callback error'
-    end
-    if not reconciled or not alive() then
-      return nil, refused 'the native target cannot acquire the route'
-    end
-    local selected = route.snapshot()
-    local current = selected.target
-    if
-      current == nil
-      or current.kind ~= 'native'
-      or not sameSink(current.sink, selectedSink)
-      or not sameSeat(current.seat, selectedSeat)
-    then
-      return nil, refused 'the native target did not become the current route'
-    end
-    return selected, nil
   end
 
   local function nativeTarget(
@@ -369,16 +289,12 @@ function sources.new(
           return
         end
       end
-      local snapshot, selectionFailure = selectRoute()
-      if selectionFailure then
-        result = selectionFailure
-      elseif snapshot then
-        local token = generation
-        if valid(snapshot, token) then
-          result = operation(snapshot, token)
-        else
-          result = refused 'the selected route is no longer live'
-        end
+      local snapshot = route.snapshot()
+      local token = generation
+      if valid(snapshot, token) then
+        result = operation(snapshot, token)
+      else
+        result = refused 'the selected route is no longer live'
       end
     end)
     busy = false
@@ -397,7 +313,7 @@ function sources.new(
     local release = if notifyProvider and currentRouting then currentRouting.dispose else nil
     dead, source.dead = true, true
     generation += 1
-    batch, cancel, selector, currentRouting = nil, nil, nil, nil
+    batch, cancel, currentRouting = nil, nil, nil
     local cleaned = driver.reset()
     if dispose then
       if not protected.call(sourceLabel .. ': release route listener', dispose) then
@@ -419,12 +335,9 @@ function sources.new(
       if invalid then
         return refused(invalid)
       end
-      -- Route notifications can cancel pending virtual keyboard modifiers before delivery copies them.
       local operation: contract.Activation = table.freeze {
         code = activation.code,
-        modifiers = if mode == 'physical' and activation.modifiers
-          then table.freeze(table.clone(activation.modifiers))
-          else activation.modifiers,
+        modifiers = if activation.modifiers then table.freeze(table.clone(activation.modifiers)) else nil,
         physicalModifiers = if activation.physicalModifiers
           then keys.snapshotPhysicalModifiers(activation.physicalModifiers)
           else nil,

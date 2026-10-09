@@ -129,11 +129,6 @@ local function make(
       end
     end,
     setSize = function(_self: keyboard.Surface, _width: number?, _height: number?) end,
-    onHover = function(_self: keyboard.Surface, _x: number?, _y: number?, _pointer: keyboard.Pointer) end,
-    onLeave = function(_self: keyboard.Surface, _pointer: keyboard.Pointer) end,
-    onPress = function(_self: keyboard.Surface, x: number?, y: number?, pointer: keyboard.Pointer)
-      activate(x, y, pointer)
-    end,
     setVisible = function(_self: keyboard.Keyboard, visible: boolean)
       if state.dead or state.visible == visible then
         return
@@ -224,7 +219,7 @@ return plugin.provider<<Config, Settings, keyboard.Service>>({
         end
         local cleanupEffect: plugin.Effect? = nil
         local board, acquired = context:resource(owner, function(): (keyboard.Keyboard, () -> ())
-          local source = focus:newSource(context, { mode = 'virtual', nativeTarget = options and options.target })
+          local source = focus:newSource(context, { mode = 'virtual' })
           local made: keyboard.Keyboard? = nil
           local destroyBoard: (() -> ())? = nil
           local ok, failure = pcall(function(): ()

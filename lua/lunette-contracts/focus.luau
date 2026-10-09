@@ -59,10 +59,8 @@ export type Result =
   | { read kind: 'failed', read message: string }
   | { read kind: 'refused', read message: string }
 
--- The native-only adapter cannot supersede a focused local receiver.
 export type SourceOptions = {
   read mode: ('virtual' | 'physical')?,
-  read nativeTarget: (() -> (lunette.Seat?, lunette.Sink?))?,
 }
 
 export type Source = {
@@ -83,6 +81,23 @@ export type Service = {
   read onChanged: (Service, Owner, Listener) -> plugin.Effect,
   read newSource: (Service, Owner, SourceOptions?) -> Source,
 }
+
+-- Two native targets name the same route when their seats and sinks match. An omitted seat is the default seat.
+function focus.sameNative(first: Target, second: Target): boolean
+  if first.kind ~= 'native' or second.kind ~= 'native' or first.sink.domain ~= second.sink.domain then
+    return false
+  end
+  local firstSeat = first.seat or lunette.defaultSeat()
+  local secondSeat = second.seat or lunette.defaultSeat()
+  if (firstSeat and firstSeat.id) ~= (secondSeat and secondSeat.id) then
+    return false
+  end
+  if first.sink.domain == 'window' then
+    return first.sink.id ~= nil and first.sink.id == second.sink.id
+  end
+  local firstMonitor, secondMonitor = first.sink.monitor, second.sink.monitor
+  return firstMonitor ~= nil and secondMonitor ~= nil and firstMonitor.id == secondMonitor.id
+end
 
 export type Capability = plugin.Capability<Service>
 focus.capability = plugin.capability<<Service>> { name = 'lunette/focus', schema = 2 }

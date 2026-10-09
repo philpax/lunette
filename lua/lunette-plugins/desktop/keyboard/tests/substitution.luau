@@ -33,7 +33,6 @@ for _, name in { 'built-in', 'tiny', 'split', 'rounded' } do
     expect.equal(changes[1].reason, 'show')
     expect.equal(changes[2].reason, 'hide')
     expect.equal(changes[3].reason, 'show')
-    expect.truthy(changes[3].revision > changes[2].revision)
     env.session:update()
     env.session:draw()
     env.session:close()

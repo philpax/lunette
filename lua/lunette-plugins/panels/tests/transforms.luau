@@ -4,6 +4,9 @@ local shape = require '@lunette-plugins/panels/shape'
 local expect = testing.expect
 local test = testing.suite()
 
+local SQUARE = { windowRadius = 0, monitorRadius = 0 }
+local ROUNDED = { windowRadius = 0, monitorRadius = 0.08 }
+
 -- UVs for top-left, top-right, bottom-left, bottom-right from pinned WayVR transform_uv.
 local cases = {
   { 'normal', { { 0, 0 }, { 1, 0 }, { 0, 1 }, { 1, 1 } } },
@@ -50,7 +53,7 @@ for _, case in cases do
         curve = curve,
         highlighted = false,
       }
-      drawing.content(target, native.events.pass, function()
+      drawing.content(target, native.events.pass, SQUARE, function()
         return nil
       end)
       local mesh = made[1]
@@ -65,8 +68,7 @@ for _, case in cases do
       else
         expect.truthy(curve == 0 and (case[1] == 'normal' or case[1] == 'undefined'), 'only identity uses a plane')
       end
-      target.monitorRadius = 0.08
-      drawing.content(target, native.events.pass, function()
+      drawing.content(target, native.events.pass, ROUNDED, function()
         return nil
       end)
       local rounded = made[#made]
@@ -141,11 +143,11 @@ test('a changed capture transform refreshes an existing panel mesh', function()
     highlighted = false,
   }
   monitor.frameTransform = 'normal'
-  drawing.content(target, native.events.pass, function()
+  drawing.content(target, native.events.pass, SQUARE, function()
     return nil
   end)
   monitor.frameTransform = 'rot90'
-  drawing.content(target, native.events.pass, function()
+  drawing.content(target, native.events.pass, SQUARE, function()
     return nil
   end)
   expect.equal(#made, 2, 'changed UVs replace the retained mesh')
@@ -153,7 +155,7 @@ test('a changed capture transform refreshes an existing panel mesh', function()
   expect.equal(made[2].writes, 1)
   expect.equal(made[2].vertices[1][7], 0)
   expect.equal(made[2].vertices[1][8], 1)
-  drawing.content(target, native.events.pass, function()
+  drawing.content(target, native.events.pass, SQUARE, function()
     return nil
   end)
   expect.equal(#made, 2, 'unchanged capture transforms retain the mesh')

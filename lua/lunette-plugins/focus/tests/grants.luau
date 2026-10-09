@@ -5,13 +5,8 @@ local contract = require '@lunette-contracts/focus'
 local frame = require '@lunette-contracts/frame'
 local test = testing.suite()
 
-local function start(withDefault)
+local function start()
   local env = { native = testing.native(), heard = {} }
-  if withDefault then
-    require('@lunette').defaultSeat = function()
-      return env.left
-    end
-  end
   env.session = testing.boot({ 'frame', 'focus' }, { native = env.native })
   env.first = env.session:observe(contract.capability)
   env.second = env.session:observe(contract.capability)
@@ -229,22 +224,6 @@ test('native target loss clears route and modifier intent at the next input boun
   env.session:close()
 end)
 
-test('source explicit destruction unregisters its route listener and native override', function()
-  local env = start()
-  local input = env.focus:newSource(env.owner, {
-    nativeTarget = function()
-      return env.left, env.sink
-    end,
-  })
-  expect.equal(input:key({ code = 30 }).kind, 'consumed', 'native override delivery')
-  input:destroy()
-  expect.truthy(input.dead, 'the source is dead')
-  expect.equal(env.focus:inspect().state.sourceCount, 0, 'destroyed sources do not remain registered')
-  expect.equal(env.focus:focused(), nil, 'its native override is disposed')
-  expect.equal(env.left.focus, nil, 'native authority is cleared')
-  env.session:close()
-end)
-
 test('native focus cleanup refusal blocks delivery to the committed replacement route', function()
   local env = start()
   local deliveries = 0
@@ -295,37 +274,6 @@ test('target loss discovered during selection blocks the same operation after na
   expect.equal(deliveries, 0, 'the local callback never runs')
   expect.equal(#env.native.events.reported, 1, 'the failed focus inverse is reported')
   env.session:close()
-end)
-
-test('source overrides treat nil and explicit fresh default seats as one native route', function()
-  local lunette = require '@lunette'
-  local previous = lunette.defaultSeat
-  local env = start(true)
-  local explicit = false
-  local input = env.focus:newSource(env.owner, {
-    nativeTarget = function()
-      local seat = if explicit
-        then { id = env.left.id, dead = false, setFocus = env.left.setFocus, calls = env.left.calls }
-        else nil
-      return seat, env.sink
-    end,
-  })
-  local ok, failure = pcall(function()
-    expect.equal(input:key({ code = 30 }).kind, 'consumed', 'nil-seat native override')
-    local target, revision = env.focus:focused(), env.focus:revision()
-    explicit = true
-    expect.equal(input:key({ code = 30 }).kind, 'consumed', 'equivalent explicit default-seat override')
-    expect.equal(env.focus:focused(), target, 'the native route registration is reused')
-    expect.equal(env.focus:revision(), revision, 'equivalent seat wrappers do not replace the route')
-    explicit = false
-    expect.equal(input:key({ code = 30 }).kind, 'consumed', 'nil-seat override resumes without replacement')
-    input:destroy()
-  end)
-  env.session:close()
-  lunette.defaultSeat = previous
-  if not ok then
-    error(failure, 0)
-  end
 end)
 
 return test

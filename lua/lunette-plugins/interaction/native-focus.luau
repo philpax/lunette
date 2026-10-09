@@ -8,24 +8,12 @@ local nativeFocus = {}
 export type State = {
   seat: lunette.Seat?,
   focusTarget: focusContract.TargetHandle?,
-  focusSink: lunette.Sink?,
-  focusSeatId: number?,
+  focused: focusContract.Target?,
 }
-
-local function sameSink(first: lunette.Sink, second: lunette.Sink): boolean
-  if first.dead or second.dead or first.domain ~= second.domain then
-    return false
-  end
-  if first.domain == 'window' then
-    return first.id ~= nil and first.id == second.id
-  end
-  local firstMonitor, secondMonitor = first.monitor, second.monitor
-  return firstMonitor ~= nil and secondMonitor ~= nil and firstMonitor.id == secondMonitor.id
-end
 
 function nativeFocus.detach(state: State): (() -> ())?
   local target = state.focusTarget
-  state.focusTarget, state.focusSink, state.focusSeatId = nil, nil, nil
+  state.focusTarget, state.focused = nil, nil
   return if target
     then function()
       target:destroy()
@@ -51,9 +39,17 @@ function nativeFocus.give(
   if not current() or sink.dead or (seat and seat.dead) then
     return
   end
-  local seatId = seat and seat.id
-  local previous = state.focusSink
-  if target and not target.dead and state.focusSeatId == seatId and previous and sameSink(previous, sink) then
+  -- The comparison resolves the seat now, so a changed default seat replaces the registration.
+  local resolved: focusContract.Target = { kind = 'native', seat = seat, sink = sink }
+  local previous = state.focused
+  if
+    target
+    and not target.dead
+    and previous
+    and previous.kind == 'native'
+    and not previous.sink.dead
+    and focusContract.sameNative(previous, resolved)
+  then
     target:focus()
     return
   end
@@ -69,7 +65,7 @@ function nativeFocus.give(
     registered:destroy()
     return
   end
-  state.focusTarget, state.focusSink, state.focusSeatId = registered, sink, seatId
+  state.focusTarget, state.focused = registered, resolved
   registered:focus()
 end
 

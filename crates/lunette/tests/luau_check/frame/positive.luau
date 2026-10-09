@@ -6,8 +6,8 @@ local keys = require '@lunette-contracts/keys'
 local function build(context: plugin.Context): frame.Service
   local current: frame.Batch = table.freeze { id = 1, textBlocked = false }
   local keyCode: KeyCode = 'a'
-  local input: frame.Phase = 'input'
-  local scene: frame.Phase = 'scene'
+  local input: frame.UpdatePhase = 'input'
+  local scene: frame.UpdatePhase = 'scene'
   local delivery: frame.InputPhase = 'delivery'
   local key: frame.KeyEvent = table.freeze { batch = current.id, key = keyCode, scancode = 4, isRepeat = false }
   local flags: keys.PhysicalModifiers =

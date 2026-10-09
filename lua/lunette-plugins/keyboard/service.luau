@@ -35,7 +35,7 @@ local function build(context: plugin.Context, settings: Settings): keyboard.Serv
           { width = target.width, height = target.height, visible = target.visible, layer = target.layer }
         )
       end
-      return inspection.snapshot(result, nil, { 'keyboard targets and legends require callbacks' })
+      return inspection.snapshot(result, nil, { 'keyboard legends require callbacks' })
     end,
     new = function(_self: keyboard.Service, owner: keyboard.Owner, options: keyboard.Options?): keyboard.Keyboard
       local own = settingsFor(settings, options)
@@ -60,7 +60,7 @@ local function build(context: plugin.Context, settings: Settings): keyboard.Serv
       end
       local cleanupEffect: plugin.Effect? = nil
       local result, acquired = context:resource(owner, function(): (board.Board, () -> ())
-        local source = focusService:newSource(context, { mode = 'virtual', nativeTarget = options and options.target })
+        local source = focusService:newSource(context, { mode = 'virtual' })
         local changed: plugin.Effect? = nil
         local themeChanged: plugin.Effect? = nil
         local made: board.Board? = nil

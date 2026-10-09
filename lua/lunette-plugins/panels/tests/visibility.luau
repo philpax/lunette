@@ -139,12 +139,6 @@ test("chrome is off unless a panel or the provider's configuration asks for it",
   expect.equal(title.state.setColor[1], 0.8, 'the title inherits foreground')
   expect.equal(border.state.setColor[1], 0.1, 'the border inherits border')
   expect.near(title[3]:getScale(), 0.03, 1e-9, 'the selected face measures the title height')
-  expect.equal(env.panels.STYLE.font.file, 'panel-face-a.ttf', 'STYLE reports a specification, not a face')
-  expect.equal(env.panels.STYLE.borderThickness, 0.012, 'the metre titlebar border token')
-  expect.equal(env.panels.STYLE.titleMargin, 0.02, 'the title placement margin stays policy')
-  expect.equal(env.panels.STYLE.borderDepth, 0.001, 'the border depth stays policy')
-  expect.equal(framed.windowRadius, 0.03, 'the window radius data seam')
-  expect.equal(framed.monitorRadius, 0.04, 'the monitor radius data seam')
   expect.equal(counts.plane, nil, 'rounded content has no square plane')
   expect.equal(counts.draw, 2, 'rounded captured content and chrome have distinct meshes')
   recorder:assertRestored(caller)
@@ -153,11 +147,8 @@ test("chrome is off unless a panel or the provider's configuration asks for it",
   border = paintCalls()
   expect.equal(border.state.setColor[1], 0.4, 'the highlight inherits focus')
 
-  local square = env.panels:fromWindow(env.owner, window(env, 3), { windowRadius = 0, monitorRadius = 0 })
-  expect.equal(square.windowRadius, 0, 'a per-panel zero overrides the theme')
   selected:update { typography = { font = { kind = 'file', file = 'panel-face-b.ttf', size = 28, spread = 4 } } }
   expect.truthy(faces[1].released, 'the subscription publishes the replacement before dropping old paint')
-  local retained = env.panels.STYLE
   acquisitionFails = true
   local beforeRevision = env.theme:current().revision
   selected:update {
@@ -173,7 +164,6 @@ test("chrome is off unless a panel or the provider's configuration asks for it",
     drawn(env, framed)
   end, 'panel font acquisition failure', 'a failed refresh raises')
   expect.falsy(faces[2].released, 'a failed refresh retains the previous paint lease')
-  expect.equal(retained.font.file, 'panel-face-b.ttf', 'a failed refresh keeps the published specification')
   acquisitionFails = false
   drawn(env, framed)
   _, title = paintCalls()
@@ -197,11 +187,6 @@ test("chrome is off unless a panel or the provider's configuration asks for it",
   selected:dispose()
   expect.truthy(faces[3].released, 'ending a selection refreshes and releases stale paint')
   framed:raycast(vector.pack(0, 0, 1), vector.pack(0, 0, -1))
-  expect.equal(env.panels.STYLE.font.kind, 'default', 'the style returns to the base spec')
-  expect.equal(square.windowRadius, 0, 'the per-panel zero survives global resets')
-  expect.raises(function()
-    env.panels:fromWindow(env.owner, window(env, 4), { windowRadius = -1 })
-  end, nil, 'a negative per-panel radius')
   env.session:close()
 
   local newFont = lovr.graphics.newFont
@@ -233,84 +218,12 @@ test("chrome is off unless a panel or the provider's configuration asks for it",
   end
   expect.equal(explicitTitle.state.setFont[1], faces[#faces], 'explicit provider font wins')
   expect.equal(explicitTitle.state.setColor[1], 0.9, 'explicit provider title colour wins')
-  expect.equal(env.panels.STYLE.font.size, 32, 'editable file fonts project their default size')
-  expect.equal(env.panels.STYLE.font.spread, 4, 'editable file fonts project their default spread')
-  expect.equal(env.panels.STYLE.titleHeight, 0.07, 'omitted title height remains theme-derived')
-  expect.equal(env.panels.STYLE.borderThickness, 0, 'an explicit zero border survives a theme change')
-  expect.equal(defaultChrome.windowRadius, 0, 'an explicit zero provider radius survives a theme change')
-  expect.equal(defaultChrome.monitorRadius, 0.09, 'an omitted provider radius inherits')
-  expect.raises(function()
-    env.panels.STYLE.font.size = 12
-  end, nil, 'the projected specification is immutable')
+  local square = drawn(env, defaultChrome)
+  expect.equal(square.plane, 1, 'an explicit zero provider radius survives a theme change')
+  expect.equal(square.draw, nil, 'an explicit zero border survives a theme change')
   override:dispose()
   env.session:close()
   expect.truthy(faces[#faces].released, 'shutdown releases the explicit provider font')
-end)
-
-test('the shape hooks pick a panel and place its layer', function()
-  local raycasts, layered = {}, {}
-  local beforeBase
-  local env = start(panelsModule.define {
-    name = 'shaped-panels',
-    rendering = 'layer',
-    shape = {
-      draw = function(target, pass, base)
-        if beforeBase then
-          beforeBase()
-        end
-        base(target, pass)
-      end,
-      raycast = function(target)
-        raycasts[#raycasts + 1] = target
-        return 1, 2, 3
-      end,
-      applyLayer = function(target, layer, base)
-        layered[#layered + 1] = target
-        base(target, layer)
-      end,
-    },
-  })
-  local panel = env.panels:fromWindow(env.owner, window(env, 1), { height = 1 })
-  expect.equal(panel:raycast(vector.pack(0, 0, 0), vector.pack(0, 0, -1)), 1, 'the hook answers the pick')
-  expect.equal(raycasts[1], panel, 'the panel the hook picked')
-  env.panels:update()
-  local claim = panel.claim
-  expect.truthy(claim and not claim.dead, 'a shown window panel claims a layer')
-  local calls = {}
-  claim.granted = true
-  claim.layer = {
-    setViewport = function() end,
-    setPosition = function()
-      calls[#calls + 1] = 'position'
-    end,
-    setOrientation = function() end,
-    setDimensions = function() end,
-    setCurve = function(_, curve)
-      calls[#calls + 1] = 'curve ' .. curve
-    end,
-  }
-  env.panels:update()
-  expect.truthy(panel.granted, 'the panel on its granted layer')
-  expect.equal(layered[1], panel, 'the panel the hook placed')
-  expect.truthy(table.find(calls, 'curve 0') and table.find(calls, 'position'), 'the default placed it flat')
-  expect.equal(drawn(env, panel).plane, nil, 'a panel on a layer is not drawn in the scene')
-  claim.granted = false
-  env.panels:update()
-  local changed
-  beforeBase = function()
-    changed = env.theme:select(env.themeOwner, { colors = { foreground = { 0.2, 0.3, 0.4, 1 } } })
-  end
-  expect.equal(drawn(env, panel).plane, nil, 'a revision change stops a stale hook base')
-  beforeBase = nil
-  expect.equal(drawn(env, panel).plane, 1, 'a current hook base draws normally')
-  changed:dispose()
-  beforeBase = function()
-    env.session.instances.panels:disable()
-  end
-  expect.equal(drawn(env, panel).plane, nil, 'provider shutdown stops a stale hook base')
-  expect.truthy(panel.dead, 'shutdown retires the drawn panel')
-  env.native.events.render:assertRestored()
-  env.session:close()
 end)
 
 test('an override hides a panel, and the most recent live override decides', function()

@@ -209,7 +209,7 @@ test(
   end
 )
 
-test('explicit focus remains available with focusOnPress disabled and legacy surfaces still receive presses', function()
+test('explicit focus remains available with focusOnPress disabled and surfaces still receive presses', function()
   local env = start(interaction.define { name = 'manual-focus', focusOnPress = false })
   local pointer = env.interaction:newPointer(env.owner, { seat = env.seat(2) })
   local sink = env.window(11)
@@ -222,19 +222,20 @@ test('explicit focus remains available with focusOnPress disabled and legacy sur
   local presses, releases = 0, 0
   local surface = {
     dead = false,
-    onPress = function(_self, _x, _y, actualPointer)
-      expect.equal(actualPointer, pointer, 'the legacy press receives the pointer')
-      presses += 1
-    end,
-    onRelease = function()
-      releases += 1
+    onPointer = function(_self, event)
+      expect.equal(event.pointer, pointer, 'the press receives the pointer')
+      if event.kind == 'press' then
+        presses += 1
+      elseif event.kind == 'release' then
+        releases += 1
+      end
     end,
   }
   pointer:setButton { pressed = true, surface = surface }
   pointer:setButton { pressed = false }
-  expect.equal(presses, 1, 'the legacy surface receives its press')
-  expect.equal(releases, 1, 'the legacy surface receives its release')
-  expect.equal(env.focus:focused(), target, 'the legacy press leaves explicit native focus unchanged')
+  expect.equal(presses, 1, 'the surface receives its press')
+  expect.equal(releases, 1, 'the surface receives its release')
+  expect.equal(env.focus:focused(), target, 'the press leaves explicit native focus unchanged')
   pointer:destroy()
   env.session:close()
 end)

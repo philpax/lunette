@@ -1,5 +1,5 @@
 -- Each activation owns its panel registry and resources.
--- See docs/dev/lua-api.md#panels for options and shape hooks.
+-- See docs/dev/lua-api.md#panels for options.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
@@ -48,13 +48,6 @@ local config = require '@lunette-plugins/panels/config'
 local schema = require '@lunette-plugin/schema'
 
 export type Settings = config.Settings
-export type Shape = panel.Shape
-export type Raycast = panel.Raycast
-export type RaycastBase = panel.RaycastBase
-export type Draw = panel.Draw
-export type DrawBase = panel.DrawBase
-export type ApplyLayer = panel.ApplyLayer
-export type LayerBase = panel.LayerBase
 
 export type Config = config.Config
 
@@ -290,7 +283,6 @@ local function build(context: plugin.Context, settings: Settings): Service
         { active = state.active, layerClaims = claims, meshes = meshes, opaqueShader = state.opaqueShader ~= nil }
       )
     end,
-    STYLE = paint.style,
     fromWindow = function(_self: Service, owner: Owner, window: lunette.Window, options: Options?): WindowPanel
       local target = create(state, owner, { kind = 'window', source = window }, options)
       if target.kind ~= 'window' then
@@ -341,14 +333,7 @@ local function build(context: plugin.Context, settings: Settings): Service
       return events.onRemoved(state.events, owner, listener.panel, listener.run)
     end,
   }
-  local methods = table.clone((service :: unknown) :: { [string]: unknown })
-  methods.STYLE = nil
-  -- The checked service supplies its methods; STYLE resolves the current immutable specification.
-  return table.freeze(setmetatable({}, {
-    __index = function(_self: unknown, key: string): unknown
-      return if key == 'STYLE' then currentPaint().style else methods[key]
-    end,
-  })) :: Service
+  return service
 end
 
 return plugin.provider<<Config, Settings, Service>> {

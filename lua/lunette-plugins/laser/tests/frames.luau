@@ -57,7 +57,7 @@ test("each laser reads its own input, and a hover pulses that hand's controller 
     return inputs[hand]
   end
   env.service:attach(env.owner, { readInput = readInput })
-  local style = env.service.STYLE
+  local style = env.service:forHand('left').style
 
   env.service:update {}
   expect.truthy(reads.left == 1 and reads.right == 1, 'each hand read once')
@@ -74,8 +74,10 @@ test("each laser reads its own input, and a hover pulses that hand's controller 
       end
       return 1, 2, 3
     end,
-    onHover = function()
-      hovers += 1
+    onPointer = function(_, event)
+      if event.kind == 'enter' then
+        hovers += 1
+      end
     end,
   }
   env.service:update { surface }
@@ -153,7 +155,7 @@ test('the readInput and draw hooks wrap the defaults for every laser, and button
   expect.equal(own, 1, 'the own reader')
   expect.truthy(#read == 3 and read[3].hand == 'right', 'the hook read only the other hand')
   expect.equal(left.style.length, 9, 'the given style')
-  expect.equal(left.style.cursorRadius, env.service.STYLE.cursorRadius, 'the merged style')
+  expect.equal(left.style.cursorRadius, env.service:forHand('right').style.cursorRadius, 'the merged style')
   env.session:close()
 
   expect.raises(function()

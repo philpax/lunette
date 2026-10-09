@@ -17,15 +17,10 @@ local function message(result: focus.Result): string
   end
 end
 
-local function consume(service: focus.Service, owner: focus.Owner, window: lunette.Window)
+local function consume(service: focus.Service, owner: focus.Owner)
   local virtual: focus.Source = service:newSource(owner, { mode = 'virtual' })
-  local nativeOptions: focus.SourceOptions = {
-    mode = 'physical',
-    nativeTarget = function(): (lunette.Seat?, lunette.Sink?)
-      return lunette.defaultSeat(), window.sink
-    end,
-  }
-  local physical: focus.Source = service:newSource(owner, nativeOptions)
+  local physicalOptions: focus.SourceOptions = { mode = 'physical' }
+  local physical: focus.Source = service:newSource(owner, physicalOptions)
   local modifiers: { read [number]: string } = table.freeze { 'shift', 'ctrl' }
   local activation: focus.Activation = { code = 30, modifiers = modifiers, isRepeat = false, batch = 1 }
   local flags: keys.PhysicalModifiers =

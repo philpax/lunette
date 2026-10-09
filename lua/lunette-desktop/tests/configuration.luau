@@ -115,7 +115,7 @@ test('a configured desktop serves what its patches configured, over the defaults
   }
   local session = testing.boot(desktop.compose {
     patches = {
-      { id = 'panels', config = { height = 1.2, style = { borderThickness = 0.02 } } },
+      { id = 'panels', config = { height = 1.2 } },
       { id = 'interaction', config = { tuning = { reach = 0.5, scrollScale = 7 } } },
       { id = 'laser', config = { style = { length = 2.5 } } },
       {
@@ -139,8 +139,6 @@ test('a configured desktop serves what its patches configured, over the defaults
     end
   end
 
-  expect.equal(services.panels.STYLE.borderThickness, 0.02, 'the configured border')
-  expect.equal(services.panels.STYLE.borderDepth, 0.001, 'a style key left out keeps its default')
   local panel = services.panels:fromWindow(owner, native.newWindow(90), {})
   expect.equal(panel.height, 1.2, 'a panel given no size takes the configured height')
 

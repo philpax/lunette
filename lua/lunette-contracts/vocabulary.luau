@@ -195,15 +195,10 @@ type SurfaceFields = {
   read sink: ((Surface) -> lunette.Sink?)?,
   read raycast: (Surface, vector, vector, boolean?) -> (number?, number?, number?),
   read project: ((Surface, vector, vector) -> (number?, number?, number?))?,
-  -- A protocol surface receives no legacy hover, leave, press, or release callbacks.
   read onPointer: ((Surface, PointerEvent) -> ())?,
   read setPose: ((Surface, Mat4) -> ())?,
   read setSize: ((Surface, number?, number?) -> ())?,
   read setHighlighted: ((Surface, boolean) -> ())?,
-  read onHover: ((Surface, number?, number?, Pointer) -> ())?,
-  read onLeave: ((Surface, Pointer) -> ())?,
-  read onPress: ((Surface, number?, number?, Pointer) -> ())?,
-  read onRelease: ((Surface, Pointer) -> ())?,
 }
 
 -- Luau rejects the recursive `SurfaceFields` alias and makes `setPose` ambiguous in an intersection.
@@ -223,10 +218,6 @@ type MovableFields = {
   read setPose: (Surface, Mat4) -> (),
   read setSize: ((Surface, number?, number?) -> ())?,
   read setHighlighted: ((Surface, boolean) -> ())?,
-  read onHover: ((Surface, number?, number?, Pointer) -> ())?,
-  read onLeave: ((Surface, Pointer) -> ())?,
-  read onPress: ((Surface, number?, number?, Pointer) -> ())?,
-  read onRelease: ((Surface, Pointer) -> ())?,
 }
 
 export type Surface =

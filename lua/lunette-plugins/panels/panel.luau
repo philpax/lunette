@@ -20,14 +20,6 @@ export type Options = contracts.Options
 
 local config = require '@lunette-plugins/panels/config'
 
--- Shape hooks wrap the flat quad or positive-curvature arc behavior.
-export type RaycastBase = config.RaycastBase
-export type Raycast = config.Raycast
-export type DrawBase = config.DrawBase
-export type Draw = config.Draw
-export type LayerBase = config.LayerBase
-export type ApplyLayer = config.ApplyLayer
-export type Shape = config.Shape
 export type Settings = config.Settings
 
 export type Host = {
@@ -88,7 +80,6 @@ type PanelMethods = {
   read setSize: (vocabulary.Surface, number?, number?) -> (),
   read raycast: (vocabulary.Surface, vector, vector, boolean?) -> (number?, number?, number?),
   read sink: (vocabulary.Surface) -> lunette.Sink?,
-  read sourceSize: (Panel) -> (number?, number?),
   read update: (Panel) -> (),
   read draw: (Panel, Pass) -> (),
   read setHidden: (Panel, Owner, contracts.Visibility) -> plugin.Effect,
@@ -98,7 +89,7 @@ type PanelMethods = {
 export type Source =
   { read kind: 'window', read source: lunette.Window }
   | { read kind: 'monitor', read source: lunette.Monitor }
-export type State = PanelData & PanelMethods & { read windowRadius: number, read monitorRadius: number } & Source
+export type State = PanelData & PanelMethods & Source
 
 local VISIBILITY_KEYS: { [string]: boolean } = { hidden = true }
 
@@ -109,27 +100,13 @@ local function checkCurve(curve: unknown, level: number): number
   return curve :: number
 end
 
-local function checkRadius(radius: unknown): number?
-  if radius == nil then
-    return nil
-  end
-  if type(radius) ~= 'number' or radius ~= radius or radius < 0 or radius == math.huge then
-    error('panels: a radius is a finite number, zero or more, not ' .. tostring(radius), 4)
-  end
-  return radius :: number
-end
-
 function panel.new(host: Host, owner: Owner, source: Source, options: Options?): State
   if source.source == nil then
     error('panels: a panel is over a source, and nil is not one', 4)
   end
   local settings: Options = options or {}
   local curve = checkCurve(if settings.curve == nil then 0 else settings.curve, 4)
-  local windowRadius, monitorRadius = checkRadius(settings.windowRadius), checkRadius(settings.monitorRadius)
   local created: State
-  local function raycastBase(_self: Panel, origin: vector, direction: vector, backFace: boolean?)
-    return panel.raycast(created, origin, direction, backFace)
-  end
   local exposed: PanelMethods = {
     attachFrame = function(
       _self: vocabulary.Surface,
@@ -158,17 +135,13 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
       if created.dead or created.hidden then
         return nil, nil, nil
       end
-      host.paint()
-      return host.settings.shape.raycast(created, origin, direction, backFace, raycastBase)
+      return panel.raycast(created, origin, direction, backFace)
     end,
     sink = function(_self: vocabulary.Surface): lunette.Sink?
       if created.dead or created.source.dead then
         return nil
       end
       return created.source.sink
-    end,
-    sourceSize = function(_self: Panel): (number?, number?)
-      return panel.sourceSize(created)
     end,
     update = function(_self: Panel)
       panel.update(created)
@@ -180,17 +153,6 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
       local paint = host.paint()
       local function current(): boolean
         return host.active() and not created.dead and not created.hidden and not created.source.dead
-      end
-      local function drawBase(_self: Panel, basePass: Pass): ()
-        if not current() or host.paint().revision ~= paint.revision then
-          return
-        end
-        if created.chrome or frame.joined(created.frame) then
-          drawing.border(created, basePass, paint.style)
-        else
-          drawing.clearOutline(created)
-        end
-        drawing.content(created, basePass, host.contentShader)
       end
       local function render(font: Font?): ()
         passState.withRestore(pass, function()
@@ -214,7 +176,12 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
             drawing.chrome(created, pass, paint.style, font)
           end
           if current() and host.paint().revision == paint.revision and not created.granted then
-            host.settings.shape.draw(created, pass, drawBase)
+            if created.chrome or frame.joined(created.frame) then
+              drawing.border(created, pass, paint.style)
+            else
+              drawing.clearOutline(created)
+            end
+            drawing.content(created, pass, paint.style, host.contentShader)
           end
         end)
       end
@@ -254,17 +221,7 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
       return panel.retire(created)
     end,
   }
-  local methods = (exposed :: unknown) :: { [string]: unknown }
-  local metatable = {
-    __index = function(_self: unknown, key: string): unknown
-      if key == 'windowRadius' then
-        return if windowRadius == nil then host.paint().style.windowRadius else windowRadius
-      elseif key == 'monitorRadius' then
-        return if monitorRadius == nil then host.paint().style.monitorRadius else monitorRadius
-      end
-      return methods[key]
-    end,
-  }
+  local metatable = { __index = exposed }
   local pose = settings.pose and lovr.math.newMat4(settings.pose) or lovr.math.newMat4()
   local priority = settings.priority or host.settings.priority
   local chrome = if settings.chrome == nil then host.settings.chrome else settings.chrome
@@ -307,7 +264,6 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
       frame = noFrame,
       effect = noEffect,
     }
-    -- The checked data and methods supply the handle; the metatable resolves current radius fields.
     created = (setmetatable(target, metatable) :: unknown) :: State
   else
     local monitor: lunette.Monitor = descriptor.source
@@ -521,7 +477,7 @@ function panel.resize(target: State, width: number?, height: number?)
   target.sourceAspect = aspect
 end
 
--- The default raycast: the flat quad, or the arc a positive curve gives.
+-- The flat quad, or the arc a positive curve gives.
 function panel.raycast(
   target: State,
   origin: vector,
@@ -537,7 +493,7 @@ function panel.raycast(
   end
   local polygon
   if not target.granted then
-    local _, _, contour, rounded = silhouette.get(target)
+    local _, _, contour, rounded = silhouette.get(target, target.host.paint().style)
     if rounded then
       polygon = contour
     end
@@ -583,16 +539,6 @@ function panel.claim(target: State)
   end
 end
 
--- The default layer placement: the panel's pose, size, and curve.
-local function applyLayerBase(target: State): LayerBase
-  return function(_self: Panel, held: Layer): ()
-    held:setPosition(target.pose:getPosition())
-    held:setOrientation(target.pose:getOrientation())
-    held:setDimensions(target.width, target.height)
-    held:setCurve(target.curve)
-  end
-end
-
 function panel.update(target: State)
   if target.dead then
     return
@@ -627,9 +573,11 @@ function panel.update(target: State)
   end
   panel.claim(target)
   if target.kind == 'window' and target.host.settings.rendering == 'layer' then
-    local base = applyLayerBase(target)
     layer.drive(target, pixelWidth, pixelHeight, function(held: Layer): ()
-      target.host.settings.shape.applyLayer(target, held, base)
+      held:setPosition(target.pose:getPosition())
+      held:setOrientation(target.pose:getOrientation())
+      held:setDimensions(target.width, target.height)
+      held:setCurve(target.curve)
     end)
   end
 end

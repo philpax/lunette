@@ -23,7 +23,8 @@ test("define's options are new defaults, and a configuration merges over them", 
     { id = 'laser', definition = long, config = { style = { color = { 1, 0, 0, 1 } } } },
   }
   expect.equal(session.instances.laser:state(), 'active', tostring(session.instances.laser:diagnostic()))
-  local style = session:observe(laserContract.capability).service.STYLE
+  local observed = session:observe(laserContract.capability)
+  local style = observed.service:new(observed.context, 'left').style
   expect.equal(style.length, 3, 'the defined length')
   expect.equal(style.color[1], 1, 'the configured colour, red')
   expect.equal(style.color[2], 0, 'the configured colour, green')
@@ -53,7 +54,7 @@ test('build rejects what a configuration rejects, and takes the defaults without
     tostring(built.message):find('plugin laser: option style.colour is not a declared field', 1, true),
     tostring(built.message)
   )
-  expect.equal(built.service.STYLE.length, 1.5, 'build without a configuration takes the defaults')
+  expect.truthy(built.service, 'build without a configuration takes the defaults')
   session:close()
 end)
 

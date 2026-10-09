@@ -46,25 +46,6 @@ local function genericReceiver<T>(_self: T, event: vocabulary.PointerEvent): ()
   inspectEvent(event)
 end
 
-local function legacySurface(): vocabulary.Surface
-  return {
-    kind = nil,
-    dead = false,
-    raycast = function(
-      _self: vocabulary.Surface,
-      _origin: vector,
-      _direction: vector,
-      _captured: boolean?
-    ): (number?, number?, number?)
-      return nil, nil, nil
-    end,
-    onHover = function(_self: vocabulary.Surface, _x: number?, _y: number?, _pointer: vocabulary.Pointer): () end,
-    onLeave = function(_self: vocabulary.Surface, _pointer: vocabulary.Pointer): () end,
-    onPress = function(_self: vocabulary.Surface, _x: number?, _y: number?, _pointer: vocabulary.Pointer): () end,
-    onRelease = function(_self: vocabulary.Surface, _pointer: vocabulary.Pointer): () end,
-  }
-end
-
 local function protocolSurface(): interaction.Surface
   return {
     kind = nil,
@@ -178,4 +159,4 @@ local function exerciseEvents(pointer: vocabulary.Pointer): { vocabulary.Pointer
   return { enter, leave, move, press, release, scroll, cancel }
 end
 
-return { inspectSurface, exerciseEvents, legacySurface, protocolSurface }
+return { inspectSurface, exerciseEvents, protocolSurface }

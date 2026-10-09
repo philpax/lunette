@@ -36,9 +36,6 @@ local function fixture(receiver, options)
     snapshot = function()
       return snapshot
     end,
-    reconcile = function()
-      return true
-    end,
     keymapSeat = function()
       return seat
     end,
@@ -215,9 +212,6 @@ test('explicit destruction disposes the provider after source state clears', fun
     snapshot = function()
       return { revision = 1 }
     end,
-    reconcile = function()
-      return false
-    end,
     keymapSeat = function()
       return nil
     end,
@@ -242,25 +236,6 @@ test('explicit destruction disposes the provider after source state clears', fun
   inverse()
   expect.falsy(source:destroy(), 'repeated destruction is inert')
   expect.equal(released, 1, 'no repeated provider disposal')
-end)
-
-test('a local route never executes the subordinate native target callback', function()
-  local f = fixture({
-    key = function()
-      return false
-    end,
-    text = function()
-      return true
-    end,
-  }, {
-    nativeTarget = function()
-      error 'native override must be subordinate'
-    end,
-  })
-  expect.equal(f.source:key({ code = 30 }).kind, 'consumed', 'the local receiver gets translated text')
-  expect.equal(f.source:text('local').kind, 'consumed', 'the local receiver gets committed text')
-  expect.equal(#f.reports, 0, 'no native override callback')
-  f.inverse()
 end)
 
 test('local text errors are reported without native fallback', function()
@@ -325,31 +300,29 @@ end)
 
 test('unresolved provider native focus cleanup blocks every source callback', function()
   testing.native()
-  local source, inverse = sourceModule.new({
-    owns = function()
-      return true
-    end,
-  }, {}, {
-    nativeTarget = function()
-      error 'blocked native callback'
-    end,
-  }, {
-    blocked = function()
-      return { kind = 'refused', message = 'native focus cleanup is unresolved' }
-    end,
-    snapshot = function()
-      error 'blocked route selection'
-    end,
-    reconcile = function()
-      error 'blocked native reconciliation'
-    end,
-    keymapSeat = function()
-      return nil
-    end,
-    listen = function()
-      return function() end
-    end,
-  })
+  local source, inverse = sourceModule.new(
+    {
+      owns = function()
+        return true
+      end,
+    },
+    {},
+    nil,
+    {
+      blocked = function()
+        return { kind = 'refused', message = 'native focus cleanup is unresolved' }
+      end,
+      snapshot = function()
+        error 'blocked route selection'
+      end,
+      keymapSeat = function()
+        return nil
+      end,
+      listen = function()
+        return function() end
+      end,
+    }
+  )
   expect.equal(source:key({ code = 30 }).kind, 'refused', 'blocked key')
   expect.equal(source:text('local').kind, 'refused', 'blocked text')
   inverse()

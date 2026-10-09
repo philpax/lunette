@@ -186,7 +186,6 @@ local function build(context: plugin.Context, settings: Settings): Service
   -- outlive the call that made them and check the activation themselves.
   local themes: theme.Service = context:require(theme.capability)
   local revision = -1
-  local publishStyle: (contracts.Style) -> () = function(_style: contracts.Style): () end
   local state: ProviderState
   local function refreshStyle(): ()
     if not state.active or not context:active() then
@@ -196,11 +195,9 @@ local function build(context: plugin.Context, settings: Settings): Service
     if revision == snapshot.revision then
       return
     end
-    local resolved = style.resolve(snapshot.theme, settings.style)
     for _, target in ipairs(state.lasers) do
       target.style = style.resolve(snapshot.theme, settings.style, target.styleOverrides)
     end
-    publishStyle(resolved)
     revision = snapshot.revision
   end
   state = {
@@ -247,7 +244,6 @@ local function build(context: plugin.Context, settings: Settings): Service
       )
     end,
     HANDS = HANDS,
-    STYLE = style.resolve(themes:current().theme, settings.style),
     new = function(_self: Service, owner: Owner, hand: Hand, options: Options?): Laser
       state.context:checkOwner(owner)
       return makeLaser(state, settings, owner, hand, options)
@@ -289,9 +285,6 @@ local function build(context: plugin.Context, settings: Settings): Service
       registry.draw(state, pass)
     end,
   }
-  publishStyle = function(resolved: contracts.Style): ()
-    service.STYLE = resolved
-  end
   themes:onChanged(context, function(_snapshot: theme.Snapshot): ()
     refreshStyle()
   end)

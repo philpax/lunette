@@ -32,8 +32,6 @@ export type Drawable = {
   read title: string?,
   read highlighted: boolean,
   read granted: boolean?,
-  read windowRadius: number?,
-  read monitorRadius: number?,
   read frame: frame.Record?,
   contour: silhouette.Cache?,
   mesh: Mesh?,
@@ -74,8 +72,8 @@ local function transformUv(u: number, v: number, transform: CaptureTransform): (
   return u, v
 end
 
-local function contentMesh(target: Drawable, transform: CaptureTransform): Mesh?
-  local bounds, profile, polygon, rounded = silhouette.get(target)
+local function contentMesh(target: Drawable, transform: CaptureTransform, style: contracts.Style): Mesh?
+  local bounds, profile, polygon, rounded = silhouette.get(target, style)
   local graphics = lovr.graphics
   if not graphics or not graphics.newMesh then
     if rounded or (transform ~= 'normal' and transform ~= 'undefined') then
@@ -133,7 +131,7 @@ local function contentMesh(target: Drawable, transform: CaptureTransform): Mesh?
   return made
 end
 
-function draw.content(target: Drawable, pass: Pass, contentShader: (boolean) -> Shader?)
+function draw.content(target: Drawable, pass: Pass, style: contracts.Style, contentShader: (boolean) -> Shader?)
   local texture: Texture | false
   local opaque = true
   local transform: CaptureTransform = 'normal'
@@ -163,9 +161,9 @@ function draw.content(target: Drawable, pass: Pass, contentShader: (boolean) -> 
       pass:setShader()
     end
     pass:setMaterial(sampled)
-    local _, _, _, rounded = silhouette.get(target)
+    local _, _, _, rounded = silhouette.get(target, style)
     local transformed = transform ~= 'normal' and transform ~= 'undefined'
-    local mesh = if target.curve > 0 or transformed or rounded then contentMesh(target, transform) else nil
+    local mesh = if target.curve > 0 or transformed or rounded then contentMesh(target, transform, style) else nil
     if mesh then
       pass:draw(mesh, target.pose)
     else
@@ -192,9 +190,7 @@ function draw.border(target: Drawable, pass: Pass, style: contracts.Style): ()
     draw.clearOutline(target)
     return
   end
-  local radius = if target.granted
-    then 0
-    else (if target.kind == 'window' then target.windowRadius else target.monitorRadius) or 0
+  local radius = if target.granted then 0 else silhouette.radius(target, style)
   local headerHeight, headerRadius =
     if header then header.headerHeight else 0, if header then header.headerRadius else 0
   local cache: Outline = target.outline or {}

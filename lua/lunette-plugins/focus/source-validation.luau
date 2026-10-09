@@ -13,12 +13,9 @@ function validation.options(options: contract.SourceOptions?): contract.SourceOp
   if type(settings) ~= 'table' or getmetatable(settings) ~= nil then
     error('focus source: options are a plain table', 3)
   end
-  plugin.rejectUnknownFields('focus source', settings, { mode = true, nativeTarget = true }, 'mode and nativeTarget', 3)
+  plugin.rejectUnknownFields('focus source', settings, { mode = true }, 'mode', 3)
   if settings.mode ~= nil and settings.mode ~= 'virtual' and settings.mode ~= 'physical' then
     error('focus source: mode is virtual or physical', 3)
-  end
-  if settings.nativeTarget ~= nil and type(settings.nativeTarget) ~= 'function' then
-    error('focus source: nativeTarget is a function', 3)
   end
   return table.freeze(table.clone(settings))
 end

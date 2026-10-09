@@ -12,7 +12,7 @@ return function(provider)
   local entry = if provider then { id = 'interaction', definition = provider } else 'interaction'
   local session = testing.start { 'drops', 'focus', entry }
   local observed = session:observe(interaction.capability)
-  local f = { session = session, service = observed.service, owner = observed.context, events = {}, legacy = 0 }
+  local f = { session = session, service = observed.service, owner = observed.context, events = {} }
   function f:pointer()
     return self.service:newPointer(self.owner)
   end
@@ -30,18 +30,6 @@ return function(provider)
     function target:onPointer(event)
       expect.truthy(table.isfrozen(event), 'pointer metadata is immutable')
       f.events[#f.events + 1] = { surface = self, event = event }
-    end
-    function target:onPress()
-      f.legacy += 1
-    end
-    function target:onRelease()
-      f.legacy += 1
-    end
-    function target:onHover()
-      f.legacy += 1
-    end
-    function target:onLeave()
-      f.legacy += 1
     end
     return target
   end

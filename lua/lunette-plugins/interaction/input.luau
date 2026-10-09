@@ -11,8 +11,7 @@ type Button = lunette.PointerButton
 type Inverse = () -> ()
 export type Capture = {
   surface: Surface,
-  onPointer: ((Surface, contracts.PointerEvent) -> ())?,
-  onRelease: ((Surface, Pointer) -> ())?,
+  onPointer: (Surface, contracts.PointerEvent) -> (),
   x: number?,
   y: number?,
   inside: boolean,
@@ -179,7 +178,7 @@ local function detachButton(
   end
   local inverses: { Inverse } = {}
   if capture then
-    local handler, release = capture.onPointer, capture.onRelease
+    local handler = capture.onPointer
     local pending: { reason: contracts.CancelReason? } = { reason = reason }
     state.pendingCaptures[capture] = pending
     inverses[#inverses + 1] = function()
@@ -195,34 +194,30 @@ local function detachButton(
           currentReason = SURFACE_DEAD
         end
       end
-      if handler then
-        if currentReason ~= nil then
-          local cancelReason: contracts.CancelReason = currentReason
-          local event: contracts.PointerEvent = {
-            kind = 'cancel',
-            pointer = pointer,
-            button = button,
-            reason = cancelReason,
-            x = capture.x,
-            y = capture.y,
-            inside = capture.inside,
-            captured = true,
-          }
-          handler(capture.surface, table.freeze(event))
-        else
-          local event: contracts.PointerEvent = {
-            kind = 'release',
-            pointer = pointer,
-            button = button,
-            x = capture.x,
-            y = capture.y,
-            inside = capture.inside,
-            captured = true,
-          }
-          handler(capture.surface, table.freeze(event))
-        end
-      elseif release then
-        release(capture.surface, pointer)
+      if currentReason ~= nil then
+        local cancelReason: contracts.CancelReason = currentReason
+        local event: contracts.PointerEvent = {
+          kind = 'cancel',
+          pointer = pointer,
+          button = button,
+          reason = cancelReason,
+          x = capture.x,
+          y = capture.y,
+          inside = capture.inside,
+          captured = true,
+        }
+        handler(capture.surface, table.freeze(event))
+      else
+        local event: contracts.PointerEvent = {
+          kind = 'release',
+          pointer = pointer,
+          button = button,
+          x = capture.x,
+          y = capture.y,
+          inside = capture.inside,
+          captured = true,
+        }
+        handler(capture.surface, table.freeze(event))
       end
     end
   end
@@ -334,7 +329,6 @@ local function hoverInverses(state: State, pointer: Pointer, previous: Surface, 
   local withdrawing = state.withdrawing or state.dead
   local sink = state.hoveredSink
   local handler = if sink then nil else previous.onPointer
-  local leave = if sink then nil else previous.onLeave
   return {
     function()
       if previous.setHighlighted and not host.hoveredByAnother(previous) then
@@ -360,8 +354,6 @@ local function hoverInverses(state: State, pointer: Pointer, previous: Surface, 
           captured = captured,
         }
         handler(previous, table.freeze(event))
-      elseif leave then
-        leave(previous, pointer)
       end
     end,
   }
@@ -432,31 +424,26 @@ local function press(
       end
     end
   elseif surface and not surface.dead then
-    local handler, legacy = surface.onPointer, surface.onPress
-    if handler or legacy then
+    local handler = surface.onPointer
+    if handler then
       local capture: Capture = {
         surface = surface,
         onPointer = handler,
-        onRelease = if handler then nil else surface.onRelease,
         x = state.hitX,
         y = state.hitY,
         inside = state.hovered == surface,
       }
       state.captures[button] = capture
-      if handler then
-        local event: contracts.PointerEvent = {
-          kind = 'press',
-          pointer = pointer,
-          button = button,
-          x = capture.x,
-          y = capture.y,
-          inside = capture.inside,
-          captured = true,
-        }
-        handler(surface, table.freeze(event))
-      elseif legacy then
-        legacy(surface, capture.x, capture.y, pointer)
-      end
+      local event: contracts.PointerEvent = {
+        kind = 'press',
+        pointer = pointer,
+        button = button,
+        x = capture.x,
+        y = capture.y,
+        inside = capture.inside,
+        captured = true,
+      }
+      handler(surface, table.freeze(event))
     end
   end
 end
@@ -558,8 +545,6 @@ function input.motion(
         inside = true,
         captured = hasCapture(state, hit),
       })
-    elseif hit.onHover then
-      hit:onHover(state.hitX, state.hitY, pointer)
     end
   end
   for _, button in ipairs(vocabulary.POINTER_BUTTONS) do
@@ -567,7 +552,7 @@ function input.motion(
       return
     end
     local capture = captures[button]
-    if capture and capture.onPointer and state.captures[button] == capture and not capture.surface.dead then
+    if capture and state.captures[button] == capture and not capture.surface.dead then
       local event: contracts.PointerEvent = {
         kind = 'move',
         pointer = pointer,

@@ -75,7 +75,6 @@ test('hide cancellation can unload the display without retaining the board or ca
     env.session.instances['desktop/keyboard']:disable()
   end)
   expect.falsy(raw:hide())
-  expect.truthy(raw.dead)
   expect.truthy(board.dead)
   expect.equal(fixture.boardCount(env), 0)
   expect.falsy(board:typeText 'stale')

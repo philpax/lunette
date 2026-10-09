@@ -314,8 +314,6 @@ local function create(context: plugin.Context): Service
     end,
     newSource = function(_self: Service, owner: contract.Owner, options: contract.SourceOptions?): contract.Source
       context:checkOwner(owner)
-      local override: contract.TargetHandle? = nil
-      local overrideTarget: contract.Target? = nil
       local lifetime: plugin.Effect? = nil
       local value, effect = context:resource(owner, function(): (contract.Source, () -> ())
         local made, inverse = source.new(context, owner, options, {
@@ -344,30 +342,6 @@ local function create(context: plugin.Context): Service
             return nil
           end,
           keymapSeat = keymapSeat,
-          reconcile = function(seat: lunette.Seat?, sink: lunette.Sink?): boolean
-            local selected = current()
-            if selected and selected.target and selected.target.kind == 'local' then
-              return true
-            end
-            if not sink then
-              return false
-            end
-            local target: contract.Target = { kind = 'native', seat = seat, sink = sink }
-            if
-              not override
-              or override.dead
-              or not overrideTarget
-              or not routes.sameNative(state, overrideTarget, target)
-            then
-              if override then
-                override:destroy()
-              end
-              override = register(owner, target)
-              overrideTarget = target
-            end
-            local acquired = override
-            return if acquired then acquired:focus() else false
-          end,
           listen = function(run: () -> ()): () -> ()
             local listener: Internal = { run = run, active = true }
             internal[#internal + 1] = listener
@@ -385,15 +359,7 @@ local function create(context: plugin.Context): Service
           function(): ()
             sources[made] = nil
             lifetime = nil
-            local owned = override
-            override, overrideTarget = nil, nil
-            local ok, failure = pcall(inverse)
-            if owned then
-              owned:destroy()
-            end
-            if not ok then
-              error(failure, 0)
-            end
+            inverse()
           end
       end)
       lifetime = effect

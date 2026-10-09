@@ -71,7 +71,6 @@ local function construct(
   local hovered: { [board.Pointer]: board.RenderedKey } = {}
   local captures: { [board.Pointer]: { [lunette.PointerButton]: boolean } } = {}
   local created: board.Board
-  local pendingModifiers: { string }? = nil
   local visibilityRevision = 0
   local state = {
     kind = nil,
@@ -98,9 +97,6 @@ local function construct(
   local function clearModifiers(): ()
     table.clear(latched)
     table.clear(locked)
-    if pendingModifiers then
-      table.clear(pendingModifiers)
-    end
   end
 
   local function clearInput(): ()
@@ -262,15 +258,7 @@ local function construct(
     end
     local held = modifiers()
     table.clear(latched)
-    pendingModifiers = held
-    local ok, result = pcall(function(): focus.Result
-      return source:key { code = code, modifiers = held, isRepeat = false }
-    end)
-    pendingModifiers = nil
-    if not ok then
-      error(result, 0)
-    end
-    return result.kind == 'consumed'
+    return source:key({ code = code, modifiers = held, isRepeat = false }).kind == 'consumed'
   end
 
   local function typeText(_self: keyboard.Keyboard, text: string): boolean
@@ -481,15 +469,6 @@ local function construct(
     raycast = raycast,
     project = project,
     onPointer = onPointer,
-    onHover = function(_self: keyboard.Surface, x: number?, y: number?, pointer: board.Pointer): ()
-      hover(x, y, pointer)
-    end,
-    onLeave = function(_self: keyboard.Surface, pointer: board.Pointer): ()
-      hovered[pointer] = nil
-    end,
-    onPress = function(_self: keyboard.Surface, x: number?, y: number?, pointer: board.Pointer): ()
-      activate(x, y, pointer)
-    end,
     setVisible = setVisible,
     modifiers = function(_self: keyboard.Keyboard): { string }
       return modifiers()
@@ -559,7 +538,6 @@ local function construct(
     state.visible = false
     visibilityRevision += 1
     clearModifiers()
-    pendingModifiers = nil
     geometryRevision += 1
     local failures = cancelPointers 'control-removed'
     clearMeshes(failures)

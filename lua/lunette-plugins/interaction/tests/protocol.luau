@@ -4,7 +4,7 @@ local fixture = require './support/protocol'
 local expect = testing.expect
 local test = testing.suite()
 
-test('surface capture preserves every button and real pointer identity without legacy duplication', function()
+test('surface capture preserves every button and real pointer identity', function()
   local f = fixture()
   local first, second = f:pointer(), f:pointer()
   local target = f:surface 'plate'
@@ -25,7 +25,6 @@ test('surface capture preserves every button and real pointer identity without l
   expect.equal(#f:matching('release', second, target), 0, 'the first pointer cannot release the second')
   f:update(second, { target })
   expect.equal(#f:matching('release', second, target, 'left'), 1, 'the second releases its own button')
-  expect.equal(f.legacy, 0, 'a protocol surface receives no legacy callbacks')
   f:close()
 end)
 
@@ -300,7 +299,6 @@ test('native target outages and false returns never select Lua input callbacks',
     f:update(pointer, { target }, { buttons = { left = true }, scrollY = 1 })
     f:update(pointer, {})
     expect.equal(#f.events, 0, unavailable .. ' never routes protocol events')
-    expect.equal(f.legacy, 0, unavailable .. ' never routes legacy callbacks')
     if unavailable == 'false-return' then
       expect.truthy(
         calls.pointer > 0 and calls.button == 2 and calls.scroll == 1,
@@ -415,7 +413,6 @@ test('native sink motion buttons and scaled scroll never duplicate surface proto
   expect.equal(scrolled, 1, 'one native scroll')
   expect.truthy(moved > 0, 'native motion remains available')
   expect.equal(#f.events, 0, 'a native sink receives no duplicate protocol events')
-  expect.equal(f.legacy, 0, 'a native sink receives no duplicate legacy callbacks')
   f:close()
 end)
 

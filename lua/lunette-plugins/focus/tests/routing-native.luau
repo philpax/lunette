@@ -44,10 +44,6 @@ local function fixture(hooks, options)
     snapshot = function()
       return snapshot
     end,
-    reconcile = function()
-      events[#events + 1] = 'reconcile'
-      return true
-    end,
     keymapSeat = function()
       return seat
     end,
@@ -242,9 +238,6 @@ test('native delivery keeps an omitted seat and reverse text uses only the defau
       snapshot = function()
         return snapshot
       end,
-      reconcile = function()
-        return false
-      end,
       keymapSeat = function()
         error 'recent keymap seat is not the native delivery default'
       end,
@@ -259,56 +252,6 @@ test('native delivery keeps an omitted seat and reverse text uses only the defau
   for _, omitted in delivered do
     expect.truthy(omitted, 'seat omission is preserved')
   end
-  inverse()
-end)
-
-test('native override accepts replacement wrappers with the same stable identities', function()
-  testing.native()
-  local seat = { id = 2, dead = false }
-  local sink = { id = 9, domain = 'window', dead = false }
-  local calls = 0
-  local currentSink = {
-    id = 9,
-    domain = 'window',
-    dead = false,
-    key = function()
-      calls += 1
-      return true
-    end,
-    modifiers = function()
-      return true
-    end,
-  }
-  local snapshot = { revision = 1 }
-  local source, inverse = sourceModule.new({
-    owns = function()
-      return true
-    end,
-  }, {}, {
-    nativeTarget = function()
-      return seat, sink
-    end,
-  }, {
-    snapshot = function()
-      return snapshot
-    end,
-    reconcile = function()
-      snapshot = {
-        handle = { dead = false },
-        target = { kind = 'native', seat = { id = 2, dead = false }, sink = currentSink },
-        revision = 2,
-      }
-      return true
-    end,
-    keymapSeat = function()
-      return nil
-    end,
-    listen = function()
-      return function() end
-    end,
-  })
-  expect.equal(source:key({ code = 30 }).kind, 'consumed', 'stable identity selection')
-  expect.equal(calls, 2, 'key down and key up use the selected current wrapper')
   inverse()
 end)
 

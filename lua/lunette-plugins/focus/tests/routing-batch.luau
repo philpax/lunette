@@ -22,9 +22,6 @@ local function fixture(key)
     snapshot = function()
       return snapshot
     end,
-    reconcile = function()
-      error 'local input must not reconcile native override'
-    end,
     keymapSeat = function()
       error 'physical key must not translate'
     end,

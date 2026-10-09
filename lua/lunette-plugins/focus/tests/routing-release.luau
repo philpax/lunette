@@ -1,4 +1,4 @@
--- Retained dead sources must not retain selector callbacks, routing callbacks, or their captured state.
+-- Retained dead sources must not retain routing callbacks or their captured state.
 local testing = require '@testing'
 local sourceModule = require '../source'
 local expect = testing.expect
@@ -9,20 +9,12 @@ local function retainedSource(frozen, duringDispose)
   local source, inverse
   local calls = { cancelled = 0, disposed = 0 }
   do
-    local selectorState = { kind = 'selector' }
     local routingState = { revision = 1 }
-    local selector = function()
-      expect.equal(selectorState.kind, 'selector', 'live selector capture')
-      return nil, nil
-    end
     local snapshot = function()
       return { revision = routingState.revision }
     end
     local routing = {
       snapshot = snapshot,
-      reconcile = function()
-        return routingState.revision > 0
-      end,
       keymapSeat = function()
         expect.equal(routingState.revision, 1, 'live routing capture')
         return nil
@@ -42,11 +34,10 @@ local function retainedSource(frozen, duringDispose)
         inverse()
       end,
     }
-    local options = { nativeTarget = selector }
+    local options = { mode = 'virtual' }
     if frozen then
       table.freeze(options)
     end
-    weak.selector, weak.selectorState = selector, selectorState
     weak.routing, weak.snapshot, weak.routingState = routing, snapshot, routingState
     weak.options = options
     source, inverse = sourceModule.new({
@@ -60,8 +51,6 @@ end
 
 local function collected(weak)
   testing.collect()
-  expect.equal(weak.selector, nil, 'the selector callback is collected')
-  expect.equal(weak.selectorState, nil, 'the selector capture is collected')
   expect.equal(weak.routing, nil, 'the routing table is collected')
   expect.equal(weak.snapshot, nil, 'the routing callback is collected')
   expect.equal(weak.routingState, nil, 'the routing capture is collected')
@@ -76,7 +65,6 @@ for _, frozen in { false, true } do
       testing.native()
       local source, inverse, weak, calls = retainedSource(frozen)
       testing.collect()
-      expect.truthy(weak.selector, 'the live source retains its selector')
       expect.truthy(weak.routingState, 'the live source retains routing captures')
       expect.truthy(source:destroy(), 'public destruction')
       collected(weak)
@@ -117,50 +105,5 @@ test('public destruction detaches callback references before provider notificati
   expect.equal(calls.disposed, 1, 'one provider notification')
   inverse()
 end)
-
-for _, ending in { 'destroy', 'owner close' } do
-  test('the real focus provider releases a retained source selector after ' .. ending, function()
-    local fake = testing.native()
-    local session = testing.boot({ 'frame', 'focus' }, { native = fake })
-    local observed = session:observe(require('@lunette-contracts/focus').capability)
-    local weak = setmetatable({}, { __mode = 'v' })
-    local source
-    do
-      local payload = { seat = { id = 17, dead = false }, sink = { id = 23, dead = false, domain = 'window' } }
-      payload.seat.setFocus = function()
-        return true
-      end
-      payload.sink.key = function()
-        return true
-      end
-      payload.sink.modifiers = function()
-        return true
-      end
-      local selector = function()
-        return payload.seat, payload.sink
-      end
-      local options = table.freeze { nativeTarget = selector }
-      weak.selector, weak.payload, weak.options = selector, payload, options
-      source = observed.service:newSource(observed.context, options)
-      expect.equal(source:key({ code = 30 }).kind, 'consumed', 'the provider creates a native override')
-    end
-    testing.collect()
-    expect.truthy(weak.selector, 'the live provider source retains its selector')
-    if ending == 'destroy' then
-      expect.truthy(source:destroy(), 'public destruction through the provider')
-      expect.equal(observed.service:inspect().state.sourceCount, 0, 'the provider unregisters the source')
-      expect.equal(observed.service:focused(), nil, 'the native override is released')
-    else
-      session:close()
-    end
-    testing.collect()
-    expect.equal(weak.selector, nil, 'the selector is collected while its dead source remains retained')
-    expect.equal(weak.payload, nil, 'the selector payload is collected')
-    expect.equal(weak.options, nil, 'the frozen options table is collected')
-    expect.truthy(source.dead, 'the public dead source remains retained')
-    expect.falsy(source:destroy(), 'the retained handle remains inert')
-    session:close()
-  end)
-end
 
 return test

@@ -13,7 +13,7 @@ local test = testing.suite()
 
 local function fixture(kind, options)
   local native = testing.native()
-  local f = { native = native, keys = {}, activations = {}, drawn = {}, events = {}, legacy = 0 }
+  local f = { native = native, keys = {}, activations = {}, drawn = {}, events = {} }
   local definition
   if kind == 'tiny' then
     testing.host.useConfiguration 'examples/keyboard'
@@ -87,16 +87,11 @@ local function fixture(kind, options)
   end
   function f:record()
     local onPointer = self.board.onPointer
-    local onPress = self.board.onPress
     self.board.onPointer = function(board, event)
       self.events[#self.events + 1] = event
       if onPointer then
         onPointer(board, event)
       end
-    end
-    self.board.onPress = function(board, ...)
-      self.legacy += 1
-      onPress(board, ...)
     end
   end
   function f:cancelled(pointer)
@@ -138,7 +133,6 @@ for _, kind in { 'built-in', 'tiny' } do
     f:record()
     f:update(pointer, { left = true })
     expect.equal(#f.keys, 2, 'the protocol adapter still activates through its callback')
-    expect.equal(f.legacy, 0, 'interaction never calls the legacy adapter alongside onPointer')
     expect.equal(f.focus:focused(), f.target, 'keyboard interaction does not steal local focus')
     f:close()
   end)

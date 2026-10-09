@@ -17,7 +17,6 @@ local keyboardInput: keyboard.Config = {
 }
 local keyboardOutput: keyboard.Settings = keyboardConfig.parse(keyboardInput)
 local panelInput: panels.Config = {
-  shape = {},
   style = { font = { kind = 'default' }, windowRadius = 0, monitorRadius = 0 },
   chrome = true,
 }

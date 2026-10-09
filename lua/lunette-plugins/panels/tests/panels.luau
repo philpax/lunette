@@ -57,7 +57,6 @@ test('a panel takes its size from its source, and is found by its source', funct
   expect.equal(panel.source, source, 'the source')
   expect.near(panel.width, 4 / 3, 1e-9, 'the width')
   expect.equal(panel.height, 1, 'the height')
-  expect.equal(panel:sourceSize(), 800, 'the source width')
   expect.equal(monitorPanel.kind, 'monitor', 'the monitor kind')
   expect.falsy(monitorPanel.claim, 'a monitor panel claims no layer')
   expect.equal(#env.panels:all(), 2, 'the panels')
@@ -66,9 +65,6 @@ test('a panel takes its size from its source, and is found by its source', funct
   expect.falsy(panel.highlighted, 'the highlight of a new panel')
   panel:setHighlighted(true)
   expect.truthy(panel.highlighted, 'the highlight once set')
-  expect.raises(function()
-    env.panels.STYLE.borderThickness = 1
-  end, nil, 'the frozen style')
   env.session:close()
 end)
 

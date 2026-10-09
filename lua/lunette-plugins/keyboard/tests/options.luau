@@ -128,8 +128,20 @@ local function action(board, kind)
   end)
 end
 
+local function pressAt(env, x, y)
+  env.board:onPointer {
+    kind = 'press',
+    pointer = env.pointer,
+    button = 'left',
+    x = x,
+    y = y,
+    inside = true,
+    captured = true,
+  }
+end
+
 local function press(env, key)
-  env.board:onPress(key.x + key.width / 2, key.y + key.height / 2, env.pointer)
+  pressAt(env, key.x + key.width / 2, key.y + key.height / 2)
 end
 
 test('rows place spacers, offsets, and tall keys, and a press reaches onKey with its haptic', function()
@@ -150,7 +162,7 @@ test('rows place spacers, offsets, and tall keys, and a press reaches onKey with
   expect.truthy(#env.pressed == 1 and env.pressed[1].code == 30, 'onKey saw the key')
   expect.truthy(#env.pulses == 1 and env.pulses[1].strength == 0.5, "the hook's haptic reaches the pointer")
   expect.truthy(env.sent[2][1] == 'key' and env.sent[2][2] == 30 and env.sent[2][3] == true, 'the base sent the key')
-  board:onPress(1.25, 0.5, env.pointer)
+  pressAt(env, 1.25, 0.5)
   expect.equal(#env.pressed, 1, 'a press on a spacer presses nothing')
 
   local small = env.service:new(env.owner, { rows = { { { code = 30 }, { code = 31 } } }, style = { keyUnit = 0.5 } })
@@ -199,7 +211,7 @@ end)
 test('drawKey wraps the default for every key, with the hover and held states', function()
   local env = start()
   local board = env.board
-  board:onHover(code(board, 31).x + 0.5, 0.5, env.pointer)
+  board:onPointer { kind = 'enter', pointer = env.pointer, x = code(board, 31).x + 0.5, y = 0.5, inside = true }
   board:draw(env.native.events.pass)
   expect.equal(#env.drawn, 9, 'every key is drawn through the hook')
   for _, entry in ipairs(env.drawn) do
