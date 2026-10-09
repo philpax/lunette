@@ -178,7 +178,7 @@ Geometric positions, directions, and offsets are native `vector` values, constru
 
 A patch with an entry's `id` changes that entry. A schema-backed definition resolves `config` through its descriptor: declared objects merge key by key, while arrays, maps, unions, and atomic values replace. Raw and legacy definitions retain recursive string-keyed table merging. `disabled = true` removes the entry, and `definition` replaces what the entry is made from. An unknown id raises when the configuration loads.
 
-The shipped desktop selects the Dark theme through `desktop/theme`. Its menu action switches among Dark, Light, and Arcade, and `Dark mode` toggles between Dark and Light. Configuration sets the initial preset and can override selected fields without replacing the preset:
+The shipped desktop selects the Dark theme through `desktop/theme`. Its Appearance actions select Dark, Light, or Arcade. Dark mode switches Dark to Light and Light or Arcade to Dark. Configuration sets the initial preset and can override selected fields without replacing the preset:
 
 ```lua
 desktop.configure(require '@lunette-plugins/desktop/theme') {
@@ -190,7 +190,7 @@ desktop.configure(require '@lunette-plugins/desktop/theme') {
 },
 ```
 
-An omitted override inherits from the preset and later global theme changes. Explicit zero remains an override. The font override accepts `kind = 'default'` or `kind = 'file'` with a filesystem path; for a file font, omitted `size` and `spread` project to 32 and 4. Disabling `desktop/theme` removes the selector's registration and restores the base theme unless another live registration remains. The `theme` provider must remain enabled for its consumers.
+An omitted selector override inherits from the selected complete preset. A later competing selection replaces the whole effective theme rather than merging fields into that preset. Explicit zero remains an override. The editable configuration font accepts `kind = 'default'` or `kind = 'file'` with a VFS path; for a file font, omitted `size` and `spread` project to 32 and 4. Default kind rejects file/size/spread. Disabling `desktop/theme` removes the selector's registration and restores the base theme unless another live registration remains. The `theme` provider must remain enabled for its consumers. [Desktop runtime themes](desktop-configuration.md#runtime-themes) records session preset memory, source reload, and configuration replacement/Recover semantics.
 
 `desktop.configure` takes a plugin's definition and answers a function that makes a configuration patch for the entry named by the definition's name, typed with that definition's options, so the checker reads them. A built-in provider's module holds its definition as `definition`; a desktop consumer's module is its definition, or for `desktop/arrange` a factory of it, which `configure` takes as well. `desktop/persistence` is `@lunette-plugins/arrangement`, which holds its factory as `factory` beside its format functions:
 
@@ -207,6 +207,22 @@ desktop.run {
 ```
 
 `desktop.configure(require '@lunette-plugins/desktop/keyboard') { hand = 'rigth' }` is a type error, where `{ id = 'desktop/keyboard', config = { hand = 'rigth' } }` passes `lunette check`: a patch list mixes entries, so a plain patch's `config` has no type of its own. A misspelt key is not a type error in Luau either way. Runtime validation rejects it during configuration resolution, with an error naming its path. Each built-in provider's options are listed in [the standard library](../dev/stdlib.md#contracts-and-providers) and, for the keyboard, in [Keyboard](../dev/lua-api.md#keyboard).
+
+## Runtime theme selections
+
+`@lunette-contracts/theme` declares `lunette/theme` at schema 1. A consumer declares that capability and reads it through `context:require`. The neutral `theme.Theme` is a complete immutable value with `colors`, `typography`, `metrics`, and `radii`. It differs from the UI-specific `ui.Theme`, whose resolved fields include a borrowed native Font for drawing. Imports and type references remain qualified when both occur in one module. The [field-to-consumer checklist](desktop-configuration.md#theme-field-to-consumer-checklist) records units, concrete mappings, and component limits.
+
+`service:select(owner, overrides)` returns a `theme.Registration`. Each registration resolves sparse overrides over the complete base. The latest live registration wins as one complete value. `registration:update(overrides)` replaces that registration's override layer and preserves its insertion rank. Omitted fields return to base for that registration. Validation and file-font acquisition finish before publication; failures preserve the prior registration and current revision. `registration:dispose()` is idempotent and reveals the preceding live selection or base. Updating a disposed registration raises. Provider shutdown invalidates it.
+
+`service:current()` returns `{ revision, theme }`. Revision starts at zero and changes only for an effective appearance change. Snapshots and nested colours are detached and frozen. `service:onChanged(owner, run)` creates an owner effect and does not call the listener immediately. Each delivery captures one immutable event snapshot and listener set. Disposed listeners are skipped, newly added listeners wait for a later round, and errors report without stopping independent listeners. Reentrant changes commit immediately and queue a later nonrecursive round with the latest revision. A callback's event can differ from `current()`; retained consumers refresh from current data before later drawing, measurement, inspection, or input.
+
+`service:getFont()` is an immediate borrow that cannot be released or retained across a callback or revision. `service:acquireFont(owner, spec?)` returns an owner-scoped `theme.FontLease`; nil acquires the current face, while a supplied strict public `theme.FontSpec` acquires exactly that specification. Public file specifications supply nonempty `file`, positive `size`, and positive `spread`; `{ kind = 'default' }` accepts no additional font fields. Configured plugins project the editable object to this strict union before acquisition. The [font workflow](desktop-configuration.md#theme-font-fit) records editor defaults, validation, mounted assets, and recovery.
+
+A retained consumer prepares its replacement lease and measurements before publishing new state, then disposes the old lease. Failed preparation keeps the old state and lease. `lease:withFont(run)` pins its exact Font through synchronous theme changes, owner/provider ending, nested calls, and error unwind, then propagates the original callback error. A disposed lease rejects entry. Direct `lease.font` access requires a live lease; callback-spanning access uses `withFont`. Hooks borrow their resolved face until invocation returns and must not release or retain it. `service:inspect()` contains owner/registration/font-specification/invocation data, never native handles. The provider never releases the borrowed default Font.
+
+The [checked registration example](ui.md#public-theme-registration-example) uses public theme/UI/menu/frame services and child-instance owners for these operations. Plugins -> select `example/ui/theme-registration` -> Configure -> set `enabled = true` -> Apply activates its otherwise inert entry. [theme-broker-lifecycle](desktop-configuration.md#theme-broker-lifecycle) records its 28 controller actions, original reports, retired holds, and cleanup. Broker arbitration and reentrant lifetimes remain manual gates; the example does not add automatic coverage.
+
+Custom compositions that use built-in UI, keyboard, or panels include the theme provider and their declared dependencies. The provider has no private fallback in those consumers. Explicit provider/object/control appearance layers remain sparse so omitted fields inherit current global changes; explicit zero and nil reset retain their documented meanings. A custom keyboard rounding hook is optional because built-in shapes already follow the theme.
 
 ## Extending the built-in keyboard
 

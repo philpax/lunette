@@ -11,7 +11,6 @@ export type Style = {
   read current: () -> theme.Theme,
   read refresh: (Prepare?) -> (),
   read checkRefresh: () -> (),
-  read wrapDetails: ({ string }, number) -> { string },
   read withFont: ((Font, theme.Theme) -> ()) -> (),
   read destroy: () -> (),
 }
@@ -104,14 +103,6 @@ function styles.new(service: theme.Service, owner: plugin.Context): Style
     checkRefresh = function(): ()
       assert(not dead and owner:active(), 'manager theme: the owner is inactive')
       assert(service:current().revision == preparingRevision, 'manager theme: the revision changed during publication')
-    end,
-    wrapDetails = function(records: { string }, sidebar: number): { string }
-      local captured, tokens = lease, applied.theme
-      local lines: { string } = {}
-      captured:withFont(function(font: Font): ()
-        lines = draw.wrapDetails(font, records, sidebar, tokens.typography.bodySize)
-      end)
-      return lines
     end,
     withFont = function(run: (Font, theme.Theme) -> ()): ()
       local captured, tokens = lease, applied.theme

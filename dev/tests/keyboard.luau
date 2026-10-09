@@ -1,4 +1,4 @@
--- The development wrist menu controls the rounded example through real controller input.
+-- The development wrist menu controls the theme-driven keyboard through real controller input.
 local testing = require '@testing'
 local expect = testing.expect
 local vrUi = require '@testing/vr-ui'
@@ -32,7 +32,7 @@ end
 local function keyboardConfig()
   for _, entry in ipairs(services().composition:entries()) do
     if entry.id == 'keyboard' then
-      expect.equal(entry.name, 'rounded-keyboard', 'the actual development provider is active')
+      expect.equal(entry.name, 'keyboard', 'the theme-driven development provider is active')
       local metadata = entry.schema
       while metadata.kind == 'default' or metadata.kind == 'optional' or metadata.kind == 'refine' do
         metadata = metadata.child
@@ -63,29 +63,42 @@ local function drawKeyboard(fixture)
   fixture:step()
   fixture.native.events.draw = {}
   expect.equal(fixture:draw(), false, 'draw does not veto')
-  local faces, legends = 0, {}
-  for _, call in ipairs(fixture.native.events.draw) do
-    if call[1] == 'roundrect' then
-      faces += 1
-    elseif call[1] == 'text' then
-      legends[call[2]] = true
-    end
-  end
   local target, rows = board(), keyboardConfig()
   local localFromWorld = lovr.math.newMat4(target.pose):invert()
+  local faces, legendCount, legends, meshes = 0, 0, {}, {}
   local faceDepth
   for _, call in ipairs(fixture.native.events.draw) do
-    if call[1] == 'roundrect' then
-      local x, y, z = call[2]:mul(0, 0, 0.5, 1)
-      faceDepth = select(3, localFromWorld:mul(x, y, z))
-      expect.near(faceDepth, 0, 1e-5, 'the rounded key front lies on the interaction plane')
+    if call[1] == 'draw' then
+      local x, y, z = call.transform:getPosition()
+      local localX, localY, depth = localFromWorld:mul(x, y, z)
+      if math.abs(depth) < 1e-5 and math.abs(localX) < target.width / 2 and math.abs(localY) < target.height / 2 then
+        expect.equal(faceDepth, nil, 'each theme key face has its legend')
+        local mesh = call[2]
+        expect.truthy(#mesh.vertices > 4, 'the selected theme gives key faces rounded mesh geometry')
+        expect.truthy(#mesh.indices > 0 and #mesh.indices % 3 == 0, 'the key face has indexed triangles')
+        expect.equal(#call.points, #mesh.indices, 'the recorder measures every emitted key-face vertex')
+        for _, point in ipairs(call.points) do
+          local px, py, pz = localFromWorld:mul(point.x, point.y, point.z)
+          expect.near(pz, 0, 1e-5, 'the theme key face lies on the interaction plane')
+          expect.truthy(math.abs(px) <= target.width / 2 + 1e-5, 'the key face stays within the keyboard width')
+          expect.truthy(math.abs(py) <= target.height / 2 + 1e-5, 'the key face stays within the keyboard height')
+        end
+        faces += 1
+        meshes[mesh] = true
+        faceDepth = depth
+      end
     elseif call[1] == 'text' and faceDepth then
       local x, y, z = call[3]:getPosition()
+      x, y, z = call.transform:mul(x, y, z)
       local depth = select(3, localFromWorld:mul(x, y, z))
-      expect.truthy(depth > faceDepth + 1e-5, 'the legend is separated from the rounded key front')
+      expect.truthy(depth > faceDepth + 1e-5, 'the legend is separated from the theme key face')
+      legendCount += 1
+      legends[call[2]] = true
       faceDepth = nil
     end
   end
+  expect.equal(faceDepth, nil, 'the final theme key face has its legend')
+  expect.equal(legendCount, faces, 'every theme key face has one separated legend')
   expect.truthy(target.visible, 'the menu shows the keyboard')
   local keyCount = 0
   for _, row in ipairs(rows) do
@@ -101,16 +114,19 @@ local function drawKeyboard(fixture)
     end
   end
   expect.truthy(keyCount > 0, 'the keyboard has keys')
-  expect.equal(faces, keyCount, 'the example draws one rounded face per key')
+  expect.equal(faces, keyCount, 'the theme-driven keyboard draws one mesh face per key')
   expect.truthy(focused:destroy(), 'the test releases its local focus target')
-  return target
+  return target, meshes
 end
 
-test('the development wrist menu toggles the rounded keyboard and survives source reload', function()
+test('the development wrist menu toggles the theme-driven keyboard and survives source reload', function()
   local native = testing.native()
   testing.host.useConfiguration 'dev'
   observer.load()
-  expect.truthy(package.loaded['examples/keyboard/rounded'], 'the development configuration loads the example')
+  expect.truthy(
+    package.loaded['@lunette-plugins/keyboard'],
+    'the development configuration loads the keyboard provider'
+  )
   lovr.load()
   local fixture = vrUi.attach(native)
   fixture:pose('left', lovr.math.newMat4():translate(0, 1.2, -0.5))
@@ -127,7 +143,7 @@ test('the development wrist menu toggles the rounded keyboard and survives sourc
   end
 
   toggle()
-  local first = drawKeyboard(fixture)
+  local first, firstMeshes = drawKeyboard(fixture)
   expect.equal(keyboardCount(), 1, 'one keyboard surface is offered while visible')
   expect.equal(services().keyboard:inspect().logicalRegistrationCount, 1, 'one keyboard is created')
   toggle()
@@ -136,7 +152,7 @@ test('the development wrist menu toggles the rounded keyboard and survives sourc
   native.events.draw = {}
   fixture:draw()
   for _, call in ipairs(native.events.draw) do
-    expect.truthy(call[1] ~= 'roundrect', 'hidden keyboards draw no rounded faces')
+    expect.falsy(call[1] == 'draw' and firstMeshes[call[2]], 'hidden keyboards draw no theme key-face meshes')
   end
   toggle()
   expect.equal(board(), first, 'showing again reuses the same keyboard')

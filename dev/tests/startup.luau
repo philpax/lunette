@@ -64,18 +64,18 @@ test('the development configuration starts on load and survives ten controller m
   for reload = 1, 10 do
     local services = assert(_G.devTestServices, 'the development configuration observer is active')
     local currentUi, currentDisplay = services.ui, services.display
-    local rounded, terminal = false, false
+    local keyboard, terminal = false, false
     for _, entry in ipairs(services.composition:entries()) do
-      rounded = rounded or (entry.id == 'keyboard' and entry.name == 'rounded-keyboard' and entry.state == 'active')
+      keyboard = keyboard or (entry.id == 'keyboard' and entry.name == 'keyboard' and entry.state == 'active')
       terminal = terminal or (entry.id == 'dev/demo-terminal' and entry.state == 'active')
     end
-    expect.truthy(rounded, 'reload ' .. reload .. ' retains the rounded development provider')
+    expect.truthy(keyboard, 'reload ' .. reload .. ' retains the theme-driven keyboard provider')
     expect.truthy(terminal, 'reload ' .. reload .. ' retains the development terminal plugin')
     fixture:step()
     local retainedPanel = currentUi:panels()[1]
     fixture:clickControl(currentUi, 'desktop/menu', 'open')
     fixture:clickControl(currentUi, 'desktop/menu', 'actions', 'right', 'desktop/keyboard/toggle')
-    expect.truthy(currentDisplay:isVisible(), 'reload ' .. reload .. ' can show the rounded keyboard')
+    expect.truthy(currentDisplay:isVisible(), 'reload ' .. reload .. ' can show the theme-driven keyboard')
     fixture:clickControl(currentUi, 'desktop/menu/titlebar', 'close')
     local retainedBoard
     for _, candidate in ipairs(services.surfaces:all()) do
