@@ -28,7 +28,8 @@ local function start()
       env.placement = context:require(placementContract.capability)
     end,
   })
-  env.primary = env.tags:hold(env.owner, { name = 'primary', selected = true })
+  env.primary = env.tags:hold(env.owner, { name = 'primary' })
+  env.primary:setSelected(env.owner, true)
   env.window = env.native.newWindow(1)
   env.rules:addSource(env.owner, {
     name = 'fixture',
@@ -41,7 +42,8 @@ local function start()
 end
 
 local function place(env)
-  return env.placement:place(env.owner, { window = env.window, defaults = { width = 5, height = 1 } })
+  local placed, effect = env.placement:place(env.owner, { window = env.window, defaults = { width = 5, height = 1 } })
+  return placed.panel, placed.properties, effect
 end
 
 test('a placed window takes its resolved properties over the defaults, joins their tags, and is announced', function()

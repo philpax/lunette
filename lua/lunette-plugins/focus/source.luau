@@ -4,6 +4,7 @@ local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/focus'
 local protected = require '@lunette-plugins/protected'
 local native = require './source-native'
+local physical = require './physical'
 local validation = require './validation'
 local keys = require '@lunette-contracts/keys'
 
@@ -148,19 +149,10 @@ function sources.new(
     if target == nil then
       return UNHANDLED
     end
-    local modifiers: { string } = {}
-    local requested = activation.modifiers
-    if requested then
-      for index = 1, #requested do
-        modifiers[index] = requested[index]
-      end
-    end
-    if mode == 'physical' and activation.physicalModifiers then
-      modifiers = keys.physicalActivationModifiers(activation.physicalModifiers, modifiers)
-    end
+    local modifiers: { read [number]: lunette.ModifierName } = activation.modifiers or {}
     if target.kind == 'native' then
       if mode == 'physical' then
-        local policy = keys.physicalNativePolicy(activation.code, modifiers, activation.physicalModifiers)
+        local policy = physical.nativePolicy(activation.code, modifiers, activation.physicalModifiers)
         if policy == 'unavailable' then
           return refused 'the physical keypad modifier snapshot is unavailable'
         elseif policy == 'text' then
@@ -178,7 +170,7 @@ function sources.new(
     local accepted = false
     local event: contract.KeyEvent = table.freeze {
       code = activation.code,
-      modifiers = table.freeze(table.clone(modifiers)),
+      modifiers = modifiers,
       source = mode,
       isRepeat = activation.isRepeat == true,
     }
@@ -209,7 +201,7 @@ function sources.new(
     local character: string? = nil
     if
       not protected.call(receiverLabel(snapshot, 'translate key'), function(): ()
-        character = seat:characterFor(activation.code, keys.nativeModifiers(modifiers))
+        character = seat:characterFor(activation.code, table.clone(modifiers) :: { lunette.ModifierName })
       end)
     then
       return failed 'translating the key raised; see the reported callback error'
@@ -314,7 +306,7 @@ function sources.new(
         code = activation.code,
         modifiers = if activation.modifiers then table.freeze(table.clone(activation.modifiers)) else nil,
         physicalModifiers = if activation.physicalModifiers
-          then keys.snapshotPhysicalModifiers(activation.physicalModifiers)
+          then physical.snapshot(activation.physicalModifiers)
           else nil,
         isRepeat = activation.isRepeat,
         batch = activation.batch,

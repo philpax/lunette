@@ -134,12 +134,13 @@ export type Registration = {
   read update: (Registration, ThemeOverrides) -> (),
   read dispose: (Registration) -> (),
 }
+export type Listener = { read run: (Snapshot) -> () }
 export type Service = {
   read current: (Service) -> Snapshot,
   -- Returns the face for a specification, or for the current theme's when it is omitted.
   read font: (Service, FontSpec?) -> Font,
   read select: (Service, Owner, ThemeOverrides) -> Registration,
-  read onChanged: (Service, Owner, (Snapshot) -> ()) -> plugin.Effect,
+  read onChanged: (Service, Owner, Listener) -> plugin.Effect,
   read inspect: (Service) -> inspection.Snapshot,
 }
 export type Capability = plugin.Capability<Service>

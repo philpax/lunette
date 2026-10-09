@@ -72,6 +72,20 @@ test('a chord matches with exactly its modifiers held, whatever order, and is co
   env.session:close()
 end)
 
+test('a chord matches the modifiers the host event reports, as delivery sees them', function()
+  local env = start()
+  env.native.events.held = {}
+  lovr.keypressed(
+    'backspace',
+    0,
+    false,
+    { shift = false, control = true, alt = true, super = false, capsLock = false, numLock = false }
+  )
+  expect.equal(#env.ran, 1, 'the binding ran without the keys being polled as held')
+  expect.equal(#env.delivered, 0, 'the bound press does not reach delivery')
+  env.session:close()
+end)
+
 test('a chord is bound once, whatever order its modifiers are written in, and ends with its owner', function()
   local env = start()
   expect.raises(function()

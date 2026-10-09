@@ -1,9 +1,10 @@
 local contracts = require '@lunette-contracts/laser'
+local config = require '@lunette-plugins/laser/config'
 local passState = require '@lunette-plugins/pass-state'
 
 local draw = {}
 
-type Laser = contracts.Laser
+type Laser = config.Beam
 
 type Color = contracts.Color
 

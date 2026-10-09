@@ -30,15 +30,15 @@ return plugin.consumer<<Config, Settings>>({
     local text, mode, destination = '', 'quiet', 'destination-1'
     local held: { [vocabulary.Pointer]: boolean } = {}
 
-    panel:button(context, {
+    panel:button {
       id = 'press',
       label = 'Count a press',
       bounds = { x = 24, y = 28, width = 250, height = 44 },
       onActivate = function()
         presses += 1
       end,
-    })
-    panel:textField(context, {
+    }
+    panel:textField {
       id = 'name',
       label = 'Name',
       bounds = { x = 24, y = 96, width = 552, height = 48 },
@@ -46,8 +46,8 @@ return plugin.consumer<<Config, Settings>>({
       onChange = function(value: string)
         text = value
       end,
-    })
-    panel:choice(context, {
+    }
+    panel:choice {
       id = 'mode',
       label = 'Mode',
       bounds = { x = 24, y = 172, width = 250, height = 172 },
@@ -60,12 +60,12 @@ return plugin.consumer<<Config, Settings>>({
       onChange = function(value: string)
         mode = value
       end,
-    })
+    }
     local destinations: { ui.Item } = {}
     for index = 1, 24 do
       destinations[index] = { id = 'destination-' .. tostring(index), label = 'Destination ' .. tostring(index) }
     end
-    panel:list(context, {
+    panel:list {
       id = 'destinations',
       label = 'Destinations: scroll with the thumbstick',
       bounds = { x = 298, y = 172, width = 278, height = 220 },
@@ -74,8 +74,8 @@ return plugin.consumer<<Config, Settings>>({
       onChange = function(value: string)
         destination = value
       end,
-    })
-    panel:region(context, {
+    }
+    panel:region {
       id = 'preview',
       label = 'Live preview: tap to count',
       bounds = { x = 24, y = 412, width = 552, height = 124 },
@@ -125,8 +125,8 @@ return plugin.consumer<<Config, Settings>>({
         -- Logical panel coordinates are y-down, while text glyphs are y-up.
         pass:text(report, clip.x + 8, clip.y + 8, 0, scale, math.pi, 1, 0, 0, 0, 'left', 'top')
       end,
-    })
-    panel:button(context, {
+    }
+    panel:button {
       id = 'close',
       label = 'Close',
       bounds = { x = 444, y = 28, width = 132, height = 44 },
@@ -136,7 +136,7 @@ return plugin.consumer<<Config, Settings>>({
           panel:setVisible(false)
         end
       end,
-    })
+    }
     actions:register(context, {
       id = 'example/ui/open',
       label = 'Open example form',

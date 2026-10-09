@@ -33,7 +33,7 @@ test('malformed options reject without changing the panel', function()
     local options = table.clone(case[2])
     options.id = options.id or 'invalid'
     options.bounds = bounds()
-    expect.falsy(pcall(state.panel[case[1]], state.panel, state.owner, options), case[1] .. ' rejects')
+    expect.falsy(pcall(state.panel[case[1]], state.panel, options), case[1] .. ' rejects')
   end
   expect.raises(function()
     state.region:setItems { { id = 'node', bounds = { x = math.huge, y = 0, width = 1, height = 1 } } }

@@ -1,11 +1,29 @@
 -- Resolves sparse keyboard appearance over global tokens without owning native resources.
 
 local schema = require '@lunette-plugin/schema'
-local keyboard = require '@lunette-contracts/keyboard'
 local theme = require '@lunette-contracts/theme'
 local descriptors = require '@lunette-plugins/theme/descriptors'
 
 local appearance = {}
+
+-- A style resolved for drawing at the keyboard's current scale.
+export type Style = {
+  read font: Font,
+  read backingRadius: number,
+  read keyRadius: number,
+  read keyUnit: number,
+  read gap: number,
+  read plateDepth: number,
+  read legendDepth: number,
+  read margin: number,
+  read plateColor: { read [number]: number },
+  read keyColor: { read [number]: number },
+  read heldColor: { read [number]: number },
+  read hoverColor: { read [number]: number },
+  read legendColor: { read [number]: number },
+  read legendHeight: number,
+}
+
 local positive = schema.number { positive = true }
 local nonnegative = schema.number { minimum = 0 }
 
@@ -32,11 +50,12 @@ local options = style(descriptors.font)
 local editableStyle = style(descriptors.editableFont)
 export type EditableStyleConfig = schema.Input<typeof(editableStyle)>
 export type EditableStyle = schema.Output<typeof(editableStyle)>
+-- A sparse style whose omitted fields fall through to the theme.
+export type Options = schema.Output<typeof(options)>
 
-appearance.options = options
 appearance.editableStyle = editableStyle
 
-local BASE: keyboard.StyleOptions = options.parse {
+local BASE: Options = options.parse {
   font = { kind = 'default' },
   backingRadius = 0,
   keyRadius = 0,
@@ -53,17 +72,13 @@ local BASE: keyboard.StyleOptions = options.parse {
   legendHeight = 0.012,
 }
 
-function appearance.project(value: EditableStyle): keyboard.StyleOptions
+function appearance.project(value: EditableStyle): Options
   local projected: { [string]: unknown } = table.clone(value) :: any
   projected.font = if value.font then descriptors.projectFont(value.font, 'keyboard style.font') else nil
   return options.parse(projected)
 end
 
-function appearance.resolve(
-  global: theme.Theme,
-  provider: keyboard.StyleOptions,
-  object: keyboard.StyleOptions?
-): keyboard.StyleOptions
+function appearance.resolve(global: theme.Theme, provider: Options): Options
   local tokens = options.resolve({
     font = global.typography.font,
     backingRadius = global.radii.keyboardBacking,
@@ -76,11 +91,10 @@ function appearance.resolve(
     legendColor = global.colors.foreground,
     legendHeight = global.typography.keyboardLegendHeight,
   }, BASE, 'keyboard style')
-  local configured = options.resolve(provider, tokens, 'keyboard style')
-  return options.resolve(object or {}, configured, 'keyboard style')
+  return options.resolve(provider, tokens, 'keyboard style')
 end
 
-function appearance.scaled(value: keyboard.StyleOptions, font: Font, scale: number): keyboard.Style
+function appearance.scaled(value: Options, font: Font, scale: number): Style
   return {
     font = font,
     backingRadius = (value.backingRadius :: number) * scale,
@@ -99,7 +113,7 @@ function appearance.scaled(value: keyboard.StyleOptions, font: Font, scale: numb
   }
 end
 
-function appearance.meshChanged(first: keyboard.Style, second: keyboard.Style): boolean
+function appearance.meshChanged(first: Style, second: Style): boolean
   return first.keyUnit ~= second.keyUnit
     or first.gap ~= second.gap
     or first.margin ~= second.margin
@@ -107,7 +121,7 @@ function appearance.meshChanged(first: keyboard.Style, second: keyboard.Style): 
     or first.keyRadius ~= second.keyRadius
 end
 
-function appearance.geometryChanged(first: keyboard.Style, second: keyboard.Style): boolean
+function appearance.geometryChanged(first: Style, second: Style): boolean
   return first.font ~= second.font
     or first.keyUnit ~= second.keyUnit
     or first.gap ~= second.gap

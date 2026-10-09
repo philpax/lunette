@@ -56,6 +56,25 @@ local function nativeTarget()
   return seat, sink, sent
 end
 
+-- Presses the key with an evdev code the way a pointer would.
+local function tap(board, code)
+  for _, key in board:keys() do
+    if key.code == code then
+      board:onPointer {
+        kind = 'press',
+        pointer = {},
+        button = 'left',
+        x = key.x + key.width / 2,
+        y = key.y + key.height / 2,
+        inside = true,
+        captured = false,
+      }
+      return
+    end
+  end
+  error('the keyboard has no key ' .. code)
+end
+
 local function localTarget(env, accepts)
   local received = { keys = {}, texts = {} }
   local target = env.focus:register(env.owner, {
@@ -88,15 +107,13 @@ test('the keyboard types into a focused native sink, and its owner unloading end
   end
   expect.equal(q.legend, 'q', "a legend comes from the focused seat's layout")
 
-  board:pressKey(42)
-  board:pressKey(30)
+  tap(board, 42)
+  tap(board, 30)
   expect.equal(sent[1][2][1], 'shift', 'shift latches for the next key')
   expect.truthy(sent[2][3] == true and sent[3][3] == false, 'the key is pressed and released')
-  expect.equal(#board:modifiers(), 0, 'the latch clears')
-
   table.clear(sent)
-  expect.falsy(board:typeText 'qü', 'unrepresentable window text is refused')
-  expect.truthy(sent[2][1] == 'key' and sent[2][2] == 30, 'the keymap strokes the representable prefix')
+  tap(board, 30)
+  expect.equal(#sent[1][2], 0, 'the latch clears')
 
   env.consumer:disable()
   expect.truthy(board.dead, 'the keyboard ends with its owner')
@@ -104,25 +121,21 @@ test('the keyboard types into a focused native sink, and its owner unloading end
   env.session:close()
 end)
 
-test('a local route receives keys and committed text, and a focus change clears modifiers', function()
+test('a local route receives keys, and a focus change clears modifiers', function()
   local env = start()
   local first, received = localTarget(env, true)
   first:focus()
   local board = env.service:new(env.owner)
-  expect.truthy(board:pressKey(30))
+  tap(board, 30)
   expect.equal(received.keys[1].code, 30)
   expect.equal(#received.texts, 0, 'a key legend is not text input')
-  expect.truthy(board:typeText 'committed UTF-8')
-  expect.equal(received.texts[1], 'committed UTF-8')
 
-  board:pressKey(42)
-  board:pressKey(58)
-  expect.equal(table.concat(board:modifiers(), '+'), 'shift+capsLock')
+  tap(board, 42)
+  tap(board, 58)
   local second, other = localTarget(env, true)
   second:focus()
-  expect.equal(#board:modifiers(), 0, 'a route change clears locks and latches')
-  board:pressKey(30)
-  expect.equal(#other.keys[1].modifiers, 0, 'the next route receives no old modifiers')
+  tap(board, 30)
+  expect.equal(#other.keys[1].modifiers, 0, 'a route change clears locks and latches')
   env.session:close()
 end)
 
@@ -131,11 +144,12 @@ test('a refused activation consumes a latch but keeps a lock', function()
   local target, received = localTarget(env, false)
   target:focus()
   local board = env.service:new(env.owner)
-  board:pressKey(42)
-  board:pressKey(58)
-  expect.falsy(board:pressKey(30))
+  tap(board, 42)
+  tap(board, 58)
+  tap(board, 30)
   expect.equal(table.concat(received.keys[1].modifiers, '+'), 'shift+capsLock')
-  expect.equal(table.concat(board:modifiers(), '+'), 'capsLock')
+  tap(board, 30)
+  expect.equal(table.concat(received.keys[2].modifiers, '+'), 'capsLock')
   env.session:close()
 end)
 

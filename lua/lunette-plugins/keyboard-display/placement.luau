@@ -1,6 +1,6 @@
 -- Places the keyboard horizontally in front of the head only when it becomes visible.
 local keyboard = require '@lunette-contracts/keyboard'
-local config = require '@lunette-plugins/desktop/keyboard/config'
+local config = require '@lunette-plugins/keyboard-display/config'
 
 return function(target: keyboard.Keyboard, placement: config.Placement): ()
   local head = vector.pack(lovr.headset.getPosition 'head')

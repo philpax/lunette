@@ -110,23 +110,74 @@ function Fixture:click(description, x, y, hand)
   self:step()
 end
 
-function Fixture:discover(service, name, id, itemId, ownerIdentity)
-  local foundDescription, foundControl, foundItem
-  for _, panel in ipairs(service:panels()) do
-    local description = panel:describe()
-    if description.name == name and description.visible then
-      for _, control in ipairs(description.controls) do
-        if control.id == id and control.enabled and (ownerIdentity == nil or control.owner == ownerIdentity) then
-          assert(
-            foundControl == nil,
-            'vr-ui: ambiguous control ' .. name .. '/' .. id .. '; specify its owner identity'
-          )
-          foundDescription, foundControl = description, control
-          if itemId then
-            for _, item in ipairs(control.items or {}) do
-              if item.id == itemId and item.enabled then
-                foundItem = item
-              end
+local function bounds(details)
+  if details.width == nil then
+    return nil
+  end
+  return { x = details.x, y = details.y, width = details.width, height = details.height }
+end
+
+-- Rebuilds a panel's description from the ui service's inspection, or nil when no live panel has the name.
+function vrUi.describe(service, name)
+  local panel, controls, byId = nil, {}, {}
+  for _, registration in ipairs(service:inspect().registrations) do
+    local details = registration.details
+    if registration.kind == 'panel' and registration.name == name then
+      panel = registration
+    elseif registration.kind == 'control' and details.panel == name then
+      local control = {
+        id = registration.name,
+        owner = registration.owner,
+        kind = details.kind,
+        label = details.label,
+        enabled = details.enabled,
+        bounds = bounds(details),
+        items = {},
+      }
+      controls[#controls + 1] = control
+      byId[registration.name] = control
+    elseif registration.kind == 'item' and details.panel == name then
+      local items = byId[details.control].items
+      items[#items + 1] = {
+        id = registration.name,
+        label = details.label,
+        enabled = details.enabled,
+        selected = details.selected,
+        bounds = bounds(details),
+      }
+    end
+  end
+  if panel == nil then
+    return nil
+  end
+  local details = panel.details
+  local pose = lovr.math.newMat4():translate(details.x, details.y, details.z)
+  pose:rotate(details.angle, details.ax, details.ay, details.az)
+  return {
+    name = name,
+    revision = details.revision,
+    pose = { pose:unpack(true) },
+    width = details.width,
+    height = details.height,
+    logicalWidth = details.logicalWidth,
+    logicalHeight = details.logicalHeight,
+    visible = details.visible,
+    controls = controls,
+  }
+end
+
+function Fixture:discover(service, name, id, itemId, owner)
+  local description = vrUi.describe(service, name)
+  local foundControl, foundItem
+  if description and description.visible then
+    for _, control in ipairs(description.controls) do
+      if control.id == id and control.enabled and (owner == nil or control.owner == owner) then
+        assert(foundControl == nil, 'vr-ui: ambiguous control ' .. name .. '/' .. id .. '; specify its owner')
+        foundControl = control
+        if itemId then
+          for _, item in ipairs(control.items) do
+            if item.id == itemId and item.enabled then
+              foundItem = item
             end
           end
         end
@@ -134,16 +185,16 @@ function Fixture:discover(service, name, id, itemId, ownerIdentity)
     end
   end
   if foundControl and (itemId == nil or foundItem ~= nil) then
-    return foundDescription, foundItem or foundControl, foundControl.owner
+    return description, foundItem or foundControl, foundControl.owner
   end
   error('vr-ui: no visible enabled control ' .. name .. '/' .. id .. (if itemId then '/' .. itemId else ''), 2)
 end
 
 -- Aims again after each step because a panel can follow the hand that moved.
-function Fixture:clickControl(service, name, id, hand, itemId, ownerIdentity)
+function Fixture:clickControl(service, name, id, hand, itemId, owner)
   hand = hand or 'right'
   local function aimCurrent()
-    local description, control = self:discover(service, name, id, itemId, ownerIdentity)
+    local description, control = self:discover(service, name, id, itemId, owner)
     local bounds = control.bounds
     assert(bounds and bounds.width > 0 and bounds.height > 0, 'vr-ui: the control has no visible hit bounds')
     self:aim(description, bounds.x + bounds.width / 2, bounds.y + bounds.height / 2, hand)

@@ -61,11 +61,9 @@ end
 
 -- Reads the control directly, since discovery finds only enabled controls and a pending selection is disabled.
 local function selection(env)
-  for _, panel in env.widgets:panels() do
-    for _, control in panel:describe().controls do
-      if control.id == 'select/monitor/screen-a' then
-        return control
-      end
+  for _, registration in env.widgets:inspect().registrations do
+    if registration.kind == 'control' and registration.name == 'select/monitor/screen-a' then
+      return registration.details
     end
   end
   error('the monitor has no selection control', 0)
@@ -84,7 +82,7 @@ test('a window titlebar requests close, reports a refusal, and is withdrawn whil
   expect.equal(#reports, 1, 'a refused close is reported')
   expect.truthy(reports[1].message:find('panel close: request was refused', 1, true), reports[1].message)
   table.clear(reports)
-  local hiding = env.panel:setHidden(env.registry.context, { hidden = true })
+  local hiding = env.panel:setHidden(env.registry.context, true)
   env.running:step()
   for _, surface in env.running.session:observe(surfaces.capability).service:all() do
     expect.truthy(surface.source ~= env.panel.source, 'a hidden window offers no titlebar')

@@ -1,6 +1,6 @@
 -- Retained source-local contours are shared by native content drawing and picking.
 
-local contracts = require '@lunette-contracts/panels'
+local appearance = require '@lunette-plugins/panels/appearance'
 local geometry = require '@lunette-plugins/theme/rounded-geometry'
 local frame = require '@lunette-plugins/panels/frame'
 
@@ -28,13 +28,13 @@ function silhouette.new(): Cache
   return {}
 end
 
-function silhouette.radius(target: Target, style: contracts.Style): number
+function silhouette.radius(target: Target, style: appearance.Style): number
   return if target.kind == 'window' then style.windowRadius else style.monitorRadius
 end
 
 function silhouette.get(
   target: Target,
-  style: contracts.Style
+  style: appearance.Style
 ): (geometry.Bounds, geometry.Profile, { geometry.Point }, boolean)
   local radius = silhouette.radius(target, style)
   local joined = frame.joined(target.frame)

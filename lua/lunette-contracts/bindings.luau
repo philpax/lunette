@@ -1,6 +1,7 @@
 -- A broker for desktop key chords. The provider takes presses before delivery, and a matched press, repeats
 -- included, goes no further.
 
+local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 
 local bindings = {}
@@ -9,12 +10,12 @@ export type Owner = plugin.Owner
 
 export type Chord = {
   read key: KeyCode,
-  read modifiers: { read [number]: string }?,
+  read modifiers: { read [number]: lunette.ModifierName }?,
 }
 
 export type Press = {
   read key: KeyCode,
-  read modifiers: { read [number]: string },
+  read modifiers: { read [number]: lunette.ModifierName },
   read isRepeat: boolean,
 }
 
@@ -31,8 +32,6 @@ export type Service = {
 }
 
 export type Capability = plugin.Capability<Service>
-
-bindings.MODIFIERS = table.freeze { 'control', 'alt', 'logo', 'shift' } :: { string }
 
 bindings.capability = plugin.capability<<Service>> { name = 'lunette/bindings', version = 1 }
 

@@ -31,26 +31,27 @@ export type Draw = config.Draw
 export type Mapping = input.Mapping
 export type Settings = config.Settings
 export type Config = config.Config
+export type Beam = config.Beam
 
 local HANDS: { Hand } = { 'left', 'right' }
 
 type MutableLaser = {
   owner: Owner,
   hand: Hand,
-  device: contracts.Device,
-  controller: contracts.Device,
+  device: input.Device,
+  controller: input.Device,
   seat: lunette.Seat,
   ownsSeat: boolean,
   readInput: (Hand) -> Input?,
   pointer: interaction.Pointer,
-  style: contracts.Style,
+  style: style.Style,
   read styleOverrides: contracts.StyleOverride,
   input: Input?,
   dead: boolean,
-  update: (Laser, { read [number]: Surface }) -> (),
-  draw: (Laser, Pass) -> (),
-  vibrate: (Laser) -> boolean,
-  destroy: (Laser) -> boolean,
+  update: (Beam, { read [number]: Surface }) -> (),
+  draw: (Beam, Pass) -> (),
+  vibrate: (Beam) -> boolean,
+  destroy: (Beam) -> boolean,
 }
 
 type ProviderState = {
@@ -82,8 +83,8 @@ local function destroy(state: ProviderState, target: MutableLaser): ()
   end
 end
 
-local function live(state: ProviderState): { Laser }
-  local found: { Laser } = {}
+local function live(state: ProviderState): { MutableLaser }
+  local found: { MutableLaser } = {}
   for _, target in ipairs(state.lasers) do
     if not target.dead then
       found[#found + 1] = target
@@ -92,7 +93,13 @@ local function live(state: ProviderState): { Laser }
   return found
 end
 
-local function makeLaser(state: ProviderState, settings: Settings, owner: Owner, hand: Hand, options: Options?): Laser
+local function makeLaser(
+  state: ProviderState,
+  settings: Settings,
+  owner: Owner,
+  hand: Hand,
+  options: Options?
+): MutableLaser
   local given: Options = options or {}
   local styleOverrides = style.overrides.parse(given.style or {}, 'laser style')
   state.refreshStyle()
@@ -152,7 +159,7 @@ local function makeLaser(state: ProviderState, settings: Settings, owner: Owner,
       styleOverrides = styleOverrides,
       input = frameInput,
       dead = false,
-      update = function(self: Laser, surfaces: { read [number]: Surface })
+      update = function(self: Beam, surfaces: { read [number]: Surface })
         if self.dead or not state.active then
           return
         end
@@ -191,7 +198,7 @@ local function makeLaser(state: ProviderState, settings: Settings, owner: Owner,
           self:vibrate()
         end
       end,
-      draw = function(self: Laser, pass: Pass)
+      draw = function(self: Beam, pass: Pass)
         if self.dead or not state.active then
           return
         end
@@ -200,14 +207,14 @@ local function makeLaser(state: ProviderState, settings: Settings, owner: Owner,
           settings.draw(self, pass, draw.laser)
         end)
       end,
-      vibrate = function(self: Laser): boolean
+      vibrate = function(self: Beam): boolean
         if self.dead then
           return false
         end
         return pulse { strength = self.style.hapticStrength, duration = self.style.hapticDuration }
       end,
       -- The release runs on the caller's stack, so a failure is attributed to that caller.
-      destroy = function(self: Laser): boolean
+      destroy = function(self: Beam): boolean
         if self.dead then
           return false
         end
@@ -280,7 +287,7 @@ local function build(context: plugin.Context, settings: Settings): Service
         end
         result[#result + 1] = inspection.registration(
           'laser',
-          'laser.new',
+          'laser.attach',
           target.owner,
           target.hand,
           state.active and context:owns(target.owner) and not target.dead,
@@ -299,11 +306,6 @@ local function build(context: plugin.Context, settings: Settings): Service
         { active = state.active, ownedSeats = ownedSeats },
         { 'input sampling and vibration require callbacks' }
       )
-    end,
-    HANDS = HANDS,
-    new = function(_self: Service, owner: Owner, hand: Hand, options: Options?): Laser
-      state.context:checkOwner(owner)
-      return makeLaser(state, settings, owner, hand, options)
     end,
     -- A hand has one laser: attach answers the owner's own, makes one for a free hand, and raises for a hand
     -- another owner holds.
@@ -324,17 +326,6 @@ local function build(context: plugin.Context, settings: Settings): Service
       end
       return attached
     end,
-    forHand = function(_self: Service, hand: Hand): Laser?
-      for _, target in ipairs(live(state)) do
-        if target.hand == hand then
-          return target
-        end
-      end
-      return nil
-    end,
-    all = function(_self: Service): { Laser }
-      return live(state)
-    end,
     update = function(_self: Service, surfaces: { read [number]: Surface }): ()
       for _, target in ipairs(live(state)) do
         target:update(surfaces)
@@ -346,9 +337,11 @@ local function build(context: plugin.Context, settings: Settings): Service
       end
     end,
   }
-  themes:onChanged(context, function(_snapshot: theme.Snapshot): ()
-    refreshStyle()
-  end)
+  themes:onChanged(context, {
+    run = function(_snapshot: theme.Snapshot): ()
+      refreshStyle()
+    end,
+  })
   refreshStyle()
   return service
 end

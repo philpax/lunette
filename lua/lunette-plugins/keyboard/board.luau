@@ -1,6 +1,7 @@
 -- Types used by keyboard provider hooks.
 local keyboard = require '@lunette-contracts/keyboard'
 local layout = require '@lunette-plugins/keyboard/layout'
+local appearance = require '@lunette-plugins/keyboard/appearance'
 
 local board = {}
 
@@ -17,7 +18,7 @@ export type Board = keyboard.Keyboard & {
 export type KeyState = {
   read keyboard: Board,
   read pose: Mat4,
-  read style: keyboard.Style,
+  read style: appearance.Style,
   read held: boolean,
   read hovered: boolean,
 }

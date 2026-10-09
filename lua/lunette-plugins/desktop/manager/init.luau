@@ -35,7 +35,7 @@ return plugin.consumer<<Config, Settings>>({
     local untilRefresh = settings.refreshInterval
     local panel: ui.Panel
     local shell: widgets.Shell
-    local registration: plugin.Effect? = nil
+    local registration: menu.Registration? = nil
     local function setVisible(show: boolean): ()
       if dead or panel.dead then
         return
@@ -50,7 +50,7 @@ return plugin.consumer<<Config, Settings>>({
       end
       local handle = registration
       if handle then
-        menuService:update(context, handle, { selected = show })
+        handle:update { selected = show }
       end
     end
     local function close(): ()

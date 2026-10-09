@@ -1,7 +1,7 @@
 -- Drawing uses panel state and callbacks supplied by the host to avoid a dependency cycle.
 
 local lunette = require '@lunette'
-local contracts = require '@lunette-contracts/panels'
+local appearance = require '@lunette-plugins/panels/appearance'
 local shape = require '@lunette-plugins/panels/shape'
 local silhouette = require '@lunette-plugins/panels/silhouette'
 local frame = require '@lunette-plugins/panels/frame'
@@ -87,7 +87,7 @@ local function buildMesh(vertices: { { number } }, indices: { number }): Mesh
   return made
 end
 
-local function contentMesh(target: Drawable, transform: CaptureTransform, style: contracts.Style): Mesh
+local function contentMesh(target: Drawable, transform: CaptureTransform, style: appearance.Style): Mesh
   local bounds, profile, polygon, rounded = silhouette.get(target, style)
   local contour = target.contour
   if
@@ -129,7 +129,7 @@ local function contentMesh(target: Drawable, transform: CaptureTransform, style:
   return made
 end
 
-function draw.content(target: Drawable, pass: Pass, style: contracts.Style, contentShader: (boolean) -> Shader?)
+function draw.content(target: Drawable, pass: Pass, style: appearance.Style, contentShader: (boolean) -> Shader?)
   local texture: Texture | false
   local opaque = true
   local transform: CaptureTransform = 'normal'
@@ -175,7 +175,7 @@ function draw.content(target: Drawable, pass: Pass, style: contracts.Style, cont
   end)
 end
 
-function draw.border(target: Drawable, pass: Pass, style: contracts.Style): ()
+function draw.border(target: Drawable, pass: Pass, style: appearance.Style): ()
   local attachment = target.frame
   local joined = frame.joined(attachment)
   local header = if joined and attachment then attachment.style else nil
@@ -251,7 +251,7 @@ function draw.clearOutline(target: { outline: Outline? }): ()
 end
 
 -- Chrome titles remain separate from a target-owned joined outline.
-function draw.chrome(target: Drawable, pass: Pass, style: contracts.Style, font: Font)
+function draw.chrome(target: Drawable, pass: Pass, style: appearance.Style, font: Font)
   local title: string? = target.title
   if not title then
     title = if target.kind == 'window' then target.source.title else target.source.name

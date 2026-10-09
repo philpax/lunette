@@ -41,10 +41,8 @@ test('start adopts each accepted window once with its resolved properties, and r
       return if target.appId == 'fixture.declined' then { adopt = false } else { pose = pose(2) }
     end,
   })
-  env.adoption:install(env.owner)
   local saved, ordinary = fake.newWindow(1), fake.newWindow(2)
   local refused, declined = fake.newWindow(3, 'fixture.refused'), fake.newWindow(4, 'fixture.declined')
-  saved.properties[vocabulary.POSE_PROPERTY] = pose(3)
   fake.events.windows = { saved, ordinary, refused, declined }
   local started = env.adoption:start(env.owner, {
     filter = function(target)
@@ -53,8 +51,7 @@ test('start adopts each accepted window once with its resolved properties, and r
   })
   local placed = env.placement:placed()
   expect.equal(#placed, 2, 'the windows adopted')
-  expect.equal(placed[1].properties.pose, pose(3), 'the pose the window kept, above the persisted one')
-  expect.equal(placed[2].properties.pose, pose(2), 'the persisted pose of a window that kept none')
+  expect.equal(placed[1].properties.pose, pose(2), 'the resolved properties of an adopted window')
 
   fake.emit('onWindowOpened', { window = saved })
   expect.equal(#env.panels:all(), 2, 'an adopted window opening again')
@@ -86,7 +83,7 @@ test('adoption places through a substitute placement provider, and ends with its
               panel:destroy(context)
             end
           end)
-          return panel, {}, effect
+          return { panel = panel, properties = {} }, effect
         end,
       })
     end,
@@ -104,7 +101,6 @@ test('adoption places through a substitute placement provider, and ends with its
     requires = { adoptionContract.capability },
     init = function(context)
       local adoption = context:require(adoptionContract.capability)
-      adoption:install(context)
       adoption:start(context)
     end,
   })

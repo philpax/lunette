@@ -4,10 +4,6 @@ local focus = require '@lunette-contracts/focus'
 local frame = require '@lunette-contracts/frame'
 local keys = require '@lunette-contracts/keys'
 
-local function heldModifiers(): { string }
-  return keys.heldModifiers { isDown = lovr.system.isKeyDown, shift = true }
-end
-
 return plugin.consumer<<{}, {}>>({
   name = 'desktop/input',
   requires = { focus.capability, frame.capability },
@@ -27,23 +23,20 @@ return plugin.consumer<<{}, {}>>({
     })
     frameService:onKey(context, {
       phase = 'delivery',
-      run = function(event: frame.KeyEvent): boolean?
-        local code = keys.FROM_LOVR[event.key]
+      run = function(event: frame.HostKeyEvent): boolean?
+        local code = event.code
         if code == nil then
           return nil
         end
-        local modifiers = if event.modifiers
-          then keys.physicalModifierNames(event.modifiers, lovr.system.isKeyDown)
-          else heldModifiers()
         local selected = service:focused() ~= nil
         local result = source:key {
           code = code,
-          modifiers = modifiers,
-          physicalModifiers = event.modifiers,
+          modifiers = event.modifiers,
+          physicalModifiers = event.physicalModifiers,
           isRepeat = event.isRepeat,
           batch = event.batch,
         }
-        if keys.commandChord(modifiers) or result.kind ~= 'unhandled' then
+        if keys.commandChord(event.modifiers) or result.kind ~= 'unhandled' then
           frameService:blockText(event.batch)
         end
         return result.kind ~= 'unhandled' or selected
@@ -51,8 +44,8 @@ return plugin.consumer<<{}, {}>>({
     })
     frameService:onText(context, {
       phase = 'delivery',
-      run = function(event: frame.TextEvent): boolean?
-        if keys.commandChord(heldModifiers()) then
+      run = function(event: frame.HostTextEvent): boolean?
+        if keys.commandChord(event.modifiers) then
           frameService:blockText(event.batch)
           return true
         end

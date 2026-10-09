@@ -22,8 +22,25 @@ local function start(definition)
   return env
 end
 
-local function interaction(env)
-  return env.session:observe(interactionContract.capability).service
+-- Counts the live pointers and the lasers' owned seats through inspection.
+local function pointers(env)
+  local count = 0
+  for _, registration in env.session:observe(interactionContract.capability).service:inspect().registrations do
+    if registration.kind == 'pointer' and registration.live then
+      count += 1
+    end
+  end
+  return count
+end
+
+local function lasers(env)
+  local found = {}
+  for _, registration in env.service:inspect().registrations do
+    if registration.live then
+      found[registration.details.hand] = registration.details
+    end
+  end
+  return found
 end
 
 local function trigger(env, held)
@@ -55,19 +72,31 @@ end
 test("the default reader maps the trigger, and a hover pulses that hand's controller and draws a cursor", function()
   local env = start()
   trigger(env, true)
-  local default = env.service:attach(env.owner)[1]
-  default:update {}
-  expect.equal(default.input.buttons.left, true, 'the default reader maps the trigger to the left button')
-  for _, each in env.service:all() do
+  local pressed = {}
+  local target = {
+    dead = false,
+    raycast = function()
+      return 1, 2, 3
+    end,
+    onPointer = function(_, event)
+      if event.kind == 'press' then
+        pressed[#pressed + 1] = event.button
+      end
+    end,
+  }
+  for _, each in env.service:attach(env.owner) do
+    env.service:update { target }
     each:destroy()
   end
+  expect.equal(pressed[1], 'left', 'the default reader maps the trigger to the left button')
+  env.native.events.haptics = 0
   local inputs = { left = frame(0, 0, -1), right = frame(0, 1, 0) }
   env.service:attach(env.owner, {
     readInput = function(hand)
       return inputs[hand]
     end,
+    style = { hapticStrength = 0.3 },
   })
-  local style = env.service:forHand('left').style
   env.service:update {}
   env.service:draw(env.native.events.pass)
   expect.equal(#calls(env, 'line'), 2, 'a beam per hand')
@@ -92,7 +121,7 @@ test("the default reader maps the trigger, and a hover pulses that hand's contro
   expect.equal(hovers, 1, 'the hovered surface')
   expect.equal(env.native.events.haptics, 1, 'one pulse')
   expect.equal(env.native.events.haptic.device, 'hand/left', "the pulse reaches the hovering hand's controller")
-  expect.equal(env.native.events.haptic.strength, style.hapticStrength, 'the pulse strength')
+  expect.equal(env.native.events.haptic.strength, 0.3, 'the pulse strength')
 
   table.clear(env.native.events.draw)
   env.service:draw(env.native.events.pass)
@@ -139,9 +168,9 @@ test('a laser reader cancels on loss and requires all buttons up before reacquis
       end
     end,
   }
-  local beam = env.service:new(env.owner, 'right', {
-    readInput = function()
-      if not tracked then
+  env.service:attach(env.owner, {
+    readInput = function(hand)
+      if not tracked or hand ~= 'right' then
         return nil
       end
       local input = frame(0, 0, -1)
@@ -149,18 +178,18 @@ test('a laser reader cancels on loss and requires all buttons up before reacquis
       return input
     end,
   })
-  beam:update { target }
+  env.service:update { target }
   expect.equal(events[1].kind, 'press', 'the trigger starts a gesture')
   tracked = false
-  beam:update { target }
+  env.service:update { target }
   expect.equal(events[2].reason, 'tracking-loss', 'tracking loss cancels rather than releases')
   tracked = true
-  beam:update { target }
+  env.service:update { target }
   expect.equal(#events, 2, 'a held trigger after reacquisition cannot press again')
   held = false
-  beam:update { target }
+  env.service:update { target }
   held = true
-  beam:update { target }
+  env.service:update { target }
   expect.equal(events[3].kind, 'press', 'a fresh edge after an observed release presses again')
   env.session:close()
 end)
@@ -177,32 +206,16 @@ local function borrowedSeat()
   return seat
 end
 
-test('a hand has one laser, which forHand finds and attach answers to its own owner', function()
+test('a hand has one laser, which attach answers to its own owner, and a laser owns only a seat it made', function()
   local env = start()
-  local seat = borrowedSeat()
-  local borrowed = env.service:new(env.owner, 'left', {
-    seat = seat,
-    readInput = function()
-      return nil
-    end,
-    style = { length = 9 },
-  })
-  expect.equal(borrowed.seat, seat, 'the borrowed seat')
-  expect.falsy(borrowed.ownsSeat, 'a borrowed seat is not owned')
-  expect.equal(borrowed.style.length, 9, "a laser's own style")
-
-  local attached = env.service:attach(env.owner, {
-    readInput = function()
-      return nil
-    end,
-  })
+  local function silent()
+    return nil
+  end
+  local attached = env.service:attach(env.owner, { readInput = silent })
   expect.equal(#attached, 2, 'the attached lasers')
-  expect.equal(attached[1], borrowed, "attach answers the owner's own laser for a hand it holds")
-  expect.equal(attached[2].hand, 'right', 'the free hand')
-  expect.truthy(attached[2].ownsSeat and attached[2].seat ~= seat, 'the free hand gets a seat of its own')
-  expect.equal(env.service:forHand 'left', borrowed, 'forHand')
-  expect.equal(#interaction(env):pointers(), 2, 'each laser is a pointer')
-
+  expect.truthy(attached[1].hand == 'left' and attached[2].hand == 'right', 'a laser per hand, left first')
+  expect.truthy(lasers(env).left.ownsSeat and lasers(env).right.ownsSeat, 'a laser without a seat makes its own')
+  expect.equal(pointers(env), 2, 'each laser is a pointer')
   expect.equal(env.service:attach(env.owner)[2], attached[2], 'attach is idempotent')
 
   local rival = env.session:observe(laserContract.capability)
@@ -210,13 +223,19 @@ test('a hand has one laser, which forHand finds and attach answers to its own ow
     env.service:attach(rival.context)
   end, 'another owner holds', 'attach for a hand another owner holds')
 
-  local ownedSeat = attached[2].seat
+  local seatId = lasers(env).right.seatId
   attached[2]:destroy()
-  expect.truthy(ownedSeat.dead, 'an owned seat ends with the laser')
-  expect.equal(#interaction(env):pointers(), 1, 'a destroyed laser releases its pointer')
+  expect.truthy(env.native.events.seats[seatId].dead, 'an owned seat ends with the laser')
+  expect.equal(pointers(env), 1, 'a destroyed laser releases its pointer')
+  attached[1]:destroy()
+
+  local seat = borrowedSeat()
+  local borrowed = env.service:attach(env.owner, { seat = seat, readInput = silent })
+  expect.falsy(lasers(env).left.ownsSeat, 'a borrowed seat is not owned')
+  expect.truthy(borrowed[1].pointer and not borrowed[1].dead, 'the laser and its pointer')
   env.consumer.instance:disable()
-  expect.equal(#env.service:all(), 0, 'the lasers after the owner unloads')
-  expect.equal(#interaction(env):pointers(), 0, 'the pointers after the owner unloads')
+  expect.equal(#env.service:inspect().registrations, 0, 'the lasers after the owner unloads')
+  expect.equal(pointers(env), 0, 'the pointers after the owner unloads')
   expect.falsy(seat.dead, 'a borrowed seat outlives the laser')
   env.session:close()
 end)

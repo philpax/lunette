@@ -4,6 +4,7 @@ local plugin = require '@lunette-plugin'
 local focus = require '@lunette-contracts/focus'
 local theme = require '@lunette-contracts/theme'
 local vocabulary = require '@lunette-contracts/vocabulary'
+local inspection = require '@lunette-contracts/inspection'
 
 local ui = {}
 
@@ -116,8 +117,10 @@ export type Visual = {
 -- Hooks receive logical panel coordinates and cannot change declared input geometry.
 export type Renderer = (Pass, Visual) -> ()
 export type DrawHook = (Pass, Visual, Renderer) -> ()
+-- A control belongs to the panel's owner unless `owner` names another.
 export type Options = {
   read id: string,
+  read owner: Owner?,
   read bounds: Bounds,
   read label: string?,
   read enabled: boolean?,
@@ -164,8 +167,6 @@ export type Button = Control
 export type TextField = Control & {
   read setValue: (TextField, string) -> (),
   read value: (TextField) -> string,
-  read setSelection: (TextField, number, number?) -> (),
-  read selection: (TextField) -> (number, number),
   read setError: (TextField, string?) -> (),
   read focus: (TextField) -> boolean,
   read blur: (TextField) -> boolean,
@@ -173,31 +174,12 @@ export type TextField = Control & {
 export type Choice = Control & {
   read setItems: (Choice, { read [number]: Item }) -> (),
   read setSelected: (Choice, string?) -> (),
-  read selected: (Choice) -> string?,
-  read setOpen: (Choice, boolean) -> (),
-  read scroll: (Choice, number) -> (),
 }
 export type List = Control & {
   read setItems: (List, { read [number]: Item }) -> (),
   read setSelected: (List, string?) -> (),
-  read selected: (List) -> string?,
-  read scroll: (List, number) -> (),
 }
 export type Region = Control & { read setItems: (Region, { read [number]: RegionItem }) -> () }
-export type TitlebarStyle = {
-  read font: Font,
-  read cornerRadius: number,
-  read barHeight: number,
-  read margin: number,
-  read barColor: Color,
-  read barHighlightColor: Color,
-  read borderThickness: number,
-  read borderDepth: number,
-  read borderColor: Color,
-  read borderHighlightColor: Color,
-  read titleHeight: number,
-  read titleColor: Color,
-}
 export type TitlebarStyleOverrides = {
   read font: theme.FontSpec?,
   read cornerRadius: number?,
@@ -227,6 +209,12 @@ export type TitlebarOptions = {
   read actions: { read [number]: TitlebarAction }?,
   read style: TitlebarStyleOverrides?,
   read draggable: boolean?,
+}
+-- `visible` hides the titlebar while it returns false.
+export type TitlebarSpec = TitlebarOptions & {
+  read name: string,
+  read target: vocabulary.Surface,
+  read visible: (() -> boolean)?,
 }
 export type Titlebar = {
   read dead: boolean,
@@ -260,16 +248,17 @@ export type Panel = {
   read draw: (Panel, Pass) -> (),
   read describe: (Panel) -> Description,
   read destroy: (Panel) -> boolean,
-  read button: (Panel, Owner, ButtonOptions) -> Button,
-  read textField: (Panel, Owner, TextFieldOptions) -> TextField,
-  read choice: (Panel, Owner, ChoiceOptions) -> Choice,
-  read list: (Panel, Owner, ListOptions) -> List,
-  read region: (Panel, Owner, RegionOptions) -> Region,
+  read button: (Panel, ButtonOptions) -> Button,
+  read textField: (Panel, TextFieldOptions) -> TextField,
+  read choice: (Panel, ChoiceOptions) -> Choice,
+  read list: (Panel, ListOptions) -> List,
+  read region: (Panel, RegionOptions) -> Region,
 }
 export type Service = {
   read newPanel: (Service, Owner, PanelOptions) -> Panel,
-  read newTitlebar: (Service, Owner, string, vocabulary.Surface, TitlebarOptions, (() -> boolean)?) -> Titlebar,
-  read panels: (Service) -> { read [number]: Panel },
+  read newTitlebar: (Service, Owner, TitlebarSpec) -> Titlebar,
+  -- Each panel, then its controls and their items, with the geometry that input uses.
+  read inspect: (Service) -> inspection.Snapshot,
 }
 export type Capability = plugin.Capability<Service>
 ui.capability = plugin.capability<<Service>> { name = 'lunette/ui', version = 2 }

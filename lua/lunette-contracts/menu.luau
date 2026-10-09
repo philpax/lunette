@@ -23,9 +23,15 @@ export type State = {
   read selected: boolean?,
 }
 
--- Identity is by reference, not by the fields of this callback-free token.
+-- A registration the owner keeps to change its action's state. `update` returns false once the action is gone.
 export type Registration = {
-  read kind: 'menu-registration',
+  read update: (Registration, State) -> boolean,
+  read dispose: (Registration) -> (),
+}
+
+-- Identity is by reference, not by the fields of this callback-free token.
+export type Token = {
+  read kind: 'menu-token',
 }
 
 export type Descriptor = {
@@ -35,7 +41,7 @@ export type Descriptor = {
   read order: number,
   read enabled: boolean,
   read selected: boolean,
-  read registration: Registration,
+  read token: Token,
 }
 
 export type Result =
@@ -43,12 +49,15 @@ export type Result =
   | { read kind: 'unavailable' }
   | { read kind: 'failed', read message: string }
 
+-- Runs after an action is registered, updated, or removed.
+export type Listener = { read run: () -> () }
+
 export type Service = {
-  read register: (Service, Owner, Action) -> plugin.Effect,
-  read update: (Service, Owner, plugin.Effect, State) -> boolean,
+  read register: (Service, Owner, Action) -> Registration,
   read list: (Service) -> { read [number]: Descriptor },
-  -- An expected registration prevents a stale row from invoking a replacement with the same id.
-  read invoke: (Service, string, Registration?) -> Result,
+  -- An expected token prevents a stale row from invoking a replacement with the same id.
+  read invoke: (Service, string, Token?) -> Result,
+  read onChanged: (Service, Owner, Listener) -> plugin.Effect,
   read inspect: (Service) -> inspection.Snapshot,
 }
 

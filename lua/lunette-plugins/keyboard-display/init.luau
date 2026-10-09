@@ -6,8 +6,8 @@ local keyboard = require '@lunette-contracts/keyboard'
 local display = require '@lunette-contracts/keyboard-display'
 local surfaces = require '@lunette-contracts/surfaces'
 local ui = require '@lunette-contracts/ui'
-local config = require '@lunette-plugins/desktop/keyboard/config'
-local create = require '@lunette-plugins/desktop/keyboard/display'
+local config = require '@lunette-plugins/keyboard-display/config'
+local create = require '@lunette-plugins/keyboard-display/display'
 
 export type Config = config.Config
 export type Settings = config.Settings

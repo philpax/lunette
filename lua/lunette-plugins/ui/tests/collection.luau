@@ -133,14 +133,14 @@ end)
 
 test('list rows clip at the viewport and stay disjoint while scrolling', function()
   local state = fixture('list', 54, rows(6))
-  state.methods.scroll({}, 5.5)
+  state.event('scroll', 15, 30, { dy = 5.5 })
   local items = state.items()
   expect.equal(items[1].bounds.height, 14.5, 'a partial row is clipped')
   expect.equal(state.visual().overflow, true)
   for count = 0, 12 do
     local list = fixture('list', 54, rows(count))
     for _, delta in { 0, 0.25, 7.75, 16, 90, -30, -1000 } do
-      list.methods.scroll({}, delta)
+      list.event('scroll', 15, 30, { dy = delta })
       local bottom = 22
       for _, item in list.items() do
         expect.truthy(item.bounds.y >= bottom and item.bounds.height > 0)
@@ -151,12 +151,22 @@ test('list rows clip at the viewport and stay disjoint while scrolling', functio
   end
 end)
 
+-- Reads the selection from the rows a list exposes.
+local function selected(state)
+  for _, item in state.items() do
+    if item.selected then
+      return item.id
+    end
+  end
+  return nil
+end
+
 test('replacing list items keeps a surviving selection and clears a removed one', function()
   local state = fixture('list', 54, rows(8), '2')
   state.methods.setItems({}, { { id = '2', label = 'Retained' } })
-  expect.equal(state.methods.selected {}, '2')
+  expect.equal(selected(state), '2')
   state.methods.setItems({}, rows(1))
-  expect.equal(state.methods.selected {}, nil)
+  expect.equal(selected(state), nil)
   expect.equal(#state.changes, 0, 'programmatic changes do not echo onChange')
 end)
 

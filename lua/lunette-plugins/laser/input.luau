@@ -5,7 +5,7 @@ local contracts = require '@lunette-contracts/laser'
 
 local input = {}
 
-type Device = contracts.Device
+export type Device = 'hand/left/point' | 'hand/right/point' | 'hand/left' | 'hand/right'
 type Hand = contracts.Hand
 type Input = contracts.Input
 

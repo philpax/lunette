@@ -1,15 +1,22 @@
 -- Validates registered targets, source options, and operation metadata at the plugin boundary. Target data is
 -- copied before registration; callback identities remain private to the owning route.
 
+local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/focus'
-local keys = require '@lunette-contracts/keys'
+local physical = require './physical'
 
 local validation = {}
 local NATIVE: { string } = { 'kind', 'seat', 'sink' }
 local LOCAL: { string } = { 'kind', 'receiver', 'keymapSeat', 'wantsKeyboard' }
 local RECEIVER: { string } = { 'key', 'text', 'onFocus', 'onBlur' }
 local ACTIVATION: { string } = { 'code', 'modifiers', 'isRepeat', 'batch', 'physicalModifiers' }
+
+local MODIFIERS: { [string]: boolean } = {}
+for _, name in lunette.modifierNames() do
+  MODIFIERS[name] = true
+end
+table.freeze(MODIFIERS)
 
 local function plain(label: string, value: unknown): ()
   if type(value) ~= 'table' or getmetatable(value) ~= nil then
@@ -90,7 +97,7 @@ function validation.activation(value: contract.Activation): string?
     return 'the batch id is a finite non-negative integer'
   end
   if value.physicalModifiers ~= nil then
-    local invalid = keys.validatePhysicalModifiers(value.physicalModifiers)
+    local invalid = physical.validate(value.physicalModifiers)
     if invalid then
       return invalid
     end
@@ -104,6 +111,9 @@ function validation.activation(value: contract.Activation): string?
     for index, name in modifiers do
       if not integer(index) or index < 1 or type(name) ~= 'string' then
         return 'modifiers are a dense array of names'
+      end
+      if not MODIFIERS[name] then
+        return "'" .. name .. "' is not a modifier"
       end
       count += 1
     end

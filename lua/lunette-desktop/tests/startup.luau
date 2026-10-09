@@ -61,11 +61,15 @@ test('the shipped configuration starts on load and survives ten production reloa
     local controls = assert(_G.vrReloadControls, 'the composition observer is active')
     local currentUi = controls.ui
     fixture:step()
-    local retainedPanel = currentUi:panels()[1]
     fixture:clickControl(currentUi, 'desktop/menu', 'open')
     events.logs = {}
     fixture:clickControl(currentUi, 'desktop/menu', 'actions', 'right', 'desktop/reload')
-    expect.truthy(retainedPanel.dead, 'reload withdraws the previous UI generation')
+    expect.falsy(
+      pcall(function()
+        return currentUi:inspect()
+      end),
+      'reload withdraws the previous UI generation'
+    )
     expect.equal(#events.logs, 0, 'reload ' .. reload .. ' failed: ' .. tostring(events.logs[1] and events.logs[1][1]))
     expect.equal(#events.spawned, startupProcesses, 'reload ' .. reload .. ' spawns nothing')
     expect.truthy(events.closed == 0 and live(events.windows) == 2, 'reload ' .. reload .. ' closes no window')

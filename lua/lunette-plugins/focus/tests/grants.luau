@@ -63,9 +63,9 @@ test('one route is focused at a time, and destroying it restores nothing', funct
   expect.truthy(app:focus(), 'the application focuses')
   expect.equal(env.left.focus, env.sink, 'native window focus is established')
   expect.equal(env.focus:focused(), app, 'the registered route is current')
-  local revision = env.focus:revision()
+  local announced = #env.heard
   expect.truthy(app:focus(), 'refocusing the same handle succeeds')
-  expect.equal(env.focus:revision(), revision, 'idempotent focus')
+  expect.equal(#env.heard, announced, 'idempotent focus')
   expect.truthy(field:focus(), 'the local field focuses')
   expect.equal(env.left.focus, nil, 'local input clears the native seat')
   expect.equal(env.heard[#env.heard].target, field, 'the change identifies the new route')
@@ -101,21 +101,21 @@ test('a seat refusing focus leaves the previous route current', function()
   local env = start()
   local field = env:localTarget()
   field:focus()
-  local revision = env.focus:revision()
+  local announced = #env.heard
   env.left.refuse = true
   expect.falsy(env:nativeTarget(env.owner, env.left, env.sink):focus(), 'native focus refusal propagates')
   expect.equal(env.focus:focused(), field, 'the earlier route remains current')
-  expect.equal(env.focus:revision(), revision, 'no refused transition is announced')
+  expect.equal(#env.heard, announced, 'no refused transition is announced')
   env.session:close()
 end)
 
 test('a dead native sink clears focus at the next frame', function()
   local env = start()
   env:nativeTarget(env.owner, env.left, env.sink):focus()
-  local revision = env.focus:revision()
+  local announced = #env.heard
   env.sink.dead = true
   env.session:update()
-  expect.equal(env.focus:revision(), revision + 1, 'the loss is announced')
+  expect.equal(#env.heard, announced + 1, 'the loss is announced')
   expect.equal(env.heard[#env.heard].kind, 'none', 'the loss clears input intent')
   expect.equal(env.left.focus, nil, 'native focus is withdrawn')
   env.session:close()

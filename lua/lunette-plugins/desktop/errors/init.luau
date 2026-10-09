@@ -96,19 +96,18 @@ return plugin.consumer<<Config, Settings>>({
       end
       paint = prepare(snapshot)
     end
-    themeService:onChanged(context, function(_event: theme.Snapshot): ()
-      applyCurrent()
-    end)
+    themeService:onChanged(context, {
+      run = function(_event: theme.Snapshot): ()
+        applyCurrent()
+      end,
+    })
 
     local shown: errors.Report? = nil
     local recent = stream:recent()
     shown = recent[#recent]
-    stream:subscribe(context, {
+    stream:onReport(context, {
       run = function(report: errors.Report): ()
         shown = report
-      end,
-      cleared = function(): ()
-        shown = nil
       end,
     })
     frameService:onDraw(context, {

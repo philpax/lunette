@@ -14,7 +14,7 @@ The shipped `main.luau` is one call:
 require('@lunette-desktop').run()
 ```
 
-`run` takes `settings` and `patches`. [Desktop configuration](desktop-configuration.md) describes the settings. Patches change the desktop's entry list, which `require('@lunette-desktop').entries()` returns. Each entry has an `id`, such as `keyboard`, `laser`, or `desktop/keyboard`. The built-in providers publish services such as panels, pointers, and the keyboard, and the `desktop/` consumers use them. Every entry is a module under `@lunette-plugins`: a provider under its contract's name and a desktop consumer under `@lunette-plugins/desktop/`, so `desktop/keyboard` is `@lunette-plugins/desktop/keyboard`.
+`run` takes `settings` and `patches`. [Desktop configuration](desktop-configuration.md) describes the settings. Patches change the desktop's entry list, which `require('@lunette-desktop').entries()` returns. Each entry has an `id`, such as `keyboard`, `laser`, or `desktop/keyboard`. The built-in providers publish services such as panels, pointers, and the keyboard, and the `desktop/` consumers use them. Every entry is a module under `@lunette-plugins`: a provider under its contract's name and any other plugin under its entry id, so `desktop/menu` is `@lunette-plugins/desktop/menu`, and `desktop/keyboard`, which provides `lunette/keyboard-display`, is `@lunette-plugins/keyboard-display`.
 
 Plugin modules live in the configuration directory and are required by relative path, such as `require './hello'`. A relative path resolves against the directory of the requiring file, in a session and in `lunette check` alike. From `myplugin/init.luau`, `require '@self/draw'` names `myplugin/draw.luau`, because `./draw` from an `init.luau` names a sibling of its directory. A relative path cannot leave the configuration directory. [Module roots](../dev/stdlib.md#module-roots) states the rules.
 
@@ -174,7 +174,7 @@ local laser = require '@lunette-plugins/laser'
 desktop.run {
   patches = {
     desktop.configure('laser', laser.definition) { style = { color = { 1, 0.4, 0.2, 0.6 } } },
-    desktop.configure('desktop/keyboard', require '@lunette-plugins/desktop/keyboard') {
+    desktop.configure('desktop/keyboard', require '@lunette-plugins/keyboard-display') {
       placement = { distance = 0.45 },
     },
   },
@@ -199,7 +199,7 @@ desktop.configure('desktop/theme', require '@lunette-plugins/desktop/theme') {
 
 [Runtime themes](desktop-configuration.md#runtime-themes) describes the selector and its menu.
 
-A plugin reads the theme through `@lunette-contracts/theme`. `theme.Theme` is a complete immutable value with `colors`, `typography`, `metrics`, and `radii`. `service:current()` returns `{ revision, theme }`, and `service:onChanged(owner, run)` calls `run` with a new snapshot after each change. `service:font(spec)` returns the font face for a `theme.FontSpec`, or for the current theme's font when `spec` is omitted. The provider caches one face per specification, so a plugin asks again after a theme change instead of keeping a face. `service:select(owner, overrides)` returns a registration whose overrides apply over the base theme; the most recent live registration wins. [Runtime themes](../dev/lua-api.md#runtime-themes) specifies the contract.
+A plugin reads the theme through `@lunette-contracts/theme`. `theme.Theme` is a complete immutable value with `colors`, `typography`, `metrics`, and `radii`. `service:current()` returns `{ revision, theme }`, and `service:onChanged(owner, { run })` calls `run` with a new snapshot after each change. `service:font(spec)` returns the font face for a `theme.FontSpec`, or for the current theme's font when `spec` is omitted. The provider caches one face per specification, so a plugin asks again after a theme change instead of keeping a face. `service:select(owner, overrides)` returns a registration whose overrides apply over the base theme; the most recent live registration wins. [Runtime themes](../dev/lua-api.md#runtime-themes) specifies the contract.
 
 The built-in UI, keyboard, panels, and laser read the theme provider, so a custom composition that uses them includes the `theme` entry.
 
@@ -271,7 +271,7 @@ The definition replaces the desktop's keyboard by id, and every plugin that requ
 
 ## Replacing the keyboard
 
-A plugin that provides `lunette/keyboard` at schema 3 can take the keyboard entry's place. `service:new(owner, options)` returns a keyboard, which is a surface with `setVisible`, `pressKey`, `typeText`, `modifiers`, `draw`, and `destroy`, and `service:inspect()` returns its registrations. A replacement sends keys through a virtual focus source and reports visibility changes through `options.onVisibilityChanged`. [Keyboard](../dev/lua-api.md#keyboard) and [Keyboard routing](../dev/input.md#keyboard-routing) specify the rules. `examples/keyboard/tiny.luau` implements the contract with one row of three keys.
+A plugin that provides `lunette/keyboard` at schema 3 can take the keyboard entry's place. `service:new(owner, options)` returns a keyboard, which is a surface with `setVisible`, `draw`, and `destroy`, and `service:inspect()` returns its registrations. A replacement sends the keys a pointer presses through a virtual focus source and reports visibility changes through `options.onVisibilityChanged`, the only option. [Keyboard](../dev/lua-api.md#keyboard) and [Keyboard routing](../dev/input.md#keyboard-routing) specify the rules. `examples/keyboard/tiny.luau` implements the contract with one row of three keys.
 
 The example acquires each board with `context:resource(owner, acquire)`. The acquisition returns the board and the function that releases it, and `context:resource` registers that release with the owner, so a keyboard ends with the plugin that asked for it. An acquisition that raises before it returns must release what it had already acquired.
 
@@ -315,7 +315,7 @@ patches = {
 },
 ```
 
-`options` is keyed by layout name, so a tag that selects `grid` with `tag:setLayout` receives the same options. `desktop/arrange` arranges again when a layout registers, and logs a warning after the first frame if its chosen layout is not registered.
+`options` is keyed by layout name. `desktop/arrange` arranges every tag with its one layout, and arranges again when a layout registers, and logs a warning after the first frame if its chosen layout is not registered.
 
 A layout registered with `continuous = true` is applied every frame. `examples/layout/follow.luau` keeps windows on an arc that turns to follow the head, reusing `@lunette-plugins/layout/arc/geometry`. To replace `arc`, disable the `layout/arc` entry and register another layout under that name.
 
@@ -359,7 +359,7 @@ A plugin that moves surfaces for a pointer, as a replacement interaction would, 
 
 Session controls are menu actions, because every session workflow is reachable with VR controllers. A plugin registers an action with `lunette/menu`, and the wrist menu draws it. `examples/desktop/hide-windows.luau` registers Hide windows, which hides every window and updates the action's `selected` state. `examples/desktop/save-menu.luau` registers Save arrangement and Restore arrangement. [Bindings, menu actions, and layouts](../dev/lua-api.md#bindings-menu-actions-and-layouts) specifies the broker.
 
-`panel:setHidden(context, { hidden = true })` hides a panel while the plugin holds the returned effect. A hidden panel is not drawn or pointed at and keeps its place. When several plugins hide or show one panel, the most recent override still held decides.
+`panel:setHidden(context, true)` hides a panel while the plugin holds the returned effect. A hidden panel is not drawn or pointed at and keeps its place. When several plugins hide or show one panel, the most recent override still held decides.
 
 A key binding is an optional chord registered with `lunette/bindings`, for input beyond the session controls. The bindings provider sees each key press before `desktop/input` delivers it to a window, so a bound key never reaches a window. The modifiers are `control`, `alt`, `logo`, and `shift`, and a chord matches only with exactly those held. Binding a chord that is already bound raises an error. The binding ends with the plugin.
 
@@ -373,7 +373,7 @@ settings = {
 },
 ```
 
-Other decorations are a plugin that does what `lua/lunette-plugins/desktop/decorations/init.luau` does. It creates a titlebar for each panel in `panels:all()` with `ui:newTitlebar(owner, name, target, options, visible?)` and destroys it from `panels:onRemoved`. Disabling `desktop/decorations` and inserting such a plugin replaces it. [Joined frame attachments](../dev/lua-api.md#joined-frame-attachments) specifies how a titlebar joins its target's outline.
+Other decorations are a plugin that does what `lua/lunette-plugins/desktop/decorations/init.luau` does. It creates a titlebar for each panel in `panels:all()` with `ui:newTitlebar(owner, { name, target, visible?, ...options })` and destroys it from `panels:onRemoved`. Disabling `desktop/decorations` and inserting such a plugin replaces it. [Joined frame attachments](../dev/lua-api.md#joined-frame-attachments) specifies how a titlebar joins its target's outline.
 
 ## Tags and workspaces
 
@@ -386,11 +386,11 @@ local web = tagService:hold(context, { name = 'web' })
 The tag lasts while any plugin holds it. A plugin moves a window that another plugin put in a tag by excluding it there and adding it elsewhere, and the window returns when the plugin deactivates:
 
 ```luau
-main:exclude(context, { panel = panel })
+main:exclude(context, panel)
 web:add(context, panel)
 ```
 
-`tags:onChanged(context, { run = function(change) end })` reports tags created and destroyed and changes to their selection, layout, and members; `change.kind` names the change and `change.tag` the tag. `web:setLayout(context, { layout = 'grid' })` makes `desktop/arrange` use that layout for the tag.
+`tags:onChanged(context, { run = function(change) end })` reports tags created and destroyed and changes to their selection and members; `change.kind` names the change and `change.tag` the tag. `web:setSelected(context, true)` returns an effect that selects the tag until it is disposed or the plugin deactivates.
 
 `desktop/workspaces` shows one workspace's windows at a time. The `workspaces` setting lists the workspaces, and with more than one the consumer registers a menu action for each. [Workspaces](desktop-configuration.md#workspaces) describes the setting. A workspace consumer of another kind listens to `onChanged` and hides panels with `setHidden` in the same way.
 
@@ -422,7 +422,7 @@ settings = {
 Plugins receive errors through the `lunette/errors` stream, which suppresses repeats. `desktop/errors` draws the latest report over the scene. `examples/desktop/notify-errors.luau` also sends each report as a desktop notification:
 
 ```luau
-stream:subscribe(context, {
+stream:onReport(context, {
   run = function(report: errors.Report)
     if failed then
       return
@@ -433,7 +433,7 @@ stream:subscribe(context, {
 })
 ```
 
-`errors:recent()` returns the retained reports, so a presenter that starts late can show them, and `errors:clear(context)` dismisses them for every presenter.
+`errors:recent()` returns the retained reports, so a presenter that starts late can show them.
 
 ## Saving the arrangement
 

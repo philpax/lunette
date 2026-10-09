@@ -510,12 +510,8 @@ local function build(context: plugin.Context, settings: Settings): Service
         { 'hovered and grabbed surface identities are not retained as inspection ids' }
       )
     end,
-    TUNING = TUNING,
     newPointer = function(_self: Service, owner: contracts.Owner, options: contracts.PointerOptions?): Pointer
       return newPointer(owner, options)
-    end,
-    pointers = function(_self: Service): { Pointer }
-      return table.clone(pointers)
     end,
   }
 end

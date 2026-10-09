@@ -7,6 +7,12 @@ local expect = testing.expect
 local test = testing.suite()
 local codes = keys.CODES
 
+-- Reads the caret and anchor through the visual a draw hook receives.
+local function selection(field)
+  local visual = field.snapshot()
+  return visual.caret, visual.anchor
+end
+
 local clusters = {
   'a',
   'é',
@@ -35,7 +41,10 @@ end)
 
 test('rejects malformed UTF-8 and unsupported single-line content atomically', function()
   local field = fixture.new { value = 'draft' }
-  field.field:setSelection(3, 2)
+  field.receiver.key(fixture.key(codes.home))
+  field.receiver.key(fixture.key(codes.right))
+  field.receiver.key(fixture.key(codes.right, { 'shift' }))
+  local changes = field.state.changes
   for _, invalid in
     {
       string.char(255),
@@ -49,14 +58,14 @@ test('rejects malformed UTF-8 and unsupported single-line content atomically', f
       field.receiver.text(invalid)
     end, 'text field:')
     expect.equal(field.field:value(), 'draft')
-    local caret, anchor = field.field:selection()
+    local caret, anchor = selection(field)
     expect.equal(caret, 3)
     expect.equal(anchor, 2)
     expect.raises(function()
       field.field:setValue(invalid)
     end, 'text field:')
   end
-  expect.equal(field.state.changes, 1, 'rejected edits do not publish changes')
+  expect.equal(field.state.changes, changes, 'rejected edits do not publish changes')
 end)
 
 test('routes evdev editing commands while printable activations never insert text', function()
@@ -69,7 +78,7 @@ test('routes evdev editing commands while printable activations never insert tex
   expect.equal(field.field:value(), '界')
   field.receiver.key(fixture.key(codes.home))
   field.receiver.key(fixture.key(codes.right, { 'shift' }, 'physical'))
-  local caret, anchor = field.field:selection()
+  local caret, anchor = selection(field)
   expect.equal(caret, #field.field:value() + 1)
   expect.equal(anchor, 1)
   field.receiver.key(fixture.key(codes.backspace))
@@ -114,18 +123,18 @@ test('primary pointer press chooses the nearest grapheme boundary and captured d
   expect.equal(field.state.focused, false, 'secondary input does not focus')
   field.widget.pointer(fixture.pointer(first, 'press', 25, 'left'))
   expect.equal(field.state.focused, true)
-  local caret, anchor = field.field:selection()
+  local caret, anchor = selection(field)
   expect.equal(caret, 2, 'one codepoint is ten logical units in the deterministic font')
   expect.equal(anchor, 2)
   field.widget.pointer(fixture.pointer(second, 'move', 50, 'left'))
-  expect.equal(field.field:selection(), 2, 'another pointer cannot extend this drag')
+  expect.equal((selection(field)), 2, 'another pointer cannot extend this drag')
   field.widget.pointer(fixture.pointer(first, 'move', 50, 'left'))
-  caret, anchor = field.field:selection()
+  caret, anchor = selection(field)
   expect.equal(caret, #field.field:value() + 1)
   expect.equal(anchor, 2)
   field.widget.pointer(fixture.pointer(first, 'release', 50, 'left'))
   field.widget.pointer(fixture.pointer(first, 'move', 0, 'left'))
-  expect.equal(field.field:selection(), #field.field:value() + 1, 'release ends the drag')
+  expect.equal((selection(field)), #field.field:value() + 1, 'release ends the drag')
 end)
 
 return test

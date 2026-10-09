@@ -1,4 +1,4 @@
--- Tags borrow panels. Membership, exclusion, selection, and layout changes last for the owning activation.
+-- Tags borrow panels. Membership, exclusion, and selection changes last for the owning activation.
 
 local plugin = require '@lunette-plugin'
 local vocabulary = require '@lunette-contracts/vocabulary'
@@ -10,41 +10,25 @@ export type Panel = vocabulary.Movable
 export type Hold = {
   read name: string,
   read index: number?,
-  read selected: boolean?,
-  read layout: string?,
 }
 
 export type Owner = plugin.Owner
-
-export type Selection = {
-  read selected: boolean,
-}
-
--- A nil layout explicitly clears the owner's layout override.
-export type LayoutChoice = {
-  read layout: string?,
-}
-
-export type Exclusion = {
-  read panel: Panel,
-}
 
 export type Tag = {
   read name: string,
   read index: number,
   read selected: boolean,
-  read layout: string?,
   read dead: boolean,
   read add: (Tag, Owner, Panel) -> boolean,
   read remove: (Tag, Owner, Panel) -> boolean,
-  read exclude: (Tag, Owner, Exclusion) -> plugin.Effect,
+  read exclude: (Tag, Owner, Panel) -> plugin.Effect,
   read has: (Tag, Panel) -> boolean,
   read panels: (Tag) -> { Panel },
-  read setSelected: (Tag, Owner, Selection) -> boolean,
-  read setLayout: (Tag, Owner, LayoutChoice) -> boolean,
+  -- The most recent live override decides selection. Disposing the effect ends this owner's override.
+  read setSelected: (Tag, Owner, boolean) -> plugin.Effect,
 }
 
-export type ChangeKind = 'created' | 'destroyed' | 'selection' | 'layout' | 'membership'
+export type ChangeKind = 'created' | 'destroyed' | 'selection' | 'membership'
 
 export type Change = {
   read tag: Tag,

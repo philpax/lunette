@@ -1,9 +1,9 @@
 -- Draws the header face and safe title above the target-owned joined outline.
-local ui = require '@lunette-contracts/ui'
 local rounded = require '@lunette-plugins/theme/rounded-geometry'
 local drawing = require '@lunette-plugins/theme/drawing'
 local passState = require '@lunette-plugins/pass-state'
 local draw = require './draw'
+local titlebarStyle = require './titlebar-style'
 local textFit = require './text-fit'
 local vocabulary = require '@lunette-contracts/vocabulary'
 
@@ -26,7 +26,7 @@ function titlebarDraw.render(
   cache: drawing.Cache,
   target: vocabulary.Surface,
   pose: Mat4,
-  style: ui.TitlebarStyle,
+  style: titlebarStyle.Style,
   title: string,
   reserved: number,
   highlighted: boolean,

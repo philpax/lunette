@@ -1,8 +1,8 @@
 -- The keyboard service contract. Key geometry is data here because a configuration writes rows for whichever
 -- provider serves it.
 
+local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
-local theme = require '@lunette-contracts/theme'
 local vocabulary = require '@lunette-contracts/vocabulary'
 
 local keyboard = {}
@@ -16,7 +16,7 @@ export type Action =
   { read kind: 'hide' }
   | { read kind: 'layer', read layer: string }
   | { read kind: 'text', read text: string }
-  | { read kind: 'chord', read code: number, read modifiers: { read [number]: string } }
+  | { read kind: 'chord', read code: number, read modifiers: { read [number]: lunette.ModifierName } }
   | { read kind: 'custom', read name: string }
 
 -- A key with neither `code` nor `action` is a spacer. Sizes and the `x` gap are in key units. `label` replaces the
@@ -34,52 +34,15 @@ export type Key = {
 -- one unit.
 export type KeyRow = { read [number]: Key }
 
-export type Style = {
-  read font: Font,
-  read backingRadius: number,
-  read keyRadius: number,
-  read keyUnit: number,
-  read gap: number,
-  read plateDepth: number,
-  read legendDepth: number,
-  read margin: number,
-  read plateColor: { read [number]: number },
-  read keyColor: { read [number]: number },
-  read heldColor: { read [number]: number },
-  read hoverColor: { read [number]: number },
-  read legendColor: { read [number]: number },
-  read legendHeight: number,
-}
-
--- Style options merge over the theme and provider. Radii are measured in metres.
-export type StyleOptions = {
-  read font: theme.FontSpec?,
-  read backingRadius: number?,
-  read keyRadius: number?,
-  read keyUnit: number?,
-  read gap: number?,
-  read plateDepth: number?,
-  read legendDepth: number?,
-  read margin: number?,
-  read plateColor: { read [number]: number }?,
-  read keyColor: { read [number]: number }?,
-  read heldColor: { read [number]: number }?,
-  read hoverColor: { read [number]: number }?,
-  read legendColor: { read [number]: number }?,
-  read legendHeight: number?,
-}
+export type VisibilityReason = 'show' | 'hide' | 'user-hide' | 'destroy'
 
 export type VisibilityChange = {
   read visible: boolean,
-  read reason: 'show' | 'hide' | 'user-hide' | 'destroy',
+  read reason: VisibilityReason,
 }
 
--- Rows, layers, and style override the provider's for this keyboard. Visibility callbacks belong to the owner.
+-- Visibility callbacks belong to the owner.
 export type Options = {
-  read rows: { read [number]: KeyRow }?,
-  read layers: { read [string]: { read [number]: KeyRow } }?,
-  read style: StyleOptions?,
-  read pose: Mat4?,
   read onVisibilityChanged: ((VisibilityChange) -> ())?,
 }
 
@@ -100,9 +63,6 @@ export type Keyboard = {
   read setPose: (Surface, Mat4) -> (),
   read setSize: (Surface, number?, number?) -> (),
   read setVisible: (Keyboard, boolean) -> (),
-  read pressKey: (Keyboard, number) -> boolean,
-  read typeText: (Keyboard, string) -> boolean,
-  read modifiers: (Keyboard) -> { string },
   read draw: (Keyboard, Pass) -> (),
   read destroy: (Keyboard) -> boolean,
 }

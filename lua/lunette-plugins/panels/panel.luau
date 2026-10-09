@@ -81,7 +81,7 @@ type PanelMethods = {
   read sink: (vocabulary.Surface) -> lunette.Sink?,
   read update: (Panel) -> (),
   read draw: (Panel, Pass) -> (),
-  read setHidden: (Panel, Owner, contracts.Visibility) -> plugin.Effect,
+  read setHidden: (Panel, Owner, boolean) -> plugin.Effect,
   read close: (Panel, Owner) -> boolean,
   read destroy: (Panel, Owner) -> boolean,
 }
@@ -89,8 +89,6 @@ export type Source =
   { read kind: 'window', read source: lunette.Window }
   | { read kind: 'monitor', read source: lunette.Monitor }
 export type State = PanelData & PanelMethods & Source
-
-local VISIBILITY_KEYS: { string } = { 'hidden' }
 
 local function checkCurve(curve: unknown, level: number): number
   if type(curve) ~= 'number' or curve ~= curve or curve < 0 or curve == math.huge then
@@ -190,12 +188,11 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
         render(nil)
       end
     end,
-    setHidden = function(_self: Panel, caller: Owner, visibility: contracts.Visibility): plugin.Effect
-      if type(visibility) ~= 'table' or type(visibility.hidden) ~= 'boolean' then
-        error('panels: setHidden takes { hidden = boolean }', 2)
+    setHidden = function(_self: Panel, caller: Owner, hidden: boolean): plugin.Effect
+      if type(hidden) ~= 'boolean' then
+        error('panels setHidden: hidden is a boolean, not a ' .. type(hidden), 2)
       end
-      plugin.rejectUnknownFields('panels setHidden', visibility, VISIBILITY_KEYS, 2)
-      return panel.setHidden(created, caller, visibility.hidden)
+      return panel.setHidden(created, caller, hidden)
     end,
     close = function(_self: Panel, caller: Owner): boolean
       if created.dead or created.source.dead then

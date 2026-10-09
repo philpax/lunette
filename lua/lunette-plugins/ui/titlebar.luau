@@ -157,7 +157,7 @@ function titlebar.new(
       local bounds = { x = x * 1000, y = 0, width = widths[index] * 1000, height = style.barHeight * 1000 }
       if not control then
         local id = action.id
-        local handle = panel:button(owner, {
+        local handle = panel:button {
           id = id,
           label = action.label,
           bounds = bounds,
@@ -172,7 +172,7 @@ function titlebar.new(
               end
             end
           end,
-        })
+        }
         local created: ActionControl =
           { handle = handle, label = action.label, bounds = bounds, enabled = action.enabled ~= false }
         control = created

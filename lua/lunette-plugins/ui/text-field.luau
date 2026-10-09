@@ -49,14 +49,6 @@ function textField.new(options: ui.TextFieldOptions, host: records.Host): record
     value = function(_self: ui.TextField): string
       return state.draft.value
     end,
-    setSelection = function(_self: ui.TextField, caret: number, anchor: number?): ()
-      if host.live() then
-        apply(state, edit.select(state.draft, caret, anchor), false)
-      end
-    end,
-    selection = function(_self: ui.TextField): (number, number)
-      return state.draft.caret, state.draft.anchor
-    end,
     setError = function(_self: ui.TextField, message: string?): ()
       if not host.live() then
         return

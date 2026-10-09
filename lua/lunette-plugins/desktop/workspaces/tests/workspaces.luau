@@ -47,7 +47,9 @@ local function start(config)
 end
 
 local function open(env, id)
-  return env.placement:place(env.owner, { window = env.native.newWindow(id), defaults = { tags = { 'main' } } })
+  local placed, effect =
+    env.placement:place(env.owner, { window = env.native.newWindow(id), defaults = { tags = { 'main' } } })
+  return placed.panel, effect
 end
 
 local function choose(env, name)
@@ -83,7 +85,7 @@ end)
 test('a panel another plugin hid stays hidden, and unloading shows only what the consumer hid', function()
   local env = start()
   local first, second = open(env, 1), open(env, 2)
-  local hiding = first:setHidden(env.owner, { hidden = true })
+  local hiding = first:setHidden(env.owner, true)
   choose(env, 'web')
   choose(env, 'main')
   expect.truthy(first.hidden, 'a panel another plugin hid')

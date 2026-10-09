@@ -1,8 +1,8 @@
 -- Matches owner-scoped key chords during the frame provider's binding phase.
+local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/bindings'
 local frame = require '@lunette-contracts/frame'
-local keys = require '@lunette-contracts/keys'
 local protected = require '@lunette-plugins/protected'
 local registry = require '@lunette-plugins/registry'
 local inspection = require '@lunette-contracts/inspection'
@@ -10,8 +10,12 @@ local inspection = require '@lunette-contracts/inspection'
 local BINDING_KEYS: { string } = { 'chord', 'run' }
 local CHORD_KEYS: { string } = { 'key', 'modifiers' }
 
+-- A chord names only the modifiers that make a command or change its level; locks and AltGr never take part.
+local MODIFIERS: { lunette.ModifierName } = { 'control', 'alt', 'logo', 'shift' }
+table.freeze(MODIFIERS)
+
 local KNOWN: { [string]: number } = {}
-for index, name in ipairs(contract.MODIFIERS) do
+for index, name in ipairs(MODIFIERS) do
   KNOWN[name] = index
 end
 
@@ -29,7 +33,7 @@ local function identity(key: string, modifiers: { read [number]: string }): stri
   return key .. '+' .. table.concat(sorted, '+')
 end
 
-local function checked(chord: unknown): (contract.Chord, string, { string })
+local function checked(chord: unknown): (contract.Chord, string, { lunette.ModifierName })
   plugin.rejectUnknownFields('bindings register', chord, CHORD_KEYS, 3)
   local raw = chord :: { [unknown]: unknown }
   local key = raw.key
@@ -40,21 +44,16 @@ local function checked(chord: unknown): (contract.Chord, string, { string })
   if given ~= nil and type(given) ~= 'table' then
     fail('chord.modifiers is a list of modifier names, not a ' .. type(given), 3)
   end
-  local modifiers: { string } = {}
+  local modifiers: { lunette.ModifierName } = {}
   local seen: { [string]: boolean } = {}
   for index, name in ipairs((given or {}) :: { unknown }) do
     if type(name) ~= 'string' or not KNOWN[name] then
       fail(
-        string.format(
-          'chord.modifiers[%d] is one of %s, not %s',
-          index,
-          table.concat(contract.MODIFIERS, ', '),
-          tostring(name)
-        ),
+        string.format('chord.modifiers[%d] is one of %s, not %s', index, table.concat(MODIFIERS, ', '), tostring(name)),
         3
       )
     end
-    local modifier = name :: string
+    local modifier = name :: lunette.ModifierName
     if seen[modifier] then
       fail('chord.modifiers names ' .. modifier .. ' twice', 3)
     end
@@ -116,10 +115,10 @@ local function create(context: plugin.Context): contract.Service
   local frameService: frame.Service = context:require(frame.capability)
   frameService:onKey(context, {
     phase = 'binding',
-    run = function(event: frame.KeyEvent): boolean?
+    run = function(event: frame.HostKeyEvent): boolean?
       return dispatch {
         key = event.key,
-        modifiers = keys.heldModifiers { isDown = lovr.system.isKeyDown, shift = true },
+        modifiers = event.modifiers,
         isRepeat = event.isRepeat,
       }
     end,

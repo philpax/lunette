@@ -43,7 +43,7 @@ test(
     local monitor = env.panels.service:fromMonitor(env.panels.context, env.native.newMonitor 'DP-1', {})
     monitor:setPose(lovr.math.newMat4(0, 1.5, -0.1))
     local hidden = windowAt(env, 4, env.secondary, 0.2)
-    hidden:setHidden(env.panels.context, { hidden = true })
+    hidden:setHidden(env.panels.context, true)
     env.session:update()
     expect.equal(env.primary.scale, 2, 'the output of the panel half a metre away')
     expect.equal(modesOf(env, env.secondary), 0, 'the changes to the output of the far and hidden panels')

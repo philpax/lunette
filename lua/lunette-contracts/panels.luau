@@ -3,7 +3,6 @@
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local vocabulary = require '@lunette-contracts/vocabulary'
-local theme = require '@lunette-contracts/theme'
 
 local panels = {}
 
@@ -20,23 +19,6 @@ export type Options = {
   read title: string?,
   read chrome: boolean?,
   read curve: number?,
-}
-
-export type Visibility = {
-  read hidden: boolean,
-}
-
-export type Style = {
-  read font: theme.FontSpec,
-  read windowRadius: number,
-  read monitorRadius: number,
-  read borderThickness: number,
-  read borderDepth: number,
-  read borderColor: { read [number]: number },
-  read borderHighlightColor: { read [number]: number },
-  read titleHeight: number,
-  read titleMargin: number,
-  read titleColor: { read [number]: number },
 }
 
 type PanelFields = {
@@ -58,7 +40,7 @@ type PanelFields = {
   read setSize: (Surface, number?, number?) -> (),
   read update: (Panel) -> (),
   read draw: (Panel, Pass) -> (),
-  read setHidden: (Panel, Owner, Visibility) -> plugin.Effect,
+  read setHidden: (Panel, Owner, boolean) -> plugin.Effect,
   -- Requests window closure or dismisses and removes a monitor panel; the caller must be live.
   read close: (Panel, Owner) -> boolean,
   read destroy: (Panel, Owner) -> boolean,
@@ -72,6 +54,10 @@ export type Panel =
 export type PanelCallback = (Panel) -> ()
 
 -- A removed listener can filter notifications by panel.
+export type AddedListener = {
+  read run: PanelCallback,
+}
+
 export type RemovedListener = {
   read panel: Panel?,
   read run: PanelCallback,
@@ -87,7 +73,7 @@ export type Service = {
   read forSource: (Service, Source) -> Panel?,
   read update: (Service) -> (),
   read draw: (Service, Pass) -> (),
-  read onAdded: (Service, Owner, PanelCallback) -> plugin.Effect,
+  read onAdded: (Service, Owner, AddedListener) -> plugin.Effect,
   read onRemoved: (Service, Owner, RemovedListener) -> plugin.Effect,
 }
 

@@ -4,6 +4,7 @@ local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/menu'
 local inspection = require '@lunette-contracts/inspection'
 local protected = require '@lunette-plugins/protected'
+local listeners = require '@lunette-plugins/listeners'
 local snapshot = require '@lunette-plugins/menu/snapshot'
 
 export type Config = {}
@@ -14,14 +15,20 @@ type Entry = {
   owner: contract.Owner,
   action: snapshot.Metadata,
   run: (() -> ())?,
-  token: contract.Registration,
+  token: contract.Token,
   enabled: boolean,
   selected: boolean,
 }
 
 local function create(context: plugin.Context): contract.Service
   local byId: { [string]: Entry } = {}
-  local byEffect: { [plugin.Effect]: Entry } = {}
+  local changed = listeners.new<<() -> ()>>(context)
+
+  local function announce(): ()
+    changed:each('menu onChanged', function(run: () -> ()): ()
+      run()
+    end)
+  end
 
   local function live(entry: Entry): boolean
     return context:active() and byId[entry.action.id] == entry and context:owns(entry.owner)
@@ -39,7 +46,7 @@ local function create(context: plugin.Context): contract.Service
           order = action.order,
           enabled = entry.enabled,
           selected = entry.selected,
-          registration = entry.token,
+          token = entry.token,
         }
       end
     end
@@ -56,7 +63,7 @@ local function create(context: plugin.Context): contract.Service
   end
 
   return {
-    register = function(_self: contract.Service, owner: contract.Owner, action: contract.Action): plugin.Effect
+    register = function(_self: contract.Service, owner: contract.Owner, action: contract.Action): contract.Registration
       if not context:active() then
         error('menu register: the provider is inactive', 2)
       end
@@ -67,11 +74,13 @@ local function create(context: plugin.Context): contract.Service
         owner = owner,
         action = captured,
         run = run,
-        token = table.freeze { kind = 'menu-registration' } :: contract.Registration,
+        token = table.freeze { kind = 'menu-token' } :: contract.Token,
         enabled = captured.enabled,
         selected = captured.selected,
       }
-      local effect: plugin.Effect? = nil
+      -- An owner fails ownership checks while the runtime releases one of its effects, so an explicit dispose announces
+      -- after the release returns.
+      local disposing = false
       local acquired = context:acquire(owner, function(): () -> ()
         if byId[id] then
           error('menu register: ' .. id .. ' is already registered', 0)
@@ -81,44 +90,50 @@ local function create(context: plugin.Context): contract.Service
           entry.run = nil
           if byId[id] == entry then
             byId[id] = nil
-          end
-          local owned = effect
-          if owned then
-            byEffect[owned] = nil
+            if not disposing then
+              announce()
+            end
           end
         end
       end)
-      effect = acquired
-      byEffect[acquired] = entry
-      return acquired
+      announce()
+      return table.freeze {
+        update = function(_registration: contract.Registration, state: contract.State): boolean
+          local captured = snapshot.state(state)
+          if not live(entry) then
+            return false
+          end
+          local enabled = if captured.enabled ~= nil then captured.enabled else entry.enabled
+          local selected = if captured.selected ~= nil then captured.selected else entry.selected
+          if enabled ~= entry.enabled or selected ~= entry.selected then
+            entry.enabled, entry.selected = enabled, selected
+            announce()
+          end
+          return true
+        end,
+        dispose = function(_registration: contract.Registration): ()
+          disposing = true
+          local disposed, failure = pcall(acquired.dispose, acquired)
+          disposing = false
+          announce()
+          if not disposed then
+            error(failure, 0)
+          end
+        end,
+      }
     end,
-    update = function(
-      _self: contract.Service,
-      owner: contract.Owner,
-      registration: plugin.Effect,
-      state: contract.State
-    ): boolean
-      local captured = snapshot.state(state)
-      local entry = byEffect[registration]
-      if not entry or entry.owner ~= owner or not live(entry) then
-        return false
+    onChanged = function(_self: contract.Service, owner: contract.Owner, listener: contract.Listener): plugin.Effect
+      context:checkOwner(owner)
+      plugin.rejectUnknownFields('menu onChanged', listener, { 'run' }, 2)
+      if type(listener.run) ~= 'function' then
+        error('menu onChanged: run is a function, not a ' .. type(listener.run), 2)
       end
-      if captured.enabled ~= nil then
-        entry.enabled = captured.enabled
-      end
-      if captured.selected ~= nil then
-        entry.selected = captured.selected
-      end
-      return true
+      return changed:add(owner, listener.run)
     end,
     list = function(_self: contract.Service): { read [number]: contract.Descriptor }
       return listed()
     end,
-    invoke = function(
-      _self: contract.Service,
-      id: string,
-      expectedRegistration: contract.Registration?
-    ): contract.Result
+    invoke = function(_self: contract.Service, id: string, expected: contract.Token?): contract.Result
       local checked = snapshot.id('invoke', id)
       local entry = byId[checked]
       local run = entry and entry.run
@@ -127,7 +142,7 @@ local function create(context: plugin.Context): contract.Service
         or not run
         or not live(entry)
         or not entry.enabled
-        or (expectedRegistration ~= nil and not rawequal(expectedRegistration, entry.token))
+        or (expected ~= nil and not rawequal(expected, entry.token))
       then
         return { kind = 'unavailable' }
       end
@@ -138,7 +153,7 @@ local function create(context: plugin.Context): contract.Service
       return { kind = 'invoked' }
     end,
     inspect = function(_self: contract.Service): inspection.Snapshot
-      local result: { inspection.Registration } = {}
+      local result = changed:inspect 'menu.onChanged'
       for _, row in ipairs(listed()) do
         local entry = byId[row.id]
         result[#result + 1] = inspection.registration('handler', 'menu.register', entry.owner, row.id, true, {

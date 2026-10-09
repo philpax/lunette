@@ -11,13 +11,6 @@ local config = require './config'
 
 export type Settings = config.Settings
 
-local function settingsFor(settings: Settings, options: keyboard.Options?): Settings
-  if not options or (options.rows == nil and options.layers == nil) then
-    return settings
-  end
-  return config.resolve({ rows = options.rows, layers = options.layers }, settings, 'keyboard')
-end
-
 local function build(context: plugin.Context, settings: Settings): keyboard.Service
   local focusService: focus.Service = context:require(focus.capability)
   local themeService: theme.Service = context:require(theme.capability)
@@ -38,7 +31,6 @@ local function build(context: plugin.Context, settings: Settings): keyboard.Serv
       return inspection.snapshot(result, nil, { 'keyboard legends require callbacks' })
     end,
     new = function(_self: keyboard.Service, owner: keyboard.Owner, options: keyboard.Options?): keyboard.Keyboard
-      local own = settingsFor(settings, options)
       local callback = options and options.onVisibilityChanged
       if callback ~= nil and type(callback) ~= 'function' then
         error('keyboard: onVisibilityChanged is a function', 2)
@@ -79,8 +71,7 @@ local function build(context: plugin.Context, settings: Settings): keyboard.Serv
             source:destroy()
           end)
           local created, destroyState, clearInput, refresh = create(
-            own,
-            options,
+            settings,
             source,
             themeService,
             active,
@@ -105,9 +96,11 @@ local function build(context: plugin.Context, settings: Settings): keyboard.Serv
           table.insert(disposers, function(): ()
             changed:dispose()
           end)
-          local themeChanged = themeService:onChanged(context, function(_snapshot: theme.Snapshot): ()
-            refresh()
-          end)
+          local themeChanged = themeService:onChanged(context, {
+            run = function(_snapshot: theme.Snapshot): ()
+              refresh()
+            end,
+          })
           table.insert(disposers, function(): ()
             themeChanged:dispose()
           end)

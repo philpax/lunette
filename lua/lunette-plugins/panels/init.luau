@@ -125,15 +125,16 @@ local function create(state: ProviderState, owner: Owner, source: panel.Source, 
   return target
 end
 
+local ADDED_KEYS: { string } = { 'run' }
 local LISTENER_KEYS: { string } = { 'panel', 'run' }
 
 -- Checks a listener table's shape. Each error names the caller of the
 -- service method, two frames up.
-local function checkListener(operation: string, listener: unknown): ()
+local function checkListener(operation: string, listener: unknown, keys: { string }): ()
   if type(listener) ~= 'table' then
     error(string.format('panels %s: a listener is a table of fields, not a %s', operation, type(listener)), 3)
   end
-  plugin.rejectUnknownFields('panels ' .. operation, listener, LISTENER_KEYS, 3)
+  plugin.rejectUnknownFields('panels ' .. operation, listener, keys, 3)
   local run = (listener :: { [string]: unknown }).run
   if type(run) ~= 'function' then
     error(string.format('panels %s: run is a function, not a %s', operation, type(run)), 3)
@@ -192,9 +193,11 @@ local function build(context: plugin.Context, settings: Settings): Service
     host = host,
   }
   state = created
-  broker:onChanged(context, function(_snapshot: theme.Snapshot): ()
-    currentPaint()
-  end)
+  broker:onChanged(context, {
+    run = function(_snapshot: theme.Snapshot): ()
+      currentPaint()
+    end,
+  })
   -- This effect runs last, while removal listeners still have live owners.
   context:effect(function()
     return function()
@@ -317,11 +320,12 @@ local function build(context: plugin.Context, settings: Settings): Service
         target:draw(pass)
       end
     end,
-    onAdded = function(_self: Service, owner: Owner, callback: contracts.PanelCallback): plugin.Effect
-      return state.added:add(owner, callback)
+    onAdded = function(_self: Service, owner: Owner, listener: contracts.AddedListener): plugin.Effect
+      checkListener('onAdded', listener, ADDED_KEYS)
+      return state.added:add(owner, listener.run)
     end,
     onRemoved = function(_self: Service, owner: Owner, listener: contracts.RemovedListener): plugin.Effect
-      checkListener('onRemoved', listener)
+      checkListener('onRemoved', listener, LISTENER_KEYS)
       local target = listener.panel
       local details = if target then { sourceId = target.source.id, sourceKind = target.kind } else {}
       return state.removed:add(owner, { panel = target, callback = listener.run }, details)

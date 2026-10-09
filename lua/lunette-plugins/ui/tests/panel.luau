@@ -93,14 +93,15 @@ test('owner teardown invalidates its controls without calling it back', function
     name = 'testing/capture-owner',
     requires = { ui.capability },
     init = function(context)
-      control = state.panel:region(context, {
+      control = state.panel:region {
+        owner = context,
         id = 'owned',
         bounds = { x = 10, y = 260, width = 370, height = 30 },
         z = 1,
         onPointer = function(event)
           state.events[#state.events + 1] = { kind = event.kind }
         end,
-      })
+      }
     end,
   })
   fixture.press(state, 'owned')
@@ -160,7 +161,7 @@ test('painting and pointer picking share overlap order', function()
     local state = fixture.boot()
     local painted, activated = {}, {}
     for index, id in { 'first', 'second' } do
-      state.panel:button(state.owner, {
+      state.panel:button {
         id = id,
         bounds = { x = 300, y = 10, width = 40, height = 30 },
         z = if equalZ then 2 elseif index == 1 then 10 else -1,
@@ -171,7 +172,7 @@ test('painting and pointer picking share overlap order', function()
           painted[#painted + 1] = visual.id
           base(pass, visual)
         end,
-      })
+      }
     end
     state.panel:draw(state.fixture.native.events.pass)
     local top = if equalZ then 'second' else 'first'

@@ -9,11 +9,14 @@ local focus = {}
 
 export type Owner = plugin.Owner
 
+-- A virtual source may translate a key to text; a physical source never does.
+export type SourceMode = 'virtual' | 'physical'
+
 -- Keys are evdev activations, not held-key streams. Committed UTF-8 text is a separate operation.
 export type KeyEvent = {
   read code: number,
-  read modifiers: { read [number]: string },
-  read source: 'virtual' | 'physical',
+  read modifiers: { read [number]: lunette.ModifierName },
+  read source: SourceMode,
   read isRepeat: boolean,
 }
 
@@ -47,7 +50,7 @@ export type Listener = { read run: (Change) -> () }
 
 export type Activation = {
   read code: number,
-  read modifiers: { read [number]: string }?,
+  read modifiers: { read [number]: lunette.ModifierName }?,
   read isRepeat: boolean?,
   read batch: number?,
   read physicalModifiers: keys.PhysicalModifiers?,
@@ -60,7 +63,7 @@ export type Result =
   | { read kind: 'refused', read message: string }
 
 export type SourceOptions = {
-  read mode: ('virtual' | 'physical')?,
+  read mode: SourceMode?,
 }
 
 export type Source = {
@@ -77,7 +80,6 @@ export type Service = {
   read inspect: (Service) -> inspection.Snapshot,
   read register: (Service, Owner, Target) -> TargetHandle,
   read focused: (Service) -> TargetHandle?,
-  read revision: (Service) -> number,
   read onChanged: (Service, Owner, Listener) -> plugin.Effect,
   read newSource: (Service, Owner, SourceOptions?) -> Source,
 }

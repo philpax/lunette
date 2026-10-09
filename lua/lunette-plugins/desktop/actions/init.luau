@@ -29,7 +29,7 @@ local keyboard = plugin.consumer<<Config, Settings>>({
     displayService:onChanged(context, {
       run = function(change: display.Change): ()
         if context:active() then
-          menuService:update(context, toggle, { selected = change.visible })
+          toggle:update { selected = change.visible }
         end
       end,
     })

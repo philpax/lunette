@@ -33,7 +33,7 @@ return plugin.provider<<Config, Settings, keyboard.Service>>({
       new = function(_self: keyboard.Service, owner: keyboard.Owner, options: keyboard.Options?): keyboard.Keyboard
         local callback = options and options.onVisibilityChanged
         local label = 'tiny-keyboard visibility (' .. plugin.ownerLabel(owner) .. ')'
-        local function notify(visible: boolean, reason: 'show' | 'hide' | 'destroy'): ()
+        local function notify(visible: boolean, reason: keyboard.VisibilityReason): ()
           local run = callback
           if run then
             protected.call(label, function(): ()
@@ -45,7 +45,7 @@ return plugin.provider<<Config, Settings, keyboard.Service>>({
           kind = nil,
           dead = false,
           grabbable = true,
-          pose = lovr.math.newMat4(options and options.pose or lovr.math.mat4()),
+          pose = lovr.math.newMat4(),
           width = KEY * #CODES,
           height = KEY,
           visible = true,
@@ -103,15 +103,6 @@ return plugin.provider<<Config, Settings, keyboard.Service>>({
               source:reset()
             end
             notify(visible, if visible then 'show' else 'hide')
-          end,
-          pressKey = function(_self: keyboard.Keyboard, code: number): boolean
-            return not state.dead and source:key({ code = code, modifiers = {}, isRepeat = false }).kind == 'consumed'
-          end,
-          typeText = function(_self: keyboard.Keyboard, text: string): boolean
-            return not state.dead and source:text(text).kind == 'consumed'
-          end,
-          modifiers = function(_self: keyboard.Keyboard): { string }
-            return {}
           end,
           draw = function(_self: keyboard.Keyboard, pass: Pass)
             if state.dead or not state.visible then

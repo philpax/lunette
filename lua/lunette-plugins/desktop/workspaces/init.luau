@@ -28,7 +28,7 @@ local function actions(settings: Settings, held: { tags.Tag }, switch: (number) 
     init = function(context: plugin.Context, _settings: ChildSettings): ()
       local service: menu.Service = context:require(menu.capability)
       local tagService: tags.Service = context:require(tags.capability)
-      local registrations: { [tags.Tag]: plugin.Effect } = {}
+      local registrations: { [tags.Tag]: menu.Registration } = {}
       for index, workspace in settings.workspaces do
         local tag = held[index]
         registrations[tag] = service:register(context, {
@@ -46,9 +46,9 @@ local function actions(settings: Settings, held: { tags.Tag }, switch: (number) 
       end
       tagService:onChanged(context, {
         run = function(change: tags.Change): ()
-          local effect = registrations[change.tag]
-          if context:active() and effect and change.kind == 'selection' then
-            service:update(context, effect, { selected = change.tag.selected })
+          local registration = registrations[change.tag]
+          if context:active() and registration and change.kind == 'selection' then
+            registration:update { selected = change.tag.selected }
           end
         end,
       })
@@ -96,7 +96,7 @@ return plugin.consumer<<Config, Settings>>({
         if hide and not hiding[panel] and not panel.dead then
           -- The tags contract exposes members as surfaces.
           local real = (panel :: any) :: panels.Panel
-          hiding[panel] = real:setHidden(context, { hidden = true })
+          hiding[panel] = real:setHidden(context, true)
         end
       end
     end
@@ -114,7 +114,7 @@ return plugin.consumer<<Config, Settings>>({
       end
       current = index
       for position, tag in ipairs(held) do
-        tag:setSelected(context, { selected = position == index })
+        tag:setSelected(context, position == index)
       end
       refresh()
     end
@@ -162,7 +162,7 @@ return plugin.consumer<<Config, Settings>>({
           end
           for _, tag in ipairs(held) do
             if tag:has(panel) then
-              tag:exclude(context, { panel = panel })
+              tag:exclude(context, panel)
             end
           end
           shown:add(context, panel)

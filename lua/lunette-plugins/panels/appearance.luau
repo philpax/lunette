@@ -1,21 +1,34 @@
 -- Resolves panel paint; the public style names the font by specification.
 
-local contracts = require '@lunette-contracts/panels'
 local theme = require '@lunette-contracts/theme'
 local descriptors = require '@lunette-plugins/theme/descriptors'
 local config = require './config'
 
 local appearance = {}
 
+-- The resolved paint of every panel: chrome radii, the border, and the title.
+export type Style = {
+  read font: theme.FontSpec,
+  read windowRadius: number,
+  read monitorRadius: number,
+  read borderThickness: number,
+  read borderDepth: number,
+  read borderColor: { read [number]: number },
+  read borderHighlightColor: { read [number]: number },
+  read titleHeight: number,
+  read titleMargin: number,
+  read titleColor: { read [number]: number },
+}
+
 export type Paint = {
   read revision: number,
-  read style: contracts.Style,
+  read style: Style,
   read font: Font,
 }
 
 function appearance.prepare(broker: theme.Service, settings: config.Settings, snapshot: theme.Snapshot): Paint
   local global, explicit = snapshot.theme, settings.style
-  local style: contracts.Style = table.freeze {
+  local style: Style = table.freeze {
     font = if explicit.font
       then descriptors.projectFont(explicit.font, 'panels style font')
       else global.typography.font,

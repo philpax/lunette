@@ -43,15 +43,19 @@ return plugin.consumer<<Config, Settings>>({
         if bar then
           bar:update(options)
         else
-          entries[panel] = widgets:newTitlebar(
-            context,
-            'desktop/decorations/' .. panel.kind .. '/' .. panel.source.id,
-            panel,
-            options,
-            function(): boolean
+          entries[panel] = widgets:newTitlebar(context, {
+            name = 'desktop/decorations/' .. panel.kind .. '/' .. panel.source.id,
+            target = panel,
+            visible = function(): boolean
               return not panel.hidden and not panel.chrome
-            end
-          )
+            end,
+            title = options.title,
+            onClose = options.onClose,
+            closeId = options.closeId,
+            actions = options.actions,
+            style = options.style,
+            draggable = options.draggable,
+          })
         end
       end
       for panel, bar in entries do

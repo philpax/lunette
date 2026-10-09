@@ -4,6 +4,22 @@ local ui = require '@lunette-contracts/ui'
 local theme = require '@lunette-contracts/theme'
 local descriptors = require '@lunette-plugins/theme/descriptors'
 local styles = {}
+
+-- A titlebar style resolved for drawing.
+export type Style = {
+  read font: Font,
+  read cornerRadius: number,
+  read barHeight: number,
+  read margin: number,
+  read barColor: ui.Color,
+  read barHighlightColor: ui.Color,
+  read borderThickness: number,
+  read borderDepth: number,
+  read borderColor: ui.Color,
+  read borderHighlightColor: ui.Color,
+  read titleHeight: number,
+  read titleColor: ui.Color,
+}
 local positive = schema.number { positive = true }
 local nonnegative = schema.number { minimum = 0 }
 local function fields(font)
@@ -70,10 +86,10 @@ function styles.global(value: theme.Theme): ui.TitlebarStyleOverrides
   })
 end
 
-function styles.materialize(spec: ui.TitlebarStyleOverrides, font: Font): ui.TitlebarStyle
+function styles.materialize(spec: ui.TitlebarStyleOverrides, font: Font): Style
   local result = table.clone(styles.inherit(styles.DEFAULT, spec)) :: { [string]: unknown }
   result.font = font
-  return table.freeze(result) :: ui.TitlebarStyle
+  return table.freeze(result) :: Style
 end
 
 return styles

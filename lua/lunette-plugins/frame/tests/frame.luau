@@ -140,7 +140,9 @@ test('batch observers run first, and a consumed binding key or blockText blocks 
   expect.equal(table.concat(trace, ' '), 'batch key key blocked', 'the observer runs before the binding')
   expect.equal(batches[2].id, batches[1].id, 'blocking text does not advance the batch')
   expect.equal(events[2].batch, batches[1].id, 'events carry their batch')
-  expect.truthy(events[1].modifiers.shift, 'the key carries its modifiers')
+  expect.equal(events[1].code, 30, 'the key carries its evdev code')
+  expect.equal(table.concat(events[1].modifiers, ','), 'shift,numLock', 'the key carries the host modifiers')
+  expect.truthy(events[1].physicalModifiers.numLock, 'the key carries the host snapshot')
 
   env.session:update()
   expect.equal(batches[3].id, batches[1].id + 1, 'the update advances the batch')

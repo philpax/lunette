@@ -89,9 +89,11 @@ function state.new(file: string): State
         end,
       })
       restore(context, panels, tags)
-      panels:onAdded(context, function(target: panelsContract.Panel)
-        capture.arrived(held, context, panels, tags, arrangement, target)
-      end)
+      panels:onAdded(context, {
+        run = function(target: panelsContract.Panel)
+          capture.arrived(held, context, panels, tags, arrangement, target)
+        end,
+      })
       return {
         save = function(_service: arrangementContract.Service): (boolean, string?)
           if not context:active() then

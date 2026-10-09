@@ -1,4 +1,4 @@
--- Covers lua/lunette-contracts/keys.luau: the policy it adds agrees with the runtime's names and codes.
+-- Covers lua/lunette-contracts/keys.luau: the vocabulary agrees with the runtime's names and codes.
 
 local testing = require '@testing'
 local expect = testing.expect
@@ -7,10 +7,6 @@ local lunette = require '@lunette'
 local keys = require '@lunette-contracts/keys'
 
 local test = testing.suite()
-
-local function isModifierName(name)
-  return table.find(keys.MODIFIER_ORDER, name) ~= nil
-end
 
 test('the codes are the runtime codes', function()
   local fresh = lunette.keyCodes()
@@ -22,102 +18,21 @@ test('the codes are the runtime codes', function()
   expect.truthy(count > 0, 'the runtime names keys')
 end)
 
-test('every modifier key and every LÖVR translation is a named key', function()
+test('every modifier key is a named key holding a runtime modifier', function()
   local named = {}
   for _, code in pairs(keys.CODES) do
     named[code] = true
   end
   for code, name in pairs(keys.MODIFIER_KEYS) do
     expect.truthy(named[code], 'keycode ' .. code .. ' is a named key')
-    expect.truthy(isModifierName(name), 'keycode ' .. code .. " names '" .. name .. "'")
-  end
-  for name, code in pairs(keys.FROM_LOVR) do
-    expect.truthy(named[code], "LÖVR's '" .. name .. "' is a named key")
+    expect.truthy(table.find(lunette.modifierNames(), name), 'keycode ' .. code .. " names '" .. name .. "'")
   end
 end)
 
-test('LÖVR keys translate to evdev codes, and the native policy classifies them', function()
-  expect.equal(keys.FROM_LOVR.a, 30, 'A is not a platform scancode')
-  expect.equal(keys.FROM_LOVR.kpenter, 96, 'keypad Enter is distinct from Enter')
-  expect.equal(keys.FROM_LOVR.ralt, 100, 'right Alt is distinct from left Alt')
-  expect.equal(keys.physicalNativePolicy(keys.CODES.a, {}), 'text', 'letter input waits for committed native text')
-  expect.equal(keys.physicalNativePolicy(keys.CODES.enter, {}), 'activation', 'Enter is a control activation')
-end)
-
-test('physical modifiers include Shift and distinguish right Alt from command Alt', function()
-  local held = { lshift = true, ralt = true }
-  local function query(name)
-    return held[name] == true
-  end
-  expect.equal(table.concat(keys.heldModifiers { isDown = query, shift = true }, ','), 'mod5,shift', 'AltGr and Shift')
-  held.lalt = true
-  expect.equal(
-    table.concat(keys.heldModifiers { isDown = query, shift = true }, ','),
-    'alt,mod5,shift',
-    'both Alt keys'
-  )
-end)
-
-local function snapshot(fields)
-  local value = { shift = false, control = false, alt = false, super = false, capsLock = false, numLock = false }
-  for name, enabled in fields or {} do
-    value[name] = enabled
-  end
-  return value
-end
-
-test('physical snapshots accept a closed plain table of six booleans and reject anything else', function()
-  local copied = keys.snapshotPhysicalModifiers(snapshot { numLock = true })
-  expect.truthy(copied.numLock, 'the snapshot keeps the flag')
-  expect.equal(keys.validatePhysicalModifiers(copied), nil, 'the snapshot remains valid')
-  local invalid = snapshot { rightAlt = true }
-  expect.truthy(keys.validatePhysicalModifiers(invalid), 'an unknown flag is rejected')
-  expect.falsy(pcall(keys.snapshotPhysicalModifiers, invalid), 'invalid flags cannot become a snapshot')
-end)
-
-test('PC keypad policy covers every digit and decimal for the complete NumLock and Shift matrix', function()
-  local cases = {
-    { numLock = false, shift = false, expected = 'activation' },
-    { numLock = false, shift = true, expected = 'activation' },
-    { numLock = true, shift = false, expected = 'text' },
-    { numLock = true, shift = true, expected = 'activation' },
-  }
-  for _, name in { 'kp1', 'kp.' } do
-    local code = keys.FROM_LOVR[name]
-    expect.equal(keys.physicalNativePolicy(code, {}, nil), 'unavailable', name .. ' needs host flags')
-    for _, case in cases do
-      local flags = snapshot { numLock = case.numLock, shift = case.shift }
-      expect.equal(keys.physicalNativePolicy(code, {}, flags), case.expected, name .. ' PC mode')
-      expect.equal(keys.physicalNativePolicy(code, { 'control' }, flags), 'activation', name .. ' command chord')
-    end
-  end
-  expect.equal(keys.physicalNativePolicy(keys.CODES.left, {}, nil), 'activation', 'ordinary navigation')
-  expect.equal(keys.physicalNativePolicy(keys.CODES.keypadPlus, {}, nil), 'text', 'keypad operator is printable')
-end)
-
-test('host flags replace later modifiers except for the existing sided Alt distinction', function()
-  local queried = {}
-  local function held(name)
-    queried[#queried + 1] = name
-    return name == 'ralt'
-  end
-  local names = keys.physicalModifierNames(snapshot { alt = true, shift = true, numLock = true }, held)
-  expect.equal(table.concat(names, ','), 'mod5,shift,numLock', 'right Alt remains level three')
-  for _, name in queried do
-    expect.truthy(name == 'ralt' or name == 'lalt', 'only sided Alt queries remain')
-  end
-  names = keys.physicalActivationModifiers(snapshot(), { 'control', 'shift', 'logo', 'capsLock', 'numLock' })
-  expect.equal(#names, 0, 'later flags cannot replace host-event flags')
-  names = keys.physicalActivationModifiers(snapshot { control = true, super = true, capsLock = true }, {})
-  expect.equal(table.concat(names, ','), 'control,logo,capsLock', 'event commands and locks')
-end)
-
-test('native modifier names keep their order and refuse a name outside the set', function()
-  local names = keys.nativeModifiers { 'control', 'logo' }
-  expect.equal(table.concat(names, ','), 'control,logo', 'the names')
-  expect.raises(function()
-    keys.nativeModifiers { 'super' }
-  end, "'super' is not a modifier", 'the host spelling')
+test('control, logo, and left Alt make a command chord, and Shift and AltGr do not', function()
+  expect.truthy(keys.commandChord { 'shift', 'logo' }, 'logo')
+  expect.truthy(keys.commandChord { 'alt' }, 'left Alt')
+  expect.falsy(keys.commandChord { 'shift', 'mod5', 'capsLock' }, 'level and lock modifiers')
 end)
 
 return test

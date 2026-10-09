@@ -41,7 +41,7 @@ Each section has the type of its entry's `Config`, so the checker rejects a valu
 | `pointing` | `desktop/pointing` | Laser options for both hands. |
 | `pacing` | `desktop/pacing` | Whether hidden monitors pause capture. |
 | `workspaces` | `desktop/workspaces` | The workspace list. |
-| `adoption` | `desktop/adoption` | The tags and filter for adopted windows. |
+| `adoption` | `desktop/adoption` | The tags and filter for adopted windows, and the precedence of the remembered pose. |
 | `manager` | `desktop/manager` | The [runtime manager](runtime-manager.md) panel. |
 
 A section merges into its entry's configuration through the entry's schema: declared objects merge field by field, and arrays, maps, unions, and scalar values replace. A setting and a patch cannot name the same entry; composition raises an error naming both. Replacing an entry's definition and configuring it therefore happens in one patch.
@@ -132,7 +132,7 @@ The laser provider smooths each controller's aim before picking and drawing, so 
 - `derivativeCutoff`, in hertz, smooths the speed estimate.
 - `resetAfter`, in seconds, is the frame gap that clears the filter, as tracking loss does.
 
-The `pointing` setting overrides these for both hands; a `laser` patch sets the provider defaults, and `laser:new` and `laser:attach` take per-laser overrides. This configuration disables smoothing:
+The `pointing` setting overrides these for both hands; a `laser` patch sets the provider defaults, and `laser:attach` takes overrides for the lasers it makes. This configuration disables smoothing:
 
 ```luau
 require('@lunette-desktop').run {

@@ -58,34 +58,30 @@ test('a layout that is not registered is logged once, and the consumer arranges 
   session:close()
 end)
 
-test('a window in several tags is arranged by the first selected tag, with the options of its layout', function()
+test('a window in several tags is arranged by the first selected tag, with the options of the layout', function()
   local session = testing.boot(desktop.compose {
     patches = {
       {
         id = 'desktop/rules',
         config = { rules = { { match = { appId = 'mail' }, properties = { tags = { 'main', 'mail' } } } } },
       },
-      { id = 'desktop/arrange', config = { options = { line = { spacing = 10 } } } },
+      { id = 'desktop/arrange', config = { layout = 'line', options = { line = { spacing = 10 } } } },
     },
   })
   local native = session.native
   local panels = session:observe(panelsContract.capability).service
   local tags = session:observe(tagsContract.capability)
   local layouts = session:observe(layoutsContract.capability)
-  -- Each layout places its panels `spacing` metres apart along x, by its options or 1.
-  for name, sign in { line = 1, reverse = -1 } do
-    layouts.service:register(layouts.context, {
-      name = name,
-      apply = function(members, options)
-        local spacing = if options then options.spacing else 1
-        for index, panel in ipairs(members) do
-          panel:setPose(lovr.math.newMat4():translate(sign * index * spacing, 0, 0))
-        end
-      end,
-    })
-  end
+  -- The layout places its panels `spacing` metres apart along x.
+  layouts.service:register(layouts.context, {
+    name = 'line',
+    apply = function(members, options)
+      for index, panel in ipairs(members) do
+        panel:setPose(lovr.math.newMat4():translate(index * options.spacing, 0, 0))
+      end
+    end,
+  })
   local main = assert(tags.service:find 'main')
-  main:setLayout(tags.context, { layout = 'line' })
   native.events.windows = { native.newWindow(83), native.newWindow(84, 'mail') }
   for _, window in native.events.windows do
     native.emit('onWindowOpened', { window = window })
@@ -95,13 +91,11 @@ test('a window in several tags is arranged by the first selected tag, with the o
   local function x()
     return (panel.pose:getPosition())
   end
-  expect.near(x(), 20, 1e-5, 'the selected tag arranges it, with its layout options')
-  mail:setLayout(tags.context, { layout = 'reverse' })
-  expect.near(x(), 20, 1e-5, 'an unselected tag does not take it from a selected one')
-  mail:setSelected(tags.context, { selected = true })
-  main:setSelected(tags.context, { selected = false })
-  expect.near(x(), -1, 1e-5, 'the other tag arranges it, with no options for its layout')
-  main:setSelected(tags.context, { selected = true })
+  expect.near(x(), 20, 1e-5, 'the selected tag arranges it, with the layout options')
+  mail:setSelected(tags.context, true)
+  main:setSelected(tags.context, false)
+  expect.near(x(), 10, 1e-5, 'the other tag arranges it')
+  main:setSelected(tags.context, true)
   expect.near(x(), 20, 1e-5, 'the first selected tag in order wins')
   session:close()
 end)

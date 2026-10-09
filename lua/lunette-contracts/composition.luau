@@ -1,8 +1,8 @@
 -- Session plugin entry management. Inspection freezes copied containers, but callback, vector, and opaque custom
 -- values keep their references.
 
-local adapter = require '@lunette-plugin/adapter'
 local lunette = require '@lunette'
+local plugin = require '@lunette-plugin'
 local schema = require '@lunette-plugin/schema'
 local composition = {}
 
@@ -38,9 +38,9 @@ export type Service = {
   read recover: (Service, string) -> (),
   read restore: (Service, string) -> (),
   read remove: (Service, string) -> (),
-  read ownerId: (Service, adapter.Owner) -> string?,
+  read ownerId: (Service, plugin.Owner) -> string?,
 }
 
-composition.capability = adapter.capability<<Service>> { name = 'lunette/composition', version = 1 }
+composition.capability = plugin.capability<<Service>> { name = 'lunette/composition', version = 1 }
 
 return composition

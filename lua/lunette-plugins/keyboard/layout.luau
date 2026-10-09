@@ -1,7 +1,6 @@
 -- Computes keyboard geometry and key legends.
 local lunette = require '@lunette'
 local keyboard = require '@lunette-contracts/keyboard'
-local keys = require '@lunette-contracts/keys'
 
 local layout = {}
 
@@ -14,7 +13,7 @@ export type RenderedKey = {
   read source: Key,
   read code: number?,
   read action: Action?,
-  read modifier: string?,
+  read modifier: lunette.ModifierName?,
   read legend: string,
   read x: number,
   read y: number,
@@ -24,7 +23,7 @@ export type RenderedKey = {
 
 export type Placement = {
   read keyUnit: number,
-  read modifierKeys: { read [number]: string },
+  read modifierKeys: { read [number]: lunette.ModifierName },
   read legendFor: (Key) -> string,
 }
 
@@ -97,7 +96,7 @@ function layout.keyAt(keys: { RenderedKey }, x: number, y: number): RenderedKey?
   return nil
 end
 
-function layout.legendFor(entry: Key, seat: lunette.Seat?, modifiers: { read [number]: string }): string
+function layout.legendFor(entry: Key, seat: lunette.Seat?, modifiers: { read [number]: lunette.ModifierName }): string
   if entry.label then
     return entry.label
   end
@@ -119,7 +118,7 @@ function layout.legendFor(entry: Key, seat: lunette.Seat?, modifiers: { read [nu
     return ''
   end
 
-  local held = keys.nativeModifiers(modifiers)
+  local held = table.clone(modifiers) :: { lunette.ModifierName }
   local text = seat:characterFor(code, held)
   if text and text ~= '' then
     return text

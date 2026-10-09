@@ -163,14 +163,16 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
       handle:setSelected(selected)
     end
   end
-  themes:onChanged(owner, function(snapshot: theme.Snapshot): ()
-    for id, kind in layers do
-      local record = retained[id]
-      if record and not record.handle.dead then
-        record.handle:setTheme(compact(snapshot.theme, kind))
+  themes:onChanged(owner, {
+    run = function(snapshot: theme.Snapshot): ()
+      for id, kind in layers do
+        local record = retained[id]
+        if record and not record.handle.dead then
+          record.handle:setTheme(compact(snapshot.theme, kind))
+        end
       end
-    end
-  end)
+    end,
+  })
   local function cancelGraph(): ()
     if graphPointer == nil then
       return
@@ -252,7 +254,7 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
     onChange: (string) -> ()
   ): ()
     local record = retain(id, 'list', label, bounds, true, function()
-      return panel:list(owner, {
+      return panel:list {
         id = id,
         label = label,
         bounds = bounds,
@@ -262,14 +264,14 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
           onChange(item)
           update()
         end,
-      })
+      }
     end)
     sync(record, items, selected)
   end
   local function field(id: string, label: string, bounds: ui.Bounds, value: string): ui.TextField
     local created = retained[id] == nil
     local record = retain(id, 'text-field', label, bounds, true, function()
-      return panel:textField(owner, {
+      return panel:textField {
         id = id,
         label = label,
         bounds = bounds,
@@ -305,7 +307,7 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
           end
           update()
         end,
-      })
+      }
     end)
     local handle = record.handle :: ui.TextField
     if handle:value() ~= value then
@@ -340,7 +342,7 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
         assert(fieldBounds, 'manager widgets: boolean needs declared bounds')
         local label = selected.label .. ': ' .. tostring(selected.value)
         retain('boolean-field', 'button', label, fieldBounds, true, function()
-          return panel:button(owner, {
+          return panel:button {
             id = 'boolean-field',
             label = label,
             bounds = fieldBounds,
@@ -350,7 +352,7 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
               controller.toggle(state)
               update()
             end,
-          })
+          }
         end)
       elseif selected.control == 'choice' and selected.choices then
         assert(fieldBounds, 'manager widgets: choice needs declared bounds')
@@ -364,7 +366,7 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
           end
         end
         local record = retain('choice-field', 'choice', selected.label, fieldBounds, true, function()
-          return panel:choice(owner, {
+          return panel:choice {
             id = 'choice-field',
             label = selected.label,
             bounds = fieldBounds,
@@ -379,7 +381,7 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
                 update()
               end
             end,
-          })
+          }
         end)
         sync(record, choices, selectedId)
       end
@@ -406,7 +408,7 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
     local projected = geometry.project(publishedView, graphBounds)
     local record = retain('graph', 'region', 'Plugin graph', graphBounds, true, function()
       graphItems = projected.items
-      return panel:region(owner, {
+      return panel:region {
         id = 'graph',
         label = 'Plugin graph',
         bounds = graphBounds,
@@ -419,7 +421,7 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
             draw.graph(pass, publishedView, visual.bounds, style, visual.clip)
           end)
         end,
-      })
+      }
     end)
     -- Replacing region items cancels its captures, so a captured pan keeps the published items.
     if graphPointer == nil and not equal(graphItems, projected.items) then
@@ -456,7 +458,7 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
   local function sidebarRegion(id: string, label: string, part: draw.SidebarPart, bounds: ui.Bounds, z: number): ()
     local interactive = part == 'details'
     retain(id, 'region', label, bounds, interactive, function()
-      return panel:region(owner, {
+      return panel:region {
         id = id,
         label = label,
         bounds = bounds,
@@ -468,7 +470,7 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
             draw.details(pass, controller.options(state), visual.clip, part, style)
           end)
         end,
-      })
+      }
     end)
   end
   update = function(): ()
@@ -493,7 +495,7 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
       for _, button in state.buttons do
         local id = button.id
         retain(id, 'button', button.label, button.bounds, button.enabled, function()
-          return panel:button(owner, {
+          return panel:button {
             id = id,
             label = button.label,
             bounds = button.bounds,
@@ -503,7 +505,7 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
             onActivate = function(): ()
               invoke(id)
             end,
-          })
+          }
         end)
       end
       if state.tab == 'catalog' then

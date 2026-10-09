@@ -40,7 +40,7 @@ end
 
 local function register(env, id, options)
   local action = { calls = 0 }
-  action.effect = env.menu:register(env.owner, {
+  action.registration = env.menu:register(env.owner, {
     id = id,
     label = options.label or id,
     group = 'Session',
@@ -60,7 +60,7 @@ end
 
 local function items(env)
   local result = {}
-  for _, control in env.ui:panels()[1]:describe().controls do
+  for _, control in vrUi.describe(env.ui, 'desktop/menu').controls do
     for _, item in control.items or {} do
       result[#result + 1] = item
     end
@@ -73,26 +73,24 @@ test(
   function()
     local env = boot()
     local draft = register(env, 'draft', { label = 'Draft', selected = true })
-    expect.equal(env.ui:panels()[1]:describe().width, 0.115, 'the menu starts as a wrist button')
+    expect.equal(vrUi.describe(env.ui, 'desktop/menu').width, 0.115, 'the menu starts as a wrist button')
     click(env, 'open')
-    expect.equal(env.ui:panels()[1]:describe().width, 0.32, 'the button opens the list')
+    expect.equal(vrUi.describe(env.ui, 'desktop/menu').width, 0.32, 'the button opens the list')
     expect.equal(items(env)[1].label, 'Session: Draft [selected]', 'a row names its group and state')
     click(env, 'actions', 'draft')
     click(env, 'actions', 'draft')
     expect.equal(draft.calls, 2, 'a row runs each time it is clicked')
 
     local later = register(env, 'later', { order = 20 })
-    env.menu:update(env.owner, draft.effect, { enabled = false })
-    env.running:step()
+    draft.registration:update { enabled = false }
     local rows = items(env)
     expect.equal(#rows, 2, 'a new action appears in the open list')
     expect.equal(rows[1].enabled, false, 'a disabled action is shown disabled')
-    later.effect:dispose()
-    env.running:step()
+    later.registration:dispose()
     expect.equal(#items(env), 1, 'a removed action leaves the list')
 
     click(env, 'close')
-    expect.equal(env.ui:panels()[1]:describe().width, 0.115, 'closing returns to the wrist button')
+    expect.equal(vrUi.describe(env.ui, 'desktop/menu').width, 0.115, 'closing returns to the wrist button')
     env.running:close()
   end
 )
@@ -102,10 +100,10 @@ test('losing the wrist hides the menu and closes the list', function()
   click(env, 'open')
   env.running:tracked(env.hand, false)
   env.running:step()
-  expect.equal(env.ui:panels()[1]:describe().visible, false, 'an untracked wrist hides the menu')
+  expect.equal(vrUi.describe(env.ui, 'desktop/menu').visible, false, 'an untracked wrist hides the menu')
   env.running:tracked(env.hand, true)
   env.running:step()
-  local description = env.ui:panels()[1]:describe()
+  local description = vrUi.describe(env.ui, 'desktop/menu')
   expect.truthy(description.visible, 'the tracked wrist shows it again')
   expect.equal(description.width, 0.115, 'the list does not reopen')
   env.running:close()
@@ -114,7 +112,7 @@ end)
 test('the configured hand, size, offset, and haptic strength apply', function()
   local offset = vector.pack(0.2, -0.3, 0.4)
   local env = boot { hand = 'right', size = 0.2, offset = offset, haptic = { strength = 0.4 } }
-  local description = env.ui:panels()[1]:describe()
+  local description = vrUi.describe(env.ui, 'desktop/menu')
   expect.equal(description.width, 0.2, 'the size')
   local expected = lovr.math.newMat4(env.running.native.events.controllers.right.pose)
   expected:translate(offset):rotate(math.pi, -0.7071066, 0.0007963618, 0.7071066)

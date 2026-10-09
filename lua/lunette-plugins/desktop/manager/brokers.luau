@@ -3,22 +3,26 @@
 local plugin = require '@lunette-plugin'
 local inspection = require '@lunette-contracts/inspection'
 local details = require './details'
-local frame = require '@lunette-contracts/frame'
-local surfaces = require '@lunette-contracts/surfaces'
-local bindings = require '@lunette-contracts/bindings'
-local panels = require '@lunette-contracts/panels'
-local focus = require '@lunette-contracts/focus'
-local drops = require '@lunette-contracts/drops'
-local tags = require '@lunette-contracts/tags'
-local rules = require '@lunette-contracts/rules'
-local placement = require '@lunette-contracts/placement'
-local layouts = require '@lunette-contracts/layouts'
 local adoption = require '@lunette-contracts/adoption'
+local bindings = require '@lunette-contracts/bindings'
+local display = require '@lunette-contracts/keyboard-display'
+local drops = require '@lunette-contracts/drops'
+local errors = require '@lunette-contracts/errors'
+local focus = require '@lunette-contracts/focus'
+local frame = require '@lunette-contracts/frame'
+local interaction = require '@lunette-contracts/interaction'
 local keyboard = require '@lunette-contracts/keyboard'
 local laser = require '@lunette-contracts/laser'
-local interaction = require '@lunette-contracts/interaction'
-local errors = require '@lunette-contracts/errors'
+local layouts = require '@lunette-contracts/layouts'
 local menu = require '@lunette-contracts/menu'
+local panels = require '@lunette-contracts/panels'
+local placement = require '@lunette-contracts/placement'
+local rules = require '@lunette-contracts/rules'
+local surfaces = require '@lunette-contracts/surfaces'
+local tags = require '@lunette-contracts/tags'
+local theme = require '@lunette-contracts/theme'
+local themes = require '@lunette-contracts/themes'
+local ui = require '@lunette-contracts/ui'
 
 local brokers = {}
 
@@ -29,17 +33,18 @@ export type Reader = {
 
 function brokers.watch(context: plugin.Context): { Reader }
   local readers: { Reader } = {}
-  local function add<T>(name: string, capability: plugin.Capability<T>, inspect: (T) -> inspection.Snapshot): ()
+  local function add<T>(name: string, capability: plugin.Capability<T>): ()
     local reader: Reader = { name = name, inspect = nil }
     readers[#readers + 1] = reader
     local child = plugin.consumer<<{}, {}>> {
       name = 'desktop/manager/inspect/' .. name,
       requires = { capability },
       init = function(childContext: plugin.Context, _settings: {}): ()
-        local service = childContext:require(capability)
+        -- Every listed service declares `inspect`; the cast lets one list hold services of different types.
+        local service = (childContext:require(capability) :: any) :: inspection.Inspectable
         childContext:effect(function(): () -> ()
           reader.inspect = function(): inspection.Snapshot
-            return inspect(service)
+            return service:inspect()
           end
           return function(): ()
             reader.inspect = nil
@@ -49,54 +54,26 @@ function brokers.watch(context: plugin.Context): { Reader }
     }
     context:child(child.definition)
   end
-  add('frame', frame.capability, function(service: frame.Service): inspection.Snapshot
-    return service:inspect()
-  end)
-  add('surfaces', surfaces.capability, function(service: surfaces.Service): inspection.Snapshot
-    return service:inspect()
-  end)
-  add('bindings', bindings.capability, function(service: bindings.Service): inspection.Snapshot
-    return service:inspect()
-  end)
-  add('panels', panels.capability, function(service: panels.Service): inspection.Snapshot
-    return service:inspect()
-  end)
-  add('focus', focus.capability, function(service: focus.Service): inspection.Snapshot
-    return service:inspect()
-  end)
-  add('drops', drops.capability, function(service: drops.Service): inspection.Snapshot
-    return service:inspect()
-  end)
-  add('tags', tags.capability, function(service: tags.Service): inspection.Snapshot
-    return service:inspect()
-  end)
-  add('rules', rules.capability, function(service: rules.Service): inspection.Snapshot
-    return service:inspect()
-  end)
-  add('placement', placement.capability, function(service: placement.Service): inspection.Snapshot
-    return service:inspect()
-  end)
-  add('layouts', layouts.capability, function(service: layouts.Service): inspection.Snapshot
-    return service:inspect()
-  end)
-  add('adoption', adoption.capability, function(service: adoption.Service): inspection.Snapshot
-    return service:inspect()
-  end)
-  add('keyboard', keyboard.capability, function(service: keyboard.Service): inspection.Snapshot
-    return service:inspect()
-  end)
-  add('laser', laser.capability, function(service: laser.Service): inspection.Snapshot
-    return service:inspect()
-  end)
-  add('interaction', interaction.capability, function(service: interaction.Service): inspection.Snapshot
-    return service:inspect()
-  end)
-  add('errors', errors.capability, function(service: errors.Service): inspection.Snapshot
-    return service:inspect()
-  end)
-  add('menu', menu.capability, function(service: menu.Service): inspection.Snapshot
-    return service:inspect()
-  end)
+  add('frame', frame.capability)
+  add('surfaces', surfaces.capability)
+  add('bindings', bindings.capability)
+  add('panels', panels.capability)
+  add('focus', focus.capability)
+  add('drops', drops.capability)
+  add('tags', tags.capability)
+  add('rules', rules.capability)
+  add('placement', placement.capability)
+  add('layouts', layouts.capability)
+  add('adoption', adoption.capability)
+  add('keyboard', keyboard.capability)
+  add('keyboard-display', display.capability)
+  add('laser', laser.capability)
+  add('interaction', interaction.capability)
+  add('errors', errors.capability)
+  add('menu', menu.capability)
+  add('theme', theme.capability)
+  add('themes', themes.capability)
+  add('ui', ui.capability)
   return readers
 end
 

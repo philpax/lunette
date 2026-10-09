@@ -18,8 +18,8 @@ local function start()
 end
 
 local function hide(env, hidden)
-  env.windowPanel:setHidden(env.panels.context, { hidden = hidden })
-  env.monitorPanel:setHidden(env.panels.context, { hidden = hidden })
+  env.windowPanel:setHidden(env.panels.context, hidden)
+  env.monitorPanel:setHidden(env.panels.context, hidden)
   env.session:update()
 end
 

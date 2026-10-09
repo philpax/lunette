@@ -19,14 +19,12 @@ type Mutable = {
   index: number,
   dead: boolean,
   selected: boolean,
-  layout: string?,
   add: (tags.Tag, Owner, Panel) -> boolean,
   remove: (tags.Tag, Owner, Panel) -> boolean,
-  exclude: (tags.Tag, Owner, tags.Exclusion) -> plugin.Effect,
+  exclude: (tags.Tag, Owner, Panel) -> plugin.Effect,
   has: (tags.Tag, Panel) -> boolean,
   panels: (tags.Tag) -> { Panel },
-  setSelected: (tags.Tag, Owner, tags.Selection) -> boolean,
-  setLayout: (tags.Tag, Owner, tags.LayoutChoice) -> boolean,
+  setSelected: (tags.Tag, Owner, boolean) -> plugin.Effect,
 }
 
 -- A tag ends when its last holder releases it.
@@ -38,9 +36,7 @@ type Record = {
 }
 
 local LISTENER_KEYS: { string } = { 'tag', 'run' }
-local HOLD_KEYS: { string } = { 'name', 'index', 'selected', 'layout' }
-local EXCLUSION_KEYS: { string } = { 'panel' }
-local LAYOUT_KEYS: { string } = { 'layout' }
+local HOLD_KEYS: { string } = { 'name', 'index' }
 
 -- Attempts every effect disposal, then raises the first failure.
 local function disposeAll(effects: { plugin.Effect }): ()
@@ -151,8 +147,7 @@ local function create(context: plugin.Context): tags.Service
     end
 
     local selection: overrides.Stack<boolean>
-    local layout: overrides.Stack<string?>
-    selection = overrides.new(context, settings.selected == true, function(): ()
+    selection = overrides.new(context, false, function(): ()
       if created.dead then
         return
       end
@@ -160,16 +155,6 @@ local function create(context: plugin.Context): tags.Service
       if created.selected ~= value then
         created.selected = value
         notify(created, 'selection')
-      end
-    end)
-    layout = overrides.new(context, settings.layout, function(): ()
-      if created.dead then
-        return
-      end
-      local value: string? = layout:value()
-      if created.layout ~= value then
-        created.layout = value
-        notify(created, 'layout')
       end
     end)
 
@@ -190,9 +175,6 @@ local function create(context: plugin.Context): tags.Service
         end
       end
       for _, effect in ipairs(selection:clear()) do
-        ended[#ended + 1] = effect
-      end
-      for _, effect in ipairs(layout:clear()) do
         ended[#ended + 1] = effect
       end
       for _, effect in pairs(record.holders) do
@@ -216,8 +198,7 @@ local function create(context: plugin.Context): tags.Service
     created = {
       name = name,
       index = settings.index or (count + 1),
-      selected = settings.selected == true,
-      layout = settings.layout,
+      selected = false,
       dead = false,
       add = function(_self: tags.Tag, caller: Owner, panel: Panel): boolean
         context:checkOwner(caller)
@@ -266,10 +247,8 @@ local function create(context: plugin.Context): tags.Service
         mine:dispose()
         return true
       end,
-      exclude = function(_self: tags.Tag, caller: Owner, exclusion: tags.Exclusion): plugin.Effect
+      exclude = function(_self: tags.Tag, caller: Owner, panel: Panel): plugin.Effect
         context:checkOwner(caller)
-        plugin.rejectUnknownFields('tags exclude', exclusion, EXCLUSION_KEYS, 2)
-        local panel = exclusion.panel
         if type(panel) ~= 'table' then
           error('tags exclude: panel is a panel, not a ' .. type(panel), 2)
         end
@@ -308,36 +287,25 @@ local function create(context: plugin.Context): tags.Service
         return table.find(members(self), panel) ~= nil
       end,
       panels = members,
-      setSelected = function(_self: tags.Tag, caller: Owner, wanted: tags.Selection): boolean
+      setSelected = function(_self: tags.Tag, caller: Owner, selected: boolean): plugin.Effect
         context:checkOwner(caller)
-        if type(wanted) ~= 'table' or type(wanted.selected) ~= 'boolean' then
-          error('tags setSelected: a selection is a table whose selected is a boolean', 2)
+        if type(selected) ~= 'boolean' then
+          error('tags setSelected: selected is a boolean, not a ' .. type(selected), 2)
         end
         if created.dead then
-          return false
+          -- A dead tag takes no override, so the caller receives an effect that is already released.
+          local inert = context:acquire(caller, function(): () -> ()
+            return function(): () end
+          end)
+          inert:dispose()
+          return inert
         end
-        if not selection:set(caller, wanted.selected) then
-          return false
+        local effect, changed = selection:set(caller, selected)
+        if changed then
+          created.selected = selection:value()
+          notify(created, 'selection')
         end
-        created.selected = selection:value()
-        notify(created, 'selection')
-        return true
-      end,
-      setLayout = function(_self: tags.Tag, caller: Owner, wanted: tags.LayoutChoice): boolean
-        context:checkOwner(caller)
-        plugin.rejectUnknownFields('tags setLayout', wanted, LAYOUT_KEYS, 2)
-        if wanted.layout ~= nil and type(wanted.layout) ~= 'string' then
-          error('tags setLayout: layout is a layout name, not a ' .. type(wanted.layout), 2)
-        end
-        if created.dead then
-          return false
-        end
-        if not layout:set(caller, wanted.layout) then
-          return false
-        end
-        created.layout = layout:value()
-        notify(created, 'layout')
-        return true
+        return effect
       end,
     }
     local tag: tags.Tag = created
@@ -354,7 +322,7 @@ local function create(context: plugin.Context): tags.Service
             caller,
             name,
             not created.dead and context:owns(caller),
-            { index = created.index, selected = created.selected, layout = created.layout or '' }
+            { index = created.index, selected = created.selected }
           )
         end
         for target, owners in pairs(holds) do
@@ -389,16 +357,6 @@ local function create(context: plugin.Context): tags.Service
             name,
             not created.dead and context:owns(entry.owner),
             { selected = entry.value, current = entry.current }
-          )
-        end
-        for _, entry in ipairs(layout:inspect()) do
-          result[#result + 1] = inspection.registration(
-            'layoutChoice',
-            'tags.setLayout',
-            entry.owner,
-            name,
-            not created.dead and context:owns(entry.owner),
-            { layout = entry.value or '', cleared = entry.value == nil, current = entry.current }
           )
         end
         return result

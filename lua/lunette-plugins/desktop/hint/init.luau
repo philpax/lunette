@@ -56,9 +56,11 @@ return plugin.consumer<<Config, Settings>>({
       end
       paint = prepare(snapshot)
     end
-    themeService:onChanged(context, function(_event: theme.Snapshot): ()
-      applyCurrent()
-    end)
+    themeService:onChanged(context, {
+      run = function(_event: theme.Snapshot): ()
+        applyCurrent()
+      end,
+    })
 
     frameService:onDraw(context, {
       phase = 'scene',

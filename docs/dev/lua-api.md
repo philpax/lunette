@@ -48,7 +48,7 @@ A composition is a list of entries. `plugin.compose(entries, patches)` returns t
 
 ## Contracts
 
-Every registration that takes an owner returns an effect and ends when the effect is disposed or the owner unloads. A listener or callback a provider invokes for another plugin runs under its own protected call and is reported through `lunette.reportError` without stopping the others. A call with a field the contract does not name raises at the call. `inspect()` on a provider returns registration metadata as data and invokes no plugin callback.
+Every registration that takes an owner returns an effect and ends when the effect is disposed or the owner unloads. An owner-scoped override, such as a hidden panel or a selected tag, returns an effect the same way. A change notification is `on<Event>(owner, { run })`, where `run` receives the change's payload, and returns an effect. A listener or callback a provider invokes for another plugin runs under its own protected call and is reported through `lunette.reportError` without stopping the others. A call with a field the contract does not name raises at the call. Every broker that holds owner-scoped registrations implements `inspect()`, which returns registration metadata as data and invokes no plugin callback, and the plugin manager reads each one.
 
 ### Frame dispatch
 
@@ -66,11 +66,11 @@ The target computes `isJoined()` on each call: a panel joins while it is live, v
 
 ### Keyboard
 
-A keyboard is owned, placed, offered, and drawn by its owner, because a service-wide draw would show keyboards the drawing owner does not offer. Each keyboard delivers through a virtual `lunette/focus` source ([Input](input.md#virtual-activations-and-committed-text)). `pressKey` and `typeText` return true only when the input was consumed. Visibility changes reach `onVisibilityChanged` after the state changes, and an unchanged visibility reports nothing.
+A keyboard is owned, placed, offered, and drawn by its owner, because a service-wide draw would show keyboards the drawing owner does not offer. A keyboard is pressed through its surface, and each keyboard delivers through a virtual `lunette/focus` source ([Input](input.md#virtual-activations-and-committed-text)). Rows, layers, and style are the provider's configuration. Visibility changes reach `onVisibilityChanged` after the state changes, and an unchanged visibility reports nothing.
 
 A theme change refreshes each keyboard before its next input or draw. Key legends do not write depth. Each key hook and the whole draw restore pass state and transforms, including on error. The built-in provider validates rows by option path.
 
-The keyboard display (`lunette/keyboard-display`, provided by `desktop/keyboard`) owns the visibility of the one session keyboard. A focused local target that wants a keyboard shows it, and ending that editing hides it; a manual show survives the end of editing. An explicit hide, the titlebar close, or the board's hide action blurs only the matching local target. [Input](input.md#keyboard-routing) states the routing these rules follow.
+The keyboard display (`lunette/keyboard-display`, provided by the `desktop/keyboard` entry from `@lunette-plugins/keyboard-display`) owns the visibility of the one session keyboard. A focused local target that wants a keyboard shows it, and ending that editing hides it; a manual show survives the end of editing. An explicit hide, the titlebar close, or the board's hide action blurs only the matching local target. [Input](input.md#keyboard-routing) states the routing these rules follow.
 
 ### Pointers and drops
 
@@ -80,7 +80,7 @@ The keyboard display (`lunette/keyboard-display`, provided by `desktop/keyboard`
 
 ### Lasers
 
-A hand has one laser owner at a time. The provider smooths each laser's ray with an adaptive low-pass filter before the pointer sees it; picking, delivered coordinates, and drawing use the same filtered ray, and the grab pose, buttons, and scroll are unfiltered. History resets on tracking loss, a zero ray, or a gap longer than `aim.resetAfter`.
+A hand has one laser owner at a time. `attach` answers a laser for each hand, and a laser handle names its hand and pointer; the provider keeps the rest. The provider smooths each laser's ray with an adaptive low-pass filter before the pointer sees it; picking, delivered coordinates, and drawing use the same filtered ray, and the grab pose, buttons, and scroll are unfiltered. History resets on tracking loss, a zero ray, or a gap longer than `aim.resetAfter`.
 
 While analog trigger pressure exceeds the lock threshold over a live offered surface, the laser holds the previous ray, so pulling the trigger does not move the hit. Rotation or movement past the unlock bounds releases the hold for the rest of the pull; grip, a grab, tracking loss, a large frame gap, or the surface going away cancels it. A reader without analog pressure never locks. `lua/lunette-plugins/laser/aim.luau` and `trigger-lock.luau` define the fields, and [Pointer aim](../guide/desktop-configuration.md#pointer-aim) describes tuning.
 
@@ -100,7 +100,7 @@ Consumers resolve appearance in the order base theme, global theme, provider con
 
 ### UI panels
 
-`lunette/ui` panels share one declared geometry for input, drawing, and descriptions: top-left, y-down logical coordinates and half-open control bounds, clipped to the panel. Higher `z` wins an overlap, then later registration. A control id is unique per creation owner across the provider's live panels.
+`lunette/ui` panels share one declared geometry for input, drawing, descriptions, and inspection: top-left, y-down logical coordinates and half-open control bounds, clipped to the panel. Higher `z` wins an overlap, then later registration. A control belongs to its panel's owner unless its options name another `owner`, and a control id is unique per creation owner across the provider's live panels. `ui:inspect()` reports each live panel with its pose and size, each control with its clipped bounds, and each list, choice, or region item. `ui:newTitlebar(owner, spec)` takes the titlebar options together with `name`, `target`, and an optional `visible` predicate.
 
 A pointer button captures the control it pressed until release or cancellation. A release activates only that control and only inside it; cancellation never activates. An exclusive control refuses a second pointer while held. Hiding, disabling, destroying, resizing, or replacing bounds or items cancels the affected captures, and `Panel:setPose` keeps them. Hover does not take keyboard focus. A text field holds valid single-line UTF-8 and edits at grapheme boundaries from `lunette.textBoundaries`. `setValue` calls no callback.
 
@@ -112,23 +112,23 @@ Panels and controls end with their creation owners, with the provider, and at so
 
 The bindings provider takes presses in the `binding` phase itself, so a bound press never reaches a client. Dispatching from `desktop/input` to the broker was rejected because a bindings outage would then stop all typing. A chord matches exactly the named modifiers, in any order, so a binding for H does not fire for Control-H. A matching press runs once and is consumed; a repeat is consumed without running, and a raising `run` still consumes.
 
-The menu broker holds actions and renders nothing. `invoke(id, registration)` with a listed row's token refuses a replacement that took the same id since the row was listed. `run` executes under the registering owner's protected context.
+The menu broker holds actions and renders nothing. `register` returns a registration whose `update` changes the action's `enabled` and `selected` state and answers false once the action is gone. `onChanged` runs after an action is registered, updated, or removed, so a renderer lists actions again only then. `invoke(id, token)` with a listed row's token refuses a replacement that took the same id since the row was listed. `run` executes under the registering owner's protected context.
 
 The layouts broker calls a named layout with the live panels a caller passes and holds no panels or tags. `continuous` marks a layout the consumer applies every frame; the broker applies nothing itself.
 
 ### Tags
 
-A tag lasts while any owner holds it, and `hold` options apply only when it creates the tag. A panel is a member while some owner holds its membership and no owner excludes it. `exclude` returns an effect, so a plugin moves a window another plugin placed and the window returns when the excluding owner lets go. `remove` drops only the caller's own membership. Selection and layout are owner-held overrides. A layout is a name in the layouts broker; tags do not resolve it. A panel that dies leaves its tags without a tag change, because `panels:onRemoved` announces it.
+A tag lasts while any owner holds it, and `hold` options apply only when it creates the tag. A panel is a member while some owner holds its membership and no owner excludes it. `exclude(owner, panel)` returns an effect, so a plugin moves a window another plugin placed and the window returns when the excluding owner lets go. `remove` drops only the caller's own membership. Selection is an owner-held override: `setSelected(owner, selected)` returns the owner's one override effect, the most recent live override decides, and disposing it reveals the previous one. A panel that dies leaves its tags without a tag change, because `panels:onRemoved` announces it.
 
 ### Rules and placement
 
 Rule sources merge in ascending precedence, so a higher precedence wins. `vocabulary.PRECEDENCE` names the shipped precedences, so a configuration places its own source relative to them ([Placement](stdlib.md#placement)). Rule property keys the placement provider does not map pass through to the resolved properties.
 
-`lunette/placement` is the one component that depends on rules, panels, and tags. A placement ends when its effect is disposed, its owner unloads, or its panel is removed. `placement:onPlaced` hears every placement, whoever made it. The `panelOptions` hook is where a resolved property reaches a panel. `adoption:install` registers the source that answers the pose a window carries in its `lunette.pose` property.
+`lunette/placement` is the one component that depends on rules, panels, and tags. `place` returns the placement, its panel and resolved properties, and the effect that ends it. A placement ends when its effect is disposed, its owner unloads, or its panel is removed. `placement:onPlaced` hears every placement, whoever made it. The `panelOptions` hook is where a resolved property reaches a panel. The pose memory child of `desktop/adoption` writes a dropped window's pose to its `lunette.pose` property and registers the source that answers it.
 
 ### Errors stream
 
-`lunette/errors` subscribes to `lunette.onError` for its activation, withholds identical reports for a window, and keeps a bounded history. A report raised while subscribers run, such as a subscriber's own error, enters the history without being delivered, so a raising presenter cannot feed itself. `clear` empties the history for every presenter.
+`lunette/errors` subscribes to `lunette.onError` for its activation, withholds identical reports for a window, and keeps a bounded history. `onReport` listeners receive each delivered report. A report raised while listeners run, such as a listener's own error, enters the history without being delivered, so a raising presenter cannot feed itself.
 
 ### Frame pacing and output scale
 
@@ -294,7 +294,7 @@ Keys carry `x`, `height`, and spacers, as keyboard-layout-editor's format does, 
 
 ### The keyboard contract is what consumers call
 
-Legend lookup, latch and lock sets, rows, and style stay with the provider; a provider hook may name the provider's own `Board` type where a contract may not. Route changes clear modifiers at once so a modifier chosen for one receiver cannot reach the next. `Keyboard` restates the surface fields rather than intersecting `Surface`, because an intersection holds two function types for `setPose` and makes calls ambiguous; `vocabulary.Movable` exists for the same reason.
+Legend lookup, latch and lock sets, rows, and style stay with the provider; a provider hook may name the provider's own `Board` type where a contract may not. A keyboard has no programmatic key or text methods and no per-keyboard rows or style: consumers press it through its surface, a plugin that types sends text through its own focus source, and every substitute provider would otherwise implement methods nothing calls. Route changes clear modifiers at once so a modifier chosen for one receiver cannot reach the next. `Keyboard` restates the surface fields rather than intersecting `Surface`, because an intersection holds two function types for `setPose` and makes calls ambiguous; `vocabulary.Movable` exists for the same reason.
 
 ### Hooks cover what wrappers cannot
 
@@ -310,11 +310,19 @@ Only a pointer's creator knows the device. A separate feedback contract keyed by
 
 ### Layouts are a broker
 
-A contract per layout, varied by replacing its provider, was rejected: it allows one layout at a time and shapes the contract like its first implementation. A layout is chosen by a name, which a configuration or a tag can carry, so tags stay independent of layouts.
+A contract per layout, varied by replacing its provider, was rejected: it allows one layout at a time and shapes the contract like its first implementation. A layout is chosen by a name that a configuration carries. A tag carries no layout: a per-tag override was removed because no shipped plugin set one, so `desktop/arrange` applies its one configured layout to every tag.
 
 ### Drops are a broker of their own
 
 Announcing drops through panels was rejected because interaction would require panels only to emit. Putting the event on the interaction contract was rejected because every listener would then go down with an interaction outage. Pose memory is a child of `desktop/adoption`, so a replacement interaction does not have to know about it.
+
+### A broker announces its own changes
+
+A renderer of a registry learns of a change from the registry. Polling `list()` every frame and comparing the rows was rejected because the broker already knows when its state changes. Every notification takes a listener table, so a later field, such as the tags contract's `tag` filter, needs no new signature.
+
+### Overrides return effects and take their value
+
+An owner-scoped override returns the effect that ends it, so selecting a tag and hiding a panel undo the same way. A single-field option table such as `{ hidden = true }` was replaced by the value itself, because the table carried no second field. Handles keep `destroy` and effects keep `dispose`: a handle is a resource the caller uses, and an effect is only its ending.
 
 ### Focus is a contract of its own
 

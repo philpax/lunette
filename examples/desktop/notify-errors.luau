@@ -28,7 +28,7 @@ return plugin.consumer<<Config, Settings>>({
         end
       end,
     }
-    stream:subscribe(context, {
+    stream:onReport(context, {
       run = function(report: errors.Report)
         if failed then
           return

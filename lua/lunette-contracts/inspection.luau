@@ -9,14 +9,14 @@ export type Kind =
   | 'handler'
   | 'listener'
   | 'panel'
+  | 'control'
+  | 'item'
   | 'visibility'
   | 'focus'
-  | 'tag'
   | 'hold'
   | 'membership'
   | 'exclusion'
   | 'selection'
-  | 'layoutChoice'
   | 'ruleSource'
   | 'placement'
   | 'layout'
@@ -43,6 +43,11 @@ export type Snapshot = {
   read registrations: { read [number]: Registration },
   read state: Details,
   read unobservable: { read [number]: string },
+}
+
+-- What every broker that holds owner-scoped registrations provides.
+export type Inspectable = {
+  read inspect: (Inspectable) -> Snapshot,
 }
 
 function inspection.registration(

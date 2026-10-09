@@ -1,12 +1,12 @@
 -- Draws keyboard plates, faces, and legends.
-local keyboard = require '@lunette-contracts/keyboard'
+local appearance = require '@lunette-plugins/keyboard/appearance'
 local board = require '@lunette-plugins/keyboard/board'
 local passState = require '@lunette-plugins/pass-state'
 local geometry = require '@lunette-plugins/theme/rounded-geometry'
 local drawing = require '@lunette-plugins/theme/drawing'
 
 local draw = {}
-local faceBounds: (board.RenderedKey, keyboard.Style) -> geometry.Bounds
+local faceBounds: (board.RenderedKey, appearance.Style) -> geometry.Bounds
 
 function draw.plate(
   pass: Pass,
@@ -14,7 +14,7 @@ function draw.plate(
   pose: Mat4,
   width: number,
   height: number,
-  style: keyboard.Style
+  style: appearance.Style
 ): ()
   local color = style.plateColor
   local plateWidth, plateHeight = width + style.margin * 2, height + style.margin * 2
@@ -92,7 +92,7 @@ function draw.keyPose(pose: Mat4, key: board.RenderedKey, width: number, height:
   return centre
 end
 
-faceBounds = function(key: board.RenderedKey, style: keyboard.Style): geometry.Bounds
+faceBounds = function(key: board.RenderedKey, style: appearance.Style): geometry.Bounds
   local width, height = math.max(0, key.width - style.gap), math.max(0, key.height - style.gap)
   return { x = -width / 2, y = -height / 2, width = width, height = height }
 end

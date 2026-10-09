@@ -142,10 +142,13 @@ local function build(context: plugin.Context, _settings: {}): Service
       publish()
       return registration
     end,
-    onChanged = function(_self: Service, owner: contract.Owner, run: (contract.Snapshot) -> ()): plugin.Effect
+    onChanged = function(_self: Service, owner: contract.Owner, listener: contract.Listener): plugin.Effect
       context:checkOwner(owner)
-      assert(type(run) == 'function', 'theme onChanged: the callback must be a function')
-      return changed:add(owner, run)
+      plugin.rejectUnknownFields('theme onChanged', listener, { 'run' }, 2)
+      if type(listener.run) ~= 'function' then
+        error('theme onChanged: run is a function, not a ' .. type(listener.run), 2)
+      end
+      return changed:add(owner, listener.run)
     end,
     inspect = function(_self: Service): inspection.Snapshot
       local result = changed:inspect 'theme.onChanged'

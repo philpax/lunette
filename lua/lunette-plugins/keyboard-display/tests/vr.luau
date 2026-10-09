@@ -63,7 +63,7 @@ test('controller clicks on fields share one keyboard that types, and its Hide ke
     },
     'desktop/pointing',
     'ui',
-    'desktop/keyboard',
+    { id = 'desktop/keyboard', definition = require '@lunette-plugins/keyboard-display' },
   }
   local state = {}
   running.session:use(
@@ -80,12 +80,12 @@ test('controller clicks on fields share one keyboard that types, and its Hide ke
           logicalWidth = 200,
           logicalHeight = 200,
         })
-        state.first = panel:textField(owner, {
+        state.first = panel:textField {
           id = 'first',
           value = 'draft',
           bounds = { x = 10, y = 10, width = 180, height = 30 },
-        })
-        panel:textField(owner, { id = 'second', bounds = { x = 10, y = 60, width = 180, height = 30 } })
+        }
+        panel:textField { id = 'second', bounds = { x = 10, y = 60, width = 180, height = 30 } }
       end,
     },
     {}

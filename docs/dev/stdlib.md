@@ -12,7 +12,7 @@ The checker follows directory symlinks and keeps the module path the configurati
 
 ## Contracts and providers
 
-A contract module in `@lunette-contracts` declares a service type and exports a capability that pairs it with an authority-qualified name and version. Vocabulary shared by several contracts lives in a neutral contract module, so a service type never imports a provider. `@lunette-contracts/vocabulary` holds the surface and pointer types, the per-window pose property `lunette.pose` with `encodePose` and `decodePose`, and `PRECEDENCE`, the named precedences of rule sources. `@lunette-contracts/keys` holds the key vocabulary, read from `lunette.keyCodes()`, `lunette.modifierNames()`, and `lunette.lockingModifierNames()`, and the modifier and LÖVR key-name policy shared by the bindings provider and `desktop/input`. `@lunette-contracts/quad` holds flat-quad ray intersection.
+A contract module in `@lunette-contracts` declares a service type and exports a capability that pairs it with an authority-qualified name and version. Vocabulary shared by several contracts lives in a neutral contract module, so a service type never imports a provider. `@lunette-contracts/vocabulary` holds the surface and pointer types, the per-window pose property `lunette.pose` with `encodePose` and `decodePose`, and `PRECEDENCE`, the named precedences of rule sources. `@lunette-contracts/keys` holds the key vocabulary: the evdev codes from `lunette.keyCodes()`, the modifier each modifier key holds, the host modifier snapshot type, and which modifiers make a command chord. The frame provider translates LÖVR key names and modifiers, and the focus provider holds the physical delivery policy ([Input](input.md#physical-input-batches)). `@lunette-contracts/quad` holds flat-quad ray intersection.
 
 Each built-in plugin is a provider or consumer module ([Provider modules](lua-api.md#provider-modules)) that validates its configuration with a schema. A replacement provider implements the existing contract; the contract is not weakened to fit it. Objects a provider method returns, such as panels, pointers, lasers, keyboards, and tags, outlive the call and check their own state. [Confinement](lua-api.md#confinement) states how consumer resources and overrides are owned and released.
 
@@ -36,13 +36,13 @@ The built-in providers:
 | `tags` | `lunette/tags` 1 | none | none |
 | `rules` | `lunette/rules` 1 | none | `precedence` |
 | `placement` | `lunette/placement` 1 | panels, rules, tags | `panelOptions` |
-| `adoption` | `lunette/adoption` 1 | panels, placement, rules | `precedence` |
+| `adoption` | `lunette/adoption` 1 | panels, placement, rules | none |
 | `layouts` | `lunette/layouts` 1 | none | none |
 | `errors` | `lunette/errors` 1 | none | `window`, `maxKeys`, `history`, `clock` |
 | `pacing` | `lunette/pacing` 1 | none | `tuning` |
 | `scale` | `lunette/scale` 1 | none | `tuning` |
 
-`layout/arc` registers the arc layout with the layouts broker and takes `layout`, the name it registers, and `tuning`. `theme/standard` and `theme/arcade` register themes with the catalog and take no options. `desktop/keyboard` provides `lunette/keyboard-display` 1, and `desktop/persistence` provides `lunette/arrangement` 1. Each contract module under `lua/lunette-contracts/` declares its service, each plugin's `config.luau` or descriptor its options, and [Contracts](lua-api.md#contracts) states their guarantees. Consumers that follow a panel's life use the panels contract's `onAdded` and `onRemoved` listeners rather than any provider's private modules.
+`layout/arc` registers the arc layout with the layouts broker and takes `layout`, the name it registers, and `tuning`. `theme/standard` and `theme/arcade` register themes with the catalog and take no options. `desktop/keyboard`, at `@lunette-plugins/keyboard-display`, provides `lunette/keyboard-display` 1, and `desktop/persistence`, at `@lunette-plugins/arrangement`, provides `lunette/arrangement` 1. Each contract module under `lua/lunette-contracts/` declares its service, each plugin's `config.luau` or descriptor its options, and [Contracts](lua-api.md#contracts) states their guarantees. Consumers that follow a panel's life use the panels contract's `onAdded` and `onRemoved` listeners rather than any provider's private modules.
 
 ## Runtime themes
 
@@ -102,8 +102,8 @@ The desktop consumers:
 | `desktop/monitors` | Starts capture and places monitor panels in a row, including hotplugged monitors. A child adds mirrors to configured tags. | `select`, `placement`, `tags`. |
 | `desktop/rules` | Registers its rule list with `rules:setRules`. | `rules`; the default sizes and places Firefox. |
 | `desktop/persistence` | Saves and restores the arrangement and provides `lunette/arrangement`. A factory. | `file`, default `arrangement.state`. |
-| `desktop/arrange` | Arranges placed windows that have no pose, tag by tag, with layouts from the layouts broker. A factory. | `layout`, default `arc`; `options`, keyed by layout name; `tags`, every tag when empty. |
-| `desktop/adoption` | Installs the native pose source and adopts windows. A child writes a dropped window's pose to `lunette.pose`. | `tags`, default `{ 'main' }`; `filter`. |
+| `desktop/arrange` | Arranges placed windows that have no pose, tag by tag, with its layout from the layouts broker. A factory. | `layout`, default `arc`; `options`, keyed by layout name; `tags`, every tag when empty. |
+| `desktop/adoption` | Adopts windows. Its pose memory child writes a dropped window's pose to `lunette.pose` and registers the native rule source that reads it back. | `tags`, default `{ 'main' }`; `filter`; `precedence` of the pose source, default `PRECEDENCE.native`. |
 | `desktop/pacing` | Sets each window panel's frame rate from its `lunette/pacing` pacer and pauses hidden monitor captures. | `pauseMonitors`, default true. |
 | `desktop/scale` | Sets each output's scale from its `lunette/scale` chooser for the nearest shown window panel. | None. |
 | `desktop/manager` | The runtime manager panel, described below. | `visible`, `refreshInterval`, `view`, `position`, `width`, `height`, `pixels`. |
@@ -186,7 +186,7 @@ Geometric values are native vectors. Numeric tables lose the geometric type and 
 
 Provider modules share one shape so a configuration varies, wraps, or replaces any provider the same way.
 
-Placement is several entries, following the integration component of section 6.5 of the Cordis paper. One policy entry was rejected because replacing the layout, the rules, or persistence would mean copying all of it. Adoption's install and start stay together because a start without the native pose source loses hand-placed poses across reloads. `desktop/arrange` learns of placements from the placement contract, which carries the resolved properties; `panels:onAdded` reaches every panel without them.
+Placement is several entries, following the integration component of section 6.5 of the Cordis paper. One policy entry was rejected because replacing the layout, the rules, or persistence would mean copying all of it. Pose memory is one consumer that both writes the pose on a drop and registers the rule source that reads it, because either half without the other loses hand-placed poses across reloads. A provider method for the reading half was rejected because a substitute adoption provider would carry half a feature. It is a child of `desktop/adoption`, enabled before the start, so its source is registered before the first window resolves. `desktop/arrange` learns of placements from the placement contract, which carries the resolved properties; `panels:onAdded` reaches every panel without them.
 
 A dropped panel leaves the arrangement. Re-arranging on a drop would move the other windows as the user lets go of one. A kept `lunette.pose` property also excludes a window, so a window dragged during an outage of `desktop/arrange` is not arranged again; a record in the drops broker would end with the broker's activation.
 

@@ -24,7 +24,21 @@ function fixture.boot(options)
       definition = require('@lunette-plugins/laser').definition,
       config = { aim = { enabled = false }, triggerLock = { enabled = false } },
     },
-    'keyboard',
+    {
+      id = 'keyboard',
+      definition = require('@lunette-plugins/keyboard').definition,
+      config = {
+        rows = {
+          {
+            { code = 30, label = 'A' },
+            { code = 14, label = 'Backspace' },
+            { code = 28, label = 'Submit' },
+            { code = 1, label = 'Cancel' },
+            { action = { kind = 'text', text = 'é👩🏽‍💻' }, label = 'Cluster' },
+          },
+        },
+      },
+    },
     'desktop/pointing',
     options.provider or 'ui',
   }
@@ -53,15 +67,15 @@ function fixture.boot(options)
         draw = options.draw,
       })
       state.panel = panel
-      state.button = panel:button(context, {
+      state.button = panel:button {
         id = 'run',
         label = 'Run',
         bounds = { x = 10, y = 10, width = 80, height = 40 },
         onActivate = function()
           state.activations[#state.activations + 1] = true
         end,
-      })
-      state.field = panel:textField(context, {
+      }
+      state.field = panel:textField {
         id = 'draft',
         label = 'Draft',
         bounds = { x = 110, y = 10, width = 270, height = 40 },
@@ -72,12 +86,12 @@ function fixture.boot(options)
         onCancel = function(value)
           state.cancels[#state.cancels + 1] = value
         end,
-      })
+      }
       local items = {}
       for index = 1, 20 do
         items[index] = { id = 'item-' .. index, label = 'Item ' .. index, enabled = index ~= 2 }
       end
-      state.choice = panel:choice(context, {
+      state.choice = panel:choice {
         id = 'choice',
         label = 'Choice',
         bounds = { x = 10, y = 70, width = 180, height = 180 },
@@ -85,8 +99,8 @@ function fixture.boot(options)
         onChange = function(value)
           state.chosen = value
         end,
-      })
-      state.list = panel:list(context, {
+      }
+      state.list = panel:list {
         id = 'list',
         label = 'List',
         bounds = { x = 210, y = 70, width = 170, height = 180 },
@@ -94,8 +108,8 @@ function fixture.boot(options)
         onChange = function(value)
           state.listed = value
         end,
-      })
-      state.region = panel:region(context, {
+      }
+      state.region = panel:region {
         id = 'custom',
         label = 'Custom',
         bounds = { x = 10, y = 260, width = 370, height = 30 },
@@ -110,7 +124,7 @@ function fixture.boot(options)
         onPointer = function(event)
           state.events[#state.events + 1] = event
         end,
-      })
+      }
       context:require(frame.capability):onDraw(context, {
         phase = 'scene',
         run = function(pass)

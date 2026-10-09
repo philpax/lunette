@@ -21,7 +21,7 @@ local required: plugin.Declaration = {
 }
 
 type Action = {
-  effect: plugin.Effect,
+  registration: menu.Registration,
   order: number,
 }
 
@@ -81,7 +81,7 @@ local function define(): plugin.Definition<Config>
 
       local function mark(): ()
         for name, action in actions do
-          menuService:update(context, action.effect, { selected = isApplied(name) })
+          action.registration:update { selected = isApplied(name) }
         end
       end
 
@@ -110,13 +110,13 @@ local function define(): plugin.Definition<Config>
           local action = actions[name]
           if action and action.order ~= index then
             actions[name] = nil
-            action.effect:dispose()
+            action.registration:dispose()
             action = nil
           end
           if action == nil then
             actions[name] = {
               order = index,
-              effect = menuService:register(context, {
+              registration = menuService:register(context, {
                 id = 'desktop/theme/' .. name,
                 label = label,
                 group = 'Appearance',
@@ -132,7 +132,7 @@ local function define(): plugin.Definition<Config>
         for name, action in actions do
           if not present[name] then
             actions[name] = nil
-            action.effect:dispose()
+            action.registration:dispose()
           end
         end
       end

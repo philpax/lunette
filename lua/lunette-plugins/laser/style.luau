@@ -20,7 +20,16 @@ style.overrides = schema.partial(style.configuration)
 
 export type Configured = schema.Output<typeof(style.configuration)>
 
-function style.resolve(base: theme.Theme, provider: Configured, object: contracts.StyleOverride?): contracts.Style
+export type Style = {
+  read length: number,
+  read color: contracts.Color,
+  read hoverColor: contracts.Color,
+  read cursorRadius: number,
+  read hapticStrength: number,
+  read hapticDuration: number,
+}
+
+function style.resolve(base: theme.Theme, provider: Configured, object: contracts.StyleOverride?): Style
   local given: contracts.StyleOverride = object or {}
   return table.freeze {
     length = given.length or provider.length,

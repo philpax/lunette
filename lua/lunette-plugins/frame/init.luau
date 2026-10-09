@@ -3,7 +3,7 @@ local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/frame'
 local protected = require '@lunette-plugins/protected'
 local inspection = require '@lunette-contracts/inspection'
-local keyContract = require '@lunette-contracts/keys'
+local translation = require '@lunette-plugins/frame/translation'
 
 local frame = {}
 
@@ -15,7 +15,7 @@ export type Hooks = {
 type Dispatcher = {
   update: (number) -> (),
   draw: (Pass) -> (),
-  key: (KeyCode, number, boolean, keyContract.PhysicalModifiers?) -> (),
+  key: (KeyCode, number, boolean, translation.LovrModifiers?) -> (),
   text: (string, number) -> (),
   quit: () -> (),
 }
@@ -115,8 +115,8 @@ local function create(context: plugin.Context): (contract.Service, Dispatcher)
   local batches: { Entry<(contract.Batch) -> ()> } = {}
   local updates: { Entry<(number) -> ()> } = {}
   local draws: { Entry<(Pass) -> ()> } = {}
-  local keys: { Entry<(contract.KeyEvent) -> boolean?> } = {}
-  local texts: { Entry<(contract.TextEvent) -> boolean?> } = {}
+  local keys: { Entry<(contract.HostKeyEvent) -> boolean?> } = {}
+  local texts: { Entry<(contract.HostTextEvent) -> boolean?> } = {}
   local quits: { Entry<() -> ()> } = {}
 
   local function register<T>(
@@ -207,27 +207,42 @@ local function create(context: plugin.Context): (contract.Service, Dispatcher)
         return nil
       end)
     end,
-    key = function(key: KeyCode, scancode: number, isRepeat: boolean, modifiers: keyContract.PhysicalModifiers?): ()
-      local snapshot = if modifiers ~= nil then keyContract.snapshotPhysicalModifiers(modifiers) else nil
+    key = function(key: KeyCode, scancode: number, isRepeat: boolean, host: translation.LovrModifiers?): ()
+      local snapshot = if host ~= nil then translation.snapshot(host) else nil
       local batch = currentBatch or openBatch()
-      local event: contract.KeyEvent = table.freeze {
+      local event: contract.HostKeyEvent = table.freeze {
         batch = batch.id,
         key = key,
         scancode = scancode,
         isRepeat = isRepeat,
-        modifiers = snapshot,
+        code = translation.FROM_LOVR[key],
+        modifiers = table.freeze(
+          if snapshot ~= nil
+            then translation.fromHost(snapshot, lovr.system.isKeyDown)
+            else translation.held(lovr.system.isKeyDown)
+        ),
+        physicalModifiers = snapshot,
       }
-      local consumedRank = dispatch('lovr.keypressed', keys, function(run: (contract.KeyEvent) -> boolean?): boolean?
-        return run(event)
-      end)
+      local consumedRank = dispatch(
+        'lovr.keypressed',
+        keys,
+        function(run: (contract.HostKeyEvent) -> boolean?): boolean?
+          return run(event)
+        end
+      )
       if consumedRank == INPUT_RANKS.binding then
         blockText(event.batch)
       end
     end,
     text = function(text: string, code: number): ()
       local batch = currentBatch or openBatch()
-      local event: contract.TextEvent = table.freeze { batch = batch.id, text = text, code = code }
-      dispatch('lovr.textinput', texts, function(run: (contract.TextEvent) -> boolean?): boolean?
+      local event: contract.HostTextEvent = table.freeze {
+        batch = batch.id,
+        text = text,
+        code = code,
+        modifiers = table.freeze(translation.held(lovr.system.isKeyDown)),
+      }
+      dispatch('lovr.textinput', texts, function(run: (contract.HostTextEvent) -> boolean?): boolean?
         return run(event)
       end)
     end,
@@ -365,7 +380,7 @@ function frame.install(hooks: Hooks): ()
     return false
   end
 
-  function lovr.keypressed(key: KeyCode, scancode: number, isrepeat: boolean, modifiers: keyContract.PhysicalModifiers?)
+  function lovr.keypressed(key: KeyCode, scancode: number, isrepeat: boolean, modifiers: translation.LovrModifiers?)
     local current = bound
     if current then
       current.key(key, scancode, isrepeat, modifiers)

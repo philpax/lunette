@@ -2,7 +2,6 @@
 local lunette = require '@lunette'
 local focus = require '@lunette-contracts/focus'
 local keyboard = require '@lunette-contracts/keyboard'
-local keyVocabulary = require '@lunette-contracts/keys'
 local quad = require '@lunette-contracts/quad'
 local vocabulary = require '@lunette-contracts/vocabulary'
 local theme = require '@lunette-contracts/theme'
@@ -25,7 +24,6 @@ end
 
 local function create(
   settings: config.Settings,
-  options: keyboard.Options?,
   source: focus.Source,
   themeService: theme.Service,
   active: () -> boolean,
@@ -34,22 +32,21 @@ local function create(
 ): (board.Board, () -> (), () -> (), () -> ())
   local unitsWide, unitsHigh = extentOf(settings)
   local providerStyle = appearance.project(settings.style)
-  local objectStyle = appearance.options.parse(options and options.style or {}, 'keyboard style')
-  local pose = options and options.pose and lovr.math.newMat4(options.pose) or lovr.math.newMat4()
+  local pose = lovr.math.newMat4()
   local snapshot = themeService:current()
-  local nominal = appearance.resolve(snapshot.theme, providerStyle, objectStyle)
+  local nominal = appearance.resolve(snapshot.theme, providerStyle)
   local font = themeService:font(nominal.font)
   local scale = 1
   local style = appearance.scaled(nominal, font, scale)
   local appliedRevision, geometryRevision = snapshot.revision, 0
   local meshCache = meshDrawing.newCache()
   local keyCaches: { [number]: { [number]: meshDrawing.Cache } } = {}
-  local locks: { [string]: boolean } = {}
+  local locks: { [lunette.ModifierName]: boolean } = {}
   for index = 1, #settings.locks do
     locks[settings.locks[index]] = true
   end
-  local latched: { [string]: boolean } = {}
-  local locked: { [string]: boolean } = {}
+  local latched: { [lunette.ModifierName]: boolean } = {}
+  local locked: { [lunette.ModifierName]: boolean } = {}
   local hovered: { [board.Pointer]: board.RenderedKey } = {}
   local captures: { [board.Pointer]: { [lunette.PointerButton]: boolean } } = {}
   local created: board.Board
@@ -65,9 +62,9 @@ local function create(
     layer = 'base',
   }
 
-  local function modifiers(): { string }
-    local held: { string } = {}
-    for _, name in ipairs(keyVocabulary.MODIFIER_ORDER) do
+  local function modifiers(): { lunette.ModifierName }
+    local held: { lunette.ModifierName } = {}
+    for _, name in ipairs(lunette.modifierNames()) do
       if latched[name] or locked[name] then
         held[#held + 1] = name
       end
@@ -145,7 +142,7 @@ local function create(
     if latest.revision == appliedRevision then
       return
     end
-    local nextNominal = appearance.resolve(latest.theme, providerStyle, objectStyle)
+    local nextNominal = appearance.resolve(latest.theme, providerStyle)
     local nextFont = themeService:font(nextNominal.font)
     local nextStyle = appearance.scaled(nextNominal, nextFont, scale)
     local width, height = unitsWide * nextStyle.keyUnit, unitsHigh * nextStyle.keyUnit
@@ -214,7 +211,7 @@ local function create(
     }, origin, direction)
   end
 
-  local function pressKey(_self: keyboard.Keyboard, code: number): boolean
+  local function pressKey(code: number): boolean
     if state.dead or not active() then
       return false
     end
@@ -229,7 +226,7 @@ local function create(
     return source:key({ code = code, modifiers = held, isRepeat = false }).kind == 'consumed'
   end
 
-  local function typeText(_self: keyboard.Keyboard, text: string): boolean
+  local function typeText(text: string): boolean
     if state.dead or not active() then
       return false
     end
@@ -237,7 +234,7 @@ local function create(
     return source:text(text).kind == 'consumed'
   end
 
-  local function chord(code: number, held: { read [number]: string }): ()
+  local function chord(code: number, held: { read [number]: lunette.ModifierName }): ()
     if not state.dead and active() then
       table.clear(latched)
       source:key { code = code, modifiers = held, isRepeat = false }
@@ -289,7 +286,7 @@ local function create(
   local function perform(self: board.Board, key: board.RenderedKey, _pointer: board.Pointer): ()
     local code, action = key.code, key.action
     if code then
-      pressKey(self, code)
+      pressKey(code)
     elseif not action then
       return
     elseif action.kind == 'hide' then
@@ -297,7 +294,7 @@ local function create(
     elseif action.kind == 'layer' then
       setLayer(self, action.layer)
     elseif action.kind == 'text' then
-      typeText(self, action.text)
+      typeText(action.text)
     elseif action.kind == 'chord' then
       chord(action.code, action.modifiers)
     end
@@ -312,7 +309,7 @@ local function create(
     return false
   end
 
-  local function isHeld(key: board.RenderedKey, held: { read [number]: string }): boolean
+  local function isHeld(key: board.RenderedKey, held: { read [number]: lunette.ModifierName }): boolean
     local action = key.action
     if action and action.kind == 'layer' then
       return action.layer ~= 'base' and action.layer == state.layer
@@ -421,11 +418,6 @@ local function create(
     project = project,
     onPointer = onPointer,
     setVisible = setVisible,
-    modifiers = function(_self: keyboard.Keyboard): { string }
-      return modifiers()
-    end,
-    pressKey = pressKey,
-    typeText = typeText,
     setLayer = setLayer,
     keys = function(_self: board.Board): { board.RenderedKey }
       return keys()

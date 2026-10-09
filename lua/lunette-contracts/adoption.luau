@@ -15,7 +15,6 @@ local inspection = require '@lunette-contracts/inspection'
 
 export type Service = {
   read inspect: (Service) -> inspection.Snapshot,
-  read install: (Service, Owner) -> plugin.Effect,
   read start: (Service, Owner, Options?) -> plugin.Effect,
 }
 

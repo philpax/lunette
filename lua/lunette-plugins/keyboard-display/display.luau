@@ -7,9 +7,10 @@ local frame = require '@lunette-contracts/frame'
 local surfaces = require '@lunette-contracts/surfaces'
 local ui = require '@lunette-contracts/ui'
 local listeners = require '@lunette-plugins/listeners'
-local place = require '@lunette-plugins/desktop/keyboard/placement'
-local config = require '@lunette-plugins/desktop/keyboard/config'
+local place = require '@lunette-plugins/keyboard-display/placement'
+local config = require '@lunette-plugins/keyboard-display/config'
 local vocabulary = require '@lunette-contracts/vocabulary'
+local inspection = require '@lunette-contracts/inspection'
 
 return function(context: plugin.Context, settings: config.Settings): contract.Service
   local keys: keyboard.Service = context:require(keyboard.capability)
@@ -29,7 +30,7 @@ return function(context: plugin.Context, settings: config.Settings): contract.Se
   local function live(): boolean
     return not stopped and context:active()
   end
-  local function notify(reason: 'show' | 'hide' | 'user-hide' | 'destroy'): ()
+  local function notify(reason: keyboard.VisibilityReason): ()
     revision += 1
     local own = revision
     local change: contract.Change = table.freeze { visible = visible, reason = reason }
@@ -87,14 +88,17 @@ return function(context: plugin.Context, settings: config.Settings): contract.Se
     created = target
     target:setVisible(false)
     board = target
-    bar = widgets:newTitlebar(context, 'desktop/keyboard/titlebar', target, {
+    bar = widgets:newTitlebar(context, {
+      name = 'desktop/keyboard/titlebar',
+      target = target,
       title = 'Keyboard',
       onClose = function(): ()
         hide()
       end,
-    }, function(): boolean
-      return live() and visible and not target.dead
-    end)
+      visible = function(): boolean
+        return live() and visible and not target.dead
+      end,
+    })
     return target
   end
   local function setVisible(show: boolean): boolean
@@ -181,6 +185,12 @@ return function(context: plugin.Context, settings: config.Settings): contract.Se
   })
 
   local service: contract.Service = {
+    inspect = function(_self: contract.Service): inspection.Snapshot
+      return inspection.snapshot(
+        subscribers:inspect 'keyboard-display.onChanged',
+        { visible = live() and visible, manual = manual, automatic = auto ~= nil, made = board ~= nil }
+      )
+    end,
     show = function(_self: contract.Service): boolean
       return show()
     end,

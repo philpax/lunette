@@ -274,9 +274,6 @@ local function create(context: plugin.Context): Service
       end
       return entry.handle
     end,
-    revision = function(_self: Service): number
-      return state.revision
-    end,
     onChanged = function(_self: Service, owner: contract.Owner, listener: contract.Listener): plugin.Effect
       context:checkOwner(owner)
       plugin.rejectUnknownFields('focus onChanged', listener, { 'run' }, 2)

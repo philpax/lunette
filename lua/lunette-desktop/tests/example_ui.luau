@@ -12,13 +12,7 @@ local name = 'example/ui/form'
 local actionId = 'example/ui/open'
 
 local function description(service)
-  for _, panel in service:panels() do
-    local current = panel:describe()
-    if current.name == name then
-      return current, panel
-    end
-  end
-  return nil
+  return vrUi.describe(service, name)
 end
 
 local function boot()

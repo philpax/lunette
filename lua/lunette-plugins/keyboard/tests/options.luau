@@ -21,6 +21,7 @@ local ROWS = {
     { action = { kind = 'chord', code = 20, modifiers = { 'control', 'alt' } } },
     { action = { kind = 'hide' } },
   },
+  { { code = 42 }, { code = 29 } },
 }
 local SYMBOLS = { { { code = 2 }, { action = { kind = 'layer', layer = 'base' }, label = 'abc' } } }
 
@@ -145,8 +146,8 @@ test('rows place spacers, offsets, and tall keys, and a press reaches onKey with
   local env = start()
   local board = env.board
   expect.equal(board.width, 5, 'the width')
-  expect.equal(board.height, 3.5, 'the height')
-  expect.equal(#board:keys(), 9, 'spacers are not keys')
+  expect.equal(board.height, 4.5, 'the height')
+  expect.equal(#board:keys(), 11, 'spacers are not keys')
   expect.equal(code(board, 30).legend, 'a', "a code key's legend comes from the seat")
   expect.equal(code(board, 31).x, 2.5, 'a spacer and an offset leave room')
   expect.equal(code(board, 32).height, 2, 'a tall key spans two rows')
@@ -160,9 +161,6 @@ test('rows place spacers, offsets, and tall keys, and a press reaches onKey with
   expect.truthy(env.sent[2][1] == 'key' and env.sent[2][2] == 30 and env.sent[2][3] == true, 'the base sent the key')
   pressAt(env, 1.25, 0.5)
   expect.equal(#env.pressed, 1, 'a press on a spacer presses nothing')
-
-  local small = env.service:new(env.owner, { rows = { { { code = 30 }, { code = 31 } } }, style = { keyUnit = 0.5 } })
-  expect.truthy(small.width == 1 and small.height == 0.5, "a keyboard's own rows and style override the provider's")
   expect.raises(function()
     keyboard.define { rows = { { { code = 1, action = { kind = 'hide' } } } } }
   end, 'has a code and an action', 'define checks what the schema cannot see')
@@ -172,13 +170,15 @@ end)
 test('modifiers lock or latch, and action keys type, send chords, reach the hook, switch layers, and hide', function()
   local env = start()
   local board = env.board
-  board:pressKey(42)
-  board:pressKey(29)
+  press(env, code(board, 42))
+  press(env, code(board, 29))
   table.clear(env.sent)
-  board:pressKey(30)
+  press(env, code(board, 30))
   expect.equal(env.sent[1][2], 'shift+control', 'the modifiers held for the key')
-  expect.equal(table.concat(board:modifiers(), '+'), 'shift', 'the configured lock stays and the latch clears')
-  board:pressKey(42)
+  table.clear(env.sent)
+  press(env, code(board, 30))
+  expect.equal(env.sent[1][2], 'shift', 'the configured lock stays and the latch clears')
+  press(env, code(board, 42))
   table.clear(env.sent)
   press(env, action(board, 'text'))
   expect.truthy(env.sent[1][1] == 'text' and env.sent[1][2] == 'hi', 'a text key types its text')
@@ -204,7 +204,7 @@ test('drawKey wraps the default for every key, with the hover state and the live
   local board = env.board
   board:onPointer { kind = 'enter', pointer = env.pointer, x = code(board, 31).x + 0.5, y = 0.5, inside = true }
   board:draw(env.native.events.pass)
-  expect.equal(#env.drawn, 9, 'every key is drawn through the hook')
+  expect.equal(#env.drawn, 11, 'every key is drawn through the hook')
   for _, entry in ipairs(env.drawn) do
     expect.equal(entry.board, board, 'the keyboard in the state')
     expect.equal(entry.hovered, entry.key.code == 31, 'only the hovered key is hovered')

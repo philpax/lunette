@@ -52,12 +52,16 @@ end)
 test('listeners hear arrivals and removals, and a raising listener is reported while the others run', function()
   local env = start()
   local added, removed, everything = {}, {}, {}
-  env.panels:onAdded(env.owner, function(created)
-    added[#added + 1] = created
-  end)
-  env.panels:onAdded(env.owner, function()
-    error 'arrival listener failed'
-  end)
+  env.panels:onAdded(env.owner, {
+    run = function(created)
+      added[#added + 1] = created
+    end,
+  })
+  env.panels:onAdded(env.owner, {
+    run = function()
+      error 'arrival listener failed'
+    end,
+  })
   local first = env.panels:fromWindow(env.owner, env.native.newWindow(1), { height = 1 })
   local second = env.panels:fromWindow(env.owner, env.native.newWindow(2), { height = 1 })
   expect.equal(added[1], first, 'the first arrival')
@@ -86,11 +90,11 @@ test('the most recent live override decides whether a panel is hidden', function
   local env = start { rendering = 'layer' }
   local panel = env.panels:fromWindow(env.owner, env.native.newWindow(1), { height = 1 })
   local claim = panel.claim
-  local hiding = panel:setHidden(env.owner, { hidden = true })
+  local hiding = panel:setHidden(env.owner, true)
   expect.truthy(panel.hidden, 'the hidden panel')
   expect.truthy(claim.dead, 'hiding gives up the layer claim')
   expect.equal(panel:raycast(vector.pack(0, 0, 0), vector.pack(0, 0, -1)), nil, 'a hidden panel is not picked')
-  local showing = panel:setHidden(env.other, { hidden = false })
+  local showing = panel:setHidden(env.other, false)
   expect.falsy(panel.hidden, 'the newer override shows the panel')
   hiding:dispose()
   showing:dispose()

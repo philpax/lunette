@@ -41,9 +41,7 @@ local inspection = require '@lunette-contracts/inspection'
 
 export type Service = {
   read inspect: (Service) -> inspection.Snapshot,
-  read TUNING: Tuning,
   read newPointer: (Service, Owner, PointerOptions?) -> Pointer,
-  read pointers: (Service) -> { Pointer },
 }
 
 export type Capability = plugin.Capability<Service>

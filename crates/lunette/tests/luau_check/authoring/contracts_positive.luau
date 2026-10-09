@@ -54,7 +54,6 @@ local function build(
         assert(not current.dead)
       end
       local board: keyboard.Keyboard = keys:new(ctx)
-      board:typeText(config.title)
       board:setSize(nil, config.height)
       dropped:onDropped(ctx, {
         run = function(drop: drops.Drop)
@@ -73,7 +72,7 @@ local function build(
       for _, panel in allPanels do
         if panel.kind == 'window' then
           local windowTitle: string = panel.source.title or 'untitled'
-          board:typeText(windowTitle)
+          board:setVisible(#windowTitle > 0)
         end
       end
     end,

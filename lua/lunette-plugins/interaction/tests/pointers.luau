@@ -120,7 +120,8 @@ test('a pointer is made only for a context requiring interaction, with tuning me
   local near = env.interaction:newPointer(env.owner, { seat = env.seat, tuning = { reach = 1 } })
   expect.equal(near.seat, env.seat, 'the seat')
   expect.equal(near.tuning.reach, 1, 'the merged reach')
-  expect.equal(near.tuning.scrollScale, env.interaction.TUNING.scrollScale, 'the inherited scroll scale')
+  local default = env.interaction:newPointer(env.owner)
+  expect.equal(near.tuning.scrollScale, default.tuning.scrollScale, 'the inherited scroll scale')
   env.session:close()
 end)
 

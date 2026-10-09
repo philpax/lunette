@@ -86,11 +86,9 @@ function fixture.boot(additions)
     error('list item is not reachable: ' .. itemId)
   end
   function env:visible()
-    for _, panel in self.services.ui:panels() do
-      local description = panel:describe()
-      if description.name == 'desktop/manager' then
-        return description.visible
-      end
+    local description = vrUi.describe(self.services.ui, 'desktop/manager')
+    if description then
+      return description.visible
     end
     error 'manager panel is absent'
   end

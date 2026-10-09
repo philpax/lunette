@@ -19,7 +19,7 @@ local function start()
     'focus',
     'keyboard',
     'ui',
-    'desktop/keyboard',
+    { id = 'desktop/keyboard', definition = require '@lunette-plugins/keyboard-display' },
     {
       id = 'fields',
       definition = adapter.define {
@@ -35,13 +35,12 @@ local function start()
             logicalWidth = 200,
             logicalHeight = 200,
           })
-          env.first = panel:textField(context, {
+          env.first = panel:textField {
             id = 'first',
             value = 'draft',
             bounds = { x = 10, y = 10, width = 180, height = 30 },
-          })
-          env.second =
-            panel:textField(context, { id = 'second', bounds = { x = 10, y = 60, width = 180, height = 30 } })
+          }
+          env.second = panel:textField { id = 'second', bounds = { x = 10, y = 60, width = 180, height = 30 } }
         end,
       },
     },
@@ -107,7 +106,7 @@ test('a manual show outlives the field, and hide ends editing and keeps the draf
   expect.truthy(native:focus())
   expect.equal(shown(env), board, 'manual visibility survives leaving a field')
   expect.truthy(env.first:focus())
-  expect.truthy(board:typeText '!')
+  expect.equal(env.focus:newSource(env.owner):text('!').kind, 'consumed', 'the field takes typed text')
   expect.truthy(env.display:hide())
   expect.equal(shown(env), nil, 'hide withdraws the keyboard')
   expect.equal(env.focus:focused(), nil, 'hide blurs the field')

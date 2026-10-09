@@ -120,9 +120,6 @@ function collection.widget(kind: Kind, options: ui.ListOptions, host: records.Ho
     if not host.live() then
       return
     end
-    if type(value) ~= 'boolean' then
-      error('ui ' .. kind .. ': open is a boolean', 2)
-    end
     local shape = current(host.bounds(), host.theme())
     local replacement = value and shape.canOpen
     if opened == replacement then
@@ -271,18 +268,7 @@ function collection.widget(kind: Kind, options: ui.ListOptions, host: records.Ho
     setSelected = function(_self: ui.List, id: string?): ()
       setSelected(id)
     end,
-    selected = function(_self: ui.List): string?
-      return selected
-    end,
-    scroll = function(_self: ui.List, pixels: number): ()
-      scroll(pixels)
-    end,
   }
-  if kind == 'choice' then
-    methods.setOpen = function(_self: ui.Choice, value: boolean): ()
-      setOpen(value)
-    end
-  end
   local widget: records.Widget = {
     wantsKeyboard = false,
     methods = table.freeze(methods),

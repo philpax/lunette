@@ -14,7 +14,7 @@ return plugin.consumer<<Config, Settings>>({
     local panelService: panels.Service = context:require(panels.capability)
     local overrides: { plugin.Effect } = {}
     local hidden = false
-    local registration: plugin.Effect? = nil
+    local registration: menu.Registration? = nil
     registration = actions:register(context, {
       id = 'example/hide-windows',
       label = 'Hide windows',
@@ -29,7 +29,7 @@ return plugin.consumer<<Config, Settings>>({
         if hidden then
           for _, panel in ipairs(panelService:all()) do
             if panel.kind == 'window' and not panel.dead then
-              overrides[#overrides + 1] = panel:setHidden(context, { hidden = true })
+              overrides[#overrides + 1] = panel:setHidden(context, true)
             end
           end
         else
@@ -39,7 +39,7 @@ return plugin.consumer<<Config, Settings>>({
           table.clear(overrides)
         end
         if registration then
-          actions:update(context, registration, { selected = hidden })
+          registration:update { selected = hidden }
         end
       end,
     })

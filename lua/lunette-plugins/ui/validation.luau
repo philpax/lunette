@@ -13,7 +13,7 @@ local callback: (unknown, string, boolean?) -> ()
 local optional: <T>(schema.Schema<T, T>, unknown, string) -> ()
 local checkSeat: (lunette.Seat?) -> ()
 
-local COMMON: { string } = { 'id', 'bounds', 'label', 'enabled', 'z', 'theme', 'draw', 'exclusive' }
+local COMMON: { string } = { 'id', 'owner', 'bounds', 'label', 'enabled', 'z', 'theme', 'draw', 'exclusive' }
 local function controlFields(...: string): { string }
   local result = table.clone(COMMON)
   for _, field in { ... } do

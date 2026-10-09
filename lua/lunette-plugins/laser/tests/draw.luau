@@ -17,7 +17,8 @@ local function fixture(hook)
     { id = 'laser', definition = laser.define { draw = hook } },
   }
   local observer = session:observe(contract.capability)
-  local target = observer.service:new(observer.context, 'left', {
+  -- The handle is the provider's record, so the test drives its update and draw directly.
+  local target = observer.service:attach(observer.context, {
     readInput = function()
       return {
         pose = lovr.math.newMat4(),
@@ -28,7 +29,7 @@ local function fixture(hook)
         dt = 1 / 60,
       }
     end,
-  })
+  })[1]
   local appearance = session:observe(theme.capability)
   appearance.service:select(appearance.context, {
     colors = { pointer = { 0.9, 0.1, 0.3, 0.8 }, pointerHovered = { 0.1, 0.9, 0.4, 1 } },

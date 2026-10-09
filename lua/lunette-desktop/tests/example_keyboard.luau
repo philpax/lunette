@@ -33,7 +33,7 @@ test('the keyboard example runs, and its split keyboard is shown with its halves
   expect.truthy(display:show(), 'the public display opens the keyboard')
   local board
   for _, candidate in ipairs(surfaces:all()) do
-    if candidate.pressKey then
+    if candidate.keys then
       board = candidate
     end
   end

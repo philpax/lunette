@@ -4,14 +4,11 @@ local adoption = require '@lunette-contracts/adoption'
 local panels = require '@lunette-contracts/panels'
 local placement = require '@lunette-contracts/placement'
 local rules = require '@lunette-contracts/rules'
-local config = require '@lunette-plugins/adoption/config'
 local build = require '@lunette-plugins/adoption/service'
 
-export type Settings = config.Settings
 export type Service = adoption.Service
-export type Config = config.Config
 
-return plugin.provider<<Config, Settings, Service>> {
+return plugin.provider<<{}, {}, Service>> {
   name = 'adoption',
   capability = adoption.capability,
   requires = {
@@ -19,6 +16,5 @@ return plugin.provider<<Config, Settings, Service>> {
     placement.capability,
     rules.capability,
   },
-  schema = config,
   build = build,
 }

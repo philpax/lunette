@@ -69,7 +69,7 @@ return plugin.consumer<<Config, Settings>>({
         }
         else nil)
       if not opened then
-        button = panel:button(context, {
+        button = panel:button {
           id = 'open',
           label = 'Menu',
           bounds = layout.button,
@@ -78,11 +78,11 @@ return plugin.consumer<<Config, Settings>>({
               rebuild(true)
             end
           end,
-        })
+        }
       end
       if opened and layout.actions then
         snapshot = menuService:list()
-        list = panel:list(context, {
+        list = panel:list {
           id = 'actions',
           label = 'Actions',
           bounds = layout.actions,
@@ -96,13 +96,22 @@ return plugin.consumer<<Config, Settings>>({
             current:setSelected(nil)
             if descriptor and descriptor.enabled then
               -- Failed results are already reported by the broker; unavailable registrations are inert.
-              menuService:invoke(descriptor.id, descriptor.registration)
+              menuService:invoke(descriptor.id, descriptor.token)
             end
           end,
-        })
+        }
       end
     end
     rebuild(false)
+    menuService:onChanged(context, {
+      run = function(): ()
+        local current = list
+        if live() and opened and current and not current.dead then
+          snapshot = menuService:list()
+          current:setItems(rows.items(snapshot))
+        end
+      end,
+    })
     frameService:onUpdate(context, {
       phase = 'scene',
       order = 1,
@@ -126,14 +135,6 @@ return plugin.consumer<<Config, Settings>>({
           panel:setVisible(true)
         end
         tracked = true
-        local current = list
-        if opened and current and not current.dead then
-          local replacement = menuService:list()
-          if not rows.same(snapshot, replacement) then
-            snapshot = replacement
-            current:setItems(rows.items(snapshot))
-          end
-        end
       end,
     })
     frameService:onDraw(context, {

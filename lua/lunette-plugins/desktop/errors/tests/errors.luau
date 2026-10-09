@@ -1,10 +1,9 @@
 local testing = require '@testing'
 local expect = testing.expect
-local errors = require '@lunette-contracts/errors'
 
 local test = testing.suite()
 
-test('the error overlay draws at its configured position and a cleared stream draws nothing', function()
+test('the error overlay draws the latest report at its configured position', function()
   local position = vector.pack(2, 3, -4)
   local session = testing.boot {
     'frame',
@@ -26,11 +25,6 @@ test('the error overlay draws at its configured position and a cleared stream dr
   expect.near(plane[2], position.x, 1e-5, 'the plane x position')
   expect.near(plane[3], position.y, 1e-5, 'the plane y position')
   expect.near(plane[4], position.z, 1e-5, 'the plane z position')
-  local stream = session:observe(errors.capability)
-  stream.service:clear(stream.context)
-  session.native.events.draw = {}
-  session:draw()
-  expect.equal(#session.native.events.draw, 0, 'a cleared stream has no overlay')
   session:close()
 end)
 

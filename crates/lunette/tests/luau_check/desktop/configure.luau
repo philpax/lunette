@@ -1,7 +1,7 @@
 -- Correct patches and settings check cleanly; each rejected one reports its own line.
 local plugin = require '@lunette-plugin'
 local desktop = require '@lunette-desktop'
-local keyboard = require '@lunette-plugins/desktop/keyboard'
+local keyboard = require '@lunette-plugins/keyboard-display'
 local menu = require '@lunette-plugins/desktop/menu'
 local arrange = require '@lunette-plugins/desktop/arrange'
 local persistence = require '@lunette-plugins/arrangement'

@@ -160,7 +160,7 @@ local function acquire(
       local panel = panels:fromWindow(context, window, options)
       created = panel
       if properties.hidden == true then
-        hiding = panel:setHidden(context, { hidden = true })
+        hiding = panel:setHidden(context, true)
       end
       if properties.tags then
         joinTags(state, panel, properties.tags, holds, memberships)
@@ -247,7 +247,7 @@ function service.build(context: plugin.Context, settings: Settings): contract.Se
       _self: contract.Service,
       owner: Owner,
       request: contract.Request
-    ): (panelsContract.WindowPanel, Properties, plugin.Effect)
+    ): (contract.Placement, plugin.Effect)
       local checked = checkedRequest(request)
       context:checkOwner(owner)
       local window = checked.window
@@ -261,13 +261,13 @@ function service.build(context: plugin.Context, settings: Settings): contract.Se
       end
       local frozen: Properties = table.freeze(properties) :: any
       local panel, effect = acquire(state, owner, window, frozen)
-      if panel.dead then
-        return panel, frozen, effect
-      end
       local placed: contract.Placement = table.freeze { panel = panel, properties = frozen }
+      if panel.dead then
+        return placed, effect
+      end
       state.placements[#state.placements + 1] = { placement = placed, owner = owner }
       announce(placed)
-      return panel, frozen, effect
+      return placed, effect
     end,
     placed = function(_self: contract.Service): { contract.Placement }
       local result: { contract.Placement } = {}

@@ -84,8 +84,13 @@ local function create(context: plugin.Context): contract.Service
       end
       registration.apply(panels, application.options)
     end,
-    names = function(_self: contract.Service): { string }
-      return registeredNames()
+    list = function(_self: contract.Service): { read [number]: contract.Entry }
+      local entries: { contract.Entry } = {}
+      for _, name in registeredNames() do
+        local registration = named:get(name) :: Registration
+        entries[#entries + 1] = table.freeze { name = name, continuous = registration.continuous }
+      end
+      return entries
     end,
     get = function(_self: contract.Service, name: string): contract.Entry?
       local registration = named:get(name)

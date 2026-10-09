@@ -31,8 +31,6 @@ local function kept(panel: panels.WindowPanel): boolean
   return not source.dead and type(source:getProperty(vocabulary.POSE_PROPERTY)) == 'string'
 end
 
-type Plan = { tag: tags.Tag, layout: string, options: { read [string]: unknown }? }
-
 local function define(): plugin.Definition<Config>
   -- Dropped panels stay excluded while they remain live.
   local dropped: { [panels.Panel]: boolean } = setmetatable({} :: { [panels.Panel]: boolean }, { __mode = 'k' })
@@ -73,14 +71,13 @@ local function define(): plugin.Definition<Config>
         return result
       end
 
-      local function plans(): { Plan }
-        local selected: { Plan } = {}
-        local rest: { Plan } = {}
+      -- Selected tags come first, so a panel in several tags is arranged by the first selected one.
+      local function ordered(): { tags.Tag }
+        local selected: { tags.Tag } = {}
+        local rest: { tags.Tag } = {}
         for _, tag in ipairs(chosen()) do
-          local layout = tag.layout or settings.layout
-          local plan: Plan = { tag = tag, layout = layout, options = settings.options[layout] }
           local group = if tag.selected then selected else rest
-          group[#group + 1] = plan
+          group[#group + 1] = tag
         end
         table.move(rest, 1, #rest, #selected + 1, selected)
         return selected
@@ -89,17 +86,19 @@ local function define(): plugin.Definition<Config>
       local function arrange(): ()
         local waiting = candidates()
         local done: { [panels.Panel]: boolean } = {}
-        for _, plan in ipairs(plans()) do
+        local layout = settings.layout
+        if layoutService:get(layout) == nil then
+          return
+        end
+        for _, tag in ipairs(ordered()) do
           local members: { layouts.Panel } = {}
           for _, panel in ipairs(waiting) do
-            if not done[panel] and plan.tag:has(panel) then
+            if not done[panel] and tag:has(panel) then
               members[#members + 1] = panel
               done[panel] = true
             end
           end
-          if layoutService:get(plan.layout) ~= nil then
-            layoutService:apply { name = plan.layout, panels = members, options = plan.options }
-          end
+          layoutService:apply { name = layout, panels = members, options = settings.options[layout] }
         end
       end
 
@@ -124,25 +123,19 @@ local function define(): plugin.Definition<Config>
         phase = 'scene',
         order = UPDATE_ORDER,
         run = function(): ()
-          local continuous = false
-          local used: { string } = { settings.layout }
-          for _, plan in ipairs(plans()) do
-            used[#used + 1] = plan.layout
-          end
-          for _, name in ipairs(used) do
-            local entry = layoutService:get(name)
-            if entry == nil and not reported[name] then
-              reported[name] = true
-              local names = layoutService:names()
-              local known = if #names == 0
-                then 'no layout is registered'
-                else 'the registered layouts are ' .. table.concat(names, ', ')
-              logging.report('desktop/arrange: ' .. name .. ' is not a registered layout; ' .. known, 'warn')
-            elseif entry and entry.continuous then
-              continuous = true
+          local name = settings.layout
+          local entry = layoutService:get(name)
+          if entry == nil and not reported[name] then
+            reported[name] = true
+            local names: { string } = {}
+            for _, registered in layoutService:list() do
+              names[#names + 1] = registered.name
             end
-          end
-          if continuous then
+            local known = if #names == 0
+              then 'no layout is registered'
+              else 'the registered layouts are ' .. table.concat(names, ', ')
+            logging.report('desktop/arrange: ' .. name .. ' is not a registered layout; ' .. known, 'warn')
+          elseif entry and entry.continuous then
             arrange()
           end
         end,

@@ -1,21 +1,16 @@
--- Installs a native pose source and adopts windows without closing them.
+-- Adopts windows without closing them.
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local adoption = require '@lunette-contracts/adoption'
 local panelsContract = require '@lunette-contracts/panels'
 local placementContract = require '@lunette-contracts/placement'
 local rulesContract = require '@lunette-contracts/rules'
-local vocabulary = require '@lunette-contracts/vocabulary'
 local inspection = require '@lunette-contracts/inspection'
-local config = require '@lunette-plugins/adoption/config'
 
 export type Service = adoption.Service
 export type Owner = adoption.Owner
 export type Options = adoption.Options
 export type Properties = adoption.Properties
-export type Settings = config.Settings
-
-local SOURCE = 'lunette.adoption'
 
 type Adopted = {
   start: {},
@@ -25,16 +20,7 @@ type Adopted = {
   placed: plugin.Effect,
 }
 
--- Reads a pose persisted on the window across Lua state reloads.
-local function keptPose(window: lunette.Window): rulesContract.Properties?
-  local kept = window:getProperty(vocabulary.POSE_PROPERTY)
-  if type(kept) ~= 'string' then
-    return nil
-  end
-  return { pose = kept }
-end
-
-local function build(context: plugin.Context, settings: Settings): Service
+local function build(context: plugin.Context): Service
   local records: { inspection.Registration } = {}
   -- A panel destroyed elsewhere has already released its placement, so its entry is only pruned.
   local adopted: { Adopted } = {}
@@ -79,22 +65,6 @@ local function build(context: plugin.Context, settings: Settings): Service
       end
       return inspection.snapshot(result, { active = context:active() }, { 'filter results require callbacks' })
     end,
-    -- The provider registers the source under the caller's ownership; callers do not require the rules service.
-    install = function(_self: Service, owner: Owner): plugin.Effect
-      context:checkOwner(owner)
-      local rules: rulesContract.Service = context:require(rulesContract.capability)
-      local chosen = settings.precedence
-      return context:acquire(owner, function(): () -> ()
-        local registration = rules:addSource(context, { name = SOURCE, precedence = chosen, resolve = keptPose })
-        local entry =
-          inspection.registration('poseSource', 'adoption.install', owner, SOURCE, true, { precedence = chosen })
-        records[#records + 1] = entry
-        return function()
-          forget(entry)
-          registration:dispose()
-        end
-      end)
-    end,
     start = function(_self: Service, owner: Owner, options: Options?): plugin.Effect
       context:checkOwner(owner)
       local panels: panelsContract.Service = context:require(panelsContract.capability)
@@ -128,8 +98,9 @@ local function build(context: plugin.Context, settings: Settings): Service
         if adopt == false then
           return
         end
-        local created, _properties, placed =
+        local result, placed =
           placement:place(context, { window = window, properties = resolved, defaults = chosen.defaults })
+        local created = result.panel
         if created.dead or not live() then
           placed:dispose()
           return

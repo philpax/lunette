@@ -1,5 +1,6 @@
 -- Handlers run by phase, order, and registration. A key or text handler that returns true consumes the event.
 
+local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local keys = require '@lunette-contracts/keys'
 
@@ -23,21 +24,27 @@ export type BatchHandler = {
   read run: (Batch) -> (),
 }
 
--- What lovr.keypressed reports. `isRepeat` is LÖVR's isrepeat, renamed because `repeat` is reserved.
-export type KeyEvent = {
+-- What lovr.keypressed reports, translated once for every handler. `isRepeat` is LÖVR's isrepeat, renamed because
+-- `repeat` is reserved.
+export type HostKeyEvent = {
   read batch: number,
   read key: KeyCode,
   read scancode: number,
   read isRepeat: boolean,
+  -- The evdev code of the key, or nil for a LÖVR key with no evdev name.
+  read code: number?,
+  -- From the host snapshot when there is one, otherwise from the keys held now.
+  read modifiers: { read [number]: lunette.ModifierName },
   -- Nil means the backend cannot report modifiers at the host event boundary.
-  read modifiers: keys.PhysicalModifiers?,
+  read physicalModifiers: keys.PhysicalModifiers?,
 }
 
--- What lovr.textinput reports: the text and its first code point.
-export type TextEvent = {
+-- What lovr.textinput reports: the text, its first code point, and the modifiers held now.
+export type HostTextEvent = {
   read batch: number,
   read text: string,
   read code: number,
+  read modifiers: { read [number]: lunette.ModifierName },
 }
 
 export type UpdateHandler = {
@@ -55,13 +62,13 @@ export type DrawHandler = {
 export type KeyHandler = {
   read phase: InputPhase?,
   read order: number?,
-  read run: (KeyEvent) -> boolean?,
+  read run: (HostKeyEvent) -> boolean?,
 }
 
 export type TextHandler = {
   read phase: InputPhase?,
   read order: number?,
-  read run: (TextEvent) -> boolean?,
+  read run: (HostTextEvent) -> boolean?,
 }
 
 export type QuitHandler = {

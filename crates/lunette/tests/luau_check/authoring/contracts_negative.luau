@@ -31,7 +31,7 @@ local definition = adapter.define {
     panelRegistry:fromWindow(ctx, 'not a window') -- reject: Window.
     input:newPointer(ctx, { seat = 'not a seat' }) -- reject: Seat.
     local board = keys:new(ctx)
-    board:typeText(42) -- reject: string.
+    board:setSize('wide', nil) -- reject: number.
     board:setVisible 'visible' -- reject: boolean.
     local _wrongBoard: panels.Panel = board -- reject: Panel.
     local _wrongConfig: number = config.title -- reject: number.
