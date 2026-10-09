@@ -92,8 +92,11 @@ test('wrist menu actions are VR accessible and session actions do not register p
     fixture:clickControl(services.ui, 'desktop/menu', 'actions', 'right', id)
   end
   local function selectedPreset(preset)
-    local count = 0
+    local count, choices = 0, 0
     for _, action in services.menu:list() do
+      if action.group == 'Appearance' then
+        choices += 1
+      end
       for _, name in { 'dark', 'light', 'arcade' } do
         if action.id == 'desktop/theme/' .. name then
           expect.equal(action.label, 'Theme: ' .. name:sub(1, 1):upper() .. name:sub(2), 'preset label')
@@ -103,24 +106,22 @@ test('wrist menu actions are VR accessible and session actions do not register p
           end
         end
       end
-      if action.id == 'desktop/theme/dark-mode' then
-        expect.equal(action.selected, preset == 'dark', 'Dark mode is selected only for Dark')
-      end
     end
+    expect.equal(choices, 3, 'Appearance contains only the three preset choices')
     expect.equal(count, 1, 'exactly one Appearance preset is selected')
   end
   selectedPreset 'dark'
   local initialUI, initialKeyboard = services.ui, services.keyboard
   invoke 'desktop/theme/light'
   selectedPreset 'light'
-  invoke 'desktop/theme/dark-mode'
+  invoke 'desktop/theme/dark'
   selectedPreset 'dark'
-  invoke 'desktop/theme/dark-mode'
+  invoke 'desktop/theme/light'
   selectedPreset 'light'
   invoke 'desktop/theme/arcade'
   selectedPreset 'arcade'
   expect.equal(services.theme:current().theme.typography.font.kind, 'file', 'Arcade selects its bundled face')
-  invoke 'desktop/theme/dark-mode'
+  invoke 'desktop/theme/dark'
   selectedPreset 'dark'
   expect.equal(services.ui, initialUI, 'Appearance actions retain the UI provider')
   expect.equal(services.keyboard, initialKeyboard, 'Appearance actions retain the keyboard provider')

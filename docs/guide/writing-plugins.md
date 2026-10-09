@@ -178,7 +178,7 @@ Geometric positions, directions, and offsets are native `vector` values, constru
 
 A patch with an entry's `id` changes that entry. A schema-backed definition resolves `config` through its descriptor: declared objects merge key by key, while arrays, maps, unions, and atomic values replace. Raw and legacy definitions retain recursive string-keyed table merging. `disabled = true` removes the entry, and `definition` replaces what the entry is made from. An unknown id raises when the configuration loads.
 
-The shipped desktop selects the Dark theme through `desktop/theme`. Its Appearance actions select Dark, Light, or Arcade. Dark mode switches Dark to Light and Light or Arcade to Dark. Configuration sets the initial preset and can override selected fields without replacing the preset:
+The shipped desktop selects the Dark theme through `desktop/theme`. Its Appearance actions select Dark, Light, or Arcade. Configuration sets the initial preset and can override selected fields without replacing the preset:
 
 ```lua
 desktop.configure(require '@lunette-plugins/desktop/theme') {

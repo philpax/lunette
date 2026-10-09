@@ -40,7 +40,6 @@ local function define(): plugin.Definition<Config>
       local overrides = descriptors.projectOverrides(settings.overrides, 'desktop/theme overrides')
       local registration = themeService:select(context, descriptors.resolve(themes[initial], overrides))
       local actions: { [Preset]: plugin.Effect } = {}
-      local darkMode: plugin.Effect? = nil
       local choiceRevision = 0
 
       local function choose(preset: Preset): ()
@@ -57,9 +56,6 @@ local function define(): plugin.Definition<Config>
         for name, effect in actions do
           menuService:update(context, effect, { selected = name == preset })
         end
-        if darkMode then
-          menuService:update(context, darkMode, { selected = preset == 'dark' })
-        end
       end
 
       for index, choice in choices do
@@ -75,16 +71,6 @@ local function define(): plugin.Definition<Config>
           end,
         })
       end
-      darkMode = menuService:register(context, {
-        id = 'desktop/theme/dark-mode',
-        label = 'Dark mode',
-        group = 'Appearance',
-        order = #choices + 1,
-        selected = initial == 'dark',
-        run = function(): ()
-          choose(if selected == 'dark' then 'light' else 'dark')
-        end,
-      })
       selected, configuredPreset = initial, settings.preset
     end,
   }).definition
