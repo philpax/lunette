@@ -3,11 +3,13 @@
 -- along the arc. A curve of zero or less is flat.
 
 local quad = require '@lunette-contracts/quad'
+local geometry = require '@lunette-plugins/theme/rounded-geometry'
 
 local shape = {}
 
 export type Curved = quad.Quad & {
   read curve: number,
+  read polygon: { geometry.Point }?,
 }
 
 -- How many flat strips the in-scene drawing of a curve is made of.
@@ -24,7 +26,19 @@ end
 function shape.hit(target: Curved, origin: vector, direction: vector): (number?, number?, number?)
   local curve = target.curve
   if not (curve > 0) or curve == math.huge then
-    return quad.hit(target, origin, direction)
+    local x, y, distance = quad.hit(target, origin, direction)
+    if x and y and target.polygon then
+      if
+        not geometry.contains(
+          target.polygon,
+          x / target.pixelWidth * target.width,
+          y / target.pixelHeight * target.height
+        )
+      then
+        return nil, nil, nil
+      end
+    end
+    return x, y, distance
   end
   if target.width <= 0 or target.height <= 0 or target.pixelWidth <= 0 or target.pixelHeight <= 0 then
     return nil, nil, nil
@@ -61,7 +75,16 @@ function shape.hit(target: Curved, origin: vector, direction: vector): (number?,
       if front and math.abs(angle) <= half and math.abs(y) <= target.height / 2 then
         local pixelX = (angle + half) / (2 * half) * target.pixelWidth
         local pixelY = (target.height / 2 - y) / target.height * target.pixelHeight
-        return pixelX, pixelY, distance
+        if
+          not target.polygon
+          or geometry.contains(
+            target.polygon,
+            pixelX / target.pixelWidth * target.width,
+            pixelY / target.pixelHeight * target.height
+          )
+        then
+          return pixelX, pixelY, distance
+        end
       end
     end
   end
@@ -89,6 +112,118 @@ function shape.arc(width: number, height: number, curve: number, segments: numbe
       for _, vertex in ipairs { top, bottom, nextTop, nextTop, bottom, nextBottom } do
         indices[#indices + 1] = vertex
       end
+    end
+  end
+  return vertices, indices
+end
+
+-- Rounded polygons are split before cylindrical mapping so no triangle spans multiple arc strips.
+function shape.rounded(
+  width: number,
+  height: number,
+  curve: number,
+  polygon: { geometry.Point }
+): ({ { number } }, { number })
+  local vertices: { { number } } = {}
+  local indices: { number } = {}
+  local strips = if curve > 0 then shape.SEGMENTS else 1
+  for strip = 0, strips - 1 do
+    local clipped = if strips == 1
+      then polygon
+      else geometry.clip(polygon, {
+        x = width * strip / strips,
+        y = 0,
+        width = width / strips,
+        height = height,
+      })
+    local points, triangles = geometry.triangles(clipped)
+    local offset = #vertices
+    for _, point in points do
+      local u, v = point[1] / width, point[2] / height
+      if curve > 0 then
+        local radius = 1 / curve
+        local angle = (2 * u - 1) * shape.halfAngle(width, curve)
+        vertices[#vertices + 1] = {
+          radius * math.sin(angle),
+          height / 2 - point[2],
+          radius - radius * math.cos(angle),
+          -math.sin(angle),
+          0,
+          math.cos(angle),
+          u,
+          v,
+        }
+      else
+        vertices[#vertices + 1] = { point[1] - width / 2, height / 2 - point[2], 0, 0, 0, 1, u, v }
+      end
+    end
+    -- Source coordinates are y-down, whereas native panel coordinates are y-up.
+    for index = 1, #triangles, 3 do
+      indices[#indices + 1] = offset + triangles[index]
+      indices[#indices + 1] = offset + triangles[index + 2]
+      indices[#indices + 1] = offset + triangles[index + 1]
+    end
+  end
+  return vertices, indices
+end
+
+-- Outline triangles also split at arc-strip boundaries; the outermost strips include border expansion.
+function shape.mapTriangles(
+  width: number,
+  height: number,
+  curve: number,
+  points: { { number } },
+  triangles: { number },
+  expansion: number
+): ({ { number } }, { number })
+  local vertices: { { number } } = {}
+  local indices: { number } = {}
+  local function append(polygon: { geometry.Point }): ()
+    local source, sourceIndices = geometry.triangles(polygon)
+    local offset = #vertices
+    for _, point in source do
+      local u, v = point[1] / width, point[2] / height
+      if curve > 0 then
+        local radius = 1 / curve
+        local angle = (2 * u - 1) * shape.halfAngle(width, curve)
+        vertices[#vertices + 1] = {
+          radius * math.sin(angle),
+          height / 2 - point[2],
+          radius - radius * math.cos(angle),
+          -math.sin(angle),
+          0,
+          math.cos(angle),
+          u,
+          v,
+        }
+      else
+        vertices[#vertices + 1] = { point[1] - width / 2, height / 2 - point[2], 0, 0, 0, 1, u, v }
+      end
+    end
+    for index = 1, #sourceIndices, 3 do
+      indices[#indices + 1] = offset + sourceIndices[index]
+      indices[#indices + 1] = offset + sourceIndices[index + 2]
+      indices[#indices + 1] = offset + sourceIndices[index + 1]
+    end
+  end
+  for index = 1, #triangles, 3 do
+    local polygon: { geometry.Point } = {}
+    local top: number = math.huge
+    local bottom: number = -math.huge
+    for vertex = index, index + 2 do
+      local point = points[triangles[vertex]]
+      polygon[#polygon + 1] = { x = point[1], y = point[2] }
+      top = math.min(top, point[2])
+      bottom = math.max(bottom, point[2])
+    end
+    if curve > 0 then
+      for strip = 0, shape.SEGMENTS - 1 do
+        local left = if strip == 0 then -expansion else width * strip / shape.SEGMENTS
+        local right = if strip == shape.SEGMENTS - 1 then width + expansion else width * (strip + 1) / shape.SEGMENTS
+        append(geometry.clip(polygon, { x = left, y = top, width = right - left, height = bottom - top }))
+      end
+    else
+      append(polygon)
     end
   end
   return vertices, indices

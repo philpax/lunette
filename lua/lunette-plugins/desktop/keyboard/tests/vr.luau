@@ -39,6 +39,7 @@ for _, provider in { 'built-in', 'substitute' } do
   test(provider .. ' UI field clicks share one keyboard and user hide preserves its draft', function()
     local running = vrUi.boot {
       'frame',
+      'theme',
       'surfaces',
       'drops',
       'focus',

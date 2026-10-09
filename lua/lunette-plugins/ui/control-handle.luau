@@ -95,10 +95,6 @@ function handles.create(panel: records.Panel, owner: ui.Owner, options: ui.Optio
       return false
     end
     record.dead, record.focused = true, false
-    drawing.clearCache(record.measurements)
-    if record.widget.clearMeasurements then
-      record.widget.clearMeasurements()
-    end
     reservation.release()
     local index = table.find(panel.controls, record)
     if index then
@@ -108,6 +104,14 @@ function handles.create(panel: records.Panel, owner: ui.Owner, options: ui.Optio
     local old, inverse = target, release
     target, record.target, release = nil, nil, nil
     failAll {
+      function(): ()
+        drawing.clearCache(record.measurements)
+      end,
+      function(): ()
+        if record.widget.clearMeasurements then
+          record.widget.clearMeasurements()
+        end
+      end,
       function(): ()
         record.lease:dispose()
       end,
@@ -175,6 +179,9 @@ function handles.create(panel: records.Panel, owner: ui.Owner, options: ui.Optio
       end
       return input.bounds(panel, record)
     end,
+    textClip = function(): ui.Bounds?
+      return if panel.contour and not initializing then input.bounds(panel, record) else nil
+    end,
     theme = function(): ui.Theme
       panel.refresh()
       return if initializing then resolved else record.theme
@@ -228,6 +235,7 @@ function handles.create(panel: records.Panel, owner: ui.Owner, options: ui.Optio
         end
         geometry.validateBounds(given)
         record.bounds = table.freeze(table.clone(given))
+        drawing.clearCache(record.measurements)
         panel.revision += 1
         input.cancel(panel, record, 'control-removed')
       end,

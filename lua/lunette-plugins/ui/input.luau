@@ -7,6 +7,7 @@ local records = require '@lunette-plugins/ui/panel-state'
 local geometry = require '@lunette-plugins/ui/geometry'
 local order = require '@lunette-plugins/ui/control-order'
 local protected = require '@lunette-plugins/protected'
+local panelGeometry = require './panel-geometry'
 
 local input = {}
 
@@ -14,7 +15,7 @@ type Panel = records.Panel
 type Control = records.Control
 
 local function canvas(panel: Panel): ui.Bounds
-  return { x = 0, y = 0, width = panel.logicalWidth, height = panel.logicalHeight }
+  return panelGeometry.prepare(panel).clip
 end
 
 function input.bounds(panel: Panel, control: Control): ui.Bounds?

@@ -3,6 +3,7 @@ local expect = testing.expect
 
 local quad = require '@lunette-contracts/quad'
 local shape = require '@lunette-plugins/panels/shape'
+local geometry = require '@lunette-plugins/theme/rounded-geometry'
 
 local test = testing.suite()
 
@@ -32,6 +33,14 @@ test('a panel without a curve picks as a flat quad', function()
     expect.equal(y, qy, 'case ' .. case .. ': y')
     expect.equal(distance, qd, 'case ' .. case .. ': distance')
   end
+  local rounded = panel(0)
+  rounded.polygon = geometry.perimeter({ x = 0, y = 0, width = WIDTH, height = HEIGHT }, geometry.uniform(0.2))
+  local angle = math.pi + math.pi / 32
+  local chordRadius = 0.2 * (1 + math.cos(math.pi / 32)) / 2
+  local px, py = 0.2 + chordRadius * math.cos(angle), 0.2 + chordRadius * math.sin(angle)
+  local origin = vector.pack(px - WIDTH / 2, 1 + HEIGHT / 2 - py, 0)
+  expect.truthy(quad.hit(rounded, origin, vector.pack(0, 0, -1)), 'the corner remains inside the source quad')
+  expect.falsy(shape.hit(rounded, origin, vector.pack(0, 0, -1)), 'the point between the arc chord and circle misses')
 end)
 
 test('a ray leaving the axis meets the arc one radius away', function()
@@ -78,6 +87,17 @@ test('the picked arc follows the panel pose', function()
   local x, _, distance = shape.hit(panel(0.5, pose), vector.pack(5, 1, -1), vector.pack(-1, 0, 0))
   expect.near(x, PIXELS_WIDE / 2, 1e-3, 'the centre of the turned arc')
   expect.near(distance, 2, 1e-5, 'the radius of the turned arc')
+  local target = panel(0.5, pose)
+  target.polygon = geometry.perimeter({ x = 0, y = 0, width = WIDTH, height = HEIGHT }, geometry.uniform(0.2))
+  local function ray(px, py)
+    local angle = (2 * px / WIDTH - 1) * shape.halfAngle(WIDTH, target.curve)
+    local dx, dy, dz = pose:mul(math.sin(angle), 0, -math.cos(angle), 0)
+    local ox, oy, oz = pose:mul(0, HEIGHT / 2 - py, 2, 1)
+    return vector.pack(ox, oy, oz), vector.pack(dx, dy, dz)
+  end
+  local roundedX = shape.hit(target, ray(WIDTH / 2, HEIGHT / 2))
+  expect.near(roundedX, PIXELS_WIDE / 2, 1e-3, 'rounding retains the posed arc centre')
+  expect.falsy(shape.hit(target, ray(0.005, 0.005)), 'the posed curved cutout is not pickable')
 end)
 
 test('every vertex of the drawn arc lies on the cylinder', function()
@@ -99,6 +119,24 @@ test('every vertex of the drawn arc lies on the cylinder', function()
     end
     expect.near(vertices[1][7], 0, 1e-12, 'the arc starts at the left edge of the texture')
     expect.near(vertices[#vertices][7], 1, 1e-12, 'and ends at the right edge')
+    local polygon = geometry.perimeter({ x = 0, y = 0, width = WIDTH, height = HEIGHT }, geometry.uniform(0.2))
+    local rounded, triangles = shape.rounded(WIDTH, HEIGHT, curve, polygon)
+    for _, vertex in rounded do
+      expect.near(vertex[1] ^ 2 + (vertex[3] - radius) ^ 2, radius ^ 2, 1e-6, 'rounded vertices remain on the cylinder')
+      expect.truthy(
+        geometry.contains(polygon, vertex[7] * WIDTH, vertex[8] * HEIGHT),
+        'UVs retain their unclipped source position'
+      )
+      expect.near(vertex[2], HEIGHT / 2 - vertex[8] * HEIGHT, 1e-12, 'source y maps to native y-up')
+    end
+    for index = 1, #triangles, 3 do
+      local minimum, maximum = 1, 0
+      for offset = 0, 2 do
+        local u = rounded[triangles[index + offset]][7]
+        minimum, maximum = math.min(minimum, u), math.max(maximum, u)
+      end
+      expect.truthy(maximum - minimum <= 1 / shape.SEGMENTS + 1e-12, 'rounded triangles remain inside an arc strip')
+    end
   end
 end)
 

@@ -4,6 +4,7 @@ local keyboard = require '@lunette-plugins/keyboard'
 local contract = require '@lunette-contracts/keyboard'
 local theme = require '@lunette-contracts/theme'
 local themeProvider = require '@lunette-plugins/theme'
+local geometry = require '@lunette-plugins/theme/rounded-geometry'
 local plugin = require '@lunette-plugin'
 local expect = testing.expect
 local test = testing.suite()
@@ -11,13 +12,9 @@ local test = testing.suite()
 local function fixture(hook, fileFont)
   local native = testing.native()
   local faces = {}
-  lovr.graphics.newFont = function(file)
-    local face = render.new().font
-    face.file, face.released = file, false
-    function face:release()
-      expect.falsy(self.released, 'a file face releases once')
-      self.released = true
-    end
+  local newFont = lovr.graphics.newFont
+  lovr.graphics.newFont = function(file, size, spread)
+    local face = newFont(file, size, spread)
     faces[#faces + 1] = face
     return face
   end
@@ -47,13 +44,20 @@ local function fixture(hook, fileFont)
       definition = keyboard.define {
         rows = { { { action = { kind = 'text', text = 'a' }, label = 'A' } } },
         drawKey = hook,
-        style = if fileFont then { font = { kind = 'file', file = 'keyboard.ttf' } } else nil,
+        style = {
+          font = if fileFont then { kind = 'file', file = 'keyboard.ttf' } else nil,
+          backingRadius = 0.008,
+          keyRadius = 0.012,
+        },
       },
     },
   }
   local observer = session:observe(contract.capability)
   local board = observer.service:new(observer.context)
   local recorder = render.new()
+  lovr.graphics.newMesh = function(count)
+    return recorder:newMesh(count)
+  end
   recorder.pass:setShader 'scene shader'
   recorder.pass:setMaterial 'scene texture'
   recorder.pass:setDepthTest 'gequal'
@@ -75,12 +79,20 @@ end
 test('keyboard paints untextured faces and depth-tested legends without writing glyph depth', function()
   local trigger = false
   local activeStyle, observed, applied = nil, nil, nil
-  local board, recorder, env = fixture(function(pass, key, state, base)
+  local board, recorder, env
+  board, recorder, env = fixture(function(pass, key, state, base)
     activeStyle = state.style
     if trigger then
       trigger = false
       applied:update { typography = { font = { kind = 'default' }, keyboardLegendHeight = 0.02 } }
     end
+    local width, height = math.max(0, key.width - state.style.gap), math.max(0, key.height - state.style.gap)
+    recorder.expectedClip = geometry.safeClip({
+      x = -width / 2,
+      y = -height / 2,
+      width = width,
+      height = height,
+    }, geometry.uniform(state.style.keyRadius))
     expect.equal(pass:getFont(), state.style.font, 'the hook receives the exact leased face')
     base(pass, key, state)
   end)
@@ -96,7 +108,7 @@ test('keyboard paints untextured faces and depth-tested legends without writing 
       if call[1] == 'text' then
         legends += 1
         expect.equal(call.state.setDepthWrite[1], false, 'transparent glyph bounds do not write depth')
-      elseif call[1] == 'plane' then
+      elseif call[1] == 'draw' then
         faces += 1
         expect.equal(call.state.setDepthWrite[1], true, 'faces retain scene occlusion')
       end
@@ -105,6 +117,10 @@ test('keyboard paints untextured faces and depth-tested legends without writing 
   expect.equal(faces, 2)
   expect.equal(legends, 1)
   recorder:assertRestored(caller)
+  local acquired = #recorder.meshAcquisitions
+  expect.equal(acquired, 2, 'the board owns one backing mesh and one key-face mesh')
+  board:draw(recorder.pass)
+  expect.equal(#recorder.meshAcquisitions, acquired, 'unchanged drawing reuses the board meshes')
 
   applied = observed:select(
     env.owner,
@@ -125,6 +141,19 @@ test('keyboard paints untextured faces and depth-tested legends without writing 
   }
   board:draw(recorder.pass)
   local retained = env.faces[2]
+  expect.equal(#recorder.meshAcquisitions, acquired, 'font changes retain unchanged face geometry')
+  for index, call in recorder.calls do
+    if call[1] == 'text' then
+      local clip = recorder.expectedClip
+      recorder:assertBounds({
+        x = clip.x,
+        y = -(clip.y + clip.height),
+        width = clip.width,
+        height = clip.height,
+        tolerance = 1e-8,
+      }, index, index)
+    end
+  end
   env.control.fail = true
   applied:update { typography = { keyboardLegendHeight = 0.03 } }
   expect.falsy(retained.released, 'failed refresh retains the old lease after its selection hold is removed')
@@ -139,6 +168,8 @@ test('keyboard paints untextured faces and depth-tested legends without writing 
   expect.truthy(retained.released, 'successful retry releases the old face only after publishing the new style')
   recorder:assertRestored(caller)
   applied:dispose()
+  board:destroy()
+  recorder:assertMeshesReleased()
 end)
 
 for _, failure in { 'text', 'hook' } do
@@ -175,6 +206,7 @@ for _, failure in { 'text', 'hook' } do
     end, 'keyboard failure')
     recorder:assertRestored(caller)
     expect.truthy(env.faces[1].released, 'the face releases after protected render unwind')
+    recorder:assertMeshesReleased()
   end)
 end
 

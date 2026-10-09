@@ -20,6 +20,7 @@ local function start(config)
   }
   env.session = testing.boot {
     'frame',
+    'theme',
     'surfaces',
     'focus',
     'ui',

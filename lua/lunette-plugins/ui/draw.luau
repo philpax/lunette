@@ -9,14 +9,23 @@ local textFieldGeometry = require './text-field-geometry'
 local passState = require '@lunette-plugins/pass-state'
 local depth = require './depth'
 local measurement = require './measurement-cache'
-export type Cache = { labels: measurement.Cache, fields: measurement.Cache }
+local rounded = require '@lunette-plugins/theme/rounded-geometry'
+local drawing = require '@lunette-plugins/theme/drawing'
+export type Shape = {
+  read bounds: ui.Bounds,
+  read profile: rounded.Profile,
+  read border: boolean?,
+  read faceClip: ui.Bounds?,
+}
+export type Cache = { labels: measurement.Cache, fields: measurement.Cache, faces: drawing.Cache }
 local draw = {}
 function draw.newCache(): Cache
-  return { labels = measurement.new(), fields = measurement.new() }
+  return { labels = measurement.new(), fields = measurement.new(), faces = drawing.newCache() }
 end
 function draw.clearCache(cache: Cache): ()
   measurement.clear(cache.labels)
   measurement.clear(cache.fields)
+  drawing.clear(cache.faces)
 end
 
 type TextEntry = {
@@ -29,9 +38,9 @@ type TextEntry = {
 
 local snapshot: (ui.Visual) -> ui.Visual
 local protected: (Pass, Font, () -> ()) -> ()
-local renderDefault: (Pass, ui.Visual, Cache?) -> ()
+local renderDefault: (Pass, ui.Visual, Cache?, Shape?) -> ()
 local rectangle: (Pass, ui.Bounds, ui.Bounds) -> ()
-local border: (Pass, ui.Bounds, ui.Bounds, number) -> ()
+local roundedBorder: (Pass, Cache, ui.Bounds, rounded.Profile, number, ui.Bounds) -> ()
 local text: (Pass, Font, string, ui.Bounds, ui.Bounds, number, Cache?) -> boolean
 local fittedText: (Font, string, number, number, number, Cache?) -> TextEntry
 local renderTextField: (Pass, Font, ui.Visual, ui.Bounds, Cache?) -> boolean
@@ -42,13 +51,22 @@ local validateGeometry: (ui.Visual, ui.Visual) -> ()
 local setColor: (Pass, ui.Color) -> ()
 local singleLine: (string) -> string
 
-function draw.render(pass: Pass, visual: ui.Visual, hooks: { read [number]: ui.DrawHook }?, cache: Cache?): ()
+function draw.render(
+  pass: Pass,
+  visual: ui.Visual,
+  hooks: { read [number]: ui.DrawHook }?,
+  cache: Cache?,
+  shape: Shape?
+): ()
   local declared = snapshot(visual)
+  local owned = if cache then nil else draw.newCache()
+  local currentCache: Cache = assert(cache or owned)
+  currentCache.faces.limit = math.max(96, (#declared.items + 1) * 3)
   local renderer: ui.Renderer = function(target: Pass, value: ui.Visual): ()
     validateGeometry(value, declared)
     local immutable = snapshot(value)
     protected(target, immutable.theme.font, function()
-      renderDefault(target, immutable, cache)
+      renderDefault(target, immutable, currentCache, shape)
     end)
   end
   for _, hook in hooks or {} do
@@ -61,7 +79,22 @@ function draw.render(pass: Pass, visual: ui.Visual, hooks: { read [number]: ui.D
       end)
     end
   end
-  renderer(pass, declared)
+  local ok, failure = pcall(function(): boolean
+    renderer(pass, declared)
+    return true
+  end)
+  local cleaned, cleanupFailure = true, nil
+  if owned then
+    cleaned, cleanupFailure = pcall(function(): boolean
+      draw.clearCache(owned)
+      return true
+    end)
+  end
+  if not ok then
+    error(failure, 0)
+  elseif not cleaned then
+    error(cleanupFailure, 0)
+  end
 end
 
 snapshot = function(value: ui.Visual): ui.Visual
@@ -113,7 +146,7 @@ protected = function(pass: Pass, font: Font, render: () -> ()): ()
   end)
 end
 
-renderDefault = function(pass: Pass, visual: ui.Visual, cache: Cache?): ()
+renderDefault = function(pass: Pass, visual: ui.Visual, cache: Cache?, shape: Shape?): ()
   local clip = geometry.intersect(visual.bounds, visual.clip)
   if not clip then
     return
@@ -125,24 +158,38 @@ renderDefault = function(pass: Pass, visual: ui.Visual, cache: Cache?): ()
   pass:setFont(font)
   pass:setCullMode 'none'
   pass:setDepthTest 'gequal'
-  pass:setDepthWrite(visual.kind == 'panel')
-  setColor(
-    pass,
-    if visual.kind == 'panel'
-      then style.background
-      elseif not visual.enabled then style.disabled
-      elseif visual.pressed then style.pressed
-      elseif visual.hovered then style.hovered
-      else style.control
-  )
-  rectangle(pass, visual.bounds, clip)
-  -- Only the panel backing writes depth; controls and glyphs retain painter order in front of it.
+  local bounds = if shape then shape.bounds else visual.bounds
+  local profile = if shape
+    then shape.profile
+    else rounded.uniform(if visual.kind == 'panel' then style.panelRadius else style.controlRadius)
+  local faceColor = if visual.kind == 'panel'
+    then style.background
+    elseif not visual.enabled then style.disabled
+    elseif visual.pressed then style.pressed
+    elseif visual.hovered then style.hovered
+    else style.control
+  pass:setDepthWrite(visual.kind == 'panel' and faceColor[4] == 1)
+  setColor(pass, faceColor)
+  drawing.face(pass, (cache :: Cache).faces, bounds, profile, if shape and shape.faceClip then shape.faceClip else clip)
+  if visual.kind == 'panel' then
+    if not shape or shape.border ~= false then
+      setColor(pass, style.border)
+      pass:setDepthWrite(style.border[4] == 1)
+      roundedBorder(pass, cache :: Cache, bounds, profile, style.borderWidth, clip)
+    end
+    return
+  end
+  -- Controls and glyphs retain painter order in front of the opaque backing.
   pass:setDepthWrite(false)
   pass:translate(0, 0, depth.layer)
+  local textClip = geometry.intersect(clip, rounded.safeClip(bounds, profile))
+  if not textClip then
+    return
+  end
   local content = inset(visual.bounds, style.padding)
   local overflow = visual.overflow == true
   if visual.kind == 'text-field' then
-    overflow = renderTextField(pass, font, visual, clip, cache) or overflow
+    overflow = renderTextField(pass, font, visual, textClip, cache) or overflow
   elseif visual.kind == 'choice' then
     local header: ui.Bounds = {
       x = visual.bounds.x,
@@ -151,8 +198,15 @@ renderDefault = function(pass: Pass, visual: ui.Visual, cache: Cache?): ()
       height = math.min(visual.bounds.height, style.rowHeight),
     }
     setColor(pass, if visual.enabled then style.foreground else style.border)
-    overflow = text(pass, font, visual.value or visual.label, inset(header, style.padding), clip, style.fontSize, cache)
-      or overflow
+    overflow = text(
+      pass,
+      font,
+      visual.value or visual.label,
+      inset(header, style.padding),
+      textClip,
+      style.fontSize,
+      cache
+    ) or overflow
     if visual.opened then
       overflow = renderItems(pass, font, visual, clip, cache) or overflow
     end
@@ -160,21 +214,25 @@ renderDefault = function(pass: Pass, visual: ui.Visual, cache: Cache?): ()
     overflow = renderItems(pass, font, visual, clip, cache) or overflow
   else
     setColor(pass, if visual.enabled then style.foreground else style.border)
-    overflow = text(pass, font, visual.label, content, clip, style.fontSize, cache) or overflow
+    overflow = text(pass, font, visual.label, content, textClip, style.fontSize, cache) or overflow
   end
   if visual.error and visual.error ~= '' then
     setColor(pass, style.error)
     local height = math.min(style.fontSize, content.height)
     local message = { x = content.x, y = content.y + content.height - height, width = content.width, height = height }
-    text(pass, font, visual.error, message, clip, style.fontSize, cache)
+    text(pass, font, visual.error, message, textClip, style.fontSize, cache)
   end
   setColor(pass, if visual.error then style.error elseif visual.focused then style.focus else style.border)
-  border(
-    pass,
-    visual.bounds,
-    clip,
-    if visual.focused or visual.error then math.max(2, style.borderWidth) else style.borderWidth
-  )
+  if not shape or shape.border ~= false then
+    roundedBorder(
+      pass,
+      cache :: Cache,
+      bounds,
+      profile,
+      if visual.focused or visual.error then math.max(2, style.borderWidth) else style.borderWidth,
+      clip
+    )
+  end
   if overflow then
     setColor(pass, if visual.error then style.error else style.focus)
     local thickness = math.min(3, visual.bounds.height)
@@ -183,7 +241,7 @@ renderDefault = function(pass: Pass, visual: ui.Visual, cache: Cache?): ()
       y = visual.bounds.y + visual.bounds.height - thickness,
       width = visual.bounds.width,
       height = thickness,
-    }, clip)
+    }, textClip)
   end
 end
 
@@ -194,19 +252,15 @@ rectangle = function(pass: Pass, bounds: ui.Bounds, clip: ui.Bounds): ()
   end
 end
 
-border = function(pass: Pass, bounds: ui.Bounds, clip: ui.Bounds, width: number): ()
-  width = math.min(width, bounds.width / 2, bounds.height / 2)
-  if width <= 0 then
-    return
-  end
-  rectangle(pass, { x = bounds.x, y = bounds.y, width = bounds.width, height = width }, clip)
-  rectangle(pass, { x = bounds.x, y = bounds.y + bounds.height - width, width = bounds.width, height = width }, clip)
-  rectangle(pass, { x = bounds.x, y = bounds.y + width, width = width, height = bounds.height - 2 * width }, clip)
-  rectangle(
-    pass,
-    { x = bounds.x + bounds.width - width, y = bounds.y + width, width = width, height = bounds.height - 2 * width },
-    clip
-  )
+roundedBorder = function(
+  pass: Pass,
+  cache: Cache,
+  bounds: ui.Bounds,
+  profile: rounded.Profile,
+  width: number,
+  clip: ui.Bounds
+): ()
+  drawing.insideBorder(pass, cache.faces, bounds, profile, width, clip)
 end
 
 text = function(
@@ -286,7 +340,8 @@ renderTextField = function(pass: Pass, font: Font, visual: ui.Visual, clip: ui.B
     clip,
     style,
     font,
-    if cache then cache.fields else nil
+    if cache then cache.fields else nil,
+    clip
   )
   if not layout then
     return value ~= ''
@@ -341,7 +396,9 @@ renderItems = function(pass: Pass, font: Font, visual: ui.Visual, clip: ui.Bound
           elseif item.selected then style.selection
           else style.control
       )
-      rectangle(pass, item.bounds, clip)
+      local profile = rounded.uniform(style.controlRadius)
+      drawing.face(pass, (cache :: Cache).faces, item.bounds, profile, clip)
+      local textClip = geometry.intersect(clip, rounded.safeClip(item.bounds, profile))
       if item.route then
         setColor(pass, if item.selected then style.focus else style.border)
         for _, segment in geometry.clipPolyline(item.route, clip) do
@@ -349,11 +406,15 @@ renderItems = function(pass: Pass, font: Font, visual: ui.Visual, clip: ui.Bound
         end
       end
       setColor(pass, if item.enabled and visual.enabled then style.foreground else style.border)
-      overflow = text(pass, font, item.label, inset(item.bounds, style.padding), clip, style.fontSize, cache)
-        or overflow
+      if textClip then
+        overflow = text(pass, font, item.label, inset(item.bounds, style.padding), textClip, style.fontSize, cache)
+          or overflow
+      else
+        overflow = true
+      end
       if item.selected then
         setColor(pass, style.focus)
-        border(pass, item.bounds, clip, math.max(2, style.borderWidth))
+        roundedBorder(pass, cache :: Cache, item.bounds, profile, math.max(2, style.borderWidth), clip)
       end
     end
   end

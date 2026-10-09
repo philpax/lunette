@@ -192,6 +192,37 @@ test('VR UI ten source reloads', function()
         target = assert(env.services.focus:focused()),
         invoke = retainedInvoke(env, 'example/ui/open'),
       }
+      local description = saved.panel:describe()
+      local target = nil
+      for _, offered in env.services.surfaces:all() do
+        if offered.pose and offered.width == description.width and offered.height == description.height then
+          local values = { offered.pose:unpack(true) }
+          local same = true
+          for index, value in description.pose do
+            same = same and values[index] == value
+          end
+          if same then
+            target = offered
+            break
+          end
+        end
+      end
+      expect.truthy(target and target.attachFrame, context .. ': the reload probe exposes a supporting surface')
+      local frame = target:attachFrame(env.services.owner, {
+        headerHeight = 0.05,
+        headerRadius = 0.008,
+        borderThickness = 0.004,
+        borderDepth = 0.001,
+        borderColor = { 0.2, 0.4, 0.6, 1 },
+      })
+      local reader = env.services.theme:acquireFont(env.services.owner)
+      reader:withFont(function(font)
+        expect.truthy(
+          font:getWidth 'Source reload reader' > 0,
+          context .. ': the retained reader measures before reload'
+        )
+      end)
+      expect.truthy(frame:isJoined(), context .. ': the visible reload probe owns its frame')
       local previous = scenario.description(env, 'example/ui/form').generation
       local display, show = env.services.display, env.services.display.show
       local oldLedger = env.ledger
@@ -211,8 +242,18 @@ test('VR UI ten source reloads', function()
         end
       end
       expect.truthy(fileDraw, context .. ': drawn text uses the resolved file face')
+      local meshes = #native.events.meshAcquisitions
+      expect.truthy(meshes > 0, context .. ': the current scene owns drawn meshes')
       local loaded, failure = lunette.reload()
       expect.truthy(loaded, context .. ': ' .. tostring(failure))
+      expect.falsy(frame:isJoined(), context .. ': source reload invalidates the old frame attachment')
+      expect.raises(function()
+        reader:withFont(function()
+          error 'the retired reader must not enter its callback'
+        end)
+      end, 'theme withFont: the provider is inactive', context .. ': source reload invalidates the old font lease')
+      frame:dispose()
+      reader:dispose()
       for index = 1, acquired do
         expect.truthy(
           native.events.fontAcquisitions[index].font.released,
@@ -223,6 +264,9 @@ test('VR UI ten source reloads', function()
         #native.events.fontAcquisitions > acquired,
         context .. ': replacement activation acquires its file face'
       )
+      for index = 1, meshes do
+        expect.truthy(native.events.meshAcquisitions[index].released, context .. ': previous scene meshes are released')
+      end
       expect.falsy(native.events.render.font.released, context .. ': the shared default face is never released')
       expect.truthy(pointer.dead, context .. ': source reload cancels and releases the real pointer')
       expect.equal(oldLedger.releases, releases, context .. ': source reload cannot finish the old capture')

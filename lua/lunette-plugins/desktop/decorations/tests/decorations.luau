@@ -8,6 +8,7 @@ local dropsContract = require '@lunette-contracts/drops'
 local test = testing.suite()
 
 local TOLERANCE = 1e-5
+local OUTLINE_COLOR = { 0.71, 0.19, 0.37, 1 }
 
 local function start()
   local env = {}
@@ -21,7 +22,11 @@ local function start()
     'ui',
     'interaction',
     'desktop/render',
-    'desktop/decorations',
+    {
+      id = 'desktop/decorations',
+      definition = require '@lunette-plugins/desktop/decorations',
+      config = { style = { margin = 0.03, borderColor = OUTLINE_COLOR } },
+    },
   }
   env.native = env.session.native
   env.panels = env.session:observe(panelsContract.capability)
@@ -43,6 +48,38 @@ local function offered(env)
   return bar, itself
 end
 
+local function registration(env, kind, operation)
+  for _, entry in env.panels.service:inspect().registrations do
+    if entry.kind == kind and entry.source == operation and entry.details.sourceId == env.window.id then
+      return entry
+    end
+  end
+  return nil
+end
+
+local function drawnOutline(env)
+  env.native.events.draw = {}
+  env.session:draw()
+  local found
+  local count = 0
+  for _, call in env.native.events.draw do
+    local color = call.state.setColor
+    if
+      call[1] == 'draw'
+      and color
+      and color[1] == OUTLINE_COLOR[1]
+      and color[2] == OUTLINE_COLOR[2]
+      and color[3] == OUTLINE_COLOR[3]
+      and color[4] == OUTLINE_COLOR[4]
+    then
+      found = call[2]
+      count += 1
+    end
+  end
+  expect.equal(count, 1, 'one target-owned outline is drawn with chrome disabled')
+  return assert(found)
+end
+
 test('the bar is offered beside the panel and sits above it', function()
   local env = start()
   local bar, itself = offered(env)
@@ -53,6 +90,21 @@ test('the bar is offered beside the panel and sits above it', function()
   expect.near(bx, px, TOLERANCE, 'the bar, x')
   expect.near(bz, pz, TOLERANCE, 'the bar, z')
   expect.truthy(by > py + env.panel.height / 2, 'the bar sits above the top edge of the panel')
+  local _, headerBottom = lovr.math.newMat4(bar.pose):translate(0, -bar.height / 2, 0):getPosition()
+  local _, bodyTop = lovr.math.newMat4(env.panel.pose):translate(0, env.panel.height / 2, 0):getPosition()
+  expect.equal(headerBottom, bodyTop, 'the header and body meet with zero seam')
+  expect.equal(bar.width, env.panel.width, 'the header inner width matches the body')
+  expect.falsy(env.panel.chrome, 'the target keeps ordinary chrome disabled')
+  local attached = assert(registration(env, 'membership', 'panels.attachFrame'))
+  expect.truthy(attached.live and attached.details.joined, 'the offered header has a live joined attachment')
+  expect.equal(attached.details.headerHeight, bar.height, 'the attachment uses the offered header height')
+  local outline = drawnOutline(env)
+  expect.falsy(outline.released, 'the attached target retains its outline mesh')
+  local target = assert(registration(env, 'panel', 'panels.fromWindow')).details
+  expect.truthy(
+    target.frameAttached and target.frameJoined and target.outlineMesh,
+    'inspection records the delegated outline'
+  )
   env.session:close()
 end)
 
@@ -90,18 +142,37 @@ test('a hidden panel and its bar are not offered until the panel is shown again'
   local bar, itself = offered(env)
   expect.equal(bar, nil, 'the bar of a hidden panel')
   expect.equal(itself, nil, 'a hidden panel')
+  expect.equal(registration(env, 'membership', 'panels.attachFrame'), nil, 'a hidden header releases its attachment')
   hiding:dispose()
   bar, itself = offered(env)
   expect.truthy(bar and itself, 'a shown panel and its bar')
+  local attached = assert(registration(env, 'membership', 'panels.attachFrame'))
+  expect.truthy(attached.live and attached.details.joined, 'showing restores the joined attachment')
+  local _, headerBottom = lovr.math.newMat4(bar.pose):translate(0, -bar.height / 2, 0):getPosition()
+  local _, bodyTop = lovr.math.newMat4(env.panel.pose):translate(0, env.panel.height / 2, 0):getPosition()
+  expect.equal(headerBottom, bodyTop, 'the restored header has zero seam')
+  drawnOutline(env)
   env.session:close()
 end)
 
 test("a removed panel's bar is dead and no longer offered", function()
   local env = start()
   local bar = offered(env)
+  local outline = drawnOutline(env)
+  expect.truthy(registration(env, 'membership', 'panels.attachFrame'), 'the removed target starts with an attachment')
   env.panel:destroy(env.panels.context)
   expect.truthy(bar.dead, 'the bar of a removed panel')
   expect.equal(#env.surfaces.service:all(), 0, 'the surfaces offered after the panel is removed')
+  expect.truthy(outline.released, 'target teardown releases the attached outline mesh')
+  local releases = 0
+  for _, mesh in env.native.events.meshReleases do
+    if mesh == outline then
+      releases += 1
+    end
+  end
+  expect.equal(releases, 1, 'the attached outline mesh is released once')
+  expect.equal(registration(env, 'membership', 'panels.attachFrame'), nil, 'target teardown removes its attachment')
+  expect.equal(registration(env, 'panel', 'panels.fromWindow'), nil, 'target teardown removes its inspection record')
   env.session:close()
 end)
 

@@ -9,6 +9,7 @@ local keyboard = require '@lunette-contracts/keyboard'
 local surfaces = require '@lunette-contracts/surfaces'
 local panels = require '@lunette-contracts/panels'
 local frame = require '@lunette-contracts/frame'
+local theme = require '@lunette-contracts/theme'
 local composition = {}
 
 function composition.options(provider, observed, ledger, form)
@@ -22,6 +23,7 @@ function composition.options(provider, observed, ledger, form)
       keyboard = keyboard.capability,
       surfaces = surfaces.capability,
       panels = panels.capability,
+      theme = theme.capability,
     },
     init = function(context)
       for name, capability in
@@ -33,6 +35,7 @@ function composition.options(provider, observed, ledger, form)
           keyboard = keyboard.capability,
           surfaces = surfaces.capability,
           panels = panels.capability,
+          theme = theme.capability,
         }
       do
         observed[name] = context:require(capability)

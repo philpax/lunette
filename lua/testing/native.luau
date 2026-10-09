@@ -207,6 +207,7 @@ function native.new()
     end
     assert(events.closed == 0, 'cleanup closed caller-owned window')
     events.render:assertFontsReleased()
+    events.render:assertMeshesReleased()
   end
 
   installNative(fake, events, subscribe, clearSubscriptions)
@@ -324,7 +325,12 @@ installLovr = function(events)
   events.fontAcquisitions = recorder.fontAcquisitions
   events.fontReleases = recorder.fontReleases
   events.fontMeasurements = recorder.fontMeasurements
+  events.meshAcquisitions = recorder.meshAcquisitions
+  events.meshReleases = recorder.meshReleases
   lovr.graphics = {
+    newMesh = function(count)
+      return recorder:newMesh(count)
+    end,
     newFont = function(file, size, spread)
       return recorder:newFont(file, size, spread)
     end,

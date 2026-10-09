@@ -44,7 +44,9 @@ test('default windows draw in the scene without claiming post-composite layers',
 end)
 
 test('opt-in window layers skip scene content only while their claim is granted', function()
-  local native, _, observer, window = fixture { rendering = 'layer' }
+  local native, session, observer, window = fixture { rendering = 'layer' }
+  local theme = session:observe(require('@lunette-contracts/theme').capability)
+  local selected = theme.service:select(theme.context, { radii = { window = 0.2 } })
   local panel = observer.service:fromWindow(observer.context, window)
   expect.equal(#native.events.claims, 1)
   panel.claim.granted = true
@@ -58,24 +60,31 @@ test('opt-in window layers skip scene content only while their claim is granted'
   panel:update()
   panel:draw(native.events.pass)
   for _, call in native.events.draw do
-    expect.falsy(call[1] == 'plane', 'no duplicate content')
+    expect.falsy(call[1] == 'plane' or call[1] == 'draw', 'no duplicate content')
   end
+  local origin = vector.pack(-panel.width / 2 + 0.001, panel.height / 2 - 0.001, 1)
+  expect.truthy(panel:raycast(origin, vector.pack(0, 0, -1)), 'granted content retains rectangular corner hits')
+  selected:update { radii = { window = 0.3 } }
+  panel:update()
+  expect.equal(#native.events.claims, 1, 'radius changes do not churn layer claims')
   panel.claim.granted = false
   panel:update()
   panel:draw(native.events.pass)
   local painted = false
   for _, call in native.events.draw do
-    painted = painted or call[1] == 'plane'
+    painted = painted or call[1] == 'draw'
   end
-  expect.truthy(painted, 'refused layers fall back to scene rendering')
+  expect.truthy(painted, 'refused layers fall back to rounded scene rendering')
+  expect.falsy(panel:raycast(origin, vector.pack(0, 0, -1)), 'the ungranted scene cutout is not pickable')
+  selected:dispose()
 end)
 
 test('monitor and translucent window planes use colour shaders and restore inherited state', function()
   local native, session, observer, window, shaders = fixture()
   local monitor = native.newMonitor 'display-1'
   monitor.getTexture = window.getTexture
-  local translucent = observer.service:fromWindow(observer.context, window)
-  local mirror = observer.service:fromMonitor(observer.context, monitor)
+  local translucent = observer.service:fromWindow(observer.context, window, { windowRadius = 0.1 })
+  local mirror = observer.service:fromMonitor(observer.context, monitor, { monitorRadius = 0.1 })
   local pass, recorder = native.events.pass, native.events.render
   pass:setShader 'caller shader'
   pass:setMaterial 'caller material'
@@ -87,7 +96,7 @@ test('monitor and translucent window planes use colour shaders and restore inher
   expect.equal(#shaders, 2, 'opaque and premultiplied colour conversions')
   local emitted = {}
   for _, call in native.events.draw do
-    if call[1] == 'plane' then
+    if call[1] == 'draw' then
       local shader = call.state.setShader[1]
       expect.truthy(shader and shader.fragment:find('gammaToLinear', 1, true), 'encoded pixels are decoded')
       expect.equal(call.state.setBlendMode[1], 'alpha')

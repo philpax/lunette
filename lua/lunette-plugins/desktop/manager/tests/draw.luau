@@ -256,6 +256,33 @@ test('clips all graph geometry in logical coordinates without a framebuffer scis
       expect.equal(command[7], math.pi, 'glyphs face upright in the y-down canvas')
     end
   end
+  table.clear(fake.events.draw)
+  state.camera = { x = 0, y = 0, zoom = 1 }
+  local bounds = { x = 20, y = 80, width = 700, height = 600 }
+  local clip = { x = 40, y = 100, width = 500, height = 330 }
+  local visual = uiTheme.materialize(uiTheme.global(presets.BASE, 0), lovr.graphics.getDefaultFont())
+  drawing.graph(pass, state, bounds, { theme = presets.BASE, visual = visual }, clip)
+  local faces = {}
+  for _, command in fake.events.draw do
+    expect.truthy(command[1] ~= 'setScissor', 'the inset clip stays in logical coordinates')
+    if command[1] == 'line' then
+      for _, index in { 2, 5 } do
+        expect.truthy(command[index] >= clip.x and command[index] <= clip.x + clip.width, 'inset line x')
+        expect.truthy(command[index + 1] >= clip.y and command[index + 1] <= clip.y + clip.height, 'inset line y')
+      end
+    elseif command[1] == 'plane' then
+      faces[#faces + 1] = command
+      expect.truthy(command[2] - command[5] / 2 >= clip.x, 'inset face left')
+      expect.truthy(command[2] + command[5] / 2 <= clip.x + clip.width, 'inset face right')
+      expect.truthy(command[3] - command[6] / 2 >= clip.y, 'inset face top')
+      expect.truthy(command[3] + command[6] / 2 <= clip.y + clip.height, 'inset face bottom')
+    end
+  end
+  expect.equal(#faces, 2, 'both nodes remain visible in the inset clip')
+  expect.near(faces[1][2], 210, 0.00001, 'the source keeps the declared graph x origin')
+  expect.near(faces[1][3], 230, 0.00001, 'the source keeps the declared graph y origin')
+  expect.near(faces[2][2], 480, 0.00001, 'the target face is clipped without translating it')
+  expect.near(faces[2][5], 120, 0.00001, 'the target face stops at the inset clip')
 end)
 
 test('honours visibility filters and highlights selected nodes and edges', function()

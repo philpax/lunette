@@ -28,6 +28,7 @@ export type Host = {
   read blur: () -> boolean,
   read bounds: () -> ui.Bounds,
   read clip: () -> ui.Bounds?,
+  read textClip: (() -> ui.Bounds?)?,
   read theme: () -> ui.Theme,
   read withFont: ((Font) -> ()) -> (),
   read callback: (string, () -> (), boolean?) -> boolean,

@@ -6,77 +6,18 @@ local themesContract = require '@lunette-contracts/theme'
 local surfaces = require '@lunette-contracts/surfaces'
 local quad = require '@lunette-contracts/quad'
 local styleDefinition = require './titlebar-style'
-local passState = require '@lunette-plugins/pass-state'
 local depth = require './depth'
+local titlebarOptions = require './titlebar-options'
+local titlebarDraw = require './titlebar-draw'
+local rounded = require '@lunette-plugins/theme/rounded-geometry'
+local drawing = require '@lunette-plugins/theme/drawing'
+local vocabulary = require '@lunette-contracts/vocabulary'
+local frameStyle = require '@lunette-plugins/theme/frame-style'
+local records = require './panel-state'
 
 local titlebar = {}
 
-function titlebar.options(given: ui.TitlebarOptions): ui.TitlebarOptions
-  assert(type(given) == 'table' and getmetatable(given) == nil, 'ui titlebar: options are a plain table')
-  plugin.rejectUnknownFields('ui titlebar', given, {
-    title = true,
-    onClose = true,
-    closeId = true,
-    actions = true,
-    style = true,
-    draggable = true,
-  }, 'titlebar option fields', 3)
-  assert(type(given.title) == 'string', 'ui titlebar: title is a string')
-  assert(given.onClose == nil or type(given.onClose) == 'function', 'ui titlebar: onClose is a function')
-  assert(
-    given.closeId == nil or (type(given.closeId) == 'string' and given.closeId ~= ''),
-    'ui titlebar: closeId is non-empty'
-  )
-  assert(given.draggable == nil or type(given.draggable) == 'boolean', 'ui titlebar: draggable is a boolean')
-  local actions: { ui.TitlebarAction } = {}
-  local ids: { [string]: boolean } = {}
-  if given.onClose then
-    ids[given.closeId or 'close'] = true
-  end
-  if given.actions ~= nil then
-    assert(type(given.actions) == 'table' and getmetatable(given.actions) == nil, 'ui titlebar: actions are an array')
-    local count = 0
-    for key in given.actions do
-      assert(
-        type(key) == 'number' and key % 1 == 0 and key >= 1 and key <= #given.actions,
-        'ui titlebar: actions are dense'
-      )
-      count += 1
-    end
-    assert(count == #given.actions, 'ui titlebar: actions are dense')
-    for _, action in given.actions do
-      assert(type(action) == 'table' and getmetatable(action) == nil, 'ui titlebar: action is a plain table')
-      plugin.rejectUnknownFields('ui titlebar action', action, {
-        id = true,
-        label = true,
-        width = true,
-        enabled = true,
-        run = true,
-      }, 'id, label, width, enabled, and run', 3)
-      assert(
-        type(action.id) == 'string' and action.id ~= '' and not ids[action.id],
-        'ui titlebar: action ids are unique'
-      )
-      assert(type(action.label) == 'string', 'ui titlebar: action label is a string')
-      assert(type(action.run) == 'function', 'ui titlebar: action run is a function')
-      assert(action.enabled == nil or type(action.enabled) == 'boolean', 'ui titlebar: action enabled is a boolean')
-      assert(
-        action.width == nil or (action.width > 0 and action.width < math.huge),
-        'ui titlebar: action width is positive'
-      )
-      ids[action.id] = true
-      actions[#actions + 1] = table.freeze(table.clone(action))
-    end
-  end
-  return table.freeze {
-    title = given.title,
-    onClose = given.onClose,
-    closeId = given.closeId,
-    actions = table.freeze(actions),
-    style = if given.style then styleDefinition.overrides.parse(given.style) else nil,
-    draggable = given.draggable,
-  }
-end
+titlebar.options = titlebarOptions.parse
 
 function titlebar.new(
   context: plugin.Context,
@@ -89,6 +30,7 @@ function titlebar.new(
   offers: surfaces.Service,
   defaultStyle: ui.TitlebarStyleOverrides,
   themes: themesContract.Service,
+  contour: (ui.Panel, records.Contour) -> (),
   onDestroyed: (() -> ())?
 ): ui.Titlebar
   context:checkOwner(owner)
@@ -139,11 +81,16 @@ function titlebar.new(
   local actions: { ui.TitlebarAction } = {}
   local widths: { number } = {}
   local reserved = 0
+  local meshes = drawing.newCache()
+  local attachment: vocabulary.FrameAttachment? = nil
+  local attachedStyle: vocabulary.FrameStyle? = nil
+  local joined = false
+  local headerKey = ''
   local function live(): boolean
     return not dead and context:active() and context:owns(owner) and not target.dead and (visible == nil or visible())
   end
   local function offset(): number
-    return (target.height or 0) / 2 + style.margin + style.barHeight / 2
+    return (target.height or 0) / 2 + (if joined then 0 else style.margin) + style.barHeight / 2
   end
   local function place(): ()
     local current = target.pose
@@ -152,16 +99,47 @@ function titlebar.new(
     end
   end
   local actionHeight = style.barHeight
+  local actionFont = spec.font
   local toolbarPose: { number } = {}
   local function sync(): ()
     refresh()
+    local current = attachment
+    if not live() then
+      attachment, attachedStyle, joined = nil, nil, false
+      if current then
+        current:dispose()
+      end
+    else
+      local nextStyle: vocabulary.FrameStyle = {
+        headerHeight = style.barHeight,
+        headerRadius = style.cornerRadius,
+        borderThickness = style.borderThickness,
+        borderDepth = style.borderDepth,
+        borderColor = if highlighted then style.borderHighlightColor else style.borderColor,
+      }
+      if not current and target.attachFrame then
+        current = target:attachFrame(owner, nextStyle)
+        attachment, attachedStyle = current, nextStyle
+      elseif current and (not attachedStyle or not frameStyle.equal(attachedStyle, nextStyle)) then
+        current:update(nextStyle)
+        attachedStyle = nextStyle
+      end
+      joined = current ~= nil and current:isJoined()
+    end
     local panel = toolbar
     if dead or not panel or panel.dead then
       return
     end
-    if actionHeight ~= style.barHeight then
-      actionHeight = style.barHeight
-      panel:setTheme { fontSize = actionHeight * 1000 * 0.4, padding = 3 }
+    local nextFont = spec.font
+    local sameFont = actionFont ~= nil and nextFont ~= nil and actionFont.kind == nextFont.kind
+    if sameFont and actionFont and nextFont and actionFont.kind == 'file' and nextFont.kind == 'file' then
+      sameFont = actionFont.file == nextFont.file
+        and actionFont.size == nextFont.size
+        and actionFont.spread == nextFont.spread
+    end
+    if actionHeight ~= style.barHeight or not sameFont then
+      actionHeight, actionFont = style.barHeight, nextFont
+      panel:setTheme { font = nextFont, fontSize = actionHeight * 1000 * 0.4, padding = 3 }
     end
     place()
     local width = target.width or 0
@@ -236,6 +214,24 @@ function titlebar.new(
     if description.width ~= toolbarWidth or description.height ~= style.barHeight then
       panel:setSize(toolbarWidth, style.barHeight, toolbarWidth * 1000, style.barHeight * 1000)
     end
+    local profile = titlebarDraw.profile(width, style.barHeight, style.cornerRadius, joined)
+    local headerBounds =
+      { x = -(width - toolbarWidth) * 1000, y = 0, width = width * 1000, height = style.barHeight * 1000 }
+    local function logical(corner: rounded.Corner): rounded.Corner
+      return { x = corner.x * 1000, y = corner.y * 1000 }
+    end
+    local logicalProfile: rounded.Profile = {
+      topLeft = logical(profile.topLeft),
+      topRight = logical(profile.topRight),
+      bottomRight = logical(profile.bottomRight),
+      bottomLeft = logical(profile.bottomLeft),
+    }
+    local key = rounded.key(headerBounds, logicalProfile)
+    if key ~= headerKey then
+      headerKey = key
+      drawing.clear(meshes)
+      contour(panel, { bounds = headerBounds, profile = logicalProfile })
+    end
     local nextPose = lovr.math.newMat4(pose):translate(width / 2 - toolbarWidth / 2, 0, depth.layer)
     local values = { nextPose:unpack(true) }
     local moved = #toolbarPose ~= #values
@@ -253,8 +249,8 @@ function titlebar.new(
       return false
     end
     dead = true
-    local panel, offered, inverse = toolbar, offer, release
-    toolbar, offer, release = nil, nil, nil
+    local panel, offered, inverse, oldAttachment = toolbar, offer, release, attachment
+    toolbar, offer, release, attachment = nil, nil, nil, nil
     local failures: { string } = {}
     for _, operation in
       {
@@ -272,6 +268,14 @@ function titlebar.new(
           if offered then
             offered:dispose()
           end
+        end,
+        function(): ()
+          if oldAttachment then
+            oldAttachment:dispose()
+          end
+        end,
+        function(): ()
+          drawing.clear(meshes)
         end,
         function(): ()
           lease:dispose()
@@ -312,6 +316,18 @@ function titlebar.new(
       origin,
       direction
     )
+    local profile = titlebarDraw.profile(width, style.barHeight, style.cornerRadius, joined)
+    if
+      x
+      and y
+      and not rounded.contains(
+        rounded.perimeter({ x = 0, y = 0, width = width, height = style.barHeight }, profile),
+        x * width,
+        y * style.barHeight
+      )
+    then
+      return nil, nil, nil
+    end
     if x and x >= 1 - reserved / width then
       return nil, nil, nil
     end
@@ -327,6 +343,7 @@ function titlebar.new(
     end,
     setHighlighted = function(_self: surface.Surface, value: boolean): ()
       highlighted = value
+      sync()
     end,
   }
   local bar = table.freeze(setmetatable({}, {
@@ -386,41 +403,9 @@ function titlebar.new(
           if not width or not height or not targetPose then
             return
           end
-          local style, drawLease = style, lease
-          drawLease:withFont(function(font: Font): ()
-            passState.withRestore(pass, function(): ()
-              pass:setShader()
-              pass:setMaterial(nil)
-              pass:setFont(font)
-              pass:setDepthTest 'gequal'
-              pass:setDepthWrite(true)
-              local border = if highlighted then style.borderHighlightColor else style.borderColor
-              pass:setColor(border[1], border[2], border[3], border[4])
-              pass:plane(
-                lovr.math
-                  .mat4(targetPose)
-                  :translate(0, 0, -style.borderDepth)
-                  :scale(width + style.borderThickness * 2, height + style.borderThickness * 2, 1),
-                'fill',
-                1,
-                1
-              )
-              local background = if highlighted then style.barHighlightColor else style.barColor
-              pass:setColor(background[1], background[2], background[3], background[4])
-              pass:plane(lovr.math.mat4(pose):scale(width, style.barHeight, 1), 'fill', 1, 1)
-              if width > reserved and options.title ~= '' then
-                pass:setDepthWrite(false)
-                local foreground = style.titleColor
-                pass:setColor(foreground[1], foreground[2], foreground[3], foreground[4])
-                pass:text(
-                  options.title,
-                  lovr.math.mat4(pose):translate(-reserved / 2, 0, depth.layer):scale(vector.pack(style.titleHeight)),
-                  (width - reserved) / style.titleHeight,
-                  'center',
-                  'middle'
-                )
-              end
-            end)
+          local currentStyle, drawLease = style, lease
+          drawLease:withFont(function(_font: Font): ()
+            titlebarDraw.render(pass, meshes, target, pose, currentStyle, options.title, reserved, highlighted, joined)
           end)
           if toolbar then
             toolbar:draw(pass)
@@ -438,7 +423,7 @@ function titlebar.new(
       logicalHeight = style.barHeight * 1000,
       visible = false,
       grabTarget = target,
-      theme = { fontSize = style.barHeight * 1000 * 0.4, padding = 3 },
+      theme = { font = spec.font, fontSize = style.barHeight * 1000 * 0.4, padding = 3 },
     })
     offer = offers:offer(context, {
       name = name .. '/drag',

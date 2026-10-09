@@ -42,7 +42,7 @@ export type SidebarPart = 'background' | 'details' | 'rows' | 'footer'
 
 export type Style = { read theme: theme.Theme, read visual: ui.Theme }
 
-local renderGraph: (Pass, Style, view.State, graph.Box) -> ()
+local renderGraph: (Pass, Style, view.State, graph.Box, graph.Box?) -> ()
 local renderSidebar: (Pass, Style, Options, graph.Box, SidebarPart?) -> ()
 local renderButtons: (Pass, Style, { read [number]: Button }, graph.Box) -> ()
 local intersect: (graph.Box, graph.Box) -> graph.Box?
@@ -134,8 +134,8 @@ function draw.render(pass: Pass, state: view.State, options: Options, style: Sty
   end
 end
 
-function draw.graph(pass: Pass, state: view.State, bounds: graph.Box, style: Style): ()
-  renderGraph(pass, style, state, bounds)
+function draw.graph(pass: Pass, state: view.State, bounds: graph.Box, style: Style, clip: graph.Box?): ()
+  renderGraph(pass, style, state, bounds, clip)
 end
 
 export type SidebarGeometry = {
@@ -226,11 +226,12 @@ local function arrow(
   segment(pass, tip, { x = tip.x - ux * size + uy * size / 2, y = tip.y - uy * size - ux * size / 2 }, clip)
 end
 
-renderGraph = function(pass: Pass, style: Style, state: view.State, canvas: graph.Box): ()
+renderGraph = function(pass: Pass, style: Style, state: view.State, bounds: graph.Box, clip: graph.Box?): ()
+  local canvas = clip or bounds
   local font, colors, typography = style.visual.font, style.theme.colors, style.theme.typography
   local selection = state.selection
   local count, outside, clipped = 0, 0, 0
-  local scene = geometry.project(state, canvas)
+  local scene = geometry.project(state, bounds, canvas)
   for _, projected in scene.edges do
     local edge, points = projected.edge, projected.points
     local selected = selection ~= nil and selection.kind == 'edge' and selection.id == edge.id

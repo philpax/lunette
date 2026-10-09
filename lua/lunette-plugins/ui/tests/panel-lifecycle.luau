@@ -141,7 +141,7 @@ for _, focused in ipairs { false, true } do
         return font
       end,
     }
-    withSession(testing.start { 'theme', substituteServices(state), 'ui' }, function(running)
+    withSession(testing.start { 'theme', 'frame', substituteServices(state), 'ui' }, function(running)
       owner(running, 'testing/panel-lifetime', function(context, service)
         state.service = service
         state.panel = service:newPanel(context, options 'lifecycle')
@@ -310,8 +310,8 @@ for _, phase in ipairs { 'panel', 'control' } do
       panel:draw(fixture.native.events.pass)
       expect.truthy(ended, 'the selected hook ends its owner')
       expect.equal(laterDraws, 0, 'a later control does not draw after owner teardown')
-      local planes = fixture:drawCalls 'plane'
-      expect.equal(#planes, if phase == 'panel' then 0 else 5, 'a stale base continuation does not paint')
+      local meshes = fixture:drawCalls 'draw'
+      expect.equal(#meshes, if phase == 'panel' then 0 else 2, 'a stale base continuation does not paint')
       recorder:assertRestored(checkpoint)
     end)
   end)

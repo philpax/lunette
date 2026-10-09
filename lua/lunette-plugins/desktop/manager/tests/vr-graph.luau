@@ -2,6 +2,7 @@ local testing = require '@testing'
 local expect = testing.expect
 local fixture = require './support/vr-manager'
 local topology = require './support/vr-graph-topology'
+local toolbarLayout = require '../toolbar-layout'
 local suite = testing.suite()
 
 local function test(name, run)
@@ -219,11 +220,26 @@ for _, provider in { 'built-in', 'substitute' } do
     sameBounds(bounds(env, ids.middle), initial, 'Zoom out reverses the step')
     env:click('graph', 'node/' .. ids.middle)
     env:click 'focus'
-    local region = graph(env)
+    local region, description = graph(env)
+    local declared =
+      toolbarLayout.compute(description.logicalWidth, description.logicalHeight, false, false).graphBounds
     local centered = bounds(env, ids.middle)
-    expect.near(centered.x + centered.width / 2, region.bounds.x + region.bounds.width / 2, 0.002, 'Focus centers x')
-    expect.near(centered.y + centered.height / 2, region.bounds.y + region.bounds.height / 2, 0.002, 'Focus centers y')
-    local _, description = graph(env)
+    expect.near(centered.x + centered.width / 2, declared.x + declared.width / 2, 0.002, 'Focus centers declared x')
+    expect.near(centered.y + centered.height / 2, declared.y + declared.height / 2, 0.002, 'Focus centers declared y')
+    env.native.events.draw = {}
+    env.controls:draw()
+    local drawn = false
+    for _, face in env.controls:drawCalls 'plane' do
+      if
+        math.abs(face[2] - centered.x - centered.width / 2) < 0.002
+        and math.abs(face[3] - centered.y - centered.height / 2) < 0.002
+        and math.abs(face[5] - centered.width) < 0.002
+        and math.abs(face[6] - centered.height) < 0.002
+      then
+        drawn = true
+      end
+    end
+    expect.truthy(drawn, 'Focus draws the node at its published geometry inside the rounded clip')
     local x, y = region.bounds.x + 6, region.bounds.y + 6
     env.controls:aim(description, x, y, 'right')
     env.controls:step()

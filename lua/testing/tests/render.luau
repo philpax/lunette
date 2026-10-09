@@ -203,7 +203,10 @@ test('checks bounds in the entry frame, records lines, and does not let scissors
   end)
   expect.equal(value, 'result')
   expect.equal(missing, nil)
-  for _, method in { 'plane', 'text', 'line' } do
+  local mesh = recorder:newMesh(3)
+  mesh:setVertices { { 0, 0, 0, 0, 0, 1, 0, 0 }, { 11, 0, 0, 0, 0, 1, 1, 0 }, { 0, 10, 0, 0, 0, 1, 0, 1 } }
+  mesh:setIndices { 1, 2, 3 }
+  for _, method in { 'plane', 'text', 'line', 'draw' } do
     expect.raises(function()
       recorder:within(box, function(current)
         current:setScissor(0, 0, 1, 1)
@@ -211,12 +214,16 @@ test('checks bounds in the entry frame, records lines, and does not let scissors
           current:plane(5, 5, 0, 20, 20)
         elseif method == 'text' then
           current:text('overflow', 9, 5, 0, 1, math.pi, 1, 0, 0, 0, 'left', 'top')
+        elseif method == 'draw' then
+          current:draw(mesh)
         else
           current:line(0, 0, 0, 11, 10, 0)
         end
       end)
     end, 'bounds: ' .. method)
   end
+  mesh:release()
+  recorder:assertMeshesReleased()
 end)
 
 test('measures every line vertex for separate and aggregate overloads', function()

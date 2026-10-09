@@ -9,6 +9,7 @@ local events = require '@lunette-plugins/panels/events'
 local inspection = require '@lunette-contracts/inspection'
 local theme = require '@lunette-contracts/theme'
 local appearance = require '@lunette-plugins/panels/appearance'
+local frame = require '@lunette-plugins/panels/frame'
 
 export type Service = contracts.Service
 export type Owner = contracts.Owner
@@ -225,6 +226,27 @@ local function build(context: plugin.Context, settings: Settings): Service
         if target.mesh then
           meshes += 1
         end
+        if target.outline and target.outline.mesh then
+          meshes += 1
+        end
+        local attached = target.frame
+        if attached and attached.live then
+          result[#result + 1] = inspection.registration(
+            'membership',
+            'panels.attachFrame',
+            attached.owner,
+            target.title,
+            state.active and context:owns(attached.owner) and not target.dead and not target.source.dead,
+            {
+              sourceId = target.source.id,
+              sourceKind = target.kind,
+              joined = frame.joined(attached),
+              headerHeight = attached.style.headerHeight,
+              headerRadius = attached.style.headerRadius,
+              borderThickness = attached.style.borderThickness,
+            }
+          )
+        end
         local live = state.active and context:owns(target.owner) and not target.dead and not target.source.dead
         result[#result + 1] = inspection.registration(
           'panel',
@@ -242,6 +264,9 @@ local function build(context: plugin.Context, settings: Settings): Service
             priority = target.priority,
             layerClaim = target.claim ~= nil,
             mesh = target.mesh ~= nil,
+            outlineMesh = target.outline ~= nil and target.outline.mesh ~= nil,
+            frameAttached = attached ~= nil and attached.live,
+            frameJoined = frame.joined(attached),
           }
         )
         for index, override in ipairs(target.overrides) do

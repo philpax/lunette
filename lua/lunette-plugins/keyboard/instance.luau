@@ -9,6 +9,7 @@ local theme = require '@lunette-contracts/theme'
 local appearance = require './appearance'
 local board = require './board'
 local drawing = require './draw'
+local meshDrawing = require '@lunette-plugins/theme/drawing'
 local passState = require '@lunette-plugins/pass-state'
 local layout = require './layout'
 local config = require './config'
@@ -58,6 +59,8 @@ local function construct(
   local scale = 1
   local style = appearance.scaled(nominal, lease.font, scale)
   local appliedRevision, geometryRevision = snapshot.revision, 0
+  local meshCache = meshDrawing.newCache()
+  local keyCaches: { [number]: { [number]: meshDrawing.Cache } } = {}
   local refreshing = false
   local locks: { [string]: boolean } = {}
   for index = 1, #settings.locks do
@@ -127,6 +130,36 @@ local function construct(
     end
   end
 
+  local function keyCache(key: board.RenderedKey): meshDrawing.Cache
+    local heights = keyCaches[key.width]
+    if not heights then
+      heights = {}
+      keyCaches[key.width] = heights
+    end
+    local cached = heights[key.height]
+    if not cached then
+      cached = meshDrawing.newCache()
+      heights[key.height] = cached
+    end
+    return cached
+  end
+
+  local function clearMeshes(failures: { string }): ()
+    local caches = { meshCache }
+    for _, heights in keyCaches do
+      for _, cached in heights do
+        caches[#caches + 1] = cached
+      end
+    end
+    table.clear(keyCaches)
+    for _, cached in caches do
+      local cleared, failure = pcall(meshDrawing.clear, cached)
+      if not cleared then
+        failures[#failures + 1] = tostring(failure)
+      end
+    end
+  end
+
   local function refresh(): ()
     if state.dead or refreshing or not active() then
       return
@@ -140,6 +173,7 @@ local function construct(
     local nextStyle = prepare(nextNominal, nextLease, scale)
     local width, height = unitsWide * nextStyle.keyUnit, unitsHigh * nextStyle.keyUnit
     local geometryChanged = appearance.geometryChanged(style, nextStyle)
+    local meshChanged = appearance.meshChanged(style, nextStyle)
     local oldLease = lease
     nominal, lease, style, appliedRevision = nextNominal, nextLease, nextStyle, latest.revision
     state.width, state.height = width, height
@@ -149,6 +183,9 @@ local function construct(
       refreshing = true
       failures = cancelPointers 'control-removed'
       refreshing = false
+    end
+    if meshChanged then
+      clearMeshes(failures)
     end
     local released, failure = pcall(function(): ()
       oldLease:dispose()
@@ -260,7 +297,9 @@ local function construct(
     if not state.dead and state.layer ~= layer then
       state.layer = layer
       geometryRevision += 1
-      finish(cancelPointers 'control-removed')
+      local failures = cancelPointers 'control-removed'
+      clearMeshes(failures)
+      finish(failures)
     end
   end
 
@@ -435,7 +474,9 @@ local function construct(
       scale, style = nextScale, nextStyle
       geometryRevision += 1
       state.width, state.height = unitsWide * style.keyUnit, unitsHigh * style.keyUnit
-      finish(cancelPointers 'control-removed')
+      local failures = cancelPointers 'control-removed'
+      clearMeshes(failures)
+      finish(failures)
     end,
     raycast = raycast,
     project = project,
@@ -480,7 +521,7 @@ local function construct(
           if not current() then
             return
           end
-          drawing.plate(pass, state.pose, width, height, activeStyle)
+          drawing.plate(pass, meshCache, state.pose, width, height, activeStyle)
           for _, key in ipairs(rendered) do
             if not current() then
               break
@@ -496,7 +537,7 @@ local function construct(
               }, function(target: Pass, entry: board.RenderedKey, keyState: board.KeyState): ()
                 if current() then
                   target:setFont(font)
-                  drawing.key(target, entry, keyState)
+                  drawing.key(target, keyCache(entry), entry, keyState, font)
                 end
               end)
             end)
@@ -521,6 +562,7 @@ local function construct(
     pendingModifiers = nil
     geometryRevision += 1
     local failures = cancelPointers 'control-removed'
+    clearMeshes(failures)
     local released, failure = pcall(function(): ()
       lease:dispose()
     end)

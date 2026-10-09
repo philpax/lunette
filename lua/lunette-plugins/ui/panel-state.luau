@@ -8,6 +8,19 @@ local globalTheme = require '@lunette-contracts/theme'
 local control = require '@lunette-plugins/ui/control'
 local owners = require '@lunette-plugins/ui/control-owners'
 local draw = require './draw'
+local rounded = require '@lunette-plugins/theme/rounded-geometry'
+local drawing = require '@lunette-plugins/theme/drawing'
+local vocabulary = require '@lunette-contracts/vocabulary'
+
+export type Contour = { read bounds: ui.Bounds, read profile: rounded.Profile }
+export type Shape = {
+  read key: string,
+  read bounds: ui.Bounds,
+  read profile: rounded.Profile,
+  read polygon: { rounded.Point },
+  read clip: ui.Bounds,
+}
+export type Frame = { style: vocabulary.FrameStyle, joined: () -> boolean, dispose: () -> () }
 
 local state = {}
 
@@ -60,6 +73,10 @@ export type Panel = {
   themeRevision: number,
   radiusX: number,
   radiusY: number,
+  shape: Shape?,
+  contour: Contour?,
+  frame: Frame?,
+  frameMeshes: drawing.Cache,
   refreshing: boolean,
   refresh: () -> (),
   providerDraw: ui.DrawHook?,

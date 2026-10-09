@@ -8,12 +8,27 @@ local draw = require './draw'
 
 local appearance = {}
 
+local function attempt(label: string, run: () -> (), failures: { string }): ()
+  local ok, failure = pcall(run)
+  if not ok then
+    failures[#failures + 1] = label .. ': ' .. tostring(failure)
+  end
+end
+
 local function disposeAll(leases: { globalTheme.FontLease }, failures: { string }): ()
-  for _, lease in leases do
-    local ok, failure = pcall(lease.dispose, lease)
-    if not ok then
-      failures[#failures + 1] = tostring(failure)
-    end
+  for index, lease in leases do
+    attempt('font lease ' .. tostring(index) .. ' cleanup', function(): ()
+      lease:dispose()
+    end, failures)
+  end
+end
+
+local function clearControl(record: records.Control, failures: { string }): ()
+  attempt('control ' .. record.id .. ' draw cache cleanup', function(): ()
+    draw.clearCache(record.measurements)
+  end, failures)
+  if record.widget.clearMeasurements then
+    attempt('control ' .. record.id .. ' text measurements cleanup', record.widget.clearMeasurements, failures)
   end
 end
 
@@ -46,6 +61,9 @@ function appearance.refresh(panel: records.Panel, force: boolean?): ()
   local prepared: { Prepared } = {}
   local lease: globalTheme.FontLease? = nil
   local value: ui.Theme? = nil
+  local old: { globalTheme.FontLease } = { panel.lease }
+  local affected: { records.Control } = {}
+  local failures: { string } = {}
   panel.refreshing = true
   local ok, failure = pcall(function(): ()
     lease = panel.themes:acquireFont(panel.context, spec.font)
@@ -64,51 +82,47 @@ function appearance.refresh(panel: records.Panel, force: boolean?): ()
         }
       end
     end
+    local inheritedRadius = panel.overrides == nil or panel.overrides.panelRadius == nil
+    local scaleChanged = inheritedRadius
+      and panel.providerTheme.panelRadius == nil
+      and (radiusX ~= panel.radiusX or radiusY ~= panel.radiusY)
+    for _, current in prepared do
+      if scaleChanged or theme.geometryChanged(current.record.theme, current.value) then
+        affected[#affected + 1] = current.record
+      end
+      old[#old + 1] = current.record.lease
+    end
+    if theme.geometryChanged(panel.theme, value :: ui.Theme) or scaleChanged then
+      attempt('panel draw cache cleanup', function(): ()
+        draw.clearCache(panel.measurements)
+      end, failures)
+    end
+    for _, current in affected do
+      clearControl(current, failures)
+    end
   end)
   if not ok then
-    panel.refreshing = false
-    local failures = { tostring(failure) }
+    failures[#failures + 1] = 'prepare refresh: ' .. tostring(failure)
+  end
+  if #failures > 0 then
     disposeAll(acquired, failures)
+    panel.refreshing = false
     error('ui appearance: ' .. table.concat(failures, '; '), 0)
-  end
-  local old: { globalTheme.FontLease } = { panel.lease }
-  local affected: { records.Control } = {}
-  for _, current in prepared do
-    if theme.geometryChanged(current.record.theme, current.value) then
-      affected[#affected + 1] = current.record
-    end
-    old[#old + 1] = current.record.lease
-  end
-  if panel.theme.font ~= (value :: ui.Theme).font then
-    draw.clearCache(panel.measurements)
   end
   panel.spec, panel.theme, panel.lease = spec, value :: ui.Theme, lease :: globalTheme.FontLease
   panel.themeRevision, panel.radiusX, panel.radiusY = snapshot.revision, radiusX, radiusY
   for _, current in prepared do
-    if current.record.theme.font ~= current.value.font then
-      draw.clearCache(current.record.measurements)
-      if current.record.widget.clearMeasurements then
-        current.record.widget.clearMeasurements()
-      end
-    end
     current.record.spec, current.record.theme, current.record.lease = current.spec, current.value, current.lease
   end
   panel.revision += 1
-  local failures: { string } = {}
   local terminals: { () -> () } = {}
-  local completed, problem = pcall(function(): ()
-    for _, current in affected do
+  for _, current in affected do
+    attempt('control ' .. current.id .. ' prepare cancellation', function(): ()
       terminals[#terminals + 1] = input.prepareCancel(panel, current, 'control-removed')
-    end
-    for _, terminal in terminals do
-      local cancelled, failure = pcall(terminal)
-      if not cancelled then
-        failures[#failures + 1] = tostring(failure)
-      end
-    end
-  end)
-  if not completed then
-    failures[#failures + 1] = tostring(problem)
+    end, failures)
+  end
+  for index, terminal in terminals do
+    attempt('cancellation ' .. tostring(index), terminal, failures)
   end
   disposeAll(old, failures)
   panel.refreshing = false
@@ -122,28 +136,28 @@ function appearance.control(panel: records.Panel, record: records.Control, overr
   local copied = theme.copyOverrides(overrides)
   local spec = theme.inherit(panel.spec, copied)
   local lease = panel.themes:acquireFont(panel.context, spec.font)
-  local prepared, value = pcall(theme.materialize, spec, lease.font)
-  if not prepared then
-    local failures = { tostring(value) }
+  local value: ui.Theme? = nil
+  local changed = false
+  local failures: { string } = {}
+  attempt('control ' .. record.id .. ' prepare appearance', function(): ()
+    value = theme.materialize(spec, lease.font)
+    changed = theme.geometryChanged(record.theme, value :: ui.Theme)
+    if changed then
+      clearControl(record, failures)
+    end
+  end, failures)
+  if #failures > 0 then
     disposeAll({ lease }, failures)
     error('ui appearance: ' .. table.concat(failures, '; '), 0)
   end
   local old = record.lease
-  local changed = theme.geometryChanged(record.theme, value)
-  if record.theme.font ~= value.font then
-    draw.clearCache(record.measurements)
-    if record.widget.clearMeasurements then
-      record.widget.clearMeasurements()
-    end
-  end
-  record.overrides, record.spec, record.theme, record.lease = copied, spec, value, lease
+  record.overrides, record.spec, record.theme, record.lease = copied, spec, value :: ui.Theme, lease
   panel.revision += 1
-  local ok, failure = pcall(function(): ()
-    if changed then
+  if changed then
+    attempt('control ' .. record.id .. ' cancellation', function(): ()
       input.cancel(panel, record, 'control-removed')
-    end
-  end)
-  local failures: { string } = if ok then {} else { tostring(failure) }
+    end, failures)
+  end
   disposeAll({ old }, failures)
   if #failures > 0 then
     error('ui appearance: ' .. table.concat(failures, '; '), 0)

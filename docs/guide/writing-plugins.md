@@ -283,7 +283,7 @@ return keyboard.define {
 }
 ```
 
-`pointer:vibrate` pulses the controller of the hand that pressed the key; the laser gives each pointer its controller. `key.source` is the row entry the key was made from, which stays the same table from frame to frame, so it can key a table across frames. `drawing` is `@lunette-plugins/keyboard/draw`, which has the default drawing's halves, `face` and `legend`, and `faceColor`. `examples/keyboard/rounded.luau` is a custom `drawKey` hook that draws rounded faces and keeps the default legends; the built-in keyboard remains the default provider.
+`pointer:vibrate` pulses the controller of the hand that pressed the key; the laser gives each pointer its controller. `key.source` is the row entry the key was made from, which stays the same table from frame to frame, so it can key a table across frames. `drawing` is `@lunette-plugins/keyboard/draw`, which has the default drawing's halves, `face` and `legend`, and `faceColor`. `examples/keyboard/rounded.luau` is a custom `drawKey` hook that draws rounded faces and keeps the default legends; the built-in keyboard remains the default provider. Built-in backing and key radii already inherit from the runtime theme, so a custom hook is not required for rounding. Zero radius restores a square face. Rounded key faces retain their declared rectangular key-unit targets, key layout, and board scale. Geometry changes cancel affected captures; palette-only changes preserve them. The shared geometry caches meshes within the board or provider activation and releases them on replacement or teardown. Module require acquires no native geometry.
 
 The definition replaces the desktop's keyboard by id:
 
@@ -304,6 +304,10 @@ The implementation acquires the board through `context:resource(owner, acquire)`
 ## Local VR controls
 
 The [UI guide](ui.md) describes owner-scoped flat VR panels, buttons, single-line text fields, choices, lists, and regions through the neutral `lunette/ui` contract. Its excerpts come from the checked `examples/ui` form, which registers a wrist-menu action and uses the shared desktop keyboard. It records logical geometry, focus routing, themes, draw-hook safety, grapheme selection, and provider replacement tokens. The form, wrist menu, and runtime manager run unchanged against the built-in and independent substitute UI providers in logic-headless scenarios. The runtime manager uses the same UI contract for its controller-accessible search and configuration workflows.
+
+Rounded UI keeps declared dimensions and control bounds unchanged. The backing uses its full silhouette; controls, custom regions, descriptions, and input use a conservative rectangular content clip inside it. Rectangular control targets remain usable within that clip, and text stays inside its rounded face's safe bounds. Hooks must obey `visual.clip`, preserve overflow reporting, and keep declared geometry when calling `base`. The clip is cooperative rather than stencil or offscreen enforcement of arbitrary shaders and stack operations. [Themes and drawing hooks](ui.md#themes-and-drawing-hooks) states pass restoration, font borrows, and no-write detail ordering.
+
+A custom rounded surface uses the same emitted perimeter for drawing and initial ray hits, including the eight-segment corner chords. Protocol `project` remains unbounded for captures, while cutouts report `inside = false` and cannot activate on release. The optional raycast boolean means back-face handling, not capture. Native sink delivery retains original-sink press and release pairing and stops motion on a miss; rounding does not add native capture projection. A source renderer derives UVs from original panel-local coordinates before rotation or flip and maps curved strip vertices to the cylinder, rather than stretching trimmed pixels.
 
 ## A custom layout
 
@@ -436,13 +440,19 @@ The shipped desktop registers configuration reload as the `desktop/reload` menu 
 
 ## Decorations
 
-Panels draw no frame of their own. The `desktop/decorations` entry draws a border round each panel and a title bar above it, and grabbing the bar moves the panel. Its `style` is configuration, as in `examples/desktop/main.luau`:
+Panels draw no ordinary frame unless native chrome is enabled. The `desktop/decorations` entry uses the shared UI titlebar for native panels without chrome. A supporting flat scene target joins its body to that header and draws the single outline, including when `chrome = false`. The titlebar retains its text, actions, and owning grab behavior. Its `style` is configuration, as in `examples/desktop/main.luau`:
 
 ```lua
 desktop.configure(require '@lunette-plugins/desktop/decorations') { style = { barColor = { 0.3, 0.12, 0.2, 0.95 } } },
 ```
 
 Decorations of another kind are a plugin that does what `lua/lunette-plugins/desktop/decorations/init.luau` does: it hears panels arrive and leave through `panels:onAdded` and `panels:onRemoved`, draws in the frame's `scene` phase, and offers its bars with `surfaces:offer`. A bar is a surface whose `setPose` moves its panel, and it carries the panel's `kind` and `source`, so dropping it counts as dropping the panel. Disabling `desktop/decorations` and inserting such a plugin replaces it.
+
+A replacement can reuse `ui:newTitlebar(owner, name, target, options, visible?)` instead of rebuilding action panels and drag routing. Targets may implement the optional neutral `attachFrame(surface, owner, style)` method. `FrameStyle` supplies `headerHeight`, `headerRadius`, `borderThickness`, `borderDepth`, and `borderColor`; `FrameAttachment` supplies `update`, `isJoined`, and `dispose`. [Joined frame attachments](../dev/lua-api.md#joined-frame-attachments) is the source for exact readonly signatures, validation, complete replacement updates, disposed errors, and owner cleanup. A target accepts only one live attachment, including a dormant one. It computes eligibility dynamically rather than exposing native grant or curve fields to the titlebar. Unsupported third-party surfaces can omit the method.
+
+Flat scene targets join only while live and visible; native targets also require a live source, flat shape, and no granted layer. Curved and granted-layer targets retain dormant attachments and separate headings without per-frame effect churn. Removing or hiding a heading disposes its attachment; target teardown invalidates it. The header rounds only its top outer corners and the body only its independently resolved bottom corners. Their square meeting edges have zero margin. The header's border thickness, depth, and normal or highlighted colour govern the entire joined outline and supersede body outline overrides until disposal. The target draws one ring without an internal seam or a depth-writing rectangle behind cutouts. Header action faces and drag hits share the actual perimeter, so hovered or held edge actions cannot square a corner and cutouts cannot become invisible grabs. The UI provider synchronizes retained titlebars in a scene update at order 1000 before pointing and all drawing, but adds no global panel draw subscription.
+
+Granted OpenXR layers retain rectangular content and hits with unchanged claims and raw copies. A radius change never forces scene fallback; an ungranted claim uses rounded scene geometry. Curved scene content rounds independently beneath its separate flat header. Base, Dark, and Light use zero monitor content radius, while Arcade uses 0.012 m; an explicit zero restores square scene pixels and hits. Mesh and draw recorders do not establish GPU or headset appearance. The operator-run `theme-rounded-content`, `theme-joined-frame`, `theme-widget-edges`, and `theme-rendering-exceptions` checks remain pending. Broker lifetimes and native fonts remain separate `theme-broker-lifecycle` and `theme-font-fit` gates.
 
 ## Tags and workspaces
 

@@ -94,7 +94,8 @@ test("chrome is off unless a panel or the provider's configuration asks for it",
   expect.equal(counts.text, nil, 'a plain panel draws no title')
   local framed = env.panels:fromWindow(env.owner, window(env, 2), { height = 1, chrome = true })
   counts = drawn(env, framed)
-  expect.equal(counts.plane, 2, 'a panel with chrome draws a border')
+  expect.equal(counts.plane, 1, 'square captured content retains its plane')
+  expect.equal(counts.draw, 1, 'a panel with chrome draws an outline ring')
   expect.equal(counts.text, 1, 'a panel with chrome draws a title')
 
   local faces = {}
@@ -125,7 +126,7 @@ test("chrome is off unless a panel or the provider's configuration asks for it",
   local function paintCalls()
     local border, title
     for _, call in env.native.events.draw do
-      if call[1] == 'plane' and not border then
+      if call[1] == 'draw' and not border then
         border = call
       elseif call[1] == 'text' then
         title = call
@@ -144,7 +145,8 @@ test("chrome is off unless a panel or the provider's configuration asks for it",
   expect.equal(env.panels.STYLE.borderDepth, 0.001, 'the border depth stays policy')
   expect.equal(framed.windowRadius, 0.03, 'the window radius data seam')
   expect.equal(framed.monitorRadius, 0.04, 'the monitor radius data seam')
-  expect.equal(counts.plane, 2, 'radii do not change scene geometry yet')
+  expect.equal(counts.plane, nil, 'rounded content has no square plane')
+  expect.equal(counts.draw, 2, 'rounded captured content and chrome have distinct meshes')
   recorder:assertRestored(caller)
   framed:setHighlighted(true)
   drawn(env, framed)
@@ -347,7 +349,7 @@ test('an override hides a panel, and the most recent live override decides', fun
   env.session:close()
 end)
 
-test('a curved panel draws one arc mesh, remade in place on resize and released with the panel', function()
+test('a curved panel retains one arc mesh, replaced on resize and released with the panel', function()
   local env = start()
   local curved = env.panels:fromMonitor(env.owner, {
     id = 'curved',
@@ -371,10 +373,12 @@ test('a curved panel draws one arc mesh, remade in place on resize and released 
   local before = mesh.vertices[#mesh.vertices][1]
   curved:setSize(3)
   drawn(env, curved)
-  expect.equal(#env.meshes, 1, 'the meshes after the resize')
-  expect.truthy(mesh.vertices[#mesh.vertices][1] ~= before, 'the mesh is remade in place')
+  expect.equal(#env.meshes, 2, 'the meshes after the resize')
+  expect.truthy(mesh.released, 'resizing releases the previous mesh')
+  local replacement = env.meshes[2]
+  expect.truthy(replacement.vertices[#replacement.vertices][1] ~= before, 'resizing replaces the geometry')
   curved:destroy(env.owner)
-  expect.truthy(mesh.released, 'the mesh is released with the panel')
+  expect.truthy(replacement.released, 'the retained mesh is released with the panel')
   for _, curve in { -1, 0 / 0, 'round' } do
     expect.raises(function()
       env.panels:fromWindow(env.owner, window(env, 4), { height = 1, curve = curve })

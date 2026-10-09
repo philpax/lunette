@@ -24,7 +24,10 @@ local function scenario(provider)
     expect.truthy(described.items[1].id ~= 'item-1', 'substitute provides current clipped geometry')
     state.fixture:clickControl(state.service, 'public-ui-form', 'list', nil, described.items[#described.items].id)
     state.fixture:draw()
-    expect.truthy(#state.fixture:drawCalls 'plane' > 0, 'consumer draws provider geometry')
+    expect.truthy(
+      #state.fixture:drawCalls 'draw' + #state.fixture:drawCalls 'plane' > 0,
+      'consumer draws provider geometry'
+    )
     fixture.press(state, 'run')
     local panel, field, button = state.panel, state.field, state.button
     local eventCount = #state.events

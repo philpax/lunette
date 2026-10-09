@@ -3,8 +3,26 @@ local expect = testing.expect
 local panels = require '@lunette-contracts/panels'
 local ui = require '@lunette-contracts/ui'
 local drops = require '@lunette-contracts/drops'
+local surfaces = require '@lunette-contracts/surfaces'
 local vrUi = require '@testing/vr-ui'
 local test = testing.suite()
+
+local HEADER_STYLE = {
+  barHeight = 0.05,
+  cornerRadius = 0.012,
+  margin = 0.03,
+  borderThickness = 0.014,
+  borderDepth = 0.003,
+  borderColor = { 0.71, 0.19, 0.37, 1 },
+  borderHighlightColor = { 0.13, 0.79, 0.41, 1 },
+}
+local BODY_STYLE = {
+  windowRadius = 0.035,
+  monitorRadius = 0,
+  borderThickness = 0.004,
+  borderColor = { 0.21, 0.31, 0.61, 1 },
+  borderHighlightColor = { 0.81, 0.41, 0.11, 1 },
+}
 
 local function withTitlebar(provider, run)
   local native = testing.native()
@@ -20,10 +38,14 @@ local function withTitlebar(provider, run)
     'laser',
     'keyboard',
     'desktop/pointing',
-    'panels',
+    { id = 'panels', definition = require('@lunette-plugins/panels').definition, config = { style = BODY_STYLE } },
     provider,
     'desktop/render',
-    'desktop/decorations',
+    {
+      id = 'desktop/decorations',
+      definition = require '@lunette-plugins/desktop/decorations',
+      config = { style = HEADER_STYLE },
+    },
     'desktop/monitors',
   }, { native = native })
   local registry = running.session:observe(panels.capability)
@@ -50,6 +72,97 @@ local function withTitlebar(provider, run)
   end
 end
 
+local function sameColor(actual, wanted)
+  return actual
+    and actual[1] == wanted[1]
+    and actual[2] == wanted[2]
+    and actual[3] == wanted[3]
+    and actual[4] == wanted[4]
+end
+
+local function combinedOutline(running, registry, target, color, bottomRadius)
+  running.native.events.draw = {}
+  running:draw()
+  local px, py, pz = target.pose:getPosition()
+  local found
+  local count = 0
+  for _, call in running.native.events.draw do
+    if call.draw then
+      expect.falsy(sameColor(call.state.setColor, BODY_STYLE.borderColor), 'the body border is delegated to the header')
+      expect.falsy(
+        sameColor(call.state.setColor, BODY_STYLE.borderHighlightColor),
+        'the body highlight border is delegated'
+      )
+    end
+    if call[1] == 'draw' and sameColor(call.state.setColor, color) then
+      local x, y, z = call[3]:getPosition()
+      if math.abs(x - px) < 1e-5 and math.abs(y - py) < 1e-5 then
+        expect.near(z, pz - HEADER_STYLE.borderDepth, 1e-5, 'the combined outline uses the header border depth')
+        found = call[2]
+        count += 1
+      end
+    end
+  end
+  expect.equal(count, 1, 'the target draws one combined outline, not a second titlebar border')
+  local mesh = assert(found)
+  local halfWidth, halfHeight = target.width / 2, target.height / 2
+  local top, bottom = halfHeight + HEADER_STYLE.barHeight, -halfHeight
+  local left, right, low, high = math.huge, -math.huge, math.huge, -math.huge
+  local topEdge, bottomEdge = 0, 0
+  for _, vertex in mesh.vertices do
+    local x, y = vertex[1], vertex[2]
+    left, right = math.min(left, x), math.max(right, x)
+    low, high = math.min(low, y), math.max(high, y)
+    if math.abs(y - top) < 1e-5 then
+      topEdge = math.max(topEdge, math.abs(x))
+    end
+    if math.abs(y - bottom) < 1e-5 then
+      bottomEdge = math.max(bottomEdge, math.abs(x))
+    end
+  end
+  expect.near(left, -halfWidth - HEADER_STYLE.borderThickness, 1e-5, 'the left outline uses header thickness')
+  expect.near(right, halfWidth + HEADER_STYLE.borderThickness, 1e-5, 'the right outline uses header thickness')
+  expect.near(low, bottom - HEADER_STYLE.borderThickness, 1e-5, 'the bottom outline uses header thickness')
+  expect.near(high, top + HEADER_STYLE.borderThickness, 1e-5, 'the top outline includes the header')
+  expect.near(topEdge, halfWidth - HEADER_STYLE.cornerRadius, 1e-5, 'the top contour uses the header radius')
+  expect.near(bottomEdge, halfWidth - bottomRadius, 1e-5, 'the bottom contour keeps the body radius')
+  for index = 1, #mesh.indices, 3 do
+    for edge = 0, 2 do
+      local a = mesh.vertices[mesh.indices[index + edge]]
+      local b = mesh.vertices[mesh.indices[index + (edge + 1) % 3]]
+      if math.abs(a[2] - halfHeight) < 1e-5 then
+        expect.truthy(math.abs(a[1]) >= halfWidth - 1e-5, 'no outline vertex enters the internal seam')
+      end
+      if (a[2] - halfHeight) * (b[2] - halfHeight) < 0 then
+        local x = a[1] + (b[1] - a[1]) * (halfHeight - a[2]) / (b[2] - a[2])
+        expect.truthy(math.abs(x) >= halfWidth - 1e-5, 'no outline triangle crosses the internal seam')
+      end
+    end
+  end
+  local attached, inspected
+  for _, entry in registry.service:inspect().registrations do
+    if entry.details.sourceId == target.source.id and entry.details.sourceKind == target.kind then
+      if entry.source == 'panels.attachFrame' then
+        attached = entry
+      elseif entry.kind == 'panel' then
+        inspected = entry
+      end
+    end
+  end
+  expect.truthy(attached and attached.live and attached.details.joined, 'the action target has one joined attachment')
+  expect.equal(
+    attached.details.borderThickness,
+    HEADER_STYLE.borderThickness,
+    'inspection records the header thickness'
+  )
+  expect.truthy(
+    inspected.details.outlineMesh and inspected.details.frameJoined,
+    'the target owns the joined outline mesh'
+  )
+  expect.falsy(target.chrome, 'the action target still has ordinary chrome disabled')
+  return mesh
+end
+
 for _, provider in
   {
     { name = 'real', entry = 'ui' },
@@ -64,11 +177,44 @@ do
       local description = running:discover(widgets, windowName, 'close/window/7')
       local pose = lovr.math.newMat4(table.unpack(description.pose))
       local _, y = pose:getPosition()
-      expect.near(y, 1 + panel.height / 2 + 0.035, 1e-5, 'controls occupy the titlebar')
+      expect.near(y, 1 + panel.height / 2 + 0.025, 1e-5, 'controls occupy the joined titlebar')
+      local windowOutline = combinedOutline(running, registry, panel, HEADER_STYLE.borderColor, BODY_STYLE.windowRadius)
+      local bar
+      for _, surface in running.session:observe(surfaces.capability).service:all() do
+        if surface ~= panel and surface.kind == panel.kind and surface.source == panel.source then
+          bar = surface
+        end
+      end
+      expect.truthy(bar, 'the action controls share the offered header')
+      local px, py, pz = panel.pose:getPosition()
+      local _, by = bar.pose:getPosition()
+      local _, headerBottom = lovr.math.newMat4(bar.pose):translate(0, -bar.height / 2, 0):getPosition()
+      local _, bodyTop = lovr.math.newMat4(panel.pose):translate(0, panel.height / 2, 0):getPosition()
+      expect.equal(headerBottom, bodyTop, 'the controls header meets its body with zero seam')
+      running:pose('right', lovr.math.newMat4():translate(px - 0.2, by, pz + 0.5))
+      running:tracked('right', true)
+      running:step()
+      expect.equal(
+        combinedOutline(running, registry, panel, HEADER_STYLE.borderHighlightColor, BODY_STYLE.windowRadius),
+        windowOutline,
+        'header hover changes the whole outline color without duplicating its contour'
+      )
+      running:tracked('right', false)
+      running:step()
       running:clickControl(widgets, windowName, 'close/window/7')
       expect.equal(requests(), 1, 'the close button sends one application close request')
       expect.falsy(panel.dead, 'a close request waits for the client to unmap')
       local mirror = assert(registry.service:forSource(monitor))
+      combinedOutline(running, registry, mirror, HEADER_STYLE.borderColor, BODY_STYLE.monitorRadius)
+      local monitorDescription = running:discover(widgets, monitorName, 'close/monitor/screen-a')
+      local _, monitorY = lovr.math.newMat4(table.unpack(monitorDescription.pose)):getPosition()
+      local _, mirrorY = mirror.pose:getPosition()
+      expect.near(
+        monitorY,
+        mirrorY + mirror.height / 2 + HEADER_STYLE.barHeight / 2,
+        1e-5,
+        'mirror actions use the joined header'
+      )
       running:clickControl(widgets, monitorName, 'restart/monitor/screen-a')
       expect.equal(running.native.events.mirrored, 2)
       running:clickControl(widgets, monitorName, 'select/monitor/screen-a')
@@ -95,7 +241,7 @@ do
       })
       local function drag(button, title, rightEdge)
         local px, py, pz = panel.pose:getPosition()
-        local y = if title then py + panel.height / 2 + 0.035 else py
+        local y = if title then py + panel.height / 2 + 0.025 else py
         local x = if rightEdge then px + panel.width / 2 - 0.025 else px - 0.2
         local origin = lovr.math.newMat4():translate(x, y, pz + 0.5)
         running:pose('right', origin)

@@ -30,6 +30,9 @@ for _, case in cases do
         function mesh:setIndices(indices)
           self.indices = indices
         end
+        function mesh:release()
+          self.released = true
+        end
         made[#made + 1] = mesh
         return mesh
       end
@@ -62,6 +65,30 @@ for _, case in cases do
       else
         expect.truthy(curve == 0 and (case[1] == 'normal' or case[1] == 'undefined'), 'only identity uses a plane')
       end
+      target.monitorRadius = 0.08
+      drawing.content(target, native.events.pass, function()
+        return nil
+      end)
+      local rounded = made[#made]
+      local tl, tr, bl = case[2][1], case[2][2], case[2][3]
+      for _, vertex in rounded.vertices do
+        local u = if curve == 0
+          then vertex[1] / target.width + 0.5
+          else (math.atan2(vertex[1], 1 / curve - vertex[3]) / shape.halfAngle(target.width, curve) + 1) / 2
+        local v = 0.5 - vertex[2] / target.height
+        expect.near(
+          vertex[7],
+          tl[1] + u * (tr[1] - tl[1]) + v * (bl[1] - tl[1]),
+          1e-9,
+          'rounded u preserves source orientation'
+        )
+        expect.near(
+          vertex[8],
+          tl[2] + u * (tr[2] - tl[2]) + v * (bl[2] - tl[2]),
+          1e-9,
+          'rounded v preserves source orientation'
+        )
+      end
       -- Hit testing stays in logical panel orientation, not transformed texture UVs.
       local u, v = 0.25, 0.75
       local localX = (u - 0.5) * target.width
@@ -88,13 +115,20 @@ test('a changed capture transform refreshes an existing panel mesh', function()
   monitor.getTexture = function()
     return {}
   end
-  local mesh = { writes = 0 }
-  function mesh:setVertices(vertices)
-    self.writes += 1
-    self.vertices = vertices
-  end
-  function mesh:setIndices() end
+  local made = {}
   lovr.graphics.newMesh = function()
+    local mesh = { writes = 0 }
+    function mesh:setVertices(vertices)
+      self.writes += 1
+      self.vertices = vertices
+    end
+    function mesh:setIndices(indices)
+      self.indices = indices
+    end
+    function mesh:release()
+      self.released = true
+    end
+    made[#made + 1] = mesh
     return mesh
   end
   local target = {
@@ -114,9 +148,15 @@ test('a changed capture transform refreshes an existing panel mesh', function()
   drawing.content(target, native.events.pass, function()
     return nil
   end)
-  expect.equal(mesh.writes, 2)
-  expect.equal(mesh.vertices[1][7], 0)
-  expect.equal(mesh.vertices[1][8], 1)
+  expect.equal(#made, 2, 'changed UVs replace the retained mesh')
+  expect.truthy(made[1].released, 'the previous transform mesh is released')
+  expect.equal(made[2].writes, 1)
+  expect.equal(made[2].vertices[1][7], 0)
+  expect.equal(made[2].vertices[1][8], 1)
+  drawing.content(target, native.events.pass, function()
+    return nil
+  end)
+  expect.equal(#made, 2, 'unchanged capture transforms retain the mesh')
 end)
 
 return test

@@ -29,6 +29,7 @@ function fixture.start(options)
   }
   env.session = testing.boot {
     'frame',
+    'theme',
     'surfaces',
     options.focus or 'focus',
     options.keyboard or 'keyboard',

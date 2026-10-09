@@ -42,7 +42,8 @@ function geometry.segment(from: graph.Point, to: graph.Point, clip: graph.Box): 
   return { x = from.x + first * dx, y = from.y + first * dy }, { x = from.x + last * dx, y = from.y + last * dy }
 end
 
-function geometry.project(state: view.State, clip: graph.Box): Scene
+function geometry.project(state: view.State, bounds: graph.Box, contentClip: graph.Box?): Scene
+  local clip = contentClip or bounds
   local visible = view.visible(state)
   local nodes: { Node } = {}
   local edges: { Edge } = {}
@@ -55,7 +56,7 @@ function geometry.project(state: view.State, clip: graph.Box): Scene
     local route: { graph.Point } = {}
     for _, point in graph.route(state.snapshot, state.layout, state.camera, edge) do
       local screen = graph.screen(state.camera, point)
-      points[#points + 1] = table.freeze { x = screen.x + clip.x, y = screen.y + clip.y }
+      points[#points + 1] = table.freeze { x = screen.x + bounds.x, y = screen.y + bounds.y }
     end
     for index = 1, #points - 1 do
       local first, last = geometry.segment(points[index], points[index + 1], clip)
@@ -98,14 +99,14 @@ function geometry.project(state: view.State, clip: graph.Box): Scene
       continue
     end
     local origin = graph.screen(state.camera, { x = box.x, y = box.y })
-    local bounds = table.freeze {
-      x = origin.x + clip.x,
-      y = origin.y + clip.y,
+    local pixels = table.freeze {
+      x = origin.x + bounds.x,
+      y = origin.y + bounds.y,
       width = box.width * state.camera.zoom,
       height = box.height * state.camera.zoom,
     }
-    local clipped = geometry.intersect(bounds, clip)
-    nodes[#nodes + 1] = table.freeze { node = node, bounds = bounds, clipped = clipped }
+    local clipped = geometry.intersect(pixels, clip)
+    nodes[#nodes + 1] = table.freeze { node = node, bounds = pixels, clipped = clipped }
     if clipped then
       items[#items + 1] = table.freeze {
         id = 'node/' .. node.id,

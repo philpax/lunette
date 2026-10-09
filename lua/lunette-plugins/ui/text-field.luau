@@ -294,7 +294,8 @@ pointerCaret = function(state: State, x: number): number?
       clip,
       state.host.theme(),
       font,
-      state.measurements
+      state.measurements,
+      if state.host.textClip then state.host.textClip() else nil
     )
     nearest = if layout then textGeometry.nearest(layout, x) else nil
   end)

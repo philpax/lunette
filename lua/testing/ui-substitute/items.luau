@@ -110,6 +110,7 @@ function items.install(control)
     local replacement = items.copy(values, false)
     control.changed()
     control.items = replacement
+    control.meshes.limit = math.max(96, (#replacement + 1) * 3)
     if #replacement == 0 then
       control.opened = false
     end

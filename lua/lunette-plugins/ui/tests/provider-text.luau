@@ -12,6 +12,7 @@ local function withProvider(provider, run)
   local state = { native = testing.native() }
   local running = testing.start {
     'theme',
+    'frame',
     'surfaces',
     'focus',
     provider,

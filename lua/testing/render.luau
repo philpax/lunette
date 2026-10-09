@@ -38,6 +38,9 @@ function render.new(calls)
     fontAcquisitions = {},
     fontReleases = {},
     fontMeasurements = {},
+    meshes = {},
+    meshAcquisitions = {},
+    meshReleases = {},
     _state = {},
     _transform = lovr.math.newMat4(),
     _stacks = { state = {}, transform = {} },
@@ -56,6 +59,48 @@ function Recorder:newFont(file, size, spread)
   faces[#faces + 1] = face
   self.fontAcquisitions[#self.fontAcquisitions + 1] = { spec = spec, font = face, key = key }
   return face
+end
+
+function Recorder:newMesh(count)
+  assert(type(count) == 'number' and count >= 0, 'render recorder: invalid mesh capacity')
+  local recorder = self
+  local mesh = { capacity = count, vertices = {}, indices = {}, released = false }
+  function mesh:setVertices(vertices)
+    assert(not self.released, 'render recorder: released mesh updated')
+    assert(#vertices <= self.capacity, 'render recorder: mesh vertex capacity exceeded')
+    self.vertices = {}
+    for _, vertex in vertices do
+      assert(#vertex == 8, 'render recorder: expected default mesh attributes')
+      for _, value in vertex do
+        assert(
+          type(value) == 'number' and value == value and math.abs(value) < math.huge,
+          'render recorder: invalid vertex'
+        )
+      end
+      self.vertices[#self.vertices + 1] = table.clone(vertex)
+    end
+  end
+  function mesh:setIndices(indices)
+    assert(not self.released, 'render recorder: released mesh updated')
+    self.indices = table.clone(indices)
+    for _, index in indices do
+      assert(index % 1 == 0 and index > 0 and index <= #self.vertices, 'render recorder: invalid vertex index')
+    end
+  end
+  function mesh:release()
+    assert(not self.released, 'render recorder: mesh released twice')
+    self.released = true
+    recorder.meshReleases[#recorder.meshReleases + 1] = self
+  end
+  self.meshes[#self.meshes + 1] = mesh
+  self.meshAcquisitions[#self.meshAcquisitions + 1] = mesh
+  return mesh
+end
+
+function Recorder:assertMeshesReleased()
+  for _, mesh in self.meshAcquisitions do
+    assert(mesh.released, 'render recorder: leaked mesh')
+  end
 end
 
 function Recorder:assertFontsReleased()
@@ -386,6 +431,18 @@ geometry = function(method, args, transform, font)
         local left = if horizontal == 'left' then 0 elseif horizontal == 'center' then -width / 2 else -width
         rectangle(matrix, left, top - (row - 1) * leading - height, width, height)
       end
+    end
+  elseif method == 'draw' then
+    local mesh = args[1]
+    if type(mesh) ~= 'table' or not mesh.vertices then
+      return nil
+    end
+    assert(not mesh.released, 'render recorder: released mesh drawn')
+    local localTransform = readTransform(args, 2, 3)
+    local matrix = lovr.math.newMat4(transform):mul(localTransform)
+    for _, index in mesh.indices do
+      local vertex = mesh.vertices[index]
+      point(matrix, vertex[1], vertex[2], vertex[3])
     end
   elseif method == 'line' then
     local vertices = if args.n == 1 and type(args[1]) == 'table' then args[1] else args

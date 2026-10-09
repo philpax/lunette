@@ -6,6 +6,7 @@ local input = require '@lunette-plugins/ui/input'
 local geometry = require '@lunette-plugins/ui/geometry'
 local draw = require '@lunette-plugins/ui/draw'
 local depth = require '@lunette-plugins/ui/depth'
+local panelGeometry = require './panel-geometry'
 
 local panelDraw = {}
 
@@ -19,6 +20,8 @@ function panelDraw.render(state: records.Panel, pass: Pass): ()
   if not live(state, nil) then
     return
   end
+  panelGeometry.prepare(state)
+  local frameRevision = state.revision
   local pushed = false
   local ok, failure = pcall(function(): ()
     pass:push 'transform'
@@ -70,6 +73,9 @@ function panelDraw.render(state: records.Panel, pass: Pass): ()
   end
   if not ok then
     error(failure, 0)
+  end
+  if live(state, nil) and state.revision == frameRevision then
+    panelGeometry.drawFrame(state, pass)
   end
 end
 
@@ -134,7 +140,18 @@ render = function(state: records.Panel, pass: Pass, value: ui.Visual, record: re
   if available() then
     local lease = if record then record.lease else state.lease
     lease:withFont(function(_font: Font): ()
-      draw.render(pass, value, hooks, if record then record.measurements else state.measurements)
+      local prepared = panelGeometry.prepare(state)
+      local shape = if not record or state.contour
+        then {
+          bounds = prepared.bounds,
+          profile = prepared.profile,
+          border = not state.contour and not panelGeometry.joined(state),
+          faceClip = if record and state.contour
+            then geometry.intersect(record.bounds, panelGeometry.bounds(state))
+            else nil,
+        }
+        else nil
+      draw.render(pass, value, hooks, if record then record.measurements else state.measurements, shape)
     end)
   end
 end

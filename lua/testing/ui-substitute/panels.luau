@@ -2,12 +2,14 @@
 
 local plugin = require '@lunette-plugin'
 local ui = require '@lunette-contracts/ui'
-local quad = require '@lunette-contracts/quad'
+local pointerRouting = require './pointer-routing'
 local protected = require '@lunette-plugins/protected'
 local appearance = require './appearance'
 local geometry = require './geometry'
 local items = require './items'
 local controls = require './controls'
+local surfaceGeometry = require './surface-geometry'
+local drawing = require '@lunette-plugins/theme/drawing'
 
 local panels = {}
 
@@ -27,6 +29,8 @@ function panels.new(provider, owner, options)
     overrides = appearance.copyOverrides(options.theme),
     drawHook = options.draw,
     gestures = {},
+    meshes = drawing.newCache(),
+    frameMeshes = drawing.newCache(),
   }
   panel.surface = {
     dead = false,
@@ -60,13 +64,30 @@ function panels.new(provider, owner, options)
     refreshing = true
     local completed, failure = pcall(function()
       provider.refreshBase()
-      local changed = appearance.resolve(panel, provider.base, panel.overrides)
+      local base = table.clone(provider.base)
+      local sx, sy = panel.surface.pose:getScale()
+      if provider.overrides.panelRadius == nil then
+        base.panelRadius = provider.radius * panel.surface.pixelWidth / (panel.surface.width * math.abs(sx))
+      end
+      local changed = appearance.resolve(panel, base, panel.overrides)
+      local explicit = (panel.overrides and panel.overrides.panelRadius) or provider.overrides.panelRadius
+      local radiusY = if explicit ~= nil
+        then explicit
+        else provider.radius * panel.surface.pixelHeight / (panel.surface.height * math.abs(sy))
+      changed = changed or (panel.radiusY ~= nil and panel.radiusY ~= radiusY)
+      panel.radiusY = radiusY
       for _, control in table.clone(panel.controls) do
         if control.live() then
           changed = control.refresh() or changed
         end
       end
       if changed then
+        panel.shape = nil
+        drawing.clear(panel.meshes)
+        drawing.clear(panel.frameMeshes)
+        for _, control in panel.controls do
+          drawing.clear(control.meshes)
+        end
         panel.revision += 1
         panel.cancel(nil, 'control-removed')
       end
@@ -77,222 +98,28 @@ function panels.new(provider, owner, options)
     end
   end
   provider.refreshBase()
-  appearance.resolve(panel, provider.base, panel.overrides)
-  function panel.clip()
+  local initialBase = table.clone(provider.base)
+  local initialScaleX, initialScaleY = panel.surface.pose:getScale()
+  if provider.overrides.panelRadius == nil then
+    initialBase.panelRadius = provider.radius
+      * panel.surface.pixelWidth
+      / (panel.surface.width * math.abs(initialScaleX))
+  end
+  appearance.resolve(panel, initialBase, panel.overrides)
+  local explicit = (panel.overrides and panel.overrides.panelRadius) or provider.overrides.panelRadius
+  panel.radiusY = if explicit ~= nil
+    then explicit
+    else provider.radius * panel.surface.pixelHeight / (panel.surface.height * math.abs(initialScaleY))
+  function panel.bounds()
     return { x = 0, y = 0, width = panel.surface.pixelWidth, height = panel.surface.pixelHeight }
   end
-  local pendingTerminals = {}
-  local cancelling = false
-  local function interactive(control)
-    return panel.live() and panel.visible and not cancelling and (not control or (control.live() and control.enabled))
+  function panel.clip()
+    return surfaceGeometry.shape(panel).clip
   end
-  local function emit(control, event, terminal)
-    if not terminal and not interactive(control) then
-      return
-    end
-    local onPointer = control.options.onPointer
-    if control.kind == 'region' and onPointer then
-      appearance.callback(control, 'onPointer', function()
-        onPointer(event)
-      end, terminal)
-    end
+  function panel.surface.attachFrame(_, frameOwner, style)
+    return surfaceGeometry.attach(panel, frameOwner, style)
   end
-  local function consume(delivery)
-    local index = table.find(pendingTerminals, delivery)
-    if index then
-      table.remove(pendingTerminals, index)
-      emit(delivery.control, delivery.event, true)
-    end
-  end
-  function panel.cancel(control, reason)
-    local deliveries, affected = {}, {}
-    -- Nested destruction drains the selected terminals before clearing its observer.
-    for _, delivery in ipairs(table.clone(pendingTerminals)) do
-      if not control or delivery.control == control then
-        deliveries[#deliveries + 1] = delivery
-      end
-    end
-    local function queue(target, event)
-      local delivery = { control = target, event = table.freeze(event) }
-      pendingTerminals[#pendingTerminals + 1] = delivery
-      deliveries[#deliveries + 1] = delivery
-    end
-    for pointer, gestures in panel.gestures do
-      for button, gesture in gestures do
-        if not control or gesture.control == control then
-          gestures[button] = nil
-          gesture.control.presses[pointer] = nil
-          affected[pointer] = true
-          queue(gesture.control, {
-            kind = 'cancel',
-            pointer = pointer,
-            button = button,
-            captured = true,
-            inside = false,
-            reason = reason,
-          })
-        end
-      end
-      if not next(gestures) then
-        panel.gestures[pointer] = nil
-      end
-    end
-    for _, candidate in panel.controls do
-      if not control or candidate == control then
-        for pointer in candidate.hovered do
-          candidate.hovered[pointer] = nil
-          affected[pointer] = true
-          queue(candidate, { kind = 'leave', pointer = pointer, captured = false, inside = false })
-        end
-      end
-    end
-    local wasCancelling = cancelling
-    cancelling = true
-    local failures = {}
-    for _, delivery in deliveries do
-      local ok, message = pcall(consume, delivery)
-      if not ok then
-        failures[#failures + 1] = tostring(message)
-      end
-    end
-    for pointer in affected do
-      local ok, message = pcall(function()
-        pointer:cancel(panel.surface, reason)
-      end)
-      if not ok then
-        failures[#failures + 1] = tostring(message)
-      end
-    end
-    cancelling = wasCancelling
-    if #failures > 0 then
-      error('ui substitute: pointer cleanup: ' .. table.concat(failures, '\n'), 0)
-    end
-  end
-  local function hit(x, y)
-    local winner, itemId
-    for _, control in panel.controls do
-      if
-        control.live()
-        and control.enabled
-        and geometry.contains(geometry.intersect(control.bounds, panel.clip()), x, y)
-        and (not winner or control.z >= winner.z)
-      then
-        winner, itemId = control, nil
-        for _, item in items.rows(control) do
-          if item.enabled and geometry.contains(item.bounds, x, y) then
-            itemId = item.id
-            break
-          end
-        end
-      end
-    end
-    return winner, itemId
-  end
-  function panel.surface.raycast(_, origin, direction)
-    panel.refresh()
-    if not panel.live() or not panel.visible then
-      return nil, nil, nil
-    end
-    return quad.hit(panel.surface, origin, direction)
-  end
-  function panel.surface.project(_, origin, direction)
-    panel.refresh()
-    if not panel.live() or not panel.visible then
-      return nil, nil, nil
-    end
-    return quad.project(panel.surface, origin, direction)
-  end
-  function panel.surface.onPointer(_, event)
-    if event.kind ~= 'cancel' and event.kind ~= 'leave' then
-      panel.refresh()
-    end
-    local pointer, button = event.pointer, event.button
-    local gestures = panel.gestures[pointer] or {}
-    if event.kind == 'cancel' then
-      local gesture = gestures[button]
-      if gesture then
-        gestures[button] = nil
-        if not next(gestures) then
-          panel.gestures[pointer] = nil
-        end
-        gesture.control.presses[pointer] = nil
-        emit(gesture.control, event, true)
-      end
-      return
-    end
-    if not interactive() then
-      return
-    end
-    local control, item = hit(event.x, event.y)
-    for _, candidate in panel.controls do
-      candidate.hovered[pointer] = if event.kind ~= 'leave' and candidate == control then true else nil
-    end
-    if event.kind == 'press' and control then
-      if control.exclusive and next(control.presses) then
-        return
-      end
-      local gesture = { control = control, item = item, revision = panel.revision }
-      panel.gestures[pointer] = gestures
-      gestures[button] = gesture
-      control.presses[pointer] = true
-      local function captured()
-        return interactive(control)
-          and panel.gestures[pointer] == gestures
-          and gestures[button] == gesture
-          and gesture.revision == panel.revision
-      end
-      if button == 'left' and control.target then
-        control.target:focus()
-      end
-      if not captured() then
-        return
-      end
-      emit(control, event)
-    elseif event.kind == 'release' then
-      local gesture = gestures[button]
-      gestures[button] = nil
-      if not gesture then
-        return
-      end
-      local pressed = gesture.control
-      pressed.presses[pointer] = nil
-      local revision = panel.revision
-      emit(pressed, event)
-      if
-        not pressed.live()
-        or not pressed.enabled
-        or not panel.visible
-        or panel.revision ~= revision
-        or button ~= 'left'
-        or pressed ~= control
-        or not event.inside
-        or gesture.revision ~= panel.revision
-      then
-        return
-      end
-      if control.kind == 'button' then
-        appearance.callback(control, 'onActivate', control.options.onActivate)
-      elseif control.kind == 'choice' and not gesture.item then
-        control.handle:setOpen(not control.opened)
-      elseif (control.kind == 'choice' or control.kind == 'list') and item and item == gesture.item then
-        control.chosen = item
-        if control.kind == 'choice' then
-          control.handle:setOpen(false)
-        end
-        if control.options.onChange then
-          appearance.callback(control, 'onChange', function()
-            control.options.onChange(item)
-          end)
-        end
-      end
-    elseif event.kind == 'scroll' and control and (control.kind == 'choice' or control.kind == 'list') then
-      control.handle:scroll(event.dy)
-    elseif event.captured and event.button and gestures[event.button] then
-      emit(gestures[event.button].control, event)
-    elseif control then
-      emit(control, event)
-    end
-  end
+  pointerRouting.install(panel)
   function handle.setPose(_: ui.Panel, pose: Mat4)
     if not panel.live() then
       return
@@ -321,6 +148,13 @@ function panels.new(provider, owner, options)
     panel.surface.width, panel.surface.height = width, height
     panel.surface.pixelWidth, panel.surface.pixelHeight =
       logicalWidth or panel.surface.pixelWidth, logicalHeight or panel.surface.pixelHeight
+    panel.shape = nil
+    drawing.clear(panel.meshes)
+    drawing.clear(panel.frameMeshes)
+    for _, control in panel.controls do
+      drawing.clear(control.meshes)
+    end
+    panel.refresh()
     panel.revision += 1
     if chrome then
       chrome:sync()
@@ -429,11 +263,21 @@ function panels.new(provider, owner, options)
       chrome:draw(pass)
     end
     local function render()
+      panel.refresh()
+      local revision = panel.revision
+      local themeRevision = provider.theme:current().revision
+      local function current()
+        return panel.live()
+          and panel.visible
+          and panel.revision == revision
+          and provider.theme:current().revision == themeRevision
+      end
+      surfaceGeometry.outline(panel, pass)
       pass:transform(panel.surface.pose)
       pass:translate(-panel.surface.width / 2, panel.surface.height / 2, 0)
       pass:scale(panel.surface.width / panel.surface.pixelWidth, -panel.surface.height / panel.surface.pixelHeight, 1)
       local function visual(control)
-        local box = if control then control.bounds else panel.clip()
+        local box = if control then control.bounds else panel.bounds()
         local value, overflow = control and control.value, nil
         if control and (control.kind == 'choice' or control.kind == 'list') then
           local style = control.theme()
@@ -453,7 +297,7 @@ function panels.new(provider, owner, options)
           kind = if control then control.kind else 'panel',
           label = if control then control.label else panel.name,
           bounds = box,
-          clip = geometry.intersect(box, panel.clip()),
+          clip = if control then geometry.intersect(box, panel.clip()) else panel.bounds(),
           theme = if control then control.theme() else panel.theme(),
           enabled = not control or control.enabled,
           hovered = control ~= nil and next(control.hovered) ~= nil,
@@ -472,21 +316,39 @@ function panels.new(provider, owner, options)
       if panel.drawHook then
         panelHooks[#panelHooks + 1] = panel.drawHook
       end
+      local shape = surfaceGeometry.shape(panel)
+      local backing = {
+        bounds = shape.bounds,
+        profile = shape.profile,
+        border = panel.contour == nil and not (panel.frame and panel.frame.joined()),
+      }
       panel.lease:withFont(function()
-        appearance.paint(owner, pass, visual(nil), panelHooks)
+        appearance.paint(owner, pass, visual(nil), panelHooks, panel.meshes, backing, current)
       end)
+      if not current() then
+        return
+      end
       local ordered = table.clone(panel.controls)
       table.sort(ordered, function(a, b)
         return a.z < b.z
       end)
       for _, control in ordered do
+        if not current() then
+          return
+        end
         if control.live() and geometry.intersect(control.bounds, panel.clip()) then
           local hooks = table.clone(panelHooks)
           if control.drawHook then
             hooks[#hooks + 1] = control.drawHook
           end
+          local controlShape
+          if panel.contour then
+            controlShape = { bounds = shape.bounds, profile = shape.profile, border = false }
+          end
           control.lease:withFont(function()
-            appearance.paint(control.owner, pass, visual(control), hooks)
+            appearance.paint(control.owner, pass, visual(control), hooks, control.meshes, controlShape, function()
+              return current() and control.live()
+            end)
           end)
         end
       end
@@ -535,7 +397,27 @@ function panels.new(provider, owner, options)
       end
     end
     panel.controls, panel.gestures, panel.drawHook = {}, {}, nil
-    appearance.release(panel)
+    for _, operation in
+      {
+        function()
+          if panel.frame then
+            panel.frame.dispose()
+          end
+        end,
+        function()
+          drawing.clear(panel.frameMeshes)
+        end,
+        function()
+          appearance.release(panel)
+        end,
+      }
+    do
+      ok, message = pcall(operation)
+      if not ok then
+        failures[#failures + 1] = tostring(message)
+      end
+    end
+    panel.shape, panel.contour = nil, nil
     local index = table.find(provider.panels, panel)
     if index then
       table.remove(provider.panels, index)

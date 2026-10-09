@@ -4,6 +4,9 @@ local plugin = require '@lunette-plugin'
 local ui = require '@lunette-contracts/ui'
 local protected = require '@lunette-plugins/protected'
 local geometry = require './geometry'
+local rounded = require '@lunette-plugins/theme/rounded-geometry'
+local drawing = require '@lunette-plugins/theme/drawing'
+local textLayout = require './text-layout'
 
 local appearance = {}
 local defaultRenderer
@@ -41,10 +44,11 @@ function appearance.copyOverrides(overrides)
   if overrides == nil then
     return nil
   end
+  assert(type(overrides) == 'table' and getmetatable(overrides) == nil, 'ui substitute: theme is a plain table')
   local result = {}
   for key, value in overrides do
     if key == 'font' then
-      assert(type(value) == 'table', 'ui substitute: font is a specification')
+      assert(type(value) == 'table' and getmetatable(value) == nil, 'ui substitute: font is a plain specification')
       local allowed = if value.kind == 'default'
         then { kind = true }
         else { kind = true, file = true, size = true, spread = true }
@@ -63,7 +67,17 @@ function appearance.copyOverrides(overrides)
       local default = appearance.defaultTheme[key]
       assert(default ~= nil, 'ui substitute: unknown theme field ' .. tostring(key))
       if type(default) == 'table' then
-        plugin.checkNumbers('testing/ui-substitute', key, value, 4)
+        assert(type(value) == 'table' and getmetatable(value) == nil, 'ui substitute: color is a plain array')
+        local count = 0
+        for channel, number in value do
+          assert(
+            type(channel) == 'number' and channel % 1 == 0 and channel >= 1 and channel <= 4,
+            'ui substitute: color has four channels'
+          )
+          assert(geometry.finite(number) and number >= 0 and number <= 1, 'ui substitute: color channels are in [0, 1]')
+          count += 1
+        end
+        assert(count == 4, 'ui substitute: color has four channels')
         result[key] = table.freeze(table.clone(value))
       else
         assert(geometry.finite(value) and value >= 0, 'ui substitute: theme measurements are finite and nonnegative')
@@ -145,6 +159,7 @@ function appearance.resolve(record, base, overrides)
       or previous.padding ~= resolved.padding
       or previous.spacing ~= resolved.spacing
       or previous.rowHeight ~= resolved.rowHeight
+      or previous.borderWidth ~= resolved.borderWidth
       or previous.panelRadius ~= resolved.panelRadius
       or previous.controlRadius ~= resolved.controlRadius
     )
@@ -153,8 +168,21 @@ end
 function appearance.release(record)
   local effect = record.fontEffect
   record.lease, record.fontEffect = nil, nil
-  if effect then
-    effect:dispose()
+  local released, failure = pcall(function()
+    if effect then
+      effect:dispose()
+    end
+  end)
+  local cleared, cleanup = pcall(function()
+    if record.meshes then
+      drawing.clear(record.meshes)
+    end
+  end)
+  if not released then
+    error(tostring(failure) .. (if cleared then '' else '; ' .. tostring(cleanup)), 0)
+  end
+  if not cleared then
+    error(cleanup, 0)
   end
 end
 
@@ -182,18 +210,29 @@ function appearance.focusCallback(control, label, run)
   return result
 end
 
-function appearance.paint(owner, pass, visual, hooks)
+function appearance.paint(owner, pass, visual, hooks, cache, shape, current)
   local declared = visualSnapshot(visual)
   local function guarded(render)
     return function(target, value)
+      if current and not current() then
+        return
+      end
       validateGeometry(value, declared)
       local immutable = visualSnapshot(value)
       appearance.renderProtected(target, function()
+        target:setShader()
+        target:setMaterial(nil)
+        target:setFont(immutable.theme.font)
+        target:setCullMode 'none'
+        target:setDepthTest 'gequal'
+        target:setDepthWrite(false)
         render(target, immutable)
       end)
     end
   end
-  local renderer = guarded(defaultRenderer)
+  local renderer = guarded(function(target, value)
+    defaultRenderer(target, value, cache, shape)
+  end)
   for _, hook in hooks or {} do
     local base = renderer
     renderer = guarded(function(target, value)
@@ -308,41 +347,88 @@ validateGeometry = function(value, declared)
   end
 end
 
--- The contract tests inspect hooks and geometry; these planes do not establish visual acceptance.
-defaultRenderer = function(pass: Pass, visual: ui.Visual)
-  local box = visual.clip
-  pass:setColor(
-    table.unpack(
-      if visual.kind == 'panel'
-        then visual.theme.background
-        elseif not visual.enabled then visual.theme.disabled
-        elseif visual.pressed then visual.theme.pressed
-        elseif visual.hovered then visual.theme.hovered
-        else visual.theme.control
+-- Recorder geometry establishes clipping and ownership, not native rasterization acceptance.
+defaultRenderer = function(pass: Pass, visual: ui.Visual, cache, shape)
+  local clip = geometry.intersect(visual.bounds, visual.clip)
+  if not clip then
+    return
+  end
+  local style = visual.theme
+  local bounds = if shape then shape.bounds else visual.bounds
+  local profile = if shape
+    then shape.profile
+    else rounded.uniform(if visual.kind == 'panel' then style.panelRadius else style.controlRadius)
+  local color = if visual.kind == 'panel'
+    then style.background
+    elseif not visual.enabled then style.disabled
+    elseif visual.pressed then style.pressed
+    elseif visual.hovered then style.hovered
+    else style.control
+  pass:setColor(table.unpack(color))
+  pass:setDepthWrite(visual.kind == 'panel' and color[4] == 1)
+  drawing.face(pass, cache, bounds, profile, clip)
+  local thickness = math.min(style.borderWidth, bounds.width / 2, bounds.height / 2)
+  if thickness > 0 and (not shape or shape.border ~= false) then
+    pass:setColor(table.unpack(style.border))
+    pass:setDepthWrite(visual.kind == 'panel' and style.border[4] == 1)
+    drawing.insideBorder(pass, cache, bounds, profile, thickness, clip)
+  end
+  if visual.kind == 'panel' then
+    return
+  end
+  pass:setDepthWrite(false)
+  local faceClip = rounded.safeClip(bounds, profile)
+  local box = textLayout.box(visual.bounds, clip, style, faceClip)
+  if visual.kind == 'text-field' then
+    local field = textLayout.field(
+      visual.value or '',
+      visual.caret or 1,
+      visual.anchor or visual.caret or 1,
+      visual.bounds,
+      clip,
+      style,
+      style.font,
+      faceClip
     )
-  )
-  pass:plane(box.x + box.width / 2, box.y + box.height / 2, 0, box.width, box.height)
-  if visual.kind ~= 'panel' then
-    local style = visual.theme
-    local text = visual.value or visual.label
-    local available = math.max(0, box.width - 2 * style.padding)
-    local size = math.min(style.fontSize, math.max(0, box.height - 2 * style.padding) / style.font:getHeight())
-    if size > 0 and available > 0 and text ~= '' then
-      while text ~= '' and style.font:getWidth(text) * size > available do
-        local last = utf8.offset(text, -1)
-        text = text:sub(1, last - 1)
+    if not field then
+      return
+    end
+    local function rectangle(bounds, color)
+      local visible = geometry.intersect(bounds, field.box)
+      if visible then
+        pass:setColor(table.unpack(color))
+        pass:plane(visible.x + visible.width / 2, visible.y + visible.height / 2, 0.001, visible.width, visible.height)
       end
-      if text ~= '' then
-        pass:setFont(style.font)
-        pass:setColor(table.unpack(style.foreground))
-        pass:text(
-          text,
-          lovr.math.newMat4():translate(box.x + style.padding, box.y + style.padding, 0):scale(size),
-          0,
-          'left',
-          'bottom'
-        )
-      end
+    end
+    if field.selection then
+      rectangle(field.selection, style.selection)
+    end
+    if field.text ~= '' then
+      pass:setFont(style.font)
+      pass:setColor(table.unpack(if visual.enabled then style.foreground else style.border))
+      pass:text(field.text, field.box.x, field.box.y, 0.001, field.scale, math.pi, 1, 0, 0, 0, 'left', 'top')
+    end
+    if visual.focused then
+      rectangle(field.caret, style.focus)
+    end
+    if visual.value ~= '' then
+      return
+    end
+  end
+  if not box then
+    return
+  end
+  local text = if visual.kind == 'text-field' and visual.value == '' then visual.label else visual.value or visual.label
+  local size = math.min(style.fontSize, box.height) / style.font:getHeight()
+  if size > 0 and text ~= '' then
+    while text ~= '' and style.font:getWidth(text) * size > box.width do
+      local last = utf8.offset(text, -1)
+      text = text:sub(1, last - 1)
+    end
+    if text ~= '' then
+      pass:setFont(style.font)
+      pass:setColor(table.unpack(style.foreground))
+      pass:text(text, lovr.math.newMat4():translate(box.x, box.y, 0.001):scale(size), 0, 'left', 'bottom')
     end
   end
 end

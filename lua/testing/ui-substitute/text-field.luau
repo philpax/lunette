@@ -3,6 +3,7 @@
 local lunette = require '@lunette'
 local ui = require '@lunette-contracts/ui'
 local appearance = require './appearance'
+local textLayout = require './text-layout'
 
 local textField = {}
 local textBoundaries, snap
@@ -35,6 +36,63 @@ function textField.install(control)
     if control.caret ~= caret or control.anchor ~= anchor then
       control.caret, control.anchor = caret, anchor
       control.revision += 1
+    end
+  end
+  local function pointerCaret(x)
+    local nearest
+    control.lease:withFont(function(font)
+      local clip = panel.clip()
+      if not clip then
+        return
+      end
+      local field = textLayout.field(
+        control.value,
+        control.caret,
+        control.anchor,
+        control.bounds,
+        clip,
+        control.resolved,
+        font,
+        if panel.contour then clip else nil
+      )
+      nearest = if field then textLayout.nearest(field, x) else nil
+    end)
+    return nearest
+  end
+  control.pointer = function(event)
+    if not control.live() then
+      return
+    end
+    if event.kind == 'cancel' then
+      if event.button == 'left' and control.dragging == event.pointer then
+        control.dragging = nil
+      end
+      return
+    end
+    if event.kind == 'release' and event.button == 'left' and control.dragging == event.pointer then
+      control.dragging = nil
+      if event.x ~= nil then
+        local caret = pointerCaret(event.x)
+        if caret then
+          select(caret, control.anchor)
+        end
+      end
+      return
+    end
+    if event.button ~= 'left' or event.x == nil then
+      return
+    end
+    if event.kind == 'press' and event.inside ~= false and control.dragging == nil then
+      local caret = pointerCaret(event.x)
+      if caret then
+        select(caret, caret)
+        control.dragging = event.pointer
+      end
+    elseif event.kind == 'move' and control.dragging == event.pointer then
+      local caret = pointerCaret(event.x)
+      if caret then
+        select(caret, control.anchor)
+      end
     end
   end
   local function replace(value, caret, publish)
@@ -105,6 +163,9 @@ function textField.install(control)
   end
   local codes = lunette.keyCodes()
   control.receiver = {
+    onBlur = function()
+      control.dragging = nil
+    end,
     text = function(value)
       if not control.live() or not control.enabled or not panel.visible then
         return false

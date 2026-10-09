@@ -12,6 +12,10 @@ local titlebar = require '@lunette-plugins/ui/titlebar'
 local theme = require '@lunette-contracts/theme'
 local appearanceTheme = require '@lunette-plugins/ui/theme'
 local titlebarStyle = require '@lunette-plugins/ui/titlebar-style'
+local frame = require '@lunette-contracts/frame'
+local records = require '@lunette-plugins/ui/panel-state'
+local panelGeometry = require '@lunette-plugins/ui/panel-geometry'
+local input = require '@lunette-plugins/ui/input'
 
 export type Config = config.Config
 export type Settings = config.Settings
@@ -28,6 +32,7 @@ local function build(context: plugin.Context, settings: Settings): ui.Service
   }
   local titlebars: { ui.Titlebar } = {}
   local panels: { ui.Panel } = {}
+  local retained: { [ui.Panel]: records.Panel } = {}
   local names: { [string]: boolean } = {}
   local generation: ui.Generation = { kind = 'ui-generation' }
   table.freeze(generation)
@@ -39,6 +44,7 @@ local function build(context: plugin.Context, settings: Settings): ui.Service
       local name = options.name
       assert(not names[name], 'ui: duplicate panel name ' .. tostring(name))
       local created: ui.Panel
+      local record: records.Panel? = nil
       names[name] = true
       local ok, result = pcall(function(): ui.Panel
         return panel.new(
@@ -54,10 +60,16 @@ local function build(context: plugin.Context, settings: Settings): ui.Service
           end,
           function(): ()
             names[name] = nil
+            if created then
+              retained[created] = nil
+            end
             local index = table.find(panels, created)
             if index then
               table.remove(panels, index)
             end
+          end,
+          function(state: records.Panel): ()
+            record = state
           end
         )
       end)
@@ -66,6 +78,7 @@ local function build(context: plugin.Context, settings: Settings): ui.Service
         error(result, 0)
       end
       created = result
+      retained[created] = assert(record, 'ui: missing retained panel record')
       panels[#panels + 1] = created
       return created
     end,
@@ -89,6 +102,13 @@ local function build(context: plugin.Context, settings: Settings): ui.Service
         services.surfaces,
         providerTitlebarStyle,
         services.theme,
+        function(handle: ui.Panel, contour: records.Contour): ()
+          local state = assert(retained[handle], 'ui titlebar: missing action panel')
+          state.contour = contour
+          state.revision += 1
+          panelGeometry.prepare(state)
+          input.cancel(state, nil, 'control-removed')
+        end,
         function(): ()
           if created then
             local index = table.find(titlebars, created)
@@ -115,6 +135,17 @@ local function build(context: plugin.Context, settings: Settings): ui.Service
       return table.freeze(result)
     end,
   }
+  context:require(frame.capability):onUpdate(context, {
+    phase = 'scene',
+    order = 1000,
+    run = function(_dt: number): ()
+      for _, current in table.clone(titlebars) do
+        if not current.dead then
+          current:sync()
+        end
+      end
+    end,
+  })
   services.theme:onChanged(context, function(_snapshot: theme.Snapshot): ()
     if not context:active() then
       return
@@ -151,6 +182,11 @@ return plugin.provider<<Config, Settings, ui.Service>> {
   name = 'ui',
   schema = config,
   capability = ui.capability,
-  requires = { focus = focus.capability, surfaces = surfaces.capability, theme = theme.capability },
+  requires = {
+    focus = focus.capability,
+    surfaces = surfaces.capability,
+    theme = theme.capability,
+    frame = frame.capability,
+  },
   build = build,
 }

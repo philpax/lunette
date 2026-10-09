@@ -41,12 +41,18 @@ local function define(): plugin.Definition<Config>
       local registration = themeService:select(context, descriptors.resolve(themes[initial], overrides))
       local actions: { [Preset]: plugin.Effect } = {}
       local darkMode: plugin.Effect? = nil
+      local choiceRevision = 0
 
       local function choose(preset: Preset): ()
         if not context:active() then
           return
         end
+        local before = choiceRevision
         registration:update(descriptors.resolve(themes[preset], overrides))
+        if not context:active() or choiceRevision ~= before then
+          return
+        end
+        choiceRevision += 1
         selected = preset
         for name, effect in actions do
           menuService:update(context, effect, { selected = name == preset })

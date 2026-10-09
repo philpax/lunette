@@ -483,7 +483,7 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
             onPointer = graphEvent,
             draw = function(pass: Pass, visual: ui.Visual, _default: ui.Renderer): ()
               custom(pass, visual, function(style: draw.Style): ()
-                draw.graph(pass, publishedView, visual.clip, style)
+                draw.graph(pass, publishedView, visual.bounds, style, visual.clip)
               end)
             end,
           })

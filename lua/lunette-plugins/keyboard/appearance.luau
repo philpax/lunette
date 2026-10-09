@@ -114,6 +114,14 @@ function appearance.scaled(value: keyboard.StyleOptions, font: Font, scale: numb
   }
 end
 
+function appearance.meshChanged(first: keyboard.Style, second: keyboard.Style): boolean
+  return first.keyUnit ~= second.keyUnit
+    or first.gap ~= second.gap
+    or first.margin ~= second.margin
+    or first.backingRadius ~= second.backingRadius
+    or first.keyRadius ~= second.keyRadius
+end
+
 function appearance.geometryChanged(first: keyboard.Style, second: keyboard.Style): boolean
   return first.font ~= second.font
     or first.keyUnit ~= second.keyUnit

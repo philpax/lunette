@@ -81,7 +81,7 @@ do
       local controls = toolbar(widgets)
       local x, y, z = position(controls)
       expect.near(x, mirror.width / 2 - controls:describe().width / 2, 1e-5)
-      expect.near(y, select(2, mirror.pose:getPosition()) + mirror.height / 2 + 0.035, 1e-5)
+      expect.near(y, select(2, mirror.pose:getPosition()) + mirror.height / 2 + 0.025, 1e-5)
       expect.near(z, select(3, mirror.pose:getPosition()) + 0.001, 1e-5)
       running:clickControl(widgets, 'desktop/decorations/monitor/screen-a', 'restart/monitor/screen-a')
       expect.equal(native.events.unmirrored, 1, 'only the selected monitor is dismissed')
@@ -109,7 +109,7 @@ do
       running:step()
       local expected = lovr.math
         .newMat4(mirror.pose)
-        :translate(mirror.width / 2 - controls:describe().width / 2, mirror.height / 2 + 0.035, 0.001)
+        :translate(mirror.width / 2 - controls:describe().width / 2, mirror.height / 2 + 0.025, 0.001)
       local expectedX, expectedY, expectedZ = expected:getPosition()
       x, y, z = position(controls)
       expect.near(x, expectedX, 1e-5)

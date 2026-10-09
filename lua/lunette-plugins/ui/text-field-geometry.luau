@@ -3,6 +3,7 @@ local lunette = require '@lunette'
 local ui = require '@lunette-contracts/ui'
 local geometry = require './geometry'
 local measurement = require './measurement-cache'
+local rounded = require '@lunette-plugins/theme/rounded-geometry'
 local textFieldGeometry = {}
 
 export type Layout = {
@@ -30,20 +31,25 @@ function textFieldGeometry.layout(
   clip: ui.Bounds,
   theme: ui.Theme,
   font: Font,
-  cache: measurement.Cache?
+  cache: measurement.Cache?,
+  faceClip: ui.Bounds?
 ): Layout?
   geometry.validateBounds(bounds)
   geometry.validateBounds(clip)
   assert(theme.padding >= 0 and theme.padding < math.huge, 'ui text field: padding must be nonnegative and finite')
   geometry.positive(theme.fontSize, 'font size')
   local height = geometry.positive(font:getHeight(), 'font height')
+  local textClip =
+    geometry.intersect(clip, faceClip or rounded.safeClip(bounds, rounded.uniform(theme.controlRadius or 0)))
   local px, py = math.min(theme.padding, bounds.width / 2), math.min(theme.padding, bounds.height / 2)
-  local visible = geometry.intersect({
-    x = bounds.x + px,
-    y = bounds.y + py,
-    width = bounds.width - 2 * px,
-    height = bounds.height - 2 * py,
-  }, clip)
+  local visible = if textClip
+    then geometry.intersect({
+      x = bounds.x + px,
+      y = bounds.y + py,
+      width = bounds.width - 2 * px,
+      height = bounds.height - 2 * py,
+    }, textClip)
+    else nil
   local scale = if visible then math.min(theme.fontSize, visible.height) / height else 0
   local entries = measurement.entries(cache, font)
   if entries and visible then

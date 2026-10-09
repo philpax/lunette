@@ -9,6 +9,9 @@ local shape = require '@lunette-plugins/panels/shape'
 local drawing = require '@lunette-plugins/panels/draw'
 local passState = require '@lunette-plugins/pass-state'
 local appearance = require '@lunette-plugins/panels/appearance'
+local vocabulary = require '@lunette-contracts/vocabulary'
+local frame = require '@lunette-plugins/panels/frame'
+local silhouette = require '@lunette-plugins/panels/silhouette'
 
 local panel = {}
 
@@ -71,10 +74,16 @@ type PanelData = {
   overrides: { Override },
   mesh: Mesh?,
   meshKey: string?,
+  meshCurve: number?,
+  meshTransform: string?,
+  outline: drawing.Outline?,
+  contour: silhouette.Cache?,
+  frame: frame.Record?,
   effect: plugin.Effect?,
 }
 
 type PanelMethods = {
+  read attachFrame: (surface.Surface, Owner, vocabulary.FrameStyle) -> vocabulary.FrameAttachment,
   read setHighlighted: (surface.Surface, boolean) -> (),
   read setPose: (surface.Surface, Mat4) -> (),
   read setSize: (surface.Surface, number?, number?) -> (),
@@ -123,6 +132,13 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
     return panel.raycast(created, origin, direction, backFace)
   end
   local exposed: PanelMethods = {
+    attachFrame = function(
+      _self: surface.Surface,
+      caller: Owner,
+      style: vocabulary.FrameStyle
+    ): vocabulary.FrameAttachment
+      return frame.attach(created, caller, style)
+    end,
     setHighlighted = function(_self: surface.Surface, value: boolean)
       if not created.dead then
         created.highlighted = value
@@ -170,6 +186,11 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
         if not current() or host.paint().revision ~= paint.revision then
           return
         end
+        if created.chrome or frame.joined(created.frame) then
+          drawing.border(created, basePass, paint.style)
+        else
+          drawing.clearOutline(created)
+        end
         drawing.content(created, basePass, host.contentShader)
       end
       local function render(font: Font?): ()
@@ -177,6 +198,18 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
           pass:setShader()
           pass:setMaterial(nil)
           pass:setColor(1, 1, 1, 1)
+          if created.granted then
+            local previous = created.mesh
+            created.mesh, created.meshKey = nil, nil
+            if previous then
+              previous:release()
+            end
+            if created.chrome then
+              drawing.border(created, pass, paint.style)
+            else
+              drawing.clearOutline(created)
+            end
+          end
           if created.chrome and font then
             pass:setFont(font)
             drawing.chrome(created, pass, paint.style, font)
@@ -241,6 +274,8 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
   local noEffect: plugin.Effect? = nil
   local noMesh: Mesh? = nil
   local noKey: string? = nil
+  local noOutline: drawing.Outline? = nil
+  local noFrame: frame.Record? = nil
   local descriptor: Source = source
   if descriptor.kind == 'window' then
     local window: lunette.Window = descriptor.source
@@ -268,6 +303,9 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
       overrides = {},
       mesh = noMesh,
       meshKey = noKey,
+      outline = noOutline,
+      contour = silhouette.new(),
+      frame = noFrame,
       effect = noEffect,
     }
     -- The checked data and methods supply the handle; the metatable resolves current radius fields.
@@ -298,6 +336,9 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
       overrides = {},
       mesh = noMesh,
       meshKey = noKey,
+      outline = noOutline,
+      contour = silhouette.new(),
+      frame = noFrame,
       effect = noEffect,
     }
     created = (setmetatable(target, metatable) :: unknown) :: State
@@ -329,23 +370,48 @@ function panel.release(target: State): boolean
     return false
   end
   target.dead = true
+  target.contour = nil
   local overrides = table.clone(target.overrides)
   table.clear(target.overrides)
   target.hidden = false
   local mesh = target.mesh
   target.mesh, target.meshKey = nil, nil
-  releaseClaim(target)
+  local failures: { string } = {}
+  local function cleanup(run: () -> ()): ()
+    local ok, failure = pcall(run)
+    if not ok then
+      failures[#failures + 1] = tostring(failure)
+    end
+  end
+  cleanup(function(): ()
+    frame.clear(target)
+  end)
+  cleanup(function(): ()
+    drawing.clearOutline(target)
+  end)
+  cleanup(function(): ()
+    releaseClaim(target)
+  end)
   if mesh then
-    mesh:release()
+    cleanup(function(): ()
+      mesh:release()
+    end)
   end
   for _, override in ipairs(overrides) do
     local effect = override.effect
     override.effect = nil
     if effect then
-      effect:dispose()
+      cleanup(function(): ()
+        effect:dispose()
+      end)
     end
   end
-  target.host.removed(target)
+  cleanup(function(): ()
+    target.host.removed(target)
+  end)
+  if #failures > 0 then
+    error('panels release: ' .. table.concat(failures, '; '), 0)
+  end
   return true
 end
 
@@ -357,11 +423,16 @@ function panel.retire(target: State): boolean
   local effect = target.effect
   target.effect = nil
   local ok, failure = pcall(panel.release, target)
-  if effect then
-    effect:dispose()
-  end
+  local disposed, disposalFailure = pcall(function(): ()
+    if effect then
+      effect:dispose()
+    end
+  end)
   if not ok then
-    error(failure, 0)
+    error(tostring(failure) .. (if disposed then '' else '; ' .. tostring(disposalFailure)), 0)
+  end
+  if not disposed then
+    error(disposalFailure, 0)
   end
   return true
 end
@@ -465,7 +536,15 @@ function panel.raycast(
   if not pixelWidth or not pixelHeight then
     return nil, nil, nil
   end
+  local polygon
+  if not target.granted then
+    local _, _, contour, rounded = silhouette.get(target)
+    if rounded then
+      polygon = contour
+    end
+  end
   return shape.hit({
+    polygon = polygon,
     pose = target.pose,
     width = target.width,
     height = target.height,

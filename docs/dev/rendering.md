@@ -10,6 +10,40 @@ OpenXR composition layer. The runtime composites a quad or cylinder itself at na
 
 The panels provider defaults to in-scene rendering so windows participate in scene depth and remain behind session controls. Its `rendering = 'layer'` setting opts window panels into OpenXR composition layers, with scene rendering as the fallback when a claim is not granted. Monitor panels always render in the scene. That policy lives in Lua ([Standard library](stdlib.md)). The native layer supplies only the two mechanisms.
 
+## Rounded scene geometry
+
+The shared geometry in `lua/lunette-plugins/theme/rounded-geometry.luau` generates convex rounded-rectangle perimeters from actual dimensions and four corner radii. It clamps each radius to the available extents. Zero radius produces a square corner. Each nonzero quarter arc uses eight segments. Drawing and initial picking use the same emitted perimeter, including its straight chords and boundary inclusion rules. A point between an arc's chord and its analytic circle is outside the surface. Border meshes form rings between an outer and an inner perimeter, rather than rectangles behind the content.
+
+Scene-rendered windows and monitors clip their texture meshes to that perimeter. Texture UVs derive from the original panel-local coordinates, so trimming a corner removes pixels without stretching the remaining image. Monitor rotation and flip apply after that local mapping. Curved content splits the clipped polygon at the existing horizontal arc-strip boundaries, then maps each resulting vertex onto the cylinder. The contour is not flattened onto a single plane. Picking maps source-pixel coordinates back to physical surface coordinates and tests the same perimeter. Pose, distance, source orientation, back-face handling, and radius-zero coordinate mapping remain unchanged.
+
+Corner cutouts contain no content triangles or depth-writing border geometry. Farther scene surfaces can remain visible and pickable through them. The existing opaque and premultiplied-alpha colour-conversion shaders still process captured pixels. Geometry excludes cutouts directly; no rounded-alpha shader replaces that geometry.
+
+Meshes belong to an owner or provider activation. The drawing records cache them by dimensions, clip, and corner profile. A geometry change replaces and releases the affected mesh; owner cleanup and provider shutdown release the remaining meshes. Requiring a module acquires no native mesh, and unchanged drawing does not regenerate a mesh each frame.
+
+Native button releases remain paired with the original sink that received the press. Native pointer motion stops when the ray misses the emitted perimeter, as it stops beyond a rectangular edge. Rounding adds no native capture projection. Protocol surfaces retain unbounded `project` for captured movement through cutouts, with `inside = false`. A release there cannot activate a control. The optional boolean passed to `raycast` remains `backFace`; it is not a capture flag. Geometry changes cancel affected Lua captures before notification callbacks. Palette-only changes preserve captures, drafts, focus, and identities.
+
+Granted OpenXR layers retain rectangular content and rectangular hits. Their claims, raw copies, and rendering mode remain unchanged by a radius update. Rounding never acquires or releases a claim and never forces a granted layer into scene fallback. An ungranted window claim uses the actual scene-rendered profile. Monitor panels always render in the scene. Base, Dark, and Light use zero monitor radius; Arcade uses 0.012 m. An explicit zero monitor radius restores the square scene image and its full rectangular hits.
+
+### UI content clips
+
+A UI panel backing uses its full rounded silhouette. Default controls, descriptions, item geometry, and input use a conservative rectangular content clip inside that silhouette. The backing visual retains full panel bounds; other visuals receive the content-safe clip. Declared panel dimensions and control bounds remain unchanged. Rounded control faces retain ergonomic rectangular hit targets inside the panel content clip, while text safe bounds stay within the rounded face. Reduced content room keeps the existing clipping and overflow indicators.
+
+Default faces clip their emitted polygons to the declared rectangular clips. Text and custom hooks receive conservative rectangular clips instead of a stencil or offscreen target. Hooks must obey `visual.clip`; shipped graph, sidebar, and titlebar action hooks follow that rule. Pass restoration does not forcibly constrain arbitrary shaders or unbalanced stack operations. [UI panels](lua-api.md#ui-panels) defines the hook boundary and logical coordinates.
+
+### Joined flat frames
+
+A shared titlebar joins a supporting live, visible, flat target only while that target actually renders in the scene. A native target with a granted layer cannot join. A joined header rounds only its top outer corners, and the body rounds only its bottom outer corners. The adjoining edges are square and meet at zero margin, regardless of a separated-header margin override. The header's inner width equals the body width. The header top radii clamp to the header's own height; the body bottom radii resolve and clamp independently. Removing or hiding the heading restores the ordinary all-corner body profile.
+
+The target draws one combined outline, including when native `chrome = false`. The header's resolved border thickness, depth, and current normal or highlighted colour govern the whole outline and supersede the body's outline overrides while joined. The former separate header border and ordinary body border are suppressed. For body width W, body height H, and header height h, the inner envelope has width W and height H+h, centred at y=h/2 in target-local metres. The outer envelope expands by the border thickness with consistently derived corner radii. One ring surrounds the envelope, with no outline along the internal seam and no rectangular backing that writes depth in the cutouts.
+
+The titlebar still draws its header face, text, and actions. Action backings and their hover and held faces clip to the actual top-only header perimeter, so an edge action cannot square the outer corner. Action descriptions and hits use the header's content-safe clip. The separate drag surface gates its hit with the same header perimeter before excluding the reserved action width. Cutouts cannot become invisible grab targets. Back-face handling, the owning pose, `grabTarget`, and the existing close, action, and grab behavior remain unchanged.
+
+Curved scene content rounds independently, but its flat titlebar remains separate. Granted layer content also keeps a separate titlebar. Neither treatment implies clipped layer pixels or a continuous frame around a curved body. [Joined frame attachments](lua-api.md#joined-frame-attachments) defines the optional target-owned relationship and its lifecycle.
+
+### UI scene depth
+
+For lunette-owned UI, only opaque backing and outline geometry writes scene depth. Controls, details, selection drawing, and glyphs retain no-write painter ordering. Rendering offsets follow nesting rather than the number of sibling controls. The panel backing is 2 mm in front of its offered surface; control faces add 1 mm, built-in contents add another 1 mm, and glyphs add a further 1 mm. Rounded cutouts add no phantom depth. Intersecting or nearly coincident panels can retain draw-order-dependent details within this millimetre range. This accepted limit does not add per-panel visibility masks.
+
 ## Texture import
 
 Client buffers arrive as dmabufs. The native layer imports them as `VkImage`s on LÖVR's device and wraps them as LÖVR `Texture`s via `TextureInfo.handle`.
@@ -166,9 +200,27 @@ The answer is an identity rather than a flag because presence is not observable 
 
 The layer limit is not the signal either, which is the part worth stating. `lovrHeadsetGetLayerLimit` is read off the *system* (`headset.c:980-982`), and the system survives a session being stopped, so a pool that inferred loss from a zero limit would see nothing at the one moment it matters.
 
+### Rounded meshes and conservative clips
+
+Clipped meshes remove corner pixels, hit regions, and depth geometry together. Conservative rectangular content clips let the existing text and hook renderers stay inside the silhouette without requiring a stencil-capable pass or offscreen composition. Stencil and offscreen clipping are rejected because they add pass requirements, render targets, and composition cost to bounded panel geometry. The cost of the conservative clip is less content room near corners. Declared bounds and overflow reporting remain intact. Hook clipping is cooperative because arbitrary shader or stack misuse cannot be enforced by this boundary.
+
+Rounded controls keep rectangular ergonomic hit targets inside the panel content clip. Applying each control face's chord perimeter to its hit target would remove usable corner area from small buttons and keys. The panel perimeter still excludes initial hits in outer cutouts, so this control policy does not make invisible panel corners interactive.
+
+### Joining follows the actual rendering path
+
+The target owns joined-frame eligibility and the single outline because it owns the body geometry and actual layer state. An optional narrow attachment avoids exposing native curve or grant fields through generic surfaces and avoids a general container or shape-transform API. The resolved header outline governs the complete joined frame so explicit header and body styles cannot create conflicting thicknesses or a doubled seam.
+
+Granted layers stay rectangular because the runtime receives an unchanged raw image copy and supplies its own quad or cylinder. Forcing scene fallback on a radius change would silently trade native-resolution text for appearance and cause claim churn. Flat titlebars remain separate from curved bodies because joining them would require a curved header outside the shared titlebar contract. Rounded curved content remains supported independently.
+
+### Native drag policy stays unchanged
+
+Native motion stops on a perimeter miss, while the matching release still reaches the original sink. Extending native motion through cutouts would add capture projection and change application drag policy. Protocol surfaces already support unbounded projection with an explicit outside state, so their captures continue without permitting corner release activation.
+
 ## Known gaps
 
 Named, not solved.
+
+Geometry and draw recorders do not establish native rasterization, MSAA edge quality, alpha blending, stereo seams, or cutout depth behavior on a GPU. The operator-run `theme-rounded-content`, `theme-joined-frame`, `theme-widget-edges`, and `theme-rendering-exceptions` checks remain pending. They cover flat and curved content, transformed and portrait monitor UVs, emitted-edge hits, no-gap joined seams, action and drag cutouts, safe clips, and actual granted-layer behavior. The `theme-appearance-matrix` and `theme-runtime-switch` checks remain pending for preset contrast and input continuity. The separate `theme-broker-lifecycle` gate covers arbitration and reentrant resource lifetimes; `theme-font-fit` covers real development and installed-session font loading and fit. Neither a geometry recorder nor an installed artifact byte check completes those gates.
 
 Captured DMA buffers use the existing importer. Descriptor-backed shared-memory frames in the supported 32-bit RGB layouts are copied, normalized, and uploaded or refilled on the frame thread. Arbitrary mapped-pointer frames remain unsupported because the pinned callback does not supply an owned descriptor and a validated storage extent. The built-in monitor panels apply the frame's rotation and flip to UVs and use logical geometry for proportions; GPU-backed portrait capture still needs manual acceptance testing.
 

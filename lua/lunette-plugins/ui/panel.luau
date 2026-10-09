@@ -22,6 +22,10 @@ local textField = require '@lunette-plugins/ui/text-field'
 local choice = require '@lunette-plugins/ui/choice'
 local list = require '@lunette-plugins/ui/list'
 local region = require '@lunette-plugins/ui/region'
+local panelGeometry = require './panel-geometry'
+local rounded = require '@lunette-plugins/theme/rounded-geometry'
+local drawing = require '@lunette-plugins/theme/drawing'
+local vocabulary = require '@lunette-contracts/vocabulary'
 
 local panel = {}
 
@@ -58,7 +62,8 @@ function panel.new(
   providerDraw: ui.DrawHook?,
   generation: ui.Generation,
   decorate: (string, surface.Surface, ui.TitlebarOptions) -> ui.Titlebar,
-  disposed: () -> ()
+  disposed: () -> (),
+  retained: ((records.Panel) -> ())?
 ): ui.Panel
   context:checkOwner(owner)
   options = validation.panel(options)
@@ -109,6 +114,10 @@ function panel.new(
     themeRevision = snapshot.revision,
     radiusX = radiusX,
     radiusY = radiusY,
+    shape = nil,
+    contour = nil,
+    frame = nil,
+    frameMeshes = drawing.newCache(),
     refreshing = false,
     refresh = function(): () end,
     providerDraw = providerDraw,
@@ -126,6 +135,9 @@ function panel.new(
   }
   state.refresh = function(): ()
     appearance.refresh(state)
+  end
+  if retained then
+    retained(state)
   end
   local release: plugin.Effect? = nil
   local offered: plugin.Effect? = nil
@@ -147,12 +159,22 @@ function panel.new(
       return false
     end
     state.dead, state.visible = true, false
-    draw.clearCache(state.measurements)
     state.revision += 1
-    local controls, oldOffer, oldChrome = state.controls, offered, chrome
+    local controls, oldOffer, oldChrome, oldFrame = state.controls, offered, chrome, state.frame
     state.controls, offered, chrome = {}, nil, nil
     local operations: { () -> () } = {
       disposed,
+      function(): ()
+        draw.clearCache(state.measurements)
+      end,
+      function(): ()
+        drawing.clear(state.frameMeshes)
+      end,
+      function(): ()
+        if oldFrame then
+          oldFrame.dispose()
+        end
+      end,
       function(): ()
         if oldChrome then
           oldChrome:destroy()
@@ -208,7 +230,18 @@ function panel.new(
     end
   end
   local surfaceBase: surface.Surface = {
-    attachFrame = nil,
+    attachFrame = function(
+      _self: surface.Surface,
+      frameOwner: plugin.Owner,
+      style: vocabulary.FrameStyle
+    ): vocabulary.FrameAttachment
+      return panelGeometry.attach(state, frameOwner, style, function(geometryChanged: boolean): ()
+        state.revision += 1
+        if geometryChanged and not state.dead then
+          input.cancel(state, nil, 'control-removed')
+        end
+      end)
+    end,
     kind = nil,
     dead = false,
     grabbable = state.grabbable,
@@ -224,19 +257,24 @@ function panel.new(
       _self: surface.Surface,
       origin: vector,
       direction: vector,
-      _captured: boolean?
+      backFace: boolean?
     ): (number?, number?, number?)
       if not live() or not state.visible then
         return nil, nil, nil
       end
       state.refresh()
-      return quad.hit({
+      local x, y, distance = quad.hit({
         pose = state.pose,
         width = state.width,
         height = state.height,
         pixelWidth = state.logicalWidth,
         pixelHeight = state.logicalHeight,
+        backFace = backFace,
       }, origin, direction)
+      if x and y and rounded.contains(panelGeometry.prepare(state).polygon, x, y) then
+        return x, y, distance
+      end
+      return nil, nil, nil
     end,
     project = function(_self: surface.Surface, origin: vector, direction: vector): (number?, number?, number?)
       state.refresh()

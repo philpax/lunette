@@ -5,6 +5,7 @@ local appearance = require './appearance'
 local geometry = require './geometry'
 local items = require './items'
 local textField = require './text-field'
+local drawing = require '@lunette-plugins/theme/drawing'
 
 local controls = {}
 local installRegion, snapshot
@@ -35,6 +36,7 @@ function controls.new(panel, owner, input, kind)
     hovered = {},
     presses = {},
     options = options,
+    meshes = drawing.newCache(),
   }
   local handle = { dead = false, id = options.id }
   control.handle = handle
@@ -49,6 +51,8 @@ function controls.new(panel, owner, input, kind)
     return appearance.resolve(control, panel.layer, control.overrides)
   end
   function control.changed(reason)
+    drawing.clear(control.meshes)
+    control.meshes.limit = math.max(96, (#control.items + 1) * 3)
     panel.revision += 1
     panel.cancel(control, reason or 'control-removed')
   end
@@ -153,6 +157,7 @@ function controls.new(panel, owner, input, kind)
       elseif kind == 'region' then
         installRegion(control)
       end
+      control.meshes.limit = math.max(96, (#control.items + 1) * 3)
       assert(control.live(), 'ui substitute: the control owner or panel ended during acquisition')
       if control.receiver then
         local receiver = control.receiver
