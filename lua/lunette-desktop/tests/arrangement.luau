@@ -21,11 +21,13 @@ end
 
 local function start()
   local fake = testing.native()
-  fake.events.saved = persist.render(persist.newFile {
-    entry('monitor', 'fixture-output', 1, 3),
-    entry('window', 'terminal', 1, 5),
-    entry('window', 'terminal', 2, 7),
-  })
+  fake.events.saved = persist.render {
+    entries = {
+      entry('monitor', 'fixture-output', 1, 3),
+      entry('window', 'terminal', 1, 5),
+      entry('window', 'terminal', 2, 7),
+    },
+  }
   local session = testing.boot(desktop.entries(), { native = fake })
   return session, session:observe(panelsContract.capability)
 end

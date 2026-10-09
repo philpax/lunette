@@ -25,14 +25,6 @@ local readEntry: (any) -> (Entry?, string?)
 
 format.VERSION = 1
 
-function format.newFile(entries: { Entry }): File
-  return { entries = entries }
-end
-
-function format.entries(file: File): { Entry }
-  return file.entries
-end
-
 -- Malformed entries are refused and named in `skipped`; the rest load.
 function format.read(text: string): Loaded
   local ok, chunk, failure = pcall(loadstring, text, '@arrangement')

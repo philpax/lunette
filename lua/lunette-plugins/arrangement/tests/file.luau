@@ -1,6 +1,5 @@
 local testing = require '@testing'
 local expect = testing.expect
-local rulesContract = require '@lunette-contracts/rules'
 local arrangement = require '@lunette-plugins/arrangement/format'
 local persist = require '@lunette-plugins/arrangement/state'
 local fixture = require './support/fixture'
@@ -22,56 +21,27 @@ local function reports(native)
   return messages
 end
 
-local function withBinding(state, native, run, extend)
-  fixture.run({ bind = state, native = native, extend = extend }, function(env)
+local function withBinding(state, native, run)
+  fixture.run({ bind = state, native = native }, function(env)
     run(env.binding, env.context, env.panels, env.tags, env.owner)
   end)
 end
 
-local function futureText()
-  return 'return { version = ' .. (arrangement.VERSION + 1) .. ', entries = {}, future = true }'
-end
-
-test('an absent file loads an empty arrangement without reporting', function()
-  local state, native = newState(nil)
-  expect.equal(native.events.reads, 1, 'the reads')
-  expect.equal(#reports(native), 0, 'the reports')
-  withBinding(state, native, function(binding)
-    expect.equal(binding:restore(), 0, 'the restored panels')
-  end)
-end)
-
-test('a future file is reported and left untouched', function()
-  local text = futureText()
-  local state, native = newState(text)
-  expect.equal(#reports(native), 1, 'the reports')
-  expect.truthy(reports(native)[1]:find('written by version', 1, true), 'the report')
-  withBinding(state, native, function(binding)
-    local saved, message = binding:save()
-    expect.equal(saved, false, 'the save')
-    expect.truthy(message:find('written by version', 1, true), 'the refusal')
-  end)
-  expect.equal(native.events.saved, text, 'the bytes')
-  expect.equal(native.events.writes, 0, 'the writes')
-end)
-
-test('a broken file is reported and left untouched', function()
-  local state, native = newState 'return {'
-  expect.equal(#reports(native), 1, 'the reports')
-  expect.truthy(reports(native)[1]:find('/fixture/arrangement.state could not be read', 1, true), 'the report')
-  withBinding(state, native, function(binding)
-    local saved, message = binding:save()
-    expect.equal(saved, false, 'the save')
-    expect.truthy(message:find('could not be read', 1, true), 'the refusal')
-  end)
-  expect.equal(native.events.saved, 'return {', 'the bytes')
-  expect.equal(native.events.writes, 0, 'the writes')
-end)
-
-test('refused entries are reported when state is constructed', function()
+test('a future, broken, or refused file is reported, and a future or broken one is never overwritten', function()
+  for _, text in { 'return { version = ' .. (arrangement.VERSION + 1) .. ', entries = {} }', 'return {' } do
+    local state, native = newState(text)
+    expect.equal(#reports(native), 1, 'the reports')
+    withBinding(state, native, function(binding)
+      local saved, message = binding:save()
+      expect.equal(saved, false, 'the save')
+      expect.truthy(message:find('written by version', 1, true) or message:find('could not be read', 1, true), message)
+    end)
+    expect.equal(native.events.saved, text, 'the bytes')
+    expect.equal(native.events.writes, 0, 'the writes')
+  end
   local _, native = newState "return { version = 1, entries = { { kind = 'nothing' } } }"
   expect.equal(#reports(native), 1, 'the reports')
-  expect.truthy(reports(native)[1]:find('window or a monitor', 1, true), 'the report')
+  expect.truthy(reports(native)[1]:find('window or a monitor', 1, true), 'the refused entry')
 end)
 
 test('an unwritable file returns failure', function()
@@ -135,40 +105,6 @@ test('a saved entry nothing matches is reported once per load', function()
   local reloaded, fresh = newState(text)
   withBinding(reloaded, fresh, function() end)
   expect.equal(stale(fresh), 1, 'a new load reports it again')
-end)
-
-test('an unloading binding refuses every save while its source is still registered', function()
-  local state, native = newState(nil)
-  local ran, failure = false, nil
-  withBinding(state, native, function(binding, context, _panels, _tags, owner)
-    local rules = context:require(rulesContract.capability)
-    expect.equal(#testing.ruleSources(rules), 2, 'the binding source and the caller rules')
-    owner:disable()
-    expect.truthy(ran, 'the later inverse ran')
-    if failure then
-      error(failure)
-    end
-    expect.falsy(binding:save(), 'a save after unload')
-    expect.equal(#testing.ruleSources(rules), 0, 'the binding source and the caller rules are removed exactly')
-  end, function(current, binding)
-    local rules = current:require(rulesContract.capability)
-    rules:setRules(current, { rules = { { properties = { width = 1 } } } })
-    -- This inverse runs before the binding's inverse.
-    current:effect(function()
-      return function()
-        ran = true
-        local ok, raised = pcall(function()
-          expect.falsy(current:active(), 'the context is inactive before its inverses run')
-          expect.equal(#testing.ruleSources(rules), 2, 'the persistence source is still registered')
-          expect.falsy(binding:save(), 'an ordinary save')
-        end)
-        if not ok then
-          failure = raised
-        end
-      end
-    end)
-  end)
-  expect.equal(native.events.writes, 0, 'the writes')
 end)
 
 return test

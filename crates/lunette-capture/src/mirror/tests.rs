@@ -27,22 +27,30 @@ use crate::{
 fn roster() -> Roster {
     let mut roster = Roster::new();
     for (index, connector) in ["DP-1", "DP-2"].into_iter().enumerate() {
-        let x = i32::try_from(index).expect("a small index") * 1920;
-        roster.add(MonitorReport {
-            name: MonitorName::new(
-                ConnectorName::parse(connector),
-                Some("Acme".to_owned()),
-                Some(format!("X{index}")),
-            ),
-            geometry: LogicalGeometry::new(
-                LogicalPosition::new(x, 0),
-                LogicalSize::new(1920, 1080),
-            ),
-            pixels: PixelExtent::new(1920, 1080),
-            transform: SurfaceTransform::Normal,
-        });
+        roster.add(report(index, connector));
     }
     roster
+}
+
+/// The roster after the first monitor of [`roster`] is unplugged.
+fn second_only() -> Roster {
+    let mut roster = Roster::new();
+    roster.add(report(1, "DP-2"));
+    roster
+}
+
+fn report(index: usize, connector: &str) -> MonitorReport {
+    let x = i32::try_from(index).expect("a small index") * 1920;
+    MonitorReport {
+        name: MonitorName::new(
+            ConnectorName::parse(connector),
+            Some("Acme".to_owned()),
+            Some(format!("X{index}")),
+        ),
+        geometry: LogicalGeometry::new(LogicalPosition::new(x, 0), LogicalSize::new(1920, 1080)),
+        pixels: PixelExtent::new(1920, 1080),
+        transform: SurfaceTransform::Normal,
+    }
 }
 
 fn key(roster: &Roster, index: usize) -> MonitorKey {
@@ -371,18 +379,7 @@ fn a_detached_monitor_loses_its_mirror() {
     let _ = mirrors.mirror(&key(&roster, 0));
     let _ = pump(&mut mirrors);
 
-    let mut remaining = Roster::new();
-    remaining.add(MonitorReport {
-        name: MonitorName::new(
-            ConnectorName::parse("DP-2"),
-            Some("Acme".to_owned()),
-            Some("X1".to_owned()),
-        ),
-        geometry: LogicalGeometry::new(LogicalPosition::new(1920, 0), LogicalSize::new(1920, 1080)),
-        pixels: PixelExtent::new(1920, 1080),
-        transform: SurfaceTransform::Normal,
-    });
-    let change = mirrors.attach(remaining);
+    let change = mirrors.attach(second_only());
 
     assert_eq!(change.removed, vec![key(&roster, 0)]);
     assert!(change.added.is_empty());
@@ -695,6 +692,31 @@ fn revocation_during_selection_does_not_start_a_competing_request() {
     assert_eq!(mirrors.portal().requests.len(), 2);
     assert_eq!(pump(&mut mirrors), Progress::Started(vec![first]));
     assert_eq!(mirrors.selection_state(), SelectionState::Ready);
+}
+
+#[test]
+fn a_monitor_unplugged_during_selection_is_neither_reopened_nor_given_a_token() {
+    let log = StreamLog::new();
+    let mut mirrors = mirrors(&log);
+    mirrors
+        .portal
+        .will_grant(response(vec![stream(21, 0), stream(22, 1)], "selected"));
+    let first = key(mirrors.roster(), 0);
+    let second = key(mirrors.roster(), 1);
+    let _ = mirrors.mirror(&first);
+    let _ = pump(&mut mirrors);
+    assert_eq!(mirrors.select_monitors(), SelectionOutcome::Requested);
+    let change = mirrors.attach(second_only());
+    assert_eq!(change.removed, vec![first.clone()]);
+    assert_eq!(pump(&mut mirrors), Progress::Started(vec![second.clone()]));
+    assert_eq!(mirrors.selection_state(), SelectionState::Ready);
+    assert!(!mirrors.is_wanted(&first));
+    assert!(!mirrors.is_mirroring(&first));
+    assert!(mirrors.is_mirroring(&second));
+    let tokens = mirrors
+        .take_changed_tokens()
+        .expect("the grant records tokens");
+    assert!(tokens.token_for(&first).is_none());
 }
 
 #[test]

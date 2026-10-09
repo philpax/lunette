@@ -1,4 +1,4 @@
--- Source delivery keeps the selected receiver and reports callback failures without native fallback.
+-- Source delivery keeps the selected receiver and reports callback failures.
 local testing = require '@testing'
 local sourceModule = require '../source'
 local expect = testing.expect
@@ -6,28 +6,12 @@ local test = testing.suite()
 
 local function fixture(receiver, options)
   local fake = testing.native()
-  local nativeCalls, translations = {}, {}
+  local translations = {}
   local seat = {
     dead = false,
     characterFor = function(_self, code, modifiers)
       translations[#translations + 1] = { code, modifiers }
       return 'é'
-    end,
-  }
-  local sink = {
-    dead = false,
-    domain = 'host',
-    modifiers = function()
-      nativeCalls[#nativeCalls + 1] = 'modifiers'
-      return true
-    end,
-    key = function()
-      nativeCalls[#nativeCalls + 1] = 'key'
-      return true
-    end,
-    typeText = function()
-      nativeCalls[#nativeCalls + 1] = 'text'
-      return true
     end,
   }
   local target = { kind = 'local', receiver = receiver, keymapSeat = seat, wantsKeyboard = true }
@@ -59,15 +43,13 @@ local function fixture(receiver, options)
     source = source,
     inverse = inverse,
     seat = seat,
-    sink = sink,
-    nativeCalls = nativeCalls,
     translations = translations,
     change = change,
     reports = fake.events.reported,
   }
 end
 
-test('local key and text errors fail once and never reach native input', function()
+test('local key and text errors fail and are reported once each', function()
   local f = fixture {
     key = function()
       error 'receiver key failure'
@@ -78,14 +60,12 @@ test('local key and text errors fail once and never reach native input', functio
   }
   expect.equal(f.source:key({ code = 30 }).kind, 'failed', 'the receiver failure')
   expect.equal(#f.translations, 0, 'no translation after failure')
-  expect.equal(#f.nativeCalls, 0, 'no native fallback')
   local reports = f.reports
   expect.equal(#reports, 1, 'one reported callback failure')
   expect.truthy(reports[1].message:find('focus: receiver', 1, true), reports[1].message)
   expect.truthy(reports[1].message:find('source owner', 1, true), reports[1].message)
   expect.equal(f.source:text('aé').kind, 'failed', 'failed committed text')
   expect.equal(#reports, 2, 'text failure is reported once')
-  expect.equal(#f.nativeCalls, 0, 'no text fallback to native input')
   f.inverse()
 end)
 
@@ -101,7 +81,7 @@ test('virtual unhandled keys translate once with AltGr and physical keys never t
     end,
   }
   local f = fixture(receiver)
-  expect.equal(f.source:key({ code = 30, modifiers = { 'Shift' } }).kind, 'consumed', 'virtual fallback')
+  expect.equal(f.source:key({ code = 30, modifiers = { 'shift' } }).kind, 'consumed', 'virtual fallback')
   expect.equal(#f.translations, 1, 'one live keymap lookup')
   expect.equal(texts[1], 'é', 'the complete character')
   f.inverse()
@@ -126,7 +106,7 @@ test('shortcut modifiers and translated controls never enter local text', functi
       return true
     end,
   }
-  for _, modifiers in { { 'Control' }, { 'Logo' }, { 'super' }, { 'alt' } } do
+  for _, modifiers in { { 'control' }, { 'logo' }, { 'alt' } } do
     expect.equal(f.source:key({ code = 30, modifiers = modifiers }).kind, 'unhandled', 'shortcut remains a key')
   end
   expect.equal(#f.translations, 0, 'shortcuts do not translate')

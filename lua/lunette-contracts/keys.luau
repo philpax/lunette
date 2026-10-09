@@ -310,9 +310,9 @@ function keys.physicalActivationModifiers(value: PhysicalModifiers, requested: {
   local result: { string } = {}
   local rightAlt, leftAlt = false, false
   for index = 1, #requested do
-    local name = string.lower(requested[index])
+    local name = requested[index]
     rightAlt = rightAlt or name == 'mod5'
-    leftAlt = leftAlt or name == 'alt' or name == 'mod1'
+    leftAlt = leftAlt or name == 'alt'
   end
   if value.control then
     result[#result + 1] = 'control'
@@ -340,16 +340,8 @@ end
 
 function keys.commandChord(modifiers: { read [number]: string }): boolean
   for index = 1, #modifiers do
-    local name = string.lower(modifiers[index])
-    if
-      name == 'control'
-      or name == 'ctrl'
-      or name == 'logo'
-      or name == 'super'
-      or name == 'mod4'
-      or name == 'alt'
-      or name == 'mod1'
-    then
+    local name = modifiers[index]
+    if name == 'control' or name == 'logo' or name == 'alt' then
       return true
     end
   end

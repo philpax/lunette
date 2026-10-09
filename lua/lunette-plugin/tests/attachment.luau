@@ -162,4 +162,24 @@ test('instance state and diagnostics name the definition, and a waiting consumer
   expect.equal(waiting:state(), 'removed', 'the consumer after close')
 end)
 
+test('a provided record with an undeclared field fails the load and publishes nothing', function()
+  local token = plugin.contract('audit/unexpected-field', 1)
+  local runtime = plugin.runtime()
+  local provider = runtime:use(
+    plugin.define({}, { service = token }, function()
+      return { service = {}, extra = {} }
+    end, 'unexpected field provider'),
+    {}
+  )
+  provider:enable()
+  expect.equal(provider:state(), 'failed', 'the provider')
+  local diagnostic = provider:diagnostic() or ''
+  expect.truthy(string.find(diagnostic, "provided record has unexpected field 'extra'", 1, true), diagnostic)
+  expect.equal(#testing.takeReports(), 1, 'the reports')
+  local consumer = runtime:use(plugin.define({ service = token }, {}, empty, 'unexpected field consumer'), {})
+  consumer:enable()
+  expect.equal(consumer:state(), 'inactive', 'the consumer of the refused record')
+  runtime:close()
+end)
+
 return test

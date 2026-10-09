@@ -12,7 +12,7 @@ local function fixture(hooks, options)
     dead = false,
     strokeFor = function(_self, value)
       events[#events + 1] = 'stroke:' .. value
-      return { keycode = value == 'é' and 40 or 30, modifiers = { 'Shift' } }
+      return { keycode = value == 'é' and 40 or 30, modifiers = { 'shift' } }
     end,
   }
   local sink = { dead = false, domain = hooks.domain or 'window' }
@@ -74,8 +74,8 @@ end
 
 test('native key delivery preserves modifiers and pairs key down with key up', function()
   local f = fixture()
-  expect.equal(f.source:key({ code = 30, modifiers = { 'Control', 'Shift' } }).kind, 'consumed', 'native activation')
-  expect.equal(table.concat(f.events, ','), 'mods:Control+Shift,30:true,30:false,mods:', 'the stroke and inverse')
+  expect.equal(f.source:key({ code = 30, modifiers = { 'control', 'shift' } }).kind, 'consumed', 'native activation')
+  expect.equal(table.concat(f.events, ','), 'mods:control+shift,30:true,30:false,mods:', 'the stroke and inverse')
   f.inverse()
 end)
 
@@ -102,8 +102,8 @@ test('a failing native inverse is reported, every inverse runs, and later delive
       return true
     end,
   }
-  expect.equal(f.source:key({ code = 30, modifiers = { 'Shift' } }).kind, 'failed', 'cleanup failure')
-  expect.equal(table.concat(f.events, ','), 'mods:Shift,30:true,30:false,mods:', 'independent inverse attempts')
+  expect.equal(f.source:key({ code = 30, modifiers = { 'shift' } }).kind, 'failed', 'cleanup failure')
+  expect.equal(table.concat(f.events, ','), 'mods:shift,30:true,30:false,mods:', 'independent inverse attempts')
   expect.equal(#f.reports, 2, 'both cleanup errors are reported')
   local before = #f.events
   expect.equal(f.source:key({ code = 31 }).kind, 'failed', 'unsafe further delivery')
@@ -113,14 +113,14 @@ test('a failing native inverse is reported, every inverse runs, and later delive
   local held = false
   f = fixture {
     modifiers = function(event)
-      if event == 'mods:Shift' then
+      if event == 'mods:shift' then
         held = true
         return true
       end
       return not held
     end,
   }
-  expect.equal(f.source:key({ code = 30, modifiers = { 'Shift' } }).kind, 'refused', 'modifier release refusal')
+  expect.equal(f.source:key({ code = 30, modifiers = { 'shift' } }).kind, 'refused', 'modifier release refusal')
   expect.equal(f.source:key({ code = 31 }).kind, 'refused', 'blocked after refused cleanup')
   expect.falsy(f.source:reset(), 'reset cannot certify refused cleanup')
   expect.falsy(pcall(f.inverse), 'owner cleanup reports refused native release')
@@ -136,8 +136,8 @@ test('a reentrant route transition releases input before public continuation and
       return true
     end,
   }
-  expect.equal(f.source:key({ code = 30, modifiers = { 'Shift' } }).kind, 'refused', 'route changed during delivery')
-  expect.equal(table.concat(f.events, ','), 'mods:Shift,30:true,30:false,mods:', 'one immediate cleanup')
+  expect.equal(f.source:key({ code = 30, modifiers = { 'shift' } }).kind, 'refused', 'route changed during delivery')
+  expect.equal(table.concat(f.events, ','), 'mods:shift,30:true,30:false,mods:', 'one immediate cleanup')
   f.inverse()
   expect.equal(#f.events, 4, 'disposal does not repeat completed inverses')
 end)
@@ -147,7 +147,7 @@ test('window text resolves scalars while host text uses its native text operatio
   expect.equal(f.source:text('aé').kind, 'consumed', 'window committed text')
   expect.equal(
     table.concat(f.events, ','),
-    'stroke:a,mods:Shift,30:true,30:false,mods:,stroke:é,mods:Shift,40:true,40:false,mods:',
+    'stroke:a,mods:shift,30:true,30:false,mods:,stroke:é,mods:shift,40:true,40:false,mods:',
     'scalar strokes'
   )
   f.inverse()
@@ -179,7 +179,7 @@ end)
 test('physical native printable keys await text while command chords deliver strokes', function()
   local f = fixture(nil, { mode = 'physical' })
   f.source:beginBatch(1)
-  for _, modifiers in { {}, { 'Shift' }, { 'mod5' } } do
+  for _, modifiers in { {}, { 'shift' }, { 'mod5' } } do
     expect.equal(
       f.source:key({ code = 30, modifiers = modifiers, batch = 1 }).kind,
       'unhandled',
@@ -188,7 +188,7 @@ test('physical native printable keys await text while command chords deliver str
   end
   expect.equal(#f.events, 0, 'no duplicate native printable strokes')
   expect.equal(f.source:text('a', 1).kind, 'consumed', 'committed native text')
-  expect.equal(f.source:key({ code = 30, modifiers = { 'Control' }, batch = 1 }).kind, 'consumed', 'command chord')
+  expect.equal(f.source:key({ code = 30, modifiers = { 'control' }, batch = 1 }).kind, 'consumed', 'command chord')
   f.inverse()
 end)
 
@@ -198,7 +198,7 @@ test('physical keypad mode unavailable is a structured refusal rather than lost 
   expect.equal(result.kind, 'refused', 'unknown keypad mode')
   expect.truthy(result.message:find('modifier snapshot', 1, true), 'the missing event state is named')
   expect.equal(#f.events, 0, 'no guessed keypad activation or text')
-  expect.equal(f.source:key({ code = 79, modifiers = { 'Control' } }).kind, 'consumed', 'known command chord')
+  expect.equal(f.source:key({ code = 79, modifiers = { 'control' } }).kind, 'consumed', 'known command chord')
   f.inverse()
 end)
 

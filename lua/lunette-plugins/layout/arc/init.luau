@@ -14,8 +14,6 @@ export type Options = config.Options
 export type Config = config.Config
 export type Settings = config.Settings
 
-arc.requires = table.freeze { layouts = layouts.capability } :: plugin.Declaration
-
 function arc.layout(tuning: Tuning, label: string): ({ read [number]: layouts.Panel }, unknown?) -> ()
   return function(panels: { read [number]: layouts.Panel }, options: unknown?): ()
     local chosen = tuning
@@ -33,34 +31,14 @@ function arc.layout(tuning: Tuning, label: string): ({ read [number]: layouts.Pa
   end
 end
 
-local function configuredFor(label: string): configured.Configured<Config, Settings>
-  return configured.create<<Config, Settings>> {
-    name = label,
-    schema = config.schema,
-    requires = arc.requires,
-    init = function(context: plugin.Context, settings: Settings, _publish: plugin.Publisher): ()
-      local service: layouts.Service = context:require(layouts.capability)
-      service:register(context, { name = settings.layout, apply = arc.layout(settings.tuning, label) })
-    end,
-  }
-end
-
-local NAME = 'layout/arc'
-arc.definition = configuredFor(NAME).definition
-
-function arc.define(fields: Config & { read name: string? }): plugin.Definition<Config>
-  if type(fields) ~= 'table' then
-    error('plugin ' .. NAME .. ': define takes a table of options, not a ' .. type(fields), 2)
-  end
-  local given = table.clone((fields :: unknown) :: { [string]: unknown })
-  local label = given.name
-  given.name = nil
-  if label == nil then
-    label = NAME
-  elseif type(label) ~= 'string' or label == '' then
-    error('plugin ' .. NAME .. ': define names a definition with a non-empty string, not ' .. tostring(label), 2)
-  end
-  return configuredFor(label :: string).define((given :: unknown) :: Config & { read name: string? })
-end
+arc.definition = configured.create<<Config, Settings>>({
+  name = 'layout/arc',
+  schema = config.schema,
+  requires = { layouts = layouts.capability },
+  init = function(context: plugin.Context, settings: Settings, _publish: plugin.Publisher): ()
+    local service: layouts.Service = context:require(layouts.capability)
+    service:register(context, { name = settings.layout, apply = arc.layout(settings.tuning, 'layout/arc') })
+  end,
+}).definition
 
 return table.freeze(arc)

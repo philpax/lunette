@@ -95,7 +95,7 @@ test("chrome is off unless a panel or the provider's configuration asks for it",
   expect.equal(border.state.setColor[1], 0.4, 'the highlight inherits focus')
   selected:update { typography = { font = { kind = 'file', file = 'panel-face-b.ttf', size = 28, spread = 4 } } }
   _, title = paintCalls()
-  expect.equal(title.state.setFont[1], faces[2], 'a theme change leases the new face')
+  expect.equal(title.state.setFont[1], faces[2], 'a theme change draws the title with the new face')
   selected:dispose()
   env.session:close()
 

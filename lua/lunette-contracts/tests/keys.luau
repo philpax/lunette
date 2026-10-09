@@ -209,7 +209,7 @@ test('PC keypad policy covers every digit and decimal for the complete NumLock a
     for _, case in cases do
       local flags = snapshot { numLock = case.numLock, shift = case.shift }
       expect.equal(keys.physicalNativePolicy(code, {}, flags), case.expected, name .. ' PC mode')
-      expect.equal(keys.physicalNativePolicy(code, { 'Control' }, flags), 'activation', name .. ' command chord')
+      expect.equal(keys.physicalNativePolicy(code, { 'control' }, flags), 'activation', name .. ' command chord')
     end
   end
   expect.equal(keys.physicalNativePolicy(keys.CODES.left, {}, nil), 'activation', 'ordinary navigation')

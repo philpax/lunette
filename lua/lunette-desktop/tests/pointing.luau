@@ -79,7 +79,7 @@ test('an interaction outage mid-drag saves the drop, and the saved pose agrees w
   expect.equal(events.writes, writes + 1, 'the abandoned grab saved the arrangement')
   local loaded = persist.read(events.saved)
   expect.equal(loaded.kind, 'arrangement', 'the saved file')
-  local entry = persist.entries(loaded.file)[1]
+  local entry = loaded.file.entries[1]
   expect.equal(entry and entry.pose, stored, 'the saved pose and the stored property agree')
   session.instances.interaction:enable()
   frame(session)
