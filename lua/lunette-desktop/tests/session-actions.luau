@@ -37,7 +37,7 @@ test('wrist menu actions are VR accessible', function()
     end,
   }
   desktop.run {
-    settings = { workspaces = { workspaces = { { name = 'main' }, { name = 'side' } } } },
+    settings = { ['desktop/workspaces'] = { names = { 'main', 'side' } } },
     patches = {
       { id = 'laser', config = { aim = { enabled = false }, triggerLock = { enabled = false } } },
       { insert = { id = 'session-action-observer', definition = observer } },

@@ -11,7 +11,7 @@ local descriptor = schema.object { prefix = schema.default(schema.string()) 'up'
 export type Config = schema.Input<typeof(descriptor)>
 export type Settings = schema.Output<typeof(descriptor)>
 
-return plugin.consumer<<Config, Settings>>({
+return plugin.consumer<<Config, Settings>> {
   name = 'uptime',
   requires = { frame.capability, clock.capability },
   schema = descriptor,
@@ -33,4 +33,4 @@ return plugin.consumer<<Config, Settings>>({
       end,
     })
   end,
-}).definition
+}

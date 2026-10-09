@@ -1,4 +1,5 @@
--- Arranges unposed placements unless the user has dropped them or they carry a persisted pose.
+-- Arranges unposed placements unless the user has dropped them or they carry a persisted pose. Each tag is arranged
+-- separately.
 local plugin = require '@lunette-plugin'
 local drops = require '@lunette-contracts/drops'
 local frame = require '@lunette-contracts/frame'
@@ -98,7 +99,19 @@ local function define(): plugin.Definition<Config>
               done[panel] = true
             end
           end
-          layoutService:apply { name = layout, panels = members, options = settings.options[layout] }
+          layoutService:apply { name = layout, panels = members }
+        end
+        -- Without chosen tags every panel is arranged, including one in no tag.
+        if #settings.tags == 0 then
+          local rest: { layouts.Panel } = {}
+          for _, panel in ipairs(waiting) do
+            if not done[panel] then
+              rest[#rest + 1] = panel
+            end
+          end
+          if #rest > 0 then
+            layoutService:apply { name = layout, panels = rest }
+          end
         end
       end
 
@@ -145,4 +158,4 @@ local function define(): plugin.Definition<Config>
   }).definition
 end
 
-return define
+return table.freeze { definition = define }

@@ -1,18 +1,17 @@
 local schema = require '@lunette-plugin/schema'
 local descriptors = require '@lunette-plugins/theme/descriptors'
 
-local COLOR = schema.array(schema.number())
 local STYLE = schema.object {
   font = schema.optional(descriptors.editableFont),
   windowRadius = schema.optional(schema.number { minimum = 0 }),
   monitorRadius = schema.optional(schema.number { minimum = 0 }),
   borderThickness = schema.optional(schema.number()),
   borderDepth = schema.default(schema.number())(0.001),
-  borderColor = schema.optional(COLOR),
-  borderHighlightColor = schema.optional(COLOR),
+  borderColor = schema.optional(descriptors.color),
+  borderHighlightColor = schema.optional(descriptors.color),
   titleHeight = schema.optional(schema.number()),
   titleMargin = schema.default(schema.number())(0.02),
-  titleColor = schema.optional(COLOR),
+  titleColor = schema.optional(descriptors.color),
 }
 local SCHEMA = schema.object {
   style = schema.default(STYLE)(STYLE.parse {}),
@@ -26,4 +25,4 @@ local SCHEMA = schema.object {
 export type Config = schema.Input<typeof(SCHEMA)>
 export type Settings = schema.Output<typeof(SCHEMA)>
 
-return SCHEMA
+return { schema = SCHEMA }

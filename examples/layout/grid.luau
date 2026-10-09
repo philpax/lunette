@@ -11,15 +11,9 @@ local descriptor = schema.object {
   center = schema.default(schema.vector())(vector.pack(0, 1.5, -1.8)),
 }
 export type Config = schema.Input<typeof(descriptor)>
-export type Options = schema.Output<typeof(descriptor)>
-local optionsSchema = schema.default(descriptor)(descriptor.parse {})
+export type Settings = schema.Output<typeof(descriptor)>
 
-local function resolve(given: unknown): Options
-  return optionsSchema.parse(given, 'grid')
-end
-
-local function grid(panels: { read [number]: layouts.Panel }, given: unknown?): ()
-  local options = resolve(given)
+local function grid(panels: { read [number]: layouts.Panel }, options: Settings): ()
   local count = #panels
   if count == 0 then
     return
@@ -45,15 +39,18 @@ local function grid(panels: { read [number]: layouts.Panel }, given: unknown?): 
   end
 end
 
-type ConsumerConfig = {}
-type ConsumerSettings = {}
-
-return plugin.consumer<<ConsumerConfig, ConsumerSettings>>({
+return plugin.consumer<<Config, Settings>> {
   name = 'grid-layout',
   requires = { layouts.capability },
-  init = function(context: plugin.Context, _settings: ConsumerSettings)
+  schema = descriptor,
+  init = function(context: plugin.Context, settings: Settings)
     local service: layouts.Service = context:require(layouts.capability)
     -- The registration ends with the plugin activation.
-    service:register(context, { name = 'grid', apply = grid })
+    service:register(context, {
+      name = 'grid',
+      apply = function(panels: { read [number]: layouts.Panel }): ()
+        grid(panels, settings)
+      end,
+    })
   end,
-}).definition
+}

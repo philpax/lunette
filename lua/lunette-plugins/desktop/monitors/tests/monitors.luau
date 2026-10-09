@@ -27,7 +27,7 @@ local function start(native, config)
     'theme',
     'panels',
     'tags',
-    { id = 'desktop/monitors', definition = require '@lunette-plugins/desktop/monitors', config = config },
+    { id = 'desktop/monitors', definition = require('@lunette-plugins/desktop/monitors').definition, config = config },
   }
   return session, session:observe(panelsContract.capability).service
 end

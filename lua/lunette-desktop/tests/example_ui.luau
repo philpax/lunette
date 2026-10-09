@@ -17,7 +17,7 @@ end
 
 local function boot()
   testing.host.useConfiguration 'examples/ui'
-  local patches = { { insert = { id = name, definition = require 'form' } } }
+  local patches = { { insert = { id = name, definition = require('form').definition } } }
   local fixture = vrUi.boot(desktop.compose { patches = patches })
   local session = fixture.session
   local env = {

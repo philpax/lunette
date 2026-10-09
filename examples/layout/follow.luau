@@ -12,8 +12,7 @@ local descriptor = schema.object {
   speed = schema.default(schema.number())(4),
 }
 export type Config = schema.Input<typeof(descriptor)>
-export type Options = schema.Output<typeof(descriptor)>
-local optionsSchema = schema.default(descriptor)(descriptor.parse {})
+export type Settings = schema.Output<typeof(descriptor)>
 
 -- Rotation stops within this angular tolerance.
 local SETTLED = 0.02
@@ -22,12 +21,11 @@ local function turn(from: number, to: number): number
   return (to - from + math.pi) % (2 * math.pi) - math.pi
 end
 
-local function follow(): ({ read [number]: layouts.Panel }, unknown?) -> ()
+local function follow(options: Settings): ({ read [number]: layouts.Panel }) -> ()
   -- Each registration keeps an independent heading and turn state.
   local heading: number? = nil
   local turning = false
-  return function(panels: { read [number]: layouts.Panel }, given: unknown?): ()
-    local options = optionsSchema.parse(given, 'follow')
+  return function(panels: { read [number]: layouts.Panel }): ()
     local x, y, z = lovr.headset.getPosition 'head'
     local dx, _, dz = lovr.headset.getDirection 'head'
     local facing = math.atan2(-dx, -dz)
@@ -67,14 +65,12 @@ local function follow(): ({ read [number]: layouts.Panel }, unknown?) -> ()
   end
 end
 
-type ConsumerConfig = {}
-type ConsumerSettings = {}
-
-return plugin.consumer<<ConsumerConfig, ConsumerSettings>>({
+return plugin.consumer<<Config, Settings>> {
   name = 'follow-layout',
   requires = { layouts.capability },
-  init = function(context: plugin.Context, _settings: ConsumerSettings)
+  schema = descriptor,
+  init = function(context: plugin.Context, settings: Settings)
     local service: layouts.Service = context:require(layouts.capability)
-    service:register(context, { name = 'follow', apply = follow(), continuous = true })
+    service:register(context, { name = 'follow', apply = follow(settings), continuous = true })
   end,
-}).definition
+}

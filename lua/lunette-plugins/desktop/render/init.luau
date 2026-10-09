@@ -33,7 +33,7 @@ local required: plugin.Declaration = {
   panels.capability,
 }
 
-return plugin.consumer<<Config, Settings>>({
+return plugin.consumer<<Config, Settings>> {
   name = 'desktop/render',
   requires = required,
   init = function(context: plugin.Context, _settings: Settings): ()
@@ -53,4 +53,4 @@ return plugin.consumer<<Config, Settings>>({
       end,
     })
   end,
-}).definition
+}

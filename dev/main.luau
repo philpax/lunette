@@ -4,6 +4,6 @@ local demoTerminal = require './plugins/demo-terminal'
 
 desktop.run {
   patches = {
-    { insert = { id = 'dev/demo-terminal', definition = demoTerminal }, after = 'desktop/adoption' },
+    { insert = { id = 'dev/demo-terminal', definition = demoTerminal.definition }, after = 'desktop/adoption' },
   },
 }

@@ -77,4 +77,4 @@ local SCHEMA = configuration<<ReadInput, Draw>>(readInput, drawLaser)
 export type Config = schema.Input<typeof(SCHEMA)>
 export type Settings = schema.Output<typeof(SCHEMA)>
 
-return SCHEMA
+return { schema = SCHEMA }

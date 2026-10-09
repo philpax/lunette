@@ -13,7 +13,7 @@ local function start(config)
     'focus',
     'ui',
     'keyboard',
-    { id = 'desktop/keyboard', definition = require '@lunette-plugins/keyboard-display', config = config },
+    { id = 'desktop/keyboard', definition = require('@lunette-plugins/keyboard-display').definition, config = config },
   }
   env.surfaces = env.session:observe(surfaces.capability).service
   env.display = env.session:observe(display.capability).service

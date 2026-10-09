@@ -13,7 +13,7 @@ export type Style = config.Style
 export type Config = config.Config
 export type Settings = config.Settings
 
-return plugin.consumer<<Config, Settings>>({
+return plugin.consumer<<Config, Settings>> {
   name = 'desktop/decorations',
   requires = { frame.capability, panels.capability, ui.capability },
   schema = config.schema,
@@ -91,4 +91,4 @@ return plugin.consumer<<Config, Settings>>({
       end,
     })
   end,
-}).definition
+}

@@ -66,22 +66,21 @@ Panels, UI panels, and the keyboard draw rounded faces from `lua/lunette-plugins
 
 ## Default configuration
 
-`etc/xdg/lunette/main.luau` calls `require('@lunette-desktop').run()`. The desktop is a list of entries, `{ id, definition, config }` or `{ id, factory, config }` for a definition made once per runtime. `lua/lunette-desktop/init.luau` is the source of truth for the entries and their order. It lists the providers above, `layout/arc`, `theme/standard`, `theme/arcade`, and the `desktop/` consumers below, all from `@lunette-plugins`. `entries()` answers the list.
+`etc/xdg/lunette/main.luau` calls `require('@lunette-desktop').run()`. The desktop is a list of entries, `{ id, definition, config }`, where `definition` is a definition or a factory that makes one once per runtime. Every plugin module returns a record whose `definition` field is what an entry names. `lua/lunette-desktop/init.luau` is the source of truth for the entries and their order. It lists the providers above, `layout/arc`, `theme/standard`, `theme/arcade`, and the `desktop/` consumers below, all from `@lunette-plugins`. `entries()` answers the list.
 
-`run { patches = { ... } }` applies patches with `plugin.compose`, binds the LÖVR callbacks with `frame.install`, and starts the list through `@lunette-plugin/management` at load. `run { entries = { ... } }` starts from another list. `compose(options)` answers the patched list without starting it. Composition runs before any callback is bound, so a malformed patch fails the configuration's load and safe mode reports it. [Composition](lua-api.md#composition) states the patch rules.
+`run { settings = { ... }, patches = { ... } }` applies settings and patches with `plugin.compose`, binds the LÖVR callbacks with `frame.install`, and starts the list through `@lunette-plugin/management` at load. `compose(options)` answers the patched list without starting it, for tests and tools that inspect a composition. Composition runs before any callback is bound, so a malformed patch fails the configuration's load and safe mode reports it. [Composition](lua-api.md#composition) states the patch rules.
 
 ```lua
 require('@lunette-desktop').run {
+  settings = { ['desktop/menu'] = { hand = 'right' } },
   patches = {
     { id = 'keyboard', disabled = true },
-    { insert = { id = 'my-hud', definition = hud }, before = 'desktop/adoption' },
+    { insert = { id = 'my-hud', definition = hud.definition }, before = 'desktop/adoption' },
   },
 }
 ```
 
-`configure(id, definitionOrFactory)` is `plugin.configure`. It answers a function that takes the entry's configuration and returns a plain patch, so the checker reads the options against the entry's `Config` type. It does not call a factory.
-
-`settings` configures the desktop consumers through their `Config` types. Its fields are `menu`, `decorations`, `arrange`, `persistence`, `keyboardDisplay`, `rules`, `monitors`, `hint`, `errors`, `pointing`, `pacing`, `workspaces`, `adoption`, and `manager`. Each maps to the `desktop/` entry of the same name, except `persistence`, which maps to `desktop/persistence`, and `keyboardDisplay`, which maps to `desktop/keyboard`. `lua/lunette-desktop/settings.luau` composes the consumers' own descriptors. Each setting expands to an ordinary configuration patch, and a setting and a patch for the same id raise an error. Unless `adoption` is given, `workspaces` also sets `desktop/adoption.tags` to the first workspace's name. [Desktop configuration](../guide/desktop-configuration.md) gives examples.
+`settings` configures every default entry that takes options, keyed by entry id and typed by the entry's `Config`. `lua/lunette-desktop/settings.luau` composes the entries' own descriptors and is checked against the entry list by a test. Each setting expands to one ordinary configuration patch for its id, and a setting and a patch for the same id raise an error. Patches insert, replace, or disable entries. [Desktop configuration](../guide/desktop-configuration.md) gives examples.
 
 The shipped desktop opens no application. The development configuration inserts a terminal plugin ([The development loop](build-and-development.md#the-development-loop)).
 
@@ -90,26 +89,26 @@ The desktop consumers:
 | Entry | Does | Options |
 |---|---|---|
 | `desktop/render` | Updates and draws panels in the `scene` phase. A child offers the shown panels as surfaces, so a surfaces outage stops pointing and leaves panels drawing. | None. |
-| `desktop/hint` | Draws a line of text while no panel exists. | `text`, `position`, `size`, `foreground`, `font`. |
+| `desktop/hint` | Draws a line of text while no panel exists. | `text`, `position`, `textHeight`, `foreground`, `font`. |
 | `desktop/decorations` | Gives each native panel without its own chrome a shared UI titlebar with a close button, and monitor panels Restart mirror and monitor selection actions. Grip on the panel or titlebar, or trigger on the titlebar background, moves the panel. | `style`, overriding the UI provider's `titlebarStyle`. |
-| `desktop/pointing` | Attaches both lasers, updates them against every offered surface in the `pointing` phase, and draws them in the `feedback` phase. | `laser`: `name`, `tuning`, `style`, `aim`, `triggerLock`, `readInput`. |
+| `desktop/pointing` | Attaches both lasers with the `laser` entry's configuration, updates them against every offered surface in the `pointing` phase, and draws them in the `feedback` phase. | None. |
 | `desktop/input` | Delivers physical keys and committed text through a physical focus source in the `delivery` phase. It requires no bindings provider. | None. |
 | `desktop/keyboard` | Provides `lunette/keyboard-display`: one lazily made virtual keyboard with a shared titlebar, shown when a focused local field wants it. | `placement`: `distance`, `drop`, `tilt`. |
 | `desktop/menu` | Renders the tracked wrist Menu button and scrollable action list through `lunette/ui` and invokes `lunette/menu` actions. Tracking loss closes it. | `hand`, `size`, `offset`, `haptic`, `expanded`. |
 | `desktop/actions` | Registers Reload configuration. A child registers Keyboard, which toggles the keyboard display, so a display outage leaves Reload. | None. |
 | `desktop/errors` | Shows the latest report of the error stream on a quad in the `overlay` phase. | `position`, `width`, `textHeight`, `columns`, `lines`, `background`, `foreground`, `font`. |
-| `desktop/workspaces` | Holds a tag per workspace and hides panels of unselected workspaces. | `workspaces`, default one `main`; `follow`, default true. |
+| `desktop/workspaces` | Holds a tag per workspace and hides panels of unselected workspaces. | `names`, default `{ 'main' }`; `follow`, default true. |
 | `desktop/monitors` | Starts capture and places monitor panels in a row, including hotplugged monitors. A child adds mirrors to configured tags. | `select`, `placement`, `tags`. |
 | `desktop/rules` | Registers its rule list with `rules:setRules`. | `rules`; the default sizes and places Firefox. |
 | `desktop/persistence` | Saves and restores the arrangement and provides `lunette/arrangement`. A factory. | `file`, default `arrangement.state`. |
-| `desktop/arrange` | Arranges placed windows that have no pose, tag by tag, with its layout from the layouts broker. A factory. | `layout`, default `arc`; `options`, keyed by layout name; `tags`, every tag when empty. |
-| `desktop/adoption` | Adopts windows. Its pose memory child writes a dropped window's pose to `lunette.pose` and registers the native rule source that reads it back. | `tags`, default `{ 'main' }`; `filter`; `precedence` of the pose source, default `PRECEDENCE.native`. |
+| `desktop/arrange` | Arranges placed windows that have no pose, tag by tag, with its layout from the layouts broker. A factory. | `layout`, default `arc`; `tags`, every tag and untagged windows when empty. |
+| `desktop/adoption` | Adopts windows. Its pose memory child writes a dropped window's pose to `lunette.pose` and registers the native rule source that reads it back. | `tags`, default none; `filter`; `precedence` of the pose source, default `PRECEDENCE.native`. |
 | `desktop/pacing` | Sets each window panel's frame rate from its `lunette/pacing` pacer and pauses hidden monitor captures. | `pauseMonitors`, default true. |
 | `desktop/scale` | Sets each output's scale from its `lunette/scale` chooser for the nearest shown window panel. | None. |
 | `desktop/manager` | The runtime manager panel, described below. | `visible`, `refreshInterval`, `view`, `position`, `width`, `height`, `pixels`. |
 | `desktop/theme` | The theme selector, described above. A factory. | `preset`, `overrides`. |
 
-Each consumer's `config.luau` owns its schema and defaults. Geometric options are native vectors built with `vector.pack`, and colours are numeric lists.
+Each entry's `config.luau` returns `{ schema = descriptor }` and owns its schema and defaults. Geometric options are native vectors built with `vector.pack`, and colours are RGBA lists that `theme/descriptors.luau` validates.
 
 ### Placement
 
@@ -117,11 +116,11 @@ Placement is `desktop/workspaces`, `desktop/rules`, `desktop/persistence`, `desk
 
 Drops reach pose memory, persistence, and arrangement through `lunette/drops`, which the interaction provider emits to when a grab ends. None of them requires interaction.
 
-`desktop/arrange` arranges when it activates, when a placement is announced, when a panel is removed, when a layout registers or unregisters, and when a tag changes. Its candidates are live placements made without a pose, less panels dropped while it was active and windows with a `lunette.pose` property. The chosen tags are taken selected first, then the rest, and each tag arranges its candidates that no earlier tag took, with the tag's own layout or the configured one and that layout's entry in `options`. A layout registered as `continuous` is also applied every frame in the `scene` phase. A missing layout is logged once per name.
+`desktop/arrange` arranges when it activates, when a placement is announced, when a panel is removed, when a layout registers or unregisters, and when a tag changes. Its candidates are live placements made without a pose, less panels dropped while it was active and windows with a `lunette.pose` property. The chosen tags are taken selected first, then the rest, and each tag arranges its candidates that no earlier tag took, with the configured layout. Without configured tags, candidates in no tag are arranged last as one group. A layout's options are the configuration of the plugin that registers it, such as `layout/arc`'s `tuning`. A layout registered as `continuous` is also applied every frame in the `scene` phase. A missing layout is logged once per name.
 
 A persistence state reads a versioned file written by `@lunette-plugins/arrangement/format`. A file it cannot read, or one from a newer version, is reported and never overwritten. A window is saved under its application id and a monitor under its id. A window holds a slot from the creation of its panel until it dies, so a window that closes and reopens returns to its slot. A monitor panel that appears later is restored as it appears. A saved entry that matches nothing is reported once per arrangement. The state is made at the first activation and kept across activations with the same `file`. The rules source and arrival listener are effects of the activation. `desktop/persistence` saves when a drop is announced and at quit; a quit-save failure is reported and does not veto the quit.
 
-`desktop/workspaces` selects the first workspace already selected, or the first in the list. A panel in a workspace's tag and in no selected one is hidden through a visibility override, which it withdraws rather than overriding to show, so a panel another plugin hid stays hidden. With `follow`, a window placed into workspaces none of which is shown moves into the shown one. With more than one workspace, a child registers `desktop/workspace/<name>` actions in the Workspaces menu group, so a menu outage leaves selection and visibility unchanged.
+`desktop/workspaces` selects the first workspace already selected, or the first in the list. A panel in a workspace's tag and in no selected one is hidden through a visibility override, which it withdraws rather than overriding to show, so a panel another plugin hid stays hidden. A window placed into no workspace joins the shown one, and so do placed windows in no workspace when the consumer activates; adoption therefore needs no workspace tag. With `follow`, a window placed into workspaces none of which is shown also moves into the shown one. With more than one workspace, a child registers `desktop/workspace/<name>` actions in the Workspaces menu group, so a menu outage leaves selection and visibility unchanged.
 
 ### Pacing and scale
 
@@ -174,7 +173,7 @@ The arrangement is saved on a drop and at quit. Saving on panel removal was reje
 
 The desktop is an installed root changed by patches. Consumers composed by a fixed sequence in `main.luau` were rejected: a configuration could not reuse one without copying it. Patches name what they change by a stable id. Unknown ids and two patches for one id raise, because a patch that matches nothing does not do what it says.
 
-Typed settings expand to patches. A combined desktop plugin was rejected because it would require the union of its consumers' dependencies and lose independent outages.
+Settings keyed by entry id expand to one patch each, so an entry has one name in settings, patches, errors, and the runtime manager. Short setting keys were rejected because several named a `desktop/` consumer while a patch with the same id named a provider. A typed configure patch per entry was rejected as the configuration path because its target had to be found among module shapes and could name another entry's definition. A combined desktop plugin was rejected because it would require the union of its consumers' dependencies and lose independent outages.
 
 Every shipped plugin is under `@lunette-plugins`. A provider's folder is its contract, and any other plugin's folder is its entry id, so the path follows from what a patch or log line names. `desktop/persistence` provides `lunette/arrangement`, so it is `@lunette-plugins/arrangement` under the provider rule and keeps its id. Grouping consumers by domain was rejected because the path would differ from the id.
 
@@ -184,23 +183,23 @@ Configuration merges records and replaces everything else. A colour list or a ve
 
 Geometric values are native vectors. Numeric tables lose the geometric type and need scalar arithmetic.
 
-Provider modules share one shape so a configuration varies, wraps, or replaces any provider the same way.
+Plugin modules share one shape, a record whose `definition` is a definition or a factory, so an entry names any module the same way.
 
 Placement is several entries, following the integration component of section 6.5 of the Cordis paper. One policy entry was rejected because replacing the layout, the rules, or persistence would mean copying all of it. Pose memory is one consumer that both writes the pose on a drop and registers the rule source that reads it, because either half without the other loses hand-placed poses across reloads. A provider method for the reading half was rejected because a substitute adoption provider would carry half a feature. It is a child of `desktop/adoption`, enabled before the start, so its source is registered before the first window resolves. `desktop/arrange` learns of placements from the placement contract, which carries the resolved properties; `panels:onAdded` reaches every panel without them.
 
 A dropped panel leaves the arrangement. Re-arranging on a drop would move the other windows as the user lets go of one. A kept `lunette.pose` property also excludes a window, so a window dragged during an outage of `desktop/arrange` is not arranged again; a record in the drops broker would end with the broker's activation.
 
-A window in several tags is arranged by its first selected tag, so its pose comes from a layout the user is looking at. Layout options are keyed by layout name rather than carried by the tag, because a tag is shared state and the options are one consumer's configuration.
+A window in several tags is arranged by its first selected tag, so its pose comes from a layout the user is looking at. A layout's options are the configuration of the plugin that registers it. Options carried by the tag were rejected because a tag is shared state, and options passed with each application were rejected because they gave the arc a second, untyped home.
 
 Rendering, mirroring, and the hint are separate entries, so a configuration replaces one without the others. Offering panels is a child of `desktop/render` that requires surfaces, so a surfaces outage leaves panels drawing. Mirrors take the lowest free place in the row and are not re-laid, because the saved arrangement restores a mirror as it appears.
 
-Workspaces are one default entry with one `main` workspace, so the shipped menu shows no Workspaces group until a configuration names a second. Its menu actions are a child so a menu outage does not reveal hidden windows. Workspace chords are not shipped because session controls must be reachable through VR input.
+Workspaces are one default entry with one `main` workspace, so the shipped menu shows no Workspaces group until a configuration names a second. `desktop/workspaces` puts a window placed into no workspace in the shown one, so the link holds however the workspace list was configured. Composition pointing adoption at the first workspace was rejected because only the setting did it, and an equivalent patch or a Configure edit left new windows outside every workspace. Its menu actions are a child so a menu outage does not reveal hidden windows. Workspace chords are not shipped because session controls must be reachable through VR input.
 
 Pacing and scale are providers (issue #38), and the desktop entries read the scene and apply them. A different rule is a different provider, and a different reading of the scene is a different consumer. Both entries are on by default and revert on unload, because a disabled entry must not leave outputs at a step it chose.
 
 A relative require resolves against the requiring file, as in the checker and editors. Resolving against the configuration root would let a plugin in a subdirectory check clean and fail to load. Replacing LÖVR's require with Luau's require library was rejected because it keys its cache apart from `package.loaded`, which reload clears.
 
-A typed patch is a function per entry. A patch type discriminated by `id` needs an arm for inserted entries, which would accept a mistyped option for any shipped entry.
+Settings are typed by a table keyed by entry id that reuses each entry's descriptor. A patch type discriminated by `id` was rejected because it needs an arm for inserted entries, which would accept a mistyped option for any shipped entry.
 
 Small VR controls come from a replaceable `lunette/ui` provider, so a configuration can replace control policy without importing a widget implementation. Larger interfaces remain Wayland clients.
 

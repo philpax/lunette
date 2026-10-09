@@ -78,7 +78,7 @@ local function tagging(shared: Shared, names: { read [number]: string }): plugin
   }).definition
 end
 
-return plugin.consumer<<Config, Settings>>({
+return plugin.consumer<<Config, Settings>> {
   name = 'desktop/monitors',
   requires = required,
   schema = config.schema,
@@ -181,4 +181,4 @@ return plugin.consumer<<Config, Settings>>({
       mirror(monitor)
     end
   end,
-}).definition
+}

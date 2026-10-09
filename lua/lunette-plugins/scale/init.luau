@@ -24,6 +24,6 @@ end
 return plugin.provider<<Config, Settings, Service>> {
   name = 'scale',
   capability = contract.capability,
-  schema = config,
+  schema = config.schema,
   build = build,
 }

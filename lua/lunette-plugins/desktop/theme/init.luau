@@ -180,4 +180,4 @@ local function define(): plugin.Definition<Config>
   }).definition
 end
 
-return define
+return table.freeze { definition = define }

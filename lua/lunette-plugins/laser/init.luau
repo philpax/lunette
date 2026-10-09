@@ -350,6 +350,6 @@ return plugin.provider<<Config, Settings, Service>> {
   name = 'laser',
   capability = contracts.capability,
   requires = { interaction.capability, theme.capability },
-  schema = config,
+  schema = config.schema,
   build = build,
 }

@@ -1,54 +1,91 @@
--- Desktop shorthand settings reuse each plugin's configuration descriptor.
+-- Desktop settings are keyed by entry id and reuse each entry's configuration descriptor.
 
 local schema = require '@lunette-plugin/schema'
-local menu = require '@lunette-plugins/desktop/menu/config'
-local decorations = require '@lunette-plugins/desktop/decorations/config'
-local arrange = require '@lunette-plugins/desktop/arrange/config'
-local persistence = require '@lunette-plugins/arrangement/config'
-local keyboard = require '@lunette-plugins/keyboard-display/config'
-local rules = require '@lunette-plugins/desktop/rules/config'
-local monitors = require '@lunette-plugins/desktop/monitors/config'
-local hint = require '@lunette-plugins/desktop/hint/config'
-local errors = require '@lunette-plugins/desktop/errors/config'
-local pointing = require '@lunette-plugins/desktop/pointing/config'
-local pacing = require '@lunette-plugins/desktop/pacing/config'
-local workspaces = require '@lunette-plugins/desktop/workspaces/config'
-local adoption = require '@lunette-plugins/desktop/adoption/config'
-local manager = require '@lunette-plugins/desktop/manager/config'
+local interaction = require '@lunette-plugins/interaction/config'
+local laser = require '@lunette-plugins/laser/config'
+local keyboard = require '@lunette-plugins/keyboard/config'
+local ui = require '@lunette-plugins/ui/config'
+local desktopTheme = require '@lunette-plugins/desktop/theme/config'
+local panels = require '@lunette-plugins/panels/config'
+local rules = require '@lunette-plugins/rules/config'
+local placement = require '@lunette-plugins/placement/config'
+local layoutArc = require '@lunette-plugins/layout/arc/config'
+local errors = require '@lunette-plugins/errors/config'
+local pacing = require '@lunette-plugins/pacing/config'
+local scale = require '@lunette-plugins/scale/config'
+local desktopHint = require '@lunette-plugins/desktop/hint/config'
+local desktopDecorations = require '@lunette-plugins/desktop/decorations/config'
+local desktopKeyboard = require '@lunette-plugins/keyboard-display/config'
+local desktopMenu = require '@lunette-plugins/desktop/menu/config'
+local desktopErrors = require '@lunette-plugins/desktop/errors/config'
+local desktopWorkspaces = require '@lunette-plugins/desktop/workspaces/config'
+local desktopMonitors = require '@lunette-plugins/desktop/monitors/config'
+local desktopRules = require '@lunette-plugins/desktop/rules/config'
+local desktopPersistence = require '@lunette-plugins/arrangement/config'
+local desktopArrange = require '@lunette-plugins/desktop/arrange/config'
+local desktopAdoption = require '@lunette-plugins/desktop/adoption/config'
+local desktopPacing = require '@lunette-plugins/desktop/pacing/config'
+local desktopManager = require '@lunette-plugins/desktop/manager/config'
 
 -- Typed constructor witnesses avoid expanding nested key unions and recursive rule contracts at each wrapper.
 local optional = (schema.optional :: unknown) :: <I, O>(schema.Schema<I, O>) -> schema.Schema<I?, O?>
 local shape: {
-  read menu: schema.Schema<menu.Config?, menu.Settings?>,
-  read decorations: schema.Schema<decorations.Config?, decorations.Settings?>,
-  read arrange: schema.Schema<arrange.Config?, arrange.Settings?>,
-  read persistence: schema.Schema<persistence.Config?, persistence.Settings?>,
-  read keyboardDisplay: schema.Schema<keyboard.Config?, keyboard.Settings?>,
+  read interaction: schema.Schema<interaction.Config?, interaction.Settings?>,
+  read laser: schema.Schema<laser.Config?, laser.Settings?>,
+  read keyboard: schema.Schema<keyboard.Config?, keyboard.Settings?>,
+  read ui: schema.Schema<ui.Config?, ui.Settings?>,
+  read ['desktop/theme']: schema.Schema<desktopTheme.Config?, desktopTheme.Settings?>,
+  read panels: schema.Schema<panels.Config?, panels.Settings?>,
   read rules: schema.Schema<rules.Config?, rules.Settings?>,
-  read monitors: schema.Schema<monitors.Config?, monitors.Settings?>,
-  read hint: schema.Schema<hint.Config?, hint.Settings?>,
+  read placement: schema.Schema<placement.Config?, placement.Settings?>,
+  read ['layout/arc']: schema.Schema<layoutArc.Config?, layoutArc.Settings?>,
   read errors: schema.Schema<errors.Config?, errors.Settings?>,
-  read pointing: schema.Schema<pointing.Config?, pointing.Settings?>,
   read pacing: schema.Schema<pacing.Config?, pacing.Settings?>,
-  read workspaces: schema.Schema<workspaces.Config?, workspaces.Settings?>,
-  read adoption: schema.Schema<adoption.Config?, adoption.Settings?>,
-  read manager: schema.Schema<manager.Config?, manager.Settings?>,
+  read scale: schema.Schema<scale.Config?, scale.Settings?>,
+  read ['desktop/hint']: schema.Schema<desktopHint.Config?, desktopHint.Settings?>,
+  read ['desktop/decorations']: schema.Schema<desktopDecorations.Config?, desktopDecorations.Settings?>,
+  read ['desktop/keyboard']: schema.Schema<desktopKeyboard.Config?, desktopKeyboard.Settings?>,
+  read ['desktop/menu']: schema.Schema<desktopMenu.Config?, desktopMenu.Settings?>,
+  read ['desktop/errors']: schema.Schema<desktopErrors.Config?, desktopErrors.Settings?>,
+  read ['desktop/workspaces']: schema.Schema<desktopWorkspaces.Config?, desktopWorkspaces.Settings?>,
+  read ['desktop/monitors']: schema.Schema<desktopMonitors.Config?, desktopMonitors.Settings?>,
+  read ['desktop/rules']: schema.Schema<desktopRules.Config?, desktopRules.Settings?>,
+  read ['desktop/persistence']: schema.Schema<desktopPersistence.Config?, desktopPersistence.Settings?>,
+  read ['desktop/arrange']: schema.Schema<desktopArrange.Config?, desktopArrange.Settings?>,
+  read ['desktop/adoption']: schema.Schema<desktopAdoption.Config?, desktopAdoption.Settings?>,
+  read ['desktop/pacing']: schema.Schema<desktopPacing.Config?, desktopPacing.Settings?>,
+  read ['desktop/manager']: schema.Schema<desktopManager.Config?, desktopManager.Settings?>,
 } =
   {
-    menu = optional<<menu.Config, menu.Settings>>(menu.schema),
-    decorations = optional<<decorations.Config, decorations.Settings>>(decorations.schema),
-    arrange = optional<<arrange.Config, arrange.Settings>>(arrange.schema),
-    persistence = optional<<persistence.Config, persistence.Settings>>(persistence),
-    keyboardDisplay = optional<<keyboard.Config, keyboard.Settings>>(keyboard.schema),
+    interaction = optional<<interaction.Config, interaction.Settings>>(interaction.schema),
+    laser = optional<<laser.Config, laser.Settings>>(laser.schema),
+    keyboard = optional<<keyboard.Config, keyboard.Settings>>(keyboard.schema),
+    ui = optional<<ui.Config, ui.Settings>>(ui.schema),
+    ['desktop/theme'] = optional<<desktopTheme.Config, desktopTheme.Settings>>(desktopTheme.schema),
+    panels = optional<<panels.Config, panels.Settings>>(panels.schema),
     rules = optional<<rules.Config, rules.Settings>>(rules.schema),
-    monitors = optional<<monitors.Config, monitors.Settings>>(monitors.schema),
-    hint = optional<<hint.Config, hint.Settings>>(hint.schema),
+    placement = optional<<placement.Config, placement.Settings>>(placement.schema),
+    ['layout/arc'] = optional<<layoutArc.Config, layoutArc.Settings>>(layoutArc.schema),
     errors = optional<<errors.Config, errors.Settings>>(errors.schema),
-    pointing = optional<<pointing.Config, pointing.Settings>>(pointing.schema),
     pacing = optional<<pacing.Config, pacing.Settings>>(pacing.schema),
-    workspaces = optional<<workspaces.Config, workspaces.Settings>>(workspaces.schema),
-    adoption = optional<<adoption.Config, adoption.Settings>>(adoption.schema),
-    manager = optional<<manager.Config, manager.Settings>>(manager.schema),
+    scale = optional<<scale.Config, scale.Settings>>(scale.schema),
+    ['desktop/hint'] = optional<<desktopHint.Config, desktopHint.Settings>>(desktopHint.schema),
+    ['desktop/decorations'] = optional<<desktopDecorations.Config, desktopDecorations.Settings>>(
+      desktopDecorations.schema
+    ),
+    ['desktop/keyboard'] = optional<<desktopKeyboard.Config, desktopKeyboard.Settings>>(desktopKeyboard.schema),
+    ['desktop/menu'] = optional<<desktopMenu.Config, desktopMenu.Settings>>(desktopMenu.schema),
+    ['desktop/errors'] = optional<<desktopErrors.Config, desktopErrors.Settings>>(desktopErrors.schema),
+    ['desktop/workspaces'] = optional<<desktopWorkspaces.Config, desktopWorkspaces.Settings>>(desktopWorkspaces.schema),
+    ['desktop/monitors'] = optional<<desktopMonitors.Config, desktopMonitors.Settings>>(desktopMonitors.schema),
+    ['desktop/rules'] = optional<<desktopRules.Config, desktopRules.Settings>>(desktopRules.schema),
+    ['desktop/persistence'] = optional<<desktopPersistence.Config, desktopPersistence.Settings>>(
+      desktopPersistence.schema
+    ),
+    ['desktop/arrange'] = optional<<desktopArrange.Config, desktopArrange.Settings>>(desktopArrange.schema),
+    ['desktop/adoption'] = optional<<desktopAdoption.Config, desktopAdoption.Settings>>(desktopAdoption.schema),
+    ['desktop/pacing'] = optional<<desktopPacing.Config, desktopPacing.Settings>>(desktopPacing.schema),
+    ['desktop/manager'] = optional<<desktopManager.Config, desktopManager.Settings>>(desktopManager.schema),
   }
 local descriptor = schema.object<<typeof(shape)>>(shape)
 

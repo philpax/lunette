@@ -9,7 +9,7 @@ export type Settings = config.Settings
 
 local required: plugin.Declaration = { adoption.capability }
 
-return plugin.consumer<<Config, Settings>>({
+return plugin.consumer<<Config, Settings>> {
   name = 'desktop/adoption',
   requires = required,
   schema = config.schema,
@@ -20,4 +20,4 @@ return plugin.consumer<<Config, Settings>>({
     context:child(poseMemory, { precedence = settings.precedence })
     service:start(context, { defaults = { tags = settings.tags }, filter = settings.filter })
   end,
-}).definition
+}

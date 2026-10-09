@@ -11,7 +11,7 @@ export type Hand = config.Hand
 export type Config = config.Config
 export type Settings = config.Settings
 
-return plugin.consumer<<Config, Settings>>({
+return plugin.consumer<<Config, Settings>> {
   name = 'desktop/menu',
   schema = config.schema,
   requires = { ui.capability, frame.capability, menu.capability },
@@ -147,4 +147,4 @@ return plugin.consumer<<Config, Settings>>({
       end,
     })
   end,
-}).definition
+}

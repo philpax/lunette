@@ -104,6 +104,6 @@ end
 return plugin.provider<<Config, Settings, Service>> {
   name = 'errors',
   capability = contract.capability,
-  schema = config,
+  schema = config.schema,
   build = build,
 }

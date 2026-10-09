@@ -4,7 +4,7 @@ local expect = testing.expect
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local adapter = require '@lunette-plugin/adapter'
-local demoTerminal = require '../'
+local demoTerminal = require('../').definition
 
 local test = testing.suite()
 

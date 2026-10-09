@@ -19,7 +19,7 @@ local function start()
     'focus',
     'keyboard',
     'ui',
-    { id = 'desktop/keyboard', definition = require '@lunette-plugins/keyboard-display' },
+    { id = 'desktop/keyboard', definition = require('@lunette-plugins/keyboard-display').definition },
     {
       id = 'fields',
       definition = adapter.define {

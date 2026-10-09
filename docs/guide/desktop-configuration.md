@@ -1,50 +1,31 @@
 # Desktop configuration
 
-The shipped configuration starts the default desktop with `require('@lunette-desktop').run()`. `lua/lunette-desktop/init.luau` owns the default entry list and the settings types. Settings expand into patches for those entries, and each provider and consumer stays independently replaceable.
+The shipped configuration starts the default desktop with `require('@lunette-desktop').run()`. `lua/lunette-desktop/init.luau` owns the default entry list, and `lua/lunette-desktop/settings.luau` the settings types. Settings configure those entries by id, patches insert, replace, or disable them, and each provider and consumer stays independently replaceable.
 
 `lunette --dump-config` copies the shipped configuration and writes a `.luaurc` that names the installation's module roots. `lunette check` checks a configuration without starting a session. `lunette --config-path DIR` starts the configuration in `DIR`, which holds `main.luau` and optionally `conf.luau`; a relative path resolves from the working directory. The shipped desktop opens no application. [The development loop](../dev/build-and-development.md#the-development-loop) describes the repository's `dev/` configuration, which adds a terminal.
 
 ## Settings
 
-`desktop.run` and `desktop.compose` take the same options: `settings`, `patches`, and `entries`. Settings configure the desktop consumers without importing their modules:
+`desktop.run` takes `settings` and `patches`. Settings configure entries by id, without importing their modules:
 
 ```luau
 local desktop = require '@lunette-desktop'
 
 desktop.run {
   settings = {
-    menu = { hand = 'right' },
-    decorations = { style = { barColor = { 0.3, 0.12, 0.2, 0.95 } } },
-    arrange = { layout = 'grid', options = { grid = { columns = 3 } } },
-    persistence = { file = 'desktop.state' },
-    keyboardDisplay = { placement = { distance = 0.45 } },
-  },
-  patches = {
-    { insert = { id = 'grid-layout', definition = require './grid' } },
+    laser = { aim = { enabled = false } },
+    ['layout/arc'] = { tuning = { radius = 2 } },
+    ['desktop/menu'] = { hand = 'right' },
+    ['desktop/decorations'] = { style = { barColor = { 0.3, 0.12, 0.2, 0.95 } } },
+    ['desktop/persistence'] = { file = 'desktop.state' },
+    ['desktop/keyboard'] = { placement = { distance = 0.45 } },
   },
 }
 ```
 
-Each section has the type of its entry's `Config`, so the checker rejects a value such as `menu = { hand = 'rigth' }`. Composition parses the settings when the configuration loads and raises on an invalid value or an unknown section. Each section's defaults are in its entry's `config.luau` under `lua/lunette-plugins/desktop/`, or `lua/lunette-plugins/arrangement/config.luau` for `persistence`.
+Every default entry that takes options has a setting under its id, and an entry without options has none. A setting has the type of its entry's `Config`, so the checker rejects a value such as `['desktop/menu'] = { hand = 'rigth' }`. Composition parses the settings when the configuration loads and raises on an invalid value or an unknown id. Each entry's defaults are in its `config.luau` under `lua/lunette-plugins/`.
 
-| Section | Entry | Configures |
-|---|---|---|
-| `menu` | `desktop/menu` | The wrist menu's hand, size, offset, haptics, and expanded panel. |
-| `decorations` | `desktop/decorations` | The native titlebar style. |
-| `arrange` | `desktop/arrange` | The layout for unplaced windows, per-layout options, and tags. |
-| `persistence` | `desktop/persistence` | The arrangement file. |
-| `keyboardDisplay` | `desktop/keyboard` | The shared keyboard's placement. |
-| `rules` | `desktop/rules` | The window rule list. |
-| `monitors` | `desktop/monitors` | The mirrored monitors, their placement, and tags. |
-| `hint` | `desktop/hint` | The empty-scene hint. |
-| `errors` | `desktop/errors` | The error overlay. |
-| `pointing` | `desktop/pointing` | Laser options for both hands. |
-| `pacing` | `desktop/pacing` | Whether hidden monitors pause capture. |
-| `workspaces` | `desktop/workspaces` | The workspace list. |
-| `adoption` | `desktop/adoption` | The tags and filter for adopted windows, and the precedence of the remembered pose. |
-| `manager` | `desktop/manager` | The [runtime manager](runtime-manager.md) panel. |
-
-A section merges into its entry's configuration through the entry's schema: declared objects merge field by field, and arrays, maps, unions, and scalar values replace. A setting and a patch cannot name the same entry; composition raises an error naming both. Replacing an entry's definition and configuring it therefore happens in one patch.
+A setting merges into its entry's configuration through the entry's schema: declared objects merge field by field, and arrays, maps, unions, and scalar values replace. A setting and a patch cannot name the same entry; composition raises an error naming both. Replacing an entry's definition and configuring it therefore happens in one patch.
 
 ## Wrist menu
 
@@ -57,11 +38,11 @@ A section merges into its entry's configuration through the entry's schema: decl
 
 A selected row shows the state it toggles. The shipped desktop binds no key chords.
 
-`desktop/keyboard` provides `lunette/keyboard-display`, one shared keyboard reused across fields and applications. Focusing a UI text field shows it. Hiding it ends that field's focus and keeps the field's text. The `keyboardDisplay` setting places it; the `keyboard` entry is the provider that builds it, and a patch can replace that provider, as `examples/keyboard/main.luau` does.
+`desktop/keyboard` provides `lunette/keyboard-display`, one shared keyboard reused across fields and applications. Focusing a UI text field shows it. Hiding it ends that field's focus and keeps the field's text. The `desktop/keyboard` setting places it; the `keyboard` entry is the provider that builds it, and a patch can replace that provider, as `examples/keyboard/main.luau` does.
 
 ## Monitors and titlebars
 
-`desktop/monitors` mirrors every host monitor, or those named in `settings.monitors.select`. Capture uses wlr-screencopy when the host supports it, and otherwise the desktop portal and PipeWire, which ask the user for permission. A monitor's titlebar has Restart mirror, which restarts its capture; Select monitors, shown only for portal capture, which asks the portal again; and X, which stops the mirror and removes the panel. Cancelling the portal dialog keeps the existing mirrors. A window's X asks the application to close, and the panel stays until the application unmaps it.
+`desktop/monitors` mirrors every host monitor, or those named in the `desktop/monitors` setting's `select`. Capture uses wlr-screencopy when the host supports it, and otherwise the desktop portal and PipeWire, which ask the user for permission. A monitor's titlebar has Restart mirror, which restarts its capture; Select monitors, shown only for portal capture, which asks the portal again; and X, which stops the mirror and removes the panel. Cancelling the portal dialog keeps the existing mirrors. A window's X asks the application to close, and the panel stays until the application unmaps it.
 
 Saved monitor placement restores the panel's width and derives its height from the monitor's current aspect ratio. Source reload keeps the capture streams that the new configuration still uses.
 
@@ -70,12 +51,9 @@ Saved monitor placement restores the panel's width and derives its height from t
 `desktop/theme` selects a theme from the `lunette/themes` catalog and applies it through `lunette/theme`. Its configuration has `preset`, a catalog name defaulting to `dark`, and `overrides`, which change fields of the chosen theme. The shipped themes are plugins: `theme/standard` registers Dark and Light, and `theme/arcade` registers Arcade, with its own palette, font, metrics, and radii. [Adding a theme](writing-plugins.md#adding-a-theme) shows a configuration that adds a theme and removes Arcade.
 
 ```luau
-local desktop = require '@lunette-desktop'
-local theme = require '@lunette-plugins/desktop/theme'
-
-desktop.run {
-  patches = {
-    desktop.configure('desktop/theme', theme) {
+require('@lunette-desktop').run {
+  settings = {
+    ['desktop/theme'] = {
       preset = 'light',
       overrides = { radii = { uiControl = 4 } },
     },
@@ -96,31 +74,28 @@ The Appearance group has a `Theme: <label>` row for each registered theme, in ca
 ```luau
 require('@lunette-desktop').run {
   settings = {
-    workspaces = {
-      workspaces = { { name = 'work' }, { name = 'web' } },
-      follow = true,
-    },
+    ['desktop/workspaces'] = { names = { 'work', 'web' }, follow = true },
   },
 }
 ```
 
-Each workspace is a tag. Names are non-empty and unique, and the first workspace is selected at start. Unless `settings.adoption` is given, adoption puts new windows in the first workspace. With more than one workspace, the Workspaces group of the menu has a row for each. With `follow = true`, the default, a newly placed panel in a configured workspace moves to the selected one; `follow = false` leaves it where a rule or the saved arrangement put it. Tags outside the configured list are not shown or hidden by this consumer.
+Each workspace is a tag. Names are non-empty and unique, and the first workspace is selected at start. A window placed into no workspace joins the selected one, however the workspace list was configured; adoption gives new windows no tag unless its `tags` name one. With more than one workspace, the Workspaces group of the menu has a row for each. With `follow = true`, the default, a newly placed panel in a configured workspace moves to the selected one; `follow = false` leaves it where a rule or the saved arrangement put it. Tags outside the configured list are not shown or hidden by this consumer.
 
 ## Entry patches
 
-`patches` configure, replace, disable, or insert entries by id, and `entries` replaces the default list. `desktop.entries()` returns the default list, and `desktop.compose(options)` returns the patched list without starting anything. `desktop.configure(id, target)` makes a typed configuration patch:
+`patches` replace, disable, or insert entries by id. `desktop.entries()` returns the default list, and `desktop.compose(options)` returns the patched list without starting anything, for tests and tools that inspect a composition. An entry's `definition` is the `definition` field of the plugin module's record:
 
 ```luau
-local persistence = require '@lunette-plugins/arrangement'
-
 desktop.run {
   patches = {
-    desktop.configure('desktop/persistence', persistence.factory) { file = 'desktop.state' },
+    { id = 'keyboard', definition = require('./split').definition },
+    { id = 'theme/arcade', disabled = true },
+    { insert = { id = 'my-hud', definition = require('./hud').definition, config = { scale = 2 } } },
   },
 }
 ```
 
-A factory entry builds a fresh definition each time the runtime starts, and keeps it across provider outages within that runtime. [Configuring a built-in plugin](writing-plugins.md#configuring-a-built-in-plugin) describes patches, and [`examples/desktop/main.luau`](../../examples/desktop/main.luau) combines settings, typed patches, workspaces, and inserted plugins.
+A definition can be a factory, which builds a fresh definition each time the runtime starts and keeps it across provider outages within that runtime. [Configuring a built-in plugin](writing-plugins.md#configuring-a-built-in-plugin) describes patches, and [`examples/desktop/main.luau`](../../examples/desktop/main.luau) combines settings, workspaces, and inserted plugins.
 
 ## Pointer aim
 
@@ -132,12 +107,12 @@ The laser provider smooths each controller's aim before picking and drawing, so 
 - `derivativeCutoff`, in hertz, smooths the speed estimate.
 - `resetAfter`, in seconds, is the frame gap that clears the filter, as tracking loss does.
 
-The `pointing` setting overrides these for both hands; a `laser` patch sets the provider defaults, and `laser:attach` takes overrides for the lasers it makes. This configuration disables smoothing:
+The `laser` setting configures them for both of the desktop's lasers, and `laser:attach` takes overrides for the lasers another plugin makes. This configuration disables smoothing:
 
 ```luau
 require('@lunette-desktop').run {
   settings = {
-    pointing = { laser = { aim = { enabled = false } } },
+    laser = { aim = { enabled = false } },
   },
 }
 ```
@@ -147,9 +122,7 @@ The trigger lock holds the displayed ray once trigger pressure passes `threshold
 ```luau
 require('@lunette-desktop').run {
   settings = {
-    pointing = {
-      laser = { triggerLock = { threshold = 0.2 } },
-    },
+    laser = { triggerLock = { threshold = 0.2 } },
   },
 }
 ```
@@ -162,7 +135,7 @@ Grip while pointing at a movable panel grabs it and cancels any trigger gesture.
 
 ## Window rendering
 
-The panels provider draws windows and monitor mirrors in the scene, where they take part in depth testing with other panels and session controls. `desktop.configure('panels', require('@lunette-plugins/panels').definition) { rendering = 'layer' }` gives windows backend-owned composition layers instead. Layers can show sharper text, but the backend composites them after the scene, without depth ordering. A window whose layer claim is not granted falls back to the scene. Monitor mirrors always draw in the scene.
+The panels provider draws windows and monitor mirrors in the scene, where they take part in depth testing with other panels and session controls. The `panels` setting `{ rendering = 'layer' }` gives windows backend-owned composition layers instead. Layers can show sharper text, but the backend composites them after the scene, without depth ordering. A window whose layer claim is not granted falls back to the scene. Monitor mirrors always draw in the scene.
 
 Scene content rounds its corners with the theme's `window` and `monitor` radii, and its pointer hits follow the same outline. Dark and Light keep monitors square, and Arcade rounds them by 0.012 m. The panels provider's style `windowRadius` and `monitorRadius` override the theme. A flat panel with a titlebar draws the titlebar and body as one outline. Layer content, and the titlebar of a curved panel, stay rectangular. [Rendering](../dev/rendering.md#rounded-scene-geometry) states the rules.
 
@@ -228,7 +201,7 @@ In Plugins, the operator configures `desktop/theme` with `overrides.typography.f
 | `typography.titleHeight` | Titlebar and native chrome titles, in metres | Titlebar and panels `titleHeight` |
 | `typography.keyboardLegendHeight` | Keyboard legends, in metres | Keyboard `legendHeight` |
 | `typography.errorTextHeight` | Error overlay text, in metres | Errors `textHeight` |
-| `typography.hintTextHeight` | Hint text, in metres | Hint `size` |
+| `typography.hintTextHeight` | Hint text, in metres | Hint `textHeight` |
 | `metrics.padding`, `metrics.spacing`, `metrics.rowHeight` | UI controls and collections, manager rows | UI `padding`, `spacing`, `rowHeight` |
 | `metrics.borderWidth` | UI outlines | UI `borderWidth` |
 | `metrics.titlebarHeight` | Titlebar height, in metres | Titlebar `barHeight` |
@@ -252,8 +225,10 @@ Aim smoothing runs before picking, so selection and feedback use one ray. It fol
 
 The trigger lock acts on analog pressure before the click edge, because the controller moves during a pull. It holds the shared ray rather than per-widget coordinates, so native windows and UI panels behave alike. Coarse movement releases it until the trigger is released, which keeps dragging and avoids repeated locking.
 
-Session controls are menu actions and UI controls, so the keyboard, reload, theme, and workspace controls work without key chords. The bindings provider stays available for custom input. The keyboard setting is `keyboardDisplay` because it places the shared display, not the wrist.
+Session controls are menu actions and UI controls, so the keyboard, reload, theme, and workspace controls work without key chords. The bindings provider stays available for custom input.
 
-Settings expand to ordinary patches by entry id, so a configuration needs fewer imports while each plugin keeps its own failure, outage, and cleanup boundaries. A setting and a patch for the same entry are rejected rather than ordered, so each entry has one source of configuration.
+Settings are keyed by entry id and expand to one ordinary patch each, so a configuration needs no plugin imports while each plugin keeps its own failure, outage, and cleanup boundaries. Short keys were rejected because several named a `desktop/` consumer while the same id in a patch named a provider. A typed configure patch per entry was rejected because it needed the module's export shape and could name another entry's definition. A setting and a patch for the same entry are rejected rather than ordered, so each entry has one source of configuration. Patches carry structure: inserting, replacing, and disabling entries.
 
-The workspaces setting points adoption at the first workspace and leaves rule and saved tags alone, because those names are configuration and saved state.
+`desktop/workspaces` puts a placed window in no workspace into the selected one, and leaves rule and saved tags alone, because those names are configuration and saved state. Composition pointing adoption at the first workspace was rejected because only the setting did it; an equivalent patch or a Configure edit left new windows outside every workspace.
+
+The desktop's lasers take their aim, trigger lock, style, and tuning from the `laser` and `interaction` entries alone. Per-hand options on `desktop/pointing` were rejected because they overrode the providers' options and made the same option settable in two places.

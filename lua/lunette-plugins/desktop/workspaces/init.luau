@@ -1,4 +1,4 @@
--- Holds the workspace tags, selects one, and hides panels in unselected workspaces with an override that preserves higher-priority visibility decisions. The follow option moves newly placed panels into the selected workspace.
+-- Holds the workspace tags, selects one, and hides panels in unselected workspaces with an override that preserves higher-priority visibility decisions. A newly placed panel in no workspace joins the selected one, and the follow option also moves newly placed panels from other workspaces into it.
 local plugin = require '@lunette-plugin'
 local menu = require '@lunette-contracts/menu'
 local panels = require '@lunette-contracts/panels'
@@ -10,7 +10,6 @@ local config = require '@lunette-plugins/desktop/workspaces/config'
 type ChildConfig = {}
 type ChildSettings = {}
 
-export type Workspace = config.Workspace
 export type Config = config.Config
 export type Settings = config.Settings
 
@@ -29,11 +28,11 @@ local function actions(settings: Settings, held: { tags.Tag }, switch: (number) 
       local service: menu.Service = context:require(menu.capability)
       local tagService: tags.Service = context:require(tags.capability)
       local registrations: { [tags.Tag]: menu.Registration } = {}
-      for index, workspace in settings.workspaces do
+      for index, name in settings.names do
         local tag = held[index]
         registrations[tag] = service:register(context, {
-          id = 'desktop/workspace/' .. workspace.name,
-          label = workspace.name,
+          id = 'desktop/workspace/' .. name,
+          label = name,
           group = 'Workspaces',
           order = index,
           selected = tag.selected,
@@ -56,7 +55,7 @@ local function actions(settings: Settings, held: { tags.Tag }, switch: (number) 
   }).definition
 end
 
-return plugin.consumer<<Config, Settings>>({
+return plugin.consumer<<Config, Settings>> {
   name = 'desktop/workspaces',
   requires = required,
   schema = config.schema,
@@ -67,8 +66,8 @@ return plugin.consumer<<Config, Settings>>({
 
     local held: { tags.Tag } = {}
     local isWorkspace: { [tags.Tag]: boolean } = {}
-    for index, workspace in settings.workspaces do
-      local tag = tagService:hold(context, { name = workspace.name, index = index })
+    for index, name in settings.names do
+      local tag = tagService:hold(context, { name = name, index = index })
       held[index] = tag
       isWorkspace[tag] = true
     end
@@ -143,36 +142,42 @@ return plugin.consumer<<Config, Settings>>({
         hiding[panel :: any] = nil
       end,
     })
-    if settings.follow then
-      placementService:onPlaced(context, {
-        run = function(placed: placement.Placement): ()
-          local panel = placed.panel
-          local shown = held[current]
-          local inWorkspace = false
-          for _, tag in ipairs(held) do
-            if tag:has(panel) then
-              if tag.selected then
-                return
-              end
-              inWorkspace = true
-            end
-          end
-          if not inWorkspace or shown.dead then
+    -- A placed panel in no workspace joins the selected one, whatever configured adoption. Following also moves a
+    -- placed panel out of an unselected workspace.
+    local function join(panel: panels.WindowPanel, follow: boolean): ()
+      local shown = held[current]
+      local inWorkspace = false
+      for _, tag in ipairs(held) do
+        if tag:has(panel) then
+          if tag.selected then
             return
           end
-          for _, tag in ipairs(held) do
-            if tag:has(panel) then
-              tag:exclude(context, panel)
-            end
-          end
-          shown:add(context, panel)
-        end,
-      })
+          inWorkspace = true
+        end
+      end
+      if panel.dead or shown.dead or (inWorkspace and not follow) then
+        return
+      end
+      for _, tag in ipairs(held) do
+        if tag:has(panel) then
+          tag:exclude(context, panel)
+        end
+      end
+      shown:add(context, panel)
     end
+    -- Panels placed before this activation, such as during an outage, join without following.
+    for _, placed in ipairs(placementService:placed()) do
+      join(placed.panel, false)
+    end
+    placementService:onPlaced(context, {
+      run = function(placed: placement.Placement): ()
+        join(placed.panel, settings.follow)
+      end,
+    })
     switch(current)
     -- One workspace has nothing to switch to.
     if #held > 1 then
       context:child(actions(settings, held, switch))
     end
   end,
-}).definition
+}

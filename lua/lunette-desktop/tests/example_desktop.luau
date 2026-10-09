@@ -9,8 +9,8 @@ local test = testing.suite()
 local function exampleEntries()
   return desktop.compose {
     patches = {
-      { insert = { id = 'hide-windows', definition = require 'hide-windows' } },
-      { insert = { id = 'save-menu', definition = require 'save-menu' } },
+      { insert = { id = 'hide-windows', definition = require('hide-windows').definition } },
+      { insert = { id = 'save-menu', definition = require('save-menu').definition } },
     },
   }
 end

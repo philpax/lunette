@@ -23,8 +23,8 @@ local function start(config)
     'placement',
     {
       id = 'desktop/workspaces',
-      definition = WORKSPACES,
-      config = config or { workspaces = { { name = 'main' }, { name = 'web' } } },
+      definition = WORKSPACES.definition,
+      config = config or { names = { 'main', 'web' } },
     },
   }
   env.native = env.session.native
@@ -99,7 +99,7 @@ test('a panel another plugin hid stays hidden, and unloading shows only what the
 end)
 
 test('follow can be disabled while workspace actions still update visibility', function()
-  local env = start { workspaces = { { name = 'main' }, { name = 'web' } }, follow = false }
+  local env = start { names = { 'main', 'web' }, follow = false }
   choose(env, 'web')
   local panel = open(env, 1)
   expect.truthy(env.main:has(panel) and not env.web:has(panel), 'placement retains its configured workspace')
@@ -109,8 +109,21 @@ test('follow can be disabled while workspace actions still update visibility', f
   env.session:close()
 end)
 
+test('a placed window in no workspace joins the selected one, and rejoins when the consumer activates again', function()
+  local env = start { names = { 'main', 'web' }, follow = false }
+  choose(env, 'web')
+  local panel = env.placement:place(env.owner, { window = env.native.newWindow(1) }).panel
+  expect.truthy(env.web:has(panel) and not env.main:has(panel), 'the window joins the selected workspace')
+  local instance = env.session.instances['desktop/workspaces']
+  instance:disable()
+  instance:enable()
+  local main = assert(env.tags:find 'main')
+  expect.truthy(main.selected and main:has(panel), 'the reactivated consumer puts the window in its workspace')
+  env.session:close()
+end)
+
 test('a duplicate workspace name fails the consumer and names the option', function()
-  local env = start { workspaces = { { name = 'a' }, { name = 'a' } } }
+  local env = start { names = { 'a', 'a' } }
   local instance = env.session.instances['desktop/workspaces']
   expect.equal(instance:state(), 'failed', 'the consumer')
   local diagnostic = tostring(testing.diagnostic(env.session.runtime, instance))

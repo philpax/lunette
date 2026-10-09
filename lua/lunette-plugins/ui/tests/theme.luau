@@ -6,7 +6,7 @@ local test = testing.suite()
 
 test('provider, panel, and control overrides resolve in order', function()
   local color = { 0.1, 0.2, 0.3, 1 }
-  local provider = config.parse { theme = { fontSize = 22, foreground = color } }
+  local provider = config.schema.parse { theme = { fontSize = 22, foreground = color } }
   local providerSpec = theme.inherit(theme.DEFAULT, theme.project(provider.theme))
   local panel = theme.inherit(providerSpec, theme.copyOverrides { fontSize = 26, padding = 12 })
   local control =
@@ -29,11 +29,11 @@ test('theme schemas reject unknown, non-plain, and invalid values', function()
       theme.copyOverrides(overrides)
     end)
     expect.raises(function()
-      config.parse { theme = overrides }
+      config.schema.parse { theme = overrides }
     end)
   end
   expect.raises(function()
-    config.parse { typo = true }
+    config.schema.parse { typo = true }
   end)
 end)
 

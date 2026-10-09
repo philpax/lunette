@@ -170,7 +170,7 @@ test('a definition factory keeps state across its activations but not across run
       end,
     }).definition
   end
-  local entries = { { id = 'configured-factory', factory = factory } }
+  local entries = { { id = 'configured-factory', definition = factory } }
   local first = testing.start(entries)
   first.instances['configured-factory']:disable()
   first.instances['configured-factory']:enable()

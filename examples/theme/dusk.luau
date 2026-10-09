@@ -19,11 +19,11 @@ local dusk = descriptors.resolve(standard.presets.dark, {
 export type Config = {}
 export type Settings = {}
 
-return plugin.consumer<<Config, Settings>>({
+return plugin.consumer<<Config, Settings>> {
   name = 'example/theme/dusk',
   requires = { themes.capability },
   init = function(context: plugin.Context, _settings: Settings): ()
     local catalog: themes.Service = context:require(themes.capability)
     catalog:register(context, { name = 'dusk', label = 'Dusk', order = 4, theme = dusk })
   end,
-}).definition
+}

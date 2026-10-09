@@ -93,15 +93,7 @@ entryOf = function(entry)
   if type(entry) ~= 'string' then
     return entry
   end
-  local module = require('@lunette-plugins/' .. entry)
-  if type(module) == 'function' then
-    return { id = entry, factory = module }
-  elseif type(module) == 'table' and module.definition then
-    return { id = entry, definition = module.definition }
-  elseif type(module) == 'table' and module.factory then
-    return { id = entry, factory = module.factory }
-  end
-  return { id = entry, definition = module }
+  return { id = entry, definition = require('@lunette-plugins/' .. entry).definition }
 end
 
 startSession = function(entries, fake)

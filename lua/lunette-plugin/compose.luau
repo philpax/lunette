@@ -9,27 +9,23 @@ local compose = {}
 export type Definition = adapter.Definition<any>
 export type Config = { [string]: any }
 
--- An entry is made from a definition or from a factory of one. Composition calls a factory to read its schema and again
--- on each start, so a factory has no side effects until its definition activates.
-export type Entry =
-  {
-    read id: string,
-    read definition: Definition,
-    read config: Config?,
-  }
-  | {
-    read id: string,
-    read factory: () -> Definition,
-    read config: Config?,
-  }
+-- A definition, or a factory of one. Composition calls a factory to read its schema and again on each start, so a
+-- factory has no side effects until its definition activates.
+export type Source = Definition | () -> Definition
 
--- A keyed patch disables an entry, replaces what it is made from, or merges configuration into it. An insert patch
--- appends an entry or places it before or after another entry.
+export type Entry = {
+  read id: string,
+  read definition: Source,
+  read config: Config?,
+}
+
+-- A keyed patch disables an entry, replaces its definition, or merges configuration into it. A configuration patch
+-- may name the definition it expects as `target`. An insert patch appends an entry or places it before or after
+-- another entry.
 export type Patch =
   { read id: string, read disabled: true }
-  | { read id: string, read definition: Definition, read config: Config? }
-  | { read id: string, read factory: () -> Definition, read config: Config? }
-  | { read id: string, read config: Config }
+  | { read id: string, read definition: Source, read config: Config? }
+  | { read id: string, read config: Config, read target: Source? }
   | { read insert: Entry, read before: string? }
   | { read insert: Entry, read after: string? }
 
@@ -40,16 +36,14 @@ export type ResolvedEntry = {
 
 type Raw = { [unknown]: unknown }
 
--- The checked form of an entry, which names its source in one of two fields.
 type Settled = {
   read id: string,
-  read definition: Definition?,
-  read factory: (() -> Definition)?,
+  read definition: Source,
   read config: Config?,
 }
 
-local ENTRY_KEYS: { string } = { 'id', 'definition', 'factory', 'config' }
-local PATCH_KEYS: { string } = { 'id', 'disabled', 'definition', 'factory', 'config', 'insert', 'before', 'after' }
+local ENTRY_KEYS: { string } = { 'id', 'definition', 'config' }
+local PATCH_KEYS: { string } = { 'id', 'disabled', 'definition', 'config', 'target', 'insert', 'before', 'after' }
 
 local function fail(message: string): never
   error('compose: ' .. message, 0)
@@ -123,35 +117,28 @@ local function schemaMerged(base: unknown, over: unknown, metadata: schemaRuntim
   return result
 end
 
-local function checkSource(what: string, definition: unknown, factory: unknown): ()
-  if definition ~= nil and factory ~= nil then
-    fail(what .. ' gives both a definition and a factory; it gives one')
-  end
-  if definition ~= nil and not adapter.isDefinition(definition) then
-    fail(what .. ': definition is a plugin definition, not a ' .. type(definition))
-  end
-  if factory ~= nil and type(factory) ~= 'function' then
-    fail(what .. ': factory is a function, not a ' .. type(factory))
+local function checkSource(what: string, field: string, source: unknown): ()
+  if source ~= nil and type(source) ~= 'function' and not adapter.isDefinition(source) then
+    fail(what .. ': ' .. field .. ' is a plugin definition or a factory of one, not a ' .. type(source))
   end
 end
 
-local function sourced(id: string, definition: Definition?, factory: (() -> Definition)?): Definition
-  if definition then
-    return definition
+local function sourced(id: string, source: Source): Definition
+  if type(source) ~= 'function' then
+    return source
   end
-  local made: unknown = (factory :: () -> Definition)()
+  local made: unknown = source()
   if not adapter.isDefinition(made) then
     fail('the factory of ' .. id .. ' answered a ' .. type(made) .. ', not a plugin definition')
   end
   return made :: Definition
 end
 
-local function settled(id: string, definition: Definition?, factory: (() -> Definition)?, config: unknown): Settled
+local function settled(id: string, source: Source, config: unknown): Settled
   return table.freeze {
     id = id,
-    definition = definition,
-    factory = factory,
-    config = if config ~= nil then frozenCopy(config, sourced(id, definition, factory).schema) :: Config else nil,
+    definition = source,
+    config = if config ~= nil then frozenCopy(config, sourced(id, source).schema) :: Config else nil,
   }
 end
 
@@ -172,12 +159,12 @@ local function checkedEntry(value: unknown, position: string): Settled
   end
   local what = 'entry ' .. (id :: string)
   fields.rejectUnknownFields('compose: ' .. what, raw, ENTRY_KEYS, 0)
-  checkSource(what, raw.definition, raw.factory)
-  if raw.definition == nil and raw.factory == nil then
-    fail(what .. ' gives neither a definition nor a factory')
+  if raw.definition == nil then
+    fail(what .. ' gives no definition')
   end
+  checkSource(what, 'definition', raw.definition)
   checkConfig(what, raw.config)
-  return settled(id :: string, raw.definition :: Definition?, raw.factory :: (() -> Definition)?, raw.config)
+  return settled(id :: string, raw.definition :: Source, raw.config)
 end
 
 local function checkedList(value: unknown, what: string): { unknown }
@@ -219,9 +206,9 @@ end
 type Keyed = {
   id: string,
   disabled: boolean,
-  definition: Definition?,
-  factory: (() -> Definition)?,
+  definition: Source?,
   config: Config?,
+  target: Source?,
 }
 
 local function checkedKeyed(raw: Raw, position: string): Keyed
@@ -237,36 +224,40 @@ local function checkedKeyed(raw: Raw, position: string): Keyed
   if disabled ~= nil and disabled ~= true then
     fail(what .. ': disabled is true or absent, not ' .. tostring(disabled))
   end
-  checkSource(what, raw.definition, raw.factory)
+  checkSource(what, 'definition', raw.definition)
+  checkSource(what, 'target', raw.target)
   checkConfig(what, raw.config)
-  local changes = raw.definition ~= nil or raw.factory ~= nil or raw.config ~= nil
+  local changes = raw.definition ~= nil or raw.config ~= nil
   if disabled and changes then
     fail(what .. ' disables the entry and also changes it; a disabled entry has nothing to change')
   end
   if not disabled and not changes then
-    fail(what .. ' changes nothing; it gives disabled, definition, factory, or config')
+    fail(what .. ' changes nothing; it gives disabled, definition, or config')
+  end
+  if raw.target ~= nil and (disabled or raw.definition ~= nil) then
+    fail(what .. ' gives a target, which only a configuration patch checks')
   end
   return {
     id = id :: string,
     disabled = disabled == true,
-    definition = raw.definition :: Definition?,
-    factory = raw.factory :: (() -> Definition)?,
+    definition = raw.definition :: Source?,
     config = raw.config :: Config?,
+    target = raw.target :: Source?,
   }
 end
 
 local function patched(entry: Settled, patch: Keyed): Settled
-  local definition, factory = entry.definition, entry.factory
-  if patch.definition ~= nil or patch.factory ~= nil then
-    definition, factory = patch.definition, patch.factory
+  if patch.target ~= nil and not rawequal(patch.target, entry.definition) then
+    fail('the patch for ' .. entry.id .. ' targets another definition than the entry has')
   end
+  local source = patch.definition or entry.definition
   local config: unknown = entry.config
   if patch.config ~= nil then
     -- Without a schema there is no merge rule, so the patch's configuration replaces the entry's.
-    local metadata = sourced(entry.id, definition, factory).schema
+    local metadata = sourced(entry.id, source).schema
     config = if metadata then schemaMerged(config, patch.config, metadata) else patch.config
   end
-  return settled(entry.id, definition, factory, config)
+  return settled(entry.id, source, config)
 end
 
 -- Rejects duplicate ids, missing patch targets, and patches that both disable and update one entry.
@@ -354,7 +345,7 @@ function compose.apply(entries: { Entry }, patches: { Patch }?): { Entry }
   return (table.freeze(result) :: unknown) :: { Entry }
 end
 
--- The target supplies only the configuration type, so a factory is never called.
+-- The target types the configuration, and composition checks it against the entry, so a factory is never called.
 function compose.configure<C>(id: string, target: adapter.Definition<C> | () -> adapter.Definition<C>): (C) -> Patch
   if type(id) ~= 'string' or id == '' then
     error('compose: configure: id is a non-empty string, not ' .. tostring(id), 2)
@@ -363,7 +354,7 @@ function compose.configure<C>(id: string, target: adapter.Definition<C> | () -> 
     error('compose: configure takes a plugin definition or a factory of one, not a ' .. type(target), 2)
   end
   return function(config: C): Patch
-    return { id = id, config = config :: any }
+    return { id = id, config = config :: any, target = target :: any }
   end
 end
 
@@ -379,7 +370,7 @@ local EMPTY = table.freeze(empty)
 function compose.resolveEntry(entry: Entry): ResolvedEntry
   local checked = (entry :: unknown) :: Settled
   return table.freeze {
-    definition = sourced(checked.id, checked.definition, checked.factory),
+    definition = sourced(checked.id, checked.definition),
     config = checked.config or EMPTY,
   }
 end

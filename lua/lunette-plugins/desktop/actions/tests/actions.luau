@@ -4,7 +4,7 @@ local plugin = require '@lunette-plugin'
 local adapter = require '@lunette-plugin/adapter'
 local display = require '@lunette-contracts/keyboard-display'
 local menu = require '@lunette-contracts/menu'
-local actions = require '@lunette-plugins/desktop/actions'
+local actions = require('@lunette-plugins/desktop/actions').definition
 local expect = testing.expect
 local test = testing.suite()
 

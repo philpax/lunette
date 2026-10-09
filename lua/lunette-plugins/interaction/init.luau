@@ -520,6 +520,6 @@ return plugin.provider<<Config, Settings, Service>> {
   name = 'interaction',
   capability = contracts.capability,
   requires = { dropsContract.capability, focusContract.capability },
-  schema = config,
+  schema = config.schema,
   build = build,
 }

@@ -43,7 +43,7 @@ function plugin.compose(entries: { Entry }, patches: { Patch }?): { Entry }
   return compose.apply(entries, patches)
 end
 
--- The target supplies only the configuration type, which a plain patch lacks. A factory is not called.
+-- The target types the configuration, and composition checks that the entry has it. A factory is not called.
 function plugin.configure<C>(id: string, target: Definition<C> | () -> Definition<C>): (C) -> Patch
   return compose.configure(id, target)
 end

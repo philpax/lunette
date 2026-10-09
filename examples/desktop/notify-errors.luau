@@ -9,7 +9,7 @@ local descriptor = schema.object { program = schema.default(schema.string()) 'no
 export type Config = schema.Input<typeof(descriptor)>
 export type Settings = schema.Output<typeof(descriptor)>
 
-return plugin.consumer<<Config, Settings>>({
+return plugin.consumer<<Config, Settings>> {
   name = 'notify-errors',
   requires = { errors.capability },
   schema = descriptor,
@@ -38,4 +38,4 @@ return plugin.consumer<<Config, Settings>>({
       end,
     })
   end,
-}).definition
+}

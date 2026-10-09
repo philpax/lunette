@@ -34,7 +34,7 @@ local function headPosition(): (number?, number?, number?)
   return headset.getPosition 'head'
 end
 
-return plugin.consumer<<Config, Settings>>({
+return plugin.consumer<<Config, Settings>> {
   name = 'desktop/scale',
   requires = required,
   init = function(context: plugin.Context, _settings: Settings): ()
@@ -110,4 +110,4 @@ return plugin.consumer<<Config, Settings>>({
       end
     end)
   end,
-}).definition
+}

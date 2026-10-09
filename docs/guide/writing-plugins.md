@@ -42,17 +42,17 @@ return plugin.consumer<<Config, Settings>>({
       end,
     })
   end,
-}).definition
+})
 ```
 
 `plugin.consumer` takes `name`, `requires`, `schema`, and `init`; `requires` and `schema` are optional. `requires` lists the capabilities of the contracts the plugin uses, here the frame contract, which delivers LÖVR's update, draw, key, text, and quit callbacks. `context:require` returns the service behind a required contract. `frames:onDraw(context, ...)` registers a draw handler owned by the plugin's context. The draw phases run in the order `input`, `scene`, `pointing`, `overlay`, and `feedback`.
 
-The configuration inserts the plugin as a new entry:
+The module returns the record `plugin.consumer` makes, and every plugin module returns such a record. Its `definition` field is what an entry names. The configuration inserts the plugin as a new entry:
 
 ```luau
 require('@lunette-desktop').run {
   patches = {
-    { insert = { id = 'hello', definition = require './hello' } },
+    { insert = { id = 'hello', definition = require('./hello').definition } },
   },
 }
 ```
@@ -99,7 +99,7 @@ return plugin.provider<<Config, Settings, clock.Service>>({
       end,
     }
   end,
-}).definition
+})
 ```
 
 `plugin.provider` takes `name`, `capability`, `requires`, `schema`, and `build`, and publishes what `build` returns. A consumer receives a read-only view of the service. A method called through the view after the provider's activation ends raises an error naming the contract. Two active plugins cannot provide the same contract.
@@ -129,7 +129,7 @@ return plugin.consumer<<Config, Settings>>({
     }
     -- The draw handler formats settings.prefix, time:elapsed(), and opened.
   end,
-}).definition
+})
 ```
 
 A plugin changes state outside itself only through its context. `context:on` subscribes to a native event for the length of the activation. `context:effect` registers any other resource with the function that releases it. A service method that takes an owner, such as `frames:onDraw(context, ...)` or `keyboard:new(context)`, ties what it creates to that owner. A direct `lunette.onWindowOpened(handler)` call is not tracked: the subscription outlives the plugin, and a reactivated plugin subscribes again. State declared inside `init` belongs to one activation.
@@ -147,10 +147,10 @@ When an activation ends, its effects are undone in the reverse of the order they
 
 A schema declares the options. `Config` is the type of the caller's overrides and `Settings` the type of the resolved value passed to `init`. A plugin without a `schema` takes no options. Every field needs a default or an optional descriptor, because the facade resolves an empty configuration when it builds the definition. [Configuration schemas](configuration-schema.md) describes the constructors and merge rules.
 
-The configured module has `definition`, built from the defaults, and `define`, which makes another definition with other defaults and an optional `name`. A patch supplies configuration:
+The record has `definition`, built from the defaults, and `define`, which makes another definition with other defaults and an optional `name`. An insert supplies configuration:
 
 ```luau
-{ insert = { id = 'uptime', definition = require './uptime', config = { prefix = 'running for' } } },
+{ insert = { id = 'uptime', definition = require('./uptime').definition, config = { prefix = 'running for' } } },
 ```
 
 Geometric positions, directions, and offsets are native `vector` values made with `vector.pack(x, y, z)`. Vectors are immutable, so `direction = direction:normalize()` keeps the returned value. `Mat4:translate` accepts a vector. Colours, two-dimensional coordinates, lists, and full matrices keep their own representations.
@@ -163,36 +163,35 @@ Only one active plugin can provide a contract. Where several implementations coe
 
 ## Configuring a built-in plugin
 
-A patch with an entry's `id` changes that entry. `config` merges into the entry's configuration through the definition's schema: declared objects merge field by field, and arrays, maps, unions, and scalar values replace. A definition without a schema has its configuration replaced. `definition` or `factory` replaces what the entry is made from, and `disabled = true` removes the entry. A patch naming an unknown id, or two patches naming one id, raise an error when the configuration loads. An `insert` patch adds an entry at the end, or `before` or `after` a named entry.
-
-`plugin.configure(id, target)` returns a function that makes a configuration patch for one entry, typed with the target's options. `desktop.configure` is the same function. The target is the entry's definition or factory; `configure` reads only its type and never calls a factory. A built-in provider module holds its definition as `definition`. A desktop consumer module is its definition, or for `desktop/theme` and `desktop/arrange` a factory. `desktop/persistence` is `@lunette-plugins/arrangement`, which holds its factory as `factory`.
+The desktop's `settings` configure its entries by id. Each value has the type of the entry's `Config`, so the checker rejects a wrong value type, such as `['desktop/keyboard'] = { placement = { distance = 'far' } }`, and composition validates every setting when the configuration loads:
 
 ```luau
-local desktop = require '@lunette-desktop'
-local laser = require '@lunette-plugins/laser'
-
-desktop.run {
-  patches = {
-    desktop.configure('laser', laser.definition) { style = { color = { 1, 0.4, 0.2, 0.6 } } },
-    desktop.configure('desktop/keyboard', require '@lunette-plugins/keyboard-display') {
-      placement = { distance = 0.45 },
-    },
+require('@lunette-desktop').run {
+  settings = {
+    laser = { style = { color = { 1, 0.4, 0.2, 0.6 } } },
+    ['desktop/keyboard'] = { placement = { distance = 0.45 } },
   },
 }
 ```
 
-The checker rejects a wrong value type in a `configure` patch, such as `placement = { distance = 'far' }`. It does not check a plain patch's `config`, because a patch list mixes entries. A misspelt key is not a Luau type error in either form; runtime validation rejects it with an error naming its path. [Contracts and providers](../dev/stdlib.md#contracts-and-providers) lists each built-in provider's options.
+A setting merges into the entry's configuration through the definition's schema: declared objects merge field by field, and arrays, maps, unions, and scalar values replace. A misspelt key is not a Luau type error; runtime validation rejects it with an error naming its path. [Contracts and providers](../dev/stdlib.md#contracts-and-providers) lists each built-in provider's options.
+
+Patches change the entry list. A patch with an entry's `id` and `definition` replaces what the entry is made from, with an optional `config` for the new definition, and `disabled = true` removes the entry. An `insert` patch adds an entry at the end, or `before` or `after` a named entry. A patch naming an unknown id, two patches naming one id, or a setting and a patch naming one id raise an error when the configuration loads. A definition is a plugin definition or a factory that makes one; a factory makes a fresh definition each time the runtime starts.
+
+A composition built without the desktop configures an entry with `plugin.configure(id, target)`, which returns a function that makes a configuration patch typed with the target's options. The target is the entry's definition; composition raises when the entry with that id is made from another one.
 
 ## Themes
 
 `desktop/theme` selects the theme through `lunette/theme`. A configuration names the initial theme and can override fields of it:
 
 ```luau
-desktop.configure('desktop/theme', require '@lunette-plugins/desktop/theme') {
-  preset = 'arcade',
-  overrides = {
-    colors = { focus = { 1, 0.5, 0.1, 1 } },
-    typography = { bodySize = 20 },
+settings = {
+  ['desktop/theme'] = {
+    preset = 'arcade',
+    overrides = {
+      colors = { focus = { 1, 0.5, 0.1, 1 } },
+      typography = { bodySize = 20 },
+    },
   },
 },
 ```
@@ -245,19 +244,21 @@ The `keyboard.Config` annotation lets the checker read each key. `define` valida
 Two hooks change behaviour without copying it. Each receives its arguments and then the default, which it calls to keep the default behaviour. `onKey` runs for every key a pointer presses, and `drawKey` for every key drawn:
 
 ```luau
-return keyboard.define {
-  name = 'split-keyboard',
-  rows = letters.rows,
-  layers = { numpad = numpad.rows },
-  style = { keyUnit = 0.03 },
-  onKey = function(board, key, pointer, base)
-    pointer:vibrate { strength = 0.2, duration = 0.01 }
-    pressedAt[key.source] = lovr.timer.getTime()
-    base(board, key, pointer)
-  end,
-  drawKey = function(pass, key, state, base)
-    -- A recently pressed key draws a lit face and the default legend; others call base.
-  end,
+return {
+  definition = keyboard.define {
+    name = 'split-keyboard',
+    rows = letters.rows,
+    layers = { numpad = numpad.rows },
+    style = { keyUnit = 0.03 },
+    onKey = function(board, key, pointer, base)
+      pointer:vibrate { strength = 0.2, duration = 0.01 }
+      pressedAt[key.source] = lovr.timer.getTime()
+      base(board, key, pointer)
+    end,
+    drawKey = function(pass, key, state, base)
+      -- A recently pressed key draws a lit face and the default legend; others call base.
+    end,
+  },
 }
 ```
 
@@ -266,7 +267,7 @@ return keyboard.define {
 The definition replaces the desktop's keyboard by id, and every plugin that requires the keyboard contract then receives it:
 
 ```luau
-{ id = 'keyboard', definition = require './split' },
+{ id = 'keyboard', definition = require('./split').definition },
 ```
 
 ## Replacing the keyboard
@@ -291,33 +292,36 @@ local descriptor = schema.object {
   gap = schema.default(schema.number())(0.08),
   center = schema.default(schema.vector())(vector.pack(0, 1.5, -1.8)),
 }
-local optionsSchema = schema.default(descriptor)(descriptor.parse {})
 
-local function grid(panels: { read [number]: layouts.Panel }, given: unknown?): ()
-  local options = optionsSchema.parse(given, 'grid')
+local function grid(panels: { read [number]: layouts.Panel }, options: Settings): ()
   -- Poses each panel in a grid cell with panel:setPose.
 end
 
--- In the consumer's init:
-service:register(context, { name = 'grid', apply = grid })
+-- In the consumer's init, which receives the entry's settings:
+service:register(context, {
+  name = 'grid',
+  apply = function(panels: { read [number]: layouts.Panel }): ()
+    grid(panels, settings)
+  end,
+})
 ```
 
-The layout receives a read-only list of live panels and the options for its name. `desktop/arrange` passes the adopted windows of a tag that were placed without a pose and that the user has not dragged. The layout validates its own options. The registration ends with the plugin, and registering a name twice raises an error.
+The layout receives a read-only list of live panels. `desktop/arrange` passes the adopted windows of a tag that were placed without a pose and that the user has not dragged. The layout's options are its plugin's configuration, so the schema validates them when the configuration loads. The registration ends with the plugin, and registering a name twice raises an error.
 
-The configuration inserts the plugin and selects the layout:
+The configuration inserts the plugin with its options and selects the layout:
 
 ```luau
 settings = {
-  arrange = { layout = 'grid', options = { grid = { columns = 3 } } },
+  ['desktop/arrange'] = { layout = 'grid' },
 },
 patches = {
-  { insert = { id = 'grid-layout', definition = require './grid' } },
+  { insert = { id = 'grid-layout', definition = require('./grid').definition, config = { columns = 3 } } },
 },
 ```
 
-`options` is keyed by layout name. `desktop/arrange` arranges every tag with its one layout, and arranges again when a layout registers, and logs a warning after the first frame if its chosen layout is not registered.
+The built-in `arc` takes its options the same way, as `settings['layout/arc'] = { tuning = { radius = 2 } }`. `desktop/arrange` arranges every tag with its one layout, and arranges again when a layout registers, and logs a warning after the first frame if its chosen layout is not registered.
 
-A layout registered with `continuous = true` is applied every frame. `examples/layout/follow.luau` keeps windows on an arc that turns to follow the head, reusing `@lunette-plugins/layout/arc/geometry`. To replace `arc`, disable the `layout/arc` entry and register another layout under that name.
+A layout registered with `continuous = true` is applied every frame. `examples/layout/follow.luau` keeps windows on an arc that turns to follow the head, reusing `@lunette-plugins/layout/arc/geometry`. To replace `arc`, disable the `layout/arc` entry and register another layout under that name, or give `layout/arc` another `name`.
 
 ## Changing how pointers behave
 
@@ -337,7 +341,9 @@ end
 ```
 
 ```luau
-desktop.configure('interaction', require('@lunette-plugins/interaction').definition) { constrain = require './upright' },
+settings = {
+  interaction = { constrain = require './upright' },
+},
 ```
 
 `drive(pointer, input, surfaces, base)` runs every frame for every pointer, and `base` maps grip to grab, buttons to clicks, and the stick to scrolling or reach. A hook that calls `base` with changed input remaps it. A hook that does not call `base` drives the pointer's `hover`, `setButton`, `beginGrab`, `dragTo`, and `endGrab` itself, and `@lunette-plugins/interaction/picking` has the default picking and scrolling. `focusOnPress = false` stops a click from moving keyboard focus.
@@ -345,10 +351,12 @@ desktop.configure('interaction', require('@lunette-plugins/interaction').definit
 The laser's `buttons` option maps controller buttons to pointer buttons, and a list replaces the default:
 
 ```luau
-desktop.configure('laser', require('@lunette-plugins/laser').definition) {
-  buttons = {
-    { control = 'trigger', button = 'left' },
-    { control = 'a', button = 'right' },
+settings = {
+  laser = {
+    buttons = {
+      { control = 'trigger', button = 'left' },
+      { control = 'a', button = 'right' },
+    },
   },
 },
 ```
@@ -365,11 +373,11 @@ A key binding is an optional chord registered with `lunette/bindings`, for input
 
 ## Decorations
 
-`desktop/decorations` gives native panels the shared UI titlebar, which carries the title, a close button, and the monitor controls, and moves its panel when dragged. Its `style` is the `decorations` setting:
+`desktop/decorations` gives native panels the shared UI titlebar, which carries the title, a close button, and the monitor controls, and moves its panel when dragged. Its `style` is the `desktop/decorations` setting:
 
 ```luau
 settings = {
-  decorations = { style = { barColor = { 0.3, 0.12, 0.2, 0.95 } } },
+  ['desktop/decorations'] = { style = { barColor = { 0.3, 0.12, 0.2, 0.95 } } },
 },
 ```
 
@@ -377,7 +385,7 @@ Other decorations are a plugin that does what `lua/lunette-plugins/desktop/decor
 
 ## Tags and workspaces
 
-A tag is a named group of panels. Adoption puts every window in `main` unless a rule names other tags, and `desktop/arrange` arranges each tag. A plugin that needs a tag holds it, which creates it if no plugin has, so start order does not matter:
+A tag is a named group of panels. Rules name a window's tags, `desktop/workspaces` puts a window in no workspace into the selected one, and `desktop/arrange` arranges each tag. A plugin that needs a tag holds it, which creates it if no plugin has, so start order does not matter:
 
 ```luau
 local web = tagService:hold(context, { name = 'web' })
@@ -392,7 +400,7 @@ web:add(context, panel)
 
 `tags:onChanged(context, { run = function(change) end })` reports tags created and destroyed and changes to their selection and members; `change.kind` names the change and `change.tag` the tag. `web:setSelected(context, true)` returns an effect that selects the tag until it is disposed or the plugin deactivates.
 
-`desktop/workspaces` shows one workspace's windows at a time. The `workspaces` setting lists the workspaces, and with more than one the consumer registers a menu action for each. [Workspaces](desktop-configuration.md#workspaces) describes the setting. A workspace consumer of another kind listens to `onChanged` and hides panels with `setHidden` in the same way.
+`desktop/workspaces` shows one workspace's windows at a time. The `desktop/workspaces` setting lists the workspaces, and with more than one the consumer registers a menu action for each. [Workspaces](desktop-configuration.md#workspaces) describes the setting. A workspace consumer of another kind listens to `onChanged` and hides panels with `setHidden` in the same way.
 
 ## Rules
 
@@ -400,7 +408,7 @@ web:add(context, panel)
 
 ```luau
 settings = {
-  rules = {
+  ['desktop/rules'] = {
     rules = {
       {
         match = {
@@ -437,11 +445,11 @@ stream:onReport(context, {
 
 ## Saving the arrangement
 
-The desktop saves window positions when a window is dropped and at quit. A window is identified across sessions by its application id. `desktop/persistence` takes the file name, through the `persistence` setting:
+The desktop saves window positions when a window is dropped and at quit. A window is identified across sessions by its application id. `desktop/persistence` takes the file name:
 
 ```luau
 settings = {
-  persistence = { file = 'example.state' },
+  ['desktop/persistence'] = { file = 'example.state' },
 },
 ```
 
@@ -452,8 +460,10 @@ It also provides `lunette/arrangement`, whose `save` and `restore` methods `exam
 `desktop/pacing` lowers the frame rate of a hidden panel's window unless its content type is exempt, and `desktop/scale` raises an output's scale in steps as the head approaches its nearest panel. The `pacing` and `scale` providers hold the tuning:
 
 ```luau
-desktop.configure('pacing', require('@lunette-plugins/pacing').definition) { tuning = { background = 5, exemptTypes = { photo = true } } },
-desktop.configure('scale', require('@lunette-plugins/scale').definition) { tuning = { reference = 0.8 } },
+settings = {
+  pacing = { tuning = { background = 5, exemptTypes = { photo = true } } },
+  scale = { tuning = { reference = 0.8 } },
+},
 ```
 
 A replacement rule is a plugin that provides `lunette/pacing` or `lunette/scale` in the provider's entry. A different policy, such as pacing by gaze, is a consumer in place of `desktop/pacing`. Disabling `desktop/pacing` or `desktop/scale` leaves every client at its own rate or scale. [Frame pacing and output scale](../dev/lua-api.md#frame-pacing-and-output-scale) states the rules.

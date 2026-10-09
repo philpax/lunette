@@ -23,7 +23,7 @@ test('the theme example runs and starts with Dusk, offering it in place of Arcad
   local session = testing.boot(
     desktop.compose {
       patches = {
-        { insert = { id = 'example/theme/dusk', definition = require 'dusk' } },
+        { insert = { id = 'example/theme/dusk', definition = require('dusk').definition } },
         { id = 'desktop/theme', config = { preset = 'dusk' } },
         { id = 'theme/arcade', disabled = true },
         {

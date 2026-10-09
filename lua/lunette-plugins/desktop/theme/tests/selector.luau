@@ -20,7 +20,7 @@ local function boot(config)
     'theme/standard',
     'theme/arcade',
     'menu',
-    { id = 'desktop/theme', factory = require '@lunette-plugins/desktop/theme', config = config or {} },
+    { id = 'desktop/theme', definition = require('@lunette-plugins/desktop/theme').definition, config = config or {} },
   }
   local env = { session = session, native = session.native }
   session:use(adapter.define {

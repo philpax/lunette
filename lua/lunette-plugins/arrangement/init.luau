@@ -41,7 +41,7 @@ local function define(): plugin.Definition<Config>
   return plugin.provider<<Config, Settings, arrangementContract.Service>>({
     name = 'desktop/persistence',
     capability = arrangementContract.capability,
-    schema = config,
+    schema = config.schema,
     requires = required,
     build = function(context: plugin.Context, settings: Settings): arrangementContract.Service
       local service = stateFor(settings):bind(
@@ -73,6 +73,6 @@ local function define(): plugin.Definition<Config>
   }).definition
 end
 
-arrangement.factory = define
+arrangement.definition = define
 
 return arrangement

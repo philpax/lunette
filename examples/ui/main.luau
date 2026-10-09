@@ -3,6 +3,6 @@ local desktop = require '@lunette-desktop'
 
 desktop.run {
   patches = {
-    { insert = { id = 'example/ui/form', definition = require './form' } },
+    { insert = { id = 'example/ui/form', definition = require('./form').definition } },
   },
 }

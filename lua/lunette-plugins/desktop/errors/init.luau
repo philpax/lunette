@@ -63,7 +63,7 @@ local function draw(pass: Pass, lines: { string }, settings: Settings, paint: Pa
   return true
 end
 
-return plugin.consumer<<Config, Settings>>({
+return plugin.consumer<<Config, Settings>> {
   name = 'desktop/errors',
   requires = required,
   schema = config.schema,
@@ -124,4 +124,4 @@ return plugin.consumer<<Config, Settings>>({
       end,
     })
   end,
-}).definition
+}

@@ -24,7 +24,7 @@ type SessionGlobals = {
 
 local sessionGlobals = _G :: SessionGlobals
 
-return plugin.consumer<<Config, Settings>>({
+return plugin.consumer<<Config, Settings>> {
   name = 'dev/demo-terminal',
   schema = descriptor,
   init = function(context: plugin.Context, settings: Settings): ()
@@ -63,4 +63,4 @@ return plugin.consumer<<Config, Settings>>({
       spawnNext()
     end
   end,
-}).definition
+}

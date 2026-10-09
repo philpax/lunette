@@ -25,7 +25,11 @@ test('the empty scene draws the hint at its configured position and a scene with
     'theme',
     'surfaces',
     'panels',
-    { id = 'desktop/hint', definition = require '@lunette-plugins/desktop/hint', config = { position = position } },
+    {
+      id = 'desktop/hint',
+      definition = require('@lunette-plugins/desktop/hint').definition,
+      config = { position = position },
+    },
   }
   local hint = drawsHint(session)
   expect.truthy(hint, 'the hint in the empty scene')

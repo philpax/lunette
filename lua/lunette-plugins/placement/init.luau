@@ -23,6 +23,6 @@ return plugin.provider<<Config, Settings, Service>> {
     rules.capability,
     tags.capability,
   },
-  schema = config :: schema.Schema<Config, Settings>,
+  schema = config.schema :: schema.Schema<Config, Settings>,
   build = build.build,
 }

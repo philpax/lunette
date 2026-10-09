@@ -21,9 +21,9 @@ test('the layout example runs, and its grid arranges five windows in rows of thr
   local session = testing.boot(
     desktop.compose {
       patches = {
-        { insert = { id = 'grid-layout', definition = require 'grid' } },
-        { id = 'desktop/arrange', config = { layout = 'grid', options = { grid = { columns = 3 } } } },
+        { insert = { id = 'grid-layout', definition = require('grid').definition, config = { columns = 3 } } },
       },
+      settings = { ['desktop/arrange'] = { layout = 'grid' } },
     },
     { native = native }
   )

@@ -67,16 +67,20 @@ test('an insert goes at the end, or before or after the entry it names', functio
   )
 end)
 
-test('a configure patch targets its entry id and calls no factory', function()
+test('a configure patch must target the entry it names, and making it calls no factory', function()
   local made = 0
   local function factory()
     made += 1
     return labelled
   end
-  local patch = plugin.configure('labelled', factory) { label = 'hud' }
-  expect.equal(patch.id, 'labelled', 'the id')
-  expect.equal(plugin.compose(ENTRIES, { patch })[2].config.label, 'hud', 'the configuration it carries')
-  expect.equal(made, 0, 'configuration invokes no factory')
+  local patch = plugin.configure('made', factory) { label = 'hud' }
+  expect.equal(patch.id, 'made', 'the id')
+  expect.equal(made, 0, 'making the patch invokes no factory')
+  local entries = { { id = 'made', definition = factory } }
+  expect.equal(plugin.compose(entries, { patch })[1].config.label, 'hud', 'the configuration it carries')
+  expect.raises(function()
+    plugin.compose(ENTRIES, { plugin.configure('labelled', factory) { label = 'hud' } })
+  end, 'the patch for labelled targets another definition than the entry has')
 end)
 
 test('a malformed composition raises before anything is defined, naming the id', function()

@@ -7,14 +7,14 @@ local registry = require '@lunette-plugins/registry'
 local inspection = require '@lunette-contracts/inspection'
 
 type Registration = {
-  apply: ({ contract.Panel }, unknown?) -> (),
+  apply: ({ contract.Panel }) -> (),
   continuous: boolean,
 }
 
 type Raw = { [unknown]: unknown }
 
 local LAYOUT_KEYS: { string } = { 'name', 'apply', 'continuous' }
-local APPLICATION_KEYS: { string } = { 'name', 'panels', 'options' }
+local APPLICATION_KEYS: { string } = { 'name', 'panels' }
 
 local function checkName(operation: string, name: unknown): string
   if type(name) ~= 'string' or name == '' then
@@ -82,7 +82,7 @@ local function create(context: plugin.Context): contract.Service
           panels[#panels + 1] = panel
         end
       end
-      registration.apply(panels, application.options)
+      registration.apply(panels)
     end,
     list = function(_self: contract.Service): { read [number]: contract.Entry }
       local entries: { contract.Entry } = {}

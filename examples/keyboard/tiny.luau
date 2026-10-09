@@ -14,7 +14,7 @@ export type Settings = {}
 local CODES = { keys.CODES.y, keys.CODES.n, keys.CODES.enter }
 local KEY = 0.05
 
-return plugin.provider<<Config, Settings, keyboard.Service>>({
+return plugin.provider<<Config, Settings, keyboard.Service>> {
   name = 'tiny-keyboard',
   requires = { focusContract.capability },
   capability = keyboard.capability,
@@ -143,4 +143,4 @@ return plugin.provider<<Config, Settings, keyboard.Service>>({
       end,
     }
   end,
-}).definition
+}

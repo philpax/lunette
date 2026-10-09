@@ -338,6 +338,6 @@ return plugin.provider<<Config, Settings, Service>> {
   name = 'panels',
   capability = contracts.capability,
   requires = { theme.capability },
-  schema = config :: schema.Schema<Config, Settings>,
+  schema = config.schema :: schema.Schema<Config, Settings>,
   build = build,
 }

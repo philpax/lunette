@@ -168,7 +168,7 @@ test(
     local running = management.start {
       {
         id = 'settings',
-        factory = function()
+        definition = function()
           factories += 1
           return definition
         end,
@@ -279,7 +279,7 @@ test('a provider outage keeps the factory definition and composed configuration 
     { id = 'provider', definition = provider },
     {
       id = 'dependent',
-      factory = function()
+      definition = function()
         made += 1
         return consumer.definition
       end,

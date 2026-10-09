@@ -6,7 +6,7 @@ local frame = require '@lunette-contracts/frame'
 export type Config = {}
 export type Settings = {}
 
-return plugin.consumer<<Config, Settings>>({
+return plugin.consumer<<Config, Settings>> {
   name = 'hello',
   requires = { frame.capability },
   init = function(context: plugin.Context, _settings: Settings)
@@ -19,4 +19,4 @@ return plugin.consumer<<Config, Settings>>({
       end,
     })
   end,
-}).definition
+}

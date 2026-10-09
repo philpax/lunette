@@ -6,7 +6,7 @@ local panels = require '@lunette-contracts/panels'
 export type Config = {}
 export type Settings = {}
 
-return plugin.consumer<<Config, Settings>>({
+return plugin.consumer<<Config, Settings>> {
   name = 'hide-windows',
   requires = { menu.capability, panels.capability },
   init = function(context: plugin.Context, _settings: Settings)
@@ -44,4 +44,4 @@ return plugin.consumer<<Config, Settings>>({
       end,
     })
   end,
-}).definition
+}

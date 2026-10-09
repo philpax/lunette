@@ -20,7 +20,7 @@ local function boot(config)
     'desktop/pointing',
     'ui',
     'menu',
-    { id = 'desktop/menu', definition = require '@lunette-plugins/desktop/menu', config = config or {} },
+    { id = 'desktop/menu', definition = require('@lunette-plugins/desktop/menu').definition, config = config or {} },
   }
   local env = { running = running, ui = running.session:observe(ui.capability).service }
   env.hand = config and config.hand or 'left'

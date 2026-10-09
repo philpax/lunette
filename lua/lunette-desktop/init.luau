@@ -49,37 +49,15 @@ local management = require '@lunette-plugin/management'
 
 local desktop = {}
 
-export type Entry = plugin.Entry
-export type Patch = plugin.Patch
-
-export type Settings = settings.Config
-
-export type Options = {
-  read entries: { Entry }?,
-  read patches: { Patch }?,
-  read settings: Settings?,
+type Options = {
+  read patches: { plugin.Patch }?,
+  read settings: settings.Config?,
 }
 
-local OPTION_KEYS: { string } = { 'entries', 'patches', 'settings' }
-local SETTING_IDS: { [string]: string } = {
-  menu = 'desktop/menu',
-  decorations = 'desktop/decorations',
-  arrange = 'desktop/arrange',
-  persistence = 'desktop/persistence',
-  keyboardDisplay = 'desktop/keyboard',
-  rules = 'desktop/rules',
-  monitors = 'desktop/monitors',
-  hint = 'desktop/hint',
-  errors = 'desktop/errors',
-  pointing = 'desktop/pointing',
-  pacing = 'desktop/pacing',
-  workspaces = 'desktop/workspaces',
-  adoption = 'desktop/adoption',
-  manager = 'desktop/manager',
-}
+local OPTION_KEYS: { string } = { 'patches', 'settings' }
 
 -- Persistence and arrangement use factories to preserve state across activations. Rule sources precede adoption so they resolve the first window.
-local DEFAULT: { Entry } = plugin.compose {
+local DEFAULT: { plugin.Entry } = plugin.compose {
   { id = 'frame', definition = frame.definition },
   { id = 'theme', definition = theme.definition },
   { id = 'themes', definition = themeCatalog.definition },
@@ -95,7 +73,7 @@ local DEFAULT: { Entry } = plugin.compose {
   { id = 'keyboard', definition = keyboard.definition },
   { id = 'ui', definition = ui.definition },
   { id = 'menu', definition = menu.definition },
-  { id = 'desktop/theme', factory = themeSelector },
+  { id = 'desktop/theme', definition = themeSelector.definition },
   { id = 'tags', definition = tags.definition },
   { id = 'rules', definition = rules.definition },
   { id = 'placement', definition = placement.definition },
@@ -105,42 +83,40 @@ local DEFAULT: { Entry } = plugin.compose {
   { id = 'errors', definition = errorStream.definition },
   { id = 'pacing', definition = pacingProvider.definition },
   { id = 'scale', definition = scaleProvider.definition },
-  { id = 'desktop/render', definition = render },
-  { id = 'desktop/hint', definition = hint },
-  { id = 'desktop/decorations', definition = decorations },
-  { id = 'desktop/pointing', definition = pointing },
-  { id = 'desktop/input', definition = input },
-  { id = 'desktop/keyboard', definition = keyboardDisplay },
-  { id = 'desktop/menu', definition = wristMenu },
-  { id = 'desktop/actions', definition = actions },
-  { id = 'desktop/errors', definition = errors },
-  { id = 'desktop/workspaces', definition = workspaces },
-  { id = 'desktop/monitors', definition = monitors },
-  { id = 'desktop/rules', definition = defaultRules },
-  { id = 'desktop/persistence', factory = arrangement.factory },
-  { id = 'desktop/arrange', factory = arrange },
-  { id = 'desktop/adoption', definition = adoptionConsumer },
-  { id = 'desktop/pacing', definition = pacing },
-  { id = 'desktop/scale', definition = scale },
-  { id = 'desktop/manager', definition = manager },
+  { id = 'desktop/render', definition = render.definition },
+  { id = 'desktop/hint', definition = hint.definition },
+  { id = 'desktop/decorations', definition = decorations.definition },
+  { id = 'desktop/pointing', definition = pointing.definition },
+  { id = 'desktop/input', definition = input.definition },
+  { id = 'desktop/keyboard', definition = keyboardDisplay.definition },
+  { id = 'desktop/menu', definition = wristMenu.definition },
+  { id = 'desktop/actions', definition = actions.definition },
+  { id = 'desktop/errors', definition = errors.definition },
+  { id = 'desktop/workspaces', definition = workspaces.definition },
+  { id = 'desktop/monitors', definition = monitors.definition },
+  { id = 'desktop/rules', definition = defaultRules.definition },
+  { id = 'desktop/persistence', definition = arrangement.definition },
+  { id = 'desktop/arrange', definition = arrange.definition },
+  { id = 'desktop/adoption', definition = adoptionConsumer.definition },
+  { id = 'desktop/pacing', definition = pacing.definition },
+  { id = 'desktop/scale', definition = scale.definition },
+  { id = 'desktop/manager', definition = manager.definition },
 }
 
--- The returned configuration functions check values against the definition's options.
-desktop.configure = plugin.configure
-
 -- Entries start in list order.
-function desktop.entries(): { Entry }
+function desktop.entries(): { plugin.Entry }
   return DEFAULT
 end
 
--- Settings become patches after the given ones, so one composition rejects two patches naming one id.
-local function patchesFor(options: Options): { Patch }?
+-- Each setting becomes one configuration patch after the given ones, so one composition rejects a setting and a patch
+-- naming one id.
+local function patchesFor(options: Options): { plugin.Patch }?
   local given = options.settings
   local extra = options.patches
   if given == nil or (extra ~= nil and type(extra) ~= 'table') then
     return extra
   end
-  local parsed = settings.schema.parse(given, 'desktop settings')
+  settings.schema.parse(given, 'desktop settings')
   -- The given keys are copied unchanged so that composition still reports a malformed patch list by position.
   local patches: { [unknown]: unknown } = {}
   local last = 0
@@ -150,28 +126,20 @@ local function patchesFor(options: Options): { Patch }?
       last = key
     end
   end
-  local function append(patch: Patch): ()
+  for id, config in given :: { [string]: unknown } do
     last += 1
-    patches[last] = patch
+    patches[last] = { id = id, config = config }
   end
-  for name, config in given :: { [string]: unknown } do
-    append { id = SETTING_IDS[name], config = config :: any }
-  end
-  -- Adoption places windows in the first workspace unless the adoption settings say otherwise.
-  local chosen = parsed.workspaces
-  if chosen and given.adoption == nil then
-    append { id = 'desktop/adoption', config = { tags = { chosen.workspaces[1].name } } }
-  end
-  return (patches :: unknown) :: { Patch }
+  return (patches :: unknown) :: { plugin.Patch }
 end
 
 -- Returns the patched entries. Composition rejects unknown fields, duplicate ids, and two patches naming one id.
-function desktop.compose(options: Options?): { Entry }
+function desktop.compose(options: Options?): { plugin.Entry }
   if options == nil then
     return DEFAULT
   end
   plugin.rejectUnknownFields('desktop: the options', options, OPTION_KEYS, 0)
-  return plugin.compose(options.entries or DEFAULT, patchesFor(options))
+  return plugin.compose(DEFAULT, patchesFor(options))
 end
 
 -- Composition errors occur while the configuration loads, before LÖVR callbacks are bound.

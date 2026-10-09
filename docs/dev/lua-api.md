@@ -42,7 +42,7 @@ Variation inside a provider is a hook: an option whose value is a function that 
 
 ### Composition
 
-A composition is a list of entries. `plugin.compose(entries, patches)` returns the entries with the patches applied, validated, and frozen, and defines and enables nothing. `lua/lunette-plugin/compose.luau` is the source of truth for the patch rules. A patch that names an unknown or duplicate id, changes nothing, or both disables and changes an entry raises, because a patch that matches nothing does not do what it says.
+A composition is a list of entries, `{ id, definition, config }`, where `definition` is a plugin definition or a factory of one. `plugin.compose(entries, patches)` returns the entries with the patches applied, validated, and frozen, and defines and enables nothing. `lua/lunette-plugin/compose.luau` is the source of truth for the patch rules. A patch that names an unknown or duplicate id, changes nothing, or both disables and changes an entry raises, because a patch that matches nothing does not do what it says.
 
 `@lunette-plugin/management.start` is the one start path. It preflights every configuration through its definition's `resolve` before creating the runtime, so a configuration error aborts startup before any entry activates, while initializer failures stay local to their instances. The entry id `composition` is reserved. [Session composition and inspection](stdlib.md#session-composition-and-inspection) states entry management and recovery.
 
@@ -114,7 +114,7 @@ The bindings provider takes presses in the `binding` phase itself, so a bound pr
 
 The menu broker holds actions and renders nothing. `register` returns a registration whose `update` changes the action's `enabled` and `selected` state and answers false once the action is gone. `onChanged` runs after an action is registered, updated, or removed, so a renderer lists actions again only then. `invoke(id, token)` with a listed row's token refuses a replacement that took the same id since the row was listed. `run` executes under the registering owner's protected context.
 
-The layouts broker calls a named layout with the live panels a caller passes and holds no panels or tags. `continuous` marks a layout the consumer applies every frame; the broker applies nothing itself.
+The layouts broker calls a named layout with the live panels a caller passes and holds no panels or tags. A layout takes no options from the caller; its options are the configuration of the plugin that registers it. `continuous` marks a layout the consumer applies every frame; the broker applies nothing itself.
 
 ### Tags
 
@@ -278,7 +278,7 @@ A runtime schema beside hand-written types was rejected because the two diverge.
 
 ### A typed patch is made from the definition
 
-`plugin.configure(id, definition)` returns a function of the configuration. Inferring from the definition and the literal in one call widens literal options such as `hand = 'right'` to `string` and reports a correct call as an error. A table of typed functions per shipped entry was rejected because it restated the entry list and could not configure an inserted entry.
+`plugin.configure(id, target)` returns a function of the configuration. Inferring from the definition and the literal in one call widens literal options such as `hand = 'right'` to `string` and reports a correct call as an error. The patch carries `target`, and composition raises when the entry with that id is made from another definition, because the target only supplies a type and a mismatch would check the options against the wrong entry. The shipped desktop's settings are a typed table keyed by entry id over the entries' own descriptors; they restate the configurable part of the entry list, which a test keeps in step, and an inserted entry configures itself through its insert's `config`.
 
 ### Frame dispatch and the surface list are contracts
 

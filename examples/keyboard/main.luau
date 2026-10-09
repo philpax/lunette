@@ -3,11 +3,11 @@ local desktop = require '@lunette-desktop'
 
 desktop.run {
   settings = {
-    menu = { hand = 'right' },
-    keyboardDisplay = { placement = { distance = 0.45 } },
+    ['desktop/menu'] = { hand = 'right' },
+    ['desktop/keyboard'] = { placement = { distance = 0.45 } },
   },
   patches = {
     -- The replacement keeps the `keyboard` id, so existing consumers use the split keyboard.
-    { id = 'keyboard', definition = require './split' },
+    { id = 'keyboard', definition = require('./split').definition },
   },
 }

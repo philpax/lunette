@@ -5,7 +5,7 @@ local positive = schema.number { positive = true }
 local descriptor = schema.object {
   text = schema.default(schema.string()) 'lunette: no windows yet',
   position = schema.default(schema.vector())(vector.pack(0, 1.5, -1.5)),
-  size = schema.optional(positive),
+  textHeight = schema.optional(positive),
   foreground = schema.optional(descriptors.color),
   font = schema.optional(descriptors.editableFont),
 }

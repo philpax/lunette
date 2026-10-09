@@ -108,25 +108,27 @@ local numpad: keyboard.Config = {
 -- Weak keys let pressed-state entries disappear when their row entries are released.
 local pressedAt: { [keyboard.Key]: number } = setmetatable({}, { __mode = 'k' })
 
-return keyboard.define {
-  name = 'split-keyboard',
-  rows = letters.rows,
-  layers = { numpad = numpad.rows },
-  style = { keyUnit = 0.03 },
-  onKey = function(board, key, pointer, base)
-    pointer:vibrate { strength = 0.2, duration = 0.01 }
-    pressedAt[key.source] = lovr.timer.getTime()
-    base(board, key, pointer)
-  end,
-  drawKey = function(pass, key, state, base)
-    local pressed = pressedAt[key.source]
-    if pressed and lovr.timer.getTime() - pressed < FLASH then
-      local style = state.style
-      pass:setColor(1, 0.8, 0.3, 1)
-      pass:plane(lovr.math.mat4(state.pose):scale(key.width - style.gap, key.height - style.gap, 1), 'fill', 1, 1)
-      drawing.legend(pass, key, state)
-      return
-    end
-    base(pass, key, state)
-  end,
+return {
+  definition = keyboard.define {
+    name = 'split-keyboard',
+    rows = letters.rows,
+    layers = { numpad = numpad.rows },
+    style = { keyUnit = 0.03 },
+    onKey = function(board, key, pointer, base)
+      pointer:vibrate { strength = 0.2, duration = 0.01 }
+      pressedAt[key.source] = lovr.timer.getTime()
+      base(board, key, pointer)
+    end,
+    drawKey = function(pass, key, state, base)
+      local pressed = pressedAt[key.source]
+      if pressed and lovr.timer.getTime() - pressed < FLASH then
+        local style = state.style
+        pass:setColor(1, 0.8, 0.3, 1)
+        pass:plane(lovr.math.mat4(state.pose):scale(key.width - style.gap, key.height - style.gap, 1), 'fill', 1, 1)
+        drawing.legend(pass, key, state)
+        return
+      end
+      base(pass, key, state)
+    end,
+  },
 }

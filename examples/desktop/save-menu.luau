@@ -6,7 +6,7 @@ local menu = require '@lunette-contracts/menu'
 export type Config = {}
 export type Settings = {}
 
-return plugin.consumer<<Config, Settings>>({
+return plugin.consumer<<Config, Settings>> {
   name = 'save-menu',
   requires = { arrangement.capability, menu.capability },
   init = function(context: plugin.Context, _settings: Settings)
@@ -40,4 +40,4 @@ return plugin.consumer<<Config, Settings>>({
       end,
     })
   end,
-}).definition
+}

@@ -23,7 +23,7 @@ local required: plugin.Declaration = {
   pacing.capability,
 }
 
-return plugin.consumer<<Config, Settings>>({
+return plugin.consumer<<Config, Settings>> {
   name = 'desktop/pacing',
   requires = required,
   schema = config.schema,
@@ -130,4 +130,4 @@ return plugin.consumer<<Config, Settings>>({
       end
     end)
   end,
-}).definition
+}

@@ -9,7 +9,7 @@ export type Settings = config.Settings
 
 local required: plugin.Declaration = { rules.capability }
 
-return plugin.consumer<<Config, Settings>>({
+return plugin.consumer<<Config, Settings>> {
   name = 'desktop/rules',
   requires = required,
   schema = config.schema,
@@ -17,4 +17,4 @@ return plugin.consumer<<Config, Settings>>({
     local service: rules.Service = context:require(rules.capability)
     service:setRules(context, { rules = settings.rules })
   end,
-}).definition
+}

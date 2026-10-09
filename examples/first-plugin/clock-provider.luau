@@ -6,7 +6,7 @@ local clock = require './clock'
 export type Config = {}
 export type Settings = {}
 
-return plugin.provider<<Config, Settings, clock.Service>>({
+return plugin.provider<<Config, Settings, clock.Service>> {
   name = 'clock',
   capability = clock.capability,
   build = function(_context: plugin.Context, _settings: Settings): clock.Service
@@ -20,4 +20,4 @@ return plugin.provider<<Config, Settings, clock.Service>>({
       end,
     }
   end,
-}).definition
+}

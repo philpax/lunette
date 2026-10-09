@@ -13,7 +13,7 @@ local widgets = require '@lunette-plugins/desktop/manager/widgets'
 export type Config = config.Config
 export type Settings = config.Settings
 
-return plugin.consumer<<Config, Settings>>({
+return plugin.consumer<<Config, Settings>> {
   name = 'desktop/manager',
   schema = config.schema,
   requires = {
@@ -109,4 +109,4 @@ return plugin.consumer<<Config, Settings>>({
       end,
     })
   end,
-}).definition
+}

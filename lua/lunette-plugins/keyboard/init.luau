@@ -21,6 +21,6 @@ return plugin.provider {
   name = 'keyboard',
   capability = keyboard.capability,
   requires = { focus.capability, theme.capability },
-  schema = config,
+  schema = config.schema,
   build = build,
 }

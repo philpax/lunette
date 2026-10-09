@@ -161,7 +161,7 @@ end
 
 return plugin.provider<<Config, Settings, ui.Service>> {
   name = 'ui',
-  schema = config,
+  schema = config.schema,
   capability = ui.capability,
   requires = {
     focus.capability,

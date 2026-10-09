@@ -2,12 +2,12 @@
 
 `desktop/manager` is the shipped desktop's plugin manager. The wrist menu's Plugins action toggles its panel, and the action shows whether the panel is visible. The panel's titlebar reads Plugins, and its X hides the panel. The panel moves like any other, as [Panel movement](desktop-configuration.md#panel-movement) describes. It is built on the public `lunette/ui` service, so it works with any provider of that contract.
 
-The `manager` setting configures it; `lua/lunette-plugins/desktop/manager/config.luau` holds the options and defaults:
+The `desktop/manager` setting configures it; `lua/lunette-plugins/desktop/manager/config.luau` holds the options and defaults:
 
 ```luau
 require('@lunette-desktop').run {
   settings = {
-    manager = {
+    ['desktop/manager'] = {
       visible = true,
       position = vector.pack(0, 1.4, -1.2),
       view = 'graph',

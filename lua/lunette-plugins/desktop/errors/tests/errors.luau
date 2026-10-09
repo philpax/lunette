@@ -9,7 +9,11 @@ test('the error overlay draws the latest report at its configured position', fun
     'frame',
     'theme',
     'errors',
-    { id = 'desktop/errors', definition = require '@lunette-plugins/desktop/errors', config = { position = position } },
+    {
+      id = 'desktop/errors',
+      definition = require('@lunette-plugins/desktop/errors').definition,
+      config = { position = position },
+    },
   }
   session.native.raise('fixture overlay error', 'fixture traceback')
   session:draw()

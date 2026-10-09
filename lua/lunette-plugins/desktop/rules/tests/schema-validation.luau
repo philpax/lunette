@@ -1,6 +1,6 @@
 local testing = require '@testing'
 local expect = testing.expect
-local definition = require '@lunette-plugins/desktop/rules'
+local definition = require('@lunette-plugins/desktop/rules').definition
 
 local test = testing.suite()
 

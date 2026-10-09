@@ -63,7 +63,7 @@ test('controller clicks on fields share one keyboard that types, and its Hide ke
     },
     'desktop/pointing',
     'ui',
-    { id = 'desktop/keyboard', definition = require '@lunette-plugins/keyboard-display' },
+    { id = 'desktop/keyboard', definition = require('@lunette-plugins/keyboard-display').definition },
   }
   local state = {}
   running.session:use(

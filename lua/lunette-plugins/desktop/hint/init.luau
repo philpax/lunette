@@ -24,7 +24,7 @@ type Paint = {
   font: Font,
 }
 
-return plugin.consumer<<Config, Settings>>({
+return plugin.consumer<<Config, Settings>> {
   name = 'desktop/hint',
   requires = required,
   schema = config.schema,
@@ -40,7 +40,7 @@ return plugin.consumer<<Config, Settings>>({
       local style = snapshot.theme
       return {
         revision = snapshot.revision,
-        size = settings.size or style.typography.hintTextHeight,
+        size = settings.textHeight or style.typography.hintTextHeight,
         foreground = settings.foreground or style.colors.foreground,
         font = themeService:font(configuredFont or style.typography.font),
       }
@@ -79,4 +79,4 @@ return plugin.consumer<<Config, Settings>>({
       end,
     })
   end,
-}).definition
+}

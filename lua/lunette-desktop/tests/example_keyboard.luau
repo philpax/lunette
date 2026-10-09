@@ -19,11 +19,11 @@ test('the keyboard example runs, and its split keyboard is shown with its halves
   local session = testing.boot(
     desktop.compose {
       settings = {
-        menu = { hand = 'right' },
-        keyboardDisplay = { placement = { distance = 0.45 } },
+        ['desktop/menu'] = { hand = 'right' },
+        ['desktop/keyboard'] = { placement = { distance = 0.45 } },
       },
       patches = {
-        { id = 'keyboard', definition = require 'split' },
+        { id = 'keyboard', definition = require('split').definition },
       },
     },
     { native = native }

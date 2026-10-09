@@ -13,7 +13,7 @@ export type Config = config.Config
 export type Settings = config.Settings
 export type Service = display.Service
 
-return plugin.provider<<Config, Settings, Service>>({
+return plugin.provider<<Config, Settings, Service>> {
   name = 'desktop/keyboard',
   capability = display.capability,
   requires = {
@@ -25,4 +25,4 @@ return plugin.provider<<Config, Settings, Service>>({
   },
   schema = config.schema,
   build = create,
-}).definition
+}

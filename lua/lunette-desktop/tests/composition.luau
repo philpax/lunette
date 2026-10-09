@@ -5,15 +5,22 @@ local expect = testing.expect
 local plugin = require '@lunette-plugin'
 local adapter = require '@lunette-plugin/adapter'
 local desktop = require '@lunette-desktop'
+local settings = require '@lunette-desktop/settings'
+local compose = require '@lunette-plugin/compose'
 local laserModule = require '@lunette-plugins/laser'
 local frameContract = require '@lunette-contracts/frame'
 
 local test = testing.suite()
 
-test('each default entry is configured by its id', function()
+test('settings cover every default entry that takes options', function()
+  local fields = settings.schema.inspect().fields
   for _, entry in ipairs(desktop.entries()) do
-    local patch = desktop.configure(entry.id, entry.definition or entry.factory) {}
-    expect.equal(patch.id, entry.id, 'the configure patch of ' .. entry.id)
+    local node = compose.resolveEntry(entry).definition.schema
+    while node and (node.kind == 'default' or node.kind == 'refine') do
+      node = node.child
+    end
+    local options = node and node.fields and next(node.fields) ~= nil
+    expect.equal(fields[entry.id] ~= nil, options == true, 'the setting of ' .. entry.id)
   end
 end)
 
@@ -21,9 +28,9 @@ test('malformed options raise as the configuration loads, before callbacks bind'
   local load = lovr.load
   for _, case in ipairs {
     { options = { patches = { { id = 'nope', disabled = true } } }, message = 'a patch names nope' },
-    { options = { settings = { keyboard = {} } }, message = 'option keyboard is not a declared field' },
+    { options = { settings = { nope = {} } }, message = 'option nope is not a declared field' },
     {
-      options = { settings = { keyboardDisplay = {} }, patches = { { id = 'desktop/keyboard', config = {} } } },
+      options = { settings = { ['desktop/keyboard'] = {} }, patches = { { id = 'desktop/keyboard', config = {} } } },
       message = 'two patches name desktop/keyboard',
     },
   } do

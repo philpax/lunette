@@ -1,12 +1,14 @@
--- The shipped desktop is composed by `@lunette-desktop`. Configurations patch entries by id, and `desktop.configure` checks options against the selected definition:
+-- The shipped desktop is composed by `@lunette-desktop`. Settings configure entries by id, and patches insert, replace, or disable entries:
 --
 --   local desktop = require '@lunette-desktop'
 --   desktop.run {
+--     settings = {
+--       laser = { style = { color = { 1, 0.4, 0.2, 0.6 } } },
+--       ['layout/arc'] = { tuning = { radius = 2 } },
+--     },
 --     patches = {
 --       { id = 'keyboard', disabled = true },
---       desktop.configure('laser', require('@lunette-plugins/laser').definition) { style = { color = { 1, 0.4, 0.2, 0.6 } } },
---       desktop.configure('desktop/arrange', require '@lunette-plugins/desktop/arrange') { layout = 'arc', options = { arc = { radius = 2 } } },
---       { insert = { id = 'my-hud', definition = require './hud' } },
+--       { insert = { id = 'my-hud', definition = require('./hud').definition } },
 --     },
 --   }
 require('@lunette-desktop').run()

@@ -4,7 +4,7 @@ local focus = require '@lunette-contracts/focus'
 local frame = require '@lunette-contracts/frame'
 local keys = require '@lunette-contracts/keys'
 
-return plugin.consumer<<{}, {}>>({
+return plugin.consumer<<{}, {}>> {
   name = 'desktop/input',
   requires = { focus.capability, frame.capability },
   init = function(context: plugin.Context, _settings: {}): ()
@@ -66,4 +66,4 @@ return plugin.consumer<<{}, {}>>({
       end
     end)
   end,
-}).definition
+}

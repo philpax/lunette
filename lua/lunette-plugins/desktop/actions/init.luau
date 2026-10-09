@@ -36,7 +36,7 @@ local keyboard = plugin.consumer<<Config, Settings>>({
   end,
 }).definition
 
-return plugin.consumer<<Config, Settings>>({
+return plugin.consumer<<Config, Settings>> {
   name = 'desktop/actions',
   requires = { menu.capability },
   init = function(context: plugin.Context, _settings: Settings): ()
@@ -58,4 +58,4 @@ return plugin.consumer<<Config, Settings>>({
     })
     context:child(keyboard)
   end,
-}).definition
+}

@@ -11,6 +11,6 @@ export type Config = config.Config
 return plugin.provider<<Config, Settings, Service>> {
   name = 'rules',
   capability = rules.capability,
-  schema = config,
+  schema = config.schema,
   build = build,
 }

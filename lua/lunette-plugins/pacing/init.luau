@@ -20,6 +20,6 @@ end
 return plugin.provider<<Config, Settings, Service>> {
   name = 'pacing',
   capability = contract.capability,
-  schema = config,
+  schema = config.schema,
   build = build,
 }

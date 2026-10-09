@@ -62,31 +62,22 @@ test('a change listener hears registrations begin and end, and a name is one reg
   env.session:close()
 end)
 
-test('apply passes the live panels and the options, and names the layouts for an unknown name', function()
+test('apply passes the live panels, and names the layouts for an unknown name', function()
   local env = start()
   local seen
   env.layouts:register(env.owner, {
     name = 'stack',
-    apply = function(panels, options)
-      seen = { count = #panels, options = options }
+    apply = function(panels)
+      seen = #panels
     end,
   })
   local dead = moving(1)
   dead.dead = true
-  env.layouts:apply { name = 'stack', panels = { moving(1), dead, moving(1) }, options = { depth = 2 } }
-  expect.equal(seen.count, 2, 'the live panels')
-  expect.equal(seen.options.depth, 2, 'the options')
+  env.layouts:apply { name = 'stack', panels = { moving(1), dead, moving(1) } }
+  expect.equal(seen, 2, 'the live panels')
   expect.raises(function()
     env.layouts:apply { name = 'grid', panels = {} }
   end, 'layouts apply: no layout is registered as grid; the layouts are arc, stack', 'an unknown name')
-  env.session:close()
-end)
-
-test("a layout's own option error raises from apply", function()
-  local env = start()
-  expect.raises(function()
-    env.layouts:apply { name = 'arc', panels = { moving(1) }, options = { radious = 1 } }
-  end, 'layout/arc: option radious is not a declared field', 'an unknown arc option')
   env.session:close()
 end)
 

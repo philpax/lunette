@@ -23,7 +23,11 @@ test('a layout that is not registered is logged once, and the consumer arranges 
     'placement',
     'layouts',
     'layout/arc',
-    { id = 'desktop/arrange', factory = require '@lunette-plugins/desktop/arrange', config = { layout = 'later' } },
+    {
+      id = 'desktop/arrange',
+      definition = require('@lunette-plugins/desktop/arrange').definition,
+      config = { layout = 'later' },
+    },
   }
   local native = session.native
   local probe = {}
@@ -58,46 +62,54 @@ test('a layout that is not registered is logged once, and the consumer arranges 
   session:close()
 end)
 
-test('a window in several tags is arranged by the first selected tag, with the options of the layout', function()
-  local session = testing.boot(desktop.compose {
-    patches = {
-      {
-        id = 'desktop/rules',
-        config = { rules = { { match = { appId = 'mail' }, properties = { tags = { 'main', 'mail' } } } } },
+test(
+  'a window in several tags is arranged by the first selected tag, and a window in no tag is arranged last',
+  function()
+    local session = testing.boot(desktop.compose {
+      settings = {
+        ['desktop/rules'] = {
+          rules = {
+            { match = { appId = 'plain' }, properties = { tags = { 'main' } } },
+            { match = { appId = 'mail' }, properties = { tags = { 'main', 'mail' } } },
+          },
+        },
+        ['desktop/arrange'] = { layout = 'line' },
       },
-      { id = 'desktop/arrange', config = { layout = 'line', options = { line = { spacing = 10 } } } },
-    },
-  })
-  local native = session.native
-  local panels = session:observe(panelsContract.capability).service
-  local tags = session:observe(tagsContract.capability)
-  local layouts = session:observe(layoutsContract.capability)
-  -- The layout places its panels `spacing` metres apart along x.
-  layouts.service:register(layouts.context, {
-    name = 'line',
-    apply = function(members, options)
-      for index, panel in ipairs(members) do
-        panel:setPose(lovr.math.newMat4():translate(index * options.spacing, 0, 0))
-      end
-    end,
-  })
-  local main = assert(tags.service:find 'main')
-  native.events.windows = { native.newWindow(83), native.newWindow(84, 'mail') }
-  for _, window in native.events.windows do
-    native.emit('onWindowOpened', { window = window })
+      patches = { { id = 'desktop/workspaces', disabled = true } },
+    })
+    local native = session.native
+    local panels = session:observe(panelsContract.capability).service
+    local tags = session:observe(tagsContract.capability)
+    local layouts = session:observe(layoutsContract.capability)
+    local main = tags.service:hold(tags.context, { name = 'main' })
+    main:setSelected(tags.context, true)
+    -- The layout places its panels one metre apart along x.
+    layouts.service:register(layouts.context, {
+      name = 'line',
+      apply = function(members)
+        for index, panel in ipairs(members) do
+          panel:setPose(lovr.math.newMat4():translate(index, 0, 0))
+        end
+      end,
+    })
+    native.events.windows =
+      { native.newWindow(83, 'plain'), native.newWindow(84, 'mail'), native.newWindow(85, 'loose') }
+    for _, window in native.events.windows do
+      native.emit('onWindowOpened', { window = window })
+    end
+    local mail = assert(tags.service:find 'mail')
+    local panel = assert(panels:forSource(native.events.windows[2]))
+    local loose = assert(panels:forSource(native.events.windows[3]))
+    local function x(target)
+      return (target.pose:getPosition())
+    end
+    expect.near(x(panel), 2, 1e-5, 'the selected tag arranges it')
+    expect.near(x(loose), 1, 1e-5, 'a window in no tag is arranged on its own')
+    mail:setSelected(tags.context, true)
+    main:setSelected(tags.context, false)
+    expect.near(x(panel), 1, 1e-5, 'the other tag arranges it')
+    session:close()
   end
-  local mail = assert(tags.service:find 'mail')
-  local panel = assert(panels:forSource(native.events.windows[2]))
-  local function x()
-    return (panel.pose:getPosition())
-  end
-  expect.near(x(), 20, 1e-5, 'the selected tag arranges it, with the layout options')
-  mail:setSelected(tags.context, true)
-  main:setSelected(tags.context, false)
-  expect.near(x(), 10, 1e-5, 'the other tag arranges it')
-  main:setSelected(tags.context, true)
-  expect.near(x(), 20, 1e-5, 'the first selected tag in order wins')
-  session:close()
-end)
+)
 
 return test

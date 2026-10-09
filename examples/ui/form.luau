@@ -8,7 +8,7 @@ local vocabulary = require '@lunette-contracts/vocabulary'
 export type Config = {}
 export type Settings = {}
 
-return plugin.consumer<<Config, Settings>>({
+return plugin.consumer<<Config, Settings>> {
   name = 'example/ui/form',
   requires = { ui.capability, menu.capability, frame.capability },
   init = function(context: plugin.Context, _settings: Settings)
@@ -157,4 +157,4 @@ return plugin.consumer<<Config, Settings>>({
       end,
     })
   end,
-}).definition
+}

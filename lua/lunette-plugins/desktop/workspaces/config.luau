@@ -1,24 +1,18 @@
 local schema = require '@lunette-plugin/schema'
 
-local workspace = schema.object { name = schema.string { minLength = 1 } }
-export type WorkspaceInput = schema.Input<typeof(workspace)>
-export type Workspace = schema.Output<typeof(workspace)>
-local workspaceList = schema.array<<typeof(workspace)>>(workspace, { minLength = 1 })
+local nameList = schema.array(schema.string { minLength = 1 }, { minLength = 1 })
 local refineList = (schema.refine :: unknown) :: (
-  typeof(workspaceList)
-) -> (({ read [number]: Workspace }) -> (), string?) -> typeof(workspaceList)
-local workspaces = refineList(workspaceList)(function(value: { read [number]: Workspace }): ()
+  typeof(nameList)
+) -> (({ read [number]: string }) -> (), string?) -> typeof(nameList)
+local names = refineList(nameList)(function(value: { read [number]: string }): ()
   local seen: { [string]: boolean } = {}
-  for _, entry in value do
-    assert(not seen[entry.name], 'workspace name ' .. entry.name .. ' occurs twice')
-    seen[entry.name] = true
+  for _, name in value do
+    assert(not seen[name], 'workspace name ' .. name .. ' occurs twice')
+    seen[name] = true
   end
 end, 'Workspace names are unique.')
-local defaultList = (schema.default :: unknown) :: (
-  typeof(workspaceList)
-) -> ({ read [number]: Workspace }) -> schema.Schema<{ WorkspaceInput }?, { read [number]: Workspace }>
 local shape = {
-  workspaces = defaultList(workspaces) { { name = 'main' } },
+  names = schema.default(names) { 'main' },
   follow = schema.default(schema.boolean())(true),
 }
 local descriptor = schema.object<<typeof(shape)>>(shape)
