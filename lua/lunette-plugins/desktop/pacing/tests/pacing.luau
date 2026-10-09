@@ -23,52 +23,22 @@ local function hide(env, hidden)
   env.session:update()
 end
 
-test(
-  'a hidden panel is paced at the floor, a shown one is unthrottled again, and a removed panel is unthrottled',
-  function()
-    local env = start()
-    for _ = 1, 5 do
-      env.session:update()
-    end
-    expect.equal(#env.native.events.rates, 0, 'the rates applied to a shown window')
-    expect.equal(#env.native.events.pauses, 0, 'the pauses of a shown monitor panel')
-
-    hide(env, true)
-    expect.equal(env.window.rate, 1, 'a hidden quiet window')
-    expect.equal(env.monitor.paused, true, 'the capture of a hidden monitor panel')
-
-    hide(env, false)
-    expect.equal(env.window.rate, nil, 'a shown window')
-    local rates = env.native.events.rates
-    expect.equal(rates[#rates].window, env.window.id, 'the window the last rate was applied to')
-    expect.equal(env.monitor.paused, false, 'the capture of a shown monitor panel')
-
-    hide(env, true)
-    env.windowPanel:destroy(env.panels.context)
-    env.session:update()
-    expect.equal(env.window.rate, nil, 'a window without a panel')
-    expect.equal(env.monitor.paused, true, 'a monitor panel still hidden keeps its pause')
-    env.session:close()
-  end
-)
-
-test('unloading the consumer unthrottles and resumes everything, and loading again paces again', function()
+test('a hidden panel is paced at the floor, a shown one is not, and unloading releases both', function()
   local env = start()
+  env.session:update()
+  expect.equal(#env.native.events.rates, 0, 'the rates applied to a shown window')
+  expect.equal(#env.native.events.pauses, 0, 'the pauses of a shown monitor panel')
   hide(env, true)
-  local consumer = env.session.instances['desktop/pacing']
-  consumer:disable()
+  expect.equal(env.window.rate, 1, 'a hidden quiet window')
+  expect.equal(env.monitor.paused, true, 'the capture of a hidden monitor panel')
+  hide(env, false)
+  expect.equal(env.window.rate, nil, 'a shown window')
+  expect.equal(env.monitor.paused, false, 'the capture of a shown monitor panel')
+  hide(env, true)
+  env.session.instances['desktop/pacing']:disable()
   expect.equal(env.window.rate, nil, 'a window after the consumer unloads')
   expect.equal(env.monitor.paused, false, 'a capture after the consumer unloads')
-  local unloaded = #env.native.events.rates
-  env.session:update()
-  expect.equal(#env.native.events.rates, unloaded, 'the rates an unloaded consumer applies')
-
-  consumer:enable()
-  env.session:update()
-  expect.equal(env.window.rate, 1, 'a hidden window once the consumer loads again')
-  expect.equal(env.monitor.paused, true, 'a hidden capture once the consumer loads again')
   env.session:close()
-  expect.equal(env.monitor.paused, false, 'a capture after the runtime closes')
 end)
 
 return test

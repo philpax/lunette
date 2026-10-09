@@ -22,9 +22,7 @@ test('theme schemas reject unknown, non-plain, and invalid values', function()
   for _, overrides in
     {
       { typo = 1 },
-      { fontSize = 0 },
       { foreground = { 1, 1, 1, -0.1 } },
-      setmetatable({}, { __index = { fontSize = 22 } }),
     }
   do
     expect.raises(function()

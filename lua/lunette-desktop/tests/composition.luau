@@ -1,4 +1,4 @@
--- Composition preserves default entry order, checks patches during load, and supports provider replacement and plugin insertion.
+-- Composition configures entries by id, checks options during load, and supports provider replacement and plugin insertion.
 local testing = require '@testing'
 local vrUi = require '@testing/vr-ui'
 local expect = testing.expect
@@ -10,79 +10,28 @@ local frameContract = require '@lunette-contracts/frame'
 
 local test = testing.suite()
 
-local DEFAULT_IDS = table.concat({
-  'frame',
-  'theme',
-  'themes',
-  'theme/standard',
-  'theme/arcade',
-  'surfaces',
-  'panels',
-  'drops',
-  'focus',
-  'bindings',
-  'interaction',
-  'laser',
-  'keyboard',
-  'ui',
-  'menu',
-  'desktop/theme',
-  'tags',
-  'rules',
-  'placement',
-  'adoption',
-  'layouts',
-  'layout/arc',
-  'errors',
-  'pacing',
-  'scale',
-  'desktop/render',
-  'desktop/hint',
-  'desktop/decorations',
-  'desktop/pointing',
-  'desktop/input',
-  'desktop/keyboard',
-  'desktop/menu',
-  'desktop/actions',
-  'desktop/errors',
-  'desktop/workspaces',
-  'desktop/monitors',
-  'desktop/rules',
-  'desktop/persistence',
-  'desktop/arrange',
-  'desktop/adoption',
-  'desktop/pacing',
-  'desktop/scale',
-  'desktop/manager',
-}, ' ')
-
-local function ids(entries)
-  local result = {}
-  for index, entry in ipairs(entries) do
-    result[index] = entry.id
-  end
-  return table.concat(result, ' ')
-end
-
-test('the default entries are listed in order and each is configured by its id', function()
-  local entries = desktop.entries()
-  expect.equal(ids(entries), DEFAULT_IDS, 'the default entries')
-  expect.equal(ids(desktop.compose()), DEFAULT_IDS, 'a composition without patches')
-  for _, entry in ipairs(entries) do
+test('each default entry is configured by its id', function()
+  for _, entry in ipairs(desktop.entries()) do
     local patch = desktop.configure(entry.id, entry.definition or entry.factory) {}
     expect.equal(patch.id, entry.id, 'the configure patch of ' .. entry.id)
   end
 end)
 
-test('run checks the composition as the configuration loads, before it binds the callbacks', function()
+test('malformed options raise as the configuration loads, before callbacks bind', function()
   local load = lovr.load
-  expect.raises(function()
-    desktop.run { patches = { { id = 'nope', disabled = true } } }
-  end, 'a patch names nope')
-  expect.equal(lovr.load, load, 'a malformed composition binds nothing')
-  expect.raises(function()
-    desktop.compose({ patch = {} } :: any)
-  end, 'the options: unknown field patch')
+  for _, case in ipairs {
+    { options = { patches = { { id = 'nope', disabled = true } } }, message = 'a patch names nope' },
+    { options = { settings = { keyboard = {} } }, message = 'option keyboard is not a declared field' },
+    {
+      options = { settings = { keyboardDisplay = {} }, patches = { { id = 'desktop/keyboard', config = {} } } },
+      message = 'two patches name desktop/keyboard',
+    },
+  } do
+    expect.raises(function()
+      desktop.run(case.options :: any)
+    end, case.message)
+    expect.equal(lovr.load, load, 'invalid options bind no callbacks')
+  end
 end)
 
 test('a provider built and wrapped by a patch replaces the built-in, and an inserted plugin draws', function()

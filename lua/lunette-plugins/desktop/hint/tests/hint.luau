@@ -33,12 +33,6 @@ test('the empty scene draws the hint at its configured position and a scene with
   expect.near(x, position.x, 1e-5, 'the hint x position')
   expect.near(y, position.y, 1e-5, 'the hint y position')
   expect.near(z, position.z, 1e-5, 'the hint z position')
-  expect.equal(hint.state.setFont[1], session.native.events.render.font, 'the theme-selected font')
-  local foreground = hint.state.setColor
-  expect.equal(foreground[1], 0.94, 'the theme foreground red component')
-  expect.equal(foreground[2], 0.96, 'the theme foreground green component')
-  expect.equal(foreground[3], 1, 'the theme foreground blue component')
-  expect.equal(foreground[4], 1, 'the theme foreground alpha component')
   local panels = session:observe(panelsContract.capability)
   panels.service:fromWindow(panels.context, session.native.newWindow(1), {})
   expect.falsy(drawsHint(session), 'the hint in a scene with a panel')

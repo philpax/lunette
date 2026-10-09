@@ -1,155 +1,102 @@
 local testing = require '@testing'
 local expect = testing.expect
-local plugin = require '@lunette-plugin'
-local panelsContract = require '@lunette-contracts/panels'
+local contract = require '@lunette-contracts/panels'
 
 local test = testing.suite()
 
 local function start(config)
   local env = { native = testing.native() }
   env.session = testing.start {
-    { id = 'theme', definition = require('@lunette-plugins/theme').definition },
+    'theme',
     { id = 'panels', definition = require('@lunette-plugins/panels').definition, config = config },
   }
-  env.consumer = env.session:use(plugin.define {
-    name = 'panels-test',
-    requires = { panels = panelsContract.capability },
-    init = function(context)
-      env.panels = context:require(panelsContract.capability)
-      env.owner = context
-    end,
-  })
+  local first = env.session:observe(contract.capability)
+  env.panels, env.owner = first.service, first.context
+  env.other = env.session:observe(contract.capability).context
   return env
 end
 
-local function another(env)
-  return env.session:observe(panelsContract.capability).context
-end
-
-local function monitor(id)
-  return {
-    id = id,
-    name = 'monitor ' .. id,
-    dead = false,
-    width = 1920,
-    height = 1080,
-    getTexture = function()
-      return false
-    end,
-  }
-end
-
-test('a panel takes its size from its source, and is found by its source', function()
+test('a panel takes its size from its source, is found by it, and only its creator destroys it', function()
   local env = start()
   local source = env.native.newWindow(17)
   source.width, source.height = 800, 600
   local panel = env.panels:fromWindow(env.owner, source, { height = 1 })
-  local monitorPanel = env.panels:fromMonitor(env.owner, monitor 'monitor-17', { height = 1 })
   expect.equal(panel.kind, 'window', 'the kind')
-  expect.equal(panel.source, source, 'the source')
   expect.near(panel.width, 4 / 3, 1e-9, 'the width')
-  expect.equal(panel.height, 1, 'the height')
-  expect.equal(monitorPanel.kind, 'monitor', 'the monitor kind')
-  expect.falsy(monitorPanel.claim, 'a monitor panel claims no layer')
-  expect.equal(#env.panels:all(), 2, 'the panels')
   expect.equal(env.panels:forSource { id = 17 }, panel, 'the panel found by window id')
-  expect.equal(env.panels:forSource { id = 'monitor-17' }, monitorPanel, 'the panel found by monitor id')
-  expect.falsy(panel.highlighted, 'the highlight of a new panel')
-  panel:setHighlighted(true)
-  expect.truthy(panel.highlighted, 'the highlight once set')
-  env.session:close()
-end)
-
-test('monitor panel sizing follows oriented geometry and preserves the selected size axis', function()
-  local env = start()
-  local source = monitor 'portrait'
-  source.logicalWidth, source.logicalHeight = 1080, 1920
-  local widthPanel = env.panels:fromMonitor(env.owner, source, { width = 1 })
-  expect.near(widthPanel.height, 1920 / 1080, 1e-9, 'portrait aspect does not use the landscape mode')
-  source.logicalWidth, source.logicalHeight = 1920, 1080
-  env.panels:update()
-  expect.equal(widthPanel.width, 1)
-  expect.near(widthPanel.height, 1080 / 1920, 1e-9, 'rotation refreshes the panel aspect')
-  widthPanel:setSize(nil, 0.5)
-  source.logicalWidth, source.logicalHeight = 1080, 1920
-  env.panels:update()
-  expect.equal(widthPanel.height, 0.5)
-  expect.near(widthPanel.width, 0.5 * 1080 / 1920, 1e-9, 'height remains the selected size axis')
-  widthPanel:setSize(1, 0.7)
-  source.logicalWidth, source.logicalHeight = 1920, 1080
-  env.panels:update()
-  expect.equal(widthPanel.width, 1)
-  expect.equal(widthPanel.height, 0.7, 'explicit dimensions do not change with the source')
-  local pending = monitor 'pending-mode'
-  pending.width, pending.height = 0, 0
-  local pendingPanel = env.panels:fromMonitor(env.owner, pending, { width = 1 })
-  pending.width, pending.height = 1080, 1920
-  env.panels:update()
-  expect.equal(pendingPanel.width, 1, 'the width once unavailable dimensions arrive')
-  expect.near(pendingPanel.height, 1920 / 1080, 1e-9, 'the source aspect acquired on update')
-  env.session:close()
-end)
-
-test('only a plugin requiring panels creates one, and only its creator destroys it', function()
-  local env = start()
-  local source = env.native.newWindow(17)
-  local raised
-  env.session:use(plugin.define {
-    name = 'panels-test-without',
-    init = function(context)
-      raised = not pcall(function()
-        env.panels:fromWindow(context, source, { height = 1 })
-      end)
-    end,
-  })
-  expect.truthy(raised, 'creating a panel without requiring panels raised')
-  local panel = env.panels:fromWindow(env.owner, source, { height = 1 })
-  local stranger = another(env)
+  expect.equal(env.panels:inspect().registrations[1].owner, env.owner, 'the inspected owner')
   expect.raises(function()
-    panel:destroy(stranger)
+    panel:destroy(env.other)
   end, nil, 'a stranger destroying the panel')
-  expect.falsy(panel.dead, 'the panel a stranger tried to destroy')
   expect.truthy(panel:destroy(env.owner), 'the creator destroys it')
-  expect.falsy(panel:destroy(env.owner), 'destroying it again')
   expect.equal(#env.panels:all(), 0, 'the panels')
   env.session:close()
 end)
 
-test('a panel over a dead source is removed on update, and not taken for its replacement', function()
+test('a monitor panel follows its oriented geometry, and is removed once its source dies', function()
   local env = start()
-  local replugged = monitor 'monitor-18'
-  local panel = env.panels:fromMonitor(env.owner, replugged, { height = 1 })
-  replugged.dead = true
-  expect.equal(env.panels:forSource(monitor 'monitor-18'), nil, 'the replacement source')
+  local source = env.native.newMonitor 'portrait'
+  source.logicalWidth, source.logicalHeight = 1080, 1920
+  local panel = env.panels:fromMonitor(env.owner, source, { width = 1 })
+  expect.near(panel.height, 1920 / 1080, 1e-9, 'the portrait aspect')
+  source.logicalWidth, source.logicalHeight = 1920, 1080
+  env.panels:update()
+  expect.near(panel.height, 1080 / 1920, 1e-9, 'rotation refreshes the aspect')
+  source.dead = true
   env.panels:update()
   expect.truthy(panel.dead, 'the panel after its source died')
   expect.equal(#env.panels:all(), 0, 'the panels')
   env.session:close()
 end)
 
-test('a claim that fails as a panel is created registers nothing, and a retry succeeds', function()
+test('listeners hear arrivals and removals, and a raising listener is reported while the others run', function()
+  local env = start()
+  local added, removed, everything = {}, {}, {}
+  env.panels:onAdded(env.owner, function(created)
+    added[#added + 1] = created
+  end)
+  env.panels:onAdded(env.owner, function()
+    error 'arrival listener failed'
+  end)
+  local first = env.panels:fromWindow(env.owner, env.native.newWindow(1), { height = 1 })
+  local second = env.panels:fromWindow(env.owner, env.native.newWindow(2), { height = 1 })
+  expect.equal(added[1], first, 'the first arrival')
+  expect.equal(#added, 2, 'the arrivals heard')
+  env.panels:onRemoved(env.owner, {
+    panel = first,
+    run = function(target)
+      removed[#removed + 1] = target
+    end,
+  })
+  env.panels:onRemoved(env.owner, {
+    run = function(target)
+      everything[#everything + 1] = target
+    end,
+  })
+  second:destroy(env.owner)
+  expect.equal(#removed, 0, 'a listener for one panel does not hear another')
+  first:destroy(env.owner)
+  expect.equal(removed[1], first, 'the removed panel')
+  expect.equal(#everything, 2, 'a listener for every panel')
+  expect.equal(#env.native.events.reported, 2, 'each raising arrival is reported')
+  env.session:close()
+end)
+
+test('the most recent live override decides whether a panel is hidden', function()
   local env = start { rendering = 'layer' }
-  local native = require '@lunette'
-  local existing = env.native.newWindow(301)
-  local kept = env.panels:fromWindow(env.owner, existing)
-  local source = env.native.newWindow(302)
-  local claim = native.claimLayer
-  native.claimLayer = function()
-    native.claimLayer = claim
-    error 'fixture: initial claim failure'
-  end
-  expect.raises(function()
-    env.panels:fromWindow(env.owner, source)
-  end, 'fixture: initial claim failure', 'the failing creation')
-  expect.equal(#env.panels:all(), 1, 'the panels after the failure')
-  expect.equal(env.panels:forSource(existing), kept, 'the existing panel')
-  expect.equal(env.panels:forSource(source), nil, 'the source of the failed panel')
-  expect.equal(#env.native.events.claims, 1, 'the claims after the failure')
-  local retried = env.panels:fromWindow(env.owner, source)
-  expect.equal(env.panels:forSource(source), retried, 'the retried panel')
-  expect.equal(#env.native.events.claims, 2, 'the claims after the retry')
-  env.consumer:disable()
-  expect.truthy(kept.dead and retried.dead, 'the panels after the owner ended')
+  local panel = env.panels:fromWindow(env.owner, env.native.newWindow(1), { height = 1 })
+  local claim = panel.claim
+  local hiding = panel:setHidden(env.owner, { hidden = true })
+  expect.truthy(panel.hidden, 'the hidden panel')
+  expect.truthy(claim.dead, 'hiding gives up the layer claim')
+  expect.equal(panel:raycast(vector.pack(0, 0, 0), vector.pack(0, 0, -1)), nil, 'a hidden panel is not picked')
+  local showing = panel:setHidden(env.other, { hidden = false })
+  expect.falsy(panel.hidden, 'the newer override shows the panel')
+  hiding:dispose()
+  showing:dispose()
+  expect.falsy(panel.hidden, 'with no override the panel is shown')
+  env.panels:update()
+  expect.truthy(panel.claim and not panel.claim.dead, 'a shown panel claims again')
   env.session:close()
 end)
 

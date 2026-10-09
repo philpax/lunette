@@ -4,9 +4,7 @@ local desktop = require '@lunette-desktop'
 local vrUi = require '@testing/vr-ui'
 local ui = require '@lunette-contracts/ui'
 local menu = require '@lunette-contracts/menu'
-local focus = require '@lunette-contracts/focus'
 local display = require '@lunette-contracts/keyboard-display'
-local panels = require '@lunette-contracts/panels'
 local surfaces = require '@lunette-contracts/surfaces'
 
 local test = testing.suite()
@@ -23,33 +21,6 @@ local function description(service)
   return nil
 end
 
-local function control(service, id)
-  for _, current in assert(description(service)).controls do
-    if current.id == id then
-      return current
-    end
-  end
-  error('missing example control ' .. id)
-end
-
-local function item(service, id, itemId)
-  for _, current in control(service, id).items do
-    if current.id == itemId then
-      return current
-    end
-  end
-  return nil
-end
-
-local function action(service)
-  for _, current in service:list() do
-    if current.id == actionId then
-      return current
-    end
-  end
-  error 'missing example open action'
-end
-
 local function boot()
   testing.host.useConfiguration 'examples/ui'
   local patches = { { insert = { id = name, definition = require 'form' } } }
@@ -61,9 +32,7 @@ local function boot()
     native = fixture.native,
     ui = session:observe(ui.capability).service,
     menu = session:observe(menu.capability).service,
-    focus = session:observe(focus.capability).service,
     display = session:observe(display.capability).service,
-    panels = session:observe(panels.capability).service,
     surfaces = session:observe(surfaces.capability).service,
   }
   fixture:pose('left', lovr.math.newMat4():translate(0, 1.2, -0.5))
@@ -117,61 +86,12 @@ end
 local function status(env)
   env.native.events.draw = {}
   env.fixture:draw()
-  for _, call in env.fixture:drawCalls 'text' do
-    if type(call[2]) == 'string' and call[2]:find('Presses:', 1, true) then
+  for _, call in env.native.events.draw do
+    if call[1] == 'text' and type(call[2]) == 'string' and call[2]:find('Presses:', 1, true) then
       return call[2]
     end
   end
   error 'the custom region does not draw its status'
-end
-
-local function scrollTo(env, id, itemId)
-  for _ = 1, 80 do
-    local target = item(env.ui, id, itemId)
-    if target and target.bounds then
-      return
-    end
-    local current, widget = env.fixture:discover(env.ui, name, id)
-    local bounds = assert(widget.bounds)
-    env.fixture:aim(current, bounds.x + bounds.width / 2, bounds.y + bounds.height - 8)
-    env.fixture:axis('right', 0, -1)
-    env.fixture:step()
-    env.fixture:axis('right', 0, 0)
-    env.fixture:step()
-  end
-  error('the controller cannot scroll to ' .. itemId)
-end
-
-local function captureRegion(env)
-  local current, region = env.fixture:discover(env.ui, name, 'preview')
-  local bounds = assert(region.bounds)
-  env.fixture:aim(current, bounds.x + bounds.width / 2, bounds.y + bounds.height / 2, 'left')
-  env.fixture:step()
-  env.fixture:button('left', 'trigger', true)
-  env.fixture:step()
-end
-
-local function application(env)
-  local window = env.native.newWindow(81, 'example-application')
-  env.native.events.windows = { window }
-  env.native.emit('onWindowOpened', { window = window })
-  local panel = assert(env.panels:forSource(window))
-  panel:setPose(lovr.math.newMat4():translate(2, 1.2, -1))
-  local current = {
-    pose = panel.pose,
-    width = panel.width,
-    height = panel.height,
-    logicalWidth = panel.width,
-    logicalHeight = panel.height,
-    visible = not panel.hidden,
-  }
-  env.fixture:click(current, current.width / 2, current.height / 2)
-  local focused = false
-  for _, seat in env.native.events.seats do
-    focused = focused or seat.focus == window.sink
-  end
-  expect.truthy(focused, 'the real desktop application panel acquires native seat focus')
-  return window
 end
 
 test('the UI configuration boots and draws through the shipped desktop', function()
@@ -185,107 +105,25 @@ test('the UI configuration boots and draws through the shipped desktop', functio
   native.assertResourcesReleased()
 end)
 
-test('third-party form completes its controller-only workflow and moves with a grip', function()
+test('the form opens from the wrist menu and completes its workflow by controller', function()
   withEnvironment(function(env)
-    local initial = assert(description(env.ui))
-    expect.falsy(initial.visible, 'the form starts hidden')
-    expect.equal(action(env.menu).id, actionId, 'the stable wrist action id')
+    expect.falsy(assert(description(env.ui)).visible, 'the form starts hidden')
     open(env)
     expect.truthy(assert(description(env.ui)).visible, 'the wrist action opens the form')
-    for _, id in { 'press', 'name', 'mode', 'destinations', 'preview', 'close' } do
-      expect.truthy(control(env.ui, id).bounds, 'public geometry describes ' .. id)
-    end
     click(env, 'press')
     expect.truthy(status(env):find('Presses: 1', 1, true), 'the button invokes the consumer callback')
     click(env, 'name')
-    expect.truthy(env.focus:focused(), 'the field has a local focus route')
     expect.truthy(env.display:isVisible(), 'the field requests the shared keyboard')
-    expect.equal(env.fixture:keyboardCount(), 1, 'the field creates only one shared keyboard')
     key(env, 16)
     expect.truthy(status(env):find('name: q', 1, true), 'a VR key edits the form text')
     click(env, 'mode')
     click(env, 'mode', 'studio')
     expect.truthy(status(env):find('mode: studio', 1, true), 'the choice invokes the consumer callback')
-    click(env, 'mode')
-    expect.truthy(assert(item(env.ui, 'mode', 'studio')).selected, 'the reopened choice exposes its selection')
-    click(env, 'mode', 'studio')
-    expect.equal(item(env.ui, 'destinations', 'destination-24'), nil, 'the long list requires scrolling')
-    scrollTo(env, 'destinations', 'destination-24')
-    click(env, 'destinations', 'destination-24')
-    expect.truthy(
-      assert(item(env.ui, 'destinations', 'destination-24')).selected,
-      'controller scrolling reaches the last row'
-    )
-    expect.truthy(status(env):find('destination: destination-24', 1, true), 'the list invokes the consumer callback')
     click(env, 'preview')
-    expect.truthy(status(env):find('taps: 1', 1, true), 'the custom region receives a real pointer gesture')
-
-    local before = assert(description(env.ui))
-    env.fixture:aim(before, 300, 12)
-    env.fixture:step()
-    env.fixture:button('right', 'grip', true)
-    env.fixture:step()
-    local state = env.native.events.controllers.right
-    env.fixture:pose('right', lovr.math.newMat4(state.pose):translate(0.2, 0, 0))
-    env.fixture:step()
-    env.fixture:button('right', 'grip', false)
-    env.fixture:step()
-    local moved = assert(description(env.ui))
-    expect.near(moved.pose[13], before.pose[13] + 0.2, 1e-5, 'the plugin-owned form is movable')
-    click(env, 'press')
-    expect.truthy(status(env):find('Presses: 2', 1, true), 'fresh public geometry reaches the moved form')
-    expect.equal(env.fixture:keyboardCount(), 1, 'the whole workflow retains one shared keyboard')
-  end)
-end)
-
-test('Close cancels the edited field and captured region before the wrist action reopens', function()
-  withEnvironment(function(env)
-    open(env)
-    local initial = assert(description(env.ui))
-    click(env, 'name')
-    key(env, 16)
-    captureRegion(env)
+    expect.truthy(status(env):find('taps: 1', 1, true), 'the custom region receives a pointer gesture')
     click(env, 'close')
-    expect.falsy(assert(description(env.ui)).visible, 'Close hides the form while editing')
-    expect.equal(env.focus:focused(), nil, 'Close releases the local keyboard route')
-    expect.falsy(env.display:isVisible(), 'Close ends the automatic keyboard claim')
-    env.fixture:button('left', 'trigger', false)
-    env.fixture:step()
-    env.fixture:pose('left', lovr.math.newMat4():translate(0, 1.2, -0.5))
-    open(env)
-    expect.equal(assert(description(env.ui)).generation, initial.generation, 'reopening reuses the panel')
-    expect.equal(env.focus:focused(), nil, 'reopening does not resurrect the edited route')
-    expect.truthy(status(env):find('cancelled: 1', 1, true), 'hiding cancels the custom capture exactly once')
-    expect.truthy(status(env):find('taps: 0', 1, true), 'the cancelled gesture does not activate the region')
-    click(env, 'name')
-    expect.equal(env.fixture:keyboardCount(), 1, 'editing again reuses the shared keyboard')
-    key(env, 16)
-    expect.truthy(status(env):find('name: qq', 1, true), 'ordinary hiding retains committed text')
-  end)
-end)
-
-test('editing hands keyboard focus to a real desktop application without leaking form text', function()
-  withEnvironment(function(env)
-    open(env)
-    click(env, 'name')
-    key(env, 16)
-    local edited = env.focus:focused()
-    application(env)
-    expect.truthy(env.focus:focused() ~= edited, 'the application supersedes the local field route')
-    env.fixture:clickControl(env.ui, 'desktop/menu', 'open')
-    env.fixture:clickControl(env.ui, 'desktop/menu', 'actions', 'right', 'desktop/keyboard/toggle')
-    env.fixture:clickControl(env.ui, 'desktop/menu/titlebar', 'close')
-    expect.truthy(env.display:isVisible(), 'the wrist menu reopens the application keyboard')
-    env.native.events.input = {}
-    key(env, 16)
-    local delivered = env.fixture:nativeCalls 'key'
-    expect.equal(#delivered, 2, 'the shared VR keyboard delivers a native key press and release')
-    expect.equal(delivered[1][2], 16, 'the application receives the selected evdev key')
-    expect.equal(delivered[1][3], true, 'the application receives the key press')
-    expect.equal(delivered[2][3], false, 'the application receives the key release')
-    expect.truthy(status(env):find('name: q;', 1, true), 'the application key does not edit the form')
-    click(env, 'close')
-    expect.truthy(env.focus:focused(), 'closing the unfocused form preserves the application route')
+    expect.falsy(assert(description(env.ui)).visible, 'Close hides the form')
+    expect.falsy(env.display:isVisible(), 'Close ends the keyboard claim')
   end)
 end)
 

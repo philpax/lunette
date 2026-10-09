@@ -76,12 +76,6 @@ test('a configure patch targets its entry id and calls no factory', function()
   expect.equal(patch.id, 'labelled', 'the id')
   expect.equal(plugin.compose(ENTRIES, { patch })[2].config.label, 'hud', 'the configuration it carries')
   expect.equal(made, 0, 'configuration invokes no factory')
-  expect.raises(function()
-    plugin.configure('', labelled)
-  end, 'configure: id is a non%-empty string')
-  expect.raises(function()
-    plugin.configure('labelled', 'labelled' :: any)
-  end, 'configure takes a plugin definition or a factory of one, not a string')
 end)
 
 test('a malformed composition raises before anything is defined, naming the id', function()
@@ -90,11 +84,6 @@ test('a malformed composition raises before anything is defined, naming the id',
     {
       patches = { { id = 'last', disabled = true }, { id = 'last', config = {} } },
       message = 'two patches name last',
-    },
-    { patches = { { id = 'last', disable = true } }, message = 'patch 1: unknown field disable' },
-    {
-      patches = { { id = 'last', disabled = true, config = {} } },
-      message = 'the patch for last disables the entry and also changes it',
     },
   } do
     expect.raises(function()

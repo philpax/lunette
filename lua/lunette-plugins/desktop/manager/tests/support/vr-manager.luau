@@ -6,74 +6,29 @@ local frameProvider = require '@lunette-plugins/frame'
 local desktop = require '@lunette-desktop'
 local keyboardProvider = require '@lunette-plugins/keyboard'
 local ui = require '@lunette-contracts/ui'
-local menu = require '@lunette-contracts/menu'
 local focus = require '@lunette-contracts/focus'
 local display = require '@lunette-contracts/keyboard-display'
-local keyboard = require '@lunette-contracts/keyboard'
 local surfaces = require '@lunette-contracts/surfaces'
 local vrUi = require '@testing/vr-ui'
 
 local fixture = {}
-local active = {}
 
-function fixture.cleanup()
-  local failures = {}
-  for index = #active, 1, -1 do
-    local env = active[index]
-    active[index] = nil
-    local ok, problem = pcall(env.close, env)
-    if not ok then
-      failures[#failures + 1] = tostring(problem)
-    end
-  end
-  if #failures > 0 then
-    error(table.concat(failures, '; '), 0)
-  end
-end
-
-function fixture.testCases(suite)
-  return function(name, run)
-    suite(name, function()
-      local ok, problem = pcall(run)
-      local closed, failure = pcall(fixture.cleanup)
-      local failures = {}
-      if not ok then
-        failures[#failures + 1] = tostring(problem)
-      end
-      if not closed then
-        local cleanupError = tostring(failure)
-        if not ok then
-          cleanupError = 'cleanup: ' .. cleanupError
-        end
-        failures[#failures + 1] = cleanupError
-      end
-      if #failures > 0 then
-        error(table.concat(failures, '; '), 0)
-      end
-    end)
-  end
-end
-
-function fixture.boot(additions, config)
+-- Boots the shipped desktop with a small keyboard layout and the given entries inserted.
+function fixture.boot(additions)
   local native = testing.native()
-  local services, owner = {}, nil
+  local services = {}
   local observer = plugin.define {
     name = 'manager-vr-observer',
     requires = {
       ui = ui.capability,
-      menu = menu.capability,
       focus = focus.capability,
       display = display.capability,
-      keyboard = keyboard.capability,
       surfaces = surfaces.capability,
     },
     init = function(context)
-      owner = context
       services.ui = context:require(ui.capability)
-      services.menu = context:require(menu.capability)
       services.focus = context:require(focus.capability)
       services.display = context:require(display.capability)
-      services.keyboard = context:require(keyboard.capability)
       services.surfaces = context:require(surfaces.capability)
     end,
   }
@@ -81,23 +36,15 @@ function fixture.boot(additions, config)
   local rows = {
     {
       { label = 'Text', action = { kind = 'text', text = 'next' } },
-      { label = 'Invalid', action = { kind = 'text', text = 'invalid' } },
-      { label = 'Number', action = { kind = 'text', text = '13' } },
-      { label = 'Failure', action = { kind = 'text', text = '99' } },
-      { label = 'Map key', action = { kind = 'text', text = 'added' } },
       { label = 'All', action = { kind = 'chord', code = codes.a, modifiers = { 'control' } } },
-      { label = 'Backspace', code = codes.backspace },
-      { label = 'Enter', code = codes.enter },
-      { label = 'Hide', action = { kind = 'hide' } },
     },
   }
   local patches = {
     { id = 'laser', config = { aim = { enabled = false }, triggerLock = { enabled = false } } },
-    { id = 'desktop/manager', config = config or {} },
     { id = 'keyboard', definition = keyboardProvider.define { rows = rows, layers = {} } },
     { insert = { id = 'manager-vr-observer', definition = observer } },
   }
-  for _, entry in additions or {} do
+  for _, entry in additions do
     patches[#patches + 1] = { insert = entry }
   end
   frameProvider.install { start = function() end, stop = function() end }
@@ -108,50 +55,18 @@ function fixture.boot(additions, config)
   controls:pose('left', lovr.math.newMat4():translate(0, 1.2, -0.5))
   controls:tracked('left', true)
   controls:step()
-  local result = { native = native, services = services, controls = controls, running = running, owner = owner }
-  function result:entry(id)
-    for _, entry in self.running.service:entries() do
-      if entry.id == id then
-        return entry
-      end
-    end
-    return nil
-  end
-  function result:open()
+  local env = { native = native, services = services, controls = controls, running = running }
+  function env:open()
     self.controls:clickControl(self.services.ui, 'desktop/menu', 'open')
     self.controls:clickControl(self.services.ui, 'desktop/menu', 'actions', 'right', 'desktop/manager/open')
     self.controls:clickControl(self.services.ui, 'desktop/menu/titlebar', 'close')
-    self:click 'graph-view'
   end
-  function result:click(id, itemId, hand)
-    self.controls:clickControl(
-      self.services.ui,
-      if id == 'close' then 'desktop/manager/titlebar' else 'desktop/manager',
-      id,
-      hand or 'right',
-      itemId
-    )
+  function env:click(id, itemId)
+    local panel = if id == 'close' then 'desktop/manager/titlebar' else 'desktop/manager'
+    self.controls:clickControl(self.services.ui, panel, id, 'right', itemId)
   end
-  function result:choice(itemId)
-    self:click 'choice-field'
-    for _ = 1, 32 do
-      local description, control = self.controls:discover(self.services.ui, 'desktop/manager', 'choice-field')
-      for _, item in control.items do
-        if item.id == itemId and item.bounds then
-          self:click('choice-field', itemId)
-          return
-        end
-      end
-      local bounds = control.bounds
-      self.controls:aim(description, bounds.x + bounds.width / 2, bounds.y + bounds.height - 12, 'right')
-      self.controls:axis('right', 0, -1)
-      self.controls:step()
-      self.controls:axis('right', 0, 0)
-      self.controls:step()
-    end
-    error('choice option is not reachable: ' .. itemId)
-  end
-  function result:item(id, itemId)
+  -- Scrolls a list with the thumbstick until the item is visible, then clicks it.
+  function env:item(id, itemId)
     for _ = 1, 128 do
       local description, control = self.controls:discover(self.services.ui, 'desktop/manager', id)
       for _, item in control.items do
@@ -169,23 +84,19 @@ function fixture.boot(additions, config)
     end
     error('list item is not reachable: ' .. itemId)
   end
-  function result:row(itemId)
-    self:item('rows', itemId)
-  end
-  function result:description()
+  function env:visible()
     for _, panel in self.services.ui:panels() do
       local description = panel:describe()
       if description.name == 'desktop/manager' then
-        return description
+        return description.visible
       end
     end
     error 'manager panel is absent'
   end
-  function result:key(label)
+  function env:key(label)
     local board
     for _, surface in self.services.surfaces:all() do
       if surface.keys and surface.setVisible then
-        assert(board == nil, 'there is exactly one offered keyboard')
         board = surface
       end
     end
@@ -206,25 +117,11 @@ function fixture.boot(additions, config)
     end
     error('keyboard has no key ' .. label)
   end
-  function result:keyboardCount()
-    local count = 0
-    for _, registration in self.services.keyboard:inspect().registrations do
-      if registration.kind == 'keyboard' and registration.live then
-        count += 1
-      end
-    end
-    return count
-  end
-  function result:close()
-    if self.closed then
-      return
-    end
-    self.closed = true
+  function env:close()
     self.running.runtime:close()
     self.native.assertResourcesReleased()
   end
-  active[#active + 1] = result
-  return result
+  return env
 end
 
 return fixture

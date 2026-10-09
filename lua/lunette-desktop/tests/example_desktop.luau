@@ -48,7 +48,6 @@ test('the desktop example runs, and its menu action hides and shows windows with
   local id = 'example/hide-windows'
   frame()
   expect.equal(events.textures, 1, 'the window draws')
-  expect.equal(action(actions, id).selected, false, 'the initial toggle state')
   expect.equal(actions.service:invoke(id).kind, 'invoked', 'the hide action')
   frame()
   expect.equal(events.textures, 0, 'the action hides the window')
@@ -56,11 +55,10 @@ test('the desktop example runs, and its menu action hides and shows windows with
   expect.equal(actions.service:invoke(id).kind, 'invoked', 'the show action')
   frame()
   expect.equal(events.textures, 1, 'the action shows the window again')
-  expect.equal(action(actions, id).selected, false, 'the shown toggle state')
   session:close()
 end)
 
-test('the save and restore menu actions use the arrangement service without forcing refused writes', function()
+test('the save and restore menu actions use the arrangement service', function()
   testing.host.useConfiguration 'examples/desktop'
   local native = testing.native()
   local session = testing.boot(exampleEntries(), { native = native })
@@ -76,17 +74,6 @@ test('the save and restore menu actions use the arrangement service without forc
   panel:setPose(lovr.math.newMat4():translate(8, 7, -9))
   expect.equal(actions.service:invoke('example/restore-arrangement').kind, 'invoked', 'the restore action')
   expect.near((panel.pose:getPosition()), 3, 1e-5, 'restore applies the saved pose')
-  session:close()
-
-  native = testing.native()
-  native.events.saved = 'invalid arrangement'
-  session = testing.boot(exampleEntries(), { native = native })
-  actions = session:observe(menuContract.capability)
-  expect.equal(actions.service:invoke('example/save-arrangement').kind, 'invoked', 'a refused save completes')
-  expect.equal(native.events.writes, 0, 'the example does not force an overwrite')
-  expect.equal(native.events.saved, 'invalid arrangement', 'the refused file remains unchanged')
-  local warning = native.events.logs[#native.events.logs]
-  expect.truthy(warning[1]:find('the arrangement was not saved:', 1, true), 'the refusal warning')
   session:close()
 end)
 

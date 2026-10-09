@@ -72,7 +72,7 @@ local inspection = require '@lunette-contracts/inspection'
 
 export type Service = {
   read inspect: (Service) -> inspection.Snapshot,
-  -- Returns false for a batch id that is not current. docs/dev/lua-api.md states the protocol.
+  -- Returns false for a batch id that is not current. docs/dev/input.md#physical-input-batches states the protocol.
   read blockText: (Service, number) -> boolean,
   -- Registration reports the current batch immediately if one exists.
   read onBatch: (Service, Owner, BatchHandler) -> plugin.Effect,

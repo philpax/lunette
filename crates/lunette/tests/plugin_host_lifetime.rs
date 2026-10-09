@@ -54,15 +54,6 @@ impl ExternalState {
         self.lua.exec_raw_lua(|raw| raw.mark_closed());
         // SAFETY: this is the unique owner, and no callback is executing.
         unsafe { mlua::ffi::lua_close(self.raw) };
-        std::mem::forget(self);
-    }
-}
-
-impl Drop for ExternalState {
-    fn drop(&mut self) {
-        self.lua.exec_raw_lua(|raw| raw.mark_closed());
-        // SAFETY: this is the unique owner, and no callback is executing.
-        unsafe { mlua::ffi::lua_close(self.raw) };
     }
 }
 

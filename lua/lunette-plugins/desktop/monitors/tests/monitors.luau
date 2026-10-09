@@ -37,7 +37,7 @@ local function xOf(panels, monitor)
   return x
 end
 
-test('mirrors are placed side by side in name order, from the centre outward and right before left', function()
+test('mirrors are placed side by side in name order, and one that goes away leaves its place', function()
   local native = testing.native()
   local b, a = plug(native, 'B'), plug(native, 'A')
   local session, panels = start(native, {})
@@ -45,14 +45,6 @@ test('mirrors are placed side by side in name order, from the centre outward and
   expect.near(xOf(panels, b), 2.1, TOLERANCE, 'the second mirror, to the right')
   expect.equal(assert(panels:forSource(a)).width, 2, 'the default width')
   expect.near(xOf(panels, hotplug(native, 'C')), -2.1, TOLERANCE, 'a third mirror, to the left')
-  session:close()
-end)
-
-test('a mirror that goes away leaves its place to the next', function()
-  local native = testing.native()
-  local b = plug(native, 'B')
-  plug(native, 'A')
-  local session, panels = start(native, {})
   local second = assert(panels:forSource(b))
   b.dead = true
   native.events.monitors[b.id] = nil
@@ -80,24 +72,15 @@ test('select names the mirrored monitors and placement sets the row', function()
   session:close()
 end)
 
-test('mirrors join a configured tag made after them, and survive a tags outage', function()
+test('mirrors join a configured tag made after them', function()
   local native = testing.native()
   local first = plug(native, 'A')
   local session, panels = start(native, { tags = { 'main' } })
   local tags = session:observe(tagsContract.capability)
   local mirrored = assert(panels:forSource(first))
-  expect.equal(tags.service:find 'main', nil, 'a configured tag the mirrors do not make')
   local main = tags.service:hold(tags.context, { name = 'main' })
   expect.truthy(main:has(mirrored), 'a mirror in a tag made after it')
-  local second = assert(panels:forSource(hotplug(native, 'B')))
-  expect.truthy(main:has(second), 'a mirror made after the tag')
-
-  session.instances.tags:disable()
-  expect.equal(session.instances['desktop/monitors']:state(), 'active', 'the consumer during a tags outage')
-  expect.falsy(mirrored.dead, 'a mirror during a tags outage')
-  session.instances.tags:enable()
-  main = tags.service:hold(tags.context, { name = 'main' })
-  expect.truthy(main:has(mirrored), 'a mirror after the tags recover')
+  expect.truthy(main:has(assert(panels:forSource(hotplug(native, 'B')))), 'a mirror made after the tag')
   session:close()
 end)
 

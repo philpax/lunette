@@ -1,29 +1,34 @@
--- Covers how plugin failures are reported.
+-- Covers how plugin failures are reported, diagnosed, and quarantined.
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
 
 local test = testing.suite()
 
-test('an initializer error is reported with its own position and traceback', function()
+local function only(reports, needle)
+  expect.equal(#reports, 1, table.concat(reports, '\n'))
+  expect.truthy(reports[1]:find(needle, 1, true), reports[1])
+  return reports[1]
+end
+
+test('an initializer error fails its instance and is reported with its position and traceback', function()
   local function raiseFromInitializer()
     error 'initializer position failure'
   end
   local runtime = plugin.runtime()
-  runtime
-    :use(
-      plugin.define {
-        name = 'failing',
-        init = function()
-          raiseFromInitializer()
-        end,
-      },
-      {}
-    )
-    :enable()
-  local reports = testing.takeReports()
-  expect.equal(#reports, 1, 'the reports')
-  local report = reports[1]
+  local instance = runtime:use(
+    plugin.define {
+      name = 'failing',
+      init = function()
+        raiseFromInitializer()
+      end,
+    },
+    {}
+  )
+  instance:enable()
+  expect.equal(instance:state(), 'failed', 'the failed load')
+  expect.truthy(tostring(instance:diagnostic()):find('initializer position failure', 1, true), 'the diagnostic')
+  local report = only(testing.takeReports(), 'initializer position failure')
   expect.truthy(report:find '^plugin load: failing %(instance ', 'the report names the definition: ' .. report)
   expect.truthy(
     report:find '@lunette%-plugin/tests/failures%.luau:%d+: initializer position failure',
@@ -35,36 +40,22 @@ test('an initializer error is reported with its own position and traceback', fun
   runtime:close()
 end)
 
-test('requiring an undeclared capability raises at the caller with the capability named', function()
-  local undeclared = plugin.capability { name = 'local/positions-undeclared', schema = 1 }
-  local message
-  local runtime = plugin.runtime()
-  runtime
-    :use(
-      plugin.define {
-        name = 'probe',
-        init = function(context)
-          message = expect.raises(function()
-            context:require(undeclared)
-          end)
-        end,
-      },
-      {}
-    )
-    :enable()
-  expect.truthy(message:find '^@lunette%-plugin/tests/failures%.luau:%d+: ', 'the position: ' .. message)
-  expect.truthy(
-    message:find('plugin require: capability local/positions-undeclared@1 is not declared', 1, true),
-    message
-  )
-  runtime:close()
-end)
-
-test('a consumer of another schema than its provider publishes waits, and its diagnostic says why', function()
+test('a consumer waits unreported for a provider, but a schema mismatch is reported', function()
   local first = plugin.capability { name = 'local/schema-mismatch', schema = 1 }
   local second = plugin.capability { name = 'local/schema-mismatch', schema = 2 }
-  local loaded = false
   local runtime = plugin.runtime()
+  local function consumer(capability)
+    return runtime:use(
+      plugin.define { name = 'consumer', requires = { service = capability }, init = function() end },
+      {}
+    )
+  end
+  local waiting = consumer(first)
+  waiting:enable()
+  expect.equal(waiting:state(), 'inactive', 'the waiting consumer')
+  local reason = tostring(waiting:diagnostic())
+  expect.truthy(reason:find('waiting for a provider of local/schema-mismatch@1', 1, true), reason)
+  expect.equal(#testing.takeReports(), 0, 'waiting is not reported')
   runtime
     :use(
       plugin.define {
@@ -77,55 +68,46 @@ test('a consumer of another schema than its provider publishes waits, and its di
       {}
     )
     :enable()
-  local consumer = runtime:use(
-    plugin.define {
-      name = 'consumer',
-      requires = { service = second },
-      init = function()
-        loaded = true
-      end,
-    },
-    {}
-  )
-  consumer:enable()
-  expect.falsy(loaded, 'the consumer loaded')
-  expect.equal(consumer:state(), 'inactive', 'the consumer')
-  local diagnostic = tostring(consumer:diagnostic())
-  expect.truthy(diagnostic:find('local/schema-mismatch', 1, true), diagnostic)
-  expect.truthy(diagnostic:find('requires', 1, true), diagnostic)
-  local reports = testing.takeReports()
-  expect.equal(#reports, 1, 'the reports')
-  expect.truthy(reports[1]:find(diagnostic, 1, true), 'the report carries the diagnostic: ' .. reports[1])
+  expect.equal(waiting:state(), 'active', 'the consumer once its provider is active')
+  expect.equal(waiting:diagnostic(), nil, 'the diagnostic of the active consumer')
+  local mismatched = consumer(second)
+  mismatched:enable()
+  expect.equal(mismatched:state(), 'inactive', 'the mismatched consumer')
+  local diagnostic = tostring(mismatched:diagnostic())
+  only(testing.takeReports(), diagnostic)
   runtime:close()
 end)
 
-test('a provider whose disposal failed keeps serving its consumers until it unloads', function()
-  local echo = plugin.capability { name = 'local/quarantine-pending-echo', schema = 1 }
-  local released = {}
+test('a failed disposal quarantines its provider once its consumers have unloaded', function()
+  local echo = plugin.capability { name = 'local/quarantine-echo', schema = 1 }
+  local events = {}
   local kept
+  local definition = plugin.define {
+    name = 'provider',
+    provides = { echo = echo },
+    init = function(context, _config, publish)
+      context:effect(function()
+        return function()
+          events[#events + 1] = 'provider remaining'
+        end
+      end)
+      local doomed = context:effect(function()
+        return function()
+          error('the doomed inverse fails', 0)
+        end
+      end)
+      publish:provide(echo, {
+        ping = function(_self, value)
+          return value
+        end,
+        dropDoomed = function(_self)
+          doomed:dispose()
+        end,
+      })
+    end,
+  }
   local runtime = plugin.runtime()
-  local provider = runtime:use(
-    plugin.define {
-      name = 'provider',
-      provides = { echo = echo },
-      init = function(context, _config, publish)
-        local doomed = context:effect(function()
-          return function()
-            error('the doomed inverse fails', 0)
-          end
-        end)
-        publish:provide(echo, {
-          ping = function(_self, value)
-            return value
-          end,
-          dropDoomed = function(_self)
-            doomed:dispose()
-          end,
-        })
-      end,
-    },
-    {}
-  )
+  local provider = runtime:use(definition, {})
   provider:enable()
   local consumer = runtime:use(
     plugin.define {
@@ -136,7 +118,7 @@ test('a provider whose disposal failed keeps serving its consumers until it unlo
         kept = service
         context:effect(function()
           return function()
-            released[#released + 1] = service:ping 'released'
+            events[#events + 1] = 'consumer ' .. service:ping 'served'
           end
         end)
       end,
@@ -147,18 +129,45 @@ test('a provider whose disposal failed keeps serving its consumers until it unlo
 
   expect.raises(function()
     kept:dropDoomed()
-  end, 'the doomed inverse fails', 'the failed disposal')
+  end, 'the doomed inverse fails', 'the failed disposal raises to its caller')
   expect.equal(provider:state(), 'active', 'a provider awaiting quarantine stays active')
   expect.equal(kept:ping 'still served', 'still served', 'a provider awaiting quarantine keeps serving')
+  expect.raises(function()
+    provider:reload {}
+  end, nil, 'a provider awaiting quarantine cannot be reloaded')
 
   provider:disable()
-  expect.equal(consumer:state(), 'inactive', 'the consumer unloads cleanly')
-  expect.equal(released[1], 'released', 'the consumer inverse reached the provider')
+  expect.equal(consumer:state(), 'inactive', 'the consumer unloads')
   expect.equal(provider:state(), 'quarantined', 'the provider once it has unloaded')
-  -- The failed disposal raised to its caller, so the one report is the consumer waiting on the quarantined provider.
-  local reports = testing.takeReports()
-  expect.equal(#reports, 1, 'the reports')
-  expect.truthy(reports[1]:find('is quarantined after a cleanup failure', 1, true), reports[1])
+  expect.equal(table.concat(events, ', '), 'consumer served, provider remaining', 'the cleanup order')
+  expect.truthy(tostring(provider:diagnostic()):find('the doomed inverse fails', 1, true), 'the quarantine cause')
+  only(testing.takeReports(), 'is quarantined after a cleanup failure')
+  expect.raises(function()
+    provider:enable()
+  end, nil, 'a quarantined instance cannot retry')
+  local duplicate = runtime:use(definition, {})
+  expect.raises(function()
+    duplicate:enable()
+  end, nil, 'a quarantined provider keeps its reservation')
+  runtime:close()
+end)
+
+test('an owner label names the definition, also after the owner unloads', function()
+  local held
+  local runtime = plugin.runtime()
+  local instance = runtime:use(
+    plugin.define {
+      name = 'labelled-consumer',
+      init = function(context)
+        held = context
+      end,
+    },
+    {}
+  )
+  instance:enable()
+  expect.equal(plugin.ownerLabel(held), 'labelled-consumer', 'the label')
+  instance:disable()
+  expect.equal(plugin.ownerLabel(held), 'labelled-consumer', 'the label after the unload')
   runtime:close()
 end)
 

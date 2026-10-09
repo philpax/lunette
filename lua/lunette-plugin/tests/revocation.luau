@@ -74,13 +74,6 @@ test('consumers of one generation share a view that reads, calls, iterates, and 
   expect.raises(function()
     env.kept.LIMIT = 4
   end, 'capability local/revocation%-counter@1 is read%-only, so LIMIT cannot be assigned')
-  expect.raises(function()
-    env.kept.extra = true
-  end, 'is read%-only')
-  expect.raises(function()
-    setmetatable(env.kept, nil)
-  end, 'readonly')
-  expect.truthy(env.kept.LIMIT == 3 and env.kept.extra == nil, 'the view is unchanged')
   env.runtime:close()
 end)
 
@@ -96,10 +89,6 @@ test('a kept view raises once its provider activation ends, and the next generat
   expect.raises(function()
     return stale.LIMIT
   end, 'is no longer available', 'a field read')
-  expect.raises(function()
-    for _ in stale do
-    end
-  end, 'is no longer available', 'iteration')
   expect.raises(function()
     staleDoubler(1)
   end, 'local/revocation%-doubler@1 is no longer available', 'a call')

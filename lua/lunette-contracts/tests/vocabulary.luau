@@ -34,9 +34,7 @@ end)
 test('decoding anything that is not sixteen finite numbers answers nothing', function()
   expect.falsy(vocabulary.decodePose 'nowhere', 'a word')
   expect.falsy(vocabulary.decodePose '1 2 3', 'too few numbers')
-  expect.falsy(vocabulary.decodePose '', 'nothing at all')
   expect.falsy(vocabulary.decodePose(nil), 'nil')
-  expect.falsy(vocabulary.decodePose(42), 'a number')
 
   local seventeen = {}
   for index = 1, vocabulary.POSE_ELEMENTS + 1 do

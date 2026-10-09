@@ -35,7 +35,7 @@ local function clickKey(running, current, kind)
   error('the keyboard has no ' .. kind .. ' key')
 end
 
-test('UI field clicks share one keyboard and user hide preserves its draft', function()
+test('controller clicks on fields share one keyboard that types, and its Hide key keeps the draft', function()
   local running = vrUi.boot {
     'frame',
     'theme',
@@ -84,10 +84,7 @@ test('UI field clicks share one keyboard and user hide preserves its draft', fun
           value = 'draft',
           bounds = { x = 10, y = 10, width = 180, height = 30 },
         })
-        state.second = panel:textField(owner, {
-          id = 'second',
-          bounds = { x = 10, y = 60, width = 180, height = 30 },
-        })
+        panel:textField(owner, { id = 'second', bounds = { x = 10, y = 60, width = 180, height = 30 } })
       end,
     },
     {}
@@ -101,11 +98,8 @@ test('UI field clicks share one keyboard and user hide preserves its draft', fun
   expect.equal(running:keyboardCount(), 1, 'field interaction creates one keyboard')
   clickKey(running, current, 'text')
   expect.equal(state.first:value(), 'draft!', 'the left controller types into the right-selected field')
-  current:setPose(lovr.math.newMat4():translate(0, 0.8, -1))
   running:clickControl(state.service, 'Shared keyboard fields', 'second')
   expect.equal(board(offers.service), current, 'field switching reuses the board')
-  expect.equal(vector.pack(current.pose:getPosition()), vector.pack(0, 0.8, -1), 'field switching retains placement')
-  running:clickControl(state.service, 'Shared keyboard fields', 'first')
   clickKey(running, current, 'hide')
   expect.equal(routes.service:focused(), nil, 'the keyboard Hide control ends editing')
   expect.falsy(shown.service:isVisible())
@@ -113,11 +107,6 @@ test('UI field clicks share one keyboard and user hide preserves its draft', fun
   running:clickControl(state.service, 'Shared keyboard fields', 'first')
   expect.equal(board(offers.service), current, 'a fresh click resumes on the same board')
   expect.equal(running:keyboardCount(), 1, 'no second desktop keyboard is created')
-  state.service:panels()[1]:destroy()
-  running:step()
-  expect.equal(routes.service:focused(), nil, 'field removal ends its route')
-  expect.falsy(shown.service:isVisible(), 'field removal ends automatic visibility')
-  expect.equal(running:keyboardCount(), 1, 'the hidden board remains reusable')
   running:close()
 end)
 

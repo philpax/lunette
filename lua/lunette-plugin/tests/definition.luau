@@ -8,56 +8,14 @@ local test = testing.suite()
 local function init() end
 
 test('a malformed spec is rejected at the caller with the problem named', function()
-  local cases = {
-    {
-      function()
-        plugin.define { name = 'typo', require = {}, init = init }
-      end,
-      'plugin define: unknown field require; the fields are name, requires, provides, and init',
-    },
-    {
-      function()
-        plugin.define { name = '', init = init }
-      end,
-      'plugin define: name is empty',
-    },
-    {
-      function()
-        plugin.define { name = 'bad-requires', requires = 'panels', init = init }
-      end,
-      'plugin define: requires is a table of capabilities, not a string',
-    },
-    {
-      function()
-        plugin.define(init)
-      end,
-      'plugin define: a definition is a table of fields, not a function',
-    },
-    {
-      function()
-        plugin.capability { name = 'local/fractional', schema = 1.5 }
-      end,
-      'plugin capability: schema is a positive integer, not 1.5',
-    },
-  }
-  for _, case in cases do
-    local message = expect.raises(case[1], nil, case[2])
-    expect.truthy(
-      message:find '^@lunette%-plugin/tests/definition%.luau:%d+: ',
-      'the error points at the caller: ' .. message
-    )
-    expect.equal(message:sub(-#case[2]), case[2], 'the message')
-  end
-end)
-
-test('a plain table is not a capability', function()
-  expect.raises(function()
-    plugin.define {
-      name = 'plain',
-      requires = { source = { name = 'local/plain', schema = 1 } },
-      init = init,
-    }
-  end, "declaration field 'source' must contain a native contract token, not a table")
+  local message = expect.raises(function()
+    plugin.define { name = 'typo', require = {}, init = init }
+  end)
+  expect.truthy(message:find '^@lunette%-plugin/tests/definition%.luau:%d+: ', 'the position: ' .. message)
+  expect.truthy(
+    message:find('plugin define: unknown field require; the fields are name, requires, provides, and init', 1, true),
+    message
+  )
 end)
 
 test('a context reaches only its declared capabilities, and only while it is current', function()

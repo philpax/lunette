@@ -1,4 +1,3 @@
--- Source delivery keeps the selected receiver and reports callback failures.
 local testing = require '@testing'
 local sourceModule = require '../source'
 local expect = testing.expect
@@ -49,125 +48,95 @@ local function fixture(receiver, options)
   }
 end
 
-test('local key and text errors fail and are reported once each', function()
+local function recorder(key)
+  local texts = {}
+  return texts,
+    {
+      key = key or function()
+        return false
+      end,
+      text = function(value)
+        texts[#texts + 1] = value
+        return true
+      end,
+    }
+end
+
+test('an unhandled virtual key translates through the keymap with its modifiers', function()
+  local texts, receiver = recorder()
+  local f = fixture(receiver)
+  expect.equal(f.source:key({ code = 30, modifiers = { 'mod5' } }).kind, 'consumed', 'AltGr text fallback')
+  expect.equal(f.translations[1][2][1], 'mod5', 'translation keeps the modifiers')
+  expect.equal(texts[1], 'é', 'the complete character')
+  f.inverse()
+end)
+
+test('shortcut modifiers and translated controls never enter local text', function()
+  local texts, receiver = recorder()
+  local f = fixture(receiver)
+  for _, modifiers in { { 'control' }, { 'logo' }, { 'alt' } } do
+    expect.equal(f.source:key({ code = 30, modifiers = modifiers }).kind, 'unhandled', 'shortcut remains a key')
+  end
+  f.seat.characterFor = function()
+    return '\n'
+  end
+  expect.equal(f.source:key({ code = 30 }).kind, 'unhandled', 'a control character remains a key')
+  expect.equal(#texts, 0, 'no shortcut or control text')
+  f.inverse()
+end)
+
+test('local text receives the full valid string once and invalid UTF-8 is refused', function()
+  local texts, receiver = recorder()
+  local f = fixture(receiver)
+  expect.equal(f.source:text('aé🙂').kind, 'consumed', 'valid text')
+  expect.equal(texts[1], 'aé🙂', 'the full UTF-8 string')
+  expect.equal(f.source:text(string.char(0xc0, 0xaf)).kind, 'refused', 'invalid UTF-8')
+  expect.equal(#texts, 1, 'invalid text never reaches the receiver')
+  f.inverse()
+end)
+
+test('a receiver error fails the delivery and is reported', function()
   local f = fixture {
     key = function()
       error 'receiver key failure'
     end,
     text = function()
-      error 'text receiver failure'
+      return true
     end,
   }
   expect.equal(f.source:key({ code = 30 }).kind, 'failed', 'the receiver failure')
-  expect.equal(#f.translations, 0, 'no translation after failure')
-  local reports = f.reports
-  expect.equal(#reports, 1, 'one reported callback failure')
-  expect.truthy(reports[1].message:find('focus: receiver', 1, true), reports[1].message)
-  expect.truthy(reports[1].message:find('source owner', 1, true), reports[1].message)
-  expect.equal(f.source:text('aé').kind, 'failed', 'failed committed text')
-  expect.equal(#reports, 2, 'text failure is reported once')
+  expect.equal(#f.reports, 1, 'one reported callback failure')
+  expect.truthy(f.reports[1].message:find('receiver key failure', 1, true), f.reports[1].message)
   f.inverse()
 end)
 
-test('virtual unhandled keys translate once with AltGr and physical keys never translate', function()
-  local texts = {}
-  local receiver = {
-    key = function()
-      return false
-    end,
-    text = function(value)
-      texts[#texts + 1] = value
-      return true
-    end,
-  }
-  local f = fixture(receiver)
-  expect.equal(f.source:key({ code = 30, modifiers = { 'shift' } }).kind, 'consumed', 'virtual fallback')
-  expect.equal(#f.translations, 1, 'one live keymap lookup')
-  expect.equal(texts[1], 'é', 'the complete character')
-  f.inverse()
-  f = fixture(receiver, { mode = 'physical' })
-  expect.equal(f.source:key({ code = 30 }).kind, 'unhandled', 'physical activation')
-  expect.equal(#f.translations, 0, 'physical keys do not translate')
-  f.inverse()
-  f = fixture(receiver)
-  expect.equal(f.source:key({ code = 30, modifiers = { 'mod5' } }).kind, 'consumed', 'AltGr text fallback')
-  expect.equal(f.translations[1][2][1], 'mod5', 'translation keeps requested modifiers')
+test('physical text is bound to the batch and route it began with', function()
+  local texts, receiver = recorder()
+  local f = fixture(receiver, { mode = 'physical' })
+  expect.equal(f.source:key({ code = 30 }).kind, 'unhandled', 'physical keys do not translate')
+  expect.equal(#f.translations, 0, 'no keymap lookup')
+  expect.equal(f.source:text('unbound', 1).kind, 'refused', 'no begun batch')
+  f.source:beginBatch(1)
+  f.change { kind = 'local', receiver = receiver, wantsKeyboard = true }
+  expect.equal(f.source:text('stale', 1).kind, 'refused', 'text after a binding changed the route')
+  f.source:beginBatch(2)
+  expect.equal(f.source:text('old', 1).kind, 'refused', 'an old batch')
+  expect.equal(f.source:text('current', 2).kind, 'consumed', 'the current batch')
+  expect.equal(table.concat(texts, ','), 'current', 'only current batch text')
   f.inverse()
 end)
 
-test('shortcut modifiers and translated controls never enter local text', function()
-  local count = 0
-  local f = fixture {
-    key = function()
-      return false
-    end,
-    text = function()
-      count += 1
-      return true
-    end,
-  }
-  for _, modifiers in { { 'control' }, { 'logo' }, { 'alt' } } do
-    expect.equal(f.source:key({ code = 30, modifiers = modifiers }).kind, 'unhandled', 'shortcut remains a key')
-  end
-  expect.equal(#f.translations, 0, 'shortcuts do not translate')
-  for _, character in { '\0', '\n', utf8.char(0x7f), utf8.char(0x85) } do
-    f.seat.characterFor = function()
-      return character
-    end
-    expect.equal(f.source:key({ code = 30 }).kind, 'unhandled', 'control remains a key')
-  end
-  expect.equal(count, 0, 'no control text')
-  f.inverse()
-end)
-
-test('a route changed inside an unhandled key cannot redirect its text continuation', function()
-  local replacementCalls = 0
-  local f
-  f = fixture {
-    key = function()
-      f.change {
-        kind = 'local',
-        receiver = {
-          key = function()
-            return false
-          end,
-          text = function()
-            replacementCalls += 1
-            return true
-          end,
-        },
-        wantsKeyboard = true,
-      }
-      return false
-    end,
-    text = function()
-      error 'old text continuation'
-    end,
-  }
-  expect.equal(f.source:key({ code = 30 }).kind, 'refused', 'the stale operation')
-  expect.equal(#f.translations, 0, 'no stale keymap lookup')
-  expect.equal(replacementCalls, 0, 'no delivery to a replacement')
-  f.inverse()
-end)
-
-test('local text receives the full valid string once and invalid UTF-8 is refused', function()
-  local texts = {}
-  local f = fixture {
-    key = function()
-      return false
-    end,
-    text = function(value)
-      texts[#texts + 1] = value
-      return false
-    end,
-  }
-  expect.equal(f.source:text('aé🙂').kind, 'unhandled', 'receiver refusal is unhandled')
-  expect.equal(#texts, 1, 'one committed text callback')
-  expect.equal(texts[1], 'aé🙂', 'the full UTF-8 string')
-  for _, value in { string.char(0xff), string.char(0xc0, 0xaf), string.char(0xed, 0xa0, 0x80) } do
-    expect.equal(f.source:text(value).kind, 'refused', 'invalid UTF-8')
-  end
-  expect.equal(#texts, 1, 'invalid text never reaches receiver')
+test('a consumed physical key suppresses the text of its batch', function()
+  local texts, receiver = recorder(function()
+    return true
+  end)
+  local f = fixture(receiver, { mode = 'physical' })
+  f.source:beginBatch(4)
+  expect.equal(f.source:key({ code = 30, batch = 4 }).kind, 'consumed', 'the binding consumes its key')
+  expect.equal(f.source:text('a', 4).kind, 'refused', 'text of the same batch')
+  f.source:beginBatch(5)
+  expect.equal(f.source:text('c', 5).kind, 'consumed', 'fresh batch text')
+  expect.equal(table.concat(texts, ','), 'c', 'no consumed-key duplicates')
   f.inverse()
 end)
 

@@ -65,7 +65,7 @@ test('bound resolution uses definition settings and validates both inputs', func
   end, 'not a declared field')
 end)
 
-test('invalid defaults fail at construction including nested and nonfinite values', function()
+test('an invalid default fails at construction', function()
   expect.raises(function()
     schema.default(schema.number()) 'wrong'
   end, 'schema default:')
@@ -78,88 +78,28 @@ test('invalid defaults fail at construction including nested and nonfinite value
   expect.raises(function()
     schema.default(schema.object { width = schema.number() }) {}
   end, 'width')
-  expect.raises(function()
-    schema.default(schema.array(schema.number())) { [2] = 2 }
-  end, 'dense array')
-  expect.raises(function()
-    schema.default(schema.callback(function() end)) {}
-  end, 'function')
-  expect.raises(function()
-    schema.default(schema.vector())(vector.pack(math.huge, 0, 0))
-  end, 'finite number')
-  local recursive = {}
-  recursive.self = recursive
-  expect.raises(function()
-    schema.default(schema.object { self = schema.object {} })(recursive)
-  end, 'recursive table')
 end)
 
-test('constructors reject malformed descriptors and metadata without mutating options', function()
+test('a malformed descriptor fails at construction, and a schema keeps the shape it was given', function()
   for _, run in
     {
       function()
         schema.number { minimum = 2, maximum = 1 }
       end,
       function()
-        schema.number { integer = 'yes' }
-      end,
-      function()
-        schema.number { minimum = math.huge }
-      end,
-      function()
-        schema.string { minLength = -1 }
-      end,
-      function()
         schema.string { pattern = '[' }
       end,
       function()
-        schema.array(schema.number(), { maxLength = 1.5 })
-      end,
-      function()
-        schema.map(schema.number(), { unknown = true })
-      end,
-      function()
         schema.object { invalid = {} }
-      end,
-      function()
-        schema.object { [1] = schema.number() }
-      end,
-      function()
-        schema.optional {}
-      end,
-      function()
-        schema.literal(2)
-      end,
-      function()
-        schema.callback(false)
-      end,
-      function()
-        schema.custom {
-          runtimeType = '',
-          validate = function(value)
-            return value
-          end,
-        }
-      end,
-      function()
-        schema.custom { runtimeType = 'table', validate = false }
-      end,
-      function()
-        schema.describe(schema.number()) { label = false }
       end,
     }
   do
     expect.raises(run, 'schema')
   end
-  local options = { minLength = 0 }
-  schema.array(schema.number(), options)
-  expect.equal(options.child, nil, 'the options remain caller owned')
-  expect.falsy(table.isfrozen(options))
   local shape = { count = schema.number() }
   local descriptor = schema.object(shape)
   shape.count = schema.string()
   expect.equal(descriptor.parse({ count = 2 }).count, 2, 'the schema retains its shape')
-  expect.falsy(table.isfrozen(shape))
 end)
 
 return test

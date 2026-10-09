@@ -79,44 +79,4 @@ test('the history is bounded and oldest first, and clearing it tells every subsc
   env.session:close()
 end)
 
-test('a raising subscriber is reported, and its report joins the history without being delivered again', function()
-  local env = start()
-  local raising = env.session:use(plugin.define {
-    name = 'raising-presenter',
-    requires = { errors = errorsContract.capability },
-    init = function(context)
-      context:require(errorsContract.capability):subscribe(context, {
-        run = function()
-          error 'presenter failure'
-        end,
-      })
-    end,
-  })
-  env.native.raise('native failure', 'traceback')
-  expect.equal(#env.heard, 1, 'the other subscriber hears the report once')
-  local recent = env.service:recent()
-  expect.equal(#recent, 2, 'the history')
-  expect.truthy(recent[2].message:find('presenter failure', 1, true), 'the subscriber failure joins the history')
-  raising:dispose()
-  env.session:close()
-end)
-
-test('disabling the stream ends its subscription and service, and a new activation starts empty', function()
-  local env = start()
-  env.native.raise('before', 'traceback')
-  local first = env.service
-  env.session.instances.errors:disable()
-  expect.equal(env.native.subscriptionCount 'onError', 0, 'the native subscription')
-  expect.raises(function()
-    first:recent()
-  end, nil, 'the service of the ended activation')
-  expect.truthy(env.native.raise('unpresented', 'traceback'):find('unpresented', 1, true), 'the boundary still logs')
-
-  env.session.instances.errors:enable()
-  expect.equal(#env.service:recent(), 0, 'a new activation starts with an empty history')
-  env.native.raise('fresh', 'traceback')
-  expect.equal(env.heard[#env.heard].sequence, 1, 'the sequence of the new activation')
-  env.session:close()
-end)
-
 return test

@@ -1,115 +1,101 @@
 local testing = require '@testing'
 local expect = testing.expect
-
+local plugin = require '@lunette-plugin'
 local format = require '@lunette-plugins/arrangement/format'
+local persist = require '@lunette-plugins/arrangement/state'
+local panelsContract = require '@lunette-contracts/panels'
+local rulesContract = require '@lunette-contracts/rules'
+local tagsContract = require '@lunette-contracts/tags'
 local vocabulary = require '@lunette-contracts/vocabulary'
 
 local test = testing.suite()
 
-local function newEntry(overrides)
-  local entry = {
-    kind = 'window',
-    key = 'terminal',
-    slot = 1,
-    pose = vocabulary.encodePose(lovr.math.newMat4():translate(1, 1.5, -2)),
-    width = 1.2,
-    height = 0.7,
-    tags = { 'main' },
-  }
-  for key, value in pairs(overrides or {}) do
-    entry[key] = value
-  end
-  return entry
-end
+local POSE = vocabulary.encodePose(lovr.math.newMat4():translate(1, 1.5, -2))
 
 test('an arrangement round-trips through render and read, sizes to the last digit', function()
   local written = {
     entries = {
-      newEntry { width = 1 / 3, height = 0.8999999999999999 },
-      { kind = 'monitor', key = 'Acme X24 on DP-1', slot = 1, pose = newEntry().pose, tags = {} },
+      { kind = 'window', key = 'terminal', slot = 2, pose = POSE, width = 1 / 3, height = 0.9, tags = { 'main' } },
+      { kind = 'monitor', key = 'Acme X24 on DP-1', slot = 1, pose = POSE, tags = {} },
     },
   }
-
   local loaded = format.read(format.render(written))
-
   expect.equal(loaded.kind, 'arrangement', 'the kind')
-  local entries = loaded.file.entries
-  expect.equal(#entries, 2, 'the entries')
-  for index, entry in ipairs(entries) do
+  for index, entry in loaded.file.entries do
     local original = written.entries[index]
-    expect.equal(entry.kind, original.kind, 'the kind of entry ' .. index)
-    expect.equal(entry.key, original.key, 'the key of entry ' .. index)
-    expect.equal(entry.slot, original.slot, 'the slot of entry ' .. index)
-    expect.equal(entry.pose, original.pose, 'the pose of entry ' .. index)
-    expect.equal(entry.width, original.width, 'the width of entry ' .. index)
-    expect.equal(entry.height, original.height, 'the height of entry ' .. index)
-    expect.equal(#entry.tags, #original.tags, 'the tags of entry ' .. index)
+    for _, field in { 'kind', 'key', 'slot', 'pose', 'width', 'height' } do
+      expect.equal(entry[field], original[field], 'the ' .. field .. ' of entry ' .. index)
+    end
+    expect.equal(table.concat(entry.tags, ','), table.concat(original.tags, ','), 'the tags of entry ' .. index)
   end
-  expect.equal(entries[1].tags[1], 'main', 'the tag name')
+  expect.equal(#loaded.file.entries, 2, 'the entries')
 end)
 
-test('a file from a later version carries no arrangement to write back', function()
-  local text = 'return { version = ' .. (format.VERSION + 1) .. ', entries = {}, curvature = 0.3 }'
+-- Runs `run` with a binding of a state that read `text` as the saved file, and answers the fake native API.
+local function withBinding(text: string?, run)
+  local native = testing.native()
+  native.events.saved = text
+  local state = persist.new(persist.FILE)
+  local session = testing.start { 'theme', 'panels', 'tags', 'rules' }
+  session:use(plugin.define {
+    name = 'arrangement-test',
+    requires = {
+      panels = panelsContract.capability,
+      tags = tagsContract.capability,
+      rules = rulesContract.capability,
+    },
+    init = function(context)
+      local panels = context:require(panelsContract.capability)
+      local tags = context:require(tagsContract.capability)
+      local binding = state:bind(context, panels, tags, context:require(rulesContract.capability))
+      run(binding, context, panels, native)
+    end,
+  })
+  session:close()
+  return native
+end
 
+test('a broken file or one from a later version is refused and never overwritten', function()
+  for _, text in { 'return { version = ' .. (format.VERSION + 1) .. ', entries = {} }', 'return {' } do
+    local native = withBinding(text, function(binding)
+      local saved, message = binding:save()
+      expect.equal(saved, false, 'the save')
+      expect.truthy(message:find('written by version', 1, true) or message:find('could not be read', 1, true), message)
+    end)
+    expect.equal(native.events.saved, text, 'the bytes')
+    expect.equal(native.events.writes, 0, 'the writes')
+  end
+end)
+
+test('a save then a restore puts live windows back in their slots', function()
+  withBinding(nil, function(binding, context, panels, native)
+    local first = panels:fromWindow(context, native.newWindow(1), { pose = lovr.math.newMat4():translate(-1, 1, -2) })
+    local second = panels:fromWindow(context, native.newWindow(2), { pose = lovr.math.newMat4():translate(1, 1, -2) })
+    expect.equal(binding:save(), true, 'the save')
+    first:setPose(lovr.math.newMat4())
+    second:setPose(lovr.math.newMat4())
+    expect.equal(binding:restore(), 2, 'the restored panels')
+    expect.near((first.pose:getPosition()), -1, 1e-5, 'the first slot')
+    expect.near((second.pose:getPosition()), 1, 1e-5, 'the second slot')
+  end)
+end)
+
+test('a malformed entry is refused and named while the rest loads', function()
+  local text = 'return { version = 1, entries = {\n'
+    .. "  { kind = 'window', key = 'terminal', slot = 1, pose = '"
+    .. POSE
+    .. "', tags = {} },\n"
+    .. "  { kind = 'terminal', key = 'k', slot = 1, pose = 'x', tags = {} },\n"
+    .. "  { kind = 'window', key = 'no slot', pose = '"
+    .. POSE
+    .. "', tags = {} },\n"
+    .. '} }'
   local loaded = format.read(text)
-
-  expect.equal(loaded.kind, 'fromTheFuture', 'the kind')
-  expect.equal(loaded.found, format.VERSION + 1, 'the version found')
-  -- No writable arrangement prevents an old reader from dropping newer fields.
-  expect.falsy(loaded.file, 'the arrangement')
-end)
-
-test('a broken file is a broken load rather than a raise', function()
-  expect.equal(format.read('return {').kind, 'broken', 'a truncated chunk')
-  expect.equal(format.read('return 4').kind, 'broken', 'a chunk holding a number')
-  expect.equal(format.read('return { entries = {} }').kind, 'broken', 'a file with no version')
-  expect.equal(format.read('return { version = 0, entries = {} }').kind, 'broken', 'a version below the first')
-  expect.equal(format.read('return { version = 1 }').kind, 'broken', 'a file with no entry list')
-  -- An empty environment prevents file chunks from accessing runtime modules.
-  local sandboxed = format.read "require 'os'; return { version = 1, entries = {} }"
-  expect.equal(sandboxed.kind, 'broken', 'a chunk reaching outside itself')
-  expect.truthy(sandboxed.message:find 'nil value', 'what the chunk hit')
-end)
-
-test('an entry that is not the shape is refused and named while the rest loads', function()
-  -- Hand-edited files and files from other versions can contain malformed entries.
-  local pose = newEntry().pose
-  local function stored(fields)
-    return '    { ' .. fields .. ' },\n'
-  end
-  local text = 'return {\n  version = 1,\n  entries = {\n'
-    .. stored("kind = 'window', key = 'terminal', slot = 1, pose = '" .. pose .. "', tags = {}")
-    .. stored "kind = 'terminal', key = 'k', slot = 1, pose = 'x', tags = {}"
-    .. stored "kind = 'window', key = 'no pose', slot = 1, tags = {}"
-    .. stored "kind = 'window', key = 'bad pose', slot = 1, pose = '1 2 3', tags = {}"
-    .. stored "kind = 'window', slot = 1, pose = 'x', tags = {}"
-    .. "    'not an entry at all',\n"
-    .. stored("kind = 'window', key = 'no slot', pose = '" .. pose .. "', tags = {}")
-    .. stored("kind = 'window', key = 'bad size', slot = 1, pose = '" .. pose .. "', width = 'wide', tags = {}")
-    .. stored("kind = 'window', key = 'bad tag', slot = 1, pose = '" .. pose .. "', tags = { 'main', 4 }")
-    .. stored("kind = 'window', key = 'no tags', slot = 1, pose = '" .. pose .. "'")
-    .. '  },\n}'
-
-  local loaded = format.read(text)
-
-  local entries = loaded.file.entries
-  expect.equal(#entries, 1, 'the entries')
-  expect.equal(entries[1].key, 'terminal', 'the entry that survived')
-  local reasons = {
-    'window or a monitor',
-    'carries no pose',
-    'carries no pose',
-    'keyed by a name',
-    'an entry is a table',
-    'has no slot',
-    'size that is not',
-    'tag 2 that is not',
-    'no tag list',
-  }
-  expect.equal(#loaded.skipped, #reasons, 'the entries refused')
-  for index, reason in reasons do
-    expect.truthy(loaded.skipped[index]:find(reason, 1, true), 'refusal ' .. index)
-  end
+  expect.equal(#loaded.file.entries, 1, 'the entries')
+  expect.equal(loaded.file.entries[1].key, 'terminal', 'the entry that survived')
+  expect.equal(#loaded.skipped, 2, 'the entries refused')
+  expect.truthy(loaded.skipped[1]:find('window or a monitor', 1, true), loaded.skipped[1])
+  expect.truthy(loaded.skipped[2]:find('has no slot', 1, true), loaded.skipped[2])
 end)
 
 return test

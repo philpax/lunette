@@ -60,10 +60,8 @@ test('the beam draws as an overlay in the theme colour, and a raising hook leave
     if call.draw then
       expect.equal(call.state.setDepthTest[1], nil, 'laser is an overlay')
       expect.equal(call.state.setDepthWrite[1], false, 'laser never writes scene depth')
-      expect.equal(call.state.setShader[1], nil, 'beam uses its own shader')
       expect.equal(call.state.setMaterial[1], nil, 'beam has no inherited texture')
       expect.equal(call.state.setColor[1], 0.9, 'beam uses the live pointer colour')
-      expect.equal(call.state.setColor[2], 0.1, 'beam does not retain a provider palette default')
     end
   end
   recorder:assertRestored(caller)

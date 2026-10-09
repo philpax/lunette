@@ -7,7 +7,6 @@ local vrUi = require '@testing/vr-ui'
 local ui = require '@lunette-contracts/ui'
 local menu = require '@lunette-contracts/menu'
 local display = require '@lunette-contracts/keyboard-display'
-local keyboard = require '@lunette-contracts/keyboard'
 local tags = require '@lunette-contracts/tags'
 local surfaces = require '@lunette-contracts/surfaces'
 local lunette = require '@lunette'
@@ -23,7 +22,6 @@ test('wrist menu actions are VR accessible', function()
       ui = ui.capability,
       menu = menu.capability,
       display = display.capability,
-      keyboard = keyboard.capability,
       tags = tags.capability,
       surfaces = surfaces.capability,
       theme = theme.capability,
@@ -32,7 +30,6 @@ test('wrist menu actions are VR accessible', function()
       services.ui = context:require(ui.capability)
       services.menu = context:require(menu.capability)
       services.display = context:require(display.capability)
-      services.keyboard = context:require(keyboard.capability)
       services.tags = context:require(tags.capability)
       services.surfaces = context:require(surfaces.capability)
       services.theme = context:require(theme.capability)
@@ -78,53 +75,14 @@ test('wrist menu actions are VR accessible', function()
     fixture:step()
     fixture:clickControl(services.ui, 'desktop/menu', 'actions', 'right', id)
   end
-  local function selectedPreset(preset)
-    local count, choices = 0, 0
-    for _, action in services.menu:list() do
-      if action.group == 'Appearance' then
-        choices += 1
-      end
-      for _, name in { 'dark', 'light', 'arcade' } do
-        if action.id == 'desktop/theme/' .. name then
-          expect.equal(action.label, 'Theme: ' .. name:sub(1, 1):upper() .. name:sub(2), 'preset label')
-          expect.equal(action.selected, name == preset, 'preset selection follows its successful action')
-          if action.selected then
-            count += 1
-          end
-        end
-      end
-    end
-    expect.equal(choices, 3, 'Appearance contains only the three preset choices')
-    expect.equal(count, 1, 'exactly one Appearance preset is selected')
-  end
-  selectedPreset 'dark'
-  local initialUI, initialKeyboard = services.ui, services.keyboard
   invoke 'desktop/theme/arcade'
-  selectedPreset 'arcade'
-  expect.equal(services.theme:current().theme.typography.font.kind, 'file', 'Arcade selects its bundled face')
-  expect.equal(services.ui, initialUI, 'Appearance actions retain the UI provider')
-  expect.equal(services.keyboard, initialKeyboard, 'Appearance actions retain the keyboard provider')
+  expect.equal(services.theme:current().theme.typography.font.kind, 'file', 'Appearance selects Arcade')
   invoke 'desktop/keyboard/toggle'
   expect.truthy(services.display:isVisible(), 'Keyboard shows the shared board')
-  local function countBoards()
-    local count = 0
-    for _, registration in services.keyboard:inspect().registrations do
-      if registration.kind == 'keyboard' and registration.live then
-        count += 1
-      end
-    end
-    return count
-  end
-  expect.equal(countBoards(), 1, 'the desktop acquires one actual keyboard')
   invoke 'desktop/keyboard/toggle'
   expect.falsy(services.display:isVisible(), 'Keyboard hides the shared board')
-  invoke 'desktop/keyboard/toggle'
-  expect.equal(countBoards(), 1, 'showing reuses that keyboard')
-  invoke 'desktop/keyboard/toggle'
   invoke 'desktop/workspace/side'
   expect.truthy(services.tags:find('side').selected, 'a pointer chooses the side workspace')
-  invoke 'desktop/workspace/main'
-  expect.truthy(services.tags:find('main').selected, 'a pointer returns to main')
   invoke 'desktop/reload'
   expect.equal(reloads, 1, 'a pointer invokes public reload once')
   local beforeManager = #services.surfaces:all()

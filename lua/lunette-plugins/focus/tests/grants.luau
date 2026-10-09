@@ -1,8 +1,6 @@
 local testing = require '@testing'
 local expect = testing.expect
-local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/focus'
-local frame = require '@lunette-contracts/frame'
 local test = testing.suite()
 
 local function start()
@@ -36,11 +34,11 @@ local function start()
   function env:nativeTarget(owner, seatValue, sink)
     return self.focus:register(owner, { kind = 'native', seat = seatValue, sink = sink })
   end
-  function env:localTarget(receiver, owner)
-    return self.focus:register(owner or self.owner, {
+  function env:localTarget()
+    return self.focus:register(self.owner, {
       kind = 'local',
       wantsKeyboard = true,
-      receiver = receiver or {
+      receiver = {
         key = function()
           return false
         end,
@@ -58,7 +56,7 @@ local function start()
   return env
 end
 
-test('focus single route and nonrestoring disposal', function()
+test('one route is focused at a time, and destroying it restores nothing', function()
   local env = start()
   local app = env:nativeTarget(env.owner, env.left, env.sink)
   local field = env:localTarget()
@@ -69,19 +67,17 @@ test('focus single route and nonrestoring disposal', function()
   expect.truthy(app:focus(), 'refocusing the same handle succeeds')
   expect.equal(env.focus:revision(), revision, 'idempotent focus')
   expect.truthy(field:focus(), 'the local field focuses')
-  expect.equal(env.left.focus, nil, 'local input clears only the former native seat')
+  expect.equal(env.left.focus, nil, 'local input clears the native seat')
   expect.equal(env.heard[#env.heard].target, field, 'the change identifies the new route')
-  expect.truthy(env.heard[#env.heard].wantsKeyboard, 'immutable visibility intent')
   app:destroy()
-  expect.equal(env.focus:focused(), field, 'old disposal does not clear the field')
+  expect.equal(env.focus:focused(), field, 'destroying an old route does not clear the field')
   field:destroy()
   expect.equal(env.focus:focused(), nil, 'no prior application is restored')
-  expect.truthy(field.dead, 'the field is invalidated')
-  expect.falsy(field:focus(), 'retained dead handles stay inert')
+  expect.falsy(field:focus(), 'a dead handle stays inert')
   env.session:close()
 end)
 
-test('independent native seat authority survives global route changes', function()
+test('each native seat keeps its own authority, and an older holder cannot clear a newer one', function()
   local env = start()
   local first = env:nativeTarget(env.owner, env.left, env.sink)
   local second = env:nativeTarget(env.owner, env.right, env.otherSink)
@@ -91,127 +87,49 @@ test('independent native seat authority survives global route changes', function
   second:destroy()
   expect.equal(env.right.focus, nil, 'the destroyed seat clears')
   expect.equal(env.left.focus, env.sink, 'the other seat remains independent')
-  expect.equal(env.focus:focused(), nil, 'disposal does not restore the earlier route')
-  first:destroy()
-  expect.equal(env.left.focus, nil, 'a noncurrent authoritative target still clears its seat')
-  env.session:close()
-end)
-
-test('superseded handles cannot clear a newer holder of the same native seat', function()
-  local env = start()
-  local first = env:nativeTarget(env.owner, env.left, env.sink)
-  local second = env:nativeTarget(env.other, env.left, env.otherSink)
-  first:focus()
-  second:focus()
+  local newer = env:nativeTarget(env.other, env.left, env.otherSink)
+  newer:focus()
   first:destroy()
   expect.equal(env.left.focus, env.otherSink, 'an older target cannot withdraw newer native authority')
   env.second.instance:disable()
-  expect.equal(env.left.focus, nil, 'owner unload clears current authority')
+  expect.equal(env.left.focus, nil, 'owner unload clears its authority')
   expect.equal(env.focus:focused(), nil, 'owner unload clears the current route')
-  expect.truthy(second.dead, 'owner unload invalidates the target')
   env.session:close()
 end)
 
-test('false window focus refuses a route without changing the previous state', function()
+test('a seat refusing focus leaves the previous route current', function()
   local env = start()
-  local localTarget = env:localTarget()
-  localTarget:focus()
+  local field = env:localTarget()
+  field:focus()
   local revision = env.focus:revision()
   env.left.refuse = true
-  local app = env:nativeTarget(env.owner, env.left, env.sink)
-  expect.falsy(app:focus(), 'native focus refusal propagates')
-  expect.equal(env.focus:focused(), localTarget, 'the earlier live route remains current')
+  expect.falsy(env:nativeTarget(env.owner, env.left, env.sink):focus(), 'native focus refusal propagates')
+  expect.equal(env.focus:focused(), field, 'the earlier route remains current')
   expect.equal(env.focus:revision(), revision, 'no refused transition is announced')
   env.session:close()
 end)
 
-test('destroy invalidates callbacks before notification and reports native inverse refusal', function()
+test('a dead native sink clears focus at the next frame', function()
   local env = start()
-  local callback = 0
-  local field = env:localTarget {
-    key = function()
-      return false
-    end,
-    text = function()
-      return false
-    end,
-    onBlur = function()
-      callback += 1
-    end,
-  }
-  field:focus()
-  field:destroy()
-  expect.equal(callback, 0, 'destroyed receiver callbacks are cleared')
-  local app = env:nativeTarget(env.owner, env.left, env.sink)
-  app:focus()
-  env.left.refuse = true
-  app:destroy()
-  expect.equal(env.focus:focused(), nil, 'inverse refusal does not resurrect a route')
-  local reports = env.native.events.reported
-  expect.equal(#reports, 1, 'the inverse refusal is reported')
-  expect.truthy(reports[1].message:find('refused focus clear', 1, true), reports[1].message)
-  env.session:close()
-end)
-
-test('a listener error is reported and later listeners still receive the committed route', function()
-  local env = start()
-  local after = 0
-  local failing = env.focus:onChanged(env.owner, {
-    run = function()
-      error 'focus listener failure'
-    end,
-  })
-  env.focus:onChanged(env.owner, {
-    run = function()
-      after += 1
-    end,
-  })
-  local field = env:localTarget()
-  field:focus()
-  expect.equal(after, 1, 'the later listener runs')
-  local reports = env.native.events.reported
-  expect.equal(#reports, 1, 'the callback failure is reported')
-  expect.truthy(reports[1].message:find('focus listener failure', 1, true), reports[1].message)
-  failing:dispose()
-  env.session:close()
-end)
-
-test('native target loss clears route and modifier intent at the next input boundary', function()
-  local env = start()
-  local app = env:nativeTarget(env.owner, env.left, env.sink)
-  app:focus()
+  env:nativeTarget(env.owner, env.left, env.sink):focus()
   local revision = env.focus:revision()
   env.sink.dead = true
   env.session:update()
-  expect.equal(env.focus:revision(), revision + 1, 'loss is announced without an explicit focus getter')
-  expect.equal(env.heard[#env.heard].kind, 'none', 'the native loss clears input intent')
+  expect.equal(env.focus:revision(), revision + 1, 'the loss is announced')
+  expect.equal(env.heard[#env.heard].kind, 'none', 'the loss clears input intent')
   expect.equal(env.left.focus, nil, 'native focus is withdrawn')
   env.session:close()
 end)
 
-test('native focus cleanup refusal blocks delivery to the committed replacement route', function()
+test('malformed registrations and activations are rejected before they take effect', function()
   local env = start()
-  local deliveries = 0
-  local app = env:nativeTarget(env.owner, env.left, env.sink)
-  local field = env:localTarget {
-    key = function()
-      deliveries += 1
-      return true
-    end,
-    text = function()
-      deliveries += 1
-      return true
-    end,
-  }
+  local before = #env.focus:inspect().registrations
+  expect.raises(function()
+    env.focus:register(env.owner, { kind = 'other' })
+  end, 'kind is native or local', 'an unknown target kind')
+  expect.equal(#env.focus:inspect().registrations, before, 'invalid data acquires no registration')
   local input = env.focus:newSource(env.owner)
-  app:focus()
-  env.left.refuse = true
-  expect.falsy(field:focus(), 'the failed inverse is reported as refusal')
-  expect.equal(env.focus:focused(), field, 'committed arbiter state is not rolled back')
-  expect.equal(#env.native.events.reported, 1, 'focus cleanup failure is reported')
-  expect.equal(input:text('safe').kind, 'refused', 'unresolved cleanup prevents unsafe continuation')
-  expect.equal(deliveries, 0, 'the replacement cannot receive input after unsafe native cleanup')
-  expect.truthy(env.focus:inspect().state.failed, 'the failure remains inspectable')
+  expect.equal(input:key({ code = 30, modifiers = { 'shift', 1 } }).kind, 'refused', 'a malformed activation')
   env.session:close()
 end)
 

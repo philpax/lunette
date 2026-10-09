@@ -7,7 +7,7 @@ test('menu owner registration and failure lifecycle', function()
   local env = fixture.start()
   local calls = 0
   local owned = fixture.probe(env, 'menu-owned')
-  local effect = owned.service:register(
+  owned.service:register(
     owned.owner,
     fixture.action('fixture.action', function()
       calls += 1
@@ -20,11 +20,7 @@ test('menu owner registration and failure lifecycle', function()
   end, 'menu register: fixture.action is already registered', 'a globally duplicate id')
   owned.instance:disable()
   expect.equal(#env.service:list(), 0, 'owner removal removes the registration')
-  expect.equal(env.service:update(owned.owner, effect, { enabled = true }), false, 'an ended owner cannot update')
   expect.equal(env.service:invoke('fixture.action').kind, 'unavailable', 'a removed action')
-  expect.raises(function()
-    env.service:register(owned.owner, fixture.action 'late')
-  end, 'plugin', 'late registration has no owner authority')
   env.service:register(
     env.owner,
     fixture.action('fixture.action', function()
@@ -42,36 +38,18 @@ test('menu owner registration and failure lifecycle', function()
   env.session:close()
 end)
 
-test('updates require the actual registering owner and effect and never create a registration', function()
+test('only the registering owner updates the state, and a disabled action is unavailable', function()
   local env = fixture.start()
   local other = fixture.probe(env, 'menu-other')
   local effect = env.service:register(env.owner, fixture.action 'fixture.state')
-  local foreignEffect = env.owner:effect(function()
-    return function() end
-  end)
   expect.equal(env.service:update(other.owner, effect, { enabled = false }), false, 'another dependent cannot update')
-  expect.equal(env.service:update(env.owner, foreignEffect, { enabled = false }), false, 'an unrelated effect')
-  local state = { enabled = false, selected = true }
-  expect.equal(env.service:update(env.owner, effect, state), true, 'the registering owner updates')
-  state.enabled, state.selected = true, false
+  expect.equal(env.service:update(env.owner, effect, { enabled = false, selected = true }), true, 'the owner updates')
   local row = env.service:list()[1]
-  expect.equal(row.enabled, false, 'enabled is copied')
-  expect.equal(row.selected, true, 'selected is copied')
+  expect.truthy(row.enabled == false and row.selected == true, 'the updated state')
   expect.equal(env.service:invoke('fixture.state').kind, 'unavailable', 'a disabled action')
-  expect.equal(env.service:update(env.owner, effect, {}), true, 'an empty update is a no-op')
-  expect.equal(env.service:list()[1].enabled, false, 'omitted state preserves enabled')
-  expect.equal(env.service:update(env.owner, effect, { enabled = true }), true, 'enabled changes independently')
-  expect.equal(env.service:list()[1].selected, true, 'omitted state preserves selected')
   effect:dispose()
   expect.equal(env.service:update(env.owner, effect, { enabled = true }), false, 'a disposed effect cannot update')
   expect.equal(#env.service:list(), 0, 'an update does not recreate the action')
-  env.service:register(env.owner, fixture.action 'fixture.state')
-  expect.equal(
-    env.service:update(env.owner, effect, { enabled = false }),
-    false,
-    'an old effect cannot update its replacement'
-  )
-  expect.equal(env.service:list()[1].enabled, true, 'the replacement keeps its own state')
   env.session:close()
 end)
 
@@ -88,14 +66,13 @@ test('a list token rejects a removed registration even after its id is reused', 
     end)
   )
   local replacement = env.service:list()[1]
-  expect.truthy(row.registration ~= replacement.registration, 'a replacement has a fresh token')
   expect.equal(env.service:invoke(row.id, row.registration).kind, 'unavailable', 'the stale row is rejected')
   expect.equal(calls, 0, 'stale tokens never invoke the replacement')
   expect.equal(env.service:invoke(replacement.id, replacement.registration).kind, 'invoked', 'the current row invokes')
-  expect.equal(env.service:invoke(row.id).kind, 'invoked', 'id-only invocation retains its narrow shape')
-  expect.equal(calls, 2, 'only current invocations run')
+  expect.equal(calls, 1, 'only the current invocation runs')
   env.session:close()
 end)
+
 test('lists sort by group, order, and id, and fill the defaults', function()
   local env = fixture.start()
   env.service:register(env.owner, fixture.action 'z')

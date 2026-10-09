@@ -1,5 +1,6 @@
 //! Property tests check lifecycle graph invariants across generated operation sequences.
-//! The model checks graph structure after each operation, then verifies activation and shutdown.
+//! The model checks graph structure after each operation and each shutdown unload, then
+//! verifies that a quiescent graph activates exactly the satisfiable set.
 
 #![expect(
     clippy::unwrap_used,
@@ -355,6 +356,7 @@ impl Model {
             self.graph
                 .complete_unload(instance, activation, success)
                 .unwrap();
+            self.check()?;
         }
         prop_assert!(
             self.graph.shutdown_requested && self.graph.instances.is_empty(),

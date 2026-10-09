@@ -27,8 +27,7 @@ function fixture.boot(options)
     'desktop/pointing',
     options.provider or 'ui',
   }
-  local state =
-    { fixture = running, activations = {}, changes = {}, submits = {}, cancels = {}, events = {}, loads = 0 }
+  local state = { fixture = running, activations = {}, submits = {}, cancels = {}, events = {} }
   state.instance = running.session:use(plugin.define {
     name = 'testing/public-ui-form',
     requires = {
@@ -42,7 +41,6 @@ function fixture.boot(options)
       state.owner = context
       state.themes = context:require(theme.capability)
       state.service = context:require(ui.capability)
-      state.loads += 1
       local panel = state.service:newPanel(context, {
         name = 'public-ui-form',
         pose = lovr.math.newMat4():translate(0, 1.5, -2):rotate(0.2, 0, 1, 0),
@@ -59,19 +57,14 @@ function fixture.boot(options)
         label = 'Run',
         bounds = { x = 10, y = 10, width = 80, height = 40 },
         onActivate = function()
-          state.activations[#state.activations + 1] = state.loads
+          state.activations[#state.activations + 1] = true
         end,
       })
       state.field = panel:textField(context, {
         id = 'draft',
         label = 'Draft',
         bounds = { x = 110, y = 10, width = 270, height = 40 },
-        value = options.value or '',
-        keymapSeat = options.keymapSeat,
-        validate = options.validate,
-        onChange = function(value)
-          state.changes[#state.changes + 1] = value
-        end,
+        value = '',
         onSubmit = function(value)
           state.submits[#state.submits + 1] = value
         end,

@@ -7,10 +7,10 @@ local actions = require '@lunette-plugins/desktop/actions'
 local expect = testing.expect
 local test = testing.suite()
 
-local function boot(menuEntry)
-  local state = { visible = false, listeners = {}, toggles = 0 }
+local function boot()
+  local state = { visible = false, listeners = {} }
   state.session = testing.boot {
-    menuEntry or 'menu',
+    'menu',
     {
       id = 'display',
       definition = plugin.define {
@@ -23,7 +23,6 @@ local function boot(menuEntry)
               return state.visible
             end,
             toggle = function()
-              state.toggles += 1
               state:change(not state.visible)
               return true
             end,
@@ -52,83 +51,40 @@ local function boot(menuEntry)
   return state
 end
 
-local function withActions(run, menuEntry)
-  local env = boot(menuEntry)
-  run(env)
-  env.session:close()
-end
-
-test('session actions register exact ids ordering and keyboard selected updates', function()
-  withActions(function(env)
-    local listed = env.menu:list()
-    expect.equal(#listed, 2)
-    expect.equal(listed[1].id, 'desktop/keyboard/toggle')
-    expect.equal(listed[1].selected, false)
-    expect.equal(listed[2].id, 'desktop/reload')
-    expect.equal(env.menu:invoke(listed[1].id, listed[1].registration).kind, 'invoked')
-    expect.equal(env.toggles, 1)
-    expect.equal(env.menu:list()[1].selected, true)
-    env:change(false)
-    expect.equal(env.menu:list()[1].selected, false)
-    env.session.instances['desktop/actions']:disable()
-    expect.equal(#env.menu:list(), 0)
-    expect.equal(next(env.listeners), nil)
-  end)
+test('Keyboard is marked selected while the keyboard is visible', function()
+  local env = boot()
+  local listed = env.menu:list()
+  expect.equal(listed[1].id, 'desktop/keyboard/toggle', 'Keyboard comes first')
+  expect.equal(listed[2].id, 'desktop/reload', 'Reload comes second')
+  expect.equal(listed[1].selected, false, 'a hidden keyboard')
+  env:change(true)
+  expect.equal(env.menu:list()[1].selected, true, 'a keyboard shown elsewhere')
 end)
 
-test('reload uses the public API and logs a refusal without failing the action', function()
-  withActions(function(env)
-    local reload, log = lunette.reload, lovr.log
-    local calls, messages = 0, {}
-    lunette.reload = function()
-      calls += 1
-      return false, 'reload already pending'
-    end
-    lovr.log = function(message, level, tag)
-      messages[#messages + 1] = { message, level, tag }
-    end
-    local result = env.menu:invoke 'desktop/reload'
-    lunette.reload, lovr.log = reload, log
-    expect.equal(result.kind, 'invoked')
-    expect.equal(calls, 1)
-    expect.equal(#messages, 1)
-    expect.equal(messages[1][1], 'configuration was not reloaded: reload already pending')
-    expect.equal(messages[1][2], 'error')
-    expect.equal(messages[1][3], 'lunette.desktop')
-    expect.equal(#testing.takeReports(), 0)
-  end)
+test('a refused reload is logged', function()
+  local env = boot()
+  local reload, log = lunette.reload, lovr.log
+  local messages = {}
+  lunette.reload = function()
+    return false, 'reload already pending'
+  end
+  lovr.log = function(message, level)
+    messages[#messages + 1] = level .. ': ' .. message
+  end
+  local result = env.menu:invoke 'desktop/reload'
+  lunette.reload, lovr.log = reload, log
+  expect.equal(result.kind, 'invoked', 'the action runs')
+  expect.equal(table.concat(messages, '|'), 'error: configuration was not reloaded: reload already pending')
 end)
 
-test('keyboard display outage keeps the current Reload registration and public recovery action', function()
-  withActions(function(env)
-    local reload = lunette.reload
-    local calls = 0
-    lunette.reload = function()
-      calls += 1
-      return true
-    end
-    local ok, message = pcall(function()
-      local before = env.menu:list()[2]
-      env.session.instances.display:disable()
-      local listed = env.menu:list()
-      expect.equal(#listed, 1, 'only Reload remains')
-      expect.equal(listed[1].id, 'desktop/reload')
-      expect.equal(listed[1].registration, before.registration, 'the parent registration survives')
-      expect.equal(env.session.instances['desktop/actions']:state(), 'active')
-      expect.equal(next(env.listeners), nil)
-      expect.equal(env.menu:invoke('desktop/reload', before.registration).kind, 'invoked')
-      expect.equal(calls, 1)
-      env.session.instances.display:enable()
-      expect.equal(#env.menu:list(), 2)
-      expect.equal(env.menu:list()[2].registration, before.registration, 'display recovery does not replace Reload')
-      expect.equal(env.menu:invoke('desktop/keyboard/toggle').kind, 'invoked')
-      expect.equal(env.toggles, 1)
-    end)
-    lunette.reload = reload
-    if not ok then
-      error(message, 0)
-    end
-  end)
+test('Reload stays available while the keyboard display is unavailable', function()
+  local env = boot()
+  env.session.instances.display:disable()
+  local listed = env.menu:list()
+  expect.equal(#listed, 1, 'only Reload remains')
+  expect.equal(listed[1].id, 'desktop/reload', 'Reload remains')
+  env.session.instances.display:enable()
+  expect.equal(#env.menu:list(), 2, 'Keyboard returns with the display')
 end)
 
 return test

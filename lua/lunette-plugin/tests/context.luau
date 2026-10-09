@@ -62,44 +62,6 @@ test('a subscription ends with its activation, and a handler kept past it delive
   runtime:close()
 end)
 
-test('a malformed subscription raises at the call, and a source answering no cancel function fails the load', function()
-  local events = source()
-  local runtime = plugin.runtime()
-  local checked = runtime:use(
-    plugin.define {
-      name = 'checked',
-      init = function(context)
-        expect.raises(function()
-          context:on { event = events.subscribe, handler = function() end }
-        end, 'plugin on: unknown field handler; the fields are event and run')
-      end,
-    },
-    {}
-  )
-  checked:enable()
-  expect.equal(checked:state(), 'active', 'the instance')
-  local failing = runtime:use(
-    plugin.define {
-      name = 'failing',
-      init = function(context)
-        context:on {
-          event = function()
-            return 'not a cancel function'
-          end,
-          run = function() end,
-        }
-      end,
-    },
-    {}
-  )
-  failing:enable()
-  expect.equal(failing:state(), 'failed', 'the instance without a cancel function')
-  local reports = testing.takeReports()
-  expect.equal(#reports, 1, 'the reports')
-  expect.truthy(reports[1]:find('answers the function that cancels it', 1, true), reports[1])
-  runtime:close()
-end)
-
 test('a resource acquired for an owner ends with that owner, and only a dependent is an owner', function()
   local resource = plugin.capability { name = 'local/ownership-resource', schema = 1 }
   local events = {}

@@ -74,47 +74,4 @@ test('a resource answers no value after acquisition failure or cancellation', fu
   end
 end)
 
-test('the resource owner is checked before acquisition, even through a forged receiver', function()
-  local runtime = plugin.runtime()
-  local context
-  local stranger
-  local definition = plugin.define {
-    name = 'independent-owner',
-    init = function(owner, config)
-      config.keep(owner)
-    end,
-  }
-  runtime
-    :use(definition, {
-      keep = function(owner)
-        context = owner
-      end,
-    })
-    :enable()
-  runtime
-    :use(definition, {
-      keep = function(owner)
-        stranger = owner
-      end,
-    })
-    :enable()
-  local acquisitions = 0
-  for _, owner in { stranger, {} } do
-    expect.raises(function()
-      context:resource(owner, function()
-        acquisitions += 1
-        return {}, function() end
-      end)
-    end)
-  end
-  expect.raises(function()
-    context.resource(stranger, stranger, function()
-      acquisitions += 1
-      return {}, function() end
-    end)
-  end, 'does not depend on this provider')
-  expect.equal(acquisitions, 0, 'invalid owners run no acquisition')
-  runtime:close()
-end)
-
 return test

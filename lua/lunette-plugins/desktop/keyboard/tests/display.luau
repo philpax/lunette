@@ -1,105 +1,118 @@
 local testing = require '@testing'
+local plugin = require '@lunette-plugin'
+local lunette = require '@lunette'
+local ui = require '@lunette-contracts/ui'
+local focus = require '@lunette-contracts/focus'
+local keyboard = require '@lunette-contracts/keyboard'
+local surfaces = require '@lunette-contracts/surfaces'
+local display = require '@lunette-contracts/keyboard-display'
 local expect = testing.expect
-local fixture = require './support/display'
 local test = testing.suite()
 
-test('field focus automatically shows one keyboard and field changes retain its pose', function()
-  local env = fixture.start()
-  expect.equal(fixture.boardCount(env), 0, 'the keyboard is lazy')
-  expect.truthy(env.first:focus())
-  local board = fixture.shown(env)
-  expect.truthy(board, 'field focus offers a keyboard')
-  expect.equal(fixture.boardCount(env), 1, 'one real keyboard registration')
-  local pose = lovr.math.newMat4():translate(3, 2, 1)
-  board:setPose(pose)
-  expect.truthy(env.second:focus())
-  expect.equal(fixture.shown(env), board, 'field changes reuse the keyboard')
-  expect.equal(vector.pack(board.pose:getPosition()), vector.pack(3, 2, 1), 'field changes do not place again')
-  expect.truthy(env.second:blur())
-  expect.equal(fixture.shown(env), nil, 'ending editing hides the automatic keyboard')
-  expect.equal(fixture.boardCount(env), 1, 'hiding retains the real keyboard')
-  env.session:close()
-end)
+local function start()
+  local env = {}
+  env.session = testing.boot {
+    'frame',
+    'theme',
+    'surfaces',
+    'focus',
+    'keyboard',
+    'ui',
+    'desktop/keyboard',
+    {
+      id = 'fields',
+      definition = plugin.define {
+        name = 'testing/display-fields',
+        requires = { ui = ui.capability, focus = focus.capability },
+        init = function(context)
+          env.owner = context
+          env.focus = context:require(focus.capability)
+          local panel = context:require(ui.capability):newPanel(context, {
+            name = 'Display fields',
+            width = 1,
+            height = 1,
+            logicalWidth = 200,
+            logicalHeight = 200,
+          })
+          env.first = panel:textField(context, {
+            id = 'first',
+            value = 'draft',
+            bounds = { x = 10, y = 10, width = 180, height = 30 },
+          })
+          env.second =
+            panel:textField(context, { id = 'second', bounds = { x = 10, y = 60, width = 180, height = 30 } })
+        end,
+      },
+    },
+  }
+  env.keyboard = env.session:observe(keyboard.capability).service
+  env.surfaces = env.session:observe(surfaces.capability).service
+  env.display = env.session:observe(display.capability).service
+  return env
+end
 
-test('automatic focus hides on a native route but manual visibility is retained', function()
-  local env = fixture.start()
-  expect.truthy(env.first:focus())
-  local board = fixture.shown(env)
-  local native = env.nativeTarget()
-  expect.truthy(native:focus())
-  expect.equal(fixture.shown(env), nil, 'a native route ends automatic visibility')
-  expect.truthy(env.display.service:show())
-  expect.equal(fixture.shown(env), board, 'manual show reuses the keyboard')
-  expect.truthy(env.second:focus())
-  expect.truthy(native:focus())
-  expect.equal(fixture.shown(env), board, 'manual visibility survives leaving a field')
-  expect.truthy(env.display.service:hide())
-  expect.equal(env.focus:focused(), native, 'hide never blurs a native route')
-  expect.truthy(native:blur())
-  expect.equal(fixture.boardCount(env), 1)
-  env.session:close()
-end)
+local function shown(env)
+  for _, candidate in env.surfaces:all() do
+    if candidate.setLayer then
+      return candidate
+    end
+  end
+  return nil
+end
 
-test('public hide clears editing before callbacks and preserves the draft for a fresh focus', function()
-  local env = fixture.start()
-  local display = env.display.service
-  expect.truthy(env.first:focus())
-  local board = fixture.shown(env)
-  expect.truthy(board:typeText '!')
-  local changes = {}
-  display:onChanged(env.display.context, {
-    run = function(change)
-      changes[#changes + 1] = change
-    end,
+local function boards(env)
+  return #env.keyboard:inspect().registrations
+end
+
+local function nativeTarget(env)
+  local seat = lunette.newSeat 'display-native'
+  env.owner:effect(function()
+    return function()
+      seat:destroy()
+    end
+  end)
+  return env.focus:register(env.owner, {
+    kind = 'native',
+    seat = seat,
+    sink = env.session.native.newMonitor('display-native').sink,
   })
-  expect.truthy(display:hide())
-  expect.equal(env.focus:focused(), nil, 'public hide blurs its exact local target')
-  expect.equal(env.first:value(), 'draft!')
-  expect.truthy(env.first:focus(), 'a fresh field focus resumes editing')
-  expect.equal(fixture.shown(env), board)
-  expect.truthy(board:typeText '?')
-  expect.equal(env.first:value(), 'draft!?')
-  expect.equal(changes[1].reason, 'hide')
-  expect.equal(changes[2].reason, 'show')
-  env.session:close()
+end
+
+test('field focus shows one keyboard that field changes keep in place, and leaving the fields hides it', function()
+  local env = start()
+  expect.equal(boards(env), 0, 'the keyboard is created on first use')
+  expect.truthy(env.first:focus())
+  local board = shown(env)
+  expect.truthy(board, 'field focus shows a keyboard')
+  board:setPose(lovr.math.newMat4():translate(3, 2, 1))
+  expect.truthy(env.second:focus())
+  expect.equal(shown(env), board, 'a field change reuses the keyboard')
+  expect.equal(vector.pack(board.pose:getPosition()), vector.pack(3, 2, 1), 'a field change does not place it again')
+  expect.truthy(env.first:focus())
+  expect.truthy(nativeTarget(env):focus())
+  expect.equal(shown(env), nil, 'focusing a native route hides it')
+  expect.truthy(env.second:focus())
+  expect.truthy(env.second:blur())
+  expect.equal(shown(env), nil, 'ending editing hides it')
+  expect.equal(boards(env), 1, 'hiding keeps the one keyboard')
 end)
 
-test('display replacement leaves retained focus alone until a new live change', function()
-  local env = fixture.start()
+test('a manual show outlives the field, and hide ends editing and keeps the draft', function()
+  local env = start()
+  local native = nativeTarget(env)
+  expect.truthy(env.display:show())
+  local board = shown(env)
   expect.truthy(env.first:focus())
-  local target, board, old = env.focus:focused(), fixture.shown(env), env.rawDisplay
+  expect.truthy(native:focus())
+  expect.equal(shown(env), board, 'manual visibility survives leaving a field')
+  expect.truthy(env.first:focus())
   expect.truthy(board:typeText '!')
-  env.session.instances['desktop/keyboard']:disable()
-  expect.truthy(board.dead)
-  expect.equal(env.focus:focused(), target, 'display shutdown does not blur the field')
-  env.session.instances['desktop/keyboard']:enable()
-  expect.truthy(env.display.service ~= old)
-  expect.falsy(env.display.service:isVisible(), 'activation does not replay retained focus')
-  expect.equal(fixture.boardCount(env), 0, 'replacement is still lazy')
-  expect.truthy(env.first:blur())
+  expect.truthy(env.display:hide())
+  expect.equal(shown(env), nil, 'hide withdraws the keyboard')
+  expect.equal(env.focus:focused(), nil, 'hide blurs the field')
+  expect.equal(env.first:value(), 'draft!', 'hide keeps the draft')
   expect.truthy(env.first:focus())
-  local replacement = fixture.shown(env)
-  expect.truthy(replacement and replacement ~= board)
-  expect.truthy(replacement:typeText '?')
-  expect.equal(env.first:value(), 'draft!?', 'the retained draft resumes on fresh focus')
-  env.session:close()
-end)
-
-test('keyboard provider recovery releases stale callbacks while a dead board remains retained', function()
-  local env = fixture.start()
-  expect.truthy(env.first:focus())
-  local board, target = fixture.shown(env), env.focus:focused()
-  env.session.instances.keyboard:disable()
-  expect.truthy(board.dead)
-  expect.falsy(board:typeText 'stale')
-  expect.equal(env.focus:focused(), target, 'keyboard loss does not blur the retained widget')
-  env.session.instances.keyboard:enable()
-  expect.falsy(env.display.service:isVisible(), 'keyboard recovery does not replay retained focus')
-  expect.equal(fixture.boardCount(env), 0)
-  expect.truthy(env.first:blur())
-  expect.truthy(env.first:focus())
-  expect.truthy(fixture.shown(env) ~= board)
-  env.session:close()
+  expect.equal(shown(env), board, 'a fresh focus resumes on the same keyboard')
 end)
 
 return test

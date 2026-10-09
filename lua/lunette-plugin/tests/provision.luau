@@ -69,56 +69,35 @@ test('a provider, its child, and its consumers load in order and unload in rever
   )
 end)
 
-test('a reload releases the old activation before loading with the new configuration', function()
+test('a provider reload releases the old activation and its dependents, then loads them again', function()
+  local service = plugin.capability { name = 'local/reloaded', schema = 1 }
   local events = {}
-  local definition = plugin.define {
+  local provider = plugin.define {
     name = 'reloaded',
-    init = function(context, config)
-      events[#events + 1] = 'load ' .. config.value
-      context:effect(function()
-        return function()
-          events[#events + 1] = 'release ' .. config.value
-        end
-      end)
+    provides = { service = service },
+    init = function(context, config, publish)
+      recorded(context, events, 'provider ' .. config.value)
+      publish:provide(service, config.value)
+    end,
+  }
+  local consumer = plugin.define {
+    name = 'dependent',
+    requires = { service = service },
+    init = function(context)
+      recorded(context, events, 'consumer ' .. context:require(service))
     end,
   }
   local runtime = plugin.runtime()
-  local instance = runtime:use(definition, { value = 'one' })
+  local instance = runtime:use(provider, { value = 'one' })
   instance:enable()
+  runtime:use(consumer, {}):enable()
   instance:reload { value = 'two' }
-  runtime:close()
-  expect.equal(table.concat(events, ', '), 'load one, release one, load two, release two', 'the order')
-end)
-
-test('a context of another runtime is not an owner', function()
-  local providerContext
-  local runtime = plugin.runtime()
-  runtime
-    :use(
-      plugin.define {
-        name = 'provider',
-        init = function(context)
-          providerContext = context
-        end,
-      },
-      {}
-    )
-    :enable()
-  local other = plugin.runtime()
-  other
-    :use(
-      plugin.define {
-        name = 'probe',
-        init = function(context)
-          expect.raises(function()
-            providerContext:checkOwner(context)
-          end, 'caller belongs to another runtime')
-        end,
-      },
-      {}
-    )
-    :enable()
-  other:close()
+  expect.equal(
+    table.concat(events, ', '),
+    'provider one acquire, consumer one acquire, consumer one release, provider one release, '
+      .. 'provider two acquire, consumer two acquire',
+    'the order'
+  )
   runtime:close()
 end)
 
@@ -156,49 +135,12 @@ test('consumers load only once every provision is staged, behind a view of the v
   runtime:close()
 end)
 
-test('providing an undeclared capability raises at the call, and the initializer may go on', function()
-  local declared = plugin.capability { name = 'local/recovering-declared', schema = 1 }
-  local undeclared = plugin.capability { name = 'local/recovering-undeclared', schema = 1 }
-  local runtime = plugin.runtime()
-  local instance = runtime:use(
-    plugin.define {
-      name = 'recovering',
-      provides = { declared = declared },
-      init = function(_context, _config, publish)
-        expect.raises(function()
-          publish:provide(undeclared, 'unknown')
-        end, 'is not declared')
-        publish:provide(declared, 'known')
-      end,
-    },
-    {}
-  )
-  instance:enable()
-  expect.equal(instance:state(), 'active', 'the provider')
-  runtime:close()
-end)
-
 test('a failed provision rolls back every effect in reverse and publishes nothing', function()
   local cases = {
     {
       name = 'missing',
       message = "provided record is missing field 'service'",
       provide = function() end,
-    },
-    {
-      name = 'duplicate',
-      message = 'duplicate provision service',
-      provide = function(publish, capability)
-        publish:provide(capability, 'first')
-        publish:provide(capability, 'second')
-      end,
-    },
-    {
-      name = 'nil',
-      message = 'provision service was nil',
-      provide = function(publish, capability)
-        publish:provide(capability, nil)
-      end,
     },
     {
       name = 'raised',

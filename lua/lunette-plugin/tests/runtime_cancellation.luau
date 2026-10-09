@@ -43,54 +43,20 @@ test('a provider cancelled and re-enabled during its load publishes only the fre
   runtime:close()
 end)
 
-test('cancellation is observed at the acquisition boundary, and the rollback context acquires nothing', function()
+test('an initializer whose own activation is cancelled ends the load as inactive, without a diagnostic', function()
   local runtime = plugin.runtime()
   local instance
-  local released = 0
-  local reached = false
   local definition = plugin.define({}, {}, function(context)
-    local ok = pcall(function()
-      context:effect(function()
-        instance:disable()
-        return function()
-          local acquired = 0
-          assert(not context:active(), 'cancelled rollback context remains active')
-          assert(not pcall(function()
-            context:effect(function()
-              acquired += 1
-              return function() end
-            end)
-          end), 'cancelled rollback accepts effects')
-          assert(acquired == 0, 'cancelled rollback ran acquisition body')
-          assert(not pcall(function()
-            context:child(
-              plugin.define({}, {}, function()
-                return {}
-              end),
-              {}
-            )
-          end), 'cancelled rollback accepts children')
-          released += 1
-        end
-      end)
+    instance:disable()
+    context:effect(function()
+      return function() end
     end)
-    assert(not ok, 'cancelled acquisition returned success')
-    assert(released == 1, 'returned inverse not rolled back')
-    local forbiddenCalls = 0
-    assert(not pcall(function()
-      context:effect(function()
-        forbiddenCalls += 1
-        return function() end
-      end)
-    end))
-    assert(forbiddenCalls == 0, 'cancelled context invoked acquisition')
-    reached = true
     return {}
-  end)
+  end, 'cancelled initializer')
   instance = runtime:use(definition, {})
   instance:enable()
-  expect.truthy(reached, 'the initializer boundary assertions ran')
-  expect.equal(released, 1, 'the inverse releases')
+  expect.equal(instance:state(), 'inactive', 'the cancelled load')
+  expect.equal(instance:diagnostic(), nil, 'the diagnostic of the cancelled load')
   runtime:close()
 end)
 

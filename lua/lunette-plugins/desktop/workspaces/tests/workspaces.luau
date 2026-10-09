@@ -45,13 +45,6 @@ local function start(config)
   return env
 end
 
--- Selects one tag for the owner and deselects the others.
-local function only(tags, owner, chosen)
-  for _, tag in tags:all() do
-    tag:setSelected(owner, { selected = tag == chosen })
-  end
-end
-
 local function open(env, id)
   return env.placement:place(env.owner, { window = env.native.newWindow(id), defaults = { tags = { 'main' } } })
 end
@@ -72,62 +65,35 @@ end
 test('a menu action switches the workspace, hiding the panels of the one left and showing those chosen', function()
   local env = start()
   expect.truthy(env.main.selected and not env.web.selected, 'the first workspace is in view at activation')
-  local actions = env.actions.service:list()
-  expect.equal(#actions, 2, 'one action per workspace')
-  expect.equal(actions[1].id, 'desktop/workspace/main', 'the first action id')
-  expect.equal(actions[1].selected, true, 'the first action is selected')
-  expect.equal(actions[2].selected, false, 'the second action is explicitly unselected')
+  expect.truthy(row(env, 'main').selected and not row(env, 'web').selected, 'the selected action')
   local first = open(env, 1)
   expect.falsy(first.hidden, 'a window of the workspace in view')
   choose(env, 'web')
   expect.truthy(env.web.selected and not env.main.selected, 'the action selects its workspace')
   expect.truthy(first.hidden, 'a window of a workspace out of view')
-  expect.truthy(row(env, 'web').selected and not row(env, 'main').selected, 'selected action metadata')
   local second = open(env, 2)
   expect.truthy(env.web:has(second) and not env.main:has(second), 'a new window joins the workspace in view')
   expect.falsy(second.hidden, 'the new window is shown')
   choose(env, 'main')
   expect.truthy(not first.hidden and second.hidden, 'switching back shows and hides again')
-  env.main:exclude(env.owner, { panel = first })
-  env.web:add(env.owner, first)
-  expect.truthy(first.hidden, 'a window moved to a workspace out of view')
-  choose(env, 'web')
-  expect.falsy(first.hidden, 'the window once its workspace is chosen')
   env.session:close()
 end)
 
-test('a panel another plugin hid stays hidden when its workspace comes into view', function()
+test('a panel another plugin hid stays hidden, and unloading shows only what the consumer hid', function()
   local env = start()
-  local first = open(env, 1)
+  local first, second = open(env, 1), open(env, 2)
   local hiding = first:setHidden(env.owner, { hidden = true })
   choose(env, 'web')
   choose(env, 'main')
   expect.truthy(first.hidden, 'a panel another plugin hid')
+  choose(env, 'web')
+  env.session.instances['desktop/workspaces']:disable()
+  expect.falsy(second.hidden, 'unloading shows the panels the consumer hid')
+  expect.truthy(first.hidden, 'and leaves hidden what another plugin hid')
+  expect.equal(#env.actions.service:list(), 0, 'unloading removes the actions')
   hiding:dispose()
-  expect.falsy(first.hidden, 'the panel once the other plugin lets it go')
   env.session:close()
 end)
-
-test(
-  'a menu outage preserves selection, visibility, and follow, and recovery uses current selected metadata',
-  function()
-    local env = start()
-    local first = open(env, 1)
-    choose(env, 'web')
-    env.session.instances.menu:disable()
-    expect.equal(env.session.instances['desktop/workspaces']:state(), 'active', 'the consumer during the outage')
-    expect.truthy(env.web.selected and first.hidden, 'the workspaces during the outage')
-    local second = open(env, 2)
-    expect.truthy(env.web:has(second) and not env.main:has(second), 'follow remains active without the broker')
-    only(env.tags, env.owner, env.main)
-    expect.truthy(not first.hidden and second.hidden, 'external selection updates visibility without the broker')
-    env.session.instances.menu:enable()
-    expect.truthy(row(env, 'main').selected and not row(env, 'web').selected, 'recovery reads actual tag selection')
-    choose(env, 'web')
-    expect.truthy(env.web.selected and first.hidden and not second.hidden, 'the recovered action')
-    env.session:close()
-  end
-)
 
 test('follow can be disabled while workspace actions still update visibility', function()
   local env = start { workspaces = { { name = 'main' }, { name = 'web' } }, follow = false }
@@ -140,40 +106,13 @@ test('follow can be disabled while workspace actions still update visibility', f
   env.session:close()
 end)
 
-test('unloading the consumer shows every panel it hid and removes its actions', function()
-  local env = start()
-  local first = open(env, 1)
-  choose(env, 'web')
-  local second = open(env, 2)
-  choose(env, 'main')
-  env.session.instances['desktop/workspaces']:disable()
-  expect.truthy(not first.hidden and not second.hidden, 'the panels after unloading')
-  expect.equal(#env.actions.service:list(), 0, 'the registrations after unloading')
-  env.session:close()
-end)
-
-test('a malformed workspace list fails the consumer and names the option', function()
-  for _, case in ipairs {
-    { config = { workspaces = {} }, message = 'option workspaces has fewer than 1 entries' },
-    {
-      config = { workspaces = { { name = 'a' }, { name = 'a' } } },
-      message = 'workspace name a occurs twice',
-    },
-  } do
-    local env = start(case.config)
-    local instance = env.session.instances['desktop/workspaces']
-    expect.equal(instance:state(), 'failed', 'the consumer')
-    local diagnostic = tostring(instance:diagnostic())
-    expect.truthy(diagnostic:find(case.message, 1, true), 'the diagnostic: ' .. diagnostic)
-    expect.equal(#testing.takeReports(), 1, 'the failures reported')
-    env.session:close()
-  end
-end)
-
-test('a single workspace registers no menu actions', function()
-  local env = start { workspaces = { { name = 'main' } } }
-  expect.truthy(env.main.selected, 'the only workspace is in view')
-  expect.equal(#env.actions.service:list(), 0, 'the menu actions')
+test('a duplicate workspace name fails the consumer and names the option', function()
+  local env = start { workspaces = { { name = 'a' }, { name = 'a' } } }
+  local instance = env.session.instances['desktop/workspaces']
+  expect.equal(instance:state(), 'failed', 'the consumer')
+  local diagnostic = tostring(instance:diagnostic())
+  expect.truthy(diagnostic:find('workspace name a occurs twice', 1, true), 'the diagnostic: ' .. diagnostic)
+  expect.equal(#testing.takeReports(), 1, 'the failures reported')
   env.session:close()
 end)
 

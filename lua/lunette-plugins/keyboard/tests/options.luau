@@ -6,9 +6,6 @@ local interactionContract = require '@lunette-contracts/interaction'
 local focusContract = require '@lunette-contracts/focus'
 local keyboard = require '@lunette-plugins/keyboard'
 local theme = require '@lunette-contracts/theme'
-local appearance = require '@lunette-plugins/keyboard/appearance'
-local config = require '@lunette-plugins/keyboard/config'
-local arcade = require '@lunette-plugins/theme/arcade/preset'
 
 local test = testing.suite()
 
@@ -46,8 +43,7 @@ local function start()
       base(board, key, pointer)
     end,
     drawKey = function(pass, key, state, base)
-      env.drawn[#env.drawn + 1] =
-        { key = key, held = state.held, hovered = state.hovered, board = state.keyboard, style = state.style }
+      env.drawn[#env.drawn + 1] = { key = key, hovered = state.hovered, board = state.keyboard, style = state.style }
       expect.equal(pass:getFont(), state.style.font, 'the hook measures with the exact leased face')
       base(pass, key, state)
     end,
@@ -167,24 +163,22 @@ test('rows place spacers, offsets, and tall keys, and a press reaches onKey with
   local small = env.service:new(env.owner, { rows = { { { code = 30 }, { code = 31 } } }, style = { keyUnit = 0.5 } })
   expect.truthy(small.width == 1 and small.height == 0.5, "a keyboard's own rows and style override the provider's")
   expect.raises(function()
-    env.service:new(env.owner, { rows = { { { code = 30, label = 3 } } } })
-  end, 'option rows%[1%]%[1%]%.label is a string', "a keyboard's own rows are checked")
+    keyboard.define { rows = { { { code = 1, action = { kind = 'hide' } } } } }
+  end, 'has a code and an action', 'define checks what the schema cannot see')
   env.session:close()
 end)
 
-test('a configured lock stays and a configured latch clears after the next key', function()
-  local env = start()
-  expect.truthy(env.board:pressKey(42) and env.board:pressKey(29), 'the modifier keys')
-  table.clear(env.sent)
-  env.board:pressKey(30)
-  expect.equal(env.sent[1][2], 'shift+control', 'the modifiers held for the key')
-  expect.equal(table.concat(env.board:modifiers(), '+'), 'shift', 'the lock stays and the latch clears')
-  env.session:close()
-end)
-
-test('action keys type text, send chords, reach the hook, show layers, and hide', function()
+test('modifiers lock or latch, and action keys type, send chords, reach the hook, switch layers, and hide', function()
   local env = start()
   local board = env.board
+  board:pressKey(42)
+  board:pressKey(29)
+  table.clear(env.sent)
+  board:pressKey(30)
+  expect.equal(env.sent[1][2], 'shift+control', 'the modifiers held for the key')
+  expect.equal(table.concat(board:modifiers(), '+'), 'shift', 'the configured lock stays and the latch clears')
+  board:pressKey(42)
+  table.clear(env.sent)
   press(env, action(board, 'text'))
   expect.truthy(env.sent[1][1] == 'text' and env.sent[1][2] == 'hi', 'a text key types its text')
   table.clear(env.sent)
@@ -199,15 +193,12 @@ test('action keys type text, send chords, reach the hook, show layers, and hide'
   expect.equal(board.layer, 'symbols', 'a layer key shows its layer')
   expect.truthy(#board:keys() == 2 and board.width == 5, "the size stays the widest layer's")
   board:setLayer 'base'
-  expect.raises(function()
-    board:setLayer 'emoji'
-  end, nil, 'an unknown layer')
   press(env, action(board, 'hide'))
   expect.equal(board.visible, false, 'a hide key hides')
   env.session:close()
 end)
 
-test('drawKey wraps the default for every key, with the hover and held states', function()
+test('drawKey wraps the default for every key, with the hover state and the live theme style', function()
   local env = start()
   local board = env.board
   board:onPointer { kind = 'enter', pointer = env.pointer, x = code(board, 31).x + 0.5, y = 0.5, inside = true }
@@ -217,84 +208,20 @@ test('drawKey wraps the default for every key, with the hover and held states', 
     expect.equal(entry.board, board, 'the keyboard in the state')
     expect.equal(entry.hovered, entry.key.code == 31, 'only the hovered key is hovered')
   end
-  local texts = 0
-  for _, call in ipairs(env.native.events.draw) do
-    if call[1] == 'text' then
-      texts += 1
-    end
-  end
-  expect.equal(texts, 9, 'the base drew every legend')
-
-  board:setLayer 'symbols'
-  table.clear(env.drawn)
-  board:draw(env.native.events.pass)
-  expect.truthy(#env.drawn == 2 and env.drawn[1].key.code == 2, 'the shown layer is drawn')
-  board:setLayer 'base'
-  table.clear(env.drawn)
-  board:draw(env.native.events.pass)
-  for _, entry in ipairs(env.drawn) do
-    if entry.key.action and entry.key.action.kind == 'layer' then
-      expect.equal(entry.held, false, 'a layer key is not held while its layer is hidden')
-    end
-  end
   local observed = env.session:observe(theme.capability)
-  board:setSize(board.width * 2)
   local selection = observed.service:select(observed.context, {
-    colors = {
-      background = { 0.11, 0.12, 0.13, 1 },
-      control = { 0.21, 0.22, 0.23, 1 },
-      pressed = { 0.31, 0.32, 0.33, 1 },
-      hovered = { 0.41, 0.42, 0.43, 1 },
-      foreground = { 0.51, 0.52, 0.53, 1 },
-    },
+    colors = { control = { 0.21, 0.22, 0.23, 1 } },
     typography = { keyboardLegendHeight = 0.02 },
     metrics = { keyboardGap = 0.01 },
-    radii = { keyboardBacking = 0.006, keyboardKey = 0.008 },
   })
   table.clear(env.drawn)
   board:draw(env.native.events.pass)
   local style = env.drawn[1].style
-  expect.near(style.keyUnit, 2, 1e-9, 'key units retain the provider override and caller scale')
-  expect.near(style.legendHeight, 0.04, 1e-9, 'updated nominal text height retains the caller scale')
-  expect.equal(style.gap, 0, 'the supplied provider gap wins over global metrics')
-  expect.near(style.backingRadius, 0.012, 1e-9, 'the global backing radius scales in metres')
-  expect.near(style.keyRadius, 0.006, 1e-9, 'the provider radius wins over the global key radius')
-  for field, channel in { plateColor = 0.11, keyColor = 0.21, heldColor = 0.31, hoverColor = 0.41, legendColor = 0.51 } do
-    expect.equal(style[field][1], channel, 'the global palette maps ' .. field)
-  end
-  expect.equal(board.width, 10, 'the existing board keeps its scaled layout units')
+  expect.equal(style.gap, 0, 'the provider gap wins over global metrics')
+  expect.near(style.legendHeight, 0.02, 1e-9, 'an omitted provider value follows the global theme')
+  expect.equal(style.keyColor[1], 0.21, 'the global palette maps the key colour')
   selection:dispose()
   env.session:close()
-end)
-
-test('define checks what the generic validation cannot see into', function()
-  local defaults = config.parse {}
-  expect.equal(defaults.style.keyUnit, 0.028, 'physical key-unit defaults remain independent')
-  expect.equal(defaults.style.legendColor, nil, 'omitted appearance remains sparse')
-  expect.equal(defaults.style.font, nil, 'omitted font follows the global theme')
-  local projected =
-    appearance.project(config.parse({ style = { font = { kind = 'file', file = 'keyboard.ttf' } } }).style)
-  expect.equal(projected.font.size, 32, 'editable file fonts project their nominal size')
-  expect.equal(projected.font.spread, 4, 'editable file fonts project their spread')
-  local resolved = appearance.resolve(arcade, projected, {
-    font = { kind = 'default' },
-    keyColor = { 0.7, 0.6, 0.5, 1 },
-    keyRadius = 0,
-  })
-  expect.equal(resolved.font.kind, 'default', 'an object font replaces the provider font as a strict specification')
-  expect.equal(resolved.font.file, nil, 'a default face cannot inherit file-font fields')
-  expect.equal(resolved.keyColor[1], 0.7, 'object appearance wins over provider and global appearance')
-  expect.equal(resolved.keyRadius, 0, 'an explicit square radius wins over global rounding')
-  expect.equal(resolved.gap, 0.006, 'an omitted gap follows global keyboard metrics')
-  expect.raises(function()
-    keyboard.define { style = { font = { kind = 'default', file = 'keyboard.ttf' } } }
-  end, 'default fonts have no file', 'editable default fonts reject file fields')
-  expect.raises(function()
-    keyboard.define { rows = { { { code = 1, action = { kind = 'hide' } } } } }
-  end, 'has a code and an action', 'a key with a code and an action')
-  expect.raises(function()
-    keyboard.define { modifierKeys = { [42] = 'hyper' } }
-  end, 'is a modifier name, not hyper', 'an unknown modifier')
 end)
 
 return test

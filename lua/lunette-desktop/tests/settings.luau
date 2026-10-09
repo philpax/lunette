@@ -2,20 +2,8 @@
 local testing = require '@testing'
 local expect = testing.expect
 local desktop = require '@lunette-desktop'
-local panelsContract = require '@lunette-contracts/panels'
-local tagsContract = require '@lunette-contracts/tags'
-local menuContract = require '@lunette-contracts/menu'
 
 local test = testing.suite()
-
-local function entry(entries, id)
-  for _, candidate in entries do
-    if candidate.id == id then
-      return candidate
-    end
-  end
-  error('missing entry ' .. id)
-end
 
 local function sameValue(actual, expected, where)
   if type(expected) ~= 'table' then
@@ -70,131 +58,18 @@ local RAW_PATCHES = {
   { id = 'desktop/adoption', config = CONFIGS.adoption },
 }
 
-local WORKSPACES = {
-  workspaces = { { name = 'main' }, { name = 'side' } },
-}
-
-local function workspacePatches(config, initial)
-  return {
-    { id = 'desktop/workspaces', config = config },
-    { id = 'desktop/adoption', config = { tags = { initial } } },
-  }
-end
-
-test('typed settings are equivalent to raw patches, without changing defaults or factory sources', function()
-  local actual = desktop.compose { settings = CONFIGS }
-  sameEntries(actual, desktop.compose { patches = RAW_PATCHES })
-  sameEntries(desktop.compose { settings = {} }, desktop.entries())
-  for index, entry in ipairs(desktop.entries()) do
-    expect.equal(actual[index].definition, entry.definition, 'the original definition of ' .. entry.id)
-    expect.equal(actual[index].factory, entry.factory, 'the original factory of ' .. entry.id)
-    expect.equal(entry.config, nil, 'the default config is unchanged')
-  end
-end)
-
-test('workspace settings configure desktop/workspaces and adopt into the first workspace', function()
-  local actual = desktop.compose { settings = { workspaces = WORKSPACES } }
-  sameEntries(actual, desktop.compose { patches = workspacePatches(WORKSPACES, 'main') })
-  expect.equal(#actual, #desktop.entries(), 'no entry is added')
+test('typed settings are equivalent to raw patches, and workspaces adopt into the first workspace', function()
+  sameEntries(desktop.compose { settings = CONFIGS }, desktop.compose { patches = RAW_PATCHES })
+  local workspaces = { workspaces = { { name = 'main' }, { name = 'side' } } }
   sameEntries(
-    desktop.compose { settings = { workspaces = {} } },
-    desktop.compose { patches = workspacePatches({}, 'main') }
+    desktop.compose { settings = { workspaces = workspaces } },
+    desktop.compose {
+      patches = {
+        { id = 'desktop/workspaces', config = workspaces },
+        { id = 'desktop/adoption', config = { tags = { 'main' } } },
+      },
+    }
   )
-  local adopted = desktop.compose { settings = { workspaces = WORKSPACES, adoption = { tags = { 'side' } } } }
-  expect.equal(entry(adopted, 'desktop/adoption').config.tags[1], 'side', 'adoption settings take precedence')
-end)
-
-test('unknown sections, malformed lists, and shorthand collisions raise before callbacks bind', function()
-  local load = lovr.load
-  for _, case in ipairs {
-    { options = { settings = { keyboard = {} } }, message = 'option keyboard is not a declared field' },
-    {
-      options = { settings = { keyboardDisplay = {} }, patches = { { id = 'desktop/keyboard', config = {} } } },
-      message = 'two patches name desktop/keyboard',
-    },
-    { options = { patches = { typo = true } }, message = 'the patch list is a list' },
-  } do
-    expect.raises(function()
-      desktop.run(case.options :: any)
-    end, case.message)
-    expect.equal(lovr.load, load, 'invalid options bind no callbacks')
-  end
-end)
-
-local function environment(config, fake, patches)
-  local session =
-    testing.boot(desktop.compose { settings = { workspaces = config }, patches = patches }, { native = fake })
-  local panels = session:observe(panelsContract.capability)
-  local tags = session:observe(tagsContract.capability)
-  return { session = session, panels = panels.service, tags = tags.service, owner = tags.context, native = fake }
-end
-
-local function open(env, window)
-  env.native.events.windows[#env.native.events.windows + 1] = window
-  env.native.emit('onWindowOpened', { window = window })
-  return assert(env.panels:forSource(window))
-end
-
-local function selectWorkspace(env, name)
-  local menu = env.session:observe(menuContract.capability).service
-  expect.equal(menu:invoke('desktop/workspace/' .. name).kind, 'invoked', 'workspace action runs')
-end
-
-test('a renamed first workspace coordinates boot and later adoption without renaming explicit or saved tags', function()
-  local fake = testing.native()
-  local boot = fake.newWindow(310)
-  fake.events.windows = { boot }
-  fake.events.saved = 'return { version = 1, entries = { { kind = "monitor", key = "fixture-output", slot = 1, '
-    .. 'pose = "1 0 0 0 0 1 0 0 0 0 1 0 0 1 -2 1", tags = { "main" } } } }'
-  local monitor = fake.newMonitor 'fixture-output'
-  fake.events.monitors[monitor.id] = monitor
-  local config = { workspaces = { { name = 'work' }, { name = 'web' } } }
-  local env = environment(config, fake, {
-    {
-      id = 'desktop/rules',
-      config = { rules = { { match = { appId = 'mail' }, properties = { tags = { 'mail' } } } } },
-    },
-  })
-  local work, web = assert(env.tags:find 'work'), assert(env.tags:find 'web')
-  expect.truthy(work.selected and not web.selected, 'the first named workspace is selected')
-  expect.truthy(work:has(env.panels:forSource(boot)), 'the boot window adopts the coordinated default')
-  local saved = assert(env.panels:forSource(monitor))
-  expect.truthy(assert(env.tags:find 'main'):has(saved), 'a persisted tag is not renamed')
-  local explicit = open(env, fake.newWindow(311, 'mail'))
-  expect.truthy(assert(env.tags:find 'mail'):has(explicit), 'an explicit rule tag is not renamed')
-  expect.falsy(work:has(explicit), 'an explicit rule replaces the default')
-  selectWorkspace(env, 'web')
-  local later = open(env, fake.newWindow(312))
-  expect.truthy(web:has(later) and not work:has(later), 'a later window follows the selected workspace')
-  expect.falsy(explicit.hidden or saved.hidden, 'unlisted tags remain outside workspace visibility policy')
-  env.session:close()
-end)
-
-test('workspace following applies to saved boot windows and can preserve their membership', function()
-  for _, follow in { true, false } do
-    local fake = testing.native()
-    local window = fake.newWindow(325, 'saved-window')
-    fake.events.windows = { window }
-    fake.events.saved = 'return { version = 1, entries = { { kind = "window", key = "saved-window", slot = 1, '
-      .. 'pose = "1 0 0 0 0 1 0 0 0 0 1 0 0 1 -2 1", tags = { "web" } } } }'
-    local env = environment({
-      workspaces = { { name = 'work' }, { name = 'web' } },
-      follow = follow,
-    }, fake)
-    local panel = assert(env.panels:forSource(window))
-    expect.equal(assert(env.tags:find 'work'):has(panel), follow, 'following moves the saved window to work')
-    expect.equal(
-      assert(env.tags:find 'web'):has(panel),
-      not follow,
-      'disabled following preserves the saved membership'
-    )
-    expect.equal(panel.hidden, not follow, 'the saved window is visible only in the selected workspace')
-    if not follow then
-      selectWorkspace(env, 'web')
-      expect.falsy(panel.hidden, 'selecting the saved workspace shows its window')
-    end
-    env.session:close()
-  end
 end)
 
 return test

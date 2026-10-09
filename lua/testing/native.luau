@@ -81,18 +81,6 @@ function native.new()
     return logged
   end
 
-  function fake.dropEndedSubscriptions()
-    for name, list in pairs(events.subscriptions) do
-      local live = {}
-      for _, record in ipairs(list) do
-        if record.active then
-          live[#live + 1] = record
-        end
-      end
-      events.subscriptions[name] = live
-    end
-  end
-
   -- Reload requires every plugin subscription to end before native subscriptions are cleared.
   local function clearSubscriptions()
     for name in pairs(events.subscriptions) do

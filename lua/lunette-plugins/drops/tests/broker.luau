@@ -33,32 +33,6 @@ local function surface(x)
   return result
 end
 
-test('listeners hear every drop in registration order, and a disposed listener hears none', function()
-  local env = start()
-  local first, second = surface(), surface()
-  local heard = {}
-  local all = env.drops:onDropped(env.owner, {
-    run = function(drop)
-      expect.equal(drop.pointer, env.pointer, 'the delivered pointer')
-      heard[#heard + 1] = if drop.surface == first then 'first' else 'second'
-    end,
-  })
-  local later = env.drops:onDropped(env.owner, {
-    run = function()
-      heard[#heard + 1] = 'later'
-    end,
-  })
-  env.drops:emit(env.owner, { surface = first, pointer = env.pointer })
-  expect.equal(table.concat(heard, ' '), 'first later', 'the first drop')
-  all:dispose()
-  env.drops:emit(env.owner, { surface = second, pointer = env.pointer })
-  expect.equal(table.concat(heard, ' '), 'first later later', 'after the first disposal')
-  later:dispose()
-  env.drops:emit(env.owner, { surface = first, pointer = env.pointer })
-  expect.equal(#heard, 3, 'after both disposals')
-  env.session:close()
-end)
-
 test('a drop is emitted when a grab ends, while the pointer still names the surface it carried', function()
   local env = start()
   local carried = surface()

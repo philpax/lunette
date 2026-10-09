@@ -8,22 +8,20 @@ use super::{
 };
 
 #[test]
-fn contract_registry_identity() -> Result<(), Box<dyn Error>> {
+fn a_contract_identity_is_its_name_and_schema_within_one_registry() -> Result<(), Box<dyn Error>> {
     let lua = Lua::new();
+    let stale = ContractRegistry::new().declare(contract_name("example", "clock"), 1)?;
     let registry = ContractRegistry::new();
     let first = registry.declare(contract_name("example", "clock"), 1)?;
-    let different_schema = registry.declare(contract_name("example", "clock"), 2)?;
-    assert_ne!(
-        token_key(&lua, &registry, &first)?,
-        token_key(&lua, &registry, &different_schema)?
-    );
-
-    let duplicate = registry.declare(contract_name("example", "clock"), 1);
+    let other_schema = registry.declare(contract_name("example", "clock"), 2)?;
+    let other_authority = registry.declare(contract_name("other", "clock"), 1)?;
+    let first_key = token_key(&lua, &registry, &first)?;
+    assert_ne!(first_key, token_key(&lua, &registry, &other_schema)?);
+    assert_ne!(first_key, token_key(&lua, &registry, &other_authority)?);
     assert!(matches!(
-        duplicate,
+        registry.declare(contract_name("example", "clock"), 1),
         Err(ContractError::DuplicateIdentity { .. })
     ));
-
     for schema in [0, u64::from(u32::MAX) + 1] {
         assert_eq!(
             registry
@@ -32,33 +30,34 @@ fn contract_registry_identity() -> Result<(), Box<dyn Error>> {
             Some(ContractError::InvalidSchema { schema })
         );
     }
-
-    let other_authority = registry.declare(contract_name("other", "clock"), 1)?;
-    assert_ne!(
-        token_key(&lua, &registry, &first)?,
-        token_key(&lua, &registry, &other_authority)?
+    assert_eq!(
+        token_key(&lua, &registry, &stale)
+            .err()
+            .map(|error| error.to_string()),
+        Some(String::from(
+            "plugin contract: the token in declaration field 'field' is from a retired epoch"
+        ))
     );
+    let foreign = ContractRegistry::new().declare(contract_name("example", "clock"), 1)?;
+    assert!(token_key(&lua, &registry, &foreign).is_err());
     Ok(())
 }
 
 #[test]
-fn declaration_shape_rejected() -> Result<(), Box<dyn Error>> {
+fn a_declaration_is_a_detached_table_of_named_tokens() -> Result<(), Box<dyn Error>> {
     let lua = Lua::new();
     let registry = ContractRegistry::new();
     let token = registry.declare(contract_name("example", "clock"), 1)?;
-
     assert!(matches!(
         registry.validate_declaration(Value::Boolean(true)),
         Err(ContractError::DeclarationNotTable { .. })
     ));
-
     let numeric_key = lua.create_table()?;
     numeric_key.set(1, token.clone())?;
     assert!(matches!(
         registry.validate_declaration(Value::Table(numeric_key)),
         Err(ContractError::DeclarationKeyNotString { .. })
     ));
-
     let non_token = lua.create_table()?;
     non_token.set("clock", true)?;
     assert!(matches!(
@@ -70,42 +69,8 @@ fn declaration_shape_rejected() -> Result<(), Box<dyn Error>> {
     valid.set("clock", token.clone())?;
     let copied = registry.validate_declaration(Value::Table(valid.clone()))?;
     let token_id = token_key(&lua, &registry, &token)?;
-    assert_eq!(copied.iter().collect::<Vec<_>>(), [("clock", &token_id)]);
-
     valid.set("clock", true)?;
     assert_eq!(copied.iter().collect::<Vec<_>>(), [("clock", &token_id)]);
-    Ok(())
-}
-
-/// Tokens from a replaced registry are retired, tokens from another live
-/// registry are foreign, and each error names the declaration field.
-#[test]
-fn stale_contract_epoch() -> Result<(), Box<dyn Error>> {
-    let lua = Lua::new();
-    let old = ContractRegistry::new().declare(contract_name("example", "clock"), 1)?;
-    let registry = ContractRegistry::new();
-    assert_eq!(
-        token_key(&lua, &registry, &old)
-            .err()
-            .map(|error| error.to_string()),
-        Some(String::from(
-            "plugin contract: the token in declaration field 'field' is from a retired epoch"
-        ))
-    );
-
-    let foreign_registry = ContractRegistry::new();
-    let foreign = foreign_registry.declare(contract_name("example", "clock"), 1)?;
-    assert_eq!(
-        token_key(&lua, &registry, &foreign)
-            .err()
-            .map(|error| error.to_string()),
-        Some(String::from(
-            "plugin contract: the token in declaration field 'field' is from another registry"
-        ))
-    );
-
-    let current = registry.declare(contract_name("example", "clock"), 1)?;
-    token_key(&lua, &registry, &current)?;
     Ok(())
 }
 

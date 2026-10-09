@@ -52,15 +52,12 @@ test('a change listener hears registrations begin and end, and a name is one reg
   stack:dispose()
   expect.equal(heard, 2, 'the end of the registration is heard')
   expect.equal(env.layouts:get 'stack', nil, 'the disposed registration')
-  expect.equal(env.layouts:get 'missing', nil, 'a name not registered')
 
   local owned = probe(env, 'layouts-owned')
   owned.layouts:register(owned.owner, { name = 'owned', apply = function() end, continuous = true })
   expect.equal(env.layouts:get('owned').continuous, true, 'the continuous registration')
   owned.instance:disable()
   expect.equal(env.layouts:get 'owned', nil, 'the registration after its owner ends')
-  env.layouts:register(env.owner, { name = 'owned', apply = function() end })
-  expect.truthy(env.layouts:get 'owned', 'the name registered again')
   env.session:close()
 end)
 

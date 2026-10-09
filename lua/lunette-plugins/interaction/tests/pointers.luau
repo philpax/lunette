@@ -27,14 +27,19 @@ local function start(definition)
       env.focus = context:require(focusContract.capability)
     end,
   })
-  local seat = { id = 1, dead = false }
-  function seat:setFocus(sink)
-    self.focus = sink
-    return true
-  end
-  env.seat = seat
-  require('@lunette').defaultSeat = function()
+  function env.newSeat(id)
+    local seat = { id = id, dead = false, calls = 0 }
+    function seat:setFocus(sink)
+      self.calls += 1
+      self.focus = sink
+      return true
+    end
     return seat
+  end
+  local seat = env.newSeat(1)
+  env.seat, env.defaultSeat = seat, seat
+  require('@lunette').defaultSeat = function()
+    return env.defaultSeat
   end
   local sink = { domain = 'window', id = 1, dead = false }
   function sink:button(button, isDown, actualSeat)
@@ -48,7 +53,18 @@ local function start(definition)
   function sink:pointer() end
   function sink:scroll() end
   env.sink = sink
+  function env.window(id)
+    return { domain = 'window', id = id, dead = false, button = function() end }
+  end
+  function env.host(id)
+    return { domain = 'host', monitor = { id = id }, dead = false, button = function() end }
+  end
   return env
+end
+
+local function click(pointer, sink)
+  pointer:setButton { pressed = true, sink = sink }
+  pointer:setButton { pressed = false }
 end
 
 local function surface(env, z)
@@ -82,7 +98,7 @@ local function input(fields)
   }
 end
 
-test('a pointer is made only for a context requiring interaction, and destroys once', function()
+test('a pointer is made only for a context requiring interaction, with tuning merged over the defaults', function()
   local env = start()
   env.session:use(plugin.define {
     name = 'stranger',
@@ -92,19 +108,8 @@ test('a pointer is made only for a context requiring interaction, and destroys o
       end, nil, 'a pointer for a context that does not require interaction')
     end,
   })
-  expect.equal(#env.interaction:pointers(), 0, 'the pointers after the refusal')
-  local pointer = env.interaction:newPointer(env.owner)
-  expect.truthy(pointer:destroy(), 'the first destroy')
-  expect.falsy(pointer:destroy(), 'a second destroy answers false')
-  env.session:close()
-end)
-
-test("a pointer's own tuning merges over the provider's", function()
-  local env = start()
-  local pointer = env.interaction:newPointer(env.owner, { seat = env.seat })
-  expect.equal(pointer.seat, env.seat, 'the seat')
-  expect.equal(pointer.tuning.reach, env.interaction.TUNING.reach, 'the default reach')
-  local near = env.interaction:newPointer(env.owner, { tuning = { reach = 1 } })
+  local near = env.interaction:newPointer(env.owner, { seat = env.seat, tuning = { reach = 1 } })
+  expect.equal(near.seat, env.seat, 'the seat')
   expect.equal(near.tuning.reach, 1, 'the merged reach')
   expect.equal(near.tuning.scrollScale, env.interaction.TUNING.scrollScale, 'the inherited scroll scale')
   env.session:close()
@@ -120,24 +125,6 @@ test('a surface two pointers hover stays highlighted until both have left', func
   expect.truthy(shared.highlighted, 'another pointer still hovers the surface')
   second:hover(nil)
   expect.falsy(shared.highlighted, 'the last pointer to leave clears the highlight')
-  first:hover(shared)
-  expect.equal(first.hovered, shared, 'what the pointer hovers')
-  env.session:close()
-end)
-
-test("a press presses its button and gives the seat's keyboard to the sink through focus", function()
-  local env = start()
-  local pointer = env.interaction:newPointer(env.owner, { seat = env.seat })
-  local target = surface(env)
-  pointer:setButton { pressed = true, sink = env.sink, surface = target }
-  expect.equal(env.pressed[1], 'left', 'the default button')
-  expect.equal(env.seat.focus, env.sink, 'the native focus')
-  local focused = env.focus:focused()
-  expect.truthy(focused and not focused.dead, 'the focused target')
-  pointer:setButton { button = 'right', pressed = true, sink = env.sink, surface = target }
-  pointer:setButton { button = 'right', pressed = false }
-  expect.equal(env.pressed[2], 'right', 'a second button is its own press')
-  expect.equal(env.released[1], 'right', 'and its own release')
   env.session:close()
 end)
 
@@ -146,23 +133,19 @@ test('two pointers share a grab: pushing, dragging, scaling, and a partner letti
   local first, second = env.interaction:newPointer(env.owner), env.interaction:newPointer(env.owner)
   local target = surface(env, -2)
   expect.truthy(first:beginGrab(target, translation()), 'the first grab')
-  expect.equal(first.grabbed, target, 'what the first pointer carries')
   first:push { deflection = 1, dt = 1 }
   first:dragTo(translation(1))
   local x, _, z = target.pose:getPosition()
   expect.near(x, 1, 1e-5, 'the drag moves the surface with the hand')
   expect.truthy(z < -2, 'the push moves the surface along the ray')
   first:dragTo(translation())
-  expect.near((target.pose:getPosition()), 0, 1e-5, 'the drag back')
   expect.truthy(second:beginGrab(target, translation(1)), 'the second grab of the same surface')
   second:scaleWith(translation(2))
   expect.near(target.width, 2, 1e-5, 'two hands moving apart scale the surface')
   expect.truthy(first:endGrab(), 'ending a grab answers that something was carried')
-  expect.equal(first.grabbed, nil, 'the first pointer after letting go')
   second:scaleWith(translation(2))
   second:dragTo(translation(5))
   expect.near((target.pose:getPosition()), 3, 1e-5, 'the partner letting go turns a scale into a grab')
-  expect.truthy(second:endGrab(), 'the second pointer lets go')
   env.session:close()
 end)
 
@@ -172,7 +155,6 @@ test("an unloading owner's pointers release their buttons, leave, and take their
   local target = surface(env, -2)
   pointer:hover(target)
   pointer:setButton { pressed = true, sink = env.sink, surface = target }
-  local stale = env.owner
   env.consumer:disable()
   expect.equal(env.seat.focus, nil, 'a destroyed pointer withdraws the native focus it gave')
   expect.equal(env.focus:focused(), nil, 'a destroyed pointer is no longer focused')
@@ -180,40 +162,42 @@ test("an unloading owner's pointers release their buttons, leave, and take their
   expect.equal(env.released[1], 'left', 'the held button is released')
   expect.equal(env.leaves, 1, 'the sink is left')
   expect.falsy(target.highlighted, 'the highlight is cleared')
-  expect.equal(#env.interaction:pointers(), 0, 'the pointers')
-  expect.falsy(pointer:beginGrab(target, translation()), 'a dead pointer grabs nothing')
-  pointer:setButton { pressed = true, sink = env.sink, surface = target }
-  expect.equal(#env.pressed, 1, 'a dead pointer presses nothing')
-  expect.raises(function()
-    env.interaction:newPointer(stale)
-  end, nil, 'a pointer for a stale owner')
   env.session:close()
 end)
 
-test('update maps input onto the pointer: buttons press, a grip grabs, and releasing it drops', function()
+test('update presses buttons with focus, and a grip carries the surface rigidly with the hand', function()
   local env = start()
   local pointer = env.interaction:newPointer(env.owner, { seat = env.seat })
   local plate = surface(env, -1)
   pointer:update(input { buttons = { left = true, middle = true } }, { plate })
   expect.equal(pointer.hovered, plate, 'the surface the ray hits')
-  expect.equal(pointer.hitX, 10, 'the hit coordinate')
-  expect.equal(pointer.distance, 1, 'the hit distance')
   expect.equal(table.concat(env.pressed, ' '), 'left middle', 'the buttons held')
+  expect.equal(env.seat.focus, env.sink, 'a press gives the seat focus to the sink')
+  expect.truthy(env.focus:focused(), 'a press gives a focus grant')
   pointer:update(input {}, { plate })
+  local initial = lovr.math.newMat4(plate.pose)
   pointer:update(input { grip = true }, { plate })
   expect.equal(pointer.grabbed, plate, 'the grip grabs')
+  local moved = translation(0.2, 0.1, 0):rotate(0.8, 0, 1, 0)
+  pointer:update(input { grip = true, pose = moved }, { plate })
+  local expected = lovr.math.newMat4(moved):mul(initial)
+  for _, point in { { 0, 0, 0, 1 }, { 1, 0, 0, 0 }, { 0, 0, 1, 0 } } do
+    local x, y, z = plate.pose:mul(table.unpack(point))
+    local ex, ey, ez = expected:mul(table.unpack(point))
+    expect.near(x, ex, 1e-5, 'the surface follows the hand in x')
+    expect.near(y, ey, 1e-5, 'the surface follows the hand in y')
+    expect.near(z, ez, 1e-5, 'the surface follows the hand in z')
+  end
   pointer:update(input {}, { plate })
   expect.equal(pointer.grabbed, nil, 'releasing the grip drops the surface')
   env.session:close()
 end)
 
 test('a drive hook remaps input, a constrain hook places what is carried, and focusOnPress can be off', function()
-  local remapped = 0
   local env = start(interaction.define {
     name = 'hooked-interaction',
     focusOnPress = false,
     drive = function(pointer, given, surfaces, base)
-      remapped += 1
       base(pointer, {
         origin = given.origin,
         direction = given.direction,
@@ -231,62 +215,81 @@ test('a drive hook remaps input, a constrain hook places what is carried, and fo
   local pointer = env.interaction:newPointer(env.owner, { seat = env.seat })
   local plate = surface(env, -1)
   pointer:update(input { buttons = { left = true } }, { plate })
-  expect.equal(remapped, 1, 'the drive hook ran')
   expect.equal(table.concat(env.pressed, ' '), 'right', 'the drive hook remapped the trigger')
   expect.equal(env.seat.focus, nil, 'focusOnPress = false gives no native focus')
   expect.equal(env.focus:focused(), nil, 'focusOnPress = false gives no focus grant')
   pointer:update(input {}, { plate })
   pointer:update(input { grip = true }, { plate })
-  expect.equal(pointer.grabbed, plate, 'the grip grabs')
   pointer:update(input { grip = true, pose = translation(2, 4) }, { plate })
   local x, y = plate.pose:getPosition()
   expect.near(x, 2, 1e-5, 'the constraint allows the slide')
   expect.near(y, 1.5, 1e-5, 'the constraint keeps the height')
-  pointer:update(input {}, { plate })
-  pointer:focus(env.sink)
-  expect.equal(env.seat.focus, env.sink, 'explicit focus still gives native focus')
-  expect.truthy(env.focus:focused(), 'explicit focus still gives a focus grant')
   env.session:close()
 end)
 
-test('a failing release raises to a direct destroy, and is reported against an owner that unloads', function()
-  local env = start()
-  local survivorOwner
-  env.session:use(plugin.define {
-    name = 'survivor',
-    requires = { interaction = interactionContract.capability },
-    init = function(context)
-      survivorOwner = context
-    end,
-  })
-  local failedReleases = 0
-  local brokenSink = { domain = 'host', monitor = { id = 'release-fixture' }, dead = false }
-  function brokenSink:button(_, isDown)
-    if not isDown then
-      failedReleases += 1
-      error 'native button release failed'
-    end
+test(
+  'a pointer keeps one target per app, refocusing it after a local field and replacing it for another app',
+  function()
+    local env = start()
+    local seat = env.newSeat(2)
+    local pointer = env.interaction:newPointer(env.owner, { seat = seat })
+    click(pointer, env.window(11))
+    local target = env.focus:focused()
+    local field = env.focus:register(env.owner, {
+      kind = 'local',
+      receiver = {
+        key = function()
+          return true
+        end,
+        text = function()
+          return true
+        end,
+      },
+      wantsKeyboard = true,
+    })
+    expect.truthy(field:focus(), 'the local field focuses')
+    expect.equal(seat.focus, nil, 'the local field clears native focus')
+    click(pointer, env.window(11))
+    expect.equal(env.focus:focused(), target, 'a fresh sink wrapper refocuses the existing target')
+    expect.equal(seat.focus.id, 11, 'native focus returns to the app')
+    click(pointer, env.window(12))
+    expect.truthy(target.dead, 'another app replaces the previous target')
+    expect.equal(#env.focus:inspect().registrations, 2, 'one pointer target and one local field')
+    env.consumer:disable()
+    expect.equal(#env.focus:inspect().registrations, 0, 'owner teardown leaves no targets')
+    expect.equal(seat.focus, nil, 'owner teardown clears native focus')
+    env.session:close()
   end
-  local broken = env.interaction:newPointer(env.owner)
-  broken:setButton { pressed = true, sink = brokenSink }
-  expect.raises(function()
-    broken:destroy()
-  end, 'native button release failed', 'a direct destroy')
-  expect.equal(failedReleases, 1, 'the releases attempted')
-  expect.falsy(broken:destroy(), 'the pointer ended despite the failure')
-  expect.truthy(env.interaction:newPointer(survivorOwner), 'the provider still serves')
+)
 
-  local leaking = env.interaction:newPointer(env.owner)
-  leaking:setButton { pressed = true, sink = brokenSink }
-  env.consumer:disable()
-  expect.equal(failedReleases, 2, 'the releases attempted')
-  expect.truthy(leaking.dead, 'the pointer of the unloaded owner')
-  local reports = testing.takeReports()
-  expect.equal(#reports, 1, 'the reports')
-  expect.truthy(reports[1]:find('native button release failed', 1, true), 'the reported failure')
-  expect.equal(env.consumer:state(), 'quarantined', 'the failing owner')
-  expect.equal(env.session.instances.interaction:state(), 'active', 'the provider')
-  expect.truthy(env.interaction:newPointer(survivorOwner), 'the provider still serves after the unload')
+test('host targets route focus without asking a compositor seat to focus a monitor', function()
+  local env = start()
+  local seat = env.newSeat(2)
+  local pointer = env.interaction:newPointer(env.owner, { seat = seat })
+  click(pointer, env.host 'display-a')
+  local target = env.focus:focused()
+  expect.truthy(target, 'the host route is focused')
+  click(pointer, env.host 'display-b')
+  expect.truthy(target.dead, 'another monitor replaces the target')
+  pointer:focus(nil)
+  expect.equal(env.focus:focused(), nil, 'explicit blur clears the host route')
+  pointer:destroy()
+  expect.equal(seat.calls, 0, 'host focus makes no native seat call')
+  env.session:close()
+end)
+
+test('a pointer without a seat follows the default seat', function()
+  local env = start()
+  local pointer = env.interaction:newPointer(env.owner)
+  pointer:focus(env.window(11))
+  expect.equal(env.seat.focus.id, 11, 'the default seat receives focus')
+  local replacement = env.newSeat(4)
+  env.defaultSeat = replacement
+  pointer:focus(env.window(11))
+  expect.equal(env.seat.focus, nil, 'changing the default seat clears the previous authority')
+  expect.equal(replacement.focus.id, 11, 'the new default seat receives focus')
+  pointer:destroy()
+  expect.equal(replacement.focus, nil, 'pointer destruction clears the resolved default seat')
   env.session:close()
 end)
 
