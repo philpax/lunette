@@ -236,8 +236,8 @@ local function makeLaser(state: ProviderState, settings: Settings, owner: Owner,
 end
 
 local function build(context: plugin.Context, settings: Settings): Service
-  -- The published service is revoked with this activation, so its methods need no liveness guard; lasers
-  -- outlive the call that made them and check the activation themselves.
+  -- The published service is revoked with this activation, so its methods need no liveness guard. Lasers
+  -- outlive the call that made them, so they check the activation themselves.
   local themes: theme.Service = context:require(theme.capability)
   local revision = -1
   local state: ProviderState

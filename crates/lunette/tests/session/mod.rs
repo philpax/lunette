@@ -1,15 +1,8 @@
 //! The environment a test gives the lunette binary it boots.
 //!
-//! The exit status, the module-root mount, a reload against `boot.lua`, and safe mode exist
-//! only in a session the binary boots, so these tests spawn it. The fixtures switch off the
-//! audio, graphics, and headset modules and open no window, so a run needs no display, XR
-//! runtime, or sound device.
-//!
-//! `boot.lua` creates `$XDG_DATA_HOME/LOVR/<identity>` on every run and fails when it cannot.
-//! Each run gets its own data directory, so parallel runs do not race to create one leaf and
-//! the run does not depend on `HOME` or on a passwd entry for the running uid. `HOME` and
-//! `LUNETTE_CONFIG_PATH` are removed, so a mislaid fixture fails rather than loading a
-//! developer's own or the shipped configuration.
+//! Each run gets its own data directory, so parallel runs do not race to create LÖVR's save
+//! directory. `HOME` and `LUNETTE_CONFIG_PATH` are removed, so a mislaid fixture fails rather
+//! than loading another configuration.
 
 // `expect` would fail in a binary that uses every item, so this is an `allow`.
 #![allow(
@@ -48,9 +41,8 @@ pub fn command(fixture: &str) -> (Command, TempDir) {
     (command, data)
 }
 
-/// Boots the binary against `fixture` and asserts the status it exited with, quoting its
-/// stdout and stderr on failure. The fixtures print which assertion did not hold, and a Lua
-/// error arrives on stderr.
+/// Boots the binary against `fixture` and asserts its exit status, quoting stdout and stderr
+/// on failure.
 pub fn assert_exit_status(fixture: &str, expected: i32) {
     let (mut command, data) = command(fixture);
     let output = command

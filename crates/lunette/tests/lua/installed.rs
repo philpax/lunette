@@ -1,7 +1,5 @@
-//! Copies the install manifest into a temporary installation, then loads every installed
-//! module from it and checks that no installed source or the shipped configuration requires
-//! a development-only root. `luau_check.rs` typechecks a configuration against the same
-//! copy, because the checker changes process-wide Luau state that later Lua states inherit.
+//! Copies the install manifest into a temporary installation and loads every installed module
+//! from it, with no development-only root reachable.
 
 use std::{
     fs,
@@ -90,8 +88,6 @@ fn require_every_module(installation: &Path) -> Result<(), Box<dyn std::error::E
     Ok(())
 }
 
-/// Typechecks a configuration beside the installation, with the aliases `--dump-config`
-/// writes and the installed definitions.
 /// Fails when an installed source or the shipped configuration names a root that an
 /// installation lacks.
 fn reject_development_roots(directories: &[PathBuf]) -> Result<(), Box<dyn std::error::Error>> {

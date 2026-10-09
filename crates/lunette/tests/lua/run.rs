@@ -14,7 +14,6 @@ use crate::{
     state::{self, Roots},
 };
 
-/// Runs `file` in a fresh state.
 pub fn file(roots: &Roots, file: &TestFile) -> Result<(), String> {
     let lua =
         state::new(roots).map_err(|error| format!("the test state could not be built: {error}"))?;

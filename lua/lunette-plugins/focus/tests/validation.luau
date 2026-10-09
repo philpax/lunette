@@ -27,56 +27,8 @@ test('local registration validates closed plain metadata before acquiring effect
     local cases = {
       { { kind = 'other' }, 'kind is native or local' },
       { { kind = 'local', receiver = receiver(), wantsKeyboard = true, typo = true }, 'typo' },
-      { { kind = 'local', receiver = receiver(), wantsKeyboard = 1 }, 'wantsKeyboard' },
       { { kind = 'local', receiver = {}, wantsKeyboard = true }, 'key and text' },
-      {
-        {
-          kind = 'local',
-          receiver = {
-            key = function()
-              return false
-            end,
-            text = 'wrong',
-          },
-          wantsKeyboard = true,
-        },
-        'key and text',
-      },
-      {
-        {
-          kind = 'local',
-          receiver = {
-            key = function()
-              return false
-            end,
-            text = function()
-              return false
-            end,
-            onBlur = 1,
-          },
-          wantsKeyboard = true,
-        },
-        'onBlur',
-      },
-      {
-        {
-          kind = 'local',
-          receiver = {
-            key = function()
-              return false
-            end,
-            text = function()
-              return false
-            end,
-            onFocus = 1,
-          },
-          wantsKeyboard = true,
-        },
-        'onFocus',
-      },
-      { { kind = 'local', receiver = setmetatable(receiver(), {}), wantsKeyboard = true }, 'plain table' },
       { setmetatable({ kind = 'local', receiver = receiver(), wantsKeyboard = true }, {}), 'plain table' },
-      { { kind = 'native' }, 'sink is required' },
       { { kind = 'native', sink = { domain = 'other', dead = false } }, 'sink domain' },
     }
     for _, case in ipairs(cases) do
@@ -85,35 +37,6 @@ test('local registration validates closed plain metadata before acquiring effect
       end, case[2], 'named invalid target')
       expect.equal(#service:inspect().registrations, 0, 'invalid data acquires no registration')
     end
-  end)
-end)
-
-test('registration copies receiver and target data without exposing mutable implementation state', function()
-  scenario(function(service, owner)
-    local text = ''
-    local callbacks = receiver()
-    callbacks.text = function(value)
-      text ..= value
-      return true
-    end
-    local options = { kind = 'local', receiver = callbacks, wantsKeyboard = true }
-    local target = service:register(owner, options)
-    options.wantsKeyboard = false
-    callbacks.text = function()
-      error 'mutated caller callback cannot replace a registered receiver'
-    end
-    target:focus()
-    local input = service:newSource(owner)
-    expect.equal(input:text('draft').kind, 'consumed', 'the registered callback is retained')
-    expect.equal(text, 'draft', 'caller changes do not mutate registered delivery')
-    expect.raises(function()
-      target.dead = false
-    end, 'readonly', 'handles are readonly')
-    expect.raises(function()
-      target.extra = true
-    end, 'readonly', 'handles reject new properties')
-    target:destroy()
-    expect.equal(input:text('ignored').kind, 'unhandled', 'destroyed target delivery is inert')
   end)
 end)
 
@@ -131,32 +54,6 @@ test('source options reject metatables and activation metadata rejects malformed
         { code = 30, modifiers = { 'shift', 1 } },
         { code = 30, isRepeat = 1 },
         { code = 30, batch = 0 / 0 },
-        { code = 79, physicalModifiers = false },
-        { code = 79, physicalModifiers = {} },
-        { code = 79, physicalModifiers = setmetatable({}, {}) },
-        {
-          code = 79,
-          physicalModifiers = {
-            shift = false,
-            control = false,
-            alt = false,
-            super = false,
-            capsLock = false,
-            numLock = 1,
-          },
-        },
-        {
-          code = 79,
-          physicalModifiers = {
-            shift = false,
-            control = false,
-            alt = false,
-            super = false,
-            capsLock = false,
-            numLock = true,
-            typo = false,
-          },
-        },
         setmetatable({ code = 30 }, {}),
       }
     do

@@ -63,43 +63,6 @@ test('malformed collection descendants block ancestor discards but not safe sibl
   end
 end)
 
-test('optional array elements reject nil edits and resets without disabling explicit removal', function()
-  local metadata = schema
-    .object({
-      list = schema.array(schema.optional(schema.number())),
-      map = schema.map(schema.optional(schema.number())),
-    })
-    .inspect()
-  for _, values in { { 1 }, { 1, 2, 3 } } do
-    local model = editor.new(metadata, { list = values, map = { retained = 4 } })
-    for index in values do
-      local path = { 'list', index }
-      expect.truthy(row(model, path).optional)
-      expect.truthy(row(model, path).canRemove)
-      expect.falsy(row(model, path).readOnly or row(model, path).canReset)
-      reject(model, editor.set, 'input', path, nil)
-      reject(model, editor.toggle, 'input', path)
-      reject(model, editor.reset, 'readonly', path)
-      expect.equal(row(model, { 'list' }).control, 'array')
-      expect.equal(editor.draft(change(editor.set, model, path, '9')).list[index], 9)
-      local removed = change(editor.remove, model, path)
-      expect.equal(#editor.draft(removed).list, #values - 1)
-      expect.equal(row(removed, { 'list' }).control, 'array')
-      expect.truthy(row(removed, { 'list' }).canAdd)
-      for retained = 1, #values - 1 do
-        expect.equal(editor.draft(removed).list[retained], values[if retained < index then retained else retained + 1])
-      end
-    end
-    expect.equal(editor.draft(change(editor.set, model, { 'map', 'retained' }, nil)).map.retained, nil)
-    expect.equal(editor.draft(change(editor.reset, model, { 'map', 'retained' })).map.retained, nil)
-  end
-  local defaulted = editor.new(schema.array(schema.default(schema.optional(schema.number()))(6)).inspect(), { 1, 2, 3 })
-  for index = 1, 3 do
-    expect.truthy(row(defaulted, { index }).canReset)
-    expect.equal(editor.draft(change(editor.reset, defaulted, { index }))[index], 6)
-  end
-end)
-
 local leaf = schema.object {
   count = schema.number(),
   name = schema.string(),

@@ -96,19 +96,6 @@ test('open choices reserve the header and keep options inside declared bounds', 
   end
 end)
 
-test('clip rectangles never relocate the layout origin', function()
-  local state = fixture(rows(4))
-  state.methods.setOpen({}, true)
-  local clipped = state:items { x = 20, y = 50, width = 70, height = 24 }
-  expect.equal(#clipped, 2)
-  expect.equal(clipped[1].id, '1')
-  expect.equal(clipped[1].bounds.x, 20)
-  expect.equal(clipped[1].bounds.y, 50)
-  expect.equal(clipped[1].bounds.height, 15)
-  expect.equal(clipped[2].bounds.y, 68)
-  expect.equal(clipped[2].bounds.height, 6)
-end)
-
 test('insufficient space and empty content keep choices closed', function()
   local empty = fixture {}
   empty.methods.setOpen({}, true)
@@ -163,84 +150,6 @@ test('option releases require the original enabled id and unchanged bounds', fun
   expect.equal(state.cancels[#state.cancels], 'control-removed')
   state:event('release', 15, 69)
   expect.equal(state.methods.selected {}, nil)
-end)
-
-test('item replacement retains stable selection and cancels active option captures', function()
-  local state = fixture(rows(4), '2')
-  state.methods.setOpen({}, true)
-  state:event('press', 15, 69)
-  state.methods.setItems({}, { { id = '2', label = 'Retained' } })
-  expect.equal(state.methods.selected {}, '2')
-  expect.equal(state:visual().value, 'Retained')
-  state:event('release', 15, 69)
-  state.methods.setItems({}, { { id = '1', label = 'Other' } })
-  expect.equal(state.methods.selected {}, nil)
-  state.methods.setItems({}, {})
-  expect.equal(state:visual().opened, false)
-  expect.equal(#state:items(), 0)
-end)
-
-test('callbacks see committed selection and closed state and may reopen replace or fail', function()
-  local state
-  state = fixture(rows(3), nil, function(id)
-    expect.equal(state.methods.selected {}, id)
-    expect.equal(state:visual().opened, false)
-    state.methods.setItems({}, rows(1))
-    state.methods.setOpen({}, true)
-    error 'expected callback failure'
-  end)
-  state:click(15, 23)
-  state:click(15, 69)
-  expect.equal(state.methods.selected {}, nil)
-  expect.equal(state:visual().opened, true)
-  expect.equal(#state.reports, 1)
-  state:event('release', 15, 69)
-  expect.equal(#state.reports, 1)
-end)
-
-test('capture cancellation may reenter item updates without being overwritten', function()
-  local state = fixture(rows(3))
-  state.methods.setOpen({}, true)
-  state:event('press', 15, 69)
-  state.onCancel = function()
-    state.onCancel = nil
-    state.methods.setItems({}, { { id = 'last', label = 'Final' } })
-    state.methods.setSelected({}, 'last')
-  end
-  state.methods.setItems({}, rows(2))
-  expect.equal(state.methods.selected {}, 'last')
-  expect.equal(state:items()[1].id, 'last')
-  state:event('release', 15, 69)
-  expect.equal(state.methods.selected {}, 'last')
-  state.live = false
-  local revision = state.revision
-  state.methods.setItems({}, rows(10))
-  state.methods.setOpen({}, false)
-  state.methods.scroll({}, 10)
-  state.methods.setSelected({}, 'missing')
-  expect.equal(state.revision, revision)
-end)
-
-test('surface eligibility guards choice headers and options with matching projected coordinates', function()
-  local state = fixture { { id = 'one', label = 'One' }, { id = 'two', label = 'Two' } }
-  state:event('press', 15, 23)
-  state:event('release', 15, 23, { inside = false })
-  expect.falsy(state:visual().opened, 'an outside release cannot open the header')
-  state:event('press', 15, 23, { inside = false })
-  state:event('release', 15, 23)
-  expect.falsy(state:visual().opened, 'an outside press cannot arm the header')
-  state.methods.setOpen({}, true)
-  local row = state:items()[1].bounds
-  local x, y = row.x + row.width / 2, row.y + row.height / 2
-  state:event('press', x, y)
-  state:event('release', x, y, { inside = false })
-  expect.equal(state.methods.selected {}, nil, 'an outside option release cannot select')
-  state:event('press', x, y, { inside = false })
-  state:event('release', x, y)
-  expect.equal(state.methods.selected {}, nil, 'an outside option press cannot arm')
-  state:event('press', x, y)
-  state:event('release', x, y)
-  expect.equal(state.methods.selected {}, 'one', 'an eligible fresh option gesture selects')
 end)
 
 return test

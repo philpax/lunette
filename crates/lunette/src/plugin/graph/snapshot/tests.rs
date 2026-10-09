@@ -36,7 +36,7 @@ fn load(graph: &mut Graph, id: InstanceId) {
 }
 
 #[test]
-fn snapshot_tracks_actual_allocations_failed_bindings_substitution_and_generations() {
+fn snapshot_tracks_bindings_generations_retired_children_and_quarantine() {
     let mut graph = Graph::new();
     let key = ContractKey::new("inspection/service", 3);
     let first = graph
@@ -130,10 +130,7 @@ fn snapshot_tracks_actual_allocations_failed_bindings_substitution_and_generatio
         node(&graph, consumer).bindings[0].generation,
         node(&graph, second).generation.expect("generation")
     );
-}
 
-#[test]
-fn snapshot_retains_retired_children_only_until_allocation_ends_and_reports_quarantine() {
     let mut graph = Graph::new();
     let parent = graph.install(vec![], vec![], None).expect("parent");
     graph.request(Intent::Enable(parent)).expect("enable");

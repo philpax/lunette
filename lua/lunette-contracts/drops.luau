@@ -1,4 +1,4 @@
--- The drops service decouples grab handlers from consumers. Providers emit each completed grab so placement consumers can update saved poses.
+-- Decouples grab handlers from the placement consumers that update saved poses.
 
 local plugin = require '@lunette-plugin'
 local vocabulary = require '@lunette-contracts/vocabulary'

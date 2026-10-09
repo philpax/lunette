@@ -59,7 +59,7 @@ test('a ray leaving the axis meets the arc one radius away', function()
   end
 end)
 
-test('a ray past either end of the arc or above it misses', function()
+test('a ray past either end of the arc or above it misses, and an arc wraps no further than a turn', function()
   local curve = 0.5
   local half = shape.halfAngle(WIDTH, curve)
   local origin = vector.pack(0, 1, 0)
@@ -68,6 +68,7 @@ test('a ray past either end of the arc or above it misses', function()
   end
   expect.falsy(shape.hit(panel(curve), origin, vector.pack(0, 0.4, -1)), 'above the panel')
   expect.falsy(shape.hit(panel(curve), origin, vector.pack(0, 1, 0)), 'along the axis')
+  expect.near(shape.halfAngle(100, 1), math.pi, 1e-12, 'the half-angle of an arc wider than its circumference')
 end)
 
 test('the outer face is picked only as a back face', function()
@@ -138,10 +139,6 @@ test('every vertex of the drawn arc lies on the cylinder', function()
       expect.truthy(maximum - minimum <= 1 / shape.SEGMENTS + 1e-12, 'rounded triangles remain inside an arc strip')
     end
   end
-end)
-
-test('an arc wider than its circumference wraps no further than a turn', function()
-  expect.near(shape.halfAngle(100, 1), math.pi, 1e-12, 'the half-angle')
 end)
 
 return test

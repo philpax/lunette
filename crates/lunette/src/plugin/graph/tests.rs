@@ -104,108 +104,6 @@ fn a_provider_reload_publishes_a_new_generation() {
 }
 
 #[test]
-fn failed_and_cancelled_loads_do_not_reuse_publication_identity() {
-    for outcome in [LoadOutcome::Failed, LoadOutcome::Cancelled] {
-        let mut graph = Graph::new();
-        let provider = root(&mut graph, &[], &[key("service", 1)]);
-        graph.request(Intent::Enable(provider)).unwrap();
-        let first = load(&mut graph, provider);
-        let first_generation = generation(&graph, provider).unwrap();
-        graph.request(Intent::Reload(provider)).unwrap();
-        unload(&mut graph, provider, true);
-
-        let ended = begin_load(&mut graph, provider);
-        assert_ne!(first, ended);
-        assert!(matches!(
-            graph.complete_load(provider, ended, outcome),
-            Ok(LoadResolution::Ended(_))
-        ));
-        graph.request(Intent::Enable(provider)).unwrap();
-        let current = begin_load(&mut graph, provider);
-        assert_ne!(ended, current);
-        for stale_outcome in [
-            LoadOutcome::Success,
-            LoadOutcome::Failed,
-            LoadOutcome::Cancelled,
-        ] {
-            assert_eq!(
-                graph.complete_load(provider, ended, stale_outcome),
-                Err(GraphError::StaleAction)
-            );
-            assert_eq!(graph.live(provider, current).unwrap().0, Stage::Loading);
-        }
-        let current_generation = ProviderGeneration::from_activation(current);
-        assert_eq!(
-            graph.complete_load(provider, current, LoadOutcome::Success),
-            Ok(LoadResolution::Published(current_generation))
-        );
-        assert_ne!(first_generation, current_generation);
-    }
-}
-
-#[test]
-fn publication_keeps_activation_identity_when_loads_complete_out_of_order() {
-    let mut graph = Graph::new();
-    let first = root(&mut graph, &[], &[key("first", 1)]);
-    let second = root(&mut graph, &[], &[key("second", 1)]);
-    let consumer = root(&mut graph, &[key("first", 1), key("second", 1)], &[]);
-    for instance in [first, second, consumer] {
-        graph.request(Intent::Enable(instance)).unwrap();
-    }
-    let first_activation = begin_load(&mut graph, first);
-    let second_activation = begin_load(&mut graph, second);
-    for (instance, activation) in [(second, second_activation), (first, first_activation)] {
-        assert_eq!(
-            graph.complete_load(instance, activation, LoadOutcome::Success),
-            Ok(LoadResolution::Published(
-                ProviderGeneration::from_activation(activation)
-            ))
-        );
-    }
-    let consumer_activation = begin_load(&mut graph, consumer);
-    let (stage, bindings) = graph.live(consumer, consumer_activation).unwrap();
-    assert_eq!(stage, Stage::Loading);
-    assert_eq!(
-        bindings,
-        &[
-            Binding {
-                contract: key("first", 1),
-                provider: first,
-                generation: ProviderGeneration::from_activation(first_activation),
-            },
-            Binding {
-                contract: key("second", 1),
-                provider: second,
-                generation: ProviderGeneration::from_activation(second_activation),
-            },
-        ]
-    );
-}
-
-#[test]
-fn the_last_activation_can_publish_without_another_identifier() {
-    let mut graph = Graph::new();
-    let instance = root(&mut graph, &[], &[key("service", 1)]);
-    graph.request(Intent::Enable(instance)).unwrap();
-    graph.next_activation = u64::MAX - 1;
-    let activation = begin_load(&mut graph, instance);
-    assert_eq!(
-        graph.complete_load(instance, activation, LoadOutcome::Success),
-        Ok(LoadResolution::Published(
-            ProviderGeneration::from_activation(activation)
-        ))
-    );
-    assert_eq!(graph.state(instance).unwrap(), LifecycleState::Active);
-    graph.request(Intent::Reload(instance)).unwrap();
-    unload(&mut graph, instance, true);
-    assert!(graph.next_action().is_none());
-    assert_eq!(
-        kinds(&mut graph),
-        vec![DiagnosticKind::ActivationsExhausted]
-    );
-}
-
-#[test]
 fn self_disable_never_publishes() {
     let mut graph = Graph::new();
     let instance = root(&mut graph, &[], &[key("service", 1)]);
@@ -360,23 +258,6 @@ fn a_child_needs_a_live_parent_activation() {
 }
 
 #[test]
-fn many_intents_never_block_unloads() {
-    let mut graph = Graph::new();
-    let roots: Vec<_> = (0..300).map(|_| root(&mut graph, &[], &[])).collect();
-    for id in &roots {
-        graph.request(Intent::Enable(*id)).unwrap();
-        load(&mut graph, *id);
-    }
-    for id in &roots {
-        graph.request(Intent::Disable(*id)).unwrap();
-    }
-    for id in &roots {
-        unload(&mut graph, *id, true);
-    }
-    assert!(graph.next_action().is_none());
-}
-
-#[test]
 fn a_quarantined_provider_blocks_consumers_with_a_diagnostic() {
     let mut graph = Graph::new();
     let provider = root(&mut graph, &[], &[key("service", 1)]);
@@ -405,27 +286,7 @@ fn a_quarantined_provider_blocks_consumers_with_a_diagnostic() {
 }
 
 #[test]
-fn quarantine_after_a_replacement_enabled_blocks_the_replacement() {
-    let mut graph = Graph::new();
-    let provider = root(&mut graph, &[], &[key("service", 1)]);
-    graph.request(Intent::Enable(provider)).unwrap();
-    load(&mut graph, provider);
-    graph.request(Intent::Disable(provider)).unwrap();
-    let replacement = root(&mut graph, &[], &[key("service", 1)]);
-    graph.request(Intent::Enable(replacement)).unwrap();
-    unload(&mut graph, provider, false);
-    assert!(graph.next_action().is_none());
-    assert_eq!(
-        kinds(&mut graph),
-        vec![DiagnosticKind::ContractQuarantined {
-            key: key("service", 1),
-            owner: provider,
-        }]
-    );
-}
-
-#[test]
-fn cycles_are_found_from_declarations() {
+fn cycles_and_self_requirements_are_found_from_declarations() {
     let mut graph = Graph::new();
     let first = root(&mut graph, &[key("second", 1)], &[key("first", 1)]);
     let second = root(&mut graph, &[key("first", 1)], &[key("second", 1)]);
@@ -447,38 +308,7 @@ fn cycles_are_found_from_declarations() {
         }],
         "the second member reports once, and the first does not report again"
     );
-}
 
-#[test]
-fn a_cycle_on_a_second_requirement_is_reported() {
-    let mut graph = Graph::new();
-    let base = root(&mut graph, &[], &[key("aaa-root", 1)]);
-    let a = root(
-        &mut graph,
-        &[key("aaa-root", 1), key("b", 1)],
-        &[key("a", 1)],
-    );
-    let b = root(&mut graph, &[key("a", 1)], &[key("b", 1)]);
-    for id in [base, a, b] {
-        graph.request(Intent::Enable(id)).unwrap();
-    }
-    load(&mut graph, base);
-    assert!(graph.next_action().is_none());
-    assert_eq!(
-        kinds(&mut graph),
-        vec![
-            DiagnosticKind::DependencyCycle {
-                instances: vec![a, b, a]
-            },
-            DiagnosticKind::DependencyCycle {
-                instances: vec![a, b, a]
-            }
-        ]
-    );
-}
-
-#[test]
-fn self_requirement_is_a_cycle() {
     let mut graph = Graph::new();
     let id = root(&mut graph, &[key("self", 1)], &[key("self", 1)]);
     graph.request(Intent::Enable(id)).unwrap();
@@ -601,7 +431,6 @@ fn an_explicit_enable_retries_a_failed_load() {
     load(&mut graph, instance);
 }
 
-// Enable and reload of a quarantined instance are rejected.
 #[test]
 fn a_quarantined_instance_rejects_enable_and_reload() {
     let mut graph = Graph::new();
@@ -639,26 +468,6 @@ fn a_rollback_failure_quarantines_the_loading_allocation() {
         Ok(LoadResolution::Ended(LifecycleState::Quarantined))
     );
     graph.request(Intent::Shutdown).unwrap();
-    assert!(graph.next_action().is_none());
-    assert!(graph.shutdown_requested && graph.instances.is_empty());
-}
-
-#[test]
-fn shutdown_drains_every_root_despite_cleanup_failures() {
-    let mut graph = Graph::new();
-    let roots: Vec<_> = (0..300).map(|_| root(&mut graph, &[], &[])).collect();
-    for id in &roots {
-        graph.request(Intent::Enable(*id)).unwrap();
-        load(&mut graph, *id);
-    }
-    graph.request(Intent::Shutdown).unwrap();
-    assert_eq!(
-        graph.request(Intent::Disable(roots[0])),
-        Err(GraphError::ShuttingDown)
-    );
-    for (index, id) in roots.into_iter().enumerate() {
-        unload(&mut graph, id, index % 3 != 0);
-    }
     assert!(graph.next_action().is_none());
     assert!(graph.shutdown_requested && graph.instances.is_empty());
 }

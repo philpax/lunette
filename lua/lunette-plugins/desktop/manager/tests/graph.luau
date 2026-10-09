@@ -41,7 +41,7 @@ test('impact includes child ownership and consumers without merging same-name in
   equalIds(graph.impact(snapshot(), 'c'), {}, 'a consumer without children affects no other node')
 end)
 
-test('duplicate bindings and cycles terminate without including the selected origin', function()
+test('duplicate bindings, cycles, and missing origins terminate without dangling traversal', function()
   local state = snapshot()
   state.edges[#state.edges + 1] = { id = 'ca', kind = 'dependency', from = 'a', to = 'c', label = 'cycle' }
   state.edges[#state.edges + 1] = state.edges[1]
@@ -51,6 +51,14 @@ test('duplicate bindings and cycles terminate without including the selected ori
   equalIds(graph.impact(state, 'a'), { 'b', 'c', 'd' }, 'the cyclic unload impact')
   local layout = graph.layout(state)
   expect.truthy(layout.a and layout.b and layout.c and layout.d, 'the cyclic graph lays out every node')
+  state.edges[#state.edges + 1] = { id = 'dangling', kind = 'dependency', from = 'a', to = 'absent', label = 'gone' }
+  state.edges[#state.edges + 1] =
+    { id = 'dangling-owner', kind = 'ownership', from = 'b', to = 'absent', label = 'gone' }
+  state.edges[#state.edges + 1] =
+    { id = 'dangling-from', kind = 'dependency', from = 'absent', to = 'c', label = 'gone' }
+  equalIds(graph.dependencies(state, 'absent', 'forward', true), {}, 'missing forward origin')
+  equalIds(graph.dependencies(state, 'absent', 'reverse', true), {}, 'missing reverse origin')
+  equalIds(graph.impact(state, 'absent'), {}, 'missing ownership origin')
 end)
 
 test('search covers instance ids names state and failures as literal case-insensitive text', function()
@@ -106,7 +114,7 @@ test('hit testing selects nodes and exact edges at every supported zoom', functi
   end
 end)
 
-test('fit and focus handle empty and missing nodes and center the selected rectangle', function()
+test('fit and focus handle empty, missing, ordinary, and oversized graphs', function()
   local empty = graph.fit({}, { x = 640, y = 480 })
   expect.equal(empty.zoom, 1, 'empty graph has the default scale')
   local layout = graph.layout(snapshot())
@@ -118,46 +126,14 @@ test('fit and focus handle empty and missing nodes and center the selected recta
   local center = graph.screen(focused, { x = box.x + box.width / 2, y = box.y + box.height / 2 })
   expect.near(center.x, 320, 1e-8, 'the focus centers x')
   expect.near(center.y, 240, 1e-8, 'the focus centers y')
-end)
-
-test('missing origins never traverse dangling forward reverse or ownership edges', function()
-  local state = snapshot()
-  state.edges[#state.edges + 1] = { id = 'dangling', kind = 'dependency', from = 'a', to = 'absent', label = 'gone' }
-  state.edges[#state.edges + 1] =
-    { id = 'dangling-owner', kind = 'ownership', from = 'b', to = 'absent', label = 'gone' }
-  state.edges[#state.edges + 1] =
-    { id = 'dangling-from', kind = 'dependency', from = 'absent', to = 'c', label = 'gone' }
-  equalIds(graph.dependencies(state, 'absent', 'forward', true), {}, 'missing forward origin')
-  equalIds(graph.dependencies(state, 'absent', 'reverse', true), {}, 'missing reverse origin')
-  equalIds(graph.impact(state, 'absent'), {}, 'missing ownership origin')
-end)
-
-test('parallel contract and ownership edges have distinct selectable routes at every zoom', function()
-  local state = snapshot()
-  state.edges[#state.edges + 1] = { id = 'ab2', kind = 'dependency', from = 'b', to = 'a', label = 'other contract' }
-  state.edges[#state.edges + 1] = { id = 'ab3', kind = 'ownership', from = 'b', to = 'a', label = 'owner' }
-  local layout = graph.layout(state)
-  for _, zoom in { 0.2, 0.5, 1, 2, 4 } do
-    local camera = { x = 0, y = 0, zoom = zoom }
-    for _, index in { 1, 4, 5 } do
-      local edge = state.edges[index]
-      local route = graph.route(state, layout, camera, edge)
-      local selected = assert(graph.hit(state, layout, camera, graph.screen(camera, route[2])))
-      expect.equal(selected.kind, 'edge', 'the route midpoint selects an edge')
-      expect.equal(selected.id, edge.id, 'each parallel relationship can be selected')
-    end
-  end
-end)
-
-test('fit contains ordinary graphs and centers oversized graphs at the minimum pannable scale', function()
-  local viewport = { x = 640, y = 320 }
-  local layout = graph.layout(snapshot())
-  local camera = graph.fit(layout, viewport)
-  for _, box in layout do
-    local top = graph.screen(camera, { x = box.x, y = box.y })
-    local bottom = graph.screen(camera, { x = box.x + box.width, y = box.y + box.height })
+  local shortViewport = { x = 640, y = 320 }
+  local ordinary = graph.layout(snapshot())
+  local contained = graph.fit(ordinary, shortViewport)
+  for _, box in ordinary do
+    local top = graph.screen(contained, { x = box.x, y = box.y })
+    local bottom = graph.screen(contained, { x = box.x + box.width, y = box.y + box.height })
     expect.truthy(
-      top.x >= 0 and top.y >= 0 and bottom.x <= viewport.x and bottom.y <= viewport.y,
+      top.x >= 0 and top.y >= 0 and bottom.x <= shortViewport.x and bottom.y <= shortViewport.y,
       'ordinary containment'
     )
   end
@@ -165,50 +141,36 @@ test('fit contains ordinary graphs and centers oversized graphs at the minimum p
   for index = 1, 20 do
     nodes[index] = { id = tostring(index), name = 'independent', state = 'active', enabled = true }
   end
-  local large = graph.layout { nodes = nodes, edges = {} }
-  local limited = graph.fit(large, viewport)
+  local limited = graph.fit(graph.layout { nodes = nodes, edges = {} }, shortViewport)
   expect.equal(limited.zoom, 0.2, 'oversized graphs retain the minimum readable scale')
   local lower = graph.screen(limited, { x = 0, y = 1770 })
-  expect.truthy(lower.y > viewport.y, 'the oversized graph requires panning')
-  local moved = graph.pan(limited, { x = 0, y = -lower.y + viewport.y })
-  expect.near(graph.screen(moved, { x = 0, y = 1770 }).y, viewport.y, 1e-8, 'panning reaches the last row')
+  expect.truthy(lower.y > shortViewport.y, 'the oversized graph requires panning')
+  local moved = graph.pan(limited, { x = 0, y = -lower.y + shortViewport.y })
+  expect.near(graph.screen(moved, { x = 0, y = 1770 }).y, shortViewport.y, 1e-8, 'panning reaches the last row')
 end)
 
-test('single and parallel self-loops expose separately selectable exterior paths', function()
-  for _, count in { 1, 3 } do
-    local state = snapshot()
-    for index = 1, count do
-      state.edges[#state.edges + 1] = {
-        id = 'self' .. index,
-        kind = 'dependency',
-        from = 'a',
-        to = 'a',
-        label = 'self contract ' .. index,
-      }
-    end
-    local layout = graph.layout(state)
-    for _, zoom in { 0.2, 0.5, 1, 2, 4 } do
-      local camera = { x = 0, y = 0, zoom = zoom }
-      for index = 1, count do
-        local edge = state.edges[3 + index]
-        local route = graph.route(state, layout, camera, edge)
-        local selected = assert(graph.hit(state, layout, camera, graph.screen(camera, route[3])))
-        expect.equal(selected.kind, 'edge', 'the self-loop leaves the node rectangle')
-        expect.equal(selected.id, edge.id, 'each self-loop is individually selectable')
-      end
-    end
-  end
-end)
-
-test('reversed parallel relationships keep their distinct normalized routes', function()
+test('parallel, reversed, and self-loop relationships keep distinct selectable routes', function()
   local state = snapshot()
+  state.edges[#state.edges + 1] = { id = 'ab2', kind = 'dependency', from = 'b', to = 'a', label = 'other contract' }
+  state.edges[#state.edges + 1] = { id = 'ab3', kind = 'ownership', from = 'b', to = 'a', label = 'owner' }
   state.edges[#state.edges + 1] = { id = 'reverse', kind = 'dependency', from = 'a', to = 'b', label = 'reverse' }
+  state.edges[#state.edges + 1] = { id = 'self1', kind = 'dependency', from = 'a', to = 'a', label = 'self one' }
+  state.edges[#state.edges + 1] = { id = 'self2', kind = 'dependency', from = 'a', to = 'a', label = 'self two' }
   local layout = graph.layout(state)
   local camera = { x = 0, y = 0, zoom = 1 }
-  for _, index in { 1, 4 } do
+  for _, index in { 1, 4, 5, 6 } do
     local edge = state.edges[index]
     local route = graph.route(state, layout, camera, edge)
-    expect.equal(graph.hit(state, layout, camera, route[2]).id, edge.id, 'both directions are selectable')
+    local selected = assert(graph.hit(state, layout, camera, graph.screen(camera, route[2])))
+    expect.equal(selected.kind, 'edge', 'the route midpoint selects an edge')
+    expect.equal(selected.id, edge.id, 'each parallel or reversed relationship can be selected')
+  end
+  for _, index in { 7, 8 } do
+    local edge = state.edges[index]
+    local route = graph.route(state, layout, camera, edge)
+    local selected = assert(graph.hit(state, layout, camera, graph.screen(camera, route[3])))
+    expect.equal(selected.kind, 'edge', 'the self-loop leaves the node rectangle')
+    expect.equal(selected.id, edge.id, 'each self-loop is individually selectable')
   end
 end)
 

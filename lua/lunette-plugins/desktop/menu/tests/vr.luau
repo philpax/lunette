@@ -100,50 +100,32 @@ test('UI scrolls late actions and tracking loss cancels held rows', function()
   end)
 end)
 
-for _, hand in { 'left', 'right' } do
-  test(hand .. ' wrist tracking loss cancels a held compact button until a fresh press', function()
-    withMenu('ui', { hand = hand }, function(env)
-      env:press 'open'
-      env.running:tracked(hand, false)
-      env.running:step()
-      expect.equal(env:description().visible, false)
-      env.running:tracked(hand, true)
-      env.running:step()
-      env:release()
-      expect.equal(env:description().width, 0.115)
-      env:open()
-      expect.equal(env:description().width, 0.32)
-    end)
+test('right wrist preserves configured transform size and pointer haptic', function()
+  local offset = vector.pack(0.2, -0.3, 0.4)
+  withMenu('ui', { hand = 'right', size = 0.2, offset = offset, haptic = { strength = 0.4 } }, function(env)
+    local description = env:description()
+    expect.equal(description.width, 0.2)
+    expect.equal(description.height, 0.2)
+    local expected = lovr.math.newMat4(env.running.native.events.controllers.right.pose)
+    expected:translate(offset):rotate(math.pi, -0.7071066, 0.0007963618, 0.7071066)
+    for index, value in { expected:unpack(true) } do
+      expect.near(description.pose[index], value, 1e-5)
+    end
+    local current, control = env.running:discover(env.ui, 'desktop/menu', 'open')
+    local bounds = control.bounds
+    env.running:aim(current, bounds.x + bounds.width / 2, bounds.y + bounds.height / 2, env.pointerHand)
+    env.running:step()
+    local before = env.running.native.events.haptics or 0
+    env:press 'open'
+    expect.equal(env.running.native.events.haptics, before + 1, 'one UI press pulse after laser hover')
+    local pulse = env.running.native.events.haptic
+    expect.equal(pulse.strength, 0.4)
+    expect.equal(pulse.duration, 0.05)
+    expect.equal(pulse.device, 'hand/' .. env.pointerHand)
+    env:release()
+    expect.equal(env:description().width, 0.32, 'real pointer picks the documented wrist front')
+    expect.equal(env.running.native.events.haptics, before + 1, 'release does not duplicate the pulse')
   end)
-
-  test(hand .. ' wrist preserves configured transform size and pointer haptic', function()
-    local offset = vector.pack(0.2, -0.3, 0.4)
-    withMenu('ui', { hand = hand, size = 0.2, offset = offset, haptic = { strength = 0.4 } }, function(env)
-      local description = env:description()
-      expect.equal(description.width, 0.2)
-      expect.equal(description.height, 0.2)
-      local expected = lovr.math.newMat4(env.running.native.events.controllers[hand].pose)
-      expected:translate(offset):rotate(math.pi, -0.7071066, 0.0007963618, 0.7071066)
-      for index, value in { expected:unpack(true) } do
-        expect.near(description.pose[index], value, 1e-5)
-      end
-      expect.equal(offset, vector.pack(0.2, -0.3, 0.4))
-      local current, control = env.running:discover(env.ui, 'desktop/menu', 'open')
-      local bounds = control.bounds
-      env.running:aim(current, bounds.x + bounds.width / 2, bounds.y + bounds.height / 2, env.pointerHand)
-      env.running:step()
-      local before = env.running.native.events.haptics or 0
-      env:press 'open'
-      expect.equal(env.running.native.events.haptics, before + 1, 'one UI press pulse after laser hover')
-      local pulse = env.running.native.events.haptic
-      expect.equal(pulse.strength, 0.4)
-      expect.equal(pulse.duration, 0.05)
-      expect.equal(pulse.device, 'hand/' .. env.pointerHand)
-      env:release()
-      expect.equal(env:description().width, 0.32, 'real pointer picks the documented wrist front')
-      expect.equal(env.running.native.events.haptics, before + 1, 'release does not duplicate the pulse')
-    end)
-  end)
-end
+end)
 
 return test

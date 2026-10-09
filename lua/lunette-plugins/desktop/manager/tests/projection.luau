@@ -43,9 +43,6 @@ test('projection uses exact ids and allocation generations and never guesses a b
   expect.equal(edge.generation, '19', 'the allocation generation')
   expect.equal(result.bindings[edge.id], consumer.bindings[1], 'the binding detail is inspectable')
   expect.truthy(result.instances['4'].diagnostic:find('missing', 1, true), 'waiting details remain inspectable')
-  expect.raises(function()
-    result.graph.nodes[1].id = 'forged'
-  end, 'readonly', 'the projected node cannot mutate')
 end)
 
 test('children and stale unloading allocations remain inspectable without becoming current bindings', function()

@@ -14,7 +14,7 @@ local function fixture(hook)
     'drops',
     'focus',
     'interaction',
-    { id = 'laser', definition = if hook then laser.define { draw = hook } else laser.definition },
+    { id = 'laser', definition = laser.define { draw = hook } },
   }
   local observer = session:observe(contract.capability)
   local target = observer.service:new(observer.context, 'left', {
@@ -43,42 +43,31 @@ local function fixture(hook)
   return native, target, recorder
 end
 
-for _, failure in { false, true } do
-  test('laser restores caller state when drawing ' .. (if failure then 'raises' else 'succeeds'), function()
-    local _, target, recorder = fixture()
-    local caller = recorder:checkpoint()
-    if failure then
-      recorder.pass.line = function()
-        error 'beam failure'
-      end
-      expect.raises(function()
-        draw.laser(target, recorder.pass)
-      end, 'beam failure')
-    else
-      draw.laser(target, recorder.pass)
-      for _, call in recorder.calls do
-        if call.draw then
-          expect.equal(call.state.setDepthTest[1], nil, 'laser is an overlay')
-          expect.equal(call.state.setDepthWrite[1], false, 'laser never writes scene depth')
-          expect.equal(call.state.setShader[1], nil, 'beam uses its own shader')
-          expect.equal(call.state.setMaterial[1], nil, 'beam has no inherited texture')
-          expect.equal(call.state.setColor[1], 0.9, 'beam uses the live pointer colour')
-          expect.equal(call.state.setColor[2], 0.1, 'beam does not retain a provider palette default')
-        end
-      end
+test('the beam draws as an overlay in the theme colour, and a raising hook leaves the pass restored', function()
+  local raising = false
+  local _, target, recorder = fixture(function(laserTarget, pass, base)
+    if raising then
+      pass:setDepthTest 'less'
+      pass:setDepthWrite(false)
+      pass:translate(1, 2, 3)
+      error 'hook failure'
     end
-    recorder:assertRestored(caller)
-  end)
-end
-
-test('a replacement laser hook restores pass state before its error escapes', function()
-  local _, target, recorder = fixture(function(_, pass)
-    pass:setDepthTest 'less'
-    pass:setDepthWrite(false)
-    pass:translate(1, 2, 3)
-    error 'hook failure'
+    base(laserTarget, pass)
   end)
   local caller = recorder:checkpoint()
+  draw.laser(target, recorder.pass)
+  for _, call in recorder.calls do
+    if call.draw then
+      expect.equal(call.state.setDepthTest[1], nil, 'laser is an overlay')
+      expect.equal(call.state.setDepthWrite[1], false, 'laser never writes scene depth')
+      expect.equal(call.state.setShader[1], nil, 'beam uses its own shader')
+      expect.equal(call.state.setMaterial[1], nil, 'beam has no inherited texture')
+      expect.equal(call.state.setColor[1], 0.9, 'beam uses the live pointer colour')
+      expect.equal(call.state.setColor[2], 0.1, 'beam does not retain a provider palette default')
+    end
+  end
+  recorder:assertRestored(caller)
+  raising = true
   expect.raises(function()
     target:draw(recorder.pass)
   end, 'hook failure')

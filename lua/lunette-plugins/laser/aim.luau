@@ -73,7 +73,7 @@ function aim.update(previous: State?, frame: contracts.Input, settings: contract
     local filteredLength = magnitude(filtered)
     state = {
       origin = previous.origin + (frame.origin - previous.origin) * positionAlpha,
-      -- Opposite directions can cancel at the midpoint; reacquire instead of emitting a zero ray.
+      -- Opposite directions can cancel at the midpoint, so the filter reacquires instead of emitting a zero ray.
       direction = if filteredLength > 0.000001 then filtered / filteredLength else direction,
       rawOrigin = frame.origin,
       rawDirection = direction,

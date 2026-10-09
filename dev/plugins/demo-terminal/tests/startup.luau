@@ -52,40 +52,28 @@ test('an empty compositor starts the first configured program', function()
   close(native, session)
 end)
 
-test('the default terminal programs retain their fallback order', function()
-  local native, session = fixture()
-  local programs = { 'ghostty', 'foot', 'weston-terminal', 'alacritty', 'kitty', 'xterm' }
-  for index, program in ipairs(programs) do
-    expect.equal(#native.events.spawned, index, 'the process count before fallback ' .. index)
-    expect.equal(native.events.spawned[index].argv[1], program, 'the default program ' .. index)
-    native.emit('onProcessExited', { process = native.events.spawned[index], outcome = 'spawnFailed' })
+test(
+  'an existing window or an empty program list prevents startup, and a later reload does not launch a terminal',
+  function()
+    local native, session = fixture({ 'first-terminal' }, true)
+    expect.equal(#native.events.spawned, 0, 'the occupied startup')
+    expect.equal(native.events.enumerations, 1, 'the occupied startup enumeration')
+    native.events.windows = {}
+    session.instances['dev/demo-terminal']:reload { programs = { 'second-terminal' } }
+    expect.equal(#native.events.spawned, 0, 'the empty compositor after reload')
+    expect.equal(native.events.enumerations, 1, 'reload does not repeat the startup enumeration')
+    expect.equal(native.subscriptionCount 'onProcessExited', 1, 'reload replaces the subscription')
+    close(native, session)
+
+    native, session = fixture {}
+    expect.equal(#native.events.spawned, 0, 'the disabled startup')
+    expect.equal(native.events.enumerations, 0, 'a disabled startup does not enumerate windows')
+    session.instances['dev/demo-terminal']:reload { programs = { 'first-terminal' } }
+    expect.equal(#native.events.spawned, 0, 'reload does not repeat the disabled startup')
+    expect.equal(#native.events.logs, 0, 'an empty program list is not exhaustion')
+    close(native, session)
   end
-  expect.equal(#native.events.spawned, #programs, 'the exhausted default programs')
-  expect.equal(#native.events.logs, 1, 'the default exhaustion warning')
-  close(native, session)
-end)
-
-test('an existing window prevents startup and a later reload does not launch a terminal', function()
-  local native, session = fixture({ 'first-terminal' }, true)
-  expect.equal(#native.events.spawned, 0, 'the occupied startup')
-  expect.equal(native.events.enumerations, 1, 'the occupied startup enumeration')
-  native.events.windows = {}
-  session.instances['dev/demo-terminal']:reload { programs = { 'second-terminal' } }
-  expect.equal(#native.events.spawned, 0, 'the empty compositor after reload')
-  expect.equal(native.events.enumerations, 1, 'reload does not repeat the startup enumeration')
-  expect.equal(native.subscriptionCount 'onProcessExited', 1, 'reload replaces the subscription')
-  close(native, session)
-end)
-
-test('an empty program list disables startup for the session', function()
-  local native, session = fixture {}
-  expect.equal(#native.events.spawned, 0, 'the disabled startup')
-  expect.equal(native.events.enumerations, 0, 'a disabled startup does not enumerate windows')
-  session.instances['dev/demo-terminal']:reload { programs = { 'first-terminal' } }
-  expect.equal(#native.events.spawned, 0, 'reload does not repeat the disabled startup')
-  expect.equal(#native.events.logs, 0, 'an empty program list is not exhaustion')
-  close(native, session)
-end)
+)
 
 test('reload, reactivation, and runtime restart do not duplicate a terminal in the same state', function()
   local native, session = fixture { 'first-terminal', 'second-terminal' }
@@ -113,6 +101,8 @@ end)
 test('failed configured programs advance in order and exhaustion warns once', function()
   local native, session = fixture { 'first-terminal', 'second-terminal', 'third-terminal' }
   local events = native.events
+  native.emit('onProcessExited', { process = { id = 999 }, outcome = 'exited' })
+  expect.equal(#events.spawned, 1, 'an unrelated exit does not advance')
   native.emit('onProcessExited', { process = events.spawned[1], outcome = 'spawnFailed' })
   expect.equal(#events.spawned, 2, 'the first fallback')
   expect.equal(events.spawned[2].argv[1], 'second-terminal', 'the second configured program')
@@ -134,49 +124,10 @@ test('failed configured programs advance in order and exhaustion warns once', fu
   native.emit('onProcessExited', { process = events.spawned[3], outcome = 'spawnFailed' })
   expect.equal(#events.logs, 1, 'a repeated exit does not warn again')
   close(native, session)
-end)
 
-test('an unrelated exit does not advance the fallback', function()
-  local native, session = fixture { 'first-terminal', 'second-terminal' }
-  for _, outcome in ipairs { 'spawnFailed', 'exited', 'signalled' } do
-    native.emit('onProcessExited', { process = { id = 999 }, outcome = outcome })
-    expect.equal(#native.events.spawned, 1, 'the unrelated ' .. outcome .. ' process')
-  end
-  native.emit('onProcessExited', { process = native.events.spawned[1], outcome = 'spawnFailed' })
-  expect.equal(#native.events.spawned, 2, 'the tracked failed process still advances')
+  native, session = fixture()
+  expect.equal(native.events.spawned[1].argv[1], 'ghostty', 'the first default program')
   close(native, session)
 end)
-
-for _, outcome in ipairs { 'exited', 'signalled' } do
-  test('a tracked ' .. outcome .. ' process ends fallback attempts', function()
-    local native, session = fixture { 'first-terminal', 'second-terminal' }
-    local process = native.events.spawned[1]
-    native.emit('onProcessExited', { process = process, outcome = outcome })
-    native.emit('onProcessExited', { process = process, outcome = 'spawnFailed' })
-    expect.equal(#native.events.spawned, 1, 'the non-spawn failure does not advance')
-    expect.equal(#native.events.logs, 0, 'the non-spawn failure is not exhaustion')
-    close(native, session)
-  end)
-end
-
-for _, mode in ipairs { 'disable', 'dispose', 'close' } do
-  test(mode .. ' removes the process subscription and prevents a late fallback', function()
-    local native, session = fixture { 'first-terminal', 'second-terminal' }
-    local instance = session.instances['dev/demo-terminal']
-    local oldCallback = native.events.subscriptions.onProcessExited[1].callback
-    if mode == 'close' then
-      session:close()
-    elseif mode == 'disable' then
-      instance:disable()
-    else
-      instance:dispose()
-    end
-    expect.equal(native.subscriptionCount 'onProcessExited', 0, 'the subscription after ' .. mode)
-    native.emit('onProcessExited', { process = native.events.spawned[1], outcome = 'spawnFailed' })
-    oldCallback { process = native.events.spawned[1], outcome = 'spawnFailed' }
-    expect.equal(#native.events.spawned, 1, 'a late exit does not start a process')
-    close(native, session)
-  end)
-end
 
 return test

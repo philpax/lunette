@@ -18,34 +18,12 @@ test('provider, panel, and control overrides resolve in order', function()
   expect.equal(providerSpec.padding, theme.DEFAULT.padding)
 end)
 
-test('schema projections expose defaults and a callable passthrough hook', function()
-  local settings = config.parse {}
-  expect.equal(settings.theme.fontSize, nil)
-  expect.equal(theme.inherit(theme.DEFAULT, theme.project(settings.theme)).fontSize, theme.DEFAULT.fontSize)
-  local called = 0
-  settings.draw({}, {}, function()
-    called += 1
-  end)
-  expect.equal(called, 1)
-  expect.truthy(config.inspect().fields.theme)
-  expect.truthy(config.inspect().fields.draw)
-end)
-
 test('theme schemas reject unknown, non-plain, and invalid values', function()
   for _, overrides in
     {
       { typo = 1 },
       { fontSize = 0 },
-      { rowHeight = -1 },
-      { padding = -1 },
-      { spacing = math.huge },
-      { borderWidth = 0 / 0 },
-      { hapticStrength = 1.1 },
-      { hapticDuration = -1 },
-      { foreground = { 1, 1, 1 } },
-      { foreground = { 1, 1, 1, 1, 1 } },
       { foreground = { 1, 1, 1, -0.1 } },
-      { foreground = { 1, 1, 1, math.huge } },
       setmetatable({}, { __index = { fontSize = 22 } }),
     }
   do

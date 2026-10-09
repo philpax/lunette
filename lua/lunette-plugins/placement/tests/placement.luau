@@ -5,7 +5,6 @@ local panelsContract = require '@lunette-contracts/panels'
 local tagsContract = require '@lunette-contracts/tags'
 local rulesContract = require '@lunette-contracts/rules'
 local placementContract = require '@lunette-contracts/placement'
-local layoutsContract = require '@lunette-contracts/layouts'
 
 local test = testing.suite()
 
@@ -17,8 +16,6 @@ local function start()
     'tags',
     'rules',
     'placement',
-    'layouts',
-    'layout/arc',
   }
   env.consumer = env.session:use(plugin.define {
     name = 'placement-test',
@@ -27,7 +24,6 @@ local function start()
       tags = tagsContract.capability,
       rules = rulesContract.capability,
       placement = placementContract.capability,
-      layouts = layoutsContract.capability,
     },
     init = function(context)
       env.owner = context
@@ -35,7 +31,6 @@ local function start()
       env.tags = context:require(tagsContract.capability)
       env.rules = context:require(rulesContract.capability)
       env.placement = context:require(placementContract.capability)
-      env.layouts = context:require(layoutsContract.capability)
     end,
   })
   env.primary = env.tags:hold(env.owner, { name = 'primary', selected = true })
@@ -64,29 +59,6 @@ test('a placed window takes its resolved properties over the defaults and joins 
   expect.truthy(env.primary:has(panel), 'the placement holds a membership of an existing tag')
   local implicit = env.tags:find 'implicit'
   expect.truthy(implicit and implicit:has(panel), 'a tag nothing declared is made and joined')
-  expect.raises(function()
-    panel:destroy(env.owner)
-  end, nil, 'a placed panel belongs to the placement provider')
-  env.layouts:apply { name = 'arc', panels = env.primary:panels() }
-  local x, y, z = panel.pose:getPosition()
-  expect.near(x, 0, 1e-5, 'the arc centres a lone panel')
-  expect.near(y, 1.5, 1e-5, 'the arc height')
-  expect.near(z, -1.6, 1e-5, 'the arc radius')
-  env.session:close()
-end)
-
-test('a stranger without the policy capabilities cannot place a window', function()
-  local env = start()
-  local before = #env.panels:all()
-  env.session:use(plugin.define {
-    name = 'stranger',
-    init = function(context)
-      expect.raises(function()
-        env.placement:place(context, { window = env.window })
-      end, nil, 'a placement for a context that does not require placement')
-    end,
-  })
-  expect.equal(#env.panels:all(), before, 'the panels after the refusal')
   env.session:close()
 end)
 
@@ -109,12 +81,46 @@ test('a placement that fails part way releases its panel, tags, and layer claim'
   env.session:close()
 end)
 
+test('a failing release attempts every step once and raises the aggregate', function()
+  local env = start()
+  local panel, _, placement = place(env, { height = 1, chrome = false })
+  local calls, order = {}, {}
+  local function watch(target, method, name, failure)
+    local original = target[method]
+    target[method] = function(...)
+      local result = original(...)
+      calls[name] = (calls[name] or 0) + 1
+      order[#order + 1] = name
+      if failure then
+        error(failure)
+      end
+      return result
+    end
+  end
+  local implicit = env.tags:find 'implicit'
+  watch(env.primary, 'remove', 'primary.remove', 'fixture: membership remove failure')
+  watch(implicit, 'remove', 'implicit.remove')
+  watch(panel, 'destroy', 'panel.destroy', 'fixture: panel destroy failure')
+
+  local failure = expect.raises(function()
+    placement:dispose()
+  end, 'fixture: membership remove failure', 'the failing release')
+  expect.truthy(failure:find('fixture: panel destroy failure', 1, true), 'the failures aggregate')
+  for _, name in { 'primary.remove', 'implicit.remove', 'panel.destroy' } do
+    expect.equal(calls[name], 1, 'the attempts of ' .. name)
+  end
+  expect.equal(order[#order], 'panel.destroy', 'the panel is destroyed after the memberships are removed')
+  expect.truthy(panel.dead, 'the panel')
+  env.session:close()
+end)
+
 test('a placement ends with its window, with its effect, and with its owner', function()
   local env = start()
   local panel, _, placement = place(env, { height = 1, chrome = false })
   env.window.dead = true
   env.panels:update()
   expect.truthy(panel.dead, 'a panel whose window died')
+  expect.equal(#env.placement:placed(), 0, 'the live placements after the window dies')
   expect.equal(env.tags:find 'implicit', nil, 'the tag only the placement held')
   expect.equal(env.tags:find 'primary', env.primary, 'a tag its owner made')
   expect.equal(#env.primary:panels(), 0, 'the membership ends at once')

@@ -1,6 +1,5 @@
--- The laser service contract. A laser owns a pointer and, unless one is supplied, a native seat, so both
--- constructors take an owner. attach holds one laser per hand and raises when another owner holds the
--- hand. The service's update and draw do what each laser's own methods do. See docs/dev/lua-api.md#lasers.
+-- A laser owns a pointer and, unless one is supplied, a native seat, so both constructors take an owner. `attach`
+-- raises when another owner holds the hand.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'

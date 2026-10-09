@@ -41,7 +41,6 @@ pub enum Kind {
     Other,
 }
 
-/// Classifies a file path below `lua/`.
 pub fn classify(relative: &Path) -> Kind {
     let components: Vec<&str> = relative
         .components()

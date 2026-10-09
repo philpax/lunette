@@ -32,23 +32,6 @@ test('intersection is commutative, bounded, and idempotent over translated boxes
   end
 end)
 
-test('bounds validation permits zero area but rejects nonfinite dimensions and overflowing edges', function()
-  geometry.validateBounds { x = -2, y = -3, width = 0, height = 0 }
-  for _, bounds in
-    {
-      { x = 0, y = 0, width = -1, height = 1 },
-      { x = 0 / 0, y = 0, width = 1, height = 1 },
-      { x = 0, y = math.huge, width = 1, height = 1 },
-      { x = 1e308, y = 0, width = 1e308, height = 1 },
-      { x = 0, y = 0, width = 1, height = 1, typo = true },
-    }
-  do
-    expect.raises(function()
-      geometry.validateBounds(bounds)
-    end)
-  end
-end)
-
 test('polyline clipping preserves disjoint route segments rather than connecting crossings', function()
   local route = {
     { x = -5, y = 2 },

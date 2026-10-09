@@ -1,8 +1,7 @@
 //! Per-window configuration state that survives Lua reloads.
 //!
-//! The store holds booleans, finite numbers, and strings. No value retains a Lua reference after
-//! its state closes. The store holds session state only; persistence across process restarts
-//! to the standard library.
+//! Values retain no Lua reference, so they outlive the state that set them. Persistence across
+//! process restarts belongs to the standard library.
 
 use std::{
     borrow::Borrow,
@@ -33,9 +32,7 @@ impl WindowProperties {
 
     /// Removes `key` from `window`, reporting whether it held anything.
     ///
-    /// The window's own entry is removed alongside its last property. A window that
-    /// acquires and then loses every property costs the same as one that never
-    /// had any.
+    /// The window's own entry is removed alongside its last property.
     pub fn clear(&mut self, window: WindowId, key: &str) -> bool {
         let Some(properties) = self.windows.get_mut(&window) else {
             return false;
@@ -125,16 +122,14 @@ pub fn property_value() -> Type {
 #[derive(Clone, Debug, PartialEq)]
 pub enum PropertyValue {
     Boolean(bool),
-    /// Finite. [`PropertyValue::number`] is the only constructor, so an infinity
-    /// or a nan cannot be stored.
+    /// Finite, because [`PropertyValue::number`] is the only constructor.
     Number(f64),
     Text(String),
 }
 
 impl PropertyValue {
-    /// Creates a number value. Returns an error when the number is not finite.
-    ///
-    /// Non-finite values persist across Lua reloads and can propagate invalid poses.
+    /// Creates a number value, refusing a non-finite one because it would persist across reloads
+    /// and could propagate invalid poses.
     pub fn number(key: &PropertyKey, value: f64) -> Result<Self, PropertyError> {
         if !value.is_finite() {
             return Err(PropertyError::NotFinite {
@@ -153,8 +148,7 @@ pub enum PropertyError {
     EmptyKey,
     Unsupported {
         key: PropertyKey,
-        /// What the value is, for the message. Lua's own type name; message
-        /// content, not something anything branches on.
+        /// Lua's own type name, used only in the message.
         kind: &'static str,
     },
     /// The number is a nan or an infinity.
@@ -190,10 +184,8 @@ mod tests {
 
     use super::*;
 
-    /// The declared union and the enum are two statements of one set; this test
-    /// keeps the two statements equal. The match is exhaustive, so a variant
-    /// added to [`PropertyValue`] fails to compile here until the declared
-    /// union states it.
+    /// The match is exhaustive, so a variant added to [`PropertyValue`] fails to compile here until
+    /// the declared union states it.
     #[test]
     fn the_declared_union_covers_every_variant() {
         let Type::Union(members) = property_value() else {

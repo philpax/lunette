@@ -90,7 +90,7 @@ replace = function(state: State, first: number, last: number, text: string): Sta
   local value = state.value:sub(1, first - 1) .. text .. state.value:sub(last)
   local desired = first + #text
   local caret = #value + 1
-  -- Combining marks, regional indicators, and ZWJ insertion can join previously separate clusters.
+  -- Combining marks, regional indicators, and ZWJ insertion can join adjacent clusters.
   for _, boundary in checkedBoundaries(value) do
     if boundary >= desired then
       caret = boundary

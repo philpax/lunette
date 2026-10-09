@@ -1,8 +1,6 @@
 //! Linux-only: adapts the pinned WayVR screencopy backend without replacing its protocol.
 //!
-//! The application supplies the environment-dependent client factory and the GPU
-//! exporter. Upstream owns request workers, including its pause, drop, and failure
-//! limitations. Frames reach the main thread through the existing bounded queue.
+//! Upstream owns the request workers, including their pause, drop, and failure limitations.
 
 use std::{convert::Infallible, sync::Arc};
 
@@ -70,7 +68,7 @@ impl MonitorStreams for PreferredStreams {
             return self.unavailable(monitor, "the host client could not be opened");
         };
         if client.maybe_wlr_screencopy_mgr.is_none() {
-            // An expected absence on compositors without wlroots protocols, so not a warning.
+            // Expected on compositors without wlroots protocols, so not a warning.
             info!(monitor = %monitor.key(), "direct capture: wlr-screencopy v3 is unavailable; using the portal");
             self.unavailable.push(monitor.key().clone());
             return DirectOpen::Unavailable;

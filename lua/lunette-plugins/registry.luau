@@ -15,9 +15,8 @@ export type Entry<T> = {
 export type Registry<T> = {
   -- Raises `<label>: <name> is already registered` when the name is taken.
   add: (self: Registry<T>, owner: plugin.Owner, name: string, value: T, details: inspection.Details?) -> plugin.Effect,
-  -- Answers the value of a live registration.
   get: (self: Registry<T>, name: string) -> T?,
-  -- Answers the live registrations in registration order.
+  -- Lists live registrations in registration order.
   list: (self: Registry<T>) -> { Entry<T> },
   inspect: (self: Registry<T>, kind: inspection.Kind, source: string) -> { inspection.Registration },
 }

@@ -1,10 +1,7 @@
 //! Builds the Lua state used by each test file.
 //!
-//! Module roots resolve working-tree files under session aliases. `@lunette` provides the
-//! native plugin runtime, key and scale vocabularies, and stateless text segmentation.
-//! `@testing/native` supplies the remaining native API. `lovr.math` comes from `liblovr.so`,
-//! so pose tests use LÖVR's `Mat4` implementation. `@testing/host` exposes collected plugin
-//! failures, shutdown, production reload, and the native error boundary with its log.
+//! `@lunette` provides the native parts that need no device, and `@testing/native` fakes the
+//! rest. `lovr.math` comes from `liblovr.so`, so pose tests use LÖVR's own `Mat4`.
 
 use std::{
     ffi::c_int,
@@ -33,9 +30,7 @@ use mlua::{Function, Lua, Table, Value, ffi::lua_State};
 use tracing_subscriber::fmt::MakeWriter;
 
 unsafe extern "C-unwind" {
-    /// LÖVR's opener for `lovr.math`, exported by `liblovr.so`. It registers
-    /// the math types in the state it is given and needs no window, device, or
-    /// other module.
+    /// LÖVR's opener for `lovr.math`, which needs no window, device, or other module.
     fn luaopen_lovr_math(state: *mut lua_State) -> c_int;
 }
 
@@ -54,18 +49,15 @@ impl Roots {
     }
 }
 
-/// Where bare module names, such as `main`, resolve: the configuration a test
-/// chose with `host.useConfiguration`, if any.
+/// `configuration` is where bare module names, such as `main`, resolve.
 struct Sources {
     roots: Roots,
     configuration: Option<PathBuf>,
 }
 
-/// The plugin failures reported and not yet taken.
 #[derive(Default)]
 struct Reports(Vec<String>);
 
-/// Builds a fresh state for one test file.
 pub fn new(roots: &Roots) -> mlua::Result<Lua> {
     let lua = Lua::new();
     lua.set_app_data(Sources {
@@ -206,13 +198,6 @@ fn host(lua: &Lua) -> mlua::Result<Table> {
     )?;
     host.set("collect", lua.create_function(|lua, ()| lua.gc_collect())?)?;
     host.set(
-        "setReadonly",
-        lua.create_function(|_, (table, readonly): (Table, bool)| {
-            table.set_readonly(readonly);
-            Ok(())
-        })?,
-    )?;
-    host.set(
         "useConfiguration",
         lua.create_function(|lua, directory: String| {
             let path = lua
@@ -274,12 +259,8 @@ impl<'writer> MakeWriter<'writer> for Captured {
     }
 }
 
-/// The state's `require`: `package.loaded`, then `package.preload`, then a
-/// file under a module root or the chosen configuration. A module that
-/// returns nothing is cached as `true`, as LÖVR's loader caches it.
-///
-/// `require::install` wraps this so relative paths resolve against the
-/// requiring file, as they do in a session.
+/// A module that returns nothing is cached as `true`, as LÖVR's loader caches it.
+/// `require::install` wraps this so relative paths resolve as they do in a session.
 fn require_module(lua: &Lua, name: String) -> mlua::Result<Value> {
     let package: Table = lua.globals().get("package")?;
     let loaded: Table = package.get("loaded")?;

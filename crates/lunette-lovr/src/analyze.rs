@@ -31,9 +31,7 @@ pub struct Report {
 }
 
 impl Report {
-    /// Whether the report contains a diagnostic other than a lint warning.
-    ///
-    /// Lint warnings do not fail a build; every other kind does.
+    /// Whether the report contains a diagnostic other than a lint warning, which does not fail a build.
     #[must_use]
     pub fn is_clean(&self) -> bool {
         !self
@@ -103,14 +101,11 @@ impl fmt::Display for Kind {
 
 /// Checks `request`.
 ///
-/// Checks may run on several threads at once. The checker sets Luau's
-/// process-global language flags once, on the first check.
+/// Checks may run on several threads at once. The checker sets Luau's process-global language flags once, on the first check.
 ///
 /// # Errors
 ///
-/// If a path holds an interior NUL, or the checker cannot run: the
-/// definitions file is unreadable, or it does not load. When a definitions
-/// file does not load, the error contains the diagnostics from the load.
+/// If a path holds an interior NUL, or the definitions file is unreadable or does not load. A load failure carries its diagnostics.
 pub fn check(request: &Request) -> Result<Report, Error> {
     let definitions = request
         .definitions
@@ -187,9 +182,7 @@ unsafe fn collect(report: *mut ffi::lunette_luau_report) -> Result<Report, Error
     let checked = if report.checked.is_null() {
         Vec::new()
     } else {
-        // SAFETY: the pointer is non-null, and the count belongs to the
-        // callee's report. Each string is NUL-terminated and remains valid
-        // until the report is freed.
+        // SAFETY: the pointer is non-null, the count belongs to the callee's report, and each string is NUL-terminated until the report is freed.
         unsafe { slice::from_raw_parts(report.checked, report.checked_count) }
             .iter()
             // SAFETY: the pointer for the string is valid for the
@@ -220,8 +213,7 @@ unsafe fn diagnostic(raw: &ffi::lunette_luau_diagnostic) -> Diagnostic {
         ffi::LUNETTE_LUAU_LINT_WARNING => Kind::LintWarning,
         _ => Kind::TypeError,
     };
-    // SAFETY: the caller guarantees the strings. Each string is
-    // NUL-terminated and remains valid until the report is freed.
+    // SAFETY: the caller guarantees the strings.
     let module = unsafe { CStr::from_ptr(raw.module) }
         .to_string_lossy()
         .into_owned();
@@ -247,9 +239,7 @@ unsafe fn diagnostic(raw: &ffi::lunette_luau_diagnostic) -> Diagnostic {
 pub enum Error {
     /// A path holds an interior NUL.
     Path(NulError),
-    /// The checker rejects the request. `diagnostics` holds the diagnostics
-    /// the checker produces alongside the rejection. When a definitions file
-    /// fails to load, those diagnostics state why.
+    /// The checker rejects the request. `diagnostics` holds what it produced alongside the rejection, including why a definitions file fails to load.
     Failed {
         reason: String,
         diagnostics: Vec<Diagnostic>,
@@ -369,9 +359,7 @@ mod tests {
         assert_eq!(diagnostic.line, 1, "the line");
     }
 
-    /// A root that cannot be read produces no diagnostics. Without the
-    /// skipped-roots report, an unresolved require would silently skip a
-    /// whole file.
+    /// A root that cannot be read produces no diagnostics, so without the skipped-roots report an unresolved require would skip a whole file silently.
     #[test]
     fn an_unreadable_root_is_reported_as_skipped() {
         let directory = tempfile::TempDir::new().expect("a temporary directory");

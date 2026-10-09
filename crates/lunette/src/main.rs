@@ -1,10 +1,5 @@
-//! Linux-only: the lunette binary, which boots LÖVR, runs the Lua session, and
-//! orchestrates the compositor and capture subsystems.
-//!
-//! The binary is the sole environment reader and `tracing` subscriber owner. It
-//! retains the host's `WAYLAND_DISPLAY` for the pinned capture client and removes
-//! `WAYLAND_SOCKET` before any worker starts. Hosted applications receive lunette's
-//! display settings explicitly from the compositor's spawner.
+//! Linux-only: the lunette binary, which boots LÖVR, runs the Lua session, and orchestrates the compositor and capture subsystems.
+//! The binary is the sole environment reader and `tracing` subscriber owner.
 
 mod boot;
 mod check;
@@ -97,8 +92,7 @@ fn main() -> ExitCode {
             destination.as_path()
         };
 
-        // The copied `.luaurc` names the module data absolutely, because readers may use another
-        // working directory.
+        // Absolute, because readers may use another working directory.
         let module_data = path::absolute(&module_data).unwrap_or(module_data);
         return match cli::dump(destination, &module_data) {
             Ok(written) => {
@@ -128,15 +122,13 @@ fn main() -> ExitCode {
 
     let state_directory = state_directory(&StateDirectorySources::from_environment());
 
-    // SAFETY: no application worker has started. The logging subscriber and
-    // configuration resolution above do not spawn threads.
+    // SAFETY: no application worker has started, and nothing above spawns threads.
     let host_socket = unsafe { prepare_host_display() };
 
     // Bind before LÖVR starts. Failure disables `lunctl` but does not stop the session.
     let control = match absolute_path(env::var_os(XDG_RUNTIME_DIR)) {
         Some(runtime_directory) => {
-            // Non-UTF-8 settings do not equal `on`. Lossy conversion keeps them distinct from
-            // unset.
+            // Lossy conversion keeps non-UTF-8 settings distinct from unset.
             let setting =
                 env::var_os(LUNETTE_CONTROL).map(|value| value.to_string_lossy().into_owned());
             let switch = ControlSwitch::from_setting(setting.as_deref());
@@ -265,8 +257,7 @@ struct Host {
     tokens: Option<TokenFile>,
 }
 
-/// Opens host monitor capture and input. Returns `None` when host outputs or the portal are
-/// unavailable; the session can still serve Wayland clients without host integration.
+/// Opens host monitor capture and input. Returns `None` when host outputs or the portal are unavailable.
 fn open_host(socket: &Path, state_directory: Option<&Path>) -> Option<Host> {
     let outputs = match OutputWatcher::connect(socket) {
         Ok(outputs) => outputs,
@@ -313,7 +304,7 @@ fn open_host(socket: &Path, state_directory: Option<&Path>) -> Option<Host> {
 
 /// Loads restore tokens and returns a write handle only for compatible data.
 ///
-/// Files from a later version remain untouched, preserving fields that older code does not know.
+/// A file from a later version stays untouched, preserving fields older code does not know.
 fn read_tokens(state_directory: Option<&Path>) -> (tokens::TokenStore, Option<TokenFile>) {
     let Some(directory) = state_directory else {
         warn!(
@@ -350,23 +341,18 @@ fn read_tokens(state_directory: Option<&Path>) -> (tokens::TokenStore, Option<To
 
 /// Resolves the host socket and removes the inherited descriptor override.
 ///
-/// The pinned client's constructor connects through the retained host display.
-/// Removing `WAYLAND_SOCKET` here prevents its later constructor from mutating
-/// the environment after application workers have started.
+/// The pinned client's constructor would otherwise remove `WAYLAND_SOCKET` after workers have started.
 ///
 /// # Safety
 ///
-/// The process must be single-threaded. A concurrent environment read can access
-/// memory freed by `std::env::remove_var`.
+/// The process must be single-threaded, because a concurrent environment read can access memory freed by `std::env::remove_var`.
 unsafe fn prepare_host_display() -> Option<PathBuf> {
     let socket = host_wayland_socket(
         env::var_os(XDG_RUNTIME_DIR).as_deref(),
         env::var_os(WAYLAND_DISPLAY).as_deref(),
     );
 
-    // SAFETY: the caller guarantees single-threaded startup. Upstream's constructor
-    // removes WAYLAND_SOCKET when present, so remove it before any worker exists.
-    // Hosted clients receive lunette's display explicitly through the spawner.
+    // SAFETY: the caller guarantees single-threaded startup.
     unsafe { env::remove_var("WAYLAND_SOCKET") };
 
     socket
@@ -374,8 +360,7 @@ unsafe fn prepare_host_display() -> Option<PathBuf> {
 
 /// Constructs the pinned environment-based client at the application boundary.
 fn upstream_capture_client() -> Option<WlxClient> {
-    // Startup removes WAYLAND_SOCKET, so connect_to_env only reads the environment.
-    // Missing required upstream globals currently panic; setup falls back to the portal.
+    // Startup removes WAYLAND_SOCKET, so connect_to_env only reads the environment. Missing upstream globals panic, and setup falls back to the portal.
     std::panic::catch_unwind(WlxClient::new).unwrap_or_else(|_| {
         warn!("direct capture: the upstream host client could not initialize");
         None
@@ -393,8 +378,7 @@ fn host_wayland_socket(runtime_dir: Option<&OsStr>, display: Option<&OsStr>) -> 
 
 /// Reads libxkbcommon's layout variables at the application boundary.
 ///
-/// An unset or empty value remains absent so libxkbcommon uses its compiled-in default. The names
-/// are retained because the compiled keymap does not expose which RMLVO layout produced it.
+/// An unset or empty value stays absent so libxkbcommon uses its default. The names are kept because the compiled keymap does not expose its RMLVO source.
 fn keymap_defaults_from_environment() -> KeymapDefaults {
     fn name(variable: &str) -> Option<String> {
         env::var(variable).ok().filter(|value| !value.is_empty())
@@ -430,7 +414,6 @@ impl StateDirectorySources {
 /// Resolves the per-user directory for screencast restore tokens.
 ///
 /// The configuration directory may be read-only, and restore tokens belong to one user's session.
-/// The token writer creates files through a sibling temporary file and reports write failures.
 fn state_directory(sources: &StateDirectorySources) -> Option<PathBuf> {
     sources
         .xdg_state_home
@@ -464,13 +447,11 @@ const XKB_DEFAULT_OPTIONS: &str = "XKB_DEFAULT_OPTIONS";
 /// The file the screencast portal's restore tokens are kept in.
 const TOKEN_FILE: &str = "screencast-tokens.toml";
 
-/// Diagnostic settings for imported-image queue family and layout. Invalid values warn and use
-/// defaults.
+/// Diagnostic settings for imported-image queue family and layout. Invalid values warn and use defaults.
 const IMPORT_QUEUE_FAMILY: &str = "LUNETTE_IMPORT_QUEUE_FAMILY";
 const IMPORT_LAYOUT: &str = "LUNETTE_IMPORT_LAYOUT";
 
-/// The verbosity applied when `RUST_LOG` names none, or names something that
-/// does not parse.
+/// The verbosity applied when `RUST_LOG` names none, or names something that does not parse.
 const DEFAULT_LOG_LEVEL: LevelFilter = LevelFilter::INFO;
 
 /// Module-data install prefix supplied by the build.
@@ -511,8 +492,7 @@ impl ModuleDataSources {
 
 /// Resolves module data from `$LUNETTE_STDLIB_PATH` or `$PREFIX/share/lunette/lua`.
 ///
-/// The override takes precedence and may be relative to the process working directory. There is no
-/// `./lua` fallback because it would make module resolution depend on the launch directory.
+/// The override may be relative to the working directory. There is no `./lua` fallback, because it would make resolution depend on the launch directory.
 fn module_data_directory(sources: &ModuleDataSources) -> PathBuf {
     sources
         .override_path
@@ -544,8 +524,7 @@ impl ConfigDirectorySources {
     }
 }
 
-/// Configuration directories in precedence order, ending with the system directory, which is
-/// always present.
+/// Configuration directories in precedence order, ending with the always-present system directory.
 #[derive(Debug)]
 struct ConfigDirectoryCandidates {
     user: Vec<PathBuf>,
@@ -639,41 +618,14 @@ mod tests {
     }
 
     #[test]
-    fn no_token_file_yet_still_names_somewhere_to_write_one() {
-        // The ordinary first run: nothing to read, and reason to be able to
-        // record what the first grant returns.
-        let directory = TempDir::new().expect("a temporary directory can be created");
-
-        let (store, file) = read_tokens(Some(directory.path()));
-
-        assert!(store.is_empty());
-        assert!(file.is_some());
-    }
-
-    #[test]
-    fn a_token_file_from_a_later_version_is_neither_read_nor_writable() {
-        // Writing an older schema would discard fields from the newer file.
-        let directory = state_with_tokens(
+    fn a_token_file_this_version_cannot_read_is_neither_read_nor_writable() {
+        // Writing over a newer file discards fields it holds.
+        for text in [
             "version = 2\n\
              [[monitors]]\n\
              key = { descriptor = \"Acme X24\" }\n\
              token = \"kept\"\n\
              something-later-versions-have = true\n",
-        );
-
-        let (store, file) = read_tokens(Some(directory.path()));
-
-        assert!(store.is_empty());
-        assert_eq!(file, None);
-    }
-
-    #[test]
-    fn a_token_file_this_version_cannot_parse_is_left_alone() {
-        // Including a file at this version carrying a field this version does
-        // not know, which `deny_unknown_fields` refuses: it is either a typo or
-        // a field a later version added without bumping, and writing over
-        // either discards whatever it held.
-        for text in [
             "this is not toml {{{",
             "version = 1\n\
              [[monitors]]\n\
@@ -691,7 +643,15 @@ mod tests {
     }
 
     #[test]
-    fn with_no_state_directory_there_is_nothing_to_read_and_nowhere_to_write() {
+    fn the_token_file_is_absent_without_a_state_directory_and_writable_with_one() {
+        // A first run needs somewhere to record what the first grant returns.
+        let directory = TempDir::new().expect("a temporary directory can be created");
+
+        let (store, file) = read_tokens(Some(directory.path()));
+
+        assert!(store.is_empty());
+        assert!(file.is_some());
+
         let (store, file) = read_tokens(None);
 
         assert!(store.is_empty());
@@ -710,59 +670,35 @@ mod tests {
     }
 
     #[test]
-    fn a_relative_wayland_display_resolves_against_the_runtime_directory() {
+    fn the_host_socket_is_named_by_the_runtime_directory_and_display() {
         assert_eq!(
             socket(Some("/run/user/1000"), Some("wayland-1")),
             Some(PathBuf::from("/run/user/1000/wayland-1")),
         );
-    }
-
-    #[test]
-    fn an_absolute_wayland_display_is_taken_as_it_stands() {
-        // The protocol permits it, and a session that uses it has no reason to
-        // set XDG_RUNTIME_DIR to anything in particular.
+        // The protocol permits an absolute display, which is taken as it stands.
         assert_eq!(
             socket(None, Some("/tmp/custom/wayland-9")),
             Some(PathBuf::from("/tmp/custom/wayland-9")),
         );
-    }
-
-    #[test]
-    fn no_wayland_display_names_no_host_socket() {
-        // A bare TTY, and an X11-only session. Both are ordinary, and both mean
-        // lunette can see none of the host's screens.
+        // A bare TTY or an X11-only session has no socket to name.
         assert_eq!(socket(Some("/run/user/1000"), None), None);
         assert_eq!(socket(Some("/run/user/1000"), Some("")), None);
-    }
-
-    #[test]
-    fn a_relative_wayland_display_with_no_runtime_directory_names_nothing() {
-        // There is nothing to resolve it against, and guessing /run/user/$UID
-        // would connect to a socket the session did not name.
+        // Guessing /run/user/$UID would connect to a socket the session did not name.
         assert_eq!(socket(None, Some("wayland-1")), None);
         assert_eq!(socket(Some("relative"), Some("wayland-1")), None);
     }
 
     #[test]
-    fn the_state_directory_prefers_xdg_state_home() {
+    fn the_state_directory_prefers_xdg_state_home_and_has_no_system_fallback() {
         assert_eq!(
             state_directory(&state_sources(Some("/state"), Some("/home/user"))),
             Some(PathBuf::from("/state/lunette")),
         );
-    }
-
-    #[test]
-    fn the_state_directory_falls_back_to_the_xdg_default_under_home() {
         assert_eq!(
             state_directory(&state_sources(None, Some("/home/user"))),
             Some(PathBuf::from("/home/user/.local/state/lunette")),
         );
-    }
-
-    #[test]
-    fn no_state_directory_is_representable() {
-        // There is no system fallback, unlike the configuration directory: a
-        // restore token belongs to one user's session.
+        // A restore token belongs to one user's session, so there is no system fallback.
         assert_eq!(state_directory(&state_sources(None, None)), None);
     }
 
@@ -774,35 +710,20 @@ mod tests {
     }
 
     #[test]
-    fn module_data_defaults_to_the_compiled_in_prefix() {
+    fn module_data_is_the_override_when_set_and_the_prefix_otherwise() {
         assert_eq!(
             module_data(None, "/usr/local"),
             PathBuf::from("/usr/local/share/lunette/lua"),
         );
-    }
-
-    #[test]
-    fn the_module_data_override_wins_over_the_prefix() {
-        // The development loop for the Lua module roots: a working tree beats
-        // an installed copy without being shadowed by one.
+        // A working tree beats an installed copy without being shadowed by one.
         assert_eq!(
             module_data(Some("/src/lunette/lua"), "/usr"),
             PathBuf::from("/src/lunette/lua"),
         );
-    }
-
-    #[test]
-    fn a_relative_module_data_override_is_taken_as_it_stands() {
         // A relative override is taken as it stands, unlike the XDG variables,
-        // which the specification requires to be absolute. `LUNETTE_STDLIB_PATH=lua
-        // cargo run` is the case it exists for.
+        // which the specification requires to be absolute.
         assert_eq!(module_data(Some("lua"), "/usr"), PathBuf::from("lua"));
-    }
-
-    #[test]
-    fn an_empty_override_counts_as_unset() {
-        // How a shell usually spells "not set". Taken literally it would mount
-        // the current working directory, silently.
+        // An empty override means unset. Taken literally it would mount the working directory.
         assert_eq!(non_empty_path(Some(OsString::new())), None);
         assert_eq!(non_empty_path(None), None);
         assert_eq!(
@@ -827,18 +748,15 @@ mod tests {
             .collect()
     }
 
-    /// The override wins, and the rest stay behind it: a session pointed at a
-    /// working copy still falls back to the installed configuration if the
-    /// working copy has none.
     #[test]
-    fn the_override_outranks_every_other_candidate() {
-        let sources = ConfigDirectorySources {
+    fn configuration_candidates_are_listed_in_priority_order() {
+        // A session pointed at a working copy still falls back to the installed configuration.
+        let overridden = ConfigDirectorySources {
             override_path: Some(PathBuf::from("etc/xdg/lunette")),
             ..sources(Some("/xdg"), Some("/home/user"))
         };
-
         assert_eq!(
-            candidates(&sources),
+            candidates(&overridden),
             vec![
                 Path::new("etc/xdg/lunette"),
                 Path::new("/xdg/lunette"),
@@ -846,26 +764,18 @@ mod tests {
                 Path::new("/etc/xdg/lunette"),
             ]
         );
-    }
 
-    /// A relative override is taken as it stands, unlike the XDG variables,
-    /// which are ignored unless absolute. `LUNETTE_CONFIG_PATH=etc/xdg/lunette`
-    /// from a working copy is the case it exists for.
-    #[test]
-    fn a_relative_configuration_override_is_taken_as_it_stands() {
-        let sources = ConfigDirectorySources {
+        // A relative override is taken as it stands, unlike the XDG variables,
+        // which are ignored unless absolute.
+        let relative = ConfigDirectorySources {
             override_path: Some(PathBuf::from("etc/xdg/lunette")),
             ..sources(None, None)
         };
-
         assert_eq!(
-            ConfigDirectoryCandidates::new(&sources).highest(),
+            ConfigDirectoryCandidates::new(&relative).highest(),
             Path::new("etc/xdg/lunette")
         );
-    }
 
-    #[test]
-    fn all_three_candidates_appear_in_priority_order() {
         assert_eq!(
             candidates(&sources(Some("/xdg"), Some("/home/user"))),
             vec![
@@ -874,10 +784,6 @@ mod tests {
                 Path::new("/etc/xdg/lunette"),
             ]
         );
-    }
-
-    #[test]
-    fn an_unset_variable_drops_its_candidate() {
         assert_eq!(
             candidates(&sources(None, Some("/home/user"))),
             vec![
@@ -885,10 +791,6 @@ mod tests {
                 Path::new("/etc/xdg/lunette"),
             ]
         );
-    }
-
-    #[test]
-    fn the_system_candidate_is_always_present() {
         assert_eq!(
             candidates(&sources(None, None)),
             vec![Path::new("/etc/xdg/lunette")]
@@ -910,8 +812,7 @@ mod tests {
         );
     }
 
-    /// `lunette check` with no paths reads the directory a session would
-    /// load: the first existing candidate, unless `--config-path` names one.
+    /// `lunette check` with no paths reads the directory a session would load.
     #[test]
     fn check_without_paths_reads_the_configuration_a_session_would_load() {
         let xdg = TempDir::new().expect("a temporary directory");
@@ -934,15 +835,11 @@ mod tests {
     }
 
     #[test]
-    fn an_absolute_value_is_accepted() {
+    fn an_absolute_xdg_value_is_taken_and_a_relative_or_empty_one_is_unset() {
         assert_eq!(
             absolute_path(Some(OsString::from("/xdg"))),
             Some(PathBuf::from("/xdg"))
         );
-    }
-
-    #[test]
-    fn a_relative_or_empty_value_counts_as_unset() {
         assert_eq!(absolute_path(Some(OsString::from("xdg"))), None);
         assert_eq!(absolute_path(Some(OsString::new())), None);
         assert_eq!(absolute_path(None), None);

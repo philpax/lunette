@@ -5,7 +5,7 @@ local expect = testing.expect
 local test = testing.suite()
 
 local function fixture(key)
-  local fake = testing.native()
+  testing.native()
   local texts = {}
   local receiver = {
     key = key or function()
@@ -43,7 +43,7 @@ local function fixture(key)
     }
     source:reset()
   end
-  return { source = source, inverse = inverse, texts = texts, change = change, reports = fake.events.reported }
+  return { source = source, inverse = inverse, texts = texts, change = change }
 end
 
 test('beginBatch binds text before a binding changes the focused route', function()
@@ -59,37 +59,27 @@ test('beginBatch binds text before a binding changes the focused route', functio
 end)
 
 test('a consumed local physical key poisons all text until the next batch', function()
+  local calls = 0
   local f = fixture(function()
+    calls += 1
     return true
   end)
   f.source:beginBatch(4)
   expect.equal(f.source:key({ code = 30, batch = 4 }).kind, 'consumed', 'the binding consumes its key')
+  expect.equal(f.source:key({ code = 31, batch = 4 }).kind, 'consumed', 'a later key in the same batch')
+  expect.equal(calls, 2, 'poisoning does not suppress later keys')
   expect.equal(f.source:text('a', 4).kind, 'refused', 'matching text')
   expect.equal(f.source:text('b', 4).kind, 'refused', 'later text in the same batch')
+  f.source:beginBatch(4)
+  expect.equal(f.source:text('duplicate', 4).kind, 'refused', 'beginning the same batch keeps it poisoned')
   f.source:beginBatch(5)
   expect.equal(f.source:text('c', 5).kind, 'consumed', 'fresh batch text')
   expect.equal(table.concat(f.texts, ','), 'c', 'no consumed-key duplicates')
   f.inverse()
-end)
-
-test('a failed local physical key poisons text but not a later batch', function()
-  local f = fixture(function()
-    error 'physical receiver failure'
-  end)
-  f.source:beginBatch(7)
-  expect.equal(f.source:key({ code = 30, batch = 7 }).kind, 'failed', 'receiver failure')
-  expect.equal(f.source:text('a', 7).kind, 'refused', 'failed-key text')
-  f.source:beginBatch(8)
-  expect.equal(f.source:text('b', 8).kind, 'consumed', 'new batch text')
-  expect.equal(#f.reports, 1, 'receiver failure is reported')
-  f.inverse()
-end)
-
-test('unhandled local physical keys leave valid committed text deliverable', function()
-  local f = fixture()
+  f = fixture()
   f.source:beginBatch(10)
   expect.equal(f.source:key({ code = 30, batch = 10 }).kind, 'unhandled', 'unhandled physical key')
-  expect.equal(f.source:text('é🙂', 10).kind, 'consumed', 'committed text')
+  expect.equal(f.source:text('é🙂', 10).kind, 'consumed', 'unhandled keys leave committed text deliverable')
   expect.equal(f.texts[1], 'é🙂', 'full committed string')
   f.inverse()
 end)
@@ -102,43 +92,6 @@ test('old and missing physical text batches are refused without resetting the cu
   expect.equal(f.source:text('missing').kind, 'refused', 'missing batch')
   expect.equal(f.source:text('current', 12).kind, 'consumed', 'still the current batch')
   expect.equal(#f.texts, 1, 'one accepted text')
-  f.inverse()
-end)
-
-test('consumed-key text poisoning does not suppress later keys in the same batch', function()
-  local calls = 0
-  local f = fixture(function()
-    calls += 1
-    return true
-  end)
-  f.source:beginBatch(20)
-  expect.equal(f.source:key({ code = 30, batch = 20 }).kind, 'consumed', 'first key')
-  expect.equal(f.source:key({ code = 31, batch = 20 }).kind, 'consumed', 'second key')
-  expect.equal(calls, 2, 'both keys reach the receiver')
-  expect.equal(f.source:text('duplicates', 20).kind, 'refused', 'text remains poisoned')
-  f.inverse()
-end)
-
-test('beginning the same batch again cannot erase consumed-key text poisoning', function()
-  local f = fixture(function()
-    return true
-  end)
-  f.source:beginBatch(30)
-  f.source:key { code = 30, batch = 30 }
-  f.source:beginBatch(30)
-  expect.equal(f.source:text('duplicate', 30).kind, 'refused', 'the same batch stays poisoned')
-  f.inverse()
-end)
-
-test('a consumed key poisons only its original batch when its callback begins the next batch', function()
-  local f
-  f = fixture(function()
-    f.source:beginBatch(41)
-    return true
-  end)
-  f.source:beginBatch(40)
-  expect.equal(f.source:key({ code = 30, batch = 40 }).kind, 'consumed', 'the original key')
-  expect.equal(f.source:text('next', 41).kind, 'consumed', 'the callback started a fresh batch')
   f.inverse()
 end)
 

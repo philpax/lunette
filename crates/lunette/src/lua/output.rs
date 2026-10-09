@@ -25,8 +25,7 @@ use crate::{
 pub struct Output<T> {
     id: OutputId,
     session: Rc<Session<T>>,
-    /// The output reports the mode most recently requested
-    /// while the compositor has not created the output and after the output has gone.
+    /// The last mode requested or seen, reported while the snapshot does not list the output.
     mode: RefCell<OutputMode>,
 }
 
@@ -88,20 +87,17 @@ handle! {
     }
 
     /// Changes the mode, keeping the fields the table does not name. Clients
-    /// reallocate and re-lay-out in response. A caller that changes the mode
-    /// continuously makes clients do so continuously.
+    /// reallocate and re-lay-out in response.
     method setMode(_lua, this, mode: Options<SetMode>) -> bool { set_mode(this, &mode) }
 
-    /// Withdraws the output's `wl_output` global. The output every session
-    /// starts with is refused. A client assigned no output is shown it.
+    /// Withdraws the output's `wl_output` global. The default output is
+    /// refused, because a client assigned no output is shown it.
     method destroy(_lua, this) -> bool { Ok(destroy(this)) }
 }
 
 /// `lunette.newOutput{ width = 1920, height = 1080, scale = 1.5, refresh = 90 }`.
 ///
-/// The call returns the handle while the compositor has not made the output.
-/// `output.dead` is true in the frame that created the handle.
-/// `lunette.newSeat` and `lunette.spawn` follow the same rule.
+/// The handle is dead until a later frame's snapshot lists the output.
 ///
 /// # Errors
 ///
@@ -144,8 +140,6 @@ pub(crate) fn outputs<T: LuaTexture>(
 }
 
 /// Changes the output mode while preserving fields omitted from the options.
-///
-/// Clients reallocate and relayout when the mode changes.
 fn set_mode<T: LuaTexture>(output: &Output<T>, options: &Options<SetMode>) -> mlua::Result<bool> {
     let current = *output.mode.borrow();
     let mode = read_mode(options.table(), Some(current))?;

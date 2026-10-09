@@ -1,4 +1,4 @@
--- Arranges unposed placements unless the user has dropped them or they carry a persisted pose. Selected tags run first. Continuous layouts update before panel drawing. See docs/dev/stdlib.md#default-configuration.
+-- Arranges unposed placements unless the user has dropped them or they carry a persisted pose.
 local plugin = require '@lunette-plugin'
 local drops = require '@lunette-contracts/drops'
 local frame = require '@lunette-contracts/frame'
@@ -14,7 +14,6 @@ local config = require '@lunette-plugins/desktop/arrange/config'
 export type Config = config.Config
 export type Settings = config.Settings
 
--- Continuous layouts update before panels draw in the scene phase.
 local UPDATE_ORDER = -10
 
 local required: plugin.Declaration = {

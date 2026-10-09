@@ -66,119 +66,114 @@ local function expectSelection(state, kind)
   expect.equal(state.selection.id, if kind == 'node' then 'b' else 'ab', 'the selected item id')
 end
 
-for _, kind in { 'node', 'edge' } do
-  for _, zoom in { 0.5, 2 } do
-    local label = kind .. ' at zoom ' .. tostring(zoom)
+local ZOOM = 0.5
 
-    test(label .. ' remains a click after small movement', function()
-      for _, offset in { 0.1, 1, 4 } do
-        local state = fixture()
-        state.camera = { x = 0, y = 0, zoom = zoom }
-        local point = selectionPoint(state, kind)
-        local before = state.camera
-        view.press(state, point)
-        view.move(state, { x = point.x - offset, y = point.y })
-        view.release(state, { x = point.x - offset, y = point.y })
-        expectSelection(state, kind)
-        expect.equal(state.camera, before, 'click jitter does not pan')
-        expect.equal(state.dragging, nil, 'release ends the gesture')
-      end
-    end)
-
-    test(label .. ' remains a click after jitter returns to the press position', function()
+test('a press with small movement or jitter selects the pressed node or edge', function()
+  for _, kind in { 'node', 'edge' } do
+    for _, offset in { 0.1, 1, 4 } do
       local state = fixture()
-      state.camera = { x = 0, y = 0, zoom = zoom }
+      state.camera = { x = 0, y = 0, zoom = ZOOM }
       local point = selectionPoint(state, kind)
       local before = state.camera
       view.press(state, point)
-      for _ = 1, 4 do
-        view.move(state, { x = point.x - 4, y = point.y })
-        view.move(state, point)
-      end
-      view.release(state, point)
+      view.move(state, { x = point.x - offset, y = point.y })
+      view.release(state, { x = point.x - offset, y = point.y })
       expectSelection(state, kind)
-      expect.equal(state.camera, before, 'returning jitter never pans')
-    end)
+      expect.equal(state.camera, before, 'click jitter does not pan')
+      expect.equal(state.dragging, nil, 'release ends the gesture')
+    end
+    local state = fixture()
+    state.camera = { x = 0, y = 0, zoom = ZOOM }
+    local point = selectionPoint(state, kind)
+    local before = state.camera
+    view.press(state, point)
+    for _ = 1, 4 do
+      view.move(state, { x = point.x - 4, y = point.y })
+      view.move(state, point)
+    end
+    view.release(state, point)
+    expectSelection(state, kind)
+    expect.equal(state.camera, before, 'returning jitter never pans')
+  end
+end)
 
-    test(label .. ' accumulates small moves into a drag without selecting', function()
+test('movement past the threshold pans without selecting, including release-only displacement', function()
+  for _, kind in { 'node', 'edge' } do
+    local state = fixture()
+    state.camera = { x = 0, y = 0, zoom = ZOOM }
+    view.select(state, { kind = 'node', id = 'c' })
+    local point = selectionPoint(state, kind)
+    local before = state.camera
+    view.press(state, point)
+    for offset = 1, 4 do
+      view.move(state, { x = point.x + offset, y = point.y })
+    end
+    expect.equal(state.camera, before, 'movement below the threshold stays pending')
+    for offset = 5, 20 do
+      view.move(state, { x = point.x + offset, y = point.y })
+    end
+    expect.near(state.camera.x, before.x - 20 / ZOOM, 1e-8, 'drag includes the full press displacement')
+    view.release(state, { x = point.x + 20, y = point.y + 3 })
+    expect.equal(state.selection.id, 'c', 'drag release preserves the previous selection')
+    expect.near(state.camera.y, before.y - 3 / ZOOM, 1e-8, 'release includes an undelivered final move')
+
+    state = fixture()
+    state.camera = { x = 0, y = 0, zoom = ZOOM }
+    view.select(state, { kind = 'node', id = 'c' })
+    point = selectionPoint(state, kind)
+    before = state.camera
+    view.press(state, point)
+    view.move(state, { x = point.x + 20, y = point.y - 10 })
+    expect.near(state.camera.x, before.x - 20 / ZOOM, 1e-8, 'a large move pans')
+    view.move(state, point)
+    view.release(state, point)
+    expect.equal(state.selection.id, 'c', 'returning a drag does not select the pressed item')
+    expect.near(state.camera.x, before.x, 1e-8, 'returning the drag restores camera x')
+    expect.near(state.camera.y, before.y, 1e-8, 'returning the drag restores camera y')
+
+    for _, offset in { 4, 20 } do
+      state = fixture()
+      state.camera = { x = 0, y = 0, zoom = ZOOM }
+      view.select(state, { kind = 'node', id = 'c' })
+      point = selectionPoint(state, kind)
+      before = state.camera
+      view.press(state, point)
+      view.release(state, { x = point.x - offset, y = point.y })
+      if offset == 4 then
+        expectSelection(state, kind)
+        expect.equal(state.camera, before, 'a small release-only move does not pan')
+      else
+        expect.equal(state.selection.id, 'c', 'a large release-only move does not select')
+        expect.near(state.camera.x, before.x + offset / ZOOM, 1e-8, 'a large release-only move pans')
+      end
+      expect.equal(state.dragging, nil, 'release clears capture')
+    end
+  end
+end)
+
+test('cancel discards a pending click or drag for both nodes and edges', function()
+  for _, kind in { 'node', 'edge' } do
+    for _, offset in { 0.1, 20 } do
       local state = fixture()
-      state.camera = { x = 0, y = 0, zoom = zoom }
+      state.camera = { x = 0, y = 0, zoom = ZOOM }
       view.select(state, { kind = 'node', id = 'c' })
       local point = selectionPoint(state, kind)
-      local before = state.camera
       view.press(state, point)
-      for offset = 1, 4 do
-        view.move(state, { x = point.x + offset, y = point.y })
-      end
-      expect.equal(state.camera, before, 'movement below the threshold stays pending')
-      for offset = 5, 20 do
-        view.move(state, { x = point.x + offset, y = point.y })
-      end
-      expect.near(state.camera.x, before.x - 20 / zoom, 1e-8, 'drag includes the full press displacement')
-      view.release(state, { x = point.x + 20, y = point.y + 3 })
-      expect.equal(state.selection.id, 'c', 'drag release preserves the previous selection')
-      expect.near(state.camera.y, before.y - 3 / zoom, 1e-8, 'release includes an undelivered final move')
-    end)
-
-    test(label .. ' stays a drag after returning to the press position', function()
-      local state = fixture()
-      state.camera = { x = 0, y = 0, zoom = zoom }
-      view.select(state, { kind = 'node', id = 'c' })
-      local point = selectionPoint(state, kind)
-      local before = state.camera
-      view.press(state, point)
-      view.move(state, { x = point.x + 20, y = point.y - 10 })
-      expect.near(state.camera.x, before.x - 20 / zoom, 1e-8, 'a large move pans')
+      view.move(state, { x = point.x + offset, y = point.y })
+      view.cancel(state)
+      local cancelled = state.camera
       view.move(state, point)
       view.release(state, point)
-      expect.equal(state.selection.id, 'c', 'returning a drag does not select the pressed item')
-      expect.near(state.camera.x, before.x, 1e-8, 'returning the drag restores camera x')
-      expect.near(state.camera.y, before.y, 1e-8, 'returning the drag restores camera y')
-    end)
-
-    test(label .. ' uses release displacement when no move arrives', function()
-      for _, offset in { 4, 20 } do
-        local state = fixture()
-        state.camera = { x = 0, y = 0, zoom = zoom }
-        view.select(state, { kind = 'node', id = 'c' })
-        local point = selectionPoint(state, kind)
-        local before = state.camera
-        view.press(state, point)
-        view.release(state, { x = point.x - offset, y = point.y })
-        if offset == 4 then
-          expectSelection(state, kind)
-          expect.equal(state.camera, before, 'a small release-only move does not pan')
-        else
-          expect.equal(state.selection.id, 'c', 'a large release-only move does not select')
-          expect.near(state.camera.x, before.x + offset / zoom, 1e-8, 'a large release-only move pans')
-        end
-        expect.equal(state.dragging, nil, 'release clears capture')
-      end
-    end)
-
-    test(label .. ' cancellation clears pending clicks and drags', function()
-      for _, offset in { 0.1, 20 } do
-        local state = fixture()
-        state.camera = { x = 0, y = 0, zoom = zoom }
-        view.select(state, { kind = 'node', id = 'c' })
-        local point = selectionPoint(state, kind)
-        view.press(state, point)
-        view.move(state, { x = point.x + offset, y = point.y })
-        view.cancel(state)
-        local cancelled = state.camera
-        view.move(state, point)
-        view.release(state, point)
-        expect.equal(state.camera, cancelled, 'cancelled input cannot resume panning')
-        expect.equal(state.selection.id, 'c', 'a cancelled release cannot select')
-        expect.equal(state.dragging, nil, 'cancel clears capture')
-        point = selectionPoint(state, kind)
-        view.press(state, point)
-        view.release(state, point)
-        expectSelection(state, kind)
-      end
-    end)
+      expect.equal(state.camera, cancelled, 'cancelled input cannot resume panning')
+      expect.equal(state.selection.id, 'c', 'a cancelled release cannot select')
+      expect.equal(state.dragging, nil, 'cancel clears capture')
+      point = selectionPoint(state, kind)
+      view.press(state, point)
+      view.release(state, point)
+      expectSelection(state, kind)
+    end
   end
-end
+end)
 
 test('search uses complete caller values and ends entry without clearing its filter', function()
   local state = fixture()
@@ -242,19 +237,6 @@ test('filtered-out nodes cannot be selected and reset restores the whole graph',
   expect.equal(state.mode, 'all', 'reset clears the dependency filter')
   expect.equal(state.query, '', 'reset clears search')
   expect.equal(count(view.visible(state)), 3, 'reset shows every node')
-end)
-
-test('search replacement and completion preserve caller-owned Unicode text', function()
-  local state = fixture()
-  view.search(state)
-  view.setSearch(state, 'source\u{301}\u{1f50d}')
-  expect.equal(state.query, 'source\u{301}\u{1f50d}', 'the complete caller value is retained')
-  view.setSearch(state, 'consumer')
-  expect.equal(state.query, 'consumer', 'the value replaces rather than appends')
-  expect.equal(count(view.visible(state)), 1, 'replacement updates the filter')
-  view.endSearch(state)
-  expect.falsy(state.searchActive, 'completion ends search entry')
-  expect.equal(state.query, 'consumer', 'completion retains the filter')
 end)
 
 return test

@@ -1,40 +1,30 @@
 -- Ten soft reloads, from inside a session.
 --
--- `lunette.reload()` shuts down plugin runtimes, clears user and standard-library modules from `package.loaded`, clears configuration callbacks, and reruns the configuration. These effects require the host-registered module roots and the file resolved by `boot.lua`.
---
--- Globals survive a soft reload: the Lua state stays open, and the reload
--- removes the configuration's modules and callbacks. One file can drive several
--- reloads and compare what it saw across them.
---
--- Each failure quits with its own status, so the run reports which assertion
--- did not hold. A shared status would not name the failed assertion.
+-- Globals survive a soft reload, so one file drives several reloads and
+-- compares what each run saw. Each failure quits with its own status, so the
+-- run reports which assertion did not hold.
 
 local lunette = require '@lunette'
 
--- Reloads rerun shipped Lua root module bodies and create fresh tables; prior-run tables do not persist.
+-- Reloads rerun module bodies, so each run resolves a fresh table.
 local vocabulary = require '@lunette-contracts/vocabulary'
 
--- Ten reloads expose accumulation across repeated runs; one reload cannot show that state accumulates.
+-- One reload cannot show that state accumulates across runs.
 local RELOADS = 10
 
 -- The reload count excludes the initial run by `boot.lua`.
 reloads = reloads or 0
 
--- What the first run saw, to compare every later run against.
 firstFilesystem = firstFilesystem or package.loaded['lovr.filesystem']
--- The `@lunette-contracts/vocabulary` module table each run resolved, newest
--- last.
 vocabularyTables = vocabularyTables or {}
 vocabularyTables[#vocabularyTables + 1] = vocabulary
 
 if reloads == 0 then
-  -- Defined by the first run alone. It models a callback the user deleted
-  -- from their configuration between two reloads: a reload that left it bound
-  -- would keep calling code that is no longer in the file.
+  -- Defined by the first run alone, modelling a callback the user deleted
+  -- between two reloads.
   function lovr.lunwindowopened() end
 end
 
--- The status the run should quit with, or nothing when everything held.
 local function firstFailure()
   if package.loaded['lovr.filesystem'] ~= firstFilesystem then
     return 11
@@ -60,10 +50,8 @@ function lovr.load()
   end
 end
 
--- The reload is initiated from here, not from `lovr.load`, where a key binding
--- would ask for it. `lovr.load` is called by the reload itself, so a
--- configuration reloading from it would be reloading from inside a reload,
--- which is refused.
+-- The reload starts here, not from `lovr.load`, because the reload itself calls
+-- `lovr.load` and a reload from inside a reload is refused.
 function lovr.update()
   if reloads >= RELOADS then
     lovr.event.quit(9)

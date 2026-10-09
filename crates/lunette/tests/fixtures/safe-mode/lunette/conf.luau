@@ -1,14 +1,11 @@
 -- Configuration for the safe-mode fixture.
 --
 -- `conf.luau` loads and `main.luau` does not, which is the case safe mode is
--- for: everything native loads, and then the configuration above it does
--- not. The session has to keep running on a machine with no display, no XR
--- runtime, and no sound device, so the modules that depend on those are off.
+-- for. The hardware modules are off so the session runs headless.
 
 function lovr.conf(t)
-  -- This identity is distinct from the other fixtures' identities. boot.lua
-  -- creates $XDG_DATA_HOME/LOVR/<identity> on every run, and two runs sharing
-  -- a leaf race to create it.
+  -- Distinct per fixture, because two runs sharing a save directory race to
+  -- create it.
   t.identity = 'lunette-safe-mode'
 
   t.saveprecedence = false

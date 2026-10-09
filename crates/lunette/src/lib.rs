@@ -32,8 +32,7 @@ pub(crate) mod test_lua {
     /// An mlua state with LÖVR's fork library set opened.
     pub(crate) fn session_lua() -> mlua::Lua {
         let lua = mlua::Lua::new();
-        // SAFETY: the state is fresh, and no call is in progress. Production
-        // opens the libraries on the LÖVR state before any chunk runs.
+        // SAFETY: the state is fresh, and no call is in progress.
         lua.exec_raw_lua(|raw| unsafe {
             mlua::ffi::luaL_openlibs(raw.state());
         });

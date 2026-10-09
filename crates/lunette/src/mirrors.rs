@@ -1,15 +1,8 @@
 //! Linux-only: the host's monitors, as the Lua surface and the frame loop reach
 //! them.
 //!
-//! [`MirrorRegistry`] relates to [`lunette_capture::mirror::MirrorSet`] the way
-//! [`ClaimRegistry`] relates to the layer pool. Both exist for one reason: a
-//! [`Session`] holds them behind trait objects, which keeps a second type
-//! parameter off every handle. The trait methods take `&self` because a Lua
-//! callback holds a shared reference. Interior mutability is a [`RefCell`],
-//! not a lock, because the Lua API is available in the main state alone.
-//!
-//! [`ClaimRegistry`]: crate::lua::ClaimRegistry
-//! [`Session`]: crate::lua::Session
+//! The traits keep a type parameter off every handle. Interior mutability is a [`RefCell`],
+//! because the Lua API is available in the main state alone.
 
 use std::{cell::RefCell, fmt, mem};
 
@@ -27,9 +20,8 @@ use tracing::warn;
 
 /// A monitor's state as of its last read.
 ///
-/// A projection of `lunette-capture`'s roster and lifecycle, not a borrow of
-/// them. A handle then answers without holding the registry borrowed across a
-/// Lua call.
+/// A projection, not a borrow, so a handle never holds the registry borrowed
+/// across a Lua call.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MonitorState {
     pub key: MonitorKey,
@@ -41,8 +33,7 @@ pub struct MonitorState {
     pub pixels: PixelExtent,
     /// Whether a capture stream is running.
     pub mirrored: bool,
-    /// Whether the monitor has been requested but has no stream yet. A portal
-    /// dialog awaiting the user's choice is in this state.
+    /// Whether the monitor has been requested but has no stream yet.
     pub pending: bool,
 }
 
@@ -51,9 +42,8 @@ pub trait MirrorRegistry: fmt::Debug {
     /// Advances the portal exchange by one frame, without blocking, and reports
     /// the monitors that appeared after the last call.
     ///
-    /// Each appears as `lovr.lunmonitoradded`. The frame loop calls this once a
-    /// frame, after the snapshot is installed. A handler reading
-    /// `lunette.monitors()` then sees that monitor.
+    /// The frame loop calls this after the snapshot is installed, so a
+    /// `lovr.lunmonitoradded` handler sees the monitor.
     fn poll(&self) -> Vec<MonitorKey>;
 
     /// Every attached monitor, in the roster's own identity order.
@@ -94,19 +84,13 @@ pub trait MirrorRegistry: fmt::Debug {
 
 /// The mirror lifecycle, as the frame loop advances it.
 ///
-/// A second trait over the same object keeps the two audiences apart. A Lua
-/// handle reads and mutates [`MirrorRegistry`]. The frame's own mechanics use
-/// this trait: the host's attachments, the capture's frames, the tokens to
-/// write to disk. The separation stops a Lua handle reaching a capture frame.
-///
-/// The trait exists because [`HostMirrors`] is generic over the portal and
-/// [`crate::frame::FrameDriver`] must not name the production one. The frame
-/// loop does not need to know whether the portal is real.
+/// Separate from [`MirrorRegistry`] so a Lua handle cannot reach a capture
+/// frame, and so [`crate::frame::FrameDriver`] need not name the portal type.
 pub trait MirrorFrames: fmt::Debug {
     /// Installs the source that opens capture streams.
     ///
-    /// Called once, on the first frame at which LOVR has a graphics device.
-    /// A stream negotiates its DRM formats against that device.
+    /// Called once LÖVR has a graphics device, which streams negotiate their
+    /// DRM formats against.
     fn set_streams(&self, streams: Box<dyn MonitorStreams>);
 
     /// Replaces the roster lunette tracks and reports what changed.
@@ -120,22 +104,17 @@ pub trait MirrorFrames: fmt::Debug {
 
     /// The restore tokens to persist, once a grant has changed them.
     ///
-    /// Cloned because the caller writes a file with it and the lifecycle is
-    /// reachable from Lua in between.
+    /// Cloned because the lifecycle is reachable from Lua while the caller
+    /// writes the file.
     fn take_changed_tokens(&self) -> Option<TokenStore>;
 }
 
 /// The monitors of the machine lunette is running on.
-///
-/// Owns the lifecycle. The frame loop calls [`Self::poll`] once a frame, and
-/// Lua reaches the rest through [`MirrorRegistry`].
 pub struct HostMirrors<P> {
     mirrors: RefCell<MirrorSet<P>>,
     /// Monitors attached since the last [`MirrorRegistry::poll`].
     ///
-    /// Queued, not announced from [`Self::attach`]. An event has to reach Lua
-    /// at a frame boundary, and a monitor may appear at any point between
-    /// two.
+    /// Queued because an event reaches Lua only at a frame boundary.
     appeared: RefCell<Vec<MonitorKey>>,
 }
 
@@ -150,10 +129,8 @@ impl<P: ScreenCastPortal> HostMirrors<P> {
 
     /// Runs `body` against the lifecycle.
     ///
-    /// A closure, not a borrow guard, for the reason
-    /// [`crate::lua::Session::with_textures`] takes one: the lifecycle is
-    /// reachable from inside Lua callbacks, and a guard held across one would
-    /// panic on the re-entry.
+    /// A closure, not a borrow guard, because a guard held across a Lua
+    /// callback would panic on re-entry.
     pub fn with_mirrors<R>(&self, body: impl FnOnce(&mut MirrorSet<P>) -> R) -> R {
         body(&mut self.mirrors.borrow_mut())
     }
@@ -164,10 +141,8 @@ impl<P: ScreenCastPortal> MirrorFrames for HostMirrors<P> {
         self.mirrors.borrow_mut().set_streams(streams);
     }
 
-    /// The monitors that appeared are queued for the next
-    /// [`MirrorRegistry::poll`] to announce, not announced here. An event
-    /// reaches Lua at a frame boundary, and a monitor may appear at any
-    /// point between two.
+    /// Queues new monitors for [`MirrorRegistry::poll`], because an event
+    /// reaches Lua only at a frame boundary.
     fn attach(&self, roster: Roster) -> RosterChange {
         let change = self.mirrors.borrow_mut().attach(roster);
         self.appeared
@@ -254,16 +229,9 @@ impl<P: ScreenCastPortal> MirrorRegistry for HostMirrors<P> {
 
 /// A registry over a machine whose monitors lunette cannot see.
 ///
-/// What the entry point installs when the host's outputs cannot be read or the
-/// screencast portal cannot be reached: no Wayland session, no session bus, a
-/// container without either bound. What a test that is not about monitors
-/// uses. It differs from a machine with no monitors only in the reason, which
-/// the entry point logs where it knows it.
-///
-/// It implements [`MirrorRegistry`] and not [`MirrorFrames`]. A session with
-/// no host desktop has no [`crate::frame::HostDesktop`], so there is nothing
-/// for the frame loop to advance; a no-op implementation here would be a
-/// second way to spell the same absence.
+/// Installed when the host's outputs or the screencast portal cannot be
+/// reached. It does not implement [`MirrorFrames`], because such a session
+/// has no [`crate::frame::HostDesktop`] to advance.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct NoMonitors;
 

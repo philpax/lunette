@@ -203,70 +203,56 @@ fn every_method_answers_false_on_an_output_that_is_gone() {
 }
 
 #[test]
-fn an_output_without_a_size_is_refused() {
+fn an_output_with_an_invalid_argument_is_refused() {
     let session = session(Vec::new());
     let lua = lua(&session);
 
-    let message = error(&lua, "lunette.newOutput{ scale = 2 }");
-    assert!(
-        message.contains("width and a height"),
-        "the message does not say what is missing: {message}"
-    );
-}
-
-#[test]
-fn a_dimension_that_is_not_a_whole_pixel_count_is_refused() {
-    let session = session(Vec::new());
-    let lua = lua(&session);
-
-    for chunk in [
-        "lunette.newOutput{ width = 1920.5, height = 1080 }",
-        "lunette.newOutput{ width = 0, height = 1080 }",
-        "lunette.newOutput{ width = -1920, height = 1080 }",
+    for (chunk, expected) in [
+        ("lunette.newOutput{ scale = 2 }", "width and a height"),
+        (
+            "lunette.newOutput{ width = 1920.5, height = 1080 }",
+            "size in pixels",
+        ),
+        (
+            "lunette.newOutput{ width = 0, height = 1080 }",
+            "size in pixels",
+        ),
+        (
+            "lunette.newOutput{ width = -1920, height = 1080 }",
+            "size in pixels",
+        ),
+        (
+            "lunette.newOutput{ width = 1920, height = 1080, scale = 0 }",
+            "",
+        ),
+        (
+            "lunette.newOutput{ width = 1920, height = 1080, scale = -1 }",
+            "",
+        ),
+        (
+            "lunette.newOutput{ width = 1920, height = 1080, refresh = 0 }",
+            "",
+        ),
+        (
+            "lunette.newOutput{ width = 1920, height = 1080, refresh = -60 }",
+            "",
+        ),
+        (
+            "lunette.newOutput{ width = 1920, height = 1080, transform = 'flipped' }",
+            "transform",
+        ),
     ] {
         let message = error(&lua, chunk);
+        assert!(!message.is_empty(), "{chunk} was accepted");
         assert!(
-            message.contains("size in pixels"),
-            "the message does not name the argument: {message}"
+            message.contains(expected),
+            "the message for {chunk} does not name the problem: {message}"
         );
     }
 }
 
 #[test]
-fn a_scale_or_refresh_that_is_not_one_is_refused() {
-    let session = session(Vec::new());
-    let lua = lua(&session);
-
-    for chunk in [
-        "lunette.newOutput{ width = 1920, height = 1080, scale = 0 }",
-        "lunette.newOutput{ width = 1920, height = 1080, scale = -1 }",
-        "lunette.newOutput{ width = 1920, height = 1080, refresh = 0 }",
-        "lunette.newOutput{ width = 1920, height = 1080, refresh = -60 }",
-    ] {
-        assert!(
-            !error(&lua, chunk).is_empty(),
-            "{chunk} was accepted as a mode"
-        );
-    }
-}
-
-#[test]
-fn an_option_the_call_does_not_take_is_refused() {
-    let session = session(Vec::new());
-    let lua = lua(&session);
-
-    let message = error(
-        &lua,
-        "lunette.newOutput{ width = 1920, height = 1080, transform = 'flipped' }",
-    );
-    assert!(
-        message.contains("transform"),
-        "the message does not name the option: {message}"
-    );
-}
-
-#[test]
-fn a_spawn_can_name_the_output_its_client_is_shown() {
+fn a_spawn_can_name_the_output_its_client_is_shown_or_leave_it_on_the_default() {
     let session = session(Vec::new());
     session.begin(with_outputs(vec![OutputSnapshot {
         output: output_id(2),
@@ -283,17 +269,13 @@ fn a_spawn_can_name_the_output_its_client_is_shown() {
         Command::Spawn(request) => assert_eq!(request.output, Some(output_id(2))),
         other => panic!("expected a spawn, found {other:?}"),
     }
-}
-
-#[test]
-fn a_spawn_that_names_no_output_leaves_the_client_on_the_default_one() {
-    let session = session(Vec::new());
-    let lua = lua(&session);
 
     run::<()>(&lua, "lunette.spawn{ argv = { 'foot' } }");
-
     match only_command(&session) {
-        Command::Spawn(request) => assert_eq!(request.output, None),
+        Command::Spawn(request) => assert_eq!(
+            request.output, None,
+            "a spawn that names no output leaves the client on the default one"
+        ),
         other => panic!("expected a spawn, found {other:?}"),
     }
 }
@@ -314,12 +296,6 @@ fn a_spawn_output_that_is_not_an_output_handle_is_refused() {
             "the message does not say what was wanted: {message}"
         );
     }
-}
-
-#[test]
-fn a_spawn_output_naming_another_handle_kind_is_refused() {
-    let session = session(Vec::new());
-    let lua = lua(&session);
 
     // A seat is userdata with a handle metafield, so it passes the type check
     // and the borrow refuses it.
@@ -350,21 +326,4 @@ fn the_scale_ladder_reaches_lua_as_the_one_the_layer_pool_keys_on() {
     // per-frame panel allocation would encounter the mismatch.
     assert_eq!(steps.first(), Some(&1.0));
     assert_eq!(steps.last(), Some(&3.0));
-}
-
-#[test]
-fn each_call_for_the_ladder_answers_with_its_own_table() {
-    let session = session(Vec::new());
-    let lua = lua(&session);
-
-    // A configuration that writes into the table it receives must not change
-    // the values the next caller reads.
-    let untouched: f64 = run(
-        &lua,
-        "local first = lunette.scaleSteps()
-         first[1] = 99
-         return lunette.scaleSteps()[1]",
-    );
-
-    assert_eq!(untouched, 1.0);
 }

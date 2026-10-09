@@ -5,13 +5,21 @@ local pacing = require '@lunette-plugins/pacing/pacer'
 
 local test = testing.suite()
 
--- A short history with round numbers. A case can count the observations manually.
+-- A short history with round numbers, so a case can count its observations by hand.
 local TUNING = {
   background = 1,
   exempt = 30,
   history = 4,
   busy = 0.5,
   exemptTypes = { none = false, photo = false, video = true, game = true },
+}
+
+local ONE_FRAME = {
+  background = 1,
+  exempt = 30,
+  history = 1,
+  busy = 0.5,
+  exemptTypes = { none = false, photo = false, video = false, game = false },
 }
 
 local function pacer(tuning)
@@ -28,119 +36,71 @@ local function observe(paced, state, count)
   return rate
 end
 
-test('a window in view is unthrottled', function()
-  local rate = pacer():observe { visible = true, contentType = 'none' }
+-- Feeds one observation per character: 'd' draws, 'q' is quiet, and 's' says
+-- nothing about drawing. Returns the last rate.
+local DRAWING = {
+  d = { visible = false, contentType = 'none', drew = true },
+  q = { visible = false, contentType = 'none', drew = false },
+  s = { visible = false, contentType = 'none' },
+}
 
-  expect.equal(rate, nil, 'the rate for a window in view')
-end)
+local function observeFrames(paced, frames)
+  local rate
+  for index = 1, #frames do
+    rate = paced:observe(DRAWING[frames:sub(index, index)])
+  end
+  return rate
+end
 
-test('a quiet window out of view falls to the background rate', function()
+test('visibility and the content hint choose the rate', function()
+  local quiet = { visible = false, contentType = 'none', drew = false }
+  for _, case in ipairs {
+    { name = 'a window in view', state = { visible = true, contentType = 'none' }, count = 1, rate = nil },
+    { name = 'a quiet window out of view', state = quiet, count = 4, rate = 1 },
+    -- A paused video player commits nothing, so the commit record alone would
+    -- read it as idle. The hint exempts it.
+    {
+      name = 'a paused video out of view',
+      state = { visible = false, contentType = 'video', drew = false },
+      count = 4,
+      rate = 30,
+    },
+    {
+      name = 'a game out of view',
+      state = { visible = false, contentType = 'game', drew = false },
+      count = 4,
+      rate = 30,
+    },
+  } do
+    expect.equal(observe(pacer(), case.state, case.count), case.rate, case.name)
+  end
+
   local paced = pacer()
-
-  local rate = observe(paced, { visible = false, contentType = 'none', drew = false }, 4)
-
-  expect.equal(rate, 1, 'the rate for a window nobody is looking at')
+  expect.equal(observe(paced, quiet, 4), 1, 'the rate out of view')
+  expect.equal(paced:observe { visible = true, contentType = 'none', drew = false }, nil, 'the rate back in view')
 end)
 
-test('a window reporting video is exempt even when it commits nothing', function()
-  local paced = pacer()
+test('the commit history makes a window busy', function()
+  -- A commit in four is a quarter, under the half threshold. A terminal with a
+  -- blinking cursor commits at about this rate.
+  for _, case in ipairs {
+    { name = 'a busy window', frames = 'dddd', rate = 30 },
+    { name = 'a window committing under the busy fraction', frames = 'dqqq', rate = 1 },
+    { name = 'the busy fraction is inclusive at its boundary', frames = 'ddqq', rate = 30 },
+    -- Four quiet observations match the history length, so no busy sample
+    -- remains in the ring.
+    { name = 'a window that stops committing, once the history turns over', frames = 'ddddqqqq', rate = 1 },
+    -- Two observations into a history of four. Counting the empty slots as
+    -- quiet would put the commit fraction at a quarter after the first commit
+    -- and at a half after the second.
+    { name = 'a window judged on the samples it has', frames = 'dd', rate = 30 },
+    { name = 'a pacer with no observations at all', frames = 's', rate = 1 },
+  } do
+    expect.equal(observeFrames(pacer(), case.frames), case.rate, case.name)
+  end
 
-  -- A paused video player commits nothing. The commit record alone would
-  -- indicate an idle client; the hint exempts it.
-  local rate = observe(paced, { visible = false, contentType = 'video', drew = false }, 4)
-
-  expect.equal(rate, 30, 'the rate for a paused video out of view')
-end)
-
-test('a window reporting game is exempt on the same footing', function()
-  local paced = pacer()
-
-  local rate = observe(paced, { visible = false, contentType = 'game', drew = false }, 4)
-
-  expect.equal(rate, 30, 'the rate for a game out of view')
-end)
-
-test('a busy window is exempt without reporting anything', function()
-  local paced = pacer()
-
-  -- The case the hint does not cover. Adoption of `wp_content_type_v1` is
-  -- thin, and a client playing video usually reports 'none'.
-  local rate = observe(paced, { visible = false, contentType = 'none', drew = true }, 4)
-
-  expect.equal(rate, 30, 'the rate for a client redrawing every frame')
-end)
-
-test('a window committing under the busy fraction is not exempt', function()
-  local paced = pacer()
-
-  -- One commit in four is a quarter, and the threshold is a half. A terminal
-  -- with a blinking cursor commits at about this rate.
-  paced:observe { visible = false, contentType = 'none', drew = true }
-  local rate = observe(paced, { visible = false, contentType = 'none', drew = false }, 3)
-
-  expect.equal(rate, 1, 'the rate for a client redrawing occasionally')
-end)
-
-test('the busy fraction is inclusive at its boundary', function()
-  local paced = pacer()
-
-  paced:observe { visible = false, contentType = 'none', drew = true }
-  paced:observe { visible = false, contentType = 'none', drew = true }
-  paced:observe { visible = false, contentType = 'none', drew = false }
-  local rate = paced:observe { visible = false, contentType = 'none', drew = false }
-
-  expect.equal(rate, 30, 'the rate at exactly the busy fraction')
-end)
-
-test('a window that stops committing stops being exempt once the history turns over', function()
-  local paced = pacer()
-  expect.equal(observe(paced, { visible = false, contentType = 'none', drew = true }, 4), 30, 'the rate while busy')
-
-  -- Four quiet observations match the history length, and no busy sample
-  -- remains in the ring.
-  local rate = observe(paced, { visible = false, contentType = 'none', drew = false }, 4)
-
-  expect.equal(rate, 1, 'the rate after the busy history aged out')
-end)
-
-test('a window is judged on the samples it has, not the whole history', function()
-  local paced = pacer()
-
-  -- Two observations into a history of four. Counting the empty slots as quiet
-  -- would put the commit fraction at a quarter after the first commit and at a
-  -- half after the second. A starting video player would run at the background
-  -- rate during its first frame.
-  local rate = observe(paced, { visible = false, contentType = 'none', drew = true }, 2)
-
-  expect.equal(rate, 30, 'the rate for a window two frames old')
-end)
-
-test('a pacer with no observations at all is not busy', function()
-  local rate = pacer():observe { visible = false, contentType = 'none' }
-
-  expect.equal(rate, 1, 'the rate for a pacer that has seen nothing')
-end)
-
-test('coming back into view returns the window to unthrottled', function()
-  local paced = pacer()
-  expect.equal(observe(paced, { visible = false, contentType = 'none', drew = false }, 4), 1, 'the rate out of view')
-
-  local rate = paced:observe { visible = true, contentType = 'none', drew = false }
-
-  expect.equal(rate, nil, 'the rate on coming back into view')
-end)
-
-test('a history of one still works', function()
-  local paced = pacer {
-    history = 1,
-    busy = 0.5,
-    background = 1,
-    exempt = 30,
-    exemptTypes = { none = false, photo = false, video = false, game = false },
-  }
-
-  expect.equal(paced:observe { visible = false, drew = true }, 30, 'the rate after one commit')
-  expect.equal(paced:observe { visible = false, drew = false }, 1, 'the rate after one quiet frame')
+  expect.equal(observeFrames(pacing.new(ONE_FRAME), 'd'), 30, 'a history of one, after a commit')
+  expect.equal(observeFrames(pacing.new(ONE_FRAME), 'dq'), 1, 'a history of one, after a quiet frame')
 end)
 
 test('an observation that says nothing about drawing adds no sample', function()

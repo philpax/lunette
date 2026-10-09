@@ -16,7 +16,6 @@ export type Settings = config.Settings
 
 arc.requires = table.freeze { layouts = layouts.capability } :: plugin.Declaration
 
--- The layout resolves call options over the registered tuning, then poses the panels.
 function arc.layout(tuning: Tuning, label: string): ({ read [number]: layouts.Panel }, unknown?) -> ()
   return function(panels: { read [number]: layouts.Panel }, options: unknown?): ()
     local chosen = tuning

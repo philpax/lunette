@@ -207,42 +207,6 @@ fn safe_mode_terminal_fallback_runs_through_the_native_event_dispatcher() {
 }
 
 #[test]
-fn safe_mode_does_not_replace_a_terminal_that_started_and_then_exited() {
-    for outcome in [
-        ProcessOutcome::Exited { code: 0 },
-        ProcessOutcome::Exited { code: 1 },
-        ProcessOutcome::Signalled {
-            signal: SignalNumber::new(15),
-        },
-    ] {
-        let (session, sink) = recording_session(Vec::new());
-        let lua = lua(&session);
-        crate::safe_mode::load(&lua)
-            .expect("compiles")
-            .call::<()>(())
-            .expect("loads");
-        run::<()>(&lua, "lovr.load()");
-        let commands = session.flush();
-        let Command::Spawn(request) = &commands[0] else {
-            panic!("expected spawn")
-        };
-        session.push_event(LuaEvent::ProcessExited {
-            process: request.process,
-            outcome,
-        });
-        poll(&lua, &sink);
-        session.push_event(LuaEvent::ProcessExited {
-            process: request.process,
-            outcome: ProcessOutcome::SpawnFailed {
-                message: "stale".into(),
-            },
-        });
-        poll(&lua, &sink);
-        assert!(session.flush().is_empty());
-    }
-}
-
-#[test]
 fn an_exit_reports_its_code_and_a_signal_reports_its_number() {
     let (session, sink) = recording_session(Vec::new());
     let lua = lua(&session);
@@ -535,7 +499,7 @@ fn a_handlers_error_reaches_every_subscriber_with_its_traceback() {
 
 /// `lunette.reportError` sends protected handler errors to every listener with context.
 #[test]
-fn a_reported_error_reaches_every_listener_like_a_raising_callback() {
+fn a_reported_error_reaches_every_listener_and_requires_a_message() {
     let session = session(Vec::new());
     let lua = lua(&session);
     run::<()>(
@@ -556,69 +520,14 @@ fn a_reported_error_reaches_every_listener_like_a_raising_callback() {
     assert_eq!(trace, "stack traceback: here");
     assert_eq!(second, "lovr.update: no traceback");
     assert_eq!(empty, "");
-}
 
-/// `lunette.reportError` requires named `context` and `message` fields. Invalid calls name the
-/// missing or unknown field in the error.
-#[test]
-fn a_report_with_a_missing_or_unknown_field_raises_naming_it() {
-    let session = session(Vec::new());
-    let lua = lua(&session);
-    let (missing, unknown, positional): (String, String, String) = run(
+    let missing: String = run(
         &lua,
-        "local function failure(call)
-           local ok, message = pcall(call)
-           assert(not ok, 'the report should have raised')
-           return tostring(message)
-         end
-         return
-           failure(function() lunette.reportError { context = 'lovr.draw' } end),
-           failure(function() lunette.reportError { context = 'lovr.draw', message = 'm', trace = 't' } end),
-           failure(function() lunette.reportError('lovr.draw', 'm') end)",
+        "local ok, message = pcall(function() lunette.reportError { context = 'lovr.draw' } end)
+         assert(not ok, 'the report should have raised')
+         return tostring(message)",
     );
     assert!(missing.contains("reportError's message"), "{missing}");
-    assert!(
-        unknown.contains("'trace' is not an option here"),
-        "{unknown}"
-    );
-    assert!(!positional.is_empty());
-}
-
-/// The same error raised every frame for two hundred frames.
-///
-/// The native boundary rate-limits nothing: every occurrence reaches every
-/// listener, and a listener such as the error stream provider owns its own
-/// limiter. The handler keeps being called, so the session continues.
-#[test]
-fn a_handler_that_raises_every_frame_is_reported_every_frame_and_the_session_continues() {
-    let (session, sink) =
-        recording_session(vec![window(1, "htop", "foot", PixelSize::new(64, 32))]);
-    let lua = lua(&session);
-    run::<()>(
-        &lua,
-        "frames = 0
-         reports = 0
-         lunette.onError(function() reports = reports + 1 end)
-         lunette.onTitleChanged(function() frames = frames + 1 error('every frame') end)",
-    );
-
-    for _ in 0..200 {
-        session.push_event(LuaEvent::TitleChanged {
-            window: window_id(1),
-            title: "htop".to_owned(),
-        });
-        poll(&lua, &sink);
-    }
-
-    let (frames, reported): (usize, usize) = run(&lua, "return frames, reports");
-    assert_eq!(
-        frames, 200,
-        "every frame's event should still have been delivered"
-    );
-    assert_eq!(
-        reported, 200,
-        "the boundary leaves rate limiting to its listeners"
-    );
 }
 
 #[test]

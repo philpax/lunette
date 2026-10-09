@@ -1,5 +1,5 @@
--- The keyboard service contract. Key geometry is data here because a configuration writes rows for
--- whichever provider serves it; behaviour, layout, drawing, and layers are the provider's.
+-- The keyboard service contract. Key geometry is data here because a configuration writes rows for whichever
+-- provider serves it.
 
 local plugin = require '@lunette-plugin'
 local theme = require '@lunette-contracts/theme'
@@ -11,10 +11,7 @@ export type Owner = plugin.Owner
 export type Surface = vocabulary.Surface
 export type Pointer = vocabulary.Pointer
 
--- What a key does other than send its keycode. `hide` hides the keyboard;
--- `layer` shows the named layer, where `base` names the rows; `text` types its
--- text; `chord` sends one key with the named modifiers held, as in ctrl+alt+t;
--- `custom` does nothing by default and is for a hook to give meaning to.
+-- The layer `base` names the rows. A `custom` action does nothing unless a hook handles it.
 export type Action =
   { read kind: 'hide' }
   | { read kind: 'layer', read layer: string }
@@ -22,11 +19,8 @@ export type Action =
   | { read kind: 'chord', read code: number, read modifiers: { read [number]: string } }
   | { read kind: 'custom', read name: string }
 
--- One key of a row. A key has an evdev `code`, an `action`, or neither, in
--- which case it is a spacer: it takes up room and is neither drawn nor
--- pressed. `width` and `height` are in key units and default to one. `x` is
--- room left empty before the key, in key units, and defaults to zero. `label`
--- is the legend drawn in place of the one the seat's keymap gives.
+-- A key with neither `code` nor `action` is a spacer. Sizes and the `x` gap are in key units. `label` replaces the
+-- keymap's legend.
 export type Key = {
   read code: number?,
   read action: Action?,
@@ -36,9 +30,8 @@ export type Key = {
   read x: number?,
 }
 
--- A row of keys, laid out left to right. A row advances the next one by the
--- height of its shortest key, so a two-unit key reaches into the row below,
--- which leaves a spacer where it lands; an empty row advances by one unit.
+-- A row advances by its shortest key's height, so a taller key reaches into the row below. An empty row advances by
+-- one unit.
 export type KeyRow = { read [number]: Key }
 
 export type Style = {

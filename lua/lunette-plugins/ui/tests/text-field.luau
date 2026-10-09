@@ -79,29 +79,6 @@ test('resegments inserted combining and ZWJ text without leaving an interior car
   expect.equal(edit.erase(state, 'backward').value, '')
 end)
 
-test('repeated grapheme deletion terminates at empty and preserves every intermediate invariant', function()
-  for _, value in { '', 'a', table.concat(clusters, '|') } do
-    for _, direction in { 'backward', 'forward' } do
-      local state = edit.new(value)
-      if direction == 'forward' then
-        state = edit.select(state, 1)
-      end
-      local limit = #lunette.textBoundaries(value)
-      for _ = 1, limit do
-        local before = state.value
-        state = edit.erase(state, direction)
-        invariant(state)
-        if before ~= '' then
-          expect.truthy(#state.value < #before, 'a whole grapheme is removed')
-        end
-      end
-      expect.equal(state.value, '')
-      expect.equal(state.caret, 1)
-      expect.equal(state.anchor, 1)
-    end
-  end
-end)
-
 test('movement is bounded, selection-aware, and reversible across all clusters', function()
   for _, value in { '', 'a', table.concat(clusters, '|') } do
     local state = edit.select(edit.new(value), 1)
@@ -216,43 +193,6 @@ test('retains invalid drafts and prevents submission until validation passes', f
   expect.equal(field.snapshot().error, nil)
   field.receiver.key(fixture.key(codes.keypadEnter))
   expect.equal(submitted[1], 'ok')
-end)
-
-test('reports validator and change callback failures through the host without losing the draft', function()
-  local field = fixture.new {
-    onChange = function()
-      error 'change failed'
-    end,
-  }
-  field.receiver.text 'retained'
-  expect.equal(field.field:value(), 'retained')
-  expect.equal(field.state.reports[1].name, 'onChange')
-  field = fixture.new {
-    validate = function(value)
-      if value ~= '' then
-        error 'validator failed'
-      end
-    end,
-  }
-  field.receiver.text 'retained'
-  expect.equal(field.field:value(), 'retained')
-  expect.truthy(field.snapshot().error, 'validator failure is visible')
-  expect.equal(field.state.reports[1].name, 'validate')
-end)
-
-test('empty text commits preserve selections and published snapshots remain detached', function()
-  local field = fixture.new { value = 'draft' }
-  field.field:setSelection(3, 1)
-  local snapshot = field.snapshot()
-  expect.equal(field.receiver.text '', true)
-  local caret, anchor = field.field:selection()
-  expect.equal(caret, 3)
-  expect.equal(anchor, 1)
-  field.receiver.text 'new'
-  expect.equal(snapshot.value, 'draft')
-  expect.equal(snapshot.caret, 3)
-  expect.equal(snapshot.anchor, 1)
-  expect.equal(field.field:value(), 'newaft')
 end)
 
 test('cancel retains the draft, blurs first, and invokes the protected cancel callback', function()

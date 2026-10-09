@@ -1,8 +1,6 @@
-//! Linux-only: supplies the two DMA buffers used by WayVR's screencopy backend.
+//! Linux-only: supplies the two DMA buffers WayVR's screencopy backend captures into.
 //!
-//! The capture worker allocates exportable images, but never submits GPU work.
-//! Completion forwards owned descriptors to the main-thread importer. A device
-//! lifetime guard prevents detached upstream workers using a destroyed device.
+//! A device lifetime guard keeps detached upstream workers from using a destroyed device.
 
 use std::{
     os::fd::{AsFd, AsRawFd, FromRawFd, OwnedFd},
@@ -227,7 +225,7 @@ fn allocate(
         Ok((memory, fd, offset, stride))
     })();
     if result.is_err() {
-        // SAFETY: neither object escaped; destroy the image before its bound memory.
+        // SAFETY: neither object escaped, and the image is destroyed before its bound memory.
         unsafe {
             device.raw().destroy_image(image, None);
             device.raw().free_memory(memory, None);

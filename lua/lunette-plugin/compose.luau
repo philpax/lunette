@@ -9,9 +9,8 @@ local compose = {}
 export type Definition = adapter.Definition<any>
 export type Config = { [string]: any }
 
--- Each entry has one definition source. Composition calls a factory to read its schema, and each start calls it once
--- more for the instance, which keeps that definition across provider outages. A factory therefore has no side effects
--- until its definition activates.
+-- Composition calls a factory to read its schema and again on each start, so a factory has no side effects until its
+-- definition activates.
 export type Entry = {
   read id: string,
   read definition: Definition?,
@@ -268,7 +267,7 @@ local function patched(entry: Entry, patch: Keyed): Entry
   return settled(entry.id, definition, factory, config)
 end
 
--- Returns the patched entries in order. It rejects duplicate ids, missing patch targets, and patches that disable and update one entry.
+-- Rejects duplicate ids, missing patch targets, and patches that both disable and update one entry.
 function compose.apply(entries: { Entry }, patches: { Patch }?): { Entry }
   local result: { Entry } = {}
   for index, value in ipairs(checkedList(entries, 'the entry list')) do
@@ -359,7 +358,7 @@ function compose.apply(entries: { Entry }, patches: { Patch }?): { Entry }
   return table.freeze(result)
 end
 
--- The target supplies the configuration type; the entry id supplies the patch target. This never calls a factory.
+-- The target supplies only the configuration type, so a factory is never called.
 function compose.configure<C>(id: string, target: adapter.Definition<C> | () -> adapter.Definition<C>): (C) -> Patch
   if type(id) ~= 'string' or id == '' then
     error('compose: configure: id is a non-empty string, not ' .. tostring(id), 2)
@@ -380,7 +379,7 @@ end
 local empty: Config = {}
 local EMPTY = table.freeze(empty)
 
--- Answers a checked entry's definition, calling its factory, and its configuration. It initializes and validates nothing.
+-- Calls the entry's factory but initializes and validates nothing.
 function compose.resolveEntry(entry: Entry): ResolvedEntry
   return table.freeze { definition = sourced(entry.id, entry.definition, entry.factory), config = entry.config or EMPTY }
 end

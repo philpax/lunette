@@ -21,29 +21,29 @@ pub enum AttachmentError {
     /// Shutdown could not advance the contract epoch.
     EpochExhausted,
     /// A definition belongs to a retired epoch.
-    StaleDefinition { plugin: Arc<str> },
+    StaleDefinition {
+        plugin: Arc<str>,
+    },
     /// A plugin context cannot perform an operation.
     Context {
         operation: ContextOperation,
         reason: ContextReason,
     },
-    /// The lifecycle graph rejected a request.
     Graph {
         operation: &'static str,
         source: GraphError,
     },
-    /// The contract registry rejected a declaration or binding.
     Contract(ContractError),
-    /// A Lua value could not be created or read.
     Lua {
         operation: &'static str,
         source: mlua::Error,
     },
     /// A plugin failure propagated to the current operation.
     Plugin(PluginFailure),
-    /// A drain performed its action budget and stopped. The remaining work is
-    /// derived from graph state, so the next drain resumes it.
-    DrainBudget { budget: usize },
+    /// A drain spent its action budget. The next drain resumes from graph state.
+    DrainBudget {
+        budget: usize,
+    },
 }
 
 impl fmt::Display for AttachmentError {
@@ -128,9 +128,7 @@ impl fmt::Display for ContextOperation {
 /// Why a context cannot perform an operation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ContextReason {
-    /// The runtime no longer exists.
     RuntimeGone,
-    /// The instance no longer belongs to its runtime.
     InstanceGone,
     /// The context's activation has ended or been replaced.
     Stale,
@@ -138,13 +136,9 @@ pub enum ContextReason {
     CleanupOnly,
     /// Cancellation prevents the activation from publishing or acquiring resources.
     Cancelled,
-    /// A bound provider is no longer published at the bound generation.
     ProviderStale,
-    /// A declared field has no matching contract binding.
     FieldMissing,
-    /// The caller belongs to another runtime.
     ForeignRuntime,
-    /// The caller is not loading or active.
     CallerInactive,
     /// The caller does not depend on this provider's current generation.
     NotOwner,
@@ -210,16 +204,13 @@ impl fmt::Display for PluginLabel {
 /// What failed.
 #[derive(Clone, Debug)]
 pub enum FailureCause {
-    /// A plugin callback raised, or Lua could not create a value to call it
-    /// with.
+    /// A plugin callback raised, or Lua could not create its arguments.
     Callback(mlua::Error),
-    /// The initializer returned a malformed provided record.
     Provision(ProvisionError),
     /// The definition's callbacks belong to a retired epoch.
     InitializerCleared,
     /// The attachment's own record for the instance is missing.
     MissingRecord,
-    /// The graph cannot load the instance, as described.
     Blocked(String),
 }
 
@@ -283,13 +274,9 @@ impl Error for PluginFailure {
 /// An initializer returned a provided record that does not match its declaration.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ProvisionError {
-    /// The initializer returned something other than a table.
     NotATable,
-    /// A key of the record is not a string.
     KeyNotString,
-    /// A field of the record is not declared.
     UnexpectedField(String),
-    /// A declared field is absent.
     MissingField(String),
     /// The record could not be read.
     Unreadable(String),

@@ -71,38 +71,44 @@ test('opt-in window layers skip scene content only while their claim is granted'
   selected:dispose()
 end)
 
-test('monitor and translucent window planes use colour shaders and restore inherited state', function()
-  local native, session, observer, window, shaders = fixture { style = { windowRadius = 0.1, monitorRadius = 0.1 } }
-  local monitor = native.newMonitor 'display-1'
-  monitor.getTexture = window.getTexture
-  local translucent = observer.service:fromWindow(observer.context, window)
-  local mirror = observer.service:fromMonitor(observer.context, monitor)
-  local pass, recorder = native.events.pass, native.events.render
-  pass:setShader 'caller shader'
-  pass:setMaterial 'caller material'
-  pass:setBlendMode('add', 'premultiplied')
-  pass:setColor(0.2, 0.4, 0.6, 0.8)
-  local caller = recorder:checkpoint()
-  translucent:draw(pass)
-  mirror:draw(pass)
-  expect.equal(#shaders, 2, 'opaque and premultiplied colour conversions')
-  local emitted = {}
-  for _, call in native.events.draw do
-    if call[1] == 'draw' then
-      local shader = call.state.setShader[1]
-      expect.truthy(shader and shader.fragment:find('gammaToLinear', 1, true), 'encoded pixels are decoded')
-      expect.equal(call.state.setBlendMode[1], 'alpha')
-      expect.equal(call.state.setBlendMode[2], 'premultiplied')
-      emitted[#emitted + 1] = shader
+test(
+  'monitor and translucent window planes use colour shaders made once per activation and restore inherited state',
+  function()
+    local native, session, observer, window, shaders = fixture { style = { windowRadius = 0.1, monitorRadius = 0.1 } }
+    local monitor = native.newMonitor 'display-1'
+    monitor.getTexture = window.getTexture
+    local translucent = observer.service:fromWindow(observer.context, window)
+    local mirror = observer.service:fromMonitor(observer.context, monitor)
+    local pass, recorder = native.events.pass, native.events.render
+    pass:setShader 'caller shader'
+    pass:setMaterial 'caller material'
+    pass:setBlendMode('add', 'premultiplied')
+    pass:setColor(0.2, 0.4, 0.6, 0.8)
+    local caller = recorder:checkpoint()
+    translucent:draw(pass)
+    mirror:draw(pass)
+    expect.equal(#shaders, 2, 'opaque and premultiplied colour conversions')
+    local emitted = {}
+    for _, call in native.events.draw do
+      if call[1] == 'draw' then
+        local shader = call.state.setShader[1]
+        expect.truthy(shader and shader.fragment:find('gammaToLinear', 1, true), 'encoded pixels are decoded')
+        expect.equal(call.state.setBlendMode[1], 'alpha')
+        expect.equal(call.state.setBlendMode[2], 'premultiplied')
+        emitted[#emitted + 1] = shader
+      end
+    end
+    expect.equal(#emitted, 2)
+    expect.truthy(emitted[1] ~= emitted[2], 'monitor padding alpha is forced opaque')
+    recorder:assertRestored(caller)
+    translucent:draw(pass)
+    mirror:draw(pass)
+    expect.equal(#shaders, 2, 'the shaders after a second draw')
+    session:close()
+    for _, shader in shaders do
+      expect.truthy(shader.released)
     end
   end
-  expect.equal(#emitted, 2)
-  expect.truthy(emitted[1] ~= emitted[2], 'monitor padding alpha is forced opaque')
-  recorder:assertRestored(caller)
-  session:close()
-  for _, shader in shaders do
-    expect.truthy(shader.released)
-  end
-end)
+)
 
 return test

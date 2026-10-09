@@ -24,8 +24,7 @@ local controllers: { [string]: Device } = {
   right = 'hand/right',
 }
 
--- Reads one frame of a hand from the headset, or nothing while the hand is
--- not tracked. Each mapping whose control is down holds its pointer button.
+-- Reads one frame of a hand, or nothing while the hand is not tracked.
 function input.fromHeadset(hand: Hand, headset: HeadsetModule, mappings: { read [number]: Mapping }): Input?
   local device = devices[hand]
   if not headset.isTracked(device) then

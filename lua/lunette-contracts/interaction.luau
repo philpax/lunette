@@ -1,8 +1,5 @@
--- The interaction service contract: owner-scoped pointers that press, scroll, grab, and carry surfaces.
---
--- A provider must emit a drop through lunette/drops whenever a grab ends and give focus through
--- lunette/focus; pose memory and the arrangement save hear drops only there, so a replacement that does not
--- emit them loses both silently.
+-- Owner-scoped pointers. A provider emits a drop through lunette/drops when a grab ends, because pose memory and the
+-- arrangement save hear drops only there.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
@@ -33,7 +30,7 @@ export type ButtonState = vocabulary.ButtonState
 export type Push = vocabulary.Push
 export type Haptic = vocabulary.Haptic
 
--- What newPointer takes. `vibrate` is what Pointer:vibrate calls; a pointer made without one answers false.
+-- Pointer:vibrate answers false for a pointer made without `vibrate`.
 export type PointerOptions = {
   read seat: lunette.Seat?,
   read tuning: TuningOverride?,

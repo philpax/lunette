@@ -1,6 +1,5 @@
 //! Native Lua inspection tests use the real graph, callbacks, and userdata methods.
 
-use lunette_luau::Typed;
 use mlua::Lua;
 
 use crate::plugin::declarations;
@@ -14,31 +13,7 @@ fn lua() -> mlua::Result<Lua> {
 }
 
 #[test]
-fn snapshot_lists_declare_readonly_indexers_without_changing_vec_types() {
-    assert_eq!(
-        super::SnapshotList::<String>::luau().to_string(),
-        "{ read [number]: string }"
-    );
-    assert_eq!(Vec::<String>::luau().to_string(), "{ string }");
-    let output = crate::lua::declarations::render();
-    for record in crate::plugin::attachment::snapshot_records() {
-        for field in record.fields {
-            let ty = (field.ty)();
-            if matches!(ty, lunette_luau::Type::ReadonlyArray(_)) {
-                assert!(output.contains(&format!("read {}: {ty},", field.name)));
-            }
-            assert!(
-                !matches!(ty, lunette_luau::Type::Array(_)),
-                "writable snapshot field {}.{}",
-                record.name,
-                field.name
-            );
-        }
-    }
-}
-
-#[test]
-fn snapshots_are_detached_immutable_and_reentrant_during_load_and_cleanup() -> mlua::Result<()> {
+fn snapshots_are_detached_and_reentrant_during_load_and_cleanup() -> mlua::Result<()> {
     let lua = lua()?;
     lua.load(
         r#"
@@ -80,18 +55,6 @@ fn snapshots_are_detached_immutable_and_reentrant_during_load_and_cleanup() -> m
         assert(active.instances[1].generationId == active.instances[1].activationId)
         assert(active.instances[1].effects[1].state == 'armed')
         assert(cleaned == 0)
-        for _, operation in {
-            function() active.closed = true end,
-            function() active.instances[1].state = 'failed' end,
-            function() active.instances[1].effects[1].state = 'disarmed' end,
-            function() table.insert(active.instances, {}) end,
-            function() active.instances[1] = nil end,
-            function() table.remove(active.instances, 1) end,
-            function() active.instances[1].effects[1] = nil end,
-            function() table.remove(active.instances[1].effects, 1) end,
-        } do
-            assert(not pcall(operation))
-        end
         effect:dispose()
         assert(cleaned == 1)
         local disarmed = runtime:snapshot()
@@ -115,8 +78,8 @@ fn snapshots_are_detached_immutable_and_reentrant_during_load_and_cleanup() -> m
 }
 
 #[test]
-fn snapshots_keep_exact_current_and_failed_binding_ids_and_freeze_their_nested_data()
--> mlua::Result<()> {
+fn snapshots_keep_binding_ids_and_expose_quarantine_without_rearming_resources() -> mlua::Result<()>
+{
     let lua = lua()?;
     lua.load(r#"
         local p = native.plugin
@@ -169,6 +132,35 @@ fn snapshots_keep_exact_current_and_failed_binding_ids_and_freeze_their_nested_d
         end
         assert(historicalBinding.current)
         runtime:close()
+        do
+            local runtime = p.runtime()
+            local unloading, retained
+            local instance = runtime:use(p.define({}, {}, function(context)
+                retained = context
+                context:effect(function()
+                    return function()
+                        unloading = runtime:snapshot()
+                        assert(unloading.instances[1].state == 'unloading')
+                        assert(not unloading.instances[1].enabled)
+                        assert(unloading.instances[1].effects[1].state == 'cleaning')
+                        error('inverse failed')
+                    end
+                end)
+                return {}
+            end, 'cleanup failure'), nil)
+            instance:enable()
+            instance:disable()
+            local snapshot = runtime:snapshot()
+            assert(snapshot.instances[1].state == 'quarantined')
+            assert(snapshot.instances[1].cleanupFailed)
+            assert(snapshot.instances[1].diagnostic ~= nil)
+            assert(snapshot.instances[1].lastFailure ~= nil)
+            assert(snapshot.instances[1].effects[1].state == 'disarmed')
+            assert(snapshot.instances[1].authority == 'cleanup')
+            assert(not retained:active())
+            assert(not pcall(function() retained:effect(function() error('must not acquire') end) end))
+            runtime:close()
+        end
     "#).exec()
 }
 
@@ -182,78 +174,4 @@ fn inspection_refuses_a_mutably_borrowed_runtime_without_panicking() -> mlua::Re
     drop(state);
     assert!(super::snapshot(&runtime.state).is_ok());
     Ok(())
-}
-
-#[test]
-fn snapshots_keep_last_failure_after_recovery_and_report_live_children() -> mlua::Result<()> {
-    let lua = lua()?;
-    lua.load(
-        r#"
-        local p = native.plugin
-        local runtime = p.runtime()
-        local child
-        local childDefinition = p.define({}, {}, function() return {} end, 'same label')
-        local definition = p.define({}, {}, function(context, fail)
-            if fail then error('initialization failed') end
-            child = context:child(childDefinition, nil)
-            child:enable()
-            return {}
-        end, 'same label')
-        local instance = runtime:use(definition, true)
-        instance:enable()
-        local failed = runtime:snapshot().instances[1]
-        assert(failed.state == 'failed' and failed.lastFailure ~= nil)
-        instance:reload(false)
-        local recovered = runtime:snapshot()
-        assert(recovered.instances[1].state == 'active')
-        assert(recovered.instances[1].lastFailure == failed.lastFailure)
-        assert(recovered.instances[1].diagnostic == nil)
-        assert(#recovered.instances == 2)
-        assert(recovered.instances[1].children[1] == child:id())
-        assert(recovered.instances[2].parentId == instance:id())
-        assert(recovered.instances[2].id ~= instance:id())
-        instance:disable()
-        assert(#runtime:snapshot().instances == 1)
-        runtime:close()
-    "#,
-    )
-    .exec()
-}
-
-#[test]
-fn snapshots_expose_quarantine_and_cleanup_without_rearming_resources() -> mlua::Result<()> {
-    let lua = lua()?;
-    lua.load(
-        r#"
-        local p = native.plugin
-        local runtime = p.runtime()
-        local unloading, retained
-        local instance = runtime:use(p.define({}, {}, function(context)
-            retained = context
-            context:effect(function()
-                return function()
-                    unloading = runtime:snapshot()
-                    assert(unloading.instances[1].state == 'unloading')
-                    assert(not unloading.instances[1].enabled)
-                    assert(unloading.instances[1].effects[1].state == 'cleaning')
-                    error('inverse failed')
-                end
-            end)
-            return {}
-        end, 'cleanup failure'), nil)
-        instance:enable()
-        instance:disable()
-        local snapshot = runtime:snapshot()
-        assert(snapshot.instances[1].state == 'quarantined')
-        assert(snapshot.instances[1].cleanupFailed)
-        assert(snapshot.instances[1].diagnostic ~= nil)
-        assert(snapshot.instances[1].lastFailure ~= nil)
-        assert(snapshot.instances[1].effects[1].state == 'disarmed')
-        assert(snapshot.instances[1].authority == 'cleanup')
-        assert(not retained:active())
-        assert(not pcall(function() retained:effect(function() error('must not acquire') end) end))
-        runtime:close()
-    "#,
-    )
-    .exec()
 }

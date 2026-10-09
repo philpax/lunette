@@ -47,8 +47,7 @@ impl Aliased for KeyName {
     };
 }
 
-/// `lunette.modifierNames()`: every modifier a seat accepts, from
-/// [`KeyModifier`] in the keymap's own modifier order.
+/// Every modifier a seat accepts, in the keymap's modifier order.
 pub fn modifier_names() -> Vec<String> {
     KeyModifier::NAMES
         .iter()
@@ -56,8 +55,7 @@ pub fn modifier_names() -> Vec<String> {
         .collect()
 }
 
-/// A keymap reports locked modifiers separately from depressed modifiers. Each locked modifier
-/// toggles on a press.
+/// The modifiers a press toggles, which a keymap reports apart from depressed ones.
 pub fn locking_modifier_names() -> Vec<String> {
     KeyModifier::ALL
         .iter()
@@ -77,8 +75,7 @@ static KEY_NAMES: [&str; VirtualKey::ALL.len()] = {
     names
 };
 
-/// Lua key names use explicit camelCase strings. Renaming a Rust variant does not change the Lua
-/// API.
+/// Names are explicit, so renaming a Rust variant does not change the Lua API.
 const fn key_name(key: VirtualKey) -> &'static str {
     match key {
         VirtualKey::Escape => "escape",

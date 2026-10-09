@@ -96,7 +96,6 @@ function layout.keyAt(keys: { RenderedKey }, x: number, y: number): RenderedKey?
   return nil
 end
 
--- Uses an explicit label first, then the seat keymap, then the action name.
 function layout.legendFor(entry: Key, seat: lunette.Seat?, modifiers: { read [number]: string }): string
   if entry.label then
     return entry.label

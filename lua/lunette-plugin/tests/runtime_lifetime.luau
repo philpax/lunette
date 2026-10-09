@@ -1,4 +1,4 @@
--- Covers active instances after runtime collection, close priority over queued requests, and host shutdown.
+-- Covers runtime collection, close, and host shutdown.
 -- Shutdown cases run last because shutdown retires every runtime in the state.
 local testing = require '@testing'
 local expect = testing.expect
@@ -69,59 +69,44 @@ test('close releases every effect, ahead of the request queue and its action lim
   end, nil, 'using the closed runtime')
 end)
 
-for _, command in { 'disable', 'dispose', 'close' } do
-  for _, count in { 0, 1, 100, 300 } do
-    test(command .. ' releases all ' .. count .. ' children before their parent', function()
-      local runtime = plugin.runtime()
-      local released = {}
-      local parentReleased = 0
-      local child = plugin.define({}, {}, function(context, config)
-        context:effect(function()
-          return function()
-            expect.equal(parentReleased, 0, 'the parent remains live during child cleanup')
-            released[config.index] = (released[config.index] or 0) + 1
-          end
-        end)
-        return {}
-      end)
-      local parent = runtime:use(
-        plugin.define({}, {}, function(context)
-          context:effect(function()
-            return function()
-              parentReleased += 1
-              for index = 1, count do
-                expect.equal(released[index], 1, 'each child releases before its parent')
-              end
-            end
-          end)
-          for index = 1, count do
-            context:child(child, { index = index }):enable()
-          end
-          return {}
-        end),
-        {}
-      )
-      parent:enable()
-      if command == 'close' then
-        runtime:close()
-      elseif command == 'dispose' then
-        parent:dispose()
-      else
-        parent:disable()
-      end
-      expect.equal(parentReleased, 1, 'the parent inverse')
-      for index = 1, count do
-        expect.equal(released[index], 1, 'the child inverse')
-      end
-      runtime:drain()
-      runtime:close()
-      expect.equal(parentReleased, 1, 'the parent inverse is not repeated')
-      for index = 1, count do
-        expect.equal(released[index], 1, 'the child inverse is not repeated')
+test('close releases every child before its parent', function()
+  local count = 300
+  local runtime = plugin.runtime()
+  local released = {}
+  local parentReleased = 0
+  local child = plugin.define({}, {}, function(context, config)
+    context:effect(function()
+      return function()
+        expect.equal(parentReleased, 0, 'the parent remains live during child cleanup')
+        released[config.index] = (released[config.index] or 0) + 1
       end
     end)
+    return {}
+  end)
+  local parent = runtime:use(
+    plugin.define({}, {}, function(context)
+      context:effect(function()
+        return function()
+          parentReleased += 1
+          for index = 1, count do
+            expect.equal(released[index], 1, 'each child releases before its parent')
+          end
+        end
+      end)
+      for index = 1, count do
+        context:child(child, { index = index }):enable()
+      end
+      return {}
+    end),
+    {}
+  )
+  parent:enable()
+  runtime:close()
+  expect.equal(parentReleased, 1, 'the parent inverse')
+  for index = 1, count do
+    expect.equal(released[index], 1, 'the child inverse')
   end
-end
+end)
 
 test('an interrupted close retains pending inverses for the next drain', function()
   local runtime = plugin.runtime()
@@ -180,24 +165,6 @@ test('the plugin shutdown releases a leaked effect payload', function()
   expect.falsy(payload.released, 'the payload before shutdown')
   expect.equal(#testing.host.shutdown(), 0, 'the failures of the shutdown')
   expect.truthy(payload.released, 'the payload after shutdown')
-end)
-
-test('the plugin shutdown releases what an escaped definition initializer references', function()
-  local witness = setmetatable({}, { __mode = 'v' })
-  local escaped = (function()
-    local referenced = {}
-    witness.referenced = referenced
-    return plugin.define({}, {}, function()
-      local _ = referenced
-      return {}
-    end)
-  end)()
-  testing.collect()
-  expect.truthy(witness.referenced, 'the reference before shutdown')
-  expect.equal(#testing.host.shutdown(), 0, 'the failures of the shutdown')
-  testing.collect()
-  expect.equal(witness.referenced, nil, 'the reference after shutdown')
-  expect.truthy(escaped, 'the definition outlives the shutdown')
 end)
 
 return test

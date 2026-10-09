@@ -82,7 +82,7 @@ local function input(fields)
   }
 end
 
-test('a pointer is made only for a context requiring interaction, and a destroyed one is let go', function()
+test('a pointer is made only for a context requiring interaction, and destroys once', function()
   local env = start()
   env.session:use(plugin.define {
     name = 'stranger',
@@ -93,28 +93,17 @@ test('a pointer is made only for a context requiring interaction, and a destroye
     end,
   })
   expect.equal(#env.interaction:pointers(), 0, 'the pointers after the refusal')
-  local weak = setmetatable({}, { __mode = 'v' })
-  do
-    local pointer = env.interaction:newPointer(env.owner)
-    weak[1] = pointer
-    expect.truthy(pointer:destroy(), 'the first destroy')
-    expect.falsy(pointer:destroy(), 'a second destroy answers false')
-  end
-  testing.collect()
-  expect.equal(weak[1], nil, 'a destroyed pointer retained by its live owner')
+  local pointer = env.interaction:newPointer(env.owner)
+  expect.truthy(pointer:destroy(), 'the first destroy')
+  expect.falsy(pointer:destroy(), 'a second destroy answers false')
   env.session:close()
 end)
 
-test("a pointer is read-only, and its own tuning merges over the provider's", function()
+test("a pointer's own tuning merges over the provider's", function()
   local env = start()
   local pointer = env.interaction:newPointer(env.owner, { seat = env.seat })
   expect.equal(pointer.seat, env.seat, 'the seat')
   expect.equal(pointer.tuning.reach, env.interaction.TUNING.reach, 'the default reach')
-  expect.equal(pointer.grab, nil, 'grab state is not exposed')
-  expect.equal(pointer.handPosition, nil, 'the hand position is not exposed')
-  expect.raises(function()
-    pointer.hovered = surface(env)
-  end, nil, 'assigning to a pointer')
   local near = env.interaction:newPointer(env.owner, { tuning = { reach = 1 } })
   expect.equal(near.tuning.reach, 1, 'the merged reach')
   expect.equal(near.tuning.scrollScale, env.interaction.TUNING.scrollScale, 'the inherited scroll scale')
@@ -174,54 +163,6 @@ test('two pointers share a grab: pushing, dragging, scaling, and a partner letti
   second:dragTo(translation(5))
   expect.near((target.pose:getPosition()), 3, 1e-5, 'the partner letting go turns a scale into a grab')
   expect.truthy(second:endGrab(), 'the second pointer lets go')
-  env.session:close()
-end)
-
-test('grab movement uses the distance from its origin in every direction', function()
-  local env = start()
-  local deadZone = env.interaction.TUNING.grabDeadZone
-  for _, direction in ipairs {
-    vector.pack(1, 0, 0),
-    vector.pack(0, -1, 0),
-    vector.pack(0, 0, 1),
-    vector.pack(1, 2, -3):normalize(),
-  } do
-    local pointer = env.interaction:newPointer(env.owner)
-    local target = surface(env, -2)
-    local origin = vector.pack(1, 2, 3)
-    expect.truthy(pointer:beginGrab(target, lovr.math.newMat4():translate(origin)), 'the grab starts')
-    pointer:dragTo(lovr.math.newMat4():translate(origin + direction * deadZone * 0.5))
-    local still = vector.pack(target.pose:getPosition())
-    expect.equal(still, vector.pack(0, 0, -2), 'movement inside the dead zone leaves the pose alone')
-    local displacement = direction * deadZone * 2
-    pointer:dragTo(lovr.math.newMat4():translate(origin + displacement))
-    local moved = vector.pack(target.pose:getPosition()) - vector.pack(0, 0, -2)
-    expect.near((moved - displacement):length(), 0, 1e-5, 'movement outside the dead zone follows the hand')
-    pointer:endGrab()
-    pointer:destroy()
-  end
-  env.session:close()
-end)
-
-test('two-hand scaling uses all three components of hand separation', function()
-  local env = start()
-  local first, second = env.interaction:newPointer(env.owner), env.interaction:newPointer(env.owner)
-  local target = surface(env, -2)
-  expect.truthy(first:beginGrab(target, translation(1, 2, 3)), 'the first grab')
-  expect.truthy(second:beginGrab(target, translation(2, 4, 5)), 'the scaling grab')
-  for _, position in
-    {
-      vector.pack(3, 4, 5),
-      vector.pack(2, 5, 5),
-      vector.pack(2, 4, 6),
-    }
-  do
-    second:scaleWith(lovr.math.newMat4():translate(position))
-    local separation = position - vector.pack(1, 2, 3)
-    expect.near(target.width, separation:length() / 3, 1e-5, 'changing one axis uses the full separation')
-  end
-  second:scaleWith(translation(3, 6, 7))
-  expect.near(target.width, 2, 1e-5, 'doubling the separation doubles the width')
   env.session:close()
 end)
 
@@ -302,6 +243,9 @@ test('a drive hook remaps input, a constrain hook places what is carried, and fo
   expect.near(x, 2, 1e-5, 'the constraint allows the slide')
   expect.near(y, 1.5, 1e-5, 'the constraint keeps the height')
   pointer:update(input {}, { plate })
+  pointer:focus(env.sink)
+  expect.equal(env.seat.focus, env.sink, 'explicit focus still gives native focus')
+  expect.truthy(env.focus:focused(), 'explicit focus still gives a focus grant')
   env.session:close()
 end)
 

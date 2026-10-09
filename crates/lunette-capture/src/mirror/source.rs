@@ -1,9 +1,6 @@
 //! Linux-only: opens PipeWire streams for nodes granted by the portal.
 //!
-//! [`CaptureStream`] owns the PipeWire thread for each stream. The source stays
-//! behind a trait so lifecycle tests can use
-//! [`crate::mirror::fake::RecordingSource`] without PipeWire, a portal, or a
-//! display.
+//! The source sits behind a trait so lifecycle tests run without PipeWire, a portal, or a display.
 
 use tracing::debug;
 
@@ -14,9 +11,7 @@ use crate::{
 
 /// A monitor's captured frames and lifecycle controls.
 ///
-/// PipeWire stops and joins on drop, and deactivates on pause. Direct screencopy
-/// delegates these operations to the pinned backend: its pause is a no-op and
-/// dropping it does not cancel or join an in-flight request worker.
+/// Direct screencopy delegates these operations to the pinned backend, whose pause is a no-op and whose drop does not join an in-flight request worker.
 pub trait MonitorStream {
     /// Returns the newest frame since the previous call and discards older frames.
     fn latest(&mut self) -> Option<CapturedFrame>;
@@ -51,8 +46,7 @@ impl MonitorStream for CaptureStream {
 
 /// Opens monitor streams for nodes granted by the portal.
 ///
-/// The lifecycle stores implementations as `Box<dyn MonitorStreams>`, so this
-/// trait must remain object-safe.
+/// The lifecycle stores implementations as `Box<dyn MonitorStreams>`, so this trait must remain object-safe.
 pub trait MonitorStreams {
     /// Tries direct host capture before requesting a portal session.
     fn open_direct(&mut self, _monitor: &crate::monitor::Monitor) -> DirectOpen {
@@ -61,12 +55,7 @@ pub trait MonitorStreams {
 
     /// Opens `node` and begins delivering frames, using `name` for logging.
     ///
-    /// Returns `None` when the source is not ready. The lifecycle retains the
-    /// monitor as wanted and retries from [`MirrorSet::poll`].
-    ///
-    /// A PipeWire stream negotiates against the DRM formats accepted by the
-    /// importer. The entry point supplies those formats after device initialization,
-    /// so opening is deferred until then.
+    /// Returns `None` when the source is not ready, and the lifecycle retries from [`MirrorSet::poll`]. Opening waits for the importer's DRM formats, which arrive after device initialization.
     ///
     /// [`MirrorSet::poll`]: crate::mirror::MirrorSet::poll
     fn open(&mut self, name: &str, node: NodeId) -> Option<Box<dyn MonitorStream>>;
@@ -83,11 +72,8 @@ pub enum DirectOpen {
 
 /// A source that is not ready to open streams.
 ///
-/// [`MirrorSet`] uses this source until the entry point installs a
-/// [`PipewireStreams`] through [`MirrorSet::set_streams`]. Monitors requested
-/// before then remain wanted and open on a later poll after device initialization.
+/// Monitors requested before [`MirrorSet::set_streams`] installs a [`PipewireStreams`] remain wanted and open on a later poll.
 ///
-/// [`MirrorSet`]: crate::mirror::MirrorSet
 /// [`MirrorSet::set_streams`]: crate::mirror::MirrorSet::set_streams
 #[derive(Clone, Copy, Debug, Default)]
 pub struct NoStreams;
@@ -109,9 +95,7 @@ impl MonitorStreams for NoStreams {
 
 /// The production source, with one PipeWire stream per granted node.
 ///
-/// Stores the DRM formats accepted by the importer. The entry point obtains
-/// them from the graphics device because this crate does not depend on a graphics
-/// API.
+/// Stores the importer's DRM formats, which the entry point supplies because this crate does not depend on a graphics API.
 #[derive(Clone, Debug)]
 pub struct PipewireStreams {
     formats: Vec<DrmFormat>,

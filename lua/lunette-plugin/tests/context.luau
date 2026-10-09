@@ -1,5 +1,4 @@
--- Covers what a context registers on its activation's lifetime: subscriptions through `on`, and resources a
--- provider acquires for an owner through `acquire`, which `owns` and `checkOwner` decide.
+-- Covers subscriptions and owner-scoped resources that end with a context's activation.
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
@@ -63,31 +62,7 @@ test('a subscription ends with its activation, and a handler kept past it delive
   runtime:close()
 end)
 
-test('a subscription source that answers no cancel function fails the load', function()
-  local runtime = plugin.runtime()
-  local failing = runtime:use(
-    plugin.define {
-      name = 'failing',
-      init = function(context)
-        context:on {
-          event = function()
-            return 'not a cancel function'
-          end,
-          run = function() end,
-        }
-      end,
-    },
-    {}
-  )
-  failing:enable()
-  expect.equal(failing:state(), 'failed', 'the instance')
-  local reports = testing.takeReports()
-  expect.equal(#reports, 1, 'the reports')
-  expect.truthy(reports[1]:find('answers the function that cancels it', 1, true), reports[1])
-  runtime:close()
-end)
-
-test('a malformed subscription raises at the call', function()
+test('a malformed subscription raises at the call, and a source answering no cancel function fails the load', function()
   local events = source()
   local runtime = plugin.runtime()
   local checked = runtime:use(
@@ -103,6 +78,25 @@ test('a malformed subscription raises at the call', function()
   )
   checked:enable()
   expect.equal(checked:state(), 'active', 'the instance')
+  local failing = runtime:use(
+    plugin.define {
+      name = 'failing',
+      init = function(context)
+        context:on {
+          event = function()
+            return 'not a cancel function'
+          end,
+          run = function() end,
+        }
+      end,
+    },
+    {}
+  )
+  failing:enable()
+  expect.equal(failing:state(), 'failed', 'the instance without a cancel function')
+  local reports = testing.takeReports()
+  expect.equal(#reports, 1, 'the reports')
+  expect.truthy(reports[1]:find('answers the function that cancels it', 1, true), reports[1])
   runtime:close()
 end)
 

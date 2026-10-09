@@ -1,10 +1,6 @@
-//! Linux-only: the command line, and the one operation that does not start a
-//! session.
+//! Linux-only: the command line, and the one operation that does not start a session.
 //!
-//! Parsing happens here, not in `main`, so the arguments handed to LÖVR are
-//! what remains after lunette removes its own. `boot` builds Lua's `arg`
-//! table from them. A flag meant for lunette left in the arguments reaches a
-//! configuration not written to handle it.
+//! Lunette removes its own flags here, so the configuration's `arg` holds only what it forwards.
 
 use std::{
     ffi::OsString,
@@ -32,10 +28,8 @@ pub struct Cli {
     /// one.
     ///
     /// The search path is `$XDG_CONFIG_HOME/lunette`, then
-    /// `$HOME/.config/lunette`, then the system directory. Naming a directory
-    /// here points a session at a configuration without setting
-    /// `$XDG_CONFIG_HOME`; everything lunette spawns would otherwise inherit
-    /// it and look for its own configuration under it.
+    /// `$HOME/.config/lunette`, then the system directory. This avoids setting
+    /// `$XDG_CONFIG_HOME`, which every spawned client would inherit.
     #[arg(long, value_name = "DIR")]
     pub config_path: Option<PathBuf>,
 
@@ -54,10 +48,9 @@ pub struct Cli {
 pub enum Command {
     /// Typecheck a configuration and the standard library it uses.
     Check {
-        /// The files or directories to check. A directory is checked file
-        /// by file: every `.luau` file below it, passing over
-        /// names that begin with `.`. Each `@` alias resolves through the
-        /// `.luaurc` beside the file.
+        /// The files or directories to check. A directory checks every `.luau`
+        /// file below it, skipping names that begin with `.`. Each `@` alias
+        /// resolves through the `.luaurc` beside the file.
         ///
         /// Without any, the configuration directory a session would load:
         /// `--config-path`, then `$LUNETTE_CONFIG_PATH`,
@@ -72,12 +65,10 @@ pub enum Command {
     },
 }
 
-/// The files of the shipped default configuration, by name relative to its
-/// root, with their contents. The Makefile's `install-config` installs the
-/// same files.
+/// The shipped default configuration's files, which `install-config` also installs.
 ///
 /// They are embedded because `$SYSCONFDIR/xdg/lunette` may be absent or hold
-/// another version's configuration; these match the roots this binary mounts.
+/// another version's configuration.
 const DEFAULT_CONFIGURATION: &[(&str, &str)] = &[
     (
         "main.luau",
@@ -92,16 +83,10 @@ const DEFAULT_CONFIGURATION: &[(&str, &str)] = &[
 /// Writes the default configuration to `destination`, refusing to overwrite
 /// anything.
 ///
-/// The function refuses to overwrite, because the file it writes is one
-/// the user is about to edit. A copy that replaces an edited configuration
-/// destroys the user's edits.
-///
-/// The `.luaurc` names `standard_library` by an absolute path, because the
-/// source tree's copy resolves its aliases relative to itself; copied beside a
-/// user's configuration, it names a directory that is not there, and every
-/// `require '@lunette-desktop/…'` fails to resolve. A `standard_library`
-/// lacking a root the `.luaurc` names is refused, since a session could not
-/// load the configuration either.
+/// The `.luaurc` names `standard_library` by an absolute path, because a relative
+/// alias copied beside a user's configuration names a directory that is not
+/// there. A `standard_library` lacking a named root is refused, since a session
+/// could not load the configuration either.
 pub fn dump(destination: &Path, standard_library: &Path) -> Result<Vec<PathBuf>, DumpError> {
     let roots = ModuleRoots::installed(standard_library);
     if let Some(missing) = roots.iter().find(|root| !root.source.is_dir()) {
@@ -152,8 +137,7 @@ pub enum DumpError {
         root: PathBuf,
         standard_library: PathBuf,
     },
-    /// Something already exists where a copy would go, and the copy is
-    /// refused.
+    /// Something already exists where a copy would go.
     Exists(PathBuf),
     /// The copy could not be written.
     Write(PathBuf, io::Error),
@@ -235,9 +219,6 @@ mod tests {
         );
     }
 
-    /// A binary built from a source tree resolves the installed prefix when
-    /// `$LUNETTE_STDLIB_PATH` is unset; a `.luaurc` naming it would resolve
-    /// nothing.
     #[test]
     fn a_standard_library_without_its_roots_is_refused() {
         let library = TempDir::new().expect("a temporary directory");

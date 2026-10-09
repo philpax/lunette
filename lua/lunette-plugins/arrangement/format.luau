@@ -1,5 +1,4 @@
--- Reads and writes versioned arrangement files. A file from a later version loads without an arrangement, so an
--- old writer cannot drop fields it does not know. File chunks run in an empty environment.
+-- Reads and writes versioned arrangement files. File chunks run in an empty environment.
 
 local vocabulary = require '@lunette-contracts/vocabulary'
 

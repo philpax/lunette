@@ -1,10 +1,7 @@
 //! mlua-sys's mirror of `lua_CompileOptions` matches the Luau that `liblovr.so` exports.
 //!
-//! mlua passes the struct to `luau_compile` by pointer, so a field missing from the mirror shifts
-//! every later field and the compiler reads the tail of the struct from whatever follows it on the
-//! stack. Nothing fails to link or typecheck when that happens. Each case sets one option the
-//! compiler visibly honours and checks that the bytecode changes: an option read from the wrong
-//! offset is not honoured.
+//! A missing field shifts every later one without a link or type error, so each case checks that
+//! one option changes the bytecode.
 extern crate lunette_lovr;
 
 use mlua::chunk::Compiler;

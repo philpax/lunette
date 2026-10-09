@@ -1,7 +1,4 @@
 //! State-local contract identities, capability tokens, and declarations.
-//!
-//! Lua receives native [`PluginContractToken`] userdata. The registry copies
-//! declarations into [`ValidatedDeclaration`] values.
 
 use std::{
     cell::RefCell,
@@ -23,8 +20,7 @@ pub struct ContractName {
 }
 
 impl ContractName {
-    /// Creates an authority-qualified contract name. Neither component may
-    /// contain a slash, which would make the qualified form ambiguous.
+    /// Rejects a slash in either component, which would make the qualified form ambiguous.
     pub fn new(
         authority: impl Into<String>,
         name: impl Into<String>,
@@ -57,9 +53,7 @@ impl fmt::Display for ContractName {
     }
 }
 
-/// A native token that names one contract declaration.
-///
-/// The userdata registers no fields or methods, so Lua cannot read or forge one.
+/// A native token that names one contract declaration. It has no fields or methods, so Lua cannot read or forge one.
 #[derive(Clone)]
 pub struct PluginContractToken {
     registry: Weak<RegistryInner>,
@@ -97,27 +91,40 @@ pub enum ContractError {
         component: &'static str,
         value: String,
     },
-    /// A qualified name lacks its authority separator.
-    UnqualifiedName { name: String },
+    UnqualifiedName {
+        name: String,
+    },
     /// A schema number is zero or exceeds 32 bits.
-    InvalidSchema { schema: u64 },
+    InvalidSchema {
+        schema: u64,
+    },
     /// The name and schema identity already exists in this epoch.
-    DuplicateIdentity { key: ContractKey },
-    /// A declaration value is not a table.
-    DeclarationNotTable { actual: String },
-    /// A declaration key is not a string.
-    DeclarationKeyNotString { actual: String },
+    DuplicateIdentity {
+        key: ContractKey,
+    },
+    DeclarationNotTable {
+        actual: String,
+    },
+    DeclarationKeyNotString {
+        actual: String,
+    },
     /// A declaration key is a string that cannot be represented as UTF-8.
     DeclarationKeyNotUtf8,
-    /// A declaration value is not native token userdata.
-    DeclarationValueNotToken { key: String, actual: String },
+    DeclarationValueNotToken {
+        key: String,
+        actual: String,
+    },
     /// The token in a declaration field belongs to another registry.
-    ForeignToken { key: String },
-    /// The token in a declaration field belongs to an epoch retired by
-    /// registry replacement.
-    RetiredToken { key: String },
-    /// Lua table iteration failed while copying a declaration.
-    LuaIteration { message: String },
+    ForeignToken {
+        key: String,
+    },
+    /// The token belongs to an epoch that registry replacement retired.
+    RetiredToken {
+        key: String,
+    },
+    LuaIteration {
+        message: String,
+    },
 }
 
 impl fmt::Display for ContractError {
@@ -205,8 +212,7 @@ impl ContractRegistry {
         }
     }
 
-    /// Declares a new name/schema identity and returns its native token. An
-    /// identity may be declared once per registry.
+    /// An identity may be declared once per registry.
     pub fn declare(
         &self,
         name: ContractName,
@@ -226,8 +232,7 @@ impl ContractRegistry {
         })
     }
 
-    /// Validates and copies a Lua declaration record whose keys are strings and
-    /// whose values are tokens declared in this registry.
+    /// Copies a Lua declaration whose keys are strings and whose values are tokens from this registry.
     pub fn validate_declaration(
         &self,
         value: Value,

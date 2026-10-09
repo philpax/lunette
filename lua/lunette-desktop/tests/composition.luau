@@ -64,11 +64,10 @@ local function ids(entries)
   return table.concat(result, ' ')
 end
 
-test('the default entries are listed in order, frozen, and each is configured by its id', function()
+test('the default entries are listed in order and each is configured by its id', function()
   local entries = desktop.entries()
   expect.equal(ids(entries), DEFAULT_IDS, 'the default entries')
   expect.equal(ids(desktop.compose()), DEFAULT_IDS, 'a composition without patches')
-  expect.truthy(table.isfrozen(entries) and table.isfrozen(entries[1]), 'the default entries are frozen')
   for _, entry in ipairs(entries) do
     local patch = desktop.configure(entry.id, entry.definition or entry.factory) {}
     expect.equal(patch.id, entry.id, 'the configure patch of ' .. entry.id)

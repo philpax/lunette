@@ -63,8 +63,8 @@ export type Spec<C> = {
   read init: (Context, C, Publisher) -> (),
 }
 
--- The context and publisher use `never` to avoid recursive types.
--- A recursive `Context` type prevents `Context:child` from checking its configuration against `C`.
+-- The context and publisher use `never` because a recursive `Context` type stops `Context:child` from checking its
+-- configuration against `C`.
 export type Definition<C> = {
   read name: string,
   read requires: Declaration,
@@ -314,9 +314,8 @@ local function revoked(contract: string): string
   return 'plugin service: ' .. contract .. ' is no longer available because its provider activation has ended'
 end
 
--- Service reads, iteration, and calls to function-valued services raise after the provider activation ends.
--- A previously read method remains callable. Guarding the read preserves the provider error's call site.
--- Writes always raise.
+-- Reads raise after the provider activation ends, while a method read earlier stays callable. Guarding the read keeps
+-- the provider error's call site. Writes always raise.
 local function guardService(value: unknown, contract: string, provider: NativeContext): unknown
   if type(value) == 'function' then
     local call = value :: (...unknown) -> ...unknown

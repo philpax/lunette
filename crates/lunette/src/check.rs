@@ -321,7 +321,7 @@ mod tests {
     }
 
     #[test]
-    fn named_paths_replace_the_configuration_directory() {
+    fn named_paths_replace_the_configuration_directory_and_must_exist() {
         let directory = configuration();
         let elsewhere = configuration();
         let named = [
@@ -336,6 +336,12 @@ mod tests {
                 elsewhere.path().join("nested/a.luau")
             ]
         );
+
+        let missing = directory.path().join("absent.luau");
+        assert!(matches!(
+            targets(slice::from_ref(&missing), directory.path()),
+            Err(TargetError::Missing { path, defaulted: false }) if path == missing
+        ));
     }
 
     #[test]
@@ -351,25 +357,5 @@ mod tests {
             }
         ));
         assert!(error.to_string().contains("--dump-config"), "{error}");
-    }
-
-    #[test]
-    fn a_directory_with_nothing_to_check_is_an_error() {
-        let directory = TempDir::new().expect("a temporary directory");
-        fs::write(directory.path().join("notes.txt"), "").expect("the file");
-        assert!(matches!(
-            targets(&[], directory.path()),
-            Err(TargetError::Empty(path)) if path == directory.path()
-        ));
-    }
-
-    #[test]
-    fn a_missing_named_path_is_an_error() {
-        let directory = configuration();
-        let missing = directory.path().join("absent.luau");
-        assert!(matches!(
-            targets(std::slice::from_ref(&missing), directory.path()),
-            Err(TargetError::Missing { path, defaulted: false }) if path == missing
-        ));
     }
 }

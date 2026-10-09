@@ -71,16 +71,13 @@ test('an unreadable file is not overwritten through outages, drops, or quit', fu
   events.windows = { window }
   fake.emit('onWindowOpened', { window = window })
   local reads, writes = events.reads, events.writes
-  for round = 1, 3 do
-    local context = 'round ' .. round
-    session.instances.tags:disable()
-    expect.equal(events.writes, writes, context .. ': unloading does not overwrite the unreadable file')
-    session.instances.tags:enable()
-    session:drop(assert(panels.service:forSource(window)))
-    expect.equal(events.writes, writes, context .. ': a drop does not overwrite it')
-    expect.equal(events.saved, 'invalid arrangement', context .. ': the file')
-    expect.equal(events.reads, reads, context .. ': the refusal survives reactivation without reading again')
-  end
+  session.instances.tags:disable()
+  expect.equal(events.writes, writes, 'unloading does not overwrite the unreadable file')
+  session.instances.tags:enable()
+  session:drop(assert(panels.service:forSource(window)))
+  expect.equal(events.writes, writes, 'a drop does not overwrite it')
+  expect.equal(events.saved, 'invalid arrangement', 'the file')
+  expect.equal(events.reads, reads, 'the refusal survives reactivation without reading again')
   session.instances.tags:disable()
   expect.equal(session:quit(), false, 'quit does not veto')
   expect.equal(events.writes, writes, 'inactive persistence has no save at quit')

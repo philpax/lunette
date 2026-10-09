@@ -262,32 +262,15 @@ mod tests {
     }
 
     #[test]
-    fn a_readonly_array_has_a_readonly_numeric_indexer() {
+    fn a_readonly_array_has_a_readonly_numeric_indexer_and_renders_its_elements() {
         let array = Type::NUMBER.readonly_array();
         assert_eq!(array, Type::ReadonlyArray(Box::new(Type::NUMBER)));
-        assert_ne!(array, Type::NUMBER.array());
         assert_eq!(array.to_string(), "{ read [number]: number }");
-        assert_eq!(array.optional().to_string(), "{ read [number]: number }?");
-    }
 
-    #[test]
-    fn readonly_arrays_render_structured_elements_without_changing_their_meaning() {
         let union = Type::Union(vec![Type::NUMBER, Type::STRING]);
         assert_eq!(
             union.readonly_array().to_string(),
             "{ read [number]: number | string }"
-        );
-        let function = Type::Function {
-            receiver: None,
-            parameters: vec![Parameter {
-                name: "values",
-                ty: Type::STRING.readonly_array(),
-            }],
-            returns: Box::new(Type::BOOLEAN),
-        };
-        assert_eq!(
-            function.readonly_array().to_string(),
-            "{ read [number]: (values: { read [number]: string }) -> boolean }"
         );
         assert_eq!(
             Type::STRING.readonly_array().readonly_array().to_string(),

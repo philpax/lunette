@@ -1,9 +1,7 @@
 //! Linux-only: wraps imported images and uploaded buffers as LÖVR textures.
 //!
-//! Imported texture metadata must match the image's usage, layout, and format. LÖVR owns the image
-//! view but not the imported image or memory. The texture ledger defers image destruction until
-//! LÖVR releases the view. The session retains LÖVR's command pool and upload resources until
-//! teardown.
+//! LÖVR owns the image view but not the imported image or memory, so the texture ledger defers
+//! image destruction until LÖVR releases the view.
 
 #[cfg(test)]
 mod tests;
@@ -53,9 +51,8 @@ impl LovrTexture {
         let mapping = mapping_for(image.format).ok_or(TextureError::UnknownFormat)?;
         let info = texture_info(image.size, mapping.texture, image.image.get(), true);
 
-        // SAFETY: the caller guarantees the thread and the image. `info` is a
-        // live local for the duration of the call, and LÖVR copies what it
-        // keeps.
+        // SAFETY: the caller guarantees the thread and the image, and LÖVR
+        // copies what it keeps from `info`.
         let raw = unsafe { lovrTextureCreate(&raw const info) };
         let raw = NonNull::new(raw).ok_or(TextureError::Create)?;
 
@@ -91,8 +88,8 @@ impl LovrTexture {
     /// Replaces the texture's contents, when the new pixels have the same
     /// shape.
     ///
-    /// Returns whether they did. A client that resizes gets a new texture,
-    /// because a LÖVR texture's dimensions are fixed at creation.
+    /// Returns whether they did, because a LÖVR texture's dimensions are fixed
+    /// at creation.
     ///
     /// # Safety
     ///
@@ -103,8 +100,7 @@ impl LovrTexture {
         }
 
         let format = shm_texture_format(pixels.format());
-        // SAFETY: the caller's guarantee, and the shapes were checked above to
-        // match.
+        // SAFETY: the caller's guarantee, and the shapes match.
         unsafe { self.write(pixels, description.size, format) }.is_ok()
     }
 
@@ -119,17 +115,16 @@ impl LovrTexture {
         size: PixelSize,
         format: TextureFormat,
     ) -> Result<(), TextureError> {
-        // SAFETY: the caller's guarantee. A raw image is an allocation and a
-        // header; nothing about it depends on a device.
+        // SAFETY: the caller's guarantee. A raw image does not depend on a
+        // device.
         let image = unsafe { lovrImageCreateRaw(size.width, size.height, format, false) };
         let Some(image) = NonNull::new(image) else {
             return Err(TextureError::AllocateStagingImage);
         };
 
-        // SAFETY: the image was created with exactly these dimensions and this
-        // format, so its single layer is `width * height * 4` bytes, the same
-        // invariant `PixelBuffer` carries. The regions cannot overlap: the
-        // image was allocated in this call.
+        // SAFETY: the image has these dimensions and format, so its layer is
+        // `width * height * 4` bytes, as `PixelBuffer` guarantees. It was
+        // allocated in this call, so the regions cannot overlap.
         let written = unsafe {
             let destination = lovrImageGetLayerData(image.as_ptr(), 0, 0);
             if destination.is_null() {
@@ -151,8 +146,7 @@ impl LovrTexture {
             }
         };
 
-        // SAFETY: the staging image is this call's, and nothing else holds a
-        // reference to it.
+        // SAFETY: nothing else holds a reference to the staging image.
         unsafe { lovrRelease(image.as_ptr().cast::<c_void>(), Some(lovrImageDestroy)) };
 
         if written {
@@ -164,9 +158,8 @@ impl LovrTexture {
 
     /// Records the barrier that makes the imported image readable this frame.
     ///
-    /// A no-op for a texture LÖVR allocated itself: there is no foreign
-    /// producer to acquire from, and `lovrTextureImportAcquire` rejects a
-    /// texture that was not created with `foreign` anyway.
+    /// A no-op for a texture LÖVR allocated itself, which has no foreign
+    /// producer.
     ///
     /// # Safety
     ///
@@ -179,8 +172,7 @@ impl LovrTexture {
 
         let arguments = acquire_arguments(policy);
 
-        // SAFETY: the caller's guarantee. The two values are plain integers
-        // LÖVR passes through to the barrier.
+        // SAFETY: the caller's guarantee.
         unsafe {
             lovrTextureImportAcquire(self.raw.as_ptr(), arguments.layout, arguments.queue_family)
         }
@@ -188,8 +180,8 @@ impl LovrTexture {
 
     /// Records a barrier that returns the image after frame reads.
     ///
-    /// Vulkan forbids `UNDEFINED` as a barrier's `newLayout`. The release layout is
-    /// [`BarrierPolicy::RELEASE_LAYOUT`]. The policy supplies the queue family.
+    /// Vulkan forbids `UNDEFINED` as a barrier's `newLayout`, so the release
+    /// layout is [`BarrierPolicy::RELEASE_LAYOUT`].
     ///
     /// # Safety
     ///
@@ -220,9 +212,8 @@ impl LovrTexture {
     /// # Safety
     ///
     /// `raw` must name a live LÖVR texture that outlives the returned value,
-    /// and [`LovrTexture::release_ref`] must never be called on it. That would
-    /// drop the owner's reference, not one of this program's, and destroy the
-    /// image while whatever holds it still uses it.
+    /// and [`LovrTexture::release_ref`] must never be called on it, because
+    /// that drops the owner's reference.
     #[must_use]
     pub const unsafe fn borrowed(raw: NonNull<Texture>) -> Self {
         Self { raw, image: None }
@@ -236,10 +227,7 @@ impl LovrTexture {
 
     /// Returns whether LÖVR can copy this texture into `destination`.
     ///
-    /// Different formats require a blit. The device must support `GPU_FEATURE_BLIT` for both
-    /// formats.
-    /// LÖVR selects the blit by format. Differing sRGB flags alone use the copy path and do not
-    /// require blit support.
+    /// Different formats require a blit, which the device must support for both formats.
     #[must_use]
     pub fn can_copy_to(&self, destination: &Self) -> bool {
         let (Some(source), Some(destination)) = (self.shape(), destination.shape()) else {
@@ -254,12 +242,11 @@ impl LovrTexture {
 
     /// The shape LÖVR carries for the texture.
     ///
-    /// Read back out of LÖVR, because a copy's bounds are checked against LÖVR's
-    /// record and a second record of the same thing is a second thing to get
-    /// wrong.
+    /// Read from LÖVR, because a copy's bounds are checked against LÖVR's
+    /// record.
     fn shape(&self) -> Option<TextureShape> {
-        // SAFETY: the pointer is a live texture. `lovrTextureGetInfo` borrows its metadata. The
-        // metadata is read before the texture can be freed.
+        // SAFETY: the pointer is a live texture, and the borrowed metadata is read before it can
+        // be freed.
         let info = unsafe { lovrTextureGetInfo(self.raw.as_ptr()).as_ref() }?;
         Some(TextureShape {
             size: PixelSize::new(info.width, info.height),
@@ -272,41 +259,28 @@ impl LovrTexture {
     /// Clears the texture when the copy about to be recorded into it will not
     /// cover it, reporting whether the clear was accepted.
     ///
-    /// Clears destination pixels that the copy will not cover.
-    ///
-    /// Layer sizes round up, while the compositor samples the full swapchain image. Unwritten
-    /// margins contain uninitialised Vulkan memory. Each acquired swapchain image needs a clear
-    /// when the source does not cover it; clearing once at creation does not cover later
-    /// acquisitions. A
-    /// panel viewport can avoid the margin, but this clear protects against omitted viewport
-    /// configuration. The clear runs only when a source copy leaves part of the destination
-    /// untouched.
+    /// Layer sizes round up and the compositor samples the full swapchain image, so an unwritten
+    /// margin shows uninitialised memory. Each acquired image needs its own clear.
     fn clear_margin(&self, source: TextureShape, own: TextureShape) -> bool {
         if covers(source, own) {
             return true;
         }
 
-        // Transparent black, so an uncovered margin composites as nothing,
-        // not as a colour.
+        // Transparent black, so an uncovered margin composites as nothing.
         let mut value = [0.0f32; 4];
 
-        // SAFETY: the pointer is a live texture this program holds a reference
-        // to, and `value` is a live local LÖVR reads within the call.
-        // `lovrTextureClear` resolves `!0` for the layer and level counts
-        // against the texture's own info, so neither range can exceed it.
+        // SAFETY: the pointer is a live texture this program holds. LÖVR
+        // resolves `!0` against the texture's own layer and level counts.
         unsafe { lovrTextureClear(self.raw.as_ptr(), value.as_mut_ptr(), 0, !0, 0, !0) }
     }
 
     /// Drops lunette's reference to the texture.
     ///
-    /// The image behind it is not touched: LÖVR retires only the view, and the
-    /// image goes through
-    /// [`TextureLedger::retire_image`](crate::texture::TextureLedger::retire_image)
-    /// so the image is destroyed a frame later, not under a command buffer
-    /// that still names the view.
+    /// The image behind it goes through
+    /// [`TextureLedger::retire_image`](crate::texture::TextureLedger::retire_image),
+    /// so it is not destroyed under a command buffer that still names the view.
     pub fn release_ref(&self) {
-        // SAFETY: the reference this type holds is the one being dropped, and
-        // LÖVR's own reference counting decides whether that is the last.
+        // SAFETY: the reference this type holds is the one being dropped.
         unsafe { lovrRelease(self.raw.as_ptr().cast::<c_void>(), Some(lovrTextureDestroy)) };
     }
 }
@@ -314,16 +288,13 @@ impl LovrTexture {
 impl CopyableTexture for LovrTexture {
     /// Allocates a LÖVR-owned texture matching this one's size and format.
     ///
-    /// The shape is read from LÖVR because copy bounds use LÖVR's texture metadata.
-    ///
-    /// Not `foreign`: this texture is LÖVR's to initialise, and the flag exists
-    /// to suppress exactly the transition it triggers.
+    /// Not `foreign`, because LÖVR initialises this texture itself.
     fn allocate_copy(&self) -> Option<Self> {
         let shape = self.shape()?;
         let copy = texture_info(shape.size, shape.format, 0, false);
 
         // SAFETY: LÖVR's graphics module is initialised, because this texture
-        // exists; `copy` is a live local for the duration of the call.
+        // exists.
         let raw = unsafe { lovrTextureCreate(&raw const copy) };
         Some(Self {
             raw: NonNull::new(raw)?,
@@ -333,20 +304,11 @@ impl CopyableTexture for LovrTexture {
 
     /// Records the copy into LÖVR's own stream.
     ///
-    /// `lovrTextureCopy` takes `state.lock` and emits `syncStream` barriers
-    /// against both textures, so ordering against LÖVR's own rendering is
-    /// handled inside LÖVR. This is the reason it is the only copy mechanism in
-    /// the codebase: a second one would have to reproduce that, and would get it
-    /// subtly wrong.
+    /// `lovrTextureCopy` emits the barriers that order it against LÖVR's own
+    /// rendering, which is why it is the only copy mechanism.
     ///
-    /// The extent is the shared region of both textures. Explicit bounds prevent LÖVR's
-    /// differing-format blit path from using the source extent for a smaller destination. The
-    /// bounds check is disabled in release builds.
-    ///
-    /// An extent smaller than the destination leaves the rest of it as it was,
-    /// which for a layer's swapchain image is memory nothing has written. The
-    /// clear that precedes the copy makes the destination whole; see
-    /// [`LovrTexture::clear_margin`].
+    /// The extent is the shared region of both textures, because LÖVR's blit path otherwise uses
+    /// the source extent and its bounds check is disabled in release builds.
     fn copy_to(&self, destination: &Self) -> bool {
         let (Some(source), Some(target)) = (self.shape(), destination.shape()) else {
             return false;
@@ -364,9 +326,8 @@ impl CopyableTexture for LovrTexture {
             source.layers.min(target.layers),
         ];
 
-        // SAFETY: both pointers are live textures this program holds references
-        // to, and the three arrays are live locals LÖVR reads and rewrites in
-        // place without retaining them.
+        // SAFETY: both pointers are live textures this program holds, and LÖVR
+        // does not retain the arrays.
         unsafe {
             lovrTextureCopy(
                 self.raw.as_ptr(),
@@ -385,26 +346,21 @@ struct TextureShape {
     size: PixelSize,
     layers: u32,
     format: TextureFormat,
-    /// Whether the sampler applies a transfer function. `lovrGraphicsGetFormatSupport`
-    /// reports the two encodings separately, so a format alone does not answer
-    /// what the device can do with it.
+    /// Whether the sampler applies a transfer function. Format support differs by
+    /// encoding.
     srgb: bool,
 }
 
 /// Whether `lovrTextureCopy` between these two degrades to a blit.
 ///
-/// LÖVR selects blit by pixel format. Equal formats use the copy path, including when sRGB flags
-/// differ. The copy path does not require `GPU_FEATURE_BLIT`.
+/// LÖVR selects blit by pixel format, so differing sRGB flags alone use the copy path.
 fn needs_blit(source: TextureShape, destination: TextureShape) -> bool {
     source.format != destination.format
 }
 
 /// Whether a copy from `source` writes every pixel of `destination`.
 ///
-/// The extent of a copy is the region the two share, so a source at least as
-/// large in every dimension leaves nothing behind. This is separate from
-/// recording the clear: the decision is arithmetic over two shapes and the
-/// clear needs a device.
+/// Kept apart from the clear, because this decision needs no device.
 fn covers(source: TextureShape, destination: TextureShape) -> bool {
     source.size.width >= destination.size.width
         && source.size.height >= destination.size.height
@@ -412,19 +368,16 @@ fn covers(source: TextureShape, destination: TextureShape) -> bool {
 }
 
 /// Whether the device can blit a texture of this shape.
-///
-/// `lovrGraphicsGetFormatSupport` reports separate support bits for linear and sRGB encodings.
 fn blit_supported(shape: TextureShape) -> bool {
     // SAFETY: LÖVR's graphics module is initialised, because a texture with
-    // this shape exists. The call reads a table of format capabilities.
+    // this shape exists.
     let support = unsafe { lovrGraphicsGetFormatSupport(shape.format, TEXTURE_FEATURE_BLIT) };
     support & (1 << u32::from(shape.srgb)) != 0
 }
 
 /// The `TextureInfo` an imported or uploaded texture is created with.
 ///
-/// The sample and transfer usages select `VK_IMAGE_LAYOUT_GENERAL` for imported images and create a
-/// synchronization object. `lovrTextureCopy` requires that object for stream ordering.
+/// The sample and transfer usages create the synchronization object `lovrTextureCopy` requires.
 fn texture_info(size: PixelSize, format: TextureFormat, handle: u64, foreign: bool) -> TextureInfo {
     TextureInfo {
         type_: TextureType_TEXTURE_2D,
@@ -449,9 +402,8 @@ fn texture_info(size: PixelSize, format: TextureFormat, handle: u64, foreign: bo
 
 /// How a `wl_shm` format is spelled to LÖVR.
 ///
-/// Both variants are little-endian `[B, G, R, _]`, which is `FORMAT_BGRA8`. The
-/// difference between them is whether the fourth byte means anything, and
-/// [`crate::import::shm`] has already resolved that by forcing it to one.
+/// Both variants are little-endian `[B, G, R, _]`, and [`crate::import::shm`]
+/// has already forced the fourth byte to one.
 fn shm_texture_format(format: ShmFormat) -> TextureFormat {
     match format {
         ShmFormat::Argb8888 | ShmFormat::Xrgb8888 => TextureFormat_FORMAT_BGRA8,

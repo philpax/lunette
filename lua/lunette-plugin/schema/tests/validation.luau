@@ -3,51 +3,57 @@ local expect = testing.expect
 local schema = require '@lunette-plugin/schema'
 local test = testing.suite()
 
-local function rejects(descriptor, value, code, path)
-  local ok, problem = pcall(descriptor.parse, value, 'probe')
+local function failure(run, name, code, path)
+  local ok, problem = pcall(run)
   expect.falsy(ok, 'the invalid input raises')
-  expect.equal(problem.name, 'plugin probe', 'the diagnostic prefix')
+  expect.equal(problem.name, name, 'the diagnostic prefix')
   expect.equal(problem.code, code, 'the diagnostic code')
   expect.equal(table.concat(problem.path, '.'), path, 'the diagnostic path')
   expect.truthy(table.isfrozen(problem) and table.isfrozen(problem.path), 'the diagnostic is immutable')
   return problem
 end
 
-test('scalar descriptors reject wrong types and nonfinite values', function()
-  expect.equal(schema.number().parse(2), 2)
-  expect.equal(schema.string().parse 'sample', 'sample')
-  expect.equal(schema.boolean().parse(false), false)
-  rejects(schema.number(), 'two', 'type', '')
-  rejects(schema.string(), 2, 'type', '')
-  rejects(schema.boolean(), 1, 'type', '')
-  for _, value in { math.huge, -math.huge, 0 / 0 } do
-    rejects(schema.number(), value, 'type', '')
-  end
-  for number = -20, 20 do
-    expect.equal(schema.number().parse(number), number, 'finite numbers retain their value')
-  end
-end)
+local function rejects(descriptor, value, code, path)
+  return failure(function()
+    return descriptor.parse(value, 'probe')
+  end, 'plugin probe', code, path)
+end
 
-test('numeric string and collection constraints apply at the declared field', function()
-  local descriptor = schema.object {
-    count = schema.number { minimum = 1, maximum = 3, integer = true },
-    label = schema.string { minLength = 2, maxLength = 4, pattern = '^%a+$' },
-  }
-  descriptor.parse { count = 2, label = 'ok' }
-  for _, count in { 0, 4, 1.5 } do
-    rejects(descriptor, { count = count, label = 'ok' }, 'constraint', 'count')
+test(
+  'scalar descriptors reject wrong types, nonfinite values, and violated constraints at the declared field',
+  function()
+    expect.equal(schema.number().parse(2), 2)
+    expect.equal(schema.string().parse 'sample', 'sample')
+    expect.equal(schema.boolean().parse(false), false)
+    rejects(schema.number(), 'two', 'type', '')
+    rejects(schema.string(), 2, 'type', '')
+    rejects(schema.boolean(), 1, 'type', '')
+    for _, value in { math.huge, -math.huge, 0 / 0 } do
+      rejects(schema.number(), value, 'type', '')
+    end
+    for number = -20, 20 do
+      expect.equal(schema.number().parse(number), number, 'finite numbers retain their value')
+    end
+    local descriptor = schema.object {
+      count = schema.number { minimum = 1, maximum = 3, integer = true },
+      label = schema.string { minLength = 2, maxLength = 4, pattern = '^%a+$' },
+    }
+    descriptor.parse { count = 2, label = 'ok' }
+    for _, count in { 0, 4, 1.5 } do
+      rejects(descriptor, { count = count, label = 'ok' }, 'constraint', 'count')
+    end
+    for _, label in { 'a', 'abcde', '12' } do
+      rejects(descriptor, { count = 2, label = label }, 'constraint', 'label')
+    end
+    local positive = schema.number { positive = true }
+    expect.equal(positive.parse(0.5), 0.5)
+    for _, value in { 0, -1 } do
+      rejects(positive, value, 'constraint', '')
+    end
+    rejects(schema.array(schema.number(), { minLength = 1 }), {}, 'constraint', '')
+    rejects(schema.map(schema.string(), { maxLength = 0 }), { one = 'value' }, 'constraint', '')
   end
-  for _, label in { 'a', 'abcde', '12' } do
-    rejects(descriptor, { count = 2, label = label }, 'constraint', 'label')
-  end
-  local positive = schema.number { positive = true }
-  expect.equal(positive.parse(0.5), 0.5)
-  for _, value in { 0, -1 } do
-    rejects(positive, value, 'constraint', '')
-  end
-  rejects(schema.array(schema.number(), { minLength = 1 }), {}, 'constraint', '')
-  rejects(schema.map(schema.string(), { maxLength = 0 }), { one = 'value' }, 'constraint', '')
-end)
+)
 
 test('native vectors remain vectors and require finite components', function()
   local descriptor = schema.vector()
@@ -151,7 +157,7 @@ test('recursive declared containers fail while custom values remain atomic', fun
   rejects(schema.object {}, { [{}] = 1 }, 'key', '')
 end)
 
-test('callbacks check their runtime kind without pretending to check a signature', function()
+test('callbacks check only their runtime kind and custom fields preserve references', function()
   local witness = function(value: number): string
     return tostring(value)
   end
@@ -164,21 +170,18 @@ test('callbacks check their runtime kind without pretending to check a signature
   rejects(descriptor, {}, 'type', '')
   expect.equal(descriptor.inspect().value, witness)
   expect.truthy(descriptor.inspect().readOnly)
-end)
-
-test('custom fields preserve references and report validator failures', function()
   local reference = { marker = true }
-  local descriptor = schema.custom {
+  local custom = schema.custom {
     runtimeType = 'table',
     validate = function(value)
       assert(value.marker == true, 'marker is required')
       return value
     end,
   }
-  expect.equal(descriptor.parse(reference), reference)
-  rejects(descriptor, false, 'type', '')
-  rejects(descriptor, {}, 'custom', '')
-  expect.truthy(descriptor.inspect().readOnly)
+  expect.equal(custom.parse(reference), reference)
+  rejects(custom, false, 'type', '')
+  rejects(custom, {}, 'custom', '')
+  expect.truthy(custom.inspect().readOnly)
 end)
 
 test('refinements run after nested defaults and preserve the parsed result', function()
@@ -190,6 +193,71 @@ test('refinements run after nested defaults and preserve the parsed result', fun
   end, 'An ordered interval.')
   expect.equal(descriptor.parse({}).lower, 1)
   rejects(descriptor, { lower = 3 }, 'refinement', '')
+end)
+
+local function choice()
+  return schema.union(
+    schema.object { kind = schema.literal 'number', payload = schema.default(schema.number())(1) },
+    schema.object { kind = schema.literal 'text', payload = schema.default(schema.string()) 'x' }
+  )
+end
+
+test('explicit union input replaces an incompatible base in either direction', function()
+  local descriptor = choice()
+  local numeric = descriptor.parse { kind = 'number', payload = 9 }
+  local text = descriptor.parse { kind = 'text', payload = 'base' }
+  local switched = descriptor.resolve({ kind = 'text' }, numeric, 'choice')
+  expect.equal(switched.kind, 'text')
+  expect.equal(switched.payload, 'x', 'the selected arm supplies its own default')
+  expect.equal(descriptor.resolve({ kind = 'number' }, text).payload, 1)
+  expect.equal(
+    descriptor.resolve({ kind = 'text' }, text).payload,
+    'x',
+    'an explicit union is replacement even within an arm'
+  )
+  expect.equal(descriptor.resolve(nil, numeric).payload, 9, 'omission keeps a valid base')
+  expect.equal(descriptor.resolve(nil, text).payload, 'base')
+  local defaulted = schema.default(descriptor)(numeric)
+  expect.equal(defaulted.parse({ kind = 'text' }).payload, 'x')
+  expect.equal(schema.default(descriptor)(text).parse({ kind = 'number' }).payload, 1)
+  expect.equal(defaulted.parse(nil).payload, 9)
+  local nested = schema.object { selection = defaulted }
+  expect.equal(nested.parse({ selection = { kind = 'text' } }).selection.payload, 'x')
+  local problem = failure(function()
+    return descriptor.resolve(nil, { kind = 'number', payload = 'wrong' }, 'choice')
+  end, 'plugin choice', 'union', '')
+  expect.truthy(string.find(problem.message, 'matches no alternative', 1, true), 'the diagnostic states the contract')
+end)
+
+test('deep acyclic descriptor traversal raises before exhausting the parser stack', function()
+  local wrapped = schema.number()
+  for _ = 1, 65 do
+    wrapped = schema.optional(wrapped)
+  end
+  local problem = failure(function()
+    return wrapped.parse(1, 'depth')
+  end, 'plugin depth', 'depth', '')
+  expect.truthy(
+    string.find(problem.message, 'exceeds the maximum schema depth of 64', 1, true),
+    'the diagnostic states the limit'
+  )
+  local nested = schema.number()
+  local input = 1
+  local path = {}
+  for index = 1, 65 do
+    nested = schema.array(nested)
+    input = { input }
+    path[index] = '1'
+  end
+  local deep = failure(function()
+    return nested.parse(input, 'nested-depth')
+  end, 'plugin nested-depth', 'depth', table.concat(path, '.'))
+  expect.equal(#deep.path, 65, 'the complete traversed field path is retained')
+  local shallow = schema.number()
+  for _ = 1, 64 do
+    shallow = schema.optional(shallow)
+  end
+  expect.equal(shallow.parse(1), 1, 'the documented boundary remains valid')
 end)
 
 return test

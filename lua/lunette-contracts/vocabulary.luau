@@ -228,7 +228,6 @@ export type Surface =
     | { read kind: nil }
   )
 
--- `Movable` repeats the surface variants because Luau treats `surface:setPose(pose)` as ambiguous in an intersection with `Surface`.
 export type Movable =
   MovableFields
   & (

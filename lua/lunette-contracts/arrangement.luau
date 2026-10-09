@@ -1,5 +1,4 @@
--- The arrangement service contract: the desktop's saved arrangement, on demand. save refuses to write over a
--- file it could not read or one a newer version wrote; restore places live panels where the arrangement has them.
+-- The desktop's saved arrangement. `save` refuses to overwrite a file it could not read or one a newer version wrote.
 
 local plugin = require '@lunette-plugin'
 

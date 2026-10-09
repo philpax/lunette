@@ -38,7 +38,7 @@ local function surface(distance, record)
   }
 end
 
-test('the nearest live surface within reach is picked', function()
+test('the nearest live surface within reach is picked with a unit direction', function()
   local near, far, dead = surface(2), surface(1.5), surface(0.5)
   dead.dead = true
   local beyond = surface(0.1)
@@ -52,9 +52,6 @@ test('the nearest live surface within reach is picked', function()
   end
   expect.falsy(picking.pick({ beyond }, vector.pack(0, 0, 0), vector.pack(0, 0, -1), 8), 'out of reach')
   expect.falsy(picking.pick({ near }, vector.pack(0, 0, 0), vector.pack(0, 0, 0), 8), 'no direction')
-end)
-
-test('a surface is asked with a unit direction', function()
   local record = {}
   picking.pick({ surface(1, record) }, vector.pack(0, 0, 0), vector.pack(0, 3, -4), 8)
   expect.near(record.length, 1, 1e-6, 'the direction length')

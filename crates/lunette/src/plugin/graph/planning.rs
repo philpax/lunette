@@ -8,10 +8,8 @@ use crate::plugin::graph::{
 };
 
 impl Graph {
-    /// Returns the next coordinator action.
-    ///
-    /// Unloads take priority over loads. Dependents and children unload first; providers and
-    /// parents unload after them.
+    /// Returns the next coordinator action. Unloads precede loads, and dependents and children unload before
+    /// providers and parents.
     pub fn next_action(&mut self) -> Option<Action> {
         self.retire_children_of_ending_parents();
         self.remove_retired();
@@ -25,11 +23,8 @@ impl Graph {
         self.plan_load()
     }
 
-    /// Reports whether the allocation of `instance` must end.
-    ///
-    /// It must end when the instance is disabled, retired, reloaded, or shut
-    /// down, when its parent will unload, or when any provider it is bound to
-    /// will unload or has published a different generation.
+    /// Reports whether the allocation of `instance` must end: the instance is disabled, retired, reloaded, or shut
+    /// down, its parent will unload, or a bound provider will unload or has published a different generation.
     pub(super) fn must_unload(&self, instance: InstanceId) -> bool {
         self.must_unload_with_seen(instance, &mut BTreeSet::new())
     }

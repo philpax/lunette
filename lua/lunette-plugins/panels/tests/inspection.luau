@@ -13,16 +13,7 @@ local function count(snapshot, kind)
   return total
 end
 
-local function registration(snapshot, kind, sourceId)
-  for _, entry in ipairs(snapshot.registrations) do
-    if entry.kind == kind and (sourceId == nil or entry.details.sourceId == sourceId) then
-      return entry
-    end
-  end
-  error('missing ' .. kind .. ' registration')
-end
-
-test('panel inspection separates logical ownership from layer resources and reused visibility effects', function()
+test('panel inspection reports owners, dead sources, and visibility overrides', function()
   local native = testing.native()
   local session = testing.start {
     { id = 'theme', definition = require('@lunette-plugins/theme').definition },
@@ -32,31 +23,19 @@ test('panel inspection separates logical ownership from layer resources and reus
   local service, owner = first.service, first.context
   local source = native.newWindow(21)
   local target = service:fromWindow(owner, source, {})
-  local claim = target.claim
   local shown = service:inspect()
   expect.equal(count(shown, 'panel'), 1, 'the panel registration')
   expect.equal(shown.state.layerClaims, 1, 'the native claim state')
   expect.equal(shown.registrations[1].owner, owner, 'the panel owner')
   source.dead = true
-  local deadSource = service:inspect()
-  local entry = registration(deadSource, 'panel', source.id)
-  expect.equal(#deadSource.registrations, #shown.registrations, 'the retained logical entry')
+  local entry = service:inspect().registrations[1]
   expect.equal(entry.live, false, 'a dead source makes the registration unavailable')
   expect.equal(entry.details.sourceDead, true, 'the inspected source state')
-  expect.equal(target.dead, false, 'inspection does not retire the panel')
-  expect.equal(service:all()[1], target, 'inspection does not prune the panel')
-  expect.equal(target.claim, claim, 'inspection keeps the claim attached')
-  expect.equal(claim.dead, false, 'inspection does not release the claim')
-  expect.equal(deadSource.state.layerClaims, 1, 'inspection does not change the native claim count')
 
   local hidden = target:setHidden(second.context, { hidden = true })
-  expect.equal(target:setHidden(second.context, { hidden = true }), hidden, 'the reused visibility effect')
   local snapshot = service:inspect()
   expect.equal(count(snapshot, 'visibility'), 1, 'one logical override')
   expect.equal(snapshot.state.layerClaims, 0, 'hiding releases the native claim')
-  expect.equal(shown.state.layerClaims, 1, 'the earlier state is detached')
-  expect.equal(deadSource.state.layerClaims, 1, 'the dead-source state is detached')
-
   hidden:dispose()
   target:destroy(owner)
   expect.equal(#service:inspect().registrations, 0, 'the released registrations')

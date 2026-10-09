@@ -1,8 +1,5 @@
 //! Lua binding for plugin contracts, runtime graphs, and lifecycle callbacks.
-//!
-//! A Lua state shares one contract epoch across independent runtime graphs.
-//! Instances, services, effects, and configuration belong to one runtime.
-//! Plugin callbacks are synchronous and cannot yield.
+//! A Lua state shares one contract epoch across its runtimes, and plugin callbacks cannot yield.
 
 mod context;
 mod error;
@@ -47,18 +44,15 @@ pub fn install(lua: &Lua) -> Result<(), AttachmentError> {
     Ok(())
 }
 
-/// Sets where plugin failures that happen while lifecycle work drains are
-/// reported. The reporter survives epoch resets.
+/// Sets where failures during lifecycle drains are reported. The reporter survives epoch resets.
 pub fn set_reporter(lua: &Lua, reporter: Reporter) -> Result<(), AttachmentError> {
     install(lua)?;
     require_host(lua)?.borrow_mut().reporter = Some(reporter);
     Ok(())
 }
 
-/// Shuts down every runtime attached to this Lua state, attempting every
-/// cleanup, and starts a new contract epoch with a fresh registry.
-///
-/// Failures are returned to the caller. The listeners belong to the configuration being torn down.
+/// Shuts down every runtime attached to this Lua state and starts a new contract epoch.
+/// It attempts every cleanup and returns the failures.
 #[must_use]
 pub fn shutdown_all(lua: &Lua) -> Vec<AttachmentError> {
     let Some(host) = host_inner(lua) else {

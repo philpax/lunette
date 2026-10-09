@@ -31,26 +31,22 @@ use tracing::{debug, error, info, warn};
 
 /// The directories a session is loaded from.
 ///
-/// The entry point resolves both directories; it is the sole part of the
-/// program that reads the environment. They are passed together because two
-/// positional paths of the same shape are easy to swap.
+/// Only the entry point reads the environment. The paths travel together
+/// because two positional paths of the same shape are easy to swap.
 #[derive(Debug, Clone, Copy)]
 pub struct SessionPaths<'a> {
     /// Where LÖVR loads `main.luau` and `conf.luau` from.
     pub config: &'a Path,
     /// The root of the Lua module data from which mounted roots are resolved.
     pub standard_library: &'a Path,
-    /// The command-line arguments remaining after lunette takes its own. The
-    /// configuration receives them as Lua's `arg`.
+    /// The arguments remaining after lunette takes its own, passed to Lua as `arg`.
     pub forwarded: &'a [OsString],
 }
 
 /// Boots LÖVR and runs the Lua session until it exits.
 ///
-/// The resolved paths, control queue, session, layer registry, and startup settings outlive each
-/// Lua state. A restart replaces the state while preserving the compositor, clients, and textures.
-/// [`crate::restart`] defines the device handoff order. `lunette::reload` reconfigures without
-/// replacing native state.
+/// The session, layer registry, and startup settings outlive each Lua state. A restart replaces
+/// the state and keeps the compositor, clients, and textures.
 pub fn run(
     paths: SessionPaths<'_>,
     session: &Rc<Session<LovrTexture>>,
@@ -72,7 +68,7 @@ pub fn run(
     let blits = unsafe { LovrBlits::new() };
     let mut driver = FrameDriver::new(Rc::clone(session), Rc::clone(layers), blits, startup);
 
-    // The restart cookie crosses Lua states. A nil-initialised Variant is valid before first use.
+    // The restart cookie crosses Lua states.
     //
     // SAFETY: `Variant` uses zero for `TYPE_NIL`, and zero is valid for its payload.
     let mut cookie: raw::Variant = unsafe { mem::zeroed() };
@@ -122,9 +118,8 @@ fn run_session(
     // SAFETY: LÖVR's boot sequence runs in order on a state this function exclusively owns. Each
     // cast converts between bindgen's and mlua-sys' declarations of the same C type.
     //
-    // mlua creates the state with its allocator and per-state `ExtraData`, which its Luau
-    // integration requires. LÖVR then uses that same state. `luax_close` runs LÖVR's finalizers,
-    // after which the mlua handle is forgotten to prevent a second close.
+    // mlua creates the state because its Luau integration requires its allocator and `ExtraData`.
+    // `luax_close` runs LÖVR's finalizers, so the mlua handle is forgotten to prevent a second close.
     let lua_handle = Lua::new();
     let state = lua_handle.exec_raw_lua(|raw| raw.state());
     if state.is_null() {
@@ -137,20 +132,18 @@ fn run_session(
         lua::luaL_openlibs(state);
         raw::luax_preload(state.cast());
 
-        // After `luax_preload`, because the entry it registers is the one this
-        // wraps.
+        // After `luax_preload`, because this wraps the entry it registers.
         //
-        // SAFETY: the three calls above are exactly the preconditions, and what
-        // this installs is kept in the state, not in Rust.
+        // SAFETY: the three calls above are the preconditions, and the result
+        // lives in the state, not in Rust.
         let roots = ModuleRoots::development(paths.standard_library);
         install_standard_library_mount(state, &roots);
 
-        // Before `boot.lua`, because `main.luau` runs inside it and requires the
-        // module at its top. After `luaL_openlibs`, because the module is
-        // registered through `package.preload`.
+        // Before `boot.lua`, because `main.luau` requires the module at its top.
+        // After `luaL_openlibs`, because registration uses `package.preload`.
         //
-        // SAFETY: the state was created above, is closed only after
-        // `run_steps` returns, and no reference into it is kept.
+        // SAFETY: the state is closed only after `run_steps` returns, and no
+        // reference into it is kept.
         if let Err(error) = install(&lua_handle, session) {
             error!("lua: the lunette module could not be registered: {error}");
             return LOAD_FAILED;
@@ -184,14 +177,13 @@ fn run_session(
             return LOAD_FAILED;
         }
 
-        // Install the trigger after `boot.lua` creates `lovr` and before its
-        // coroutine resumes to load modules and run `main.luau`. That resume
-        // does not return to the host between these steps.
+        // After `boot.lua` creates `lovr` and before its coroutine resumes, because
+        // that resume runs `main.luau` without returning to the host.
         //
         // SAFETY: `state` is live until the `luax_close` below, and the
         // reference mlua constructs over it is consumed inside this call.
         if let Err(error) = safe_mode::install_trigger(&lua_handle) {
-            // Not fatal. The session still boots; it loses the fallback for a
+            // Not fatal. The session boots without the fallback for a
             // configuration that does not load.
             error!("lua: safe mode could not be armed: {error}");
         }
@@ -203,8 +195,7 @@ fn run_session(
 
         let outcome = run_steps(state, thread, session, driver, control, cookie, &lua_handle);
 
-        // `run_steps` closed the state, and the mlua handle would close it
-        // again on drop.
+        // `run_steps` closed the state, and dropping the handle would close it again.
         std::mem::forget(lua_handle);
 
         outcome
@@ -229,9 +220,8 @@ unsafe fn run_steps(
 ) -> Outcome {
     let mut first_frame = true;
     loop {
-        // The frame's snapshot and the frame's events are installed together,
-        // before `boot.lua` polls, so a `lun*` handler reads a snapshot that
-        // already accounts for the event it was handed.
+        // The snapshot and events are installed together, so a `lun*` handler
+        // reads a snapshot that already accounts for its event.
         driver.begin_frame();
 
         // SAFETY: the caller guarantees `thread` is live, and nothing in this
@@ -246,9 +236,8 @@ unsafe fn run_steps(
                     // `lovr.simulate` reaches GLFW's `getViewAngles` when the headset module loads
                     // but is inactive.
                     //
-                    // SAFETY: reads two fields from the `lovr` global table
-                    // on `state`, which is the main state and is live. The
-                    // two values are popped before any further Lua call.
+                    // SAFETY: `state` is the live main state, and both pushed
+                    // values are popped before any further Lua call.
                     let headset_loaded = unsafe {
                         lua::lua_getglobal(state, c"lovr".as_ptr());
                         lua::lua_getfield(state, -1, c"headset".as_ptr());
@@ -282,19 +271,12 @@ unsafe fn run_steps(
                     }
                 }
 
-                // A normal frame ends after Lua has run. Terminal frames use
-                // `finish_terminal`, which performs the same flush only after
-                // runtime callbacks and subscribers have been retired.
+                // Terminal frames flush in `finish_terminal` instead, after
+                // callbacks and subscribers are retired.
                 driver.end_frame();
 
-                // Between two frames. `lovr.update` and `lovr.draw` have both
-                // finished and the next frame has not begun, so a chunk
-                // touching the same state a callback touches has nobody to
-                // race. This interval is why a chunk is safe.
-                //
-                // The single session `lua_handle` is used here directly; it is
-                // not closed until after `run_steps` returns, so the `&Lua`
-                // captured by the closure is valid for the whole loop.
+                // Chunks run between frames, when no callback can race them.
+                // `lua_handle` outlives this loop, so the captured `&Lua` stays valid.
                 if let Some(control) = control {
                     control.drain(CHUNKS_PER_FRAME, |chunk| {
                         answer(lua_handle, chunk, Budget::DEFAULT)
@@ -352,8 +334,8 @@ fn finish_terminal(
             // SAFETY: `boot.lua` leaves the restart cookie at thread stack index 2.
             unsafe {
                 raw::luax_checkvariant(thread.cast(), 2, cookie);
-                // An object cookie holds a reference counted by the state
-                // that is about to close, so it cannot cross the restart.
+                // An object cookie is reference-counted by the closing state,
+                // so it cannot cross the restart.
                 if cookie.__bindgen_anon_1.type_ == raw::VariantType_TYPE_OBJECT {
                     *cookie = mem::zeroed();
                 }
@@ -389,9 +371,8 @@ unsafe fn close_lua_state(
 ) {
     clear_log_callback();
     lua_handle.exec_raw_lua(|raw| raw.mark_closed());
-    // SAFETY: no Lua value obtained above outlives this call. Normal exit
-    // closes the boot coroutine while the main state stays open; restart closes
-    // the main state after the coroutine has already returned.
+    // SAFETY: no Lua value obtained above outlives this call. Exit closes the
+    // boot coroutine; restart closes the main state after the coroutine returned.
     unsafe {
         if close_thread {
             raw::luax_close(thread.cast());
@@ -434,9 +415,8 @@ unsafe fn step(thread: *mut lua::lua_State) -> Step {
             return Step::Restart;
         }
 
-        // `boot.lua` returns the status at stack index 1 and the restart cookie at index 2. Reading
-        // the last value would convert the nil cookie to status zero. Narrowing to `u8` matches
-        // `exit()`.
+        // The status is at index 1 and the cookie at 2, so reading the top would turn a nil
+        // cookie into status zero. Narrowing to `u8` matches `exit()`.
         Step::Exit {
             status: lua::lua_tointeger(thread, 1) as u8,
         }
@@ -445,25 +425,11 @@ unsafe fn step(thread: *mut lua::lua_State) -> Step {
 
 /// Mounts every resolved development root when `lovr.filesystem` is created.
 ///
-/// The preload wrapper mounts roots when `lovr.filesystem` loads. `boot.lua` loads this module
-/// inside the coroutine, then resumes it to load modules and run `main.luau`. The mount occurs
-/// during module creation, before configuration execution.
+/// Mounting during module creation places the roots before any configuration code runs. Module
+/// roots use the `@` mount point, so root-level configuration files cannot shadow them.
 ///
-/// The C closure stores the original loader and mount data in upvalues. Rust holds no reference
-/// into the Lua state. Soft reloads retain the state and hook.
-///
-/// # Precedence
-///
-/// The configuration is mounted at the filesystem root. Module roots use the `@` mount point from
-/// [`ModuleRoots`], so root-level configuration files cannot shadow them.
-///
-/// # Read-only
-///
-/// PhysFS mounts are read-only. Writes through `lovr.filesystem.write` go to LÖVR's save directory,
-/// documented in `docs/dev/build-and-development.md#where-things-live-at-runtime`.
-///
-/// Absent optional roots are skipped. Missing required roots are passed to LÖVR and logged. A
-/// configuration that does not require a missing root can still reach safe mode.
+/// Absent optional roots are skipped. Missing required roots are passed to LÖVR and logged, so a
+/// configuration that does not require one can still reach safe mode.
 ///
 /// # Safety
 ///
@@ -531,14 +497,10 @@ unsafe fn push_bytes(state: *mut lua::lua_State, bytes: &[u8]) {
 /// Opens `lovr.filesystem`, mounts the validated module roots, and installs the
 /// host's `lovr.log`.
 ///
-/// [`install_standard_library_mount`] installs this closure; the reasoning for
-/// the timing is there. Upvalue 1 is the loader `luax_preload` registered, and
-/// upvalue 2 is an array of `{ source, mount point, required }` records.
-///
-/// The log handler is installed from here for the same reason: `boot.lua`
-/// assigns its own `lovr.log` in its chunk body, and requires
-/// `lovr.filesystem` from inside `lovr.boot`, which is after that and before
-/// the first message it logs.
+/// Upvalue 1 is the loader `luax_preload` registered, and upvalue 2 is an array
+/// of `{ source, mount point, required }` records. The log handler is installed
+/// here because this runs after `boot.lua` assigns its own `lovr.log` and before
+/// its first message.
 unsafe extern "C-unwind" fn open_filesystem_and_mount(state: *mut lua::lua_State) -> c_int {
     // SAFETY: Lua calls this as the `lovr.filesystem` loader, with the two
     // upvalues the closure was built with and the module name at index 1.
@@ -627,9 +589,7 @@ unsafe fn push_arg_table(
 
 /// The array part of the global `arg` table, in index order from zero.
 ///
-/// `arg[0]` is the executable, `arg[1]` is the configuration directory, and `arg[2..]` are
-/// forwarded arguments. LÖVR uses `arg[1]` as its source path, so the configuration directory
-/// occupies that slot.
+/// LÖVR uses `arg[1]` as its source path, so the configuration directory occupies that slot.
 fn arg_entries(
     executable: OsString,
     config_directory: &Path,
@@ -642,11 +602,9 @@ fn arg_entries(
 
 /// The message handler `boot.lua` runs under, forwarding to LÖVR's.
 ///
-/// bindgen and mlua-sys each declare Lua's C entry points independently, and
-/// disagree on one detail: mlua-sys types a `lua_CFunction` as `extern
-/// "C-unwind"` where bindgen types `luax_getstack` as `extern "C"`. This
-/// trampoline bridges the two without a transmute. It holds no values with
-/// destructors, so a `longjmp` out of `luax_getstack` skips nothing.
+/// mlua-sys types a `lua_CFunction` as `extern "C-unwind"` and bindgen types
+/// `luax_getstack` as `extern "C"`, so this bridges them without a transmute. It
+/// holds no values with destructors, so a `longjmp` out of it skips nothing.
 unsafe extern "C-unwind" fn message_handler(state: *mut lua::lua_State) -> c_int {
     // SAFETY: Lua calls this only with the state that raised the error.
     unsafe { raw::luax_getstack(state.cast()) }
@@ -695,13 +653,10 @@ unsafe fn install_log_handler(state: *mut lua::lua_State) {
     }
 }
 
-/// The host's `lovr.log`, replacing an implementation that prints the message
-/// and drops the level and the tag.
+/// The host's `lovr.log`, which keeps the level and tag that LÖVR's own drops.
 ///
-/// Two paths reach it. Lua calls it directly; the engine's C log resolves
-/// `lovr.log` and calls it through `luax_vlog` on each message. A configuration
-/// replacing `lovr.log` takes the engine's messages with it; the LÖVR
-/// documentation advertises this outcome.
+/// The engine's C log also reaches it through `luax_vlog`, so a configuration
+/// replacing `lovr.log` takes the engine's messages with it, as LÖVR documents.
 unsafe extern "C-unwind" fn log_to_tracing(state: *mut lua::lua_State) -> c_int {
     // SAFETY: Lua calls this as `lovr.log(message, level, tag)`, so indices 1 to
     // 3 hold its arguments, an absent one being nil.
@@ -722,8 +677,7 @@ unsafe extern "C-unwind" fn log_to_tracing(state: *mut lua::lua_State) -> c_int 
             "error" => error!(target: LUA_LOG_TARGET, "{rendered}"),
             "warn" => warn!(target: LUA_LOG_TARGET, "{rendered}"),
             "debug" => debug!(target: LUA_LOG_TARGET, "{rendered}"),
-            // `boot.lua` logs with no level, so anything unrecognised is
-            // carried at info.
+            // `boot.lua` logs with no level, so anything unrecognised is info.
             _ => info!(target: LUA_LOG_TARGET, "{rendered}"),
         }
 
@@ -778,37 +732,18 @@ mod tests {
         )
     }
 
+    /// boot.lua rejects an `arg[1]` that starts with `-`, so the configuration
+    /// directory is fixed at index one and a user argument follows it.
     #[test]
-    fn config_directory_lands_at_index_one() {
-        let entries = entries("/home/user/.config/lunette", &[]);
-        assert_eq!(entries[1], OsString::from("/home/user/.config/lunette"));
-    }
-
-    #[test]
-    fn executable_stays_at_index_zero() {
-        let entries = entries("/etc/xdg/lunette", &["--verbose"]);
-        assert_eq!(entries[0], OsString::from("/usr/bin/lunette"));
-    }
-
-    #[test]
-    fn user_arguments_follow_the_config_directory() {
-        let entries = entries("/etc/xdg/lunette", &["--verbose", "extra"]);
+    fn the_executable_then_the_configuration_directory_then_user_arguments() {
         assert_eq!(
-            entries,
+            entries("/etc/xdg/lunette", &["-h", "extra"]),
             vec![
                 OsString::from("/usr/bin/lunette"),
                 OsString::from("/etc/xdg/lunette"),
-                OsString::from("--verbose"),
+                OsString::from("-h"),
                 OsString::from("extra"),
             ]
         );
-    }
-
-    /// boot.lua rejects an `arg[1]` that starts with `-`, so a user argument
-    /// must never be able to reach that slot.
-    #[test]
-    fn a_leading_flag_cannot_reach_index_one() {
-        let entries = entries("/etc/xdg/lunette", &["-h"]);
-        assert!(!entries[1].as_bytes().starts_with(b"-"));
     }
 }

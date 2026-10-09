@@ -7,7 +7,7 @@ local test = testing.suite()
 
 local TOLERANCE = 1e-5
 
--- A monitor the host reports from now on.
+-- A monitor that the host reports to the consumer.
 local function plug(native, name)
   local monitor = native.newMonitor(name)
   native.events.monitors[monitor.id] = monitor

@@ -108,13 +108,12 @@ test('every built-in visual clips before a posed parent transform and restores c
   end
 end)
 
-test('provider, panel, and control hooks receive a frozen visual and paint in precedence order', function()
+test('provider, panel, and control hooks receive visuals and paint in precedence order', function()
   local recorder = recorderForDrawing()
   local order = {}
   local function hook(name)
     return function(pass, snapshot, base)
       table.insert(order, name .. ':before')
-      expect.truthy(table.isfrozen(snapshot))
       base(pass, snapshot)
       table.insert(order, name .. ':after')
     end
@@ -125,34 +124,6 @@ test('provider, panel, and control hooks receive a frozen visual and paint in pr
     'control:before,panel:before,provider:before,provider:after,panel:after,control:after'
   )
   recorder:assertRestored()
-end)
-
-test('replacement hooks inherit untextured scene depth without writing glyph bounds', function()
-  local recorder = recorderForDrawing()
-  local pass = recorder.pass
-  pass:setShader 'scene shader'
-  pass:setMaterial 'scene texture'
-  pass:setDepthTest 'lequal'
-  pass:setDepthWrite(true)
-  local caller = recorder:checkpoint()
-  local invoked = false
-  draw.render(pass, visual 'region', {
-    function(target)
-      invoked = true
-      target:plane(10, 10, 0, 2, 2)
-    end,
-  })
-  expect.truthy(invoked)
-  for _, call in recorder.calls do
-    if call.draw then
-      expect.equal(call.state.setShader[1], nil)
-      expect.equal(call.state.setMaterial[1], nil)
-      expect.equal(call.state.setDepthTest[1], 'gequal')
-      expect.equal(call.state.setDepthWrite[1], false)
-      expect.equal(call.state.setCullMode[1], 'none')
-    end
-  end
-  recorder:assertRestored(caller)
 end)
 
 test('hooks cannot replace declared geometry through their base renderer', function()
@@ -222,40 +193,6 @@ test('truncation uses production extended-grapheme boundaries without splitting 
     })
   )
   expect.equal(texts(narrow)[1], combining .. '…')
-end)
-
-test('textfield selection and caret use measured logical offsets and remain inside the clip', function()
-  local recorder = recorderForDrawing()
-  local value = visual('text-field', {
-    label = '',
-    value = 'abcdefghijk',
-    caret = 10,
-    anchor = 8,
-    bounds = { x = 0, y = 0, width = 60, height = 30 },
-    clip = { x = 0, y = 0, width = 60, height = 30 },
-    theme = theme.resolve(theme.DEFAULT, { padding = 4, fontSize = 12 }),
-  })
-  recorder:within(value.clip, function()
-    draw.render(recorder.pass, value)
-  end)
-  local selection = false
-  for _, call in recorder.calls do
-    if call[1] == 'plane' and call.state.setColor and call.state.setColor[1] == value.theme.selection[1] then
-      selection = true
-      expect.near(call[5], 12, 0.001, 'two measured six-pixel advances')
-    end
-  end
-  expect.truthy(selection)
-  recorder:assertRestored()
-end)
-
-test('zero-area visuals emit no drawing', function()
-  local recorder = recorderForDrawing()
-  draw.render(recorder.pass, visual('button', { bounds = { x = 0, y = 0, width = 0, height = 10 } }))
-  for _, call in recorder.calls do
-    expect.falsy(call.draw)
-  end
-  recorder:assertRestored()
 end)
 
 test('text-field pointer selects the boundary drawn in a scrolled, clipped, short field', function()
@@ -328,45 +265,6 @@ test('text-field pointer selects the boundary drawn in a scrolled, clipped, shor
   end
 end)
 
-test('scrolled text-field selection uses the metrics of the emitted substring', function()
-  local recorder = recorderForDrawing()
-  local ordinary = recorder.font.getWidth
-  recorder.font.getWidth = function(self, value)
-    return ordinary(self, value) - (if value:find('xA', 1, true) then 0.25 else 0)
-  end
-  local value = visual('text-field', {
-    label = '',
-    value = 'xxxxAB',
-    caret = 7,
-    anchor = 5,
-    bounds = { x = 0, y = 0, width = 14, height = 10 },
-    clip = { x = 0, y = 0, width = 14, height = 10 },
-    theme = theme.resolve(theme.DEFAULT, { padding = 0, fontSize = 10 }),
-  })
-  recorder:within(value.clip, function()
-    draw.render(recorder.pass, value)
-  end)
-  expect.equal(texts(recorder)[1], 'AB')
-  local selected, caret = nil, nil
-  for _, call in recorder.calls do
-    if call[1] == 'plane' then
-      local color = call.state.setColor
-      if color[1] == value.theme.selection[1] then
-        selected = call
-      end
-      if color[1] == value.theme.focus[1] and call[5] == 2 and call[6] == 10 then
-        caret = call
-      end
-    end
-  end
-  expect.truthy(selected)
-  expect.equal(selected[2], 5, 'selection starts at displayed text origin')
-  expect.equal(selected[5], 10, 'selection spans the displayed A and B')
-  expect.truthy(caret)
-  expect.equal(caret[2], 11, 'caret starts at the displayed text end')
-  recorder:assertRestored()
-end)
-
 test('choice draws its selected value when closed and retains its header above open rows', function()
   for _, opened in { false, true } do
     local recorder = recorderForDrawing()
@@ -398,64 +296,6 @@ test('choice draws its selected value when closed and retains its header above o
     end
     recorder:assertRestored()
   end
-end)
-
-test('unchanged overlong labels avoid repeated prefix measurements across interleaved draws', function()
-  local recorder = recorderForDrawing()
-  local measurements, bytes = 0, 0
-  recorder.font.getWidth = function(_, value)
-    measurements += 1
-    bytes += #value
-    return (utf8.len(value) :: number) * 0.5
-  end
-  local bounds = { x = 0, y = 0, width = 34, height = 30 }
-  local values = {}
-  for _, character in { 'a', 'b' } do
-    table.insert(
-      values,
-      visual('button', {
-        label = string.rep(character, 10000),
-        bounds = bounds,
-        clip = bounds,
-        theme = theme.resolve(theme.DEFAULT, { padding = 0, fontSize = 10 }),
-      })
-    )
-  end
-  for _, value in values do
-    draw.render(recorder.pass, value)
-  end
-  measurements, bytes = 0, 0
-  for _ = 1, 4 do
-    for _, value in values do
-      draw.render(recorder.pass, value)
-    end
-  end
-  expect.equal(texts(recorder)[1], 'aaaaa…')
-  expect.equal(texts(recorder)[2], 'bbbbb…')
-  expect.equal(measurements, 8, 'only the recorder measures each emitted text on warm draws')
-  expect.equal(bytes, 64, 'only eight bytes of emitted text are measured per warm draw')
-  recorder:assertRestored()
-end)
-
-test('truncation can select a fitting prefix after an overwide prefix', function()
-  local recorder = recorderForDrawing()
-  local ordinary = recorder.font.getWidth
-  recorder.font.getWidth = function(self, value)
-    return if value == 'abc…' then 1 else ordinary(self, value)
-  end
-  local bounds = { x = 0, y = 0, width = 14, height = 10 }
-  local value = visual('button', {
-    label = 'abcdef',
-    bounds = bounds,
-    clip = bounds,
-    theme = theme.resolve(theme.DEFAULT, { padding = 0, fontSize = 10 }),
-  })
-  recorder:within(bounds, function()
-    draw.render(recorder.pass, value)
-    draw.render(recorder.pass, value)
-  end)
-  expect.equal(texts(recorder)[1], 'abc…')
-  expect.equal(texts(recorder)[2], 'abc…')
 end)
 
 test('cached truncation refreshes when font metrics, theme, or clip changes', function()

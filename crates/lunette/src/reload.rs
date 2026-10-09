@@ -1,15 +1,7 @@
-//! Linux-specific reload of configuration modules and callbacks in the running session.
+//! Linux-only: reloads configuration modules and callbacks in the running session.
 //!
-//! Reload retires the plugin runtime, starts a new plugin epoch, clears user and
-//! standard-library modules, clears configuration callbacks, and runs `main.luau`.
-//! The Lua state, XR session, graphics device, compositor thread, and clients remain
-//! active. See [the Lua API](../../../docs/dev/lua-api.md#reload).
-//!
-//! Reload keeps Lua globals and protected modules. It clears user modules by default.
-//! Protected roots include LÖVR modules and standard libraries initialized once per
-//! Lua state. [`USER_CALLBACKS`] lists configuration callbacks that reload clears;
-//! defaults defined by `boot.lua` remain installed. A failed reload returns its error
-//! and leaves the session running. See [reload errors](../../../docs/dev/lua-api.md#errors).
+//! The Lua state, XR session, graphics device, compositor thread, and clients stay active.
+//! See [the Lua API](../../../docs/dev/lua-api.md#reload).
 
 use std::{cell::Cell, error::Error, fmt};
 
@@ -23,17 +15,12 @@ use crate::{
 
 /// Applies the configuration on disk to the running session.
 ///
-/// Plugin shutdown failures are reported, and shutdown continues. Errors while clearing
-/// callbacks or loaded modules stop the reload. Mirrors stay acquired while the
-/// replacement configuration runs, so it can reuse them; the rest are released after.
+/// Mirrors stay acquired while the replacement configuration runs, so it can reuse them.
 ///
 /// # Errors
 ///
-/// The reload errors when `main.luau` or `lovr.load` raises, or when the Lua
-/// state cannot be reached for the clearing. A reload that already reached
-/// `main.luau` has torn the previous configuration down. The session
-/// continues with whatever the failed run installed, not the previous
-/// configuration.
+/// Errors when `main.luau` or `lovr.load` raises, or when the Lua state cannot be cleared.
+/// A failure after `main.luau` starts leaves whatever the failed run installed.
 pub fn reload(
     lua: &Lua,
     mirrors: &dyn MirrorRegistry,
@@ -71,7 +58,6 @@ fn replace_configuration(lua: &Lua, forget_subscriptions: &dyn Fn()) -> Result<(
     host::shutdown(lua, "reload");
 
     let globals = lua.globals();
-    // Remove listeners owned by the configuration being replaced.
     forget_subscriptions();
     clear_user_callbacks(&globals).map_err(ReloadError::State)?;
     clear_loaded_modules(&globals).map_err(ReloadError::State)?;
@@ -153,7 +139,7 @@ const PROTECTED_ROOTS: &[&str] = &[
 
 /// Configuration callbacks cleared during reload.
 ///
-/// The list excludes callbacks and configuration fields initialized once by `boot.lua`.
+/// The list excludes defaults `boot.lua` installs once per state.
 const USER_CALLBACKS: &[&str] = &[
     "draw",
     "errhand",
@@ -179,14 +165,12 @@ const USER_CALLBACKS: &[&str] = &[
 
 /// The reserved prefix for configuration event handlers cleared during reload.
 ///
-/// Event dispatchers are stored under `lovr.handlers`, not on `lovr`.
-/// See [events](../../../docs/dev/lua-api.md#events).
+/// Event dispatchers live under `lovr.handlers`, so clearing `lovr.lun*` leaves them.
 const EVENT_PREFIX: &str = "lun";
 
 /// Clears configuration callbacks from the `lovr` table.
 ///
-/// Safe mode clears callbacks left by a configuration that fails during startup. A missing
-/// `lovr` table has no callbacks to clear.
+/// Safe mode also uses this to clear what a configuration that failed at startup left.
 pub(crate) fn clear_user_callbacks(globals: &Table) -> mlua::Result<()> {
     let Some(lovr) = globals.get::<Option<Table>>("lovr")? else {
         return Ok(());
@@ -233,7 +217,6 @@ fn clear_loaded_modules(globals: &Table) -> mlua::Result<()> {
     Ok(())
 }
 
-/// Tests whether a module belongs to a protected root.
 fn is_protected(name: &str) -> bool {
     let root = name.split(['.', '/']).next().unwrap_or(name);
     PROTECTED_ROOTS.contains(&root)
@@ -293,12 +276,8 @@ mod tests {
     use super::*;
     use crate::mirrors::NoMonitors;
 
-    /// A Lua state carrying what `boot.lua` leaves behind and a `main` module
-    /// whose source the test chooses.
-    ///
-    /// `main` arrives through `package.preload`, not through a file, so nothing
-    /// here reads the filesystem. `require` resolves it exactly as it resolves
-    /// the file in a session, which is the module the reload calls.
+    /// A state carrying what `boot.lua` leaves behind, with `main` supplied
+    /// through `package.preload` so no test reads the filesystem.
     fn state(main: &str) -> Lua {
         let lua = crate::test_lua::session_lua();
         lua.load(
@@ -309,8 +288,7 @@ mod tests {
               function lovr.log(message) end
               function lovr.run() end
               arg = { [0] = 'lunette', [1] = '/config' }
-              -- A live LOVR module occupies `lovr.graphics`: a reload that dropped
-              -- it would re-run its initialisation against the running graphics device.
+              -- Dropping a live LÖVR module would rerun its initialisation against the running device.
               package.loaded['lovr.graphics'] = { name = 'graphics' }
               runs = { main = 0, load = 0 }
             ",
@@ -321,7 +299,6 @@ mod tests {
         lua
     }
 
-    /// Installs `source` as the `main` module, as an edit to `main.luau` would.
     fn set_main(lua: &Lua, source: &str) {
         let chunk: Function = lua
             .load(source)
@@ -350,9 +327,11 @@ mod tests {
     }
 
     #[test]
-    fn the_configuration_runs_again_and_so_does_lovr_load() {
-        let lua =
-            state("runs.main = runs.main + 1 function lovr.load() runs.load = runs.load + 1 end");
+    fn the_configuration_and_lovr_load_run_again_with_the_argument_table() {
+        let lua = state(
+            "runs.main = runs.main + 1 \
+             function lovr.load(arguments) runs.load = runs.load + 1 received = arguments end",
+        );
         run(&lua, "require 'main' lovr.load()");
 
         reload(&lua, &NoMonitors, &|| ()).expect("the reload succeeds");
@@ -367,17 +346,6 @@ mod tests {
             2,
             "lovr.load should have run again"
         );
-    }
-
-    /// `lovr.load` is what a configuration does its setup in, and it is given
-    /// the same `arg` at a reload as it is at startup.
-    #[test]
-    fn lovr_load_is_given_the_argument_table() {
-        let lua = state("function lovr.load(arguments) received = arguments end");
-        run(&lua, "require 'main'");
-
-        reload(&lua, &NoMonitors, &|| ()).expect("the reload succeeds");
-
         assert_eq!(
             lua.load("return received[1]")
                 .eval::<String>()
@@ -386,44 +354,9 @@ mod tests {
         );
     }
 
+    /// A fresh state supplies the interpreter's library names, so a new library is covered.
     #[test]
-    fn a_configuration_without_plugin_runtime_reloads() {
-        let lua = state("runs.main = runs.main + 1");
-
-        reload(&lua, &NoMonitors, &|| ()).expect("a session without a plugin runtime reloads");
-
-        assert_eq!(number(&lua, "runs.main"), 1);
-    }
-
-    #[test]
-    fn lovr_modules_are_never_cleared() {
-        let lua = state("");
-        run(
-            &lua,
-            "package.loaded['lovr.headset'] = { name = 'headset' }",
-        );
-
-        reload(&lua, &NoMonitors, &|| ()).expect("the reload succeeds");
-
-        assert_eq!(
-            lua.load("return package.loaded['lovr.graphics'].name")
-                .eval::<String>()
-                .expect("lovr.graphics survived"),
-            "graphics"
-        );
-        assert_eq!(
-            lua.load("return package.loaded['lovr.headset'].name")
-                .eval::<String>()
-                .expect("lovr.headset survived"),
-            "headset"
-        );
-    }
-
-    /// Every library registered by `luaL_openlibs` survives, including libraries
-    /// enabled by fork-specific flags. A fresh state supplies the names, so new
-    /// interpreter libraries are covered automatically.
-    #[test]
-    fn the_interpreters_own_modules_are_never_cleared() {
+    fn protected_roots_are_kept_and_other_modules_are_cleared() {
         let libraries: Vec<String> = crate::test_lua::session_lua()
             .load(
                 "local names = {}
@@ -437,25 +370,10 @@ mod tests {
             "the fresh state should have registered its libraries: {libraries:?}"
         );
         let lua = state("");
-
-        reload(&lua, &NoMonitors, &|| ()).expect("the reload succeeds");
-
-        for name in &libraries {
-            assert!(
-                lua.load(format!("return package.loaded['{name}'] ~= nil"))
-                    .eval::<bool>()
-                    .expect("readable"),
-                "package.loaded['{name}'] should have survived the reload"
-            );
-        }
-    }
-
-    #[test]
-    fn user_and_standard_library_modules_are_cleared() {
-        let lua = state("");
         run(
             &lua,
-            "package.loaded['@lunette-plugins/arrangement'] = { n = 1 }
+            "package.loaded['lovr.headset'] = { name = 'headset' }
+             package.loaded['@lunette-plugins/arrangement'] = { n = 1 }
              package.loaded['@lunette-plugins/arrangement/format'] = { n = 1 }
              package.loaded.mylayout = { n = 1 }
              package.loaded['@lunette'] = { n = 1 }",
@@ -463,6 +381,18 @@ mod tests {
 
         reload(&lua, &NoMonitors, &|| ()).expect("the reload succeeds");
 
+        let kept = libraries
+            .iter()
+            .map(String::as_str)
+            .chain(["lovr.graphics", "lovr.headset"]);
+        for name in kept {
+            assert!(
+                lua.load(format!("return package.loaded['{name}'] ~= nil"))
+                    .eval::<bool>()
+                    .expect("readable"),
+                "package.loaded['{name}'] should have survived the reload"
+            );
+        }
         for name in [
             "@lunette-plugins/arrangement",
             "@lunette-plugins/arrangement/format",
@@ -476,18 +406,25 @@ mod tests {
                 "package.loaded['{name}'] should have been cleared"
             );
         }
+        assert!(is_protected("string/extra"));
+        assert!(is_protected("utf8.extra"));
+        assert!(!is_protected("lovrly"));
+        assert!(!is_protected("lunette-plugins.scale"));
+        assert!(!is_protected(MAIN_MODULE));
     }
 
-    /// The hazard the specification does not name: a callback the user deleted
-    /// from the configuration would stay bound to the old function.
+    /// `boot.lua` runs once per Lua state, so nothing reinstalls a default a reload clears.
     #[test]
-    fn a_callback_the_new_configuration_does_not_define_stops_being_called() {
+    fn configuration_callbacks_are_cleared_and_boot_defaults_and_dispatchers_survive() {
         let lua = state(
             "function lovr.keypressed() end
              function lovr.lunwindowopened() end
              function lovr.draw() end",
         );
-        run(&lua, "require 'main'");
+        run(
+            &lua,
+            "require 'main' lovr.handlers.lunwindowopened = function() end",
+        );
 
         set_main(&lua, "function lovr.draw() end");
         reload(&lua, &NoMonitors, &|| ()).expect("the reload succeeds");
@@ -504,33 +441,12 @@ mod tests {
                 .expect("readable"),
             "a callback the new configuration still defines should be there"
         );
-    }
-
-    /// `boot.lua` runs once per Lua state. A default it installed and a reload
-    /// cleared would be gone for the rest of the session.
-    #[test]
-    fn boot_lua_s_own_defaults_survive() {
-        let lua = state("");
-
-        reload(&lua, &NoMonitors, &|| ()).expect("the reload succeeds");
-
         assert!(
             lua.load("return lovr.log ~= nil and lovr.run ~= nil")
                 .eval::<bool>()
                 .expect("readable"),
-            "boot.lua's defaults should have survived, because nothing would put them back"
+            "boot.lua's defaults should have survived"
         );
-    }
-
-    /// The dispatchers sit on `lovr.handlers`. Clearing the configuration's
-    /// `lovr.lun*` handlers must not remove them.
-    #[test]
-    fn the_event_dispatchers_are_not_cleared() {
-        let lua = state("");
-        run(&lua, "lovr.handlers.lunwindowopened = function() end");
-
-        reload(&lua, &NoMonitors, &|| ()).expect("the reload succeeds");
-
         assert!(
             lua.load("return rawget(lovr.handlers, 'lunwindowopened') ~= nil")
                 .eval::<bool>()
@@ -552,8 +468,7 @@ mod tests {
             error.to_string().contains("a deliberate defect"),
             "the message should name what went wrong: {error}"
         );
-        // The session is still usable, which is the difference between this
-        // and safe mode: the Lua state runs, and the next reload works.
+        // Unlike safe mode, the session stays usable and the next reload works.
         set_main(&lua, "runs.main = runs.main + 1");
         reload(&lua, &NoMonitors, &|| ())
             .expect("the session can be reloaded again after a failure");
@@ -573,8 +488,7 @@ mod tests {
         );
     }
 
-    /// A configuration that reloads as it loads would recurse until the stack
-    /// runs out, taking every connected client with the process.
+    /// A configuration that reloads as it loads would otherwise exhaust the stack.
     #[test]
     fn a_reload_from_inside_a_reload_is_refused() {
         let lua = state(
@@ -612,16 +526,5 @@ mod tests {
             1,
             "the configuration should have run once, not once per nested reload"
         );
-    }
-
-    #[test]
-    fn a_module_named_for_a_protected_root_is_kept_with_it() {
-        assert!(is_protected("lovr"));
-        assert!(is_protected("lovr.graphics"));
-        assert!(is_protected("string/extra"));
-        assert!(is_protected("utf8.extra"));
-        assert!(!is_protected("lovrly"));
-        assert!(!is_protected("lunette-plugins.scale"));
-        assert!(!is_protected(MAIN_MODULE));
     }
 }

@@ -1,34 +1,25 @@
 name: check
 
-# The standing checks CONTRIBUTING.md lists. Each job runs a `make` target
-# rather than restating the commands, so a contributor running `make check`
-# runs what CI runs.
+# Each job runs a `make` target, so `make check` runs what CI runs.
 
-# Only main on push. A branch with a pull request open raises both events for
-# one commit, and the pull request's run is the one that checks the merge
-# result. A branch with no pull request open is not checked until one is.
+# Only main on push, because a pull request's run checks the merge result.
 on:
   push:
     branches: [main]
   pull_request:
 
-# Successive pushes to a branch cancel each other. The group is keyed on the
-# branch under either event.
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
-# Nothing here writes to the repository. The StyLua action needs a token to
-# fetch a release.
+# Nothing here writes to the repository.
 permissions:
   contents: read
 
 env:
   CARGO_TERM_COLOR: always
-  # A CI log is read for the file and line a panic came from, and the rest of
-  # the debug information is cache size and linker work. Both profiles are set:
-  # `cargo test` builds under `test` and `cargo run` under `dev`, and artifacts
-  # are shared only when the settings match.
+  # Line tables are enough to locate a panic. Both profiles are set so their
+  # artifacts can be shared.
   CARGO_PROFILE_DEV_DEBUG: line-tables-only
   CARGO_PROFILE_TEST_DEBUG: line-tables-only
 
@@ -38,9 +29,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # rustfmt.toml opts into imports_granularity and group_imports, which
-      # stable rustfmt skips silently, so `make check-format` calls
-      # `cargo +nightly fmt` and this is the toolchain it names.
+      # rustfmt.toml uses options that stable rustfmt skips silently.
       - name: Install nightly rustfmt
         uses: dtolnay/rust-toolchain@nightly
         with:
@@ -56,9 +45,7 @@ jobs:
       - run: make check-format
 
   # The halves are separate jobs because clippy builds through
-  # RUSTC_WORKSPACE_WRAPPER and shares no artifacts with a normal build. The
-  # generated-artifact checks ride with the test half, which is the half that
-  # has binaries to run.
+  # RUSTC_WORKSPACE_WRAPPER and shares no artifacts with a normal build.
   build:
     strategy:
       fail-fast: false
@@ -67,49 +54,32 @@ jobs:
     name: build (${{ matrix.half }})
     runs-on: ubuntu-latest
     env:
-      # The build script points FETCHCONTENT_SOURCE_DIR_JOLTPHYSICS here, which
-      # keeps cmake off the network.
+      # Keeps cmake off the network.
       LUNETTE_JOLTPHYSICS_SRC: ${{ github.workspace }}/.jolt
-      # crates/lunette/tests/exit_status.rs boots a session, which opens a
-      # socket under the runtime directory and resolves its state directory from
-      # XDG_STATE_HOME or else from HOME. A runner sets neither, and the tests
-      # remove HOME.
+      # The exit-status tests boot a session, which needs both directories.
+      # A runner sets neither, and the tests remove HOME.
       XDG_RUNTIME_DIR: ${{ github.workspace }}/.runtime
       XDG_STATE_HOME: ${{ github.workspace }}/.state
     steps:
       - uses: actions/checkout@v4
         with:
-          # The dating step below reads the history to find the commit that last
-          # wrote each file.
+          # The dating step reads the history.
           fetch-depth: 0
 
-      # Not `submodules: recursive` on the checkout: fetch-depth is not
-      # per-repository, and only the pinned commit of each is built. The clones
-      # wait on the network rather than on the runner's cores.
+      # Separate from the checkout, because fetch-depth is not per-repository.
       - name: Check out the submodules
         run: git submodule update --init --recursive --depth 1 --jobs 8
 
-      # A runner image ships a stable toolchain of its own and does not update
-      # it, so a job left to the image builds with whatever release the image
-      # was baked with. This makes it the current stable instead: a clippy lint
-      # a contributor's rustup already carries then fails here as an unknown
-      # lint under `-D warnings`, which is what happened one image behind.
-      # Nothing else pins a Rust version — the tree tracks stable and states no
-      # minimum supported version.
+      # The runner image's toolchain lags, and a newer clippy lint then fails
+      # as unknown under `-D warnings`.
       - name: Install the current stable toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          # The action installs the minimal profile, which carries neither.
           components: clippy, rustfmt
 
       - name: Install the system dependencies
-        # The devshell's buildInputs and nativeBuildInputs, as their Debian
-        # names. libclang is what bindgen parses LÖVR's headers with.
-        #
-        # nixpkgs ships every xcb extension in libxcb, and the Xlib and
-        # xkbcommon bridges to xcb in libx11 and libxkbcommon; Debian splits all
-        # four out. LÖVR's Linux backend links X11-xcb, xcb-xinput, xcb-xkb, and
-        # xkbcommon-x11 (vendor/lovr/CMakeLists.txt:949).
+        # The devshell's inputs, as their Debian names. Debian splits out the
+        # xcb packages LÖVR's Linux backend links, which nixpkgs bundles.
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y \
@@ -123,15 +93,8 @@ jobs:
             libwayland-dev wayland-protocols \
             libopenxr-dev
 
-      # A checkout stamps every file with the time it runs, which is newer than
-      # the artifacts the cache restores. Cargo compares mtimes, so without this
-      # nothing in the cache is fresh: every crate is rebuilt, and
-      # lunette-lovr's build script re-runs cmake over LÖVR's C++ once for each
-      # of the clippy, test, and dev units.
-      #
-      # Debian's git-restore-mtime is not used. It drives `git whatchanged`,
-      # which git 2.50 and later refuse to run without `--i-still-use-this`, and
-      # it exits 0 having stamped nothing.
+      # Cargo compares mtimes, and a checkout's are newer than the cached
+      # artifacts. git-restore-mtime stamps nothing on git 2.50 and later.
       - name: Date the tree from its commits
         run: |
           git -c core.quotePath=false log --no-merges --pretty=format:@%ct --name-only |
@@ -148,9 +111,7 @@ jobs:
       - name: Make the runtime directories
         run: mkdir -p .runtime .state && chmod 700 .runtime
 
-      # deps/joltc reaches JoltPhysics through FetchContent, which wants the
-      # network at configure time. The tag is what deps/joltc/CMakeLists.txt
-      # declares as its GIT_TAG, and moves when that submodule is bumped.
+      # The tag must match the GIT_TAG in deps/joltc/CMakeLists.txt.
       - name: Fetch JoltPhysics
         uses: actions/checkout@v4
         with:
@@ -160,19 +121,15 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          # A cache is written once: an exact key match saves nothing, so
-          # replacing a lineage means bumping this.
+          # An exact key match saves nothing, so replacing a cache means
+          # bumping this.
           prefix-key: v1
-          # The halves keep separate caches, because their artifacts are separate.
           key: ${{ matrix.half }}
           cache-all-crates: true
-          # LÖVR is built into crates/lunette-lovr's OUT_DIR. The prune keeps
-          # only the packages it is handed, which by default excludes the
-          # workspace's own crates on the reasoning that they are cheap to
-          # rebuild. That does not hold for a crate wrapping a cmake tree.
+          # LÖVR is built into crates/lunette-lovr's OUT_DIR, which is not
+          # cheap to rebuild.
           cache-workspace-crates: true
-          # Without this the action saves nothing unless the job passes, and
-          # iterating on a red CI recompiles everything each time.
+          # Iterating on a red CI otherwise recompiles everything.
           cache-on-failure: true
 
       - run: make check-headset
@@ -183,9 +140,6 @@ jobs:
 
       - run: make check-${{ matrix.half }}
 
-      # The definitions and the module declarations are generated and checked
-      # in. Nothing else notices when the metadata or the registration surface
-      # moves and the artifact does not.
       - run: make check-definitions
         if: matrix.half == 'test'
 

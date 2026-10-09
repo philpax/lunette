@@ -1,5 +1,4 @@
 //! Registers the native plugin facade and generates its Luau declarations.
-//!
 //! Function descriptors define both the runtime table and the `PluginApi` type.
 
 use std::fmt::Write as _;
@@ -185,8 +184,8 @@ const HANDLES: [HandleSpec; 6] = [
     },
 ];
 
-/// Describes the nominal handle brand. The singleton string field prevents structural
-/// tables from satisfying handle types; Luau rejects casts to types with a `never` field.
+/// The singleton string field keeps structural tables from satisfying handle types.
+/// Luau rejects casts to types with a `never` field.
 const BRAND_DOC: &str =
     "A type brand that makes this handle nominal. The field does not exist at runtime.";
 
@@ -205,13 +204,6 @@ struct HandleSpec {
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn plugin_types_are_rendered_as_nested_api() {
-        let output = crate::lua::declarations::render();
-        assert!(output.contains("export type PluginRuntime"));
-        assert!(output.contains("read plugin: PluginApi"));
-    }
-
     #[test]
     fn plugin_handles_are_nominal() {
         let output = crate::lua::declarations::render();

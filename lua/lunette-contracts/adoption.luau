@@ -1,10 +1,4 @@
--- Scoped window adoption, separate from installation of placement sources.
---
--- install registers the native-state source on the caller's owner, at the configured precedence. start
--- subscribes before enumerating, skips windows that already have a live panel, and places each window
--- through lunette/placement unless its filter or a resolved `adopt` of false declines it. Disposing the
--- start's effect releases its subscriptions and placements without closing windows. See
--- docs/dev/lua-api.md#rules-and-placement.
+-- Scoped window adoption. Disposing a start releases its subscriptions and placements without closing windows.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'

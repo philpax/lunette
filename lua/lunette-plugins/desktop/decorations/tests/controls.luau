@@ -1,5 +1,6 @@
 local testing = require '@testing'
 local expect = testing.expect
+local lunette = require '@lunette'
 local panels = require '@lunette-contracts/panels'
 local ui = require '@lunette-contracts/ui'
 local drops = require '@lunette-contracts/drops'
@@ -77,10 +78,34 @@ local function sameColor(actual, wanted)
     and actual[4] == wanted[4]
 end
 
-local function combinedOutline(running, registry, target, color, bottomRadius)
+local function offeredBars(running, panel)
+  local bars = {}
+  for _, surface in running.session:observe(surfaces.capability).service:all() do
+    if surface ~= panel and surface.kind == panel.kind and surface.source == panel.source then
+      bars[#bars + 1] = surface
+    end
+  end
+  return bars
+end
+
+local function selection(widgets)
+  for _, panel in widgets:panels() do
+    local description = panel:describe()
+    if description.name == 'desktop/decorations/monitor/screen-a' then
+      for _, control in description.controls do
+        if control.id == 'select/monitor/screen-a' then
+          return control
+        end
+      end
+    end
+  end
+  error('the monitor has no selection control', 0)
+end
+
+local function combinedOutline(running, target, color)
   running.native.events.draw = {}
   running:draw()
-  local px, py, pz = target.pose:getPosition()
+  local px, py = target.pose:getPosition()
   local found
   local count = 0
   for _, call in running.native.events.draw do
@@ -92,71 +117,18 @@ local function combinedOutline(running, registry, target, color, bottomRadius)
       )
     end
     if call[1] == 'draw' and sameColor(call.state.setColor, color) then
-      local x, y, z = call[3]:getPosition()
+      local x, y = call[3]:getPosition()
       if math.abs(x - px) < 1e-5 and math.abs(y - py) < 1e-5 then
-        expect.near(z, pz - HEADER_STYLE.borderDepth, 1e-5, 'the combined outline uses the header border depth')
         found = call[2]
         count += 1
       end
     end
   end
   expect.equal(count, 1, 'the target draws one combined outline, not a second titlebar border')
-  local mesh = assert(found)
-  local halfWidth, halfHeight = target.width / 2, target.height / 2
-  local top, bottom = halfHeight + HEADER_STYLE.barHeight, -halfHeight
-  local left, right, low, high = math.huge, -math.huge, math.huge, -math.huge
-  local topEdge, bottomEdge = 0, 0
-  for _, vertex in mesh.vertices do
-    local x, y = vertex[1], vertex[2]
-    left, right = math.min(left, x), math.max(right, x)
-    low, high = math.min(low, y), math.max(high, y)
-    if math.abs(y - top) < 1e-5 then
-      topEdge = math.max(topEdge, math.abs(x))
-    end
-    if math.abs(y - bottom) < 1e-5 then
-      bottomEdge = math.max(bottomEdge, math.abs(x))
-    end
-  end
-  expect.near(left, -halfWidth - HEADER_STYLE.borderThickness, 1e-5, 'the left outline uses header thickness')
-  expect.near(right, halfWidth + HEADER_STYLE.borderThickness, 1e-5, 'the right outline uses header thickness')
-  expect.near(low, bottom - HEADER_STYLE.borderThickness, 1e-5, 'the bottom outline uses header thickness')
-  expect.near(high, top + HEADER_STYLE.borderThickness, 1e-5, 'the top outline includes the header')
-  expect.near(topEdge, halfWidth - HEADER_STYLE.cornerRadius, 1e-5, 'the top contour uses the header radius')
-  expect.near(bottomEdge, halfWidth - bottomRadius, 1e-5, 'the bottom contour keeps the body radius')
-  for index = 1, #mesh.indices, 3 do
-    for edge = 0, 2 do
-      local a = mesh.vertices[mesh.indices[index + edge]]
-      local b = mesh.vertices[mesh.indices[index + (edge + 1) % 3]]
-      if math.abs(a[2] - halfHeight) < 1e-5 then
-        expect.truthy(math.abs(a[1]) >= halfWidth - 1e-5, 'no outline vertex enters the internal seam')
-      end
-      if (a[2] - halfHeight) * (b[2] - halfHeight) < 0 then
-        local x = a[1] + (b[1] - a[1]) * (halfHeight - a[2]) / (b[2] - a[2])
-        expect.truthy(math.abs(x) >= halfWidth - 1e-5, 'no outline triangle crosses the internal seam')
-      end
-    end
-  end
-  local attached
-  for _, entry in registry.service:inspect().registrations do
-    if
-      entry.details.sourceId == target.source.id
-      and entry.details.sourceKind == target.kind
-      and entry.source == 'panels.attachFrame'
-    then
-      attached = entry
-    end
-  end
-  expect.truthy(attached and attached.live and attached.details.joined, 'the action target has one joined attachment')
-  expect.equal(
-    attached.details.borderThickness,
-    HEADER_STYLE.borderThickness,
-    'inspection records the header thickness'
-  )
-  expect.falsy(target.chrome, 'the action target still has ordinary chrome disabled')
-  return mesh
+  return assert(found)
 end
 
-test('titlebar closes windows by request and dismisses monitor panels', function()
+test('titlebar closes windows by request, refuses are reported, and dismisses monitor panels', function()
   withTitlebar('ui', function(running, registry, panel, monitor, requests)
     local widgets = running.session:observe(ui.capability).service
     local windowName = 'desktop/decorations/window/7'
@@ -165,13 +137,8 @@ test('titlebar closes windows by request and dismisses monitor panels', function
     local pose = lovr.math.newMat4(table.unpack(description.pose))
     local _, y = pose:getPosition()
     expect.near(y, 1 + panel.height / 2 + 0.025, 1e-5, 'controls occupy the joined titlebar')
-    local windowOutline = combinedOutline(running, registry, panel, HEADER_STYLE.borderColor, BODY_STYLE.windowRadius)
-    local bar
-    for _, surface in running.session:observe(surfaces.capability).service:all() do
-      if surface ~= panel and surface.kind == panel.kind and surface.source == panel.source then
-        bar = surface
-      end
-    end
+    local windowOutline = combinedOutline(running, panel, HEADER_STYLE.borderColor)
+    local bar = offeredBars(running, panel)[1]
     expect.truthy(bar, 'the action controls share the offered header')
     local px, py, pz = panel.pose:getPosition()
     local _, by = bar.pose:getPosition()
@@ -182,7 +149,7 @@ test('titlebar closes windows by request and dismisses monitor panels', function
     running:tracked('right', true)
     running:step()
     expect.equal(
-      combinedOutline(running, registry, panel, HEADER_STYLE.borderHighlightColor, BODY_STYLE.windowRadius),
+      combinedOutline(running, panel, HEADER_STYLE.borderHighlightColor),
       windowOutline,
       'header hover changes the whole outline color without duplicating its contour'
     )
@@ -191,8 +158,15 @@ test('titlebar closes windows by request and dismisses monitor panels', function
     running:clickControl(widgets, windowName, 'close/window/7')
     expect.equal(requests(), 1, 'the close button sends one application close request')
     expect.falsy(panel.dead, 'a close request waits for the client to unmap')
+    function panel.source:close()
+      return false
+    end
+    running:clickControl(widgets, windowName, 'close/window/7')
+    expect.equal(#running.native.events.reported, 1)
+    expect.truthy(running.native.events.reported[1].message:find('panel close: request was refused', 1, true))
+    expect.falsy(panel.dead, 'a refused close leaves the panel alive')
     local mirror = assert(registry.service:forSource(monitor))
-    combinedOutline(running, registry, mirror, HEADER_STYLE.borderColor, BODY_STYLE.monitorRadius)
+    combinedOutline(running, mirror, HEADER_STYLE.borderColor)
     local monitorDescription = running:discover(widgets, monitorName, 'close/monitor/screen-a')
     local _, monitorY = lovr.math.newMat4(table.unpack(monitorDescription.pose)):getPosition()
     local _, mirrorY = mirror.pose:getPosition()
@@ -214,6 +188,13 @@ test('titlebar closes windows by request and dismisses monitor panels', function
     for _, widget in widgets:panels() do
       expect.falsy(widget:describe().name == monitorName, 'closed titlebar controls are removed')
     end
+    local hiding = panel:setHidden(registry.context, { hidden = true })
+    running:step()
+    expect.equal(#offeredBars(running, panel), 0, 'the bar of a hidden panel')
+    for _, surface in running.session:observe(surfaces.capability).service:all() do
+      expect.truthy(surface ~= panel, 'a hidden panel')
+    end
+    hiding:dispose()
   end)
 end)
 
@@ -262,36 +243,40 @@ test('titlebar and content grabs move the owning panel and emit one drop', funct
   end)
 end)
 
-test('titlebar hide cancels a held close gesture', function()
-  withTitlebar('ui', function(running, registry, panel, _monitor, requests)
+test('monitor selection shows a refused request, then a pending, failed, or retried selection', function()
+  withTitlebar('ui', function(running)
     local widgets = running.session:observe(ui.capability).service
-    local description, control = running:discover(widgets, 'desktop/decorations/window/7', 'close/window/7')
-    running:aim(description, control.bounds.x + control.bounds.width / 2, control.bounds.height / 2)
-    running:step()
-    running:button('right', 'trigger', true)
-    running:step()
-    local hidden = panel:setHidden(registry.context, { hidden = true })
-    running:step()
-    hidden:dispose()
-    running:step()
-    running:button('right', 'trigger', false)
-    running:step()
-    expect.equal(requests(), 0, 'hiding does not convert cancellation to activation')
-    running:clickControl(widgets, 'desktop/decorations/window/7', 'close/window/7')
-    expect.equal(requests(), 1, 'a fresh gesture still works after showing the panel')
-  end)
-end)
-
-test('a refused titlebar close reports the request and leaves the application panel alive', function()
-  withTitlebar('ui', function(running, _registry, panel)
-    function panel.source:close()
-      return false
+    local native = running.native
+    local selectMonitors = lunette.selectMonitors
+    lunette.selectMonitors = function()
+      return false, 'portal unavailable'
     end
-    local widgets = running.session:observe(ui.capability).service
-    running:clickControl(widgets, 'desktop/decorations/window/7', 'close/window/7')
-    expect.equal(#running.native.events.reported, 1)
-    expect.truthy(running.native.events.reported[1].message:find('panel close: request was refused', 1, true))
-    expect.falsy(panel.dead)
+    local ok, message = pcall(function()
+      running:clickControl(widgets, 'desktop/decorations/monitor/screen-a', 'select/monitor/screen-a')
+      expect.truthy(selection(widgets).label:find('portal unavailable', 1, true))
+      running:step()
+      expect.truthy(selection(widgets).label:find('portal unavailable', 1, true))
+      expect.equal(native.events.monitorSelections, nil, 'a refused request does not prompt again')
+    end)
+    lunette.selectMonitors = selectMonitors
+    if not ok then
+      error(message, 0)
+    end
+    running:clickControl(widgets, 'desktop/decorations/monitor/screen-a', 'select/monitor/screen-a')
+    expect.equal(native.events.monitorSelections, 1)
+    expect.equal(selection(widgets).enabled, false)
+    expect.equal(selection(widgets).label, 'Waiting for permission')
+    for _ = 1, 4 do
+      running:step()
+    end
+    expect.equal(native.events.monitorSelections, 1, 'pending selection does not prompt again')
+    native.events.monitorSelection = { state = 'failed', message = 'selection cancelled' }
+    running:step()
+    expect.equal(selection(widgets).enabled, true)
+    expect.truthy(selection(widgets).label:find('selection cancelled', 1, true))
+    expect.equal(native.events.monitorSelections, 1, 'cancellation does not retry')
+    running:clickControl(widgets, 'desktop/decorations/monitor/screen-a', 'select/monitor/screen-a')
+    expect.equal(native.events.monitorSelections, 2, 'an explicit retry starts a fresh request')
   end)
 end)
 

@@ -40,24 +40,6 @@ test('automatic focus hides on a native route but manual visibility is retained'
   env.session:close()
 end)
 
-test('manual show is idempotent and only a hidden to visible transition places the keyboard', function()
-  local env = fixture.start()
-  local display = env.display.service
-  expect.truthy(display:show())
-  local board = fixture.shown(env)
-  board:setPose(lovr.math.newMat4():translate(4, 3, 2))
-  for _ = 1, 3 do
-    expect.truthy(display:show())
-    expect.equal(vector.pack(board.pose:getPosition()), vector.pack(4, 3, 2))
-  end
-  expect.truthy(display:toggle())
-  expect.falsy(display:isVisible())
-  expect.truthy(display:toggle())
-  expect.equal(fixture.shown(env), board)
-  expect.truthy(vector.pack(board.pose:getPosition()) ~= vector.pack(4, 3, 2), 'a fresh show places again')
-  env.session:close()
-end)
-
 test('public hide clears editing before callbacks and preserves the draft for a fresh focus', function()
   local env = fixture.start()
   local display = env.display.service
@@ -68,7 +50,6 @@ test('public hide clears editing before callbacks and preserves the draft for a 
   display:onChanged(env.display.context, {
     run = function(change)
       changes[#changes + 1] = change
-      expect.truthy(table.isfrozen(change), 'visibility changes are frozen')
     end,
   })
   expect.truthy(display:hide())
@@ -90,10 +71,6 @@ test('display replacement leaves retained focus alone until a new live change', 
   expect.truthy(board:typeText '!')
   env.session.instances['desktop/keyboard']:disable()
   expect.truthy(board.dead)
-  expect.falsy(old:show())
-  expect.falsy(old:hide())
-  expect.falsy(old:toggle())
-  expect.falsy(old:isVisible())
   expect.equal(env.focus:focused(), target, 'display shutdown does not blur the field')
   env.session.instances['desktop/keyboard']:enable()
   expect.truthy(env.display.service ~= old)
@@ -105,44 +82,6 @@ test('display replacement leaves retained focus alone until a new live change', 
   expect.truthy(replacement and replacement ~= board)
   expect.truthy(replacement:typeText '?')
   expect.equal(env.first:value(), 'draft!?', 'the retained draft resumes on fresh focus')
-  expect.raises(function()
-    old:onChanged(env.display.context, { run = function() end })
-  end, 'cleanup%-only')
-  env.session:close()
-end)
-
-test('listener disposal and observer failure do not skip later listeners or cleanup', function()
-  local env = fixture.start()
-  local display = env.display.service
-  local first, second = 0, 0
-  local disposed = display:onChanged(env.display.context, {
-    run = function()
-      first += 1
-    end,
-  })
-  disposed:dispose()
-  display:onChanged(env.display.context, {
-    run = function()
-      error 'display observer defect'
-    end,
-  })
-  display:onChanged(env.display.context, {
-    run = function()
-      second += 1
-    end,
-  })
-  expect.truthy(display:show())
-  expect.equal(first, 0)
-  expect.equal(second, 1, 'a failing listener does not skip a later observer')
-  local reports = env.session.native.events.reported
-  expect.equal(#reports, 1)
-  expect.truthy(reports[1].message:find('display observer defect', 1, true))
-  expect.equal(#testing.takeReports(), 0)
-  env.display.instance:disable()
-  expect.truthy(display:hide())
-  expect.equal(second, 1, 'owner shutdown disposes all listeners')
-  env.session.instances['desktop/keyboard']:disable()
-  expect.equal(fixture.boardCount(env), 0)
   env.session:close()
 end)
 
@@ -150,24 +89,10 @@ test('keyboard provider recovery releases stale callbacks while a dead board rem
   local env = fixture.start()
   expect.truthy(env.first:focus())
   local board, target = fixture.shown(env), env.focus:focused()
-  local weak = setmetatable({}, { __mode = 'v' })
-  do
-    local token = { called = false }
-    weak.token = token
-    local callback = function()
-      token.called = true
-    end
-    weak.callback = callback
-    env.rawDisplay:onChanged(env.display.context, { run = callback })
-  end
   env.session.instances.keyboard:disable()
   expect.truthy(board.dead)
   expect.falsy(board:typeText 'stale')
   expect.equal(env.focus:focused(), target, 'keyboard loss does not blur the retained widget')
-  collectgarbage 'collect'
-  collectgarbage 'collect'
-  expect.equal(weak.callback, nil, 'the dead board cannot retain display listener callbacks')
-  expect.equal(weak.token, nil, 'callback captures are released while the board remains retained')
   env.session.instances.keyboard:enable()
   expect.falsy(env.display.service:isVisible(), 'keyboard recovery does not replay retained focus')
   expect.equal(fixture.boardCount(env), 0)

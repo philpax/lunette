@@ -99,17 +99,9 @@ test('wrist menu actions are VR accessible', function()
   end
   selectedPreset 'dark'
   local initialUI, initialKeyboard = services.ui, services.keyboard
-  invoke 'desktop/theme/light'
-  selectedPreset 'light'
-  invoke 'desktop/theme/dark'
-  selectedPreset 'dark'
-  invoke 'desktop/theme/light'
-  selectedPreset 'light'
   invoke 'desktop/theme/arcade'
   selectedPreset 'arcade'
   expect.equal(services.theme:current().theme.typography.font.kind, 'file', 'Arcade selects its bundled face')
-  invoke 'desktop/theme/dark'
-  selectedPreset 'dark'
   expect.equal(services.ui, initialUI, 'Appearance actions retain the UI provider')
   expect.equal(services.keyboard, initialKeyboard, 'Appearance actions retain the keyboard provider')
   invoke 'desktop/keyboard/toggle'

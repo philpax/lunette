@@ -1,4 +1,4 @@
--- Holds the shared ray during a trigger pull; deliberate movement resumes aiming until the trigger is released.
+-- Holds the shared ray during a trigger pull. Deliberate movement resumes aiming until the trigger is released.
 local schema = require '@lunette-plugin/schema'
 local contracts = require '@lunette-contracts/laser'
 

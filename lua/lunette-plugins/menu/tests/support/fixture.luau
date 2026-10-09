@@ -17,7 +17,7 @@ function fixture.start()
   }
 end
 
-function fixture.probe(env, name, init)
+function fixture.probe(env, name)
   local found = {}
   found.instance = env.session:use(plugin.define {
     name = name,
@@ -25,9 +25,6 @@ function fixture.probe(env, name, init)
     init = function(context)
       found.owner = context
       found.service = context:require(contract.capability)
-      if init then
-        init(found)
-      end
     end,
   })
   return found

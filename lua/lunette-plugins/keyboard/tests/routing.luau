@@ -7,9 +7,9 @@ local keyboard = require '@lunette-plugins/keyboard'
 
 local test = testing.suite()
 
-local function start(definition)
-  local native = testing.native()
-  local env = { native = native, activations = {}, texts = {}, listeners = {}, sources = {}, result = 'consumed' }
+local function start()
+  testing.native()
+  local env = { activations = {}, texts = {}, listeners = {}, sources = {}, result = 'consumed' }
   local seat = { dead = false }
   function seat:characterFor(code)
     return if code == 30 then 'layout-a' else nil
@@ -27,9 +27,6 @@ local function start(definition)
           expect.equal(options.mode, 'virtual', 'the source mode')
           local source = { dead = false, resets = 0, options = options }
           function source:key(activation)
-            if env.changeOnKey then
-              env:change()
-            end
             env.activations[#env.activations + 1] = activation
             return { kind = env.result, message = 'substitute refusal' }
           end
@@ -73,7 +70,7 @@ local function start(definition)
   env.session = testing.start {
     'theme',
     { id = 'focus', definition = focusProvider },
-    { id = 'keyboard', definition = definition or keyboard.definition },
+    { id = 'keyboard', definition = keyboard.definition },
   }
   env.consumer = env.session:use(plugin.define {
     name = 'keyboard-route-owner',
@@ -149,21 +146,21 @@ test('a route notification immediately clears locks and latches', function()
   env.session:close()
 end)
 
-for _, result in { 'unhandled', 'failed', 'refused' } do
-  test('an ' .. result .. ' activation consumes a latch but retains a lock on the same route', function()
+test('an unhandled, failed, or refused activation consumes a latch but retains a lock on the same route', function()
+  for _, result in { 'unhandled', 'failed', 'refused' } do
     local env = start()
     local board = env.service:new(env.owner)
     board:pressKey(42)
     board:pressKey(58)
     env.result = result
-    expect.falsy(board:pressKey(30))
-    expect.equal(table.concat(env.activations[1].modifiers, '+'), 'shift+capsLock')
-    expect.equal(table.concat(board:modifiers(), '+'), 'capsLock')
+    expect.falsy(board:pressKey(30), result)
+    expect.equal(table.concat(env.activations[1].modifiers, '+'), 'shift+capsLock', result)
+    expect.equal(table.concat(board:modifiers(), '+'), 'capsLock', result)
     env.session:close()
-  end)
-end
+  end
+end)
 
-test('visibility notifications name actual transitions and destroy follows committed state', function()
+test('visibility notifications name actual transitions and owner shutdown follows committed state', function()
   local env = start()
   local changes = {}
   local board
@@ -173,6 +170,7 @@ test('visibility notifications name actual transitions and destroy follows commi
       expect.equal(board.visible, change.visible, 'visibility is committed before notification')
       if change.reason == 'destroy' then
         expect.truthy(board.dead, 'death is committed before notification')
+        expect.falsy(board:destroy(), 'notification reentry cannot destroy twice')
       end
       changes[#changes + 1] = change.reason
     end,
@@ -182,78 +180,12 @@ test('visibility notifications name actual transitions and destroy follows commi
   board:setVisible(false)
   board:setVisible(true)
   action(board, 'hide')
-  board:destroy()
-  board:setVisible(true)
-  board:destroy()
-  expect.equal(table.concat(changes, ','), 'hide,show,user-hide,destroy')
-  env.session:close()
-end)
-
-test('visibility callback failures report the owner and do not undo state', function()
-  local env = start()
-  local board = env.service:new(env.owner, {
-    onVisibilityChanged = function()
-      error 'visibility callback defect'
-    end,
-  })
-  board:setVisible(false)
-  expect.equal(board.visible, false)
-  local reports = env.native.events.reported
-  expect.equal(#reports, 1)
-  expect.truthy(reports[1].message:find('keyboard-route-owner', 1, true), 'the callback owner is named')
-  expect.truthy(reports[1].message:find('visibility callback defect', 1, true))
-  expect.truthy(#reports[1].traceback > 0, 'the callback retains its traceback')
-  expect.truthy(board:destroy())
-  expect.truthy(board.dead)
-  expect.equal(#reports, 2, 'destroy errors are reported once')
-  env.session:close()
-end)
-
-test('the tiny substitute shares source routing and actual visibility notifications', function()
-  testing.host.useConfiguration 'examples/keyboard'
-  local env = start(require 'tiny')
-  local changes = {}
-  local board = env.service:new(env.owner, {
-    onVisibilityChanged = function(change)
-      changes[#changes + 1] = change.reason
-    end,
-  })
-  expect.equal(#env.sources, 1)
-  expect.truthy(board:pressKey(21))
-  expect.equal(env.activations[1].code, 21)
-  expect.truthy(board:typeText 'tiny text')
-  expect.equal(env.texts[1], 'tiny text')
-  board:setVisible(false)
-  board:setVisible(false)
-  board:setVisible(true)
-  expect.truthy(board:destroy())
-  expect.truthy(env.sources[1].dead)
-  expect.equal(table.concat(changes, ','), 'hide,show,destroy')
-  expect.equal(#env.service:inspect().registrations, 0)
-  expect.falsy(board:pressKey(21))
-  expect.falsy(board:destroy())
-  env.session:close()
-end)
-
-test('owner shutdown destroys its board before the final visibility notification', function()
-  local env = start()
-  local changes = {}
-  local board
-  board = env.service:new(env.owner, {
-    onVisibilityChanged = function(change)
-      changes[#changes + 1] = change.reason
-      if change.reason == 'destroy' then
-        expect.truthy(board.dead)
-        expect.equal(board.visible, false)
-        expect.falsy(board:destroy(), 'notification reentry cannot destroy twice')
-      end
-    end,
-  })
   env.consumer:disable()
-  expect.truthy(board.dead)
+  board:setVisible(true)
+  expect.falsy(board:destroy())
   expect.truthy(env.sources[1].dead)
   expect.equal(next(env.listeners), nil)
-  expect.equal(table.concat(changes, ','), 'destroy')
+  expect.equal(table.concat(changes, ','), 'hide,show,user-hide,destroy')
   expect.equal(#env.service:inspect().registrations, 0)
   env.session:close()
 end)

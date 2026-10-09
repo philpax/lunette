@@ -1,5 +1,5 @@
--- Persists panel arrangements across provider outages. Unsupported files remain unchanged. Drop-save failures are
--- logged; quit-save failures are raised without vetoing quit.
+-- Persists panel arrangements across provider outages. Drop-save failures are logged, and quit-save
+-- failures are raised without vetoing quit.
 
 local plugin = require '@lunette-plugin'
 local arrangementContract = require '@lunette-contracts/arrangement'

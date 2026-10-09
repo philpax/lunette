@@ -1,5 +1,4 @@
--- Covers how a plugin failure is reported: an initializer's error keeps its position and traceback, a
--- schema mismatch names both schemas, and a provider awaiting quarantine keeps serving until it unloads.
+-- Covers how plugin failures are reported.
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
@@ -156,8 +155,7 @@ test('a provider whose disposal failed keeps serving its consumers until it unlo
   expect.equal(consumer:state(), 'inactive', 'the consumer unloads cleanly')
   expect.equal(released[1], 'released', 'the consumer inverse reached the provider')
   expect.equal(provider:state(), 'quarantined', 'the provider once it has unloaded')
-  -- The failed disposal raised to its caller and is not reported again. The consumer, still enabled, now
-  -- waits on a quarantined provider.
+  -- The failed disposal raised to its caller, so the one report is the consumer waiting on the quarantined provider.
   local reports = testing.takeReports()
   expect.equal(#reports, 1, 'the reports')
   expect.truthy(reports[1]:find('is quarantined after a cleanup failure', 1, true), reports[1])

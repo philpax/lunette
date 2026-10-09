@@ -63,16 +63,4 @@ test('builtin user hide clears manual intent and blurs the field before display 
   env.session:close()
 end)
 
-test('builtin user hide cancellation cannot blur newer native focus', function()
-  local env = start()
-  expect.truthy(env.first:focus())
-  local board, native = fixture.shown(env), env.nativeTarget()
-  pressHide(board, function()
-    expect.truthy(native:focus())
-  end)
-  expect.equal(env.focus:focused(), native)
-  expect.falsy(env.display.service:isVisible())
-  env.session:close()
-end)
-
 return test

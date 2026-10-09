@@ -1,5 +1,4 @@
--- Covers the view a consumer reads a provision through: it is frozen, it serves while the provider's
--- activation lasts, and it raises once that activation has ended, even for a reference the consumer kept.
+-- Covers the read-only view a consumer reads a provision through, and its revocation when the provider activation ends.
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
@@ -56,7 +55,7 @@ local function start()
   return env
 end
 
-test('consumers of one generation share a view that reads, calls, and iterates the provision', function()
+test('consumers of one generation share a view that reads, calls, iterates, and rejects writes', function()
   local env = start()
   expect.truthy(rawequal(env.seen.first, env.seen.second), 'the consumers share the view')
   local limit, count = env.kept:bump(2)
@@ -72,11 +71,6 @@ test('consumers of one generation share a view that reads, calls, and iterates t
   end, 'the bump is refused')
   expect.truthy(refused:find('revocation', 1, true), 'the error keeps the position it was raised at: ' .. refused)
   expect.falsy(refused:find('adapter', 1, true), 'the adapter adds no position: ' .. refused)
-  env.runtime:close()
-end)
-
-test('a view raises on every write', function()
-  local env = start()
   expect.raises(function()
     env.kept.LIMIT = 4
   end, 'capability local/revocation%-counter@1 is read%-only, so LIMIT cannot be assigned')
@@ -109,8 +103,7 @@ test('a kept view raises once its provider activation ends, and the next generat
   expect.raises(function()
     staleDoubler(1)
   end, 'local/revocation%-doubler@1 is no longer available', 'a call')
-  -- A method read before revocation is a value like any other read. The view guards reads, not the provider
-  -- state that a kept function closes over.
+  -- The view guards reads, not the provider state that a method read before revocation closes over.
   expect.equal(type(method), 'function', 'a method read before revocation')
 
   env.provider:enable()

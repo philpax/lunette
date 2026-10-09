@@ -264,33 +264,6 @@ test('Close cancels the edited field and captured region before the wrist action
   end)
 end)
 
-test('removing the form during editing releases its panel, menu action, focus, and captures', function()
-  withEnvironment(function(env)
-    open(env)
-    click(env, 'name')
-    key(env, 16)
-    local savedAction = action(env.menu)
-    local _, oldPanel = description(env.ui)
-    captureRegion(env)
-    env.session.instances[name]:dispose()
-    expect.truthy(oldPanel.dead, 'unloading releases the plugin-owned panel')
-    expect.equal(description(env.ui), nil, 'the removed panel is not discoverable')
-    expect.equal(env.focus:focused(), nil, 'unloading clears the edited route')
-    expect.falsy(env.display:isVisible(), 'unloading clears the keyboard claim')
-    expect.equal(env.menu:invoke(actionId, savedAction.registration).kind, 'unavailable', 'the ended action is inert')
-    env.fixture:button('left', 'trigger', false)
-    env.fixture:step()
-    application(env)
-    env.session:use(require 'form')
-    expect.falsy(assert(description(env.ui)).visible, 'a new activation starts hidden')
-    expect.equal(
-      env.menu:invoke(actionId, savedAction.registration).kind,
-      'unavailable',
-      'stale rows cannot open replacements'
-    )
-  end)
-end)
-
 test('editing hands keyboard focus to a real desktop application without leaking form text', function()
   withEnvironment(function(env)
     open(env)

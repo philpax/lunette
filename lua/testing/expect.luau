@@ -50,7 +50,6 @@ function expect.near(actual: unknown, wanted: number, tolerance: number, context
   end
 end
 
--- The optional pattern uses Lua pattern syntax.
 function expect.raises(run: () -> (), pattern: string?, context: string?): string
   local ok, message = pcall(run)
   if ok then

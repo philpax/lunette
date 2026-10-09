@@ -1,7 +1,5 @@
--- Requires modules by relative path from a nested directory. Each module answers where it is as a
--- singleton type, so the checker reports a wrong resolution, and the session quits with a status naming
--- the first failed assertion. The top-level `b.luau` is what a root-relative resolution of
--- `nested/a.luau`'s `./b` would wrongly load.
+-- Requires modules by relative path from a nested directory, and quits with a status naming the
+-- first wrong resolution. The top-level `b.luau` is what a root-relative resolution would load.
 
 -- Protected, because an error at the top level would start safe mode, which does not quit.
 local function modules()

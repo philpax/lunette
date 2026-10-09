@@ -1,12 +1,8 @@
 -- Configuration for the lunctl fixture.
---
--- The session has to keep running on a machine with no display, no XR runtime,
--- and no sound device, so the modules that depend on those are off.
+-- The modules that need a display, an XR runtime, or a sound device are off so the session runs headless.
 
 function lovr.conf(t)
-  -- This identity is distinct from the other fixtures' identities. boot.lua
-  -- creates $XDG_DATA_HOME/LOVR/<identity> on every run, and two runs sharing
-  -- a leaf race to create it.
+  -- A distinct identity, because boot.lua creates $XDG_DATA_HOME/LOVR/<identity> and two runs sharing a leaf race to create it.
   t.identity = 'lunette-lunctl'
 
   t.saveprecedence = false

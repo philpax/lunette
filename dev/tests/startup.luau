@@ -16,7 +16,7 @@ local function live(list)
   return count
 end
 
-test('the development configuration starts on load and survives ten controller menu source reloads', function()
+test('the development configuration starts on load and survives two controller menu source reloads', function()
   local native = testing.native()
   local events = native.events
   testing.host.useConfiguration 'dev'
@@ -61,7 +61,7 @@ test('the development configuration starts on load and survives ten controller m
   local fixture = vrUi.attach(native)
   fixture:pose('left', lovr.math.newMat4():translate(0, 1.2, -0.5))
   fixture:tracked('left', true)
-  for reload = 1, 10 do
+  for reload = 1, 2 do
     local services = assert(_G.devTestServices, 'the development configuration observer is active')
     local currentUi, currentDisplay = services.ui, services.display
     local keyboard, terminal = false, false

@@ -72,15 +72,9 @@ local inspection = require '@lunette-contracts/inspection'
 
 export type Service = {
   read inspect: (Service) -> inspection.Snapshot,
-  -- Blocks physical text in the current batch without advancing its id or mutating an earlier frozen Batch.
-  -- State changes before observers run. Repeated requests succeed without another notification.
-  -- Returns false without effects for a non-current id or an absent batch; a cached method also rejects an ended activation.
+  -- Returns false for a batch id that is not current. docs/dev/lua-api.md states the protocol.
   read blockText: (Service, number) -> boolean,
-  -- Observers run in registration order at boundaries before update, binding, and delivery handlers.
-  -- A binding key handler returning true replaces the frozen Batch with textBlocked = true and the same id.
-  -- Observers receive that metadata change before another physical callback; the next batch opens unblocked.
-  -- Registration immediately reports the same frozen current Batch if one exists, without opening a batch.
-  -- Every notification reports callback errors and continues to later observers unless a newer Batch supersedes it.
+  -- Registration reports the current batch immediately if one exists.
   read onBatch: (Service, Owner, BatchHandler) -> plugin.Effect,
   read onUpdate: (Service, Owner, UpdateHandler) -> plugin.Effect,
   read onDraw: (Service, Owner, DrawHandler) -> plugin.Effect,

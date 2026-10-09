@@ -174,7 +174,6 @@ function graph.pan(camera: Camera, delta: Point): Camera
   return { x = camera.x - delta.x / camera.zoom, y = camera.y - delta.y / camera.zoom, zoom = camera.zoom }
 end
 
--- Zoom retains the world point under the pointer, including at the scale limits.
 function graph.zoom(camera: Camera, pointer: Point, factor: number): Camera
   local anchor = graph.world(camera, pointer)
   local zoom = math.clamp(camera.zoom * factor, MIN_ZOOM, MAX_ZOOM)

@@ -63,7 +63,6 @@ function service.panelOptions(properties: Properties, window: lunette.Window): p
   }
 end
 
--- Each named tag is held, which creates it when needed.
 local function joinTags(
   state: State,
   created: panelsContract.WindowPanel,

@@ -207,7 +207,6 @@ local function build(context: plugin.Context, settings: Settings): Service
     end
   end)
 
-  -- Panels check activation liveness through their host.
   local service: Service = {
     inspect = function(_self: Service): inspection.Snapshot
       local result = state.added:inspect 'panels.onAdded'

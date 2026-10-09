@@ -1,21 +1,7 @@
 //! Linux-only: the monitor handle Lua holds.
 //!
-//! A monitor is one of the user's own screens, not a window lunette hosts. The
-//! handle names it by the identity `lunette-capture` resolved: a make and model
-//! where the host reports one, a connector name where it does not. Every access
-//! reads the monitor's state from the mirror lifecycle, for the same reason
-//! [`crate::lua::Window`] does: Rust holds no reference into Lua, so it cannot
-//! walk the handles Lua is keeping at frame start.
-//!
-//! # The mirroring request
-//!
-//! `monitor:mirror()` prefers direct host capture and falls back to the portal.
-//! Portal permission is asynchronous; direct setup inherits the pinned client's
-//! synchronous initialization. A stream can be installed before its first frame.
-//!
-//! `monitor:dismiss()` removes the active mirror and texture. PipeWire joins its
-//! worker and keeps the portal session; the pinned direct worker may remain
-//! detached. Direct pause is likewise an upstream no-op.
+//! Every access reads the monitor's state from the mirror lifecycle, because
+//! Rust holds no reference into Lua and cannot refresh held handles at frame start.
 
 use std::{cell::RefCell, rc::Rc};
 
@@ -57,9 +43,8 @@ impl<T> Monitor<T> {
 
     /// Brings the cache up to date, reporting whether the monitor is attached.
     ///
-    /// A monitor absent from the registry is unplugged. The handle is dead
-    /// afterwards: it keeps answering from the last-known state, and every
-    /// operation is refused.
+    /// An unplugged monitor's handle keeps its last-known state and refuses
+    /// every operation.
     fn refresh(&self) -> bool {
         let Some(state) = self.session.mirrors().state(&self.key) else {
             return false;
@@ -74,8 +59,7 @@ handle! {
     /// screencast portal and not hosted by this compositor.
     Monitor<T: LuaTexture> = HandleKind::Monitor;
 
-    /// The saved identity, and what a table of per-monitor state is keyed by.
-    /// Stable across a restart and across the monitor moving to another port.
+    /// The saved identity, stable across a restart and a change of port.
     field id(_lua, this) -> String { Ok(this.key.to_string()) }
 
     /// The identity as a user would recognise it, such as `Acme X24 on DP-1`.
@@ -97,9 +81,8 @@ handle! {
         Ok(this.refresh() && this.session.mirrors().is_direct(&this.key))
     }
 
-    /// Whether a mirror has been asked for and has not arrived. True while a
-    /// portal dialog is on the user's screen, and false once the user accepts
-    /// or declines.
+    /// Whether a mirror has been asked for and has not arrived, such as while a
+    /// portal dialog is open.
     field pending(_lua, this) -> bool {
         this.refresh();
         Ok(this.known.borrow().pending)
@@ -117,8 +100,7 @@ handle! {
         Ok(this.known.borrow().pixels.height)
     }
 
-    /// Where the monitor is on the host desktop, in the compositor's logical
-    /// coordinates and not in pixels. A pointer is placed in this space.
+    /// The monitor's position on the host desktop, in logical coordinates.
     field x(_lua, this) -> i32 {
         this.refresh();
         Ok(this.known.borrow().geometry.position.x)
@@ -140,7 +122,6 @@ handle! {
     }
 
     /// The current frame's UV transform, or nil before a frame is installed.
-    /// Undefined and normal sample unchanged; rotations and flips follow WayVR.
     field frameTransform(_lua, this) -> Option<CaptureTransform> {
         if !this.refresh() { return Ok(None); }
         Ok(this.session.with_monitor_textures(|textures| {
@@ -148,30 +129,25 @@ handle! {
         }))
     }
 
-    /// Where input for this monitor goes: a sink in the host domain, present
-    /// whether or not the monitor is mirrored. Pointing at the host desktop
-    /// does not require lunette to be showing it.
+    /// The host-domain sink for this monitor, present whether or not it is
+    /// mirrored.
     field sink(_lua, this) -> Sink<T> {
         this.refresh();
         Ok(Sink::host(Rc::clone(&this.session), this.key.clone()))
     }
 
-    /// The latest captured frame of this monitor. False while the monitor is
-    /// gone, while it is not mirrored, or while it has produced no frame yet.
-    /// Read again each frame rather than caching a rotating capture texture.
+    /// The latest captured frame, or false while the monitor is gone, not
+    /// mirrored, or has no frame yet. The texture rotates, so read it each frame.
     method getTexture(lua, this: Textured) -> MaybeTexture { get_texture(lua, this) }
 
-    /// Requests this screen to be captured, preferring direct capture. True
-    /// once a stream is installed or requested, not necessarily producing.
-    /// The portal fallback may prompt asynchronously.
+    /// Requests this screen to be captured. True once a stream is installed or
+    /// requested; the portal fallback may prompt first.
     method mirror(_lua, this) -> bool { Ok(mirror(this)) }
 
-    /// Removes the active mirror and texture. PipeWire joins its worker and
-    /// keeps the portal session; the pinned direct worker may remain detached.
+    /// Removes the active mirror and texture.
     method dismiss(_lua, this) -> bool { Ok(dismiss(this)) }
 
-    /// Deactivates PipeWire without giving up its session. The pinned direct
-    /// backend accepts the request but implements pause and resume as no-ops.
+    /// Pauses or resumes the mirror without giving up its session.
     method setPaused(_lua, this, paused: bool) -> bool { Ok(set_paused(this, paused)) }
 }
 
@@ -243,7 +219,7 @@ pub(crate) fn monitor_selection<T>(session: &Rc<Session<T>>) -> MonitorSelection
 record! {
     /// The latest fresh monitor-selection request's state, independent of running capture.
     struct MonitorSelection {
-        /// idle, pending, ready, or failed. Ready describes the portal grant, not a received frame.
+        /// Ready describes the portal grant, not a received frame.
         state: SelectionName,
         /// The portal error when state is failed.
         message: Option<String>,
@@ -273,9 +249,7 @@ impl Typed for SelectionName {
 
 /// `lunette.monitors()`: every screen lunette can mirror, this frame.
 ///
-/// Sorted by identity and not by the order the host enumerated the monitors.
-/// An arrangement derived from this list does not change when a cable is
-/// replugged and nothing else has.
+/// Sorted by identity, so replugging a cable does not reorder the list.
 ///
 /// # Errors
 ///
@@ -294,17 +268,14 @@ pub(crate) fn monitors<T: LuaTexture>(
 
 /// `monitor:getTexture()`: the texture holding this monitor's latest frame.
 ///
-/// Valid for this frame alone, for the same reason `window:getTexture()` is:
-/// PipeWire cycles a small pool of buffers and the texture rotates with them.
-/// Call it again each frame and do not cache it.
+/// Valid for this frame alone, because PipeWire cycles a small pool of buffers.
 fn get_texture<T: LuaTexture>(lua: &mlua::Lua, monitor: &Monitor<T>) -> mlua::Result<MaybeTexture> {
     if !monitor.refresh() {
         return Ok(MaybeTexture(Value::Boolean(false)));
     }
 
-    // The push runs while the ledger is borrowed. That is safe here and
-    // nowhere else: it pushes a value, and no Lua the caller wrote runs until
-    // it returns.
+    // Pushing while the ledger is borrowed is safe because no caller Lua runs
+    // until it returns.
     monitor.session.with_monitor_textures(|textures| {
         textures
             .texture(&monitor.key)
@@ -315,7 +286,9 @@ fn get_texture<T: LuaTexture>(lua: &mlua::Lua, monitor: &Monitor<T>) -> mlua::Re
 
 /// `monitor:mirror()`: requests this screen to be captured.
 ///
-/// Returns false when the portal refused the request or the monitor is gone.
+/// Direct capture is preferred and the portal is the fallback. Portal
+/// permission is asynchronous. Returns false when the request is refused or
+/// the monitor is gone.
 fn mirror<T>(monitor: &Monitor<T>) -> bool {
     if !monitor.refresh() {
         return false;
@@ -329,26 +302,23 @@ fn mirror<T>(monitor: &Monitor<T>) -> bool {
             warn!(monitor = %monitor.key, %error, "a monitor could not be mirrored");
             false
         }
-        // Unreachable through the refresh above, which establishes that the
-        // registry holds this monitor.
+        // The refresh above establishes that the registry holds this monitor.
         MirrorOutcome::NoSuchMonitor => false,
     }
 }
 
 /// `monitor:dismiss()`: removes the active mirror and texture.
 ///
-/// PipeWire drops and joins its worker, retaining the portal session. The
-/// pinned direct worker has no cancellation or joined-drop contract.
-/// Returns false when no mirror was active.
+/// PipeWire joins its worker and keeps the portal session. The pinned direct
+/// worker may remain detached. Returns false when no mirror was active.
 fn dismiss<T>(monitor: &Monitor<T>) -> bool {
     monitor.session.mirrors().dismiss(&monitor.key)
 }
 
 /// `monitor:setPaused(paused)`: forwards the backend's pause request.
 ///
-/// PipeWire changes stream activity while retaining its session. The pinned
-/// direct backend's pause and resume methods are no-ops.
-/// Returns false when no mirror was active.
+/// The pinned direct backend implements pause and resume as no-ops. Returns
+/// false when no mirror was active.
 fn set_paused<T>(monitor: &Monitor<T>, paused: bool) -> bool {
     monitor.session.mirrors().set_paused(&monitor.key, paused)
 }

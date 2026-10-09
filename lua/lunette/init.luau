@@ -57,8 +57,8 @@ type HostSink = { read domain: 'host', read window: nil, read monitor: Monitor? 
 
 export type Sink = SinkFields & (WindowSink | HostSink)
 
--- A mapped toplevel. A handle keeps answering once its window has gone, with
--- the values it cached, and every mutation it offers is refused.
+-- A mapped toplevel. A dead handle answers with cached values and refuses every
+-- mutation.
 export type Window = {
   -- Stable across frames and soft reloads. Per-window properties use this
   -- identifier.
@@ -66,19 +66,18 @@ export type Window = {
   read dead: boolean,
   read title: string?,
   read appId: string?,
-  -- Pixels, and the size the client last committed, not the size last asked of
+  -- The size in pixels the client last committed, not the size last asked of
   -- it.
   read width: number,
   read height: number,
-  -- Whether the fourth pixel component is padding. Clients using an X-variant
-  -- format do not provide alpha; consumers must treat the component as opaque.
-  -- Returns false until a texture exists.
+  -- Whether the fourth pixel component is padding, so a consumer treats it as
+  -- opaque. False until a texture exists.
   read opaque: boolean,
-  -- The content type reported by `wp_content_type_v1`. The protocol value is a
-  -- hint; clients may report `none` while playing video.
+  -- The content type reported by `wp_content_type_v1`. It is a hint, and
+  -- clients may report `none` while playing video.
   read contentType: 'none' | 'photo' | 'video' | 'game',
   -- Where input for this window goes. Nil only for a handle that has never seen
-  -- its window in a snapshot; a dead window still names its sink.
+  -- its window in a snapshot.
   read sink: Sink?,
   -- The output assigned to the window. Returns `nil` if no snapshot has
   -- described the window or its output.
@@ -87,8 +86,8 @@ export type Window = {
   -- before the first commit or after the window closes.
   read commit: number,
   -- This frame's pixels, or `false` when the client is gone or has committed no
-  -- buffer. The texture may change when the client cycles buffers, so callers
-  -- must not cache it across frames.
+  -- buffer. The texture rotates with the client's buffers, so do not cache it
+  -- across frames.
   read getTexture: (self: Textured) -> Texture | false,
   -- Returns a persistent texture copy, updated whenever the surface is damaged.
   read stabilize: (self: Window) -> Texture | false,
@@ -102,19 +101,16 @@ export type Window = {
   read setFrameRate: (self: Window, hertz: number?) -> boolean,
   -- Keeps a value for this window across a soft reload. Nil removes the key.
   read setProperty: (self: Window, key: string, value: boolean | number | string) -> boolean,
-  -- What was kept under a key, or nil. Readable on a dead handle; the mutations
-  -- are not.
+  -- What was kept under a key, or nil. Readable on a dead handle.
   read getProperty: (self: Window, key: string) -> boolean | number | string | nil,
-  -- Every key this window is carrying, so what survived a reload can be
-  -- discovered.
+  -- Every key this window carries.
   read properties: (self: Window) -> { [string]: boolean | number | string },
 }
 
 -- The latest fresh monitor-selection request's state, independent of running
 -- capture.
 export type MonitorSelection = {
-  -- idle, pending, ready, or failed. Ready describes the portal grant, not a
-  -- received frame.
+  -- Ready describes the portal grant, not a received frame.
   state: 'idle' | 'pending' | 'ready' | 'failed',
   -- The portal error when state is failed.
   message: string?,
@@ -123,8 +119,7 @@ export type MonitorSelection = {
 -- One of the user's own screens, mirrored by direct capture or the screencast
 -- portal and not hosted by this compositor.
 export type Monitor = {
-  -- The saved identity, and what a table of per-monitor state is keyed by.
-  -- Stable across a restart and across the monitor moving to another port.
+  -- The saved identity, stable across a restart and a change of port.
   read id: string,
   -- The identity as a user would recognise it, such as `Acme X24 on DP-1`.
   read name: string,
@@ -133,40 +128,32 @@ export type Monitor = {
   read mirrored: boolean,
   -- Whether the active stream uses wlr-screencopy, with no portal selection.
   read directCapture: boolean,
-  -- Whether a mirror has been asked for and has not arrived. True while a
-  -- portal dialog is on the user's screen, and false once the user accepts or
-  -- declines.
+  -- Whether a mirror has been asked for and has not arrived, such as while a
+  -- portal dialog is open.
   read pending: boolean,
   -- The host-reported mode in pixels, not necessarily the captured texture
   -- size. Zero on both axes when the host reports no mode.
   read width: number,
   read height: number,
-  -- Where the monitor is on the host desktop, in the compositor's logical
-  -- coordinates and not in pixels. A pointer is placed in this space.
+  -- The monitor's position on the host desktop, in logical coordinates.
   read x: number,
   read y: number,
   read logicalWidth: number,
   read logicalHeight: number,
   -- The current frame's UV transform, or nil before a frame is installed.
-  -- Undefined and normal sample unchanged; rotations and flips follow WayVR.
   read frameTransform: ('undefined' | 'normal' | 'rot90' | 'rot180' | 'rot270' | 'flipped' | 'flipped90' | 'flipped180' | 'flipped270')?,
-  -- Where input for this monitor goes: a sink in the host domain, present
-  -- whether or not the monitor is mirrored. Pointing at the host desktop does
-  -- not require lunette to be showing it.
+  -- The host-domain sink for this monitor, present whether or not it is
+  -- mirrored.
   read sink: Sink,
-  -- The latest captured frame of this monitor. False while the monitor is gone,
-  -- while it is not mirrored, or while it has produced no frame yet. Read again
-  -- each frame rather than caching a rotating capture texture.
+  -- The latest captured frame, or false while the monitor is gone, not
+  -- mirrored, or has no frame yet. The texture rotates, so read it each frame.
   read getTexture: (self: Textured) -> Texture | false,
-  -- Requests this screen to be captured, preferring direct capture. True once a
-  -- stream is installed or requested, not necessarily producing. The portal
-  -- fallback may prompt asynchronously.
+  -- Requests this screen to be captured. True once a stream is installed or
+  -- requested; the portal fallback may prompt first.
   read mirror: (self: Monitor) -> boolean,
-  -- Removes the active mirror and texture. PipeWire joins its worker and keeps
-  -- the portal session; the pinned direct worker may remain detached.
+  -- Removes the active mirror and texture.
   read dismiss: (self: Monitor) -> boolean,
-  -- Deactivates PipeWire without giving up its session. The pinned direct
-  -- backend accepts the request but implements pause and resume as no-ops.
+  -- Pauses or resumes the mirror without giving up its session.
   read setPaused: (self: Monitor, paused: boolean) -> boolean,
 }
 
@@ -210,18 +197,16 @@ export type SeatOptions = {
 -- A seat with its own pointer and keyboard. Clients see it as `wl_seat`.
 export type Seat = {
   read id: number,
-  -- What clients see on `wl_seat.name`. The name field is the only thing on the
-  -- wire that tells two seats apart.
+  -- What clients see on `wl_seat.name`, the only thing on the wire that tells
+  -- two seats apart.
   read name: string,
   -- True before the compositor creates the seat and after the seat is
-  -- destroyed. The two cases are indistinguishable, and nothing can be
-  -- delivered to either.
+  -- destroyed.
   read dead: boolean,
   -- Whether this seat's clipboard and primary selection are the host desktop's.
-  -- At most one seat's are, because the host has one of each.
+  -- At most one seat's are.
   read clipboardBridge: boolean,
-  -- The modifiers this seat holds. The value matches the last notification sent
-  -- to clients.
+  -- The modifiers this seat holds, as last sent to clients.
   read modifiers: { string },
   -- Human-readable layout names from this seat's keymap.
   read layouts: { string },
@@ -271,11 +256,10 @@ export type Output = {
   -- The refresh rate in hertz. The protocol carries millihertz.
   read refresh: number,
   -- Changes the mode, keeping the fields the table does not name. Clients
-  -- reallocate and re-lay-out in response. A caller that changes the mode
-  -- continuously makes clients do so continuously.
+  -- reallocate and re-lay-out in response.
   read setMode: (self: Output, mode: OutputMode) -> boolean,
-  -- Withdraws the output's `wl_output` global. The output every session starts
-  -- with is refused. A client assigned no output is shown it.
+  -- Withdraws the output's `wl_output` global. The default output is refused,
+  -- because a client assigned no output is shown it.
   read destroy: (self: Output) -> boolean,
 }
 
@@ -363,9 +347,8 @@ export type WindowOpenedEvent = {
   window: Window,
 }
 
--- A toplevel closes. The handle is already dead, because the snapshot the
--- handler reads no longer lists the window; the handle still reports the
--- window's last title, size, and identifier.
+-- A toplevel closes. The handle is already dead but still reports the window's
+-- last title, size, and identifier.
 export type WindowClosedEvent = {
   -- The window that closed.
   window: Window,
@@ -375,20 +358,17 @@ export type WindowClosedEvent = {
 export type TitleChangedEvent = {
   -- The window whose title changed.
   window: Window,
-  -- The new title. Also readable as `event.window.title`; duplicated in the
-  -- payload because the callback reports a change, and a handler comparing
-  -- against a stored value needs the new value without a further read of the
-  -- window.
+  -- The new title, duplicated in the payload so a handler comparing against a
+  -- stored value needs no further read.
   title: string,
 }
 
--- A host screen appears. The event includes every screen attached at lunette
--- startup.
+-- A host screen appears, including every screen attached at startup.
 export type MonitorAddedEvent = {
   -- The key `lunette-capture` identifies the screen by.
   id: string,
-  -- The handle, while the screen is still attached. A screen unplugged between
-  -- the report and the dispatch has no handle; the payload carries its name.
+  -- The handle, while the screen is still attached. A screen unplugged before
+  -- dispatch has no handle.
   monitor: Monitor?,
 }
 
@@ -396,8 +376,7 @@ export type MonitorAddedEvent = {
 export type ProcessExitedEvent = {
   -- The process that ends.
   process: Process,
-  -- Which of the three fields below the event carries. A string, where field
-  -- presence would force a handler to test each field in turn, and a failed
+  -- Which of the three fields below the event carries. A string, so a failed
   -- spawn is not mistaken for an exit with no code.
   outcome: 'exited' | 'signalled' | 'spawnFailed',
   -- The status it exited with.
@@ -415,7 +394,7 @@ export type ProcessOutputEvent = {
   -- Which stream the process writes to.
   stream: 'stdout' | 'stderr',
   -- The bytes written. A Lua string is a byte string, so non-UTF-8 output
-  -- arrives intact; decoding remains the configuration's decision.
+  -- arrives intact.
   text: string,
 }
 
@@ -424,13 +403,13 @@ export type ProcessOutputEvent = {
 export type LayerGrantedEvent = {
   -- The claim that received the layer.
   claim: Claim,
-  -- The layer it holds. Not kept across frames: the layer it names goes away on
+  -- The layer it holds. Not kept across frames, because the layer goes away on
   -- revoke.
   layer: Layer,
 }
 
--- A claim loses its layer to a higher-priority claim, and the panel holding it
--- draws as an in-scene quad until a layer is granted again.
+-- A claim loses its layer to a higher-priority claim, and its panel draws as an
+-- in-scene quad until a layer is granted again.
 export type LayerRevokedEvent = {
   -- The claim that lost the layer.
   claim: Claim,
@@ -662,8 +641,7 @@ export type Lunette = {
   -- Every modifier name a seat accepts, in the order a keymap numbers them.
   -- `seat:setModifiers` takes these names, and `seat.modifiers` returns them.
   read modifierNames: () -> { string },
-  -- Locked modifier names form a subset of `modifierNames()`. Each locked
-  -- modifier toggles on a press.
+  -- The subset of `modifierNames()` that toggles on a press.
   read lockingModifierNames: () -> { string },
   -- Every key lunette names, by name, as the evdev keycode `sink:key` takes.
   -- The table is fresh on each call.

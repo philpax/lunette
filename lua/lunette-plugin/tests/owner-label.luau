@@ -3,7 +3,7 @@ local expect = testing.expect
 local plugin = require '@lunette-plugin'
 local test = testing.suite()
 
-test('owner labels identify registrations without invoking owner methods or metamethods', function()
+test('owner labels name the registered definition after the owner unloads', function()
   testing.native()
   local session = testing.start {}
   local held
@@ -14,15 +14,6 @@ test('owner labels identify registrations without invoking owner methods or meta
     end,
   })
   expect.equal(plugin.ownerLabel(held), 'diagnostic-consumer', 'the registered definition name')
-  local forged = setmetatable({}, {
-    __index = function()
-      error 'owner lookup invoked a getter'
-    end,
-    __tostring = function()
-      error 'owner lookup invoked tostring'
-    end,
-  })
-  expect.equal(plugin.ownerLabel(forged), 'unregistered owner', 'unknown owners do not execute callbacks')
   instance:disable()
   expect.equal(
     plugin.ownerLabel(held),

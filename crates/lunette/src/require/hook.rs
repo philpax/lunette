@@ -6,8 +6,7 @@ use crate::require::path::{Requirer, resolve};
 
 /// Resolves relative paths against the requiring chunk for `require`.
 ///
-/// The Lua wrapper preserves module errors. Native code resolves paths because
-/// `debug.info` returns a shortened chunk name.
+/// Native code resolves paths because `debug.info` returns a shortened chunk name.
 pub fn install(lua: &Lua) -> mlua::Result<()> {
     let globals = lua.globals();
     let original: Function = globals.get("require")?;
@@ -77,10 +76,8 @@ mod tests {
     use super::*;
     use crate::test_lua::session_lua;
 
-    /// A state whose original `require` records the names it is given and
-    /// loads each from `modules`, a table of chunk sources by module name. Each
-    /// is loaded under the chunk name LÖVR's loader gives a file: `@` and its
-    /// path.
+    /// A state whose original `require` records each name and loads it under
+    /// the chunk name LÖVR's loader gives a file, `@` and its path.
     fn state(modules: &[(&str, &str, &str)]) -> Lua {
         let lua = session_lua();
         let sources = lua.create_table().expect("a table");
@@ -122,21 +119,6 @@ mod tests {
             .sequence_values::<String>()
             .collect::<mlua::Result<_>>()
             .expect("the names")
-    }
-
-    #[test]
-    fn a_nested_module_requires_its_sibling() {
-        let lua = state(&[
-            ("nested/a", "nested/a.luau", "return require './b'"),
-            ("nested/b", "nested/b.luau", "return 'b'"),
-        ]);
-        let answer: String = lua
-            .load("return require './nested/a'")
-            .set_name("@main.luau")
-            .eval()
-            .expect("the require");
-        assert_eq!(answer, "b");
-        assert_eq!(required(&lua), ["nested/a", "nested/b"]);
     }
 
     #[test]

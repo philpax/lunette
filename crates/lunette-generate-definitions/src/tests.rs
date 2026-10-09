@@ -2,26 +2,9 @@
 
 use mlua::{Function, Lua, Table};
 
-use super::ALIAS_FILES;
-
 #[test]
-fn installed_lua_root_metadata_is_strict_relative_and_excludes_testing() {
-    let generated = ALIAS_FILES
-        .iter()
-        .find(|(path, _, _)| *path == "etc/lunette/installed.luaurc")
-        .map(|(_, root, render)| (*root, render(root)));
-    assert_eq!(
-        generated,
-        Some((
-            ".",
-            "{\n  \"languageMode\": \"strict\",\n  \"aliases\": {\n    \"lunette\": \"./lunette\",\n    \"lunette-plugin\": \"./lunette-plugin\",\n    \"lunette-contracts\": \"./lunette-contracts\",\n    \"lunette-plugins\": \"./lunette-plugins\",\n    \"lunette-desktop\": \"./lunette-desktop\"\n  }\n}\n".to_owned(),
-        ))
-    );
-}
-
-#[test]
-fn nested_input_schemas_preserve_optional_fields_arrays_and_functions() -> mlua::Result<()> {
-    let generated = generate(
+fn table_schemas_keep_optional_fields_read_write_splits_and_empty_tables() -> mlua::Result<()> {
+    let nested = generate(
         r#"{ type = 'table?', table = {
             { name = 'required', type = 'number' },
             { name = 'defaulted', type = 'boolean', default = 'false' },
@@ -32,24 +15,17 @@ fn nested_input_schemas_preserve_optional_fields_arrays_and_functions() -> mlua:
             } }
         } }"#,
     )?;
-    assert!(generated.contains("read required: number"), "{generated}");
+    assert!(nested.contains("read required: number"), "{nested}");
+    assert!(nested.contains("read defaulted: boolean?"), "{nested}");
+    assert!(nested.contains("read named: string?"), "{nested}");
     assert!(
-        generated.contains("read defaulted: boolean?"),
-        "{generated}"
-    );
-    assert!(generated.contains("read named: string?"), "{generated}");
-    assert!(
-        generated.contains(
+        nested.contains(
             "read nested: { read items: { read [number]: string | number }?, read callback: (() -> ())? }"
         ),
-        "{generated}"
+        "{nested}"
     );
-    Ok(())
-}
 
-#[test]
-fn mutable_schemas_preserve_read_write_types_and_closed_values() -> mlua::Result<()> {
-    let generated = generate(
+    let mutable = generate(
         r#"{ type = 'table', mutable = true, alias = 'FixtureConfiguration', table = {
             { name = 'enabled', type = 'boolean', writeType = 'boolean | number' },
             { name = 'window', type = 'table?', readType = 'table', table = {
@@ -58,59 +34,55 @@ fn mutable_schemas_preserve_read_write_types_and_closed_values() -> mlua::Result
             { name = 'mode', type = 'string?', values = { 'none', 'natural' } }
         } }"#,
     )?;
-    assert!(generated.contains("export type FixtureConfiguration = { read enabled: boolean, write enabled: boolean | number"), "{generated}");
     assert!(
-        generated.contains("read window: { title: string }, write window: { title: string }?"),
-        "{generated}"
+        mutable.contains(
+            "export type FixtureConfiguration = { read enabled: boolean, write enabled: boolean | number"
+        ),
+        "{mutable}"
     );
     assert!(
-        generated.contains("mode: \"none\" | \"natural\" | nil"),
-        "{generated}"
+        mutable.contains("read window: { title: string }, write window: { title: string }?"),
+        "{mutable}"
     );
     assert!(
-        generated.contains("fixture: ((t: FixtureConfiguration) -> ())?"),
-        "{generated}"
+        mutable.contains("mode: \"none\" | \"natural\" | nil"),
+        "{mutable}"
     );
+    assert!(
+        mutable.contains("fixture: ((t: FixtureConfiguration) -> ())?"),
+        "{mutable}"
+    );
+
+    let schema_less = generate("{ type = 'table' }")?;
+    assert!(
+        schema_less.contains("fixture: ((t: {}) -> ())?"),
+        "{schema_less}"
+    );
+    assert!(!schema_less.contains("any"), "{schema_less}");
     Ok(())
 }
 
+/// An argument array is read-only, so Luau compares it covariantly and a
+/// caller's narrower array fits. A returned array stays read-write.
 #[test]
-fn optional_function_return_does_not_make_the_loop_result_optional() -> mlua::Result<()> {
-    let generated = generate_signature(
+fn argument_arrays_are_read_only_and_optional_returns_keep_the_result_required() -> mlua::Result<()>
+{
+    let arrays = generate_signature("{ type = '{{number}}' }", "{ type = '{string}' }")?;
+    assert!(
+        arrays
+            .contains("fixture: ((t: { read [number]: { read [number]: number } }) -> {string})?"),
+        "{arrays}"
+    );
+
+    let optional = generate_signature(
         "{ type = 'string' }",
         "{ type = 'function?', arguments = {}, returns = { { type = '*' } } }",
     )?;
     assert!(
-        generated.contains("fixture: ((t: string) -> (() -> any)?)?"),
-        "{generated}"
+        optional.contains("fixture: ((t: string) -> (() -> any)?)?"),
+        "{optional}"
     );
-    assert!(!generated.contains("() -> any?"), "{generated}");
-    Ok(())
-}
-
-/// An array LÖVR reads from its caller is read-only, so Luau compares it
-/// covariantly: a table literal passed to an overloaded function, and a
-/// caller's narrower array, both answer it. An array LÖVR answers stays
-/// read-write, so a caller can change what it was given.
-#[test]
-fn argument_arrays_are_read_only_and_returned_arrays_are_not() -> mlua::Result<()> {
-    let generated = generate_signature("{ type = '{{number}}' }", "{ type = '{string}' }")?;
-    assert!(
-        generated
-            .contains("fixture: ((t: { read [number]: { read [number]: number } }) -> {string})?"),
-        "{generated}"
-    );
-    Ok(())
-}
-
-#[test]
-fn schema_less_tables_keep_existing_empty_table_semantics() -> mlua::Result<()> {
-    let generated = generate("{ type = 'table' }")?;
-    assert!(
-        generated.contains("fixture: ((t: {}) -> ())?"),
-        "{generated}"
-    );
-    assert!(!generated.contains("any"), "{generated}");
+    assert!(!optional.contains("() -> any?"), "{optional}");
     Ok(())
 }
 

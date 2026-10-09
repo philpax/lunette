@@ -1,9 +1,7 @@
 //! Linux-only: implements seat handles for Lua.
 //!
-//! Each Wayland seat provides one pointer and keyboard. Multiple pointers require multiple seats.
-//! Keymap queries use each seat's published layout. The Lua thread compiles libxkbcommon keymaps
-//! because the library is not thread-safe. Focus changes are explicit and do not follow pointer
-//! motion.
+//! Each Wayland seat provides one pointer and keyboard, so multiple pointers require multiple
+//! seats. The Lua thread compiles its own keymaps because libxkbcommon is not thread-safe.
 
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
@@ -89,16 +87,16 @@ handle! {
 
     field id(_lua, this) -> u64 { Ok(this.id.get()) }
 
-    /// What clients see on `wl_seat.name`. The name field is the only thing on the wire that tells two seats apart.
+    /// What clients see on `wl_seat.name`, the only thing on the wire that tells two seats apart.
     field name(_lua, this) -> String {
         this.refresh();
         Ok(this.name.borrow().clone())
     }
 
-    /// True before the compositor creates the seat and after the seat is destroyed. The two cases are indistinguishable, and nothing can be delivered to either.
+    /// True before the compositor creates the seat and after the seat is destroyed.
     field dead(_lua, this) -> bool { Ok(!this.refresh()) }
 
-    /// Whether this seat's clipboard and primary selection are the host desktop's. At most one seat's are, because the host has one of each.
+    /// Whether this seat's clipboard and primary selection are the host desktop's. At most one seat's are.
     field clipboardBridge(_lua, this) -> bool {
         this.refresh();
         Ok(this
@@ -108,7 +106,7 @@ handle! {
             .is_some_and(|known| known.clipboard_bridge))
     }
 
-    /// The modifiers this seat holds. The value matches the last notification sent to clients.
+    /// The modifiers this seat holds, as last sent to clients.
     field modifiers(_lua, this) -> Vec<String> {
         this.refresh();
         Ok(modifier_names(&this.modifiers()))
@@ -344,8 +342,7 @@ fn set_focus<T: LuaTexture>(seat: &Seat<T>, sink: Option<&Sink<T>>) -> mlua::Res
         Some(sink) => {
             match sink.window_id() {
                 Some(id) => Some(id),
-                // A host sink names a monitor, not a surface, so no focus
-                // target exists.
+                // A host sink names a monitor, which has no focus target.
                 None => return Ok(false),
             }
         }

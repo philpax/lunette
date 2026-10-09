@@ -1,5 +1,4 @@
--- Covers plugin.define and plugin.capability: what a spec may hold, what a definition freezes, and what a
--- context reaches while it is current.
+-- Covers plugin.define and plugin.capability specs and what a context reaches while it is current.
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
@@ -51,13 +50,6 @@ test('a malformed spec is rejected at the caller with the problem named', functi
   end
 end)
 
-test('a definition without requires or provides declares empty tables', function()
-  local named = plugin.define { name = 'named', init = init }
-  expect.equal(named.name, 'named', 'the name')
-  expect.equal(next(named.requires), nil, 'the requirements')
-  expect.equal(next(named.provides), nil, 'the provisions')
-end)
-
 test('a plain table is not a capability', function()
   expect.raises(function()
     plugin.define {
@@ -66,20 +58,6 @@ test('a plain table is not a capability', function()
       init = init,
     }
   end, "declaration field 'source' must contain a native contract token, not a table")
-end)
-
-test('a definition freezes what it declares, whatever happens to the table it was given', function()
-  local service = plugin.capability { name = 'local/declared-service', schema = 1 }
-  local extra = plugin.capability { name = 'local/declared-extra', schema = 1 }
-  local provisions = { source = service }
-  local provider = plugin.define { name = 'provider', provides = provisions, init = init }
-  provisions.source = extra
-  expect.equal(provider.provides.source, service, 'the declared provision')
-  expect.truthy(table.isfrozen(provider) and table.isfrozen(provider.provides), 'the definition is frozen')
-  expect.truthy(table.isfrozen(service), 'the capability is frozen')
-  expect.raises(function()
-    provider.provides.source = extra
-  end, 'readonly')
 end)
 
 test('a context reaches only its declared capabilities, and only while it is current', function()

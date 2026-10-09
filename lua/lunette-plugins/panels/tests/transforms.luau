@@ -24,9 +24,10 @@ local cases = {
   { 'flipped270', { { 1, 1 }, { 1, 0 }, { 0, 1 }, { 0, 0 } } },
 }
 
-for _, case in cases do
-  for _, curve in { 0, 0.4 } do
-    test(case[1] .. ' captures draw the WayVR UVs on a ' .. tostring(curve) .. ' curve', function()
+test('captures draw the WayVR UVs for every transform and curve, and hits stay logical', function()
+  for _, case in cases do
+    for _, curve in { 0, 0.4 } do
+      local label = case[1] .. ' on a ' .. tostring(curve) .. ' curve'
       local native = testing.native()
       local made = native.events.render.meshAcquisitions
       local monitor = native.newMonitor 'portrait'
@@ -47,55 +48,37 @@ for _, case in cases do
       local mesh = made[1]
       if mesh then
         local vertices = mesh.vertices
-        local indices = { 1, #vertices - 1, 2, #vertices }
-        for corner, index in indices do
-          local vertex = vertices[index]
-          expect.equal(vertex[7], case[2][corner][1], 'u corner ' .. corner)
-          expect.equal(vertex[8], case[2][corner][2], 'v corner ' .. corner)
+        for corner, index in { 1, #vertices - 1, 2, #vertices } do
+          expect.equal(vertices[index][7], case[2][corner][1], label .. ': u corner ' .. corner)
+          expect.equal(vertices[index][8], case[2][corner][2], label .. ': v corner ' .. corner)
         end
       else
-        expect.truthy(curve == 0 and (case[1] == 'normal' or case[1] == 'undefined'), 'only identity uses a plane')
+        expect.truthy(curve == 0 and (case[1] == 'normal' or case[1] == 'undefined'), label .. ': a plane')
       end
       drawing.content(target, native.events.pass, ROUNDED, contentShader)
-      local rounded = made[#made]
       local tl, tr, bl = case[2][1], case[2][2], case[2][3]
-      for _, vertex in rounded.vertices do
+      for _, vertex in made[#made].vertices do
         local u = if curve == 0
           then vertex[1] / target.width + 0.5
           else (math.atan2(vertex[1], 1 / curve - vertex[3]) / shape.halfAngle(target.width, curve) + 1) / 2
         local v = 0.5 - vertex[2] / target.height
-        expect.near(
-          vertex[7],
-          tl[1] + u * (tr[1] - tl[1]) + v * (bl[1] - tl[1]),
-          1e-9,
-          'rounded u preserves source orientation'
-        )
-        expect.near(
-          vertex[8],
-          tl[2] + u * (tr[2] - tl[2]) + v * (bl[2] - tl[2]),
-          1e-9,
-          'rounded v preserves source orientation'
-        )
+        expect.near(vertex[7], tl[1] + u * (tr[1] - tl[1]) + v * (bl[1] - tl[1]), 1e-9, label .. ': rounded u')
+        expect.near(vertex[8], tl[2] + u * (tr[2] - tl[2]) + v * (bl[2] - tl[2]), 1e-9, label .. ': rounded v')
       end
-      -- Hit testing stays in logical panel orientation, not transformed texture UVs.
-      local u, v = 0.25, 0.75
-      local localX = (u - 0.5) * target.width
-      if curve > 0 then
-        localX = math.sin((2 * u - 1) * shape.halfAngle(target.width, curve)) / curve
-      end
-      local x, y = shape.hit({
-        pose = target.pose,
-        width = target.width,
-        height = target.height,
-        curve = curve,
-        pixelWidth = 1080,
-        pixelHeight = 1920,
-      }, vector.pack(localX, (0.5 - v) * target.height, 2), vector.pack(0, 0, -1))
-      expect.near(x, 270, 1e-3, 'logical x tolerates the native vector float precision')
-      expect.near(y, 1440, 1e-3, 'logical y tolerates the native vector float precision')
-    end)
+    end
   end
-end
+  -- Hit testing uses the logical panel orientation, which no capture transform changes.
+  local x, y = shape.hit({
+    pose = lovr.math.newMat4(),
+    width = 1.08,
+    height = 1.92,
+    curve = 0,
+    pixelWidth = 1080,
+    pixelHeight = 1920,
+  }, vector.pack(-0.25 * 1.08, -0.25 * 1.92, 2), vector.pack(0, 0, -1))
+  expect.near(x, 270, 1e-3, 'the logical x')
+  expect.near(y, 1440, 1e-3, 'the logical y')
+end)
 
 test('a changed capture transform refreshes an existing panel mesh', function()
   local native = testing.native()

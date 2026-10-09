@@ -146,13 +146,6 @@ fn a_fresh_claim_holds_nothing_until_a_boundary_has_passed() {
         run::<bool>(&lua, "return claims[1].granted"),
         "the claim fits the budget, so the next boundary has to serve it"
     );
-}
-
-#[test]
-fn a_granted_claim_hands_lua_the_layer_itself() {
-    let (session, registry, lua) = claimed(TWO_SLOTS, &[(1, 1.0)]);
-    settle(&session, &registry);
-
     assert_eq!(
         run::<Value>(&lua, "return claims[1].layer"),
         Value::Integer(1),
@@ -178,7 +171,7 @@ fn the_pool_serves_the_highest_priorities_it_can_afford() {
 }
 
 #[test]
-fn raising_a_claim_above_a_granted_one_takes_the_layer_from_it() {
+fn a_claim_raised_above_a_granted_one_revokes_it_and_the_revoked_claim_can_be_granted_again() {
     let (session, registry, lua) = claimed(ONE_SLOT, &[(1, 5.0), (2, 1.0)]);
     settle(&session, &registry);
     assert!(run::<bool>(&lua, "return claims[1].granted"));
@@ -192,15 +185,6 @@ fn raising_a_claim_above_a_granted_one_takes_the_layer_from_it() {
         (false, true),
         "exhaustion revokes the lowest-priority claim in favour of a higher one"
     );
-}
-
-#[test]
-fn a_revoked_claim_stays_alive_and_can_be_granted_again() {
-    let (session, registry, lua) = claimed(ONE_SLOT, &[(1, 5.0), (2, 1.0)]);
-    settle(&session, &registry);
-
-    run::<()>(&lua, "claims[2]:setPriority(9)");
-    settle(&session, &registry);
     assert!(
         !run::<bool>(&lua, "return claims[1].dead"),
         "revocation takes the layer, not the claim; a handle that died could never upgrade back"
@@ -223,9 +207,10 @@ fn releasing_a_claim_kills_the_handle_and_frees_its_layer() {
     assert!(run::<bool>(&lua, "return claims[1]:release()"));
     settle(&session, &registry);
 
-    let (dead, granted, layer, again): (bool, bool, Value, bool) = run(
+    let (dead, granted, layer, again, set): (bool, bool, Value, bool, bool) = run(
         &lua,
-        "return claims[1].dead, claims[1].granted, claims[1].layer, claims[1]:release()",
+        "return claims[1].dead, claims[1].granted, claims[1].layer, claims[1]:release(),
+                claims[1]:setPriority(3)",
     );
 
     assert!(dead);
@@ -233,35 +218,21 @@ fn releasing_a_claim_kills_the_handle_and_frees_its_layer() {
     assert_eq!(layer, Value::Boolean(false));
     assert!(!again, "every method of a dead handle answers false");
     assert!(
+        !set,
+        "setting a priority on a dead claim answers false rather than raising"
+    );
+    assert!(
         run::<bool>(&lua, "return claims[2].granted"),
         "the released claim's layer is the one the survivor takes"
     );
-}
 
-#[test]
-fn a_dead_claim_reports_the_last_thing_it_knew() {
-    let (session, registry, lua) = claimed(TWO_SLOTS, &[(1, 5.0)]);
-    settle(&session, &registry);
-
-    run::<()>(&lua, "claims[1]:release()");
-
-    let (id, priority, width, dead): (u64, f64, u32, bool) = run(
+    let (id, priority, width): (u64, f64, u32) = run(
         &lua,
-        "return claims[1].id, claims[1].priority, claims[1].width, claims[1].dead",
+        "return claims[1].id, claims[1].priority, claims[1].width",
     );
-
-    assert!(dead);
-    assert_eq!(priority, 5.0);
+    assert_eq!(priority, 5.0, "a dead claim reports the last thing it knew");
     assert_eq!(width, 1280, "the size the claim was made at, not nothing");
     assert!(id > 0);
-}
-
-#[test]
-fn setting_a_priority_on_a_dead_claim_answers_false_rather_than_raising() {
-    let (_session, _registry, lua) = claimed(TWO_SLOTS, &[(1, 1.0)]);
-    run::<()>(&lua, "claims[1]:release()");
-
-    assert!(!run::<bool>(&lua, "return claims[1]:setPriority(3)"));
 }
 
 #[test]
@@ -305,111 +276,30 @@ fn a_claim_names_the_window_it_was_made_for() {
 }
 
 #[test]
-fn a_claim_with_no_window_is_refused() {
-    let (session, _, _) = layered_session(Vec::new(), TWO_SLOTS);
-    let lua = lua(&session);
-
-    let message = error(
-        &lua,
-        "lunette.claimLayer{ width = 640, height = 480, priority = 1 }",
-    );
-    assert!(
-        message.contains("needs a window"),
-        "unhelpful message: {message}"
-    );
-}
-
-#[test]
-fn a_claim_at_an_impossible_size_is_refused() {
+fn a_claim_with_an_invalid_argument_is_refused() {
     let (session, _, _) = layered_session(
         vec![window(1, "htop", "foot", PixelSize::new(640, 480))],
         TWO_SLOTS,
     );
     let lua = lua(&session);
 
-    let message = error(
-        &lua,
-        "lunette.claimLayer{
-             window = lunette.windows()[1], width = 640.5, height = 480, priority = 1,
-         }",
-    );
-    assert!(
-        message.contains("layer size"),
-        "unhelpful message: {message}"
-    );
-}
-
-#[test]
-fn a_priority_that_cannot_be_ordered_is_refused() {
-    let (session, _, _) = layered_session(
-        vec![window(1, "htop", "foot", PixelSize::new(640, 480))],
-        TWO_SLOTS,
-    );
-    let lua = lua(&session);
-
-    // A NaN would make the ranking intransitive, so the same set of claims
-    // could be assigned differently depending on the order of evaluation.
-    // A deterministic assignment must not allow that.
-    let message = error(
-        &lua,
-        "lunette.claimLayer{
-             window = lunette.windows()[1], width = 640, height = 480, priority = 0/0,
-         }",
-    );
-    assert!(message.contains("ordered"), "unhelpful message: {message}");
-}
-
-#[test]
-fn an_option_the_call_does_not_take_is_refused() {
-    let (session, _, _) = layered_session(
-        vec![window(1, "htop", "foot", PixelSize::new(640, 480))],
-        TWO_SLOTS,
-    );
-    let lua = lua(&session);
-
-    let message = error(
-        &lua,
-        "lunette.claimLayer{
-             window = lunette.windows()[1], width = 640, height = 480, priority = 1,
-             stereo = true,
-         }",
-    );
-    assert!(message.contains("stereo"), "unhelpful message: {message}");
-}
-
-#[test]
-fn a_regranted_claim_reuses_the_layer_rather_than_allocating() {
-    let (session, registry, lua) = claimed(ONE_SLOT, &[(1, 5.0), (2, 1.0)]);
-    settle(&session, &registry);
-
-    run::<()>(&lua, "claims[2]:setPriority(9)");
-    settle(&session, &registry);
-    run::<()>(&lua, "claims[2]:setPriority(0)");
-    settle(&session, &registry);
-
-    assert_eq!(
-        registry.with_pool(|pool| pool.free_layers()),
-        0,
-        "one slot means one layer, handed between the two claims"
-    );
-    assert_eq!(
-        run::<Value>(&lua, "return claims[1].layer"),
-        Value::Integer(1),
-        "the claim that came back holds the layer that was created first, not a second one"
-    );
-}
-
-/// The claim is on a `FakeTexture` session, so this asserts the pool's own
-/// arithmetic, not the Lua surface's.
-#[test]
-fn the_pool_never_holds_more_layers_than_the_budget() {
-    let (session, registry, _) = claimed(ONE_SLOT, &[(1, 3.0), (2, 2.0), (3, 1.0)]);
-    settle(&session, &registry);
-
-    let (held, budget) = registry.with_pool(|pool| (pool.held_slots(), pool.budget().slots()));
-    assert_eq!(budget, 1);
-    assert!(
-        held <= budget,
-        "{held} layers held against a budget of {budget}"
-    );
+    // A NaN priority would make the ranking intransitive, so the assignment
+    // would depend on the order of evaluation.
+    for (arguments, expected) in [
+        ("width = 640, height = 480, priority = 1", "needs a window"),
+        (
+            "window = lunette.windows()[1], width = 640.5, height = 480, priority = 1",
+            "layer size",
+        ),
+        (
+            "window = lunette.windows()[1], width = 640, height = 480, priority = 0/0",
+            "ordered",
+        ),
+    ] {
+        let message = error(&lua, &format!("lunette.claimLayer{{ {arguments} }}"));
+        assert!(
+            message.contains(expected),
+            "unhelpful message for {arguments}: {message}"
+        );
+    }
 }

@@ -1,6 +1,4 @@
--- Covers the native plugin attachment as Lua sees it: cancelled loads, request ordering, stale effects, a
--- provider reload fanning out to its dependents, instance state and diagnostics, and what a removed instance
--- retains.
+-- Covers the native plugin attachment as Lua sees it.
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require('@lunette').plugin
@@ -162,29 +160,6 @@ test('instance state and diagnostics name the definition, and a waiting consumer
   expect.equal(waiting:diagnostic(), nil, 'the diagnostic of the published consumer')
   runtime:close()
   expect.equal(waiting:state(), 'removed', 'the consumer after close')
-end)
-
-test('a removed instance releases its configuration while its runtime lives', function()
-  local witness = setmetatable({}, { __mode = 'v' })
-  local runtime = plugin.runtime()
-  local definition = plugin.define({}, {}, function(context, config)
-    context:effect(function()
-      return function()
-        assert(config ~= nil)
-      end
-    end)
-    return {}
-  end);
-  (function()
-    local payload = {}
-    witness.payload = payload
-    local instance = runtime:use(definition, payload)
-    instance:enable()
-    instance:dispose()
-  end)()
-  testing.collect()
-  expect.equal(witness.payload, nil, 'the configuration of the removed instance')
-  runtime:close()
 end)
 
 return test

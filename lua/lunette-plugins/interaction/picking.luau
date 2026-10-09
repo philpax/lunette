@@ -7,8 +7,7 @@ local picking = {}
 export type Surface = vocabulary.Surface
 export type Tuning = vocabulary.Tuning
 
--- What scrollDelta converts: a stick deflection on each axis, the frame time
--- it is scaled by, and the tuning whose dead zone and scale apply.
+-- A stick deflection per axis, with the frame time and tuning that scale it.
 export type Scroll = {
   read x: number,
   read y: number,
@@ -16,9 +15,7 @@ export type Scroll = {
   read tuning: Tuning,
 }
 
--- A deflection past the dead zone, rescaled so the response starts at zero at
--- the dead zone's edge. A nan, a dead zone of one or more, and a deflection
--- inside the dead zone answer zero.
+-- Rescales a deflection so the response starts at zero at the dead zone's edge.
 function picking.deadZone(value: number, dead: number): number
   if value ~= value or not (dead < 1) or math.abs(value) <= dead then
     return 0
@@ -26,9 +23,7 @@ function picking.deadZone(value: number, dead: number): number
   return (value < 0 and -1 or 1) * (math.abs(value) - dead) / (1 - dead)
 end
 
--- The nearest live surface the ray hits within reach, with the hit's pixel
--- coordinates and distance, or nothing. The direction need not be unit
--- length; a zero direction hits nothing.
+-- The nearest live surface hit within reach. The direction need not be unit length.
 function picking.pick(
   surfaces: { read [number]: Surface },
   origin: vector,
@@ -53,8 +48,7 @@ function picking.pick(
   return hit, x, y, distance
 end
 
--- The scroll a stick deflection gives a sink this frame, in the sink's units,
--- on each axis. The vertical axis flips: a stick pushed up scrolls up.
+-- The vertical axis flips, so a stick pushed up scrolls up.
 function picking.scrollDelta(scroll: Scroll): (number, number)
   local tuning = scroll.tuning
   local scale = tuning.scrollScale * (scroll.dt or 0)

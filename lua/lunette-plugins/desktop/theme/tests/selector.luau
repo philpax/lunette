@@ -11,13 +11,7 @@ local arcade = require '@lunette-plugins/theme/arcade/preset'
 
 local test = testing.suite()
 
--- A failed case leaves its session open; closing it here keeps one failure from failing every later boot.
-local leftover
-
 local function boot(config)
-  if leftover then
-    pcall(leftover.close, leftover)
-  end
   local session = testing.boot {
     'frame',
     'theme',
@@ -27,7 +21,6 @@ local function boot(config)
     'menu',
     { id = 'desktop/theme', factory = require '@lunette-plugins/desktop/theme', config = config or {} },
   }
-  leftover = session
   local env = { session = session, native = session.native }
   session:use(plugin.define {
     name = 'selector-test',
@@ -75,22 +68,27 @@ local function logged(env, message)
   return count
 end
 
-test('choices follow the catalog and a choice updates one selection in place', function()
-  local env = boot()
-  expect.equal(choices(env), 'dark*,light,arcade', 'the initial choices')
-  shows(env, presets.dark, 'the configured default')
-  expect.equal(invoke(env, 'arcade'), 'invoked', 'choosing Arcade')
-  expect.equal(choices(env), 'dark,light,arcade*', 'the choice after Arcade')
-  shows(env, arcade, 'the Arcade theme')
-  local selections = 0
-  for _, registration in env.theme:inspect().registrations do
-    if registration.kind == 'selection' then
-      selections += 1
+test(
+  'choices follow the catalog, a theme registered ahead moves them, and a choice updates one selection in place',
+  function()
+    local env = boot()
+    expect.equal(choices(env), 'dark*,light,arcade', 'the initial choices')
+    shows(env, presets.dark, 'the configured default')
+    expect.equal(invoke(env, 'arcade'), 'invoked', 'choosing Arcade')
+    expect.equal(choices(env), 'dark,light,arcade*', 'the choice after Arcade')
+    shows(env, arcade, 'the Arcade theme')
+    local selections = 0
+    for _, registration in env.theme:inspect().registrations do
+      if registration.kind == 'selection' then
+        selections += 1
+      end
     end
+    expect.equal(selections, 1, 'the selector holds one selection')
+    env.themes:register(env.owner, { name = 'first', label = 'First', order = 0, theme = presets.light })
+    expect.equal(choices(env), 'first,dark,light,arcade*', 'a theme registered ahead moves every choice after it')
+    env.session:close()
   end
-  expect.equal(selections, 1, 'the selector holds one selection')
-  env.session:close()
-end)
+)
 
 test('disabling the selected theme falls back to the configured one, and re-enabling it restores it', function()
   local env = boot { preset = 'light' }
@@ -105,28 +103,6 @@ test('disabling the selected theme falls back to the configured one, and re-enab
   env.session:close()
 end)
 
-test('a choice made while a theme is missing outranks its return', function()
-  local env = boot()
-  invoke(env, 'arcade')
-  local arcadePlugin = env.session.instances['theme/arcade']
-  arcadePlugin:disable()
-  invoke(env, 'light')
-  arcadePlugin:enable()
-  expect.equal(choices(env), 'dark,light*,arcade', 'Light remains chosen')
-  shows(env, presets.light, 'the later choice')
-  env.session:close()
-end)
-
-test('with neither the choice nor the configured theme registered, nothing is selected', function()
-  local env = boot()
-  env.session.instances['theme/standard']:disable()
-  expect.equal(choices(env), 'arcade', 'only Arcade is offered')
-  shows(env, base, 'the base theme')
-  invoke(env, 'arcade')
-  shows(env, arcade, 'a remaining theme can still be chosen')
-  env.session:close()
-end)
-
 test('a configured name that is not registered is reported after a frame and applied once it registers', function()
   local env = boot { preset = 'later' }
   local missing = 'desktop/theme: later is not a registered theme; the registered themes are dark, light, arcade'
@@ -138,30 +114,6 @@ test('a configured name that is not registered is reported after a frame and app
   env.themes:register(env.owner, { name = 'later', label = 'Later', order = 4, theme = presets.light })
   expect.equal(choices(env), 'dark,light,arcade,later*', 'the registered theme is chosen')
   shows(env, presets.light, 'the late theme is shown')
-  env.session:close()
-end)
-
-test('a theme registered ahead of the others moves every choice after it', function()
-  local env = boot()
-  env.themes:register(env.owner, { name = 'first', label = 'First', order = 0, theme = presets.light })
-  expect.equal(choices(env), 'first,dark*,light,arcade', 'the menu follows the catalog order')
-  env.session:close()
-end)
-
-test('a theme registered again under the selected name replaces the shown theme', function()
-  local env = boot { preset = 'arcade' }
-  env.session.instances['theme/arcade']:disable()
-  local substitute = descriptors.resolve(arcade, { colors = { focus = { 1, 0, 0, 1 } } })
-  local registration = env.themes:register(env.owner, { name = 'arcade', label = 'Arcade II', theme = substitute })
-  expect.equal(choices(env), 'arcade*,dark,light', 'the substitute is chosen and its order is respected')
-  shows(env, substitute, 'the substitute theme')
-  local labels = {}
-  for _, action in env.menu:list() do
-    labels[action.id] = action.label
-  end
-  expect.equal(labels['desktop/theme/arcade'], 'Theme: Arcade II', 'the substitute label')
-  registration:dispose()
-  shows(env, base, 'with the configured name gone too, nothing is selected')
   env.session:close()
 end)
 

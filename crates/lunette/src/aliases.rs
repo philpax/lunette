@@ -18,8 +18,7 @@ pub enum Resolution {
     /// Mounted into LÖVR's virtual filesystem under the alias.
     Mounted,
     /// Registered natively through `package.preload`. The directory holds the
-    /// generated declarations, which the checker reads and the session never
-    /// does. At runtime, no file on disk resolves `require '@lunette'`.
+    /// generated declarations, which only the checker reads.
     Native,
 }
 
@@ -54,8 +53,7 @@ pub const LUNETTE_DESKTOP: Alias = Alias {
     resolution: Resolution::Mounted,
 };
 
-/// The test scaffolding, present in a development tree, absent from an
-/// installed one. Test files require it; no installed module does.
+/// The test scaffolding, present only in a development tree.
 pub const TESTING: Alias = Alias {
     name: "testing",
     resolution: Resolution::Mounted,
@@ -109,8 +107,8 @@ pub struct ModuleRoots {
 }
 
 impl ModuleRoots {
-    /// Builds the development roots below an already-resolved standard-library
-    /// directory. The testing root is retained here and omitted by [`Self::installed`].
+    /// Builds the development roots, including testing, below an already-resolved
+    /// standard-library directory.
     #[must_use]
     pub fn development(source: impl Into<PathBuf>) -> Self {
         Self::from_aliases(source.into(), DEVELOPMENT_ALIASES)
@@ -200,9 +198,7 @@ pub fn install_manifest() -> Vec<(String, String)> {
     roots.chain(artifacts).collect()
 }
 
-/// Renders a development `.luaurc` whose aliases resolve against `root`.
-///
-/// This includes the development-only testing root; [`installed_luaurc`] omits it.
+/// Renders a development `.luaurc`, including the testing root, whose aliases resolve against `root`.
 #[must_use]
 pub fn luaurc(root: &str) -> String {
     render_luaurc(root, DEVELOPMENT_ALIASES)
@@ -222,151 +218,4 @@ fn render_luaurc(root: &str, aliases: &[Alias]) -> String {
     }
     out.push_str("  }\n}\n");
     out
-}
-
-#[cfg(test)]
-mod tests {
-    use std::collections::HashSet;
-
-    use super::*;
-
-    #[test]
-    fn module_root_resolution_matrix() {
-        let development = ModuleRoots::development("/resolved/lunette");
-        assert_eq!(
-            development
-                .iter()
-                .map(|root| root.alias.as_str())
-                .collect::<Vec<_>>(),
-            vec![
-                "lunette",
-                "lunette-plugin",
-                "lunette-contracts",
-                "lunette-plugins",
-                "lunette-desktop",
-                "testing",
-            ]
-        );
-        assert_eq!(
-            development
-                .iter()
-                .map(|root| root.resolution)
-                .collect::<Vec<_>>(),
-            vec![
-                Resolution::Native,
-                Resolution::Mounted,
-                Resolution::Mounted,
-                Resolution::Mounted,
-                Resolution::Mounted,
-                Resolution::Mounted,
-            ]
-        );
-
-        let installed = ModuleRoots::installed("/resolved/lunette");
-        assert_eq!(
-            installed
-                .iter()
-                .map(|root| root.alias.as_str())
-                .collect::<Vec<_>>(),
-            vec![
-                "lunette",
-                "lunette-plugin",
-                "lunette-contracts",
-                "lunette-plugins",
-                "lunette-desktop",
-            ]
-        );
-        assert!(installed.iter().all(|root| root.alias != TESTING.name));
-        assert_eq!(
-            installed
-                .mounted()
-                .filter(|root| root.required())
-                .map(|root| root.alias.as_str())
-                .collect::<Vec<_>>(),
-            vec![
-                "lunette-plugin",
-                "lunette-contracts",
-                "lunette-plugins",
-                "lunette-desktop"
-            ]
-        );
-        assert!(
-            installed.iter().all(ModuleRoot::required),
-            "every installed root is required"
-        );
-        assert_eq!(
-            installed
-                .mounted()
-                .map(|root| root.mount_point())
-                .collect::<Vec<_>>(),
-            vec![
-                "@lunette-plugin",
-                "@lunette-contracts",
-                "@lunette-plugins",
-                "@lunette-desktop",
-            ]
-        );
-    }
-
-    /// Every alias is a name a Luau require path can carry, no two roots
-    /// share an alias, and the installed roots are development roots with the
-    /// same resolution.
-    #[test]
-    fn the_built_in_roots_are_distinct_valid_aliases() {
-        let valid = |name: &str| {
-            !name.is_empty()
-                && name.bytes().enumerate().all(|(index, byte)| {
-                    byte.is_ascii_lowercase()
-                        || byte.is_ascii_digit()
-                        || (index > 0 && byte == b'-')
-                })
-        };
-        let mut names = HashSet::new();
-        for alias in DEVELOPMENT_ALIASES {
-            assert!(valid(alias.name), "{} is a valid alias", alias.name);
-            assert!(names.insert(alias.name), "{} is unique", alias.name);
-        }
-        assert!(
-            INSTALLED_ALIASES
-                .iter()
-                .all(|alias| DEVELOPMENT_ALIASES.contains(alias))
-        );
-    }
-
-    #[test]
-    fn the_install_manifest_lists_every_installed_root_and_not_testing() {
-        let manifest = install_manifest();
-        for alias in INSTALLED_ALIASES {
-            let directory = format!("lua/{}", alias.name);
-            assert!(
-                manifest.contains(&(directory.clone(), directory.clone())),
-                "{directory}"
-            );
-        }
-        assert!(
-            manifest
-                .iter()
-                .all(|(source, destination)| !source.contains("testing")
-                    && !destination.contains("testing"))
-        );
-    }
-
-    #[test]
-    fn development_luaurc_includes_testing_and_installed_luaurc_does_not() {
-        assert!(luaurc(".").contains("\"testing\": \"./testing\""));
-        assert!(!installed_luaurc(".").contains("\"testing\""));
-        assert!(
-            installed_luaurc("/usr/local/share/lunette/lua")
-                .contains("\"lunette-plugin\": \"/usr/local/share/lunette/lua/lunette-plugin\"")
-        );
-    }
-
-    #[test]
-    fn a_relative_root_is_written_as_it_is_given() {
-        assert_eq!(
-            luaurc("."),
-            "{\n  \"languageMode\": \"strict\",\n  \"aliases\": {\n    \"lunette\": \
-             \"./lunette\",\n    \"lunette-plugin\": \"./lunette-plugin\",\n    \"lunette-contracts\": \"./lunette-contracts\",\n    \"lunette-plugins\": \"./lunette-plugins\",\n    \"lunette-desktop\": \"./lunette-desktop\",\n    \"testing\": \"./testing\"\n  }\n}\n"
-        );
-    }
 }

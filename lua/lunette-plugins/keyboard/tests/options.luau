@@ -156,7 +156,6 @@ test('rows place spacers, offsets, and tall keys, and a press reaches onKey with
   expect.equal(code(board, 44).y, 1, 'a row advances by its shortest key')
   expect.near(action(board, 'layer').y, 2.5, 1e-9, 'a half-height spacer and an empty row advance by their heights')
   expect.equal(action(board, 'custom').legend, 'wave', "an action key's legend")
-  expect.truthy(table.isfrozen(code(board, 30).source), 'a key keeps its frozen source')
 
   press(env, code(board, 30))
   expect.truthy(#env.pressed == 1 and env.pressed[1].code == 30, 'onKey saw the key')

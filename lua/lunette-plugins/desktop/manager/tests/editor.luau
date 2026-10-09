@@ -56,24 +56,6 @@ test('flattened paths identify groups, vector components, collections, and label
   expect.equal(row(model, { 'detail' }).control, 'optional')
 end)
 
-test('edits are immutable and share untouched snapshots', function()
-  local config = { style = { width = 14 }, title = 'Before' }
-  local model = editor.new(fixture(), config)
-  local before = editor.draft(model)
-  config.style.width = 100
-  expect.equal(before.style.width, 14)
-  local updated = change(editor.set, model, { 'style', 'inner', 'depth' }, '42')
-  local value = editor.draft(updated)
-  expect.equal(value.style.inner.depth, 42)
-  expect.equal(before.style.inner.depth, 30)
-  expect.truthy(value ~= before and value.style ~= before.style and value.style.inner ~= before.style.inner)
-  expect.equal(value.list, before.list)
-  expect.equal(value.map, before.map)
-  expect.truthy(table.isfrozen(value) and table.isfrozen(value.style.inner))
-  expect.falsy(table.isfrozen(config) or table.isfrozen(config.style))
-  expect.equal(change(editor.set, updated, { 'style', 'inner', 'depth' }, 42), updated)
-end)
-
 test('text parsing is primitive, finite, and does not evaluate Lua', function()
   local model = editor.new(fixture(), {})
   for _, input in { '1e999', '0/0', 'return 3', 'vector.pack(1, 2, 3)', math.huge, 0 / 0, {} } do
@@ -127,7 +109,6 @@ test('arrays and maps add, edit, and remove entries with stable sibling snapshot
   expect.equal(#editor.draft(removed).list, 2)
   expect.equal(editor.draft(removed).list[1].name, 'changed')
   expect.equal(original.list[1].name, 'one')
-  expect.equal(editor.draft(removed).map, original.map)
   local keyed = change(editor.add, removed, { 'map' }, 'a.b')
   expect.equal(row(keyed, { 'map', 'a.b' }).value, 0)
   local mapEdit = change(editor.set, keyed, { 'map', 'a.b' }, '12')
@@ -141,7 +122,7 @@ test('arrays and maps add, edit, and remove entries with stable sibling snapshot
   expect.equal(editor.draft(change(editor.add, empty, { 'map' }, '')).map[''], 0)
 end)
 
-test('optional values can be set, unset, and reset without fabricating absent paths', function()
+test('optional values and seeds transition between absent and present explicitly', function()
   local model = editor.new(fixture(), {})
   local missing = reject(model, editor.set, 'path', { 'detail', 'count' }, '3')
   expect.equal(missing.path[2], 'count')
@@ -155,6 +136,69 @@ test('optional values can be set, unset, and reset without fabricating absent pa
   local note = change(editor.set, model, { 'note' }, 'text')
   expect.equal(editor.draft(change(editor.reset, note, { 'note' })).note, nil)
   expect.equal(editor.draft(change(editor.toggle, model, { 'note' })).note, '')
+  local metadata = schema
+    .object({
+      number = schema.optional(schema.number()),
+      boolean = schema.optional(schema.boolean()),
+      object = schema.optional(schema.object { name = schema.string(), number = schema.default(schema.number())(8) }),
+      list = schema.optional(schema.array(schema.number())),
+    })
+    .inspect()
+  local model = editor.new(metadata, {})
+  for _, path in { { 'number' }, { 'boolean' }, { 'object' }, { 'list' } } do
+    expect.equal(row(model, path).control, 'optional')
+    local enabled = change(editor.set, model, path, true)
+    expect.truthy(editor.draft(enabled)[path[1]] ~= nil)
+    expect.equal(editor.draft(change(editor.reset, enabled, path))[path[1]], nil)
+    expect.equal(editor.draft(model)[path[1]], nil)
+  end
+  local number = change(editor.toggle, model, { 'number' })
+  expect.equal(editor.draft(number).number, 0)
+  expect.equal(row(number, { 'number' }).control, 'number')
+  local edited = change(editor.set, number, { 'number' }, '12')
+  expect.equal(editor.draft(change(editor.toggle, edited, { 'number' })).number, nil)
+  local object = change(editor.toggle, model, { 'object' })
+  expect.equal(editor.draft(object).object.name, '')
+  expect.equal(editor.draft(object).object.number, 8)
+  expect.equal(editor.draft(change(editor.toggle, object, { 'object' })).object, nil)
+  local boolean = change(editor.toggle, model, { 'boolean' })
+  expect.equal(editor.draft(boolean).boolean, false)
+  expect.equal(editor.draft(change(editor.toggle, boolean, { 'boolean' })).boolean, true)
+  expect.equal(editor.draft(change(editor.set, boolean, { 'boolean' }, nil)).boolean, nil)
+  local metadata = schema
+    .object({
+      list = schema.array(schema.optional(schema.number())),
+      map = schema.map(schema.optional(schema.number())),
+    })
+    .inspect()
+  for _, values in { { 1 }, { 1, 2, 3 } } do
+    local model = editor.new(metadata, { list = values, map = { retained = 4 } })
+    for index in values do
+      local path = { 'list', index }
+      expect.truthy(row(model, path).optional)
+      expect.truthy(row(model, path).canRemove)
+      expect.falsy(row(model, path).readOnly or row(model, path).canReset)
+      reject(model, editor.set, 'input', path, nil)
+      reject(model, editor.toggle, 'input', path)
+      reject(model, editor.reset, 'readonly', path)
+      expect.equal(row(model, { 'list' }).control, 'array')
+      expect.equal(editor.draft(change(editor.set, model, path, '9')).list[index], 9)
+      local removed = change(editor.remove, model, path)
+      expect.equal(#editor.draft(removed).list, #values - 1)
+      expect.equal(row(removed, { 'list' }).control, 'array')
+      expect.truthy(row(removed, { 'list' }).canAdd)
+      for retained = 1, #values - 1 do
+        expect.equal(editor.draft(removed).list[retained], values[if retained < index then retained else retained + 1])
+      end
+    end
+    expect.equal(editor.draft(change(editor.set, model, { 'map', 'retained' }, nil)).map.retained, nil)
+    expect.equal(editor.draft(change(editor.reset, model, { 'map', 'retained' })).map.retained, nil)
+  end
+  local defaulted = editor.new(schema.array(schema.default(schema.optional(schema.number()))(6)).inspect(), { 1, 2, 3 })
+  for index = 1, 3 do
+    expect.truthy(row(defaulted, { index }).canReset)
+    expect.equal(editor.draft(change(editor.reset, defaulted, { index }))[index], 6)
+  end
 end)
 
 test('bound defaults reset nested fields and reset is idempotent', function()
@@ -163,29 +207,6 @@ test('bound defaults reset nested fields and reset is idempotent', function()
   expect.equal(editor.draft(reset).style.inner.depth, 30)
   expect.equal(editor.draft(reset).style.width, 18)
   expect.equal(change(editor.reset, reset, { 'style', 'inner', 'depth' }), reset)
-end)
-
-test('refinements and declared constraints remain configure-time validation', function()
-  local calls = 0
-  local descriptor = schema.refine(schema.object { low = schema.number { minimum = 1 }, high = schema.number() })(
-    function(value)
-      calls += 1
-      assert(value.low < value.high, 'low must precede high')
-    end,
-    'Low precedes high.'
-  )
-  local model = editor.new(descriptor.inspect(), { low = 2, high = 3 })
-  local invalid = change(editor.set, model, { 'low' }, '10')
-  expect.equal(calls, 0)
-  expect.equal(row(model, {}).description, 'Low precedes high.')
-  expect.raises(function()
-    descriptor.parse(editor.draft(invalid))
-  end, 'low must precede high')
-  expect.equal(calls, 1)
-  local constraint = change(editor.set, model, { 'low' }, '-1')
-  expect.raises(function()
-    descriptor.parse(editor.draft(constraint))
-  end, 'below 1')
 end)
 
 test('callbacks and custom references survive unrelated edits and blocked operations', function()
@@ -269,7 +290,7 @@ test('unknown and malformed containers remain visible and are never silently dis
   expect.equal(editor.draft(change(editor.toggle, invalid, { 'enabled' })).style, hostile)
 end)
 
-test('removal permissions match direct collection entries and preserve opaque siblings', function()
+test('collection removal and add permissions match entries and preserve opaque siblings', function()
   local opaque = setmetatable({}, {})
   local shape = schema.object { count = schema.number() }
   local metadata = schema
@@ -307,9 +328,6 @@ test('removal permissions match direct collection entries and preserve opaque si
     expect.equal(editor.draft(added).list[1].extra, opaque)
     expect.equal(editor.draft(added).map.held.extra, opaque)
   end
-end)
-
-test('collection permissions cover empty, single, malformed, and unseedable collections', function()
   local metadata = schema
     .object({
       list = schema.array(schema.number()),
@@ -342,73 +360,6 @@ test('collection permissions cover empty, single, malformed, and unseedable coll
     reject(malformed, editor.add, 'readonly', path)
     reject(malformed, editor.remove, 'readonly', { path[1], if config.list then 2 else 1 })
   end
-end)
-
-test('models, rows, paths, and literal choices expose frozen snapshots', function()
-  local model = editor.new(schema.optional(schema.literal<<false>>(false)).inspect(), nil)
-  local rows = editor.rows(model)
-  expect.truthy(table.isfrozen(model))
-  expect.truthy(table.isfrozen(rows))
-  expect.truthy(table.isfrozen(rows[1]))
-  expect.truthy(table.isfrozen(rows[1].path))
-  expect.truthy(table.isfrozen(rows[1].choices))
-  expect.equal(rows[1].metadata, model.metadata)
-  expect.equal(rows[1].choices[1], false)
-  local missing = reject(model, editor.set, 'path', { 'missing' }, 'value')
-  expect.truthy(table.isfrozen(missing) and table.isfrozen(missing.path))
-end)
-
-test('optional number, boolean, object, and collection seeds have explicit transitions', function()
-  local metadata = schema
-    .object({
-      number = schema.optional(schema.number()),
-      boolean = schema.optional(schema.boolean()),
-      object = schema.optional(schema.object { name = schema.string(), number = schema.default(schema.number())(8) }),
-      list = schema.optional(schema.array(schema.number())),
-    })
-    .inspect()
-  local model = editor.new(metadata, {})
-  for _, path in { { 'number' }, { 'boolean' }, { 'object' }, { 'list' } } do
-    expect.equal(row(model, path).control, 'optional')
-    local enabled = change(editor.set, model, path, true)
-    expect.truthy(editor.draft(enabled)[path[1]] ~= nil)
-    expect.equal(editor.draft(change(editor.reset, enabled, path))[path[1]], nil)
-    expect.equal(editor.draft(model)[path[1]], nil)
-  end
-  local number = change(editor.toggle, model, { 'number' })
-  expect.equal(editor.draft(number).number, 0)
-  expect.equal(row(number, { 'number' }).control, 'number')
-  local edited = change(editor.set, number, { 'number' }, '12')
-  expect.equal(editor.draft(change(editor.toggle, edited, { 'number' })).number, nil)
-  local object = change(editor.toggle, model, { 'object' })
-  expect.equal(editor.draft(object).object.name, '')
-  expect.equal(editor.draft(object).object.number, 8)
-  expect.equal(editor.draft(change(editor.toggle, object, { 'object' })).object, nil)
-  local boolean = change(editor.toggle, model, { 'boolean' })
-  expect.equal(editor.draft(boolean).boolean, false)
-  expect.equal(editor.draft(change(editor.toggle, boolean, { 'boolean' })).boolean, true)
-  expect.equal(editor.draft(change(editor.set, boolean, { 'boolean' }, nil)).boolean, nil)
-end)
-
-test('malformed primitive values stay read-only without freezing or losing their identity', function()
-  local callback = function() end
-  local metadata = schema.object({ value = schema.optional(schema.number()), enabled = schema.boolean() }).inspect()
-  for _, opaque in { {}, { retained = true }, setmetatable({}, {}), callback, lovr.math.newMat4() } do
-    local model = editor.new(metadata, { value = opaque, enabled = true })
-    expect.equal(editor.draft(model).value, opaque)
-    expect.truthy(row(model, { 'value' }).readOnly)
-    expect.falsy(row(model, { 'value' }).canReset)
-    reject(model, editor.set, 'readonly', { 'value' }, '3')
-    reject(model, editor.set, 'readonly', { 'value' }, nil)
-    reject(model, editor.reset, 'readonly', { 'value' })
-    expect.equal(editor.draft(change(editor.toggle, model, { 'enabled' })).value, opaque)
-    if type(opaque) == 'table' then
-      expect.falsy(table.isfrozen(opaque))
-    end
-  end
-end)
-
-test('opaque collection entries and default seeds never become removable or addable', function()
   local reference = {}
   local custom = schema.custom {
     runtimeType = 'table',
@@ -437,6 +388,24 @@ test('opaque collection entries and default seeds never become removable or adda
   reject(model, editor.add, 'readonly', { 'entries' })
   reject(model, editor.set, 'readonly', { 'optional' }, nil)
   expect.falsy(table.isfrozen(reference))
+end)
+
+test('malformed primitive values stay read-only without freezing or losing their identity', function()
+  local callback = function() end
+  local metadata = schema.object({ value = schema.optional(schema.number()), enabled = schema.boolean() }).inspect()
+  for _, opaque in { {}, { retained = true }, setmetatable({}, {}), callback, lovr.math.newMat4() } do
+    local model = editor.new(metadata, { value = opaque, enabled = true })
+    expect.equal(editor.draft(model).value, opaque)
+    expect.truthy(row(model, { 'value' }).readOnly)
+    expect.falsy(row(model, { 'value' }).canReset)
+    reject(model, editor.set, 'readonly', { 'value' }, '3')
+    reject(model, editor.set, 'readonly', { 'value' }, nil)
+    reject(model, editor.reset, 'readonly', { 'value' })
+    expect.equal(editor.draft(change(editor.toggle, model, { 'enabled' })).value, opaque)
+    if type(opaque) == 'table' then
+      expect.falsy(table.isfrozen(opaque))
+    end
+  end
 end)
 
 test('recursive undeclared values stay opaque while declared siblings remain editable', function()

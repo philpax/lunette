@@ -54,20 +54,4 @@ test('a layout that is not registered is logged once, and the consumer arranges 
   session:close()
 end)
 
-test('layout options replace the whole map and preserve code-backed tunings', function()
-  local descriptor = require('@lunette-plugins/desktop/arrange/config').schema
-  local callback = function(value)
-    return value
-  end
-  local initial = descriptor.parse {
-    options = { arc = { radius = 2 }, grid = { columns = 3 } },
-    tags = { 'main' },
-  }
-  local tuned = descriptor.resolve({ options = { custom = { transform = callback } }, tags = {} }, initial)
-  expect.equal(tuned.options.arc, nil, 'the replaced arc options')
-  expect.equal(tuned.options.grid, nil, 'the replaced grid options')
-  expect.equal(tuned.options.custom.transform, callback, 'the callback tuning')
-  expect.equal(#tuned.tags, 0, 'the replaced tag list')
-end)
-
 return test

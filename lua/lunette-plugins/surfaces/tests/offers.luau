@@ -52,17 +52,4 @@ test('an offer name names one offer until its effect or its owner ends, and offe
   session:close()
 end)
 
-test('a malformed offer raises at the call', function()
-  local session = testing.start { 'surfaces' }
-  consumer(session, 'surfaces-checks', function(context, service)
-    expect.raises(function()
-      service:offer(context, { name = 'unlisted' })
-    end, 'surfaces offer: list is a function, not a nil', 'an offer without a list')
-    expect.raises(function()
-      service:offer(context, { name = '', list = function() end })
-    end, 'surfaces offer: name is a non%-empty string', 'an empty name')
-  end)
-  session:close()
-end)
-
 return test

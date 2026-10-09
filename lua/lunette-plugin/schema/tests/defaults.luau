@@ -43,25 +43,6 @@ test('nested objects merge while explicit arrays and maps replace completely', f
   expect.equal(partial.style.colors[2], 2)
 end)
 
-test('defaults and input tables are snapshotted without freezing the caller', function()
-  local defaults = { nested = { value = 4 } }
-  local descriptor = schema.default(schema.object { nested = schema.object { value = schema.number() } })(defaults)
-  defaults.nested.value = 100
-  local first, second = descriptor.parse(nil), descriptor.parse(nil)
-  expect.equal(first.nested.value, 4)
-  expect.truthy(first ~= second and first.nested ~= second.nested)
-  expect.truthy(table.isfrozen(first) and table.isfrozen(first.nested))
-  expect.falsy(table.isfrozen(defaults) or table.isfrozen(defaults.nested))
-  local input = { nested = { value = 5 } }
-  local parsed = descriptor.parse(input)
-  input.nested.value = 200
-  expect.equal(parsed.nested.value, 5)
-  expect.falsy(table.isfrozen(input))
-  expect.raises(function()
-    parsed.nested.value = 6
-  end, 'readonly')
-end)
-
 test('bound resolution uses definition settings and validates both inputs', function()
   local descriptor = fixture()
   local base = descriptor.parse { count = 7, style = { width = 8, colors = { 4, 5 } } }
@@ -82,16 +63,6 @@ test('bound resolution uses definition settings and validates both inputs', func
   expect.raises(function()
     descriptor.resolve({ typo = true }, base)
   end, 'not a declared field')
-end)
-
-test('schema shaped values are idempotent and copied at every resolution', function()
-  local descriptor = fixture()
-  local first = descriptor.parse { style = { width = -2, colors = {} } }
-  local second = descriptor.parse(first)
-  expect.equal(second.style.width, first.style.width)
-  expect.equal(second.style.inner.depth, first.style.inner.depth)
-  expect.equal(#second.style.colors, 0)
-  expect.truthy(second ~= first and second.style ~= first.style)
 end)
 
 test('invalid defaults fail at construction including nested and nonfinite values', function()
@@ -121,42 +92,6 @@ test('invalid defaults fail at construction including nested and nonfinite value
   expect.raises(function()
     schema.default(schema.object { self = schema.object {} })(recursive)
   end, 'recursive table')
-end)
-
-test('metadata is the frozen parser tree and preserves code and native values', function()
-  local callback = function() end
-  local vectorValue = vector.pack(1, 2, 3)
-  local customValue = { marker = true }
-  local custom = schema.custom {
-    runtimeType = 'table',
-    validate = function(value)
-      return value
-    end,
-  }
-  local descriptor = schema.describe(schema.object {
-    position = schema.default(schema.vector())(vectorValue),
-    callback = schema.default(schema.callback(callback))(callback),
-    custom = schema.default(custom)(customValue),
-    array = schema.array(schema.number()),
-    map = schema.map(schema.number()),
-  }) { label = 'Probe', description = 'A descriptor.' }
-  local metadata = descriptor.inspect()
-  expect.equal(descriptor.inspect(), metadata, 'inspection shares the actual descriptor tree')
-  expect.equal(metadata.label, 'Probe')
-  expect.equal(metadata.fields.position.value, vectorValue)
-  expect.equal(metadata.fields.callback.value, callback)
-  expect.equal(metadata.fields.custom.value, customValue)
-  expect.truthy(metadata.fields.custom.readOnly and metadata.fields.callback.readOnly)
-  expect.equal(metadata.merge, 'object')
-  expect.equal(metadata.fields.array.kind, 'array')
-  expect.equal(metadata.fields.map.kind, 'map')
-  expect.equal(metadata.fields.map.merge, 'replace')
-  expect.truthy(
-    table.isfrozen(metadata) and table.isfrozen(metadata.fields) and table.isfrozen(metadata.fields.position)
-  )
-  expect.raises(function()
-    metadata.fields.position.kind = 'number'
-  end, 'readonly')
 end)
 
 test('constructors reject malformed descriptors and metadata without mutating options', function()

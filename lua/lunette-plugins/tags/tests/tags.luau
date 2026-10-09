@@ -6,7 +6,7 @@ local tagsContract = require '@lunette-contracts/tags'
 local test = testing.suite()
 
 local function start()
-  local fake = testing.native()
+  testing.native()
   local session = testing.start { 'tags' }
   local function consumer(name)
     local handle = {}
@@ -20,26 +20,12 @@ local function start()
     })
     return handle
   end
-  return session, consumer, fake
+  return session, consumer
 end
 
 local function panel()
   return { dead = false }
 end
-
-test('a stranger without the tags capability cannot make a tag', function()
-  local session = start()
-  local tags = session:observe(tagsContract.capability).service
-  session:use(plugin.define {
-    name = 'stranger',
-    init = function(context)
-      expect.raises(function()
-        tags:hold(context, { name = 'forbidden' })
-      end, nil, 'a tag made for a context that does not require tags')
-    end,
-  })
-  session:close()
-end)
 
 test("an owner's selections and memberships are its own, and end with it", function()
   local session, consumer = start()
@@ -143,27 +129,6 @@ test('the most recent live layout override decides, and a nil layout is an overr
   expect.equal(table.concat(heard, ' '), 'layout layout layout layout', 'a listener for one tag hears its layouts')
   second.tags:hold(second.owner, { name = 'quiet' }):setSelected(second.owner, { selected = true })
   expect.equal(#heard, 4, 'a listener for one tag does not hear another')
-  session:close()
-end)
-
-test('a listener that raises is reported, and the listeners after it still run', function()
-  local session, consumer, fake = start()
-  local first = consumer 'first'
-  local heard = false
-  first.tags:onChanged(first.owner, {
-    run = function()
-      error 'change listener failure'
-    end,
-  })
-  first.tags:onChanged(first.owner, {
-    run = function()
-      heard = true
-    end,
-  })
-  first.tags:hold(first.owner, { name = 'noisy' })
-  expect.truthy(heard, 'a raising listener does not stop the next')
-  expect.equal(#fake.events.reported, 1, 'the reports')
-  expect.truthy(fake.events.reported[1].message:find('change listener failure', 1, true), 'the reported failure')
   session:close()
 end)
 

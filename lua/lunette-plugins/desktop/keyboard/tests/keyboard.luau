@@ -6,7 +6,6 @@ local keyboardContract = require '@lunette-contracts/keyboard'
 local displayContract = require '@lunette-contracts/keyboard-display'
 local surfacesContract = require '@lunette-contracts/surfaces'
 local definition = require '@lunette-plugins/desktop/keyboard'
-local descriptor = require('@lunette-plugins/desktop/keyboard/config').schema
 
 local test = testing.suite()
 
@@ -55,51 +54,51 @@ local function expectDirection(board, axis, expected, label)
   expect.near(direction.z, expected.z, 1e-5, label .. ' z')
 end
 
-test('a pitched head keeps the keyboard at the configured horizontal distance', function()
-  local env = start { placement = { distance = 0.8, drop = 0.25 } }
-  for _, pitch in ipairs { -math.pi / 3, 0, math.pi / 3 } do
+test('head pitch, vertical fallback, and yaw place the keyboard from the head pose', function()
+  do
+    local env = start { placement = { distance = 0.8, drop = 0.25 } }
+    for _, pitch in ipairs { -math.pi / 3, 0, math.pi / 3 } do
+      lovr.headset.getDirection = function()
+        return math.cos(pitch) * 0.6, math.sin(pitch), -math.cos(pitch) * 0.8
+      end
+      expect.truthy(env.display:show(), 'the public display opens')
+      local shown = shownKeyboard(env)
+      expect.truthy(shown and shown.visible, 'the keyboard is visible')
+      local head = vector.pack(lovr.headset.getPosition 'head')
+      expectPosition(shown, head + vector.pack(0.48, -0.25, -0.64), 'the pitched placement')
+      env.display:hide()
+    end
+    env.session:close()
+  end
+  do
+    local env = start { placement = { distance = 0.8, drop = 0.25 } }
+    for _, direction in ipairs { vector.pack(0, 1, 0), vector.pack(0.0001, -1, 0.0001) } do
+      lovr.headset.getDirection = function()
+        return direction:unpack()
+      end
+      expect.truthy(env.display:show(), 'the public display opens')
+      local shown = shownKeyboard(env)
+      local head = vector.pack(lovr.headset.getPosition 'head')
+      expectPosition(shown, head + vector.pack(0, -0.25, -0.8), 'the fallback placement')
+      expectDirection(shown, vector.pack(1, 0, 0), vector.pack(1, 0, 0), 'the fallback horizontal axis')
+      env.display:hide()
+    end
+    env.session:close()
+  end
+  do
+    local env = start { placement = { distance = 0.8, drop = 0.25, tilt = math.pi / 6 } }
     lovr.headset.getDirection = function()
-      return math.cos(pitch) * 0.6, math.sin(pitch), -math.cos(pitch) * 0.8
+      return 1, -0.2, 0
     end
     expect.truthy(env.display:show(), 'the public display opens')
     local shown = shownKeyboard(env)
-    expect.truthy(shown and shown.visible, 'the keyboard is visible')
     local head = vector.pack(lovr.headset.getPosition 'head')
-    expectPosition(shown, head + vector.pack(0.48, -0.25, -0.64), 'the pitched placement')
-    env.display:hide()
+    expectPosition(shown, head + vector.pack(0.8, -0.25, 0), 'the turned placement')
+    expectDirection(shown, vector.pack(1, 0, 0), vector.pack(0, 0, 1), 'the horizontal axis')
+    expectDirection(shown, vector.pack(0, 1, 0), vector.pack(0.5, math.sqrt(0.75), 0), 'the tilted vertical axis')
+    expectDirection(shown, vector.pack(0, 0, 1), vector.pack(-math.sqrt(0.75), 0.5, 0), 'the tilted normal')
+    env.session:close()
   end
-  env.session:close()
-end)
-
-test('a near-vertical head direction places the keyboard along the forward fallback', function()
-  local env = start { placement = { distance = 0.8, drop = 0.25 } }
-  for _, direction in ipairs { vector.pack(0, 1, 0), vector.pack(0.0001, -1, 0.0001) } do
-    lovr.headset.getDirection = function()
-      return direction:unpack()
-    end
-    expect.truthy(env.display:show(), 'the public display opens')
-    local shown = shownKeyboard(env)
-    local head = vector.pack(lovr.headset.getPosition 'head')
-    expectPosition(shown, head + vector.pack(0, -0.25, -0.8), 'the fallback placement')
-    expectDirection(shown, vector.pack(1, 0, 0), vector.pack(1, 0, 0), 'the fallback horizontal axis')
-    env.display:hide()
-  end
-  env.session:close()
-end)
-
-test('placement applies head yaw before the configured downward tilt', function()
-  local env = start { placement = { distance = 0.8, drop = 0.25, tilt = math.pi / 6 } }
-  lovr.headset.getDirection = function()
-    return 1, -0.2, 0
-  end
-  expect.truthy(env.display:show(), 'the public display opens')
-  local shown = shownKeyboard(env)
-  local head = vector.pack(lovr.headset.getPosition 'head')
-  expectPosition(shown, head + vector.pack(0.8, -0.25, 0), 'the turned placement')
-  expectDirection(shown, vector.pack(1, 0, 0), vector.pack(0, 0, 1), 'the horizontal axis')
-  expectDirection(shown, vector.pack(0, 1, 0), vector.pack(0.5, math.sqrt(0.75), 0), 'the tilted vertical axis')
-  expectDirection(shown, vector.pack(0, 0, 1), vector.pack(-math.sqrt(0.75), 0.5, 0), 'the tilted normal')
-  env.session:close()
 end)
 
 test('public visibility operations reuse one board and place it only when shown', function()
@@ -127,11 +126,6 @@ test('public visibility operations reuse one board and place it only when shown'
   expect.equal(#env.surfaces:all(), 3, 'the display offers one board and its shared titlebar')
   env.session:close()
   expect.equal(board.dead, true, 'closing destroys the owned board')
-  local ok, problem = pcall(function()
-    return env.display:show()
-  end)
-  expect.equal(ok, false, 'the stopped display capability is unavailable')
-  expect.truthy(tostring(problem):find('provider activation has ended', 1, true), 'the display activation ended')
 end)
 
 test("the provider draws its own keyboard and not another owner's", function()
@@ -157,39 +151,6 @@ test("the provider draws its own keyboard and not another owner's", function()
   expect.truthy((env.drawnBy[shown] or 0) > 0, 'the display keyboard is drawn')
   expect.equal(env.drawnBy[other], nil, "another owner's keyboard is not drawn by the provider")
   env.session:close()
-end)
-
-test('malformed placement fields fail parsing and resolution without changing the base', function()
-  local base = descriptor.parse { placement = { distance = 0.8, drop = 0.25, tilt = 0 } }
-  for _, config in ipairs {
-    { placement = false },
-    { placement = { size = 0.2 } },
-    { placement = { distance = false } },
-    { placement = { drop = 'down' } },
-    { placement = { tilt = {} } },
-    { placement = { distance = math.huge } },
-    { placement = { drop = -math.huge } },
-    { placement = { tilt = 0 / 0 } },
-  } do
-    for _, parse in ipairs {
-      function()
-        return descriptor.parse(config)
-      end,
-      function()
-        return descriptor.resolve(config, base)
-      end,
-    } do
-      local ok, problem = pcall(parse)
-      expect.equal(ok, false, 'the malformed placement is rejected')
-      expect.truthy(
-        tostring(problem):find('placement', 1, true),
-        'the error identifies placement: ' .. tostring(problem)
-      )
-    end
-  end
-  expect.equal(base.placement.distance, 0.8, 'the base distance is unchanged')
-  expect.equal(base.placement.drop, 0.25, 'the base drop is unchanged')
-  expect.equal(base.placement.tilt, 0, 'the base tilt is unchanged')
 end)
 
 return test

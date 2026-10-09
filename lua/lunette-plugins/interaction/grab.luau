@@ -46,7 +46,6 @@ type GrabIdentity = { announced: boolean }
 type Host = {
   read pointers: () -> { PointerState },
   read state: (Pointer) -> PointerState,
-  -- Announces a drop before the pointer clears its grabbed surface.
   read dropped: (Surface, Pointer) -> (),
   read constrain: (Surface, Mat4) -> Mat4,
   read current: (Pointer) -> () -> boolean,

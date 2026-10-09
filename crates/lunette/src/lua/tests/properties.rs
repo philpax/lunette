@@ -12,9 +12,7 @@ use crate::lua::tests::{error, lua, run, session, snapshot, window};
 
 #[test]
 fn a_stored_value_survives_the_lua_state_being_discarded() {
-    // The soft reload is simulated: the Lua state is discarded and another is
-    // built against the same session. A restart in `boot.rs` does the same. The
-    // reload rebuilds the Lua state without rebuilding the session.
+    // A soft reload rebuilds the Lua state without rebuilding the session.
     let session = session(vec![window(1, "editor", "foot", PixelSize::new(64, 32))]);
 
     {
@@ -45,53 +43,51 @@ fn a_stored_value_survives_the_lua_state_being_discarded() {
 }
 
 #[test]
-fn a_window_identifier_is_the_same_after_a_reload() {
-    // The reload behaviour depends on window identifiers staying stable. The
-    // compositor thread is not restarted by a soft reload, so the identifiers
-    // it creates remain unchanged.
-    let session = session(vec![
-        window(4, "editor", "foot", PixelSize::new(64, 32)),
-        window(9, "browser", "firefox", PixelSize::new(64, 32)),
-    ]);
-
-    let before: Vec<u64> = {
-        let lua = lua(&session);
-        run(
-            &lua,
-            "local ids = {} for i, w in ipairs(lunette.windows()) do ids[i] = w.id end return ids",
-        )
-    };
-
-    let after: Vec<u64> = {
-        let lua = lua(&session);
-        run(
-            &lua,
-            "local ids = {} for i, w in ipairs(lunette.windows()) do ids[i] = w.id end return ids",
-        )
-    };
-
-    assert_eq!(before, vec![4, 9]);
-    assert_eq!(after, before);
-}
-
-#[test]
-fn a_table_is_refused_with_the_key_named() {
+fn a_value_or_key_the_store_cannot_hold_is_refused_with_the_key_named() {
     // A table holds Lua values, so accepting one would move the store's
-    // serialisation problem into the table's contents.
+    // serialisation problem into the table's contents. A NaN is a defect in
+    // the caller's maths and is harder to trace after a reload.
     let session = session(vec![window(1, "editor", "foot", PixelSize::new(64, 32))]);
     let lua = lua(&session);
 
-    for chunk in [
-        "lunette.windows()[1]:setProperty('layout', {})",
-        "lunette.windows()[1]:setProperty('layout', { x = 1 })",
-        "lunette.windows()[1]:setProperty('layout', print)",
+    for (chunk, expected) in [
+        (
+            "lunette.windows()[1]:setProperty('layout', {})",
+            "'layout' cannot hold",
+        ),
+        (
+            "lunette.windows()[1]:setProperty('layout', { x = 1 })",
+            "'layout' cannot hold",
+        ),
+        (
+            "lunette.windows()[1]:setProperty('layout', print)",
+            "'layout' cannot hold",
+        ),
+        (
+            "lunette.windows()[1]:setProperty('metres', 0 / 0)",
+            "finite",
+        ),
+        (
+            "lunette.windows()[1]:setProperty('metres', 1 / 0)",
+            "finite",
+        ),
+        (
+            "lunette.windows()[1]:setProperty('', true)",
+            "cannot be empty",
+        ),
+        ("lunette.windows()[1]:getProperty('')", "cannot be empty"),
     ] {
         let message = error(&lua, chunk);
         assert!(
-            message.contains("'layout' cannot hold"),
-            "the message has to name the offending key: {message}"
+            message.contains(expected),
+            "unhelpful message for {chunk}: {message}"
         );
     }
+    let message = error(&lua, "lunette.windows()[1]:setProperty('metres', 0 / 0)");
+    assert!(
+        message.contains("'metres'"),
+        "the message names the key: {message}"
+    );
 
     assert!(
         session.with_properties(|properties| properties.is_empty()),
@@ -100,7 +96,7 @@ fn a_table_is_refused_with_the_key_named() {
 }
 
 #[test]
-fn an_absent_key_is_nil_rather_than_an_error() {
+fn an_absent_key_is_nil_and_storing_nil_removes_the_key() {
     let session = session(vec![window(1, "editor", "foot", PixelSize::new(64, 32))]);
     let lua = lua(&session);
 
@@ -108,12 +104,6 @@ fn an_absent_key_is_nil_rather_than_an_error() {
         run::<Option<String>>(&lua, "return lunette.windows()[1]:getProperty('pose')"),
         None
     );
-}
-
-#[test]
-fn storing_nil_removes_the_key() {
-    let session = session(vec![window(1, "editor", "foot", PixelSize::new(64, 32))]);
-    let lua = lua(&session);
 
     let held: Option<String> = run(
         &lua,
@@ -169,6 +159,18 @@ fn a_windows_properties_go_when_the_window_does() {
         "held = lunette.windows()[1] held:setProperty('pose', '0 1 0')",
     );
 
+    for _ in 0..4 {
+        session.begin(snapshot(
+            vec![window(1, "editor", "foot", PixelSize::new(64, 32))],
+            Vec::new(),
+        ));
+    }
+    assert_eq!(
+        run::<Option<String>>(&lua, "return held:getProperty('pose')"),
+        Some("0 1 0".to_owned()),
+        "a window that is still there keeps its properties across frames"
+    );
+
     session.begin(snapshot(Vec::new(), Vec::new()));
 
     let (dead, during): (bool, Option<String>) =
@@ -190,25 +192,6 @@ fn a_windows_properties_go_when_the_window_does() {
 }
 
 #[test]
-fn a_window_that_is_still_there_keeps_its_properties_across_frames() {
-    let session = session(vec![window(1, "editor", "foot", PixelSize::new(64, 32))]);
-    let lua = lua(&session);
-    run::<()>(&lua, "lunette.windows()[1]:setProperty('pose', '0 1 0')");
-
-    for _ in 0..4 {
-        session.begin(snapshot(
-            vec![window(1, "editor", "foot", PixelSize::new(64, 32))],
-            Vec::new(),
-        ));
-    }
-
-    assert_eq!(
-        run::<Option<String>>(&lua, "return lunette.windows()[1]:getProperty('pose')"),
-        Some("0 1 0".to_owned())
-    );
-}
-
-#[test]
 fn storing_against_a_dead_handle_returns_false_and_keeps_nothing() {
     let session = session(vec![window(1, "editor", "foot", PixelSize::new(64, 32))]);
     let lua = lua(&session);
@@ -225,43 +208,6 @@ fn storing_against_a_dead_handle_returns_false_and_keeps_nothing() {
         session.with_properties(|properties| properties.is_empty()),
         "the window's entries are already gone, so there is nothing to store into"
     );
-}
-
-#[test]
-fn a_value_that_is_not_a_finite_number_is_refused() {
-    // The same rule `lunette.claimLayer` applies to a priority: a NaN is a
-    // defect in the caller's maths, and one that returns after a reload is
-    // harder to trace than one rejected at the call site.
-    let session = session(vec![window(1, "editor", "foot", PixelSize::new(64, 32))]);
-    let lua = lua(&session);
-
-    for chunk in [
-        "lunette.windows()[1]:setProperty('metres', 0 / 0)",
-        "lunette.windows()[1]:setProperty('metres', 1 / 0)",
-    ] {
-        let message = error(&lua, chunk);
-        assert!(
-            message.contains("'metres'") && message.contains("finite"),
-            "unhelpful message: {message}"
-        );
-    }
-}
-
-#[test]
-fn a_key_that_names_nothing_is_refused() {
-    let session = session(vec![window(1, "editor", "foot", PixelSize::new(64, 32))]);
-    let lua = lua(&session);
-
-    for chunk in [
-        "lunette.windows()[1]:setProperty('', true)",
-        "lunette.windows()[1]:getProperty('')",
-    ] {
-        let message = error(&lua, chunk);
-        assert!(
-            message.contains("cannot be empty"),
-            "unhelpful message: {message}"
-        );
-    }
 }
 
 #[test]

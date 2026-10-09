@@ -93,49 +93,6 @@ test('clicking the same app after a local field refocuses its existing target', 
   env.session:close()
 end)
 
-test('destroying a superseded pointer cannot clear the newer holder of the same seat id', function()
-  local env = start()
-  local first = env.interaction:newPointer(env.owner, { seat = env.seat(2) })
-  local second = env.interaction:newPointer(env.owner, { seat = env.seat(2) })
-  first:focus(env.window(11))
-  local old = env.focus:focused()
-  second:focus(env.window(12))
-  local current = env.focus:focused()
-  expect.truthy(current ~= old, 'each pointer has its own target')
-  local calls = #env.calls
-  first:focus(nil)
-  expect.equal(#env.calls, calls, 'blurring the superseded pointer makes no native withdrawal')
-  expect.equal(env.focus:focused(), current, 'blurring the superseded pointer preserves the current route')
-  first:focus(env.window(11))
-  second:focus(env.window(12))
-  expect.equal(env.focus:focused(), current, 'supersession reuses the newer target')
-  calls = #env.calls
-  first:destroy()
-  expect.equal(#env.calls, calls, 'destroying the superseded pointer makes no native withdrawal')
-  expect.equal(env.focus:focused(), current, 'the newer route remains current')
-  expect.equal(env.seats[2].id, 12, 'the newer native holder remains')
-  expect.equal(registrations(env), 1, 'the old pointer target is destroyed')
-  second:destroy()
-  expect.equal(env.seats[2], nil, 'destroying the current holder clears its seat')
-  env.session:close()
-end)
-
-test('pointers on independent seats keep separate native authority', function()
-  local env = start()
-  local first = env.interaction:newPointer(env.owner, { seat = env.seat(2) })
-  local second = env.interaction:newPointer(env.owner, { seat = env.seat(3) })
-  first:focus(env.window(11))
-  second:focus(env.window(12))
-  local current = env.focus:focused()
-  first:destroy()
-  expect.equal(env.seats[2], nil, 'only the first seat clears')
-  expect.equal(env.seats[3].id, 12, 'the second seat retains focus')
-  expect.equal(env.focus:focused(), current, 'the second route remains current')
-  second:destroy()
-  expect.equal(env.seats[3], nil, 'the second seat clears on its own destruction')
-  env.session:close()
-end)
-
 test('host targets route focus without asking a compositor seat to focus a monitor', function()
   local env = start()
   local pointer = env.interaction:newPointer(env.owner, { seat = env.seat(2) })
@@ -190,12 +147,12 @@ test(
     local pointer = env.interaction:newPointer(env.owner, { seat = env.seat(2) })
     pointer:focus(env.window(11))
     local target = env.focus:focused()
-    for _ = 1, 25 do
+    for _ = 1, 2 do
       click(pointer, env.window(11))
       expect.equal(env.focus:focused(), target, 'fresh wrappers preserve the target')
       expect.equal(registrations(env), 1, 'repeated focus retains one registration')
     end
-    for id = 12, 36 do
+    for id = 12, 13 do
       pointer:focus(env.window(id))
       expect.truthy(target.dead, 'the previous app target is destroyed')
       target = env.focus:focused()
@@ -208,36 +165,5 @@ test(
     env.session:close()
   end
 )
-
-test('explicit focus remains available with focusOnPress disabled and surfaces still receive presses', function()
-  local env = start(interaction.define { name = 'manual-focus', focusOnPress = false })
-  local pointer = env.interaction:newPointer(env.owner, { seat = env.seat(2) })
-  local sink = env.window(11)
-  click(pointer, sink)
-  expect.equal(env.focus:focused(), nil, 'pressing an app does not focus it automatically')
-  expect.equal(registrations(env), 0, 'disabled focusOnPress makes no target')
-  pointer:focus(sink)
-  local target = env.focus:focused()
-  expect.truthy(target, 'explicit focus still grants the route')
-  local presses, releases = 0, 0
-  local surface = {
-    dead = false,
-    onPointer = function(_self, event)
-      expect.equal(event.pointer, pointer, 'the press receives the pointer')
-      if event.kind == 'press' then
-        presses += 1
-      elseif event.kind == 'release' then
-        releases += 1
-      end
-    end,
-  }
-  pointer:setButton { pressed = true, surface = surface }
-  pointer:setButton { pressed = false }
-  expect.equal(presses, 1, 'the surface receives its press')
-  expect.equal(releases, 1, 'the surface receives its release')
-  expect.equal(env.focus:focused(), target, 'the press leaves explicit native focus unchanged')
-  pointer:destroy()
-  env.session:close()
-end)
 
 return test

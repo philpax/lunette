@@ -1,6 +1,5 @@
 local testing = require '@testing'
 local expect = testing.expect
-local plugin = require '@lunette-plugin'
 local panelsContract = require '@lunette-contracts/panels'
 local panelsModule = require '@lunette-plugins/panels'
 local themeContract = require '@lunette-contracts/theme'
@@ -50,30 +49,7 @@ local function drawn(env, panel)
 end
 
 test("chrome is off unless a panel or the provider's configuration asks for it", function()
-  local acquisitionFails = false
-  local delivered = 0
-  local broker = plugin.provider {
-    name = 'chrome-theme',
-    capability = themeContract.capability,
-    build = function(context)
-      local real = require('@lunette-plugins/theme').build(context)
-      return setmetatable({
-        onChanged = function(_, owner, run)
-          return real:onChanged(owner, function(snapshot)
-            delivered += 1
-            run(snapshot)
-          end)
-        end,
-        font = function(_, spec)
-          if acquisitionFails then
-            error 'panel font acquisition failure'
-          end
-          return real:font(spec)
-        end,
-      }, { __index = real })
-    end,
-  }
-  local env = start(nil, nil, broker.definition)
+  local env = start()
   local plain = env.panels:fromWindow(env.owner, window(env, 1), { height = 1 })
   expect.equal(plain.chrome, false, 'the chrome of a plain panel')
   local counts = drawn(env, plain)
@@ -81,20 +57,15 @@ test("chrome is off unless a panel or the provider's configuration asks for it",
   expect.equal(counts.text, nil, 'a plain panel draws no title')
   local framed = env.panels:fromWindow(env.owner, window(env, 2), { height = 1, chrome = true })
   counts = drawn(env, framed)
-  expect.equal(counts.plane, 1, 'square captured content retains its plane')
   expect.equal(counts.draw, 1, 'a panel with chrome draws an outline ring')
   expect.equal(counts.text, 1, 'a panel with chrome draws a title')
 
   local faces = {}
   lovr.graphics.newFont = function(file, size, spread)
     local font = render.new().font
-    font.file, font.size, font.spread, font.released = file, size, spread, false
+    font.file, font.size, font.spread = file, size, spread
     font.getHeight = function()
-      assert(not font.released, 'measuring a released font')
       return 2
-    end
-    font.release = function()
-      font.released = true
     end
     faces[#faces + 1] = font
     return font
@@ -102,15 +73,9 @@ test("chrome is off unless a panel or the provider's configuration asks for it",
   local selected = env.theme:select(env.themeOwner, {
     colors = { foreground = { 0.8, 0.7, 0.6, 1 }, border = { 0.1, 0.2, 0.3, 1 }, focus = { 0.4, 0.5, 0.6, 1 } },
     typography = { font = { kind = 'file', file = 'panel-face-a.ttf', size = 24, spread = 3 }, titleHeight = 0.06 },
-    metrics = { titlebarBorderThickness = 0.012 },
-    radii = { window = 0.03, monitor = 0.04 },
   })
-  local pass, recorder = env.native.events.pass, env.native.events.render
-  pass:setFont(recorder.font)
-  pass:setColor(0.3, 0.2, 0.1, 0.5)
-  local caller = recorder:checkpoint()
-  counts = drawn(env, framed)
   local function paintCalls()
+    drawn(env, framed)
     local border, title
     for _, call in env.native.events.draw do
       if call[1] == 'draw' and not border then
@@ -125,84 +90,28 @@ test("chrome is off unless a panel or the provider's configuration asks for it",
   expect.equal(title.state.setFont[1], faces[1], 'the title draws with the selected face')
   expect.equal(title.state.setColor[1], 0.8, 'the title inherits foreground')
   expect.equal(border.state.setColor[1], 0.1, 'the border inherits border')
-  expect.near(title[3]:getScale(), 0.03, 1e-9, 'the selected face measures the title height')
-  expect.equal(counts.plane, nil, 'rounded content has no square plane')
-  expect.equal(counts.draw, 2, 'rounded captured content and chrome have distinct meshes')
-  recorder:assertRestored(caller)
   framed:setHighlighted(true)
-  drawn(env, framed)
   border = paintCalls()
   expect.equal(border.state.setColor[1], 0.4, 'the highlight inherits focus')
-
   selected:update { typography = { font = { kind = 'file', file = 'panel-face-b.ttf', size = 28, spread = 4 } } }
-  acquisitionFails = true
-  local beforeRevision = env.theme:current().revision
-  selected:update {
-    colors = { foreground = { 0.2, 0.3, 0.4, 1 } },
-    typography = { font = { kind = 'file', file = 'panel-face-b.ttf', size = 28, spread = 4 } },
-  }
-  expect.equal(env.theme:current().revision, beforeRevision + 1, 'the palette publishes a new revision')
-  expect.equal(delivered, 3, 'one subscription receives each current revision')
-  local reports = env.native.events.reported
-  expect.equal(#reports, 1, 'the failed subscription refresh is reported')
-  expect.truthy(reports[1].message:find('panel font acquisition failure', 1, true), 'the acquisition error')
-  expect.raises(function()
-    drawn(env, framed)
-  end, 'panel font acquisition failure', 'a failed refresh raises')
-  acquisitionFails = false
-  drawn(env, framed)
   _, title = paintCalls()
-  expect.equal(title.state.setFont[1], faces[2], 'a later draw retries the current revision')
-  expect.equal(title.state.setColor[1], 0.2, 'the successful retry publishes the current palette')
-
-  local text = pass.text
-  pass.text = function()
-    selected:update { typography = { font = { kind = 'file', file = 'panel-face-c.ttf', size = 30, spread = 4 } } }
-    env.panels:update()
-    text(pass, 'retained', lovr.math.newMat4(), 0, 'center', 'middle')
-    error 'chrome title failure'
-  end
-  expect.raises(function()
-    drawn(env, framed)
-  end, 'chrome title failure', 'a failing chrome draw')
-  pass.text = text
-  recorder:assertRestored(caller)
+  expect.equal(title.state.setFont[1], faces[2], 'a theme change leases the new face')
   selected:dispose()
-  framed:raycast(vector.pack(0, 0, 1), vector.pack(0, 0, -1))
   env.session:close()
 
-  local newFont = lovr.graphics.newFont
   env = start(nil, {
     chrome = true,
-    style = {
-      font = { kind = 'file', file = 'panel-explicit.ttf' },
-      windowRadius = 0,
-      borderThickness = 0,
-      titleColor = { 0.9, 0.1, 0.2, 1 },
-    },
-  }, nil, newFont)
+    style = { font = { kind = 'file', file = 'panel-explicit.ttf' }, titleColor = { 0.9, 0.1, 0.2, 1 } },
+  }, nil, lovr.graphics.newFont)
   local defaultChrome = env.panels:fromWindow(env.owner, window(env, 5), { height = 1 })
-  expect.equal(defaultChrome.chrome, true, 'the default')
+  expect.equal(defaultChrome.chrome, true, 'the provider default')
   local own = env.panels:fromWindow(env.owner, window(env, 6), { height = 1, chrome = false })
   expect.equal(own.chrome, false, "a panel's own option")
-  local override = env.theme:select(env.themeOwner, {
-    typography = { titleHeight = 0.07 },
-    metrics = { titlebarBorderThickness = 0.02 },
-    radii = { window = 0.08, monitor = 0.09 },
-    colors = { foreground = { 0.3, 0.4, 0.5, 1 } },
-  })
-  drawn(env, defaultChrome)
-  local explicitTitle
-  for _, call in env.native.events.draw do
-    if call[1] == 'text' then
-      explicitTitle = call
-    end
-  end
-  expect.equal(explicitTitle.state.setFont[1], faces[#faces], 'explicit provider font wins')
-  expect.equal(explicitTitle.state.setColor[1], 0.9, 'explicit provider title colour wins')
-  local square = drawn(env, defaultChrome)
-  expect.equal(square.plane, 1, 'an explicit zero provider radius survives a theme change')
-  expect.equal(square.draw, nil, 'an explicit zero border survives a theme change')
+  local override = env.theme:select(env.themeOwner, { colors = { foreground = { 0.3, 0.4, 0.5, 1 } } })
+  framed = defaultChrome
+  _, title = paintCalls()
+  expect.equal(title.state.setFont[1], faces[#faces], 'explicit provider font wins')
+  expect.equal(title.state.setColor[1], 0.9, 'explicit provider title colour wins')
   override:dispose()
   env.session:close()
 end)

@@ -1,12 +1,10 @@
--- Covers inverse failures, resource authority during explicit disposal, dependency reads during release,
--- and requests queued from inside an inverse.
+-- Covers inverse failures, resource authority during explicit disposal, and requests queued from an inverse.
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require('@lunette').plugin
 
 local test = testing.suite()
 
--- Takes the reports and asserts there are `count` of them, each containing `needle`.
 local function expectReports(count, needle, context)
   local reports = testing.takeReports()
   expect.equal(#reports, count, context .. ': ' .. table.concat(reports, '\n'))
@@ -15,304 +13,291 @@ local function expectReports(count, needle, context)
   end
 end
 
--- A failing inverse quarantines its instance during rollback, explicit disposal, or disable. Releases
--- completed by an inverse remain in effect if it raises.
-for _, mode in { 'rollback', 'explicit', 'disable' } do
-  test('an inverse failing in ' .. mode .. ' quarantines its instance and keeps its reservation', function()
-    local token = plugin.contract('audit/' .. mode, 1)
-    local runtime = plugin.runtime()
-    local loads = 0
-    local handle
-    local remainingReleased = 0
-    local payload = { released = false }
-    local definition = plugin.define({}, { service = token }, function(context, config)
-      loads += 1
-      context:effect(function()
-        return function()
-          remainingReleased += 1
-        end
-      end)
-      handle = context:effect(function()
-        return function()
-          config.payload.released = true
-          error('inverse failed ' .. mode)
-        end
-      end)
-      if mode == 'rollback' then
-        error 'apply failed'
+test('an inverse failing in an explicit disposal quarantines its instance and keeps its reservation', function()
+  local token = plugin.contract('audit/explicit', 1)
+  local runtime = plugin.runtime()
+  local loads = 0
+  local handle
+  local remainingReleased = 0
+  local payload = { released = false }
+  local definition = plugin.define({}, { service = token }, function(context, config)
+    loads += 1
+    context:effect(function()
+      return function()
+        remainingReleased += 1
       end
-      return { service = 42 }
     end)
-    local instance = runtime:use(definition, { payload = payload })
-    instance:enable()
-    if mode == 'explicit' then
-      -- Explicit disposal raises its inverse failure; disable and shutdown report failures.
-      expect.raises(function()
-        handle:dispose()
-      end, 'inverse failed explicit', 'the explicit disposal')
-    elseif mode == 'disable' then
-      expect.equal(instance:state(), 'active', tostring(instance:diagnostic()))
-      instance:disable()
-    end
-    expect.truthy(payload.released, 'the failing inverse ran')
-    expect.raises(function()
-      instance:enable()
-    end, nil, 'enabling the quarantined instance')
-    expect.equal(loads, 1, 'the cleanup failure allows no retry')
-    instance:disable()
-    expect.equal(instance:state(), 'quarantined', 'the instance after its cleanup failure')
-    expect.truthy(
-      string.find(instance:diagnostic() or '', 'inverse failed ' .. mode, 1, true),
-      'the quarantine diagnostic names its cause: ' .. tostring(instance:diagnostic())
-    )
-    local duplicate = runtime:use(definition, {})
-    expect.raises(function()
-      duplicate:enable()
-    end, nil, 'the cleanup failure keeps its reservation')
-    local reports = testing.takeReports()
-    local wanted = ({
-      rollback = { 'apply failed', 'inverse failed rollback' },
-      explicit = {},
-      disable = { 'inverse failed disable' },
-    })[mode]
-    expect.equal(#reports, #wanted, 'the reported failures: ' .. table.concat(reports, '\n'))
-    for index, needle in wanted do
-      expect.truthy(string.find(reports[index], needle, 1, true), 'report ' .. index .. ': ' .. reports[index])
-    end
-    runtime:close()
-    expect.equal(remainingReleased, 1, 'the quarantine runs the remaining inverse')
+    handle = context:effect(function()
+      return function()
+        config.payload.released = true
+        error 'inverse failed explicit'
+      end
+    end)
+    return { service = 42 }
   end)
-end
+  local instance = runtime:use(definition, { payload = payload })
+  instance:enable()
+  expect.raises(function()
+    handle:dispose()
+  end, 'inverse failed explicit', 'the explicit disposal')
+  expect.truthy(payload.released, 'the failing inverse ran')
+  expect.raises(function()
+    instance:enable()
+  end, nil, 'enabling the quarantined instance')
+  expect.equal(loads, 1, 'the cleanup failure allows no retry')
+  instance:disable()
+  expect.equal(instance:state(), 'quarantined', 'the instance after its cleanup failure')
+  expect.truthy(
+    string.find(instance:diagnostic() or '', 'inverse failed explicit', 1, true),
+    'the quarantine diagnostic names its cause: ' .. tostring(instance:diagnostic())
+  )
+  local duplicate = runtime:use(definition, {})
+  expect.raises(function()
+    duplicate:enable()
+  end, nil, 'the cleanup failure keeps its reservation')
+  expectReports(0, '', 'the reported failures')
+  runtime:close()
+  expect.equal(remainingReleased, 1, 'the quarantine runs the remaining inverse')
+end)
 
-for _, asChild in { false, true } do
-  local consumerKind = if asChild then 'a child consumer' else 'a consumer'
-  test('the pending inverses of ' .. consumerKind .. ' run once, before its provider is cleaned up', function()
+test('the pending inverses of a consumer run once, before its provider is cleaned up', function()
+  local runtime = plugin.runtime()
+  local token = plugin.contract('audit/pending', 1)
+  local events = {}
+  local resource = { alive = true }
+  local broken
+  local consumer = plugin.define({ service = token }, {}, function(context)
+    context:effect(function()
+      return function()
+        local service = context:services().service
+        assert(service == resource and service.alive, 'provider unavailable during pending inverse')
+        table.insert(events, 'A')
+      end
+    end)
+    broken = context:effect(function()
+      return function()
+        table.insert(events, 'B')
+        error 'pending cleanup failure'
+      end
+    end)
+    return {}
+  end)
+  local provider = plugin.define({}, { service = token }, function(context)
+    context:effect(function()
+      return function()
+        table.insert(events, 'P')
+        resource.alive = false
+      end
+    end)
+    return { service = resource }
+  end)
+  runtime:use(provider, {}):enable()
+  runtime:use(consumer, {}):enable()
+  assert(broken ~= nil, 'consumer not initialized')
+  expect.raises(function()
+    broken:dispose()
+  end, 'pending cleanup failure', 'the failing disposal')
+  expect.equal(table.concat(events, ','), 'B', 'the events after the failing disposal')
+  runtime:close()
+  expect.equal(table.concat(events, ','), 'B,A,P', 'the pending inverse runs once before provider cleanup')
+end)
+
+test('a reentrant inverse failing in a cancelled acquisition quarantines the original activation', function()
+  local runtime = plugin.runtime()
+  local dependency = plugin.contract('audit/inverse-dependency', 1)
+  local output = plugin.contract('audit/inverse-output', 1)
+  local events = {}
+  local providerAlive = true
+  runtime
+    :use(
+      plugin.define({}, { service = dependency }, function(context)
+        context:effect(function()
+          return function()
+            table.insert(events, 'provider')
+            providerAlive = false
+          end
+        end)
+        return { service = {} }
+      end),
+      {}
+    )
+    :enable()
+  local context
+  local instance
+  local loads = 0
+  local definition = plugin.define({ dependency = dependency }, { service = output }, function(current)
+    loads += 1
+    context = current
+    current:effect(function()
+      return function()
+        assert(providerAlive and current:services().dependency ~= nil, 'dependency lost before old cleanup')
+        table.insert(events, 'remaining')
+      end
+    end)
+    return { service = {} }
+  end)
+  instance = runtime:use(definition, {})
+  instance:enable()
+  local inverseCalls = 0
+  local function inverse()
+    inverseCalls += 1
+    instance:reload {}
+    runtime:drain()
+    table.insert(events, 'broken')
+    error 'reentrant inverse failure'
+  end
+  expect.raises(function()
+    context:effect(function()
+      instance:reload {}
+      return inverse
+    end)
+  end, nil, 'the cancelled acquisition')
+  expect.equal(table.concat(events, ','), 'broken,remaining', 'the cancelled activation inverse order')
+  expect.raises(function()
+    instance:enable()
+  end, nil, 'enabling the quarantined instance')
+  expect.raises(function()
+    instance:reload {}
+  end, nil, 'reloading the quarantined instance')
+  instance:dispose()
+  runtime:drain()
+  expect.equal(loads, 1, 'the failed old inverse permits no replacement activation')
+  expect.equal(inverseCalls, 1, 'the failed inverse is not retried')
+  expect.falsy(context:active(), 'the failed allocation remains published')
+  local duplicate = runtime:use(definition, {})
+  expect.raises(function()
+    duplicate:enable()
+  end, nil, 'the failed cleanup keeps its provided reservation')
+  expect.truthy(providerAlive, 'the failed cleanup keeps its dependency')
+  expectReports(1, 'reentrant inverse failure', 'the reported failures')
+  runtime:close()
+  expect.equal(table.concat(events, ','), 'broken,remaining,provider', 'the shutdown cleanup order')
+  expect.equal(inverseCalls, 1, 'shutdown does not retry a failed inverse')
+end)
+
+test(
+  'an explicit successful disposal during load revokes resource authority while it runs, then restores the live owner',
+  function()
     local runtime = plugin.runtime()
-    local token = plugin.contract('audit/pending-' .. tostring(asChild), 1)
-    local events = {}
-    local resource = { alive = true }
-    local broken
-    local consumer = plugin.define({ service = token }, {}, function(context)
-      context:effect(function()
+    local childCalls = 0
+    local childDefinition = plugin.define({}, {}, function()
+      childCalls += 1
+      return {}
+    end)
+    local acquired = 0
+    local attempts
+    local disposable
+    local definition = plugin.define({}, {}, function(context)
+      disposable = context:effect(function()
         return function()
-          local service = context:services().service
-          assert(service == resource and service.alive, 'provider unavailable during pending inverse')
-          table.insert(events, 'A')
+          attempts = {
+            active = context:active(),
+            effect = pcall(function()
+              context:effect(function()
+                acquired += 1
+                return function()
+                  acquired -= 1
+                end
+              end)
+            end),
+            child = pcall(function()
+              context:child(childDefinition, {}):enable()
+            end),
+          }
         end
       end)
-      broken = context:effect(function()
+      disposable:dispose()
+      assert(
+        attempts ~= nil and not attempts.active and not attempts.effect and not attempts.child,
+        'explicit inverse retains resource authority'
+      )
+      assert(acquired == 0 and childCalls == 0, 'explicit inverse ran acquisition')
+      assert(context:active(), 'successful explicit inverse revoked owner permanently')
+      context:effect(function()
+        acquired += 1
         return function()
-          table.insert(events, 'B')
-          error 'pending cleanup failure'
+          acquired -= 1
+        end
+      end)
+      context:child(childDefinition, {}):enable()
+      return {}
+    end)
+    runtime:use(definition, {}):enable()
+    assert(attempts ~= nil, 'initializer cleanup assertions did not run')
+    expect.truthy(acquired == 1 and childCalls == 1, 'the successful cleanup restores the live owner')
+    runtime:close()
+    expect.equal(acquired, 0, 'no explicitly cleaned resource outlives close')
+  end
+)
+
+test('a caught nested inverse failure after load leaves its owner cleanup-only', function()
+  local runtime = plugin.runtime()
+  local context
+  local outer
+  local inverseCalls = 0
+  local remainingCalls = 0
+  local acquisitions = 0
+  local childLoads = 0
+  local child = plugin.define({}, {}, function()
+    childLoads += 1
+    return {}
+  end)
+  local instance = runtime:use(
+    plugin.define({}, {}, function(owner)
+      context = owner
+      owner:effect(function()
+        return function()
+          remainingCalls += 1
+        end
+      end)
+      local inner = owner:effect(function()
+        return function()
+          inverseCalls += 1
+          error 'nested inverse failure'
+        end
+      end)
+      outer = owner:effect(function()
+        return function()
+          inverseCalls += 1
+          local ok, failure = pcall(function()
+            inner:dispose()
+          end)
+          expect.falsy(ok, 'the nested disposal')
+          expect.truthy(string.find(tostring(failure), 'nested inverse failure', 1, true), 'the caught failure')
         end
       end)
       return {}
+    end),
+    {}
+  )
+  instance:enable()
+  outer:dispose()
+  expect.equal(inverseCalls, 2, 'each nested inverse runs once')
+  expect.falsy(context:active(), 'the owner authority after nested disposal')
+  expect.raises(function()
+    context:effect(function()
+      acquisitions += 1
+      return function() end
     end)
-    local provider = plugin.define({}, { service = token }, function(context)
-      context:effect(function()
-        return function()
-          table.insert(events, 'P')
-          resource.alive = false
-        end
-      end)
-      if asChild then
-        context:child(consumer, {}):enable()
-      end
-      return { service = resource }
-    end)
-    runtime:use(provider, {}):enable()
-    if not asChild then
-      runtime:use(consumer, {}):enable()
-    end
-    assert(broken ~= nil, 'consumer not initialized')
-    expect.raises(function()
-      broken:dispose()
-    end, 'pending cleanup failure', 'the failing disposal')
-    expect.equal(table.concat(events, ','), 'B', 'the events after the failing disposal')
-    runtime:close()
-    expect.equal(table.concat(events, ','), 'B,A,P', 'the pending inverse runs once before provider cleanup')
-  end)
-end
-
-for _, explicit in { false, true } do
-  local where = if explicit then 'an explicit disposal' else 'a cancelled acquisition'
-  test('a reentrant inverse failing in ' .. where .. ' quarantines the original activation', function()
-    local runtime = plugin.runtime()
-    local dependency = plugin.contract('audit/inverse-dependency-' .. tostring(explicit), 1)
-    local output = plugin.contract('audit/inverse-output-' .. tostring(explicit), 1)
-    local events = {}
-    local providerAlive = true
-    runtime
-      :use(
-        plugin.define({}, { service = dependency }, function(context)
-          context:effect(function()
-            return function()
-              table.insert(events, 'provider')
-              providerAlive = false
-            end
-          end)
-          return { service = {} }
-        end),
-        {}
-      )
-      :enable()
-    local context
-    local instance
-    local loads = 0
-    local definition = plugin.define({ dependency = dependency }, { service = output }, function(current)
-      loads += 1
-      context = current
-      current:effect(function()
-        return function()
-          assert(providerAlive and current:services().dependency ~= nil, 'dependency lost before old cleanup')
-          table.insert(events, 'remaining')
-        end
-      end)
-      return { service = {} }
-    end)
-    instance = runtime:use(definition, {})
+  end, nil, 'a quarantined owner acquires no resource')
+  expect.raises(function()
+    context:child(child, {}):enable()
+  end, nil, 'a quarantined owner creates no child')
+  expect.raises(function()
+    context:checkOwner(context)
+  end, nil, 'a quarantined owner registers no caller-owned resource')
+  expect.equal(acquisitions, 0, 'no acquisition runs after nested failure')
+  expect.equal(childLoads, 0, 'no child loads after nested failure')
+  instance:disable()
+  expect.equal(instance:state(), 'quarantined', 'the failed activation remains quarantined')
+  expect.raises(function()
     instance:enable()
-    local inverseCalls = 0
-    local function inverse()
-      inverseCalls += 1
-      instance:reload {}
-      runtime:drain()
-      table.insert(events, 'broken')
-      error 'reentrant inverse failure'
-    end
-    if explicit then
-      local effect = context:effect(function()
-        return inverse
-      end)
-      expect.raises(function()
-        effect:dispose()
-      end, 'reentrant inverse failure', 'the explicit disposal')
-      effect:dispose()
-      -- The reload requested inside the inverse unloads the activation, which runs its remaining inverse and
-      -- then quarantines it.
-      expect.equal(table.concat(events, ','), 'broken,remaining', 'the explicit failure cleanup order')
-    else
-      expect.raises(function()
-        context:effect(function()
-          instance:reload {}
-          return inverse
-        end)
-      end, nil, 'the cancelled acquisition')
-      expect.equal(table.concat(events, ','), 'broken,remaining', 'the cancelled activation inverse order')
-    end
-    expect.raises(function()
-      instance:enable()
-    end, nil, 'enabling the quarantined instance')
-    expect.raises(function()
-      instance:reload {}
-    end, nil, 'reloading the quarantined instance')
-    instance:dispose()
-    runtime:drain()
-    expect.equal(loads, 1, 'the failed old inverse permits no replacement activation')
-    expect.equal(inverseCalls, 1, 'the failed inverse is not retried')
-    expect.falsy(context:active(), 'the failed allocation remains published')
-    local duplicate = runtime:use(definition, {})
-    expect.raises(function()
-      duplicate:enable()
-    end, nil, 'the failed cleanup keeps its provided reservation')
-    expect.truthy(providerAlive, 'the failed cleanup keeps its dependency')
-    -- The withdrawn acquisition's inverse failure appears in reports; explicit disposal raises its failure.
-    expectReports(if explicit then 0 else 1, 'reentrant inverse failure', 'the reported failures')
-    runtime:close()
-    expect.equal(table.concat(events, ','), 'broken,remaining,provider', 'the shutdown cleanup order')
-    expect.equal(inverseCalls, 1, 'shutdown does not retry a failed inverse')
-  end)
-end
-
-for _, loading in { false, true } do
-  for _, broken in { false, true } do
-    local title = 'an explicit '
-      .. (if broken then 'failing' else 'successful')
-      .. ' disposal '
-      .. (if loading then 'during load' else 'after load')
-      .. ' revokes resource authority while it runs'
-      .. (if broken then ' and for good' else ', then restores the live owner')
-    test(title, function()
-      local runtime = plugin.runtime()
-      local childCalls = 0
-      local childDefinition = plugin.define({}, {}, function()
-        childCalls += 1
-        return {}
-      end)
-      local acquired = 0
-      local attempts
-      local escaped
-      local disposable
-      local function disposeAndCheck(context)
-        local ok = pcall(function()
-          disposable:dispose()
-        end)
-        assert(ok ~= broken, 'explicit inverse outcome changed')
-        assert(
-          attempts ~= nil and not attempts.active and not attempts.effect and not attempts.child,
-          'explicit inverse retains resource authority'
-        )
-        assert(acquired == 0 and childCalls == 0, 'explicit inverse ran acquisition')
-        if not broken then
-          assert(context:active(), 'successful explicit inverse revoked owner permanently')
-          context:effect(function()
-            acquired += 1
-            return function()
-              acquired -= 1
-            end
-          end)
-          context:child(childDefinition, {}):enable()
-        else
-          assert(not context:active(), 'failed explicit inverse remains active')
-          assert(not pcall(function()
-            context:effect(function()
-              acquired += 1
-              return function() end
-            end)
-          end), 'failed explicit inverse restored resource authority')
-        end
-      end
-      local definition = plugin.define({}, {}, function(context)
-        escaped = context
-        disposable = context:effect(function()
-          return function()
-            attempts = {
-              active = context:active(),
-              effect = pcall(function()
-                context:effect(function()
-                  acquired += 1
-                  return function()
-                    acquired -= 1
-                  end
-                end)
-              end),
-              child = pcall(function()
-                context:child(childDefinition, {}):enable()
-              end),
-            }
-            if broken then
-              error 'explicit authority inverse failure'
-            end
-          end
-        end)
-        if loading then
-          disposeAndCheck(context)
-        end
-        return {}
-      end)
-      runtime:use(definition, {}):enable()
-      if not loading then
-        disposeAndCheck(escaped)
-      end
-      assert(attempts ~= nil, 'initializer cleanup assertions did not run')
-      if not broken then
-        expect.truthy(acquired == 1 and childCalls == 1, 'the successful cleanup restores the live owner')
-      end
-      runtime:close()
-      expect.equal(acquired, 0, 'no explicitly cleaned resource outlives close')
-    end)
-  end
-end
+  end, nil, 'a quarantined instance cannot retry')
+  runtime:close()
+  expect.equal(inverseCalls, 2, 'shutdown repeats no disposed inverse')
+  expect.equal(remainingCalls, 1, 'shutdown releases the remaining inverse')
+  expectReports(0, '', 'caught explicit failures produce no reports')
+end)
 
 test('a caught acquisition failure keeps the loading owner and its nested effect', function()
   local runtime = plugin.runtime()

@@ -1,9 +1,4 @@
--- Hooks, menu actions, and configuration change the shipped desktop's behaviour.
---
--- Copy the desktop configuration and adjacent Lua files into the directory
--- `lunette --dump-config` wrote, which also holds conf.luau and the .luaurc that
--- `lunette check` and an editor read. docs/guide/desktop-configuration.md describes
--- the settings, and docs/guide/writing-plugins.md describes the inserted plugins.
+-- Hooks, menu actions, and configuration change the shipped desktop's behaviour. Copy the desktop configuration and adjacent Lua files into the directory `lunette --dump-config` wrote, which also holds conf.luau and the .luaurc that `lunette check` and an editor read. The settings are described in docs/guide/desktop-configuration.md, and the inserted plugins in docs/guide/writing-plugins.md.
 local desktop = require '@lunette-desktop'
 local interaction = require '@lunette-plugins/interaction'
 local laser = require '@lunette-plugins/laser'

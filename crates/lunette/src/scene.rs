@@ -1,9 +1,6 @@
 //! Linux-only: controls whether LÖVR acquires and renders the projection layer.
 //!
-//! Skipping `getPass` and `getTexture` avoids swapchain acquisition and rendering. LÖVR still
-//! submits each XR frame so composition layers reach the runtime. If a skipped frame records layer
-//! copies, the gate submits LÖVR's graphics stream before `lovr.headset.submit` releases those
-//! swapchain images.
+//! A skipped frame still submits an XR frame so composition layers reach the runtime.
 
 use mlua::{Function, Lua, Table, Value};
 use tracing::debug;
@@ -13,8 +10,7 @@ use tracing::debug;
 /// The value is latched at the frame boundary so layer submission and the gate use the same state.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SceneRendering {
-    /// `lovr.draw` runs, the projection layer is submitted, and the frame
-    /// costs what it always did.
+    /// `lovr.draw` runs and the projection layer is submitted.
     #[default]
     Drawn,
     /// Skips pass acquisition, `lovr.draw`, and projection-layer submission.
@@ -39,21 +35,19 @@ impl SceneRendering {
 /// What the gate does about one call to `getPass` or `getTexture`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Gate {
-    /// Call LÖVR. This is every frame that draws a scene.
+    /// Call LÖVR.
     Through,
     /// Answer nothing.
     Skip,
-    /// Submits LÖVR's stream before answering nothing because this frame recorded layer copies.
+    /// Submits LÖVR's stream first, because this frame recorded layer copies.
     SkipAfterFlush,
 }
 
 impl Gate {
-    /// Whether the call is answered or passed through.
     const fn skips(self) -> bool {
         matches!(self, Self::Skip | Self::SkipAfterFlush)
     }
 
-    /// Whether LÖVR's stream is submitted before answering.
     const fn flushes(self) -> bool {
         matches!(self, Self::SkipAfterFlush)
     }
@@ -61,9 +55,8 @@ impl Gate {
 
 /// Wraps `lovr.headset`'s swapchain-acquiring methods with `decide`.
 ///
-/// The `package.preload` loader is wrapped before `boot.lua` runs because the headset module is
-/// created during boot. Lua owns the wrapper and its original loader. No Lua reference outlives a
-/// state during reload. States without the headset module are unchanged.
+/// The `package.preload` loader is wrapped because the headset module is created during boot.
+/// Lua owns the wrapper, so no reference outlives a state during reload.
 ///
 /// # Errors
 ///
@@ -78,8 +71,6 @@ pub fn install_gate(lua: &Lua, decide: impl Fn() -> Gate + 'static) -> mlua::Res
         return Ok(());
     };
 
-    // The two booleans are the shape the chunk consumes. `Gate` is the type
-    // the rest of the codebase uses; the translation happens once, here.
     let decide = lua.create_function(move |_, ()| {
         let gate = decide();
         Ok((gate.skips(), gate.flushes()))
@@ -94,8 +85,7 @@ const HEADSET_MODULE: &str = "lovr.headset";
 
 /// Wraps `getPass` and `getTexture`, the methods that acquire the colour swapchain.
 ///
-/// Lua closure upvalues own the original loader and methods. `lovr.headset.submit` remains
-/// unchanged and submits every XR frame.
+/// `lovr.headset.submit` is not wrapped, because every XR frame must be submitted.
 const GATE_CHUNK: &str = r"
 local wrap = function(loader, decide)
   local gate = function(original)
@@ -181,8 +171,7 @@ mod tests {
 
             let gate = Rc::new(Cell::new(Gate::Through));
             let reader = Rc::clone(&gate);
-            // Reads the gate once and clears the flush, as `Session::scene_gate`
-            // does, so a frame flushes once however many gated calls it makes.
+            // Clears the flush as `Session::scene_gate` does, so a frame flushes once.
             install_gate(&lua, move || {
                 let gate = reader.get();
                 if gate == Gate::SkipAfterFlush {
@@ -254,8 +243,6 @@ mod tests {
 
     #[test]
     fn a_skipped_frame_that_recorded_copies_submits_the_stream_itself() {
-        // Otherwise `lovr.headset.submit` releases each layer's swapchain image
-        // while the copy into it is still queued in LÖVR's stream.
         let fake = Fake::new();
         fake.gate.set(Gate::SkipAfterFlush);
 
@@ -270,8 +257,6 @@ mod tests {
 
     #[test]
     fn a_later_skipped_frame_flushes_nothing_of_its_own() {
-        // The gate flushes only when instructed. `Session::scene_gate`
-        // provides the instruction.
         let fake = Fake::new();
         fake.gate.set(Gate::SkipAfterFlush);
         fake.frame();

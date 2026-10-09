@@ -1,12 +1,6 @@
 //! Linux-only: `lunctl` sends Lua chunks to the running session's control socket.
 //!
-//! It accepts command-line chunks, standard input, or an interactive prompt.
 //! See [the Lua API](../../../docs/dev/lua-api.md#lunctl).
-//!
-//! Each outcome has a distinct exit status. Top-level strings print without quotes
-//! for shell capture; strings inside tables are quoted. This binary uses the
-//! control protocol implementation in the `lunette` crate. Only `socket_path`
-//! interprets the runtime-directory environment variable.
 
 use std::{
     env,
@@ -132,7 +126,7 @@ struct Invocation {
 #[derive(Debug, PartialEq, Eq)]
 enum Mode {
     Help,
-    /// Chunks named on the command line, evaluated in order.
+    /// Chunks named on the command line.
     Chunks(Vec<String>),
     /// One chunk read from standard input.
     Stdin,
@@ -232,7 +226,7 @@ fn repl(socket: &Path) -> Status {
             continue;
         }
 
-        // Try expressions first, then send statements unchanged.
+        // Tries an expression first, so a bare value prints its result.
         let expression = format!("return {chunk}");
         match exchange(socket, &expression) {
             Ok(Reply::LoadError(_)) => report(&exchange(socket, chunk)),
@@ -243,7 +237,6 @@ fn repl(socket: &Path) -> Status {
 
 const PROMPT: &str = "lunctl> ";
 
-/// Sends one chunk, prints what came back, and determines the exit status.
 fn evaluate_and_report(socket: &Path, chunk: &str) -> Status {
     report(&exchange(socket, chunk))
 }
@@ -258,7 +251,6 @@ fn exchange(socket: &Path, chunk: &str) -> Result<Reply, Unanswered> {
 
     match write_request(&mut stream, chunk) {
         Ok(()) => {}
-        // Reject oversized frames before writing them to the session.
         Err(WireError::TooLarge { length }) => return Err(Unanswered::ChunkTooLarge { length }),
         Err(error) => return Err(Unanswered::Unreachable(error.to_string())),
     }
@@ -394,9 +386,8 @@ fn number_text(number: f64) -> String {
 
 /// A Lua string, quoted and escaped.
 ///
-/// Lua strings are byte strings. A byte that is not printable text is written
-/// as `\xNN`. The printed form can be pasted back into a chunk and means the
-/// same thing.
+/// A byte that is not text is written as `\xNN`, so the printed form can be
+/// pasted back into a chunk.
 fn quoted(bytes: &[u8]) -> String {
     let mut rendered = String::with_capacity(bytes.len() + 2);
     rendered.push('\'');
@@ -466,9 +457,7 @@ fn key_text(key: &Key) -> String {
 
 /// A handle, as its kind and its identifier.
 ///
-/// That is all a handle is on this side of the socket: `lunctl` holds no
-/// session and can dereference nothing. The id lets a caller pass the handle
-/// back in a later chunk.
+/// The id lets a caller pass the handle back in a later chunk.
 fn handle_text(handle: &Handle) -> String {
     match &handle.id {
         Some(id) => format!("<{} {id}>", handle.kind),
@@ -512,8 +501,6 @@ mod tests {
 
     #[test]
     fn the_socket_can_be_named_instead_of_resolved() {
-        // The end-to-end tests use this, so a test session's socket does not
-        // have to be the one in the user's runtime directory.
         let Ok(invocation) = parse(&arguments(&["--socket", "/tmp/x.sock", "return 1"])) else {
             panic!("it parses");
         };
@@ -548,9 +535,7 @@ mod tests {
 
     #[test]
     fn a_relative_or_absent_runtime_directory_names_nothing() {
-        // The XDG specification requires an absolute path. Resolving a relative
-        // one against the working directory would connect to whatever happened
-        // to be there.
+        // The XDG specification requires an absolute path.
         assert_eq!(socket_path(Some(Path::new("run/user"))), None);
         assert_eq!(socket_path(None), None);
     }
@@ -583,7 +568,6 @@ mod tests {
 
     #[test]
     fn a_top_level_string_prints_bare_and_a_nested_one_prints_quoted() {
-        // The top level is what a shell captures.
         assert_eq!(
             top_level(&Value::String(b"a terminal".to_vec())),
             "a terminal"
@@ -632,8 +616,7 @@ mod tests {
             key_text(&Key::String(b"with space".to_vec())),
             "['with space']"
         );
-        // A reserved word is not a name: `end = 1` does not parse, and the
-        // printed form is a valid subscript.
+        // A reserved word is not a name, because `end = 1` does not parse.
         assert_eq!(key_text(&Key::String(b"end".to_vec())), "['end']");
         assert_eq!(key_text(&Key::String(b"function".to_vec())), "['function']");
         assert_eq!(key_text(&Key::Integer(4)), "[4]");
@@ -675,7 +658,6 @@ mod tests {
 
     #[test]
     fn a_string_that_is_not_text_prints_as_bytes_rather_than_being_replaced() {
-        // The printed form can be pasted back into a chunk and means the same.
         assert_eq!(quoted(&[0xff, 0xfe]), r"'\xff\xfe'");
         assert_eq!(quoted(b"a\nb"), r"'a\nb'");
         assert_eq!(quoted(b"it's"), r"'it\'s'");

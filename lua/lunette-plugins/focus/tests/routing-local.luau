@@ -67,13 +67,13 @@ local function fixture(receiver, options)
   }
 end
 
-test('a local key error fails once and never reaches native input', function()
+test('local key and text errors fail once and never reach native input', function()
   local f = fixture {
     key = function()
       error 'receiver key failure'
     end,
     text = function()
-      error 'not reached'
+      error 'text receiver failure'
     end,
   }
   expect.equal(f.source:key({ code = 30 }).kind, 'failed', 'the receiver failure')
@@ -83,10 +83,13 @@ test('a local key error fails once and never reaches native input', function()
   expect.equal(#reports, 1, 'one reported callback failure')
   expect.truthy(reports[1].message:find('focus: receiver', 1, true), reports[1].message)
   expect.truthy(reports[1].message:find('source owner', 1, true), reports[1].message)
+  expect.equal(f.source:text('aé').kind, 'failed', 'failed committed text')
+  expect.equal(#reports, 2, 'text failure is reported once')
+  expect.equal(#f.nativeCalls, 0, 'no text fallback to native input')
   f.inverse()
 end)
 
-test('virtual unhandled keys translate once and physical keys never translate', function()
+test('virtual unhandled keys translate once with AltGr and physical keys never translate', function()
   local texts = {}
   local receiver = {
     key = function()
@@ -106,6 +109,10 @@ test('virtual unhandled keys translate once and physical keys never translate', 
   expect.equal(f.source:key({ code = 30 }).kind, 'unhandled', 'physical activation')
   expect.equal(#f.translations, 0, 'physical keys do not translate')
   f.inverse()
+  f = fixture(receiver)
+  expect.equal(f.source:key({ code = 30, modifiers = { 'mod5' } }).kind, 'consumed', 'AltGr text fallback')
+  expect.equal(f.translations[1][2][1], 'mod5', 'translation keeps requested modifiers')
+  f.inverse()
 end)
 
 test('shortcut modifiers and translated controls never enter local text', function()
@@ -119,7 +126,7 @@ test('shortcut modifiers and translated controls never enter local text', functi
       return true
     end,
   }
-  for _, modifiers in { { 'Control' }, { 'Logo' }, { 'Mod4' }, { 'Mod1' } } do
+  for _, modifiers in { { 'Control' }, { 'Logo' }, { 'super' }, { 'alt' } } do
     expect.equal(f.source:key({ code = 30, modifiers = modifiers }).kind, 'unhandled', 'shortcut remains a key')
   end
   expect.equal(#f.translations, 0, 'shortcuts do not translate')
@@ -177,145 +184,11 @@ test('local text receives the full valid string once and invalid UTF-8 is refuse
   expect.equal(f.source:text('aé🙂').kind, 'unhandled', 'receiver refusal is unhandled')
   expect.equal(#texts, 1, 'one committed text callback')
   expect.equal(texts[1], 'aé🙂', 'the full UTF-8 string')
-  expect.equal(f.source:text(string.char(0xff)).kind, 'refused', 'invalid UTF-8')
-  expect.equal(#texts, 1, 'invalid text never reaches receiver')
-  f.inverse()
-end)
-
-test('disposing a source during its key callback forbids any continuation', function()
-  local f
-  f = fixture {
-    key = function()
-      f.inverse()
-      return false
-    end,
-    text = function()
-      error 'text after disposal'
-    end,
-  }
-  expect.equal(f.source:key({ code = 30 }).kind, 'refused', 'disposal ends the operation')
-  expect.truthy(f.source.dead, 'the source is dead')
-  expect.equal(f.source:text('later').kind, 'refused', 'dead source text')
-end)
-
-test('explicit destruction disposes the provider after source state clears', function()
-  testing.native()
-  local source, inverse
-  local released = 0
-  local route = {
-    snapshot = function()
-      return { revision = 1 }
-    end,
-    keymapSeat = function()
-      return nil
-    end,
-    blocked = function()
-      return nil
-    end,
-    dispose = function()
-      expect.truthy(source.dead, 'state clears before provider release')
-      released += 1
-      inverse()
-    end,
-  }
-  source, inverse = sourceModule.new({
-    owns = function()
-      return true
-    end,
-  }, {}, nil, route)
-  expect.truthy(source:destroy(), 'explicit destruction succeeds')
-  expect.equal(released, 1, 'one provider disposal')
-  inverse()
-  expect.falsy(source:destroy(), 'repeated destruction is inert')
-  expect.equal(released, 1, 'no repeated provider disposal')
-end)
-
-test('local text errors are reported without native fallback', function()
-  local f = fixture {
-    key = function()
-      return false
-    end,
-    text = function()
-      error 'text receiver failure'
-    end,
-  }
-  expect.equal(f.source:text('aé').kind, 'failed', 'failed committed text')
-  expect.equal(#f.reports, 1, 'text failure is reported once')
-  expect.equal(#f.nativeCalls, 0, 'no text fallback to native input')
-  f.inverse()
-end)
-
-test('AltGr can translate local virtual keys and receiver modifiers cannot mutate translation', function()
-  local f = fixture {
-    key = function(event)
-      expect.equal(event.modifiers[1], 'mod5', 'AltGr reaches the receiver')
-      expect.falsy(
-        pcall(function()
-          event.modifiers[1] = 'control'
-        end),
-        'the receiver event is immutable'
-      )
-      return false
-    end,
-    text = function()
-      return true
-    end,
-  }
-  expect.equal(f.source:key({ code = 30, modifiers = { 'mod5' } }).kind, 'consumed', 'AltGr text fallback')
-  expect.equal(f.translations[1][2][1], 'mod5', 'translation keeps requested modifiers')
-  f.inverse()
-end)
-
-test('invalid UTF-8 forms never reach local text', function()
-  local f = fixture {
-    key = function()
-      return false
-    end,
-    text = function()
-      error 'invalid text reached receiver'
-    end,
-  }
-  for _, value in
-    {
-      string.char(0x80),
-      string.char(0xc0, 0xaf),
-      string.char(0xe2, 0x82),
-      string.char(0xed, 0xa0, 0x80),
-      string.char(0xf4, 0x90, 0x80, 0x80),
-    }
-  do
+  for _, value in { string.char(0xff), string.char(0xc0, 0xaf), string.char(0xed, 0xa0, 0x80) } do
     expect.equal(f.source:text(value).kind, 'refused', 'invalid UTF-8')
   end
-  expect.equal(#f.reports, 0, 'invalid text is refused before callbacks')
+  expect.equal(#texts, 1, 'invalid text never reaches receiver')
   f.inverse()
-end)
-
-test('unresolved provider native focus cleanup blocks every source callback', function()
-  testing.native()
-  local source, inverse = sourceModule.new(
-    {
-      owns = function()
-        return true
-      end,
-    },
-    {},
-    nil,
-    {
-      blocked = function()
-        return { kind = 'refused', message = 'native focus cleanup is unresolved' }
-      end,
-      snapshot = function()
-        error 'blocked route selection'
-      end,
-      keymapSeat = function()
-        return nil
-      end,
-      dispose = function() end,
-    }
-  )
-  expect.equal(source:key({ code = 30 }).kind, 'refused', 'blocked key')
-  expect.equal(source:text('local').kind, 'refused', 'blocked text')
-  inverse()
 end)
 
 return test

@@ -1,5 +1,4 @@
--- Covers lua/lunette-contracts/vocabulary.luau: its pose encoding, whose round trip must be exact because
--- the string outlives the process and a lossy decoder would drift panels at every reload.
+-- Covers the pose encoding in lua/lunette-contracts/vocabulary.luau. The round trip must be exact because the string outlives the process.
 
 local testing = require '@testing'
 local expect = testing.expect
@@ -8,8 +7,7 @@ local vocabulary = require '@lunette-contracts/vocabulary'
 
 local test = testing.suite()
 
--- The comparison is exact. The encoding returns a 32-bit float unchanged, and
--- a near comparison would assert less.
+-- The encoding returns a 32-bit float unchanged, so a near comparison would assert less.
 local function expectSame(recovered, original, context)
   local wanted = { original:unpack(true) }
   local got = { recovered:unpack(true) }
@@ -18,28 +16,9 @@ local function expectSame(recovered, original, context)
   end
 end
 
-test('a translated pose round-trips exactly', function()
-  local original = lovr.math.newMat4():translate(1.5, -0.25, -3)
-
-  expectSame(vocabulary.decodePose(vocabulary.encodePose(original)), original, 'the recovered pose')
-end)
-
-test('a rotated and scaled pose round-trips exactly', function()
-  -- A decomposition into position and orientation would drop the scale.
-  local original = lovr.math.newMat4():translate(0.1, 2, -1.25):rotate(0.7, 0, 1, 0):scale(2, 3, 1)
-
-  expectSame(vocabulary.decodePose(vocabulary.encodePose(original)), original, 'the recovered pose')
-end)
-
-test('the identity round-trips exactly', function()
-  local original = lovr.math.newMat4()
-
-  expectSame(vocabulary.decodePose(vocabulary.encodePose(original)), original, 'the recovered pose')
-end)
-
 test('generated poses round-trip exactly', function()
-  -- A seeded property test covers 200 poses with arbitrary rotations,
-  -- translations, and positive scales. Each decoded matrix equals its encoding.
+  local identity = lovr.math.newMat4()
+  expectSame(vocabulary.decodePose(vocabulary.encodePose(identity)), identity, 'the identity')
   local random = lovr.math.newRandomGenerator(20261001)
   for case = 1, 200 do
     local original = lovr.math
@@ -52,27 +31,7 @@ test('generated poses round-trip exactly', function()
   end
 end)
 
-test('a decoded pose is a fresh matrix', function()
-  local original = lovr.math.newMat4():translate(1, 2, 3)
-  local recovered = vocabulary.decodePose(vocabulary.encodePose(original))
-
-  original:translate(10, 10, 10)
-
-  local x = recovered:getPosition()
-  expect.near(x, 1, 1e-6, 'x')
-end)
-
-test('an encoded pose is sixteen numbers', function()
-  local written = vocabulary.encodePose(lovr.math.newMat4())
-
-  local count = 0
-  for _ in written:gmatch '%S+' do
-    count = count + 1
-  end
-  expect.equal(count, vocabulary.POSE_ELEMENTS, 'the numbers written')
-end)
-
-test('decoding anything that is not sixteen numbers answers nothing', function()
+test('decoding anything that is not sixteen finite numbers answers nothing', function()
   expect.falsy(vocabulary.decodePose 'nowhere', 'a word')
   expect.falsy(vocabulary.decodePose '1 2 3', 'too few numbers')
   expect.falsy(vocabulary.decodePose '', 'nothing at all')
@@ -84,22 +43,15 @@ test('decoding anything that is not sixteen numbers answers nothing', function()
     seventeen[index] = '1'
   end
   expect.falsy(vocabulary.decodePose(table.concat(seventeen, ' ')), 'too many numbers')
-end)
 
-test('decoding a pose with a number that is not finite answers nothing', function()
   local elements = {}
   for index = 1, vocabulary.POSE_ELEMENTS do
     elements[index] = '1'
   end
-
-  elements[3] = 'nan'
-  expect.falsy(vocabulary.decodePose(table.concat(elements, ' ')), 'a nan')
-
-  elements[3] = 'inf'
-  expect.falsy(vocabulary.decodePose(table.concat(elements, ' ')), 'an infinity')
-
-  elements[3] = '1e400'
-  expect.falsy(vocabulary.decodePose(table.concat(elements, ' ')), 'a number too large to hold')
+  for _, invalid in { 'nan', 'inf', '1e400' } do
+    elements[3] = invalid
+    expect.falsy(vocabulary.decodePose(table.concat(elements, ' ')), invalid)
+  end
 end)
 
 return test

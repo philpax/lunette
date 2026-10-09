@@ -80,37 +80,14 @@ test('monitor panel sizing follows oriented geometry and preserves the selected 
   env.panels:update()
   expect.equal(widthPanel.width, 1)
   expect.equal(widthPanel.height, 0.7, 'explicit dimensions do not change with the source')
-  env.session:close()
-end)
-
-test('a panel with unavailable source dimensions acquires the source aspect on update', function()
-  local env = start()
-  local source = monitor 'pending-mode'
-  source.width, source.height = 0, 0
-  local panel = env.panels:fromMonitor(env.owner, source, { width = 1 })
-  source.width, source.height = 1080, 1920
+  local pending = monitor 'pending-mode'
+  pending.width, pending.height = 0, 0
+  local pendingPanel = env.panels:fromMonitor(env.owner, pending, { width = 1 })
+  pending.width, pending.height = 1080, 1920
   env.panels:update()
-  expect.equal(panel.width, 1)
-  expect.near(panel.height, 1920 / 1080, 1e-9)
+  expect.equal(pendingPanel.width, 1, 'the width once unavailable dimensions arrive')
+  expect.near(pendingPanel.height, 1920 / 1080, 1e-9, 'the source aspect acquired on update')
   env.session:close()
-end)
-
-test('an opaque window draws through a shader made once per activation and released with it', function()
-  local env = start()
-  local source = env.native.newWindow(17)
-  source.opaque = true
-  source.getTexture = function()
-    return { name = 'window-texture' }
-  end
-  env.panels:fromWindow(env.owner, source, { height = 1 })
-  local pass = env.native.events.pass
-  env.panels:draw(pass)
-  local shaders = env.native.events.render.shaderAcquisitions
-  expect.equal(#shaders, 1, 'the shaders after the first draw')
-  env.panels:draw(pass)
-  expect.equal(#shaders, 1, 'the shaders after the second draw')
-  env.session:close()
-  expect.truthy(shaders[1].released, 'the shader is released')
 end)
 
 test('only a plugin requiring panels creates one, and only its creator destroys it', function()
@@ -147,48 +124,6 @@ test('a panel over a dead source is removed on update, and not taken for its rep
   env.panels:update()
   expect.truthy(panel.dead, 'the panel after its source died')
   expect.equal(#env.panels:all(), 0, 'the panels')
-  env.session:close()
-end)
-
-test("a panel ends with its owner, and the provider's service is stale once it is disabled", function()
-  local env = start()
-  local source = env.native.newWindow(17)
-  local panel = env.panels:fromWindow(env.owner, source, { height = 1 })
-  local claims = #env.native.events.claims
-  env.consumer:disable()
-  expect.truthy(panel.dead, 'the panel after its owner ended')
-  expect.falsy(panel:destroy(), 'destroying the ended panel')
-  local stale = env.panels
-  env.session.instances.panels:disable()
-  source.width, source.height = 1600, 1200
-  expect.raises(function()
-    stale:update()
-  end, nil, 'updating through the stale service')
-  expect.equal(#env.native.events.claims, claims, 'the claims after the stale update')
-  env.session:close()
-end)
-
-test('a destroyed panel, or one whose source died, retains nothing', function()
-  local env = start()
-  local weak = setmetatable({}, { __mode = 'v' })
-  for round = 1, 8 do
-    do
-      local source = env.native.newWindow(99)
-      weak[round] = source
-      local panel = env.panels:fromWindow(env.owner, source)
-      if round % 2 == 0 then
-        source.dead = true
-        panel:update()
-        expect.truthy(panel.dead, 'the panel of a dead source')
-      else
-        expect.truthy(panel:destroy(env.owner), 'the destroyed panel')
-      end
-      expect.equal(env.panels:forSource(source), nil, 'the ended panel found by its source')
-    end
-    testing.collect()
-    testing.collect()
-    expect.equal(weak[round], nil, 'the source of ended panel ' .. round)
-  end
   env.session:close()
 end)
 

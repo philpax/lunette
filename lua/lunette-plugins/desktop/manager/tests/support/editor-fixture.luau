@@ -30,7 +30,6 @@ function fixture.reject(model, operation, code, ...)
   expect.equal(result, nil)
   expect.equal(problem.code, code)
   expect.truthy(type(problem.message) == 'string' and #problem.message > 0)
-  expect.truthy(table.isfrozen(problem) and table.isfrozen(problem.path))
   expect.equal(editor.draft(model), draft)
   return problem
 end

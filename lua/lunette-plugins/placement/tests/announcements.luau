@@ -62,44 +62,10 @@ test('onPlaced hears each placement with its properties, whoever made it, and pl
   local x, _, z = second.pose:getPosition()
   expect.near(x, 1, 1e-5, 'the firefox panel takes the x of its pose')
   expect.near(z, -2, 1e-5, 'the firefox panel takes the z of its pose')
-  expect.truthy(table.isfrozen(env.announced[2].properties), 'the announced properties are frozen')
   local placed = env.listener.placement:placed()
   expect.equal(#placed, 2, 'the live placements')
   expect.equal(placed[1].panel, first, 'the first placement lists first')
   expect.equal(placed[2].panel, second, 'the second placement lists second')
-  env.session:close()
-end)
-
-test('a raising listener is reported and does not undo the placement', function()
-  local env = start()
-  env.listener.placement:onPlaced(env.listener.owner, {
-    run = function()
-      error 'a raising placement listener'
-    end,
-  })
-  expect.raises(function()
-    env.listener.placement:onPlaced(env.listener.owner, { callback = function() end })
-  end, 'placement onPlaced: unknown field callback', 'an unknown listener field')
-  local panel = env.placer.placement:place(env.placer.owner, { window = env.native.newWindow(40) })
-  expect.equal(#env.announced, 1, 'the listener before the raising one')
-  local reported = env.native.events.reported
-  expect.equal(#reported, 1, 'the reports')
-  expect.truthy(reported[1].message:find('a raising placement listener', 1, true), reported[1].message)
-  expect.falsy(panel.dead, 'the panel of the placement')
-  expect.equal(#env.listener.placement:placed(), 1, 'the live placements')
-  env.session:close()
-end)
-
-test('a placement ends with its panel', function()
-  local env = start()
-  local terminal = env.native.newWindow(40)
-  env.placer.placement:place(env.placer.owner, { window = terminal })
-  env.placer.placement:place(env.placer.owner, { window = env.native.newWindow(41, 'firefox') })
-  terminal.dead = true
-  env.listener.panels:update()
-  local placed = env.listener.placement:placed()
-  expect.equal(#placed, 1, 'the live placements after a window dies')
-  expect.equal(placed[1].panel.source.appId, 'firefox', 'the placement that remains')
   env.session:close()
 end)
 

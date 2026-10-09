@@ -29,11 +29,9 @@ test('a dropped window leaves the arrangement and does not snap back when anothe
   local _, arcY = dragged.pose:getPosition()
   expect.near(arcY, 1.5, TOLERANCE, 'an adopted window on the arc')
 
-  -- The user drags the first window away and drops it.
   dragged:setPose(lovr.math.newMat4():translate(3, 2, -4))
   session:drop(dragged)
 
-  -- Another window closes, and the remaining ones are arranged again.
   second.dead = true
   events.windows = { first, third }
   native.emit('onWindowClosed', { window = second })

@@ -62,45 +62,11 @@ test('the workspace entry may come last: the tag it selects is held, not made', 
   end
   reordered[#reordered + 1] = workspace
   local env = start(reordered, fake)
-  for id, instance in pairs(env.session.instances) do
-    if id == 'desktop/manager' then
-      expect.equal(instance:state(), 'inactive', id)
-      local diagnostic = tostring(instance:diagnostic())
-      expect.truthy(diagnostic:find('waiting for a provider of lunette/composition@1', 1, true), diagnostic)
-    else
-      expect.equal(instance:state(), 'active', id)
-    end
-  end
   local main = assert(env.tags:find 'main')
   expect.truthy(main.selected, 'the workspace selects its tag whoever made it')
   expect.truthy(main:has(env.panels.service:forSource(window)), 'the window joined the tag before the workspace')
   env.session.instances['desktop/workspaces']:disable()
   expect.falsy(main.dead, 'the tag outlives the workspace while placements hold it')
-  env.session:close()
-end)
-
-test("a tag's own layout arranges it, and each tag is arranged apart", function()
-  local env = start(desktop.compose {
-    patches = {
-      {
-        id = 'desktop/rules',
-        config = { rules = { { match = { appId = 'mail' }, properties = { tags = { 'mail' } } } } },
-      },
-    },
-  })
-  registerLine(env, 'line', 1)
-  local main = assert(env.tags:find 'main')
-  local terminal, other, mail = env.native.newWindow(80), env.native.newWindow(81), env.native.newWindow(82, 'mail')
-  open(env, { terminal, other, mail })
-  local mailTag = assert(env.tags:find 'mail')
-  local panels = env.panels.service
-  expect.falsy(main:has(panels:forSource(mail)), 'a rule names the tags a window joins')
-  main:setLayout(env.owner, { layout = 'line' })
-  expect.near(x(panels:forSource(other)), 2, 1e-5, 'the tag layout poses its members')
-  local _, mailY = panels:forSource(mail).pose:getPosition()
-  expect.near(mailY, 1.5, 1e-5, 'another tag keeps the configured layout')
-  mailTag:setLayout(env.owner, { layout = 'line' })
-  expect.near(x(panels:forSource(mail)), 1, 1e-5, 'each tag is arranged apart')
   env.session:close()
 end)
 

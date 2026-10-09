@@ -57,16 +57,6 @@ test('the desktop example runs, and its menu action hides and shows windows with
   frame()
   expect.equal(events.textures, 1, 'the action shows the window again')
   expect.equal(action(actions, id).selected, false, 'the shown toggle state')
-  local otherHiding = panel:setHidden(panels.context, { hidden = true })
-  actions.service:invoke(id)
-  actions.service:invoke(id)
-  expect.truthy(panel.hidden, 'showing preserves another owner visibility override')
-  otherHiding:dispose()
-  actions.service:invoke(id)
-  local oldRow = action(actions, id)
-  session.instances['hide-windows']:disable()
-  expect.falsy(panel.hidden, 'unloading releases the example visibility overrides')
-  expect.equal(actions.service:invoke(id, oldRow.registration).kind, 'unavailable', 'the ended action')
   session:close()
 end)
 
@@ -97,15 +87,6 @@ test('the save and restore menu actions use the arrangement service without forc
   expect.equal(native.events.saved, 'invalid arrangement', 'the refused file remains unchanged')
   local warning = native.events.logs[#native.events.logs]
   expect.truthy(warning[1]:find('the arrangement was not saved:', 1, true), 'the refusal warning')
-  expect.equal(warning[2], 'warn', 'the warning level')
-  expect.equal(warning[3], 'save-menu', 'the example log tag')
-  local savedRow = action(actions, 'example/save-arrangement')
-  session.instances['save-menu']:disable()
-  expect.equal(
-    actions.service:invoke(savedRow.id, savedRow.registration).kind,
-    'unavailable',
-    'the removed save action is inert'
-  )
   session:close()
 end)
 

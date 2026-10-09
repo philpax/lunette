@@ -29,7 +29,6 @@ function draw.plate(
   pass:setColor(1, 1, 1, 1)
 end
 
--- Hover color takes precedence over the held color.
 function draw.faceColor(state: board.KeyState): { read [number]: number }
   local style = state.style
   if state.hovered then

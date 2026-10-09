@@ -1,5 +1,3 @@
--- Covers schema-backed configured definitions and their preflight metadata against the real runtime.
-
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'

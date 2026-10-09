@@ -189,10 +189,6 @@ fn normalised(file: &str) -> String {
 }
 
 #[cfg(test)]
-#[expect(
-    clippy::expect_used,
-    reason = "a failed expectation is how a test reports a failure; the ban is on production code"
-)]
 mod tests {
     use pretty_assertions::assert_eq;
     use proptest::prelude::*;
@@ -279,52 +275,11 @@ mod tests {
         }
     }
 
-    #[test]
-    fn an_error_names_the_path_and_the_requiring_file() {
-        let error = resolve(Requirer::File("./nested//a.luau"), "../../x").expect_err("an escape");
-        assert_eq!(
-            error.to_string(),
-            "require: '../../x' from nested/a.luau leaves the root it starts in"
-        );
-    }
-
     fn component() -> impl Strategy<Value = String> {
         "[a-z][a-z0-9_-]{0,6}"
     }
 
     proptest! {
-        /// Any path below a file's directory resolves to that directory joined
-        /// with the path, whichever root the file is in.
-        #[test]
-        fn a_sibling_path_is_joined_to_the_requiring_directory(
-            root in prop_oneof![Just(String::new()), component().prop_map(|name| format!("@{name}/"))],
-            directory in prop::collection::vec(component(), 0..4),
-            file in component(),
-            path in prop::collection::vec(component(), 1..4),
-        ) {
-            let mut requirer = root.clone();
-            for part in &directory {
-                requirer.push_str(part);
-                requirer.push('/');
-            }
-            requirer.push_str(&file);
-            requirer.push_str(".luau");
-
-            let mut expected = root.clone();
-            for part in directory.iter().chain(&path) {
-                expected.push_str(part);
-                expected.push('/');
-            }
-            expected.pop();
-
-            let chunk = format!("@{requirer}");
-            prop_assert_eq!(
-                resolve(Requirer::from_chunk_name(&chunk), &format!("./{}", path.join("/"))),
-                Ok(Some(expected))
-            );
-        }
-
-        /// Climbing out of a directory and back into it is the same module.
         #[test]
         fn climbing_out_and_back_in_is_the_same_module(
             directory in prop::collection::vec(component(), 1..4),

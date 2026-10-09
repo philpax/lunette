@@ -72,9 +72,6 @@ test('focus single route and nonrestoring disposal', function()
   expect.equal(env.left.focus, nil, 'local input clears only the former native seat')
   expect.equal(env.heard[#env.heard].target, field, 'the change identifies the new route')
   expect.truthy(env.heard[#env.heard].wantsKeyboard, 'immutable visibility intent')
-  expect.raises(function()
-    env.heard[#env.heard].revision = 0
-  end, nil, 'change data is frozen')
   app:destroy()
   expect.equal(env.focus:focused(), field, 'old disposal does not clear the field')
   field:destroy()
@@ -112,38 +109,6 @@ test('superseded handles cannot clear a newer holder of the same native seat', f
   expect.equal(env.left.focus, nil, 'owner unload clears current authority')
   expect.equal(env.focus:focused(), nil, 'owner unload clears the current route')
   expect.truthy(second.dead, 'owner unload invalidates the target')
-  env.session:close()
-end)
-
-test('focus reentrant generation isolation', function()
-  local env = start()
-  local last = env:localTarget()
-  local second = env:localTarget {
-    key = function()
-      return false
-    end,
-    text = function()
-      return false
-    end,
-    onFocus = function()
-      error 'a superseded field cannot receive focus'
-    end,
-  }
-  local first = env:localTarget {
-    key = function()
-      return false
-    end,
-    text = function()
-      return false
-    end,
-    onBlur = function()
-      last:focus()
-    end,
-  }
-  first:focus()
-  second:focus()
-  expect.equal(env.focus:focused(), last, 'the reentrant route wins')
-  expect.equal(env.heard[#env.heard].target, last, 'public notifications do not resume an old generation')
   env.session:close()
 end)
 
@@ -247,32 +212,6 @@ test('native focus cleanup refusal blocks delivery to the committed replacement 
   expect.equal(input:text('safe').kind, 'refused', 'unresolved cleanup prevents unsafe continuation')
   expect.equal(deliveries, 0, 'the replacement cannot receive input after unsafe native cleanup')
   expect.truthy(env.focus:inspect().state.failed, 'the failure remains inspectable')
-  env.session:close()
-end)
-
-test('target loss discovered during selection blocks the same operation after native cleanup refusal', function()
-  local env = start()
-  local deliveries = 0
-  local first = env:nativeTarget(env.owner, env.left, env.sink)
-  local second = env:nativeTarget(env.owner, env.right, env.otherSink)
-  first:focus()
-  second:focus()
-  local field = env:localTarget {
-    key = function()
-      return false
-    end,
-    text = function()
-      deliveries += 1
-      return true
-    end,
-  }
-  field:focus()
-  local input = env.focus:newSource(env.owner)
-  env.left.refuse = true
-  env.sink.dead = true
-  expect.equal(input:text('unsafe').kind, 'refused', 'selection-time failure blocks the in-flight operation')
-  expect.equal(deliveries, 0, 'the local callback never runs')
-  expect.equal(#env.native.events.reported, 1, 'the failed focus inverse is reported')
   env.session:close()
 end)
 

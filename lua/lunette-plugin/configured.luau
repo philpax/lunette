@@ -22,7 +22,6 @@ export type Configured<C, S> = {
   read requires: adapter.Declaration,
 }
 
--- A spec without a schema takes no options.
 function configured.create<C, S>(spec: Spec<C, S>): Configured<C, S>
   local name, init = spec.name, spec.init
   for _, field in { 'requires', 'provides' } do
@@ -32,7 +31,7 @@ function configured.create<C, S>(spec: Spec<C, S>): Configured<C, S>
     end
   end
   local descriptor: schema.Schema<C, S> = if spec.schema == nil then schema.object {} :: any else spec.schema
-  -- Constructors reject forged descriptors before any caller-provided method is invoked.
+  -- Rejects a forged descriptor before any of its methods run.
   schema.optional(descriptor)
   local requires: adapter.Declaration = table.freeze(table.clone(spec.requires or {}))
   local provides: adapter.Declaration = table.freeze(table.clone(spec.provides or {}))
@@ -91,8 +90,6 @@ function configured.create<C, S>(spec: Spec<C, S>): Configured<C, S>
   }
 end
 
--- `build` receives settings resolved by the schema. A provider without a schema takes no options and may take the
--- context alone.
 export type ProviderSpec<C, S, T> = {
   read name: string,
   read capability: adapter.Capability<T>,
@@ -101,8 +98,7 @@ export type ProviderSpec<C, S, T> = {
   read build: (adapter.Context, S) -> T,
 }
 
--- `definition` is the default instance; `define` takes other defaults; `build` makes the service unpublished, so
--- another plugin can wrap it.
+-- `definition` uses the default settings. `build` makes an unpublished service that another plugin can wrap.
 export type Provider<C, T> = {
   read definition: adapter.Definition<C>,
   read define: (C & { read name: string? }) -> adapter.Definition<C>,

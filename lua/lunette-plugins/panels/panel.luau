@@ -36,7 +36,6 @@ export type Host = {
   read removed: (State) -> (),
 }
 
--- One owner's visibility override.
 type Override = {
   owner: Owner,
   hidden: boolean,

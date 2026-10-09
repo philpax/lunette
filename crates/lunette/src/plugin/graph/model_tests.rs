@@ -1,6 +1,4 @@
 //! Property tests check lifecycle graph invariants across generated operation sequences.
-//!
-//! Cases vary dependencies, intents, load outcomes, failed cleanup, and child installation.
 //! The model checks graph structure after each operation, then verifies activation and shutdown.
 
 #![expect(

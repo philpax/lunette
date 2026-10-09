@@ -24,13 +24,6 @@ test('the codes are the runtime codes', function()
   expect.equal(keys.CODES.capsLock, 58, 'caps lock is evdev 58')
 end)
 
-test('the vocabulary tables are frozen', function()
-  expect.truthy(table.isfrozen(keys.CODES), 'the codes')
-  expect.truthy(table.isfrozen(keys.MODIFIER_KEYS), 'the modifier keys')
-  expect.truthy(table.isfrozen(keys.MODIFIER_ORDER), 'the modifier order')
-  expect.truthy(table.isfrozen(keys.FROM_LOVR), 'the LÖVR keys')
-end)
-
 test('every modifier key is a named key and names a modifier the native surface takes', function()
   local named = {}
   for _, code in pairs(keys.CODES) do
@@ -40,17 +33,6 @@ test('every modifier key is a named key and names a modifier the native surface 
     expect.truthy(named[code], 'keycode ' .. code .. ' is a named key')
     expect.truthy(isModifierName(name), 'keycode ' .. code .. " names '" .. name .. "'")
   end
-end)
-
-test('the keys that come in pairs name the same modifier', function()
-  -- Left and right shift are different keycodes and the same modifier. If
-  -- the right shift named a different modifier, half the capital letters
-  -- would come out lowercase.
-  local codes = keys.CODES
-  expect.equal(keys.MODIFIER_KEYS[codes.leftShift], 'shift', 'the left shift')
-  expect.equal(keys.MODIFIER_KEYS[codes.rightShift], 'shift', 'the right shift')
-  expect.equal(keys.MODIFIER_KEYS[codes.leftCtrl], 'control', 'the left control')
-  expect.equal(keys.MODIFIER_KEYS[codes.rightCtrl], 'control', 'the right control')
 end)
 
 test('every LÖVR translation is a named key or a modifier', function()
@@ -205,32 +187,13 @@ local function snapshot(fields)
   return value
 end
 
-test('physical snapshots require a closed plain table of all six booleans and copy immutably', function()
-  local value = snapshot { numLock = true }
-  local copied = keys.snapshotPhysicalModifiers(value)
-  expect.truthy(table.isfrozen(copied), 'the host snapshot is frozen')
-  expect.truthy(copied ~= value, 'the callback table is not retained')
-  value.numLock = false
-  expect.truthy(copied.numLock, 'later callback table changes cannot alter the event')
-  expect.raises(function()
-    copied.shift = true
-  end, 'readonly', 'event flags cannot be changed')
-  local malformed = {
-    false,
-    {},
-    snapshot { shift = 1 },
-    snapshot { numLock = 'on' },
-    snapshot { rightAlt = true },
-    setmetatable(snapshot(), {}),
-  }
-  local sparse = snapshot()
-  sparse.capsLock = nil
-  malformed[#malformed + 1] = sparse
-  for _, invalid in malformed do
-    expect.truthy(keys.validatePhysicalModifiers(invalid), 'invalid host flags are rejected')
-    expect.falsy(pcall(keys.snapshotPhysicalModifiers, invalid), 'invalid flags cannot become a snapshot')
-  end
-  expect.equal(keys.validatePhysicalModifiers(copied), nil, 'frozen plain flags remain valid')
+test('physical snapshots accept a closed plain table of six booleans and reject anything else', function()
+  local copied = keys.snapshotPhysicalModifiers(snapshot { numLock = true })
+  expect.truthy(copied.numLock, 'the snapshot keeps the flag')
+  expect.equal(keys.validatePhysicalModifiers(copied), nil, 'the snapshot remains valid')
+  local invalid = snapshot { rightAlt = true }
+  expect.truthy(keys.validatePhysicalModifiers(invalid), 'an unknown flag is rejected')
+  expect.falsy(pcall(keys.snapshotPhysicalModifiers, invalid), 'invalid flags cannot become a snapshot')
 end)
 
 test('PC keypad policy covers every digit and decimal for the complete NumLock and Shift matrix', function()

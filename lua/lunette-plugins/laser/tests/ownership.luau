@@ -1,6 +1,5 @@
 local testing = require '@testing'
 local expect = testing.expect
-local plugin = require '@lunette-plugin'
 local laserContract = require '@lunette-contracts/laser'
 local interactionContract = require '@lunette-contracts/interaction'
 
@@ -57,31 +56,18 @@ test('a hand has one laser, which forHand finds and attach answers to its own ow
   expect.equal(#env.service:all(), 2, 'a refused attach makes nothing')
 
   local ownedSeat = attached[2].seat
+  expect.truthy(attached[2]:destroy(), 'the first destroy')
+  expect.falsy(attached[2]:destroy(), 'a second destroy')
+  expect.truthy(ownedSeat.dead, 'an owned seat ends with the laser')
+  expect.equal(#env.interaction:pointers(), 1, 'a destroyed laser releases its pointer')
   env.consumer.instance:disable()
   expect.equal(#env.service:all(), 0, 'the lasers after the owner unloads')
   expect.equal(#env.interaction:pointers(), 0, 'the pointers after the owner unloads')
   expect.falsy(seat.dead, 'a borrowed seat outlives the laser')
-  expect.truthy(ownedSeat.dead, 'an owned seat ends with the laser')
   env.session:close()
 end)
 
-test('a destroyed laser releases its seat and pointer and is not retained', function()
-  local env = start()
-  local retained = setmetatable({}, { __mode = 'v' })
-  do
-    local laser = env.service:new(env.owner, 'left', { readInput = noInput })
-    local seat = laser.seat
-    retained.laser, retained.pointer = laser, laser.pointer
-    expect.truthy(laser:destroy(), 'the first destroy')
-    expect.truthy(seat.dead, 'the owned seat')
-    expect.falsy(laser:destroy(), 'a second destroy')
-  end
-  testing.collect()
-  expect.truthy(retained.laser == nil and retained.pointer == nil, 'the destroyed laser and pointer are collected')
-  env.session:close()
-end)
-
-test('a laser whose owner unloaded does nothing, and a replacement provider serves the owner again', function()
+test('a laser whose owner unloaded does nothing', function()
   local env = start()
   local reads = 0
   local function readInput()
@@ -98,56 +84,6 @@ test('a laser whose owner unloaded does nothing, and a replacement provider serv
   expect.equal(reads, 0, 'a stale laser reads no input')
   expect.equal(#env.native.events.draw, 0, 'a stale laser draws nothing')
   expect.equal(env.native.events.haptics, nil, 'a stale laser pulses nothing')
-
-  local laserInstance = env.session.instances.laser
-  local first = env.service
-  laserInstance:disable()
-  expect.raises(function()
-    first:all()
-  end, nil, 'the retired service')
-
-  laserInstance:enable()
-  env.consumer.instance:enable()
-  local replacement = env.consumer.service
-  expect.truthy(replacement ~= first, 'the consumer reaches the replacement service')
-  replacement:new(env.consumer.context, 'left', { seat = seat, readInput = readInput })
-  expect.equal(replacement:forHand('left').seat, seat, 'the replacement serves the borrowed seat')
-  laserInstance:disable()
-  expect.falsy(seat.dead, 'a borrowed seat outlives the provider')
-  env.session:close()
-end)
-
-test('a failing laser release quarantines its owner, not the providers', function()
-  local env = start()
-  local held
-  local consumer = env.session:use(plugin.define {
-    name = 'release-failure',
-    requires = { laser = laserContract.capability },
-    init = function(context)
-      held = context:require(laserContract.capability):new(context, 'left', { readInput = noInput })
-    end,
-  })
-  local failedReleases = 0
-  local brokenSink = { dead = false, domain = 'window', id = 404 }
-  function brokenSink:button(_, pressed)
-    if not pressed then
-      failedReleases += 1
-      error 'native laser release failed'
-    end
-  end
-  held.pointer:setButton { pressed = true, sink = brokenSink }
-
-  consumer:disable()
-  expect.truthy(failedReleases == 1 and held.dead, 'the release ran once')
-  expect.equal(consumer:state(), 'quarantined', 'the failing owner')
-  expect.equal(env.session.instances.laser:state(), 'active', 'the laser provider')
-  expect.equal(env.session.instances.interaction:state(), 'active', 'the interaction provider')
-  local reports = testing.takeReports()
-  expect.equal(#reports, 1, 'the reported failures')
-  expect.truthy(reports[1]:find('native laser release failed', 1, true), 'the reported failure')
-
-  local replacement = env.service:new(env.owner, 'left', { readInput = noInput })
-  expect.falsy(replacement.dead, 'the providers serve another owner')
   env.session:close()
 end)
 

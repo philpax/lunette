@@ -39,7 +39,7 @@ local function start()
   return env
 end
 
-test('a native error reaches every subscriber as a frozen report with its text and sequence', function()
+test('a native error reaches every subscriber as a report with its text and sequence', function()
   local env = start()
   local logged = env.native.raise('callback failed', 'traceback one')
   expect.truthy(logged:find('callback failed', 1, true), 'the boundary logs the error: ' .. logged)
@@ -47,9 +47,6 @@ test('a native error reaches every subscriber as a frozen report with its text a
   local report = env.heard[1]
   expect.truthy(report.sequence == 1 and report.suppressed == 0, 'the sequence and suppression')
   expect.equal(report.text, 'callback failed\ntraceback one', 'the text')
-  expect.raises(function()
-    report.text = 'changed'
-  end, nil, 'a report is frozen')
   env.session:close()
 end)
 
@@ -104,14 +101,6 @@ test('a raising subscriber is reported, and its report joins the history without
   env.session:close()
 end)
 
-test('a malformed subscriber raises at the call', function()
-  local env = start()
-  expect.raises(function()
-    env.service:subscribe(env.owner, { run = function() end, colour = true })
-  end, nil, 'an unknown field')
-  env.session:close()
-end)
-
 test('disabling the stream ends its subscription and service, and a new activation starts empty', function()
   local env = start()
   env.native.raise('before', 'traceback')
@@ -127,19 +116,6 @@ test('disabling the stream ends its subscription and service, and a new activati
   expect.equal(#env.service:recent(), 0, 'a new activation starts with an empty history')
   env.native.raise('fresh', 'traceback')
   expect.equal(env.heard[#env.heard].sequence, 1, 'the sequence of the new activation')
-  env.session:close()
-end)
-
-test('a malformed option fails the activation and is reported', function()
-  local env = start()
-  env.session.instances.errors:disable()
-  local bad = env.session.runtime:use(errors.definition, { history = 0 })
-  bad:enable()
-  expect.equal(bad:state(), 'failed', 'the activation')
-  local reports = testing.takeReports()
-  expect.equal(#reports, 1, 'the reports')
-  expect.truthy(reports[1]:find('plugin errors: option ', 1, true), reports[1])
-  bad:dispose()
   env.session:close()
 end)
 

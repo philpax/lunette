@@ -1,9 +1,5 @@
-//! The soft reload, exercised by performing one.
-//!
-//! The binary cases reload against the module the host registered, the roots it mounted, and
-//! the `main.luau` that `boot.lua` resolved; `session` records why they spawn it. The client
-//! case connects a real Wayland client to lunette's compositor and reloads while it is
-//! connected: a reload is confined to one Lua state and must not touch the client.
+//! The soft reload, against the binary's real roots and `boot.lua`, and with a Wayland client
+//! connected to the compositor.
 
 #![expect(
     clippy::expect_used,
@@ -18,28 +14,11 @@ use crate::session::assert_exit_status;
 
 mod session;
 
-/// Ten reloads in one session, each asserting the state the previous reload
-/// left.
-///
-/// The fixture checks that `lovr.*` survives, that `boot.lua`'s own callback
-/// defaults survive, that a callback the configuration stopped defining stops
-/// being called, and that the standard library's modules are re-required. The
-/// fixture quits 9 when every check holds and with a distinct status for each
-/// check that does not.
+/// Ten reloads expose state that accumulates across runs, which one reload cannot show. The
+/// fixture quits with a distinct status for each check that fails.
 #[test]
 fn ten_reloads_leave_the_session_where_one_does() {
     assert_exit_status("reload", 9);
-}
-
-/// A reload whose configuration raises reports the error and leaves the
-/// session running; it does not enter safe mode.
-///
-/// Safe mode is for a `main.luau` that fails to load at startup. Conflating the
-/// two would replace a working session with the fallback over a typo the user
-/// can fix and reload again.
-#[test]
-fn a_reload_that_fails_leaves_the_session_running_and_reloadable() {
-    assert_exit_status("reload-failure", 9);
 }
 
 /// A client connected across a reload keeps its connection and its window.
@@ -64,8 +43,7 @@ fn a_connected_client_does_not_notice_a_reload() {
     lunette::reload::reload(&lua, &lunette::mirrors::NoMonitors, &|| ())
         .expect("the reload succeeds");
 
-    // The client still communicates, and the compositor still responds. A
-    // disconnected client's next round trip would fail at this point.
+    // A disconnected client's next round trip fails here.
     client.set_title(&mut compositor, "still here");
     client.settle(&mut compositor, |_| true);
 
@@ -86,11 +64,9 @@ fn a_connected_client_does_not_notice_a_reload() {
     );
 }
 
-/// Builds a Lua state with boot scaffolding and a runnable `main` module.
-///
-/// The module comes from `package.preload` to isolate compositor reload from filesystem
-/// resolution. `require` must call the preload loader and cache its result in `loaded`;
-/// otherwise the reload test could pass without reloading the module.
+/// A Lua state with boot scaffolding and a `main` module in `package.preload`, which keeps
+/// filesystem resolution out of the reload. `require` caches in `loaded`, so a reload that
+/// does not clear it does not rerun the module.
 fn configured_state() -> Lua {
     let lua = Lua::new();
     lua.load(

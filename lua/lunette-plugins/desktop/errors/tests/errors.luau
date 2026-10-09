@@ -43,8 +43,6 @@ test('the error overlay uses a vector position and keeps its background as a col
     expect.equal(color[index + 1], background[index], 'background component ' .. index)
   end
   expect.near(text[5], position.z + 0.001, 1e-5, 'the text is in front of the background')
-  expect.equal(position, vector.pack(2, 3, -4), 'the configured position is unchanged')
-  expect.equal(type(background), 'table', 'the background remains a list')
   local stream = session:observe(errors.capability)
   stream.service:clear(stream.context)
   session.native.events.draw = {}

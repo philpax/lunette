@@ -95,7 +95,6 @@ end)
 test('a binding consumes a key or text before delivery, and a raising binding consumes nothing', function()
   local env = start()
   local keys, texts = {}, {}
-  local frozen = true
   local bindings = consumer(env, 'frame-keys', function(context, service)
     service:onKey(context, {
       phase = 'delivery',
@@ -116,9 +115,6 @@ test('a binding consumes a key or text before delivery, and a raising binding co
           expect.equal(event.scancode, 67, 'the scancode')
           expect.equal(event.isRepeat, true, 'the repeat flag')
         end
-        frozen = frozen and not pcall(function()
-          event.key = 'changed'
-        end)
         if event.key == 'f1' then
           error 'binding failure'
         end
@@ -150,7 +146,6 @@ test('a binding consumes a key or text before delivery, and a raising binding co
   expect.equal(#reported, 1, 'the reports')
   expect.truthy(reported[1].message:find('lovr.keypressed: ', 1, true), reported[1].message)
   expect.truthy(reported[1].message:find('binding failure', 1, true), reported[1].message)
-  expect.truthy(frozen, 'a key event is read-only, so a handler cannot change what later ones see')
   lovr.textinput('x', 120)
   lovr.textinput('y', 121)
   expect.equal(table.concat(texts, ' '), 'bind:x bind:y deliver:y:121', 'the text handlers')

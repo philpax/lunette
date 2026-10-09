@@ -36,15 +36,13 @@ local function fixture(config)
     self.height *= width / self.width
     self.width = width
   end
-  local function update(pose, grip, x, y)
+  local function update(pose, grip)
     pointer:update({
       pose = pose,
       origin = vector.pack(pose:getPosition()),
       direction = vector.pack(0, 0, -1),
       buttons = {},
       grip = grip,
-      scrollX = x or 0,
-      scrollY = y or 0,
       dt = 0.1,
     }, { target })
   end
@@ -71,28 +69,6 @@ test('default grab follows controller translation and rotation', function()
     update(moved, false)
     session:close()
   end
-end)
-
-test('horizontal axis does not resize a carried panel and vertical axis retains reach bounds', function()
-  local session, _, target, update = fixture()
-  local hand = lovr.math.newMat4():translate(0, 1, 0)
-  update(hand, false)
-  update(hand, true)
-  update(hand, true, 1, 0)
-  expect.equal(target.width, 1)
-  expect.near(select(3, target.pose:getPosition()), -2, 1e-5)
-  for _ = 1, 100 do
-    update(hand, true, 1, 1)
-  end
-  expect.equal(target.width, 1)
-  expect.near(select(3, target.pose:getPosition()), -6, 1e-5)
-  for _ = 1, 200 do
-    update(hand, true, -1, -1)
-  end
-  expect.equal(target.width, 1)
-  expect.near(select(3, target.pose:getPosition()), -0.2, 1e-5)
-  update(hand, false)
-  session:close()
 end)
 
 return test

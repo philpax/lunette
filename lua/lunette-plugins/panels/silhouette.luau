@@ -28,7 +28,6 @@ function silhouette.new(): Cache
   return {}
 end
 
--- The paint style's radius for the target's kind.
 function silhouette.radius(target: Target, style: contracts.Style): number
   return if target.kind == 'window' then style.windowRadius else style.monitorRadius
 end

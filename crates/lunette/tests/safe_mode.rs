@@ -1,12 +1,7 @@
-//! Tests safe mode through sessions whose configuration fails to load.
-//!
-//! These tests launch the binary because `boot.lua` and the host establish the fallback
-//! configuration, which `lunctl` then addresses. Unit tests in `safe_mode.rs` cover the
-//! chunk and trigger with fakes.
+//! Safe mode in sessions whose configuration fails to load, driven through `lunctl`.
 //!
 //! Each run points the module roots at a missing directory, because safe mode must not
-//! depend on them, and uses its own `XDG_RUNTIME_DIR`. A chunk response confirms that the
-//! session is ready, and `lovr.event.quit` tests orderly session shutdown.
+//! depend on them.
 
 #![expect(
     clippy::expect_used,
@@ -28,35 +23,27 @@ use tempfile::TempDir;
 
 mod session;
 
-/// Caps readiness polling when a session does not answer.
 const STARTUP_BOUND: Duration = Duration::from_secs(30);
 
 const SHUTDOWN_BOUND: Duration = Duration::from_secs(10);
 
 const POLL: Duration = Duration::from_millis(20);
 
-/// The session exits with the status a chunk requests. The status is distinct
-/// from LÖVR's own 1 and from any signal.
+/// Distinct from LÖVR's own 1 and from any signal.
 const STOPPED: i32 = 7;
 
-/// A `main.luau` that does not compile produces safe mode: a running session
-/// with a panel and a reload key, and no module root loaded. The alternative is a
-/// black headset.
+/// Without safe mode, a configuration that does not compile leaves a black headset.
 #[test]
 fn a_main_lua_that_does_not_compile_produces_a_running_safe_mode() {
     let mut session = Session::start("safe-mode");
     session.wait_until_answering();
 
-    // A frame calls safe mode's callbacks. `lovr.draw` renders the panel and
-    // `lovr.keypressed` handles the reload key.
     let callbacks = session.lunctl(&[
         "return type(lovr.draw) .. ' ' .. type(lovr.update) .. ' ' .. type(lovr.keypressed)",
     ]);
     assert_eq!(code(&callbacks), 0, "stderr was:\n{}", stderr(&callbacks));
     assert_eq!(stdout(&callbacks), "function function function");
 
-    // The failed configuration's own callback is gone and is not called
-    // alongside safe mode's.
     assert_eq!(
         stdout(&session.lunctl(&["return running == nil"])),
         "true",
@@ -81,9 +68,7 @@ fn a_main_lua_that_does_not_compile_produces_a_running_safe_mode() {
     );
 }
 
-/// There is no other way a configuration fails to load. `boot.lua` raises
-/// before it reaches a chunk, which is a different code path producing
-/// the same outcome.
+/// `boot.lua` raises before it reaches a chunk, which is a separate path to safe mode.
 #[test]
 fn a_missing_main_lua_produces_safe_mode_too() {
     let mut session = Session::start("safe-mode-no-main");
@@ -101,12 +86,9 @@ fn a_missing_main_lua_produces_safe_mode_too() {
     );
 }
 
-/// A running lunette, which the test stops when the handle is dropped.
 struct Session {
     child: Child,
     runtime: TempDir,
-    /// The field is held for its `Drop`, which removes the directory the
-    /// session writes into.
     _data: TempDir,
 }
 
@@ -114,8 +96,7 @@ impl Session {
     fn start(fixture: &str) -> Self {
         let runtime = TempDir::with_prefix("lunette-safe-mode-run-")
             .expect("a runtime directory can be created");
-        // The XDG specification requires mode `0o700` on `$XDG_RUNTIME_DIR`,
-        // and lunette verifies the mode.
+        // lunette verifies the `0o700` mode the XDG specification requires.
         fs::set_permissions(runtime.path(), fs::Permissions::from_mode(0o700))
             .expect("the mode can be set");
 
@@ -126,8 +107,6 @@ impl Session {
                 "LUNETTE_STDLIB_PATH",
                 runtime.path().join("there-is-no-standard-library-here"),
             )
-            // Stderr is read after the session stops, so the load error and the
-            // safe-mode line are assertable.
             .stderr(Stdio::piped())
             .spawn()
             .expect("the lunette binary can be run");
@@ -143,11 +122,8 @@ impl Session {
         self.runtime.path().join("lunette").join("lunette-0.sock")
     }
 
-    /// Waits for a Lua response to confirm session readiness.
-    ///
-    /// The control socket binds before the Lua state boots. A successful chunk response
-    /// confirms that the frame loop is running; after a failed configuration load, that
-    /// loop belongs to safe mode.
+    /// The control socket binds before the Lua state boots, so readiness is a chunk
+    /// response rather than the socket's existence.
     fn wait_until_answering(&mut self) -> PathBuf {
         let socket = self.socket();
         let deadline = Instant::now() + STARTUP_BOUND;
@@ -186,7 +162,6 @@ impl Session {
         command.output().expect("the lunctl binary can be run")
     }
 
-    /// Stops the session through a chunk and returns its stderr.
     fn stop(&mut self) -> Stopped {
         let stopping = self.lunctl(&[&format!("lovr.event.quit({STOPPED})")]);
         assert_eq!(
@@ -220,14 +195,12 @@ impl Session {
         }
     }
 
-    /// Returns everything the session has written to stderr so far.
     fn read_stderr(&mut self) -> String {
         let Some(mut pipe) = self.child.stderr.take() else {
             return String::new();
         };
         let mut written = String::new();
-        // A read on a pipe whose writer has exited ends; one whose writer is
-        // still running would block. Each caller has established that the
+        // A read blocks while the writer runs, so each caller has established that the
         // child exited or is about to be killed.
         let _ = pipe.read_to_string(&mut written);
         written
@@ -236,15 +209,11 @@ impl Session {
 
 impl Drop for Session {
     fn drop(&mut self) {
-        // The child is a long-lived resource, cleaned up whatever the test
-        // did. `kill` on a child that has already exited is a no-op; the
-        // result is discarded with `let _`.
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
 }
 
-/// A stopped session leaves its stderr in the `Stopped` value.
 struct Stopped {
     stderr: String,
 }

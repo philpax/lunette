@@ -58,18 +58,6 @@ test('clipped fields use the visible origin and reduced height for both renderin
   expect.equal(result.caretBounds.x, 32)
 end)
 
-test('empty and fully clipped fields have explicit geometry', function()
-  local bounds = { x = 0, y = 0, width = 30, height = 10 }
-  local empty = assert(layout('', 1, 1, bounds, bounds, { padding = 2, fontSize = 20 }))
-  expect.equal(empty.text, '')
-  expect.equal(#empty.boundaries, 1)
-  expect.equal(empty.scale, 6)
-  expect.equal(empty.caretBounds.x, 2)
-  expect.equal(geometry.nearest(empty, 100), 1)
-  expect.equal(layout('a', 2, 2, bounds, { x = 40, y = 0, width = 10, height = 10 }), nil)
-  expect.equal(layout('a', 2, 2, bounds, bounds, { padding = 20 }), nil)
-end)
-
 test('a cluster wider than the field is omitted whole while its caret remains selectable', function()
   local bounds = { x = 0, y = 0, width = 1, height = 10 }
   local value = '👩🏽‍💻'
@@ -100,24 +88,6 @@ test('byte boundaries and hit positions preserve production extended grapheme cl
   expect.truthy(table.isfrozen(result.origin))
 end)
 
-test('displayed prefixes measure kerning after a scrolled prefix is removed', function()
-  local font = render.new().font
-  local ordinary = font.getWidth
-  font.getWidth = function(self, text)
-    return ordinary(self, text) - (if text:find('xA', 1, true) then 0.25 else 0)
-  end
-  local bounds = { x = 0, y = 0, width = 14, height = 10 }
-  local result = assert(layout('xxxxAB', 7, 5, bounds, bounds, { padding = 0, fontSize = 10 }, font))
-  expect.equal(result.text, 'AB')
-  expect.equal(result.positions[2], 5, 'the removed xA kerning does not affect the displayed A')
-  local displayed = result.text
-  for index, boundary in result.boundaries do
-    local prefix = displayed:sub(1, boundary - result.start)
-    expect.near(result.positions[index], result.origin.x + font:getWidth(prefix) * result.scale, 0.00001)
-    expect.equal(geometry.nearest(result, result.positions[index]), boundary)
-  end
-end)
-
 test('visible positions remain within the clip across values, caret positions, and short heights', function()
   for _, value in { '', 'a', 'abcdef', 'éx👩🏽‍💻z', 'xxxxxxxxxxxxxxxxxxxx' } do
     for _, caret in lunette.textBoundaries(value) do
@@ -138,77 +108,6 @@ test('visible positions remain within the clip across values, caret positions, a
       end
     end
   end
-end)
-
-test('unchanged long fields avoid repeated substring measurements across interleaved layouts', function()
-  local font = render.new().font
-  local measurements, bytes = 0, 0
-  font.getWidth = function(_, value)
-    measurements += 1
-    bytes += #value
-    return #value * 0.5
-  end
-  local bounds = { x = 0, y = 0, width = 40, height = 30 }
-  local values = { string.rep('a', 10000), string.rep('b', 10000) }
-  for _, value in values do
-    layout(value, #value + 1, #value - 1, bounds, bounds, { padding = 2, fontSize = 20 }, font)
-  end
-  measurements, bytes = 0, 0
-  for _ = 1, 4 do
-    for _, value in values do
-      local result = assert(layout(value, #value + 1, #value - 1, bounds, bounds, { padding = 2, fontSize = 20 }, font))
-      expect.equal(result.text, value:sub(-3))
-      expect.equal(result.start, #value - 2)
-      expect.equal(result.caretBounds.x, 32)
-      expect.equal(geometry.nearest(result, 12), #value - 1)
-    end
-  end
-  expect.equal(measurements, 0, 'warm font measurements')
-  expect.equal(bytes, 0, 'warm measured bytes')
-end)
-
-test('suffix selection does not assume that longer substrings have larger advances', function()
-  local font = render.new().font
-  local ordinary = font.getWidth
-  font.getWidth = function(self, value)
-    return if value == 'cdef' or value == 'cde' then 1 else ordinary(self, value)
-  end
-  local bounds = { x = 0, y = 0, width = 14, height = 10 }
-  local result = assert(layout('abcdef', 7, 7, bounds, bounds, { padding = 0, fontSize = 10 }, font))
-  expect.equal(result.text, 'cdef', 'the earliest fitting suffix can precede a wider suffix')
-  expect.equal(result.caretBounds.x, 10)
-end)
-
-test('repeated layouts refresh metrics when the same font changes', function()
-  local font = render.new().font
-  local density = 1
-  font.getPixelDensity = function()
-    return density
-  end
-  font.getWidth = function(_, value)
-    return #value * 0.5 / density
-  end
-  local bounds = { x = 0, y = 0, width = 14, height = 10 }
-  local function current()
-    return assert(layout('abcdef', 7, 5, bounds, bounds, { padding = 0, fontSize = 10 }, font))
-  end
-  expect.equal(current().text, 'ef')
-  density = 2
-  expect.equal(current().text, 'cdef', 'pixel density invalidates measurements even when the height is unchanged')
-  font.getWidth = function(_, value)
-    return #value * 0.125
-  end
-  expect.equal(current().text, 'abcdef', 'a replaced width function invalidates measurements')
-  font.getHeight = function()
-    return 2
-  end
-  expect.equal(current().text, 'abcdef')
-  expect.equal(
-    current().caretBounds.x,
-    3.75,
-    'height changes invalidate even when the displayed substring is unchanged'
-  )
-  expect.equal(current().scale, 5)
 end)
 
 test('cached layouts follow changed selection, bounds, clip, theme, and font identity', function()

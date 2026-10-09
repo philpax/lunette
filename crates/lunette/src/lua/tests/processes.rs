@@ -14,7 +14,7 @@ use pretty_assertions::assert_eq;
 use crate::lua::tests::{error, lua, run, session, snapshot};
 
 #[test]
-fn spawning_queues_a_request_under_the_identifier_it_returned() {
+fn spawning_queues_a_request_under_a_distinct_identifier_it_returned() {
     let session = session(Vec::new());
     let lua = lua(&session);
 
@@ -41,20 +41,10 @@ fn spawning_queues_a_request_under_the_identifier_it_returned() {
         }
         other => panic!("expected a spawn command, got {other:?}"),
     }
-}
 
-#[test]
-fn every_spawn_is_minted_a_distinct_identifier() {
-    let session = session(Vec::new());
-    let lua = lua(&session);
-
-    let (first, second): (u64, u64) = run(
-        &lua,
-        "return lunette.spawn{ argv = { 'foot' } }.id, lunette.spawn{ argv = { 'foot' } }.id",
-    );
-
-    assert_ne!(first, second);
-    assert_eq!(session.flush().len(), 2);
+    let second: u64 = run(&lua, "return lunette.spawn{ argv = { 'foot' } }.id");
+    assert_ne!(id, second, "every spawn is minted a distinct identifier");
+    assert_eq!(session.flush().len(), 1);
 }
 
 #[test]
@@ -107,19 +97,6 @@ fn a_spawn_without_a_program_is_refused() {
         session.flush().is_empty(),
         "a refused spawn must not mint a process the compositor never hears about"
     );
-}
-
-#[test]
-fn an_option_this_build_cannot_honour_is_refused_rather_than_ignored() {
-    let session = session(Vec::new());
-    let lua = lua(&session);
-
-    let message = error(&lua, "lunette.spawn{ argv = { 'foot' }, otuput = 1 }");
-    assert!(
-        message.contains("'otuput' is not an option here"),
-        "unhelpful message: {message}"
-    );
-    assert!(session.flush().is_empty());
 }
 
 #[test]

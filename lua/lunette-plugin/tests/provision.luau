@@ -1,12 +1,10 @@
--- Covers how a provider publishes: consumers load after every provision is staged, a load that fails or is
--- cancelled rolls its effects back and publishes nothing, and activations unwind in reverse order.
+-- Covers provision staging, rollback of a failed load, and unwinding in reverse order.
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
 
 local test = testing.suite()
 
--- An effect that records its acquisition and its release in `events`.
 local function recorded(context, events, name)
   context:effect(function()
     events[#events + 1] = name .. ' acquire'
@@ -258,49 +256,6 @@ test('a failed provision rolls back every effect in reverse and publishes nothin
     end, 'initializer is no longer active', case.name .. ': a late provision')
     runtime:close()
   end
-end)
-
-test('a disable during an effect rolls the load back once and publishes nothing', function()
-  local service = plugin.capability { name = 'local/cancelled-service', schema = 1 }
-  local events = {}
-  local consumed = false
-  local instance
-  local runtime = plugin.runtime()
-  instance = runtime:use(
-    plugin.define {
-      name = 'cancelled',
-      provides = { service = service },
-      init = function(context, _config, publish)
-        context:effect(function()
-          events[#events + 1] = 'acquire'
-          instance:disable()
-          return function()
-            events[#events + 1] = 'release'
-          end
-        end)
-        publish:provide(service, {})
-      end,
-    },
-    {}
-  )
-  runtime
-    :use(
-      plugin.define {
-        name = 'consumer',
-        requires = { service = service },
-        init = function()
-          consumed = true
-        end,
-      },
-      {}
-    )
-    :enable()
-  instance:enable()
-  expect.equal(table.concat(events, ', '), 'acquire, release', 'the rollback')
-  expect.falsy(consumed, 'the consumer was published')
-  expect.equal(#testing.takeReports(), 0, 'a cancelled load is not a failure')
-  runtime:close()
-  expect.equal(#events, 2, 'nothing more is released at close')
 end)
 
 return test

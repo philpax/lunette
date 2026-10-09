@@ -1,7 +1,6 @@
 // The Luau type checker, as a C surface for `lunette check`.
 //
-// The frontend setup mirrors `CLI/src/Analyze.cpp`. The standing check and
-// the user-facing command both use this checker, so the two cannot differ.
+// The frontend setup mirrors `CLI/src/Analyze.cpp`.
 
 #include "analyze_navigation.h"
 #include "Luau/BuiltinDefinitions.h"
@@ -70,16 +69,13 @@ struct DirectoryConfigResolver : Luau::ConfigResolver
         Luau::Config config = (parent == directory || directory == "." || directory.empty())
             ? defaults
             : forDirectory(parent);
-        // The mode is not inherited from a parent's `.luaurc`. The caller
-        // chooses the mode, and a `.luaurc` that omits it must not lower it.
+        // A `.luaurc` that omits the mode must not lower the caller's choice.
         config.mode = defaults.mode;
 
         if (std::optional<std::string> contents = slurp(directory + "/" + Luau::kConfigName))
         {
-            // Aliases are parsed when the alias options are set. An alias
-            // carries the directory of the `.luaurc` that declared it, so a
-            // relative alias resolves against that directory. The working
-            // directory is not used.
+            // A relative alias resolves against its `.luaurc`'s directory,
+            // not the working directory.
             Luau::ConfigOptions options;
             options.aliasOptions = Luau::ConfigOptions::AliasOptions{directory, true};
             Luau::parseConfig(*contents, config, options);
@@ -106,7 +102,6 @@ struct PathResolver : Luau::FileResolver
         if (literal == nullptr || context == nullptr)
             return std::nullopt;
 
-        // Lunette writes and documents `.luaurc`; Luau's navigator interprets the aliases.
         CheckerNavigationContext navigation{context->name};
         Luau::Require::ErrorHandler silent;
         Luau::Require::Navigator navigator(navigation, silent);
@@ -123,14 +118,12 @@ struct PathResolver : Luau::FileResolver
     }
 };
 
-// The flag set is the same as luau-analyze's setLuauFlagsDefault. Without it
-// the checker accepts a different language: `declare class` still parses,
-// although current Luau no longer accepts the syntax.
+// Matches luau-analyze's setLuauFlagsDefault, without which the checker
+// accepts a different language.
 //
-// The flags are process-global, and checks may run on several threads at
-// once, so they are written once rather than on every check. A static
-// initializer cannot do it: the flags register themselves into the list from
-// other translation units' static initializers, in an unspecified order.
+// The flags are process-global and checks may run concurrently, so they are
+// set once. A static initializer cannot, because the flags register from other
+// translation units' static initializers in an unspecified order.
 void enableDefaultFlags()
 {
     static std::once_flag once;
@@ -148,7 +141,6 @@ char* copy(const std::string& text)
     return owned;
 }
 
-// Collects the inputs to the report.
 struct Collector
 {
     std::vector<lunette_luau_diagnostic> diagnostics;
@@ -168,11 +160,9 @@ struct Collector
     }
 };
 
-// Whether a type is a plugin capability whose service type is unknown: the
-// facade's `Capability<T>`, `{ read witness: (T) -> T }`, at T = unknown.
-// `plugin.capability` called without explicit instantiation leaves T
-// unsolved, Luau reads it as unknown, and every service read through the
-// capability then goes unchecked without any error of its own.
+// Whether a type is `{ read witness: (T) -> T }` at T = unknown. An
+// uninstantiated `plugin.capability` leaves T unknown, and every read through
+// it then goes unchecked silently.
 bool isUnnamedCapability(Luau::TypeId type)
 {
     const Luau::TableType* table = Luau::get<Luau::TableType>(Luau::follow(type));
@@ -191,9 +181,7 @@ bool isUnnamedCapability(Luau::TypeId type)
     return arguments.size() == 1 && !tail && Luau::get<Luau::UnknownType>(Luau::follow(arguments[0])) != nullptr;
 }
 
-// Finds each call in a module whose result is a capability with an unknown
-// service type. The check needs the module's expression types, which the
-// frontend keeps only when it retains full type graphs.
+// Finds each call whose result is a capability with an unknown service type.
 struct UnnamedCapabilities : Luau::AstVisitor
 {
     const Luau::Module& module;
@@ -243,11 +231,8 @@ lunette_luau_report* check_within(const lunette_luau_request* request);
 extern "C"
 {
 
-// The function is `noexcept`, and the body is wrapped. Rust declares this
-// `extern "C"`, not `extern "C-unwind"`, so an exception crossing the boundary
-// is undefined behaviour. The frontend's construction, the definitions load,
-// and `freeze` can all raise, and the body catches exceptions and turns them
-// into a failure report.
+// Rust declares this `extern "C"`, so an exception crossing the boundary is
+// undefined behaviour, and every exception becomes a failure report.
 lunette_luau_report* lunette_luau_check(const lunette_luau_request* request) noexcept
 {
     try
@@ -302,8 +287,6 @@ lunette_luau_report* check_within(const lunette_luau_request* request)
 
         if (!loaded.success)
         {
-            // The loader reports both failure modes: a definitions file that
-            // does not parse, and one that parses and does not typecheck.
             const std::string module = request->definitions;
             for (const Luau::ParseError& error : loaded.parseResult.errors)
                 collected.add(LUNETTE_LUAU_SYNTAX_ERROR, module, error.getLocation(), error.getMessage());
@@ -321,9 +304,7 @@ lunette_luau_report* check_within(const lunette_luau_request* request)
     {
         const std::string root = request->roots[index];
 
-        // The frontend asserts on a module it cannot read, so each root is
-        // read first. An unreadable root becomes a syntax error and is not
-        // passed to the frontend.
+        // The frontend asserts on a module it cannot read.
         if (!files.readSource(root))
         {
             collected.add(LUNETTE_LUAU_SYNTAX_ERROR, root, Luau::Location(), "the file could not be read");

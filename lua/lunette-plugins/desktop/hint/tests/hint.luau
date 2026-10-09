@@ -18,10 +18,21 @@ local function drawsHint(session)
   return nil
 end
 
-test('the empty scene draws the hint and a scene with a panel does not', function()
-  local session = testing.boot { 'frame', 'theme', 'surfaces', 'panels', 'desktop/hint' }
+test('the empty scene draws the hint at its configured position and a scene with a panel does not', function()
+  local position = vector.pack(2, 3, -4)
+  local session = testing.boot {
+    'frame',
+    'theme',
+    'surfaces',
+    'panels',
+    { id = 'desktop/hint', definition = require '@lunette-plugins/desktop/hint', config = { position = position } },
+  }
   local hint = drawsHint(session)
   expect.truthy(hint, 'the hint in the empty scene')
+  local x, y, z = hint[3]:getPosition()
+  expect.near(x, position.x, 1e-5, 'the hint x position')
+  expect.near(y, position.y, 1e-5, 'the hint y position')
+  expect.near(z, position.z, 1e-5, 'the hint z position')
   expect.equal(hint.state.setFont[1], session.native.events.render.font, 'the theme-selected font')
   local foreground = hint.state.setColor
   expect.equal(foreground[1], 0.94, 'the theme foreground red component')
@@ -31,31 +42,6 @@ test('the empty scene draws the hint and a scene with a panel does not', functio
   local panels = session:observe(panelsContract.capability)
   panels.service:fromWindow(panels.context, session.native.newWindow(1), {})
   expect.falsy(drawsHint(session), 'the hint in a scene with a panel')
-  session:close()
-end)
-
-test('the configured vector position reaches the hint draw pose unchanged', function()
-  local position = vector.pack(2, 3, -4)
-  local session = testing.boot {
-    'frame',
-    'theme',
-    'surfaces',
-    'panels',
-    { id = 'desktop/hint', definition = require '@lunette-plugins/desktop/hint', config = { position = position } },
-  }
-  session:draw()
-  local pose
-  for _, call in ipairs(session.native.events.draw) do
-    if call[1] == 'text' and call[2] == HINT then
-      pose = call[3]
-    end
-  end
-  expect.truthy(pose, 'the hint draw pose')
-  local x, y, z = pose:getPosition()
-  expect.near(x, position.x, 1e-5, 'the hint x position')
-  expect.near(y, position.y, 1e-5, 'the hint y position')
-  expect.near(z, position.z, 1e-5, 'the hint z position')
-  expect.equal(position, vector.pack(2, 3, -4), 'the configured position is unchanged')
   session:close()
 end)
 

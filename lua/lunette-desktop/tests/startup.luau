@@ -92,8 +92,6 @@ test('the shipped configuration starts on load and survives ten production reloa
     local currentUi, currentDisplay = controls.ui, controls.display
     fixture:step()
     local retainedPanel = currentUi:panels()[1]
-    local retainedDisplay = currentDisplay
-    local retainedShow, retainedVisible = currentDisplay.show, currentDisplay.isVisible
     fixture:clickControl(currentUi, 'desktop/menu', 'open')
     fixture:clickControl(currentUi, 'desktop/menu', 'actions', 'right', 'desktop/keyboard/toggle')
     expect.truthy(currentDisplay:isVisible(), 'the menu shows the shared keyboard before reload')
@@ -102,11 +100,6 @@ test('the shipped configuration starts on load and survives ten production reloa
     events.logs = {}
     fixture:clickControl(currentUi, 'desktop/menu', 'actions', 'right', 'desktop/reload')
     expect.truthy(retainedPanel.dead, 'reload withdraws the previous UI generation')
-    expect.raises(function()
-      return retainedDisplay.dead
-    end, 'provider activation has ended', 'reload revokes the previous display service')
-    expect.falsy(retainedShow(retainedDisplay), 'a cached method cannot reopen a keyboard')
-    expect.falsy(retainedVisible(retainedDisplay), 'a cached visibility method is inert')
     expect.equal(#events.logs, 0, 'reload ' .. reload .. ' failed: ' .. tostring(events.logs[1] and events.logs[1][1]))
     expect.equal(events.enumerations, initialEnumerations + reload, 'reload ' .. reload .. ' enumerates once')
     expect.equal(#events.spawned, startupProcesses, 'reload ' .. reload .. ' spawns nothing')

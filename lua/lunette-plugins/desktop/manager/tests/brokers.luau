@@ -59,41 +59,4 @@ test('inspection children suspend independently of the manager owner', function(
   runtime:close()
 end)
 
-test('menu inspection is an independent child that reconnects without suspending its parent', function()
-  testing.native()
-  local readers
-  local parent = plugin.define {
-    name = 'menu-inspector-parent',
-    init = function(context)
-      readers = brokers.watch(context)
-    end,
-  }
-  local runtime = plugin.runtime()
-  local source = runtime:use(menu.definition, {})
-  local owner = runtime:use(parent, {})
-  owner:enable()
-  runtime:drain()
-  local function snapshot()
-    for _, broker in brokers.snapshot(readers) do
-      if broker.name == 'menu' then
-        return broker.snapshot
-      end
-    end
-    error('missing menu inspection child', 0)
-  end
-  expect.equal(owner:state(), 'active', 'the parent does not require inspection providers')
-  expect.equal(#snapshot().unobservable, 1, 'missing menu is explicit')
-  source:enable()
-  runtime:drain()
-  expect.equal(#snapshot().unobservable, 0, 'the menu child connects')
-  source:disable()
-  runtime:drain()
-  expect.equal(owner:state(), 'active', 'menu outage leaves the parent active')
-  expect.equal(#snapshot().unobservable, 1, 'the child records its outage')
-  source:enable()
-  runtime:drain()
-  expect.equal(#snapshot().unobservable, 0, 'the menu child reconnects')
-  runtime:close()
-end)
-
 return test

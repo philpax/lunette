@@ -46,7 +46,6 @@ function layer.release(self: Claimant): ()
   end
 end
 
--- Replaces any held claim with one sized for the source.
 function layer.acquire(self: Claimant, pixelWidth: number, pixelHeight: number): ()
   if self.kind ~= 'window' then
     return

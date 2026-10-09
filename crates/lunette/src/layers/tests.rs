@@ -1,9 +1,5 @@
-//! What the pool decides, exercised with no XR runtime and no device.
-//!
-//! Everything below runs against [`FakeLayers`], which counts creations and
-//! destructions and hands out an integer where LÖVR would hand out a `Layer`.
-//! The pool's decisions are under test. The calls the decisions produce are
-//! the seam's output.
+//! Tests of the layer pool's decisions, run against [`FakeLayers`] with no XR
+//! runtime and no device.
 
 #![expect(
     clippy::expect_used,
@@ -37,8 +33,8 @@ use crate::{
 struct Calls {
     created: Vec<LayerKey>,
     destroyed: Vec<u64>,
-    /// One entry per submit, holding the layers the submit named and whether
-    /// lunette's own projection layer is part of it.
+    /// One entry per submit: the layers it named and whether lunette's own
+    /// projection layer is part of it.
     submitted: Vec<(Vec<u64>, SceneRendering)>,
 }
 
@@ -48,24 +44,19 @@ struct FakeLayer(u64);
 
 #[derive(Debug)]
 struct FakeLayers {
-    /// Shared with the harness for the same reason `refusing` is, and mutable
-    /// because a runtime may report a different one to the session that
-    /// replaces a lost one.
+    /// Shared with the harness, and mutable because a replacement session may
+    /// report a different limit.
     limit: Rc<Cell<u32>>,
     /// Which session exists, which the harness takes away, gives back, and
     /// replaces.
     ///
-    /// Separate from `limit` because LÖVR's two answers are separate: the
-    /// limit is read off the system and survives the session, so a session
-    /// going away is not a limit going to zero. The field holds an identity
-    /// because a session replaced between two boundaries is a session the
-    /// pool's layers no longer belong to, and a presence flag carries no
-    /// such distinction.
+    /// Separate from `limit` because the limit survives the session. An
+    /// identity, not a presence flag, so a session replaced between two
+    /// boundaries is distinguishable.
     session: Rc<Cell<SessionPresence>>,
     /// Whether creation is refused, standing in for a runtime that will not
-    /// allocate another swapchain. Shared with the harness: the pool owns the
-    /// backend, and a test reaching the flag through the pool would need an
-    /// accessor in production code that only tests call.
+    /// allocate another swapchain. Shared with the harness so production code
+    /// needs no test-only accessor.
     refusing: Rc<Cell<bool>>,
     next: u64,
     calls: Rc<RefCell<Calls>>,
@@ -109,19 +100,17 @@ struct Harness {
     refusing: Rc<Cell<bool>>,
     limit: Rc<Cell<u32>>,
     session: Rc<Cell<SessionPresence>>,
-    /// The generation the next session carries, so a session the harness
-    /// gives back is never the session it took away.
+    /// The generation the next session carries, so a returned session is never
+    /// the one taken away.
     next_session: u32,
     frame: FrameGeneration,
 }
 
 impl Harness {
-    /// The runtime's layer limit. The pool derives its budget from it and
-    /// may spend less.
+    /// The runtime's layer limit, from which the pool derives its budget.
     fn new(limit: u32) -> Self {
-        // Every log line the pool emits comes from a harness, so installing
-        // the subscriber here puts it in place before any thread can reach a
-        // callsite and have its interest decided against no subscriber.
+        // Installing the subscriber here puts it in place before any thread
+        // reaches a callsite.
         install_collecting_subscriber();
 
         let calls = Rc::new(RefCell::new(Calls::default()));
@@ -152,8 +141,8 @@ impl Harness {
         self.pool.resolve(self.frame)
     }
 
-    /// Runs boundaries until every held layer has been reported granted. A
-    /// frame with a blit path in it does this.
+    /// Runs boundaries until every held layer has been reported granted, as a
+    /// frame with a blit path does.
     fn settle(&mut self) -> PoolOutcome {
         let mut outcome = self.resolve();
         for _ in 0..4 {
@@ -200,23 +189,17 @@ impl Harness {
             .map(|(_, scene)| *scene)
     }
 
-    /// The session goes away, taking every swapchain with it. The pool
-    /// observes the loss at the next boundary.
+    /// The session goes away, taking every swapchain with it.
     ///
     /// The limit is left unchanged, because LÖVR reads it off the system and
-    /// `lovr.headset.stop()` does not touch it. A harness that zeroed it as
-    /// well would produce a zero budget even for a pool that never noticed
-    /// the session.
+    /// `lovr.headset.stop()` does not touch it.
     fn lose_session(&mut self) -> PoolOutcome {
         self.session.set(SessionPresence::Absent);
         self.resolve()
     }
 
-    /// A session comes back. A rebuilt session produces this state.
-    ///
-    /// It is never the session that went away: `lovr.headset.start()`
-    /// creates one, and LÖVR's generation counter never returns a number a
-    /// previous session had.
+    /// A session comes back, never the one that went away, because LÖVR's
+    /// generation counter does not repeat.
     fn regain_session(&mut self) {
         self.session
             .set(SessionPresence::Present(session_id(self.next_session)));
@@ -224,8 +207,7 @@ impl Harness {
     }
 
     /// `lovr.headset.stop()` and `lovr.headset.start()` inside one Lua
-    /// callback: the pool never sees the moment there was no session. It sees
-    /// that the session at this boundary is not the one at the last.
+    /// callback, so the pool never sees a boundary with no session.
     fn replace_session(&mut self) -> PoolOutcome {
         self.regain_session();
         self.resolve()
@@ -259,14 +241,9 @@ impl Warnings {
 
 /// Installs the one subscriber the whole test binary logs through.
 ///
-/// The subscriber is process-wide because `tracing` caches a callsite's
-/// `Interest` globally, computing it once from whatever subscriber the thread
-/// that first reached the callsite happened to have. A per-thread subscriber
-/// installed with `with_default` loses a race it cannot detect: a test
-/// that reaches the same `warn!` without one caches `Interest::never` for
-/// that callsite, and every later capture of it collects nothing. One global
-/// subscriber settles the interest once, for every thread, whatever order the
-/// tests run in.
+/// `tracing` caches a callsite's `Interest` globally, so a per-thread
+/// subscriber can lose a race and collect nothing. One global subscriber
+/// settles the interest for every thread.
 fn install_collecting_subscriber() {
     static INSTALLED: Once = Once::new();
 
@@ -286,8 +263,8 @@ thread_local! {
     static COLLECTING: RefCell<Option<Warnings>> = const { RefCell::new(None) };
 }
 
-/// Directs each event to whatever the thread that emitted it collects into.
-/// Concurrent tests capture their own output and nothing else's.
+/// Directs each event to whatever the thread that emitted it collects into, so
+/// concurrent tests capture only their own output.
 struct ThreadCollector;
 
 impl<'a> MakeWriter<'a> for ThreadCollector {
@@ -298,9 +275,8 @@ impl<'a> MakeWriter<'a> for ThreadCollector {
     }
 }
 
-/// Writes to the collector the emitting thread has, and discards the line
-/// when it has none. The discard covers every test that asserts on decisions
-/// and not on logs.
+/// Writes to the collector the emitting thread has, and discards the line when
+/// it has none.
 struct ThreadWriter(Option<Warnings>);
 
 impl Write for ThreadWriter {
@@ -363,9 +339,8 @@ const GENEROUS: u32 = 128;
 
 #[test]
 fn a_new_layer_is_not_submitted_until_its_first_blit_has_been_issued() {
-    // `xrEndFrame` returns `XR_ERROR_LAYER_INVALID` for a layer whose swapchain
-    // has never released an image. Release happens inside `lovrHeadsetSubmit`
-    // and nowhere else.
+    // `xrEndFrame` rejects a layer whose swapchain has never released an image,
+    // and only `lovrHeadsetSubmit` releases one.
     let mut harness = Harness::new(GENEROUS);
     let claim = harness.pool.claim(key(512, 512), priority(1.0));
 
@@ -419,8 +394,8 @@ fn a_revoked_layer_is_reused_by_the_next_claim_of_the_same_key_with_no_allocatio
 
 #[test]
 fn two_sizes_the_ladder_rounds_together_share_one_layer() {
-    // The ladder rounds the sizes of a drag resize to the same rung, so the
-    // drag reuses the layer, with no allocation per frame.
+    // A drag resize rounds to the same rung, so the drag allocates nothing per
+    // frame.
     let mut harness = Harness::new(LayerBudget::SHARE);
 
     harness.pool.claim(key(1000, 1000), priority(1.0));
@@ -486,8 +461,8 @@ fn the_pool_never_holds_more_than_the_budget_however_many_claims_there_are() {
 
 #[test]
 fn a_stereo_claim_spends_two_slots_of_the_budget() {
-    // `lovrHeadsetSetLayers` inserts the right-eye copy as its own entry and
-    // checks the doubled total, so the pool has to count the same way.
+    // `lovrHeadsetSetLayers` counts the right-eye copy as its own entry, so the
+    // pool counts the same way.
     let mut harness = Harness::new(2 * LayerBudget::SHARE);
     assert_eq!(harness.pool.budget().slots(), 2);
 
@@ -503,9 +478,8 @@ fn a_stereo_claim_spends_two_slots_of_the_budget() {
 
 #[test]
 fn a_claim_that_does_not_fit_stops_the_ranking_rather_than_being_stepped_over() {
-    // A one-slot claim taking the slot a two-slot claim above it could not use
-    // leaves the two-slot claim ungranted for as long as the smaller one holds
-    // a layer.
+    // A one-slot claim taking a slot the larger claim above it could not use
+    // would leave the larger claim ungranted.
     let mut harness = Harness::new(2 * LayerBudget::SHARE);
 
     let mono = harness.pool.claim(key(512, 512), priority(5.0));
@@ -537,8 +511,8 @@ fn claims_are_served_highest_priority_first() {
 
 #[test]
 fn equal_priorities_do_not_reorder_between_frames() {
-    // An unstable sort here would revoke and re-grant every frame. The user
-    // would see panels flickering between sharp and soft.
+    // An unstable sort here would revoke and re-grant every frame, flickering
+    // panels between sharp and soft.
     let mut harness = Harness::new(LayerBudget::SHARE);
 
     let first = harness.pool.claim(key(512, 512), priority(1.0));
@@ -620,8 +594,7 @@ fn withdrawing_a_claim_frees_its_layer_and_reports_no_revocation() {
 
 #[test]
 fn a_claim_revoked_before_it_was_ever_granted_reports_nothing() {
-    // Lua holds no granted layer: the first claim never reached a grant, so
-    // the pool has nothing to revoke.
+    // The first claim never reached a grant, so the pool has nothing to revoke.
     let mut harness = Harness::new(LayerBudget::SHARE);
     let first = harness.pool.claim(key(512, 512), priority(1.0));
     harness.resolve();
@@ -635,8 +608,7 @@ fn a_claim_revoked_before_it_was_ever_granted_reports_nothing() {
 
 #[test]
 fn nothing_is_granted_before_the_runtime_reports_a_limit() {
-    // This is the state before a session exists and the state after one is
-    // lost.
+    // The state before a session exists and after one is lost.
     let mut harness = Harness::new(0);
     let claim = harness.pool.claim(key(512, 512), priority(1.0));
     harness.settle();
@@ -648,10 +620,9 @@ fn nothing_is_granted_before_the_runtime_reports_a_limit() {
 
 #[test]
 fn the_budget_stays_below_the_runtime_limit_it_is_derived_from() {
-    // Monado does not implement `XR_ERROR_LAYER_LIMIT_EXCEEDED` and writes
-    // past the end of a fixed array instead. Under `XR_EXTX_overlay` that
-    // array is shared with an application whose layer count lunette cannot
-    // see.
+    // Monado does not implement `XR_ERROR_LAYER_LIMIT_EXCEEDED` and writes past
+    // a fixed array shared, under `XR_EXTX_overlay`, with an application whose
+    // layer count lunette cannot see.
     for limit in [0, 1, 4, 16, 32, 64, 128, 1024] {
         let budget = LayerBudget::from_runtime_limit(limit);
 
@@ -681,8 +652,8 @@ fn a_runtime_refusing_to_allocate_leaves_the_claim_ungranted_and_retries() {
 
 #[test]
 fn a_runtime_refusing_to_allocate_is_reported_once_per_claim_rather_than_every_frame() {
-    // A runtime that refuses refuses every frame. A warning per attempt is
-    // thousands of identical lines per second, and nothing else is readable.
+    // A runtime that refuses refuses every frame, so a warning per attempt
+    // would flood the log.
     const REFUSAL: &str = "the runtime refused a composition layer";
 
     let warnings = Warnings::capture(|| {
@@ -702,9 +673,8 @@ fn a_runtime_refusing_to_allocate_is_reported_once_per_claim_rather_than_every_f
 
 #[test]
 fn a_new_session_reports_a_refusal_the_old_one_had_already_reported() {
-    // The refusal belongs to the runtime the claim was refused by. A session
-    // that came up since is a different answer to the same question. Silence
-    // would hide a runtime that started refusing.
+    // The refusal belongs to the session that refused, so a new session warns
+    // again.
     const REFUSAL: &str = "the runtime refused a composition layer";
 
     let warnings = Warnings::capture(|| {
@@ -723,14 +693,9 @@ fn a_new_session_reports_a_refusal_the_old_one_had_already_reported() {
     assert_eq!(warnings.mentioning(REFUSAL), 2);
 }
 
-/// The pool observes the loss itself, at the boundary it already runs.
-/// Nothing outside the pool is notified of a session going away, so a pool
-/// that waited to be told would keep handing out `Layer` handles naming
-/// destroyed swapchains.
-///
-/// The limit is left unchanged, because LÖVR reads it off the system and
-/// the system survives `lovr.headset.stop()`. A pool that inferred loss from
-/// a zero limit would see nothing here.
+/// Nothing outside the pool is notified of a session going away, so the pool
+/// observes the loss itself at its boundary. The limit is left unchanged
+/// because the system survives `lovr.headset.stop()`.
 #[test]
 fn a_session_that_goes_away_is_observed_at_the_next_boundary() {
     let mut harness = Harness::new(GENEROUS);
@@ -746,12 +711,9 @@ fn a_session_that_goes_away_is_observed_at_the_next_boundary() {
     assert_eq!(harness.limit.get(), GENEROUS, "the limit is not the signal");
 }
 
-/// A session that is stopped and started again inside one Lua callback never
-/// looks absent from a frame boundary, and every swapchain the pool held is
-/// destroyed as part of the stop. `lovr.headset.stop()` and
-/// `lovr.headset.start()` are both bound, and reconfiguring the session is
-/// the most ordinary reason to call the pair. A presence flag cannot see this
-/// case; the session identity exists for it.
+/// A stop and start inside one Lua callback never looks absent from a boundary,
+/// and the stop destroys every swapchain. The session identity exists for this
+/// case.
 #[test]
 fn a_session_replaced_between_two_boundaries_is_given_up_like_a_lost_one() {
     let mut harness = Harness::new(GENEROUS);
@@ -771,8 +733,8 @@ fn a_session_replaced_between_two_boundaries_is_given_up_like_a_lost_one() {
     assert_eq!(harness.pool.budget().slots(), 0);
 }
 
-/// The claim survives the replacement holding nothing, and is served against
-/// the new session from a pool with nothing of the old one left in it.
+/// The claim survives the replacement holding nothing, and is served from a
+/// pool with nothing of the old session in it.
 #[test]
 fn the_session_that_replaced_one_is_served_from_an_empty_pool() {
     let mut harness = Harness::new(GENEROUS);
@@ -796,9 +758,8 @@ fn the_session_that_replaced_one_is_served_from_an_empty_pool() {
     assert_eq!(harness.created(), 2);
 }
 
-/// The same session across two boundaries is not a replacement. A pool that
-/// compared anything but the identity would give up every layer every frame,
-/// and no panel would ever stay granted.
+/// A pool that compared anything but the identity would give up every layer
+/// every frame.
 #[test]
 fn a_session_that_stays_the_same_gives_up_nothing() {
     let mut harness = Harness::new(GENEROUS);
@@ -814,8 +775,7 @@ fn a_session_that_stays_the_same_gives_up_nothing() {
     assert_eq!(harness.destroyed(), 0);
 }
 
-/// The layers are given up once. A boundary that reported the same revocation
-/// every frame would have Lua tearing down a panel it had already torn down.
+/// The layers are given up once, so Lua does not tear down a panel twice.
 #[test]
 fn a_session_that_stays_away_is_reported_once() {
     let mut harness = Harness::new(GENEROUS);
@@ -857,9 +817,7 @@ fn session_loss_gives_up_every_layer_and_revokes_every_grant() {
     assert_eq!(harness.pool.budget().slots(), 0);
 }
 
-/// A restart invalidates a claim without Lua releasing it. The handles that
-/// name the layers are destroyed with the state being closed, and the state
-/// that replaces them carries none of their identifiers.
+/// A restart invalidates a claim without Lua releasing it.
 #[test]
 fn a_restart_leaves_the_pool_with_no_claims_and_no_layers() {
     let mut harness = Harness::new(GENEROUS);
@@ -869,8 +827,8 @@ fn a_restart_leaves_the_pool_with_no_claims_and_no_layers() {
     harness.pool.release_claim(freed);
     assert!(harness.pool.state(held).is_some());
 
-    // What `FrameDriver::quiesce` does, in its order: the layers go while the
-    // XR session still exists, and then the claims go with the Lua state.
+    // This is `FrameDriver::quiesce`'s order: the layers go while the XR
+    // session still exists, then the claims go with the Lua state.
     harness.pool.shutdown();
     harness.pool.forget_claims();
 
@@ -883,8 +841,7 @@ fn a_restart_leaves_the_pool_with_no_claims_and_no_layers() {
     );
 }
 
-/// The next session claims from scratch and gets served from an empty pool.
-/// Nothing from the last session is left behind.
+/// The next session claims from scratch from an empty pool.
 #[test]
 fn the_session_after_a_restart_claims_from_an_empty_pool() {
     let mut harness = Harness::new(GENEROUS);
@@ -904,8 +861,8 @@ fn the_session_after_a_restart_claims_from_an_empty_pool() {
     );
 }
 
-/// The step order matters, and a claim forgotten while it still holds a layer
-/// keeps the layer. The layer stays in the pool.
+/// A claim forgotten while it still holds a layer keeps the layer in the pool,
+/// so the step order matters.
 #[test]
 fn forgetting_a_claim_that_still_holds_a_layer_returns_it_to_the_free_list() {
     let mut harness = Harness::new(GENEROUS);
@@ -949,9 +906,8 @@ fn the_first_boundary_after_recovery_grants_a_new_layer_rather_than_a_stale_one(
 
 #[test]
 fn an_immutable_key_is_never_created() {
-    // LÖVR raises "Static Layers can only be updated once" on the second
-    // acquire of one, and a pooled layer is reused. The blit path would then
-    // stop updating a layer the pool goes on granting.
+    // LÖVR refuses a second acquire of a static layer, and a pooled layer is
+    // reused, so the blit path would stop updating it.
     let mut harness = Harness::new(GENEROUS);
     let claim = harness.pool.claim(
         LayerKey::new(
@@ -992,8 +948,8 @@ fn the_submitted_list_holds_every_granted_layer_and_nothing_else() {
 
 #[test]
 fn the_submit_carries_whether_lunette_drew_a_scene_of_its_own() {
-    // `lovrHeadsetSetLayers` is the call that carries it. The flag travels
-    // with the list and is not set separately.
+    // The flag travels with the list in `lovrHeadsetSetLayers` and is not set
+    // separately.
     let mut harness = Harness::new(GENEROUS);
     let claim = harness.pool.claim(key(512, 512), priority(1.0));
     harness.resolve();

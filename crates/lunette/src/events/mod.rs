@@ -1,13 +1,6 @@
 //! Linux-only: delivers compositor and layer lifecycle events to Lua callbacks.
 //!
-//! Compositor events and layer grants or revocations enter LÖVR's event queue on the frame thread,
-//! after [`Session::begin`] installs their snapshot. Callback errors are reported immediately
-//! through [`crate::callback_error`], not queued for the next frame.
-//!
-//! LÖVR custom event names have 31 usable bytes plus a NUL terminator. [`EventName`] rejects longer
-//! or embedded-NUL names. Each `lun*` event carries one table, built at dispatch time because LÖVR
-//! variants cannot hold mlua userdata. Protected dispatch reports handler errors and continues with
-//! later listeners.
+//! Each `lun*` event carries one table built at dispatch time, because LÖVR variants cannot hold mlua userdata.
 
 mod macros;
 
@@ -38,19 +31,15 @@ use crate::{
 pub enum LuaEvent {
     /// `lovr.lunwindowopened{ window = … }`.
     WindowOpened { window: WindowId },
-    /// `lovr.lunwindowclosed{ window = … }`. The handle is dead before dispatch because the current
-    /// snapshot no longer lists the window.
+    /// `lovr.lunwindowclosed{ window = … }`. The handle is dead because the snapshot no longer lists the window.
     WindowClosed { window: WindowId },
     /// `lovr.luntitlechanged{ window = …, title = … }`.
     TitleChanged { window: WindowId, title: String },
     /// `lovr.lunmonitoradded{ id = …, monitor = … }`.
     ///
-    /// A host screen, identified by the key resolved by `lunette-capture`. Startup screens are also
-    /// reported when the mirror lifecycle first observes them.
+    /// Startup screens are also reported when the mirror lifecycle first observes them.
     MonitorAdded { monitor: MonitorKey },
     /// `lovr.lunprocessexited{ process = …, outcome = …, … }`.
-    ///
-    /// Reports process exits and spawn failures. The outcome distinguishes failures from exits.
     ProcessExited {
         process: ProcessId,
         outcome: ProcessOutcome,
@@ -62,13 +51,10 @@ pub enum LuaEvent {
         bytes: Vec<u8>,
     },
     /// `lovr.lunlayergranted{ claim = …, layer = … }`.
-    ///
-    /// Carries the granted layer alongside the claim so handlers can use it directly.
     LayerGranted { claim: ClaimId },
     /// `lovr.lunlayerrevoked{ claim = … }`.
     ///
-    /// The claim holds no layer when this event is dispatched. It remains active and can receive a
-    /// layer again when one becomes available.
+    /// The claim stays active and can receive a layer again.
     LayerRevoked { claim: ClaimId },
 }
 
@@ -90,9 +76,7 @@ impl LuaEvent {
 
     /// Which compositor reports become Lua callbacks.
     ///
-    /// The match is exhaustive. A variant added to the protocol must be given
-    /// an answer here; an unanswered variant would never reach the
-    /// configuration.
+    /// Exhaustive, so a new protocol variant needs an answer here.
     #[must_use]
     pub fn from_compositor(event: &CompositorEvent) -> Option<Self> {
         match event {
@@ -119,19 +103,11 @@ impl LuaEvent {
                 stream: *stream,
                 bytes: bytes.clone(),
             }),
-            // All three belong to the frame loop: one refreshes a stabilised
-            // copy, one becomes a texture, and one releases it again. The
-            // configuration cannot act on any of them. A surface is not a
-            // window, and a window closing has its own event.
+            // These belong to the frame loop, and the configuration cannot act on them.
             CompositorEvent::SurfaceDamaged { .. }
             | CompositorEvent::BufferImported { .. }
             | CompositorEvent::SurfaceGone { .. } => None,
-            // The restart handshake has two halves. Neither reaches Lua: the
-            // Lua state that requested the restart is gone when the first half
-            // arrives, and the state that replaces it receives the outcome as
-            // windows with textures again; no event is delivered. lunette
-            // owning its own graphics device is mechanism, and mechanism has
-            // no policy hook.
+            // Neither half of the restart handshake reaches Lua. The replacement state sees the outcome as windows with textures again.
             CompositorEvent::GraphicsReleased | CompositorEvent::GraphicsAdopted { .. } => None,
         }
     }
@@ -149,8 +125,7 @@ impl EventName {
             return None;
         }
 
-        // An embedded NUL terminates the name early in the C array, so
-        // `lovr.handlers` would be indexed by a prefix of the name.
+        // An embedded NUL would truncate the name, so `lovr.handlers` would be indexed by a prefix.
         let bytes = name.as_bytes();
         let mut index = 0;
         while index < bytes.len() {
@@ -206,11 +181,9 @@ pub struct LovrEventSink;
 impl EventSink for LovrEventSink {
     /// Pushes a custom event name without a payload.
     ///
-    /// LÖVR frees custom-event variants but not their backing array. Payload tables are built from
-    /// the Rust event at dispatch, so the C event carries no variant allocation.
+    /// LÖVR frees custom-event variants but not their backing array, so the C event carries no variant allocation.
     fn push(&self, name: EventName) {
-        // SAFETY: zero is a valid event discriminant. Construction overwrites the custom-event
-        // fields.
+        // SAFETY: zero is a valid event discriminant, and construction overwrites the custom-event fields.
         let mut event: LovrEvent = unsafe { mem::zeroed() };
         event.type_ = EventType_EVENT_CUSTOM;
         event.data.custom = CustomEvent {
@@ -219,16 +192,14 @@ impl EventSink for LovrEventSink {
             count: 0,
         };
 
-        // SAFETY: the event contains no Rust pointers. LÖVR receives it by value after event-module
-        // initialization.
+        // SAFETY: the event contains no Rust pointers, and the event module is initialised.
         unsafe { lovrEventPush(event) };
     }
 }
 
 /// Events pending dispatch for the current frame.
 ///
-/// Queue names pair with payloads in insertion order. Unconsumed events are cleared at the next
-/// frame boundary so `lovr.event.clear()` cannot deliver them against a later snapshot.
+/// Unconsumed events are cleared at the next frame boundary so `lovr.event.clear()` cannot deliver them against a later snapshot.
 #[derive(Debug, Default)]
 pub(crate) struct EventQueue {
     pending: VecDeque<LuaEvent>,
@@ -269,10 +240,7 @@ pub(crate) fn install_dispatchers<T: LuaTexture>(
     Ok(())
 }
 
-/// The event name used to notify listeners about callback errors.
-///
-/// Callback errors are reported immediately through the listener registry, not through LÖVR's event
-/// queue.
+/// The event name used to notify listeners about callback errors, which bypass LÖVR's event queue.
 pub const ERROR: EventName = event_name("lunerror");
 
 events! {
@@ -284,9 +252,7 @@ events! {
         window: Window<NullTexture> = Window::for_id(Rc::clone(session), *window),
     }
 
-    /// A toplevel closes. The handle is already dead, because the snapshot the
-    /// handler reads no longer lists the window; the handle still reports the
-    /// window's last title, size, and identifier.
+    /// A toplevel closes. The handle is already dead but still reports the window's last title, size, and identifier.
     WINDOW_CLOSED = lunwindowclosed(_lua, session) as WindowClosedEvent via onWindowClosed
         from LuaEvent::WindowClosed { window } =>
     {
@@ -300,22 +266,17 @@ events! {
     {
         /// The window whose title changed.
         window: Window<NullTexture> = Window::for_id(Rc::clone(session), *window),
-        /// The new title. Also readable as `event.window.title`; duplicated in
-        /// the payload because the callback reports a change, and a handler
-        /// comparing against a stored value needs the new value without a
-        /// further read of the window.
+        /// The new title, duplicated in the payload so a handler comparing against a stored value needs no further read.
         title: String = title.as_str(),
     }
 
-    /// A host screen appears. The event includes every screen attached at
-    /// lunette startup.
+    /// A host screen appears, including every screen attached at startup.
     MONITOR_ADDED = lunmonitoradded(_lua, session) as MonitorAddedEvent via onMonitorAdded
         from LuaEvent::MonitorAdded { monitor } =>
     {
         /// The key `lunette-capture` identifies the screen by.
         id: String = monitor.to_string(),
-        /// The handle, while the screen is still attached. A screen unplugged between
-        /// the report and the dispatch has no handle; the payload carries its name.
+        /// The handle, while the screen is still attached. A screen unplugged before dispatch has no handle.
         monitor: Option<Monitor<NullTexture>> = session
             .mirrors()
             .state(monitor)
@@ -328,9 +289,7 @@ events! {
     {
         /// The process that ends.
         process: Process<NullTexture> = Process::new(Rc::clone(session), *process),
-        /// Which of the three fields below the event carries. A string, where
-        /// field presence would force a handler to test each field in turn, and a
-        /// failed spawn is not mistaken for an exit with no code.
+        /// Which of the three fields below the event carries. A string, so a failed spawn is not mistaken for an exit with no code.
         outcome: OutcomeName = OutcomeName(outcome.clone()),
         /// The status it exited with.
         code: Option<i32> = outcome.code(),
@@ -348,26 +307,21 @@ events! {
         process: Process<NullTexture> = Process::new(Rc::clone(session), *process),
         /// Which stream the process writes to.
         stream: StreamName = StreamName(*stream),
-        /// The bytes written. A Lua string is a byte string, so non-UTF-8
-        /// output arrives intact; decoding remains the configuration's
-        /// decision.
+        /// The bytes written. A Lua string is a byte string, so non-UTF-8 output arrives intact.
         text: String = lua.create_string(bytes)?,
     }
 
-    /// A claim receives a composition layer, and the panel holding it draws
-    /// onto the layer.
+    /// A claim receives a composition layer, and the panel holding it draws onto the layer.
     LAYER_GRANTED = lunlayergranted(lua, session) as LayerGrantedEvent via onLayerGranted
         from LuaEvent::LayerGranted { claim } =>
     {
         /// The claim that received the layer.
         claim: Claim<NullTexture> = Claim::new(Rc::clone(session), *claim),
-        /// The layer it holds. Not kept across frames: the layer it names goes
-        /// away on revoke.
+        /// The layer it holds. Not kept across frames, because the layer goes away on revoke.
         layer: GrantedLayer = session.claims().push_layer(lua, *claim)?,
     }
 
-    /// A claim loses its layer to a higher-priority claim, and the panel
-    /// holding it draws as an in-scene quad until a layer is granted again.
+    /// A claim loses its layer to a higher-priority claim, and its panel draws as an in-scene quad until a layer is granted again.
     LAYER_REVOKED = lunlayerrevoked(_lua, session) as LayerRevokedEvent via onLayerRevoked
         from LuaEvent::LayerRevoked { claim } =>
     {
@@ -378,8 +332,7 @@ events! {
 
 /// Names an event, refusing one that does not fit `CustomEvent.name`.
 ///
-/// The panic is evaluated while the program is compiled, so a name too long for
-/// the array fails the build; `memcpy` never receives an overlong name.
+/// The panic runs at compile time, so an overlong name fails the build.
 const fn event_name(name: &'static str) -> EventName {
     match EventName::new(name) {
         Some(name) => name,
@@ -398,7 +351,7 @@ fn dispatch<T: LuaTexture>(
     session: &Rc<Session<T>>,
     name: EventName,
 ) -> mlua::Result<()> {
-    // Ignore names without a matching pending Rust payload, including names pushed directly by Lua.
+    // Ignore names without a pending Rust payload, including names pushed directly by Lua.
     let Some(event) = session.take_event(name) else {
         return Ok(());
     };
@@ -410,9 +363,7 @@ fn dispatch<T: LuaTexture>(
 
     let payload = payload(lua, session, &event)?;
 
-    // Each handler runs under mlua's protected call. Failures include tracebacks and do not stop
-    // later handlers or queued events. [`crate::callback_error`] reports them to
-    // `lunette.onError` listeners.
+    // Each handler runs under a protected call, so a failure does not stop later handlers or queued events.
     for handler in listeners {
         if let Err(error) = handler.call::<()>(payload.clone()) {
             report(

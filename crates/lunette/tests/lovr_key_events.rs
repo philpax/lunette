@@ -1,7 +1,6 @@
 //! Checks native key-event snapshots through LÖVR's Lua event binding.
 //!
-//! Native injection replaces the host keyboard boundary. The event queue and Lua
-//! marshaling are real; the test does not check OS modifier acquisition.
+//! Native injection replaces the host keyboard boundary, so OS modifier acquisition is not checked.
 
 use std::{ffi::c_int, mem::ManuallyDrop};
 
@@ -18,7 +17,7 @@ unsafe extern "C-unwind" {
 
 #[test]
 fn key_events_preserve_arguments_and_frozen_modifier_snapshots() -> mlua::Result<()> {
-    // The queue is process-global. All cases share one opener in this test binary.
+    // The queue is process-global, so all cases share one opener.
     let state = EventState::new();
     let lua: &Lua = &state.lua;
     // SAFETY: the opener follows the Lua C function protocol, and both callers
@@ -136,8 +135,7 @@ impl EventState {
 impl Drop for EventState {
     fn drop(&mut self) {
         self.lua.exec_raw_lua(|raw| raw.mark_closed());
-        // SAFETY: all functions and tables drop before this unique state owner.
-        // luax_close also releases the event module through its registered finalizer.
+        // SAFETY: all functions and tables drop before this unique state owner, and luax_close releases the event module.
         unsafe { luax_close(self.raw.cast()) };
     }
 }
@@ -198,8 +196,7 @@ fn push_key(case: KeyCase) {
             },
         },
     };
-    // SAFETY: the opener initialized the queue, and the tag matches the union
-    // member. lovrEventPush copies the event without retaining Rust references.
+    // SAFETY: the opener initialized the queue, the tag matches the union member, and lovrEventPush copies the event.
     unsafe { lovrEventPush(event) };
 }
 

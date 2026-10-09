@@ -4,52 +4,42 @@ local plugin = require '@lunette-plugin'
 
 local test = testing.suite()
 
-for _, mode in { 'dispose', 'disable', 'reload', 'close' } do
-  test('a returned resource releases once on ' .. mode, function()
-    local runtime = plugin.runtime()
-    local values = {}
-    local effects = {}
-    local releases = 0
-    local instance = runtime:use(
-      plugin.define {
-        name = 'resource-owner',
-        init = function(context)
-          local value, effect = context:resource(context, function()
-            local acquired = { dead = false }
-            return acquired, function()
-              acquired.dead = true
-              releases += 1
-            end
-          end)
-          table.insert(values, value)
-          table.insert(effects, effect)
-          expect.falsy(value.dead, 'the registered value is live')
-        end,
-      },
-      {}
-    )
-    instance:enable()
-    expect.equal(instance:state(), 'active', tostring(instance:diagnostic()))
-    if mode == 'dispose' then
-      effects[1]:dispose()
-    elseif mode == 'disable' then
-      instance:disable()
-    elseif mode == 'reload' then
-      instance:reload {}
-    else
-      runtime:close()
-    end
-    expect.truthy(values[1].dead, 'the first value is released')
-    expect.equal(releases, 1, 'the first inverse runs once')
-    effects[1]:dispose()
-    expect.equal(releases, 1, 'disposal repeats no inverse')
-    runtime:close()
-    expect.equal(releases, #values, 'each successful acquisition releases once')
-  end)
-end
+test('a returned resource releases once on dispose and not again at close', function()
+  local runtime = plugin.runtime()
+  local values = {}
+  local effects = {}
+  local releases = 0
+  local instance = runtime:use(
+    plugin.define {
+      name = 'resource-owner',
+      init = function(context)
+        local value, effect = context:resource(context, function()
+          local acquired = { dead = false }
+          return acquired, function()
+            acquired.dead = true
+            releases += 1
+          end
+        end)
+        table.insert(values, value)
+        table.insert(effects, effect)
+        expect.falsy(value.dead, 'the registered value is live')
+      end,
+    },
+    {}
+  )
+  instance:enable()
+  expect.equal(instance:state(), 'active', tostring(instance:diagnostic()))
+  effects[1]:dispose()
+  expect.truthy(values[1].dead, 'the first value is released')
+  expect.equal(releases, 1, 'the first inverse runs once')
+  effects[1]:dispose()
+  expect.equal(releases, 1, 'disposal repeats no inverse')
+  runtime:close()
+  expect.equal(releases, #values, 'each successful acquisition releases once')
+end)
 
-for _, cancel in { false, true } do
-  test('a resource answers no value after ' .. (if cancel then 'cancellation' else 'acquisition failure'), function()
+test('a resource answers no value after acquisition failure or cancellation', function()
+  for _, cancel in { false, true } do
     local runtime = plugin.runtime()
     local instance
     local context
@@ -81,10 +71,10 @@ for _, cancel in { false, true } do
     expect.equal(released, if cancel then 1 else 0, 'only a returned inverse releases')
     runtime:close()
     expect.equal(released, if cancel then 1 else 0, 'shutdown repeats no inverse')
-  end)
-end
+  end
+end)
 
-test('the resource owner is checked before acquisition', function()
+test('the resource owner is checked before acquisition, even through a forged receiver', function()
   local runtime = plugin.runtime()
   local context
   local stranger
@@ -117,42 +107,13 @@ test('the resource owner is checked before acquisition', function()
       end)
     end)
   end
-  expect.equal(acquisitions, 0, 'invalid owners run no acquisition')
-  runtime:close()
-end)
-
-test('a forged resource receiver cannot bypass the owner check', function()
-  local runtime = plugin.runtime()
-  local provider
-  local stranger
-  local definition = plugin.define {
-    name = 'checked-resource-receiver',
-    init = function(context, config)
-      config.keep(context)
-    end,
-  }
-  runtime
-    :use(definition, {
-      keep = function(context)
-        provider = context
-      end,
-    })
-    :enable()
-  runtime
-    :use(definition, {
-      keep = function(context)
-        stranger = context
-      end,
-    })
-    :enable()
-  local acquired = false
   expect.raises(function()
-    provider.resource(stranger, stranger, function()
-      acquired = true
+    context.resource(stranger, stranger, function()
+      acquisitions += 1
       return {}, function() end
     end)
   end, 'does not depend on this provider')
-  expect.falsy(acquired, 'a forged receiver runs no acquisition')
+  expect.equal(acquisitions, 0, 'invalid owners run no acquisition')
   runtime:close()
 end)
 

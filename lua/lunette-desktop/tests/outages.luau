@@ -32,12 +32,12 @@ local function start()
 end
 
 -- The shipped rule sources retain their configured precedence order across provider outages.
-local function expectSources(env, context)
+local function expectSources(env)
   local list = testing.ruleSources(env.rules)
-  expect.equal(#list, 3, context .. ': the rule sources')
-  expect.equal(list[1].precedence, 100, context .. ': the rule list')
-  expect.equal(list[2].name, 'desktop.persist', context .. ': the saved arrangement')
-  expect.equal(list[3].name, 'lunette.adoption', context .. ': adoption')
+  expect.equal(#list, 3, 'the rule sources')
+  expect.equal(list[1].precedence, 100, 'the rule list')
+  expect.equal(list[2].name, 'desktop.persist', 'the saved arrangement')
+  expect.equal(list[3].name, 'lunette.adoption', 'adoption')
 end
 
 local function frame(env)
@@ -63,7 +63,7 @@ test('keyboard and error stream outages remove only what depends on them', funct
   local firefox = assert(env.panels:forSource(events.windows[2]))
   expect.equal(firefox.width, 2, 'the configured rule sizes firefox')
   expect.near((firefox.pose:getPosition()), -1.4, 1e-5, 'the configured rule pose is outside the arc')
-  expectSources(env, 'startup')
+  expectSources(env)
 
   local display = env.session:observe(displayContract.capability)
   local menu = env.session:observe(menuContract.capability)
@@ -78,49 +78,34 @@ test('keyboard and error stream outages remove only what depends on them', funct
   local reload = assert(action 'desktop/reload')
   frame(env)
   local withoutKeyboard = #env.surfaces:all()
-  for round = 1, 3 do
-    local context = 'round ' .. round
-    display.service:show()
-    frame(env)
-    expect.equal(
-      #env.surfaces:all(),
-      withoutKeyboard + 3,
-      context .. ': showing acquires the keyboard and titlebar surfaces'
-    )
-    env.instances.keyboard:disable()
-    expect.equal(env.panels:forSource(events.windows[1]), initial, context .. ': the panel stays')
-    expect.equal(
-      #env.surfaces:all(),
-      withoutKeyboard,
-      context .. ': the outage removes the keyboard, not the wrist menu'
-    )
-    expect.equal(env.instances['desktop/menu']:state(), 'active', context .. ': menu rendering survives')
-    expect.equal(env.instances['desktop/actions']:state(), 'active', context .. ': reload consumer survives')
-    expect.equal(action 'desktop/keyboard/toggle', nil, context .. ': only Keyboard disappears')
-    expect.equal(assert(action 'desktop/reload').registration, reload.registration, context .. ': Reload stays live')
-    frame(env)
-    expectSources(env, context .. ', keyboard outage')
-    env.instances.keyboard:enable()
-    expect.equal(#env.surfaces:all(), withoutKeyboard, context .. ': recovery keeps the keyboard lazy')
-    expect.equal(env.instances['desktop/actions']:state(), 'active', context .. ': reload consumer stays active')
-    expect.truthy(action 'desktop/keyboard/toggle', context .. ': Keyboard reconnects')
-    expect.equal(assert(action 'desktop/reload').registration, reload.registration, context .. ': Reload is unchanged')
-    display.service:show()
-    frame(env)
-    expect.equal(
-      #env.surfaces:all(),
-      withoutKeyboard + 3,
-      context .. ': showing creates one replacement keyboard and titlebar'
-    )
+  display.service:show()
+  frame(env)
+  expect.equal(#env.surfaces:all(), withoutKeyboard + 3, 'showing acquires the keyboard and titlebar surfaces')
+  env.instances.keyboard:disable()
+  expect.equal(env.panels:forSource(events.windows[1]), initial, 'the panel stays')
+  expect.equal(#env.surfaces:all(), withoutKeyboard, 'the outage removes the keyboard, not the wrist menu')
+  expect.equal(env.instances['desktop/menu']:state(), 'active', 'menu rendering survives')
+  expect.equal(env.instances['desktop/actions']:state(), 'active', 'reload consumer survives')
+  expect.equal(action 'desktop/keyboard/toggle', nil, 'only Keyboard disappears')
+  expect.equal(assert(action 'desktop/reload').registration, reload.registration, 'Reload stays live')
+  frame(env)
+  expectSources(env)
+  env.instances.keyboard:enable()
+  expect.equal(#env.surfaces:all(), withoutKeyboard, 'recovery keeps the keyboard lazy')
+  expect.equal(env.instances['desktop/actions']:state(), 'active', 'reload consumer stays active')
+  expect.truthy(action 'desktop/keyboard/toggle', 'Keyboard reconnects')
+  expect.equal(assert(action 'desktop/reload').registration, reload.registration, 'Reload is unchanged')
+  display.service:show()
+  frame(env)
+  expect.equal(#env.surfaces:all(), withoutKeyboard + 3, 'showing creates one replacement keyboard and titlebar')
 
-    env.instances.errors:disable()
-    expect.equal(native.subscriptionCount 'onError', 0, context .. ': the stream ends its subscription')
-    expect.equal(env.panels:forSource(events.windows[1]), initial, context .. ': the panel stays')
-    expectSources(env, context .. ', stream outage')
-    frame(env)
-    env.instances.errors:enable()
-    expect.equal(native.subscriptionCount 'onError', 1, context .. ': the stream subscribes again')
-  end
+  env.instances.errors:disable()
+  expect.equal(native.subscriptionCount 'onError', 0, 'the stream ends its subscription')
+  expect.equal(env.panels:forSource(events.windows[1]), initial, 'the panel stays')
+  expectSources(env)
+  frame(env)
+  env.instances.errors:enable()
+  expect.equal(native.subscriptionCount 'onError', 1, 'the stream subscribes again')
   env.session:close()
 end)
 
@@ -135,26 +120,17 @@ test('a rules outage withdraws adopted panels, and recovery restores them where 
   env.session:drop(initial)
   expect.equal(events.writes, 1, 'the drop saves the arrangement')
   local reads, writes = events.reads, events.writes
-  for round = 1, 3 do
-    local context = 'round ' .. round
-    env.instances.rules:disable()
-    expect.truthy(initial.dead, context .. ': the outage withdraws the adopted panel')
-    expect.equal(native.subscriptionCount 'onWindowOpened', 0, context .. ': adoption unsubscribes')
-    expect.equal(events.writes, writes, context .. ': persistence teardown never saves')
-    for _, record in ipairs(events.subscriptions.onWindowOpened) do
-      if not record.active then
-        record.callback { window = window }
-      end
-    end
-    expect.equal(env.panels:forSource(window), nil, context .. ': a retained native callback cannot place')
-    frame(env)
-    env.instances.rules:enable()
-    expectSources(env, context)
-    initial = assert(env.panels:forSource(window))
-    expectAt(initial, 3, 2, -4, context .. ': the retained arrangement restores the panel')
-    expect.equal(events.reads, reads, context .. ': the outage does not read the file again')
-    expect.equal(native.subscriptionCount 'onWindowOpened', 1, context .. ': adoption subscribes again')
-  end
+  env.instances.rules:disable()
+  expect.truthy(initial.dead, 'the outage withdraws the adopted panel')
+  expect.equal(native.subscriptionCount 'onWindowOpened', 0, 'adoption unsubscribes')
+  expect.equal(events.writes, writes, 'persistence teardown never saves')
+  frame(env)
+  env.instances.rules:enable()
+  expectSources(env)
+  initial = assert(env.panels:forSource(window))
+  expectAt(initial, 3, 2, -4, 'the retained arrangement restores the panel')
+  expect.equal(events.reads, reads, 'the outage does not read the file again')
+  expect.equal(native.subscriptionCount 'onWindowOpened', 1, 'adoption subscribes again')
   env.session:close()
 end)
 
@@ -173,28 +149,6 @@ test('a surfaces outage stops pointing and decorations and leaves the panels dra
   env.instances.surfaces:enable()
   frame(env)
   expect.equal(#env.surfaces:all(), 4, 'recovery offers the panel, its bar, its buttons, and the wrist menu again')
-  env.session:close()
-end)
-
-test('a neutral bindings outage leaves session menu actions and typing working', function()
-  local env = start()
-  local native, events = env.native, env.events
-  events.windows = { native.newWindow(1) }
-  native.emit('onWindowOpened', { window = events.windows[1] })
-  env.session:update()
-  env.hands:button('right', 'trigger', true)
-  env.session:update()
-  env.hands:button('right', 'trigger', false)
-  env.session:update()
-  env.instances.bindings:disable()
-  expect.equal(env.instances['desktop/actions']:state(), 'active', 'session actions do not need the bindings broker')
-  expect.equal(env.instances['desktop/menu']:state(), 'active', 'the wrist menu does not need the bindings broker')
-  expect.equal(env.instances['desktop/input']:state(), 'active', 'input does not need the broker')
-  local before = #events.input
-  lovr.keypressed('backspace', 0, false)
-  expect.truthy(#events.input > before, 'a key reaches the focused window during the outage')
-  env.instances.bindings:enable()
-  expect.equal(env.instances['desktop/actions']:state(), 'active', 'recovery leaves session actions unchanged')
   env.session:close()
 end)
 

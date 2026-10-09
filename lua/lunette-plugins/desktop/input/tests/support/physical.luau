@@ -7,6 +7,15 @@ local expect = testing.expect
 
 local physical = {}
 local fixtures = {}
+local strokes = {
+  q = { keycode = 16, modifiers = {} },
+  Q = { keycode = 16, modifiers = { 'shift' } },
+  ['1'] = { keycode = 2, modifiers = {} },
+  ['.'] = { keycode = 52, modifiers = {} },
+  ['€'] = { keycode = 18, modifiers = { 'mod5' } },
+  ['é'] = { keycode = 40, modifiers = {} },
+  ['🙂'] = { keycode = 57, modifiers = { 'mod5', 'shift' } },
+}
 local Fixture = {}
 Fixture.__index = Fixture
 
@@ -34,28 +43,17 @@ function physical.boot(domain)
   end)
   fixture.seat.strokeFor = function(_self, value)
     fixture:record('resolve:' .. value)
-    if value == 'q' then
-      return { keycode = 16, modifiers = {} }
-    elseif value == 'Q' then
-      return { keycode = 16, modifiers = { 'shift' } }
-    elseif value == '1' then
-      return { keycode = 2, modifiers = {} }
-    elseif value == '.' then
-      return { keycode = 52, modifiers = {} }
-    elseif value == '€' then
-      return { keycode = 18, modifiers = { 'mod5' } }
-    elseif value == 'é' then
-      return { keycode = 40, modifiers = {} }
-    elseif value == '🙂' then
-      return { keycode = 57, modifiers = { 'mod5', 'shift' } }
+    local stroke = strokes[value]
+    if stroke == nil then
+      return nil
     end
-    return nil
+    return { keycode = stroke.keycode, modifiers = table.clone(stroke.modifiers) }
   end
   fixture.sink = { dead = false, domain = domain or 'window', id = 701 }
   fixture.sink.modifiers = function(_self, modifiers, seat)
     expect.equal(seat, fixture.seat, 'the original native seat')
     fixture:record('mods:' .. table.concat(modifiers, '+'))
-    return if fixture.hooks.modifiers then fixture.hooks.modifiers(modifiers) else true
+    return true
   end
   fixture.sink.key = function(_self, code, down, seat)
     expect.equal(seat, fixture.seat, 'the original native seat')

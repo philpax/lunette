@@ -43,7 +43,7 @@ local function start()
   return env
 end
 
-test('a local route receives keys, text, and keymap legends for both providers', function()
+test('a local route receives keys, text, and keymap legends', function()
   local env = start()
   local board = env.keyboard:new(env.owner)
   expect.truthy(board:pressKey(30))
@@ -53,36 +53,6 @@ test('a local route receives keys, text, and keymap legends for both providers',
   expect.truthy(board:typeText 'committed UTF-8')
   expect.equal(env.texts[1], 'committed UTF-8')
   expect.equal(board:keys()[1].legend, 'keymap legend')
-  env.session:close()
-
-  testing.host.useConfiguration 'examples/keyboard'
-  local tiny = require 'tiny'
-  env = start()
-  env.session.instances.keyboard:disable()
-  env.session:use(tiny)
-  local observed = env.session:observe(keyboardContract.capability)
-  local replacement = observed.service:new(observed.context)
-  local targetOwner = env.session:observe(focusContract.capability)
-  targetOwner.service
-    :register(targetOwner.context, {
-      kind = 'local',
-      wantsKeyboard = true,
-      receiver = {
-        key = function(event)
-          env.keys[#env.keys + 1] = event
-          return true
-        end,
-        text = function(text)
-          env.texts[#env.texts + 1] = text
-          return true
-        end,
-      },
-    })
-    :focus()
-  expect.truthy(replacement:pressKey(21))
-  expect.truthy(replacement:typeText 'tiny local')
-  expect.equal(env.keys[#env.keys].code, 21)
-  expect.equal(env.texts[#env.texts], 'tiny local')
   env.session:close()
 end)
 

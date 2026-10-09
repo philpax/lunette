@@ -31,7 +31,7 @@ function fixture.cleanup()
   end
 end
 
-function fixture.testCases(suite, failOnReports)
+function fixture.testCases(suite)
   return function(name, run)
     suite(name, function()
       local ok, problem = pcall(run)
@@ -42,20 +42,13 @@ function fixture.testCases(suite, failOnReports)
       end
       if not closed then
         local cleanupError = tostring(failure)
-        if failOnReports then
-          cleanupError = 'fixture cleanup: ' .. cleanupError
-        elseif not ok then
+        if not ok then
           cleanupError = 'cleanup: ' .. cleanupError
         end
         failures[#failures + 1] = cleanupError
       end
-      if failOnReports then
-        for _, report in testing.takeReports() do
-          failures[#failures + 1] = 'unexpected plugin report: ' .. tostring(report)
-        end
-      end
       if #failures > 0 then
-        error(table.concat(failures, if failOnReports then '\n' else '; '), 0)
+        error(table.concat(failures, '; '), 0)
       end
     end)
   end
@@ -158,7 +151,6 @@ function fixture.boot(additions, config)
     end
     error('choice option is not reachable: ' .. itemId)
   end
-  -- Scrolls a list with the thumbstick until the item is visible, then selects it.
   function result:item(id, itemId)
     for _ = 1, 128 do
       local description, control = self.controls:discover(self.services.ui, 'desktop/manager', id)

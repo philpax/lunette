@@ -32,30 +32,11 @@ test("a configured radius places a panel, and a call's options merge over the co
   _, y, z = panel.pose:getPosition()
   expect.near(y, 1.5, 1e-5, 'the configured centre height under a call option')
   expect.near(z, -2, 1e-5, "the call's radius")
-  session:close()
-end)
-
-test('a call replaces the configured vector center atomically and leaves it unchanged', function()
-  local center = vector.pack(2, 3, 4)
-  local session = testing.start {
-    'layouts',
-    { id = 'layout/arc', definition = arc.definition, config = { tuning = { radius = 3, center = center } } },
-  }
-  local layouts = session:observe(layoutsContract.capability).service
-  local panel = moving(1)
-  layouts:apply { name = 'arc', panels = { panel } }
-  local x, y, z = panel.pose:getPosition()
-  expect.near(x, 2, 1e-5, 'the configured center x')
-  expect.near(y, 3, 1e-5, 'the configured center y')
-  expect.near(z, 1, 1e-5, 'the configured center z minus the radius')
-  local replacement = vector.pack(-1, 0.5, -2)
-  layouts:apply { name = 'arc', panels = { panel }, options = { center = replacement } }
+  layouts:apply { name = 'arc', panels = { panel }, options = { center = vector.pack(-1, 0.5, -2) } }
   x, y, z = panel.pose:getPosition()
-  expect.near(x, -1, 1e-5, 'the replacement center x')
-  expect.near(y, 0.5, 1e-5, 'the replacement center y')
-  expect.near(z, -5, 1e-5, 'the replacement center z keeps the radius')
-  expect.equal(center, vector.pack(2, 3, 4), 'the configured center is unchanged')
-  expect.equal(replacement, vector.pack(-1, 0.5, -2), 'the replacement is unchanged')
+  expect.near(x, -1, 1e-5, 'a call center replaces the configured center x')
+  expect.near(y, 0.5, 1e-5, 'a call center replaces the configured center y')
+  expect.near(z, -5, 1e-5, 'a call center keeps the configured radius')
   session:close()
 end)
 

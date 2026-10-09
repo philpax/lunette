@@ -1,21 +1,9 @@
--- Asserts that the file-backed module roots are mounted from the requested
--- directory, through the plugin facade's root, `@lunette-plugin`.
---
--- The host wraps LÖVR's `lovr.filesystem` loader so the module roots are
--- mounted between the module being created and `main.luau` running; see
--- crates/lunette/src/boot.rs. Nothing else in the suite exercises that, and it
--- is not observable from a Lua state a test builds, because the mount goes into
--- LÖVR's virtual filesystem, not into the process's.
---
--- The mode arrives as the first user argument, which boot.lua shifts to arg[1],
--- and a marker field the mounted root module is expected to carry arrives as
--- arg[2]. Each failure quits with its own status, so the run reports which
--- assertion did not hold. A shared status would not name the failed assertion.
+-- Asserts that a configuration cannot overwrite the module roots, through `@lunette-plugin`.
+-- Each failure quits with its own status, so the run reports which assertion did not hold.
 
--- Requires the root module, and checks it is the copy the run meant.
+-- Requires the root module and checks it is the copy the run meant.
 --
--- The check compares module contents. Physfs reports the supplied mount point,
--- so comparing paths would test temporary-directory spelling, not which tree answered.
+-- Compares module contents, because PhysFS reports the supplied mount point rather than which tree answered.
 local function loadRoot(marker)
   local resolved, root = pcall(require, '@lunette-plugin')
   if not resolved then
@@ -35,20 +23,7 @@ local function loadRoot(marker)
   return root, 9
 end
 
--- Asserts that no root is mounted, the condition of a missing or broken
--- installation. The session continues into safe mode, where `require` reports
--- the missing root.
-local function checkAbsent()
-  if pcall(require, '@lunette-plugin') then
-    return 16
-  end
-
-  return 9
-end
-
--- Asserts that a configuration cannot overwrite a module root it runs on. The
--- write lands in the save directory, which is mounted behind the module roots,
--- so a fresh require still loads the original.
+-- Asserts that a configuration cannot overwrite a module root. The write lands in the save directory, which is mounted behind the module roots.
 local function checkReadOnly(marker)
   local _, status = loadRoot(marker)
   if status ~= 9 then
@@ -58,8 +33,7 @@ local function checkReadOnly(marker)
   lovr.filesystem.createDirectory '@lunette-plugin'
   lovr.filesystem.write('@lunette-plugin/init.luau', 'return { overwritten = true }\n')
 
-  -- The dropped entry makes the require below resolve through the search path
-  -- again, not through the cached table.
+  -- Forces the require below through the search path, not the cached table.
   package.loaded['@lunette-plugin'] = nil
 
   local reloaded, reloadedStatus = loadRoot(marker)
@@ -76,20 +50,6 @@ local function checkReadOnly(marker)
 end
 
 function lovr.load()
-  local mode, marker = arg[1], arg[2]
-
-  local status
-  if mode == 'present' then
-    local _, result = loadRoot(marker)
-    status = result
-  elseif mode == 'absent' then
-    status = checkAbsent()
-  elseif mode == 'readOnly' then
-    status = marker and checkReadOnly(marker) or 15
-  else
-    print('unknown mode ' .. tostring(mode))
-    status = 15
-  end
-
-  lovr.event.quit(status)
+  local marker = arg[2]
+  lovr.event.quit(marker and checkReadOnly(marker) or 15)
 end

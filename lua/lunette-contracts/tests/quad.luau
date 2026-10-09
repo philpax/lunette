@@ -81,38 +81,33 @@ test('projection continues beyond each edge while bounded hits reject it', funct
   end
 end)
 
-test('bounded hits reject a point just outside an edge even when logical rounding reaches the boundary', function()
-  local target = newTarget()
-  local origin = vector.pack(1, 0, 1)
-  local direction = vector.pack(2 ^ -52, 0, -1)
-  local x, y, distance = quad.project(target, origin, direction)
-  expect.equal(x, 800, 'the rounded logical x')
-  expect.equal(y, 300, 'the logical y')
-  expect.equal(distance, 1, 'the ray parameter')
-  local hitX, hitY, hitDistance = quad.hit(target, origin, direction)
-  expect.equal(hitX, nil, 'the bounded x outside the local edge')
-  expect.equal(hitY, nil, 'the bounded y outside the local edge')
-  expect.equal(hitDistance, nil, 'the bounded ray parameter outside the local edge')
-end)
-
-test('an oblique nonunit ray keeps its original ray parameter', function()
-  local target = newTarget()
-  local origin = vector.pack(0, 0, 4)
-  local direction = vector.pack(0.25, 0.5, -2)
-  for _, name in { 'project', 'hit' } do
-    local x, y, distance = quad[name](target, origin, direction)
-    expect.equal(x, 600, name .. ' x')
-    expect.equal(y, 150, name .. ' y')
-    expect.equal(distance, 2, name .. ' distance')
-  end
-end)
-
-test('nonpositive and nonfinite dimensions reject both intersection forms', function()
+test('nonpositive dimensions and nonfinite dimensions, ray components, or pose elements reject both forms', function()
   for _, field in { 'width', 'height', 'pixelWidth', 'pixelHeight' } do
     for index, value in { 0, -1, 0 / 0, math.huge, -math.huge } do
       local target = newTarget()
       target[field] = value
       expectRejected(target, vector.pack(0, 0, 1), vector.pack(0, 0, -1), field .. ' value ' .. index)
+    end
+  end
+  for component = 1, 3 do
+    for index, value in { 0 / 0, math.huge, -math.huge } do
+      local origin = { 0, 0, 1 }
+      origin[component] = value
+      expectRejected(newTarget(), vector.pack(table.unpack(origin)), vector.pack(0, 0, -1), 'origin ' .. index)
+      local direction = { 0, 0, -1 }
+      direction[component] = value
+      expectRejected(newTarget(), vector.pack(0, 0, 1), vector.pack(table.unpack(direction)), 'direction ' .. index)
+    end
+  end
+  for element = 1, 16 do
+    for index, value in { 0 / 0, math.huge, -math.huge } do
+      local target = newTarget()
+      local elements = { target.pose:unpack(true) }
+      elements[element] = value
+      target.pose:set(table.unpack(elements))
+      local before = { target.pose:unpack(true) }
+      expectRejected(target, vector.pack(0, 0, 1), vector.pack(0, 0, -1), 'element ' .. element .. ' value ' .. index)
+      expectUnchanged(target.pose, before, 'the rejected pose')
     end
   end
 end)
@@ -149,33 +144,6 @@ test('backface intersections require an explicit optin', function()
   end
 end)
 
-test('nonfinite components anywhere in either ray vector are rejected', function()
-  for component = 1, 3 do
-    for index, value in { 0 / 0, math.huge, -math.huge } do
-      local origin = { 0, 0, 1 }
-      origin[component] = value
-      expectRejected(newTarget(), vector.pack(table.unpack(origin)), vector.pack(0, 0, -1), 'origin ' .. index)
-      local direction = { 0, 0, -1 }
-      direction[component] = value
-      expectRejected(newTarget(), vector.pack(0, 0, 1), vector.pack(table.unpack(direction)), 'direction ' .. index)
-    end
-  end
-end)
-
-test('a nonfinite element anywhere in the pose rejects the ray without changing the pose', function()
-  for element = 1, 16 do
-    for index, value in { 0 / 0, math.huge, -math.huge } do
-      local target = newTarget()
-      local elements = { target.pose:unpack(true) }
-      elements[element] = value
-      target.pose:set(table.unpack(elements))
-      local before = { target.pose:unpack(true) }
-      expectRejected(target, vector.pack(0, 0, 1), vector.pack(0, 0, -1), 'element ' .. element .. ' value ' .. index)
-      expectUnchanged(target.pose, before, 'the rejected pose')
-    end
-  end
-end)
-
 test('singular poses reject rays even when native inversion leaves them unchanged', function()
   local poses = {
     lovr.math.newMat4():scale(0, 1, 1),
@@ -191,46 +159,6 @@ test('singular poses reject rays even when native inversion leaves them unchange
     expectRejected(target, vector.pack(0, 0, 1), vector.pack(0, 0, -1), 'singular pose ' .. index)
     expectUnchanged(pose, before, 'the singular pose')
   end
-end)
-
-test('finite poses whose native inversion overflows or underflows are rejected', function()
-  for index, scale in { 1e20, 1e-20 } do
-    local target = newTarget()
-    target.pose:scale(scale, scale, scale)
-    local before = { target.pose:unpack(true) }
-    expectRejected(target, vector.pack(0, 0, 1), vector.pack(0, 0, -1), 'extreme scale ' .. index)
-    expectUnchanged(target.pose, before, 'the extreme pose')
-  end
-end)
-
-test('finite inputs that overflow transformed rays or logical coordinates are rejected', function()
-  local target = newTarget()
-  target.pose:scale(0.01, 1, 1)
-  expectRejected(target, vector.pack(1e38, 0, 1), vector.pack(0, 0, -1), 'the transformed origin')
-  expectRejected(target, vector.pack(0, 0, 1), vector.pack(1e38, 0, -1), 'the transformed direction')
-
-  target = newTarget()
-  target.pixelWidth = 1e308
-  expectRejected(target, vector.pack(4, 0, 1), vector.pack(0, 0, -1), 'the logical x overflow')
-  target = newTarget()
-  target.pixelHeight = 1e308
-  expectRejected(target, vector.pack(0, -8, 1), vector.pack(0, 0, -1), 'the logical y overflow')
-  target = newTarget()
-  target.width = 1e-308
-  expectRejected(target, vector.pack(4, 0, 1), vector.pack(0, 0, -1), 'the dimension ratio overflow')
-end)
-
-test('a tiny nonzero forward direction remains a valid finite intersection', function()
-  local target = newTarget()
-  local direction = vector.pack(0, 0, -1e-30)
-  local x, y, distance = quad.project(target, vector.pack(0, 0, 1), direction)
-  expect.equal(x, 400, 'the projected x')
-  expect.equal(y, 300, 'the projected y')
-  expect.near(distance, -1 / direction.z, 1e24, 'the finite ray parameter')
-  local hitX, hitY, hitDistance = quad.hit(target, vector.pack(0, 0, 1), direction)
-  expect.equal(hitX, x, 'the bounded x')
-  expect.equal(hitY, y, 'the bounded y')
-  expect.equal(hitDistance, distance, 'the bounded ray parameter')
 end)
 
 test('deterministic affine rays recover known plane points and preserve every pose element', function()

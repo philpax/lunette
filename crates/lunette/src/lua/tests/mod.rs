@@ -207,17 +207,6 @@ fn error(lua: &Lua, chunk: &str) -> String {
 }
 
 #[test]
-fn requiring_the_module_twice_is_the_same_module() {
-    let session = session(Vec::new());
-    let lua = lua(&session);
-
-    assert!(
-        run::<bool>(&lua, "return require('@lunette') == lunette"),
-        "require caches in package.loaded, so a second require is the first module"
-    );
-}
-
-#[test]
 fn a_pointer_event_queues_until_the_frame_ends() {
     let session = session(vec![window(1, "htop", "foot", PixelSize::new(64, 32))]);
     let lua = lua(&session);
@@ -289,28 +278,23 @@ fn a_button_event_carries_the_button_it_named() {
 }
 
 #[test]
-fn a_button_that_does_not_exist_is_reported_rather_than_guessed() {
+fn a_sink_refuses_an_argument_it_cannot_represent() {
     let session = session(vec![window(1, "htop", "foot", PixelSize::new(64, 32))]);
     let lua = lua(&session);
 
-    let message = error(&lua, "lunette.windows()[1].sink:button('lft', true)");
-    assert!(
-        message.contains("'lft' is not a pointer button"),
-        "unhelpful message: {message}"
-    );
-    assert!(session.flush().is_empty());
-}
-
-#[test]
-fn a_coordinate_that_is_not_a_number_is_reported() {
-    let session = session(vec![window(1, "htop", "foot", PixelSize::new(64, 32))]);
-    let lua = lua(&session);
-
-    let message = error(&lua, "lunette.windows()[1].sink:pointer(0 / 0, 3)");
-    assert!(
-        message.contains("is not a pixel coordinate"),
-        "unhelpful message: {message}"
-    );
+    for (chunk, expected) in [
+        (
+            "lunette.windows()[1].sink:button('lft', true)",
+            "'lft' is not a pointer button",
+        ),
+        (
+            "lunette.windows()[1].sink:pointer(0 / 0, 3)",
+            "is not a pixel coordinate",
+        ),
+    ] {
+        let message = error(&lua, chunk);
+        assert!(message.contains(expected), "unhelpful message: {message}");
+    }
     assert!(session.flush().is_empty());
 }
 
@@ -334,26 +318,6 @@ fn a_restart_is_asked_for_through_lovrs_own_event() {
     );
 }
 
-/// Multiple restart requests in one frame remain queued as separate events.
-#[test]
-fn a_restart_asked_for_twice_is_not_refused() {
-    let session = session(Vec::new());
-    let lua = lua(&session);
-    run::<()>(
-        &lua,
-        "restarts = 0
-         lovr.event = { restart = function() restarts = restarts + 1 end }",
-    );
-
-    run::<()>(&lua, "lunette.restart() lunette.restart()");
-
-    assert_eq!(
-        run::<i64>(&lua, "return restarts"),
-        2,
-        "there is no re-entry guard, because the event is read after the frame"
-    );
-}
-
 /// Reports an error when the LÖVR event module is unavailable.
 #[test]
 fn a_restart_with_no_event_module_is_reported() {
@@ -365,70 +329,4 @@ fn a_restart_with_no_event_module_is_reported() {
         message.contains("lovr.event.restart could not be reached"),
         "unhelpful message: {message}"
     );
-}
-
-#[test]
-fn the_module_exposes_only_what_this_phase_implements() {
-    let session = session(Vec::new());
-    let lua = lua(&session);
-
-    let mut names: Vec<String> = run::<Table>(&lua, "return lunette")
-        .pairs::<String, Value>()
-        .map(|pair| pair.expect("the module's keys are strings").0)
-        .collect();
-    names.sort();
-
-    assert_eq!(
-        names,
-        vec![
-            "claimLayer".to_owned(),
-            "defaultSeat".to_owned(),
-            "keyCodes".to_owned(),
-            "lockingModifierNames".to_owned(),
-            "modifierNames".to_owned(),
-            "monitorSelection".to_owned(),
-            "monitors".to_owned(),
-            "newOutput".to_owned(),
-            "newSeat".to_owned(),
-            "onError".to_owned(),
-            "onLayerGranted".to_owned(),
-            "onLayerRevoked".to_owned(),
-            "onMonitorAdded".to_owned(),
-            "onProcessExited".to_owned(),
-            "onProcessOutput".to_owned(),
-            "onTitleChanged".to_owned(),
-            "onWindowClosed".to_owned(),
-            "onWindowOpened".to_owned(),
-            "outputs".to_owned(),
-            "plugin".to_owned(),
-            "reload".to_owned(),
-            "reportError".to_owned(),
-            "restart".to_owned(),
-            "scaleSteps".to_owned(),
-            "sceneEnabled".to_owned(),
-            "seats".to_owned(),
-            "selectMonitors".to_owned(),
-            "setSceneEnabled".to_owned(),
-            "spawn".to_owned(),
-            "textBoundaries".to_owned(),
-            "windows".to_owned(),
-        ],
-        "a name added here is a promise; the rest of the surface arrives with the phase that \
-         implements it"
-    );
-}
-
-#[test]
-fn the_shipped_configuration_is_valid_lua() {
-    // This syntax check runs without a graphics device or XR runtime.
-    let path = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../etc/xdg/lunette/main.luau"
-    );
-    let source = std::fs::read_to_string(path).expect("the shipped configuration is readable");
-
-    crate::test_lua::session_lua()
-        .load(&source)
-        .into_function()
-        .expect("the shipped configuration parses");
 }

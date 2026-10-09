@@ -199,7 +199,6 @@ function lovr.keypressed(key)
     return
   end
 
-  -- A failed reload returns its error and leaves safe mode active.
   local reloaded, message = lunette.reload()
   if not reloaded then
     print('lunette: the configuration still does not load: ' .. tostring(message))

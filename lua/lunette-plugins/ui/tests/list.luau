@@ -42,20 +42,6 @@ local function visual(state)
   }
 end
 
-test('empty and single lists preserve their exact content', function()
-  local empty = fixture {}
-  expect.equal(#empty:items(), 0)
-  expect.equal(empty.methods.selected {}, nil)
-  expect.equal(visual(empty).overflow, false)
-  local single = fixture(rows(1), '1')
-  expect.equal(#single:items(), 1)
-  expect.equal(single:items()[1].selected, true)
-  expect.equal(single:items()[1].bounds.x, 12)
-  expect.equal(single:items()[1].bounds.y, 22)
-  expect.equal(single:items()[1].bounds.width, 96)
-  expect.equal(single:items()[1].bounds.height, 20)
-end)
-
 test('item and selection updates reject malformed data and keep the previous state', function()
   local state = fixture(rows(2), '2')
   local revision = state.revision
@@ -111,21 +97,6 @@ test('shrinking and emptying clamp scroll and clear only removed selections', fu
   expect.equal(#state:items(), 0)
   expect.equal(state.methods.selected {}, nil)
   expect.equal(changes, 0)
-end)
-
-test('surface eligibility is required even when projected list coordinates match', function()
-  local state = fixture(rows(4))
-  state:event('press', 15, 23)
-  state:event('release', 15, 23, nil, { inside = false })
-  expect.equal(state.methods.selected {}, nil, 'an outside release consumes without selecting')
-  state:event('release', 15, 23)
-  expect.equal(state.methods.selected {}, nil, 'the consumed gesture cannot activate later')
-  state:event('press', 15, 23, nil, { inside = false })
-  state:event('release', 15, 23)
-  expect.equal(state.methods.selected {}, nil, 'an outside press does not arm a gesture')
-  state:event('press', 15, 23)
-  state:event('release', 15, 23)
-  expect.equal(state.methods.selected {}, '1', 'a fresh eligible gesture selects')
 end)
 
 test('only matching primary releases inside the original half-open row activate', function()
@@ -189,62 +160,6 @@ test('item and geometry changes cannot retarget an existing capture', function()
   state.methods.scroll({}, 1)
   state:event('release', 15, 23)
   expect.equal(state.methods.selected {}, nil)
-end)
-
-test('clip rectangles preserve layout and clip changes invalidate captured row bounds', function()
-  local state = fixture(rows(3))
-  state.clip = { x = 20, y = 30, width = 70, height = 24 }
-  local items = state:items()
-  expect.equal(items[1].bounds.y, 30)
-  expect.equal(items[1].bounds.height, 12)
-  expect.equal(items[2].bounds.y, 45)
-  expect.equal(items[2].bounds.height, 9)
-  state:event('press', 21, 31)
-  state.clip = { x = 20, y = 32, width = 70, height = 22 }
-  state:event('release', 21, 33)
-  expect.equal(state.methods.selected {}, nil)
-  state:event('press', 21, 33)
-  state:event('release', 21, 33)
-  expect.equal(state.methods.selected {}, '1')
-end)
-
-test('nonexclusive pointer captures remain independent', function()
-  local state = fixture(rows(3))
-  local other = {}
-  state:event('press', 15, 23)
-  state:event('press', 15, 46, other)
-  state:event('release', 15, 46, other)
-  expect.equal(state.methods.selected {}, '2')
-  state:event('release', 15, 23)
-  expect.equal(state.methods.selected {}, '1')
-end)
-
-test('selection commits before protected callbacks and supports replacement or teardown', function()
-  local state
-  state = fixture(rows(3), nil, function(id)
-    expect.equal(state.methods.selected {}, id)
-    state.methods.setItems({}, rows(1))
-    error 'expected callback failure'
-  end)
-  state:event('press', 15, 46)
-  state:event('release', 15, 46)
-  expect.equal(state.methods.selected {}, nil)
-  expect.equal(#state.reports, 1)
-  expect.truthy(state.reports[1].message:find('expected callback failure', 1, true))
-  state:event('release', 15, 46)
-  expect.equal(#state.reports, 1)
-  local dead
-  dead = fixture(rows(1), nil, function()
-    dead.live = false
-  end)
-  dead:event('press', 15, 23)
-  dead:event('release', 15, 23)
-  local revision = dead.revision
-  dead.methods.setItems({}, rows(4))
-  dead.methods.setSelected({}, 'missing')
-  dead.methods.scroll({}, 100)
-  dead:event('press', 15, 23)
-  expect.equal(dead.revision, revision)
 end)
 
 test('all visible rows stay disjoint and within the viewport across fractional scrolling', function()

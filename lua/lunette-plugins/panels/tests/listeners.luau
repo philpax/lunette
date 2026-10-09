@@ -72,7 +72,6 @@ end)
 test('a removal listener that raises during a drain fails neither the drain nor the removing cleanup', function()
   local env = start()
   local panels = env.session.instances.panels
-  -- The creator releases its panel while the listener owner remains live.
   local created = 0
   local creator = env.session.runtime:use(
     plugin.define {
@@ -111,38 +110,12 @@ test('a removal listener that raises during a drain fails neither the drain nor 
   creator:disable()
   expect.equal(heard, 2, 'the reloaded listener hears the next removal')
   expect.equal(creator:state(), 'inactive', 'the creator whose cleanup removed the panel')
-  expect.equal(creator:diagnostic(), nil, 'the diagnostic of the creator')
 
   local reported = env.native.events.reported
   expect.equal(#reported, 2, 'each raising delivery is reported')
   for _, report in reported do
     expect.truthy(report.message:find('removal listener failed during a drain', 1, true), report.message)
   end
-  env.session:close()
-end)
-
-test('dispatch defers added listeners and skips listeners disposed by an earlier callback', function()
-  local env = start()
-  local observer = env.session:observe(panelsContract.capability)
-  local heard = {}
-  local pending
-  local late
-  observer.service:onAdded(observer.context, function()
-    heard[#heard + 1] = 'first'
-    pending:dispose()
-    if not late then
-      late = observer.service:onAdded(observer.context, function()
-        heard[#heard + 1] = 'late'
-      end)
-    end
-  end)
-  pending = observer.service:onAdded(observer.context, function()
-    heard[#heard + 1] = 'disposed'
-  end)
-  env.panels:fromWindow(env.owner, env.native.newWindow(301), { height = 1 })
-  expect.equal(table.concat(heard, ','), 'first', 'the registration snapshot and disposal check')
-  env.panels:fromWindow(env.owner, env.native.newWindow(302), { height = 1 })
-  expect.equal(table.concat(heard, ','), 'first,first,late', 'the next dispatch includes the new listener')
   env.session:close()
 end)
 

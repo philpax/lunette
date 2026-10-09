@@ -34,14 +34,11 @@ export type PluginDefinition = native.PluginDefinition
 export type PluginRuntime = native.PluginRuntime
 export type PluginInstance = native.PluginInstance
 
--- Declares a contract and returns its capability:
--- `plugin.capability<<Service>> { name = ..., schema = 1 }`. The name's authority is not authenticated.
+-- `plugin.capability<<Service>> { ... }` names the service type. The name is not authenticated.
 function plugin.capability<T>(spec: CapabilitySpec): Capability<T>
   return adapter.capability<<T>>(spec)
 end
 
--- Defines a plugin from its name, the capabilities it requires and provides, and its initializer, whose
--- configuration parameter type is the configuration type.
 function plugin.define<C>(spec: Spec<C>): Definition<C>
   return adapter.define(spec)
 end
@@ -52,40 +49,30 @@ function plugin.runtime(): Runtime
   return adapter.runtime()
 end
 
--- Raises for a value that is not a table, or for its first key outside `allowed`:
--- `<prefix>: unknown field <key>; the fields are <fields>`. `level` counts as `error`'s does from the
--- function that calls this one, so 2 names that function's caller, and 0 gives no position.
 plugin.rejectUnknownFields = options.rejectUnknownFields
 
--- Returns registered diagnostic metadata without calling an owner's service or effect methods.
 plugin.ownerLabel = adapter.ownerLabel
 
--- Raises unless the option is a native vector with finite x, y, and z components.
 function plugin.checkVector(name: string, option: string, value: unknown): ()
   options.checkVector(name, option, value)
 end
 
--- Makes a provider module, `{ definition, define, build, requires }`. The configuration type, the resolved
--- settings type, and the service type are named by explicit instantiation:
+-- Explicit instantiation names the configuration, settings, and service types:
 -- `plugin.provider<<Config, Settings, Service>> { ... }`.
 function plugin.provider<C, S, T>(spec: ProviderSpec<C, S, T>): Provider<C, T>
   return configured.provider<<C, S, T>>(spec)
 end
 
--- Makes a consumer module with configured definitions; initialization receives resolved settings.
 function plugin.consumer<C, S>(spec: ConsumerSpec<C, S>): Consumer<C>
   return configured.consumer<<C, S>>(spec)
 end
 
--- Answers the entries with the patches applied, frozen, defining and enabling nothing. It raises with the id
--- for a malformed entry or patch, a duplicate id, a patch naming no entry, or conflicting patches.
+-- Applies the patches and freezes the entries without defining or enabling any plugin.
 function plugin.compose(entries: { Entry }, patches: { Patch }?): { Entry }
   return compose.apply(entries, patches)
 end
 
--- Answers a function making the patch that configures the entry `id`:
--- `plugin.configure('laser', laser.definition) { style = ... }`. The definition or factory only supplies the
--- configuration type, which a plain patch's `config` lacks, and a factory is not called.
+-- The target supplies only the configuration type, which a plain patch lacks. A factory is not called.
 function plugin.configure<C>(id: string, target: Definition<C> | () -> Definition<C>): (C) -> Patch
   return compose.configure(id, target)
 end

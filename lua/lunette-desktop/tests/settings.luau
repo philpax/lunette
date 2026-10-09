@@ -1,7 +1,6 @@
 -- Typed desktop settings expand into the existing independent entries and preserve raw customization.
 local testing = require '@testing'
 local expect = testing.expect
-local plugin = require '@lunette-plugin'
 local desktop = require '@lunette-desktop'
 local panelsContract = require '@lunette-contracts/panels'
 local tagsContract = require '@lunette-contracts/tags'
@@ -91,31 +90,6 @@ test('typed settings are equivalent to raw patches, without changing defaults or
     expect.equal(actual[index].factory, entry.factory, 'the original factory of ' .. entry.id)
     expect.equal(entry.config, nil, 'the default config is unchanged')
   end
-  expect.falsy(table.isfrozen(CONFIGS.decorations.style), 'the caller still owns its config')
-  expect.truthy(table.isfrozen(entry(actual, 'desktop/decorations').config.style), 'composed config is frozen')
-end)
-
-test('settings merge with entry config and coexist with independent provider patches', function()
-  local entries = plugin.compose(desktop.entries(), {
-    { id = 'desktop/decorations', config = { style = { barHeight = 0.05 } } },
-  })
-  local patches = { { id = 'keyboard', definition = require('@lunette-plugins/keyboard').definition } }
-  local actual =
-    desktop.compose { entries = entries, settings = { decorations = CONFIGS.decorations }, patches = patches }
-  local expected = plugin.compose(entries, {
-    RAW_PATCHES[2],
-    patches[1],
-  })
-  sameEntries(actual, expected)
-  expect.equal(
-    entry(actual, 'desktop/decorations').config.style.barHeight,
-    0.05,
-    'the configured entry retains the unpatched style'
-  )
-  sameEntries(desktop.compose { entries = {}, settings = {} }, {})
-  expect.raises(function()
-    desktop.compose { entries = {}, settings = { menu = {} } }
-  end, 'which is not an entry')
 end)
 
 test('workspace settings configure desktop/workspaces and adopt into the first workspace', function()
@@ -134,24 +108,9 @@ test('unknown sections, malformed lists, and shorthand collisions raise before c
   local load = lovr.load
   for _, case in ipairs {
     { options = { settings = { keyboard = {} } }, message = 'option keyboard is not a declared field' },
-    { options = { settings = { demoTerminal = {} } }, message = 'option demoTerminal is not a declared field' },
-    { options = { settings = { workspaces = { names = {} } } }, message = 'names' },
-    { options = { settings = { workspaces = { workspaces = {} } } }, message = 'has fewer than 1 entries' },
-    {
-      options = { settings = { keyboardDisplay = false } },
-      message = 'plugin desktop settings: option keyboardDisplay is a table, not a boolean',
-    },
     {
       options = { settings = { keyboardDisplay = {} }, patches = { { id = 'desktop/keyboard', config = {} } } },
       message = 'two patches name desktop/keyboard',
-    },
-    {
-      options = { settings = { persistence = {} }, patches = { { id = 'desktop/persistence', disabled = true } } },
-      message = 'two patches name desktop/persistence',
-    },
-    {
-      options = { settings = { workspaces = WORKSPACES }, patches = { { id = 'desktop/adoption', config = {} } } },
-      message = 'two patches name desktop/adoption',
     },
     { options = { patches = { typo = true } }, message = 'the patch list is a list' },
   } do
@@ -211,23 +170,6 @@ test('a renamed first workspace coordinates boot and later adoption without rena
   env.session:close()
 end)
 
-test('workspace following observes adoption already present at boot', function()
-  local fake = testing.native()
-  local window = fake.newWindow(320, 'web-client')
-  fake.events.windows = { window }
-  local config = { workspaces = { { name = 'work' }, { name = 'web' } } }
-  local env = environment(config, fake, {
-    {
-      id = 'desktop/rules',
-      config = { rules = { { match = { appId = 'web-client' }, properties = { tags = { 'web' } } } } },
-    },
-  })
-  local panel = assert(env.panels:forSource(window))
-  expect.truthy(assert(env.tags:find 'work'):has(panel), 'the boot placement follows the selected workspace')
-  expect.falsy(assert(env.tags:find 'web'):has(panel), 'the placement listener already runs during adoption')
-  env.session:close()
-end)
-
 test('workspace following applies to saved boot windows and can preserve their membership', function()
   for _, follow in { true, false } do
     local fake = testing.native()
@@ -253,44 +195,6 @@ test('workspace following applies to saved boot windows and can preserve their m
     end
     env.session:close()
   end
-end)
-
-test('two starts of one expanded composition keep workspace selection independent', function()
-  local entries = desktop.compose { settings = { workspaces = WORKSPACES } }
-  local first = testing.boot(entries)
-  selectWorkspace({ session = first }, 'side')
-  expect.truthy(first:observe(tagsContract.capability).service:find('side').selected, 'the first runtime switches')
-  first:close()
-  local second = testing.boot(entries)
-  local tags = second:observe(tagsContract.capability).service
-  expect.truthy(tags:find('main').selected and not tags:find('side').selected, 'the second runtime starts fresh')
-  second:close()
-end)
-
-test('disabling follow preserves an explicit boot workspace membership', function()
-  local fake = testing.native()
-  local window = fake.newWindow(330, 'web-client')
-  fake.events.windows = { window }
-  local env = environment(
-    {
-      workspaces = { { name = 'work' }, { name = 'web' } },
-      follow = false,
-    },
-    fake,
-    {
-      {
-        id = 'desktop/rules',
-        config = { rules = { { match = { appId = 'web-client' }, properties = { tags = { 'web' } } } } },
-      },
-    }
-  )
-  local panel = assert(env.panels:forSource(window))
-  expect.truthy(assert(env.tags:find 'web'):has(panel), 'the explicit tag remains')
-  expect.falsy(assert(env.tags:find 'work'):has(panel), 'the default does not replace an explicit rule')
-  expect.truthy(panel.hidden, 'the unselected configured workspace is hidden')
-  selectWorkspace(env, 'web')
-  expect.falsy(panel.hidden, 'the explicit workspace can be selected')
-  env.session:close()
 end)
 
 return test

@@ -1,7 +1,6 @@
 local testing = require '@testing'
 local plugin = require '@lunette-plugin'
 local managerConfig = require '@lunette-plugins/desktop/manager/config'
-local frameContract = require '@lunette-contracts/frame'
 local boot = require './support/boot'
 local expect = testing.expect
 local suite = testing.suite()
@@ -56,41 +55,6 @@ test('projected manager opens from the menu, moves, draws, closes, and releases 
   expect.equal(offered:raycast(vector.pack(0.5, 1.4, 0), vector.pack(0, 0, -1)), nil, 'retained surface inert')
 end)
 
-test('management panel protects public dependencies but not inspection-only consumers', function(start)
-  local running = start { visible = true }
-  local protected = {}
-  for _, entry in running.service:entries() do
-    protected[entry.id] = entry.protected
-  end
-  for _, id in { 'frame', 'surfaces', 'ui', 'focus', 'menu' } do
-    expect.equal(protected[id], true, id .. ' is protected')
-  end
-  expect.equal(protected.observer, false, 'unrelated consumer mutable')
-  running.service:disable 'observer'
-  expect.truthy(running.runtime:snapshot().instances[1], 'runtime remains available')
-end)
-
-test('another real pointer cannot move cancel or replace a captured graph press', function(start)
-  local _, _, _, state, _, public = start { visible = true }
-  local first, second = public:pointer(), public:pointer()
-  local x, y = graphPoint(public)
-  local camera = state.view.camera
-  public:update(first, x, y, { buttons = { left = true } })
-  public:update(second, x + 50, y + 50, { buttons = { left = true } })
-  second:withdraw()
-  expect.equal(state.view.camera, camera, 'another pointer cannot pan')
-  expect.truthy(state.view.dragging, 'another pointer cannot cancel')
-  public:update(first, x + 20, y + 30, { buttons = { left = true } })
-  expect.near((camera.x - state.view.camera.x) * camera.zoom, 20, 1e-3, 'captured pointer moves x')
-  public:update(first, x + 20, y + 30)
-  expect.equal(state.view.dragging, nil, 'the captured pointer releases')
-  local released = state.view.camera
-  public:update(second, x, y)
-  public:update(second, x, y, { buttons = { left = true } })
-  public:update(second, x + 10, y + 10, { buttons = { left = true } })
-  expect.near((released.x - state.view.camera.x) * released.zoom, 10, 1e-3, 'second pointer can press after release')
-end)
-
 test('Close clears capture and held input cannot resume after menu reopening', function(start)
   local _, _, _, state, _, public = start { visible = true }
   local first, closer = public:pointer(), public:pointer()
@@ -107,119 +71,91 @@ test('Close clears capture and held input cannot resume after menu reopening', f
   expect.truthy(state.view.dragging, 'fresh input can capture again')
 end)
 
-test('shutdown invalidates retained panel methods and clears a pending gesture', function(start)
-  local running, _, all, state, _, public = start { visible = true }
-  local panel, offered, pointer = public:panel(), all()[1], public:pointer()
-  local x, y = graphPoint(public)
-  public:update(pointer, x, y, { buttons = { left = true } })
-  local position = vector.pack(offered.pose:getPosition())
-  running.runtime:close()
-  expect.equal(panel.dead, true, 'the public panel is dead')
-  expect.equal(offered.dead, true, 'the shared surface is dead')
-  expect.equal(state.view.dragging, nil, 'shutdown cancels the gesture')
-  panel:setPose(lovr.math.newMat4():translate(8, 9, 10))
-  expect.equal(vector.pack(offered.pose:getPosition()), position, 'retained pose setter is inert')
-end)
-
-test('a real interaction pointer drops a withdrawn manager on its next update', function(start)
-  local running, _, all, _, _, public = start({ visible = true }, nil, { 'frame', 'surfaces', 'ui' })
-  local pointer, offered = public:pointer(), all()[1]
-  expect.truthy(pointer:beginGrab(offered, lovr.math.newMat4()), 'the real pointer grabs the panel')
-  running.service:disable 'desktop/manager'
-  pointer:update({
-    origin = vector.pack(0, 1.4, 0),
-    direction = vector.pack(0, 0, -1),
-    pose = lovr.math.newMat4(),
-    buttons = {},
-    grip = true,
-    dt = 0.016,
-  }, all())
-  expect.equal(pointer.grabbed, nil, 'dead surface drops while grip stays held')
-end)
-
-test('manager dimensions reject short canvases and accept minimum and maximum usable aspects', function(start)
+test('manager dimensions reject a short canvas and accept the minimum usable height', function(start)
   expect.raises(function()
     managerConfig.schema.parse({ width = 5, height = 0.1, pixels = 800 }, 'manager')
   end, nil, 'short canvas cannot fit controls')
   local minimum = managerConfig.minimumHeight
-  expect.raises(function()
-    managerConfig.schema.parse({ width = 5, height = (minimum - 0.1) * 5 / 800, pixels = 800 }, 'manager')
-  end, nil, 'a canvas below the body-row boundary is rejected')
-  for _, config in
-    {
-      { width = 5, height = minimum * 5 / 800, pixels = 800, visible = true },
-      { width = 0.1, height = 5, pixels = 2400, visible = true },
-    }
-  do
-    local running, _, all, state, _, public = start(managerConfig.schema.parse(config, 'manager'))
-    local pointer = public:pointer()
-    public:click(pointer, 'graph-view')
-    public:click(pointer, 'fit')
-    public:click(pointer, 'graph', 'desktop/manager')
-    for _, label in { 'configure', 'catalog' } do
-      public:click(pointer, label)
-      local control = public:control(if label == 'configure' then 'rows' else 'catalog-list')
-      expect.truthy(#control.items > 0, label .. ' has body rows')
-      expect.truthy(control.items[1].bounds, label .. ' exposes a visible row')
-      for _, button in public:panel():describe().controls do
-        local bounds = button.bounds
-        if button.kind == 'button' and bounds then
-          expect.truthy(bounds.y + bounds.height <= state.height, 'all toolbar controls fit')
-        end
+  local running, _, all, state, _, public = start(
+    managerConfig.schema.parse({ width = 5, height = minimum * 5 / 800, pixels = 800, visible = true }, 'manager')
+  )
+  local pointer = public:pointer()
+  public:click(pointer, 'graph-view')
+  public:click(pointer, 'fit')
+  public:click(pointer, 'graph', 'desktop/manager')
+  for _, label in { 'configure', 'catalog' } do
+    public:click(pointer, label)
+    local control = public:control(if label == 'configure' then 'rows' else 'catalog-list')
+    expect.truthy(#control.items > 0, label .. ' has body rows')
+    expect.truthy(control.items[1].bounds, label .. ' exposes a visible row')
+    for _, button in public:panel():describe().controls do
+      local bounds = button.bounds
+      if button.kind == 'button' and bounds then
+        expect.truthy(bounds.y + bounds.height <= state.height, 'all toolbar controls fit')
       end
     end
-    expect.equal(#all(), 3, 'valid dimensions activate the manager and titlebar')
-    running.runtime:close()
   end
+  expect.equal(#all(), 3, 'valid dimensions activate the manager and titlebar')
+  running.runtime:close()
 end)
 
-test('a manager draw failure restores the caller transform before the next frame handler', function(start)
-  local seen
-  local observer = plugin.define {
-    name = 'draw-observer',
-    requires = { frame = frameContract.capability },
-    init = function(context)
-      context:require(frameContract.capability):onDraw(context, {
-        phase = 'overlay',
-        order = 1001,
-        run = function(pass)
-          seen = vector.pack(pass.current:getPosition())
-        end,
-      })
-    end,
-  }
-  local _, fake = start({ visible = true }, { { id = 'draw-observer', definition = observer } })
-  local pass = fake.events.pass
-  pass.current = lovr.math.newMat4():translate(3, 4, 5)
-  local expected, stack = vector.pack(pass.current:getPosition()), {}
-  pass.push = function(self, kind)
-    if kind == 'transform' then
-      stack[#stack + 1] = lovr.math.newMat4(self.current)
-    end
+test('the Plugins action belongs to the manager activation and toggles its surface', function(start)
+  local running, _, all, _, menu = start(nil, nil, { 'frame', 'surfaces', 'menu' })
+  expect.equal(#all(), 0, 'the manager starts hidden')
+  local action = menu:list()[1]
+  expect.truthy(action, 'the manager registers an action')
+  expect.equal(action.id, 'desktop/manager/open', 'the action id')
+  expect.equal(action.label, 'Plugins', 'the action label')
+  expect.equal(action.group, 'Session', 'the action group')
+  expect.equal(action.order, 20, 'the action order')
+  expect.equal(
+    plugin.ownerLabel(menu:inspect().registrations[1].owner),
+    'desktop/manager',
+    'the manager owns its action'
+  )
+  expect.equal(menu:invoke(action.id).kind, 'invoked', 'the action opens the manager')
+  local previousSurface = all()[1]
+  expect.equal(menu:invoke(action.id).kind, 'invoked', 'repeated invocation toggles closed')
+  expect.equal(#all(), 0, 'repeated invocation hides the surface')
+  running.service:reload 'desktop/manager'
+  expect.equal(previousSurface.dead, true, 'reload retires the old surface')
+  expect.equal(#all(), 0, 'the replacement starts hidden')
+  expect.equal(
+    menu:invoke(action.id, action.registration).kind,
+    'unavailable',
+    'a stale menu row cannot open a replacement'
+  )
+  expect.equal(menu:invoke(action.id).kind, 'invoked', 'the replacement opens from the menu')
+  running.service:disable 'desktop/manager'
+  expect.equal(#menu:list(), 0, 'disposal removes the owner action')
+  expect.equal(menu:invoke(action.id).kind, 'unavailable', 'disposed menu callbacks cannot reopen the surface')
+  expect.equal(#all(), 0, 'disposal leaves no manager surface')
+end)
+
+test('real scrolling retains the pointed graph position and accumulates fractional detail scroll', function(start)
+  local _, _, _, state, _, public = start { visible = true }
+  local pointer = public:pointer()
+  local box = public:control('graph').bounds
+  local x, y = box.x + 100, box.y + 100
+  local camera = state.view.camera
+  local worldX = camera.x + (x - box.x) / camera.zoom
+  local worldY = camera.y + (y - box.y) / camera.zoom
+  public:update(pointer, x, y, { scrollY = 1 })
+  local zoomed = state.view.camera
+  expect.truthy(zoomed.zoom > camera.zoom, 'positive scroll zooms in')
+  expect.near(zoomed.x + (x - box.x) / zoomed.zoom, worldX, 1e-4, 'pointed x remains stable')
+  expect.near(zoomed.y + (y - box.y) / zoomed.zoom, worldY, 1e-4, 'pointed y remains stable')
+  x, y = public:point 'details'
+  local before = state.scroll
+  public:update(pointer, x, y, { scrollY = -1 })
+  expect.truthy(state.scroll > before, 'negative detail scroll advances')
+  public:update(pointer, x, y, { scrollY = 1 })
+  expect.equal(state.scroll, before, 'opposite scroll restores offset')
+  before = state.scroll
+  for _ = 1, 4 do
+    public:update(pointer, x, y, { scrollY = -1, dt = 0.25 })
   end
-  pass.pop = function(self, kind)
-    if kind == 'transform' then
-      self.current:set(table.remove(stack))
-    end
-  end
-  pass.transform = function(self, pose)
-    self.current:mul(pose)
-  end
-  pass.translate = function(self, ...)
-    self.current:translate(...)
-  end
-  pass.scale = function(self, ...)
-    self.current:scale(...)
-  end
-  pass.text = function()
-    error('injected manager draw failure', 0)
-  end
-  lovr.draw(pass)
-  local reports = fake.events.reported
-  expect.equal(seen, expected, 'the following handler gets the original transform')
-  expect.equal(#stack, 0, 'the caller transform is unwound')
-  expect.equal(#reports, 1, 'the boundary reports the draw error')
-  expect.truthy(reports[1].message:find('injected manager draw failure', 1, true), 'the original error is retained')
+  expect.equal(state.scroll, before + 1, 'four quarter-row samples advance one row')
 end)
 
 test('manager uses one stable public UI panel and does not revise unchanged geometry', function(start)

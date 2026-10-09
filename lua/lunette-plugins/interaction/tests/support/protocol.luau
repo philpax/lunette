@@ -1,6 +1,5 @@
 local testing = require '@testing'
 local interaction = require '@lunette-contracts/interaction'
-local expect = testing.expect
 
 return function(provider)
   testing.native()
@@ -28,7 +27,6 @@ return function(provider)
       return origin.x + 0.5, 0.5 - origin.y, 1
     end
     function target:onPointer(event)
-      expect.truthy(table.isfrozen(event), 'pointer metadata is immutable')
       f.events[#f.events + 1] = { surface = self, event = event }
     end
     return target

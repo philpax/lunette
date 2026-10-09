@@ -1,22 +1,8 @@
-//! Which mirrored monitor holds which texture.
+//! Which mirrored monitor holds which texture, and which image is behind it.
 //!
-//! The counterpart to [`TextureLedger`](crate::texture::TextureLedger), a
-//! separate type keyed by monitor. A surface's ledger carries a death flag, a
-//! damage flag, a stabilised copy, and a morgue, because a Wayland client can
-//! exit mid-frame and a configuration can keep a copy that outlives the
-//! frame. A monitor has none of those: it is the user's own screen, it does
-//! not exit, and its texture rotates solely when PipeWire cycles the small
-//! buffer pool it negotiated.
-//!
-//! A monitor needs one thing a surface does not: the image behind the texture.
-//! [`DmabufImporter`] caches on the buffer it receives and returns the image
-//! it already made for a recurring PipeWire buffer. Without a record of which
-//! image is installed, every frame from that buffer allocates a fresh LOVR
-//! texture over the same memory. [`MonitorTextures::image`] is that record;
-//! the second and later frames from the same buffer reuse the image.
-//!
-//! Generic over the texture for the reason the surface ledger is: the
-//! bookkeeping needs no graphics device, so the tests substitute an integer.
+//! The image is recorded because [`DmabufImporter`] returns the same image for
+//! a recurring PipeWire buffer, and wrapping it again would allocate a fresh
+//! texture over the same memory.
 //!
 //! [`DmabufImporter`]: crate::import::dmabuf::DmabufImporter
 
@@ -49,10 +35,8 @@ impl<T> MonitorTextures<T> {
 
     /// Which image this monitor's texture wraps, if it holds one.
     ///
-    /// An image named here must not be retired: [`CaptureImporter::import`] does
-    /// not evict it. The frame loop compares the value against the image the
-    /// last import returned before wrapping, because wrapping the same image
-    /// again allocates a texture over memory a texture already covers.
+    /// An image named here must not be retired, and [`CaptureImporter::import`]
+    /// does not evict it.
     ///
     /// [`CaptureImporter::import`]: crate::import::CaptureImporter::import
     #[must_use]
@@ -60,15 +44,12 @@ impl<T> MonitorTextures<T> {
         self.entries.get(monitor).and_then(|entry| entry.image)
     }
 
-    /// Records a monitor's new texture and the transform of the frame it
-    /// shows, returning the texture it displaces.
+    /// Records a monitor's new texture and the transform of the frame it shows,
+    /// returning the texture it displaces.
     ///
-    /// The image is `None` for a texture uploaded from shared memory rather
-    /// than imported memory. The caller releases what comes back. Destroying a LOVR texture is an
-    /// FFI call this type cannot make, and [`TextureLedger::install`] returns
-    /// the displaced texture for the same reason.
-    ///
-    /// [`TextureLedger::install`]: crate::texture::TextureLedger::install
+    /// The image is `None` for a texture uploaded from shared memory. The
+    /// caller releases what comes back, because destroying a LÖVR texture is an
+    /// FFI call this type cannot make.
     pub fn install(
         &mut self,
         monitor: MonitorKey,
@@ -92,11 +73,8 @@ impl<T> MonitorTextures<T> {
 
     /// The texture a monitor's mirror last produced.
     ///
-    /// No frame generation is checked, unlike the surface ledger's `lookup`.
-    /// The one caller builds and consumes the answer inside a single Lua call.
-    /// The value it hands on is LOVR's own `Texture` object, not a reference
-    /// this type could invalidate. `docs/dev/lua-api.md` prescribes the rule:
-    /// never cache the result across a frame.
+    /// No frame generation is checked, because the one caller consumes the
+    /// answer inside a single Lua call.
     #[must_use]
     pub fn texture(&self, monitor: &MonitorKey) -> Option<&T> {
         self.entries.get(monitor).map(|entry| &entry.texture)
@@ -109,7 +87,8 @@ impl<T> MonitorTextures<T> {
         self.entries.get(monitor).map(|entry| entry.description)
     }
 
-    /// The transform of the currently presented capture, including identity Undefined.
+    /// The transform of the currently presented capture, including identity
+    /// Undefined.
     #[must_use]
     pub fn frame_transform(&self, monitor: &MonitorKey) -> Option<FrameTransform> {
         self.entries.get(monitor).map(|entry| entry.transform)
@@ -124,19 +103,16 @@ impl<T> MonitorTextures<T> {
 
     /// Drops what is held for a monitor, returning its texture.
     ///
-    /// For a dismissed mirror or an unplugged monitor. Both stop producing
-    /// frames. A texture nothing will refresh is a still picture that looks
-    /// live, which is worse than no picture.
+    /// A texture nothing will refresh is a still picture that looks live, which
+    /// is worse than no picture.
     pub fn forget(&mut self, monitor: &MonitorKey) -> Option<T> {
         self.entries.remove(monitor).map(|entry| entry.texture)
     }
 
     /// Which monitors hold a texture.
     ///
-    /// Cloned, not borrowed, because the one caller, the frame loop's sweep
-    /// for mirrors that have stopped, queries the mirror lifecycle about each
-    /// in turn. The lifecycle is reachable from the same session this borrow
-    /// would come from.
+    /// Cloned, not borrowed, because the caller queries the mirror lifecycle,
+    /// reachable from the same session, about each in turn.
     #[must_use]
     pub fn monitors(&self) -> Vec<MonitorKey> {
         self.entries.keys().cloned().collect()
@@ -144,9 +120,8 @@ impl<T> MonitorTextures<T> {
 
     /// Every texture a mirrored monitor currently holds.
     ///
-    /// The frame loop records the import barriers over these, alongside the
-    /// surface ledger's. An imported image needs an acquire before the frame
-    /// samples it, whether a client or PipeWire produced it.
+    /// The frame loop records the import barriers over these, because an
+    /// imported image needs an acquire before the frame samples it.
     pub fn textures(&self) -> impl Iterator<Item = &T> {
         self.entries.values().map(|entry| &entry.texture)
     }
@@ -174,8 +149,8 @@ impl<T> MonitorTextures<T> {
 #[derive(Debug)]
 struct Entry<T> {
     texture: T,
-    /// Which image the texture wraps, so a recurring PipeWire buffer is
-    /// recognised and not re-wrapped.
+    /// Which image the texture wraps, so a recurring PipeWire buffer is not
+    /// re-wrapped.
     image: Option<ImageHandle>,
     description: TextureDescription,
     transform: FrameTransform,
@@ -345,8 +320,8 @@ mod tests {
 
     #[test]
     fn forgetting_a_monitor_hands_its_texture_back_and_stops_naming_it() {
-        // A dismissed mirror produces no further frames, so a texture left
-        // behind would be a still picture that looks live.
+        // A texture left behind by a dismissed mirror would be a still picture
+        // that looks live.
         let mut textures = MonitorTextures::new();
         textures.install(
             monitor(1),

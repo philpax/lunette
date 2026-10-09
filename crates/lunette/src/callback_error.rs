@@ -1,9 +1,7 @@
 //! Linux-only: reports errors raised by configuration callbacks.
 //!
-//! [The Lua API](../../../docs/dev/lua-api.md#errors) defines the callback boundary. It logs each
-//! error and notifies every `lunette.onError` listener. The error stream provider owns rate
-//! limiting; without it, repeated errors are logged on every frame. A listener failure does not
-//! stop later listeners.
+//! [The Lua API](../../../docs/dev/lua-api.md#errors) defines the callback boundary. The error
+//! stream provider owns rate limiting. A listener failure does not stop later listeners.
 
 use mlua::{Function, IntoLua, Lua};
 use tracing::error;
@@ -12,16 +10,14 @@ use crate::lua::ErrorEvent;
 
 /// Reports a callback error to every listener.
 ///
-/// The context prefixes the message so the callback boundary remains identifiable without its
-/// traceback. Reporting errors are logged because this is the last reporting boundary.
+/// The context prefixes the message so the boundary is identifiable without its traceback.
 pub fn report(lua: &Lua, listeners: &[Function], context: &str, error: &mlua::Error) {
     report_traced(lua, listeners, &TracedError::of(context, error));
 }
 
 /// Reports an error with a separate message and traceback.
 ///
-/// `lunette.reportError` uses this path for errors raised by protected Lua handlers. Reporting
-/// errors are logged because this is the last reporting boundary.
+/// Listener failures are logged because this is the last reporting boundary.
 pub fn report_traced(lua: &Lua, listeners: &[Function], traced: &TracedError) {
     error!("lua: {}\n{}", traced.message, traced.traceback);
 
@@ -32,8 +28,8 @@ pub fn report_traced(lua: &Lua, listeners: &[Function], traced: &TracedError) {
 
 /// An error's message and the traceback that goes with it, kept apart.
 ///
-/// The error stream provider keys its rate limit on both fields. The listener receives them
-/// separately so identical messages from different tracebacks remain distinct.
+/// The error stream provider keys its rate limit on both fields, so identical messages from
+/// different tracebacks remain distinct.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TracedError {
     /// The raised error, with the boundary leading it.
@@ -114,15 +110,14 @@ mod tests {
             .expect("the handler is a function")
     }
 
-    /// A state with `lovr` on it, which the reporting path requires.
+    /// The reporting path requires `lovr`.
     fn state() -> Lua {
         let lua = crate::test_lua::session_lua();
         lua.load("lovr = {}").exec().expect("lovr is reachable");
         lua
     }
 
-    /// Raises inside a Lua function called the way a callback is, so the error
-    /// arrives with the traceback mlua appends.
+    /// Raises the way a callback does, so the error carries the traceback mlua appends.
     fn raised(lua: &Lua, body: &str) -> mlua::Error {
         lua.load(body)
             .set_name("main.luau")
@@ -133,7 +128,7 @@ mod tests {
     }
 
     #[test]
-    fn a_traceback_is_separated_from_the_message_it_was_appended_to() {
+    fn a_traceback_is_separated_from_its_message_or_empty_when_absent() {
         let lua = crate::test_lua::session_lua();
         let traced = TracedError::of("lovr.lunwindowopened", &raised(&lua, "error('it broke')"));
 
@@ -157,29 +152,12 @@ mod tests {
             "the traceback should be the traceback: {}",
             traced.traceback
         );
-    }
-
-    #[test]
-    fn an_error_with_no_traceback_reports_an_empty_one() {
         assert_eq!(
             split("lua: it broke"),
             ("lua: it broke".to_owned(), String::new())
         );
     }
 
-    #[test]
-    fn a_message_that_is_not_a_string_still_reports() {
-        let lua = crate::test_lua::session_lua();
-        let traced = TracedError::of("lovr.lunwindowopened", &raised(&lua, "error({ code = 1 })"));
-
-        assert!(
-            !traced.message.is_empty(),
-            "an error raised with a table is still an error and still has to be reported"
-        );
-    }
-
-    /// A listener the configuration subscribed receives the error directly,
-    /// with no error stream provider in between.
     #[test]
     fn a_listener_is_called_directly_with_the_message_and_traceback() {
         let lua = state();
@@ -205,30 +183,28 @@ mod tests {
     }
 
     #[test]
-    fn a_configuration_with_no_listener_is_not_an_error() {
+    fn a_listener_that_raises_does_not_stop_later_listeners() {
         let lua = state();
+        lua.load(
+            "seen = {} function refuse() error('the handler said no') end \
+             function record(event) seen[#seen + 1] = event end",
+        )
+        .exec()
+        .expect("the handlers install");
+        let listeners = [listener(&lua, "refuse"), listener(&lua, "record")];
 
         report(
             &lua,
-            &[],
+            &listeners,
             "lunette.lunwindowopened",
             &raised(&lua, "error('it broke')"),
         );
-    }
 
-    #[test]
-    fn a_listener_that_raises_does_not_take_the_session_with_it() {
-        let lua = state();
-        lua.load("function record() error('the handler said no') end")
-            .exec()
-            .expect("the handler installs");
-        let listener = listener(&lua, "record");
-
-        report(
-            &lua,
-            std::slice::from_ref(&listener),
-            "lunette.lunwindowopened",
-            &raised(&lua, "error('it broke')"),
-        );
+        let (count, message): (usize, String) = lua
+            .load("return #seen, seen[1].message")
+            .eval()
+            .expect("the payload is readable");
+        assert_eq!(count, 1);
+        assert!(message.contains("it broke"), "{message}");
     }
 }

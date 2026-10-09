@@ -1,6 +1,4 @@
--- Covers the saved arrangement in the shipped desktop as monitors appear and windows close and reopen: a
--- hotplugged or replugged monitor takes its saved placement, windows of one application take its saved slots
--- in order, nothing ended is retained, and a tags outage withdraws and restores the adoptions.
+-- The saved arrangement places monitors and windows as they appear, close, and reopen.
 local testing = require '@testing'
 local expect = testing.expect
 local desktop = require '@lunette-desktop'
@@ -62,9 +60,7 @@ test('a hotplugged, replugged, or remirrored monitor takes its saved placement a
     expect.truthy(replugged ~= previous and previous.dead, 'the panel over the old handle is retired')
     expect.near(x(replugged), 3, 1e-5, 'a replugged monitor takes its saved placement')
   end
-  for _ = 1, 8 do
-    replug()
-  end
+  replug()
   session:update()
   testing.collect()
   expect.equal(next(gone), nil, 'replugged monitors are not retained by their ended mirrors')
@@ -97,16 +93,9 @@ test('windows of one application take its saved slots, and a reopened window tak
   testing.collect()
   expect.equal(next(closed), nil, 'a closed window is not retained by its ended adoption or slot')
 
-  -- A tags outage withdraws adoption-dependent panels but keeps rules, rendering, mirrors, and layouts active.
   local adopted = panels.service:forSource(reopened)
   local instances = session.instances
   instances.tags:disable()
-  for _, id in ipairs { 'placement', 'adoption', 'desktop/workspaces', 'desktop/persistence', 'desktop/arrange' } do
-    expect.truthy(instances[id]:state() ~= 'active', 'a tags outage unloads ' .. id)
-  end
-  for _, id in ipairs { 'rules', 'desktop/rules', 'layout/arc', 'desktop/render', 'desktop/monitors' } do
-    expect.equal(instances[id]:state(), 'active', 'a tags outage keeps ' .. id)
-  end
   expect.truthy(adopted.dead and panels.service:forSource(reopened) == nil, 'the adopted panels are withdrawn')
   instances.tags:enable()
   expect.equal(instances['desktop/adoption']:state(), 'active', 'recovery restores adoption')

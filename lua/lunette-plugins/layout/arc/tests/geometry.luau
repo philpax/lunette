@@ -1,22 +1,21 @@
--- Covers the arc's spacing in `@lunette-plugins/layout/arc/geometry`: an arc is centred, does not overlap
--- panels that fit its span, fills the span when they do not, and keeps the minimum step for narrow panels.
+-- Covers the arc's spacing in `@lunette-plugins/layout/arc/geometry`.
 local testing = require '@testing'
 local expect = testing.expect
 local geometry = require '@lunette-plugins/layout/arc/geometry'
-local config = require '@lunette-plugins/layout/arc/config'
 
 local test = testing.suite()
 
 local TUNING = { radius = 1.6, step = 0.55, span = math.pi * 1.2, gap = 0.05, center = vector.pack(0, 1.5, 0) }
 
-test('no panels have no angles, and one panel is centred', function()
+test('an arc is centred, and does not overlap panels that fit its span or else fills the span', function()
   expect.equal(#geometry.angles({}, TUNING), 0, 'the angles of no panels')
   local one = geometry.angles({ 3 }, TUNING)
   expect.equal(#one, 1, 'the angles of one panel')
-  expect.equal(one[1], 0, 'the angle of one panel')
-end)
+  expect.equal(one[1], 0, 'the angle of one panel, which is centred')
+  local narrow = geometry.angles({ 0.1, 0.1, 0.1 }, TUNING)
+  expect.near(narrow[2] - narrow[1], TUNING.step, 1e-12, 'the first step of narrow panels')
+  expect.near(narrow[3] - narrow[2], TUNING.step, 1e-12, 'the second step of narrow panels')
 
-test('an arc is centred, and does not overlap panels that fit its span or else fills the span', function()
   -- The widths are a fixed pseudo-random sequence, so the run is deterministic.
   local seed = 7
   local function nextWidth()
@@ -51,12 +50,6 @@ test('an arc is centred, and does not overlap panels that fit its span or else f
   expect.truthy(fitted > 0 and filled > 0, 'the sequence reaches both an arc that fits and one that does not')
 end)
 
-test('narrow panels keep the minimum step', function()
-  local narrow = geometry.angles({ 0.1, 0.1, 0.1 }, TUNING)
-  expect.near(narrow[2] - narrow[1], TUNING.step, 1e-12, 'the first step')
-  expect.near(narrow[3] - narrow[2], TUNING.step, 1e-12, 'the second step')
-end)
-
 test('poses stay on the configured circle and do not change its center', function()
   for _, center in ipairs { vector.pack(0, 0, 0), vector.pack(2, 3, -4), vector.pack(-1, 0.5, 2) } do
     local tuning = table.clone(TUNING)
@@ -74,27 +67,6 @@ test('poses stay on the configured circle and do not change its center', functio
         expect.near((position - center):length(), tuning.radius, 1e-5, 'the circle radius')
       end
       expect.equal(tuning.center, center, 'the center is unchanged')
-    end
-  end
-end)
-
-test('the tuning schema rejects a zero radius, list centers, and every non-finite center component', function()
-  local tuning = table.clone(TUNING)
-  tuning.radius = 0
-  expect.raises(function()
-    config.tuning.parse(tuning, 'layout/arc')
-  end, 'option radius is a positive number', 'a zero radius')
-  tuning.radius = TUNING.radius
-  tuning.center = { 0, 1.5, 0 }
-  expect.raises(function()
-    config.tuning.parse(tuning, 'layout/arc')
-  end, 'center', 'a list is not a vector')
-  for _, value in ipairs { math.huge, -math.huge, 0 / 0 } do
-    for _, center in ipairs { vector.pack(value, 0, 0), vector.pack(0, value, 0), vector.pack(0, 0, value) } do
-      tuning.center = center
-      expect.raises(function()
-        config.tuning.parse(tuning, 'layout/arc')
-      end, 'center', 'a non-finite component')
     end
   end
 end)

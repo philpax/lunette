@@ -1,13 +1,5 @@
-//! Runs each Lua test file under `lua/` and `dev/` as a separate test.
-//!
-//! Test files are `.luau` files directly inside `tests` directories. Helpers belong under
-//! `tests/support`. Each file runs in a fresh Lua state with module roots from the working
-//! tree, LÖVR's `lovr.math`, the native plugin runtime, and the fake API in `lua/testing/`.
-//! The runner fails when a file returns no suite, defines no cases, a case raises, or a
-//! plugin failure remains unreported after its case.
-//!
-//! The tests use an in-process state to load working-tree modules. [`meta`] tests the
-//! runner's own behavior.
+//! Runs each Lua test file under `lua/` and `dev/` as a separate test, in a fresh Lua state
+//! with module roots from the working tree. [`meta`] tests the runner itself.
 
 // `lovr.math` and the Luau C API come from `liblovr.so`, which this crate's
 // link directives name.
@@ -48,9 +40,8 @@ fn main() -> ExitCode {
     libtest_mimic::run(&arguments, trials).exit_code()
 }
 
-/// Returns the working tree that contains the `lua/` directory under test.
+/// The working tree that contains the `lua/` directory under test.
 fn repository() -> PathBuf {
-    // `crates/lunette` is two levels below the workspace root.
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .ancestors()
         .nth(2)
