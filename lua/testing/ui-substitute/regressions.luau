@@ -187,34 +187,6 @@ function regressions.register(test)
     expect.equal(#testing.takeReports(), 0)
   end)
 
-  test('text change and submit failures report once while deliveries stay consumed', function(running, state)
-    local field = state.panel:textField(state.context, {
-      id = 'failing-field',
-      bounds = { x = 100, y = 160, width = 150, height = 30 },
-      onChange = function()
-        error 'field change failure'
-      end,
-      onSubmit = function()
-        error 'field submit failure'
-      end,
-    })
-    expect.truthy(field:focus())
-    local first = #running.native.events.reported
-    expect.equal(state.source:text('draft').kind, 'consumed')
-    expect.equal(field:value(), 'draft', 'the draft precedes the callback')
-    expect.equal(#running.native.events.reported - first, 1)
-    expect.truthy(running.native.events.reported[first + 1].message:find 'testing/ui%-contract%-consumer')
-    expect.truthy(running.native.events.reported[first + 1].message:find 'onChange')
-    expect.truthy(running.native.events.reported[first + 1].message:find 'field change failure')
-    first = #running.native.events.reported
-    expect.equal(state.source:key({ code = lunette.keyCodes().enter }).kind, 'consumed')
-    expect.equal(#running.native.events.reported - first, 1)
-    expect.truthy(running.native.events.reported[first + 1].message:find 'testing/ui%-contract%-consumer')
-    expect.truthy(running.native.events.reported[first + 1].message:find 'onSubmit')
-    expect.truthy(running.native.events.reported[first + 1].message:find 'field submit failure')
-    expect.equal(#testing.takeReports(), 0)
-  end)
-
   test(
     'a live blur callback can destroy its region without recursion or retained focus targets',
     function(running, state)

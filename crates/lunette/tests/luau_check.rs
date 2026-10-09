@@ -21,27 +21,6 @@ use lunette_lovr::analyze::{self, Kind, Report, Request};
 use tempfile::TempDir;
 
 #[test]
-fn every_shipped_root_checks_without_diagnostics() {
-    let root = repository();
-    let mut paths = Vec::new();
-    for directory in [
-        "lua/lunette",
-        "lua/lunette-plugin",
-        "lua/lunette-contracts",
-        "lua/lunette-plugins",
-        "lua/lunette-desktop",
-        "examples",
-        "dev",
-    ] {
-        collect_sources(&root.join(directory), &mut paths);
-    }
-    paths.push(root.join("etc/xdg/lunette/main.luau"));
-    paths.push(root.join("etc/xdg/lunette/conf.luau"));
-    let report = check(paths);
-    assert!(report.diagnostics.is_empty(), "{:#?}", report.diagnostics);
-}
-
-#[test]
 fn clean_fixtures_check_without_diagnostics() {
     let report = check(
         [

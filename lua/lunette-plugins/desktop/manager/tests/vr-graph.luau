@@ -5,22 +5,7 @@ local topology = require './support/vr-graph-topology'
 local toolbarLayout = require '../toolbar-layout'
 local suite = testing.suite()
 
-local function test(name, run)
-  suite(name, function()
-    local ok, problem = pcall(run)
-    local closed, failure = pcall(fixture.cleanup)
-    local failures = if ok then {} else { tostring(problem) }
-    if not closed then
-      failures[#failures + 1] = 'fixture cleanup: ' .. tostring(failure)
-    end
-    for _, report in testing.takeReports() do
-      failures[#failures + 1] = 'unexpected plugin report: ' .. tostring(report)
-    end
-    if #failures > 0 then
-      error(table.concat(failures, '\n'), 0)
-    end
-  end)
-end
+local test = fixture.testCases(suite, true)
 
 local function control(env, id, itemId)
   return env.controls:discover(env.services.ui, 'desktop/manager', id, itemId)

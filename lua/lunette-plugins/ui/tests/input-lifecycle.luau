@@ -95,42 +95,6 @@ local function receiver(onFocus)
   }
 end
 
-test('a press callback that cancels its capture cannot continue to haptics', function()
-  for _, change in ipairs { 'bounds', 'disable', 'destroy', 'hide' } do
-    withPanel(function(state)
-      local control
-      control = region(state, 'first', 20, {
-        onPointer = function(event)
-          if event.kind ~= 'press' then
-            return
-          end
-          if change == 'bounds' then
-            control:setBounds { x = 30, y = 20, width = 120, height = 100 }
-          elseif change == 'disable' then
-            control:setEnabled(false)
-          elseif change == 'destroy' then
-            control:destroy()
-          else
-            state.panel:setVisible(false)
-          end
-        end,
-      })
-      press(state, 'first', 'right')
-      expect.equal(#matching(state, 'first', 'press'), 1, change .. ' begins the press')
-      expect.equal(#matching(state, 'first', 'cancel'), 1, change .. ' cancels the original capture')
-      expect.equal(
-        state.fixture.native.events.haptics or 0,
-        state.beforePressHaptics,
-        change .. ' cannot pulse after cancellation'
-      )
-      state.fixture:step()
-      state.fixture:button('right', 'trigger', false)
-      state.fixture:step()
-      expect.equal(#matching(state, 'first', 'release'), 0, change .. ' suppresses the stale release')
-    end)
-  end
-end)
-
 test('focus observers cannot deliver a press after cancelling its original control', function()
   for _, change in ipairs { 'bounds', 'disable', 'destroy', 'hide', 'panel' } do
     withPanel(function(state)

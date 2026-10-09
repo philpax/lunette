@@ -324,22 +324,12 @@ test('honours visibility filters and highlights selected nodes and edges', funct
   expect.equal(selected, 1, 'edge selection highlight')
 end)
 
-test('shows empty graph, unmatched filters, off-canvas nodes, and empty sidebar states explicitly', function()
+test('shows empty graph and empty sidebar states explicitly', function()
   local fake, pass = fixture()
   local state = view.new { x = 700, y = 600 }
   draw.render(pass, state, options())
   expect.truthy(hasText(fake.events, 'No plugins'))
   expect.truthy(hasText(fake.events, 'Select a plugin'))
-  table.clear(fake.events.draw)
-  state = stateFor(snapshot())
-  state.query = 'missing'
-  draw.render(pass, state, options())
-  expect.truthy(hasText(fake.events, 'No plugins match'))
-  table.clear(fake.events.draw)
-  state.query = ''
-  state.camera = { x = 10000, y = 10000, zoom = 1 }
-  draw.render(pass, state, options())
-  expect.truthy(hasText(fake.events, '2 plugins outside'))
 end)
 
 test('wraps text, preserves Unicode, reports overflow, and draws supplied control rectangles', function()

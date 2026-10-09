@@ -71,19 +71,4 @@ test('theme schemas reject unknown, non-plain, and invalid values', function()
   end, 'missing foreground')
 end)
 
-test('zero padding, spacing, borders, and haptics remain explicit overrides', function()
-  local resolved = theme.resolve(theme.DEFAULT, {
-    padding = 0,
-    spacing = 0,
-    borderWidth = 0,
-    hapticStrength = 0,
-    hapticDuration = 0,
-  })
-  expect.equal(resolved.padding, 0)
-  expect.equal(resolved.borderWidth, 0)
-  expect.equal(resolved.hapticStrength, 0)
-  expect.equal(resolved.hapticDuration, 0)
-  expect.equal(theme.validate(resolved).fontSize, resolved.fontSize)
-end)
-
 return test

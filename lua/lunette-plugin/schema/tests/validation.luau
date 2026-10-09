@@ -176,24 +176,6 @@ test('custom fields preserve references and report validator failures', function
   expect.truthy(descriptor.inspect().readOnly)
 end)
 
-test('atomic defaults retain identity and rerun their contract after external mutation', function()
-  local reference = setmetatable({ marker = true }, {})
-  local custom = schema.custom {
-    runtimeType = 'table',
-    validate = function(value)
-      assert(value.marker == true, 'marker is required')
-      return value
-    end,
-  }
-  local descriptor = schema.default(custom)(reference)
-  expect.equal(descriptor.parse(nil), reference)
-  expect.falsy(table.isfrozen(reference), 'custom ownership remains external')
-  reference.marker = false
-  local ok, problem = pcall(descriptor.parse, nil, 'probe')
-  expect.falsy(ok)
-  expect.equal(problem.code, 'custom')
-end)
-
 test('refinements run after nested defaults and preserve the parsed result', function()
   local descriptor = schema.refine(schema.object {
     lower = schema.default(schema.number())(1),

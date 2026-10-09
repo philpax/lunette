@@ -31,6 +31,36 @@ function fixture.cleanup()
   end
 end
 
+function fixture.testCases(suite, failOnReports)
+  return function(name, run)
+    suite(name, function()
+      local ok, problem = pcall(run)
+      local closed, failure = pcall(fixture.cleanup)
+      local failures = {}
+      if not ok then
+        failures[#failures + 1] = tostring(problem)
+      end
+      if not closed then
+        local cleanupError = tostring(failure)
+        if failOnReports then
+          cleanupError = 'fixture cleanup: ' .. cleanupError
+        elseif not ok then
+          cleanupError = 'cleanup: ' .. cleanupError
+        end
+        failures[#failures + 1] = cleanupError
+      end
+      if failOnReports then
+        for _, report in testing.takeReports() do
+          failures[#failures + 1] = 'unexpected plugin report: ' .. tostring(report)
+        end
+      end
+      if #failures > 0 then
+        error(table.concat(failures, if failOnReports then '\n' else '; '), 0)
+      end
+    end)
+  end
+end
+
 function fixture.boot(provider, additions, config)
   local native = testing.native()
   local services, owner = {}, nil

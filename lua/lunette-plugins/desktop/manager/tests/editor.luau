@@ -2,42 +2,9 @@ local testing = require '@testing'
 local expect = testing.expect
 local schema = require '@lunette-plugin/schema'
 local editor = require '../editor'
+local editorFixture = require './support/editor-fixture'
+local row, change, reject = editorFixture.row, editorFixture.change, editorFixture.reject
 local test = testing.suite()
-
-local function row(model, path)
-  for _, item in editor.rows(model) do
-    if #item.path ~= #path then
-      continue
-    end
-    local matches = true
-    for index, key in path do
-      if item.path[index] ~= key then
-        matches = false
-      end
-    end
-    if matches then
-      return item
-    end
-  end
-  error('missing row ' .. table.concat(path, '.'))
-end
-
-local function change(operation, ...)
-  local model, problem = operation(...)
-  assert(model, if problem then problem.message else 'missing draft')
-  expect.equal(problem, nil)
-  return model
-end
-
-local function reject(model, operation, code, ...)
-  local before = editor.draft(model)
-  local result, problem = operation(model, ...)
-  expect.equal(result, nil)
-  expect.equal(problem.code, code)
-  expect.truthy(type(problem.message) == 'string' and #problem.message > 0)
-  expect.equal(editor.draft(model), before)
-  return problem
-end
 
 local function fixture()
   local shape = schema.object {

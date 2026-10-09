@@ -199,10 +199,6 @@ function Fixture:cancellations()
   return matching(self.pointerEvents, 'cancel')
 end
 
-function Fixture:releases()
-  return matching(self.pointerEvents, 'release')
-end
-
 function Fixture:drawCalls(method)
   return if method then matching(self.native.events.draw, method) else table.clone(self.native.events.draw)
 end

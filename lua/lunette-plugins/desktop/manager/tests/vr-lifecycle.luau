@@ -5,18 +5,7 @@ local schema = require '@lunette-plugin/schema'
 local fixture = require './support/vr-manager'
 local suite = testing.suite()
 
-local function test(name, run)
-  suite(name, function()
-    local ok, message = pcall(run)
-    local closed, failure = pcall(fixture.cleanup)
-    if not ok then
-      error(tostring(message) .. (if closed then '' else '; cleanup: ' .. tostring(failure)), 0)
-    end
-    if not closed then
-      error(failure, 0)
-    end
-  end)
-end
+local test = fixture.testCases(suite)
 
 local function expectNoReports(context)
   local reports = testing.takeReports()

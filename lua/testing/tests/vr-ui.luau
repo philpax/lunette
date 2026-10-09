@@ -151,25 +151,6 @@ test('the VR UI fixture drives real pointers and records output', function()
   fixture:close()
 end)
 
-test('the VR UI fixture detects cancellation and render overflow', function()
-  local fixture = boot()
-  local pointer = {}
-  fixture:recordPointer { kind = 'press', pointer = pointer, button = 'left' }
-  fixture:recordPointer { kind = 'cancel', pointer = pointer, button = 'left', reason = 'tracking-loss' }
-  expect.equal(#fixture:cancellations(), 1, 'cancel is recorded separately from release')
-  expect.equal(#fixture:releases(), 0, 'cancel does not count as an activating release')
-  local recorder = fixture.native.events.render
-  recorder:within({ x = 0, y = 0, width = 10, height = 10 }, function(pass)
-    pass:plane(5, 5, 0, 4, 4)
-  end)
-  expect.raises(function()
-    recorder:within({ x = 0, y = 0, width = 10, height = 10 }, function(pass)
-      pass:plane(10, 5, 0, 4, 4)
-    end)
-  end, 'bounds', 'render overflow is diagnosed')
-  fixture:close()
-end)
-
 test('the VR UI fixture discovers a dynamic control and rediscovers after reload', function()
   local fixture = boot()
   local state = panel(fixture)

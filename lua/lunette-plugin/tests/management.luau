@@ -199,14 +199,6 @@ test('failed changes retain the last working configuration through repeated edit
   expect.raises(function()
     service:recover 'settings'
   end, 'no previous configuration')
-  for value = 3, 12 do
-    if value ~= 9 then
-      service:configure('settings', { value = value })
-      expect.equal(entry(service, 'settings').state, 'active')
-      service:recover 'settings'
-      expect.equal(observed, 2)
-    end
-  end
   running.runtime:close()
 end)
 

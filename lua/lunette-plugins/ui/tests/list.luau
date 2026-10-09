@@ -1,89 +1,28 @@
 local testing = require '@testing'
 local list = require '../list'
+local selection = require './support/selection'
 local expect = testing.expect
 local test = testing.suite()
 
 local function fixture(items, selected, onChange)
-  local state = { live = true, revision = 0, cancels = {}, reports = {}, focuses = 0 }
-  state.bounds = { x = 10, y = 20, width = 100, height = 54 }
-  state.theme = { rowHeight = 20, padding = 2, spacing = 3 }
-  local widget
-  local host = {
-    live = function()
-      return state.live
-    end,
-    changed = function()
-      state.revision += 1
-    end,
-    cancel = function(reason)
-      table.insert(state.cancels, reason)
-      if state.onCancel then
-        state.onCancel()
-      end
-    end,
-    focus = function()
-      state.focuses += 1
-      return true
-    end,
-    blur = function()
-      state.focuses += 1
-      return true
-    end,
-    bounds = function()
-      return state.bounds
-    end,
-    theme = function()
-      return state.theme
-    end,
-    callback = function(label, run)
-      local ok, message = pcall(run)
-      if not ok then
-        table.insert(state.reports, { label = label, message = tostring(message) })
-      end
-      return ok
-    end,
-  }
-  widget =
-    list.new({ id = 'list', bounds = state.bounds, items = items, selected = selected, onChange = onChange }, host)
+  local state = selection.state { x = 10, y = 20, width = 100, height = 54 }
+  local widget = list.new(
+    { id = 'list', bounds = state.bounds, items = items, selected = selected, onChange = onChange },
+    selection.host(state)
+  )
   state.widget = widget
   state.methods = widget.methods
   function state:items()
     return widget.items(self.clip or self.bounds, self.theme)
   end
   function state:event(kind, x, y, pointer, extra, item)
-    local event = { kind = kind, x = x, y = y, pointer = pointer or self.pointer, inside = true, captured = true }
-    if kind == 'press' or kind == 'release' or kind == 'cancel' then
-      event.button = 'left'
-    end
-    if kind == 'cancel' then
-      event.reason = 'disabled'
-    end
-    if extra then
-      for key, value in extra do
-        event[key] = value
-      end
-    end
-    if item == nil and x and y then
-      for _, row in self:items() do
-        local bounds = row.bounds
-        if x >= bounds.x and x < bounds.x + bounds.width and y >= bounds.y and y < bounds.y + bounds.height then
-          item = row.id
-          break
-        end
-      end
-    end
-    widget.pointer(event, item)
+    selection.event(self, kind, x, y, extra, pointer, item)
   end
-  state.pointer = {}
   return state
 end
 
 local function rows(count)
-  local result = {}
-  for index = 1, count do
-    result[index] = { id = tostring(index), label = 'Row ' .. index }
-  end
-  return result
+  return selection.rows(count, 'Row ')
 end
 
 local function visual(state)

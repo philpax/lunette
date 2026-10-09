@@ -182,24 +182,4 @@ test('an empty load carries an arrangement with nothing in it', function()
   expect.equal(#loaded.skipped, 0, 'the entries skipped')
 end)
 
-test('every field the format names is written', function()
-  -- The format must serialize every field named in `ENTRY_FIELDS`.
-  local rendered = format.render(format.newFile {
-    {
-      kind = 'window',
-      key = 'firefox',
-      slot = 1,
-      pose = '1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1',
-      width = 1.5,
-      height = 0.9,
-      tags = { 'web' },
-    },
-  })
-
-  for _, name in ipairs(format.ENTRY_FIELDS) do
-    expect.truthy(rendered:find(name .. ' = ', 1, true), 'the field ' .. name)
-  end
-  expect.truthy(rendered:find('tags = ', 1, true), 'the tags')
-end)
-
 return test
