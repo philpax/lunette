@@ -24,7 +24,6 @@ local function fields(font)
 end
 local overrides = schema.object(fields(descriptors.font))
 styles.schema = overrides
-styles.overrides = overrides
 styles.editable = schema.object(fields(descriptors.editableFont))
 styles.DEFAULT = overrides.parse {
   font = { kind = 'default' },
@@ -49,8 +48,8 @@ function styles.project(value: unknown): ui.TitlebarStyleOverrides
 end
 
 function styles.inherit(base: ui.TitlebarStyleOverrides, layer: ui.TitlebarStyleOverrides?): ui.TitlebarStyleOverrides
-  local result = table.clone(overrides.parse(base)) :: { [string]: unknown }
-  for key, value in overrides.parse(layer or {}) :: { read [string]: unknown } do
+  local result = table.clone(base) :: { [string]: unknown }
+  for key, value in (layer or {}) :: { read [string]: unknown } do
     result[key] = value
   end
   return overrides.parse(result)

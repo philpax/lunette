@@ -16,7 +16,10 @@ use std::{cell::Cell, error::Error, fmt};
 use mlua::{Function, Lua, Table, Value};
 use tracing::{info, warn};
 
-use crate::{mirrors::MirrorRegistry, plugin::host};
+use crate::{
+    mirrors::MirrorRegistry,
+    plugin::{attachment, host},
+};
 
 /// Applies the configuration on disk to the running session.
 ///
@@ -38,7 +41,7 @@ pub fn reload(
 ) -> Result<(), ReloadError> {
     // Prevent recursive reloads from exhausting the Lua stack.
     let _guard = ReloadGuard::acquire().ok_or(ReloadError::Reentered)?;
-    if host::callback_active(lua) {
+    if attachment::callback_active(lua) {
         return Err(ReloadError::CallbackActive);
     }
     let owns_reload = mirrors.begin_reload();

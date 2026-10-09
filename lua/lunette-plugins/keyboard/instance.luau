@@ -44,7 +44,6 @@ local function create(
   local appliedRevision, geometryRevision = snapshot.revision, 0
   local meshCache = meshDrawing.newCache()
   local keyCaches: { [number]: { [number]: meshDrawing.Cache } } = {}
-  local refreshing = false
   local locks: { [string]: boolean } = {}
   for index = 1, #settings.locks do
     locks[settings.locks[index]] = true
@@ -54,7 +53,6 @@ local function create(
   local hovered: { [board.Pointer]: board.RenderedKey } = {}
   local captures: { [board.Pointer]: { [lunette.PointerButton]: boolean } } = {}
   local created: board.Board
-  local visibilityRevision = 0
   local state = {
     kind = nil,
     source = nil,
@@ -140,7 +138,7 @@ local function create(
   end
 
   local function refresh(): ()
-    if state.dead or refreshing or not active() then
+    if state.dead or not active() then
       return
     end
     local latest = themeService:current()
@@ -158,9 +156,7 @@ local function create(
     local failures: { string } = {}
     if geometryChanged then
       geometryRevision += 1
-      refreshing = true
       failures = cancelPointers 'control-removed'
-      refreshing = false
     end
     if meshChanged then
       clearMeshes(failures)
@@ -173,7 +169,6 @@ local function create(
   end
 
   local function keys(): { board.RenderedKey }
-    refresh()
     if state.dead or not active() then
       return {}
     end
@@ -193,7 +188,6 @@ local function create(
     direction: vector,
     backFace: boolean?
   ): (number?, number?, number?)
-    refresh()
     if state.dead or not state.visible or not active() then
       return nil, nil, nil
     end
@@ -208,7 +202,6 @@ local function create(
   end
 
   local function project(_self: keyboard.Surface, origin: vector, direction: vector): (number?, number?, number?)
-    refresh()
     if state.dead or not state.visible or not active() then
       return nil, nil, nil
     end
@@ -222,7 +215,6 @@ local function create(
   end
 
   local function pressKey(_self: keyboard.Keyboard, code: number): boolean
-    refresh()
     if state.dead or not active() then
       return false
     end
@@ -238,7 +230,6 @@ local function create(
   end
 
   local function typeText(_self: keyboard.Keyboard, text: string): boolean
-    refresh()
     if state.dead or not active() then
       return false
     end
@@ -247,7 +238,6 @@ local function create(
   end
 
   local function chord(code: number, held: { read [number]: string }): ()
-    refresh()
     if not state.dead and active() then
       table.clear(latched)
       source:key { code = code, modifiers = held, isRepeat = false }
@@ -272,13 +262,11 @@ local function create(
       return
     end
     state.visible = visible
-    visibilityRevision += 1
-    local revision = visibilityRevision
     local failures: { string } = {}
     if not visible then
       clearModifiers()
       failures = cancelPointers 'hidden'
-      if not state.dead and visibilityRevision == revision then
+      if not state.dead then
         local ok, failure = pcall(function(): ()
           source:reset()
         end)
@@ -287,7 +275,7 @@ local function create(
         end
       end
     end
-    if not state.dead and visibilityRevision == revision then
+    if not state.dead then
       notify { visible = visible, reason = reason }
     end
     finish(failures)
@@ -340,10 +328,7 @@ local function create(
   end
 
   local function hover(x: number?, y: number?, pointer: board.Pointer): ()
-    local revision = geometryRevision
-    refresh()
-    hovered[pointer] = if revision == geometryRevision
-        and not state.dead
+    hovered[pointer] = if not state.dead
         and active()
         and state.visible
         and x
@@ -353,11 +338,10 @@ local function create(
   end
 
   local function activate(x: number?, y: number?, pointer: board.Pointer): ()
-    local revision = geometryRevision
-    refresh()
-    if revision ~= geometryRevision or state.dead or not active() or not state.visible or not x or not y then
+    if state.dead or not active() or not state.visible or not x or not y then
       return
     end
+    local revision = geometryRevision
     local key = layout.keyAt(keys(), x, y)
     if key then
       settings.onKey(
@@ -365,7 +349,6 @@ local function create(
         key,
         pointer,
         function(target: board.Board, entry: board.RenderedKey, input: board.Pointer): ()
-          refresh()
           if not state.dead and active() and state.visible and geometryRevision == revision then
             perform(target, entry, input)
           end
@@ -379,13 +362,6 @@ local function create(
       local buttons = captures[event.pointer] or {}
       captures[event.pointer] = buttons
       buttons[event.button] = true
-    end
-    local revision = geometryRevision
-    if event.kind ~= 'cancel' and event.kind ~= 'release' and event.kind ~= 'leave' then
-      refresh()
-      if revision ~= geometryRevision or not active() then
-        return
-      end
     end
     local pointer = event.pointer
     if event.kind == 'cancel' or event.kind == 'release' then
@@ -418,7 +394,6 @@ local function create(
     end,
     -- Uniform scaling preserves key proportions.
     setSize = function(_self: keyboard.Surface, wanted: number?, _height: number?): ()
-      refresh()
       if
         state.dead
         or not active()
@@ -464,7 +439,6 @@ local function create(
       local width, height = state.width, state.height
       local rendered, held = keys(), modifiers()
       local function current(): boolean
-        refresh()
         return not state.dead and active() and state.visible and geometryRevision == revision
       end
       passState.withRestore(pass, function(): ()
@@ -510,7 +484,6 @@ local function create(
   local function destroyState(): ()
     state.dead = true
     state.visible = false
-    visibilityRevision += 1
     clearModifiers()
     geometryRevision += 1
     local failures = cancelPointers 'control-removed'

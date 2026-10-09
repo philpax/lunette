@@ -34,8 +34,8 @@ local KEY = schema.object {
   code = schema.optional(schema.number { minimum = 0, integer = true }),
   action = schema.optional(ACTION),
   label = schema.optional(schema.string()),
-  width = schema.optional(schema.number { minimum = 0 }),
-  height = schema.optional(schema.number { minimum = 0 }),
+  width = schema.optional(schema.number { positive = true }),
+  height = schema.optional(schema.number { positive = true }),
   x = schema.optional(schema.number { minimum = 0 }),
 }
 local ROWS = schema.array(schema.array(KEY))

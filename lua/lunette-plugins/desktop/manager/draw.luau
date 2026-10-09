@@ -8,130 +8,31 @@ local geometry = require './graph-geometry'
 local draw = {}
 local DETAIL_DEPTH = 0.001
 
-export type Button = {
-  read x: number,
-  read y: number,
-  read width: number,
-  read height: number,
-  read label: string,
-  read enabled: boolean,
-}
-export type Row = {
-  read x: number,
-  read y: number,
-  read width: number,
-  read height: number,
-  read label: string,
-  read value: string,
-  read selected: boolean,
-  read editable: boolean,
-}
 export type Options = {
   read width: number,
   read height: number,
   read sidebar: number,
   read details: { string },
-  read wrappedDetails: boolean?,
-  read detailsTop: number?,
-  read buttons: { read [number]: Button },
-  read rows: { Row },
+  read wrappedDetails: boolean,
+  read detailsTop: number,
+  read body: graph.Box?,
   read footer: string,
 }
 
-export type SidebarPart = 'background' | 'details' | 'rows' | 'footer'
+export type SidebarPart = 'background' | 'details' | 'footer'
 
 export type Style = { read theme: theme.Theme, read visual: ui.Theme }
 
 local renderGraph: (Pass, Style, view.State, graph.Box, graph.Box?) -> ()
-local renderSidebar: (Pass, Style, Options, graph.Box, SidebarPart?) -> ()
-local renderButtons: (Pass, Style, { read [number]: Button }, graph.Box) -> ()
-local intersect: (graph.Box, graph.Box) -> graph.Box?
+local renderSidebar: (Pass, Style, Options, graph.Box, SidebarPart) -> ()
 local rectangle: (Pass, graph.Box, graph.Box, boolean?) -> ()
 local segment: (Pass, graph.Point, graph.Point, graph.Box) -> ()
 local textBox: (Pass, Font, string, graph.Box, graph.Box, number) -> boolean
 local nodeColor: (graph.Node, theme.Colors) -> theme.Color
-local validSize: (number) -> boolean
 local wrappedTextBox: (Pass, Font, { string }, graph.Box, graph.Box, number) -> boolean
 
 function draw.wrapDetails(font: Font, records: { string }, sidebar: number, size: number): { string }
   return font:getLines(table.concat(records, '\n'), (sidebar - 24) * math.max(font:getHeight(), 0.000001) / size)
-end
-
-function draw.render(pass: Pass, state: view.State, options: Options, style: Style): ()
-  assert(validSize(options.width) and options.width > 0, 'manager drawing: width must be positive and finite')
-  assert(validSize(options.height) and options.height > 0, 'manager drawing: height must be positive and finite')
-  assert(validSize(options.sidebar) and options.sidebar <= options.width, 'manager drawing: invalid sidebar width')
-  assert(validSize(state.viewport.x) and validSize(state.viewport.y), 'manager drawing: invalid graph viewport')
-  assert(options.detailsTop == nil or validSize(options.detailsTop), 'manager drawing: invalid details top')
-  if options.sidebar == 0 then
-    assert(
-      #options.details == 0 and #options.rows == 0 and options.footer == '',
-      'manager drawing: sidebar content needs a sidebar'
-    )
-  end
-  if options.sidebar > 0 and (table.concat(options.details, '\n') ~= '' or #options.rows == 0) then
-    assert(options.sidebar > 24, 'manager drawing: details need a sidebar wider than 24 pixels')
-    assert(
-      (options.detailsTop or 12) < options.height - math.min(56, options.height / 3) - 8,
-      'manager drawing: details need vertical room in the sidebar'
-    )
-  end
-  for _, button in options.buttons do
-    assert(validSize(button.width) and validSize(button.height), 'manager drawing: invalid button size')
-    assert(
-      math.abs(button.x) < math.huge and math.abs(button.y) < math.huge,
-      'manager drawing: invalid button position'
-    )
-  end
-  for _, row in options.rows do
-    assert(validSize(row.width) and validSize(row.height), 'manager drawing: invalid row size')
-    assert(math.abs(row.x) < math.huge and math.abs(row.y) < math.huge, 'manager drawing: invalid row position')
-  end
-  local bounds: graph.Box = { x = 0, y = 0, width = options.width, height = options.height }
-  local canvas: graph.Box = {
-    x = 0,
-    y = 0,
-    width = math.min(state.viewport.x, options.width - options.sidebar),
-    height = math.min(state.viewport.y, options.height),
-  }
-  local font = style.visual.font
-  local pushedState, pushedTransform = false, false
-  local ok, message = pcall(function()
-    pass:push 'state'
-    pushedState = true
-    pass:push 'transform'
-    pushedTransform = true
-    pass:setShader()
-    pass:setMaterial(nil)
-    pass:setFont(font)
-    pass:setCullMode 'none'
-    pass:setDepthTest 'gequal'
-    pass:setDepthWrite(true)
-    pass:setColor(style.visual.background)
-    pass:translate(0, 0, -DETAIL_DEPTH)
-    rectangle(pass, bounds, bounds)
-    pass:translate(0, 0, DETAIL_DEPTH)
-    pass:setDepthWrite(false)
-    renderGraph(pass, style, state, canvas)
-    renderSidebar(pass, style, options, bounds)
-    renderButtons(pass, style, options.buttons, bounds)
-  end)
-  -- Attempt both pops even if one raises, without replacing the drawing error.
-  if pushedTransform then
-    local restored, restoreError = pcall(pass.pop, pass, 'transform')
-    if ok and not restored then
-      ok, message = false, restoreError
-    end
-  end
-  if pushedState then
-    local restored, restoreError = pcall(pass.pop, pass, 'state')
-    if ok and not restored then
-      ok, message = false, restoreError
-    end
-  end
-  if not ok then
-    error(message, 0)
-  end
 end
 
 function draw.graph(pass: Pass, state: view.State, bounds: graph.Box, style: Style, clip: graph.Box?): ()
@@ -147,26 +48,18 @@ export type SidebarGeometry = {
 function draw.sidebarGeometry(options: Options): SidebarGeometry
   local footerHeight = math.min(56, options.height / 3)
   local bottom = options.height - footerHeight
-  local detailsTop = options.detailsTop or 12
   local detailsBottom = bottom - 8
-  for _, row in options.rows do
-    if row.y >= detailsTop then
-      detailsBottom = math.min(detailsBottom, row.y - 8)
-    end
-  end
-  for _, button in options.buttons do
-    if button.x + button.width > options.width - options.sidebar and button.y >= detailsTop and button.y < bottom then
-      detailsBottom = math.min(detailsBottom, button.y - 8)
-    end
+  if options.body then
+    detailsBottom = math.min(detailsBottom, options.body.y - 8)
   end
   local left = options.width - options.sidebar
   return {
     background = { x = left, y = 0, width = options.sidebar, height = options.height },
     details = {
       x = left + 12,
-      y = detailsTop,
+      y = options.detailsTop,
       width = options.sidebar - 24,
-      height = math.max(0, detailsBottom - detailsTop),
+      height = math.max(0, detailsBottom - options.detailsTop),
     },
     footer = { x = left, y = bottom, width = options.sidebar, height = footerHeight },
   }
@@ -174,25 +67,6 @@ end
 
 function draw.details(pass: Pass, options: Options, clip: graph.Box, part: SidebarPart, style: Style): ()
   renderSidebar(pass, style, options, clip, part)
-end
-
--- Later buttons take precedence where rectangles overlap. Disabled and zero-area buttons do not receive clicks.
-function draw.hit(buttons: { read [number]: Button }, point: graph.Point): number?
-  for index = #buttons, 1, -1 do
-    local button = buttons[index]
-    if
-      button.enabled
-      and button.width > 0
-      and button.height > 0
-      and point.x >= button.x
-      and point.x < button.x + button.width
-      and point.y >= button.y
-      and point.y < button.y + button.height
-    then
-      return index
-    end
-  end
-  return nil
 end
 
 local function arrow(
@@ -310,154 +184,45 @@ renderGraph = function(pass: Pass, style: Style, state: view.State, bounds: grap
   end
 end
 
-renderSidebar = function(pass: Pass, style: Style, options: Options, bounds: graph.Box, part: SidebarPart?): ()
-  local font, colors, typography = style.visual.font, style.theme.colors, style.theme.typography
-  local sidebar: graph.Box = {
-    x = options.width - options.sidebar,
-    y = 0,
-    width = options.sidebar,
-    height = options.height,
-  }
-  if sidebar.width == 0 then
-    return
-  end
-  if part == nil or part == 'background' then
-    pass:setColor(colors.elevatedBackground)
-    rectangle(pass, sidebar, bounds)
-  end
+renderSidebar = function(pass: Pass, style: Style, options: Options, clip: graph.Box, part: SidebarPart): ()
+  local font, colors = style.visual.font, style.theme.colors
+  local boxes = draw.sidebarGeometry(options)
   if part == 'background' then
+    pass:setColor(colors.elevatedBackground)
+    rectangle(pass, boxes.background, clip)
     return
   end
-  local footerHeight = math.min(56, sidebar.height / 3)
-  local body: graph.Box = { x = sidebar.x, y = 0, width = sidebar.width, height = sidebar.height - footerHeight }
-  local detailsTop = options.detailsTop or 12
-  local detailsBottom = body.height - 8
-  for _, row in options.rows do
-    if row.y >= detailsTop then
-      detailsBottom = math.min(detailsBottom, row.y - 8)
-    end
-  end
-  for _, button in options.buttons do
-    if intersect(button, body) and button.y >= detailsTop then
-      detailsBottom = math.min(detailsBottom, button.y - 8)
-    end
-  end
-  local rowClip = intersect(body, bounds)
-  local outside = 0
-  for _, row in options.rows do
-    assert(validSize(row.width) and validSize(row.height), 'manager drawing: invalid row size')
-    if not intersect(row, body) then
-      outside += 1
-      continue
-    end
-    if (part ~= nil and part ~= 'rows') or not rowClip then
-      continue
-    end
-    pass:setColor(if row.selected then style.visual.selection else style.visual.control)
-    rectangle(pass, row, rowClip)
-    pass:setColor(if row.editable then style.visual.foreground else colors.mutedForeground)
-    local label = row.label .. ': ' .. (if row.value == '' then '(empty)' else row.value)
-    local textBounds: graph.Box = {
-      x = row.x + 6,
-      y = row.y + 4,
-      width = math.max(0, row.width - 12),
-      height = math.max(0, row.height - 8),
-    }
-    if not intersect(textBounds, body) then
-      outside += 1
-    end
-    textBox(pass, font, label, textBounds, rowClip, style.visual.fontSize)
-  end
-  pass:setColor(style.visual.foreground)
   local details = table.concat(options.details, '\n')
-  if details == '' and #options.rows == 0 then
+  if details == '' and not options.body then
     details = 'Select a plugin or relationship to inspect it.'
   end
-  local detailsBox: graph.Box = {
-    x = sidebar.x + 12,
-    y = detailsTop,
-    width = sidebar.width - 24,
-    height = math.max(0, detailsBottom - detailsTop),
-  }
-  if (part == nil or part == 'details') and rowClip then
+  if part == 'details' then
+    pass:setColor(style.visual.foreground)
     if options.wrappedDetails and #options.details > 0 then
-      wrappedTextBox(pass, font, options.details, detailsBox, rowClip, style.visual.fontSize)
+      wrappedTextBox(pass, font, options.details, boxes.details, clip, style.visual.fontSize)
     else
-      textBox(pass, font, details, detailsBox, rowClip, style.visual.fontSize)
+      textBox(pass, font, details, boxes.details, clip, style.visual.fontSize)
     end
-  end
-  if part == 'details' or part == 'rows' then
     return
   end
   local footer = options.footer
-  if outside > 0 then
-    footer = tostring(outside)
-      .. ' rows outside the sidebar. Scroll to view them.'
-      .. (if footer == '' then '' else '\n' .. footer)
-  end
-  if details ~= '' and detailsBottom <= detailsTop then
+  if details ~= '' and boxes.details.height <= 0 then
     footer = 'Details do not fit above the rows.\n' .. footer
   end
-  local footerClip = intersect(sidebar, bounds)
-  if footerClip then
-    pass:setColor(style.visual.background)
-    rectangle(pass, { x = sidebar.x, y = body.height, width = sidebar.width, height = footerHeight }, footerClip)
-    pass:setColor(colors.mutedForeground)
-    textBox(pass, font, footer, {
-      x = sidebar.x + 8,
-      y = body.height + 4,
-      width = sidebar.width - 16,
-      height = footerHeight - 8,
-    }, footerClip, typography.smallSize)
-  end
-end
-
-renderButtons = function(pass: Pass, style: Style, buttons: { read [number]: Button }, bounds: graph.Box): ()
-  local font, colors = style.visual.font, style.theme.colors
-  local outside = 0
-  for _, button in buttons do
-    assert(validSize(button.width) and validSize(button.height), 'manager drawing: invalid button size')
-    if not intersect(button, bounds) then
-      outside += 1
-      continue
-    end
-    pass:setColor(if button.enabled then style.visual.control else style.visual.disabled)
-    rectangle(pass, button, bounds)
-    pass:setColor(if button.enabled then style.visual.foreground else colors.mutedForeground)
-    local textBounds: graph.Box = {
-      x = button.x + 5,
-      y = button.y + 3,
-      width = math.max(0, button.width - 10),
-      height = math.max(0, button.height - 6),
-    }
-    if button.label ~= '' and not intersect(textBounds, bounds) then
-      outside += 1
-    end
-    textBox(pass, font, button.label, textBounds, bounds, math.min(style.theme.typography.smallSize, 16))
-  end
-  if outside > 0 then
-    pass:setColor(colors.warning)
-    textBox(pass, font, tostring(outside) .. ' buttons outside the surface.', {
-      x = 8,
-      y = math.max(0, bounds.height - 28),
-      width = bounds.width - 16,
-      height = 24,
-    }, bounds, style.theme.typography.smallSize)
-  end
-end
-
-intersect = function(box: graph.Box, clip: graph.Box): graph.Box?
-  local x, y = math.max(box.x, clip.x), math.max(box.y, clip.y)
-  local right = math.min(box.x + box.width, clip.x + clip.width)
-  local bottom = math.min(box.y + box.height, clip.y + clip.height)
-  if right <= x or bottom <= y then
-    return nil
-  end
-  return { x = x, y = y, width = right - x, height = bottom - y }
+  local box = boxes.footer
+  pass:setColor(style.visual.background)
+  rectangle(pass, box, clip)
+  pass:setColor(colors.mutedForeground)
+  textBox(pass, font, footer, {
+    x = box.x + 8,
+    y = box.y + 4,
+    width = box.width - 16,
+    height = box.height - 8,
+  }, clip, style.theme.typography.smallSize)
 end
 
 rectangle = function(pass: Pass, box: graph.Box, clip: graph.Box, outline: boolean?): ()
-  local bounded = intersect(box, clip)
+  local bounded = geometry.intersect(box, clip)
   if not bounded then
     return
   end
@@ -475,23 +240,9 @@ end
 
 -- Clip before projection: a framebuffer scissor would not follow the XR surface's pose.
 segment = function(pass: Pass, from: graph.Point, to: graph.Point, clip: graph.Box): ()
-  local dx, dy = to.x - from.x, to.y - from.y
-  local first, last = 0, 1
-  local p = { -dx, dx, -dy, dy }
-  local q = { from.x - clip.x, clip.x + clip.width - from.x, from.y - clip.y, clip.y + clip.height - from.y }
-  for index = 1, 4 do
-    if p[index] == 0 then
-      if q[index] < 0 then
-        return
-      end
-    elseif p[index] < 0 then
-      first = math.max(first, q[index] / p[index])
-    else
-      last = math.min(last, q[index] / p[index])
-    end
-  end
-  if last >= first and clip.width > 0 and clip.height > 0 then
-    pass:line(from.x + first * dx, from.y + first * dy, 0, from.x + last * dx, from.y + last * dy, 0)
+  local first, last = geometry.segment(from, to, clip)
+  if first and last then
+    pass:line(first.x, first.y, 0, last.x, last.y, 0)
   end
 end
 
@@ -499,7 +250,7 @@ textBox = function(pass: Pass, font: Font, text: string, box: graph.Box, clip: g
   if text == '' then
     return false
   end
-  local bounded = intersect(box, clip)
+  local bounded = geometry.intersect(box, clip)
   if not bounded then
     return true
   end
@@ -515,7 +266,7 @@ wrappedTextBox = function(
   clip: graph.Box,
   size: number
 ): boolean
-  local bounded = intersect(box, clip)
+  local bounded = geometry.intersect(box, clip)
   if not bounded then
     return #lines > 0
   end
@@ -559,10 +310,6 @@ nodeColor = function(node: graph.Node, colors: theme.Colors): theme.Color
     return colors.success
   end
   return colors.foreground
-end
-
-validSize = function(value: number): boolean
-  return value >= 0 and value < math.huge
 end
 
 return draw

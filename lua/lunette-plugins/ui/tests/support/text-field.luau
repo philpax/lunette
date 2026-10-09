@@ -118,7 +118,15 @@ function fixture.key(code, modifiers, source)
 end
 
 function fixture.pointer(pointer, kind, x, button, captured)
-  return { pointer = pointer, kind = kind, x = x, y = 25, inside = true, captured = captured or false, button = button }
+  return {
+    pointer = pointer,
+    kind = kind,
+    x = x,
+    y = 25,
+    inside = true,
+    captured = captured or false,
+    button = button,
+  }
 end
 
 return fixture

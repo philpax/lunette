@@ -3,13 +3,12 @@
 local plugin = require '@lunette-plugin'
 local layouts = require '@lunette-contracts/layouts'
 local geometry = require '@lunette-plugins/layout/arc/geometry'
+local config = require '@lunette-plugins/layout/arc/config'
+local configured = require '@lunette-plugin/configured'
 
 local arc = {}
 
 export type Tuning = geometry.Tuning
-
-local config = require '@lunette-plugins/layout/arc/config'
-local configured = require '@lunette-plugin/configured'
 
 export type Options = config.Options
 export type Config = config.Config
@@ -17,7 +16,7 @@ export type Settings = config.Settings
 
 arc.requires = table.freeze { layouts = layouts.capability } :: plugin.Declaration
 
--- The layout validates merged call options, then poses the panels.
+-- The layout resolves call options over the registered tuning, then poses the panels.
 function arc.layout(tuning: Tuning, label: string): ({ read [number]: layouts.Panel }, unknown?) -> ()
   return function(panels: { read [number]: layouts.Panel }, options: unknown?): ()
     local chosen = tuning

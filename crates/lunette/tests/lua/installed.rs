@@ -1,6 +1,7 @@
-//! Loads public UI, menu, keyboard-display, and theme modules from installed manifest copies.
-//! Checks that the bundled theme font and redistributed licences retain their bytes, and that no
-//! installed source or the shipped configuration requires a development-only root.
+//! Copies the install manifest into a temporary installation, then loads every installed
+//! module from it and checks that no installed source or the shipped configuration requires
+//! a development-only root. `luau_check.rs` typechecks a configuration against the same
+//! copy, because the checker changes process-wide Luau state that later Lua states inherit.
 
 use std::{
     fs,
@@ -8,20 +9,20 @@ use std::{
 };
 
 use libtest_mimic::Trial;
-use lunette::aliases::{DEVELOPMENT_ALIASES, INSTALLED_ALIASES, install_manifest};
+use lunette::aliases::{DEVELOPMENT_ALIASES, INSTALLED_ALIASES, Resolution, install_manifest};
 use tempfile::TempDir;
 
 use crate::state::{self, Roots};
 
 pub fn trial(roots: Roots) -> Trial {
     Trial::test(
-        "runner::ui_modules_load_from_installed_manifest_roots",
+        "runner::installed_roots_load_without_development_roots",
         move || load(&roots).map_err(|error| error.to_string().into()),
     )
 }
 
 fn load(roots: &Roots) -> Result<(), Box<dyn std::error::Error>> {
-    let installation = TempDir::with_prefix("lunette-ui-load-")?;
+    let installation = TempDir::with_prefix("lunette-installed-")?;
     for (source, destination) in install_manifest() {
         let destination = Path::new(&destination);
         if destination.as_os_str().is_empty()
@@ -42,23 +43,10 @@ fn load(roots: &Roots) -> Result<(), Box<dyn std::error::Error>> {
         } else {
             copy_file(&source, &destination)?;
         }
-    }
-    for (source, destination) in [
-        (
-            "lua/lunette-plugins/theme/arcade/fonts/SpaceMono-Regular.ttf",
-            "lua/lunette-plugins/theme/arcade/fonts/SpaceMono-Regular.ttf",
-        ),
-        (
-            "lua/lunette-plugins/theme/arcade/fonts/OFL.txt",
-            "lua/lunette-plugins/theme/arcade/fonts/OFL.txt",
-        ),
-        ("vendor/lovr/deps/openvr/LICENSE", "licenses/OpenVR.txt"),
-    ] {
-        let repository = fs::read(roots.repository.join(source))?;
-        let installed = fs::read(installation.path().join(destination))?;
-        if installed.is_empty() || installed != repository {
+        if !destination.exists() {
             return Err(format!(
-                "installed roots: asset is empty or differs from the repository: {destination}"
+                "installed roots: {} was not installed",
+                destination.display()
             )
             .into());
         }
@@ -67,48 +55,43 @@ fn load(roots: &Roots) -> Result<(), Box<dyn std::error::Error>> {
         installation.path().join("lua"),
         roots.repository.join("etc/xdg/lunette"),
     ])?;
-    let installed = Roots::of_repository(installation.path().to_path_buf());
-    let lua = state::new(&installed)?;
-    lua.load(
-        "local ui = require '@lunette-contracts/ui'
-         local implementation = require '@lunette-plugins/ui'
-         assert(ui.capability ~= nil and implementation.definition ~= nil)
-         local generation: ui.Generation = table.freeze { kind = 'ui-generation' }
-         assert(generation.kind == 'ui-generation')
-         local menu = require '@lunette-contracts/menu'
-         local menuProvider = require '@lunette-plugins/menu'
-         assert(menu.capability ~= nil and menuProvider.definition ~= nil)
-         local display = require '@lunette-contracts/keyboard-display'
-         local displayProvider = require '@lunette-plugins/desktop/keyboard'
-         assert(display.capability ~= nil and displayProvider ~= nil)
-         local theme = require '@lunette-contracts/theme'
-         local themeProvider = require '@lunette-plugins/theme'
-         assert(theme.capability ~= nil and themeProvider.definition ~= nil)
-         local themeSelector = require '@lunette-plugins/desktop/theme'
-         assert(themeSelector ~= nil)
-         local themes = require '@lunette-contracts/themes'
-         local themeCatalog = require '@lunette-plugins/themes'
-         assert(themes.capability ~= nil and themeCatalog.definition ~= nil)
-         local arcadeTheme = require '@lunette-plugins/theme/arcade'
-         assert(arcadeTheme.definition ~= nil and arcadeTheme.preset.typography.font.kind == 'file')
-         assert(require('@lunette').textBoundaries('é')[2] == 4)",
-    )
-    .set_name("@installed-ui-main.luau")
-    .exec()?;
-    let testing: Result<mlua::Value, mlua::Error> = lua.load("return require '@testing'").eval();
-    if testing.is_ok() {
-        return Err("installed roots: testing unexpectedly loads".into());
-    }
-    if installation
-        .path()
-        .join("lua/lunette-plugins/ui/tests")
-        .exists()
+    require_every_module(installation.path())
+}
+
+/// Requires each module under the installed file-backed roots, so a module the manifest
+/// misses fails whichever module reaches for it.
+fn require_every_module(installation: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let lua = state::new(&Roots::of_repository(installation.to_path_buf()))?;
+    let require = lua.globals().get::<mlua::Function>("require")?;
+    for alias in INSTALLED_ALIASES
+        .iter()
+        .filter(|alias| alias.resolution == Resolution::Mounted)
     {
-        return Err("installed roots: UI tests were copied".into());
+        let root = installation.join("lua").join(alias.name);
+        let mut sources = Vec::new();
+        collect_sources(&root, &mut sources)?;
+        for source in sources {
+            let relative = source.strip_prefix(&root)?;
+            let module = if relative.file_stem().is_some_and(|stem| stem == "init") {
+                relative.parent().map(Path::to_path_buf).unwrap_or_default()
+            } else {
+                relative.with_extension("")
+            };
+            let name = if module.as_os_str().is_empty() {
+                format!("@{}", alias.name)
+            } else {
+                format!("@{}/{}", alias.name, module.display())
+            };
+            require
+                .call::<mlua::Value>(name.as_str())
+                .map_err(|error| format!("installed roots: {name}: {error}"))?;
+        }
     }
     Ok(())
 }
 
+/// Typechecks a configuration beside the installation, with the aliases `--dump-config`
+/// writes and the installed definitions.
 /// Fails when an installed source or the shipped configuration names a root that an
 /// installation lacks.
 fn reject_development_roots(directories: &[PathBuf]) -> Result<(), Box<dyn std::error::Error>> {
@@ -139,12 +122,16 @@ fn reject_development_roots(directories: &[PathBuf]) -> Result<(), Box<dyn std::
     Ok(())
 }
 
+/// Every `.luau` file under `directory`, in path order.
 fn collect_sources(
     directory: &Path,
     found: &mut Vec<PathBuf>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    for entry in fs::read_dir(directory)? {
-        let path = entry?.path();
+    let mut entries = fs::read_dir(directory)?
+        .map(|entry| entry.map(|entry| entry.path()))
+        .collect::<Result<Vec<_>, _>>()?;
+    entries.sort();
+    for path in entries {
         if path.is_dir() {
             collect_sources(&path, found)?;
         } else if path

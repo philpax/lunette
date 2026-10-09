@@ -19,8 +19,6 @@ pub enum Type {
     Optional(Box<Type>),
     /// `A | B`.
     Union(Vec<Type>),
-    /// `A & B`.
-    Intersection(Vec<Type>),
     /// `{ T }`.
     Array(Box<Type>),
     /// `{ read [number]: T }`. Its elements can be read but not assigned or removed.
@@ -93,12 +91,11 @@ impl Type {
     const fn binds_looser_than_optional(&self) -> bool {
         matches!(
             self,
-            Self::Union(_) | Self::Intersection(_) | Self::Function { .. } | Self::Optional(_)
+            Self::Union(_) | Self::Function { .. } | Self::Optional(_)
         )
     }
 
-    /// Whether this needs parentheses to be a member of a union or an
-    /// intersection.
+    /// Whether this needs parentheses to be a member of a union.
     ///
     /// A function type needs parentheses: `((A) -> B) | C`. An optional does
     /// not. `A | B?` is already the union that `(A | B)?` is.
@@ -119,7 +116,6 @@ impl Type {
                 out.push('?');
             }
             Self::Union(members) => render_joined(out, members, " | "),
-            Self::Intersection(members) => render_joined(out, members, " & "),
             Self::Array(element) => {
                 out.push_str("{ ");
                 element.render(out);

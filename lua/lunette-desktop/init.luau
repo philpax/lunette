@@ -38,7 +38,6 @@ local actions = require '@lunette-plugins/desktop/actions'
 local errors = require '@lunette-plugins/desktop/errors'
 local workspaces = require '@lunette-plugins/desktop/workspaces'
 local defaultRules = require '@lunette-plugins/desktop/rules'
-local poseMemory = require '@lunette-plugins/desktop/pose-memory'
 local arrangement = require '@lunette-plugins/arrangement'
 local arrange = require '@lunette-plugins/desktop/arrange'
 local adoptionConsumer = require '@lunette-plugins/desktop/adoption'
@@ -78,12 +77,6 @@ local SETTING_IDS: { [string]: string } = {
   adoption = 'desktop/adoption',
   manager = 'desktop/manager',
 }
-local SETTING_KEYS: { [string]: boolean } = {}
-for name, _ in SETTING_IDS do
-  SETTING_KEYS[name] = true
-end
-local SETTING_FIELDS =
-  'menu, decorations, arrange, persistence, keyboardDisplay, rules, monitors, hint, errors, pointing, pacing, workspaces, adoption, and manager'
 
 -- Persistence and arrangement use factories to preserve state across activations. Rule sources precede adoption so they resolve the first window.
 local DEFAULT: { Entry } = plugin.compose {
@@ -124,7 +117,6 @@ local DEFAULT: { Entry } = plugin.compose {
   { id = 'desktop/workspaces', definition = workspaces },
   { id = 'desktop/monitors', definition = monitors },
   { id = 'desktop/rules', definition = defaultRules },
-  { id = 'desktop/pose-memory', definition = poseMemory },
   { id = 'desktop/persistence', factory = arrangement.factory },
   { id = 'desktop/arrange', factory = arrange },
   { id = 'desktop/adoption', definition = adoptionConsumer },
@@ -136,75 +128,50 @@ local DEFAULT: { Entry } = plugin.compose {
 -- The returned configuration functions check values against the definition's options.
 desktop.configure = plugin.configure
 
--- Entries start in list order, and the list and its entries are frozen.
+-- Entries start in list order.
 function desktop.entries(): { Entry }
   return DEFAULT
 end
 
-type Raw = { [unknown]: unknown }
-
-local function expanded(options: Options): ({ Patch }, { [string]: string })
-  local patches: { Patch } = {}
-  local sources: { [string]: string } = {}
-  local function claim(id: string, source: string): ()
-    local previous = sources[id]
-    if previous then
-      error('desktop: ' .. source .. ' and ' .. previous .. ' both configure ' .. id .. '; use one source', 0)
-    end
-    sources[id] = source
-  end
+-- Settings become patches after the given ones, so one composition rejects two patches naming one id.
+local function patchesFor(options: Options): { Patch }?
   local given = options.settings
-  if given ~= nil then
-    plugin.rejectUnknownFields('desktop: the settings', given, SETTING_KEYS, SETTING_FIELDS, 0)
-    local parsed = settings.schema.parse(given, 'desktop settings')
-    for name, config in given :: any do
-      local id = SETTING_IDS[name]
-      claim(id, 'settings.' .. name)
-      patches[#patches + 1] = { id = id, config = config }
-    end
-    -- Adoption places windows in the first workspace unless the adoption settings say otherwise.
-    local chosen = parsed.workspaces
-    if chosen and given.adoption == nil then
-      claim('desktop/adoption', 'settings.workspaces')
-      patches[#patches + 1] = { id = 'desktop/adoption', config = { tags = { chosen.workspaces[1].name } } }
+  local extra = options.patches
+  if given == nil or (extra ~= nil and type(extra) ~= 'table') then
+    return extra
+  end
+  local parsed = settings.schema.parse(given, 'desktop settings')
+  -- The given keys are copied unchanged so that composition still reports a malformed patch list by position.
+  local patches: { [unknown]: unknown } = {}
+  local last = 0
+  for key, patch in (extra or {}) :: { [unknown]: unknown } do
+    patches[key] = patch
+    if type(key) == 'number' and key > last then
+      last = key
     end
   end
-  return patches, sources
+  local function append(patch: Patch): ()
+    last += 1
+    patches[last] = patch
+  end
+  for name, config in given :: { [string]: unknown } do
+    append { id = SETTING_IDS[name], config = config :: any }
+  end
+  -- Adoption places windows in the first workspace unless the adoption settings say otherwise.
+  local chosen = parsed.workspaces
+  if chosen and given.adoption == nil then
+    append { id = 'desktop/adoption', config = { tags = { chosen.workspaces[1].name } } }
+  end
+  return (patches :: unknown) :: { Patch }
 end
 
--- Returns patched entries and rejects unknown fields, duplicate ids, and conflicting patches.
+-- Returns the patched entries. Composition rejects unknown fields, duplicate ids, and two patches naming one id.
 function desktop.compose(options: Options?): { Entry }
   if options == nil then
     return DEFAULT
   end
   plugin.rejectUnknownFields('desktop: the options', options, OPTION_KEYS, 'entries, patches, and settings', 0)
-  local entries = plugin.compose(options.entries or DEFAULT)
-  local patches, sources = expanded(options)
-  local configured = plugin.compose(entries, patches)
-  if type(options.patches) == 'table' then
-    for index, patch in pairs(options.patches) do
-      if type(patch) == 'table' then
-        local raw = (patch :: unknown) :: Raw
-        local id = raw.id
-        if type(raw.insert) == 'table' then
-          id = (raw.insert :: Raw).id
-        end
-        if type(id) == 'string' and sources[id] then
-          error(
-            'desktop: patch '
-              .. tostring(index)
-              .. ' and '
-              .. sources[id]
-              .. ' both configure '
-              .. id
-              .. '; use one source',
-            0
-          )
-        end
-      end
-    end
-  end
-  return plugin.compose(configured, options.patches)
+  return plugin.compose(options.entries or DEFAULT, patchesFor(options))
 end
 
 -- Composition errors occur while the configuration loads, before LÖVR callbacks are bound.

@@ -9,7 +9,7 @@ test('display listeners require a declared live owner and a plain callback table
   expect.raises(function()
     service:onChanged({}, { run = function() end })
   end, 'owner')
-  for _, listener in { false, 'listener', function() end, setmetatable({}, {}) } do
+  for _, listener in { false, 'listener', function() end } do
     expect.raises(function()
       service:onChanged(owner, listener)
     end, 'keyboard%-display onChanged: listener is a plain table')
@@ -40,39 +40,6 @@ test('an observer can unload the display during show without skipping board dest
   expect.falsy(run(raw), 'show reports that its activation ended')
   expect.equal(fixture.boardCount(env), 0)
   expect.falsy(run(raw), 'a cached method is inert after teardown')
-  env.session:close()
-end)
-
-test('keyboard acquisition reentry creates one board and preserves the newest hidden intent', function()
-  local plugin = require '@lunette-plugin'
-  local contract = require '@lunette-contracts/keyboard'
-  local keyboard = require '@lunette-plugins/keyboard'
-  local env, creations = nil, 0
-  local provider = plugin.define {
-    name = 'testing/acquisition-keyboard',
-    requires = keyboard.requires,
-    provides = { keyboard = contract.capability },
-    init = function(context, _config, publish)
-      local real = keyboard.build(context)
-      publish:provide(contract.capability, {
-        inspect = function(_self)
-          return real:inspect()
-        end,
-        new = function(_self, owner, options)
-          creations += 1
-          expect.falsy(env.rawDisplay:show(), 'recursive acquisition cannot create a second board')
-          expect.truthy(env.rawDisplay:hide(), 'the newest intent is hidden')
-          return real:new(owner, options)
-        end,
-      })
-    end,
-  }
-  env = fixture.start { keyboard = { id = 'keyboard', definition = provider } }
-  expect.falsy(env.rawDisplay:show(), 'an older show cannot replace a newer hide')
-  expect.equal(creations, 1)
-  expect.equal(fixture.boardCount(env), 1, 'the single board is retained hidden')
-  expect.falsy(env.rawDisplay:isVisible())
-  expect.equal(fixture.shown(env), nil)
   env.session:close()
 end)
 

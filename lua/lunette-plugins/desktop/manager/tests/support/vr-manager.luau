@@ -158,21 +158,27 @@ function fixture.boot(additions, config)
     end
     error('choice option is not reachable: ' .. itemId)
   end
-  function result:row(itemId)
-    for _ = 1, 32 do
-      for _, control in self:description().controls do
-        if control.id == 'rows' then
-          for _, item in control.items do
-            if item.id == itemId and item.bounds then
-              self:click('rows', itemId)
-              return
-            end
-          end
+  -- Scrolls a list with the thumbstick until the item is visible, then selects it.
+  function result:item(id, itemId)
+    for _ = 1, 128 do
+      local description, control = self.controls:discover(self.services.ui, 'desktop/manager', id)
+      for _, item in control.items do
+        if item.id == itemId and item.bounds then
+          self:click(id, itemId)
+          return
         end
       end
-      self:click 'next'
+      local bounds = control.bounds
+      self.controls:aim(description, bounds.x + bounds.width / 2, bounds.y + bounds.height / 2, 'right')
+      self.controls:axis('right', 0, -1)
+      self.controls:step(0.04)
+      self.controls:axis('right', 0, 0)
+      self.controls:step()
     end
-    error('configuration row is not reachable: ' .. itemId)
+    error('list item is not reachable: ' .. itemId)
+  end
+  function result:row(itemId)
+    self:item('rows', itemId)
   end
   function result:description()
     for _, panel in self.services.ui:panels() do

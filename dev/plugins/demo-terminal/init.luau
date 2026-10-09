@@ -1,6 +1,7 @@
 -- The session-global guard prevents another spawn after a source reload.
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
+local logging = require '@lunette-plugins/desktop/logging'
 
 local schema = require '@lunette-plugin/schema'
 
@@ -35,13 +36,7 @@ return plugin.consumer<<Config, Settings>>({
       local program = settings.programs[attempt]
       if not program then
         attempted = nil
-        local message = 'no terminal emulator was found; start a client with WAYLAND_DISPLAY'
-        local log = lovr.log
-        if log then
-          log(message, 'warn', 'lunette.desktop')
-        else
-          print('lunette: ' .. message)
-        end
+        logging.report('no terminal emulator was found; start a client with WAYLAND_DISPLAY', 'warn')
         return
       end
       attempted = lunette.spawn { argv = { program } }

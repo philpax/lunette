@@ -63,6 +63,7 @@ mod tests;
 use std::{collections::HashSet, error::Error, fmt, rc::Rc, sync::Arc};
 
 use lunette_capture::{
+    mirror::screencopy::WlxClient,
     monitor::{MonitorKey, OutputWatcher},
     stream::DrmFormat,
     tokens::TokenFile,
@@ -125,7 +126,7 @@ pub struct Startup {
 /// and passes explicit host configuration to the other subsystems.
 pub struct HostDesktop {
     /// Environment-dependent upstream construction stays at the application boundary.
-    pub capture_client: fn() -> Option<lunette_capture::mirror::screencopy::WlxClient>,
+    pub capture_client: fn() -> Option<WlxClient>,
     /// The host's `wl_output`s, kept up to date as they change.
     pub outputs: OutputWatcher,
     /// The mirror lifecycle's frame-loop half. The same object the Lua session

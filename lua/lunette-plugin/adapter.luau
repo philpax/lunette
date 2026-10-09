@@ -365,21 +365,10 @@ local function guardService(value: unknown, contract: string, provider: NativeCo
   return freeze(setmetatable({}, freeze(view) :: any))
 end
 
-local function stagedValues(
-  values: StagedValues,
-  called: { [string]: boolean },
-  provided: Declaration,
-  provider: NativeContext
-): StagedValues
+-- Native validation rejects a record that omits a declared provision.
+local function stagedValues(values: StagedValues, provided: Declaration, provider: NativeContext): StagedValues
   local result: StagedValues = {}
-  for field, _ in provided do
-    if not called[field] then
-      error('plugin provision: missing provision ' .. field, 0)
-    end
-    local value = values[field]
-    if value == nil then
-      error('plugin provision: provision ' .. field .. ' was nil', 0)
-    end
+  for field, value in values do
     result[field] = guardService(value, contractOf(provided, field), provider)
   end
   return result
@@ -447,6 +436,13 @@ local function validateSpec<C>(spec: Spec<C>): ValidSpec<C>
   }
 end
 
+-- Records every definition `define` made, so a forged table is not accepted as one.
+local definitions: { [unknown]: boolean } = setmetatable({}, { __mode = 'k' }) :: any
+
+function adapter.isDefinition(value: unknown): boolean
+  return definitions[value] == true
+end
+
 function adapter.define<C>(spec: Spec<C>, configuration: Configuration?): Definition<C>
   local fields = validateSpec(spec)
   local init = fields.init
@@ -479,17 +475,16 @@ function adapter.define<C>(spec: Spec<C>, configuration: Configuration?): Defini
       local returned = select('#', init(context, typedConfig, provide))
       staging.open = false
       local values = staging.values
-      local called = staging.called
       staging.values = {}
       staging.called = {}
       if returned ~= 0 then
         error('plugin provision: initializer must return nothing', 0)
       end
-      return stagedValues(values, called, providedSnapshot, nativeContext)
+      return stagedValues(values, providedSnapshot, nativeContext)
     end,
     fields.name
   )
-  return freeze {
+  local definition = freeze {
     name = fields.name,
     requires = requiredSnapshot,
     provides = providedSnapshot,
@@ -498,6 +493,8 @@ function adapter.define<C>(spec: Spec<C>, configuration: Configuration?): Defini
     resolve = if configuration then configuration.resolve else nil,
     nativeDefinition = nativeDefinition,
   } :: Definition<C>
+  definitions[definition] = true
+  return definition
 end
 
 function adapter.runtime(): Runtime

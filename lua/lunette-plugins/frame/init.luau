@@ -40,25 +40,28 @@ local function ranks(names: { read [number]: string }): { [string]: number }
   return result
 end
 
-local UPDATE_PHASE_RANKS = ranks(contract.UPDATE_PHASES)
-local DRAW_PHASE_RANKS = ranks(contract.DRAW_PHASES)
-local INPUT_PHASE_RANKS = ranks(contract.INPUT_PHASES)
-local UPDATE_PHASE_NAMES = table.concat(contract.UPDATE_PHASES, ', ')
-local DRAW_PHASE_NAMES = table.concat(contract.DRAW_PHASES, ', ')
-local INPUT_PHASE_NAMES = table.concat(contract.INPUT_PHASES, ', ')
+-- The fields one registration operation accepts. An operation without phases takes only `run`.
+type Spec = {
+  read phases: { read ranks: { [string]: number }, read names: string, read default: string? }?,
+}
+
+local INPUT_RANKS = ranks(contract.INPUT_PHASES)
+local UNPHASED: Spec = {}
+local UPDATE: Spec = {
+  phases = { ranks = ranks(contract.UPDATE_PHASES), names = table.concat(contract.UPDATE_PHASES, ', ') },
+}
+local DRAW: Spec = {
+  phases = { ranks = ranks(contract.DRAW_PHASES), names = table.concat(contract.DRAW_PHASES, ', ') },
+}
+local INPUT: Spec = {
+  phases = { ranks = INPUT_RANKS, names = table.concat(contract.INPUT_PHASES, ', '), default = 'binding' },
+}
 
 local PHASED_KEYS: { [string]: boolean } = { phase = true, order = true, run = true }
-local QUIT_KEYS: { [string]: boolean } = { run = true }
+local UNPHASED_KEYS: { [string]: boolean } = { run = true }
 local HOOK_KEYS: { [string]: boolean } = { start = true, stop = true }
 
-local function validate(
-  operation: string,
-  handler: unknown,
-  allowed: { [string]: boolean },
-  phaseRanks: { [string]: number }?,
-  defaultPhase: string?,
-  phaseNames: string?
-): (number, number)
+local function validate(operation: string, handler: unknown, spec: Spec): (number, number)
   local level = 3
   if type(handler) ~= 'table' then
     error(string.format('frame %s: a handler is a table of fields, not a %s', operation, type(handler)), level)
@@ -66,8 +69,12 @@ local function validate(
   if getmetatable(handler) ~= nil then
     error(string.format('frame %s: a handler is a plain table', operation), level)
   end
-  local fields = if allowed == QUIT_KEYS then 'run' else 'phase, order, and run'
-  plugin.rejectUnknownFields('frame ' .. operation, handler, allowed, fields, level)
+  local phases = spec.phases
+  if phases then
+    plugin.rejectUnknownFields('frame ' .. operation, handler, PHASED_KEYS, 'phase, order, and run', level)
+  else
+    plugin.rejectUnknownFields('frame ' .. operation, handler, UNPHASED_KEYS, 'run', level)
+  end
   local raw = handler :: { [unknown]: unknown }
   if type(raw.run) ~= 'function' then
     error(string.format('frame %s: run is a function, not a %s', operation, type(raw.run)), level)
@@ -77,17 +84,14 @@ local function validate(
     error(string.format('frame %s: order is a finite number, not %s', operation, tostring(order)), level)
   end
   local rank = 0
-  if phaseRanks then
+  if phases then
     local phase = raw.phase
     if phase == nil then
-      phase = defaultPhase
+      phase = phases.default
     end
-    local found = type(phase) == 'string' and phaseRanks[phase] or nil
+    local found = type(phase) == 'string' and phases.ranks[phase] or nil
     if found == nil then
-      error(
-        string.format('frame %s: phase is one of %s, not %s', operation, tostring(phaseNames), tostring(phase)),
-        level
-      )
+      error(string.format('frame %s: phase is one of %s, not %s', operation, phases.names, tostring(phase)), level)
     end
     rank = found
   end
@@ -216,7 +220,7 @@ local function create(context: plugin.Context): (contract.Service, Dispatcher)
       local consumedRank = dispatch('lovr.keypressed', keys, function(run: (contract.KeyEvent) -> boolean?): boolean?
         return run(event)
       end)
-      if consumedRank == INPUT_PHASE_RANKS.binding then
+      if consumedRank == INPUT_RANKS.binding then
         blockText(event.batch)
       end
     end,
@@ -268,7 +272,7 @@ local function create(context: plugin.Context): (contract.Service, Dispatcher)
       return blockText(id)
     end,
     onBatch = function(_self: contract.Service, owner: contract.Owner, handler: contract.BatchHandler): plugin.Effect
-      local rank, order = validate('onBatch', handler, QUIT_KEYS, nil, nil, nil)
+      local rank, order = validate('onBatch', handler, UNPHASED)
       local effect, entry = register(batches, owner, rank, order, handler.run)
       local batch = currentBatch
       if batch and entry.active and context:owns(owner) then
@@ -279,23 +283,23 @@ local function create(context: plugin.Context): (contract.Service, Dispatcher)
       return effect
     end,
     onUpdate = function(_self: contract.Service, owner: contract.Owner, handler: contract.UpdateHandler): plugin.Effect
-      local rank, order = validate('onUpdate', handler, PHASED_KEYS, UPDATE_PHASE_RANKS, nil, UPDATE_PHASE_NAMES)
+      local rank, order = validate('onUpdate', handler, UPDATE)
       return (register(updates, owner, rank, order, handler.run))
     end,
     onDraw = function(_self: contract.Service, owner: contract.Owner, handler: contract.DrawHandler): plugin.Effect
-      local rank, order = validate('onDraw', handler, PHASED_KEYS, DRAW_PHASE_RANKS, nil, DRAW_PHASE_NAMES)
+      local rank, order = validate('onDraw', handler, DRAW)
       return (register(draws, owner, rank, order, handler.run))
     end,
     onKey = function(_self: contract.Service, owner: contract.Owner, handler: contract.KeyHandler): plugin.Effect
-      local rank, order = validate('onKey', handler, PHASED_KEYS, INPUT_PHASE_RANKS, 'binding', INPUT_PHASE_NAMES)
+      local rank, order = validate('onKey', handler, INPUT)
       return (register(keys, owner, rank, order, handler.run))
     end,
     onText = function(_self: contract.Service, owner: contract.Owner, handler: contract.TextHandler): plugin.Effect
-      local rank, order = validate('onText', handler, PHASED_KEYS, INPUT_PHASE_RANKS, 'binding', INPUT_PHASE_NAMES)
+      local rank, order = validate('onText', handler, INPUT)
       return (register(texts, owner, rank, order, handler.run))
     end,
     onQuit = function(_self: contract.Service, owner: contract.Owner, handler: contract.QuitHandler): plugin.Effect
-      local rank, order = validate('onQuit', handler, QUIT_KEYS, nil, nil, nil)
+      local rank, order = validate('onQuit', handler, UNPHASED)
       return (register(quits, owner, rank, order, handler.run))
     end,
   }

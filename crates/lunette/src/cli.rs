@@ -55,7 +55,7 @@ pub enum Command {
     /// Typecheck a configuration and the standard library it uses.
     Check {
         /// The files or directories to check. A directory is checked file
-        /// by file: every `.lua` and `.luau` file below it, passing over
+        /// by file: every `.luau` file below it, passing over
         /// names that begin with `.`. Each `@` alias resolves through the
         /// `.luaurc` beside the file.
         ///
@@ -72,17 +72,21 @@ pub enum Command {
     },
 }
 
-/// Files that make up the shipped default configuration, relative to its root.
-/// The list is explicit so adding one is a deliberate packaging change.
-const CONFIG_ARTIFACTS: &[&str] = &["main.luau", "conf.luau"];
-
-/// The contents of each of [`CONFIG_ARTIFACTS`], in its order.
+/// The files of the shipped default configuration, by name relative to its
+/// root, with their contents. The Makefile's `install-config` installs the
+/// same files.
 ///
 /// They are embedded because `$SYSCONFDIR/xdg/lunette` may be absent or hold
 /// another version's configuration; these match the roots this binary mounts.
-const DEFAULT_CONFIGURATION: [&str; CONFIG_ARTIFACTS.len()] = [
-    include_str!("../../../etc/xdg/lunette/main.luau"),
-    include_str!("../../../etc/xdg/lunette/conf.luau"),
+const DEFAULT_CONFIGURATION: &[(&str, &str)] = &[
+    (
+        "main.luau",
+        include_str!("../../../etc/xdg/lunette/main.luau"),
+    ),
+    (
+        "conf.luau",
+        include_str!("../../../etc/xdg/lunette/conf.luau"),
+    ),
 ];
 
 /// Writes the default configuration to `destination`, refusing to overwrite
@@ -107,9 +111,9 @@ pub fn dump(destination: &Path, standard_library: &Path) -> Result<Vec<PathBuf>,
         });
     }
 
-    let targets = CONFIG_ARTIFACTS
+    let targets = DEFAULT_CONFIGURATION
         .iter()
-        .map(|name| destination.join(name))
+        .map(|(name, _)| destination.join(name))
         .chain(std::iter::once(destination.join(ALIAS_FILE)))
         .collect::<Vec<_>>();
     if let Some(existing) = targets.iter().find(|target| target.exists()) {
@@ -120,7 +124,7 @@ pub fn dump(destination: &Path, standard_library: &Path) -> Result<Vec<PathBuf>,
         .map_err(|error| DumpError::Write(destination.to_owned(), error))?;
 
     let mut written = Vec::with_capacity(targets.len());
-    for (name, contents) in CONFIG_ARTIFACTS.iter().zip(DEFAULT_CONFIGURATION) {
+    for (name, contents) in DEFAULT_CONFIGURATION {
         let target = destination.join(name);
         fs::write(&target, contents).map_err(|error| DumpError::Write(target.clone(), error))?;
         written.push(target);
@@ -229,24 +233,6 @@ mod tests {
             !rendered.contains(".."),
             "a relative alias survived the copy: {rendered}"
         );
-    }
-
-    #[test]
-    fn the_lua_files_are_the_shipped_configuration() {
-        let library = standard_library();
-        let destination = TempDir::new().expect("a temporary directory");
-        let destination = destination.path().join("lunette");
-
-        dump(&destination, library.path()).expect("the copy");
-
-        let shipped = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../etc/xdg/lunette");
-        for artifact in CONFIG_ARTIFACTS {
-            assert_eq!(
-                fs::read_to_string(destination.join(artifact)).expect("the copy"),
-                fs::read_to_string(shipped.join(artifact)).expect("the shipped file"),
-            );
-        }
-        assert!(destination.join(".luaurc").is_file());
     }
 
     /// A binary built from a source tree resolves the installed prefix when

@@ -9,6 +9,7 @@ local descriptor = schema.object {
   placement = schema.default(placement)(placement.parse {}),
 }
 
+export type Placement = schema.Output<typeof(placement)>
 export type Config = schema.Input<typeof(descriptor)>
 export type Settings = schema.Output<typeof(descriptor)>
 

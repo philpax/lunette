@@ -37,7 +37,38 @@ local editableFont = schema.refine(editableFontFields)(function(value: EditableF
   end
 end)
 
-local colors = schema.object {
+-- Each optional override group mirrors a complete group field by field, so the types follow the complete shapes.
+type function OptionalFields(shape: type): type
+  local result = types.newtable()
+  for key, property in shape:properties() do
+    local child = property.read
+    assert(child, 'theme descriptor field is not readable')
+    local field = types.newtable()
+    for name, witness in child:properties() do
+      local direction = name:value()
+      if direction == 'input' or direction == 'output' then
+        local read = witness.read
+        assert(read, 'theme descriptor witness is not readable')
+        local parameters = read:parameters().head
+        assert(parameters and parameters[1], 'theme descriptor witness has no parameter')
+        local optional = types.optional(parameters[1])
+        field:setreadproperty(name, types.newfunction({ head = { optional } }, { head = { optional } }))
+      end
+    end
+    result:setreadproperty(key, field)
+  end
+  return result
+end
+
+local function optionalFields<S>(shape: S): OptionalFields<S>
+  local result = {}
+  for key, child in shape :: any do
+    result[key] = (schema.optional :: any)(child)
+  end
+  return result :: any
+end
+
+local colorFields = {
   background = color,
   elevatedBackground = color,
   foreground = color,
@@ -58,7 +89,7 @@ local colors = schema.object {
   pointer = color,
   pointerHovered = color,
 }
-local typography = schema.object {
+local typographyFields = {
   font = font,
   bodySize = positive,
   smallSize = positive,
@@ -67,7 +98,7 @@ local typography = schema.object {
   errorTextHeight = positive,
   hintTextHeight = positive,
 }
-local metrics = schema.object {
+local metricFields = {
   padding = nonnegative,
   spacing = nonnegative,
   borderWidth = nonnegative,
@@ -76,7 +107,7 @@ local metrics = schema.object {
   titlebarBorderThickness = nonnegative,
   keyboardGap = nonnegative,
 }
-local radii = schema.object {
+local radiusFields = {
   uiPanel = nonnegative,
   uiControl = nonnegative,
   keyboardBacking = nonnegative,
@@ -85,6 +116,10 @@ local radii = schema.object {
   window = nonnegative,
   monitor = nonnegative,
 }
+local colors = schema.object(colorFields)
+local typography = schema.object(typographyFields)
+local metrics = schema.object(metricFields)
+local radii = schema.object(radiusFields)
 local themeDescriptor = schema.object {
   colors = colors,
   typography = typography,
@@ -92,54 +127,10 @@ local themeDescriptor = schema.object {
   radii = radii,
 }
 
-local colorOverrides = schema.object {
-  background = schema.optional(color),
-  elevatedBackground = schema.optional(color),
-  foreground = schema.optional(color),
-  mutedForeground = schema.optional(color),
-  control = schema.optional(color),
-  hovered = schema.optional(color),
-  pressed = schema.optional(color),
-  disabled = schema.optional(color),
-  border = schema.optional(color),
-  focus = schema.optional(color),
-  selection = schema.optional(color),
-  error = schema.optional(color),
-  errorBackground = schema.optional(color),
-  success = schema.optional(color),
-  warning = schema.optional(color),
-  ownershipEdge = schema.optional(color),
-  dependencyEdge = schema.optional(color),
-  pointer = schema.optional(color),
-  pointerHovered = schema.optional(color),
-}
-local typographyOverrides = schema.object {
-  font = schema.optional(font),
-  bodySize = schema.optional(positive),
-  smallSize = schema.optional(positive),
-  titleHeight = schema.optional(positive),
-  keyboardLegendHeight = schema.optional(positive),
-  errorTextHeight = schema.optional(positive),
-  hintTextHeight = schema.optional(positive),
-}
-local metricOverrides = schema.object {
-  padding = schema.optional(nonnegative),
-  spacing = schema.optional(nonnegative),
-  borderWidth = schema.optional(nonnegative),
-  rowHeight = schema.optional(positive),
-  titlebarHeight = schema.optional(positive),
-  titlebarBorderThickness = schema.optional(nonnegative),
-  keyboardGap = schema.optional(nonnegative),
-}
-local radiusOverrides = schema.object {
-  uiPanel = schema.optional(nonnegative),
-  uiControl = schema.optional(nonnegative),
-  keyboardBacking = schema.optional(nonnegative),
-  keyboardKey = schema.optional(nonnegative),
-  titlebar = schema.optional(nonnegative),
-  window = schema.optional(nonnegative),
-  monitor = schema.optional(nonnegative),
-}
+local colorOverrides = schema.object(optionalFields(colorFields))
+local typographyOverrides = schema.object(optionalFields(typographyFields))
+local metricOverrides = schema.object(optionalFields(metricFields))
+local radiusOverrides = schema.object(optionalFields(radiusFields))
 local overrides = schema.object {
   colors = schema.optional(colorOverrides),
   typography = schema.optional(typographyOverrides),
@@ -225,7 +216,7 @@ end
 
 local equalValue: (unknown, unknown) -> boolean
 
-function descriptors.equal(first: theme.Theme, second: theme.Theme): boolean
+function descriptors.equal<T>(first: T, second: T): boolean
   return equalValue(first, second)
 end
 

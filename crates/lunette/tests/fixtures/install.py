@@ -44,8 +44,6 @@ class InstallTest(unittest.TestCase):
             + ':$ORIGIN/../lib/lunette')
         shutil.copy2(self.source / 'lunette', self.source / 'lunctl')
         self.bundle()
-        self.cache = self.library.parent / 'CMakeCache.txt'
-        self.cache.write_text('LOVR_ENABLE_OPENVR:BOOL=ON\n')
         fake = self.base / 'cargo.py'
         fake.write_text(
             'import shutil, sys\n'
@@ -121,46 +119,11 @@ class InstallTest(unittest.TestCase):
         self.assert_loaded_installed_library()
         self.assertTrue((self.destination / 'usr/share/lunette/lua/lunette-desktop/init.luau').is_file())
 
-    def test_enabled_missing_and_partial_bundles_fail(self):
-        (self.library / 'lovr-openvr/actions.json').unlink()
-        self.assertIn('enabled OpenVR build has an incomplete action bundle',
-                      self.install(False).stderr)
-        shutil.rmtree(self.library / 'lovr-openvr')
-        shutil.rmtree(self.build)
-        self.assertIn('enabled OpenVR build has an incomplete action bundle',
-                      self.install(False).stderr)
-        self.assertFalse((self.destination / 'usr/bin/lunette').exists())
-
-    def test_disabled_absent_optional_bundle_and_partial_bundle(self):
-        self.cache.write_text('LOVR_ENABLE_OPENVR:BOOL=OFF\n')
+    def test_an_absent_bundle_installs_none(self):
         shutil.rmtree(self.library / 'lovr-openvr')
         self.install()
         self.assertFalse((self.installed / 'lovr-openvr').exists())
         self.assert_loaded_installed_library()
-        self.bundle()
-        (self.library / 'lovr-openvr/actions.json').unlink()
-        self.assertIn('disabled OpenVR build has an incomplete action bundle',
-                      self.install(False).stderr)
-
-    def test_every_partial_bundle_fails_in_both_build_states(self):
-        for state in ('ON', 'OFF'):
-            self.cache.write_text('LOVR_ENABLE_OPENVR:BOOL=' + state + '\n')
-            for asset in ASSETS:
-                with self.subTest(state=state, missing=asset):
-                    self.bundle()
-                    (self.library / 'lovr-openvr' / asset).unlink()
-                    if self.build.exists():
-                        shutil.rmtree(self.build)
-                    result = self.install(False)
-                    self.assertIn('incomplete action bundle', result.stderr)
-                    self.assertIn(asset + ' is missing', result.stderr)
-
-    def test_unknown_and_missing_build_state_fail(self):
-        self.cache.write_text('LOVR_ENABLE_OPENVR:BOOL=invalid\n')
-        self.assertIn('cannot determine OpenVR build state', self.install(False).stderr)
-        self.cache.unlink()
-        shutil.rmtree(self.build)
-        self.assertIn('cannot determine OpenVR build state', self.install(False).stderr)
 
     def test_missing_patchelf_fails(self):
         command = self.command + ['PATCHELF=' + str(self.base / 'missing-patchelf')]

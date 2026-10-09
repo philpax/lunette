@@ -24,8 +24,7 @@ use crate::{
 ///
 /// The reference is independent of the one `lovrHeadsetSetLayers` takes
 /// while the layer is submitted. It is handed back through
-/// [`LayerBackend::destroy`] or [`LayerBackend::abandon`]; dropping it leaks
-/// the reference.
+/// [`LayerBackend::destroy`]; dropping it leaks the reference.
 #[derive(Debug)]
 pub struct LovrLayer(NonNull<Layer>);
 
@@ -124,10 +123,6 @@ impl LayerBackend for LovrLayers {
         // `lovrHeadsetSetLayers` holds survives this, and is destroyed
         // when that list is replaced.
         unsafe { lovrRelease(layer.0.as_ptr().cast::<c_void>(), Some(lovrLayerDestroy)) };
-    }
-
-    fn abandon(&mut self, layer: Self::Layer) {
-        self.destroy(layer);
     }
 }
 

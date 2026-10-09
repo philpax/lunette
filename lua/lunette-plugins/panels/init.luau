@@ -5,7 +5,7 @@ local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local contracts = require '@lunette-contracts/panels'
 local panel = require '@lunette-plugins/panels/panel'
-local events = require '@lunette-plugins/panels/events'
+local listeners = require '@lunette-plugins/listeners'
 local inspection = require '@lunette-contracts/inspection'
 local theme = require '@lunette-contracts/theme'
 local appearance = require '@lunette-plugins/panels/appearance'
@@ -18,13 +18,19 @@ export type Panel = contracts.Panel
 export type WindowPanel = contracts.WindowPanel
 export type MonitorPanel = contracts.MonitorPanel
 
+type RemovedListener = {
+  read panel: Panel?,
+  read callback: contracts.PanelCallback,
+}
+
 type ProviderState = {
   active: boolean,
   context: plugin.Context,
   panels: { panel.State },
   opaqueShader: Shader?,
   alphaShader: Shader?,
-  events: events.Registry,
+  added: listeners.Listeners<contracts.PanelCallback>,
+  removed: listeners.Listeners<RemovedListener>,
   host: panel.Host,
 }
 
@@ -68,9 +74,6 @@ local function contentShader(state: ProviderState, opaque: boolean): Shader?
   local cached = if opaque then state.opaqueShader else state.alphaShader
   if cached then
     return cached
-  end
-  if not (lovr and lovr.graphics and lovr.graphics.newShader) then
-    return nil
   end
   state.context:effect(function()
     local shader = lovr.graphics.newShader('unlit', if opaque then OPAQUE_FRAGMENT else ALPHA_FRAGMENT)
@@ -116,7 +119,9 @@ local function create(state: ProviderState, owner: Owner, source: panel.Source, 
     return target
   end
   target.effect = acquired
-  events.emitAdded(state.events, target)
+  state.added:each('panels: added listener', function(callback)
+    callback(target)
+  end)
   return target
 end
 
@@ -169,7 +174,11 @@ local function build(context: plugin.Context, settings: Settings): Service
       if index then
         table.remove(state.panels, index)
       end
-      events.emitRemoved(state.events, target)
+      state.removed:each('panels: removed listener', function(listener)
+        listener.callback(target)
+      end, function(listener)
+        return listener.panel == nil or listener.panel == target
+      end)
     end,
   }
   local created: ProviderState = {
@@ -178,7 +187,8 @@ local function build(context: plugin.Context, settings: Settings): Service
     panels = {},
     opaqueShader = nil,
     alphaShader = nil,
-    events = events.new(context),
+    added = listeners.new<<contracts.PanelCallback>>(context),
+    removed = listeners.new<<RemovedListener>>(context),
     host = host,
   }
   state = created
@@ -192,15 +202,16 @@ local function build(context: plugin.Context, settings: Settings): Service
       for _, target in ipairs(table.clone(state.panels)) do
         panel.retire(target)
       end
-      events.clear(state.events)
+      state.added:clear()
+      state.removed:clear()
     end
   end)
 
   -- Panels check activation liveness through their host.
   local service: Service = {
     inspect = function(_self: Service): inspection.Snapshot
-      local result = state.events.added:inspect 'panels.onAdded'
-      for _, entry in ipairs(state.events.removed:inspect 'panels.onRemoved') do
+      local result = state.added:inspect 'panels.onAdded'
+      for _, entry in ipairs(state.removed:inspect 'panels.onRemoved') do
         result[#result + 1] = entry
       end
       local claims, meshes = 0, 0
@@ -250,8 +261,6 @@ local function build(context: plugin.Context, settings: Settings): Service
             layerClaim = target.claim ~= nil,
             mesh = target.mesh ~= nil,
             outlineMesh = target.outline ~= nil and target.outline.mesh ~= nil,
-            frameAttached = attached ~= nil and attached.live,
-            frameJoined = frame.joined(attached),
           }
         )
         for index, override in ipairs(target.overrides) do
@@ -276,18 +285,10 @@ local function build(context: plugin.Context, settings: Settings): Service
       )
     end,
     fromWindow = function(_self: Service, owner: Owner, window: lunette.Window, options: Options?): WindowPanel
-      local target = create(state, owner, { kind = 'window', source = window }, options)
-      if target.kind ~= 'window' then
-        error 'panels: window constructor returned a monitor panel'
-      end
-      return target
+      return (create(state, owner, { kind = 'window', source = window }, options) :: unknown) :: WindowPanel
     end,
     fromMonitor = function(_self: Service, owner: Owner, monitor: lunette.Monitor, options: Options?): MonitorPanel
-      local target = create(state, owner, { kind = 'monitor', source = monitor }, options)
-      if target.kind ~= 'monitor' then
-        error 'panels: monitor constructor returned a window panel'
-      end
-      return target
+      return (create(state, owner, { kind = 'monitor', source = monitor }, options) :: unknown) :: MonitorPanel
     end,
     all = function(_self: Service): { Panel }
       return livePanels(state)
@@ -318,11 +319,13 @@ local function build(context: plugin.Context, settings: Settings): Service
       end
     end,
     onAdded = function(_self: Service, owner: Owner, callback: contracts.PanelCallback): plugin.Effect
-      return events.onAdded(state.events, owner, callback)
+      return state.added:add(owner, callback)
     end,
     onRemoved = function(_self: Service, owner: Owner, listener: contracts.RemovedListener): plugin.Effect
       checkListener('onRemoved', listener)
-      return events.onRemoved(state.events, owner, listener.panel, listener.run)
+      local target = listener.panel
+      local details = if target then { sourceId = target.source.id, sourceKind = target.kind } else {}
+      return state.removed:add(owner, { panel = target, callback = listener.run }, details)
     end,
   }
   return service

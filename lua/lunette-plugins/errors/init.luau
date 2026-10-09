@@ -6,10 +6,9 @@ local contract = require '@lunette-contracts/errors'
 local limiter = require '@lunette-plugins/errors/limiter'
 local listeners = require '@lunette-plugins/listeners'
 local inspection = require '@lunette-contracts/inspection'
+local config = require '@lunette-plugins/errors/config'
 
 export type Service = contract.Service
-
-local config = require '@lunette-plugins/errors/config'
 
 export type Settings = config.Settings
 export type Config = config.Config
@@ -73,14 +72,11 @@ local function build(context: plugin.Context, settings: Settings): Service
         result[#result + 1] =
           inspection.registration('listener', 'errors.onError', context, nil, true, { nativeSubscription = true })
       end
-      return inspection.snapshot(result, {
-        history = #history,
-        sequence = sequence,
-        delivering = delivering,
-        historyLimit = settings.history,
-        window = settings.window,
-        maxKeys = settings.maxKeys,
-      }, { 'limiter clock is not sampled' })
+      return inspection.snapshot(
+        result,
+        { history = #history, sequence = sequence },
+        { 'limiter clock is not sampled' }
+      )
     end,
     subscribe = function(_self: Service, owner: contract.Owner, subscriber: contract.Subscriber): plugin.Effect
       if type(subscriber) ~= 'table' then

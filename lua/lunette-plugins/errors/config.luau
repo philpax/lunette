@@ -1,10 +1,8 @@
 local schema = require '@lunette-plugin/schema'
 
+-- The timer is read at each call, because the test harness replaces lovr.timer after this module loads.
 local function clock(): number
-  if lovr and lovr.timer and lovr.timer.getTime then
-    return lovr.timer.getTime()
-  end
-  return os.clock()
+  return lovr.timer.getTime()
 end
 
 local SCHEMA = schema.object {

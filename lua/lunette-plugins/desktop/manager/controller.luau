@@ -17,41 +17,25 @@ export type State = controllerActions.State & {
   entries: { composition.Entry },
   readers: { brokers.Reader },
   sidebar: number,
-  bodyTop: number,
-  graphBounds: graph.Box,
-  bodyBounds: graph.Box,
-  editBounds: graph.Box?,
-  searchBounds: graph.Box?,
+  layout: toolbarLayout.Layout,
   draftEntry: string?,
   buttons: { controllerActions.Button },
   actions: { [string]: controllerActions.Action },
-  rows: { draw.Row },
-  rowIndices: { number },
   lines: { string },
   detailRecords: { string },
   measuredRecords: { string }?,
   measuredDetails: { string }?,
-  rowHeight: number,
-  rowSpacing: number,
   wrappedDetails: boolean,
-  wrapDetails: (({ string }, number) -> { string })?,
 }
 
 local refresh: (State) -> ()
-local refreshRows: (State) -> ()
 local selectedEntry: (State) -> composition.Entry?
-local cancelEdit: (State) -> ()
+local showDetails: (State, { string }) -> ()
 local localPoint: (State, graph.Point) -> graph.Point
+local cancelEdit = controllerActions.cancelEdit
 
-function controller.new(
-  service: composition.Service,
-  readers: { brokers.Reader },
-  width: number,
-  height: number,
-  wrapDetails: (({ string }, number) -> { string })?,
-  close: (() -> ())?
-): State
-  local layout = toolbarLayout.compute(width, height, false, false)
+function controller.new(service: composition.Service, readers: { brokers.Reader }, width: number, height: number): State
+  local layout = toolbarLayout.compute(width, height, false, false, nil, 'entries', 'inspect')
   local state: State = {
     view = view.new { x = layout.graphBounds.width, y = layout.graphBounds.height },
     service = service,
@@ -65,11 +49,7 @@ function controller.new(
     tab = 'inspect',
     catalog = {},
     catalogSelection = nil,
-    bodyTop = layout.detailsTop,
-    graphBounds = layout.graphBounds,
-    bodyBounds = layout.bodyBounds,
-    editBounds = nil,
-    searchBounds = nil,
+    layout = layout,
     scroll = 0,
     draft = nil,
     draftEntry = nil,
@@ -79,18 +59,12 @@ function controller.new(
     message = '',
     buttons = {},
     actions = {},
-    rows = {},
-    rowIndices = {},
     editorRows = {},
     lines = {},
     detailRecords = {},
     measuredRecords = nil,
     measuredDetails = nil,
-    rowHeight = 34,
-    rowSpacing = 2,
     wrappedDetails = false,
-    wrapDetails = wrapDetails,
-    close = close,
   }
   refresh(state)
   return state
@@ -100,47 +74,18 @@ function controller.update(state: State): ()
   refresh(state)
 end
 
-function controller.prepareStyle(
-  state: State,
-  rowHeight: number,
-  rowSpacing: number,
-  wrapDetails: (({ string }, number) -> { string })?
-): () -> ()
-  local prepared = table.clone(state)
-  prepared.rowHeight, prepared.rowSpacing = rowHeight, rowSpacing
-  if wrapDetails and state.wrappedDetails then
-    local all = wrapDetails(state.detailRecords, state.sidebar)
-    prepared.scroll = math.clamp(state.scroll, 0, math.max(0, #all - 1))
-    prepared.lines = {}
-    for index = prepared.scroll + 1, #all do
-      prepared.lines[#prepared.lines + 1] = all[index]
-    end
-  end
-  if rowHeight ~= state.rowHeight or rowSpacing ~= state.rowSpacing then
-    refreshRows(prepared)
-  end
-  return function(): ()
-    state.rowHeight, state.rowSpacing = prepared.rowHeight, prepared.rowSpacing
-    state.scroll, state.lines = prepared.scroll, prepared.lines
-    state.rows, state.rowIndices = prepared.rows, prepared.rowIndices
-  end
+-- Rows and the catalog are lists; the details text is wrapped only while neither is shown.
+function controller.listed(state: State): boolean
+  return state.tab == 'catalog' or (state.tab == 'configure' and state.draft ~= nil)
 end
 
 function controller.measureDetails(state: State, font: Font, size: number): ()
-  if state.tab == 'catalog' or (state.tab == 'configure' and state.draft) then
+  if controller.listed(state) then
     return
   end
-  local records = state.detailRecords
-  local all = draw.wrapDetails(font, records, state.sidebar, size)
-  if state.detailRecords ~= records then
-    return
-  end
-  state.measuredRecords, state.measuredDetails = records, all
-  state.scroll = math.clamp(state.scroll, 0, math.max(0, #all - 1))
-  state.lines = {}
-  for index = state.scroll + 1, #all do
-    state.lines[#state.lines + 1] = all[index]
-  end
+  local all = draw.wrapDetails(font, state.detailRecords, state.sidebar, size)
+  state.measuredRecords, state.measuredDetails = state.detailRecords, all
+  showDetails(state, all)
   state.wrappedDetails = true
 end
 
@@ -149,13 +94,10 @@ function controller.options(state: State): draw.Options
     width = state.width,
     height = state.height,
     sidebar = state.sidebar,
-    detailsTop = state.bodyTop,
+    detailsTop = state.layout.detailsTop,
     details = state.lines,
     wrappedDetails = state.wrappedDetails,
-    buttons = state.buttons,
-    rows = state.rows,
-    graphBounds = state.graphBounds,
-    bodyBounds = state.bodyBounds,
+    body = if controller.listed(state) then state.layout.bodyBounds else nil,
     footer = if state.edit
       then 'Editing: ' .. state.text
       else if state.view.searchActive then 'Search: ' .. state.view.query else state.message,
@@ -217,13 +159,16 @@ function controller.confirmText(state: State): boolean
   controllerActions.change(state, nextModel, problem)
   if nextModel then
     cancelEdit(state)
+    state.row = nil
   end
   refresh(state)
   return nextModel ~= nil
 end
 
+-- Ending an edit deselects its row, so selecting the row again restarts the edit.
 function controller.cancelText(state: State, refreshDetails: boolean?): ()
   cancelEdit(state)
+  state.row = nil
   if refreshDetails ~= false then
     refresh(state)
   end
@@ -233,14 +178,8 @@ function controller.clearText(state: State): ()
   controller.setText(state, '')
 end
 
-function controller.selectRow(state: State, index: number, activate: boolean?): ()
-  if state.tab == 'catalog' then
-    local known = state.catalog[index]
-    if known then
-      controller.selectCatalog(state, known.id)
-    end
-    return
-  end
+-- Selecting an editable text row starts its edit; boolean and choice rows show their value field instead.
+function controller.selectRow(state: State, index: number): ()
   local row = if state.tab == 'configure' then state.editorRows[index] else nil
   if not row then
     return
@@ -249,22 +188,26 @@ function controller.selectRow(state: State, index: number, activate: boolean?): 
     cancelEdit(state)
   end
   state.row = index
-  local model = state.draft
-  if activate and model then
-    if row.readOnly then
-      state.message = row.reason or 'This value is read-only.'
-    elseif row.control == 'boolean' then
-      cancelEdit(state)
-      controllerActions.change(state, editor.toggle(model, row.path))
-    elseif row.control == 'number' or row.control == 'string' then
-      if not state.edit then
-        state.text = row.text
-        state.edit = { operation = 'set', path = row.path }
-        state.message = if row.escaped then 'Editing escaped bytes: use \\\\, \\n, \\r, \\t, or \\xHH.' else ''
-      end
-    elseif row.control ~= 'choice' then
-      state.message = row.description or 'Select a child option, or use Add, Remove, and Reset.'
+  if row.readOnly then
+    state.message = row.reason or 'This value is read-only.'
+  elseif row.control == 'number' or row.control == 'string' then
+    if not state.edit then
+      state.text = row.text
+      state.edit = { operation = 'set', path = row.path }
+      state.message = if row.escaped then 'Editing escaped bytes: use \\\\, \\n, \\r, \\t, or \\xHH.' else ''
     end
+  elseif row.control ~= 'boolean' and row.control ~= 'choice' then
+    state.message = row.description or 'Select a child option, or use Add, Remove, and Reset.'
+  end
+  refresh(state)
+end
+
+function controller.toggle(state: State): ()
+  local row = if state.tab == 'configure' and state.row then state.editorRows[state.row] else nil
+  local model = state.draft
+  if model and row and row.control == 'boolean' and not row.readOnly then
+    cancelEdit(state)
+    controllerActions.change(state, editor.toggle(model, row.path))
   end
   refresh(state)
 end
@@ -306,7 +249,7 @@ function controller.scrollBy(state: State, rows: number): ()
 end
 
 function controller.graphPress(state: State, point: graph.Point): ()
-  local bounds = state.graphBounds
+  local bounds = state.layout.graphBounds
   if
     point.x >= bounds.x
     and point.x < bounds.x + bounds.width
@@ -358,28 +301,30 @@ selectedEntry = function(state: State): composition.Entry?
   return if selection and selection.kind == 'node' then details.entry(state.entries, selection.id) else nil
 end
 
-cancelEdit = function(state: State): ()
-  state.edit, state.text = nil, ''
+localPoint = function(state: State, point: graph.Point): graph.Point
+  return { x = point.x - state.layout.graphBounds.x, y = point.y - state.layout.graphBounds.y }
 end
 
-localPoint = function(state: State, point: graph.Point): graph.Point
-  return { x = point.x - state.graphBounds.x, y = point.y - state.graphBounds.y }
+showDetails = function(state: State, all: { string }): ()
+  state.scroll = math.clamp(state.scroll, 0, math.max(0, #all - 1))
+  state.lines = table.move(all, state.scroll + 1, #all, 1, {})
 end
 
 refresh = function(state: State): ()
   state.projected = projection.snapshot(state.service:snapshot())
   state.entries = state.service:entries()
   state.catalog = state.service:catalog()
-  local layout = toolbarLayout.compute(
+  -- The graph viewport does not depend on the sidebar, so it is settled before the selection is.
+  local graphBounds = toolbarLayout.compute(
     state.width,
     state.height,
-    state.edit ~= nil,
+    false,
     state.view.searchActive,
     nil,
     state.presentation,
     state.tab
-  )
-  state.view.viewport = { x = layout.graphBounds.width, y = layout.graphBounds.height }
+  ).graphBounds
+  state.view.viewport = { x = graphBounds.width, y = graphBounds.height }
   view.update(state.view, state.projected.graph)
   local entry = selectedEntry(state)
   if not entry or (state.draftEntry and state.draftEntry ~= entry.id) then
@@ -394,7 +339,6 @@ refresh = function(state: State): ()
   end
   local draft = state.draft
   state.editorRows = if draft then editor.rows(draft) else {}
-  state.rows, state.rowIndices = {}, {}
   state.wrappedDetails = false
   local selectedRow = if state.tab == 'configure' and state.row then state.editorRows[state.row] else nil
   local valueField: ('boolean' | 'choice')? = nil
@@ -403,7 +347,7 @@ refresh = function(state: State): ()
       valueField = selectedRow.control
     end
   end
-  layout = toolbarLayout.compute(
+  state.layout = toolbarLayout.compute(
     state.width,
     state.height,
     state.edit ~= nil,
@@ -412,18 +356,12 @@ refresh = function(state: State): ()
     state.presentation,
     state.tab
   )
-  state.bodyTop = layout.detailsTop
-  state.graphBounds, state.bodyBounds = layout.graphBounds, layout.bodyBounds
-  state.editBounds, state.searchBounds = layout.editBounds, layout.searchBounds
-  state.view.viewport = { x = layout.graphBounds.width, y = layout.graphBounds.height }
   if state.tab == 'catalog' then
-    state.lines = { 'Known session entries', 'Select a removed entry, then Load.' }
-    refreshRows(state)
+    showDetails(state, { 'Known session entries', 'Select a removed entry, then Load.' })
   elseif state.tab == 'configure' and entry and entry.schema then
-    state.lines = { entry.id .. ': configuration draft', 'Callbacks and opaque values remain read-only.' }
-    refreshRows(state)
+    showDetails(state, { entry.id .. ': configuration draft', 'Callbacks and opaque values remain read-only.' })
     if state.message == '' then
-      state.message = tostring(#state.editorRows) .. ' options; use Previous/Next to scroll.'
+      state.message = tostring(#state.editorRows) .. ' options.'
     end
   else
     local all = details.lines(
@@ -447,21 +385,13 @@ refresh = function(state: State): ()
       all = previous
     end
     state.detailRecords = all
-    local wrapDetails = state.wrapDetails
-    if wrapDetails then
-      all = wrapDetails(all, state.sidebar)
-      state.wrappedDetails = true
-    elseif state.measuredRecords == all and state.measuredDetails then
+    if state.measuredRecords == all and state.measuredDetails then
       all = state.measuredDetails
       state.wrappedDetails = true
     end
-    state.scroll = math.clamp(state.scroll, 0, math.max(0, #all - 1))
-    state.lines = {}
-    for index = state.scroll + 1, #all do
-      state.lines[#state.lines + 1] = all[index]
-    end
+    showDetails(state, all)
   end
-  state.buttons, state.actions = controllerActions.build(state, entry, {
+  state.buttons, state.actions = controllerActions.build(state, state.layout, entry, {
     confirm = function()
       controller.confirmText(state)
     end,
@@ -472,32 +402,6 @@ refresh = function(state: State): ()
       controller.clearText(state)
     end,
   })
-end
-
-refreshRows = function(state: State): ()
-  if state.tab ~= 'catalog' and state.tab ~= 'configure' then
-    return
-  end
-  local count = if state.tab == 'catalog' then #state.catalog else #state.editorRows
-  state.scroll = math.clamp(state.scroll, 0, math.max(0, count - 1))
-  state.rows, state.rowIndices = {}, {}
-  local step = state.rowHeight + state.rowSpacing
-  local available = math.max(1, math.floor(state.bodyBounds.height / step))
-  for index = state.scroll + 1, math.min(count, state.scroll + available) do
-    local known, row = state.catalog[index], state.editorRows[index]
-    local catalog = state.tab == 'catalog'
-    state.rows[#state.rows + 1] = {
-      x = state.bodyBounds.x,
-      y = state.bodyBounds.y + #state.rows * step,
-      width = state.bodyBounds.width,
-      height = state.rowHeight,
-      label = if catalog then known.id else row.label,
-      value = if catalog then (if known.installed then 'installed' else 'removed') else row.text,
-      selected = if catalog then known.id == state.catalogSelection else index == state.row,
-      editable = if catalog then not known.installed else not row.readOnly,
-    }
-    state.rowIndices[#state.rowIndices + 1] = index
-  end
 end
 
 return controller

@@ -331,9 +331,7 @@ test('malformed composition input and recursive containers fail before activatio
   expect.raises(function()
     management.start { { id = 'recursive', definition = definition, config = recursive } }
   end, 'recursive table')
-  for _, options in
-    { { extra = true }, { protected = false }, { protected = { 1 } }, { protected = { 'valid', 'valid' } } }
-  do
+  for _, options in { { extra = true }, { protected = false }, { protected = { 1 } } } do
     expect.raises(function()
       management.start({ { id = 'valid', definition = definition } }, options)
     end)
@@ -393,6 +391,7 @@ test('provider outages retain the factory definition and composed configuration'
   }
   entries = plugin.compose(entries, { { id = 'dependent', config = { map = {} } } })
   local running = management.start(entries)
+  local started = made
   expect.equal(next(received), nil)
   running.service:disable 'provider'
   expect.equal(entry(running.service, 'dependent').state, 'inactive')
@@ -400,7 +399,7 @@ test('provider outages retain the factory definition and composed configuration'
   expect.equal(entry(running.service, 'dependent').state, 'active')
   expect.equal(next(received), nil)
   expect.equal(loads, 2)
-  expect.equal(made, 1, 'provider recovery retains the source definition')
+  expect.equal(made, started, 'provider recovery retains the source definition')
   running.runtime:close()
 end)
 

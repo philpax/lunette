@@ -15,9 +15,10 @@ local function fixture()
     return seat
   end
   env.default = env.seat(1)
-  env.state = routes.new(function()
+  require('@lunette').defaultSeat = function()
     return env.default
-  end)
+  end
+  env.state = routes.new()
   function env.native(id, seat)
     return { target = { kind = 'native', seat = seat, sink = { id = id, domain = 'window', dead = false } } }
   end

@@ -2,37 +2,22 @@
 
 local schema = require '@lunette-plugin/schema'
 local vocabulary = require '@lunette-contracts/vocabulary'
+local descriptors = require '@lunette-plugins/theme/descriptors'
 
 local frameStyle = {}
-local positive = schema.number { positive = true }
 local nonnegative = schema.number { minimum = 0 }
 local descriptor = schema.object {
-  headerHeight = positive,
+  headerHeight = schema.number { positive = true },
   headerRadius = nonnegative,
   borderThickness = nonnegative,
   borderDepth = nonnegative,
-  borderColor = schema.array(schema.number { minimum = 0, maximum = 1 }, { minLength = 4, maxLength = 4 }),
+  borderColor = descriptors.color,
 }
 
 function frameStyle.validate(value: vocabulary.FrameStyle): vocabulary.FrameStyle
   return descriptor.parse(value, 'theme frame style')
 end
 
-function frameStyle.equal(a: vocabulary.FrameStyle, b: vocabulary.FrameStyle): boolean
-  if
-    a.headerHeight ~= b.headerHeight
-    or a.headerRadius ~= b.headerRadius
-    or a.borderThickness ~= b.borderThickness
-    or a.borderDepth ~= b.borderDepth
-  then
-    return false
-  end
-  for index = 1, 4 do
-    if a.borderColor[index] ~= b.borderColor[index] then
-      return false
-    end
-  end
-  return true
-end
+frameStyle.equal = descriptors.equal :: (vocabulary.FrameStyle, vocabulary.FrameStyle) -> boolean
 
 return frameStyle

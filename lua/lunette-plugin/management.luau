@@ -5,8 +5,6 @@ local compose = require '@lunette-plugin/compose'
 local contract = require '@lunette-contracts/composition'
 local lunette = require '@lunette'
 local optionsModule = require '@lunette-plugin/options'
-local schema = require '@lunette-plugin/schema'
-local schemaRuntime = require '@lunette-plugin/schema/runtime'
 local management = {}
 
 export type Options = { read protected: { string }? }
@@ -15,7 +13,6 @@ export type Running = {
   read service: contract.Service,
 }
 
-type Raw = { [unknown]: unknown }
 type Prepared = { read id: string, read definition: adapter.Definition<any>, read config: unknown }
 type Record = {
   definition: adapter.Definition<any>,
@@ -33,98 +30,8 @@ local function fail(message: string): never
   error('composition: ' .. message, 0)
 end
 
-local function selected(value: unknown, metadata: schema.Metadata?): schema.Metadata?
-  local node = metadata
-  while node do
-    if node.kind == 'default' or node.kind == 'optional' or node.kind == 'refine' then
-      node = node.child
-    elseif node.kind == 'union' then
-      local matched: schema.Metadata? = nil
-      for _, alternative in node.alternatives or {} do
-        if pcall(schemaRuntime.parse, alternative, value, 'composition configuration') then
-          matched = alternative
-          break
-        end
-      end
-      if not matched then
-        schemaRuntime.parse(node, value, 'composition configuration')
-      end
-      node = matched
-    else
-      return node
-    end
-  end
-  return nil
-end
-
-local function copied(value: unknown, metadata: schema.Metadata?, active: { [Raw]: boolean }?): unknown
-  local node = selected(value, metadata)
-  if node and (node.kind == 'custom' or node.kind == 'callback') then
-    return value
-  end
-  if type(value) ~= 'table' or getmetatable(value) ~= nil then
-    return value
-  end
-  local visiting = active or {}
-  local raw = value :: Raw
-  if visiting[raw] then
-    fail 'configuration contains a recursive table'
-  end
-  visiting[raw] = true
-  local result: Raw = {}
-  for key, item in raw do
-    local child: schema.Metadata? = nil
-    if node then
-      if node.kind == 'object' and node.fields and type(key) == 'string' then
-        child = node.fields[key]
-      elseif node.kind == 'array' or node.kind == 'map' then
-        child = node.child
-      end
-    end
-    result[key] = copied(item, child, visiting)
-  end
-  visiting[raw] = nil
-  return table.freeze(result)
-end
-
-local function checkedEntries(entries: { compose.Entry }): { compose.Entry }
-  if type(entries) ~= 'table' then
-    fail 'the entry list is a table'
-  end
-  local sanitized: { compose.Entry } = {}
-  local count = #entries
-  for key, entry in (entries :: unknown) :: Raw do
-    if type(key) ~= 'number' or key < 1 or key > count or key ~= math.floor(key) then
-      fail('the entry list has an invalid position ' .. tostring(key))
-    end
-    if type(entry) ~= 'table' then
-      fail('entry ' .. tostring(key) .. ' is a table')
-    end
-    local raw = entry :: Raw
-    if raw.config ~= nil and type(raw.config) ~= 'table' then
-      fail('entry ' .. tostring(raw.id) .. ': config is a table of options')
-    end
-    -- Preserve the config reference so resolveEntry can find deferred layers and recover opaque identities.
-    local fields = table.clone(raw)
-    fields.config = nil
-    sanitized[key :: number] = (fields :: unknown) :: compose.Entry
-  end
-  local checked = compose.apply(sanitized)
-  local result: { compose.Entry } = {}
-  for index, entry in checked do
-    result[index] = table.freeze {
-      id = entry.id,
-      definition = entry.definition,
-      factory = entry.factory,
-      config = entries[index].config,
-    }
-  end
-  return result
-end
-
 local function preflight(definition: adapter.Definition<any>, config: unknown): unknown
-  local metadata = definition.schema
-  local snapshot = copied(config, metadata)
+  local snapshot = compose.snapshot(config, definition.schema)
   local resolve = definition.resolve
   if resolve then
     resolve(snapshot)
@@ -132,70 +39,28 @@ local function preflight(definition: adapter.Definition<any>, config: unknown): 
   return snapshot
 end
 
-local function checkedDefinition(id: string, value: unknown): adapter.Definition<any>
-  local raw = value :: Raw
-  local valid = type(value) == 'table'
-    and getmetatable(value) == nil
-    and type(raw.name) == 'string'
-    and raw.name ~= ''
-    and type(raw.requires) == 'table'
-    and type(raw.provides) == 'table'
-    and type(raw.init) == 'function'
-    and (raw.schema == nil or type(raw.schema) == 'table')
-    and (raw.resolve == nil or type(raw.resolve) == 'function')
-  if not valid then
-    fail('entry ' .. id .. ': definition is not a plugin definition')
-  end
-  return value :: adapter.Definition<any>
-end
-
 local function prepared(entry: compose.Entry): Prepared
   if entry.id == 'composition' then
     fail 'entry composition is reserved'
   end
-  local factory = entry.factory
-  -- Validate the source before compose reads its schema, preserving the structured definition error.
-  local resolved = compose.resolveEntry {
-    id = entry.id,
-    definition = if entry.definition then checkedDefinition(entry.id, entry.definition) else nil,
-    factory = if factory
-      then function(): adapter.Definition<any>
-        return checkedDefinition(entry.id, factory())
-      end
-      else nil,
-    config = entry.config,
-  }
+  local resolved = compose.resolveEntry(entry)
   return { id = entry.id, definition = resolved.definition, config = preflight(resolved.definition, resolved.config) }
 end
 
 function management.start(entries: { compose.Entry }, options: Options?): Running
-  local checked = checkedEntries(entries)
+  local checked = compose.apply(entries)
   local protectedIds: { [string]: boolean } = { composition = true }
   if options ~= nil then
-    if type(options) ~= 'table' then
-      fail 'options is a table'
+    optionsModule.rejectUnknownFields('composition', options, { protected = true }, 'protected', 0)
+    local ids: unknown = options.protected
+    if ids ~= nil and type(ids) ~= 'table' then
+      fail 'protected is a list of entry ids'
     end
-    optionsModule.rejectUnknownFields('composition', (options :: unknown) :: Raw, { protected = true }, 'protected', 0)
-    local ids = options.protected
-    if ids ~= nil then
-      if type(ids) ~= 'table' then
-        fail 'protected is a list of entry ids'
+    for _, id in (ids or {}) :: { unknown } do
+      if type(id) ~= 'string' then
+        fail('protected names an entry id, not a ' .. type(id))
       end
-      local named: { [string]: boolean } = {}
-      for key, id in (ids :: unknown) :: Raw do
-        if type(key) ~= 'number' or key < 1 or key > #ids or key ~= math.floor(key) then
-          fail('protected has an invalid position ' .. tostring(key))
-        end
-        if type(id) ~= 'string' or id == '' then
-          fail 'protected names a non-empty entry id'
-        end
-        local protectedId = id :: string
-        if named[protectedId] then
-          fail('duplicate protected entry ' .. protectedId)
-        end
-        named[protectedId] = true
-        protectedIds[protectedId] = true
-      end
+      protectedIds[id :: string] = true
     end
   end
   local known: { [string]: boolean } = { composition = true }

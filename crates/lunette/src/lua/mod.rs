@@ -43,7 +43,7 @@ use lunette_compositor::{
     state::{DEFAULT_OUTPUT, DEFAULT_SEAT},
 };
 use lunette_lovr::raw::{_luax_pushtype, ObjectType_T_Texture};
-use mlua::{Function, Lua, Table, Value};
+use mlua::{ErrorContext, Function, Lua, Table, Value};
 
 pub use crate::lua::{
     claim::{Claim, ClaimRegistry, LuaLayer, PoolRegistry},
@@ -75,8 +75,8 @@ use crate::{
     },
     mirrors::MirrorRegistry,
     plugin::{
-        attachment::{PluginFailure, set_reporter},
-        declarations::{install as install_plugin, install_attachment},
+        attachment::{self, PluginFailure, set_reporter},
+        declarations::install as install_plugin,
     },
     properties::WindowProperties,
     reload::reload_from_lua,
@@ -98,7 +98,7 @@ pub const MODULE_NAME: &str = "@lunette";
 ///
 /// Returns an error if `package.preload` is unavailable or the loader cannot be created.
 pub fn install<T: LuaTexture>(lua: &Lua, session: &Rc<Session<T>>) -> mlua::Result<()> {
-    install_attachment(lua)?;
+    attachment::install(lua)?;
     // A plugin's load or cleanup failure takes the path a configuration
     // callback's error takes, so `lunette.onError` listeners see it.
     let reporter_session = Rc::clone(session);
@@ -764,32 +764,20 @@ record! {
     }
 }
 
-/// Reads `lunette.reportError` fields and names a missing `context` or `message` in the error.
+/// Reads `lunette.reportError` fields and names a missing or mistyped one in the error.
 fn report_error_fields(options: &Table) -> mlua::Result<TracedError> {
-    let required = |name: &str| -> mlua::Result<String> {
-        match options.get::<Value>(name)? {
-            Value::String(text) => Ok(text.to_string_lossy()),
-            other => Err(mlua::Error::runtime(format!(
-                "lunette: reportError's {name} is a string, not a {}",
-                other.type_name()
-            ))),
-        }
-    };
-    let context = required("context")?;
-    let message = required("message")?;
-    let traceback = match options.get::<Value>("traceback")? {
-        Value::Nil => String::new(),
-        Value::String(text) => text.to_string_lossy(),
-        other => {
-            return Err(mlua::Error::runtime(format!(
-                "lunette: reportError's traceback is a string, not a {}",
-                other.type_name()
-            )));
-        }
-    };
+    let context: String = options
+        .get("context")
+        .context("lunette: reportError's context")?;
+    let message: String = options
+        .get("message")
+        .context("lunette: reportError's message")?;
+    let traceback: Option<String> = options
+        .get("traceback")
+        .context("lunette: reportError's traceback")?;
     Ok(TracedError {
         message: format!("{context}: {message}"),
-        traceback,
+        traceback: traceback.unwrap_or_default(),
     })
 }
 

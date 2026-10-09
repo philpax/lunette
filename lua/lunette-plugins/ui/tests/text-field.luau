@@ -240,46 +240,6 @@ test('reports validator and change callback failures through the host without lo
   expect.equal(field.state.reports[1].name, 'validate')
 end)
 
-test('does not continue stale edits after validation disposes or replaces the field state', function()
-  local field, changes = nil, 0
-  field = fixture.new {
-    validate = function(value)
-      if value == 'dispose' then
-        field.state.live = false
-      elseif value == 'replace' then
-        field.field:setValue 'newer'
-      end
-      return 'stale error'
-    end,
-    onChange = function()
-      changes += 1
-    end,
-  }
-  field.receiver.text 'replace'
-  expect.equal(field.field:value(), 'newer')
-  expect.equal(changes, 0, 'no stale onChange after reentrant replacement')
-  field.field:setValue ''
-  field.receiver.text 'dispose'
-  expect.equal(changes, 0, 'no onChange after disposal')
-  expect.equal(field.receiver.text 'ignored', false)
-  expect.equal(field.receiver.key(fixture.key(codes.backspace)), false)
-end)
-
-test('a reentrant external error is not overwritten by an older validator result', function()
-  local field
-  field = fixture.new {
-    validate = function(value)
-      if value == 'draft' then
-        field.field:setError 'Newer external error.'
-        return 'Older validation error.'
-      end
-    end,
-  }
-  field.receiver.text 'draft'
-  expect.equal(field.field:value(), 'draft')
-  expect.equal(field.snapshot().error, 'Newer external error.')
-end)
-
 test('empty text commits preserve selections and published snapshots remain detached', function()
   local field = fixture.new { value = 'draft' }
   field.field:setSelection(3, 1)

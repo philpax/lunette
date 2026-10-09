@@ -3,6 +3,7 @@ local lunette = require '@lunette'
 local ui = require '@lunette-contracts/ui'
 local geometry = require './geometry'
 local measurement = require './measurement-cache'
+local textFit = require './text-fit'
 local rounded = require '@lunette-plugins/theme/rounded-geometry'
 local textFieldGeometry = {}
 
@@ -21,7 +22,6 @@ export type Layout = {
 }
 
 local advance: (Font, string, number) -> number
-local singleLine: (string) -> string
 
 function textFieldGeometry.layout(
   value: string,
@@ -34,11 +34,7 @@ function textFieldGeometry.layout(
   cache: measurement.Cache?,
   faceClip: ui.Bounds?
 ): Layout?
-  geometry.validateBounds(bounds)
-  geometry.validateBounds(clip)
-  assert(theme.padding >= 0 and theme.padding < math.huge, 'ui text field: padding must be nonnegative and finite')
-  geometry.positive(theme.fontSize, 'font size')
-  local height = geometry.positive(font:getHeight(), 'font height')
+  local height = font:getHeight()
   local textClip =
     geometry.intersect(clip, faceClip or rounded.safeClip(bounds, rounded.uniform(theme.controlRadius or 0)))
   local px, py = math.min(theme.padding, bounds.width / 2), math.min(theme.padding, bounds.height / 2)
@@ -118,7 +114,7 @@ function textFieldGeometry.layout(
   end
   local finish = boundaries[last]
   local result: Layout = table.freeze {
-    text = singleLine(value:sub(start, finish - 1)),
+    text = textFit.singleLine(value:sub(start, finish - 1)),
     start = start,
     finish = finish,
     scale = scale,
@@ -141,7 +137,6 @@ end
 
 -- Captured pointer positions outside the field select the nearest displayed endpoint.
 function textFieldGeometry.nearest(layout: Layout, x: number): number
-  assert(x == x and math.abs(x) < math.huge, 'ui text field: pointer x must be finite')
   local nearest, distance = layout.start, math.huge
   for index, position in layout.positions do
     local candidate = math.abs(position - x)
@@ -153,13 +148,7 @@ function textFieldGeometry.nearest(layout: Layout, x: number): number
 end
 
 advance = function(font: Font, value: string, scale: number): number
-  local width = font:getWidth(singleLine(value)) * scale
-  assert(width >= 0 and width < math.huge, 'ui text field: font advance must be nonnegative and finite')
-  return width
-end
-
-singleLine = function(value: string): string
-  return (value:gsub('[\r\n]', ' '))
+  return font:getWidth(textFit.singleLine(value)) * scale
 end
 
 return textFieldGeometry

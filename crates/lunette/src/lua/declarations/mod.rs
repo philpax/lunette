@@ -54,7 +54,7 @@ pub trait MethodsDescribed: Typed + Sized {
 }
 
 /// Declares handle fields for mlua or the Luau renderer.
-pub trait Surface<T: Described + Typed>: MethodSurface<T> {
+pub trait Surface<T: Described>: MethodSurface<T> {
     fn field<G, R>(&mut self, spec: FieldSpec, get: G)
     where
         G: Fn(&Lua, &T) -> mlua::Result<R> + MaybeSend + 'static,
@@ -63,7 +63,7 @@ pub trait Surface<T: Described + Typed>: MethodSurface<T> {
 
 pub fn add_fields<T, F>(fields: &mut F)
 where
-    T: Described + Typed + 'static,
+    T: Described + 'static,
     F: UserDataFields<T>,
 {
     fields.add_meta_field(HANDLE_METAFIELD, T::KIND.as_str());
@@ -75,7 +75,7 @@ where
 
 pub fn add_methods<T, M>(methods: &mut M)
 where
-    T: Described + Typed + 'static,
+    T: Described + 'static,
     M: UserDataMethods<T>,
 {
     T::describe(&mut MethodRegistrar {
@@ -270,7 +270,7 @@ pub struct Signature {
 
 /// Collects a handle's declarations without a Lua state.
 #[must_use]
-pub fn collect<T: Described + Typed>() -> Handle {
+pub fn collect<T: Described>() -> Handle {
     let mut collector = Collector::default();
     T::describe(&mut collector);
     Handle {
@@ -318,7 +318,7 @@ struct FieldRegistrar<'a, T, F> {
     handle: PhantomData<T>,
 }
 
-impl<T: Described + Typed, F: UserDataFields<T>> Surface<T> for FieldRegistrar<'_, T, F> {
+impl<T: Described, F: UserDataFields<T>> Surface<T> for FieldRegistrar<'_, T, F> {
     fn field<G, R>(&mut self, spec: FieldSpec, get: G)
     where
         G: Fn(&Lua, &T) -> mlua::Result<R> + MaybeSend + 'static,
@@ -344,9 +344,7 @@ struct MethodRegistrar<'a, T, M> {
     handle: PhantomData<T>,
 }
 
-impl<T: Described + Typed, Registry: UserDataMethods<T>> Surface<T>
-    for MethodRegistrar<'_, T, Registry>
-{
+impl<T: Described, Registry: UserDataMethods<T>> Surface<T> for MethodRegistrar<'_, T, Registry> {
     fn field<G, R>(&mut self, _: FieldSpec, _: G)
     where
         G: Fn(&Lua, &T) -> mlua::Result<R> + MaybeSend + 'static,
@@ -373,7 +371,7 @@ struct Collector {
     methods: Vec<Signature>,
 }
 
-impl<T: Described + Typed> Surface<T> for Collector {
+impl<T: Described> Surface<T> for Collector {
     fn field<G, R>(&mut self, spec: FieldSpec, _: G)
     where
         G: Fn(&Lua, &T) -> mlua::Result<R> + MaybeSend + 'static,

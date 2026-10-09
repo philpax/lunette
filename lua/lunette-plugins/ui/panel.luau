@@ -7,7 +7,6 @@ local quad = require '@lunette-contracts/quad'
 local records = require '@lunette-plugins/ui/panel-state'
 local handles = require '@lunette-plugins/ui/control-handle'
 local controlOwners = require '@lunette-plugins/ui/control-owners'
-local controlOrder = require '@lunette-plugins/ui/control-order'
 local validation = require '@lunette-plugins/ui/validation'
 local input = require '@lunette-plugins/ui/input'
 local geometry = require '@lunette-plugins/ui/geometry'
@@ -16,10 +15,10 @@ local globalTheme = require '@lunette-contracts/theme'
 local appearance = require './appearance'
 local panelDraw = require '@lunette-plugins/ui/panel-draw'
 local draw = require './draw'
+local cleanup = require './cleanup'
 local button = require '@lunette-plugins/ui/button'
 local textField = require '@lunette-plugins/ui/text-field'
-local choice = require '@lunette-plugins/ui/choice'
-local list = require '@lunette-plugins/ui/list'
+local collection = require '@lunette-plugins/ui/collection'
 local region = require '@lunette-plugins/ui/region'
 local panelGeometry = require './panel-geometry'
 local rounded = require '@lunette-plugins/theme/rounded-geometry'
@@ -34,62 +33,28 @@ export type Services = {
   read owners: controlOwners.Registry,
   read theme: globalTheme.Service,
 }
+-- One provider activation shares these with every panel it creates.
+export type Provider = {
+  read context: plugin.Context,
+  read services: Services,
+  read theme: ui.ThemeOverrides,
+  read draw: ui.DrawHook?,
+  read generation: ui.Generation,
+  read newTitlebar: (ui.Owner, string, vocabulary.Surface, ui.TitlebarOptions) -> ui.Titlebar,
+}
 
-local function positive(value: number, name: string): ()
-  assert(type(value) == 'number' and value > 0 and value < math.huge, 'ui: ' .. name .. ' is finite and positive')
-end
-
-local function cleanup(operations: { () -> () }): ()
-  local failures: { string } = {}
-  for _, operation in ipairs(operations) do
-    local ok, failure = pcall(operation)
-    if not ok then
-      failures[#failures + 1] = tostring(failure)
-    end
-  end
-  if #failures > 0 then
-    error('ui: panel cleanup: ' .. table.concat(failures, '; '), 0)
-  end
-end
-
-function panel.new(
-  context: plugin.Context,
-  owner: ui.Owner,
-  options: ui.PanelOptions,
-  services: Services,
-  providerTheme: ui.ThemeOverrides,
-  providerDraw: ui.DrawHook?,
-  generation: ui.Generation,
-  decorate: (string, vocabulary.Surface, ui.TitlebarOptions) -> ui.Titlebar,
-  disposed: () -> (),
-  retained: ((records.Panel) -> ())?
-): ui.Panel
-  context:checkOwner(owner)
-  options = validation.panel(options)
-  assert(type(options.name) == 'string' and options.name ~= '', 'ui: panel name is a non-empty string')
-  positive(options.width, 'width')
-  positive(options.height, 'height')
-  positive(options.logicalWidth, 'logicalWidth')
-  positive(options.logicalHeight, 'logicalHeight')
-  assert(options.visible == nil or type(options.visible) == 'boolean', 'ui: panel visible is a boolean')
-  assert(options.grabbable == nil or type(options.grabbable) == 'boolean', 'ui: panel grabbable is a boolean')
-  assert(options.draw == nil or type(options.draw) == 'function', 'ui: panel draw is a function')
-  local givenPose = options.pose
-  local pose = if givenPose then lovr.math.newMat4(givenPose) else lovr.math.newMat4()
-  geometry.validatePose(pose)
+-- Options arrive validated by the service; the returned record is the provider's private view of the handle.
+function panel.new(provider: Provider, owner: ui.Owner, options: ui.PanelOptions): (ui.Panel, records.Panel)
+  local context, services = provider.context, provider.services
+  local pose = if options.pose then lovr.math.newMat4(options.pose) else lovr.math.newMat4()
   local snapshot = services.theme:current()
-  local sx, sy = pose:getScale()
-  local radiusX = snapshot.theme.radii.uiPanel * options.logicalWidth / (options.width * math.abs(sx))
-  local radiusY = snapshot.theme.radii.uiPanel * options.logicalHeight / (options.height * math.abs(sy))
-  local overrides = theme.copyOverrides(options.theme)
-  local spec = theme.inherit(theme.inherit(theme.global(snapshot.theme, radiusX), providerTheme), overrides)
-  local resolved = theme.materialize(spec, services.theme:font(spec.font))
+  local overrides = options.theme
   local state: records.Panel = {
     dead = false,
     visible = options.visible ~= false,
     cancelling = false,
     name = options.name,
-    generation = generation,
+    generation = provider.generation,
     revision = 1,
     owner = owner,
     pose = pose,
@@ -98,54 +63,44 @@ function panel.new(
     logicalWidth = options.logicalWidth,
     logicalHeight = options.logicalHeight,
     grabbable = options.grabbable ~= false,
-    theme = resolved,
-    providerTheme = providerTheme,
+    theme = theme.materialize(theme.DEFAULT, services.theme:font()),
+    providerTheme = provider.theme,
     overrides = overrides,
-    spec = spec,
+    spec = theme.DEFAULT,
     measurements = draw.newCache(),
     themes = services.theme,
     themeRevision = snapshot.revision,
-    radiusX = radiusX,
-    radiusY = radiusY,
+    radiusX = 0,
+    radiusY = 0,
     shape = nil,
     contour = nil,
     frame = nil,
     frameMeshes = drawing.newCache(),
-    refreshing = false,
     refresh = function(): () end,
-    providerDraw = providerDraw,
+    providerDraw = provider.draw,
     draw = options.draw,
     controls = {},
     owners = services.owners,
     nextOrder = 0,
     surface = nil,
     captures = {},
-    pendingInput = {},
     hovered = {},
     pointerHover = {},
     context = context,
     focus = services.focus,
   }
+  state.radiusX, state.radiusY = appearance.radii(snapshot, state)
   state.refresh = function(): ()
     appearance.refresh(state)
   end
-  if retained then
-    retained(state)
-  end
+  appearance.refresh(state, true)
   local release: plugin.Effect? = nil
   local offered: plugin.Effect? = nil
   local chrome: ui.Titlebar? = nil
+  -- Handles are plain tables; this copies the record's current state into their public fields.
+  local publish: () -> ()
   local function live(): boolean
     return not state.dead and context:active() and context:owns(owner)
-  end
-  local function cancel(reason: vocabulary.CancelReason): ()
-    local wasCancelling = state.cancelling
-    state.cancelling = true
-    local ok, failure = pcall(input.cancel, state, nil, reason)
-    state.cancelling = wasCancelling
-    if not ok then
-      error(failure, 0)
-    end
   end
   local function destroy(): boolean
     if state.dead then
@@ -155,8 +110,8 @@ function panel.new(
     state.revision += 1
     local controls, oldOffer, oldChrome, oldFrame = state.controls, offered, chrome, state.frame
     state.controls, offered, chrome = {}, nil, nil
+    publish()
     local operations: { () -> () } = {
-      disposed,
       function(): ()
         draw.clearCache(state.measurements)
       end,
@@ -174,7 +129,7 @@ function panel.new(
         end
       end,
       function(): ()
-        cancel 'surface-dead'
+        input.cancel(state, nil, 'surface-dead')
       end,
     }
     for _, record in ipairs(controls) do
@@ -187,7 +142,7 @@ function panel.new(
         oldOffer:dispose()
       end
     end
-    cleanup(operations)
+    cleanup.run('ui: panel cleanup', operations)
     return true
   end
   local function requireLive(): ()
@@ -207,19 +162,20 @@ function panel.new(
     if not live() then
       return
     end
-    positive(width, 'width')
-    positive(height, 'height')
-    positive(logicalWidth or state.logicalWidth, 'logicalWidth')
-    positive(logicalHeight or state.logicalHeight, 'logicalHeight')
+    geometry.positive(width, 'width')
+    geometry.positive(height, 'height')
+    geometry.positive(logicalWidth or state.logicalWidth, 'logicalWidth')
+    geometry.positive(logicalHeight or state.logicalHeight, 'logicalHeight')
     state.width, state.height = width, height
     state.logicalWidth, state.logicalHeight = logicalWidth or state.logicalWidth, logicalHeight or state.logicalHeight
     state.revision += 1
-    cancel 'control-removed'
+    publish()
+    input.cancel(state, nil, 'control-removed')
     if chrome then
       chrome:sync()
     end
   end
-  local surfaceBase: vocabulary.Surface = {
+  local offeredSurface: vocabulary.Surface = {
     attachFrame = function(
       _self: vocabulary.Surface,
       frameOwner: plugin.Owner,
@@ -288,37 +244,8 @@ function panel.new(
       setSize(nextWidth, nextHeight, nil, nil)
     end,
   }
-  local surfaceMethods: { read [string]: unknown } = {
-    attachFrame = surfaceBase.attachFrame,
-    kind = surfaceBase.kind,
-    grabbable = surfaceBase.grabbable,
-    grabTarget = surfaceBase.grabTarget,
-    raycast = surfaceBase.raycast,
-    project = surfaceBase.project,
-    onPointer = surfaceBase.onPointer,
-    setPose = surfaceBase.setPose,
-    setSize = surfaceBase.setSize,
-  }
-  -- The checked surface supplies its methods; the metatable reads current geometry from the panel record.
-  local offeredSurface: vocabulary.Surface = table.freeze(setmetatable({}, {
-    __index = function(_self: unknown, key: string): unknown
-      if key == 'dead' then
-        return state.dead or not state.visible
-      elseif key == 'pose' then
-        return state.pose
-      elseif key == 'width' then
-        return state.width
-      elseif key == 'height' then
-        return state.height
-      end
-      return surfaceMethods[key]
-    end,
-    __newindex = function(): ()
-      error('ui: a panel surface is read-only', 2)
-    end,
-  })) :: vocabulary.Surface
   state.surface = offeredSurface
-  local base: ui.Panel = {
+  local handle: ui.Panel = {
     dead = false,
     setPose = function(_self: ui.Panel, given: Mat4): ()
       setPose(given)
@@ -351,28 +278,23 @@ function panel.new(
       end
       state.visible = visible
       state.revision += 1
+      publish()
       if chrome then
         chrome:sync()
       end
       if not visible then
-        local focused: focus.TargetHandle? = nil
-        cleanup {
+        local current = state.focus:focused()
+        local focused = if current and targets[current] then current else nil
+        cleanup.run('ui: panel cleanup', {
           function(): ()
-            local target = state.focus:focused()
-            if target and targets[target] then
-              focused = target
+            input.cancel(state, nil, 'hidden')
+          end,
+          function(): ()
+            if focused and not focused.dead and state.focus:focused() == focused then
+              focused:blur()
             end
           end,
-          function(): ()
-            cancel 'hidden'
-          end,
-          function(): ()
-            local target = focused
-            if target and not target.dead and state.focus:focused() == target then
-              target:blur()
-            end
-          end,
-        }
+        })
       end
     end,
     setTheme = function(_self: ui.Panel, overrides: ui.ThemeOverrides?): ()
@@ -393,7 +315,7 @@ function panel.new(
     describe = function(_self: ui.Panel): ui.Description
       state.refresh()
       local controls: { ui.ControlDescription } = {}
-      for _, record in ipairs(controlOrder.ordered(state.controls)) do
+      for _, record in ipairs(input.ordered(state.controls)) do
         if not record.dead then
           controls[#controls + 1] = table.freeze {
             id = record.id,
@@ -427,7 +349,7 @@ function panel.new(
         if chrome then
           chrome:update(given)
         else
-          chrome = decorate(options.name .. '/titlebar', offeredSurface, given)
+          chrome = provider.newTitlebar(owner, options.name .. '/titlebar', offeredSurface, given)
         end
       elseif chrome then
         local old = chrome
@@ -447,7 +369,7 @@ function panel.new(
       end
       local inverse = release
       release = nil
-      cleanup {
+      cleanup.run('ui: panel cleanup', {
         function(): ()
           destroy()
         end,
@@ -456,69 +378,53 @@ function panel.new(
             inverse:dispose()
           end
         end,
-      }
+      })
       return true
     end,
     button = function(_self: ui.Panel, controlOwner: ui.Owner, given: ui.ButtonOptions): ui.Button
       requireLive()
       given = validation.button(given)
-      return handles.create(state, controlOwner, given, function(host)
+      return handles.create(state, controlOwner, 'button', given, function(host)
         return button.new(given, host)
       end)
     end,
     textField = function(_self: ui.Panel, controlOwner: ui.Owner, given: ui.TextFieldOptions): ui.TextField
       requireLive()
       given = validation.textField(given)
-      return handles.create(state, controlOwner, given, function(host)
+      return handles.create(state, controlOwner, 'text-field', given, function(host)
         return textField.new(given, host)
       end) :: ui.TextField
     end,
     choice = function(_self: ui.Panel, controlOwner: ui.Owner, given: ui.ChoiceOptions): ui.Choice
       requireLive()
       given = validation.choice(given)
-      return handles.create(state, controlOwner, given, function(host)
-        return choice.new(given, host)
+      return handles.create(state, controlOwner, 'choice', given, function(host)
+        return collection.widget('choice', given, host)
       end) :: ui.Choice
     end,
     list = function(_self: ui.Panel, controlOwner: ui.Owner, given: ui.ListOptions): ui.List
       requireLive()
       given = validation.list(given)
-      return handles.create(state, controlOwner, given, function(host)
-        return list.new(given, host)
+      return handles.create(state, controlOwner, 'list', given, function(host)
+        return collection.widget('list', given, host)
       end) :: ui.List
     end,
     region = function(_self: ui.Panel, controlOwner: ui.Owner, given: ui.RegionOptions): ui.Region
       requireLive()
       given = validation.region(given)
-      return handles.create(state, controlOwner, given, function(host)
+      return handles.create(state, controlOwner, 'region', given, function(host)
         return region.new(given, host)
       end) :: ui.Region
     end,
   }
-  local methods: { read [string]: unknown } = {
-    setPose = base.setPose,
-    setSize = base.setSize,
-    setVisible = base.setVisible,
-    setTheme = base.setTheme,
-    setTitlebar = base.setTitlebar,
-    describe = base.describe,
-    draw = base.draw,
-    destroy = base.destroy,
-    button = base.button,
-    textField = base.textField,
-    choice = base.choice,
-    list = base.list,
-    region = base.region,
-  }
-  -- The checked panel supplies its methods; the metatable keeps dead read-only and current.
-  local handle: ui.Panel = table.freeze(setmetatable({}, {
-    __index = function(_self: unknown, key: string): unknown
-      return if key == 'dead' then state.dead else methods[key]
-    end,
-    __newindex = function(): ()
-      error('ui: a panel is read-only', 2)
-    end,
-  })) :: ui.Panel
+  local surfaceFields = (offeredSurface :: unknown) :: { dead: boolean, width: number, height: number }
+  local handleFields = (handle :: unknown) :: { dead: boolean }
+  publish = function(): ()
+    surfaceFields.dead = state.dead or not state.visible
+    surfaceFields.width, surfaceFields.height = state.width, state.height
+    handleFields.dead = state.dead
+  end
+  publish()
   local ok, failure = pcall(function(): ()
     offered = services.surfaces:offer(context, {
       name = options.name,
@@ -527,7 +433,7 @@ function panel.new(
       end,
     })
     if options.titlebar then
-      chrome = decorate(options.name .. '/titlebar', offeredSurface, options.titlebar)
+      chrome = provider.newTitlebar(owner, options.name .. '/titlebar', offeredSurface, options.titlebar)
     end
     release = context:acquire(owner, function(): () -> ()
       return function(): ()
@@ -540,7 +446,7 @@ function panel.new(
     destroy()
     error(failure, 0)
   end
-  return handle
+  return handle, state
 end
 
 return panel

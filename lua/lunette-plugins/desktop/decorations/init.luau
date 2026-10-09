@@ -61,9 +61,7 @@ return plugin.consumer<<Config, Settings>>({
         end
       end
     end
-    registry:onAdded(context, function(_panel: panels.Panel): ()
-      refresh()
-    end)
+    -- A removed panel's bar ends at once, so it is never offered after its panel; new bars wait for the scene update.
     registry:onRemoved(context, {
       run = function(panel: panels.Panel): ()
         local bar = entries[panel]

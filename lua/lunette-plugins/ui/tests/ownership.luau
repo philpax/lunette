@@ -180,7 +180,7 @@ test('factory reentrancy reserves ids before callbacks and factory failures rele
   local state = ownership.panel(running)
   local create
   create = function(factory)
-    return handles.create(state, state.owner, ownership.options 'reserved', factory or ownership.widget)
+    return handles.create(state, state.owner, 'region', ownership.options 'reserved', factory or ownership.widget)
   end
   local original = create(function(host)
     expect.raises(function()
@@ -216,13 +216,13 @@ test('failed focus registration and interrupted acquisition leave no reserved co
     end,
   }
   expect.raises(function()
-    handles.create(state, state.owner, ownership.options 'failed', function(host)
+    handles.create(state, state.owner, 'region', ownership.options 'failed', function(host)
       return ownership.widget(host, receiver)
     end)
   end, 'focus acquisition failure', 'failed focus registration escapes')
   expect.equal(#state.controls, 0, 'failed registration leaves no record')
   expect.falsy(
-    handles.create(state, state.owner, ownership.options 'failed', ownership.widget).dead,
+    handles.create(state, state.owner, 'region', ownership.options 'failed', ownership.widget).dead,
     'registration failure frees the id'
   )
 
@@ -243,10 +243,10 @@ test('failed focus registration and interrupted acquisition leave no reserved co
     end,
   })
   expect.raises(function()
-    handles.create(interrupted, interrupted.owner, ownership.options 'interrupted', function(host)
+    handles.create(interrupted, interrupted.owner, 'region', ownership.options 'interrupted', function(host)
       return ownership.widget(host, receiver)
     end)
-  end, 'ended', 'owner death during registration prevents publication')
+  end, 'not loading or active', 'owner death during registration prevents publication')
   expect.equal(destroyed, 1, 'partial target is released')
   expect.equal(#interrupted.controls, 0, 'interrupted acquisition leaves no control')
   expect.equal(next(interrupted.owners), nil, 'owner teardown removes every reservation')
@@ -255,7 +255,7 @@ end)
 test('host lifetime guards suppress normal callbacks after disposal and owner death', function(running)
   local state, instance = ownership.panel(running)
   local host
-  local current = handles.create(state, state.owner, ownership.options 'guarded', function(created)
+  local current = handles.create(state, state.owner, 'region', ownership.options 'guarded', function(created)
     host = created
     return ownership.widget(created)
   end)

@@ -15,31 +15,7 @@ local config = require '@lunette-plugins/interaction/config'
 type Service = contracts.Service
 type Pointer = contracts.Pointer
 type Surface = contracts.Surface
-type State = {
-  tuning: contracts.Tuning,
-  handPosition: vector?,
-  grabbed: Surface?,
-  grab: grab.GrabState?,
-  scaling: grab.Scaling?,
-  pointer: Pointer?,
-  dead: boolean,
-  generation: number,
-  withdrawing: boolean,
-  seat: lunette.Seat?,
-  focusTarget: focusContract.TargetHandle?,
-  focused: focusContract.Target?,
-  hovered: Surface?,
-  hoveredSink: lunette.Sink?,
-  hitX: number?,
-  hitY: number?,
-  distance: number?,
-  held: { [lunette.PointerButton]: boolean },
-  pressed: { [lunette.PointerButton]: boolean },
-  blocked: { [lunette.PointerButton]: boolean },
-  quarantined: boolean,
-  captures: { [lunette.PointerButton]: input.Capture },
-  pendingCaptures: { [input.Capture]: { reason: contracts.CancelReason? } },
-  pressedSink: { [lunette.PointerButton]: input.NativePress },
+type State = input.State & nativeFocus.State & grab.PointerState & {
   gripped: boolean,
   grabInput: 'grip' | 'trigger',
   pulse: ((contracts.Haptic) -> boolean)?,
@@ -207,16 +183,12 @@ local function build(context: plugin.Context, settings: Settings): Service
     local function current(): boolean
       return live(state) and state.generation == generation
     end
-    local surfaces: { Surface } = {}
-    for index = 1, #offered do
-      surfaces[#surfaces + 1] = offered[index]
-    end
     local offeredSet: { [Surface]: boolean } = {}
-    for _, surface in ipairs(surfaces) do
-      offeredSet[surface] = true
+    for index = 1, #offered do
+      offeredSet[offered[index]] = true
     end
     local sample = input.sample(state, frame.buttons or {})
-    input.resolve(state, pointer, surfaces)
+    input.resolve(state, pointer, offered)
     if not current() then
       return
     end
@@ -250,30 +222,11 @@ local function build(context: plugin.Context, settings: Settings): Service
       end
       return
     end
-    local hit: Surface?, x: number?, y: number?, distance: number?
-    local length = frame.direction:length()
-    if length > 0 then
-      local ray = frame.direction * (1 / length)
-      for _, candidate in ipairs(surfaces) do
-        if not candidate.dead then
-          local cx, cy, cd = candidate:raycast(frame.origin, ray)
-          if not current() then
-            return
-          end
-          input.coordinates(cx, cy, cd)
-          if
-            not candidate.dead
-            and cx
-            and cy
-            and cd
-            and cd <= state.tuning.reach
-            and (not distance or cd < distance)
-          then
-            hit, x, y, distance = candidate, cx, cy, cd
-          end
-        end
-      end
+    local hit, x, y, distance = picking.pick(offered, frame.origin, frame.direction, state.tuning.reach)
+    if not current() then
+      return
     end
+    input.coordinates(x, y, distance)
     local sink = hit and hit.sink and hit:sink() or nil
     if not current() then
       return
@@ -323,26 +276,25 @@ local function build(context: plugin.Context, settings: Settings): Service
     end
   end
 
+  local function tuningFor(overrides: contracts.TuningOverride?): contracts.Tuning
+    if not overrides then
+      return TUNING
+    end
+    local tuning: { [string]: number } = {}
+    for key, value in TUNING :: any do
+      tuning[key] = (overrides :: any)[key] or value
+    end
+    return (tuning :: any) :: contracts.Tuning
+  end
+
   local function newPointer(owner: contracts.Owner, options: contracts.PointerOptions?): Pointer
     context:checkOwner(owner)
     local pulse = options and options.vibrate
     if pulse ~= nil and type(pulse) ~= 'function' then
       error("interaction: a pointer's vibrate is a function, not a " .. type(pulse), 3)
     end
-    local state: State = {
-      tuning = if options and options.tuning
-        then {
-          reach = options.tuning.reach or TUNING.reach,
-          grabDeadZone = options.tuning.grabDeadZone or TUNING.grabDeadZone,
-          scrollScale = options.tuning.scrollScale or TUNING.scrollScale,
-          scrollDeadZone = options.tuning.scrollDeadZone or TUNING.scrollDeadZone,
-          reachScale = options.tuning.reachScale or TUNING.reachScale,
-          reachMinimum = options.tuning.reachMinimum or TUNING.reachMinimum,
-          reachMaximum = options.tuning.reachMaximum or TUNING.reachMaximum,
-          resizeMinimum = options.tuning.resizeMinimum or TUNING.resizeMinimum,
-          resizeMaximum = options.tuning.resizeMaximum or TUNING.resizeMaximum,
-        }
-        else TUNING,
+    local state = {
+      tuning = tuningFor(options and options.tuning),
       handPosition = nil,
       grabbed = nil,
       grab = nil,
@@ -369,7 +321,7 @@ local function build(context: plugin.Context, settings: Settings): Service
       captures = {},
       pendingCaptures = {},
       pressedSink = {},
-    }
+    } :: State
     local cleanupEffect: plugin.Effect? = nil
     local public: Pointer
     local function destroyRaw(reason: contracts.CancelReason): boolean
@@ -477,13 +429,9 @@ local function build(context: plugin.Context, settings: Settings): Service
       end,
       update = function(self: Pointer, frame: contracts.Input, surfaces: { read [number]: Surface })
         if live(state) then
-          local generation = state.generation
-          input.validate(frame)
-          if live(state) and state.generation == generation then
-            state.generation += 1
-            input.observe(state, frame.buttons)
-            settings.drive(self, frame, surfaces, defaultDrive)
-          end
+          state.generation += 1
+          input.observe(state, frame.buttons)
+          settings.drive(self, frame, surfaces, defaultDrive)
         end
       end,
     }

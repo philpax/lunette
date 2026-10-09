@@ -12,11 +12,10 @@ export type State = {
   revision: number,
   failed: boolean,
   seats: { [number]: Authority },
-  defaultSeat: () -> lunette.Seat?,
 }
 
-function routes.new(defaultSeat: () -> lunette.Seat?): State
-  return { current = nil, revision = 0, failed = false, seats = {}, defaultSeat = defaultSeat }
+function routes.new(): State
+  return { current = nil, revision = 0, failed = false, seats = {} }
 end
 
 local function live(target: contract.Target?): boolean
@@ -29,11 +28,11 @@ local function live(target: contract.Target?): boolean
   return not target.sink.dead and (not target.seat or not target.seat.dead)
 end
 
-local function authoritySeat(state: State, target: contract.Target): lunette.Seat?
+local function authoritySeat(target: contract.Target): lunette.Seat?
   if target.kind ~= 'native' or target.sink.domain ~= 'window' then
     return nil
   end
-  return target.seat or state.defaultSeat()
+  return target.seat or lunette.defaultSeat()
 end
 
 -- Bookkeeping clears before the inverse; a refused clear cannot resurrect an old route.
@@ -70,7 +69,7 @@ function routes.focus(state: State, route: Route): boolean
     return true
   end
   local revision = state.revision
-  local seat = authoritySeat(state, target)
+  local seat = authoritySeat(target)
   if target.kind == 'native' and target.sink.domain == 'window' then
     if not seat or seat.dead or not seat:setFocus(target.sink) then
       return false

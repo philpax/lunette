@@ -26,10 +26,6 @@ local function build(context: plugin.Context, _settings: {}): Service
   local pending = false
   local disposing = false
 
-  local function checkActive(operation: string): ()
-    assert(open and context:active(), 'theme ' .. operation .. ': the provider is inactive')
-  end
-
   local function notify(): ()
     if draining or not open or not context:active() then
       return
@@ -99,15 +95,12 @@ local function build(context: plugin.Context, _settings: {}): Service
 
   return {
     current = function(_self: Service): contract.Snapshot
-      checkActive 'current'
       return current
     end,
     font = function(_self: Service, spec: contract.FontSpec?): Font
-      checkActive 'font'
       return face(descriptors.font.parse(if spec == nil then current.theme.typography.font else spec, 'theme font'))
     end,
     select = function(_self: Service, owner: contract.Owner, overrides: contract.ThemeOverrides): contract.Registration
-      checkActive 'select'
       context:checkOwner(owner)
       local captured = descriptors.overrides.parse(overrides, 'theme select')
       local resolved = descriptors.resolve(base, captured)
@@ -129,7 +122,6 @@ local function build(context: plugin.Context, _settings: {}): Service
       end)
       local registration: contract.Registration = table.freeze {
         update = function(_registration: contract.Registration, value: contract.ThemeOverrides): ()
-          checkActive 'selection update'
           assert(entry.live and context:owns(owner), 'theme selection update: the registration is disposed')
           local validated = descriptors.overrides.parse(value, 'theme selection update')
           local replacement = descriptors.resolve(base, validated)
@@ -151,13 +143,11 @@ local function build(context: plugin.Context, _settings: {}): Service
       return registration
     end,
     onChanged = function(_self: Service, owner: contract.Owner, run: (contract.Snapshot) -> ()): plugin.Effect
-      checkActive 'onChanged'
       context:checkOwner(owner)
       assert(type(run) == 'function', 'theme onChanged: the callback must be a function')
       return changed:add(owner, run)
     end,
     inspect = function(_self: Service): inspection.Snapshot
-      checkActive 'inspect'
       local result = changed:inspect 'theme.onChanged'
       for index, entry in selections do
         result[#result + 1] = inspection.registration('selection', 'theme.select', entry.owner, nil, entry.live, {

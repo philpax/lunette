@@ -1,9 +1,9 @@
--- Reads and writes versioned arrangement files. Future versions load without a writable arrangement, preventing old readers from dropping fields they cannot represent. Missing fields remain absent. File chunks run in an empty environment.
+-- Reads and writes versioned arrangement files. A file from a later version loads without an arrangement, so an
+-- old writer cannot drop fields it does not know. File chunks run in an empty environment.
+
+local vocabulary = require '@lunette-contracts/vocabulary'
 
 local format = {}
-
--- Scalar entry fields form a closed set; tags are serialized separately as a list.
-export type EntryField = 'kind' | 'key' | 'slot' | 'pose' | 'width' | 'height'
 
 export type Entry = {
   kind: 'window' | 'monitor',
@@ -14,185 +14,72 @@ export type Entry = {
   height: number?,
   tags: { string },
 }
-export type File = {
-  entries: { Entry },
-}
-type ArrangementLoad = {
-  kind: 'arrangement',
-  version: number,
-  file: File,
-  skipped: { string },
-  forSession: ((Loaded) -> File?)?,
-}
-type FutureLoad = {
-  kind: 'fromTheFuture',
-  found: number,
-  supported: number,
-  skipped: { string },
-  forSession: ((Loaded) -> File?)?,
-}
-type BrokenLoad = {
-  kind: 'broken',
-  message: string,
-  skipped: { string },
-  forSession: ((Loaded) -> File?)?,
-}
-export type Loaded = ArrangementLoad | FutureLoad | BrokenLoad
+export type File = { read entries: { Entry } }
+export type Loaded =
+  { read kind: 'arrangement', read file: File, read skipped: { string } }
+  | { read kind: 'fromTheFuture', read found: number }
+  | { read kind: 'broken', read message: string }
 
-local fileMetatable, loadedMetatable, quote
+local quote: (string | number) -> string
 local renderEntry: (Entry) -> string
 local readEntry: (any) -> (Entry?, string?)
 
-format.CURRENT_VERSION = 1
+format.VERSION = 1
 
--- Fixed field order keeps unchanged arrangements byte-for-byte stable.
-format.ENTRY_FIELDS = { 'kind', 'key', 'slot', 'pose', 'width', 'height' } :: { EntryField }
-
--- Copies the entry array so callers cannot mutate a pending save through that array.
 function format.newFile(entries: { Entry }): File
-  local held: { Entry } = {}
-  for index = 1, #(entries or {}) do
-    local entry = entries[index]
-    if type(entry) ~= 'table' then
-      error('desktop.persist: entry ' .. index .. ' is a table, not a ' .. type(entry), 2)
-    end
-    held[index] = entry
-  end
-  return setmetatable({ entries = held }, fileMetatable)
-end
-
-function format.isFile(value: unknown): boolean
-  return type(value) == 'table' and getmetatable(value) == fileMetatable
-end
-
--- Loads and arrangements use distinct metatables, independent of their fields.
-function format.isLoaded(value: unknown): boolean
-  return type(value) == 'table' and getmetatable(value) == loadedMetatable
+  return { entries = entries }
 end
 
 function format.entries(file: File): { Entry }
-  if not format.isFile(file) then
-    error('desktop.persist: an arrangement is one this module made, not a ' .. type(file), 2)
-  end
-  local copied = {}
-  for index = 1, #file.entries do
-    copied[index] = file.entries[index]
-  end
-  return copied
+  return file.entries
 end
 
--- Returns a broken load for parse or I/O damage, skips malformed entries, and reports them in `skipped`. Unsupported versions return no writable arrangement.
-function format.read(text: unknown): Loaded
-  if type(text) ~= 'string' then
-    return format.broken('the file is a ' .. type(text) .. ', not text')
-  end
-
-  -- LuaJIT returns a parse error; Luau raises one. Both become broken loads.
-  local ok, chunk = pcall(loadstring, text, '@arrangement')
+-- Malformed entries are refused and named in `skipped`; the rest load.
+function format.read(text: string): Loaded
+  local ok, chunk, failure = pcall(loadstring, text, '@arrangement')
   if not ok or not chunk then
-    return format.broken(tostring(chunk or 'the file is not parseable'))
+    return { kind = 'broken', message = tostring(if ok then failure else chunk) }
   end
   -- File contents are untrusted even when this process wrote them.
   setfenv(chunk, {})
 
   local ran, held = pcall(chunk)
   if not ran then
-    return format.broken(tostring(held))
+    return { kind = 'broken', message = tostring(held) }
   end
   if type(held) ~= 'table' then
-    return format.broken('the file holds a ' .. type(held) .. ', not an arrangement')
+    return { kind = 'broken', message = 'the file holds a ' .. type(held) .. ', not an arrangement' }
   end
 
   local version = held.version
   if type(version) ~= 'number' or version ~= math.floor(version) or version < 1 then
-    return format.broken 'the file declares no version'
+    return { kind = 'broken', message = 'the file declares no version' }
   end
-  if version > format.CURRENT_VERSION then
-    local future: FutureLoad = {
-      kind = 'fromTheFuture',
-      found = version,
-      supported = format.CURRENT_VERSION,
-      skipped = {},
-    }
-    setmetatable(future, loadedMetatable)
-    return future
+  if version > format.VERSION then
+    return { kind = 'fromTheFuture', found = version }
+  end
+  if type(held.entries) ~= 'table' then
+    return { kind = 'broken', message = 'the file holds no entry list' }
   end
 
-  local entries, skipped = {}, {}
-  for _, stored in ipairs(held.entries or {}) do
+  local entries: { Entry } = {}
+  local skipped: { string } = {}
+  for _, stored in ipairs(held.entries) do
     local entry, refused = readEntry(stored)
     if entry then
       entries[#entries + 1] = entry
     else
-      skipped[#skipped + 1] = refused
+      skipped[#skipped + 1] = refused :: string
     end
   end
-
-  local arrangement: ArrangementLoad = {
-    kind = 'arrangement',
-    version = version,
-    file = format.newFile(entries),
-    skipped = skipped,
-  }
-  setmetatable(arrangement, loadedMetatable)
-  return arrangement
+  return { kind = 'arrangement', file = { entries = entries }, skipped = skipped }
 end
 
-function format.empty(): ArrangementLoad
-  local arrangement: ArrangementLoad = {
-    kind = 'arrangement',
-    version = format.CURRENT_VERSION,
-    file = format.newFile {},
-    skipped = {},
-  }
-  setmetatable(arrangement, loadedMetatable)
-  return arrangement
-end
-
-function format.arrangement(
-  fields: { read file: File, read version: number, read skipped: { string }? }
-): ArrangementLoad
-  if not format.isFile(fields.file) then
-    error('desktop.persist: an arrangement load carries an arrangement newFile made', 2)
-  end
-  local arrangement: ArrangementLoad = {
-    kind = 'arrangement',
-    version = fields.version,
-    file = fields.file,
-    skipped = table.clone(fields.skipped or {}),
-  }
-  setmetatable(arrangement, loadedMetatable)
-  return arrangement
-end
-
--- Marks a newer file as unsupported so an older writer cannot drop its fields.
-function format.fromTheFuture(fields: { read found: number, read supported: number }): FutureLoad
-  local future: FutureLoad = {
-    kind = 'fromTheFuture',
-    found = fields.found,
-    supported = fields.supported,
-    skipped = {},
-  }
-  setmetatable(future, loadedMetatable)
-  return future
-end
-
-function format.broken(message: string): BrokenLoad
-  local broken: BrokenLoad = { kind = 'broken', message = message, skipped = {} }
-  setmetatable(broken, loadedMetatable)
-  return broken
-end
-
--- Renders every arrangement with the current format version.
 function format.render(file: File): string
-  if not format.isFile(file) then
-    error('desktop.persist: an arrangement is one this module made, not a ' .. type(file), 2)
-  end
-
   local lines = {
-    '-- The arrangement lunette last saved. Written by desktop.persist.',
+    '-- The arrangement lunette last saved.',
     'return {',
-    '  version = ' .. format.CURRENT_VERSION .. ',',
+    '  version = ' .. format.VERSION .. ',',
     '  entries = {',
   }
   for _, entry in ipairs(file.entries) do
@@ -203,93 +90,83 @@ function format.render(file: File): string
   return table.concat(lines, '\n') .. '\n'
 end
 
--- Future and broken loads expose no arrangement that a caller can write back.
-loadedMetatable = {
-  __index = {
-    forSession = function(self: Loaded): File?
-      if self.kind ~= 'arrangement' then
-        return nil
-      end
-      return self.file
-    end,
-  },
-}
-
-fileMetatable = {}
-
-function quote(value)
+quote = function(value: string | number): string
   if type(value) == 'string' then
     return string.format('%q', value)
   end
-  if type(value) == 'number' then
-    -- Seventeen significant digits preserve the exact double across restarts.
-    return string.format('%.17g', value)
-  end
-  error('desktop.persist: an entry holds strings and numbers, not a ' .. type(value))
+  -- Seventeen significant digits preserve the exact double across restarts.
+  return string.format('%.17g', value)
 end
 
--- Missing optional fields remain absent in the rendered file.
-function renderEntry(entry: Entry): string
-  -- The format specification test checks that every named field is serialized.
-  local values: { [EntryField]: string | number | nil } = {
-    kind = entry.kind,
-    key = entry.key,
-    slot = entry.slot,
-    pose = entry.pose,
-    width = entry.width,
-    height = entry.height,
+-- Fixed field order keeps unchanged arrangements byte-for-byte stable. An absent size stays absent.
+renderEntry = function(entry: Entry): string
+  local fields = {
+    'kind = ' .. quote(entry.kind),
+    'key = ' .. quote(entry.key),
+    'slot = ' .. quote(entry.slot),
+    'pose = ' .. quote(entry.pose),
   }
-
-  local fields = {}
-  for _, name in ipairs(format.ENTRY_FIELDS) do
-    local value = values[name]
-    if value ~= nil then
-      fields[#fields + 1] = name .. ' = ' .. quote(value)
-    end
+  if entry.width then
+    fields[#fields + 1] = 'width = ' .. quote(entry.width)
   end
-
+  if entry.height then
+    fields[#fields + 1] = 'height = ' .. quote(entry.height)
+  end
   local tags = {}
-  for index, name in ipairs(entry.tags or {}) do
+  for index, name in ipairs(entry.tags) do
     tags[index] = quote(name)
   end
   fields[#fields + 1] = 'tags = { ' .. table.concat(tags, ', ') .. ' }'
-
   return '    { ' .. table.concat(fields, ', ') .. ' },'
 end
 
--- One entry out of a loaded table, or nothing and the reason it is refused.
--- The parameter is `any`, not `unknown`: this reads keys off a table that came
--- from a decoder, and narrowing `unknown` gets as far as `table` and no further.
-function readEntry(stored: any): (Entry?, string?)
+local function size(value: unknown): boolean
+  return value == nil or (type(value) == 'number' and value > 0 and value < math.huge)
+end
+
+-- The parameter is `any` because narrowing `unknown` reaches `table` and no further.
+readEntry = function(stored: any): (Entry?, string?)
   if type(stored) ~= 'table' then
     return nil, 'an entry is a table, not a ' .. type(stored)
   end
-
   local kind = stored.kind
   if kind ~= 'window' and kind ~= 'monitor' then
     return nil, 'an entry is over a window or a monitor, not a ' .. tostring(kind)
   end
-  if type(stored.key) ~= 'string' or stored.key == '' then
-    return nil, 'an entry is keyed by a name, and ' .. tostring(stored.key) .. ' is not one'
+  local key = stored.key
+  if type(key) ~= 'string' or key == '' then
+    return nil, 'an entry is keyed by a name, and ' .. tostring(key) .. ' is not one'
   end
-  if type(stored.pose) ~= 'string' then
-    return nil, "the entry for '" .. stored.key .. "' carries no pose"
+  local function refuse(reason: string): (Entry?, string?)
+    return nil, "the entry for '" .. key .. "' " .. reason
   end
-
-  local tags = {}
-  for _, name in ipairs(stored.tags or {}) do
-    if type(name) == 'string' then
-      tags[#tags + 1] = name
+  local slot = stored.slot
+  if type(slot) ~= 'number' or slot < 1 or slot ~= math.floor(slot) then
+    return refuse 'has no slot'
+  end
+  if not vocabulary.decodePose(stored.pose) then
+    return refuse 'carries no pose of sixteen numbers'
+  end
+  if not size(stored.width) or not size(stored.height) then
+    return refuse 'has a size that is not a positive number'
+  end
+  if type(stored.tags) ~= 'table' then
+    return refuse 'has no tag list'
+  end
+  local tags: { string } = {}
+  for index, name in ipairs(stored.tags) do
+    if type(name) ~= 'string' then
+      return refuse('has a tag ' .. index .. ' that is not a name')
     end
+    tags[index] = name
   end
-
   return {
     kind = kind,
-    key = stored.key,
-    slot = type(stored.slot) == 'number' and stored.slot or 1,
+    key = key,
+    slot = slot,
     pose = stored.pose,
-    width = type(stored.width) == 'number' and stored.width or nil,
-    height = type(stored.height) == 'number' and stored.height or nil,
+    width = stored.width,
+    height = stored.height,
     tags = tags,
   }
 end

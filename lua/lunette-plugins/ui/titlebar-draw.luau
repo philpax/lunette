@@ -1,10 +1,10 @@
 -- Draws the header face and safe title above the target-owned joined outline.
-local lunette = require '@lunette'
 local ui = require '@lunette-contracts/ui'
 local rounded = require '@lunette-plugins/theme/rounded-geometry'
 local drawing = require '@lunette-plugins/theme/drawing'
 local passState = require '@lunette-plugins/pass-state'
-local depth = require './depth'
+local draw = require './draw'
+local textFit = require './text-fit'
 local vocabulary = require '@lunette-contracts/vocabulary'
 
 local titlebarDraw = {}
@@ -81,30 +81,16 @@ function titlebarDraw.render(
     pass:setDepthWrite(false)
     local foreground = style.titleColor
     pass:setColor(foreground[1], foreground[2], foreground[3], foreground[4])
-    local fontHeight = style.font:getHeight()
-    assert(fontHeight > 0 and fontHeight < math.huge, 'ui titlebar: font height is finite and positive')
-    local scale = math.min(style.titleHeight, safe.height) / fontHeight
-    local shown = title:gsub('[\r\n]', ' ')
-    if style.font:getWidth(shown) * scale > available then
-      local suffix = '…'
-      if style.font:getWidth(suffix) * scale > available then
-        return
-      end
-      local prefix = ''
-      local boundaries = lunette.textBoundaries(shown)
-      for index = 2, #boundaries do
-        local candidate = shown:sub(1, boundaries[index] - 1)
-        if style.font:getWidth(candidate .. suffix) * scale <= available then
-          prefix = candidate
-        end
-      end
-      shown = prefix .. suffix
+    local scale = math.min(style.titleHeight, safe.height) / style.font:getHeight()
+    local shown = textFit.ellipsize(style.font, title, scale, available)
+    if not shown then
+      return
     end
     pass:text(
       shown,
       lovr.math
         .mat4(pose)
-        :translate(safe.x + available / 2, -safe.y - safe.height / 2, depth.layer)
+        :translate(safe.x + available / 2, -safe.y - safe.height / 2, draw.depth.layer)
         :scale(vector.pack(scale)),
       available / scale,
       'center',

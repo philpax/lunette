@@ -117,6 +117,44 @@ function shape.arc(width: number, height: number, curve: number, segments: numbe
   return vertices, indices
 end
 
+-- Triangulates a polygon in source coordinates and appends it as mesh vertices, flat or on the cylinder.
+local function appendPolygon(
+  vertices: { { number } },
+  indices: { number },
+  width: number,
+  height: number,
+  curve: number,
+  polygon: { geometry.Point }
+): ()
+  local points, triangles = geometry.triangles(polygon)
+  local offset = #vertices
+  for _, point in points do
+    local u, v = point[1] / width, point[2] / height
+    if curve > 0 then
+      local radius = 1 / curve
+      local angle = (2 * u - 1) * shape.halfAngle(width, curve)
+      vertices[#vertices + 1] = {
+        radius * math.sin(angle),
+        height / 2 - point[2],
+        radius - radius * math.cos(angle),
+        -math.sin(angle),
+        0,
+        math.cos(angle),
+        u,
+        v,
+      }
+    else
+      vertices[#vertices + 1] = { point[1] - width / 2, height / 2 - point[2], 0, 0, 0, 1, u, v }
+    end
+  end
+  -- Source coordinates are y-down, whereas native panel coordinates are y-up.
+  for index = 1, #triangles, 3 do
+    indices[#indices + 1] = offset + triangles[index]
+    indices[#indices + 1] = offset + triangles[index + 2]
+    indices[#indices + 1] = offset + triangles[index + 1]
+  end
+end
+
 -- Rounded polygons are split before cylindrical mapping so no triangle spans multiple arc strips.
 function shape.rounded(
   width: number,
@@ -136,33 +174,7 @@ function shape.rounded(
         width = width / strips,
         height = height,
       })
-    local points, triangles = geometry.triangles(clipped)
-    local offset = #vertices
-    for _, point in points do
-      local u, v = point[1] / width, point[2] / height
-      if curve > 0 then
-        local radius = 1 / curve
-        local angle = (2 * u - 1) * shape.halfAngle(width, curve)
-        vertices[#vertices + 1] = {
-          radius * math.sin(angle),
-          height / 2 - point[2],
-          radius - radius * math.cos(angle),
-          -math.sin(angle),
-          0,
-          math.cos(angle),
-          u,
-          v,
-        }
-      else
-        vertices[#vertices + 1] = { point[1] - width / 2, height / 2 - point[2], 0, 0, 0, 1, u, v }
-      end
-    end
-    -- Source coordinates are y-down, whereas native panel coordinates are y-up.
-    for index = 1, #triangles, 3 do
-      indices[#indices + 1] = offset + triangles[index]
-      indices[#indices + 1] = offset + triangles[index + 2]
-      indices[#indices + 1] = offset + triangles[index + 1]
-    end
+    appendPolygon(vertices, indices, width, height, curve, clipped)
   end
   return vertices, indices
 end
@@ -178,34 +190,6 @@ function shape.mapTriangles(
 ): ({ { number } }, { number })
   local vertices: { { number } } = {}
   local indices: { number } = {}
-  local function append(polygon: { geometry.Point }): ()
-    local source, sourceIndices = geometry.triangles(polygon)
-    local offset = #vertices
-    for _, point in source do
-      local u, v = point[1] / width, point[2] / height
-      if curve > 0 then
-        local radius = 1 / curve
-        local angle = (2 * u - 1) * shape.halfAngle(width, curve)
-        vertices[#vertices + 1] = {
-          radius * math.sin(angle),
-          height / 2 - point[2],
-          radius - radius * math.cos(angle),
-          -math.sin(angle),
-          0,
-          math.cos(angle),
-          u,
-          v,
-        }
-      else
-        vertices[#vertices + 1] = { point[1] - width / 2, height / 2 - point[2], 0, 0, 0, 1, u, v }
-      end
-    end
-    for index = 1, #sourceIndices, 3 do
-      indices[#indices + 1] = offset + sourceIndices[index]
-      indices[#indices + 1] = offset + sourceIndices[index + 2]
-      indices[#indices + 1] = offset + sourceIndices[index + 1]
-    end
-  end
   for index = 1, #triangles, 3 do
     local polygon: { geometry.Point } = {}
     local top: number = math.huge
@@ -220,10 +204,17 @@ function shape.mapTriangles(
       for strip = 0, shape.SEGMENTS - 1 do
         local left = if strip == 0 then -expansion else width * strip / shape.SEGMENTS
         local right = if strip == shape.SEGMENTS - 1 then width + expansion else width * (strip + 1) / shape.SEGMENTS
-        append(geometry.clip(polygon, { x = left, y = top, width = right - left, height = bottom - top }))
+        appendPolygon(
+          vertices,
+          indices,
+          width,
+          height,
+          curve,
+          geometry.clip(polygon, { x = left, y = top, width = right - left, height = bottom - top })
+        )
       end
     else
-      append(polygon)
+      appendPolygon(vertices, indices, width, height, curve, polygon)
     end
   end
   return vertices, indices

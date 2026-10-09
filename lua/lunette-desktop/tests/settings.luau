@@ -133,8 +133,8 @@ end)
 test('unknown sections, malformed lists, and shorthand collisions raise before callbacks bind', function()
   local load = lovr.load
   for _, case in ipairs {
-    { options = { settings = { keyboard = {} } }, message = 'the settings: unknown field keyboard' },
-    { options = { settings = { demoTerminal = {} } }, message = 'the settings: unknown field demoTerminal' },
+    { options = { settings = { keyboard = {} } }, message = 'option keyboard is not a declared field' },
+    { options = { settings = { demoTerminal = {} } }, message = 'option demoTerminal is not a declared field' },
     { options = { settings = { workspaces = { names = {} } } }, message = 'names' },
     { options = { settings = { workspaces = { workspaces = {} } } }, message = 'has fewer than 1 entries' },
     {
@@ -143,15 +143,15 @@ test('unknown sections, malformed lists, and shorthand collisions raise before c
     },
     {
       options = { settings = { keyboardDisplay = {} }, patches = { { id = 'desktop/keyboard', config = {} } } },
-      message = 'patch 1 and settings.keyboardDisplay both configure desktop/keyboard',
+      message = 'two patches name desktop/keyboard',
     },
     {
       options = { settings = { persistence = {} }, patches = { { id = 'desktop/persistence', disabled = true } } },
-      message = 'patch 1 and settings.persistence both configure desktop/persistence',
+      message = 'two patches name desktop/persistence',
     },
     {
       options = { settings = { workspaces = WORKSPACES }, patches = { { id = 'desktop/adoption', config = {} } } },
-      message = 'patch 1 and settings.workspaces both configure desktop/adoption',
+      message = 'two patches name desktop/adoption',
     },
     { options = { patches = { typo = true } }, message = 'the patch list is a list' },
   } do

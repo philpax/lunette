@@ -6,7 +6,7 @@ local test = testing.suite()
 
 local function fixture(receiver, options)
   local fake = testing.native()
-  local nativeCalls, translations, listeners = {}, {}, {}
+  local nativeCalls, translations = {}, {}
   local seat = {
     dead = false,
     characterFor = function(_self, code, modifiers)
@@ -39,12 +39,10 @@ local function fixture(receiver, options)
     keymapSeat = function()
       return seat
     end,
-    listen = function(run)
-      listeners[#listeners + 1] = run
-      return function()
-        table.remove(listeners, table.find(listeners, run))
-      end
+    blocked = function()
+      return nil
     end,
+    dispose = function() end,
   }
   local owner = {}
   local context = {
@@ -55,9 +53,7 @@ local function fixture(receiver, options)
   local source, inverse = sourceModule.new(context, owner, options, route)
   local function change(nextTarget)
     snapshot = { handle = { dead = false }, target = nextTarget, revision = snapshot.revision + 1 }
-    for _, run in table.clone(listeners) do
-      run()
-    end
+    source:reset()
   end
   return {
     source = source,
@@ -67,7 +63,6 @@ local function fixture(receiver, options)
     nativeCalls = nativeCalls,
     translations = translations,
     change = change,
-    listeners = listeners,
     reports = fake.events.reported,
   }
 end
@@ -200,7 +195,6 @@ test('disposing a source during its key callback forbids any continuation', func
   }
   expect.equal(f.source:key({ code = 30 }).kind, 'refused', 'disposal ends the operation')
   expect.truthy(f.source.dead, 'the source is dead')
-  expect.equal(#f.listeners, 0, 'the route listener is released')
   expect.equal(f.source:text('later').kind, 'refused', 'dead source text')
 end)
 
@@ -215,10 +209,8 @@ test('explicit destruction disposes the provider after source state clears', fun
     keymapSeat = function()
       return nil
     end,
-    listen = function()
-      return function()
-        expect.truthy(source.dead, 'state clears before listener release')
-      end
+    blocked = function()
+      return nil
     end,
     dispose = function()
       expect.truthy(source.dead, 'state clears before provider release')
@@ -318,9 +310,7 @@ test('unresolved provider native focus cleanup blocks every source callback', fu
       keymapSeat = function()
         return nil
       end,
-      listen = function()
-        return function() end
-      end,
+      dispose = function() end,
     }
   )
   expect.equal(source:key({ code = 30 }).kind, 'refused', 'blocked key')

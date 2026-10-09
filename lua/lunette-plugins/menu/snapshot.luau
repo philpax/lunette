@@ -31,11 +31,7 @@ local function plain(operation: string, field: string, value: unknown): Raw
   if type(value) ~= 'table' then
     error('menu ' .. operation .. ': ' .. field .. ' is a plain table, not a ' .. type(value), 3)
   end
-  local raw = value :: Raw
-  if getmetatable(raw) ~= nil then
-    error('menu ' .. operation .. ': ' .. field .. ' is a plain table without a metatable', 3)
-  end
-  return raw
+  return value :: Raw
 end
 
 function snapshot.id(operation: string, value: unknown): string
@@ -80,7 +76,7 @@ function snapshot.action(value: unknown): (Metadata, () -> ())
   if type(run) ~= 'function' then
     error('menu register: run is a function, not a ' .. type(run), 3)
   end
-  return table.freeze {
+  return {
     id = id,
     label = label :: string,
     group = (group :: string?) or '',
@@ -94,9 +90,7 @@ end
 function snapshot.state(value: unknown): contract.State
   local raw = plain('update', 'state', value)
   plugin.rejectUnknownFields('menu update', raw, STATE_KEYS, 'enabled and selected', 2)
-  local enabled = flag('update', 'enabled', raw.enabled)
-  local selected = flag('update', 'selected', raw.selected)
-  return table.freeze { enabled = enabled, selected = selected }
+  return { enabled = flag('update', 'enabled', raw.enabled), selected = flag('update', 'selected', raw.selected) }
 end
 
 return snapshot

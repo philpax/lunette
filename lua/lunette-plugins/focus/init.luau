@@ -22,15 +22,13 @@ type Entry = {
   dead: boolean,
   seatId: number?,
 }
-type Listener = { owner: contract.Owner, run: ((contract.Change) -> ())?, effect: plugin.Effect? }
-type Internal = { run: (() -> ())?, active: boolean }
+type Listener = { owner: contract.Owner, run: ((contract.Change) -> ())? }
 
 local function create(context: plugin.Context): Service
-  local state = routes.new(lunette.defaultSeat)
+  local state = routes.new()
   local entries: { [contract.TargetHandle]: Entry } = {}
   local sources: { [contract.Source]: contract.Owner } = {}
   local listeners: { Listener } = {}
-  local internal: { Internal } = {}
   local recentSeat: lunette.Seat? = nil
   local failed = false
   local stopped = false
@@ -39,12 +37,8 @@ local function create(context: plugin.Context): Service
     return not stopped and not entry.dead and context:owns(entry.owner)
   end
   local function current(): Entry?
-    for _, entry in pairs(entries) do
-      if state.current == entry then
-        return entry
-      end
-    end
-    return nil
+    local entry = (state.current :: any) :: Entry?
+    return if entry and entries[entry.handle] == entry then entry else nil
   end
   local function change(): contract.Change
     local entry = current()
@@ -69,15 +63,7 @@ local function create(context: plugin.Context): Service
   end
   local function notify(previous: Entry?): ()
     local revision = state.revision
-    for _, listener in ipairs(table.clone(internal)) do
-      if listener.active and listener.run then
-        protected.call('focus: source route cleanup', listener.run)
-      end
-    end
     local notification = change()
-    if state.revision ~= revision then
-      return
-    end
     local old = previous and previous.target
     if previous and live(previous) and old and old.kind == 'local' and old.receiver.onBlur then
       protected.call('focus: blur ' .. plugin.ownerLabel(previous.owner), function(): ()
@@ -269,7 +255,6 @@ local function create(context: plugin.Context): Service
         transition(entry, true)
       end
       table.clear(entries)
-      table.clear(internal)
       table.clear(listeners)
     end
   end)
@@ -298,8 +283,8 @@ local function create(context: plugin.Context): Service
       if getmetatable(listener) ~= nil or type(listener.run) ~= 'function' then
         error('focus onChanged: run is a plain callback', 2)
       end
-      local entry: Listener = { owner = owner, run = listener.run, effect = nil }
-      local effect = context:acquire(owner, function(): () -> ()
+      local entry: Listener = { owner = owner, run = listener.run }
+      return context:acquire(owner, function(): () -> ()
         listeners[#listeners + 1] = entry
         return function(): ()
           entry.run = nil
@@ -309,8 +294,6 @@ local function create(context: plugin.Context): Service
           end
         end
       end)
-      entry.effect = effect
-      return effect
     end,
     newSource = function(_self: Service, owner: contract.Owner, options: contract.SourceOptions?): contract.Source
       context:checkOwner(owner)
@@ -342,17 +325,6 @@ local function create(context: plugin.Context): Service
             return nil
           end,
           keymapSeat = keymapSeat,
-          listen = function(run: () -> ()): () -> ()
-            local listener: Internal = { run = run, active = true }
-            internal[#internal + 1] = listener
-            return function(): ()
-              listener.active, listener.run = false, nil
-              local index = table.find(internal, listener)
-              if index then
-                table.remove(internal, index)
-              end
-            end
-          end,
         })
         sources[made] = owner
         return made,
@@ -379,12 +351,7 @@ local function create(context: plugin.Context): Service
       end
       local selected = current()
       local selectedTarget = selected and selected.target
-      local seat = if selectedTarget
-          and selectedTarget.kind == 'local'
-          and selectedTarget.keymapSeat
-          and not selectedTarget.keymapSeat.dead
-        then selectedTarget.keymapSeat
-        else recentSeat
+      local seat = keymapSeat()
       for _, entry in ipairs(listeners) do
         result[#result + 1] = inspection.registration(
           'listener',
@@ -404,8 +371,8 @@ local function create(context: plugin.Context): Service
         sourceCount = count,
         failed = failed or state.failed,
         kind = if selectedTarget then selectedTarget.kind else 'none',
-        keymapSeatId = if seat and not seat.dead then seat.id else nil,
-      }, { 'receiver callbacks are private', 'fallback keymap seat is not enumerated during inspection' })
+        keymapSeatId = if seat then seat.id else nil,
+      }, { 'receiver callbacks are private' })
     end,
   }
 end

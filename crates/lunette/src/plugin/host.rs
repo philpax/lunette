@@ -11,9 +11,3 @@ pub fn shutdown(lua: &Lua, context: &str) {
         warn!("{context}: {failure}; cleanup continued");
     }
 }
-
-/// Reports whether a plugin callback is running in `lua`.
-#[must_use]
-pub fn callback_active(lua: &Lua) -> bool {
-    attachment::callback_active(lua)
-}

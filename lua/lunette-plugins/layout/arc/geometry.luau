@@ -1,8 +1,6 @@
 -- Panels face the centre from a circle. Adjacent panels keep the minimum angular step and edge gap when
 -- they fit within the span; larger layouts scale separations uniformly and may overlap.
 
-local plugin = require '@lunette-plugin'
-
 local geometry = {}
 
 export type Tuning = {
@@ -54,27 +52,6 @@ function geometry.poses(widths: { read [number]: number }, tuning: Tuning): { Ma
       :rotate(angle, 0, 1, 0)
   end
   return placed
-end
-
--- Raises an error naming `label` and the option for a tuning the geometry
--- cannot lay out: a radius that is not positive, a step, span, or gap that is
--- negative, or a centre that is not a finite vector.
-function geometry.validate(tuning: Tuning, label: string): ()
-  local function finite(value: number): boolean
-    return value == value and value ~= math.huge and value ~= -math.huge
-  end
-  if not finite(tuning.radius) or tuning.radius <= 0 then
-    error(string.format('plugin %s: option radius is a positive number, not %s', label, tostring(tuning.radius)), 0)
-  end
-  local function nonNegative(key: string, value: number): ()
-    if not finite(value) or value < 0 then
-      error(string.format('plugin %s: option %s is a number of at least 0, not %s', label, key, tostring(value)), 0)
-    end
-  end
-  nonNegative('step', tuning.step)
-  nonNegative('span', tuning.span)
-  nonNegative('gap', tuning.gap)
-  plugin.checkVector(label, 'center', tuning.center)
 end
 
 return geometry

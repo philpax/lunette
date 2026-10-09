@@ -4,31 +4,15 @@ local focus = require '@lunette-contracts/focus'
 local frame = require '@lunette-contracts/frame'
 local keys = require '@lunette-contracts/keys'
 
-export type Config = {}
-export type Settings = {}
-
-local required: plugin.Declaration = {
-  focus = focus.capability,
-  frame = frame.capability,
-}
-
 local function heldModifiers(): { string }
   return keys.heldModifiers { isDown = lovr.system.isKeyDown, shift = true }
 end
 
-local function stopsFallback(result: focus.Result, selected: boolean): boolean
-  if result.kind == 'unhandled' then
-    return selected
-  end
-  return true
-end
-
-return plugin.consumer<<Config, Settings>>({
+return plugin.consumer<<{}, {}>>({
   name = 'desktop/input',
-  requires = required,
-  init = function(context: plugin.Context, _settings: Settings): ()
+  requires = { focus = focus.capability, frame = frame.capability },
+  init = function(context: plugin.Context, _settings: {}): ()
     local frameService: frame.Service = context:require(frame.capability)
-    local blockText = frameService.blockText
     local service: focus.Service = context:require(focus.capability)
     local source = service:newSource(context, { mode = 'physical' })
     local currentBatch: number? = nil
@@ -60,31 +44,31 @@ return plugin.consumer<<Config, Settings>>({
           batch = event.batch,
         }
         if keys.commandChord(modifiers) or result.kind ~= 'unhandled' then
-          blockText(frameService, event.batch)
+          frameService:blockText(event.batch)
         end
-        return stopsFallback(result, selected)
+        return result.kind ~= 'unhandled' or selected
       end,
     })
     frameService:onText(context, {
       phase = 'delivery',
       run = function(event: frame.TextEvent): boolean?
         if keys.commandChord(heldModifiers()) then
-          blockText(frameService, event.batch)
+          frameService:blockText(event.batch)
           return true
         end
         local selected = service:focused() ~= nil
         local result = source:text(event.text, event.batch)
         if result.kind == 'failed' or result.kind == 'refused' then
-          blockText(frameService, event.batch)
+          frameService:blockText(event.batch)
         end
-        return stopsFallback(result, selected)
+        return result.kind ~= 'unhandled' or selected
       end,
     })
     context:effect(function(): () -> ()
       return function(): ()
         -- Replacing the physical source cannot renew the pending batch with a different route snapshot.
         if currentBatch ~= nil then
-          blockText(frameService, currentBatch)
+          frameService:blockText(currentBatch)
         end
       end
     end)

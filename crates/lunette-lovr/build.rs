@@ -17,12 +17,12 @@ use std::{
     process::ExitCode,
 };
 
-/// The prefetched JoltPhysics tree, provided by the Nix devshell.
+/// An optional prefetched JoltPhysics tree.
 ///
 /// `vendor/lovr/deps/joltc` fetches JoltPhysics through `FetchContent`, which
 /// requires the network at configure time. Pointing
-/// `FETCHCONTENT_SOURCE_DIR_JOLTPHYSICS` at the prefetched tree keeps the
-/// build offline.
+/// `FETCHCONTENT_SOURCE_DIR_JOLTPHYSICS` at a prefetched tree keeps the build
+/// offline.
 const JOLT_SOURCE_VAR: &str = "LUNETTE_JOLTPHYSICS_SRC";
 
 /// The LÖVR compile definitions that apply in the default configuration.

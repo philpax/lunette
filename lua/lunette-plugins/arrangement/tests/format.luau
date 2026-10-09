@@ -28,7 +28,7 @@ test('an arrangement round-trips through render and read', function()
     newEntry { kind = 'monitor', key = 'Acme X24 on DP-1', tags = {} },
   }
 
-  local recovered = format.read(format.render(written)):forSession()
+  local recovered = format.read(format.render(written)).file
 
   local entries = format.entries(recovered)
   expect.equal(#entries, 2, 'the entries')
@@ -50,7 +50,7 @@ test('an entry with no size round-trips as one with no size', function()
     { kind = 'window', key = 'terminal', slot = 1, pose = vocabulary.encodePose(lovr.math.newMat4()), tags = {} },
   }
 
-  local entry = format.entries(format.read(format.render(written)):forSession())[1]
+  local entry = format.entries(format.read(format.render(written)).file)[1]
   expect.falsy(entry.width, 'the width')
   expect.falsy(entry.height, 'the height')
 end)
@@ -60,55 +60,27 @@ test('a size round-trips to the last digit', function()
   local width, height = 1 / 3, 0.8999999999999999
   local written = format.newFile { newEntry { width = width, height = height } }
 
-  local entry = format.entries(format.read(format.render(written)):forSession())[1]
+  local entry = format.entries(format.read(format.render(written)).file)[1]
   expect.near(entry.width, width, 0, 'the width')
   expect.near(entry.height, height, 0, 'the height')
 end)
 
-test('an arrangement does not share an array with its caller', function()
-  -- Mutating either returned or input arrays must not change the file.
-  local given = { newEntry() }
-  local file = format.newFile(given)
-  table.remove(given)
-  expect.equal(#format.entries(file), 1, 'the entries after the given array was trimmed')
-
-  local entries = format.entries(file)
-  table.remove(entries)
-  expect.equal(#format.entries(file), 1, 'the entries after the answered array was trimmed')
-end)
-
 test('render always writes the current version', function()
-  local loaded = format.read(format.render(format.newFile {}))
+  local text = format.render(format.newFile {})
 
-  expect.equal(loaded.kind, 'arrangement', 'the kind')
-  expect.equal(loaded.version, format.CURRENT_VERSION, 'the version')
-end)
-
-test('render refuses anything that is not an arrangement this module made', function()
-  expect.raises(function()
-    format.render { version = 1, entries = {} }
-  end, 'an arrangement is one this module made', 'a plain table')
-
-  expect.falsy(format.isFile { entries = {} }, 'a plain table')
-  expect.truthy(format.isFile(format.newFile {}), 'an arrangement')
-end)
-
-test('newFile refuses an entry that is not a table', function()
-  expect.raises(function()
-    format.newFile { 'terminal' }
-  end, 'entry 1 is a table', 'a string entry')
+  expect.truthy(text:find('version = ' .. format.VERSION, 1, true), 'the version')
+  expect.equal(format.read(text).kind, 'arrangement', 'the kind')
 end)
 
 test('a file from a later version carries no arrangement to write back', function()
-  local text = 'return { version = ' .. (format.CURRENT_VERSION + 1) .. ', entries = {}, curvature = 0.3 }'
+  local text = 'return { version = ' .. (format.VERSION + 1) .. ', entries = {}, curvature = 0.3 }'
 
   local loaded = format.read(text)
 
   expect.equal(loaded.kind, 'fromTheFuture', 'the kind')
-  expect.equal(loaded.found, format.CURRENT_VERSION + 1, 'the version found')
-  expect.equal(loaded.supported, format.CURRENT_VERSION, 'the version supported')
+  expect.equal(loaded.found, format.VERSION + 1, 'the version found')
   -- No writable arrangement prevents an old reader from dropping newer fields.
-  expect.falsy(loaded:forSession(), 'the arrangement')
+  expect.falsy(loaded.file, 'the arrangement')
 end)
 
 test('a broken file is a broken load rather than a raise', function()
@@ -116,8 +88,8 @@ test('a broken file is a broken load rather than a raise', function()
   expect.equal(format.read('return 4').kind, 'broken', 'a chunk holding a number')
   expect.equal(format.read('return { entries = {} }').kind, 'broken', 'a file with no version')
   expect.equal(format.read('return { version = 0, entries = {} }').kind, 'broken', 'a version below the first')
-  expect.equal(format.read(nil).kind, 'broken', 'nothing at all')
-  expect.falsy(format.read('return {'):forSession(), 'the arrangement of a broken load')
+  expect.equal(format.read('return { version = 1 }').kind, 'broken', 'a file with no entry list')
+  expect.falsy(format.read('return {').file, 'the arrangement of a broken load')
 end)
 
 test('a file chunk cannot reach anything outside itself', function()
@@ -128,58 +100,43 @@ test('a file chunk cannot reach anything outside itself', function()
   expect.truthy(loaded.message:find 'nil value', 'what the chunk hit')
 end)
 
-test('an entry that is not the shape is skipped and named while the rest loads', function()
+test('an entry that is not the shape is refused and named while the rest loads', function()
   -- Hand-edited files and files from other versions can contain malformed entries.
-  local text = [[return {
-  version = 1,
-  entries = {
-    { kind = 'window', key = 'terminal', slot = 1, pose = ']] .. newEntry().pose .. [[', tags = {} },
-    { kind = 'terminal', key = 'a kind this version never wrote', slot = 1, pose = 'x', tags = {} },
-    { kind = 'window', key = 'an entry with no pose', slot = 1, tags = {} },
-    { kind = 'window', slot = 1, pose = 'x', tags = {} },
-    'not an entry at all',
-  },
-}]]
+  local pose = newEntry().pose
+  local function stored(fields)
+    return '    { ' .. fields .. ' },\n'
+  end
+  local text = 'return {\n  version = 1,\n  entries = {\n'
+    .. stored("kind = 'window', key = 'terminal', slot = 1, pose = '" .. pose .. "', tags = {}")
+    .. stored "kind = 'terminal', key = 'k', slot = 1, pose = 'x', tags = {}"
+    .. stored "kind = 'window', key = 'no pose', slot = 1, tags = {}"
+    .. stored "kind = 'window', slot = 1, pose = 'x', tags = {}"
+    .. "    'not an entry at all',\n"
+    .. stored("kind = 'window', key = 'no slot', pose = '" .. pose .. "', tags = {}")
+    .. stored("kind = 'window', key = 'bad size', slot = 1, pose = '" .. pose .. "', width = 'wide', tags = {}")
+    .. stored("kind = 'window', key = 'bad tag', slot = 1, pose = '" .. pose .. "', tags = { 'main', 4 }")
+    .. stored("kind = 'window', key = 'no tags', slot = 1, pose = '" .. pose .. "'")
+    .. '  },\n}'
 
   local loaded = format.read(text)
 
-  local entries = format.entries(loaded:forSession())
+  local entries = loaded.file.entries
   expect.equal(#entries, 1, 'the entries')
   expect.equal(entries[1].key, 'terminal', 'the entry that survived')
-  expect.equal(#loaded.skipped, 4, 'the entries skipped')
-  expect.truthy(loaded.skipped[1]:find 'window or a monitor', 'the kind that was refused')
-  expect.truthy(loaded.skipped[2]:find 'carries no pose', 'the missing pose')
-  expect.truthy(loaded.skipped[3]:find 'keyed by a name', 'the missing key')
-  expect.truthy(loaded.skipped[4]:find 'an entry is a table', 'the entry that was not one')
-end)
-
-test('an entry with a slot that is not a number takes the first slot', function()
-  local text = "return { version = 1, entries = { { kind = 'window', key = 'terminal', pose = 'x' } } }"
-
-  local entry = format.entries(format.read(text):forSession())[1]
-  expect.equal(entry.slot, 1, 'the slot')
-end)
-
-test('a load and an arrangement are told apart', function()
-  -- Load and arrangement values have distinct runtime identities.
-  local loaded = format.empty()
-  local file = loaded:forSession()
-
-  expect.equal(format.isLoaded(loaded), true, 'a load')
-  expect.equal(format.isFile(loaded), false, 'a load as an arrangement')
-  expect.equal(format.isFile(file), true, 'an arrangement')
-  expect.equal(format.isLoaded(file), false, 'an arrangement as a load')
-  expect.equal(format.isLoaded(format.broken 'x'), true, 'a broken load')
-  expect.equal(format.isLoaded { kind = 'arrangement' }, false, 'a plain table shaped like one')
-  expect.equal(format.isLoaded(nil), false, 'nothing at all')
-end)
-
-test('an empty load carries an arrangement with nothing in it', function()
-  local loaded = format.empty()
-
-  expect.equal(loaded.kind, 'arrangement', 'the kind')
-  expect.equal(#format.entries(loaded:forSession()), 0, 'the entries')
-  expect.equal(#loaded.skipped, 0, 'the entries skipped')
+  local reasons = {
+    'window or a monitor',
+    'carries no pose',
+    'keyed by a name',
+    'an entry is a table',
+    'has no slot',
+    'size that is not',
+    'tag 2 that is not',
+    'no tag list',
+  }
+  expect.equal(#loaded.skipped, #reasons, 'the entries refused')
+  for index, reason in reasons do
+    expect.truthy(loaded.skipped[index]:find(reason, 1, true), 'refusal ' .. index)
+  end
 end)
 
 return test

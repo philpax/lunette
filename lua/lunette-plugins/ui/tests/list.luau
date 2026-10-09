@@ -1,12 +1,13 @@
 local testing = require '@testing'
-local list = require '../list'
+local collection = require '../collection'
 local selection = require './support/selection'
 local expect = testing.expect
 local test = testing.suite()
 
 local function fixture(items, selected, onChange)
   local state = selection.state { x = 10, y = 20, width = 100, height = 54 }
-  local widget = list.new(
+  local widget = collection.widget(
+    'list',
     { id = 'list', bounds = state.bounds, items = items, selected = selected, onChange = onChange },
     selection.host(state)
   )
@@ -55,45 +56,12 @@ test('empty and single lists preserve their exact content', function()
   expect.equal(single:items()[1].bounds.height, 20)
 end)
 
-test('item snapshots do not alias caller tables or returned descriptions', function()
-  local source = rows(2)
-  local state = fixture(source, '1')
-  source[1].id = 'changed'
-  source[1].label = 'Changed'
-  table.clear(source)
-  local item = state:items()[1]
-  expect.equal(item.id, '1')
-  expect.equal(item.label, 'Row 1')
-  expect.truthy(table.isfrozen(item))
-  expect.truthy(table.isfrozen(item.bounds))
-  expect.truthy(table.isfrozen(state:items()))
-end)
-
-test('plain dense arrays and unique nonempty stable ids are required', function()
-  local malformed = {
-    setmetatable({}, {}),
-    { [2] = { id = 'b', label = 'B' } },
-    { extra = true },
-    { { id = '', label = 'Empty' } },
-    { { id = 'a', label = 'A' }, { id = 'a', label = 'Again' } },
-    { setmetatable({ id = 'a', label = 'A' }, {}) },
-    { { id = 'a', label = 1 } },
-    { { id = 'a', label = 'A', enabled = 'yes' } },
-    { { id = 'a', label = 'A', extra = true } },
-  }
-  for _, items in malformed do
-    expect.raises(function()
-      fixture(items)
-    end, 'ui list')
-  end
-  expect.raises(function()
-    fixture(rows(1), 'missing')
-  end, 'selected')
+test('item and selection updates reject malformed data and keep the previous state', function()
   local state = fixture(rows(2), '2')
   local revision = state.revision
   expect.raises(function()
-    state.methods.setItems({}, malformed[5])
-  end, 'duplicate')
+    state.methods.setItems({}, { { id = 'a', label = 'A' }, { id = 'a', label = 'Again' } })
+  end, 'unique')
   expect.raises(function()
     state.methods.setSelected({}, 'missing')
   end, 'selected')

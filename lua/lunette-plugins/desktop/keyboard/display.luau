@@ -6,13 +6,10 @@ local keyboard = require '@lunette-contracts/keyboard'
 local frame = require '@lunette-contracts/frame'
 local surfaces = require '@lunette-contracts/surfaces'
 local ui = require '@lunette-contracts/ui'
-local protected = require '@lunette-plugins/protected'
+local listeners = require '@lunette-plugins/listeners'
 local place = require '@lunette-plugins/desktop/keyboard/placement'
 local config = require '@lunette-plugins/desktop/keyboard/config'
 local vocabulary = require '@lunette-contracts/vocabulary'
-
-type Listener = { owner: contract.Owner, run: ((contract.Change) -> ())? }
-type Hide = { intentRevision: number, changed: boolean }
 
 return function(context: plugin.Context, settings: config.Settings): contract.Service
   local keys: keyboard.Service = context:require(keyboard.capability)
@@ -22,95 +19,46 @@ return function(context: plugin.Context, settings: config.Settings): contract.Se
   local widgets = context:require(ui.capability)
   local board: keyboard.Keyboard? = nil
   local bar: ui.Titlebar? = nil
-  local close: () -> boolean
-  local stopped, visible, manualVisible = false, false, false
-  local initializing, requestedVisible = false, false
-  local publicHide: Hide? = nil
-  local visibilityHide: Hide? = nil
-  local blurringRevision: number? = nil
+  local stopped, visible, manual = false, false, false
+  -- The local target whose focus requested automatic visibility.
+  local auto: focus.TargetHandle? = nil
   local currentTarget: focus.TargetHandle? = nil
-  local currentRevision = 0
-  local autoTarget: focus.TargetHandle? = nil
-  local autoRevision = 0
-  local revision, intentRevision = 0, 0
-  local listeners: { Listener } = {}
+  local revision = 0
+  local subscribers = listeners.new<<contract.Listener>>(context)
 
   local function live(): boolean
     return not stopped and context:active()
   end
-  local function localTarget(): focus.TargetHandle?
-    local target = currentTarget
-    return if target and not target.dead then target else nil
-  end
   local function notify(reason: 'show' | 'hide' | 'user-hide' | 'destroy'): ()
     revision += 1
-    local ownRevision = revision
+    local own = revision
     local change: contract.Change = table.freeze { visible = visible, reason = reason }
-    for _, listener in ipairs(table.clone(listeners)) do
-      local run = listener.run
-      if run and context:owns(listener.owner) then
-        protected.call('keyboard-display listener (' .. plugin.ownerLabel(listener.owner) .. ')', function(): ()
-          run(change)
-        end)
-        if revision ~= ownRevision then
-          return
-        end
-      end
-    end
-  end
-  local function clearIntent(): number
-    manualVisible, requestedVisible = false, false
-    autoTarget, autoRevision = nil, 0
-    intentRevision += 1
-    return intentRevision
-  end
-  local function blur(target: focus.TargetHandle?, focusRevision: number): ()
-    if not live() or not target or target.dead then
-      return
-    end
-    local beforeQuery = routes:revision()
-    if beforeQuery ~= focusRevision then
-      return
-    end
-    local focused = routes:focused()
-    if focused ~= target then
-      return
-    end
-    local afterQuery = routes:revision()
-    if afterQuery ~= focusRevision then
-      return
-    end
-    blurringRevision = focusRevision
-    local ok, accepted = pcall(function(): boolean
-      return target:blur()
+    -- A listener that changes visibility publishes a newer change, so later listeners skip this stale one.
+    subscribers:each('keyboard-display: a change listener', function(listener: contract.Listener): ()
+      listener.run(change)
+    end, function(): boolean
+      return revision == own
     end)
-    blurringRevision = nil
-    if not ok then
-      error(accepted, 0)
-    end
-    if not accepted then
+  end
+  local function clearIntent(): ()
+    manual, auto = false, nil
+  end
+  -- Blurs the local target only while it still holds focus, so a newer focus is never blurred.
+  local function blur(target: focus.TargetHandle?): ()
+    if target and not target.dead and routes:focused() == target and not target:blur() then
       error('keyboard-display: current local target refused blur', 0)
     end
   end
   local function boardChanged(change: keyboard.VisibilityChange): ()
-    if not live() or initializing then
-      return
-    end
     visible = change.visible
     if bar then
       bar:sync()
     end
     if change.reason == 'user-hide' then
-      local target, focusRevision = localTarget(), currentRevision
-      local ownIntent = clearIntent()
-      local ok, failure = pcall(function(): ()
-        blur(target, focusRevision)
-      end)
-      if live() and intentRevision == ownIntent and not visible then
+      clearIntent()
+      blur(currentTarget)
+      if live() and not visible then
         notify 'user-hide'
-      end
-      if not ok then
-        error(failure, 0)
       end
     elseif change.reason == 'destroy' then
       board = nil
@@ -122,152 +70,75 @@ return function(context: plugin.Context, settings: config.Settings): contract.Se
       clearIntent()
       notify 'destroy'
     else
-      local pending = visibilityHide
-      if change.reason == 'hide' and pending then
-        pending.changed = true
-      else
-        notify(change.reason)
-      end
+      notify(change.reason)
     end
   end
-  local function getBoard(): keyboard.Keyboard?
-    local existing = board
-    if existing and not existing.dead then
-      return existing
-    end
-    if not live() or initializing then
-      return nil
-    end
-    initializing = true
+  local hide: () -> boolean
+  -- Board events are ignored until the board is assigned, so creation hides it silently.
+  local function newBoard(): keyboard.Keyboard
     local created: keyboard.Keyboard? = nil
-    local ok, failure = pcall(function(): ()
-      created = keys:new(context, { onVisibilityChanged = boardChanged })
-      if created then
-        board = created
-        created:setVisible(false)
-        local target = created
-        bar = widgets:newTitlebar(context, 'desktop/keyboard/titlebar', target, {
-          title = 'Keyboard',
-          onClose = function(): ()
-            close()
-          end,
-        }, function(): boolean
-          return live() and visible and not target.dead
-        end)
-      end
+    local target = keys:new(context, {
+      onVisibilityChanged = function(change: keyboard.VisibilityChange): ()
+        if live() and created ~= nil and board == created then
+          boardChanged(change)
+        end
+      end,
+    })
+    created = target
+    target:setVisible(false)
+    board = target
+    bar = widgets:newTitlebar(context, 'desktop/keyboard/titlebar', target, {
+      title = 'Keyboard',
+      onClose = function(): ()
+        hide()
+      end,
+    }, function(): boolean
+      return live() and visible and not target.dead
     end)
-    initializing = false
-    local target = created
-    if not ok or not live() then
-      board = nil
-      if target and not target.dead then
-        protected.call('keyboard-display: partial keyboard cleanup', function(): ()
-          target:destroy()
-        end)
-      end
-      if not ok then
-        error(failure, 0)
-      end
-      return nil
-    end
-    return if target and not target.dead then target else nil
+    return target
   end
   local function setVisible(show: boolean): boolean
     if not live() then
       return false
     end
-    requestedVisible = show
-    local target = if show then getBoard() else board
+    local target = board
+    if show and (not target or target.dead) then
+      target = newBoard()
+    end
     if not target or target.dead then
       return not show
     end
-    local requested = requestedVisible
-    if target.visible == requested then
-      visible = requested
-      return requested == show
+    if target.visible == show then
+      visible = show
+      return true
     end
-    if requested then
+    if show then
       place(target, settings.placement)
     end
-    local previousHide = visibilityHide
-    local pending = publicHide
-    visibilityHide = if not requested and pending and pending.intentRevision == intentRevision then pending else nil
-    local ok, failure = pcall(function(): ()
-      target:setVisible(requested)
-    end)
-    visibilityHide = previousHide
-    if not ok then
-      error(failure, 0)
-    end
+    target:setVisible(show)
     return live() and not target.dead and target.visible == show
   end
   local function show(): boolean
     if not live() then
       return false
     end
-    manualVisible = true
-    intentRevision += 1
+    manual = true
     return setVisible(true)
   end
-  local function hide(): boolean
+  hide = function(): boolean
     if not live() then
       return false
     end
-    local target, focusRevision = localTarget(), currentRevision
-    local ownIntent = clearIntent()
-    local previousHide = publicHide
-    local pending: Hide = { intentRevision = ownIntent, changed = false }
-    publicHide = pending
-    local failures: { string } = {}
-    local hidden = false
-    local ok, failure = pcall(function(): ()
-      hidden = setVisible(false)
-    end)
-    if not ok then
-      failures[#failures + 1] = tostring(failure)
-    end
-    if live() and intentRevision == ownIntent then
-      local blurred, blurFailure = pcall(function(): ()
-        blur(target, focusRevision)
-      end)
-      if not blurred then
-        failures[#failures + 1] = tostring(blurFailure)
-      end
-    end
-    publicHide = previousHide
-    if pending.changed and live() and intentRevision == pending.intentRevision and not visible then
-      notify 'hide'
-    end
-    if #failures > 0 then
-      error(table.concat(failures, '\n'), 0)
-    end
-    return hidden and live() and not visible
+    clearIntent()
+    blur(currentTarget)
+    return setVisible(false) and not visible
   end
 
-  close = hide
   context:effect(function(): () -> ()
     return function(): ()
-      if stopped then
-        return
-      end
       stopped, visible = true, false
-      clearIntent()
-      currentTarget = nil
-      local target = board
-      board = nil
-      local ok, failure = pcall(function(): ()
-        if target and not target.dead then
-          target:destroy()
-        end
-      end)
       notify 'destroy'
-      for _, listener in ipairs(listeners) do
-        listener.run = nil
-      end
-      table.clear(listeners)
-      if not ok then
-        error(failure, 0)
-      end
+      subscribers:clear()
     end
   end)
   routes:onChanged(context, {
@@ -275,20 +146,14 @@ return function(context: plugin.Context, settings: config.Settings): contract.Se
       if not live() then
         return
       end
-      currentTarget = if change.kind == 'local' then change.target else nil
-      currentRevision = change.revision
-      if blurringRevision and change.kind == 'none' and change.revision == blurringRevision + 1 then
-        return
-      end
-      if change.kind == 'local' and change.wantsKeyboard and change.target and not change.target.dead then
-        autoTarget, autoRevision = change.target, change.revision
-        intentRevision += 1
+      local target = if change.kind == 'local' then change.target else nil
+      currentTarget = target
+      if target and change.wantsKeyboard and not target.dead then
+        auto = target
         setVisible(true)
-      else
-        local hadAuto = autoTarget ~= nil and autoRevision > 0
-        autoTarget, autoRevision = nil, 0
-        intentRevision += 1
-        if hadAuto and not manualVisible then
+      elseif auto then
+        auto = nil
+        if not manual then
           setVisible(false)
         end
       end
@@ -333,24 +198,14 @@ return function(context: plugin.Context, settings: config.Settings): contract.Se
       if not live() then
         error('keyboard-display onChanged: service is dead', 2)
       end
-      if type(listener) ~= 'table' or getmetatable(listener) ~= nil then
+      if type(listener) ~= 'table' then
         error('keyboard-display onChanged: listener is a plain table', 2)
       end
       plugin.rejectUnknownFields('keyboard-display onChanged', listener, { run = true }, 'run', 2)
       if type(listener.run) ~= 'function' then
         error('keyboard-display onChanged: run is a plain callback', 2)
       end
-      local entry: Listener = { owner = owner, run = listener.run }
-      return context:acquire(owner, function(): () -> ()
-        listeners[#listeners + 1] = entry
-        return function(): ()
-          entry.run = nil
-          local index = table.find(listeners, entry)
-          if index then
-            table.remove(listeners, index)
-          end
-        end
-      end)
+      return subscribers:add(owner, { run = listener.run })
     end,
   }
   return table.freeze(service)

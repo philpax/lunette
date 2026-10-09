@@ -5,7 +5,6 @@ local listeners = require '@lunette-plugins/listeners'
 local inspection = require '@lunette-contracts/inspection'
 
 local LISTENER_KEYS: { [string]: boolean } = { run = true }
-local DROP_KEYS: { [string]: boolean } = { surface = true, pointer = true }
 
 local function create(context: plugin.Context): contract.Service
   local heard = listeners.new<<(contract.Drop) -> ()>>(context)
@@ -21,15 +20,9 @@ local function create(context: plugin.Context): contract.Service
       end
       return heard:add(owner, run)
     end,
-    -- Disposed listeners are skipped even when they appear in the current delivery snapshot.
+    -- Disposed listeners are skipped even when they appear in the current delivery snapshot. The interaction
+    -- provider is the only emitter, so the drop is not validated.
     emit = function(_self: contract.Service, owner: contract.Owner, drop: contract.Drop): ()
-      plugin.rejectUnknownFields('drops emit', drop, DROP_KEYS, 'surface and pointer', 2)
-      if type(drop.surface) ~= 'table' then
-        error('drops emit: surface is a surface, not a ' .. type(drop.surface), 2)
-      end
-      if type(drop.pointer) ~= 'table' then
-        error('drops emit: pointer is a pointer, not a ' .. type(drop.pointer), 2)
-      end
       context:checkOwner(owner)
       local delivered: contract.Drop = table.freeze { surface = drop.surface, pointer = drop.pointer }
       heard:each('drops: listener', function(run: (contract.Drop) -> ()): ()

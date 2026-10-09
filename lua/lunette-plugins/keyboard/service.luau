@@ -60,12 +60,24 @@ local function build(context: plugin.Context, settings: Settings): keyboard.Serv
       end
       local cleanupEffect: plugin.Effect? = nil
       local result, acquired = context:resource(owner, function(): (board.Board, () -> ())
-        local source = focusService:newSource(context, { mode = 'virtual' })
-        local changed: plugin.Effect? = nil
-        local themeChanged: plugin.Effect? = nil
+        -- Each disposer is pushed as its resource is acquired, so a failed construction and a destroy release the same list.
+        local disposers: { () -> () } = {}
+        local function disposeAll(failures: { string }): { string }
+          for index = #disposers, 1, -1 do
+            local ok, failure = pcall(disposers[index])
+            if not ok then
+              failures[#failures + 1] = tostring(failure)
+            end
+          end
+          table.clear(disposers)
+          return failures
+        end
         local made: board.Board? = nil
-        local destroyBoard: (() -> ())? = nil
         local ok, failure = pcall(function(): ()
+          local source = focusService:newSource(context, { mode = 'virtual' })
+          table.insert(disposers, function(): ()
+            source:destroy()
+          end)
           local created, destroyState, clearInput, refresh = create(
             own,
             options,
@@ -81,51 +93,31 @@ local function build(context: plugin.Context, settings: Settings): keyboard.Serv
               end
             end
           )
-          made, destroyBoard = created, destroyState
-          changed = focusService:onChanged(context, {
+          made = created
+          table.insert(disposers, destroyState)
+          local changed = focusService:onChanged(context, {
             run = function(_change: focus.Change): ()
               if not created.dead then
                 clearInput()
               end
             end,
           })
-          themeChanged = themeService:onChanged(context, function(_snapshot: theme.Snapshot): ()
+          table.insert(disposers, function(): ()
+            changed:dispose()
+          end)
+          local themeChanged = themeService:onChanged(context, function(_snapshot: theme.Snapshot): ()
             refresh()
+          end)
+          table.insert(disposers, function(): ()
+            themeChanged:dispose()
           end)
           boards[created] = owner
         end)
         if not ok then
           callback = nil
-          local failures = { tostring(failure) }
-          local function cleanup(run: () -> ()): ()
-            local cleaned, cleanupFailure = pcall(run)
-            if not cleaned then
-              failures[#failures + 1] = tostring(cleanupFailure)
-            end
-          end
-          if destroyBoard then
-            cleanup(destroyBoard)
-          end
-          local themeEffect = themeChanged
-          themeChanged = nil
-          if themeEffect then
-            cleanup(function(): ()
-              themeEffect:dispose()
-            end)
-          end
-          local effect = changed
-          changed = nil
-          if effect then
-            cleanup(function(): ()
-              effect:dispose()
-            end)
-          end
-          cleanup(function(): ()
-            source:destroy()
-          end)
-          error(table.concat(failures, '\n'), 0)
+          error(table.concat(disposeAll { tostring(failure) }, '\n'), 0)
         end
-        local created, destroyState = made :: board.Board, destroyBoard :: () -> ()
+        local created = made :: board.Board
         return created,
           function(): ()
             if created.dead then
@@ -133,37 +125,7 @@ local function build(context: plugin.Context, settings: Settings): keyboard.Serv
             end
             boards[created] = nil
             cleanupEffect = nil
-            local effect = changed
-            changed = nil
-            local themeEffect = themeChanged
-            themeChanged = nil
-            local failures: { string } = {}
-            local ended, endFailure = pcall(destroyState)
-            if not ended then
-              failures[#failures + 1] = tostring(endFailure)
-            end
-            if themeEffect then
-              local cleaned, failure = pcall(function(): ()
-                themeEffect:dispose()
-              end)
-              if not cleaned then
-                failures[#failures + 1] = tostring(failure)
-              end
-            end
-            if effect then
-              local cleaned, failure = pcall(function(): ()
-                effect:dispose()
-              end)
-              if not cleaned then
-                failures[#failures + 1] = tostring(failure)
-              end
-            end
-            local cleaned, failure = pcall(function(): ()
-              source:destroy()
-            end)
-            if not cleaned then
-              failures[#failures + 1] = tostring(failure)
-            end
+            local failures = disposeAll {}
             notify { visible = false, reason = 'destroy' }
             if #failures > 0 then
               error(table.concat(failures, '\n'), 0)

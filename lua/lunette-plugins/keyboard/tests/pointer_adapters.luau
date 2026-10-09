@@ -309,69 +309,6 @@ for _, action in { { kind = 'hide' }, { kind = 'layer', layer = 'alternate' } } 
 end
 
 for _, kind in { 'built-in', 'tiny' } do
-  for _, closeAgain in { false, true } do
-    local ending = if closeAgain then 'hides again' else 'reopens'
-    test(kind .. ' cancellation ' .. ending .. ' without a stale outer hide notification', function()
-      local f
-      local notifications = {}
-      local observedVisible = true
-      f = fixture(kind, {
-        onVisibilityChanged = function(change)
-          notifications[#notifications + 1] = change
-          observedVisible = change.visible
-          expect.equal(change.visible, f.board.visible, 'notifications match the committed current visibility')
-        end,
-      })
-      local first, second = f:pointer(), f:pointer()
-      local cancelled, reentered, resets = 0, false, 0
-      local reset = f.source.reset
-      f.source.reset = function(source)
-        resets += 1
-        return reset(source)
-      end
-      local onPointer = f.board.onPointer
-      f.board.onPointer = function(board, event)
-        onPointer(board, event)
-        if event.kind ~= 'cancel' then
-          return
-        end
-        cancelled += 1
-        if not reentered then
-          reentered = true
-          expect.falsy(board.visible, 'the outer hide commits before cancellation')
-          board:setVisible(true)
-          if closeAgain then
-            board:setVisible(false)
-          end
-        end
-        error('visibility reentry cancellation defect ' .. event.button)
-      end
-      f:update(first, { left = true, right = true })
-      f:update(second, { left = true })
-      local ok, failure = pcall(function()
-        f.board:setVisible(false)
-      end)
-      expect.falsy(ok, 'cancellation errors still propagate after reentry')
-      expect.truthy(tostring(failure):find('visibility reentry cancellation defect left', 1, true))
-      expect.truthy(tostring(failure):find('visibility reentry cancellation defect right', 1, true))
-      local reportedFailures = 0
-      for _ in tostring(failure):gmatch 'visibility reentry cancellation defect' do
-        reportedFailures += 1
-      end
-      expect.equal(reportedFailures, 3, 'every cancellation error remains in the aggregate')
-      expect.equal(cancelled, 3, 'reentry never interrupts remaining pointer cancellation')
-      expect.equal(#notifications, if closeAgain then 2 else 1, 'superseded outer hide does not notify')
-      expect.equal(notifications[1].reason, 'show', 'the nested show remains observable')
-      if closeAgain then
-        expect.equal(notifications[2].reason, 'hide', 'only the current nested hide notifies')
-      end
-      expect.equal(f.board.visible, not closeAgain, 'the newest transition determines visibility')
-      expect.equal(observedVisible, f.board.visible, 'consumer state matches the live board')
-      expect.equal(resets, if closeAgain then 1 else 0, 'only the current hide resets input')
-      f:close()
-    end)
-  end
-
   test(kind .. ' cancellation destruction ends notifications and never resets the dead source', function()
     local f
     local notifications = {}

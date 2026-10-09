@@ -1,4 +1,4 @@
--- The shipped session action consumers use the wrist menu instead of physical reload or workspace bindings.
+-- Every shipped session action is reachable through the wrist menu.
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
@@ -8,14 +8,13 @@ local ui = require '@lunette-contracts/ui'
 local menu = require '@lunette-contracts/menu'
 local display = require '@lunette-contracts/keyboard-display'
 local keyboard = require '@lunette-contracts/keyboard'
-local bindings = require '@lunette-contracts/bindings'
 local tags = require '@lunette-contracts/tags'
 local surfaces = require '@lunette-contracts/surfaces'
 local lunette = require '@lunette'
 local theme = require '@lunette-contracts/theme'
 local test = testing.suite()
 
-test('wrist menu actions are VR accessible and session actions do not register physical bindings', function()
+test('wrist menu actions are VR accessible', function()
   local native = testing.native()
   local services = {}
   local observer = plugin.define {
@@ -25,7 +24,6 @@ test('wrist menu actions are VR accessible and session actions do not register p
       menu = menu.capability,
       display = display.capability,
       keyboard = keyboard.capability,
-      bindings = bindings.capability,
       tags = tags.capability,
       surfaces = surfaces.capability,
       theme = theme.capability,
@@ -35,7 +33,6 @@ test('wrist menu actions are VR accessible and session actions do not register p
       services.menu = context:require(menu.capability)
       services.display = context:require(display.capability)
       services.keyboard = context:require(keyboard.capability)
-      services.bindings = context:require(bindings.capability)
       services.tags = context:require(tags.capability)
       services.surfaces = context:require(surfaces.capability)
       services.theme = context:require(theme.capability)
@@ -54,16 +51,6 @@ test('wrist menu actions are VR accessible and session actions do not register p
     reloads += 1
     return true
   end
-  expect.equal(#services.bindings:inspect().registrations, 0, 'no shipped session chord is registered')
-  for _, key in { 'f5', '1', '2' } do
-    lovr.keypressed(key, 0, false)
-    native.events.held.lalt = true
-    lovr.keypressed(key, 0, false)
-    native.events.held = {}
-  end
-  expect.equal(reloads, 0, 'physical keys do not reload the configuration')
-  expect.truthy(services.tags:find('main').selected, 'physical keys do not change the workspace')
-
   local fixture = vrUi.attach(native)
   fixture:pose('left', lovr.math.newMat4():translate(0, 1.2, -0.5))
   fixture:tracked('left', true)

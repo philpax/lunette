@@ -37,7 +37,6 @@ use crate::{
 struct Calls {
     created: Vec<LayerKey>,
     destroyed: Vec<u64>,
-    abandoned: Vec<u64>,
     /// One entry per submit, holding the layers the submit named and whether
     /// lunette's own projection layer is part of it.
     submitted: Vec<(Vec<u64>, SceneRendering)>,
@@ -100,10 +99,6 @@ impl LayerBackend for FakeLayers {
 
     fn destroy(&mut self, layer: Self::Layer) {
         self.calls.borrow_mut().destroyed.push(layer.0);
-    }
-
-    fn abandon(&mut self, layer: Self::Layer) {
-        self.calls.borrow_mut().abandoned.push(layer.0);
     }
 }
 
@@ -182,8 +177,8 @@ impl Harness {
         self.calls.borrow().destroyed.len()
     }
 
-    fn abandoned(&self) -> Vec<u64> {
-        self.calls.borrow().abandoned.clone()
+    fn destroyed_layers(&self) -> Vec<u64> {
+        self.calls.borrow().destroyed.clone()
     }
 
     /// The layers the most recent submit named.
@@ -747,7 +742,7 @@ fn a_session_that_goes_away_is_observed_at_the_next_boundary() {
     let outcome = harness.resolve();
 
     assert_eq!(outcome.revoked, vec![claim]);
-    assert_eq!(harness.abandoned().len(), 1);
+    assert_eq!(harness.destroyed(), 1);
     assert_eq!(harness.limit.get(), GENEROUS, "the limit is not the signal");
 }
 
@@ -771,12 +766,7 @@ fn a_session_replaced_between_two_boundaries_is_given_up_like_a_lost_one() {
     let outcome = harness.replace_session();
 
     assert_eq!(outcome.revoked, vec![claim]);
-    assert_eq!(
-        harness.abandoned(),
-        vec![stale],
-        "the pool relinquishes the retired layer through the session-loss path"
-    );
-    assert_eq!(harness.destroyed(), 0);
+    assert_eq!(harness.destroyed_layers(), vec![stale]);
     assert!(harness.pool.layer(claim).is_none());
     assert_eq!(harness.pool.budget().slots(), 0);
 }
@@ -821,7 +811,7 @@ fn a_session_that_stays_the_same_gives_up_nothing() {
     }
 
     assert!(harness.pool.layer(claim).is_some());
-    assert_eq!(harness.abandoned(), Vec::<u64>::new());
+    assert_eq!(harness.destroyed(), 0);
 }
 
 /// The layers are given up once. A boundary that reported the same revocation
@@ -838,7 +828,7 @@ fn a_session_that_stays_away_is_reported_once() {
     assert_eq!(again.revoked, Vec::new());
     assert_eq!(again.granted, Vec::new());
     assert_eq!(
-        harness.abandoned().len(),
+        harness.destroyed(),
         1,
         "the second boundary has nothing left to give up"
     );
@@ -858,7 +848,7 @@ fn session_loss_gives_up_every_layer_and_revokes_every_grant() {
 
     assert_eq!(outcome.revoked, vec![granted]);
     assert_eq!(
-        harness.abandoned().len(),
+        harness.destroyed(),
         2,
         "the free list is as invalid as the granted layer"
     );
@@ -884,13 +874,7 @@ fn a_restart_leaves_the_pool_with_no_claims_and_no_layers() {
     harness.pool.shutdown();
     harness.pool.forget_claims();
 
-    assert_eq!(
-        harness.destroyed(),
-        2,
-        "a restart destroys the layers rather than abandoning them, because the session that owns \
-         their swapchains is still alive when it runs"
-    );
-    assert_eq!(harness.abandoned(), Vec::<u64>::new());
+    assert_eq!(harness.destroyed(), 2);
     assert_eq!(harness.pool.free_layers(), 0);
     assert_eq!(
         harness.pool.state(held),
@@ -935,17 +919,6 @@ fn forgetting_a_claim_that_still_holds_a_layer_returns_it_to_the_free_list() {
 }
 
 #[test]
-fn session_loss_uses_abandon_rather_than_deliberate_pool_destruction() {
-    let mut harness = Harness::new(GENEROUS);
-    harness.pool.claim(key(512, 512), priority(1.0));
-    harness.settle();
-
-    harness.lose_session();
-
-    assert_eq!(harness.destroyed(), 0);
-}
-
-#[test]
 fn the_first_boundary_after_recovery_grants_a_new_layer_rather_than_a_stale_one() {
     let mut harness = Harness::new(GENEROUS);
     let claim = harness.pool.claim(key(512, 512), priority(1.0));
@@ -969,7 +942,7 @@ fn the_first_boundary_after_recovery_grants_a_new_layer_rather_than_a_stale_one(
     );
     let live = harness.pool.layer(claim).expect("the claim holds a layer");
     assert!(
-        !harness.abandoned().contains(&live.0),
+        !harness.destroyed_layers().contains(&live.0),
         "a handle given up with the old session was handed back out"
     );
 }

@@ -8,6 +8,7 @@ local frameStyle = require '@lunette-plugins/theme/frame-style'
 local drawing = require '@lunette-plugins/theme/drawing'
 local geometry = require './geometry'
 local passState = require '@lunette-plugins/pass-state'
+local cleanup = require './cleanup'
 
 local panelGeometry = {}
 
@@ -79,33 +80,19 @@ function panelGeometry.attach(
     state.frame = nil
     local effect = inverse
     inverse = nil
-    local failures: { string } = {}
-    for _, operation in
-      {
-        function(): ()
-          drawing.clear(state.frameMeshes)
-        end,
-        function(): ()
-          changed(true)
-        end,
-        function(): ()
-          if effect then
-            effect:dispose()
-          end
-        end,
-      }
-    do
-      local ok, failure = pcall(function(): boolean
-        operation()
-        return true
-      end)
-      if not ok then
-        failures[#failures + 1] = tostring(failure)
-      end
-    end
-    if #failures > 0 then
-      error('ui frame cleanup: ' .. table.concat(failures, '; '), 0)
-    end
+    cleanup.run('ui frame cleanup', {
+      function(): ()
+        drawing.clear(state.frameMeshes)
+      end,
+      function(): ()
+        changed(true)
+      end,
+      function(): ()
+        if effect then
+          effect:dispose()
+        end
+      end,
+    })
   end
   local attachment: vocabulary.FrameAttachment = {
     update = function(_self: vocabulary.FrameAttachment, givenStyle: vocabulary.FrameStyle): ()

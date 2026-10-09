@@ -466,11 +466,11 @@ impl<B: LayerBackend> LayerPool<B> {
             if held.state == HeldState::Granted {
                 outcome.revoked.push(self.claims[index].id);
             }
-            self.backend.abandon(held.layer);
+            self.backend.destroy(held.layer);
         }
 
         for entry in std::mem::take(&mut self.free) {
-            self.backend.abandon(entry.layer);
+            self.backend.destroy(entry.layer);
         }
 
         // Without this, the budget stays the old session's until the next

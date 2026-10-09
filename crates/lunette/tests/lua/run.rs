@@ -128,18 +128,7 @@ fn untaken(reports: &[String]) -> String {
 /// LÖVR hands out temporary math objects from a pool it drains at each frame
 /// boundary. A test never reaches one, so the pool is drained between cases.
 fn drain_temporaries(lua: &Lua) -> Result<(), String> {
-    // A case may have replaced `lovr` or its math module with a fake of its
-    // own, which has no pool to drain.
-    let drain = lua
-        .globals()
-        .get::<Option<Table>>("lovr")
-        .and_then(|lovr| lovr.map_or(Ok(None), |lovr| lovr.get::<Option<Table>>("math")))
-        .and_then(|math| math.map_or(Ok(None), |math| math.get::<Option<Function>>("drain")))
-        .map_err(|error| format!("lovr.math could not be reached after the case: {error}"))?;
-    match drain {
-        Some(drain) => drain
-            .call::<()>(())
-            .map_err(|error| format!("lovr.math.drain raised after the case: {error}")),
-        None => Ok(()),
-    }
+    lua.load("lovr.math.drain()")
+        .exec()
+        .map_err(|error| format!("lovr.math.drain raised after the case: {error}"))
 }

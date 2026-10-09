@@ -8,7 +8,6 @@ local menu = require '@lunette-contracts/menu'
 local config = require '@lunette-plugins/desktop/manager/config'
 local controller = require '@lunette-plugins/desktop/manager/controller'
 local brokers = require '@lunette-plugins/desktop/manager/brokers'
-local styles = require '@lunette-plugins/desktop/manager/theme'
 local widgets = require '@lunette-plugins/desktop/manager/widgets'
 
 export type Config = config.Config
@@ -30,30 +29,24 @@ return plugin.consumer<<Config, Settings>>({
     local uiService = context:require(ui.capability)
     local menuService = context:require(menu.capability)
     local themeService = context:require(theme.capability)
-    local style = styles.new(themeService, context)
     local pixelHeight = settings.pixels * settings.height / settings.width
     local dead = false
     local visible = settings.visible
     local untilRefresh = settings.refreshInterval
     local panel: ui.Panel
-    local shell: widgets.Shell?
+    local shell: widgets.Shell
     local registration: plugin.Effect? = nil
     local function setVisible(show: boolean): ()
-      if dead or not context:active() or panel.dead then
+      if dead or panel.dead then
         return
       end
       visible = show
       panel:setVisible(show)
-      local current = shell
-      if current then
-        if show then
-          current.update()
-        else
-          current.cancel()
-        end
-      end
       if show then
+        shell.update()
         untilRefresh = settings.refreshInterval
+      else
+        shell.cancel()
       end
       local handle = registration
       if handle then
@@ -63,7 +56,8 @@ return plugin.consumer<<Config, Settings>>({
     local function close(): ()
       setVisible(false)
     end
-    local state = controller.new(compositionService, brokers.watch(context), settings.pixels, pixelHeight, nil, close)
+    local state = controller.new(compositionService, brokers.watch(context), settings.pixels, pixelHeight)
+    state.presentation = settings.view
     panel = uiService:newPanel(context, {
       name = 'desktop/manager',
       pose = lovr.math.newMat4():translate(settings.position),
@@ -75,26 +69,12 @@ return plugin.consumer<<Config, Settings>>({
       grabbable = true,
       titlebar = { title = 'Plugins', onClose = close },
     })
-    state.presentation = settings.view
-    local initial = style.current()
-    controller.prepareStyle(state, initial.metrics.rowHeight, initial.metrics.spacing, nil)()
-    shell = widgets.new(panel, context, state, style)
-    themeService:onChanged(context, function(_snapshot: theme.Snapshot): ()
-      local current = shell
-      if current and not dead and context:active() and not panel.dead then
-        current.refreshTheme()
-      end
-    end)
+    shell = widgets.new(panel, context, state, themeService)
     context:effect(function(): () -> ()
       return function(): ()
         dead = true
-        local current = shell
-        shell = nil
         panel:destroy()
-        if current then
-          current.destroy()
-        end
-        style.destroy()
+        shell.destroy()
       end
     end)
     registration = menuService:register(context, {
@@ -110,26 +90,20 @@ return plugin.consumer<<Config, Settings>>({
     frameService:onUpdate(context, {
       phase = 'scene',
       run = function(dt: number): ()
-        local current = shell
-        if dead or not context:active() or not current or panel.dead or not visible then
+        if dead or panel.dead or not visible then
           return
         end
         untilRefresh -= dt
         if untilRefresh <= 0 then
           untilRefresh = settings.refreshInterval
-          current.update()
+          shell.update()
         end
       end,
     })
     frameService:onDraw(context, {
       phase = 'scene',
       run = function(pass: Pass): ()
-        local current = shell
-        if not dead and context:active() and not panel.dead and current then
-          current.refreshTheme()
-          if dead or not context:active() or panel.dead then
-            return
-          end
+        if not dead and not panel.dead then
           panel:draw(pass)
         end
       end,

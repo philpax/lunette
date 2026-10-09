@@ -70,7 +70,7 @@ end
 
 -- The panel's +y axis points up; surface pixels count +y downward.
 local function hit(window, originX, originY, originZ, directionX, directionY, directionZ)
-  if directionZ == 0 then
+  if directionZ == 0 or window.width <= 0 or window.height <= 0 then
     return nil
   end
 
@@ -86,13 +86,7 @@ local function hit(window, originX, originY, originZ, directionX, directionY, di
     return nil
   end
 
-  local pixelWidth = (window.width > 0) and window.width or 0
-  local pixelHeight = (window.height > 0) and window.height or 0
-  if pixelWidth == 0 or pixelHeight == 0 then
-    return nil
-  end
-
-  return (x + width / 2) / width * pixelWidth, (height / 2 - y) / height * pixelHeight, distance
+  return (x + width / 2) / width * window.width, (height / 2 - y) / height * window.height, distance
 end
 
 -- Error text wraps at fixed widths because paths and tracebacks lack useful word boundaries.

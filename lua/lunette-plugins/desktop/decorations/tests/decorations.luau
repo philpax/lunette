@@ -33,6 +33,8 @@ local function start()
   env.surfaces = env.session:observe(surfacesContract.capability)
   env.window = env.native.newWindow(1)
   env.panel = env.panels.service:fromWindow(env.panels.context, env.window, {})
+  -- Decorations make bars in the scene update.
+  env.session:update(0)
   return env
 end
 
@@ -100,11 +102,6 @@ test('the bar is offered beside the panel and sits above it', function()
   expect.equal(attached.details.headerHeight, bar.height, 'the attachment uses the offered header height')
   local outline = drawnOutline(env)
   expect.falsy(outline.released, 'the attached target retains its outline mesh')
-  local target = assert(registration(env, 'panel', 'panels.fromWindow')).details
-  expect.truthy(
-    target.frameAttached and target.frameJoined and target.outlineMesh,
-    'inspection records the delegated outline'
-  )
   env.session:close()
 end)
 

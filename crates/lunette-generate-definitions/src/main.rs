@@ -55,32 +55,10 @@ const ALIAS_FILES: &[AliasFile] = &[
         ".",
         lunette::aliases::installed_luaurc,
     ),
-    (
-        "examples/desktop/.luaurc",
-        "../../lua",
-        lunette::aliases::installed_luaurc,
-    ),
-    (
-        "examples/first-plugin/.luaurc",
-        "../../lua",
-        lunette::aliases::installed_luaurc,
-    ),
-    (
-        "examples/keyboard/.luaurc",
-        "../../lua",
-        lunette::aliases::installed_luaurc,
-    ),
-    (
-        "examples/layout/.luaurc",
-        "../../lua",
-        lunette::aliases::installed_luaurc,
-    ),
-    (
-        "examples/theme/.luaurc",
-        "../../lua",
-        lunette::aliases::installed_luaurc,
-    ),
 ];
+
+/// Every directory here is an example configuration, and each gets installed aliases.
+const EXAMPLES: &str = "examples";
 
 fn main() -> ExitCode {
     // Keep diagnostics on stderr so `--manifest` can write machine-readable stdout.
@@ -136,14 +114,23 @@ fn run(checking: bool) -> Result<bool, Box<dyn std::error::Error>> {
     let text = fs::read_to_string(&generated)?;
 
     let mut generated = vec![
-        (CHECKER_DEFINITIONS, text),
-        (MODULE_DECLARATIONS, lunette::lua::declarations::render()),
+        (PathBuf::from(CHECKER_DEFINITIONS), text),
+        (
+            PathBuf::from(MODULE_DECLARATIONS),
+            lunette::lua::declarations::render(),
+        ),
     ];
     generated.extend(
         ALIAS_FILES
             .iter()
-            .map(|(path, root, render)| (*path, render(root))),
+            .map(|(path, root, render)| (PathBuf::from(path), render(root))),
     );
+    for example in examples(&root)? {
+        generated.push((
+            example.join(".luaurc"),
+            lunette::aliases::installed_luaurc("../../lua"),
+        ));
+    }
 
     if checking {
         let mut current = true;
@@ -170,6 +157,19 @@ fn run(checking: bool) -> Result<bool, Box<dyn std::error::Error>> {
     }
 
     Ok(true)
+}
+
+/// The example configuration directories, relative to the repository root, in name order.
+fn examples(root: &Path) -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
+    let mut examples = Vec::new();
+    for entry in fs::read_dir(root.join(EXAMPLES))? {
+        let entry = entry?;
+        if entry.file_type()?.is_dir() {
+            examples.push(Path::new(EXAMPLES).join(entry.file_name()));
+        }
+    }
+    examples.sort();
+    Ok(examples)
 }
 
 /// Compares generated output with a checked-in file and reports the first difference.

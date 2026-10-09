@@ -2,16 +2,15 @@
 local ui = require '@lunette-contracts/ui'
 local focus = require '@lunette-contracts/focus'
 local keys = require '@lunette-contracts/keys'
-local control = require './control'
 local edit = require './text-edit'
 local measurement = require './measurement-cache'
+local records = require './panel-state'
 local textGeometry = require './text-field-geometry'
-local validation = require './validation'
 local vocabulary = require '@lunette-contracts/vocabulary'
 
 local textField = {}
 
-local validate: (State, number) -> boolean
+local validate: (State) -> boolean
 local apply: (State, edit.State, boolean) -> ()
 local setError: (State, string?) -> ()
 local key: (State, focus.KeyEvent) -> boolean
@@ -21,29 +20,26 @@ local visual: (State, ui.Visual) -> ui.Visual
 local hasModifier: (focus.KeyEvent, string) -> boolean
 
 type State = {
-  host: control.Host,
+  host: records.Host,
   measurements: measurement.Cache,
   options: ui.TextFieldOptions,
   draft: edit.State,
-  revision: number,
   error: string?,
   focused: boolean,
   dragging: vocabulary.Pointer?,
 }
 
-function textField.new(options: ui.TextFieldOptions, host: control.Host): control.Widget
-  options = validation.textField(options)
+function textField.new(options: ui.TextFieldOptions, host: records.Host): records.Widget
   local state: State = {
     host = host,
     measurements = measurement.new(),
     options = options,
     draft = edit.new(if options.value == nil then '' else options.value),
-    revision = 0,
     error = nil,
     focused = false,
     dragging = nil,
   }
-  validate(state, state.revision)
+  validate(state)
   local methods = {
     setValue = function(_self: ui.TextField, value: string): ()
       if host.live() then
@@ -66,10 +62,7 @@ function textField.new(options: ui.TextFieldOptions, host: control.Host): contro
         return
       end
       assert(message == nil or type(message) == 'string', 'ui text field setError: a string or nil is required')
-      if state.error ~= message then
-        state.revision += 1
-        setError(state, message)
-      end
+      setError(state, message)
     end,
     focus = function(_self: ui.TextField): boolean
       return host.live() and host.focus()
@@ -93,7 +86,6 @@ function textField.new(options: ui.TextFieldOptions, host: control.Host): contro
     end,
   }
   return {
-    kind = 'text-field',
     methods = methods,
     receiver = receiver,
     keymapSeat = options.keymapSeat,
@@ -125,10 +117,10 @@ function textField.new(options: ui.TextFieldOptions, host: control.Host): contro
   }
 end
 
-validate = function(state: State, revision: number): boolean
+validate = function(state: State): boolean
   local validator = state.options.validate
   if not validator then
-    return state.host.live() and state.revision == revision
+    return state.host.live()
   end
   local message: string? = nil
   local value = state.draft.value
@@ -138,11 +130,11 @@ validate = function(state: State, revision: number): boolean
       error 'text field: validate must return a string or nil'
     end
   end)
-  if not state.host.live() or state.revision ~= revision then
+  if not state.host.live() then
     return false
   end
   setError(state, if succeeded then message else 'Validation failed.')
-  return succeeded and state.host.live() and state.revision == revision
+  return succeeded
 end
 
 apply = function(state: State, draft: edit.State, notify: boolean): ()
@@ -152,20 +144,15 @@ apply = function(state: State, draft: edit.State, notify: boolean): ()
   end
   local changedValue = draft.value ~= previous.value
   state.draft = draft
-  state.revision += 1
-  local revision = state.revision
   if changedValue then
     state.error = nil
   end
   state.host.changed()
-  if not state.host.live() or state.revision ~= revision or not changedValue then
-    return
-  end
-  if not validate(state, revision) then
+  if not changedValue or not validate(state) then
     return
   end
   local callback = state.options.onChange
-  if notify and callback and state.host.live() and state.revision == revision then
+  if notify and callback and state.host.live() then
     state.host.callback('onChange', function(): ()
       callback(draft.value)
     end)
@@ -206,10 +193,9 @@ key = function(state: State, event: focus.KeyEvent): boolean
   elseif event.code == codes.backspace or event.code == codes.delete then
     apply(state, edit.erase(state.draft, if event.code == codes.backspace then 'backward' else 'forward'), true)
   elseif event.code == codes.enter or event.code == codes.keypadEnter then
-    local revision = state.revision
-    if validate(state, revision) and state.error == nil then
+    if validate(state) and state.error == nil then
       local callback = state.options.onSubmit
-      if callback and state.host.live() and state.revision == revision then
+      if callback and state.host.live() then
         local value = state.draft.value
         state.host.callback('onSubmit', function(): ()
           callback(value)
@@ -218,10 +204,10 @@ key = function(state: State, event: focus.KeyEvent): boolean
     end
   elseif event.code == codes.escape then
     state.dragging = nil
-    local revision, value = state.revision, state.draft.value
+    local value = state.draft.value
     state.host.blur()
     local callback = state.options.onCancel
-    if callback and state.host.live() and state.revision == revision then
+    if callback and state.host.live() then
       state.host.callback('onCancel', function(): ()
         callback(value)
       end)
@@ -245,14 +231,10 @@ pointer = function(state: State, event: vocabulary.PointerEvent): ()
       return
     end
     apply(state, edit.select(state.draft, caret), false)
-    if state.host.live() and event.captured then
+    if event.captured then
       state.dragging = event.pointer
     end
-    if not state.host.live() or not state.host.focus() then
-      state.dragging = nil
-      return
-    end
-    if not state.host.live() then
+    if not state.host.focus() then
       state.dragging = nil
     end
   elseif event.kind == 'move' then

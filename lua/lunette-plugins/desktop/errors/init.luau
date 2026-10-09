@@ -114,7 +114,6 @@ return plugin.consumer<<Config, Settings>>({
     frameService:onDraw(context, {
       phase = 'overlay',
       run = function(pass: Pass): ()
-        local refreshed, refreshFailure = pcall(applyCurrent)
         local report = shown
         if report then
           local lines = errorLines.of(
@@ -122,9 +121,6 @@ return plugin.consumer<<Config, Settings>>({
             { columns = settings.columns, lines = settings.lines }
           )
           draw(pass, lines, settings, paint)
-        end
-        if not refreshed then
-          error(refreshFailure, 0)
         end
       end,
     })

@@ -33,7 +33,7 @@ use lunette_capture::{
         DesktopLayout, HostInput, KeyModifiers, MonitorMapping, PanelPoint,
         PointerButton as HostButton, ProviderError, VirtualKey, WheelDelta, XkbKeymap,
     },
-    monitor::{MonitorKey, Roster, SurfaceTransform},
+    monitor::{MonitorKey, Roster},
 };
 use lunette_compositor::protocol::{KeyModifier, Keycode, ModifierState, PointerButton};
 use tracing::{debug, warn};
@@ -127,10 +127,7 @@ impl HostPointer {
     pub fn attach(&self, roster: &Roster) {
         let mut monitors = Vec::with_capacity(roster.monitors().len());
         for monitor in roster.monitors() {
-            // Panels apply the captured UV transform before presentation. Hits
-            // are already in desktop orientation, including portal frames whose
-            // transform is Undefined, so reorienting here would apply it twice.
-            match MonitorMapping::new(monitor.geometry(), SurfaceTransform::Normal) {
+            match MonitorMapping::new(monitor.geometry()) {
                 Ok(mapping) => monitors.push((monitor.key().clone(), mapping)),
                 Err(error) => warn!(
                     monitor = %monitor.key(),
@@ -327,46 +324,4 @@ pub fn host_modifiers(modifiers: &ModifierState) -> Option<KeyModifiers> {
             }))
         },
     )
-}
-
-#[cfg(test)]
-#[expect(clippy::expect_used, reason = "tests report failed expectations")]
-mod tests {
-    use lunette_capture::{
-        hid::{self, DesktopPoint, HidConfig},
-        monitor::{
-            LogicalGeometry, LogicalPosition, LogicalSize, MonitorName, PixelExtent,
-            roster::MonitorReport,
-        },
-    };
-
-    use super::*;
-
-    #[test]
-    fn presented_monitor_hits_map_to_logical_desktop_for_every_output_transform() {
-        for transform in SurfaceTransform::ALL {
-            let pointer = HostPointer::new(hid::open(&HidConfig::disabled()));
-            let mut roster = Roster::new();
-            roster.add(MonitorReport {
-                name: MonitorName::new(None, Some("Acme".to_owned()), Some("Portrait".to_owned())),
-                geometry: LogicalGeometry::new(
-                    LogicalPosition::new(40, 80),
-                    LogicalSize::new(1080, 1920),
-                ),
-                pixels: PixelExtent::new(1920, 1080),
-                transform: *transform,
-            });
-            pointer.attach(&roster);
-            let mappings = pointer.monitors.borrow();
-            let mapping = mappings.first().expect("the output is mappable").1;
-            assert_eq!(
-                mapping.map(PanelPoint::new(0.25, 0.75)),
-                DesktopPoint::new(310.0, 1520.0)
-            );
-            assert_eq!(
-                mapping.map(PanelPoint::new(0.0, 0.0)),
-                DesktopPoint::new(40.0, 80.0)
-            );
-        }
-    }
 }

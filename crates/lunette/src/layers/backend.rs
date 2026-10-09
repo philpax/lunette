@@ -28,9 +28,8 @@ pub enum SessionPresence {
     /// A session exists. Layers can be created, submitted, and destroyed.
     Present(SessionId),
     /// There is no usable session. Every layer the pool holds has retired
-    /// backing, and each one goes to
-    /// [`LayerBackend::abandon`]. No new layer can be created until a session
-    /// exists again.
+    /// backing, and each one goes to [`LayerBackend::destroy`]. No new layer
+    /// can be created until a session exists again.
     Absent,
 }
 
@@ -67,8 +66,7 @@ pub trait LayerBackend {
     /// A reference to a live `Layer`.
     ///
     /// The pool holds one for every layer it owns, granted or free, and hands
-    /// it back through exactly one of [`LayerBackend::destroy`] and
-    /// [`LayerBackend::abandon`].
+    /// it back through [`LayerBackend::destroy`].
     type Layer: fmt::Debug;
 
     /// The most composition layers the runtime accepts in one `xrEndFrame`.
@@ -122,12 +120,4 @@ pub trait LayerBackend {
     ///
     /// Native retirement makes this safe after the owning session ends too.
     fn destroy(&mut self, layer: Self::Layer);
-
-    /// Gives up a layer whose session is already gone.
-    ///
-    /// Separate from [`LayerBackend::destroy`] to distinguish session loss
-    /// from deliberate pool shutdown. The native backend retires the
-    /// swapchain before the session ends, so both paths release the wrapper
-    /// normally.
-    fn abandon(&mut self, layer: Self::Layer);
 }

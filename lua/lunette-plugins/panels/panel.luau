@@ -223,79 +223,28 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
   local pose = settings.pose and lovr.math.newMat4(settings.pose) or lovr.math.newMat4()
   local priority = settings.priority or host.settings.priority
   local chrome = if settings.chrome == nil then host.settings.chrome else settings.chrome
-  local noClaim: layer.Claim? = nil
-  local noSize: number? = nil
-  local noEffect: plugin.Effect? = nil
-  local noMesh: Mesh? = nil
-  local noKey: string? = nil
-  local noOutline: drawing.Outline? = nil
-  local noFrame: frame.Record? = nil
-  local descriptor: Source = source
-  if descriptor.kind == 'window' then
-    local window: lunette.Window = descriptor.source
-    local target: PanelData & { read kind: 'window', read source: lunette.Window } = {
-      kind = 'window',
-      source = window,
-      pose = pose,
-      width = 0,
-      height = 0,
-      sizeAxis = 'fixed',
-      sourceAspect = host.settings.aspect,
-      priority = priority,
-      title = settings.title,
-      chrome = chrome,
-      curve = curve,
-      hidden = false,
-      highlighted = false,
-      granted = false,
-      dead = false,
-      claim = noClaim,
-      appliedWidth = noSize,
-      appliedHeight = noSize,
-      owner = owner,
-      host = host,
-      overrides = {},
-      mesh = noMesh,
-      meshKey = noKey,
-      outline = noOutline,
-      contour = silhouette.new(),
-      frame = noFrame,
-      effect = noEffect,
-    }
-    created = (setmetatable(target, metatable) :: unknown) :: State
-  else
-    local monitor: lunette.Monitor = descriptor.source
-    local target: PanelData & { read kind: 'monitor', read source: lunette.Monitor } = {
-      kind = 'monitor',
-      source = monitor,
-      pose = pose,
-      width = 0,
-      height = 0,
-      sizeAxis = 'fixed',
-      sourceAspect = host.settings.aspect,
-      priority = priority,
-      title = settings.title,
-      chrome = chrome,
-      curve = curve,
-      hidden = false,
-      highlighted = false,
-      granted = false,
-      dead = false,
-      claim = noClaim,
-      appliedWidth = noSize,
-      appliedHeight = noSize,
-      owner = owner,
-      host = host,
-      overrides = {},
-      mesh = noMesh,
-      meshKey = noKey,
-      outline = noOutline,
-      contour = silhouette.new(),
-      frame = noFrame,
-      effect = noEffect,
-    }
-    created = (setmetatable(target, metatable) :: unknown) :: State
-  end
+  local target = {
+    kind = source.kind,
+    source = source.source,
+    pose = pose,
+    width = 0,
+    height = 0,
+    sizeAxis = 'fixed',
+    sourceAspect = host.settings.aspect,
+    priority = priority,
+    title = settings.title,
+    chrome = chrome,
+    curve = curve,
+    hidden = false,
+    highlighted = false,
+    granted = false,
+    dead = false,
+    owner = owner,
+    host = host,
+    overrides = {},
+    contour = silhouette.new(),
+  }
+  created = (setmetatable(target, metatable) :: unknown) :: State
 
   if settings.width or settings.height then
     panel.resize(created, settings.width, settings.height)
@@ -303,17 +252,6 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
     panel.resize(created, nil, host.settings.height)
   end
   return created
-end
-
--- Releasing a claim returns a visible panel to scene drawing.
-local function releaseClaim(target: State): ()
-  local claim = target.claim
-  target.claim = nil
-  target.granted = false
-  target.appliedWidth, target.appliedHeight = nil, nil
-  if claim and not claim.dead then
-    claim:release()
-  end
 end
 
 -- Marks a panel dead, releases its claim, mesh, and visibility overrides, and emits the removal event.
@@ -343,7 +281,7 @@ function panel.release(target: State): boolean
     drawing.clearOutline(target)
   end)
   cleanup(function(): ()
-    releaseClaim(target)
+    layer.release(target)
   end)
   if mesh then
     cleanup(function(): ()
@@ -400,7 +338,7 @@ local function settle(target: State): ()
   end
   target.hidden = hidden
   if hidden then
-    releaseClaim(target)
+    layer.release(target)
   end
 end
 
@@ -482,9 +420,6 @@ function panel.raycast(
   direction: vector,
   backFace: boolean?
 ): (number?, number?, number?)
-  if target.dead then
-    return nil, nil, nil
-  end
   local pixelWidth, pixelHeight = panel.sourceSize(target)
   if not pixelWidth or not pixelHeight then
     return nil, nil, nil
@@ -508,19 +443,6 @@ function panel.raycast(
   }, origin, direction)
 end
 
-local function needsClaim(target: State, pixelWidth: number, pixelHeight: number): boolean
-  if target.kind ~= 'window' then
-    return false
-  end
-  local claim = target.claim
-  if not claim or claim.dead then
-    return true
-  end
-  local layerWidth: number? = claim.width
-  local layerHeight: number? = claim.height
-  return not (layerWidth and layerHeight and pixelWidth <= layerWidth and pixelHeight <= layerHeight)
-end
-
 -- Acquires or replaces a window panel's layer claim when its source needs one.
 -- A hidden panel holds none.
 function panel.claim(target: State)
@@ -531,9 +453,9 @@ function panel.claim(target: State)
   if not pixelWidth or not pixelHeight or pixelWidth <= 0 or pixelHeight <= 0 then
     return
   end
-  if needsClaim(target, pixelWidth, pixelHeight) then
+  if layer.needed(target, pixelWidth, pixelHeight) then
     target.host.checkOwner(target.owner)
-    layer.sync(target, pixelWidth, pixelHeight)
+    layer.acquire(target, pixelWidth, pixelHeight)
   end
 end
 
@@ -557,7 +479,7 @@ function panel.update(target: State)
   end
   if target.hidden then
     if target.claim then
-      releaseClaim(target)
+      layer.release(target)
     end
     return
   end

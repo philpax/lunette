@@ -511,8 +511,6 @@ mod tests {
         }
 
         fn destroy(&mut self, _layer: Self::Layer) {}
-
-        fn abandon(&mut self, _layer: Self::Layer) {}
     }
 
     /// A blitter that records each acquire and each copy it performs.

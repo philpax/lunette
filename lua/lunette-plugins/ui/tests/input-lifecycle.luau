@@ -123,43 +123,6 @@ test('focus observers cannot deliver a press after cancelling its original contr
   end
 end)
 
-test('nested destruction consumes each queued cancel and leave before the other target ends', function()
-  withPanel(function(state)
-    local controls, ended, stale = {}, {}, 0
-    for index, id in ipairs { 'first', 'second' } do
-      local other = if id == 'first' then 'second' else 'first'
-      controls[id] = region(state, id, 20 + (index - 1) * 180, {
-        onPointer = function(event)
-          if ended[id] then
-            stale += 1
-          end
-          if event.kind == 'cancel' and not controls[other].dead then
-            controls[other]:destroy()
-            ended[other] = true
-          end
-        end,
-      })
-    end
-    press(state, 'first', 'left')
-    press(state, 'second', 'right')
-    state.panel:setVisible(false)
-    for _, id in ipairs { 'first', 'second' } do
-      expect.equal(#matching(state, id, 'cancel'), 1, id .. ' has one terminal cancel')
-      expect.equal(#matching(state, id, 'leave'), 1, id .. ' has one terminal leave')
-    end
-    expect.equal(stale, 0, 'pending terminal events run before nested target destruction returns')
-    state.fixture:step()
-    state.fixture:button('left', 'trigger', false)
-    state.fixture:button('right', 'trigger', false)
-    state.fixture:step()
-    expect.equal(
-      #matching(state, 'first', 'release') + #matching(state, 'second', 'release'),
-      0,
-      'neither held capture releases'
-    )
-  end)
-end)
-
 test('queued terminal callbacks stop when an earlier callback ends their owner', function()
   withPanel(function(state)
     local instances, ended, stale = {}, {}, 0

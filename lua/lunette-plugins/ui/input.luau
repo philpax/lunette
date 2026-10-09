@@ -4,8 +4,8 @@ local plugin = require '@lunette-plugin'
 local ui = require '@lunette-contracts/ui'
 local records = require '@lunette-plugins/ui/panel-state'
 local geometry = require '@lunette-plugins/ui/geometry'
-local order = require '@lunette-plugins/ui/control-order'
 local protected = require '@lunette-plugins/protected'
+local cleanup = require './cleanup'
 local panelGeometry = require './panel-geometry'
 local vocabulary = require '@lunette-contracts/vocabulary'
 
@@ -14,57 +14,59 @@ local input = {}
 type Panel = records.Panel
 type Control = records.Control
 
-local function canvas(panel: Panel): ui.Bounds
-  return panelGeometry.prepare(panel).clip
-end
-
 function input.bounds(panel: Panel, control: Control): ui.Bounds?
-  return geometry.intersect(control.bounds, canvas(panel))
+  return geometry.intersect(control.bounds, panelGeometry.prepare(panel).clip)
 end
 
-local function contains(bounds: ui.Bounds?, x: number?, y: number?): boolean
-  return bounds ~= nil and x ~= nil and y ~= nil and geometry.contains(bounds, { x = x, y = y })
-end
-
-local function items(panel: Panel, control: Control): { read [number]: ui.ItemDescription }
-  local visible = input.bounds(panel, control)
-  return if visible then control.widget.items(visible, control.theme) else {}
+-- Controls paint and pick from low to high z, with later registration above earlier controls on ties.
+function input.ordered(controls: { read [number]: Control }): { Control }
+  local result = table.clone(controls) :: { Control }
+  table.sort(result, function(first: Control, second: Control): boolean
+    return first.z < second.z or (first.z == second.z and first.order < second.order)
+  end)
+  return result
 end
 
 local function itemAt(panel: Panel, control: Control, x: number?, y: number?): string?
+  local visible = input.bounds(panel, control)
+  if not visible then
+    return nil
+  end
   local result: string? = nil
-  for _, item in items(panel, control) do
-    if item.enabled and contains(item.bounds, x, y) then
+  for _, item in control.widget.items(visible, control.theme) do
+    local bounds = item.bounds
+    if item.enabled and bounds and geometry.contains(bounds, x, y) then
       result = item.id
     end
   end
   return result
 end
 
-local function owned(panel: Panel, control: Control?): boolean
+local function interactive(panel: Panel, control: Control?): boolean
   return panel.context:active()
     and panel.context:owns(panel.owner)
-    and (control == nil or panel.context:owns(control.owner))
-end
-
-local function interactive(panel: Panel, control: Control?): boolean
-  return owned(panel, control)
     and not panel.dead
     and panel.visible
     and not panel.cancelling
-    and (control == nil or (not control.dead and control.enabled))
+    and (control == nil or (panel.context:owns(control.owner) and not control.dead and control.enabled))
+end
+
+local function inside(panel: Panel, control: Control, x: number?, y: number?): boolean
+  local visible = input.bounds(panel, control)
+  return visible ~= nil and geometry.contains(visible, x, y)
 end
 
 local function pick(panel: Panel, x: number?, y: number?): Control?
   local result: Control? = nil
-  for _, control in ipairs(order.ordered(panel.controls)) do
-    if interactive(panel, control) and contains(input.bounds(panel, control), x, y) then
+  for _, control in input.ordered(panel.controls) do
+    if interactive(panel, control) and inside(panel, control, x, y) then
       result = control
     end
   end
   return result
 end
 
+-- A terminal event reaches a control whose owner is still running even after it stopped being interactive.
 local function deliver(
   panel: Panel,
   control: Control,
@@ -83,7 +85,7 @@ local function deliver(
   end)
 end
 
-local function getCapture(
+local function takeCapture(
   panel: Panel,
   pointer: vocabulary.Pointer,
   button: lunette.PointerButton,
@@ -91,10 +93,7 @@ local function getCapture(
 ): records.Capture?
   local buttons = panel.captures[pointer]
   local capture = if buttons then buttons[button] else nil
-  if not capture or not buttons then
-    return nil
-  end
-  if terminal then
+  if capture and buttons and terminal then
     buttons[button] = nil
     if next(buttons) == nil then
       panel.captures[pointer] = nil
@@ -110,25 +109,13 @@ local function hover(panel: Panel, pointer: vocabulary.Pointer, selected: Contro
   end
   panel.hovered[pointer] = selected
   if previous then
-    local copied: vocabulary.PointerEvent = {
-      kind = 'leave',
-      pointer = pointer,
-      x = event.x,
-      y = event.y,
-      inside = false,
-      captured = false,
-    }
+    local copied: vocabulary.PointerEvent =
+      { kind = 'leave', pointer = pointer, x = event.x, y = event.y, inside = false, captured = false }
     deliver(panel, previous, table.freeze(copied), nil)
   end
   if selected and panel.hovered[pointer] == selected then
-    local copied: vocabulary.PointerEvent = {
-      kind = 'enter',
-      pointer = pointer,
-      x = event.x,
-      y = event.y,
-      inside = true,
-      captured = false,
-    }
+    local copied: vocabulary.PointerEvent =
+      { kind = 'enter', pointer = pointer, x = event.x, y = event.y, inside = true, captured = false }
     deliver(panel, selected, table.freeze(copied), itemAt(panel, selected, event.x, event.y))
   end
 end
@@ -149,51 +136,30 @@ local function capturedByAnother(panel: Panel, control: Control, pointer: vocabu
   return false
 end
 
--- Destruction, disabling, and geometry replacement detach local state before any observer runs.
-function input.prepareCancel(panel: Panel, selected: Control?, reason: vocabulary.CancelReason): () -> ()
-  local pending: { () -> () } = {}
+-- Forwards a captured gesture event, recomputing whether it lies inside the capturing control.
+local function forward(panel: Panel, capture: records.Capture, event: vocabulary.PointerEvent, terminal: boolean): ()
+  local selected = capture.control
+  local x, y = event.x, event.y
+  local copied = table.clone(event) :: { [string]: unknown }
+  copied.inside = selected.enabled and not selected.dead and event.inside and inside(panel, selected, x, y)
+  local item = if event.kind == 'cancel' then capture.item else itemAt(panel, selected, x, y)
+  deliver(panel, selected, (table.freeze(copied) :: unknown) :: vocabulary.PointerEvent, item, terminal)
+end
+
+-- Cancellation detaches the matching captures and hovers before any owner observes the cancel or leave.
+function input.cancel(panel: Panel, selected: Control?, reason: vocabulary.CancelReason): ()
+  local operations: { () -> () } = {}
   local affected: { [vocabulary.Pointer]: boolean } = {}
-  local function consume(delivery: records.PendingInput): ()
-    local index = table.find(panel.pendingInput, delivery)
-    if index then
-      table.remove(panel.pendingInput, index)
-      delivery.run()
-    end
-  end
-  -- Nested destruction consumes the original pending terminals before its target inverse runs.
-  for _, delivery in ipairs(table.clone(panel.pendingInput)) do
-    if not selected or delivery.control == selected then
-      pending[#pending + 1] = function(): ()
-        consume(delivery)
-      end
-    end
-  end
-  local function queue(control: Control, event: vocabulary.PointerEvent, item: string?): ()
-    local delivery: records.PendingInput = {
-      control = control,
-      run = function(): ()
-        deliver(panel, control, event, item, true)
-      end,
-    }
-    panel.pendingInput[#panel.pendingInput + 1] = delivery
-    pending[#pending + 1] = function(): ()
-      consume(delivery)
-    end
-  end
   for pointer, buttons in panel.captures do
     for button, capture in buttons do
       if not selected or capture.control == selected then
         buttons[button] = nil
         affected[pointer] = true
-        local copied: vocabulary.PointerEvent = {
-          kind = 'cancel',
-          pointer = pointer,
-          button = button,
-          reason = reason,
-          inside = false,
-          captured = true,
-        }
-        queue(capture.control, table.freeze(copied), capture.item)
+        local copied: vocabulary.PointerEvent =
+          { kind = 'cancel', pointer = pointer, button = button, reason = reason, inside = false, captured = true }
+        operations[#operations + 1] = function(): ()
+          deliver(panel, capture.control, table.freeze(copied), capture.item, true)
+        end
       end
     end
     if next(buttons) == nil then
@@ -204,42 +170,32 @@ function input.prepareCancel(panel: Panel, selected: Control?, reason: vocabular
     if not selected or control == selected then
       panel.hovered[pointer] = nil
       local copied: vocabulary.PointerEvent = { kind = 'leave', pointer = pointer, inside = false, captured = false }
-      queue(control, table.freeze(copied), nil)
+      operations[#operations + 1] = function(): ()
+        deliver(panel, control, table.freeze(copied), nil, true)
+      end
     end
   end
+  local offered = panel.surface
   if not selected then
-    local offered = panel.surface
     for pointer in panel.pointerHover do
       affected[pointer] = true
     end
     panel.pointerHover = {}
     if offered then
       for pointer in affected do
-        pending[#pending + 1] = function(): ()
+        operations[#operations + 1] = function(): ()
           pointer:cancel(offered, reason)
         end
       end
     end
   end
-  return function(): ()
-    local wasCancelling = panel.cancelling
-    panel.cancelling = true
-    local failures: { string } = {}
-    for _, inverse in ipairs(pending) do
-      local ok, failure = pcall(inverse)
-      if not ok then
-        failures[#failures + 1] = tostring(failure)
-      end
-    end
-    panel.cancelling = wasCancelling
-    if #failures > 0 then
-      error('ui: pointer cleanup: ' .. table.concat(failures, '; '), 0)
-    end
+  local wasCancelling = panel.cancelling
+  panel.cancelling = true
+  local ok, failure = pcall(cleanup.run, 'ui: pointer cleanup', operations)
+  panel.cancelling = wasCancelling
+  if not ok then
+    error(failure, 0)
   end
-end
-
-function input.cancel(panel: Panel, selected: Control?, reason: vocabulary.CancelReason): ()
-  input.prepareCancel(panel, selected, reason)()
 end
 
 function input.event(panel: Panel, event: vocabulary.PointerEvent): ()
@@ -252,40 +208,20 @@ function input.event(panel: Panel, event: vocabulary.PointerEvent): ()
   local pointer, x, y = event.pointer, event.x, event.y
   if event.kind == 'enter' then
     panel.pointerHover[pointer] = true
-    return
-  end
-  if event.kind == 'leave' then
+  elseif event.kind == 'leave' then
     panel.pointerHover[pointer] = nil
     hover(panel, pointer, nil, event)
-    return
-  end
-  if event.kind == 'move' then
+  elseif event.kind == 'move' then
     local button = event.button
     if button == nil then
       hover(panel, pointer, if event.inside then pick(panel, x, y) else nil, event)
       return
     end
-    local capture = getCapture(panel, pointer, button, false)
-    if not capture then
-      return
+    local capture = takeCapture(panel, pointer, button, false)
+    if capture then
+      forward(panel, capture, event, false)
     end
-    local selected = capture.control
-    local copied: vocabulary.PointerEvent = {
-      kind = 'move',
-      pointer = pointer,
-      x = x,
-      y = y,
-      button = button,
-      captured = event.captured,
-      inside = selected.enabled
-        and not selected.dead
-        and event.inside
-        and contains(input.bounds(panel, selected), x, y),
-    }
-    deliver(panel, selected, table.freeze(copied), itemAt(panel, selected, x, y))
-    return
-  end
-  if event.kind == 'press' then
+  elseif event.kind == 'press' then
     local selected = if event.inside then pick(panel, x, y) else nil
     if not selected or capturedByAnother(panel, selected, pointer) then
       return
@@ -299,61 +235,25 @@ function input.event(panel: Panel, event: vocabulary.PointerEvent): ()
     if
       event.button == 'left'
       and interactive(panel, selected)
-      and getCapture(panel, pointer, event.button, false) == capture
+      and takeCapture(panel, pointer, event.button, false) == capture
     then
       pointer:vibrate { strength = selected.theme.hapticStrength, duration = selected.theme.hapticDuration }
     end
-    return
-  end
-  if event.kind == 'release' then
-    local capture = getCapture(panel, pointer, event.button, true)
-    if not capture then
-      return
+  elseif event.kind == 'release' then
+    local capture = takeCapture(panel, pointer, event.button, true)
+    if capture then
+      forward(panel, capture, event, false)
     end
-    local selected = capture.control
-    local copied: vocabulary.PointerEvent = {
-      kind = 'release',
-      pointer = pointer,
-      x = x,
-      y = y,
-      button = event.button,
-      captured = event.captured,
-      inside = selected.enabled
-        and not selected.dead
-        and event.inside
-        and contains(input.bounds(panel, selected), x, y),
-    }
-    deliver(panel, selected, table.freeze(copied), itemAt(panel, selected, x, y))
-    return
-  end
-  if event.kind == 'cancel' then
-    local capture = getCapture(panel, pointer, event.button, true)
-    if not capture then
-      return
+  elseif event.kind == 'cancel' then
+    local capture = takeCapture(panel, pointer, event.button, true)
+    if capture then
+      forward(panel, capture, event, true)
     end
-    local selected = capture.control
-    local copied: vocabulary.PointerEvent = {
-      kind = 'cancel',
-      pointer = pointer,
-      x = x,
-      y = y,
-      button = event.button,
-      reason = event.reason,
-      captured = event.captured,
-      inside = selected.enabled
-        and not selected.dead
-        and event.inside
-        and contains(input.bounds(panel, selected), x, y),
-    }
-    deliver(panel, selected, table.freeze(copied), capture.item, true)
-    return
-  end
-  if event.kind == 'scroll' then
+  elseif event.kind == 'scroll' then
     local selected = if event.inside then pick(panel, x, y) else nil
     if selected then
       deliver(panel, selected, event, itemAt(panel, selected, x, y))
     end
-    return
   end
 end
 

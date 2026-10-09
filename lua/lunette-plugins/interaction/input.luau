@@ -238,7 +238,6 @@ function input.detach(
   reason: contracts.CancelReason,
   releaseNative: boolean?
 ): { Inverse }
-  input.cancelReason(reason)
   state.generation += 1
   for capture, pending in pairs(state.pendingCaptures) do
     if not pending.reason and (surface == nil or capture.surface == surface) then

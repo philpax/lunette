@@ -34,13 +34,6 @@ local modifierKeys: { [number]: string } = {
 }
 keys.MODIFIER_KEYS = table.freeze(modifierKeys)
 
--- Locking modifiers stay active until pressed again. Other modifiers clear after the next key.
-local locks: { [string]: boolean } = {}
-for _, name in ipairs(lunette.lockingModifierNames()) do
-  locks[name] = true
-end
-keys.LOCKS = table.freeze(locks)
-
 -- Modifier order is stable and does not depend on table iteration.
 keys.MODIFIER_ORDER = table.freeze(lunette.modifierNames())
 
@@ -222,7 +215,7 @@ local printableNames = {
 for _, name in ipairs(printableNames) do
   printableCodes[fromLovr[name]] = true
 end
-keys.PRINTABLE_CODES = table.freeze(printableCodes)
+table.freeze(printableCodes)
 
 export type LovrModifier = {
   read keys: { KeyCode },
@@ -235,14 +228,14 @@ local lovrModifiers: { LovrModifier } = {
   { keys = { 'ralt' }, modifier = 'mod5' },
   { keys = { 'lgui', 'rgui' }, modifier = 'logo' },
 }
-keys.LOVR_MODIFIERS = table.freeze(lovrModifiers)
+table.freeze(lovrModifiers)
 
 export type HeldQuery = {
   read isDown: (KeyCode) -> boolean,
   read shift: boolean,
 }
 
--- Held modifiers follow `LOVR_MODIFIERS` order, followed by Shift when requested and held.
+-- Held modifiers follow `lovrModifiers` order, followed by Shift when requested and held.
 function keys.heldModifiers(query: HeldQuery): { string }
   local held: { string } = {}
   for _, entry in ipairs(lovrModifiers) do

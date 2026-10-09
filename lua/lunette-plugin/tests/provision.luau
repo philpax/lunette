@@ -184,7 +184,7 @@ test('a failed provision rolls back every effect in reverse and publishes nothin
   local cases = {
     {
       name = 'missing',
-      message = 'missing provision service',
+      message = "provided record is missing field 'service'",
       provide = function() end,
     },
     {

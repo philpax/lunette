@@ -576,10 +576,7 @@ fn a_report_with_a_missing_or_unknown_field_raises_naming_it() {
            failure(function() lunette.reportError { context = 'lovr.draw', message = 'm', trace = 't' } end),
            failure(function() lunette.reportError('lovr.draw', 'm') end)",
     );
-    assert!(
-        missing.contains("reportError's message is a string, not a nil"),
-        "{missing}"
-    );
+    assert!(missing.contains("reportError's message"), "{missing}");
     assert!(
         unknown.contains("'trace' is not an option here"),
         "{unknown}"

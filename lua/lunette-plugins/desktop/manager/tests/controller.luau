@@ -19,7 +19,7 @@ local function invoke(state, id)
   error('missing action ' .. id)
 end
 
-local function row(state, label, activate)
+local function row(state, label)
   controller.update(state)
   if state.tab == 'catalog' then
     controller.selectCatalog(state, label)
@@ -27,7 +27,7 @@ local function row(state, label, activate)
   end
   for index, current in state.editorRows do
     if current.label == label or current.label == string.format('%q', label) then
-      controller.selectRow(state, index, activate ~= false)
+      controller.selectRow(state, index)
       return index
     end
   end
@@ -75,7 +75,7 @@ local function confirm(state, text)
 end
 
 local function panelPoint(state, point)
-  return { x = point.x + state.graphBounds.x, y = point.y + state.graphBounds.y }
+  return { x = point.x + state.layout.graphBounds.x, y = point.y + state.layout.graphBounds.y }
 end
 
 test('domain actions edit schema fields, preserve opaque values, apply and recover failed initializers', function()
@@ -216,6 +216,7 @@ test('editor button outcomes remain visible instead of becoming generic action s
   local running, state = fixture()
   invoke(state, 'configure')
   row(state, 'enabled')
+  controller.toggle(state)
   expect.truthy(state.message:find('Draft changed', 1, true), 'toggle status')
   invoke(state, 'reset')
   expect.truthy(state.message:find('Draft changed', 1, true), 'reset retains the editor status')
@@ -454,7 +455,7 @@ test('choice domain actions use immutable declared values rather than their labe
     choice = schema.default(schema.union(schema.literal<<false>>(false), schema.literal<<'false'>> 'false'))(false),
   })
   invoke(state, 'configure')
-  local index = row(state, 'choice', false)
+  local index = row(state, 'choice')
   expect.truthy(table.isfrozen(state.editorRows[index].choices), 'declared choices are immutable')
   controller.choose(state, index, 2)
   invoke(state, 'apply')
@@ -468,7 +469,7 @@ end)
 test('panel graph coordinates subtract the canvas origin and cannot begin on a toolbar', function()
   local running, state = fixture()
   local selection = state.view.selection
-  local bounds = state.graphBounds
+  local bounds = state.layout.graphBounds
   expect.truthy(bounds.y > 0, 'the graph begins below its controls')
   controller.graphPress(state, { x = bounds.x + 1, y = bounds.y - 1 })
   expect.equal(state.view.dragging, nil, 'toolbar input is not a graph gesture')
@@ -492,13 +493,12 @@ test('pointer-anchored graph zoom translates panel coordinates before preserving
   running.runtime:close()
 end)
 
-test('selecting rows without activation and explicit text actions preserve domain boundaries', function()
+test('selecting rows and explicit text actions preserve domain boundaries', function()
   local running, state, value = fixture()
   invoke(state, 'configure')
-  local count = row(state, 'count', false)
-  expect.equal(state.edit, nil, 'selection alone does not start an edit')
   local model = state.draft
-  controller.selectRow(state, count, true)
+  local count = row(state, 'count')
+  expect.truthy(state.edit, 'selecting a text row starts its edit')
   controller.setText(state, 'unconfirmed')
   invoke(state, 'clear')
   expect.equal(state.text, '', 'Clear changes only field text')
@@ -508,12 +508,13 @@ test('selecting rows without activation and explicit text actions preserve domai
   invoke(state, 'cancel')
   expect.equal(state.edit, nil, 'Cancel closes the field')
   expect.equal(state.text, '', 'Cancel discards its text')
-  local enabled = row(state, 'enabled', false)
+  expect.equal(state.row, nil, 'Cancel deselects the row so selecting it again restarts the edit')
+  row(state, 'enabled')
   expect.equal(state.draft, model, 'selecting a boolean does not toggle')
-  controller.selectRow(state, enabled, true)
+  controller.toggle(state)
   invoke(state, 'apply')
-  expect.equal(value().enabled, false, 'explicit activation toggles the boolean')
-  controller.selectRow(state, -1, true)
+  expect.equal(value().enabled, false, 'the value field toggles the boolean')
+  controller.selectRow(state, -1)
   controller.choose(state, count, 999)
   expect.equal(state.edit, nil, 'invalid rows and choices do not start edits')
   running.runtime:close()
@@ -526,7 +527,7 @@ test('scrolling clamps both boundaries and retains pending text through updates'
   controller.setText(state, 'pending')
   local edit = state.edit
   controller.scrollBy(state, 10000)
-  expect.equal(state.scroll, #state.editorRows - 1, 'scroll clamps to the last row')
+  expect.equal(state.scroll, 1, 'scroll clamps to the last details line')
   expect.equal(state.edit, edit, 'scroll does not cancel an edit')
   expect.equal(state.text, 'pending', 'scroll retains pending text')
   controller.scrollBy(state, -10000)
@@ -565,12 +566,12 @@ test('selected boolean and choice fields reserve reachable bounds without text a
   state.width, state.height = 800, 472
   invoke(state, 'configure')
   for _, label in { 'enabled', 'choice' } do
-    row(state, label, false)
+    row(state, label)
     expect.equal(state.edit, nil, 'a value widget is not a text operation')
-    expect.truthy(state.editBounds, 'the selected value has declared bounds')
-    expect.truthy(state.bodyBounds.height >= 36, 'one configuration row remains reachable')
+    expect.truthy(state.layout.editBounds, 'the selected value has declared bounds')
+    expect.truthy(state.layout.bodyBounds.height >= 36, 'one configuration row remains reachable')
     expect.truthy(
-      state.bodyBounds.y + state.bodyBounds.height <= state.editBounds.y,
+      state.layout.bodyBounds.y + state.layout.bodyBounds.height <= state.layout.editBounds.y,
       'the configuration rows do not overlap the value widget'
     )
     for _, button in state.buttons do

@@ -25,14 +25,13 @@ function fixture.change(operation, ...)
 end
 
 function fixture.reject(model, operation, code, ...)
-  local draft, applied = editor.draft(model), model.applied
+  local draft = editor.draft(model)
   local result, problem = operation(model, ...)
   expect.equal(result, nil)
   expect.equal(problem.code, code)
   expect.truthy(type(problem.message) == 'string' and #problem.message > 0)
   expect.truthy(table.isfrozen(problem) and table.isfrozen(problem.path))
   expect.equal(editor.draft(model), draft)
-  expect.equal(model.applied, applied)
   return problem
 end
 

@@ -10,14 +10,12 @@
 //!
 //! Per-monitor targeting sits above the box, and this file implements it. A
 //! [`MonitorMapping`] turns a normalised hit on the panel into a position inside
-//! one monitor's logical rectangle, including its rotation and flip, exactly as
-//! WayVR builds an `Affine2` per screen. The provider then places the position
-//! on the desktop.
+//! one monitor's logical rectangle. The provider then places the position on
+//! the desktop.
 //!
-//! The rotation itself is
-//! [`SurfaceTransform`](crate::monitor::SurfaceTransform), which sits with the
-//! rest of a monitor's geometry because that is where it is read from. What to
-//! do with it is [`reorient`], in this file.
+//! The mapping applies no output transform. Panels apply the captured UV
+//! transform before presentation, so a hit is already in desktop orientation,
+//! including a portal frame whose transform is undefined.
 //!
 //! # Logical coordinates
 //!
@@ -42,7 +40,7 @@ use std::{error::Error, fmt};
 
 use crate::{
     hid::pointer::{DesktopExtent, DesktopPoint},
-    monitor::geometry::{LogicalGeometry, LogicalPosition, SurfaceTransform},
+    monitor::geometry::{LogicalGeometry, LogicalPosition},
 };
 
 /// A hit on a mirrored panel, normalised over its surface.
@@ -95,29 +93,6 @@ impl fmt::Display for PanelPoint {
     }
 }
 
-/// Moves a normalised panel coordinate into its monitor's own orientation.
-///
-/// The mapping is a bijection of the unit square, so a corner always lands on a
-/// corner and the centre always stays the centre.
-///
-/// The function is free-standing. It is not a method on [`SurfaceTransform`].
-/// The type describes what the host reported, and sits with the rest of a
-/// monitor's geometry. What to do with it sits here with the mapping.
-#[must_use]
-pub fn reorient(transform: SurfaceTransform, point: PanelPoint) -> PanelPoint {
-    let PanelPoint { u, v } = point;
-    match transform {
-        SurfaceTransform::Normal => PanelPoint::new(u, v),
-        SurfaceTransform::Rotate90 => PanelPoint::new(v, 1.0 - u),
-        SurfaceTransform::Rotate180 => PanelPoint::new(1.0 - u, 1.0 - v),
-        SurfaceTransform::Rotate270 => PanelPoint::new(1.0 - v, u),
-        SurfaceTransform::Flipped => PanelPoint::new(1.0 - u, v),
-        SurfaceTransform::Flipped90 => PanelPoint::new(v, u),
-        SurfaceTransform::Flipped180 => PanelPoint::new(u, 1.0 - v),
-        SurfaceTransform::Flipped270 => PanelPoint::new(1.0 - v, 1.0 - u),
-    }
-}
-
 /// How to reach one physical monitor from its mirrored panel.
 ///
 /// The mapping is non-empty by construction, so nothing downstream has to guard
@@ -126,7 +101,6 @@ pub fn reorient(transform: SurfaceTransform, point: PanelPoint) -> PanelPoint {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MonitorMapping {
     geometry: LogicalGeometry,
-    transform: SurfaceTransform,
 }
 
 impl MonitorMapping {
@@ -140,17 +114,11 @@ impl MonitorMapping {
     /// # Errors
     ///
     /// [`MappingError::EmptyMonitor`] when either logical dimension is zero.
-    pub fn new(
-        geometry: LogicalGeometry,
-        transform: SurfaceTransform,
-    ) -> Result<Self, MappingError> {
+    pub fn new(geometry: LogicalGeometry) -> Result<Self, MappingError> {
         if geometry.size.is_empty() {
             return Err(MappingError::EmptyMonitor { geometry });
         }
-        Ok(Self {
-            geometry,
-            transform,
-        })
+        Ok(Self { geometry })
     }
 
     #[must_use]
@@ -158,15 +126,9 @@ impl MonitorMapping {
         self.geometry
     }
 
-    #[must_use]
-    pub const fn transform(&self) -> SurfaceTransform {
-        self.transform
-    }
-
     /// Where on the host desktop a hit on this monitor's panel lands.
     ///
-    /// The hit is clamped into the unit square before the transform, which
-    /// keeps a pointer near a panel's edge inside this monitor's rectangle.
+    /// The hit is clamped into the unit square, which keeps a pointer near a panel's edge inside this monitor's rectangle.
     /// The desktop's bounding box on its own is not enough. A non-rectangular
     /// arrangement leaves dead zones inside it, and a hit clamped only to the
     /// box could land in the gap between two screens.
@@ -176,7 +138,7 @@ impl MonitorMapping {
     /// instead, for the reason given there.
     #[must_use]
     pub fn map(&self, hit: PanelPoint) -> DesktopPoint {
-        let local = reorient(self.transform, hit.clamped());
+        let local = hit.clamped();
         DesktopPoint::new(
             f64::from(self.geometry.position.x) + local.u * f64::from(self.geometry.size.width),
             f64::from(self.geometry.position.y) + local.v * f64::from(self.geometry.size.height),
@@ -202,7 +164,7 @@ impl MonitorMapping {
 
 impl fmt::Display for MonitorMapping {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} ({})", self.geometry, self.transform)
+        write!(f, "{}", self.geometry)
     }
 }
 
@@ -386,8 +348,7 @@ mod tests {
     }
 
     fn mapping(x: i32, y: i32, width: u32, height: u32) -> MonitorMapping {
-        MonitorMapping::new(geometry(x, y, width, height), SurfaceTransform::Normal)
-            .expect("a monitor with an area")
+        MonitorMapping::new(geometry(x, y, width, height)).expect("a monitor with an area")
     }
 
     fn layout(monitors: impl IntoIterator<Item = MonitorMapping>) -> DesktopLayout {
@@ -466,83 +427,6 @@ mod tests {
     }
 
     #[test]
-    fn a_rotated_monitor_maps_through_its_transform() {
-        // A 1920x1080 panel mounted portrait. The compositor reports a logical
-        // size of 1080x1920, so the panel's top-left corner is the monitor's
-        // bottom-left one.
-        let monitor = MonitorMapping::new(geometry(0, 0, 1080, 1920), SurfaceTransform::Rotate90)
-            .expect("a monitor with an area");
-
-        assert_eq!(
-            monitor.map(PanelPoint::TOP_LEFT),
-            DesktopPoint::new(0.0, 1920.0),
-        );
-        assert_eq!(
-            monitor.map(PanelPoint::CENTRE),
-            DesktopPoint::new(540.0, 960.0),
-        );
-    }
-
-    #[test]
-    fn a_flipped_monitor_mirrors_about_the_vertical_axis() {
-        let monitor = MonitorMapping::new(geometry(0, 0, 1920, 1080), SurfaceTransform::Flipped)
-            .expect("a monitor with an area");
-
-        assert_eq!(
-            monitor.map(PanelPoint::new(0.25, 0.5)),
-            DesktopPoint::new(1440.0, 540.0),
-        );
-    }
-
-    #[test]
-    fn every_transform_keeps_the_centre_at_the_centre() {
-        for &transform in SurfaceTransform::ALL {
-            assert_eq!(
-                reorient(transform, PanelPoint::CENTRE),
-                PanelPoint::CENTRE,
-                "{transform} moved the centre",
-            );
-        }
-    }
-
-    #[test]
-    fn every_transform_sends_corners_to_corners() {
-        // A bijection of the unit square: the four corners permute among
-        // themselves, so no transform can fold the panel onto itself.
-        let corners = [
-            PanelPoint::new(0.0, 0.0),
-            PanelPoint::new(1.0, 0.0),
-            PanelPoint::new(0.0, 1.0),
-            PanelPoint::new(1.0, 1.0),
-        ];
-
-        for &transform in SurfaceTransform::ALL {
-            let mut mapped: Vec<(u8, u8)> = corners
-                .into_iter()
-                .map(|corner| {
-                    let moved = reorient(transform, corner);
-                    (moved.u as u8, moved.v as u8)
-                })
-                .collect();
-            mapped.sort_unstable();
-            mapped.dedup();
-
-            assert_eq!(mapped.len(), 4, "{transform} folded two corners together");
-        }
-    }
-
-    #[test]
-    fn rotating_by_ninety_degrees_four_times_is_the_identity() {
-        let start = PanelPoint::new(0.25, 0.75);
-        let mut point = start;
-        for _ in 0..4 {
-            point = reorient(SurfaceTransform::Rotate90, point);
-        }
-
-        assert_eq!(point, start);
-    }
-
-    #[test]
     fn a_hit_past_a_panels_edge_is_clamped_into_its_monitor() {
         // A laser that has left the panel reaches the monitor's edge, not
         // a coordinate on the neighbouring screen.
@@ -567,13 +451,13 @@ mod tests {
     #[test]
     fn a_monitor_with_no_area_cannot_be_mapped() {
         assert_eq!(
-            MonitorMapping::new(geometry(0, 0, 1920, 0), SurfaceTransform::Normal),
+            MonitorMapping::new(geometry(0, 0, 1920, 0)),
             Err(MappingError::EmptyMonitor {
                 geometry: geometry(0, 0, 1920, 0),
             }),
         );
         assert_eq!(
-            MonitorMapping::new(geometry(0, 0, 0, 1080), SurfaceTransform::Normal),
+            MonitorMapping::new(geometry(0, 0, 0, 1080)),
             Err(MappingError::EmptyMonitor {
                 geometry: geometry(0, 0, 0, 1080),
             }),
@@ -586,7 +470,7 @@ mod tests {
         // built from what is left is empty, never zero-sized.
         let usable: Vec<MonitorMapping> = [geometry(0, 0, 1920, 0)]
             .into_iter()
-            .filter_map(|geometry| MonitorMapping::new(geometry, SurfaceTransform::Normal).ok())
+            .filter_map(|geometry| MonitorMapping::new(geometry).ok())
             .collect();
 
         assert_eq!(DesktopLayout::new(usable), Err(MappingError::NoMonitors));

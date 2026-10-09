@@ -44,8 +44,6 @@ pub enum AttachmentError {
     /// A drain performed its action budget and stopped. The remaining work is
     /// derived from graph state, so the next drain resumes it.
     DrainBudget { budget: usize },
-    /// Shutdown attempts every inverse and returns any failures.
-    Shutdown(Vec<AttachmentError>),
 }
 
 impl fmt::Display for AttachmentError {
@@ -75,13 +73,6 @@ impl fmt::Display for AttachmentError {
                 formatter,
                 "plugin drain: stopped after {budget} actions; the next drain resumes the remaining work"
             ),
-            Self::Shutdown(failures) => {
-                write!(formatter, "plugin shutdown: {} failure(s)", failures.len())?;
-                for failure in failures {
-                    write!(formatter, "; {failure}")?;
-                }
-                Ok(())
-            }
         }
     }
 }
@@ -153,8 +144,6 @@ pub enum ContextReason {
     FieldMissing,
     /// The caller belongs to another runtime.
     ForeignRuntime,
-    /// The owner value is not a live plugin context.
-    NotAContext,
     /// The caller is not loading or active.
     CallerInactive,
     /// The caller does not depend on this provider's current generation.
@@ -172,7 +161,6 @@ impl fmt::Display for ContextReason {
             Self::ProviderStale => "a provider is no longer published at the bound generation",
             Self::FieldMissing => "a declared field has no contract binding",
             Self::ForeignRuntime => "the caller belongs to another runtime",
-            Self::NotAContext => "the owner is not a plugin context",
             Self::CallerInactive => "the caller is not loading or active",
             Self::NotOwner => "the caller does not depend on this provider",
         })
@@ -299,8 +287,6 @@ pub enum ProvisionError {
     NotATable,
     /// A key of the record is not a string.
     KeyNotString,
-    /// A field of the record is nil.
-    NilField(String),
     /// A field of the record is not declared.
     UnexpectedField(String),
     /// A declared field is absent.
@@ -314,7 +300,6 @@ impl fmt::Display for ProvisionError {
         match self {
             Self::NotATable => formatter.write_str("the initializer must return a table"),
             Self::KeyNotString => formatter.write_str("provided record keys must be strings"),
-            Self::NilField(field) => write!(formatter, "provided field '{field}' is nil"),
             Self::UnexpectedField(field) => {
                 write!(formatter, "provided record has unexpected field '{field}'")
             }

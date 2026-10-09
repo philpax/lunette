@@ -4,7 +4,7 @@ local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/focus'
 local protected = require '@lunette-plugins/protected'
 local native = require './source-native'
-local validation = require './source-validation'
+local validation = require './validation'
 local keys = require '@lunette-contracts/keys'
 
 local sources = {}
@@ -18,9 +18,8 @@ export type Snapshot = {
 export type Routing = {
   read snapshot: () -> Snapshot,
   read keymapSeat: () -> lunette.Seat?,
-  read listen: (() -> ()) -> () -> (),
-  read dispose: (() -> ())?,
-  read blocked: (() -> contract.Result?)?,
+  read dispose: () -> (),
+  read blocked: () -> contract.Result?,
 }
 
 type Batch = { id: number, revision: number, poisoned: boolean }
@@ -33,20 +32,7 @@ type MutableSource = {
   reset: (contract.Source) -> boolean,
   destroy: (contract.Source) -> boolean,
 }
-type Consumed = { read kind: 'consumed' }
-type Unhandled = { read kind: 'unhandled' }
-type Refused = { read kind: 'refused', read message: string }
-type Failed = { read kind: 'failed', read message: string }
-local CONSUMED: Consumed = table.freeze({ kind = 'consumed' } :: Consumed)
-local UNHANDLED: Unhandled = table.freeze({ kind = 'unhandled' } :: Unhandled)
-local function refused(message: string): Refused
-  local result: Refused = { kind = 'refused', message = message }
-  return table.freeze(result)
-end
-local function failed(message: string): Failed
-  local result: Failed = { kind = 'failed', message = message }
-  return table.freeze(result)
-end
+local CONSUMED, UNHANDLED, refused, failed = native.CONSUMED, native.UNHANDLED, native.refused, native.failed
 
 local function scalars(value: string): { string }?
   if utf8.len(value) == nil then
@@ -80,7 +66,6 @@ function sources.new(
   local dead, busy = false, false
   local generation = 0
   local batch: Batch? = nil
-  local cancel: (() -> ())? = nil
   local source: MutableSource
 
   local function alive(): boolean
@@ -96,8 +81,7 @@ function sources.new(
       return false
     end
     local now = route.snapshot()
-    local blocked = route.blocked
-    if blocked and blocked() then
+    if route.blocked() then
       return false
     end
     return generation == token
@@ -281,13 +265,10 @@ function sources.new(
         result = refused 'the source is no longer live'
         return
       end
-      local blocked = route.blocked
-      if blocked then
-        local refusal = blocked()
-        if refusal then
-          result = refusal
-          return
-        end
+      local refusal = route.blocked()
+      if refusal then
+        result = refusal
+        return
       end
       local snapshot = route.snapshot()
       local token = generation
@@ -309,17 +290,11 @@ function sources.new(
     if dead then
       return false
     end
-    local dispose = cancel
     local release = if notifyProvider and currentRouting then currentRouting.dispose else nil
     dead, source.dead = true, true
     generation += 1
-    batch, cancel, currentRouting = nil, nil, nil
+    batch, currentRouting = nil, nil
     local cleaned = driver.reset()
-    if dispose then
-      if not protected.call(sourceLabel .. ': release route listener', dispose) then
-        cleaned = false
-      end
-    end
     if release then
       if not protected.call(sourceLabel .. ': release provider registration', release) then
         cleaned = false
@@ -345,10 +320,6 @@ function sources.new(
         batch = activation.batch,
       }
       return deliver(function(snapshot: Snapshot, token: number): contract.Result
-        local changed = validation.activation(operation)
-        if changed then
-          return refused(changed)
-        end
         if mode == 'physical' and operation.batch ~= nil then
           local current = batch
           if current == nil or operation.batch ~= current.id or snapshot.revision ~= current.revision then
@@ -402,9 +373,6 @@ function sources.new(
       return destroy(true)
     end,
   }
-  cancel = routing.listen(function(): ()
-    reset()
-  end)
   return source,
     function(): ()
       if not dead then

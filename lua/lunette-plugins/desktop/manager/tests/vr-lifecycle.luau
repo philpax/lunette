@@ -41,16 +41,7 @@ local function catalogEntry(env, id)
 end
 
 local function selectCatalog(env, id)
-  for _ = 1, 64 do
-    for _, item in assert(control(env, 'catalog-list')).items do
-      if item.id == 'catalog/' .. id and item.bounds then
-        env:click('catalog-list', item.id)
-        return
-      end
-    end
-    env:click 'next'
-  end
-  error('catalog entry is not reachable: ' .. id)
+  env:item('catalog-list', 'catalog/' .. id)
 end
 
 local function clickDisabled(env, id)

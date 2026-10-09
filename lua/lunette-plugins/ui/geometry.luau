@@ -1,4 +1,5 @@
 -- Logical rectangles and route segments stay independent of the caller's world transform.
+-- Bounds and routes are validated where they enter the provider; the arithmetic here trusts them.
 local schema = require '@lunette-plugin/schema'
 local ui = require '@lunette-contracts/ui'
 local geometry = {}
@@ -14,12 +15,15 @@ local boundsSchema = schema.refine(schema.object {
   assert(math.abs(bounds.x + bounds.width) < math.huge, 'right edge must be finite')
   assert(math.abs(bounds.y + bounds.height) < math.huge, 'bottom edge must be finite')
 end)
-local pointSchema = schema.object { x = schema.number(), y = schema.number() }
-local routeSchema = schema.array(pointSchema)
+local routeSchema = schema.array(schema.object { x = schema.number(), y = schema.number() })
 local clipSegment: (ui.Point, ui.Point, ui.Bounds) -> Segment?
 
 function geometry.validateBounds(bounds: ui.Bounds): ui.Bounds
   return boundsSchema.parse(bounds, 'ui bounds')
+end
+
+function geometry.validatePolyline(route: { read [number]: ui.Point }): { read [number]: ui.Point }
+  return routeSchema.parse(route, 'ui route')
 end
 
 function geometry.positive(value: number, label: string): number
@@ -27,18 +31,31 @@ function geometry.positive(value: number, label: string): number
   return value
 end
 
-function geometry.contains(bounds: ui.Bounds, point: ui.Point): boolean
-  geometry.validateBounds(bounds)
-  pointSchema.parse(point, 'ui point')
-  return point.x >= bounds.x
-    and point.x < bounds.x + bounds.width
-    and point.y >= bounds.y
-    and point.y < bounds.y + bounds.height
+function geometry.validatePose(pose: Mat4): Mat4
+  local inverse = lovr.math.newMat4(pose):invert()
+  for _, matrix in { pose, inverse } do
+    for _, value in { matrix:unpack(true) } do
+      assert(value == value and math.abs(value) < math.huge, 'ui pose: coefficients must be finite')
+    end
+  end
+  local product = { lovr.math.newMat4(pose):mul(inverse):unpack(true) }
+  for index, value in product do
+    local expected = if (index - 1) % 5 == 0 then 1 else 0
+    assert(math.abs(value - expected) <= 0.0001, 'ui pose: matrix must be invertible')
+  end
+  return pose
+end
+
+function geometry.contains(bounds: ui.Bounds, x: number?, y: number?): boolean
+  return x ~= nil
+    and y ~= nil
+    and x >= bounds.x
+    and x < bounds.x + bounds.width
+    and y >= bounds.y
+    and y < bounds.y + bounds.height
 end
 
 function geometry.intersect(bounds: ui.Bounds, clip: ui.Bounds): ui.Bounds?
-  geometry.validateBounds(bounds)
-  geometry.validateBounds(clip)
   local x, y = math.max(bounds.x, clip.x), math.max(bounds.y, clip.y)
   local right = math.min(bounds.x + bounds.width, clip.x + clip.width)
   local bottom = math.min(bounds.y + bounds.height, clip.y + clip.height)
@@ -48,38 +65,15 @@ function geometry.intersect(bounds: ui.Bounds, clip: ui.Bounds): ui.Bounds?
   return table.freeze { x = x, y = y, width = right - x, height = bottom - y }
 end
 
-function geometry.poseValues(pose: Mat4): { read [number]: number }
-  local values = { pose:unpack(true) }
-  assert(#values == 16, 'ui pose: expected sixteen matrix coefficients')
-  for _, value in values do
-    assert(value == value and math.abs(value) < math.huge, 'ui pose: coefficients must be finite')
-  end
-  return table.freeze(values)
-end
-
-function geometry.validatePose(pose: Mat4): Mat4
-  geometry.poseValues(pose)
-  local inverse = lovr.math.newMat4(pose):invert()
-  geometry.poseValues(inverse)
-  local product = { lovr.math.newMat4(pose):mul(inverse):unpack(true) }
-  for index, value in product do
-    local expected = if (index - 1) % 5 == 0 then 1 else 0
-    assert(math.abs(value - expected) <= 0.0001, 'ui pose: matrix must be invertible')
-  end
-  return pose
-end
-
-function geometry.validatePolyline(route: { read [number]: ui.Point }): { read [number]: ui.Point }
-  return routeSchema.parse(route, 'ui route')
+function geometry.sameBounds(a: ui.Bounds, b: ui.Bounds): boolean
+  return a.x == b.x and a.y == b.y and a.width == b.width and a.height == b.height
 end
 
 -- Return separate clipped segments; joining them would invent links between disjoint visible route parts.
 function geometry.clipPolyline(route: { read [number]: ui.Point }, clip: ui.Bounds): { read [number]: Segment }
-  geometry.validateBounds(clip)
-  local validated = geometry.validatePolyline(route)
   local result: { Segment } = {}
-  for index = 1, #validated - 1 do
-    local segment = clipSegment(validated[index], validated[index + 1], clip)
+  for index = 1, #route - 1 do
+    local segment = clipSegment(route[index], route[index + 1], clip)
     if segment then
       table.insert(result, segment)
     end
@@ -92,7 +86,6 @@ clipSegment = function(from: ui.Point, to: ui.Point, clip: ui.Bounds): Segment?
     return nil
   end
   local dx, dy = to.x - from.x, to.y - from.y
-  assert(math.abs(dx) < math.huge and math.abs(dy) < math.huge, 'ui route: segment delta must be finite')
   local first, last = 0, 1
   local p = { -dx, dx, -dy, dy }
   local q = { from.x - clip.x, clip.x + clip.width - from.x, from.y - clip.y, clip.y + clip.height - from.y }

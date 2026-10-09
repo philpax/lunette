@@ -1,4 +1,4 @@
--- Provides session keyboard visibility and placement; the desktop menu owns its controls.
+-- Provides session keyboard visibility and placement.
 local plugin = require '@lunette-plugin'
 local frame = require '@lunette-contracts/frame'
 local focus = require '@lunette-contracts/focus'
@@ -24,7 +24,5 @@ return plugin.provider<<Config, Settings, Service>>({
     ui = ui.capability,
   },
   schema = config.schema,
-  build = function(context: plugin.Context, settings: Settings): Service
-    return create(context, settings)
-  end,
+  build = create,
 }).definition

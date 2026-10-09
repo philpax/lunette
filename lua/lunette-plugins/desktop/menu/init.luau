@@ -34,21 +34,15 @@ return plugin.consumer<<Config, Settings>>({
         rowHeight = settings.expanded.rowHeight,
       },
     })
-    local opened, tracked, dead = false, false, false
+    local device: Device = if settings.hand == 'left' then 'hand/left' else 'hand/right'
+    local opened, tracked = false, false
     local button: ui.Button? = nil
     local list: ui.List? = nil
     local snapshot: rows.Snapshot = {}
-    context:effect(function(): () -> ()
-      return function(): ()
-        dead, tracked, opened = true, false, false
-        snapshot = {}
-      end
-    end)
     local function live(): boolean
-      return not dead and context:active() and not panel.dead
+      return context:active() and not panel.dead
     end
-    local rebuild: (boolean) -> ()
-    rebuild = function(value: boolean): ()
+    local function rebuild(value: boolean): ()
       if not live() then
         return
       end
@@ -116,7 +110,6 @@ return plugin.consumer<<Config, Settings>>({
         if not live() then
           return
         end
-        local device: Device = if settings.hand == 'left' then 'hand/left' else 'hand/right'
         local nextTracked = lovr.headset.isTracked(device)
         if not nextTracked then
           if tracked then
@@ -128,7 +121,7 @@ return plugin.consumer<<Config, Settings>>({
           tracked = false
           return
         end
-        panel:setPose(geometry.pose(settings))
+        panel:setPose(geometry.pose(device, settings.offset))
         if not tracked then
           panel:setVisible(true)
         end

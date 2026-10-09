@@ -7,6 +7,7 @@
 //! becomes of the images at the end. [`crate::restart`] states the reasoning,
 //! and [`tear_down_device`] performs it.
 
+use lunette_capture::mirror::NoStreams;
 use lunette_lovr::raw::{lovrGraphicsIsInitialized, lovrGraphicsWait};
 use tracing::{error, info, warn};
 
@@ -181,8 +182,7 @@ pub(super) enum Disposal {
 impl DeviceTeardown for FrameDriver {
     fn drain_gpu(&mut self) {
         if let Some(host) = &self.host {
-            host.mirrors
-                .set_streams(Box::new(lunette_capture::mirror::NoStreams));
+            host.mirrors.set_streams(Box::new(NoStreams));
         }
         if let Some(graphics) = self.compositor.as_ref().and_then(Compositor::graphics) {
             // Upstream does not join detached request workers. Their exporters must

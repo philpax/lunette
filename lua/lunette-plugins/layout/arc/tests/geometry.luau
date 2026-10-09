@@ -3,6 +3,7 @@
 local testing = require '@testing'
 local expect = testing.expect
 local geometry = require '@lunette-plugins/layout/arc/geometry'
+local config = require '@lunette-plugins/layout/arc/config'
 
 local test = testing.suite()
 
@@ -77,18 +78,23 @@ test('poses stay on the configured circle and do not change its center', functio
   end
 end)
 
-test('validation rejects list centers and every non-finite vector component', function()
+test('the tuning schema rejects a zero radius, list centers, and every non-finite center component', function()
   local tuning = table.clone(TUNING)
+  tuning.radius = 0
+  expect.raises(function()
+    config.tuning.parse(tuning, 'layout/arc')
+  end, 'option radius is a positive number', 'a zero radius')
+  tuning.radius = TUNING.radius
   tuning.center = { 0, 1.5, 0 }
   expect.raises(function()
-    geometry.validate(tuning, 'layout/arc')
-  end, 'option center', 'a list is not a vector')
+    config.tuning.parse(tuning, 'layout/arc')
+  end, 'center', 'a list is not a vector')
   for _, value in ipairs { math.huge, -math.huge, 0 / 0 } do
     for _, center in ipairs { vector.pack(value, 0, 0), vector.pack(0, value, 0), vector.pack(0, 0, value) } do
       tuning.center = center
       expect.raises(function()
-        geometry.validate(tuning, 'layout/arc')
-      end, 'option center', 'a non-finite component')
+        config.tuning.parse(tuning, 'layout/arc')
+      end, 'center', 'a non-finite component')
     end
   end
 end)

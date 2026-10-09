@@ -30,9 +30,9 @@ function overrides.new<T>(context: plugin.Context, fallback: T, changed: () -> (
     inspect = function(_self: Stack<T>): { { read owner: Owner, read value: T, read current: boolean } }
       local result: { { read owner: Owner, read value: T, read current: boolean } } = {}
       for index, entry in ipairs(entries) do
-        result[index] = table.freeze { owner = entry.owner, value = entry.value, current = index == #entries }
+        result[index] = { owner = entry.owner, value = entry.value, current = index == #entries }
       end
-      return table.freeze(result)
+      return result
     end,
     set = function(_self: Stack<T>, caller: Owner, value: T): boolean
       local before = decided()

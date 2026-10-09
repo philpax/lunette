@@ -1,31 +1,19 @@
 //! Linux-only: the file-backed module roots are mounted where `require`
 //! resolves them, and a configuration cannot write over them.
 //!
-//! The cases use `@lunette-plugin`, the plugin facade's root, which every
-//! other root is written against; each mounted root is mounted by the same
-//! code.
-//!
-//! The mount is installed by wrapping the `package.preload` entry LÖVR creates
-//! `lovr.filesystem` from. `vendor/lovr/etc/boot.lua` creates that module and
-//! runs `main.luau` on the same coroutine resume, leaving the host no moment
-//! between the two. The wrapping is observable on a state the boot sequence
-//! builds and not on a state a unit test creates, because LÖVR's virtual
-//! filesystem does not exist there. A unit test has nothing to mount into.
-//!
-//! The test spawns the lunette binary for the same reason and under the same
-//! terms as `exit_status.rs`, which records the full rationale. The fixture
-//! switches off the audio, graphics, and headset modules and opens no window,
-//! so no display, no XR runtime, and no sound device are needed; the run
-//! neither sleeps nor touches the network, and every directory it writes is a
-//! temporary one it removes.
+//! The cases use `@lunette-plugin`, the plugin facade's root; every mounted root is mounted
+//! by the same code. The mount wraps the `package.preload` entry LÖVR creates
+//! `lovr.filesystem` from, which exists only in a state the boot sequence builds, so the
+//! test spawns the binary; `session` records the terms.
 
 use std::{
     fs,
     path::{Path, PathBuf},
-    process::Command,
 };
 
 use tempfile::TempDir;
+
+mod session;
 
 /// The root module of the plugin facade the tests write for themselves.
 ///
@@ -150,34 +138,12 @@ struct Outcome {
 /// Runs the binary against the mount fixture. `arguments` reach the
 /// configuration as `arg[1..]`.
 fn run(standard_library: &Path, arguments: &[&str]) -> Outcome {
-    let directory = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests")
-        .join("fixtures")
-        .join("require-root");
-    // Validate the fixture path and report absence without launching the binary.
-    assert!(
-        directory.join("lunette").join("main.luau").is_file(),
-        "the require-root fixture is missing its main.luau"
-    );
-
-    // Each run needs an isolated LÖVR save directory for identity setup and module write-rejection checks.
-    let data_directory = temporary_directory("lunette-standard-library-data-");
-
-    let output = Command::new(env!("CARGO_BIN_EXE_lunette"))
-        // Isolate configuration lookup from developer environment variables so the fixture
-        // cannot pass by loading a local or shipped configuration.
-        .env_remove("LUNETTE_CONFIG_PATH")
-        .env("XDG_CONFIG_HOME", &directory)
-        .env("XDG_DATA_HOME", data_directory.path())
+    let (mut command, _data) = session::command("require-root");
+    let output = command
         .env("LUNETTE_STDLIB_PATH", standard_library)
-        .env_remove("HOME")
         .args(arguments)
-        .output();
-
-    let output = match output {
-        Ok(output) => output,
-        Err(error) => panic!("the lunette binary could not be run: {error}"),
-    };
+        .output()
+        .unwrap_or_else(|error| panic!("the lunette binary could not be run: {error}"));
 
     Outcome {
         status: output.status.code(),

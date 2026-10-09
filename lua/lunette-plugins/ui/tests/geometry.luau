@@ -6,11 +6,11 @@ local test = testing.suite()
 test('half-open containment assigns shared edges to exactly one adjacent control', function()
   local left = { x = 0, y = 0, width = 10, height = 10 }
   local right = { x = 10, y = 0, width = 10, height = 10 }
-  expect.truthy(geometry.contains(left, { x = 0, y = 0 }))
-  expect.falsy(geometry.contains(left, { x = 10, y = 5 }))
-  expect.truthy(geometry.contains(right, { x = 10, y = 5 }))
-  expect.falsy(geometry.contains(left, { x = 5, y = 10 }))
-  expect.falsy(geometry.contains({ x = 0, y = 0, width = 0, height = 10 }, { x = 0, y = 5 }))
+  expect.truthy(geometry.contains(left, 0, 0))
+  expect.falsy(geometry.contains(left, 10, 5))
+  expect.truthy(geometry.contains(right, 10, 5))
+  expect.falsy(geometry.contains(left, 5, 10))
+  expect.falsy(geometry.contains({ x = 0, y = 0, width = 0, height = 10 }, 0, 5))
   expect.equal(geometry.intersect(left, right), nil)
 end)
 
@@ -66,24 +66,10 @@ test('polyline clipping preserves disjoint route segments rather than connecting
   expect.equal(segments[2].to.y, 8)
   expect.equal(#geometry.clipPolyline({}, { x = 0, y = 0, width = 10, height = 10 }), 0)
   expect.equal(#geometry.clipPolyline({ { x = 2, y = 2 } }, { x = 0, y = 0, width = 10, height = 10 }), 0)
-  expect.raises(function()
-    geometry.clipPolyline({ [2] = { x = 2, y = 2 } }, { x = 0, y = 0, width = 10, height = 10 })
-  end)
-  expect.raises(function()
-    geometry.clipPolyline({ { x = math.huge, y = 0 } }, { x = 0, y = 0, width = 10, height = 10 })
-  end)
 end)
 
-test('pose snapshots preserve finite coefficients and reject noninvertible matrices', function()
-  local pose = lovr.math.newMat4():translate(2, 3, -4):rotate(0.3, 0, 1, 0)
-  geometry.validatePose(pose)
-  local values = geometry.poseValues(pose)
-  expect.equal(#values, 16)
-  expect.truthy(table.isfrozen(values))
-  local raw = { pose:unpack(true) }
-  for index = 1, 16 do
-    expect.equal(values[index], raw[index])
-  end
+test('pose validation accepts rigid transforms and rejects noninvertible matrices', function()
+  geometry.validatePose(lovr.math.newMat4():translate(2, 3, -4):rotate(0.3, 0, 1, 0))
   expect.raises(function()
     geometry.validatePose(lovr.math.newMat4():scale(0, 1, 1))
   end)

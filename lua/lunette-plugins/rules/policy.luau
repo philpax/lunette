@@ -166,70 +166,33 @@ function policy.checkRules(value: unknown): { read [number]: rules.Rule }
   return value :: { read [number]: rules.Rule }
 end
 
+-- The match was checked when its rule was registered.
 function policy.matches(match: rules.Match?, window: lunette.Window): boolean
   if not match then
     return true
   end
-  policy.checkMatch(match)
-  local dead, id, title, appId = match.dead, match.id, match.title, match.appId
-  local width, height, opaque, contentType = match.width, match.height, match.opaque, match.contentType
-  if dead ~= nil and not (if type(dead) == 'function' then dead(window.dead, window) else dead == window.dead) then
-    return false
-  end
-  if id ~= nil and not (if type(id) == 'function' then id(window.id, window) else id == window.id) then
-    return false
-  end
-  if
-    title ~= nil and not (if type(title) == 'function' then title(window.title, window) else title == window.title)
-  then
-    return false
-  end
-  if
-    appId ~= nil and not (if type(appId) == 'function' then appId(window.appId, window) else appId == window.appId)
-  then
-    return false
-  end
-  if
-    width ~= nil and not (if type(width) == 'function' then width(window.width, window) else width == window.width)
-  then
-    return false
-  end
-  if
-    height ~= nil
-    and not (if type(height) == 'function' then height(window.height, window) else height == window.height)
-  then
-    return false
-  end
-  if
-    opaque ~= nil
-    and not (if type(opaque) == 'function' then opaque(window.opaque, window) else opaque == window.opaque)
-  then
-    return false
-  end
-  if
-    contentType ~= nil
-    and not (
-      if type(contentType) == 'function'
-        then contentType(window.contentType, window)
-        else contentType == window.contentType
-    )
-  then
-    return false
-  end
-  local where = match.where
-  if where ~= nil then
-    if type(where) ~= 'function' then
-      error('rules: the match field where is a function of the window, not a ' .. type(where))
+  local fields = (match :: unknown) :: { [string]: unknown }
+  local source = (window :: unknown) :: { [string]: unknown }
+  for key in matchFields do
+    local wanted = fields[key]
+    if wanted == nil or key == 'where' then
+      continue
     end
-    if not where(window) then
+    local actual = source[key]
+    if type(wanted) == 'function' then
+      if not (wanted :: (unknown, lunette.Window) -> boolean)(actual, window) then
+        return false
+      end
+    elseif wanted ~= actual then
       return false
     end
   end
-  return true
+  local where = match.where
+  return where == nil or where(window)
 end
 
+-- The applied properties were checked when their rule was registered or their source answered.
 function policy.layer(collected: rules.Properties, applied: rules.Properties): rules.Properties
-  policy.checkProperties(applied)
   local evaluators: { [string]: (lunette.Window, string) -> unknown } = {}
   local previous: { read [string]: (lunette.Window, string) -> unknown } = collected.evaluate or {}
   for key, evaluator in previous do
@@ -251,34 +214,20 @@ function policy.layer(collected: rules.Properties, applied: rules.Properties): r
 end
 
 function policy.evaluate(properties: rules.Properties, window: lunette.Window): rules.Resolved
-  local pose, width, height, title = properties.pose, properties.width, properties.height, properties.title
-  local priority, chrome, curve, tags = properties.priority, properties.chrome, properties.curve, properties.tags
-  local hidden, adopt = properties.hidden, properties.adopt
-  local result: rules.Resolved = {
-    pose = if type(pose) == 'function' then pose(window, 'pose') else pose,
-    width = if type(width) == 'function' then width(window, 'width') else width,
-    height = if type(height) == 'function' then height(window, 'height') else height,
-    title = if type(title) == 'function' then title(window, 'title') else title,
-    priority = if type(priority) == 'function' then priority(window, 'priority') else priority,
-    chrome = if type(chrome) == 'function' then chrome(window, 'chrome') else chrome,
-    curve = if type(curve) == 'function' then curve(window, 'curve') else curve,
-    hidden = if type(hidden) == 'function' then hidden(window, 'hidden') else hidden,
-    adopt = if type(adopt) == 'function' then adopt(window, 'adopt') else adopt,
-    tags = if type(tags) == 'function' then tags(window, 'tags') else tags,
-  }
-  for key, value in pairs(properties) do
-    if not named[key] and key ~= 'evaluate' then
-      result[key] = value
+  local given = (properties :: unknown) :: { [string]: unknown }
+  local result: { [string]: unknown } = {}
+  for key, value in given do
+    if key ~= 'evaluate' then
+      result[key] = if named[key] and type(value) == 'function'
+        then (value :: (lunette.Window, string) -> unknown)(window, key)
+        else value
     end
   end
   local evaluators: { read [string]: (lunette.Window, string) -> unknown } = properties.evaluate or {}
   for key, evaluator in evaluators do
-    if named[key] or key == 'evaluate' then
-      error('rules: extension evaluator uses reserved property ' .. key)
-    end
     result[key] = evaluator(window, key)
   end
-  return result
+  return (result :: unknown) :: rules.Resolved
 end
 
 return policy

@@ -54,22 +54,9 @@ local BASE: keyboard.StyleOptions = options.parse {
 }
 
 function appearance.project(value: EditableStyle): keyboard.StyleOptions
-  return options.parse {
-    font = if value.font then descriptors.projectFont(value.font, 'keyboard style.font') else nil,
-    backingRadius = value.backingRadius,
-    keyRadius = value.keyRadius,
-    keyUnit = value.keyUnit,
-    gap = value.gap,
-    plateDepth = value.plateDepth,
-    legendDepth = value.legendDepth,
-    margin = value.margin,
-    plateColor = value.plateColor,
-    keyColor = value.keyColor,
-    heldColor = value.heldColor,
-    hoverColor = value.hoverColor,
-    legendColor = value.legendColor,
-    legendHeight = value.legendHeight,
-  }
+  local projected: { [string]: unknown } = table.clone(value) :: any
+  projected.font = if value.font then descriptors.projectFont(value.font, 'keyboard style.font') else nil
+  return options.parse(projected)
 end
 
 function appearance.resolve(
@@ -94,7 +81,7 @@ function appearance.resolve(
 end
 
 function appearance.scaled(value: keyboard.StyleOptions, font: Font, scale: number): keyboard.Style
-  return table.freeze {
+  return {
     font = font,
     backingRadius = (value.backingRadius :: number) * scale,
     keyRadius = (value.keyRadius :: number) * scale,
@@ -132,4 +119,4 @@ function appearance.geometryChanged(first: keyboard.Style, second: keyboard.Styl
     or first.keyRadius ~= second.keyRadius
 end
 
-return table.freeze(appearance)
+return appearance

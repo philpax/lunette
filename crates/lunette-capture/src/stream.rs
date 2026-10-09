@@ -126,6 +126,9 @@ pub enum CapturedFrame {
         planes: SmallVec<[CapturedPlane; MAX_PLANES]>,
     },
     /// Packed shared-memory pixels, owned independently of the capture callback.
+    ///
+    /// The format is `Argb8888` or `Xrgb8888`, little-endian, with no row
+    /// padding. An `Xrgb8888` frame has its unused byte set opaque.
     Pixels {
         format: CaptureFormat,
         pixels: Vec<u8>,
@@ -166,15 +169,6 @@ impl CapturedFrame {
         }
     }
 
-    /// The packed pixels, or `None` for a dmabuf frame.
-    #[must_use]
-    pub fn pixels(&self) -> Option<&[u8]> {
-        match self {
-            Self::Dmabuf { .. } => None,
-            Self::Pixels { pixels, .. } => Some(pixels),
-        }
-    }
-
     /// Builds a frame from an exported destination whose descriptor stays live for the call.
     ///
     /// # Errors
@@ -201,12 +195,16 @@ impl CapturedFrame {
         })
     }
 
+    /// Copies shared-memory pixels out during the callback, converting them to
+    /// the layout [`Self::Pixels`] states in the same pass.
     fn from_memfd(frame: &wlx_capture::frame::MemFdFrame) -> Result<Self, FrameError> {
         let stride = u32::try_from(frame.plane.stride).map_err(|_| FrameError::NegativeStride {
             plane: 0,
             stride: frame.plane.stride,
         })?;
-        let length = pixel_length(&frame.format, Some(stride))?;
+        let mut format = CaptureFormat::from_wlx(&frame.format)?;
+        let packing = Packing::of(format.fourcc).ok_or(UNSUPPORTED_SHARED_MEMORY)?;
+        let length = pixel_length(&frame.format, stride)?;
         let raw = frame
             .plane
             .fd
@@ -225,14 +223,20 @@ impl CapturedFrame {
         )
         .map_err(FrameError::ReadPixels)?;
         let row = frame.format.width as usize * 4;
-        let pixels = source
-            .chunks_exact(stride as usize)
-            .flat_map(|line| line[..row].iter().copied())
-            .collect();
-        Ok(Self::Pixels {
-            format: CaptureFormat::from_wlx(&frame.format)?,
-            pixels,
-        })
+        let mut pixels = Vec::with_capacity(row * frame.format.height as usize);
+        for line in source.chunks_exact(stride as usize) {
+            for &[blue, green, red, alpha] in line[..row].as_chunks::<4>().0 {
+                let (blue, red) = if packing.swap {
+                    (red, blue)
+                } else {
+                    (blue, red)
+                };
+                let alpha = if packing.opaque { u8::MAX } else { alpha };
+                pixels.extend_from_slice(&[blue, green, red, alpha]);
+            }
+        }
+        format.fourcc = packing.fourcc;
+        Ok(Self::Pixels { format, pixels })
     }
 
     /// Builds a frame from parts for tests that do not run PipeWire.
@@ -279,25 +283,51 @@ impl CapturedFrame {
     }
 }
 
-fn pixel_length(format: &FrameFormat, stride: Option<u32>) -> Result<usize, FrameError> {
-    let invalid = || FrameError::SharedMemory {
-        kind: "an unsupported shared-memory layout",
-    };
-    CaptureFormat::from_wlx(format)?;
-    if !matches!(
-        format.drm_format.code,
-        DrmFourcc::Argb8888 | DrmFourcc::Xrgb8888 | DrmFourcc::Abgr8888 | DrmFourcc::Xbgr8888
-    ) {
-        return Err(invalid());
+const UNSUPPORTED_SHARED_MEMORY: FrameError = FrameError::SharedMemory {
+    kind: "an unsupported shared-memory layout",
+};
+
+/// How a shared-memory format converts to the packed layout.
+struct Packing {
+    fourcc: DrmFourcc,
+    /// Whether the red and blue bytes trade places.
+    swap: bool,
+    /// Whether the fourth byte is padding to be set opaque.
+    opaque: bool,
+}
+
+impl Packing {
+    const fn of(fourcc: DrmFourcc) -> Option<Self> {
+        let (fourcc, swap, opaque) = match fourcc {
+            DrmFourcc::Argb8888 => (DrmFourcc::Argb8888, false, false),
+            DrmFourcc::Xrgb8888 => (DrmFourcc::Xrgb8888, false, true),
+            DrmFourcc::Abgr8888 => (DrmFourcc::Argb8888, true, false),
+            DrmFourcc::Xbgr8888 => (DrmFourcc::Xrgb8888, true, true),
+            _ => return None,
+        };
+        Some(Self {
+            fourcc,
+            swap,
+            opaque,
+        })
     }
-    let row = format.width.checked_mul(4).ok_or_else(invalid)?;
-    let stride = stride.filter(|stride| *stride >= row).ok_or_else(invalid)?;
+}
+
+/// The bytes a shared-memory frame occupies from its offset.
+fn pixel_length(format: &FrameFormat, stride: u32) -> Result<usize, FrameError> {
+    let row = format
+        .width
+        .checked_mul(4)
+        .ok_or(UNSUPPORTED_SHARED_MEMORY)?;
+    if stride < row {
+        return Err(UNSUPPORTED_SHARED_MEMORY);
+    }
     let length = usize::try_from(stride)
         .ok()
         .and_then(|stride| stride.checked_mul(format.height as usize))
-        .ok_or_else(invalid)?;
+        .ok_or(UNSUPPORTED_SHARED_MEMORY)?;
     if length > isize::MAX as usize {
-        return Err(invalid());
+        return Err(UNSUPPORTED_SHARED_MEMORY);
     }
     Ok(length)
 }
@@ -843,30 +873,7 @@ mod tests {
     }
 
     #[test]
-    fn a_shared_memory_frame_copies_pixels_before_the_callback_returns() {
-        let pixels = [1u8, 2, 3, 4, 5, 6, 7, 8];
-        let file = smithay_free_memfd();
-        std::os::unix::fs::FileExt::write_all_at(&file, &pixels, 0).expect("pixels can be written");
-        let mut format = format();
-        format.width = 2;
-        format.height = 1;
-        let frame = CapturedFrame::from_wlx(&WlxFrame::MemFd(wlx_capture::frame::MemFdFrame {
-            format,
-            plane: FramePlane {
-                fd: Some(file.as_raw_fd()),
-                offset: 0,
-                stride: 8,
-            },
-            mouse: None,
-        }))
-        .expect("shared-memory frames are supported");
-        drop(file);
-        assert_eq!(frame.pixels(), Some(pixels.as_slice()));
-        assert!(frame.planes().is_none());
-    }
-
-    #[test]
-    fn shared_memory_padding_and_offset_do_not_enter_the_pixel_copy() {
+    fn shared_memory_pixels_are_copied_packed_and_converted_before_the_callback_returns() {
         let file = smithay_free_memfd();
         let bytes = [
             99, 99, 1, 2, 3, 4, 80, 80, 80, 80, 5, 6, 7, 8, 90, 90, 90, 90,
@@ -875,6 +882,7 @@ mod tests {
         let mut format = format();
         format.width = 1;
         format.height = 2;
+        format.drm_format.code = DrmFourcc::Xbgr8888;
         let frame = CapturedFrame::from_wlx(&WlxFrame::MemFd(wlx_capture::frame::MemFdFrame {
             format,
             plane: FramePlane {
@@ -885,7 +893,13 @@ mod tests {
             mouse: None,
         }))
         .expect("padded shared memory is supported");
-        assert_eq!(frame.pixels(), Some([1, 2, 3, 4, 5, 6, 7, 8].as_slice()));
+        drop(file);
+
+        let CapturedFrame::Pixels { format, pixels } = frame else {
+            panic!("a shared-memory frame carries pixels");
+        };
+        assert_eq!(format.fourcc, DrmFourcc::Xrgb8888);
+        assert_eq!(pixels, [3, 2, 1, 255, 7, 6, 5, 255]);
     }
 
     #[test]

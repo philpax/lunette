@@ -11,7 +11,7 @@ use std::{
 
 use ash::vk;
 use lunette_capture::{
-    mirror::screencopy::{CaptureExporter, CaptureExporters, FramePlane, WlxFrame},
+    mirror::screencopy::{CaptureExporter, ExporterFactory, FramePlane, WlxFrame},
     stream::{
         CaptureFormat, CapturedFrame, DrmFormat, DrmFourcc, DrmModifier, FrameSize, FrameTransform,
     },
@@ -20,26 +20,16 @@ use tracing::warn;
 
 use crate::import::{device::GraphicsDevice, formats::mapping_for};
 
-pub(crate) struct Exporters {
-    device: Arc<GraphicsDevice>,
-    formats: Vec<DrmFormat>,
-}
-
-impl Exporters {
-    pub(crate) fn new(device: Arc<GraphicsDevice>, formats: Vec<DrmFormat>) -> Self {
-        Self { device, formats }
-    }
-}
-
-impl CaptureExporters for Exporters {
-    fn create(&self) -> Box<dyn CaptureExporter> {
+/// Creates an exporter over `device` for each direct stream.
+pub(crate) fn exporters(device: Arc<GraphicsDevice>, formats: Vec<DrmFormat>) -> ExporterFactory {
+    Box::new(move || {
         Box::new(Exporter {
-            device: Arc::clone(&self.device),
-            formats: self.formats.clone(),
+            device: Arc::clone(&device),
+            formats: formats.clone(),
             images: Vec::new(),
             current: 0,
         })
-    }
+    })
 }
 
 struct Exporter {

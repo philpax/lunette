@@ -11,8 +11,6 @@ local validation = {}
 local copyControl: <T>(T, { [string]: boolean }, string) -> T
 local callback: (unknown, string, boolean?) -> ()
 local optional: <T>(schema.Schema<T, T>, unknown, string) -> ()
-local copyItems: ({ read [number]: ui.Item }) -> { read [number]: ui.Item }
-local checkSelected: ({ read [number]: ui.Item }, string?) -> ()
 local checkSeat: (lunette.Seat?) -> ()
 
 local COMMON =
@@ -126,8 +124,8 @@ end
 function validation.choice(options: ui.ChoiceOptions): ui.ChoiceOptions
   local copied = copyControl(options, CHOICE, 'choice')
   callback(copied.onChange, 'ui choice onChange', true)
-  local items = copyItems(copied.items)
-  checkSelected(items, copied.selected)
+  local items = validation.items(copied.items)
+  validation.selected(items, copied.selected)
   local result = table.clone((copied :: unknown) :: { [string]: unknown })
   result.items = items
   return (table.freeze(result) :: unknown) :: ui.ChoiceOptions
@@ -136,8 +134,8 @@ end
 function validation.list(options: ui.ListOptions): ui.ListOptions
   local copied = copyControl(options, CHOICE, 'list')
   callback(copied.onChange, 'ui list onChange')
-  local items = copyItems(copied.items)
-  checkSelected(items, copied.selected)
+  local items = validation.items(copied.items)
+  validation.selected(items, copied.selected)
   local result = table.clone((copied :: unknown) :: { [string]: unknown })
   result.items = items
   return (table.freeze(result) :: unknown) :: ui.ListOptions
@@ -177,6 +175,29 @@ function validation.regionItems(items: { read [number]: ui.RegionItem }): { read
   return copied
 end
 
+function validation.items(items: { read [number]: ui.Item }): { read [number]: ui.Item }
+  local copied = collectionItems.parse(items, 'ui collection items')
+  local ids: { [string]: boolean } = {}
+  for _, item in copied do
+    assert(not ids[item.id], 'ui collection items: ids are unique')
+    ids[item.id] = true
+  end
+  return copied
+end
+
+function validation.selected(items: { read [number]: ui.Item }, selected: string?): ()
+  if selected == nil then
+    return
+  end
+  identifier.parse(selected, 'ui collection selected')
+  for _, item in items do
+    if item.id == selected then
+      return
+    end
+  end
+  error 'ui collection selected: id must name an item'
+end
+
 copyControl = function<T>(options: T, allowed: { [string]: boolean }, kind: string): T
   assert(type(options) == 'table' and getmetatable(options) == nil, 'ui ' .. kind .. ': options are a plain table')
   local raw = (options :: unknown) :: { [string]: unknown }
@@ -201,29 +222,6 @@ optional = function<T>(descriptor: schema.Schema<T, T>, value: unknown, label: s
   if value ~= nil then
     descriptor.parse(value, label)
   end
-end
-
-copyItems = function(items: { read [number]: ui.Item }): { read [number]: ui.Item }
-  local copied = collectionItems.parse(items, 'ui collection items')
-  local ids: { [string]: boolean } = {}
-  for _, item in copied do
-    assert(not ids[item.id], 'ui collection items: ids are unique')
-    ids[item.id] = true
-  end
-  return copied
-end
-
-checkSelected = function(items: { read [number]: ui.Item }, selected: string?): ()
-  if selected == nil then
-    return
-  end
-  identifier.parse(selected, 'ui collection selected')
-  for _, item in items do
-    if item.id == selected then
-      return
-    end
-  end
-  error 'ui collection selected: id must name an item'
 end
 
 checkSeat = function(seat: lunette.Seat?): ()

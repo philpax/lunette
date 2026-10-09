@@ -104,8 +104,7 @@ local function define(): plugin.Definition<Config>
         end
       end
 
-      -- A drop of a surface that stands for a panel, such as a title bar, is a
-      -- drop of that panel.
+      -- A drop of a surface that stands for a panel, such as a title bar, is a drop of that panel.
       dropService:onDropped(context, {
         run = function(drop: drops.Drop)
           local surface = drop.surface
@@ -117,26 +116,10 @@ local function define(): plugin.Definition<Config>
           end
         end,
       })
-      panelService:onRemoved(context, {
-        run = function()
-          arrange()
-        end,
-      })
-      placementService:onPlaced(context, {
-        run = function()
-          arrange()
-        end,
-      })
-      layoutService:onChanged(context, {
-        run = function()
-          arrange()
-        end,
-      })
-      tagService:onChanged(context, {
-        run = function(_change: tags.Change)
-          arrange()
-        end,
-      })
+      panelService:onRemoved(context, { run = arrange })
+      placementService:onPlaced(context, { run = arrange })
+      layoutService:onChanged(context, { run = arrange })
+      tagService:onChanged(context, { run = arrange })
       local reported: { [string]: boolean } = {}
       frameService:onUpdate(context, {
         phase = 'scene',

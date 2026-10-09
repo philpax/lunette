@@ -25,19 +25,17 @@ style.configuration = schema.object {
   hapticDuration = schema.default(nonnegative)(0.01),
 }
 
-function style.resolve(
-  base: theme.Theme,
-  provider: contracts.StyleOverride,
-  object: contracts.StyleOverride?
-): contracts.Style
+export type Configured = schema.Output<typeof(style.configuration)>
+
+function style.resolve(base: theme.Theme, provider: Configured, object: contracts.StyleOverride?): contracts.Style
   local given: contracts.StyleOverride = object or {}
   return table.freeze {
-    length = given.length or provider.length or 1.5,
+    length = given.length or provider.length,
     color = given.color or provider.color or base.colors.pointer,
     hoverColor = given.hoverColor or provider.hoverColor or base.colors.pointerHovered,
-    cursorRadius = given.cursorRadius or provider.cursorRadius or 0.006,
-    hapticStrength = given.hapticStrength or provider.hapticStrength or 0.2,
-    hapticDuration = given.hapticDuration or provider.hapticDuration or 0.01,
+    cursorRadius = given.cursorRadius or provider.cursorRadius,
+    hapticStrength = given.hapticStrength or provider.hapticStrength,
+    hapticDuration = given.hapticDuration or provider.hapticDuration,
   }
 end
 

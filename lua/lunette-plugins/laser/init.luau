@@ -10,7 +10,6 @@ local draw = require '@lunette-plugins/laser/draw'
 local aim = require '@lunette-plugins/laser/aim'
 local triggerLock = require '@lunette-plugins/laser/trigger-lock'
 local passState = require '@lunette-plugins/pass-state'
-local registry = require '@lunette-plugins/laser/registry'
 local inspection = require '@lunette-contracts/inspection'
 local theme = require '@lunette-contracts/theme'
 local style = require '@lunette-plugins/laser/style'
@@ -35,8 +34,63 @@ export type Config = config.Config
 
 local HANDS: { Hand } = { 'left', 'right' }
 
-type ProviderState = registry.State
-type MutableLaser = registry.MutableLaser
+type MutableLaser = {
+  owner: Owner,
+  hand: Hand,
+  device: contracts.Device,
+  controller: contracts.Device,
+  seat: lunette.Seat,
+  ownsSeat: boolean,
+  readInput: (Hand) -> Input?,
+  pointer: interaction.Pointer,
+  style: contracts.Style,
+  read styleOverrides: contracts.StyleOverride,
+  input: Input?,
+  dead: boolean,
+  update: (Laser, { read [number]: Surface }) -> (),
+  draw: (Laser, Pass) -> (),
+  vibrate: (Laser) -> boolean,
+  destroy: (Laser) -> boolean,
+}
+
+type ProviderState = {
+  active: boolean,
+  read context: plugin.Context,
+  lasers: { MutableLaser },
+  read themes: theme.Service,
+  read refreshStyle: () -> (),
+}
+
+-- Pointer release errors are raised after the owned seat is released.
+local function destroy(state: ProviderState, target: MutableLaser): ()
+  if target.dead then
+    return
+  end
+  target.dead = true
+  local index = table.find(state.lasers, target)
+  if index then
+    table.remove(state.lasers, index)
+  end
+  local released, failure = pcall(function()
+    target.pointer:destroy()
+  end)
+  if target.ownsSeat and not target.seat.dead then
+    target.seat:destroy()
+  end
+  if not released then
+    error(failure, 0)
+  end
+end
+
+local function live(state: ProviderState): { Laser }
+  local found: { Laser } = {}
+  for _, target in ipairs(state.lasers) do
+    if not target.dead then
+      found[#found + 1] = target
+    end
+  end
+  return found
+end
 
 local function makeLaser(state: ProviderState, settings: Settings, owner: Owner, hand: Hand, options: Options?): Laser
   local given: Options = options or {}
@@ -159,7 +213,7 @@ local function makeLaser(state: ProviderState, settings: Settings, owner: Owner,
         end
         local effect = cleanupEffect
         cleanupEffect = nil
-        local ok, failure = pcall(registry.destroy, state, target)
+        local ok, failure = pcall(destroy, state, target)
         if effect then
           effect:dispose()
         end
@@ -172,7 +226,7 @@ local function makeLaser(state: ProviderState, settings: Settings, owner: Owner,
     state.lasers[#state.lasers + 1] = target
     return target, function()
       cleanupEffect = nil
-      registry.destroy(state, target)
+      destroy(state, target)
     end
   end)
   if not created.dead then
@@ -210,7 +264,10 @@ local function build(context: plugin.Context, settings: Settings): Service
   context:effect(function()
     return function()
       state.active = false
-      registry.destroyAll(state)
+      for _, target in ipairs(live(state)) do
+        target:destroy()
+      end
+      state.lasers = {}
     end
   end)
   local service = {
@@ -268,7 +325,7 @@ local function build(context: plugin.Context, settings: Settings): Service
       return attached
     end,
     forHand = function(_self: Service, hand: Hand): Laser?
-      for _, target in ipairs(registry.live(state)) do
+      for _, target in ipairs(live(state)) do
         if target.hand == hand then
           return target
         end
@@ -276,13 +333,17 @@ local function build(context: plugin.Context, settings: Settings): Service
       return nil
     end,
     all = function(_self: Service): { Laser }
-      return registry.live(state)
+      return live(state)
     end,
     update = function(_self: Service, surfaces: { read [number]: Surface }): ()
-      registry.update(state, surfaces)
+      for _, target in ipairs(live(state)) do
+        target:update(surfaces)
+      end
     end,
     draw = function(_self: Service, pass: Pass): ()
-      registry.draw(state, pass)
+      for _, target in ipairs(live(state)) do
+        target:draw(pass)
+      end
     end,
   }
   themes:onChanged(context, function(_snapshot: theme.Snapshot): ()

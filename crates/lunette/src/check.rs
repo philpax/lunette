@@ -8,6 +8,7 @@ use std::{
     ops::Range,
     path::{Path, PathBuf},
     process::ExitCode,
+    slice,
 };
 
 use ariadne::{Color, Config, Label, Report, ReportKind, Source};
@@ -83,14 +84,14 @@ pub fn run(named: &[PathBuf], configuration: &Path, definitions: Option<&Path>) 
     ExitCode::FAILURE
 }
 
-/// Returns named files and `.lua` or `.luau` files under named directories in path order.
+/// Returns named files and `.luau` files under named directories in path order.
 ///
 /// With no named paths, it reads files under `configuration`. It skips hidden
 /// names and rejects missing, unreadable, or empty inputs.
 pub fn targets(named: &[PathBuf], configuration: &Path) -> Result<Vec<PathBuf>, TargetError> {
-    let defaulted = [configuration.to_owned()];
+    let configuration = configuration.to_owned();
     let paths = if named.is_empty() {
-        &defaulted[..]
+        slice::from_ref(&configuration)
     } else {
         named
     };
@@ -123,7 +124,7 @@ pub enum TargetError {
     Missing { path: PathBuf, defaulted: bool },
     /// A directory below the named one could not be read.
     Read(PathBuf, io::Error),
-    /// The directory holds no `.lua` or `.luau` file.
+    /// The directory holds no `.luau` file.
     Empty(PathBuf),
 }
 
@@ -149,11 +150,7 @@ impl Display for TargetError {
                     path.display()
                 )
             }
-            Self::Empty(path) => write!(
-                formatter,
-                "check: {} holds no .lua or .luau file",
-                path.display()
-            ),
+            Self::Empty(path) => write!(formatter, "check: {} holds no .luau file", path.display()),
         }
     }
 }
@@ -186,7 +183,7 @@ fn collect(directory: &Path, files: &mut Vec<PathBuf>) -> Result<(), TargetError
             collect(&path, files)?;
         } else if path
             .extension()
-            .is_some_and(|extension| extension == "lua" || extension == "luau")
+            .is_some_and(|extension| extension == "luau")
         {
             files.push(path);
         }
@@ -301,7 +298,7 @@ mod tests {
         for file in [
             "main.luau",
             "conf.luau",
-            "nested/a.lua",
+            "nested/a.luau",
             ".luaurc",
             "notes.txt",
             ".hidden/x.luau",
@@ -319,7 +316,7 @@ mod tests {
         let found = targets(&[], directory.path()).expect("the files");
         assert_eq!(
             found,
-            ["conf.luau", "main.luau", "nested/a.lua"].map(|file| directory.path().join(file))
+            ["conf.luau", "main.luau", "nested/a.luau"].map(|file| directory.path().join(file))
         );
     }
 
@@ -336,7 +333,7 @@ mod tests {
             found,
             [
                 elsewhere.path().join("main.luau"),
-                elsewhere.path().join("nested/a.lua")
+                elsewhere.path().join("nested/a.luau")
             ]
         );
     }

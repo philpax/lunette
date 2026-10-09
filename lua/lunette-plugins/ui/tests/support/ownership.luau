@@ -43,7 +43,6 @@ function fixture.panel(running, _owner, focusService, registry)
         captures = {},
         hovered = {},
         pointerHover = {},
-        pendingInput = {},
       }
     end,
   })
@@ -56,7 +55,6 @@ end
 
 function fixture.widget(_host, receiver)
   return {
-    kind = 'region',
     methods = {},
     receiver = receiver,
     wantsKeyboard = false,

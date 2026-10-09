@@ -8,22 +8,19 @@ local controls = {}
 
 function controls.options(
   context: plugin.Context,
-  given: panels.Panel,
+  panel: panels.Panel,
   style: ui.TitlebarStyleOverrides?,
   refusal: string?,
   select: () -> ()
 ): ui.TitlebarOptions
-  local panel: panels.Panel = given
   local identity = panel.kind .. '/' .. panel.source.id
   local actions: { ui.TitlebarAction } = {}
-  local title = panel.title or ''
-  if panel.kind == 'window' then
-    local window: lunette.Window = panel.source :: lunette.Window
-    title = panel.title or window.title or ''
-  end
+  local named = if panel.kind == 'window'
+    then (panel.source :: lunette.Window).title
+    else (panel.source :: lunette.Monitor).name
+  local title = panel.title or named or ''
   if panel.kind == 'monitor' then
     local monitor: lunette.Monitor = panel.source :: lunette.Monitor
-    title = panel.title or monitor.name
     actions[#actions + 1] = {
       id = 'restart/' .. identity,
       label = 'Restart mirror',

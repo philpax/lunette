@@ -15,40 +15,30 @@ for index, name in ipairs(contract.MODIFIERS) do
   KNOWN[name] = index
 end
 
-local function fail(message: string): never
-  error('bindings register: ' .. message, 0)
-end
-
-local function copyModifiers(modifiers: { read [number]: string }): { string }
-  local copied: { string } = {}
-  for index, modifier in modifiers do
-    copied[index] = modifier
-  end
-  return copied
+-- Raises at the level of register's caller. `checked` adds one frame and `fail` another.
+local function fail(message: string, level: number): never
+  error('bindings register: ' .. message, level + 1)
 end
 
 -- Modifier order does not change chord identity.
 local function identity(key: string, modifiers: { read [number]: string }): string
-  local sorted = copyModifiers(modifiers)
+  local sorted = table.clone(modifiers) :: { string }
   table.sort(sorted, function(first: string, second: string): boolean
     return (KNOWN[first] or 0) < (KNOWN[second] or 0)
   end)
   return key .. '+' .. table.concat(sorted, '+')
 end
 
-local function checked(chord: unknown): (contract.Chord, string)
-  if type(chord) ~= 'table' then
-    fail('chord is a table of fields, not a ' .. type(chord))
-  end
+local function checked(chord: unknown): (contract.Chord, string, { string })
+  plugin.rejectUnknownFields('bindings register', chord, CHORD_KEYS, 'key and modifiers', 3)
   local raw = chord :: { [unknown]: unknown }
-  plugin.rejectUnknownFields('bindings register', raw, CHORD_KEYS, 'key and modifiers', 0)
   local key = raw.key
   if type(key) ~= 'string' or key == '' then
-    fail('chord.key is a key name, not ' .. tostring(key))
+    fail('chord.key is a key name, not ' .. tostring(key), 3)
   end
   local given = raw.modifiers
   if given ~= nil and type(given) ~= 'table' then
-    fail('chord.modifiers is a list of modifier names, not a ' .. type(given))
+    fail('chord.modifiers is a list of modifier names, not a ' .. type(given), 3)
   end
   local modifiers: { string } = {}
   local seen: { [string]: boolean } = {}
@@ -60,18 +50,19 @@ local function checked(chord: unknown): (contract.Chord, string)
           index,
           table.concat(contract.MODIFIERS, ', '),
           tostring(name)
-        )
+        ),
+        3
       )
     end
     local modifier = name :: string
     if seen[modifier] then
-      fail('chord.modifiers names ' .. modifier .. ' twice')
+      fail('chord.modifiers names ' .. modifier .. ' twice', 3)
     end
     seen[modifier] = true
     modifiers[#modifiers + 1] = modifier
   end
   local copy: contract.Chord = table.freeze { key = key :: KeyCode, modifiers = table.freeze(modifiers) }
-  return copy, identity(key :: string, modifiers)
+  return copy, identity(key :: string, modifiers), modifiers
 end
 
 type Bound = {
@@ -110,24 +101,15 @@ local function create(context: plugin.Context): contract.Service
       return inspection.snapshot(bound:inspect('handler', 'bindings.register'))
     end,
     register = function(_self: contract.Service, owner: contract.Owner, binding: contract.Binding): plugin.Effect
-      local chord: contract.Chord, key: string, run: (contract.Press) -> ()
-      local ok, failure = pcall(function(): ()
-        if type(binding) ~= 'table' then
-          fail('a binding is a table of fields, not a ' .. type(binding))
-        end
-        plugin.rejectUnknownFields('bindings register', binding, BINDING_KEYS, 'chord and run', 0)
-        chord, key = checked(binding.chord)
-        if type(binding.run) ~= 'function' then
-          fail('run is a function, not a ' .. type(binding.run))
-        end
-        run = binding.run
-      end)
-      if not ok then
-        error(failure, 2)
+      plugin.rejectUnknownFields('bindings register', binding, BINDING_KEYS, 'chord and run', 2)
+      local chord, key, modifiers = checked(binding.chord)
+      local run = binding.run
+      if type(run) ~= 'function' then
+        fail('run is a function, not a ' .. type(run), 2)
       end
       return bound:add(owner, key, { chord = chord, run = run }, {
         key = chord.key,
-        modifiers = table.concat(copyModifiers(chord.modifiers or {}), '+'),
+        modifiers = table.concat(modifiers, '+'),
       })
     end,
   }

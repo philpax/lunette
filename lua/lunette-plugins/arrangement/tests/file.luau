@@ -7,138 +7,86 @@ local fixture = require './support/fixture'
 
 local test = testing.suite()
 
-local function filesystem(text, name)
-  local expected = name or 'arrangement.state'
-  local fs = { text = text, reads = 0, writes = 0, writable = true }
-  function fs.read(filename)
-    expect.equal(filename, expected, 'the read filename')
-    fs.reads += 1
-    return fs.text
-  end
-  function fs.write(filename, contents)
-    expect.equal(filename, expected, 'the write filename')
-    if not fs.writable then
-      return false
-    end
-    fs.writes += 1
-    fs.text = contents
-    return true
-  end
-  function fs.getSaveDirectory()
-    return '/a/save/directory'
-  end
-  return fs
+-- A fresh fake native API holding `text` as the saved file, and a state that read it.
+local function newState(text)
+  local native = testing.native()
+  native.events.saved = text
+  return persist.new(persist.FILE), native
 end
 
-local function newState(fs, onReport)
-  local reports = {}
-  local state = persist.new {
-    filesystem = fs,
-    report = function(message)
-      reports[#reports + 1] = message
-      if onReport then
-        onReport(message)
-      end
-    end,
-  }
-  return state, reports
+local function reports(native)
+  local messages = {}
+  for _, entry in ipairs(native.events.logs) do
+    messages[#messages + 1] = entry[1]
+  end
+  return messages
 end
 
-local function withBinding(state, run, extend)
-  fixture.run({ bind = state, extend = extend }, function(env)
-    expect.truthy(env.binding and env.binding:active(), 'the initialized binding')
-    run(env.binding, env.context, env.panels, env.tags, env.owner, env.providers)
+local function withBinding(state, native, run, extend)
+  fixture.run({ bind = state, native = native, extend = extend }, function(env)
+    run(env.binding, env.context, env.panels, env.tags, env.owner)
   end)
 end
 
 local function futureText()
-  return 'return { version = ' .. (arrangement.CURRENT_VERSION + 1) .. ', entries = {}, future = true }'
+  return 'return { version = ' .. (arrangement.VERSION + 1) .. ', entries = {}, future = true }'
 end
 
 test('an absent file loads an empty arrangement without reporting', function()
-  local fs = filesystem(nil)
-  local state, reports = newState(fs)
-  expect.equal(state:loaded().kind, 'arrangement', 'the load')
-  expect.equal(#arrangement.entries(state:arrangement()), 0, 'the entries')
-  expect.equal(fs.reads, 1, 'the reads')
-  expect.equal(#reports, 0, 'the reports')
+  local state, native = newState(nil)
+  expect.equal(native.events.reads, 1, 'the reads')
+  expect.equal(#reports(native), 0, 'the reports')
+  withBinding(state, native, function(binding)
+    expect.equal(binding:restore(), 0, 'the restored panels')
+  end)
 end)
 
 test('a future file is reported and left untouched', function()
   local text = futureText()
-  local fs = filesystem(text)
-  local state, reports = newState(fs)
-  expect.equal(state:loaded().kind, 'fromTheFuture', 'the load')
-  expect.equal(fs.text, text, 'the bytes')
-  expect.equal(fs.writes, 0, 'the writes')
-  expect.equal(#reports, 1, 'the reports')
-  expect.truthy(reports[1]:find('written by version', 1, true), 'the report')
+  local state, native = newState(text)
+  expect.equal(#reports(native), 1, 'the reports')
+  expect.truthy(reports(native)[1]:find('written by version', 1, true), 'the report')
+  withBinding(state, native, function(binding)
+    local saved, message = binding:save()
+    expect.equal(saved, false, 'the save')
+    expect.truthy(message:find('written by version', 1, true), 'the refusal')
+  end)
+  expect.equal(native.events.saved, text, 'the bytes')
+  expect.equal(native.events.writes, 0, 'the writes')
 end)
 
-test('a broken file is reported rather than raising', function()
-  local state, reports = newState(filesystem 'return {')
-  expect.equal(state:loaded().kind, 'broken', 'the load')
-  expect.truthy(state:declined():find('could not be read', 1, true), 'the refusal')
-  expect.equal(#reports, 1, 'the reports')
+test('a broken file is reported and left untouched', function()
+  local state, native = newState 'return {'
+  expect.equal(#reports(native), 1, 'the reports')
+  expect.truthy(reports(native)[1]:find('/fixture/arrangement.state could not be read', 1, true), 'the report')
+  withBinding(state, native, function(binding)
+    local saved, message = binding:save()
+    expect.equal(saved, false, 'the save')
+    expect.truthy(message:find('could not be read', 1, true), 'the refusal')
+  end)
+  expect.equal(native.events.saved, 'return {', 'the bytes')
+  expect.equal(native.events.writes, 0, 'the writes')
 end)
 
-test('skipped entries are reported when state is constructed', function()
-  local state, reports = newState(filesystem "return { version = 1, entries = { { kind = 'nothing' } } }")
-  expect.equal(#arrangement.entries(state:arrangement()), 0, 'the entries')
-  expect.equal(#reports, 1, 'the reports')
-  expect.truthy(reports[1]:find('window or a monitor', 1, true), 'the report')
+test('refused entries are reported when state is constructed', function()
+  local _, native = newState "return { version = 1, entries = { { kind = 'nothing' } } }"
+  expect.equal(#reports(native), 1, 'the reports')
+  expect.truthy(reports(native)[1]:find('window or a monitor', 1, true), 'the report')
 end)
 
-test('an unwritable file returns failure without changing the arrangement', function()
-  local fs = filesystem(nil)
-  local state = newState(fs)
-  local arrangement = state:arrangement()
-  fs.writable = false
-  withBinding(state, function(binding)
+test('an unwritable file returns failure', function()
+  local state, native = newState(nil)
+  native.events.writeMode = 'refuse'
+  withBinding(state, native, function(binding)
     local saved, message = binding:save()
     expect.equal(saved, false, 'the save')
     expect.truthy(message:find('could not be written', 1, true), 'the failure')
-    expect.equal(state:arrangement(), arrangement, 'the retained arrangement')
   end)
-  expect.equal(fs.writes, 0, 'the writes')
-end)
-
-for _, text in ipairs { futureText(), 'return {' } do
-  test('ordinary save leaves refused bytes untouched: ' .. text, function()
-    local fs = filesystem(text)
-    local state = newState(fs)
-    withBinding(state, function(binding)
-      local saved, message = binding:save()
-      expect.equal(saved, false, 'the save')
-      expect.equal(message, state:declined(), 'the refusal')
-    end)
-    expect.equal(fs.text, text, 'the bytes')
-    expect.equal(fs.writes, 0, 'the writes')
-  end)
-end
-
-test('new state can read a replacement file without changing an existing refusal', function()
-  local fs = filesystem(futureText())
-  local refused = newState(fs)
-  fs.text = arrangement.render(arrangement.newFile {})
-  local readable = newState(fs)
-  expect.truthy(refused:declined(), 'the existing refusal')
-  expect.falsy(readable:declined(), 'the new readable state')
-  withBinding(readable, function(binding)
-    expect.equal(binding:save(), true, 'the save')
-  end)
-end)
-
-test('the path uses the save directory and no module extension', function()
-  local fs = filesystem(nil)
-  expect.equal(persist.path(fs), '/a/save/directory/arrangement.state', 'the path')
-  expect.falsy(persist.FILE:find '%.luau?$', 'the module extension')
 end)
 
 test('saved bytes restore pose, size, and tags in a new configuration state', function()
-  local fs = filesystem(nil)
-  local state = newState(fs)
-  withBinding(state, function(binding, context, panels, tags)
+  local state, native = newState(nil)
+  withBinding(state, native, function(binding, context, panels, tags)
     local panel = panels:fromMonitor(context, { id = 'fixture.monitor', dead = false, width = 1920, height = 1080 }, {
       pose = lovr.math.newMat4():translate(-0.5, 1.75, -2.25),
       width = 1.6,
@@ -146,8 +94,8 @@ test('saved bytes restore pose, size, and tags in a new configuration state', fu
     tags:hold(context, { name = 'main' }):add(context, panel)
     expect.equal(binding:save(), true, 'the save')
   end)
-  local recovered = newState(fs)
-  withBinding(recovered, function(_binding, context, panels, tags)
+  local recovered, again = newState(native.events.saved)
+  withBinding(recovered, again, function(_binding, context, panels, tags)
     local panel = panels:fromMonitor(context, { id = 'fixture.monitor', dead = false, width = 1920, height = 1080 })
     local x, y, z = panel.pose:getPosition()
     expect.near(x, -0.5, 1e-5, 'x')
@@ -156,57 +104,43 @@ test('saved bytes restore pose, size, and tags in a new configuration state', fu
     expect.near(panel.width, 1.6, 1e-5, 'the width')
     expect.truthy(tags:find('main'):has(panel), 'the restored tag')
   end)
-  expect.equal(fs.reads, 2, 'one read per state')
 end)
 
 test('a saved entry nothing matches is reported once per load', function()
-  local fs = filesystem(nil)
-  withBinding(newState(fs), function(binding, context, panels)
+  local state, native = newState(nil)
+  withBinding(state, native, function(binding, context, panels)
     panels:fromMonitor(context, { id = 'fixture.unplugged', dead = false, width = 1920, height = 1080 })
     expect.equal(binding:save(), true, 'the save')
   end)
-  local function stale(reports)
+  local function stale(current)
     local count = 0
-    for _, message in ipairs(reports) do
+    for _, message in ipairs(reports(current)) do
       if message:find("nothing matched the saved monitor 'fixture.unplugged'", 1, true) then
         count += 1
       end
     end
     return count
   end
-  local recovered, reports = newState(fs)
-  withBinding(recovered, function(binding, _context, _panels, _tags, owner)
-    expect.equal(stale(reports), 1, 'the bind reports it')
+  local text = native.events.saved
+  local recovered, again = newState(text)
+  withBinding(recovered, again, function(binding, _context, _panels, _tags, owner)
+    expect.equal(stale(again), 1, 'the bind reports it')
     binding:restore()
     binding:restore()
-    expect.equal(stale(reports), 1, 'a restore does not report it again')
+    expect.equal(stale(again), 1, 'a restore does not report it again')
     owner:disable()
     owner:enable()
-    expect.equal(stale(reports), 1, 'a binding of the same load does not report it again')
+    expect.equal(stale(again), 1, 'a binding of the same load does not report it again')
   end)
-  local reloaded, fresh = newState(fs)
-  withBinding(reloaded, function() end)
+  local reloaded, fresh = newState(text)
+  withBinding(reloaded, fresh, function() end)
   expect.equal(stale(fresh), 1, 'a new load reports it again')
 end)
 
-test('save rechecks the active scope after reporting during capture', function()
-  local fs = filesystem(nil)
-  local owner
-  local state = newState(fs, function()
-    owner:disable()
-  end)
-  withBinding(state, function(binding, context, panels, _tags, currentOwner)
-    owner = currentOwner
-    panels:fromMonitor(context, { id = 8, dead = false, width = 1920, height = 1080 })
-    expect.equal(binding:save(), false, 'the suspended save')
-  end)
-  expect.equal(fs.writes, 0, 'the writes after suspension')
-end)
-
 test('an unloading binding refuses every save while its source is still registered', function()
-  local fs = filesystem(nil)
+  local state, native = newState(nil)
   local ran, failure = false, nil
-  withBinding(newState(fs), function(binding, context, _panels, _tags, owner)
+  withBinding(state, native, function(binding, context, _panels, _tags, owner)
     local rules = context:require(rulesContract.capability)
     expect.equal(#testing.ruleSources(rules), 2, 'the binding source and the caller rules')
     owner:disable()
@@ -214,7 +148,7 @@ test('an unloading binding refuses every save while its source is still register
     if failure then
       error(failure)
     end
-    expect.falsy(binding:active(), 'the binding after unload')
+    expect.falsy(binding:save(), 'a save after unload')
     expect.equal(#testing.ruleSources(rules), 0, 'the binding source and the caller rules are removed exactly')
   end, function(current, binding)
     local rules = current:require(rulesContract.capability)
@@ -234,38 +168,7 @@ test('an unloading binding refuses every save while its source is still register
       end
     end)
   end)
-  expect.equal(fs.writes, 0, 'the writes')
-end)
-
-test('neither the state nor a binding kept past its activation retains a retired service', function()
-  withBinding(newState(filesystem(nil)), function(binding, _context, panels, _tags, _owner, providers)
-    local retired = setmetatable({ panels }, { __mode = 'v' })
-    panels = nil
-    providers.panels:disable()
-    expect.falsy(binding:active(), 'the binding of the suspended consumer')
-    providers.panels:enable()
-    collectgarbage 'collect'
-    collectgarbage 'collect'
-    expect.equal(retired[1], nil, 'the retired panels service')
-  end)
-end)
-
-test('the default adapter routes reads and writes through the save filesystem', function()
-  local native = testing.native()
-  local state = persist.new()
-  expect.equal(persist.path(), '/fixture/arrangement.state', 'the default path')
-  fixture.run({ bind = state, native = native }, function(env)
-    expect.equal(env.binding:save(), true, 'the default write')
-  end)
-  expect.equal(native.events.reads, 1, 'the default read')
-  expect.equal(native.events.writes, 1, 'the default write count')
-  expect.equal(native.events.saved, arrangement.render(state:arrangement()), 'the format-one bytes')
-end)
-
-test('an empty file name raises at construction', function()
-  expect.raises(function()
-    persist.new { file = '' }
-  end, 'desktop.persist', 'the malformed dependency')
+  expect.equal(native.events.writes, 0, 'the writes')
 end)
 
 return test

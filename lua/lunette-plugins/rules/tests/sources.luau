@@ -41,8 +41,8 @@ test('a match tests named fields by value or predicate, and where over the whole
     'where refusing overrides a matching field'
   )
   expect.raises(function()
-    policy.matches({ typo = true }, window)
-  end, nil, 'an unsupported match key')
+    policy.checkMatch { typo = true }
+  end, 'unsupported match field typo', 'an unsupported match key')
 end)
 
 test('a higher precedence source wins a key, and only the winning evaluator is called', function()

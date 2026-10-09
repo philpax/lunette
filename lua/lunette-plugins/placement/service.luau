@@ -9,6 +9,7 @@ local tagsContract = require '@lunette-contracts/tags'
 local vocabulary = require '@lunette-contracts/vocabulary'
 local listeners = require '@lunette-plugins/listeners'
 local inspection = require '@lunette-contracts/inspection'
+local config = require '@lunette-plugins/placement/config'
 
 local service = {}
 
@@ -16,17 +17,16 @@ type Owner = contract.Owner
 type Properties = contract.Properties
 type Tag = tagsContract.Tag
 
-local config = require '@lunette-plugins/placement/config'
-
 export type PanelOptionsBase = config.PanelOptionsBase
 export type PanelOptions = config.PanelOptions
 export type Settings = config.Settings
 
+type Record = { placement: contract.Placement, owner: Owner }
+
 type State = {
   context: plugin.Context,
   settings: Settings,
-  placements: { contract.Placement },
-  owners: { [contract.Placement]: Owner },
+  placements: { Record },
   listeners: listeners.Listeners<(contract.Placement) -> ()>,
 }
 
@@ -34,8 +34,9 @@ local REQUEST_KEYS: { [string]: boolean } = { window = true, properties = true, 
 local LISTENER_KEYS: { [string]: boolean } = { run = true }
 
 local function report(message: string, level: ('info' | 'warn')?): ()
-  if lovr and lovr.log then
-    lovr.log(message, level or 'warn', 'lunette.placement')
+  local log = lovr.log
+  if log then
+    log(message, level or 'warn', 'lunette.placement')
   end
 end
 
@@ -101,17 +102,8 @@ local function acquire(
   local memberships: { Tag } = {}
   local hiding: plugin.Effect? = nil
   local removal: plugin.Effect? = nil
+  -- Every step is attempted once, and the failures are raised together.
   local function cleanup()
-    local panel = created
-    local added = memberships
-    local held = holds
-    local hidden = hiding
-    local listener = removal
-    created = nil
-    memberships = {}
-    holds = {}
-    hiding = nil
-    removal = nil
     local failures: { string } = {}
     local function attempt(operation: string, action: () -> ())
       local ok, failure = pcall(action)
@@ -119,25 +111,26 @@ local function acquire(
         failures[#failures + 1] = operation .. ': ' .. tostring(failure)
       end
     end
+    local listener = removal
     if listener then
       attempt('stop removal listener', function()
         listener:dispose()
       end)
     end
+    local panel = created
     if panel then
       for index = #state.placements, 1, -1 do
-        if state.placements[index].panel == panel then
-          state.owners[state.placements[index]] = nil
+        if state.placements[index].placement.panel == panel then
           table.remove(state.placements, index)
         end
       end
-      for index = #added, 1, -1 do
-        local tag = added[index]
-        added[index] = nil
+      for index = #memberships, 1, -1 do
+        local tag = memberships[index]
         attempt('remove membership', function()
           tag:remove(context, panel)
         end)
       end
+      local hidden = hiding
       if hidden then
         attempt('show panel', function()
           hidden:dispose()
@@ -147,9 +140,8 @@ local function acquire(
         panel:destroy(context)
       end)
     end
-    for index = #held, 1, -1 do
-      local effect = held[index]
-      held[index] = nil
+    for index = #holds, 1, -1 do
+      local effect = holds[index]
       attempt('release tag', function()
         effect:dispose()
       end)
@@ -200,9 +192,6 @@ local function acquire(
 end
 
 local function checkedRequest(request: unknown): contract.Request
-  if type(request) ~= 'table' then
-    error('placement: a request is a table of fields, not a ' .. type(request), 3)
-  end
   plugin.rejectUnknownFields('placement place', request, REQUEST_KEYS, 'window, properties, and defaults', 3)
   local checked = request :: contract.Request
   if checked.window == nil then
@@ -222,7 +211,6 @@ function service.build(context: plugin.Context, settings: Settings): contract.Se
     context = context,
     settings = settings,
     placements = {},
-    owners = {},
     listeners = listeners.new<<(contract.Placement) -> ()>>(context),
   }
 
@@ -237,8 +225,8 @@ function service.build(context: plugin.Context, settings: Settings): contract.Se
   local implementation: contract.Service = {
     inspect = function(_self: contract.Service): inspection.Snapshot
       local result = state.listeners:inspect 'placement.onPlaced'
-      for _, placed in ipairs(state.placements) do
-        local owner = state.owners[placed]
+      for _, record in ipairs(state.placements) do
+        local owner, placed = record.owner, record.placement
         local target = placed.panel
         result[#result + 1] = inspection.registration(
           'placement',
@@ -278,24 +266,20 @@ function service.build(context: plugin.Context, settings: Settings): contract.Se
         return panel, frozen, effect
       end
       local placed: contract.Placement = table.freeze { panel = panel, properties = frozen }
-      state.placements[#state.placements + 1] = placed
-      state.owners[placed] = owner
+      state.placements[#state.placements + 1] = { placement = placed, owner = owner }
       announce(placed)
       return panel, frozen, effect
     end,
     placed = function(_self: contract.Service): { contract.Placement }
       local result: { contract.Placement } = {}
-      for _, placed in ipairs(state.placements) do
-        if not placed.panel.dead then
-          result[#result + 1] = placed
+      for _, record in ipairs(state.placements) do
+        if not record.placement.panel.dead then
+          result[#result + 1] = record.placement
         end
       end
       return result
     end,
     onPlaced = function(_self: contract.Service, owner: Owner, listener: contract.PlacedListener): plugin.Effect
-      if type(listener) ~= 'table' then
-        error('placement: onPlaced takes a table of fields, not a ' .. type(listener), 2)
-      end
       plugin.rejectUnknownFields('placement onPlaced', listener, LISTENER_KEYS, 'run', 2)
       if type(listener.run) ~= 'function' then
         error('placement: onPlaced run is a function, not a ' .. type(listener.run), 2)

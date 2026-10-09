@@ -32,7 +32,7 @@ local function create(context: plugin.Context): contract.Service
     for _, entry in pairs(byId) do
       if live(entry) then
         local action = entry.action
-        result[#result + 1] = table.freeze {
+        result[#result + 1] = {
           id = action.id,
           label = action.label,
           group = action.group,
@@ -63,9 +63,6 @@ local function create(context: plugin.Context): contract.Service
       context:checkOwner(owner)
       local captured, run = snapshot.action(action)
       local id = captured.id
-      if byId[id] then
-        error('menu register: ' .. id .. ' is already registered', 2)
-      end
       local entry: Entry = {
         owner = owner,
         action = captured,
@@ -106,7 +103,6 @@ local function create(context: plugin.Context): contract.Service
       if not entry or entry.owner ~= owner or not live(entry) then
         return false
       end
-      context:checkOwner(owner)
       if captured.enabled ~= nil then
         entry.enabled = captured.enabled
       end
@@ -116,7 +112,7 @@ local function create(context: plugin.Context): contract.Service
       return true
     end,
     list = function(_self: contract.Service): { read [number]: contract.Descriptor }
-      return table.freeze(listed())
+      return listed()
     end,
     invoke = function(
       _self: contract.Service,
@@ -125,24 +121,21 @@ local function create(context: plugin.Context): contract.Service
     ): contract.Result
       local checked = snapshot.id('invoke', id)
       local entry = byId[checked]
-      if not entry or not live(entry) or not entry.enabled then
-        return table.freeze { kind = 'unavailable' } :: contract.Result
-      end
-      if expectedRegistration ~= nil and not rawequal(expectedRegistration, entry.token) then
-        return table.freeze { kind = 'unavailable' } :: contract.Result
-      end
-      local run = entry.run
-      if not run then
-        return table.freeze { kind = 'unavailable' } :: contract.Result
+      local run = entry and entry.run
+      if
+        not entry
+        or not run
+        or not live(entry)
+        or not entry.enabled
+        or (expectedRegistration ~= nil and not rawequal(expectedRegistration, entry.token))
+      then
+        return { kind = 'unavailable' }
       end
       local label = 'menu invoke: ' .. checked .. ' owned by ' .. plugin.ownerLabel(entry.owner)
       if not protected.call(label, run) then
-        return table.freeze {
-          kind = 'failed',
-          message = label .. ': the action callback raised an error',
-        } :: contract.Result
+        return { kind = 'failed', message = label .. ': the action callback raised an error' }
       end
-      return table.freeze { kind = 'invoked' } :: contract.Result
+      return { kind = 'invoked' }
     end,
     inspect = function(_self: contract.Service): inspection.Snapshot
       local result: { inspection.Registration } = {}

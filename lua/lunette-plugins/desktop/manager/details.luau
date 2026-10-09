@@ -101,9 +101,6 @@ function details.lines(
   local result: { string } = {}
   if not selection then
     result[1] = 'Select a node or relationship.'
-    result[2] = 'Drag to pan; +/- zoom; / searches.'
-    result[3] = 'P: providers; C: consumers; T: transitive; I: affected.'
-    result[4] = 'F: focus; R: fit; Escape: clear.'
     for _, entry in entries do
       result[#result + 1] = entry.id .. ': ' .. entry.state
     end

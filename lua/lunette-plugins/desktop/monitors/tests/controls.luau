@@ -3,7 +3,6 @@ local expect = testing.expect
 local lunette = require '@lunette'
 local panels = require '@lunette-contracts/panels'
 local ui = require '@lunette-contracts/ui'
-local menu = require '@lunette-contracts/menu'
 local vrUi = require '@testing/vr-ui'
 local test = testing.suite()
 
@@ -65,9 +64,6 @@ test('UI keeps capture recovery in automatically mirrored monitor titlebars', fu
     local native = running.native
     expect.equal(native.events.mirrored, 1, 'capture starts without a menu action')
     expect.equal(native.events.monitorSelections, nil, 'controls do not prompt automatically')
-    for _, action in running.session:observe(menu.capability).service:list() do
-      expect.falsy(action.id == 'desktop/monitors/select', 'the wrist menu has no monitor selection action')
-    end
     local mirror = assert(registry.service:forSource(monitor))
     local controls = toolbar(widgets)
     local x, y, z = position(controls)

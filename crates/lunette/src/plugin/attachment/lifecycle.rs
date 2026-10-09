@@ -544,7 +544,7 @@ fn validate_service(value: &Value, fields: &[DeclarationField]) -> Result<(), Pr
     let expected: HashSet<&str> = fields.iter().map(|field| field.field.as_str()).collect();
     let mut seen = HashSet::new();
     for pair in table.pairs::<Value, Value>() {
-        let (key, value) = pair.map_err(|error| ProvisionError::Unreadable(error.to_string()))?;
+        let (key, _) = pair.map_err(|error| ProvisionError::Unreadable(error.to_string()))?;
         let Value::String(key) = key else {
             return Err(ProvisionError::KeyNotString);
         };
@@ -552,9 +552,6 @@ fn validate_service(value: &Value, fields: &[DeclarationField]) -> Result<(), Pr
             .to_str()
             .map_err(|error| ProvisionError::Unreadable(error.to_string()))?
             .to_owned();
-        if value.is_nil() {
-            return Err(ProvisionError::NilField(key));
-        }
         if !expected.contains(key.as_str()) {
             return Err(ProvisionError::UnexpectedField(key));
         }

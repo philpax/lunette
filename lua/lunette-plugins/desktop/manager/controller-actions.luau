@@ -1,15 +1,20 @@
 -- Builds current manager actions without owning input devices or retaining UI handles.
 
 local composition = require '@lunette-contracts/composition'
+local graph = require './graph'
 local view = require './view'
-local draw = require './draw'
 local editor = require './editor'
 local toolbarLayout = require './toolbar-layout'
 local actions = {}
 
 export type Edit = { operation: 'set' | 'add', path: editor.Path }
 export type Action = { read run: () -> (), read editor: boolean }
-export type Button = draw.Button & { read id: string }
+export type Button = {
+  read id: string,
+  read label: string,
+  read bounds: graph.Box,
+  read enabled: boolean,
+}
 export type State = {
   view: view.State,
   service: composition.Service,
@@ -26,9 +31,12 @@ export type State = {
   text: string,
   message: string,
   editorRows: { read [number]: editor.Row },
-  close: (() -> ())?,
 }
 export type TextActions = { read confirm: () -> (), read cancel: () -> (), read clear: () -> () }
+
+function actions.cancelEdit(state: State): ()
+  state.edit, state.text = nil, ''
+end
 
 function actions.change(state: State, nextModel: editor.Model?, problem: editor.Problem?): ()
   if nextModel then
@@ -41,18 +49,10 @@ end
 
 function actions.build(
   state: State,
+  layout: toolbarLayout.Layout,
   entry: composition.Entry?,
   textActions: TextActions
-): ({ Button }, { [string]: Action }, toolbarLayout.Layout)
-  local layout = toolbarLayout.compute(
-    state.width,
-    state.height,
-    state.edit ~= nil,
-    state.view.searchActive,
-    nil,
-    state.presentation,
-    state.tab
-  )
+): ({ Button }, { [string]: Action })
   local buttons: { Button } = {}
   local bindings: { [string]: Action } = {}
   local function button(id: string, label: string, enabled: boolean, run: () -> (), editorAction: boolean?): ()
@@ -60,16 +60,7 @@ function actions.build(
     if not placement then
       return
     end
-    local bounds = placement.bounds
-    buttons[#buttons + 1] = {
-      id = id,
-      x = bounds.x,
-      y = bounds.y,
-      width = bounds.width,
-      height = bounds.height,
-      label = label,
-      enabled = enabled,
-    }
+    buttons[#buttons + 1] = { id = id, label = label, bounds = placement.bounds, enabled = enabled }
     bindings[id] = { run = run, editor = editorAction == true }
   end
   button('entries-view', if state.presentation == 'entries' then 'Entries [shown]' else 'Entries', true, function()
@@ -78,24 +69,15 @@ function actions.build(
   button('graph-view', if state.presentation == 'graph' then 'Graph [shown]' else 'Graph', true, function()
     state.presentation = 'graph'
   end, true)
-  button('inspect', 'Inspect', true, function()
-    if state.tab ~= 'inspect' then
-      state.edit, state.text = nil, ''
-    end
-    state.tab, state.scroll = 'inspect', 0
-  end)
-  button('configure', 'Configure', entry ~= nil and entry.schema ~= nil, function()
-    if state.tab ~= 'configure' then
-      state.edit, state.text = nil, ''
-    end
-    state.tab, state.scroll = 'configure', 0
-  end)
-  button('catalog', 'Catalog', true, function()
-    if state.tab ~= 'catalog' then
-      state.edit, state.text = nil, ''
-    end
-    state.tab, state.scroll = 'catalog', 0
-  end)
+  for _, tab in { 'inspect', 'configure', 'catalog' } :: { 'inspect' | 'configure' | 'catalog' } do
+    local enabled = tab ~= 'configure' or (entry ~= nil and entry.schema ~= nil)
+    button(tab, tab:sub(1, 1):upper() .. tab:sub(2), enabled, function()
+      if state.tab ~= tab then
+        actions.cancelEdit(state)
+      end
+      state.tab, state.scroll = tab, 0
+    end)
+  end
   local id = if entry then entry.id else ''
   local mutable = entry ~= nil and not entry.protected
   button('enable', 'Enable', entry ~= nil and not entry.enabled, function()
@@ -109,7 +91,8 @@ function actions.build(
   end)
   button('recover', 'Recover', mutable and entry ~= nil and entry.previousConfig ~= nil, function()
     state.service:recover(id)
-    state.draft, state.edit, state.text = nil, nil, ''
+    state.draft = nil
+    actions.cancelEdit(state)
   end)
   button('remove', 'Remove', mutable, function()
     state.service:remove(id)
@@ -118,7 +101,8 @@ function actions.build(
     local model = state.draft
     if model then
       state.service:configure(id, editor.draft(model))
-      state.draft, state.edit, state.text = nil, nil, ''
+      state.draft = nil
+      actions.cancelEdit(state)
     end
   end)
   local row = if state.tab == 'configure' and state.row then state.editorRows[state.row] else nil
@@ -128,7 +112,7 @@ function actions.build(
     row ~= nil and row.optional and row.canReset,
     function()
       if state.draft and row then
-        state.edit, state.text = nil, ''
+        actions.cancelEdit(state)
         actions.change(state, editor.set(state.draft, row.path, if row.value == nil then true else nil))
       end
     end,
@@ -136,7 +120,7 @@ function actions.build(
   )
   button('reset', 'Reset', row ~= nil and row.canReset, function()
     if state.draft and row then
-      state.edit, state.text = nil, ''
+      actions.cancelEdit(state)
       actions.change(state, editor.reset(state.draft, row.path))
     end
   end, true)
@@ -154,7 +138,7 @@ function actions.build(
   end)
   button('add', 'Add', row ~= nil and row.canAdd, function()
     if state.draft and row then
-      state.edit, state.text = nil, ''
+      actions.cancelEdit(state)
       if row.control == 'map' then
         state.edit = { operation = 'add', path = row.path }
       else
@@ -164,15 +148,9 @@ function actions.build(
   end, true)
   button('remove-value', 'Remove value', row ~= nil and row.canRemove, function()
     if state.draft and row then
-      state.edit, state.text = nil, ''
+      actions.cancelEdit(state)
       actions.change(state, editor.remove(state.draft, row.path))
     end
-  end, true)
-  button('previous', 'Previous', state.scroll > 0, function()
-    state.scroll = math.max(0, state.scroll - 10)
-  end, true)
-  button('next', 'Next', true, function()
-    state.scroll += 10
   end, true)
   button('transitive', 'Transitive', true, function()
     state.view.transitive = not state.view.transitive
@@ -220,18 +198,12 @@ function actions.build(
     view.select(state.view, nil)
     state.view.mode = 'all'
   end, true)
-  button('close', 'Close', state.close ~= nil, function()
-    local close = state.close
-    if close then
-      close()
-    end
-  end, true)
   if state.edit then
     button('confirm', 'Confirm', true, textActions.confirm, true)
     button('cancel', 'Cancel', true, textActions.cancel, true)
     button('clear', 'Clear', true, textActions.clear, true)
   end
-  return buttons, bindings, layout
+  return buttons, bindings
 end
 
 return actions

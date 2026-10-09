@@ -318,9 +318,7 @@ fn load_file(lua: &Lua, name: &str) -> mlua::Result<Function> {
 
 /// The file `name` resolves to, and its path in the virtual filesystem.
 fn locate(sources: &Sources, name: &str) -> mlua::Result<(PathBuf, String)> {
-    // LÖVR's loader reads a dot as a directory separator.
-    let normalised = name.replace('.', "/");
-    let (directory, virtual_prefix, rest) = match normalised.strip_prefix('@') {
+    let (directory, virtual_prefix, rest) = match name.strip_prefix('@') {
         Some(aliased) => {
             let (alias, rest) = aliased.split_once('/').unwrap_or((aliased, ""));
             let root = DEVELOPMENT_ALIASES
@@ -342,7 +340,7 @@ fn locate(sources: &Sources, name: &str) -> mlua::Result<(PathBuf, String)> {
                      host.useConfiguration"
                 ))
             })?;
-            (configuration, String::new(), normalised.clone())
+            (configuration, String::new(), name.to_owned())
         }
     };
     let candidates = if rest.is_empty() {

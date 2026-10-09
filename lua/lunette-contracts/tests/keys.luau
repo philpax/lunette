@@ -27,10 +27,8 @@ end)
 test('the vocabulary tables are frozen', function()
   expect.truthy(table.isfrozen(keys.CODES), 'the codes')
   expect.truthy(table.isfrozen(keys.MODIFIER_KEYS), 'the modifier keys')
-  expect.truthy(table.isfrozen(keys.LOCKS), 'the locks')
   expect.truthy(table.isfrozen(keys.MODIFIER_ORDER), 'the modifier order')
   expect.truthy(table.isfrozen(keys.FROM_LOVR), 'the LÖVR keys')
-  expect.truthy(table.isfrozen(keys.LOVR_MODIFIERS), 'the LÖVR modifiers')
 end)
 
 test('every modifier key is a named key and names a modifier the native surface takes', function()
@@ -42,14 +40,6 @@ test('every modifier key is a named key and names a modifier the native surface 
     expect.truthy(named[code], 'keycode ' .. code .. ' is a named key')
     expect.truthy(isModifierName(name), 'keycode ' .. code .. " names '" .. name .. "'")
   end
-end)
-
-test('every lock is a modifier name', function()
-  for name in pairs(keys.LOCKS) do
-    expect.truthy(isModifierName(name), "the lock '" .. name .. "'")
-  end
-  expect.truthy(keys.LOCKS.capsLock, 'caps lock stays on until pressed again')
-  expect.falsy(keys.LOCKS.shift, 'shift clears after the next key')
 end)
 
 test('the keys that come in pairs name the same modifier', function()
@@ -70,10 +60,6 @@ test('every LÖVR translation is a named key or a modifier', function()
   end
   for name, code in pairs(keys.FROM_LOVR) do
     expect.truthy(named[code], "LÖVR's '" .. name .. "' is a named key")
-  end
-  for _, entry in ipairs(keys.LOVR_MODIFIERS) do
-    expect.truthy(isModifierName(entry.modifier), "the LÖVR modifier '" .. entry.modifier .. "'")
-    expect.truthy(#entry.keys > 0, "the keys holding '" .. entry.modifier .. "'")
   end
 end)
 
@@ -193,8 +179,8 @@ test('every supported LÖVR key has an explicit evdev activation', function()
   expect.equal(keys.FROM_LOVR.a, 30, 'A is not a platform scancode')
   expect.equal(keys.FROM_LOVR.kpenter, 96, 'keypad Enter is distinct from Enter')
   expect.equal(keys.FROM_LOVR.ralt, 100, 'right Alt is distinct from left Alt')
-  expect.truthy(keys.PRINTABLE_CODES[keys.CODES.a], 'letter input waits for committed native text')
-  expect.falsy(keys.PRINTABLE_CODES[keys.CODES.enter], 'Enter is a control activation')
+  expect.equal(keys.physicalNativePolicy(keys.CODES.a, {}), 'text', 'letter input waits for committed native text')
+  expect.equal(keys.physicalNativePolicy(keys.CODES.enter, {}), 'activation', 'Enter is a control activation')
 end)
 
 test('physical modifiers include Shift and distinguish right Alt from command Alt', function()

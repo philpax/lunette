@@ -4,9 +4,9 @@
 //! configuration, which `lunctl` then addresses. Unit tests in `safe_mode.rs` cover the
 //! chunk and trigger with fakes.
 //!
-//! Fixtures disable audio, graphics, and headset modules and open no window. Each run uses
-//! separate `XDG_RUNTIME_DIR` and `XDG_DATA_HOME` directories. A chunk response confirms
-//! that the session is ready, and `lovr.event.quit` tests orderly session shutdown.
+//! Each run points the module roots at a missing directory, because safe mode must not
+//! depend on them, and uses its own `XDG_RUNTIME_DIR`. A chunk response confirms that the
+//! session is ready, and `lovr.event.quit` tests orderly session shutdown.
 
 #![expect(
     clippy::expect_used,
@@ -17,7 +17,7 @@ use std::{
     fs,
     io::Read,
     os::unix::fs::PermissionsExt,
-    path::{Path, PathBuf},
+    path::PathBuf,
     process::{Child, Command, Output, Stdio},
     thread,
     time::{Duration, Instant},
@@ -25,6 +25,8 @@ use std::{
 
 use pretty_assertions::assert_eq;
 use tempfile::TempDir;
+
+mod session;
 
 /// Caps readiness polling when a session does not answer.
 const STARTUP_BOUND: Duration = Duration::from_secs(30);
@@ -38,7 +40,8 @@ const POLL: Duration = Duration::from_millis(20);
 const STOPPED: i32 = 7;
 
 /// A `main.luau` that does not compile produces safe mode: a running session
-/// with a panel and a reload key. The alternative is a black headset.
+/// with a panel and a reload key, and no module root loaded. The alternative is a
+/// black headset.
 #[test]
 fn a_main_lua_that_does_not_compile_produces_a_running_safe_mode() {
     let mut session = Session::start("safe-mode");
@@ -58,6 +61,11 @@ fn a_main_lua_that_does_not_compile_produces_a_running_safe_mode() {
         stdout(&session.lunctl(&["return running == nil"])),
         "true",
         "the broken configuration should not still be running its callbacks",
+    );
+    assert_eq!(
+        stdout(&session.lunctl(&["return package.loaded['@lunette-plugin'] == nil"])),
+        "true",
+        "no module root should have been loaded",
     );
 
     let outcome = session.stop();
@@ -93,34 +101,6 @@ fn a_missing_main_lua_produces_safe_mode_too() {
     );
 }
 
-/// Safe mode starts when the standard-library mount points to a missing directory.
-#[test]
-fn safe_mode_runs_with_no_standard_library_mounted() {
-    let missing = TempDir::with_prefix("lunette-safe-mode-absent-")
-        .expect("a temporary directory can be created");
-    let absent = missing.path().join("there-is-no-standard-library-here");
-
-    let mut session = Session::start_with(
-        "safe-mode",
-        &[("LUNETTE_STDLIB_PATH", &absent.to_string_lossy())],
-    );
-    session.wait_until_answering();
-
-    let mounted = session.lunctl(&["return package.loaded['@lunette-plugin'] == nil"]);
-    assert_eq!(code(&mounted), 0, "stderr was:\n{}", stderr(&mounted));
-    assert_eq!(
-        stdout(&mounted),
-        "true",
-        "no module root should have been loaded",
-    );
-
-    let drawn = session.lunctl(&["return type(lovr.draw)"]);
-    assert_eq!(code(&drawn), 0, "stderr was:\n{}", stderr(&drawn));
-    assert_eq!(stdout(&drawn), "function");
-
-    session.stop();
-}
-
 /// A running lunette, which the test stops when the handle is dropped.
 struct Session {
     child: Child,
@@ -132,42 +112,25 @@ struct Session {
 
 impl Session {
     fn start(fixture: &str) -> Self {
-        Self::start_with(fixture, &[])
-    }
-
-    fn start_with(fixture: &str, environment: &[(&str, &str)]) -> Self {
         let runtime = TempDir::with_prefix("lunette-safe-mode-run-")
             .expect("a runtime directory can be created");
         // The XDG specification requires mode `0o700` on `$XDG_RUNTIME_DIR`,
         // and lunette verifies the mode.
         fs::set_permissions(runtime.path(), fs::Permissions::from_mode(0o700))
             .expect("the mode can be set");
-        let data = TempDir::with_prefix("lunette-safe-mode-data-")
-            .expect("a data directory can be created");
 
-        let mut command = Command::new(env!("CARGO_BIN_EXE_lunette"));
-        command
-            // `LUNETTE_CONFIG_PATH` is removed for the same reason `HOME` is:
-            // a developer's shell exports either variable to point the session
-            // at a working copy, and a mislaid fixture would then load the
-            // shipped configuration and pass for the wrong reason.
-            .env_remove("LUNETTE_CONFIG_PATH")
-            .env("XDG_CONFIG_HOME", fixture_directory(fixture))
-            .env("XDG_DATA_HOME", data.path())
+        let (mut command, data) = session::command(fixture);
+        let child = command
             .env("XDG_RUNTIME_DIR", runtime.path())
-            // `HOME` is removed so the developer's own configuration cannot be
-            // reached if the fixture is ever mislaid. A mislaid fixture then
-            // fails; it cannot pass by loading a real configuration.
-            .env_remove("HOME")
-            .env("LUNETTE_STDLIB_PATH", standard_library())
-            // Stderr is piped and read after the session stops; the load error
-            // and the safe-mode line are then assertable.
-            .stderr(Stdio::piped());
-        for (name, value) in environment {
-            command.env(name, value);
-        }
-
-        let child = command.spawn().expect("the lunette binary can be run");
+            .env(
+                "LUNETTE_STDLIB_PATH",
+                runtime.path().join("there-is-no-standard-library-here"),
+            )
+            // Stderr is read after the session stops, so the load error and the
+            // safe-mode line are assertable.
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("the lunette binary can be run");
 
         Self {
             child,
@@ -301,24 +264,4 @@ fn code(output: &Output) -> i32 {
         .status
         .code()
         .expect("lunctl exits rather than being signalled")
-}
-
-fn fixture_directory(fixture: &str) -> PathBuf {
-    let directory = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests")
-        .join("fixtures")
-        .join(fixture);
-    assert!(
-        directory.join("lunette").join("conf.luau").is_file(),
-        "the {fixture} fixture is missing its conf.luau"
-    );
-    directory
-}
-
-/// Returns the `lua/` directory of the working tree that built the test.
-fn standard_library() -> PathBuf {
-    let Some(root) = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2) else {
-        panic!("the workspace root could not be derived from the manifest directory");
-    };
-    root.join("lua")
 }

@@ -5,7 +5,7 @@ local focus = require '@lunette-contracts/focus'
 local surfaces = require '@lunette-contracts/surfaces'
 local panel = require '@lunette-plugins/ui/panel'
 local config = require '@lunette-plugins/ui/config'
-local owners = require '@lunette-plugins/ui/control-owners'
+local cleanup = require '@lunette-plugins/ui/cleanup'
 local validation = require '@lunette-plugins/ui/validation'
 local titlebar = require '@lunette-plugins/ui/titlebar'
 local theme = require '@lunette-contracts/theme'
@@ -21,66 +21,63 @@ export type Config = config.Config
 export type Settings = config.Settings
 
 local function build(context: plugin.Context, settings: Settings): ui.Service
-  local providerTheme = appearanceTheme.project(settings.theme)
-  local providerTitlebarStyle = titlebarStyle.project(settings.titlebarStyle)
-  local registry: owners.Registry = {}
   local services: panel.Services = {
     focus = context:require(focus.capability),
     surfaces = context:require(surfaces.capability),
-    owners = registry,
+    owners = {},
     theme = context:require(theme.capability),
   }
-  local titlebars: { ui.Titlebar } = {}
-  local panels: { ui.Panel } = {}
-  local retained: { [ui.Panel]: records.Panel } = {}
-  local names: { [string]: boolean } = {}
   local generation: ui.Generation = { kind = 'ui-generation' }
   table.freeze(generation)
+  -- Destroyed panels and titlebars stay listed until the next pass over each list prunes them.
+  local panels: { ui.Panel } = {}
+  local states: { [ui.Panel]: records.Panel } = {}
+  local titlebars: { ui.Titlebar } = {}
+  local function livePanels(): { ui.Panel }
+    local live: { ui.Panel } = {}
+    for _, current in panels do
+      if current.dead then
+        states[current] = nil
+      else
+        live[#live + 1] = current
+      end
+    end
+    panels = live
+    return table.clone(live)
+  end
+  local function liveTitlebars(): { ui.Titlebar }
+    local live: { ui.Titlebar } = {}
+    for _, current in titlebars do
+      if not current.dead then
+        live[#live + 1] = current
+      end
+    end
+    titlebars = live
+    return table.clone(live)
+  end
   local service: ui.Service
+  local titlebarProvider: titlebar.Provider
+  local provider: panel.Provider = {
+    context = context,
+    services = services,
+    theme = appearanceTheme.project(settings.theme),
+    draw = settings.draw,
+    generation = generation,
+    newTitlebar = function(owner: ui.Owner, name: string, target: vocabulary.Surface, options: ui.TitlebarOptions)
+      return service:newTitlebar(owner, name, target, options)
+    end,
+  }
   service = {
     newPanel = function(_self: ui.Service, owner: ui.Owner, options: ui.PanelOptions): ui.Panel
       context:checkOwner(owner)
       options = validation.panel(options)
-      local name = options.name
-      assert(not names[name], 'ui: duplicate panel name ' .. tostring(name))
-      local created: ui.Panel
-      local record: records.Panel? = nil
-      names[name] = true
-      local ok, result = pcall(function(): ui.Panel
-        return panel.new(
-          context,
-          owner,
-          options,
-          services,
-          providerTheme,
-          settings.draw,
-          generation,
-          function(name, target, given)
-            return service:newTitlebar(owner, name, target, given)
-          end,
-          function(): ()
-            names[name] = nil
-            if created then
-              retained[created] = nil
-            end
-            local index = table.find(panels, created)
-            if index then
-              table.remove(panels, index)
-            end
-          end,
-          function(state: records.Panel): ()
-            record = state
-          end
-        )
-      end)
-      if not ok then
-        names[name] = nil
-        error(result, 0)
+      for _, current in livePanels() do
+        assert(states[current].name ~= options.name, 'ui: duplicate panel name ' .. options.name)
       end
-      created = result
-      retained[created] = assert(record, 'ui: missing retained panel record')
-      panels[#panels + 1] = created
-      return created
+      local handle, state = panel.new(provider, owner, options)
+      panels[#panels + 1] = handle
+      states[handle] = state
+      return handle
     end,
     newTitlebar = function(
       _self: ui.Service,
@@ -90,56 +87,35 @@ local function build(context: plugin.Context, settings: Settings): ui.Service
       options: ui.TitlebarOptions,
       visible: (() -> boolean)?
     ): ui.Titlebar
-      local created: ui.Titlebar? = nil
-      local result = titlebar.new(
-        context,
-        owner,
-        name,
-        target,
-        options,
-        visible,
-        service,
-        services.surfaces,
-        providerTitlebarStyle,
-        services.theme,
-        function(handle: ui.Panel, contour: records.Contour): ()
-          local state = assert(retained[handle], 'ui titlebar: missing action panel')
-          state.contour = contour
-          state.revision += 1
-          panelGeometry.prepare(state)
-          input.cancel(state, nil, 'control-removed')
-        end,
-        function(): ()
-          if created then
-            local index = table.find(titlebars, created)
-            if index then
-              table.remove(titlebars, index)
-            end
-            created = nil
-          end
-        end
-      )
-      created = result
+      local result = titlebar.new(titlebarProvider, owner, name, target, options, visible)
       if not result.dead then
         titlebars[#titlebars + 1] = result
       end
       return result
     end,
     panels = function(_self: ui.Service): { read [number]: ui.Panel }
-      local result: { ui.Panel } = {}
-      for _, current in ipairs(panels) do
-        if not current.dead then
-          result[#result + 1] = current
-        end
-      end
-      return table.freeze(result)
+      return table.freeze(livePanels())
+    end,
+  }
+  titlebarProvider = {
+    context = context,
+    service = service,
+    surfaces = services.surfaces,
+    style = titlebarStyle.project(settings.titlebarStyle),
+    themes = services.theme,
+    contour = function(handle: ui.Panel, contour: records.Contour): ()
+      local state = assert(states[handle], 'ui titlebar: missing action panel')
+      state.contour = contour
+      state.revision += 1
+      panelGeometry.prepare(state)
+      input.cancel(state, nil, 'control-removed')
     end,
   }
   context:require(frame.capability):onUpdate(context, {
     phase = 'scene',
     order = 1000,
     run = function(_dt: number): ()
-      for _, current in table.clone(titlebars) do
+      for _, current in liveTitlebars() do
         if not current.dead then
           current:sync()
         end
@@ -150,30 +126,21 @@ local function build(context: plugin.Context, settings: Settings): ui.Service
     if not context:active() then
       return
     end
-    local failures: { string } = {}
-    local function attempt(run: () -> ()): ()
-      local ok, failure = pcall(run)
-      if not ok then
-        failures[#failures + 1] = tostring(failure)
-      end
-    end
-    for _, current in table.clone(titlebars) do
-      if not current.dead then
-        attempt(function(): ()
+    local operations: { () -> () } = {}
+    for _, current in liveTitlebars() do
+      operations[#operations + 1] = function(): ()
+        if not current.dead then
           current:sync()
-        end)
+        end
       end
     end
-    for _, current in table.clone(panels) do
-      if not current.dead then
-        attempt(function(): ()
-          current:describe()
-        end)
+    for _, current in livePanels() do
+      local state = states[current]
+      operations[#operations + 1] = function(): ()
+        state.refresh()
       end
     end
-    if #failures > 0 then
-      error('ui appearance refresh: ' .. table.concat(failures, '; '), 0)
-    end
+    cleanup.run('ui appearance refresh', operations)
   end)
   return service
 end

@@ -4,7 +4,7 @@
 # session that did not build in place can find them. docs/dev/build-and-development.md
 # states the paths, and the install targets realise them.
 #
-# Four sets ship:
+# Five sets ship:
 #
 #   $(PREFIX)/bin/lunette              the binary
 #   $(PREFIX)/bin/lunctl               the control client
@@ -128,25 +128,6 @@ install-binary: build
 	done; IFS=$$old_ifs; \
 	test -n "$$lovr_build" || \
 		{ echo "make: the linked liblovr.so was not found in $(build_dir)/lunette's rpath" >&2; exit 1; }; \
-	cache_dir=$$lovr_build; \
-	while ! test -f "$$cache_dir/CMakeCache.txt" && test "$$cache_dir" != /; do \
-		cache_dir=$$(dirname "$$cache_dir"); \
-	done; \
-	cache="$$cache_dir/CMakeCache.txt"; \
-	if grep -q '^LOVR_ENABLE_OPENVR:BOOL=ON$$' "$$cache"; then \
-		openvr=enabled; \
-	elif grep -q '^LOVR_ENABLE_OPENVR:BOOL=OFF$$' "$$cache"; then \
-		openvr=disabled; \
-	else \
-		echo "make: cannot determine OpenVR build state from $$cache" >&2; exit 1; \
-	fi; \
-	assets='actions.json bindings_vive_controller.json bindings_knuckles.json bindings_oculus_touch.json bindings_frame_controller.json'; \
-	if test "$$openvr" = enabled || test -e "$$lovr_build/lovr-openvr"; then \
-		for asset in $$assets; do \
-			test -f "$$lovr_build/lovr-openvr/$$asset" || \
-				{ echo "make: $$openvr OpenVR build has an incomplete action bundle: $$lovr_build/lovr-openvr/$$asset is missing" >&2; exit 1; }; \
-		done; \
-	fi; \
 	$(INSTALL) -d -m 755 "$(bindir)" "$(libdir)"; \
 	$(INSTALL_PROGRAM) "$(build_dir)/lunette" "$(bindir)/lunette"; \
 	$(INSTALL_PROGRAM) "$(build_dir)/lunctl" "$(bindir)/lunctl"; \
@@ -155,9 +136,7 @@ install-binary: build
 	$(PATCHELF) --set-rpath '$$ORIGIN:$$ORIGIN/../lib/lunette' "$(bindir)/lunette" "$(bindir)/lunctl"; \
 	if test -d "$$lovr_build/lovr-openvr"; then \
 		$(INSTALL) -d -m 755 "$(libdir)/lovr-openvr"; \
-		for asset in $$assets; do \
-			$(INSTALL_DATA) "$$lovr_build/lovr-openvr/$$asset" "$(libdir)/lovr-openvr/$$asset"; \
-		done; \
+		$(INSTALL_DATA) "$$lovr_build"/lovr-openvr/* "$(libdir)/lovr-openvr/"; \
 	fi
 
 # The manifest owns installed modules, declarations, and Lua-root alias metadata.
@@ -185,41 +164,11 @@ install-lua:
 		fi; \
 	done
 
-# cli::CONFIG_ARTIFACTS is the source of truth. The source .luaurc is
-# intentionally excluded: dump-config generates one with absolute installed roots.
-# The list may sit on one line or several, as rustfmt lays it out; every quoted
-# string from the declaration to its closing bracket is an artifact.
-config_artifacts := $(shell awk '/^const CONFIG_ARTIFACTS:/{found=1} found {done = index($$0, "];") > 0; while (match($$0, /"[^"]*"/)) {printf "%s ", substr($$0, RSTART + 1, RLENGTH - 2); $$0 = substr($$0, RSTART + RLENGTH)} if (done) exit}' crates/lunette/src/cli.rs)
-
+# The files cli::DEFAULT_CONFIGURATION embeds. The source .luaurc is excluded:
+# dump-config generates one with absolute installed roots.
 install-config:
-	@set -e; \
-	for artifact in $(config_artifacts); do \
-		test -f "etc/xdg/lunette/$$artifact" && test ! -L "etc/xdg/lunette/$$artifact" || { echo "make: install config artifact is missing or unsupported: $$artifact" >&2; exit 1; }; \
-	done; \
-	unsupported="$$($(FIND) etc/xdg/lunette ! -type d ! -type f -print)" || exit $$?; \
-	if test -n "$$unsupported"; then \
-		printf '%s\n' "$$unsupported" | while IFS= read -r entry; do \
-			echo "make: install config contains unsupported content: $$entry" >&2; exit 1; \
-		done || exit $$?; \
-	fi; \
-	directories="$$($(FIND) etc/xdg/lunette -mindepth 1 -type d -print)" || exit $$?; \
-	if test -n "$$directories"; then \
-		printf '%s\n' "$$directories" | while IFS= read -r directory; do \
-			echo "make: install config contains an undeclared directory: $${directory#etc/xdg/lunette/}" >&2; exit 1; \
-		done || exit $$?; \
-	fi; \
-	config_files="$$($(FIND) etc/xdg/lunette -type f -print)" || exit $$?; \
-	if test -n "$$config_files"; then \
-		printf '%s\n' "$$config_files" | while IFS= read -r file; do \
-			relative="$${file#etc/xdg/lunette/}"; \
-			case " $(config_artifacts) .luaurc " in *" $$relative "*) ;; *) echo "make: install config contains an undeclared file: $$relative" >&2; exit 1 ;; esac; \
-		done || exit $$?; \
-	fi; \
-	$(INSTALL) -d "$(confdir)"; \
-	for artifact in $(config_artifacts); do \
-		$(INSTALL) -d "$(confdir)/$$(dirname "$$artifact")"; \
-		$(INSTALL_DATA) "etc/xdg/lunette/$$artifact" "$(confdir)/$$artifact"; \
-	done
+	$(INSTALL) -d "$(confdir)"
+	$(INSTALL_DATA) etc/xdg/lunette/main.luau etc/xdg/lunette/conf.luau "$(confdir)/"
 
 clean:
 	$(CARGO) clean

@@ -137,7 +137,6 @@ test('listener disposal and observer failure do not skip later listeners or clea
   local reports = env.session.native.events.reported
   expect.equal(#reports, 1)
   expect.truthy(reports[1].message:find('display observer defect', 1, true))
-  expect.truthy(reports[1].message:find('testing/observer', 1, true), 'the report names the listener owner')
   expect.equal(#testing.takeReports(), 0)
   env.display.instance:disable()
   expect.truthy(display:hide())

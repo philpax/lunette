@@ -11,7 +11,6 @@ export type Problem = { read path: Path, read code: Code, read message: string }
 export type Model = {
   read metadata: schema.Metadata,
   read defaults: unknown,
-  read applied: unknown,
   read value: unknown,
 }
 export type Row = {
@@ -45,10 +44,10 @@ local shape: (schema.Metadata, unknown) -> (MutablePath?, string?)
 local stringText: (string) -> (string, boolean)
 local decodeText: (string) -> (string?, string?)
 
-function editor.new(metadata: schema.Metadata, config: unknown, resolved: unknown?): Model
-  local defaults = hydrate(metadata, nil, resolved, {})
+function editor.new(metadata: schema.Metadata, config: unknown): Model
+  local defaults = hydrate(metadata, nil, nil, {})
   local value = hydrate(metadata, config, defaults, {})
-  return table.freeze { metadata = metadata, defaults = defaults, applied = value, value = value }
+  return table.freeze { metadata = metadata, defaults = defaults, value = value }
 end
 
 function editor.draft(model: Model): unknown
@@ -130,7 +129,6 @@ local function commit(model: Model, path: Path, value: unknown): (Model?, Proble
   return table.freeze {
     metadata = model.metadata,
     defaults = model.defaults,
-    applied = model.applied,
     value = replace(model.value, path, 1, value),
   },
     nil

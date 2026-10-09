@@ -7,7 +7,7 @@ local test = testing.suite()
 local function fixture(hooks, options)
   local fake = testing.native()
   hooks = hooks or {}
-  local events, listeners = {}, {}
+  local events = {}
   local seat = {
     dead = false,
     strokeFor = function(_self, value)
@@ -47,12 +47,10 @@ local function fixture(hooks, options)
     keymapSeat = function()
       return seat
     end,
-    listen = function(run)
-      listeners[#listeners + 1] = run
-      return function()
-        table.remove(listeners, table.find(listeners, run))
-      end
+    blocked = function()
+      return nil
     end,
+    dispose = function() end,
   }
   local source, inverse = sourceModule.new({
     owns = function()
@@ -61,9 +59,7 @@ local function fixture(hooks, options)
   }, {}, options, route)
   local function change()
     snapshot = { target = nil, handle = nil, revision = snapshot.revision + 1 }
-    for _, run in table.clone(listeners) do
-      run()
-    end
+    source:reset()
   end
   return {
     source = source,
@@ -241,8 +237,9 @@ test('native delivery keeps an omitted seat and reverse text uses only the defau
       keymapSeat = function()
         error 'recent keymap seat is not the native delivery default'
       end,
-      listen = function()
-        return function() end
+      dispose = function() end,
+      blocked = function()
+        return nil
       end,
     }
   )

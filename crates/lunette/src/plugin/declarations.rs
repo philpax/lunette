@@ -60,11 +60,6 @@ pub fn functions() -> &'static [FunctionSpec] {
     &FUNCTIONS
 }
 
-/// Installs the state-local attachment independently of the `@lunette` module.
-pub fn install_attachment(lua: &Lua) -> mlua::Result<()> {
-    Ok(attachment::install(lua)?)
-}
-
 /// Installs the nested `lunette.plugin` table from the function descriptors.
 pub fn install(lua: &Lua, module: &Table) -> mlua::Result<()> {
     attachment::install(lua).map_err(mlua::Error::from)?;

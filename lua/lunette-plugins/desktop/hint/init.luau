@@ -64,7 +64,6 @@ return plugin.consumer<<Config, Settings>>({
       phase = 'scene',
       order = 1,
       run = function(pass: Pass): ()
-        local refreshed, refreshFailure = pcall(applyCurrent)
         if #panelService:all() == 0 then
           passState.withRestore(pass, function(): ()
             pass:setShader()
@@ -74,9 +73,6 @@ return plugin.consumer<<Config, Settings>>({
             pass:setColor(foreground[1], foreground[2], foreground[3], foreground[4])
             pass:text(settings.text, lovr.math.mat4():translate(position):scale(paint.size), 0, 'center', 'middle')
           end)
-        end
-        if not refreshed then
-          error(refreshFailure, 0)
         end
       end,
     })

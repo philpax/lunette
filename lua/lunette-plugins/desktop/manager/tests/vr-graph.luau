@@ -205,7 +205,15 @@ test('manager VR camera controls change public geometry and Fit restores it', fu
   env:click('graph', 'node/' .. ids.middle)
   env:click 'focus'
   local region, description = graph(env)
-  local declared = toolbarLayout.compute(description.logicalWidth, description.logicalHeight, false, false).graphBounds
+  local declared = toolbarLayout.compute(
+    description.logicalWidth,
+    description.logicalHeight,
+    false,
+    false,
+    nil,
+    'graph',
+    'inspect'
+  ).graphBounds
   local centered = bounds(env, ids.middle)
   expect.near(centered.x + centered.width / 2, declared.x + declared.width / 2, 0.002, 'Focus centers declared x')
   expect.near(centered.y + centered.height / 2, declared.y + declared.height / 2, 0.002, 'Focus centers declared y')

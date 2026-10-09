@@ -1,22 +1,19 @@
 -- Custom regions retain declared item geometry while sharing pointer and focus delivery.
 local ui = require '@lunette-contracts/ui'
-local control = require '@lunette-plugins/ui/control'
+local records = require './panel-state'
 local geometry = require '@lunette-plugins/ui/geometry'
 local validation = require './validation'
 local vocabulary = require '@lunette-contracts/vocabulary'
 
 local region = {}
 
-function region.new(options: ui.RegionOptions, host: control.Host): control.Widget
-  options = validation.region(options)
-  local items = if options.items ~= nil then options.items else validation.regionItems {}
-  local widget: control.Widget = {
-    kind = 'region',
+function region.new(options: ui.RegionOptions, host: records.Host): records.Widget
+  local items: { read [number]: ui.RegionItem } = options.items or {}
+  local widget: records.Widget = {
     methods = {
       setItems = function(_self: ui.Region, given: { read [number]: ui.RegionItem }): ()
         if host.live() then
-          local replacement = validation.regionItems(given)
-          items = replacement
+          items = validation.regionItems(given)
           host.changed()
           host.cancel 'control-removed'
         end

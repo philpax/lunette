@@ -6,15 +6,7 @@ local test = testing.suite()
 
 local function fixture(config)
   local native = testing.native()
-  local shaders = {}
-  lovr.graphics.newShader = function(vertex, fragment)
-    local shader = { vertex = vertex, fragment = fragment, released = false }
-    function shader:release()
-      self.released = true
-    end
-    shaders[#shaders + 1] = shader
-    return shader
-  end
+  local shaders = native.events.render.shaderAcquisitions
   local session = testing.start {
     { id = 'theme', definition = require('@lunette-plugins/theme').definition },
     { id = 'panels', definition = provider.definition, config = config },

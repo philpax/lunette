@@ -1,13 +1,11 @@
 -- Draws declared logical geometry beneath the caller's panel-to-world transform.
--- Hooks are supplied provider → panel → control, with the last hook wrapping the earlier renderers.
+-- Hooks are supplied provider, then panel, then control, with the last hook wrapping the earlier renderers.
 -- Each hook may replace drawing, but must keep its own stack pushes balanced and clip custom geometry to Visual.clip.
-local lunette = require '@lunette'
 local ui = require '@lunette-contracts/ui'
 local geometry = require './geometry'
-local theme = require './theme'
 local textFieldGeometry = require './text-field-geometry'
 local passState = require '@lunette-plugins/pass-state'
-local depth = require './depth'
+local textFit = require './text-fit'
 local measurement = require './measurement-cache'
 local rounded = require '@lunette-plugins/theme/rounded-geometry'
 local drawing = require '@lunette-plugins/theme/drawing'
@@ -19,6 +17,13 @@ export type Shape = {
 }
 export type Cache = { labels: measurement.Cache, fields: measurement.Cache, faces: drawing.Cache }
 local draw = {}
+
+-- Separates the panel surface and nested drawing layers in metres without changing input geometry.
+draw.depth = table.freeze {
+  surface = 0.002,
+  layer = 0.001,
+}
+
 function draw.newCache(): Cache
   return { labels = measurement.new(), fields = measurement.new(), faces = drawing.newCache() }
 end
@@ -36,102 +41,42 @@ type TextEntry = {
   read overflow: boolean,
 }
 
-local snapshot: (ui.Visual) -> ui.Visual
 local protected: (Pass, Font, () -> ()) -> ()
-local renderDefault: (Pass, ui.Visual, Cache?, Shape?) -> ()
+local renderDefault: (Pass, ui.Visual, Cache, Shape?) -> ()
 local rectangle: (Pass, ui.Bounds, ui.Bounds) -> ()
 local roundedBorder: (Pass, Cache, ui.Bounds, rounded.Profile, number, ui.Bounds) -> ()
-local text: (Pass, Font, string, ui.Bounds, ui.Bounds, number, Cache?) -> boolean
-local fittedText: (Font, string, number, number, number, Cache?) -> TextEntry
-local renderTextField: (Pass, Font, ui.Visual, ui.Bounds, Cache?) -> boolean
-local renderItems: (Pass, Font, ui.Visual, ui.Bounds, Cache?) -> boolean
+local text: (Pass, Font, string, ui.Bounds, ui.Bounds, number, Cache) -> boolean
+local fittedText: (Font, string, number, number, Cache) -> TextEntry
+local renderTextField: (Pass, Font, ui.Visual, ui.Bounds, Cache) -> boolean
+local renderItems: (Pass, Font, ui.Visual, ui.Bounds, Cache) -> boolean
 local inset: (ui.Bounds, number) -> ui.Bounds
-local sameBounds: (ui.Bounds, ui.Bounds) -> boolean
 local validateGeometry: (ui.Visual, ui.Visual) -> ()
 local setColor: (Pass, ui.Color) -> ()
-local singleLine: (string) -> string
 
 function draw.render(
   pass: Pass,
   visual: ui.Visual,
   hooks: { read [number]: ui.DrawHook }?,
-  cache: Cache?,
+  cache: Cache,
   shape: Shape?
 ): ()
-  local declared = snapshot(visual)
-  local owned = if cache then nil else draw.newCache()
-  local currentCache: Cache = assert(cache or owned)
-  currentCache.faces.limit = math.max(96, (#declared.items + 1) * 3)
+  local declared = table.freeze(table.clone(visual))
   local renderer: ui.Renderer = function(target: Pass, value: ui.Visual): ()
     validateGeometry(value, declared)
-    local immutable = snapshot(value)
-    protected(target, immutable.theme.font, function()
-      renderDefault(target, immutable, currentCache, shape)
+    protected(target, value.theme.font, function()
+      renderDefault(target, value, cache, shape)
     end)
   end
   for _, hook in hooks or {} do
     local base = renderer
     renderer = function(target: Pass, value: ui.Visual): ()
       validateGeometry(value, declared)
-      local immutable = snapshot(value)
-      protected(target, immutable.theme.font, function()
-        hook(target, immutable, base)
+      protected(target, value.theme.font, function()
+        hook(target, value, base)
       end)
     end
   end
-  local ok, failure = pcall(function(): boolean
-    renderer(pass, declared)
-    return true
-  end)
-  local cleaned, cleanupFailure = true, nil
-  if owned then
-    cleaned, cleanupFailure = pcall(function(): boolean
-      draw.clearCache(owned)
-      return true
-    end)
-  end
-  if not ok then
-    error(failure, 0)
-  elseif not cleaned then
-    error(cleanupFailure, 0)
-  end
-end
-
-snapshot = function(value: ui.Visual): ui.Visual
-  local items: { ui.ItemDescription } = {}
-  for _, item in value.items do
-    local route = if item.route then geometry.validatePolyline(item.route) else nil
-    table.insert(
-      items,
-      table.freeze {
-        id = item.id,
-        label = item.label,
-        enabled = item.enabled,
-        selected = item.selected,
-        bounds = if item.bounds then geometry.validateBounds(item.bounds) else nil,
-        route = route,
-      }
-    )
-  end
-  return table.freeze {
-    id = value.id,
-    kind = value.kind,
-    label = value.label,
-    bounds = geometry.validateBounds(value.bounds),
-    clip = geometry.validateBounds(value.clip),
-    theme = theme.validate(value.theme),
-    enabled = value.enabled,
-    hovered = value.hovered,
-    pressed = value.pressed,
-    focused = value.focused,
-    value = value.value,
-    caret = value.caret,
-    anchor = value.anchor,
-    error = value.error,
-    opened = value.opened,
-    overflow = value.overflow,
-    items = table.freeze(items),
-  }
+  renderer(pass, declared)
 end
 
 protected = function(pass: Pass, font: Font, render: () -> ()): ()
@@ -146,13 +91,12 @@ protected = function(pass: Pass, font: Font, render: () -> ()): ()
   end)
 end
 
-renderDefault = function(pass: Pass, visual: ui.Visual, cache: Cache?, shape: Shape?): ()
+renderDefault = function(pass: Pass, visual: ui.Visual, cache: Cache, shape: Shape?): ()
   local clip = geometry.intersect(visual.bounds, visual.clip)
   if not clip then
     return
   end
   local font, style = visual.theme.font, visual.theme
-  geometry.positive(font:getHeight(), 'font height')
   pass:setShader()
   pass:setMaterial(nil)
   pass:setFont(font)
@@ -170,18 +114,18 @@ renderDefault = function(pass: Pass, visual: ui.Visual, cache: Cache?, shape: Sh
     else style.control
   pass:setDepthWrite(visual.kind == 'panel' and faceColor[4] == 1)
   setColor(pass, faceColor)
-  drawing.face(pass, (cache :: Cache).faces, bounds, profile, if shape and shape.faceClip then shape.faceClip else clip)
+  drawing.face(pass, cache.faces, bounds, profile, if shape and shape.faceClip then shape.faceClip else clip)
   if visual.kind == 'panel' then
     if not shape or shape.border ~= false then
       setColor(pass, style.border)
       pass:setDepthWrite(style.border[4] == 1)
-      roundedBorder(pass, cache :: Cache, bounds, profile, style.borderWidth, clip)
+      roundedBorder(pass, cache, bounds, profile, style.borderWidth, clip)
     end
     return
   end
   -- Controls and glyphs retain painter order in front of the opaque backing.
   pass:setDepthWrite(false)
-  pass:translate(0, 0, depth.layer)
+  pass:translate(0, 0, draw.depth.layer)
   local textClip = geometry.intersect(clip, rounded.safeClip(bounds, profile))
   if not textClip then
     return
@@ -226,7 +170,7 @@ renderDefault = function(pass: Pass, visual: ui.Visual, cache: Cache?, shape: Sh
   if not shape or shape.border ~= false then
     roundedBorder(
       pass,
-      cache :: Cache,
+      cache,
       bounds,
       profile,
       if visual.focused or visual.error then math.max(2, style.borderWidth) else style.borderWidth,
@@ -270,7 +214,7 @@ text = function(
   bounds: ui.Bounds,
   clip: ui.Bounds,
   size: number,
-  cache: Cache?
+  cache: Cache
 ): boolean
   if value == '' then
     return false
@@ -281,23 +225,16 @@ text = function(
   end
   local height = font:getHeight()
   local scale = math.min(size, visible.height) / height
-  local fitted = fittedText(font, value, scale, visible.width, height, cache)
+  local fitted = fittedText(font, value, scale, visible.width, cache)
   if fitted.shown then
     -- Glyphs are y-up, while logical panel coordinates are y-down.
-    pass:text(fitted.shown, visible.x, visible.y, depth.layer, scale, math.pi, 1, 0, 0, 0, 'left', 'top')
+    pass:text(fitted.shown, visible.x, visible.y, draw.depth.layer, scale, math.pi, 1, 0, 0, 0, 'left', 'top')
   end
   return fitted.overflow
 end
 
-fittedText = function(
-  font: Font,
-  value: string,
-  scale: number,
-  width: number,
-  _height: number,
-  cache: Cache?
-): TextEntry
-  local entries = measurement.entries(if cache then cache.labels else nil, font)
+fittedText = function(font: Font, value: string, scale: number, width: number, cache: Cache): TextEntry
+  local entries = measurement.entries(cache.labels, font)
   for index, raw in entries or {} do
     local entry = raw :: TextEntry
     if entry.value == value and entry.scale == scale and entry.width == width then
@@ -306,31 +243,13 @@ fittedText = function(
       return entry
     end
   end
-  local line = singleLine(value)
-  local shown: string? = line
-  local overflow = line ~= value or font:getWidth(line) * scale > width
-  if overflow then
-    local suffix = '…'
-    if font:getWidth(suffix) * scale > width then
-      shown = nil
-    else
-      local boundaries = lunette.textBoundaries(line)
-      local prefix = ''
-      for index = 2, #boundaries do
-        local candidate = line:sub(1, boundaries[index] - 1)
-        if font:getWidth(candidate .. suffix) * scale <= width then
-          prefix = candidate
-        end
-      end
-      shown = prefix .. suffix
-    end
-  end
+  local shown, overflow = textFit.ellipsize(font, value, scale, width)
   local result: TextEntry = { value = value, scale = scale, width = width, shown = shown, overflow = overflow }
   measurement.store(entries, result)
   return result
 end
 
-renderTextField = function(pass: Pass, font: Font, visual: ui.Visual, clip: ui.Bounds, cache: Cache?): boolean
+renderTextField = function(pass: Pass, font: Font, visual: ui.Visual, clip: ui.Bounds, cache: Cache): boolean
   local style, value = visual.theme, visual.value or ''
   local layout = textFieldGeometry.layout(
     value,
@@ -340,7 +259,7 @@ renderTextField = function(pass: Pass, font: Font, visual: ui.Visual, clip: ui.B
     clip,
     style,
     font,
-    if cache then cache.fields else nil,
+    cache.fields,
     clip
   )
   if not layout then
@@ -361,7 +280,7 @@ renderTextField = function(pass: Pass, font: Font, visual: ui.Visual, clip: ui.B
       layout.text,
       layout.origin.x,
       layout.origin.y,
-      depth.layer,
+      draw.depth.layer,
       layout.scale,
       math.pi,
       1,
@@ -379,7 +298,7 @@ renderTextField = function(pass: Pass, font: Font, visual: ui.Visual, clip: ui.B
   return layout.overflow
 end
 
-renderItems = function(pass: Pass, font: Font, visual: ui.Visual, clip: ui.Bounds, cache: Cache?): boolean
+renderItems = function(pass: Pass, font: Font, visual: ui.Visual, clip: ui.Bounds, cache: Cache): boolean
   local style, overflow = visual.theme, false
   for _, item in visual.items do
     if item.bounds then
@@ -388,7 +307,7 @@ renderItems = function(pass: Pass, font: Font, visual: ui.Visual, clip: ui.Bound
         overflow = true
         continue
       end
-      overflow = not sameBounds(visible, item.bounds) or overflow
+      overflow = not geometry.sameBounds(visible, item.bounds) or overflow
       setColor(
         pass,
         if not visual.enabled or not item.enabled
@@ -397,7 +316,7 @@ renderItems = function(pass: Pass, font: Font, visual: ui.Visual, clip: ui.Bound
           else style.control
       )
       local profile = rounded.uniform(style.controlRadius)
-      drawing.face(pass, (cache :: Cache).faces, item.bounds, profile, clip)
+      drawing.face(pass, cache.faces, item.bounds, profile, clip)
       local textClip = geometry.intersect(clip, rounded.safeClip(item.bounds, profile))
       if item.route then
         setColor(pass, if item.selected then style.focus else style.border)
@@ -414,7 +333,7 @@ renderItems = function(pass: Pass, font: Font, visual: ui.Visual, clip: ui.Bound
       end
       if item.selected then
         setColor(pass, style.focus)
-        roundedBorder(pass, cache :: Cache, item.bounds, profile, math.max(2, style.borderWidth), clip)
+        roundedBorder(pass, cache, item.bounds, profile, math.max(2, style.borderWidth), clip)
       end
     end
   end
@@ -426,14 +345,10 @@ inset = function(bounds: ui.Bounds, padding: number): ui.Bounds
   return { x = bounds.x + x, y = bounds.y + y, width = bounds.width - 2 * x, height = bounds.height - 2 * y }
 end
 
-sameBounds = function(a: ui.Bounds, b: ui.Bounds): boolean
-  return a.x == b.x and a.y == b.y and a.width == b.width and a.height == b.height
-end
-
 validateGeometry = function(value: ui.Visual, declared: ui.Visual): ()
   assert(value.id == declared.id and value.kind == declared.kind, 'ui drawing: hook cannot replace visual identity')
   assert(
-    sameBounds(value.bounds, declared.bounds) and sameBounds(value.clip, declared.clip),
+    geometry.sameBounds(value.bounds, declared.bounds) and geometry.sameBounds(value.clip, declared.clip),
     'ui drawing: hook cannot change geometry'
   )
   assert(#value.items == #declared.items, 'ui drawing: hook cannot change item geometry')
@@ -441,7 +356,7 @@ validateGeometry = function(value: ui.Visual, declared: ui.Visual): ()
     local original = declared.items[index]
     assert(item.id == original.id, 'ui drawing: hook cannot replace item identity')
     if item.bounds and original.bounds then
-      assert(sameBounds(item.bounds, original.bounds), 'ui drawing: hook cannot change item geometry')
+      assert(geometry.sameBounds(item.bounds, original.bounds), 'ui drawing: hook cannot change item geometry')
     else
       assert(item.bounds == original.bounds, 'ui drawing: hook cannot change item geometry')
     end
@@ -459,10 +374,6 @@ end
 
 setColor = function(pass: Pass, color: ui.Color): ()
   pass:setColor(color[1], color[2], color[3], color[4])
-end
-
-singleLine = function(value: string): string
-  return (value:gsub('[\r\n]', ' '))
 end
 
 return draw

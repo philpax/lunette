@@ -1,18 +1,8 @@
 local schema = require '@lunette-plugin/schema'
 
 local positive = schema.number { positive = true }
-local logicalWidth = schema.refine(positive)(function(value: number): ()
-  assert(value >= 120, 'must be at least 120 logical pixels')
-end)
-local logicalHeight = schema.refine(positive)(function(value: number): ()
-  assert(value >= 160, 'must be at least 160 logical pixels')
-end)
-local strength = schema.refine(schema.number())(function(value: number): ()
-  assert(value >= 0 and value <= 1, 'must be between zero and one')
-end)
-local duration = schema.refine(schema.number())(function(value: number): ()
-  assert(value >= 0, 'must be nonnegative')
-end)
+local strength = schema.number { minimum = 0, maximum = 1 }
+local duration = schema.number { minimum = 0 }
 local hand = schema.union(schema.literal<<'left'>> 'left', schema.literal<<'right'>> 'right')
 local haptic = schema.object {
   strength = schema.default(strength)(0.3),
@@ -21,8 +11,8 @@ local haptic = schema.object {
 local expanded = schema.object {
   width = schema.default(positive)(0.32),
   height = schema.default(positive)(0.4),
-  logicalWidth = schema.default(logicalWidth)(320),
-  logicalHeight = schema.default(logicalHeight)(400),
+  logicalWidth = schema.default(schema.number { minimum = 120 })(320),
+  logicalHeight = schema.default(schema.number { minimum = 160 })(400),
   rowHeight = schema.optional(positive),
 }
 local descriptor = schema.object {

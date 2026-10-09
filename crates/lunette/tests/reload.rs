@@ -1,43 +1,22 @@
 //! The soft reload, exercised by performing one.
 //!
-//! The reload applies an edited configuration without disconnecting any
-//! client, and it rebuilds the configuration's modules and callbacks without
-//! leaving the previous run's behind. Neither half can be established by
-//! asserting a flag, so the tests establish both by reloading.
-//!
-//! The two halves need different test apparatus.
-//!
-//! The first half runs the lunette binary against a fixture configuration, as
-//! `exit_status.rs` does and for the same reason: the module must be the one
-//! the host registered, the standard library the one the host mounted, and
-//! `main.luau` the file `boot.lua` resolved. A unit test on a Lua state a test
-//! built has none of those. The fixtures switch the audio, graphics, and
-//! headset modules off and open no window, so no display, no XR runtime, and
-//! no sound device is needed, and each run points `XDG_DATA_HOME` at a
-//! temporary directory of its own.
-//!
-//! The second half connects a real Wayland client to lunette's own compositor
-//! and reloads while it is connected. The second half establishes a narrow
-//! property: the reload does not touch the client. A reload is confined to
-//! one Lua state, the compositor thread and every connection it holds are in
-//! Rust, and `docs/dev/architecture.md` records the rule behind the separation:
-//! Rust holds no long-lived reference into Lua. A later change that reaches
-//! across that line fails this test.
+//! The binary cases reload against the module the host registered, the roots it mounted, and
+//! the `main.luau` that `boot.lua` resolved; `session` records why they spawn it. The client
+//! case connects a real Wayland client to lunette's compositor and reloads while it is
+//! connected: a reload is confined to one Lua state and must not touch the client.
 
 #![expect(
     clippy::expect_used,
     reason = "a failed expectation is how a test reports a failure; the ban is on production code"
 )]
 
-use std::{
-    path::{Path, PathBuf},
-    process::Command,
-};
-
 use lunette_compositor::{protocol::PixelSize, test_client::TestClient, testing::TestCompositor};
 use mlua::{Function, Lua, Table};
 use pretty_assertions::assert_eq;
-use tempfile::TempDir;
+
+use crate::session::assert_exit_status;
+
+mod session;
 
 /// Ten reloads in one session, each asserting the state the previous reload
 /// left.
@@ -146,79 +125,5 @@ fn configured_state() -> Lua {
         .set("main", main)
         .expect("the configuration is reachable");
 
-    lua
-}
-
-/// Runs the binary against the named fixture and asserts the status it
-/// exited with.
-///
-/// The child's stderr and stdout are quoted on failure. The fixtures print
-/// which assertion did not hold, and a Lua error arrives on stderr and
-/// nowhere else.
-fn assert_exit_status(fixture: &str, expected: i32) {
-    let directory = fixture_directory(fixture);
-    assert!(
-        directory.join("lunette").join("main.luau").is_file(),
-        "the {fixture} fixture is missing its main.luau"
-    );
-
-    // Per run, for the reason `exit_status.rs` records: `boot.lua` creates
-    // `$XDG_DATA_HOME/LOVR/<identity>` on every run, and two runs sharing a
-    // leaf race to create it.
-    let data_directory = match TempDir::with_prefix("lunette-reload-") {
-        Ok(directory) => directory,
-        Err(error) => panic!("a temporary data directory could not be created: {error}"),
-    };
-
-    let run = Command::new(env!("CARGO_BIN_EXE_lunette"))
-        // Removed for the same reason as `HOME`: a developer's shell exports
-        // it to point a session at the working copy, and a mislaid fixture
-        // would otherwise load the shipped configuration and pass confusingly.
-        .env_remove("LUNETTE_CONFIG_PATH")
-        .env("XDG_CONFIG_HOME", &directory)
-        .env("XDG_DATA_HOME", data_directory.path())
-        // Removed to keep the run from reaching the developer's own
-        // configuration when the fixture is mislaid. A missing fixture would
-        // otherwise pass confusingly.
-        .env_remove("HOME")
-        .env("LUNETTE_STDLIB_PATH", standard_library())
-        .output();
-    let output = match run {
-        Ok(output) => output,
-        Err(error) => panic!("the lunette binary could not be run: {error}"),
-    };
-
-    assert_eq!(
-        output.status.code(),
-        Some(expected),
-        "the {fixture} fixture should have exited {expected}; stdout was:\n{}\nstderr was:\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-}
-
-fn fixture_directory(fixture: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests")
-        .join("fixtures")
-        .join(fixture)
-}
-
-/// The `lua/` directory of the working tree this test is built from. The run
-/// mounts it: the fixture requires the standard library as it is, not as a
-/// copy assembled for it.
-fn standard_library() -> PathBuf {
-    // `crates/lunette` up two levels to the workspace root.
-    let Some(root) = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(2) else {
-        panic!("the workspace root could not be derived from the manifest directory");
-    };
-    let lua = root.join("lua");
-    assert!(
-        lua.join("lunette-contracts")
-            .join("vocabulary.luau")
-            .is_file(),
-        "{} should hold the shipped Lua roots",
-        lua.display()
-    );
     lua
 }

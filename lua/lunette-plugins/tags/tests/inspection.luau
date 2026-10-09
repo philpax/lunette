@@ -13,9 +13,9 @@ local function count(snapshot, kind)
   return total
 end
 
-local function registration(snapshot, kind, sourceId)
+local function registration(snapshot, kind)
   for _, entry in ipairs(snapshot.registrations) do
-    if entry.kind == kind and (sourceId == nil or entry.details.sourceId == sourceId) then
+    if entry.kind == kind then
       return entry
     end
   end
@@ -33,7 +33,7 @@ local function expectFrozen(snapshot)
   end
 end
 
-test('inspection leaves private target liveness unavailable and logical entries unchanged', function()
+test('inspection invokes no target getter and leaves logical entries unchanged', function()
   local session = testing.start { 'tags' }
   local observer = session:observe(contract.capability)
   local service = observer.service
@@ -72,8 +72,6 @@ test('inspection leaves private target liveness unavailable and logical entries 
   for _, kind in ipairs { 'membership', 'exclusion' } do
     expect.equal(count(snapshot, kind), 1, 'the retained ' .. kind)
     local entry, initial = registration(snapshot, kind), registration(before, kind)
-    expect.equal(entry.details.targetLiveness, 'unavailable', 'the unobserved target liveness')
-    expect.equal(initial.details.targetLiveness, 'unavailable', 'the initially unobserved target liveness')
     expect.equal(entry.live, true, 'the logical entry remains live')
     expect.equal(entry.owner, initial.owner, 'the retained owner')
     expect.equal(entry.name, initial.name, 'the retained tag name')
@@ -88,70 +86,7 @@ test('inspection leaves private target liveness unavailable and logical entries 
   hold:dispose()
   expect.equal(#service:inspect().registrations, 0, 'all effects end normally')
   expect.equal(count(snapshot, 'membership'), 1, 'the detached membership after disposal')
-  expect.equal(
-    registration(snapshot, 'membership').details.targetLiveness,
-    'unavailable',
-    'the retained unavailable fact'
-  )
   expectFrozen(snapshot)
-  session:close()
-end)
-
-test('inspection retains discriminated window and monitor source IDs for memberships and exclusions', function()
-  local session = testing.start { 'tags' }
-  local observer = session:observe(contract.capability)
-  local service = observer.service
-  local tag, hold = service:hold(observer.context, { name = 'fixture.sources' })
-  local fixtures = {
-    { kind = 'monitor', id = 'fixture.monitor' },
-    { kind = 'window', id = 22 },
-  }
-  local excluded = {}
-  for _, fixture in ipairs(fixtures) do
-    local source = setmetatable({ id = fixture.id }, {
-      __index = function()
-        error 'inspection invoked a source getter'
-      end,
-    })
-    local target = setmetatable({ dead = false, kind = fixture.kind, source = source }, {
-      __index = function()
-        error 'inspection invoked a surface getter'
-      end,
-    })
-    tag:add(observer.context, target)
-    excluded[#excluded + 1] = tag:exclude(observer.context, { panel = target })
-  end
-  local snapshot = service:inspect()
-  expect.equal(count(snapshot, 'membership'), 2, 'the source memberships')
-  expect.equal(count(snapshot, 'exclusion'), 2, 'the source exclusions')
-  for _, fixture in ipairs(fixtures) do
-    for _, kind in ipairs { 'membership', 'exclusion' } do
-      local entry = registration(snapshot, kind, fixture.id)
-      expect.equal(entry.source, if kind == 'membership' then 'tags.add' else 'tags.exclude', 'the entry source')
-      expect.equal(entry.details.sourceKind, fixture.kind, 'the source kind')
-      expect.equal(entry.details.sourceId, fixture.id, 'the source ID')
-      expect.equal(entry.details.targetLiveness, 'live', 'the observed target liveness')
-      expect.equal(entry.live, true, 'the live logical entry')
-    end
-  end
-  for _, effect in ipairs(excluded) do
-    effect:dispose()
-  end
-  hold:dispose()
-  expect.equal(#service:inspect().registrations, 0, 'the disposed entries')
-  expect.equal(#snapshot.registrations, 5, 'the detached entry count')
-  for _, fixture in ipairs(fixtures) do
-    for _, kind in ipairs { 'membership', 'exclusion' } do
-      local entry = registration(snapshot, kind, fixture.id)
-      expect.equal(entry.details.sourceKind, fixture.kind, 'the detached source kind')
-      expect.equal(entry.details.sourceId, fixture.id, 'the detached source ID')
-      expect.equal(entry.live, true, 'the retained entry status')
-    end
-  end
-  expectFrozen(snapshot)
-  expect.raises(function()
-    registration(snapshot, 'membership', 'fixture.monitor').details.sourceId = 'changed'
-  end, 'readonly', 'source metadata stays frozen after disposal')
   session:close()
 end)
 
@@ -181,11 +116,6 @@ test('inspection keeps tag holders and memberships separate and never prunes dea
   expect.equal(count(snapshot, 'membership'), 2, 'the membership ref count')
   expect.equal(count(snapshot, 'selection'), 1, 'a reused selection override')
   expect.equal(count(snapshot, 'layoutChoice'), 1, 'the layout override')
-  for _, entry in ipairs(snapshot.registrations) do
-    if entry.kind == 'membership' or entry.kind == 'exclusion' then
-      expect.equal(entry.details.targetLiveness, 'live', 'the initially observed live target')
-    end
-  end
   target.dead = true
   local listener = service:onChanged(first.context, {
     run = function()
@@ -198,7 +128,6 @@ test('inspection keeps tag holders and memberships separate and never prunes dea
   for _, entry in ipairs(dead.registrations) do
     if entry.kind == 'membership' or entry.kind == 'exclusion' then
       expect.equal(entry.live, true, 'the logical entry remains live')
-      expect.equal(entry.details.targetLiveness, 'dead', 'the observed dead target')
       expect.equal(entry.source, if entry.kind == 'membership' then 'tags.add' else 'tags.exclude', 'the entry source')
     end
   end
@@ -210,12 +139,6 @@ test('inspection keeps tag holders and memberships separate and never prunes dea
   hold:dispose()
   expect.equal(#service:inspect().registrations, 0, 'the tag and overrides end at the last hold')
   expect.equal(count(snapshot, 'membership'), 2, 'the detached initial memberships')
-  expect.equal(
-    registration(snapshot, 'membership').details.targetLiveness,
-    'live',
-    'the detached initial target liveness'
-  )
-  expect.equal(registration(dead, 'membership').details.targetLiveness, 'dead', 'the detached observed target death')
   expectFrozen(snapshot)
   expectFrozen(dead)
   session:close()

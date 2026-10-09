@@ -7,17 +7,22 @@ local placementContract = require '@lunette-contracts/placement'
 local rulesContract = require '@lunette-contracts/rules'
 local vocabulary = require '@lunette-contracts/vocabulary'
 local inspection = require '@lunette-contracts/inspection'
+local config = require '@lunette-plugins/adoption/config'
 
 export type Service = adoption.Service
 export type Owner = adoption.Owner
 export type Options = adoption.Options
 export type Properties = adoption.Properties
+export type Settings = config.Settings
 
 local SOURCE = 'lunette.adoption'
 
-type State = {
-  active: boolean,
-  context: plugin.Context,
+type Adopted = {
+  start: {},
+  owner: Owner,
+  window: lunette.Window,
+  panel: panelsContract.WindowPanel,
+  placed: plugin.Effect,
 }
 
 -- Reads a pose persisted on the window across Lua state reloads.
@@ -29,24 +34,10 @@ local function keptPose(window: lunette.Window): rulesContract.Properties?
   return { pose = kept }
 end
 
-local function windows(state: State): { lunette.Window }
-  local result: { lunette.Window } = {}
-  local panels: panelsContract.Service = state.context:require(panelsContract.capability)
-  for _, window in ipairs(lunette.windows()) do
-    if not window.dead and not panels:forSource(window) then
-      result[#result + 1] = window
-    end
-  end
-  return result
-end
-
-local config = require '@lunette-plugins/adoption/config'
-
-export type Settings = config.Settings
-
 local function build(context: plugin.Context, settings: Settings): Service
-  local state: State = { active = true, context = context }
   local records: { inspection.Registration } = {}
+  -- A panel destroyed elsewhere has already released its placement, so its entry is only pruned.
+  local adopted: { Adopted } = {}
   local function forget(entry: inspection.Registration): ()
     local index = table.find(records, entry)
     if index then
@@ -54,11 +45,10 @@ local function build(context: plugin.Context, settings: Settings): Service
     end
   end
 
-  -- The source and event callbacks check activation state because copied callbacks can outlive the service.
   context:effect(function(): () -> ()
     return function()
-      state.active = false
       table.clear(records)
+      table.clear(adopted)
     end
   end)
 
@@ -71,25 +61,31 @@ local function build(context: plugin.Context, settings: Settings): Service
           entry.source,
           entry.owner,
           entry.name,
-          state.active and context:owns(entry.owner),
+          context:owns(entry.owner),
           entry.details
         )
       end
-      return inspection.snapshot(result, { active = state.active }, { 'filter results require callbacks' })
+      for _, entry in ipairs(adopted) do
+        if not entry.panel.dead then
+          result[#result + 1] = inspection.registration(
+            'adoption',
+            'adoption.start',
+            entry.owner,
+            nil,
+            context:owns(entry.owner),
+            { sourceId = entry.window.id, sourceKind = 'window' }
+          )
+        end
+      end
+      return inspection.snapshot(result, { active = context:active() }, { 'filter results require callbacks' })
     end,
     -- The provider registers the source under the caller's ownership; callers do not require the rules service.
     install = function(_self: Service, owner: Owner): plugin.Effect
       context:checkOwner(owner)
       local rules: rulesContract.Service = context:require(rulesContract.capability)
       local chosen = settings.precedence
-      local function resolve(window: lunette.Window): rulesContract.Properties?
-        if not state.active or not context:active() then
-          return nil
-        end
-        return keptPose(window)
-      end
       return context:acquire(owner, function(): () -> ()
-        local registration = rules:addSource(context, { name = SOURCE, precedence = chosen, resolve = resolve })
+        local registration = rules:addSource(context, { name = SOURCE, precedence = chosen, resolve = keptPose })
         local entry =
           inspection.registration('poseSource', 'adoption.install', owner, SOURCE, true, { precedence = chosen })
         records[#records + 1] = entry
@@ -99,116 +95,79 @@ local function build(context: plugin.Context, settings: Settings): Service
         end
       end)
     end,
-    start = function(self: Service, owner: Owner, options: Options?): plugin.Effect
-      local current = state
-      current.context:checkOwner(owner)
-      local panels: panelsContract.Service = current.context:require(panelsContract.capability)
-      local rules: rulesContract.Service = current.context:require(rulesContract.capability)
-      local placement: placementContract.Service = current.context:require(placementContract.capability)
-      local settings: Options = options or {}
-      if settings.filter ~= nil and type(settings.filter) ~= 'function' then
-        error('adoption: filter is a function of the window, not a ' .. type(settings.filter), 2)
+    start = function(_self: Service, owner: Owner, options: Options?): plugin.Effect
+      context:checkOwner(owner)
+      local panels: panelsContract.Service = context:require(panelsContract.capability)
+      local rules: rulesContract.Service = context:require(rulesContract.capability)
+      local placement: placementContract.Service = context:require(placementContract.capability)
+      local chosen: Options = options or {}
+      if chosen.filter ~= nil and type(chosen.filter) ~= 'function' then
+        error('adoption: filter is a function of the window, not a ' .. type(chosen.filter), 2)
       end
-      local adopted: { plugin.Effect } = {}
-      local adoptedIds: { [number]: boolean } = {}
+      local token = {}
       local subscription: (() -> ())?
-      local active = true
+      local running = true
 
-      -- Copied callbacks run while the caller and provider remain active.
+      -- Copied callbacks run while the start and its caller remain active.
       local function live(): boolean
-        return active and current.context:owns(owner)
+        return running and context:owns(owner)
       end
 
-      -- The placement listener runs before the caller-owned release effect is registered.
       local function place(window: lunette.Window)
-        if not live() or window.dead or adoptedIds[window.id] or panels:forSource(window) then
+        if not live() or window.dead or panels:forSource(window) then
           return
         end
-        if settings.filter and not settings.filter(window) then
+        if chosen.filter and not chosen.filter(window) then
           return
         end
         local resolved = rules:resolve(window)
         local adopt = resolved.adopt
-        if adopt == nil and settings.defaults then
-          adopt = settings.defaults.adopt
+        if adopt == nil and chosen.defaults then
+          adopt = chosen.defaults.adopt
         end
         if adopt == false then
           return
         end
         local created, _properties, placed =
-          placement:place(current.context, { window = window, properties = resolved, defaults = settings.defaults })
+          placement:place(context, { window = window, properties = resolved, defaults = chosen.defaults })
         if created.dead or not live() then
           placed:dispose()
           return
         end
-        adoptedIds[window.id] = true
-        local acquired: plugin.Effect
-        local removal: plugin.Effect? = nil
-        local registered, failure = pcall(function(): ()
-          acquired = owner:effect(function(): () -> ()
-            current.context:checkOwner(owner)
-            local entry = inspection.registration(
-              'adoption',
-              'adoption.start',
-              owner,
-              nil,
-              true,
-              { sourceId = window.id, sourceKind = 'window' }
-            )
-            records[#records + 1] = entry
-            return function()
-              forget(entry)
-              adoptedIds[window.id] = nil
-              local index = table.find(adopted, acquired)
-              if index then
-                table.remove(adopted, index)
-              end
-              local listener = removal
-              removal = nil
-              if listener then
-                listener:dispose()
-              end
-              placed:dispose()
-            end
-          end)
-        end)
-        if not registered then
-          adoptedIds[window.id] = nil
-          placed:dispose()
-          error(failure, 0)
+        for index = #adopted, 1, -1 do
+          if adopted[index].panel.dead then
+            table.remove(adopted, index)
+          end
         end
-        removal = panels:onRemoved(current.context, {
-          panel = created,
-          run = function()
-            acquired:dispose()
-          end,
-        })
-        adopted[#adopted + 1] = acquired
+        adopted[#adopted + 1] = { start = token, owner = owner, window = window, panel = created, placed = placed }
       end
 
       local effect = owner:effect(function(): () -> ()
-        current.context:checkOwner(owner)
+        context:checkOwner(owner)
         local entry =
-          inspection.registration('producer', 'adoption.start', owner, nil, true, { filtered = settings.filter ~= nil })
+          inspection.registration('producer', 'adoption.start', owner, nil, true, { filtered = chosen.filter ~= nil })
         records[#records + 1] = entry
         return function()
           forget(entry)
-          active = false
+          running = false
           if subscription then
             subscription()
             subscription = nil
           end
-          -- Release attempts every adoption and returns the first failure.
+          local released: { Adopted } = {}
+          for index = #adopted, 1, -1 do
+            if adopted[index].start == token then
+              table.insert(released, 1, table.remove(adopted, index) :: Adopted)
+            end
+          end
+          -- Release attempts every adoption and raises the first failure.
           local failure: unknown = nil
-          for _, adoption in ipairs(table.clone(adopted)) do
-            local ok, raised = pcall(function()
-              adoption:dispose()
-            end)
+          for _, entry in ipairs(released) do
+            local ok, raised = pcall(entry.placed.dispose, entry.placed)
             if not ok and failure == nil then
               failure = raised
             end
           end
-          table.clear(adopted)
           if failure ~= nil then
             error(failure, 0)
           end
@@ -219,9 +178,7 @@ local function build(context: plugin.Context, settings: Settings): Service
           return
         end
         local unsubscribe = lunette.onWindowOpened(function(event: lunette.WindowOpenedEvent)
-          if live() then
-            place(event.window)
-          end
+          place(event.window)
         end)
         subscription = unsubscribe
         if not live() then
@@ -229,13 +186,13 @@ local function build(context: plugin.Context, settings: Settings): Service
           unsubscribe()
           return
         end
-        for _, window in ipairs(windows(current)) do
+        for _, window in ipairs(lunette.windows()) do
           place(window)
         end
       end)
       if not ok then
         effect:dispose()
-        error(failure)
+        error(failure, 0)
       end
       return effect
     end,

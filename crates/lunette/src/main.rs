@@ -1,12 +1,6 @@
 //! Linux-only: the lunette binary, which boots LÖVR, runs the Lua session, and
 //! orchestrates the compositor and capture subsystems.
 //!
-//! The configuration directory follows the XDG base directory specification,
-//! whose `$HOME/.config` and `/etc/xdg` defaults are Unix paths, and the boot
-//! sequence below it is Linux-only in turn.
-//!
-//! Linux-only: starts LÖVR, the compositor, and host capture.
-//!
 //! The binary is the sole environment reader and `tracing` subscriber owner. It
 //! retains the host's `WAYLAND_DISPLAY` for the pinned capture client and removes
 //! `WAYLAND_SOCKET` before any worker starts. Hosted applications receive lunette's
@@ -19,8 +13,8 @@ mod cli;
 use std::{
     env,
     ffi::{OsStr, OsString},
-    io,
-    path::{Path, PathBuf},
+    io, iter,
+    path::{self, Path, PathBuf},
     process::ExitCode,
     rc::Rc,
 };
@@ -40,9 +34,12 @@ use lunette::{
 };
 use lunette_capture::{
     hid::{self, HidConfig},
-    mirror::MirrorSet,
+    mirror::{MirrorSet, screencopy::WlxClient},
     monitor::OutputWatcher,
-    portal::{CursorPolicy, WlxPortal},
+    portal::{
+        CursorPolicy, PortalError, RequestId, RequestProgress, ScreenCastPortal, SessionRequest,
+        WlxPortal,
+    },
     tokens::{self, Loaded, TokenFile},
 };
 use lunette_compositor::{
@@ -52,15 +49,6 @@ use lunette_compositor::{
 };
 use tracing::{error, info, warn};
 use tracing_subscriber::{EnvFilter, filter::LevelFilter};
-
-/// Selects the check command before any boot work. The configuration
-/// directory is resolved first, because a check given no paths checks it.
-fn check_dispatch(command: Option<&cli::Command>) -> Option<(&[PathBuf], Option<&Path>)> {
-    match command {
-        Some(cli::Command::Check { roots, definitions }) => Some((roots, definitions.as_deref())),
-        None => None,
-    }
-}
 
 fn main() -> ExitCode {
     // Delay reporting until the subscriber can emit the parse error.
@@ -89,28 +77,29 @@ fn main() -> ExitCode {
 
     let arguments = Cli::parse();
 
-    let candidates = config_directory_candidates(&ConfigDirectorySources::from_environment());
-    let Some(searched) = select_config_directory(&candidates) else {
-        error!("config: no configuration directory could be determined");
-        return ExitCode::FAILURE;
-    };
+    let candidates = ConfigDirectoryCandidates::new(&ConfigDirectorySources::from_environment());
+    // A check given no paths checks the directory a session would load.
+    let config_directory = arguments
+        .config_path
+        .as_deref()
+        .unwrap_or_else(|| candidates.select());
 
-    if let Some((roots, definitions)) = check_dispatch(arguments.command.as_ref()) {
-        let configuration = config_directory(arguments.config_path.as_deref(), searched);
-        return check::run(roots, configuration, definitions);
+    if let Some(cli::Command::Check { roots, definitions }) = &arguments.command {
+        return check::run(roots, config_directory, definitions.as_deref());
     }
+
+    let module_data = module_data_directory(&ModuleDataSources::from_environment());
 
     if let Some(destination) = &arguments.dump_config {
         let destination = if destination.as_os_str().is_empty() {
-            candidates.first().map_or(searched, PathBuf::as_path)
+            candidates.highest()
         } else {
             destination.as_path()
         };
 
-        // The copied configuration resolves module aliases relative to its own directory.
-        let module_data = absolute(&module_data_directory(
-            &ModuleDataSources::from_environment(),
-        ));
+        // The copied `.luaurc` names the module data absolutely, because readers may use another
+        // working directory.
+        let module_data = path::absolute(&module_data).unwrap_or(module_data);
         return match cli::dump(destination, &module_data) {
             Ok(written) => {
                 for path in written {
@@ -125,12 +114,10 @@ fn main() -> ExitCode {
         };
     }
 
-    let config_directory = config_directory(arguments.config_path.as_deref(), searched);
-
     info!(path = %config_directory.display(), "loading the configuration");
 
-    let module_data = module_data_directory(&ModuleDataSources::from_environment());
-    if module_data_conflicts_with_configuration(config_directory, &module_data) {
+    // Both directories are PhysFS mount points, which cannot coincide.
+    if config_directory == module_data {
         error!(
             "config: the module-data path {} is also the configuration directory; the two directories cannot be mounted separately",
             module_data.display()
@@ -192,7 +179,7 @@ fn main() -> ExitCode {
         Rc<dyn HostSinks>,
         Option<HostDesktop>,
     ) = match host_socket
-        .path()
+        .as_deref()
         .and_then(|socket| open_host(socket, state_directory.as_deref()))
     {
         Some(host) => (
@@ -223,7 +210,7 @@ fn main() -> ExitCode {
             env::var(IMPORT_LAYOUT).ok().as_deref(),
         ),
         host: desktop,
-        clipboard: host_socket.path().map(DataControlSource::new),
+        clipboard: host_socket.as_deref().map(DataControlSource::new),
         keymap_defaults: keymap_defaults_from_environment(),
     };
 
@@ -252,26 +239,20 @@ fn main() -> ExitCode {
     )
 }
 
-struct AvailablePortal(Result<WlxPortal, lunette_capture::portal::PortalError>);
+struct AvailablePortal(Result<WlxPortal, PortalError>);
 
-impl lunette_capture::portal::ScreenCastPortal for AvailablePortal {
-    fn begin(
-        &mut self,
-        request: lunette_capture::portal::SessionRequest,
-    ) -> Result<lunette_capture::portal::RequestId, lunette_capture::portal::PortalError> {
+impl ScreenCastPortal for AvailablePortal {
+    fn begin(&mut self, request: SessionRequest) -> Result<RequestId, PortalError> {
         match &mut self.0 {
-            Ok(portal) => lunette_capture::portal::ScreenCastPortal::begin(portal, request),
+            Ok(portal) => portal.begin(request),
             Err(error) => Err(error.clone()),
         }
     }
 
-    fn poll(
-        &mut self,
-        request: lunette_capture::portal::RequestId,
-    ) -> lunette_capture::portal::RequestProgress {
+    fn poll(&mut self, request: RequestId) -> RequestProgress {
         match &mut self.0 {
-            Ok(portal) => lunette_capture::portal::ScreenCastPortal::poll(portal, request),
-            Err(error) => lunette_capture::portal::RequestProgress::Failed(error.clone()),
+            Ok(portal) => portal.poll(request),
+            Err(error) => RequestProgress::Failed(error.clone()),
         }
     }
 }
@@ -367,16 +348,6 @@ fn read_tokens(state_directory: Option<&Path>) -> (tokens::TokenStore, Option<To
     loaded.for_session(path)
 }
 
-/// The host compositor socket resolved during single-threaded startup.
-#[derive(Debug)]
-struct HostWaylandSocket(Option<PathBuf>);
-
-impl HostWaylandSocket {
-    fn path(&self) -> Option<&Path> {
-        self.0.as_deref()
-    }
-}
-
 /// Resolves the host socket and removes the inherited descriptor override.
 ///
 /// The pinned client's constructor connects through the retained host display.
@@ -387,7 +358,7 @@ impl HostWaylandSocket {
 ///
 /// The process must be single-threaded. A concurrent environment read can access
 /// memory freed by `std::env::remove_var`.
-unsafe fn prepare_host_display() -> HostWaylandSocket {
+unsafe fn prepare_host_display() -> Option<PathBuf> {
     let socket = host_wayland_socket(
         env::var_os(XDG_RUNTIME_DIR).as_deref(),
         env::var_os(WAYLAND_DISPLAY).as_deref(),
@@ -398,19 +369,17 @@ unsafe fn prepare_host_display() -> HostWaylandSocket {
     // Hosted clients receive lunette's display explicitly through the spawner.
     unsafe { env::remove_var("WAYLAND_SOCKET") };
 
-    HostWaylandSocket(socket)
+    socket
 }
 
 /// Constructs the pinned environment-based client at the application boundary.
-fn upstream_capture_client() -> Option<lunette_capture::mirror::screencopy::WlxClient> {
+fn upstream_capture_client() -> Option<WlxClient> {
     // Startup removes WAYLAND_SOCKET, so connect_to_env only reads the environment.
     // Missing required upstream globals currently panic; setup falls back to the portal.
-    std::panic::catch_unwind(lunette_capture::mirror::screencopy::WlxClient::new).unwrap_or_else(
-        |_| {
-            warn!("direct capture: the upstream host client could not initialize");
-            None
-        },
-    )
+    std::panic::catch_unwind(WlxClient::new).unwrap_or_else(|_| {
+        warn!("direct capture: the upstream host client could not initialize");
+        None
+    })
 }
 
 /// Resolves an absolute `WAYLAND_DISPLAY` path or a name relative to `XDG_RUNTIME_DIR`.
@@ -551,11 +520,6 @@ fn module_data_directory(sources: &ModuleDataSources) -> PathBuf {
         .unwrap_or_else(|| sources.prefix.join("share").join("lunette").join("lua"))
 }
 
-/// Returns whether the supplied paths name the same PhysFS mount point.
-fn module_data_conflicts_with_configuration(config: &Path, module_data: &Path) -> bool {
-    config == module_data
-}
-
 /// Inputs for resolving configuration-directory candidates.
 #[derive(Debug)]
 struct ConfigDirectorySources {
@@ -580,50 +544,55 @@ impl ConfigDirectorySources {
     }
 }
 
-/// Configuration directories in precedence order. The system directory is always present.
-fn config_directory_candidates(sources: &ConfigDirectorySources) -> Vec<PathBuf> {
-    let mut candidates = Vec::with_capacity(4);
-    if let Some(override_path) = &sources.override_path {
-        candidates.push(override_path.clone());
-    }
-    if let Some(xdg_config_home) = &sources.xdg_config_home {
-        candidates.push(xdg_config_home.join("lunette"));
-    }
-    if let Some(home) = &sources.home {
-        candidates.push(home.join(".config").join("lunette"));
-    }
-    candidates.push(sources.sysconfdir.join("xdg").join("lunette"));
-    candidates
+/// Configuration directories in precedence order, ending with the system directory, which is
+/// always present.
+#[derive(Debug)]
+struct ConfigDirectoryCandidates {
+    user: Vec<PathBuf>,
+    system: PathBuf,
 }
 
-/// Returns the first existing candidate, or the highest-priority candidate when none exists.
-fn select_config_directory(candidates: &[PathBuf]) -> Option<&Path> {
-    candidates
-        .iter()
-        .find(|candidate| candidate.is_dir())
-        .or_else(|| candidates.first())
-        .map(PathBuf::as_path)
-}
+impl ConfigDirectoryCandidates {
+    fn new(sources: &ConfigDirectorySources) -> Self {
+        let user = [
+            sources.override_path.clone(),
+            sources
+                .xdg_config_home
+                .as_ref()
+                .map(|xdg_config_home| xdg_config_home.join("lunette")),
+            sources
+                .home
+                .as_ref()
+                .map(|home| home.join(".config").join("lunette")),
+        ];
+        Self {
+            user: user.into_iter().flatten().collect(),
+            system: sources.sysconfdir.join("xdg").join("lunette"),
+        }
+    }
 
-/// Returns the explicitly named configuration directory, or the searched path when none is named.
-fn config_directory<'a>(named: Option<&'a Path>, searched: &'a Path) -> &'a Path {
-    named.unwrap_or(searched)
+    fn iter(&self) -> impl Iterator<Item = &Path> {
+        self.user
+            .iter()
+            .map(PathBuf::as_path)
+            .chain(iter::once(self.system.as_path()))
+    }
+
+    fn highest(&self) -> &Path {
+        self.user.first().unwrap_or(&self.system)
+    }
+
+    /// The first existing candidate, or the highest-priority candidate when none exists.
+    fn select(&self) -> &Path {
+        self.iter()
+            .find(|candidate| candidate.is_dir())
+            .unwrap_or_else(|| self.highest())
+    }
 }
 
 /// Accepts an environment value only when it names something.
 fn non_empty_path(value: Option<OsString>) -> Option<PathBuf> {
     value.filter(|value| !value.is_empty()).map(PathBuf::from)
-}
-
-/// Resolves a relative path against the working directory.
-///
-/// Dumped `.luaurc` files require an absolute module path because readers may use another working
-/// directory.
-fn absolute(path: &Path) -> PathBuf {
-    if path.is_absolute() {
-        return path.to_owned();
-    }
-    env::current_dir().map_or_else(|_| path.to_owned(), |current| current.join(path))
 }
 
 /// Returns an environment path only when it is absolute, as required by XDG.
@@ -644,20 +613,6 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
-
-    #[test]
-    fn check_dispatch_selects_check_without_a_boot_path() {
-        let command = cli::Command::Check {
-            roots: vec![PathBuf::from("config.luau")],
-            definitions: Some(PathBuf::from("definitions.luau")),
-        };
-
-        let (roots, definitions) =
-            check_dispatch(Some(&command)).expect("the check command must be selected");
-        assert_eq!(roots, [PathBuf::from("config.luau")]);
-        assert_eq!(definitions, Some(Path::new("definitions.luau")));
-        assert!(check_dispatch(None).is_none());
-    }
 
     fn state_with_tokens(text: &str) -> TempDir {
         let directory = TempDir::new().expect("a temporary directory can be created");
@@ -845,23 +800,6 @@ mod tests {
     }
 
     #[test]
-    fn the_configuration_directory_cannot_also_be_the_module_data() {
-        let directory = Path::new("/tmp/lunette");
-
-        assert!(module_data_conflicts_with_configuration(
-            directory, directory
-        ));
-        assert!(!module_data_conflicts_with_configuration(
-            directory,
-            Path::new("/tmp/lunette/lua"),
-        ));
-        assert!(!module_data_conflicts_with_configuration(
-            directory,
-            Path::new("/tmp/other/lunette"),
-        ));
-    }
-
-    #[test]
     fn an_empty_override_counts_as_unset() {
         // How a shell usually spells "not set". Taken literally it would mount
         // the current working directory, silently.
@@ -882,6 +820,13 @@ mod tests {
         }
     }
 
+    fn candidates(sources: &ConfigDirectorySources) -> Vec<PathBuf> {
+        ConfigDirectoryCandidates::new(sources)
+            .iter()
+            .map(Path::to_path_buf)
+            .collect()
+    }
+
     /// The override wins, and the rest stay behind it: a session pointed at a
     /// working copy still falls back to the installed configuration if the
     /// working copy has none.
@@ -893,12 +838,12 @@ mod tests {
         };
 
         assert_eq!(
-            config_directory_candidates(&sources),
+            candidates(&sources),
             vec![
-                PathBuf::from("etc/xdg/lunette"),
-                PathBuf::from("/xdg/lunette"),
-                PathBuf::from("/home/user/.config/lunette"),
-                PathBuf::from("/etc/xdg/lunette"),
+                Path::new("etc/xdg/lunette"),
+                Path::new("/xdg/lunette"),
+                Path::new("/home/user/.config/lunette"),
+                Path::new("/etc/xdg/lunette"),
             ]
         );
     }
@@ -914,19 +859,19 @@ mod tests {
         };
 
         assert_eq!(
-            config_directory_candidates(&sources).first(),
-            Some(&PathBuf::from("etc/xdg/lunette"))
+            ConfigDirectoryCandidates::new(&sources).highest(),
+            Path::new("etc/xdg/lunette")
         );
     }
 
     #[test]
     fn all_three_candidates_appear_in_priority_order() {
         assert_eq!(
-            config_directory_candidates(&sources(Some("/xdg"), Some("/home/user"))),
+            candidates(&sources(Some("/xdg"), Some("/home/user"))),
             vec![
-                PathBuf::from("/xdg/lunette"),
-                PathBuf::from("/home/user/.config/lunette"),
-                PathBuf::from("/etc/xdg/lunette"),
+                Path::new("/xdg/lunette"),
+                Path::new("/home/user/.config/lunette"),
+                Path::new("/etc/xdg/lunette"),
             ]
         );
     }
@@ -934,10 +879,10 @@ mod tests {
     #[test]
     fn an_unset_variable_drops_its_candidate() {
         assert_eq!(
-            config_directory_candidates(&sources(None, Some("/home/user"))),
+            candidates(&sources(None, Some("/home/user"))),
             vec![
-                PathBuf::from("/home/user/.config/lunette"),
-                PathBuf::from("/etc/xdg/lunette"),
+                Path::new("/home/user/.config/lunette"),
+                Path::new("/etc/xdg/lunette"),
             ]
         );
     }
@@ -945,20 +890,23 @@ mod tests {
     #[test]
     fn the_system_candidate_is_always_present() {
         assert_eq!(
-            config_directory_candidates(&sources(None, None)),
-            vec![PathBuf::from("/etc/xdg/lunette")]
+            candidates(&sources(None, None)),
+            vec![Path::new("/etc/xdg/lunette")]
         );
     }
 
     #[test]
     fn selection_falls_back_to_the_highest_priority_candidate() {
-        let candidates = vec![
-            PathBuf::from("/definitely/not/a/directory/lunette"),
-            PathBuf::from("/also/not/a/directory/lunette"),
-        ];
+        let candidates = ConfigDirectoryCandidates::new(&ConfigDirectorySources {
+            sysconfdir: PathBuf::from("/nor/is/this"),
+            ..sources(
+                Some("/definitely/not/a/directory"),
+                Some("/also/not/a/directory"),
+            )
+        });
         assert_eq!(
-            select_config_directory(&candidates),
-            Some(Path::new("/definitely/not/a/directory/lunette"))
+            candidates.select(),
+            Path::new("/definitely/not/a/directory/lunette")
         );
     }
 
@@ -974,22 +922,15 @@ mod tests {
 
         // `$XDG_CONFIG_HOME/lunette` is not there, so the search passes it.
         let candidates =
-            config_directory_candidates(&sources(xdg.path().to_str(), home.path().to_str()));
-        let searched = select_config_directory(&candidates).expect("a candidate");
-        let checked = check::targets(&[], config_directory(None, searched)).expect("the files");
+            ConfigDirectoryCandidates::new(&sources(xdg.path().to_str(), home.path().to_str()));
+        let checked = check::targets(&[], candidates.select()).expect("the files");
         assert_eq!(checked, vec![configuration.join("main.luau")]);
 
         let named = xdg.path().join("named");
         fs::create_dir_all(&named).expect("the named directory");
         fs::write(named.join("main.luau"), "").expect("main.luau");
-        let checked =
-            check::targets(&[], config_directory(Some(&named), searched)).expect("the files");
+        let checked = check::targets(&[], &named).expect("the files");
         assert_eq!(checked, vec![named.join("main.luau")]);
-    }
-
-    #[test]
-    fn selection_of_nothing_is_representable() {
-        assert_eq!(select_config_directory(&[]), None);
     }
 
     #[test]

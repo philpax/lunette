@@ -16,7 +16,7 @@ export type Polygon = { read [number]: Point }
 local SEGMENTS = 8
 local appendTriangles: ({ { number } }, { number }, Polygon) -> ()
 local corner: (number, number) -> Corner
-local checkedBounds: (Bounds) -> ()
+local strip: (Polygon, Polygon, Bounds?) -> ({ { number } }, { number })
 local clipped: (Polygon, (Point) -> number) -> { Point }
 
 function geometry.uniform(radiusX: number, radiusY: number?): Profile
@@ -25,9 +25,7 @@ function geometry.uniform(radiusX: number, radiusY: number?): Profile
 end
 
 function geometry.profile(bounds: Bounds, given: Profile): Profile
-  checkedBounds(bounds)
   local function clamp(value: Corner): Corner
-    corner(value.x, value.y)
     return corner(math.min(value.x, bounds.width / 2), math.min(value.y, bounds.height / 2))
   end
   return table.freeze {
@@ -45,10 +43,7 @@ function geometry.perimeter(bounds: Bounds, given: Profile): { Point }
   local function arc(value: Corner, x: number, y: number, start: number): ()
     for index = 0, SEGMENTS do
       local angle = start + index / SEGMENTS * math.pi / 2
-      result[#result + 1] = table.freeze {
-        x = x + value.x * math.cos(angle),
-        y = y + value.y * math.sin(angle),
-      }
+      result[#result + 1] = { x = x + value.x * math.cos(angle), y = y + value.y * math.sin(angle) }
     end
   end
   arc(profile.topLeft, bounds.x + profile.topLeft.x, bounds.y + profile.topLeft.y, math.pi)
@@ -77,7 +72,6 @@ function geometry.contains(polygon: Polygon, x: number, y: number): boolean
 end
 
 function geometry.clip(polygon: Polygon, bounds: Bounds): { Point }
-  checkedBounds(bounds)
   if bounds.width == 0 or bounds.height == 0 then
     return {}
   end
@@ -119,15 +113,9 @@ function geometry.triangles(polygon: Polygon): ({ { number } }, { number })
 end
 
 function geometry.ring(bounds: Bounds, given: Profile, thickness: number, clip: Bounds?): ({ { number } }, { number })
-  assert(
-    thickness == thickness and thickness >= 0 and thickness < math.huge,
-    'theme geometry: invalid border thickness'
-  )
   local profile = geometry.profile(bounds, given)
-  local vertices: { { number } } = {}
-  local indices: { number } = {}
   if thickness == 0 then
-    return vertices, indices
+    return {}, {}
   end
   local function expand(value: Corner): Corner
     return corner(if value.x > 0 then value.x + thickness else 0, if value.y > 0 then value.y + thickness else 0)
@@ -144,13 +132,7 @@ function geometry.ring(bounds: Bounds, given: Profile, thickness: number, clip: 
     bottomRight = expand(profile.bottomRight),
     bottomLeft = expand(profile.bottomLeft),
   })
-  local inner = geometry.perimeter(bounds, profile)
-  for index, a in outer do
-    local nextIndex = index % #outer + 1
-    local quad = { a, outer[nextIndex], inner[nextIndex], inner[index] }
-    appendTriangles(vertices, indices, if clip then geometry.clip(quad, clip) else quad)
-  end
-  return vertices, indices
+  return strip(outer, geometry.perimeter(bounds, profile), clip)
 end
 
 function geometry.insideRing(
@@ -159,16 +141,10 @@ function geometry.insideRing(
   thickness: number,
   clip: Bounds?
 ): ({ { number } }, { number })
-  assert(
-    thickness == thickness and thickness >= 0 and thickness < math.huge,
-    'theme geometry: invalid border thickness'
-  )
   local profile = geometry.profile(bounds, given)
   thickness = math.min(thickness, bounds.width / 2, bounds.height / 2)
-  local vertices: { { number } } = {}
-  local indices: { number } = {}
   if thickness == 0 then
-    return vertices, indices
+    return {}, {}
   end
   local outer = geometry.perimeter(bounds, profile)
   local innerBounds = {
@@ -189,12 +165,7 @@ function geometry.insideRing(
     bottomRight = inset(profile.bottomRight),
     bottomLeft = inset(profile.bottomLeft),
   })
-  for index, a in outer do
-    local nextIndex = index % #outer + 1
-    local quad = { a, outer[nextIndex], inner[nextIndex], inner[index] }
-    appendTriangles(vertices, indices, if clip then geometry.clip(quad, clip) else quad)
-  end
-  return vertices, indices
+  return strip(outer, inner, clip)
 end
 
 function geometry.key(bounds: Bounds, given: Profile, clip: Bounds?, thickness: number?): string
@@ -228,26 +199,19 @@ function geometry.key(bounds: Bounds, given: Profile, clip: Bounds?, thickness: 
 end
 
 corner = function(x: number, y: number): Corner
-  assert(x == x and x >= 0 and x < math.huge and y == y and y >= 0 and y < math.huge, 'theme geometry: invalid radius')
   return table.freeze { x = x, y = y }
 end
 
-checkedBounds = function(bounds: Bounds): ()
-  assert(
-    bounds.x == bounds.x
-      and math.abs(bounds.x) < math.huge
-      and bounds.y == bounds.y
-      and math.abs(bounds.y) < math.huge
-      and bounds.width == bounds.width
-      and bounds.width >= 0
-      and bounds.width < math.huge
-      and bounds.height == bounds.height
-      and bounds.height >= 0
-      and bounds.height < math.huge
-      and math.abs(bounds.x + bounds.width) < math.huge
-      and math.abs(bounds.y + bounds.height) < math.huge,
-    'theme geometry: invalid bounds'
-  )
+-- Both perimeters emit the same number of points, so matching indices bound one quad of the ring.
+strip = function(outer: Polygon, inner: Polygon, clip: Bounds?): ({ { number } }, { number })
+  local vertices: { { number } } = {}
+  local indices: { number } = {}
+  for index, a in outer do
+    local nextIndex = index % #outer + 1
+    local quad = { a, outer[nextIndex], inner[nextIndex], inner[index] }
+    appendTriangles(vertices, indices, if clip then geometry.clip(quad, clip) else quad)
+  end
+  return vertices, indices
 end
 
 clipped = function(polygon: Polygon, distance: (Point) -> number): { Point }
@@ -261,7 +225,7 @@ clipped = function(polygon: Polygon, distance: (Point) -> number): { Point }
     local after = distance(current)
     if (before >= 0) ~= (after >= 0) then
       local amount = before / (before - after)
-      result[#result + 1] = table.freeze {
+      result[#result + 1] = {
         x = previous.x + (current.x - previous.x) * amount,
         y = previous.y + (current.y - previous.y) * amount,
       }

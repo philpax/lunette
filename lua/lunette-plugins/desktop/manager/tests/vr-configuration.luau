@@ -87,7 +87,6 @@ test('manager VR configuration and recovery retain drafts and use one shared key
   env:click 'apply'
   expect.equal(current.items.added, 0, 'controller Add confirms a map key before Apply')
   env:row 'row/s:items/s:added'
-  env:click 'cancel'
   env:click 'remove-value'
   env:click 'apply'
   expect.equal(current.items.added, nil, 'Remove value deletes the selected map member')

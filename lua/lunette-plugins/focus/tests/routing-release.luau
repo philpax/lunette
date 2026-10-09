@@ -7,7 +7,7 @@ local test = testing.suite()
 local function retainedSource(frozen, duringDispose)
   local weak = setmetatable({}, { __mode = 'v' })
   local source, inverse
-  local calls = { cancelled = 0, disposed = 0 }
+  local calls = { disposed = 0 }
   do
     local routingState = { revision = 1 }
     local snapshot = function()
@@ -19,11 +19,8 @@ local function retainedSource(frozen, duringDispose)
         expect.equal(routingState.revision, 1, 'live routing capture')
         return nil
       end,
-      listen = function()
-        return function()
-          expect.truthy(source.dead, 'source state clears before listener cancellation')
-          calls.cancelled += 1
-        end
+      blocked = function()
+        return nil
       end,
       dispose = function()
         expect.truthy(source.dead, 'source state clears before provider notification')
@@ -68,7 +65,6 @@ for _, frozen in { false, true } do
       expect.truthy(weak.routingState, 'the live source retains routing captures')
       expect.truthy(source:destroy(), 'public destruction')
       collected(weak)
-      expect.equal(calls.cancelled, 1, 'the route listener is cancelled')
       expect.equal(calls.disposed, 1, 'the provider is notified once')
       inverse()
       expect.falsy(source:destroy(), 'repeated destruction is inert')
@@ -83,7 +79,6 @@ for _, frozen in { false, true } do
     inverse()
     collected(weak)
     expect.truthy(source.dead, 'the owner inverse destroys the retained handle')
-    expect.equal(calls.cancelled, 1, 'the route listener is cancelled')
     expect.equal(calls.disposed, 0, 'the owner inverse skips recursive provider disposal')
     inverse()
     expect.falsy(source:destroy(), 'the handle stays inert')

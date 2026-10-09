@@ -9,23 +9,10 @@ local render = require '@testing/render'
 local test = testing.suite()
 
 local function start(definition, config, themeDefinition, newFont)
-  local env = { native = testing.native(), meshes = {} }
+  local native = testing.native()
+  local env = { native = native, meshes = native.events.render.meshAcquisitions }
   if newFont then
     lovr.graphics.newFont = newFont
-  end
-  lovr.graphics.newMesh = function(vertexCount)
-    local mesh = { vertexCount = vertexCount, released = false }
-    function mesh:setVertices(vertices)
-      self.vertices = vertices
-    end
-    function mesh:setIndices(indices)
-      self.indices = indices
-    end
-    function mesh:release()
-      self.released = true
-    end
-    env.meshes[#env.meshes + 1] = mesh
-    return mesh
   end
   env.session = testing.start {
     { id = 'theme', definition = themeDefinition or require('@lunette-plugins/theme').definition },
@@ -275,7 +262,7 @@ test('a curved panel retains one arc mesh, replaced on resize and released with 
   drawn(env, curved)
   expect.equal(#env.meshes, 1, 'the meshes after two draws')
   local mesh = env.meshes[1]
-  expect.equal(#mesh.vertices, mesh.vertexCount, 'the vertices of the mesh')
+  expect.equal(#mesh.vertices, mesh.capacity, 'the vertices of the mesh')
   expect.truthy(#mesh.indices > 0, 'the indices of the mesh')
   local before = mesh.vertices[#mesh.vertices][1]
   curved:setSize(3)

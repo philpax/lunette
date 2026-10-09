@@ -15,17 +15,21 @@ export type Driver = {
 }
 
 type Consumed = { read kind: 'consumed' }
+type Unhandled = { read kind: 'unhandled' }
 type Refused = { read kind: 'refused', read message: string }
 type Failed = { read kind: 'failed', read message: string }
+-- The shared results are frozen because every caller receives the same table.
 local CONSUMED: Consumed = table.freeze({ kind = 'consumed' } :: Consumed)
+native.CONSUMED = CONSUMED
+native.UNHANDLED = table.freeze({ kind = 'unhandled' } :: Unhandled)
 local function refused(message: string): Refused
-  local result: Refused = { kind = 'refused', message = message }
-  return table.freeze(result)
+  return { kind = 'refused', message = message }
 end
+native.refused = refused
 local function failed(message: string): Failed
-  local result: Failed = { kind = 'failed', message = message }
-  return table.freeze(result)
+  return { kind = 'failed', message = message }
 end
+native.failed = failed
 
 function native.new(label: string): Driver
   local pending: { Inverse } = {}

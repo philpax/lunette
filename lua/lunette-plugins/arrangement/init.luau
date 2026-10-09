@@ -1,4 +1,6 @@
--- Persists panel arrangements across provider outages. Unsupported files remain unchanged. Drop-save failures are logged; quit-save failures are raised without vetoing quit.
+-- Persists panel arrangements across provider outages. Unsupported files remain unchanged. Drop-save failures are
+-- logged; quit-save failures are raised without vetoing quit.
+
 local plugin = require '@lunette-plugin'
 local arrangementContract = require '@lunette-contracts/arrangement'
 local drops = require '@lunette-contracts/drops'
@@ -8,11 +10,10 @@ local rules = require '@lunette-contracts/rules'
 local tags = require '@lunette-contracts/tags'
 local logging = require '@lunette-plugins/desktop/logging'
 local state = require '@lunette-plugins/arrangement/state'
-
-local arrangement = {}
-
 local config = require '@lunette-plugins/arrangement/config'
 local configured = require '@lunette-plugin/configured'
+
+local arrangement = {}
 
 export type Config = config.Config
 export type Settings = config.Settings
@@ -27,16 +28,15 @@ local required: plugin.Declaration = {
 
 local function define(): plugin.Definition<Config>
   local made: state.State? = nil
-  local madeWith: Settings? = nil
-  -- Reuse state across activations with the same file.
+  local madeFor: string? = nil
+  -- State is reused across activations with the same file, so held slots survive provider outages.
   local function stateFor(settings: Settings): state.State
     local current = made
-    local previous = madeWith
-    if current and previous and previous.file == settings.file then
+    if current and madeFor == settings.file then
       return current
     end
-    local fresh = state.new { file = settings.file }
-    made, madeWith = fresh, settings
+    local fresh = state.new(settings.file)
+    made, madeFor = fresh, settings.file
     return fresh
   end
   return configured.create<<Config, Settings>>({
@@ -45,8 +45,7 @@ local function define(): plugin.Definition<Config>
     requires = required,
     provides = { arrangement = arrangementContract.capability },
     init = function(context: plugin.Context, settings: Settings, publish: plugin.Publisher): ()
-      local frameService: frame.Service = context:require(frame.capability)
-      local binding = stateFor(settings):bind(
+      local service = stateFor(settings):bind(
         context,
         context:require(panels.capability),
         context:require(tags.capability),
@@ -55,34 +54,21 @@ local function define(): plugin.Definition<Config>
       local dropService: drops.Service = context:require(drops.capability)
       dropService:onDropped(context, {
         run = function(_drop: drops.Drop): ()
-          if not binding:active() then
-            return
-          end
-          local written, message = binding:save()
+          local written, message = service:save()
           if not written and message then
             logging.report(message, 'warn')
           end
         end,
       })
+      local frameService: frame.Service = context:require(frame.capability)
       frameService:onQuit(context, {
         run = function(): ()
-          if not binding:active() then
-            return
-          end
-          local written, message = binding:save()
+          local written, message = service:save()
           if not written then
             error('arrangement was not saved: ' .. tostring(message))
           end
         end,
       })
-      local service: arrangementContract.Service = {
-        save = function(_self: arrangementContract.Service): (boolean, string?)
-          return binding:save()
-        end,
-        restore = function(_self: arrangementContract.Service): number
-          return binding:restore()
-        end,
-      }
       publish:provide(arrangementContract.capability, service)
     end,
   }).definition

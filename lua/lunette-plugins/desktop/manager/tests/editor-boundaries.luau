@@ -180,7 +180,6 @@ test('vector component edits reject finite doubles that pack to nonfinite floats
         end
       end
       expect.equal(editor.draft(edited).retained, before.retained)
-      expect.equal(edited.applied, before)
       expect.equal(editor.draft(model), before)
     end
   end
@@ -215,7 +214,6 @@ test('single-line string representations preserve supported text and every unsup
     )
     local edited = change(editor.setText, model, { 'text' }, item.text .. '\\n')
     expect.equal(editor.draft(edited).text, sample[1] .. '\n', 'confirmation decodes before committing')
-    expect.equal(edited.applied, model.applied)
   end
   local bytes = {}
   for byte = 0, 255 do
@@ -263,7 +261,6 @@ test('malformed string escapes and unsupported raw field input reject without ch
   do
     local decoded = change(editor.setText, model, { 'text' }, sample[1])
     expect.equal(editor.draft(decoded).text, sample[2], 'escape decoding preserves the exact value')
-    expect.equal(decoded.applied, model.applied, 'decoding changes only the draft')
   end
   local literal = editor.new(metadata, { text = 'literal' })
   for _, input in { '\n', '\t', utf8.char(0x85), utf8.char(0x2028), string.char(255) } do

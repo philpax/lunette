@@ -57,7 +57,6 @@ local BASE = {
   hapticStrength = 0.25,
   hapticDuration = 0.03,
 }
-theme.schema = overrides
 theme.editable = editable
 theme.DEFAULT = overrides.parse(BASE)
 
@@ -73,8 +72,8 @@ function theme.project(value: unknown): ui.ThemeOverrides
 end
 
 function theme.inherit(base: ui.ThemeOverrides, value: ui.ThemeOverrides?): ui.ThemeOverrides
-  local result = table.clone(overrides.parse(base, 'ui theme')) :: { [string]: unknown }
-  for key, field in overrides.parse(value or {}, 'ui theme overrides') :: { read [string]: unknown } do
+  local result = table.clone(base) :: { [string]: unknown }
+  for key, field in (value or {}) :: { read [string]: unknown } do
     result[key] = field
   end
   return overrides.parse(result, 'ui theme')
@@ -108,30 +107,6 @@ function theme.materialize(spec: ui.ThemeOverrides, font: Font): ui.Theme
   local result = table.clone(theme.inherit(theme.DEFAULT, spec)) :: { [string]: unknown }
   result.font = font
   return table.freeze(result) :: ui.Theme
-end
-
-function theme.resolve(base: ui.Theme, value: ui.ThemeOverrides?): ui.Theme
-  local copied = theme.copyOverrides(value)
-  assert(not copied or copied.font == nil, 'ui theme: font specifications resolve through the theme service')
-  local result = table.clone(theme.validate(base)) :: { [string]: unknown }
-  for key, field in copied or {} do
-    result[key] = field
-  end
-  return theme.validate(result :: ui.Theme)
-end
-
-function theme.validate(value: ui.Theme): ui.Theme
-  local raw = table.clone(value) :: { [string]: unknown }
-  local font = value.font
-  assert(font ~= nil and type(font.getHeight) == 'function', 'ui theme: missing font')
-  raw.font = nil
-  local parsed = overrides.parse(raw, 'ui theme')
-  for key in BASE :: { read [string]: unknown } do
-    if key ~= 'font' then
-      assert(raw[key] ~= nil, 'ui theme: missing ' .. key)
-    end
-  end
-  return theme.materialize(parsed, font)
 end
 
 function theme.geometryChanged(first: ui.Theme, second: ui.Theme): boolean

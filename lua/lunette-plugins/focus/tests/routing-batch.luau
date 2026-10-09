@@ -6,7 +6,7 @@ local test = testing.suite()
 
 local function fixture(key)
   local fake = testing.native()
-  local texts, listeners = {}, {}
+  local texts = {}
   local receiver = {
     key = key or function()
       return false
@@ -25,12 +25,10 @@ local function fixture(key)
     keymapSeat = function()
       error 'physical key must not translate'
     end,
-    listen = function(run)
-      listeners[#listeners + 1] = run
-      return function()
-        table.remove(listeners, table.find(listeners, run))
-      end
+    blocked = function()
+      return nil
     end,
+    dispose = function() end,
   }
   local source, inverse = sourceModule.new({
     owns = function()
@@ -43,9 +41,7 @@ local function fixture(key)
       target = { kind = 'local', receiver = receiver, wantsKeyboard = true },
       revision = snapshot.revision + 1,
     }
-    for _, run in table.clone(listeners) do
-      run()
-    end
+    source:reset()
   end
   return { source = source, inverse = inverse, texts = texts, change = change, reports = fake.events.reported }
 end

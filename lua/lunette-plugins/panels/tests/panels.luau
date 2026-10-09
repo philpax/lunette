@@ -6,15 +6,7 @@ local panelsContract = require '@lunette-contracts/panels'
 local test = testing.suite()
 
 local function start(config)
-  local env = { native = testing.native(), shaders = { made = 0, released = 0 } }
-  lovr.graphics.newShader = function()
-    env.shaders.made += 1
-    return {
-      release = function()
-        env.shaders.released += 1
-      end,
-    }
-  end
+  local env = { native = testing.native() }
   env.session = testing.start {
     { id = 'theme', definition = require('@lunette-plugins/theme').definition },
     { id = 'panels', definition = require('@lunette-plugins/panels').definition, config = config },
@@ -113,11 +105,12 @@ test('an opaque window draws through a shader made once per activation and relea
   env.panels:fromWindow(env.owner, source, { height = 1 })
   local pass = env.native.events.pass
   env.panels:draw(pass)
-  expect.equal(env.shaders.made, 1, 'the shaders after the first draw')
+  local shaders = env.native.events.render.shaderAcquisitions
+  expect.equal(#shaders, 1, 'the shaders after the first draw')
   env.panels:draw(pass)
-  expect.equal(env.shaders.made, 1, 'the shaders after the second draw')
+  expect.equal(#shaders, 1, 'the shaders after the second draw')
   env.session:close()
-  expect.equal(env.shaders.released, 1, 'the shaders released')
+  expect.truthy(shaders[1].released, 'the shader is released')
 end)
 
 test('only a plugin requiring panels creates one, and only its creator destroys it', function()

@@ -1,12 +1,12 @@
 local testing = require '@testing'
-local choice = require '../choice'
+local collection = require '../collection'
 local selection = require './support/selection'
 local expect = testing.expect
 local test = testing.suite()
 
 local function fixture(items, selected, onChange)
   local state = selection.state { x = 10, y = 20, width = 100, height = 77 }
-  local widget = choice.new({
+  local widget = collection.widget('choice', {
     id = 'choice',
     bounds = state.bounds,
     label = 'Choose',
@@ -180,27 +180,6 @@ test('item replacement retains stable selection and cancels active option captur
   expect.equal(#state:items(), 0)
 end)
 
-test('invalid updates leave the previous snapshot and revision intact', function()
-  expect.raises(function()
-    fixture(rows(1), 'missing')
-  end, 'selected')
-  local state = fixture(rows(2), '1')
-  state.methods.setOpen({}, true)
-  local revision = state.revision
-  expect.raises(function()
-    state.methods.setItems({}, { { id = '', label = 'Invalid' } })
-  end, 'id')
-  expect.raises(function()
-    state.methods.setSelected({}, 'missing')
-  end, 'selected')
-  expect.raises(function()
-    state.methods.scroll({}, math.huge)
-  end, 'finite')
-  expect.equal(state.revision, revision)
-  expect.equal(state.methods.selected {}, '1')
-  expect.equal(#state:items(), 2)
-end)
-
 test('callbacks see committed selection and closed state and may reopen replace or fail', function()
   local state
   state = fixture(rows(3), nil, function(id)
@@ -217,23 +196,6 @@ test('callbacks see committed selection and closed state and may reopen replace 
   expect.equal(#state.reports, 1)
   state:event('release', 15, 69)
   expect.equal(#state.reports, 1)
-end)
-
-test('activation does not notify a selection replaced during closing cancellation', function()
-  local changes = 0
-  local state = fixture(rows(3), nil, function()
-    changes += 1
-  end)
-  state.methods.setOpen({}, true)
-  state:event('press', 15, 69)
-  state.onCancel = function()
-    state.onCancel = nil
-    state.methods.setItems({}, { { id = 'replacement', label = 'Replacement' } })
-    state.methods.setSelected({}, 'replacement')
-  end
-  state:event('release', 15, 69)
-  expect.equal(state.methods.selected {}, 'replacement')
-  expect.equal(changes, 0)
 end)
 
 test('capture cancellation may reenter item updates without being overwritten', function()

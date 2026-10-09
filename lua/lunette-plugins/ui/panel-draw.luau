@@ -1,35 +1,28 @@
--- Panel rendering snapshots logical visuals and stops continuations invalidated by draw callbacks.
+-- Panel rendering draws the panel face and then each live control's logical visual in paint order.
 local ui = require '@lunette-contracts/ui'
 local records = require '@lunette-plugins/ui/panel-state'
-local controlOrder = require '@lunette-plugins/ui/control-order'
 local input = require '@lunette-plugins/ui/input'
 local geometry = require '@lunette-plugins/ui/geometry'
 local draw = require '@lunette-plugins/ui/draw'
-local depth = require '@lunette-plugins/ui/depth'
 local panelGeometry = require './panel-geometry'
 
 local panelDraw = {}
 
-local live: (records.Panel, records.Control?) -> boolean
-local guarded: (ui.DrawHook, () -> boolean) -> ui.DrawHook
+local live: (records.Panel) -> boolean
 local render: (records.Panel, Pass, ui.Visual, records.Control?) -> ()
 local visual: (records.Panel, records.Control, ui.Bounds) -> ui.Visual
 
 function panelDraw.render(state: records.Panel, pass: Pass): ()
   state.refresh()
-  if not live(state, nil) then
+  if not live(state) then
     return
   end
-  panelGeometry.prepare(state)
-  local frameRevision = state.revision
-  local pushed = false
+  local controls = input.ordered(state.controls)
+  pass:push 'transform'
   local ok, failure = pcall(function(): ()
-    pass:push 'transform'
-    pushed = true
     pass:transform(state.pose)
-    pass:translate(-state.width / 2, state.height / 2, depth.surface)
+    pass:translate(-state.width / 2, state.height / 2, draw.depth.surface)
     pass:scale(state.width / state.logicalWidth, -state.height / state.logicalHeight, 1)
-    local drawRevision = state.revision
     local clip: ui.Bounds = { x = 0, y = 0, width = state.logicalWidth, height = state.logicalHeight }
     render(state, pass, {
       id = state.name,
@@ -45,38 +38,32 @@ function panelDraw.render(state: records.Panel, pass: Pass): ()
       items = {},
     }, nil)
     -- Sibling controls keep painter order; only nesting adds physical depth.
-    pass:translate(0, 0, depth.layer)
-    for _, record in ipairs(controlOrder.ordered(state.controls)) do
-      if not live(state, nil) or state.revision ~= drawRevision then
+    pass:translate(0, 0, draw.depth.layer)
+    for _, record in controls do
+      if not live(state) then
         break
       end
       local bounds = input.bounds(state, record)
-      if not live(state, record) or not bounds then
-        continue
-      end
-      local revision = state.revision
-      local described = visual(state, record, bounds)
-      if not live(state, record) or state.revision ~= revision then
-        continue
-      end
-      local decorated = record.widget.visual(table.freeze(described))
-      if live(state, record) and state.revision == revision then
-        render(state, pass, decorated, record)
+      if not record.dead and bounds then
+        render(state, pass, record.widget.visual(table.freeze(visual(state, record, bounds))), record)
       end
     end
   end)
-  if pushed then
-    local restored, restoreFailure = pcall(pass.pop, pass, 'transform')
-    if ok and not restored then
-      ok, failure = false, restoreFailure
+  -- A draw hook can end the panel or a control mid-frame; release what the rest of that frame cached.
+  if state.dead then
+    draw.clearCache(state.measurements)
+  end
+  for _, record in controls do
+    if record.dead then
+      draw.clearCache(record.measurements)
     end
   end
   if not ok then
+    pcall(pass.pop, pass, 'transform')
     error(failure, 0)
   end
-  if live(state, nil) and state.revision == frameRevision then
-    panelGeometry.drawFrame(state, pass)
-  end
+  pass:pop 'transform'
+  panelGeometry.drawFrame(state, pass)
 end
 
 function panelDraw.clippedItems(state: records.Panel, record: records.Control): { read [number]: ui.ItemDescription }
@@ -100,57 +87,33 @@ function panelDraw.clippedItems(state: records.Panel, record: records.Control): 
   return table.freeze(result)
 end
 
-live = function(state: records.Panel, record: records.Control?): boolean
-  return not state.dead
-    and state.visible
-    and state.context:active()
-    and state.context:owns(state.owner)
-    and (not record or (not record.dead and state.context:owns(record.owner)))
-end
-
-guarded = function(hook: ui.DrawHook, available: () -> boolean): ui.DrawHook
-  return function(pass: Pass, value: ui.Visual, base: ui.Renderer): ()
-    if not available() then
-      return
-    end
-    hook(pass, value, function(target: Pass, visual: ui.Visual): ()
-      if available() then
-        base(target, visual)
-      end
-    end)
-  end
+live = function(state: records.Panel): boolean
+  return not state.dead and state.visible and state.context:active() and state.context:owns(state.owner)
 end
 
 render = function(state: records.Panel, pass: Pass, value: ui.Visual, record: records.Control?): ()
-  local revision = state.revision
-  local function available(): boolean
-    state.refresh()
-    return live(state, record) and state.revision == revision
-  end
   local hooks: { ui.DrawHook } = {}
   if state.providerDraw then
-    hooks[#hooks + 1] = guarded(state.providerDraw, available)
+    hooks[#hooks + 1] = state.providerDraw
   end
   if state.draw then
-    hooks[#hooks + 1] = guarded(state.draw, available)
+    hooks[#hooks + 1] = state.draw
   end
   if record and record.draw then
-    hooks[#hooks + 1] = guarded(record.draw, available)
+    hooks[#hooks + 1] = record.draw
   end
-  if available() then
-    local prepared = panelGeometry.prepare(state)
-    local shape = if not record or state.contour
-      then {
-        bounds = prepared.bounds,
-        profile = prepared.profile,
-        border = not state.contour and not panelGeometry.joined(state),
-        faceClip = if record and state.contour
-          then geometry.intersect(record.bounds, panelGeometry.bounds(state))
-          else nil,
-      }
-      else nil
-    draw.render(pass, value, hooks, if record then record.measurements else state.measurements, shape)
-  end
+  local prepared = panelGeometry.prepare(state)
+  local shape = if not record or state.contour
+    then {
+      bounds = prepared.bounds,
+      profile = prepared.profile,
+      border = not state.contour and not panelGeometry.joined(state),
+      faceClip = if record and state.contour
+        then geometry.intersect(record.bounds, panelGeometry.bounds(state))
+        else nil,
+    }
+    else nil
+  draw.render(pass, value, hooks, if record then record.measurements else state.measurements, shape)
 end
 
 visual = function(state: records.Panel, record: records.Control, bounds: ui.Bounds): ui.Visual

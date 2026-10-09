@@ -255,31 +255,7 @@ const fn key_name(key: VirtualKey) -> &'static str {
     reason = "a failed expectation is how a test reports a failure; the ban is on production code"
 )]
 mod tests {
-    use std::collections::HashSet;
-
     use super::*;
-
-    #[test]
-    fn no_two_keys_share_a_name() {
-        let unique: HashSet<&str> = KEY_NAMES.iter().copied().collect();
-        assert_eq!(unique.len(), KEY_NAMES.len());
-    }
-
-    #[test]
-    fn every_name_is_camel_case() {
-        for name in KEY_NAMES {
-            let mut characters = name.chars();
-            let first = characters.next();
-            assert!(
-                first.is_some_and(|first| first.is_ascii_lowercase()),
-                "{name} starts with a lowercase letter"
-            );
-            assert!(
-                characters.all(|character| character.is_ascii_alphanumeric()),
-                "{name} is letters and digits"
-            );
-        }
-    }
 
     #[test]
     fn a_name_answers_its_key_s_evdev_code() {

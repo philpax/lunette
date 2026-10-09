@@ -4,7 +4,6 @@ local plugin = require '@lunette-plugin'
 local ui = require '@lunette-contracts/ui'
 local focus = require '@lunette-contracts/focus'
 local globalTheme = require '@lunette-contracts/theme'
-local control = require '@lunette-plugins/ui/control'
 local owners = require '@lunette-plugins/ui/control-owners'
 local draw = require './draw'
 local rounded = require '@lunette-plugins/theme/rounded-geometry'
@@ -22,6 +21,34 @@ export type Shape = {
 export type Frame = { style: vocabulary.FrameStyle, joined: () -> boolean, dispose: () -> () }
 
 local state = {}
+
+-- A widget controller supplies input and visual state without owning panel resources.
+export type Widget = {
+  read methods: { read [string]: unknown },
+  read receiver: focus.Receiver?,
+  read keymapSeat: lunette.Seat?,
+  read wantsKeyboard: boolean,
+  read onFocus: ((boolean) -> ())?,
+  read pointer: (vocabulary.PointerEvent, string?) -> (),
+  read items: (ui.Bounds, ui.Theme) -> { read [number]: ui.ItemDescription },
+  read visual: (ui.Visual) -> ui.Visual,
+  read clearMeasurements: (() -> ())?,
+}
+-- A widget reaches its control's panel state only through its host.
+export type Host = {
+  read live: () -> boolean,
+  read interactive: () -> boolean,
+  read captured: (vocabulary.Pointer, lunette.PointerButton) -> boolean,
+  read changed: () -> (),
+  read cancel: (vocabulary.CancelReason) -> (),
+  read focus: () -> boolean,
+  read blur: () -> boolean,
+  read bounds: () -> ui.Bounds,
+  read clip: () -> ui.Bounds?,
+  read textClip: (() -> ui.Bounds?)?,
+  read theme: () -> ui.Theme,
+  read callback: (string, () -> (), boolean?) -> boolean,
+}
 
 export type Control = {
   dead: boolean,
@@ -41,12 +68,11 @@ export type Control = {
   measurements: draw.Cache,
   overrides: ui.ThemeOverrides?,
   draw: ui.DrawHook?,
-  widget: control.Widget,
+  widget: Widget,
   target: focus.TargetHandle?,
   focused: boolean,
 }
 export type Capture = { control: Control, item: string? }
-export type PendingInput = { control: Control, run: () -> () }
 export type Panel = {
   dead: boolean,
   visible: boolean,
@@ -74,7 +100,6 @@ export type Panel = {
   contour: Contour?,
   frame: Frame?,
   frameMeshes: drawing.Cache,
-  refreshing: boolean,
   refresh: () -> (),
   providerDraw: ui.DrawHook?,
   draw: ui.DrawHook?,
@@ -83,7 +108,6 @@ export type Panel = {
   nextOrder: number,
   surface: vocabulary.Surface?,
   captures: { [vocabulary.Pointer]: { [lunette.PointerButton]: Capture } },
-  pendingInput: { PendingInput },
   hovered: { [vocabulary.Pointer]: Control },
   pointerHover: { [vocabulary.Pointer]: boolean },
   context: plugin.Context,

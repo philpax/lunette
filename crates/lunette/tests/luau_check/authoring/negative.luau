@@ -1,7 +1,9 @@
+local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local contracts = require './contracts'
 
 type Config = contracts.Config
+type Service = { read count: (Service) -> number }
 
 local definition = plugin.define {
   name = 'negative',
@@ -28,4 +30,24 @@ local child = plugin.define {
 local function createChild(context: plugin.Context)
   context:child(child, { enabled = 'yes' }) -- reject: boolean.
 end
-return { instance = instance, createChild = createChild }
+
+local notCapability: plugin.Declaration = { clock = 'clock' } -- reject: string.
+local nested: plugin.Declaration = { group = { clock = contracts.clock } } -- reject: witness.
+local wrongWitness: plugin.Declaration = { clock = { witness = 42 } } -- reject: number.
+
+local native = lunette.plugin.runtime()
+local token = lunette.plugin.contract('fixture/opaque', 1)
+native:use({}, {}) -- reject: PluginDefinition.
+native:use(token, {}) -- reject: PluginDefinition.
+
+local named = plugin.capability<<Service>> { name = 'fixture/named', schema = 1 }
+local unnamed = plugin.capability { name = 'fixture/unnamed', schema = 1 } -- reject: service type is unknown.
+
+return {
+  instance = instance,
+  createChild = createChild,
+  declarations = { notCapability, nested, wrongWitness },
+  token = token,
+  named = named,
+  unnamed = unnamed,
+}

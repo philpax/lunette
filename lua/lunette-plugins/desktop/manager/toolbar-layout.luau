@@ -24,8 +24,8 @@ function toolbarLayout.compute(
   editing: boolean,
   searching: boolean,
   valueField: ('boolean' | 'choice')?,
-  presentation: ('entries' | 'graph')?,
-  tab: ('inspect' | 'configure' | 'catalog')?
+  presentation: 'entries' | 'graph',
+  tab: 'inspect' | 'configure' | 'catalog'
 ): Layout
   assert(width >= toolbarLayout.minimumWidth and width < math.huge, 'manager layout: invalid logical width')
   assert(height >= toolbarLayout.minimumHeight and height < math.huge, 'manager layout: invalid logical height')
@@ -56,19 +56,23 @@ function toolbarLayout.compute(
     sidebar - 20,
     3
   ) + 2
-  if tab == nil or tab == 'configure' then
-    local ids = { 'apply', 'optional', 'reset', 'add', 'remove-value' }
-    if tab == nil then
-      ids[#ids + 1] = 'load'
-    end
-    detailsTop = group(ids, 'sidebar', left + 10, detailsTop, sidebar - 20, 3) + 2
+  if tab == 'configure' then
+    detailsTop = group(
+      { 'apply', 'optional', 'reset', 'add', 'remove-value' },
+      'sidebar',
+      left + 10,
+      detailsTop,
+      sidebar - 20,
+      3
+    ) + 4
   elseif tab == 'catalog' then
-    detailsTop = group({ 'load' }, 'sidebar', left + 10, detailsTop, sidebar - 20, 3) + 2
+    detailsTop = group({ 'load' }, 'sidebar', left + 10, detailsTop, sidebar - 20, 3) + 4
+  else
+    detailsTop += 2
   end
-  detailsTop = group({ 'previous', 'next' }, 'sidebar', left + 10, detailsTop, sidebar - 20, 3) + 4
   local graphTop = group({ 'entries-view', 'graph-view' }, 'graph', 8, 8, left - 16, 2) + 8
   graphTop = group({ 'search', 'clear-filter', 'clear-selection' }, 'graph', 8, graphTop, left - 16, 3) + 8
-  if presentation == nil or presentation == 'graph' then
+  if presentation == 'graph' then
     graphTop = group({ 'zoom-in', 'zoom-out', 'focus', 'fit' }, 'graph', 8, graphTop, left - 16, 4) + 8
   end
   graphTop = group({ 'transitive', 'providers', 'consumers', 'all', 'affected' }, 'graph', 8, graphTop, left - 16, 5)

@@ -4,13 +4,11 @@ local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/scale'
 local chooser = require '@lunette-plugins/scale/chooser'
+local config = require '@lunette-plugins/scale/config'
 
 export type Service = contract.Service
 export type Chooser = contract.Chooser
 export type Tuning = chooser.Tuning
-
-local config = require '@lunette-plugins/scale/config'
-
 export type Settings = config.Settings
 export type Config = config.Config
 

@@ -2,7 +2,7 @@
 local keyboard = require '@lunette-contracts/keyboard'
 local config = require '@lunette-plugins/desktop/keyboard/config'
 
-return function(target: keyboard.Keyboard, placement: typeof(config.schema.parse({}).placement)): ()
+return function(target: keyboard.Keyboard, placement: config.Placement): ()
   local head = vector.pack(lovr.headset.getPosition 'head')
   local forwardX, _, forwardZ = lovr.headset.getDirection 'head'
   local flat = vector.pack(forwardX, 0, forwardZ)

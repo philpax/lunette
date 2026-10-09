@@ -15,22 +15,22 @@ export type Layout = {
 
 function geometry.layout(settings: config.Settings, opened: boolean): Layout
   if not opened then
-    return table.freeze {
+    return {
       width = settings.size,
       height = settings.size,
       logicalWidth = 100,
       logicalHeight = 100,
-      button = table.freeze { x = 0, y = 0, width = 100, height = 100 },
+      button = { x = 0, y = 0, width = 100, height = 100 },
     }
   end
   local expanded = settings.expanded
-  return table.freeze {
+  return {
     width = expanded.width,
     height = expanded.height,
     logicalWidth = expanded.logicalWidth,
     logicalHeight = expanded.logicalHeight,
-    button = table.freeze { x = 8, y = 8, width = expanded.logicalWidth - 16, height = 40 },
-    actions = table.freeze {
+    button = { x = 8, y = 8, width = expanded.logicalWidth - 16, height = 40 },
+    actions = {
       x = 8,
       y = 8,
       width = expanded.logicalWidth - 16,
@@ -39,11 +39,10 @@ function geometry.layout(settings: config.Settings, opened: boolean): Layout
   }
 end
 
-function geometry.pose(settings: config.Settings): Mat4
-  local device: Device = if settings.hand == 'left' then 'hand/left' else 'hand/right'
+function geometry.pose(device: Device, offset: vector): Mat4
   local x, y, z, angle, ax, ay, az = lovr.headset.getPose(device)
   local pose = lovr.math.newMat4(x, y, z, angle, ax, ay, az)
-  return pose:translate(settings.offset):rotate(math.pi, -0.7071066, 0.0007963618, 0.7071066)
+  return pose:translate(offset):rotate(math.pi, -0.7071066, 0.0007963618, 0.7071066)
 end
 
 return geometry

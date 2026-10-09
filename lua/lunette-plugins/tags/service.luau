@@ -1,6 +1,5 @@
 -- Memberships, exclusions, and overrides end with their owning effects.
 
-local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local tags = require '@lunette-contracts/tags'
 local listeners = require '@lunette-plugins/listeners'
@@ -43,24 +42,6 @@ local HOLD_KEYS: { [string]: boolean } = { name = true, index = true, selected =
 local EXCLUSION_KEYS: { [string]: boolean } = { panel = true }
 local LAYOUT_KEYS: { [string]: boolean } = { layout = true }
 
-local function surfaceDetails(target: Panel): { [string]: string | number | boolean }
-  local fields = (target :: unknown) :: { [string]: unknown }
-  local dead = rawget(fields, 'dead')
-  local details: { [string]: string | number | boolean } = {
-    targetLiveness = if type(dead) == 'boolean' then (if dead then 'dead' else 'live') else 'unavailable',
-  }
-  local kind, source = rawget(fields, 'kind'), rawget(fields, 'source')
-  if (kind == 'window' or kind == 'monitor') and (type(source) == 'userdata' or type(source) == 'table') then
-    local id = if type(source) == 'table'
-      then rawget(source :: { [string]: unknown }, 'id')
-      else ((source :: unknown) :: lunette.Window | lunette.Monitor).id
-    if (kind == 'window' and type(id) == 'number') or (kind == 'monitor' and type(id) == 'string') then
-      details.sourceId, details.sourceKind = id, kind
-    end
-  end
-  return details
-end
-
 -- Attempts every effect disposal, then raises the first failure.
 local function disposeAll(effects: { plugin.Effect }): ()
   local failure: unknown = nil
@@ -77,20 +58,10 @@ local function disposeAll(effects: { plugin.Effect }): ()
   end
 end
 
-local function checkOptions(what: string, options: tags.Hold): ()
-  if options.index ~= nil and type(options.index) ~= 'number' then
-    error(what .. ': index is a number, not a ' .. type(options.index), 3)
-  end
-  if options.selected ~= nil and type(options.selected) ~= 'boolean' then
-    error(what .. ': selected is a boolean, not a ' .. type(options.selected), 3)
-  end
-  if options.layout ~= nil and type(options.layout) ~= 'string' then
-    error(what .. ': layout is a layout name, not a ' .. type(options.layout), 3)
-  end
-end
-
 local function create(context: plugin.Context): tags.Service
-  local records: { Record } = {}
+  -- Names are unique among live tags.
+  local records: { [string]: Record } = {}
+  local count = 0
   local heard = listeners.new<<Listener>>(context)
 
   local function notify(tag: tags.Tag, kind: tags.ChangeKind): ()
@@ -102,22 +73,9 @@ local function create(context: plugin.Context): tags.Service
     end)
   end
 
-  local function recordOf(value: unknown): Record?
-    for _, record in ipairs(records) do
-      if record.tag == value then
-        return record
-      end
-    end
-    return nil
-  end
-
   local function find(_self: tags.Service, name: string): tags.Tag?
-    for _, record in ipairs(records) do
-      if record.tag.name == name then
-        return record.tag
-      end
-    end
-    return nil
+    local record = records[name]
+    return record and record.tag
   end
 
   local function make(name: string, settings: tags.Hold): Record
@@ -245,10 +203,8 @@ local function create(context: plugin.Context): tags.Service
       table.clear(exclusions)
       table.clear(held)
       table.clear(current)
-      local index = table.find(records, record)
-      if index then
-        table.remove(records, index)
-      end
+      records[name] = nil
+      count -= 1
       local ok, failure = pcall(disposeAll, ended)
       notify(created, 'destroyed')
       if not ok then
@@ -259,7 +215,7 @@ local function create(context: plugin.Context): tags.Service
 
     created = {
       name = name,
-      index = settings.index or (#records + 1),
+      index = settings.index or (count + 1),
       selected = settings.selected == true,
       layout = settings.layout,
       dead = false,
@@ -312,9 +268,6 @@ local function create(context: plugin.Context): tags.Service
       end,
       exclude = function(_self: tags.Tag, caller: Owner, exclusion: tags.Exclusion): plugin.Effect
         context:checkOwner(caller)
-        if type(exclusion) ~= 'table' then
-          error('tags exclude: an exclusion is a table of fields, not a ' .. type(exclusion), 2)
-        end
         plugin.rejectUnknownFields('tags exclude', exclusion, EXCLUSION_KEYS, 'panel', 2)
         local panel = exclusion.panel
         if type(panel) ~= 'table' then
@@ -372,9 +325,6 @@ local function create(context: plugin.Context): tags.Service
       end,
       setLayout = function(_self: tags.Tag, caller: Owner, wanted: tags.LayoutChoice): boolean
         context:checkOwner(caller)
-        if type(wanted) ~= 'table' then
-          error('tags setLayout: a layout choice is a table of fields, not a ' .. type(wanted), 2)
-        end
         plugin.rejectUnknownFields('tags setLayout', wanted, LAYOUT_KEYS, 'layout', 2)
         if wanted.layout ~= nil and type(wanted.layout) ~= 'string' then
           error('tags setLayout: layout is a layout name, not a ' .. type(wanted.layout), 2)
@@ -408,8 +358,7 @@ local function create(context: plugin.Context): tags.Service
           )
         end
         for target, owners in pairs(holds) do
-          local details = surfaceDetails(target)
-          details.excluded = next(exclusions[target] or {}) ~= nil
+          local details = { excluded = next(exclusions[target] or {}) ~= nil }
           for caller in pairs(owners) do
             result[#result + 1] = inspection.registration(
               'membership',
@@ -421,16 +370,14 @@ local function create(context: plugin.Context): tags.Service
             )
           end
         end
-        for target, owners in pairs(exclusions) do
-          local details = surfaceDetails(target)
+        for _, owners in pairs(exclusions) do
           for caller in pairs(owners) do
             result[#result + 1] = inspection.registration(
               'exclusion',
               'tags.exclude',
               caller,
               name,
-              not created.dead and context:owns(caller),
-              details
+              not created.dead and context:owns(caller)
             )
           end
         end
@@ -457,7 +404,8 @@ local function create(context: plugin.Context): tags.Service
         return result
       end,
     }
-    records[#records + 1] = record
+    records[name] = record
+    count += 1
     notify(created, 'created')
     return record
   end
@@ -465,22 +413,12 @@ local function create(context: plugin.Context): tags.Service
   -- A hold keeps the tag alive until its last holder releases it.
   local function hold(_self: tags.Service, caller: Owner, wanted: tags.Hold): (tags.Tag, plugin.Effect)
     context:checkOwner(caller)
-    if type(wanted) ~= 'table' then
-      error('tags hold: a hold is a table of fields, not a ' .. type(wanted), 2)
-    end
     plugin.rejectUnknownFields('tags hold', wanted, HOLD_KEYS, 'name, index, selected, and layout', 2)
     local name = wanted.name
     if type(name) ~= 'string' or name == '' then
       error('tags hold: name is a non-empty tag name, not ' .. tostring(name), 2)
     end
-    checkOptions('tags hold', wanted)
-    local existing: Record? = nil
-    for _, record in ipairs(records) do
-      if record.tag.name == name then
-        existing = record
-      end
-    end
-    local record = existing or make(name, wanted)
+    local record = records[name] or make(name, wanted)
     local previous = record.holders[caller]
     if previous then
       return record.tag, previous
@@ -502,8 +440,8 @@ local function create(context: plugin.Context): tags.Service
 
   local function all(_self: tags.Service): { tags.Tag }
     local result: { tags.Tag } = {}
-    for index, record in ipairs(records) do
-      result[index] = record.tag
+    for _, record in records do
+      result[#result + 1] = record.tag
     end
     table.sort(result, function(a: tags.Tag, b: tags.Tag): boolean
       return if a.index == b.index then a.name < b.name else a.index < b.index
@@ -512,29 +450,30 @@ local function create(context: plugin.Context): tags.Service
   end
 
   local function onChanged(_self: tags.Service, caller: Owner, listener: tags.ChangeListener): plugin.Effect
-    if type(listener) ~= 'table' then
-      error('tags onChanged: a listener is a table of fields, not a ' .. type(listener), 2)
-    end
     plugin.rejectUnknownFields('tags onChanged', listener, LISTENER_KEYS, 'tag and run', 2)
     if type(listener.run) ~= 'function' then
       error('tags onChanged: run is a function, not a ' .. type(listener.run), 2)
     end
     local wanted = listener.tag
-    if wanted ~= nil and not recordOf(wanted) then
-      error('tags onChanged: tag is a live tag of this service', 2)
+    if wanted ~= nil then
+      local record = records[wanted.name]
+      if not record or record.tag ~= wanted then
+        error('tags onChanged: tag is a live tag of this service', 2)
+      end
     end
     return heard:add(caller, { tag = wanted, run = listener.run }, if wanted then { tag = wanted.name } else nil)
   end
 
-  local service: tags.Service = {
+  local service: tags.Service
+  service = {
     inspect = function(_self: tags.Service): inspection.Snapshot
       local result = heard:inspect 'tags.onChanged'
-      for _, record in ipairs(records) do
-        for _, entry in ipairs(record.inspect()) do
+      for _, tag in all(service) do
+        for _, entry in ipairs(records[tag.name].inspect()) do
           result[#result + 1] = entry
         end
       end
-      return inspection.snapshot(result, { tags = #records })
+      return inspection.snapshot(result, { tags = count })
     end,
     hold = hold,
     all = all,
@@ -543,7 +482,7 @@ local function create(context: plugin.Context): tags.Service
   }
   context:effect(function(): () -> ()
     return function(): ()
-      for _, record in ipairs(table.clone(records)) do
+      for _, record in table.clone(records) do
         record.destroy()
       end
       heard:clear()

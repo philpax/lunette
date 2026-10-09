@@ -67,7 +67,7 @@ function titlebarOptions.parse(given: ui.TitlebarOptions): ui.TitlebarOptions
     onClose = given.onClose,
     closeId = given.closeId,
     actions = table.freeze(actions),
-    style = if given.style then styleDefinition.overrides.parse(given.style) else nil,
+    style = if given.style then styleDefinition.schema.parse(given.style, 'ui titlebar style') else nil,
     draggable = given.draggable,
   }
 end

@@ -95,12 +95,11 @@ test('inspection separates adoption from provider-owned placements without enume
   expect.equal(placementEntry.details.sourceId, window.id, 'the placement window ID')
   expect.equal(placementEntry.owner == owner, false, 'the placement has a provider-owned release')
   expect.equal(count(panelSnapshot, 'panel'), 1, 'the separate panel registration')
-  expect.equal(count(panelSnapshot, 'listener'), 2, 'the nested removal listeners')
+  expect.equal(count(panelSnapshot, 'listener'), 1, 'the placement removal listener')
   local panelEntry = registration(panelSnapshot, 'panel')
   expect.equal(panelEntry.details.sourceId, window.id, 'the panel window ID')
   expect.equal(panelEntry.owner == placementEntry.owner, false, 'the panel has a separate provider owner')
   expect.equal(panelEntry.owner == owner, false, 'the caller does not own the panel resource')
-  expect.equal(countOwned(panelSnapshot, 'listener', placementEntry.owner), 1, 'the adoption removal listener')
   expect.equal(countOwned(panelSnapshot, 'listener', panelEntry.owner), 1, 'the placement removal listener')
   expect.equal(placementEntry.owner == owner, false, 'the adoption provider owns the placement release')
 

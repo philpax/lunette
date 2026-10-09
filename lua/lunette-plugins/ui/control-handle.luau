@@ -3,19 +3,32 @@ local plugin = require '@lunette-plugin'
 local ui = require '@lunette-contracts/ui'
 local focus = require '@lunette-contracts/focus'
 local records = require '@lunette-plugins/ui/panel-state'
-local control = require '@lunette-plugins/ui/control'
 local owners = require '@lunette-plugins/ui/control-owners'
 local input = require '@lunette-plugins/ui/input'
 local geometry = require '@lunette-plugins/ui/geometry'
 local theme = require '@lunette-plugins/ui/theme'
 local appearance = require './appearance'
 local drawing = require './draw'
+local cleanup = require './cleanup'
 local protected = require '@lunette-plugins/protected'
 local vocabulary = require '@lunette-contracts/vocabulary'
 
 local handles = {}
 
-type Factory = (control.Host) -> control.Widget
+type Factory = (records.Host) -> records.Widget
+
+-- The record exists before its factory runs, so the factory's host calls see the record's own state.
+local PENDING: records.Widget = table.freeze {
+  methods = {},
+  wantsKeyboard = false,
+  pointer = function(_event: vocabulary.PointerEvent, _item: string?): () end,
+  items = function(_bounds: ui.Bounds, _theme: ui.Theme): { read [number]: ui.ItemDescription }
+    return {}
+  end,
+  visual = function(value: ui.Visual): ui.Visual
+    return value
+  end,
+}
 
 local function live(panel: records.Panel, record: records.Control): boolean
   return not panel.dead
@@ -25,71 +38,31 @@ local function live(panel: records.Panel, record: records.Control): boolean
     and panel.context:owns(record.owner)
 end
 
-local function failAll(operations: { () -> () }): ()
-  local failures: { string } = {}
-  for _, operation in ipairs(operations) do
-    local ok, failure = pcall(operation)
-    if not ok then
-      failures[#failures + 1] = tostring(failure)
-    end
-  end
-  if #failures > 0 then
-    error('ui: control cleanup: ' .. table.concat(failures, '; '), 0)
-  end
-end
-
-function handles.create(panel: records.Panel, owner: ui.Owner, options: ui.Options, factory: Factory): ui.Control
+-- Options arrive validated by the panel method that creates the control.
+function handles.create(
+  panel: records.Panel,
+  owner: ui.Owner,
+  kind: ui.Kind,
+  options: ui.Options,
+  factory: Factory
+): ui.Control
   panel.context:checkOwner(owner)
-  assert(type(options.id) == 'string' and options.id ~= '', 'ui: control id is a non-empty string')
-  geometry.validateBounds(options.bounds)
-  assert(options.enabled == nil or type(options.enabled) == 'boolean', 'ui: control enabled is a boolean')
-  assert(options.exclusive == nil or type(options.exclusive) == 'boolean', 'ui: control exclusive is a boolean')
-  assert(options.label == nil or type(options.label) == 'string', 'ui: control label is a string')
-  assert(options.draw == nil or type(options.draw) == 'function', 'ui: control draw is a function')
-  local z = options.z or 0
-  assert(type(z) == 'number' and z == z and math.abs(z) < math.huge, 'ui: control z is finite')
   local id = options.id
-  local bounds = table.freeze(table.clone(options.bounds))
-  local label = options.label or ''
-  local enabled = options.enabled ~= false
-  local exclusive = options.exclusive ~= false
-  local draw = options.draw
-  local overrides = theme.copyOverrides(options.theme)
   panel.refresh()
-  local spec = theme.inherit(panel.spec, overrides)
+  local spec = theme.inherit(panel.spec, options.theme)
+  local resolved = theme.materialize(spec, panel.themes:font(spec.font))
   local reservation = owners.reserve(panel.owners, panel.context, owner, id)
-  local prepared, resolved = pcall(function(): ui.Theme
-    return theme.materialize(spec, panel.themes:font(spec.font))
-  end)
-  if not prepared then
-    reservation.release()
-    error(resolved, 0)
-  end
   local callbackLabel = 'ui: ' .. plugin.ownerLabel(owner) .. ': control ' .. id
-  local record: records.Control
-  local initializing, abandoned = true, false
   local target: focus.TargetHandle? = nil
   local release: plugin.Effect? = nil
-  local function current(): boolean
-    if abandoned then
-      return false
-    elseif initializing then
-      return not panel.dead and panel.context:active() and panel.context:owns(panel.owner) and panel.context:owns(owner)
-    end
-    return live(panel, record)
-  end
-  local function interactive(): boolean
-    return current() and panel.visible and not panel.cancelling and (if initializing then enabled else record.enabled)
-  end
+  local handle: { [string]: unknown } = { dead = false, id = id, owner = reservation.identity }
+  local record: records.Control
   local function dispose(): boolean
-    if initializing then
-      abandoned = true
-      reservation.release()
-      return false
-    elseif record.dead then
+    if record.dead then
       return false
     end
     record.dead, record.focused = true, false
+    handle.dead = true
     reservation.release()
     local index = table.find(panel.controls, record)
     if index then
@@ -98,13 +71,14 @@ function handles.create(panel: records.Panel, owner: ui.Owner, options: ui.Optio
     panel.revision += 1
     local old, inverse = target, release
     target, record.target, release = nil, nil, nil
-    failAll {
+    cleanup.run('ui: control cleanup', {
       function(): ()
         drawing.clearCache(record.measurements)
       end,
       function(): ()
-        if record.widget.clearMeasurements then
-          record.widget.clearMeasurements()
+        local clear = record.widget.clearMeasurements
+        if clear then
+          clear()
         end
       end,
       function(): ()
@@ -120,8 +94,38 @@ function handles.create(panel: records.Panel, owner: ui.Owner, options: ui.Optio
           inverse:dispose()
         end
       end,
-    }
+    })
     return true
+  end
+  panel.nextOrder += 1
+  local created: records.Control = {
+    dead = false,
+    id = id,
+    owner = owner,
+    identity = reservation.identity,
+    dispose = dispose,
+    kind = kind,
+    label = options.label or '',
+    bounds = options.bounds,
+    enabled = options.enabled ~= false,
+    z = options.z or 0,
+    order = panel.nextOrder,
+    exclusive = options.exclusive ~= false,
+    theme = resolved,
+    spec = spec,
+    measurements = drawing.newCache(),
+    overrides = options.theme,
+    draw = options.draw,
+    widget = PENDING,
+    target = nil,
+    focused = false,
+  }
+  record = created
+  local function current(): boolean
+    return live(panel, record)
+  end
+  local function interactive(): boolean
+    return current() and panel.visible and not panel.cancelling and record.enabled
   end
   local function receiverCall(name: string, run: () -> boolean): boolean
     local ok, result = pcall(run)
@@ -130,11 +134,11 @@ function handles.create(panel: records.Panel, owner: ui.Owner, options: ui.Optio
     end
     return result
   end
-  local host: control.Host = {
+  local host: records.Host = {
     live = current,
     interactive = interactive,
     captured = function(pointer: vocabulary.Pointer, button): boolean
-      if initializing or not interactive() then
+      if not interactive() then
         return false
       end
       local captures = panel.captures[pointer]
@@ -147,142 +151,85 @@ function handles.create(panel: records.Panel, owner: ui.Owner, options: ui.Optio
       end
     end,
     cancel = function(reason: vocabulary.CancelReason): ()
-      if not initializing and current() then
+      if current() then
         input.cancel(panel, record, reason)
       end
     end,
     focus = function(): boolean
-      return not initializing and interactive() and target ~= nil and not target.dead and target:focus()
+      return interactive() and target ~= nil and not target.dead and target:focus()
     end,
     blur = function(): boolean
       return current() and target ~= nil and not target.dead and target:blur()
     end,
     bounds = function(): ui.Bounds
-      return if initializing then bounds else record.bounds
+      return record.bounds
     end,
     clip = function(): ui.Bounds?
-      if initializing then
-        return geometry.intersect(bounds, {
-          x = 0,
-          y = 0,
-          width = panel.logicalWidth,
-          height = panel.logicalHeight,
-        })
-      end
       return input.bounds(panel, record)
     end,
     textClip = function(): ui.Bounds?
-      return if panel.contour and not initializing then input.bounds(panel, record) else nil
+      return if panel.contour then input.bounds(panel, record) else nil
     end,
     theme = function(): ui.Theme
       panel.refresh()
-      return if initializing then resolved else record.theme
+      return record.theme
     end,
     callback = function(name: string, run: () -> (), terminal: boolean?): boolean
       local allowed = if terminal then (owner :: plugin.Context):active() else current()
       return allowed and protected.call(callbackLabel .. ': ' .. name, run)
     end,
   }
-  local ok, result = pcall(function(): ui.Control
-    local widget = factory(host)
-    assert(current(), 'ui: control owner ended during initialization')
-    panel.nextOrder += 1
-    local initialized: records.Control = {
-      dead = false,
-      id = id,
-      owner = owner,
-      identity = reservation.identity,
-      dispose = dispose,
-      kind = widget.kind,
-      label = label,
-      bounds = bounds,
-      enabled = enabled,
-      z = z,
-      order = panel.nextOrder,
-      exclusive = exclusive,
-      theme = resolved,
-      spec = spec,
-      measurements = drawing.newCache(),
-      overrides = overrides,
-      draw = draw,
-      widget = widget,
-      target = nil,
-      focused = false,
-    }
-    record = initialized
-    initializing = false
-    local base: ui.Control = {
-      dead = false,
-      id = record.id,
-      owner = record.identity,
-      setBounds = function(_self: ui.Control, given: ui.Bounds): ()
-        if not live(panel, record) then
-          return
-        end
-        geometry.validateBounds(given)
-        record.bounds = table.freeze(table.clone(given))
-        drawing.clearCache(record.measurements)
-        panel.revision += 1
-        input.cancel(panel, record, 'control-removed')
-      end,
-      setEnabled = function(_self: ui.Control, given: boolean): ()
-        if not live(panel, record) then
-          return
-        end
-        assert(type(given) == 'boolean', 'ui: control enabled is a boolean')
-        if record.enabled == given then
-          return
-        end
-        record.enabled = given
-        panel.revision += 1
-        if not given then
-          failAll {
-            function(): ()
-              input.cancel(panel, record, 'disabled')
-            end,
-            function(): ()
-              if target and not target.dead then
-                target:blur()
-              end
-            end,
-          }
-        end
-      end,
-      setTheme = function(_self: ui.Control, given: ui.ThemeOverrides?): ()
-        if not live(panel, record) then
-          return
-        end
+  local methods: { [string]: unknown } = {
+    setBounds = function(_self: ui.Control, given: ui.Bounds): ()
+      if not current() then
+        return
+      end
+      record.bounds = table.freeze(table.clone(geometry.validateBounds(given)))
+      drawing.clearCache(record.measurements)
+      panel.revision += 1
+      input.cancel(panel, record, 'control-removed')
+    end,
+    setEnabled = function(_self: ui.Control, given: boolean): ()
+      if not current() then
+        return
+      end
+      assert(type(given) == 'boolean', 'ui: control enabled is a boolean')
+      if record.enabled == given then
+        return
+      end
+      record.enabled = given
+      panel.revision += 1
+      if not given then
+        cleanup.run('ui: control cleanup', {
+          function(): ()
+            input.cancel(panel, record, 'disabled')
+          end,
+          function(): ()
+            if target and not target.dead then
+              target:blur()
+            end
+          end,
+        })
+      end
+    end,
+    setTheme = function(_self: ui.Control, given: ui.ThemeOverrides?): ()
+      if current() then
         appearance.control(panel, record, given)
-      end,
-      destroy = function(_self: ui.Control): boolean
-        return dispose()
-      end,
-    }
-    local methods: { [string]: unknown } = {
-      setBounds = base.setBounds,
-      setEnabled = base.setEnabled,
-      setTheme = base.setTheme,
-      destroy = base.destroy,
-    }
+      end
+    end,
+    destroy = function(_self: ui.Control): boolean
+      return dispose()
+    end,
+  }
+  for name, method in methods do
+    handle[name] = method
+  end
+  local ok, failure = pcall(function(): ()
+    local widget = factory(host)
+    record.widget = widget
     for name, method in widget.methods do
-      methods[name] = method
+      handle[name] = method
     end
-    -- The checked base and widget methods supply the dynamic handle; its fields come from the retained record.
-    local handle: ui.Control = table.freeze(setmetatable({}, {
-      __index = function(_self: unknown, key: string): unknown
-        if key == 'dead' then
-          return not current()
-        elseif key == 'id' then
-          return record.id
-        elseif key == 'owner' then
-          return record.identity
-        end
-        return methods[key]
-      end,
-      __newindex = function(): ()
-        error('ui: a control is read-only', 2)
-      end,
-    })) :: ui.Control
     if widget.receiver then
       local receiver = widget.receiver
       target = panel.focus:register(panel.context, {
@@ -344,26 +291,20 @@ function handles.create(panel: records.Panel, owner: ui.Owner, options: ui.Optio
       })
       record.target = target
     end
-    assert(current(), 'ui: control owner ended during focus registration')
     release = panel.context:acquire(owner, function(): () -> ()
       return function(): ()
         release = nil
         dispose()
       end
     end)
-    assert(current(), 'ui: control owner ended during acquisition')
-    panel.controls[#panel.controls + 1] = record
-    panel.revision += 1
-    return handle
   end)
   if not ok then
-    local clean, failure = pcall(dispose)
-    if not clean then
-      error(tostring(result) .. '; ' .. tostring(failure), 0)
-    end
-    error(result, 0)
+    local clean, cleanupFailure = pcall(dispose)
+    error(tostring(failure) .. (if clean then '' else '; ' .. tostring(cleanupFailure)), 0)
   end
-  return result
+  panel.controls[#panel.controls + 1] = record
+  panel.revision += 1
+  return (handle :: unknown) :: ui.Control
 end
 
 return handles

@@ -57,6 +57,12 @@ local count: number = schema.default(schema.number())(4).parse(nil)
 use(result)
 use(resolved)
 accepts(config)
+local strings = schema.map(schema.string())
+local defaultStrings = schema.default(strings) {}
+local stringObject = schema.object { map = defaultStrings }
+local stringsInput: schema.Input<typeof(strings)> = { key = 'value' }
+local defaultStringsInput: schema.Input<typeof(defaultStrings)> = { key = 'value' }
+local stringObjectInput: schema.Input<typeof(stringObject)> = { map = { key = 'value' } }
 return {
   accepts = accepts,
   use = use,
@@ -65,4 +71,5 @@ return {
   count = count,
   quiet = quietInput,
   disabled = booleanLiteral,
+  strings = { stringsInput, defaultStringsInput, stringObjectInput },
 }

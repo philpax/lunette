@@ -18,7 +18,7 @@ for _, editing in { false, true } do
     local label = 'minimum canvas with editing ' .. tostring(editing) .. ' and searching ' .. tostring(searching)
     test(label .. ' separates controls and content', function()
       local width, height = toolbarLayout.minimumWidth, toolbarLayout.minimumHeight
-      local layout = toolbarLayout.compute(width, height, editing, searching)
+      local layout = toolbarLayout.compute(width, height, editing, searching, nil, 'graph', 'configure')
       local boxes = { layout.graphBounds, layout.bodyBounds }
       for _, id in
         {
@@ -34,10 +34,7 @@ for _, editing in { false, true } do
           'optional',
           'reset',
           'add',
-          'load',
           'remove-value',
-          'previous',
-          'next',
           'transitive',
           'providers',
           'consumers',
@@ -54,6 +51,8 @@ for _, editing in { false, true } do
       do
         expect.truthy(layout.buttons[id], id .. ' has a reachable placement')
       end
+      local catalog = toolbarLayout.compute(width, height, editing, searching, nil, 'graph', 'catalog')
+      expect.truthy(catalog.buttons.load, 'load has a reachable placement in the catalog')
       expect.truthy(layout.bodyBounds.height >= 36, 'at least one body row')
       expect.truthy(layout.graphBounds.width >= 100 and layout.graphBounds.height >= 100, 'a usable graph canvas')
       for id, button in layout.buttons do
@@ -86,8 +85,8 @@ end
 
 test('layout is deterministic across larger finite canvases', function()
   for _, size in { { 800, 472 }, { 1280, 800 }, { 2400, 120000 } } do
-    local first = toolbarLayout.compute(size[1], size[2], true, true)
-    local second = toolbarLayout.compute(size[1], size[2], true, true)
+    local first = toolbarLayout.compute(size[1], size[2], true, true, nil, 'graph', 'configure')
+    local second = toolbarLayout.compute(size[1], size[2], true, true, nil, 'graph', 'configure')
     expect.equal(first.graphBounds.y, second.graphBounds.y, 'the graph origin is deterministic')
     expect.equal(first.bodyBounds.height, second.bodyBounds.height, 'the body extent is deterministic')
     for id, button in first.buttons do
@@ -100,7 +99,7 @@ end)
 test('layout rejects nonfinite and undersized canvases', function()
   for _, size in { { 799, 472 }, { 800, 471 }, { math.huge, 800 }, { 800, math.huge }, { 0 / 0, 800 }, { 800, 0 / 0 } } do
     expect.raises(function()
-      toolbarLayout.compute(size[1], size[2], true, true)
+      toolbarLayout.compute(size[1], size[2], true, true, nil, 'graph', 'configure')
     end, nil, 'invalid dimensions')
   end
 end)
@@ -108,7 +107,7 @@ end)
 for _, valueField in { 'boolean', 'choice' } do
   test(valueField .. ' widgets reserve a separate field while keeping a minimum body row', function()
     local width, height = toolbarLayout.minimumWidth, toolbarLayout.minimumHeight
-    local layout = toolbarLayout.compute(width, height, false, true, valueField)
+    local layout = toolbarLayout.compute(width, height, false, true, valueField, 'graph', 'configure')
     expect.truthy(layout.editBounds, 'the value field is present')
     inside(layout.editBounds, width, height)
     if valueField == 'choice' then

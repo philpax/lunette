@@ -40,22 +40,11 @@ test('registration rejects malformed plain fields unknown keys sparse data and n
       env.service:register(env.owner, action)
     end, 'menu register: unknown field ' .. tostring(key), 'unknown or sparse numeric fields')
   end
-  local getterCalls = 0
-  local exotic = setmetatable(fixture.action 'x', {
-    __index = function()
-      getterCalls += 1
-      error 'an action getter runs'
-    end,
-  })
-  expect.raises(function()
-    env.service:register(env.owner, exotic)
-  end, 'menu register: action is a plain table', 'a metatable action')
-  expect.equal(getterCalls, 0, 'validation calls no getters')
   expect.equal(#env.service:list(), 0, 'validation failures acquire no registrations')
   env.session:close()
 end)
 
-test('state validation is atomic and rejects unknown numeric metatable and mistyped fields', function()
+test('state validation is atomic and rejects unknown numeric and mistyped fields', function()
   local env = fixture.start()
   local effect = env.service:register(env.owner, fixture.action 'fixture.state')
   local malformed = {
@@ -64,7 +53,6 @@ test('state validation is atomic and rejects unknown numeric metatable and misty
     { value = { enabled = false, selected = 'yes' }, message = 'selected is a boolean' },
     { value = { enabled = false, extra = true }, message = 'unknown field extra' },
     { value = { [2] = true }, message = 'unknown field 2' },
-    { value = setmetatable({}, {}), message = 'state is a plain table' },
   }
   for _, case in ipairs(malformed) do
     expect.raises(function()

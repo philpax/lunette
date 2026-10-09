@@ -28,7 +28,7 @@ use tracing::{info, warn};
 pub use crate::hid::{
     dummy::DummyProvider,
     key::{KeyModifiers, PointerButton, VirtualKey, XkbKeymap},
-    mapping::{DesktopLayout, MappingError, MonitorMapping, PanelPoint, reorient},
+    mapping::{DesktopLayout, MappingError, MonitorMapping, PanelPoint},
     pointer::{
         DesktopExtent, DesktopPoint, DesktopVector, PendingPointer, PointerBatch, WheelDelta,
     },
@@ -282,7 +282,7 @@ mod tests {
     use super::*;
     use crate::{
         hid::recording::{HidEvent, Recording},
-        monitor::{LogicalGeometry, LogicalPosition, LogicalSize, SurfaceTransform},
+        monitor::{LogicalGeometry, LogicalPosition, LogicalSize},
     };
 
     fn host(provider: Box<dyn HidProvider>, kind: ProviderKind) -> HostInput {
@@ -323,10 +323,10 @@ mod tests {
     fn an_output_change_reaches_the_provider_as_a_new_origin_and_extent() {
         let recording = Recording::new();
         let mut input = host(Box::new(recording.provider()), ProviderKind::WlVirtual);
-        let layout = DesktopLayout::new([MonitorMapping::new(
-            LogicalGeometry::new(LogicalPosition::new(-1920, 0), LogicalSize::new(1920, 1080)),
-            SurfaceTransform::Normal,
-        )
+        let layout = DesktopLayout::new([MonitorMapping::new(LogicalGeometry::new(
+            LogicalPosition::new(-1920, 0),
+            LogicalSize::new(1920, 1080),
+        ))
         .expect("a monitor with an area")])
         .expect("at least one monitor");
 

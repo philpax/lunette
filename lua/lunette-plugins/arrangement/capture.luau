@@ -5,6 +5,7 @@ local panelsContract = require '@lunette-contracts/panels'
 local rulesContract = require '@lunette-contracts/rules'
 local tagsContract = require '@lunette-contracts/tags'
 local vocabulary = require '@lunette-contracts/vocabulary'
+local logging = require '@lunette-plugins/desktop/logging'
 local format = require '@lunette-plugins/arrangement/format'
 local slots = require '@lunette-plugins/arrangement/slots'
 
@@ -12,17 +13,13 @@ local arrangement = {}
 
 type Entry = format.Entry
 
-function arrangement.sourceKey(held: slots.Slots, target: panelsContract.Panel): string?
-  return held:key(target)
-end
-
 function arrangement.slotKey(kind: string, key: string, slot: number): string
   return kind .. '\0' .. key .. '\0' .. slot
 end
 
 function arrangement.slotsFor(file: format.File): { [string]: Entry }
   local available: { [string]: Entry } = {}
-  for _, entry in ipairs(format.entries(file)) do
+  for _, entry in ipairs(file.entries) do
     available[arrangement.slotKey(entry.kind, entry.key, entry.slot)] = entry
   end
   return available
@@ -62,17 +59,12 @@ function arrangement.panelSlot(
   return slot
 end
 
-function arrangement.capture(
-  report: (string) -> (),
-  held: slots.Slots,
-  panels: panelsContract.Service,
-  tags: tagsContract.Service
-): format.File
+function arrangement.capture(held: slots.Slots, panels: panelsContract.Service, tags: tagsContract.Service): format.File
   local entries: { Entry } = {}
   local counts: { [string]: number } = {}
   for _, target in ipairs(panels:all()) do
     if not target.dead then
-      local key = arrangement.sourceKey(held, target)
+      local key = held:key(target)
       local slot = key and arrangement.panelSlot(held, counts, target, key)
       if key and slot then
         local names: { string } = {}
@@ -91,27 +83,22 @@ function arrangement.capture(
           tags = names,
         }
       else
-        report('a ' .. target.kind .. ' panel has no identity, so it is not saved')
+        logging.report('a ' .. target.kind .. ' panel has no identity, so it is not saved', 'warn')
       end
     end
   end
-  return format.newFile(entries)
+  return { entries = entries }
 end
 
--- Applies saved pose, size, and tag membership. Tag holds belong to the binding context.
+-- Applies saved pose, size, and tag membership. Tag holds belong to the binding context. The format refuses an
+-- entry whose pose does not decode.
 function arrangement.apply(
-  report: (string) -> (),
   context: plugin.Context,
   tags: tagsContract.Service,
   target: panelsContract.Panel,
   entry: Entry
-): boolean
-  local placed = vocabulary.decodePose(entry.pose)
-  if not placed then
-    report("the pose saved for '" .. entry.key .. "' is not sixteen numbers")
-    return false
-  end
-  target:setPose(placed)
+): ()
+  target:setPose(assert(vocabulary.decodePose(entry.pose)))
   if entry.width or entry.height then
     if target.kind == 'monitor' and entry.width then
       target:setSize(entry.width, nil)
@@ -123,12 +110,10 @@ function arrangement.apply(
     local found = tags:hold(context, { name = name })
     found:add(context, target)
   end
-  return true
 end
 
 -- Restores matching live panels and returns entries without a matching panel for caller-side reporting.
 function arrangement.restore(
-  report: (string) -> (),
   held: slots.Slots,
   context: plugin.Context,
   panels: panelsContract.Service,
@@ -142,10 +127,11 @@ function arrangement.restore(
 
   for _, target in ipairs(panels:all()) do
     if not target.dead then
-      local key = arrangement.sourceKey(held, target)
+      local key = held:key(target)
       local slot = key and arrangement.panelSlot(held, counts, target, key)
       local entry = key and slot and available[arrangement.slotKey(target.kind, key, slot)]
-      if entry and arrangement.apply(report, context, tags, target, entry) then
+      if entry then
+        arrangement.apply(context, tags, target, entry)
         restored[#restored + 1] = target
         matched[entry] = true
       end
@@ -153,7 +139,7 @@ function arrangement.restore(
   end
 
   local stale: { Entry } = {}
-  for _, entry in ipairs(format.entries(file)) do
+  for _, entry in ipairs(file.entries) do
     if not matched[entry] then
       stale[#stale + 1] = entry
     end
@@ -163,7 +149,6 @@ end
 
 -- Restores late monitor panels. Window panels receive saved properties through the rules source.
 function arrangement.arrived(
-  report: (string) -> (),
   held: slots.Slots,
   context: plugin.Context,
   panels: panelsContract.Service,
@@ -175,19 +160,19 @@ function arrangement.arrived(
     held:hold(target.source)
     return
   end
-  local key = arrangement.sourceKey(held, target)
+  local key = held:key(target)
   if not key then
     return
   end
   local slot = 1
   for _, other in ipairs(panels:all()) do
-    if other ~= target and not other.dead and other.kind == 'monitor' and arrangement.sourceKey(held, other) == key then
+    if other ~= target and not other.dead and other.kind == 'monitor' and held:key(other) == key then
       slot += 1
     end
   end
   local entry = arrangement.slotsFor(file)[arrangement.slotKey('monitor', key, slot)]
   if entry then
-    arrangement.apply(report, context, tags, target, entry)
+    arrangement.apply(context, tags, target, entry)
   end
 end
 

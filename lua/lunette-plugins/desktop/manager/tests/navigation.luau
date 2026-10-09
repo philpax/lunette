@@ -231,15 +231,17 @@ test('the accepted minimum canvas exposes every action and one configure or cata
   expect.equal(f.height, config.minimumHeight, 'the accepted logical minimum follows the shared layout')
   f:select(pointer, 'editable')
   for _, button in f.state.buttons do
-    expect.truthy(button.x >= 0 and button.x + button.width <= f.width, button.label .. ' fits horizontally')
-    expect.truthy(button.y >= 0 and button.y + button.height <= f.height, button.label .. ' fits vertically')
+    local bounds = button.bounds
+    expect.truthy(bounds.x >= 0 and bounds.x + bounds.width <= f.width, button.label .. ' fits horizontally')
+    expect.truthy(bounds.y >= 0 and bounds.y + bounds.height <= f.height, button.label .. ' fits vertically')
     f:point(button.label)
   end
   for _, label in { 'Configure', 'Catalog' } do
     f:click(pointer, label)
-    expect.truthy(#f.state.rows > 0, label .. ' exposes a body row')
-    local row = f.state.rows[1]
-    expect.truthy(row.y + row.height <= f.height - 64, label .. ' row fits above the footer')
+    local list = f.public:control(if label == 'Configure' then 'rows' else 'catalog-list')
+    local row = list.items[1]
+    expect.truthy(row and row.bounds, label .. ' exposes a body row')
+    expect.truthy(row.bounds.y + row.bounds.height <= f.height - 64, label .. ' row fits above the footer')
   end
 end)
 

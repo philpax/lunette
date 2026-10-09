@@ -64,11 +64,10 @@ function silhouette.get(
     cache.bounds, cache.profile, cache.polygon = bounds, profile, geometry.perimeter(bounds, profile)
     cache.key = geometry.key(bounds, profile)
   end
-  local bounds, profile, polygon = cache.bounds, cache.profile, cache.polygon
-  if not bounds or not profile or not polygon then
-    error 'panels: a silhouette has no retained contour'
-  end
-  return bounds, profile, polygon, radius > 0
+  return cache.bounds :: geometry.Bounds,
+    cache.profile :: geometry.Profile,
+    cache.polygon :: { geometry.Point },
+    radius > 0
 end
 
 return silhouette

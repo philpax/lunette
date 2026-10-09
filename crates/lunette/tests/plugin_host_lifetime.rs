@@ -61,7 +61,7 @@ fn reload_retires_the_attachment_before_rebuilding_the_epoch() -> mlua::Result<(
             .eval::<String>()?,
         "runtime,subscriptions"
     );
-    assert!(!lunette::plugin::host::callback_active(&lua));
+    assert!(!attachment::callback_active(&lua));
 
     lua.globals().set("old_active", false)?;
     let (stale_ok, stale_error) = lua

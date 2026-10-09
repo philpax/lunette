@@ -7,6 +7,10 @@ local test = testing.suite()
 local SQUARE = { windowRadius = 0, monitorRadius = 0 }
 local ROUNDED = { windowRadius = 0, monitorRadius = 0.08 }
 
+local function contentShader(): Shader
+  return lovr.graphics.newShader('unlit', 'unlit')
+end
+
 -- UVs for top-left, top-right, bottom-left, bottom-right from pinned WayVR transform_uv.
 local cases = {
   { 'normal', { { 0, 0 }, { 1, 0 }, { 0, 1 }, { 1, 1 } } },
@@ -24,21 +28,7 @@ for _, case in cases do
   for _, curve in { 0, 0.4 } do
     test(case[1] .. ' captures draw the WayVR UVs on a ' .. tostring(curve) .. ' curve', function()
       local native = testing.native()
-      local made = {}
-      lovr.graphics.newMesh = function()
-        local mesh = {}
-        function mesh:setVertices(vertices)
-          self.vertices = vertices
-        end
-        function mesh:setIndices(indices)
-          self.indices = indices
-        end
-        function mesh:release()
-          self.released = true
-        end
-        made[#made + 1] = mesh
-        return mesh
-      end
+      local made = native.events.render.meshAcquisitions
       local monitor = native.newMonitor 'portrait'
       monitor.frameTransform = case[1]
       monitor.getTexture = function()
@@ -53,9 +43,7 @@ for _, case in cases do
         curve = curve,
         highlighted = false,
       }
-      drawing.content(target, native.events.pass, SQUARE, function()
-        return nil
-      end)
+      drawing.content(target, native.events.pass, SQUARE, contentShader)
       local mesh = made[1]
       if mesh then
         local vertices = mesh.vertices
@@ -68,9 +56,7 @@ for _, case in cases do
       else
         expect.truthy(curve == 0 and (case[1] == 'normal' or case[1] == 'undefined'), 'only identity uses a plane')
       end
-      drawing.content(target, native.events.pass, ROUNDED, function()
-        return nil
-      end)
+      drawing.content(target, native.events.pass, ROUNDED, contentShader)
       local rounded = made[#made]
       local tl, tr, bl = case[2][1], case[2][2], case[2][3]
       for _, vertex in rounded.vertices do
@@ -117,22 +103,7 @@ test('a changed capture transform refreshes an existing panel mesh', function()
   monitor.getTexture = function()
     return {}
   end
-  local made = {}
-  lovr.graphics.newMesh = function()
-    local mesh = { writes = 0 }
-    function mesh:setVertices(vertices)
-      self.writes += 1
-      self.vertices = vertices
-    end
-    function mesh:setIndices(indices)
-      self.indices = indices
-    end
-    function mesh:release()
-      self.released = true
-    end
-    made[#made + 1] = mesh
-    return mesh
-  end
+  local made = native.events.render.meshAcquisitions
   local target = {
     kind = 'monitor',
     source = monitor,
@@ -143,21 +114,14 @@ test('a changed capture transform refreshes an existing panel mesh', function()
     highlighted = false,
   }
   monitor.frameTransform = 'normal'
-  drawing.content(target, native.events.pass, SQUARE, function()
-    return nil
-  end)
+  drawing.content(target, native.events.pass, SQUARE, contentShader)
   monitor.frameTransform = 'rot90'
-  drawing.content(target, native.events.pass, SQUARE, function()
-    return nil
-  end)
+  drawing.content(target, native.events.pass, SQUARE, contentShader)
   expect.equal(#made, 2, 'changed UVs replace the retained mesh')
   expect.truthy(made[1].released, 'the previous transform mesh is released')
-  expect.equal(made[2].writes, 1)
   expect.equal(made[2].vertices[1][7], 0)
   expect.equal(made[2].vertices[1][8], 1)
-  drawing.content(target, native.events.pass, SQUARE, function()
-    return nil
-  end)
+  drawing.content(target, native.events.pass, SQUARE, contentShader)
   expect.equal(#made, 2, 'unchanged capture transforms retain the mesh')
 end)
 

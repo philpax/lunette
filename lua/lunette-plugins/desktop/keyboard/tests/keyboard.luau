@@ -55,21 +55,6 @@ local function expectDirection(board, axis, expected, label)
   expect.near(direction.z, expected.z, 1e-5, label .. ' z')
 end
 
-test('the keyboard provider offers no wrist trigger while hidden or visible', function()
-  local env = start {}
-  local hiddenCount = #env.surfaces:all()
-  local opened = env.display:show()
-  local offered = env.surfaces:all()
-  local board = shownKeyboard(env)
-  local haptics = env.session.native.events.haptics or 0
-  env.session:close()
-  expect.equal(hiddenCount, 0, 'the hidden display offers no trigger')
-  expect.truthy(opened, 'the public display opens')
-  expect.equal(#offered, 3, 'the keyboard and shared titlebar surfaces are offered')
-  expect.truthy(board, 'the offered surfaces include the keyboard')
-  expect.equal(haptics, 0, 'showing does not pulse a controller')
-end)
-
 test('a pitched head keeps the keyboard at the configured horizontal distance', function()
   local env = start { placement = { distance = 0.8, drop = 0.25 } }
   for _, pitch in ipairs { -math.pi / 3, 0, math.pi / 3 } do

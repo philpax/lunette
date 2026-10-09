@@ -72,15 +72,23 @@ local function transformUv(u: number, v: number, transform: CaptureTransform): (
   return u, v
 end
 
-local function contentMesh(target: Drawable, transform: CaptureTransform, style: contracts.Style): Mesh?
-  local bounds, profile, polygon, rounded = silhouette.get(target, style)
-  local graphics = lovr.graphics
-  if not graphics or not graphics.newMesh then
-    if rounded or (transform ~= 'normal' and transform ~= 'undefined') then
-      error('panels: rounded or transformed capture requires mesh drawing', 2)
-    end
-    return nil
+local function buildMesh(vertices: { { number } }, indices: { number }): Mesh
+  local made = lovr.graphics.newMesh(#vertices)
+  local ok, failure = pcall(function(): ()
+    made:setVertices(vertices)
+    made:setIndices(indices)
+  end)
+  if not ok then
+    pcall(function(): ()
+      made:release()
+    end)
+    error(failure, 0)
   end
+  return made
+end
+
+local function contentMesh(target: Drawable, transform: CaptureTransform, style: contracts.Style): Mesh
+  local bounds, profile, polygon, rounded = silhouette.get(target, style)
   local contour = target.contour
   if
     target.mesh
@@ -111,17 +119,7 @@ local function contentMesh(target: Drawable, transform: CaptureTransform, style:
   for _, vertex in vertices do
     vertex[7], vertex[8] = transformUv(vertex[7], vertex[8], transform)
   end
-  local made = graphics.newMesh(#vertices)
-  local ok, failure = pcall(function(): ()
-    made:setVertices(vertices)
-    made:setIndices(indices)
-  end)
-  if not ok then
-    pcall(function(): ()
-      made:release()
-    end)
-    error(failure, 0)
-  end
+  local made = buildMesh(vertices, indices)
   local previous = target.mesh
   target.mesh, target.meshKey = made, key
   target.meshCurve, target.meshTransform = target.curve, transform
@@ -153,13 +151,12 @@ function draw.content(target: Drawable, pass: Pass, style: contracts.Style, cont
 
   local sampled: Texture = texture
   local shader = contentShader(opaque)
+  if not shader then
+    return
+  end
   passState.withRestore(pass, function()
     pass:setBlendMode('alpha', 'premultiplied')
-    if shader then
-      pass:setShader(shader)
-    else
-      pass:setShader()
-    end
+    pass:setShader(shader)
     pass:setMaterial(sampled)
     local _, _, _, rounded = silhouette.get(target, style)
     local transformed = transform ~= 'normal' and transform ~= 'undefined'
@@ -223,17 +220,7 @@ function draw.border(target: Drawable, pass: Pass, style: contracts.Style): ()
     local points, triangles = geometry.ring(bounds, profile, thickness)
     local vertices, indices =
       shape.mapTriangles(target.width, target.height, target.curve, points, triangles, thickness)
-    local made = lovr.graphics.newMesh(#vertices)
-    local ok, failure = pcall(function(): ()
-      made:setVertices(vertices)
-      made:setIndices(indices)
-    end)
-    if not ok then
-      pcall(function(): ()
-        made:release()
-      end)
-      error(failure, 0)
-    end
+    local made = buildMesh(vertices, indices)
     local previous = cache.mesh
     cache.width, cache.height, cache.radius, cache.curve = target.width, target.height, radius, target.curve
     cache.headerHeight, cache.headerRadius, cache.thickness, cache.mesh = headerHeight, headerRadius, thickness, made
@@ -243,10 +230,7 @@ function draw.border(target: Drawable, pass: Pass, style: contracts.Style): ()
   end
   local depth = if header then header.borderDepth else style.borderDepth
   local pose = lovr.math.newMat4(target.pose):translate(0, 0, -depth)
-  local mesh = cache.mesh
-  if not mesh then
-    error 'panels: an outline has no retained mesh'
-  end
+  local mesh = cache.mesh :: Mesh
   passState.withRestore(pass, function(): ()
     pass:setShader()
     pass:setMaterial(nil)

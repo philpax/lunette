@@ -33,14 +33,12 @@ pub trait CaptureExporter: Send {
 }
 
 /// Creates one exporter per direct stream after graphics initialization.
-pub trait CaptureExporters {
-    fn create(&self) -> Box<dyn CaptureExporter>;
-}
+pub type ExporterFactory = Box<dyn Fn() -> Box<dyn CaptureExporter>>;
 
 /// Preferred screencopy with the existing PipeWire source as its fallback.
 pub struct PreferredStreams {
     client: fn() -> Option<WlxClient>,
-    exporters: Box<dyn CaptureExporters>,
+    exporters: ExporterFactory,
     formats: Vec<DrmFormat>,
     pipewire: PipewireStreams,
     unavailable: Vec<MonitorKey>,
@@ -50,7 +48,7 @@ impl PreferredStreams {
     #[must_use]
     pub fn new(
         client: fn() -> Option<WlxClient>,
-        exporters: Box<dyn CaptureExporters>,
+        exporters: ExporterFactory,
         formats: Vec<DrmFormat>,
     ) -> Self {
         Self {
@@ -69,11 +67,10 @@ impl MonitorStreams for PreferredStreams {
             return DirectOpen::Unavailable;
         }
         let Some(client) = (self.client)() else {
-            warn!(monitor = %monitor.key(), "direct capture: the host client could not be opened; using the portal");
-            self.unavailable.push(monitor.key().clone());
-            return DirectOpen::Unavailable;
+            return self.unavailable(monitor, "the host client could not be opened");
         };
         if client.maybe_wlr_screencopy_mgr.is_none() {
+            // An expected absence on compositors without wlroots protocols, so not a warning.
             info!(monitor = %monitor.key(), "direct capture: wlr-screencopy v3 is unavailable; using the portal");
             self.unavailable.push(monitor.key().clone());
             return DirectOpen::Unavailable;
@@ -83,24 +80,18 @@ impl MonitorStreams for PreferredStreams {
             i32::try_from(geometry.size.width),
             i32::try_from(geometry.size.height),
         ) else {
-            warn!(monitor = %monitor.key(), "direct capture: logical dimensions exceed upstream limits; using the portal");
-            self.unavailable.push(monitor.key().clone());
-            return DirectOpen::Unavailable;
+            return self.unavailable(monitor, "logical dimensions exceed upstream limits");
         };
         let mut matches = client.outputs.iter().filter(|(_, output)| {
             output.logical_pos == (geometry.position.x, geometry.position.y)
                 && output.logical_size == (width, height)
         });
         let Some((id, _)) = matches.next() else {
-            warn!(monitor = %monitor.key(), "direct capture: no upstream output matches the monitor; using the portal");
-            self.unavailable.push(monitor.key().clone());
-            return DirectOpen::Unavailable;
+            return self.unavailable(monitor, "no upstream output matches the monitor");
         };
         let id = *id;
         if matches.next().is_some() {
-            warn!(monitor = %monitor.key(), "direct capture: output geometry is ambiguous; using the portal");
-            self.unavailable.push(monitor.key().clone());
-            return DirectOpen::Unavailable;
+            return self.unavailable(monitor, "output geometry is ambiguous");
         }
         let frames = Arc::new(FrameQueue::new(
             std::num::NonZeroUsize::MIN.saturating_add(1),
@@ -109,7 +100,7 @@ impl MonitorStreams for PreferredStreams {
         capture.init(
             &self.formats,
             Delivery {
-                exporter: self.exporters.create(),
+                exporter: (self.exporters)(),
                 frames: Arc::clone(&frames),
             },
             deliver,
@@ -121,6 +112,15 @@ impl MonitorStreams for PreferredStreams {
 
     fn open(&mut self, name: &str, node: NodeId) -> Option<Box<dyn MonitorStream>> {
         self.pipewire.open(name, node)
+    }
+}
+
+impl PreferredStreams {
+    /// Records that direct capture cannot serve `monitor`, which then uses the portal.
+    fn unavailable(&mut self, monitor: &Monitor, reason: &str) -> DirectOpen {
+        warn!(monitor = %monitor.key(), "direct capture: {reason}; using the portal");
+        self.unavailable.push(monitor.key().clone());
+        DirectOpen::Unavailable
     }
 }
 

@@ -21,7 +21,9 @@ test('the limiter forgets the oldest key past its bound', function()
   limit:record('same', 1)
   limit:record('one', 6)
   limit:record('two', 7)
-  expect.equal(limit:suppressedCount 'same', 0, 'the forgotten key')
+  local delivered, suppressed = limit:record('same', 8)
+  expect.truthy(delivered, 'the forgotten key is let through')
+  expect.equal(suppressed, 0, 'the forgotten key carries no withheld count')
 end)
 
 return test

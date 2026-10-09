@@ -1,5 +1,4 @@
 local schema = require '@lunette-plugin/schema'
-local geometry = require '@lunette-plugins/layout/arc/geometry'
 
 local TUNING = schema.object {
   radius = schema.default(schema.number { minimum = 0 })(1.6),
@@ -8,8 +7,11 @@ local TUNING = schema.object {
   gap = schema.default(schema.number { minimum = 0 })(0.05),
   center = schema.default(schema.vector())(vector.pack(0, 1.5, 0)),
 }
+-- The schema already requires finite, nonnegative numbers and a finite vector center.
 local CHECKED_TUNING = schema.refine(TUNING)(function(tuning)
-  geometry.validate(tuning, 'layout/arc')
+  if tuning.radius <= 0 then
+    error('option radius is a positive number, not ' .. tostring(tuning.radius), 0)
+  end
 end, 'A positive radius and nonnegative angular step, span, and edge gap.')
 local SCHEMA = schema.object {
   layout = schema.default(schema.string { minLength = 1 }) 'arc',

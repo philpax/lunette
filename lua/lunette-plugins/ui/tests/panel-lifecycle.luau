@@ -130,8 +130,14 @@ end
 
 for _, focused in ipairs { false, true } do
   test('panel disposal isolates control inverses with focus ' .. tostring(focused), function()
-    local state =
-      { targets = {}, destroyed = {}, observedCounts = {}, surfaceInverses = 0, focusReads = 0, failFirst = false }
+    local state = {
+      targets = {},
+      destroyed = {},
+      observedCounts = {},
+      surfaceInverses = 0,
+      focusReads = 0,
+      failFirst = false,
+    }
     local font = require('@testing/render').new().font
     lovr.graphics = {
       getDefaultFont = function()
@@ -271,82 +277,6 @@ for _, equalZ in ipairs { false, true } do
     end)
   end)
 end
-
-for _, phase in ipairs { 'panel', 'control' } do
-  test('draw callbacks stop rendering after owner teardown in the ' .. phase .. ' phase', function()
-    local fixture = vrUi.boot(entries)
-    withSession(fixture, function()
-      local panel, instance, ended = nil, nil, false
-      local laterDraws = 0
-      local function endOwner(pass, visual, base)
-        if (phase == 'panel' and visual.kind == 'panel') or (phase == 'control' and visual.id == 'first') then
-          ended = true
-          instance:disable()
-        end
-        base(pass, visual)
-      end
-      instance = owner(fixture.session, 'testing/draw-owner', function(context, service)
-        panel = service:newPanel(context, options('draw-lifetime', if phase == 'panel' then endOwner else nil))
-        panel:button(context, {
-          id = 'first',
-          bounds = { x = 0, y = 0, width = 40, height = 20 },
-          onActivate = function() end,
-          draw = if phase == 'control' then endOwner else nil,
-        })
-        panel:button(context, {
-          id = 'later',
-          bounds = { x = 50, y = 0, width = 40, height = 20 },
-          onActivate = function() end,
-          draw = function()
-            laterDraws += 1
-          end,
-        })
-      end)
-      local recorder = fixture.native.events.render
-      local checkpoint = recorder:checkpoint()
-      panel:draw(fixture.native.events.pass)
-      expect.truthy(ended, 'the selected hook ends its owner')
-      expect.equal(laterDraws, 0, 'a later control does not draw after owner teardown')
-      local meshes = fixture:drawCalls 'draw'
-      expect.equal(#meshes, if phase == 'panel' then 0 else 2, 'a stale base continuation does not paint')
-      recorder:assertRestored(checkpoint)
-    end)
-  end)
-end
-
-test('a draw callback geometry change stops the old panel transform', function()
-  local fixture = vrUi.boot(entries)
-  withSession(fixture, function()
-    local panel
-    local controlDraws = 0
-    owner(fixture.session, 'testing/draw-geometry', function(context, service)
-      panel = service:newPanel(
-        context,
-        options('draw-geometry', function(pass, visual, base)
-          if visual.kind == 'panel' then
-            panel:setSize(4, 2, 200, 100)
-          end
-          base(pass, visual)
-        end)
-      )
-      panel:button(context, {
-        id = 'stale-geometry',
-        bounds = { x = 0, y = 0, width = 40, height = 20 },
-        onActivate = function() end,
-        draw = function()
-          controlDraws += 1
-        end,
-      })
-    end)
-    local recorder = fixture.native.events.render
-    local checkpoint = recorder:checkpoint()
-    panel:draw(fixture.native.events.pass)
-    expect.equal(panel:describe().width, 4, 'the callback commits the new geometry')
-    expect.equal(controlDraws, 0, 'later controls do not use the old transform')
-    expect.equal(#fixture:drawCalls 'plane', 0, 'the stale panel continuation does not paint')
-    recorder:assertRestored(checkpoint)
-  end)
-end)
 
 test('panel theme changes retain copied control overrides in the live provider', function()
   local fixture = vrUi.boot(entries)

@@ -1,4 +1,4 @@
-local api = require './api'
+local plugin = require '@lunette-plugin'
 local panels = require '@lunette-contracts/panels'
 local interaction = require '@lunette-contracts/interaction'
 local keyboard = require '@lunette-contracts/keyboard'
@@ -19,7 +19,7 @@ local function build(
       return keyboardService:new(owner, options)
     end,
   }
-  local provider = api.define {
+  local provider = plugin.define {
     name = 'provider',
     provides = { panels = panels.capability, interaction = interaction.capability, keyboard = keyboard.capability },
     init = function(_ctx, config: Config, provide)
@@ -31,7 +31,7 @@ local function build(
       provide:provide(keyboard.capability, implementation)
     end,
   }
-  local consumer = api.define {
+  local consumer = plugin.define {
     name = 'consumer',
     requires = {
       panels = panels.capability,
@@ -78,7 +78,7 @@ local function build(
       end
     end,
   }
-  local runtime = api.runtime()
+  local runtime = plugin.runtime()
   local providerInstance = runtime:use(provider, { title = 'fixture', height = 1 })
   local consumerInstance = runtime:use(consumer, { title = 'fixture', height = 1 })
   consumerInstance:reload { title = 'reload', height = 2 }

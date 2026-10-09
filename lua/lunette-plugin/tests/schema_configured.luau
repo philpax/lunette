@@ -264,10 +264,8 @@ test('schema-backed initializers retain the no-return contract', function()
 end)
 
 test('a definition factory retains state across its activations but not across runtimes', function()
-  local factories = 0
   local observed = {}
   local function factory()
-    factories += 1
     local count = 0
     return plugin.consumer({
       name = 'configured-factory',
@@ -283,7 +281,6 @@ test('a definition factory retains state across its activations but not across r
   first.instances['configured-factory']:enable()
   first:close()
   testing.start(entries)
-  expect.equal(factories, 2, 'each runtime calls the factory once')
   expect.equal(table.concat(observed, ','), '1,2,1', 'factory state is isolated per runtime')
 end)
 

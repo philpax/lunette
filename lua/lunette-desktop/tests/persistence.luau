@@ -15,7 +15,6 @@ local function placementConsumers(session)
   local instances = {
     session:use(require '@lunette-plugins/desktop/workspaces'),
     session:use(require '@lunette-plugins/desktop/rules'),
-    session:use(require '@lunette-plugins/desktop/pose-memory'),
     session:use(persist.factory()),
     session:use(require '@lunette-plugins/desktop/arrange'()),
     session:use(require '@lunette-plugins/desktop/adoption'),

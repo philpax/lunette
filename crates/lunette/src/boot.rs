@@ -8,7 +8,7 @@ use std::{
     ffi::{CStr, OsString, c_int},
     mem,
     os::unix::ffi::OsStrExt,
-    path::{Path, PathBuf},
+    path::Path,
     process::ExitCode,
     ptr,
     rc::Rc,
@@ -81,7 +81,6 @@ pub fn run(
         match run_session(paths, session, &mut driver, control, &mut cookie) {
             Outcome::Restart => (),
             Outcome::Exit { status } => break status,
-            Outcome::LoadFailed => break FAILURE_STATUS,
         }
     };
 
@@ -91,24 +90,26 @@ pub fn run(
     ExitCode::from(status)
 }
 
-/// The exit status of a session whose `boot.lua` never started.
+/// The exit status of a session that failed to load or had nothing to present.
 const FAILURE_STATUS: u8 = 1;
 
 /// How one pass through the restart loop ended.
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 enum Outcome {
-    /// `boot.lua` requested a restart. The cookie carries state to the next
-    /// session, and the Lua state has already been closed.
+    /// Keep the compositor and client graph, and replace the Lua state. The
+    /// cookie carries state to the next session.
     Restart,
-    /// The session ended and the process exits with this status. The Lua state
-    /// has already been closed.
+    /// Stop the compositor and exit the process with this status.
     Exit {
         /// The status `boot.lua` returned, narrowed the way `exit()` narrows it.
         status: u8,
     },
-    /// `boot.lua` could not be loaded or run. No Lua state survives to close.
-    LoadFailed,
 }
+
+/// The outcome of a session that could not be loaded.
+const LOAD_FAILED: Outcome = Outcome::Exit {
+    status: FAILURE_STATUS,
+};
 
 /// Creates a Lua state, runs `boot.lua` in it, and executes it to completion.
 fn run_session(
@@ -128,7 +129,7 @@ fn run_session(
     let state = lua_handle.exec_raw_lua(|raw| raw.state());
     if state.is_null() {
         error!("lua: the interpreter state could not be allocated");
-        return Outcome::LoadFailed;
+        return LOAD_FAILED;
     }
 
     unsafe {
@@ -152,13 +153,13 @@ fn run_session(
         // `run_steps` returns, and no reference into it is kept.
         if let Err(error) = install(&lua_handle, session) {
             error!("lua: the lunette module could not be registered: {error}");
-            return Outcome::LoadFailed;
+            return LOAD_FAILED;
         }
 
         // Before `boot.lua`, which requires `main.luau` through it.
         if let Err(error) = require::install(&lua_handle) {
             error!("lua: relative require could not be installed: {error}");
-            return Outcome::LoadFailed;
+            return LOAD_FAILED;
         }
 
         push_arg_table(state, paths.config, paths.forwarded, cookie);
@@ -174,13 +175,13 @@ fn run_session(
         );
         if loaded != 0 || lua::lua_pcall(state, 0, 1, -2) != 0 {
             error!("lua: {}", describe_error(state));
-            return Outcome::LoadFailed;
+            return LOAD_FAILED;
         }
 
         let thread = lua::lua_tothread(state, -1);
         if thread.is_null() {
             error!("lua: boot.lua did not return a coroutine");
-            return Outcome::LoadFailed;
+            return LOAD_FAILED;
         }
 
         // Install the trigger after `boot.lua` creates `lovr` and before its
@@ -202,14 +203,8 @@ fn run_session(
 
         let outcome = run_steps(state, thread, session, driver, control, cookie, &lua_handle);
 
-        // `run_steps` closed the state via `luax_close` (LÖVR's finalizers ran).
-        // Mark the mlua state closed, so ValueRefs dropped during this
-        // function's unwind (e.g. the `Function` captured by the safe-mode
-        // trigger) skip poking the freed ref thread.
-        lua_handle.exec_raw_lua(|raw| raw.mark_closed());
-
-        // The mlua handle would close it again on drop, so it is forgotten; the
-        // state is already gone, and the handle would touch it again.
+        // `run_steps` closed the state, and the mlua handle would close it
+        // again on drop.
         std::mem::forget(lua_handle);
 
         outcome
@@ -268,17 +263,21 @@ unsafe fn run_steps(
                         has_window,
                         has_session, headset_loaded, "first frame completed"
                     );
-                    if let Some(terminal) = first_frame_terminal(FirstFrameState {
-                        has_window,
-                        headset_loaded,
-                        has_session,
-                    }) {
+                    if !has_window && headset_loaded && !has_session {
                         error!(
                             "no display and no XR runtime: \
                              the session has nothing to present"
                         );
                         return finish_terminal(
-                            state, thread, session, driver, cookie, lua_handle, terminal,
+                            state,
+                            thread,
+                            session,
+                            driver,
+                            cookie,
+                            lua_handle,
+                            Outcome::Exit {
+                                status: FAILURE_STATUS,
+                            },
                         );
                     }
                 }
@@ -313,7 +312,7 @@ unsafe fn run_steps(
                     driver,
                     cookie,
                     lua_handle,
-                    Terminal::Restart,
+                    Outcome::Restart,
                 );
             }
             Step::Exit { status } => {
@@ -324,38 +323,11 @@ unsafe fn run_steps(
                     driver,
                     cookie,
                     lua_handle,
-                    Terminal::Exit { status },
+                    Outcome::Exit { status },
                 );
             }
         }
     }
-}
-
-#[derive(Clone, Copy, Debug)]
-struct FirstFrameState {
-    has_window: bool,
-    headset_loaded: bool,
-    has_session: bool,
-}
-
-/// Chooses the terminal action when the first frame has no display or XR session.
-fn first_frame_terminal(state: FirstFrameState) -> Option<Terminal> {
-    if !state.has_window && state.headset_loaded && !state.has_session {
-        Some(Terminal::Exit {
-            status: FAILURE_STATUS,
-        })
-    } else {
-        None
-    }
-}
-
-/// The native action taken after the runtime and final frame have retired.
-#[derive(Clone, Copy, Debug)]
-enum Terminal {
-    /// Keep the compositor and client graph while replacing the Lua state.
-    Restart,
-    /// Stop the compositor and finish the process.
-    Exit { status: u8 },
 }
 
 /// Retires the live Lua runtime and closes one terminal session.
@@ -369,13 +341,13 @@ fn finish_terminal(
     driver: &mut FrameDriver,
     cookie: &mut raw::Variant,
     lua_handle: &Lua,
-    terminal: Terminal,
+    outcome: Outcome,
 ) -> Outcome {
     host::shutdown(lua_handle, "terminal shutdown");
     session.clear_subscribers();
     driver.end_frame();
-    match terminal {
-        Terminal::Restart => {
+    match outcome {
+        Outcome::Restart => {
             driver.quiesce();
             // SAFETY: `boot.lua` leaves the restart cookie at thread stack index 2.
             unsafe {
@@ -387,7 +359,7 @@ fn finish_terminal(
                 }
             }
         }
-        Terminal::Exit { .. } => {
+        Outcome::Exit { .. } => {
             // SAFETY: the headset remains initialized until the Lua state
             // closes. OpenVR acknowledges a requested exit before teardown.
             unsafe { raw::lovrHeadsetWillExit() };
@@ -401,14 +373,11 @@ fn finish_terminal(
             state,
             thread,
             lua_handle,
-            matches!(terminal, Terminal::Exit { .. }),
+            matches!(outcome, Outcome::Exit { .. }),
         )
     };
 
-    match terminal {
-        Terminal::Restart => Outcome::Restart,
-        Terminal::Exit { status } => Outcome::Exit { status },
-    }
+    outcome
 }
 
 /// Clears callbacks and closes the external LÖVR state after native teardown.
@@ -474,26 +443,6 @@ unsafe fn step(thread: *mut lua::lua_State) -> Step {
     }
 }
 
-/// Describes one mounted module root for the Lua-side filesystem hook.
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct MountDescription {
-    source: PathBuf,
-    mount_point: String,
-    required: bool,
-}
-
-/// Derives the mount table from the same validated roots used by the checker.
-fn mount_descriptions(roots: &ModuleRoots) -> Vec<MountDescription> {
-    roots
-        .mounted()
-        .map(|root| MountDescription {
-            source: root.source.clone(),
-            mount_point: root.mount_point(),
-            required: root.required(),
-        })
-        .collect()
-}
-
 /// Mounts every resolved development root when `lovr.filesystem` is created.
 ///
 /// The preload wrapper mounts roots when `lovr.filesystem` loads. `boot.lua` loads this module
@@ -526,22 +475,7 @@ unsafe fn install_standard_library_mount(state: *mut lua::lua_State, roots: &Mod
     // guarantees the state and the stack room.
     unsafe {
         lua::lua_getglobal(state, c"package".as_ptr());
-        if lua::lua_type(state, -1) != lua::LUA_TTABLE {
-            // Unreachable after `luaL_openlibs`, and checked anyway: indexing a
-            // non-table raises, and this runs under no `pcall`, so the error
-            // would `longjmp` out through Rust frames and would not be
-            // handled.
-            error!("lua: package is not a table, so module roots cannot be mounted");
-            lua::lua_pop(state, 1);
-            return;
-        }
-
         lua::lua_getfield(state, -1, c"preload".as_ptr());
-        if lua::lua_type(state, -1) != lua::LUA_TTABLE {
-            error!("lua: package.preload is not a table, so module roots cannot be mounted");
-            lua::lua_pop(state, 2);
-            return;
-        }
 
         lua::lua_getfield(state, -1, FILESYSTEM_MODULE.as_ptr());
         if lua::lua_type(state, -1) != lua::LUA_TFUNCTION {
@@ -557,16 +491,16 @@ unsafe fn install_standard_library_mount(state: *mut lua::lua_State, roots: &Mod
 
         lua::lua_newtable(state);
         let mut index = 1;
-        for description in mount_descriptions(roots) {
-            if !description.required && !description.source.is_dir() {
+        for root in roots.mounted() {
+            if !root.required() && !root.source.is_dir() {
                 continue;
             }
             lua::lua_newtable(state);
-            push_path(state, &description.source);
+            push_bytes(state, root.source.as_os_str().as_bytes());
             lua::lua_rawseti(state, -2, 1);
-            push_string(state, &description.mount_point);
+            push_bytes(state, root.mount_point().as_bytes());
             lua::lua_rawseti(state, -2, 2);
-            lua::lua_pushboolean(state, c_int::from(description.required));
+            lua::lua_pushboolean(state, c_int::from(root.required()));
             lua::lua_rawseti(state, -2, 3);
             lua::lua_rawseti(state, -2, index);
             index += 1;
@@ -580,26 +514,6 @@ unsafe fn install_standard_library_mount(state: *mut lua::lua_State, roots: &Mod
 
 /// The `package.preload` key LÖVR's filesystem module is registered under.
 const FILESYSTEM_MODULE: &CStr = c"lovr.filesystem";
-
-/// Pushes a path as a Lua string.
-///
-/// # Safety
-///
-/// The caller guarantees `state` is a live Lua state with a free stack slot.
-unsafe fn push_path(state: *mut lua::lua_State, path: &Path) {
-    // SAFETY: the caller guarantees the Lua state and stack slot.
-    unsafe { push_bytes(state, path.as_os_str().as_bytes()) };
-}
-
-/// Pushes a UTF-8 string as a Lua string.
-///
-/// # Safety
-///
-/// The caller guarantees `state` is a live Lua state with a free stack slot.
-unsafe fn push_string(state: *mut lua::lua_State, value: &str) {
-    // SAFETY: the caller guarantees the Lua state and stack slot.
-    unsafe { push_bytes(state, value.as_bytes()) };
-}
 
 /// Pushes arbitrary bytes as a Lua string.
 ///
@@ -638,26 +552,12 @@ unsafe extern "C-unwind" fn open_filesystem_and_mount(state: *mut lua::lua_State
         install_log_handler(state);
 
         let filesystem = lua::lua_absindex(state, -1);
-        lua::lua_getfield(state, filesystem, c"mount".as_ptr());
-        if lua::lua_type(state, -1) != lua::LUA_TFUNCTION {
-            error!("lua: lovr.filesystem has no mount function");
-            lua::lua_pop(state, 1);
-            return 1;
-        }
-        lua::lua_pop(state, 1);
-
         let mounts = lua::lua_upvalueindex(2);
         let count = lua::lua_rawlen(state, mounts);
         for index in 1..=count {
             lua::lua_pushvalue(state, filesystem);
             lua::lua_getfield(state, -1, c"mount".as_ptr());
             lua::lua_rawgeti(state, mounts, index as _);
-            if lua::lua_type(state, -1) != lua::LUA_TTABLE {
-                error!("lua: module root mount record {index} is not a table");
-                lua::lua_pop(state, 3);
-                continue;
-            }
-
             lua::lua_rawgeti(state, -1, 1);
             lua::lua_rawgeti(state, -2, 2);
             lua::lua_rawgeti(state, -3, 3);
@@ -766,17 +666,6 @@ unsafe fn describe_error(state: *mut lua::lua_State) -> String {
     }
 }
 
-/// Borrows the value at `index` as bytes, or `None` if Lua cannot render it as
-/// a string.
-///
-/// Lua strings are byte strings, not UTF-8, so they are returned unvalidated.
-///
-/// # Safety
-///
-/// `state` must be a live Lua state holding a value at `index`. The returned
-/// slice borrows Lua's own copy, which remains until that value leaves the
-/// stack, so the caller must not let the lifetime outlive it; `lua_tolstring`
-/// also converts a number at `index` to a string in place.
 /// Fixed, because `tracing` metadata is `'static` and a LÖVR log tag is not.
 const LUA_LOG_TARGET: &str = "lunette::lua";
 
@@ -851,6 +740,17 @@ unsafe fn owned_string(state: *mut lua::lua_State, index: c_int) -> Option<Strin
     unsafe { string_bytes(state, index) }.map(|bytes| String::from_utf8_lossy(bytes).into_owned())
 }
 
+/// Borrows the value at `index` as bytes, or `None` if Lua cannot render it as
+/// a string.
+///
+/// Lua strings are byte strings, not UTF-8, so they are returned unvalidated.
+///
+/// # Safety
+///
+/// `state` must be a live Lua state holding a value at `index`. The returned
+/// slice borrows Lua's own copy, which remains until that value leaves the
+/// stack, so the caller must not let the lifetime outlive it; `lua_tolstring`
+/// also converts a number at `index` to a string in place.
 unsafe fn string_bytes<'a>(state: *mut lua::lua_State, index: c_int) -> Option<&'a [u8]> {
     // SAFETY: the caller guarantees the stack slot exists.
     let pointer = unsafe { lua::lua_tolstring(state, index, ptr::null_mut()) };
@@ -869,39 +769,6 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     use super::*;
-
-    #[test]
-    fn first_frame_without_display_or_xr_selects_failure_exit() {
-        for has_window in [false, true] {
-            for headset_loaded in [false, true] {
-                for has_session in [false, true] {
-                    let terminal = first_frame_terminal(FirstFrameState {
-                        has_window,
-                        headset_loaded,
-                        has_session,
-                    });
-
-                    let should_exit = !has_window && headset_loaded && !has_session;
-                    match terminal {
-                        Some(Terminal::Exit { status }) => {
-                            assert!(
-                                should_exit,
-                                "unexpected failure exit for {has_window}, {headset_loaded}, {has_session}"
-                            );
-                            assert_eq!(status, FAILURE_STATUS);
-                        }
-                        None => assert!(
-                            !should_exit,
-                            "missing failure exit for {has_window}, {headset_loaded}, {has_session}"
-                        ),
-                        Some(Terminal::Restart) => {
-                            panic!("first-frame validation cannot request restart")
-                        }
-                    }
-                }
-            }
-        }
-    }
 
     fn entries(config_directory: &str, user_arguments: &[&str]) -> Vec<OsString> {
         arg_entries(
@@ -943,45 +810,5 @@ mod tests {
     fn a_leading_flag_cannot_reach_index_one() {
         let entries = entries("/etc/xdg/lunette", &["-h"]);
         assert!(!entries[1].as_bytes().starts_with(b"-"));
-    }
-
-    #[test]
-    fn development_mounts_share_the_validated_root_model() {
-        let roots = ModuleRoots::development("/resolved/lunette");
-        let descriptions = mount_descriptions(&roots);
-
-        assert_eq!(
-            descriptions
-                .iter()
-                .map(|description| description.mount_point.as_str())
-                .collect::<Vec<_>>(),
-            vec![
-                "@lunette-plugin",
-                "@lunette-contracts",
-                "@lunette-plugins",
-                "@lunette-desktop",
-                "@testing",
-            ]
-        );
-        assert_eq!(
-            descriptions
-                .iter()
-                .map(|description| description.source.clone())
-                .collect::<Vec<_>>(),
-            vec![
-                PathBuf::from("/resolved/lunette/lunette-plugin"),
-                PathBuf::from("/resolved/lunette/lunette-contracts"),
-                PathBuf::from("/resolved/lunette/lunette-plugins"),
-                PathBuf::from("/resolved/lunette/lunette-desktop"),
-                PathBuf::from("/resolved/lunette/testing"),
-            ]
-        );
-        assert_eq!(
-            descriptions
-                .iter()
-                .map(|description| description.required)
-                .collect::<Vec<_>>(),
-            vec![true, true, true, true, false]
-        );
     }
 }

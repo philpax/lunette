@@ -73,10 +73,7 @@ function frame.attach(target: Target, owner: plugin.Owner, style: vocabulary.Fra
       if not record.live or target.dead or target.source.dead or not target.host.active() then
         error('panels frame update: the attachment or target is dead', 2)
       end
-      local copied = frameStyle.validate(replacement)
-      if not frameStyle.equal(record.style, copied) then
-        record.style = copied
-      end
+      record.style = frameStyle.validate(replacement)
     end,
     isJoined = function(_self: vocabulary.FrameAttachment): boolean
       return frame.joined(record)

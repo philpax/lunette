@@ -71,8 +71,6 @@ impl LayerBackend for FakeLayers {
     }
 
     fn destroy(&mut self, _layer: Self::Layer) {}
-
-    fn abandon(&mut self, _layer: Self::Layer) {}
 }
 
 /// The runtime limit that leaves the pool exactly one slot to spend.

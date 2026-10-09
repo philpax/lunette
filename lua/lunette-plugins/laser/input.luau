@@ -1,14 +1,13 @@
 -- Headset input uses each hand's pointing pose and controller. Per-laser readers can replace it.
 
 local lunette = require '@lunette'
-local vocabulary = require '@lunette-contracts/vocabulary'
+local contracts = require '@lunette-contracts/laser'
 
 local input = {}
 
-export type Device = 'hand/left/point' | 'hand/right/point' | 'hand/left' | 'hand/right'
-export type Hand = 'left' | 'right'
-export type Input = vocabulary.Input
-export type Reader = (Hand) -> Input?
+type Device = contracts.Device
+type Hand = contracts.Hand
+type Input = contracts.Input
 
 export type Mapping = {
   read control: DeviceButton,

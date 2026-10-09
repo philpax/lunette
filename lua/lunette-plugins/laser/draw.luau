@@ -9,7 +9,7 @@ type Color = contracts.Color
 
 function draw.laser(target: Laser, pass: Pass): ()
   local frame = target.input
-  if target.dead or not frame then
+  if not frame then
     return
   end
 

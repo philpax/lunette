@@ -42,10 +42,6 @@ test('metadata defaults match schema resolution and empty collections replace', 
   expect.equal(next(value.map), nil)
   expect.equal(value.title, 'Initial')
   expect.equal(value.note, nil)
-  local bound = editor.new(metadata, { style = { inner = {} } }, { style = { width = 99, inner = { depth = 88 } } })
-  expect.equal(editor.draft(bound).style.width, 99)
-  expect.equal(editor.draft(bound).style.inner.depth, 88)
-  expect.equal(editor.draft(bound).title, 'Initial')
 end)
 
 test('flattened paths identify groups, vector components, collections, and labels', function()
@@ -60,7 +56,7 @@ test('flattened paths identify groups, vector components, collections, and label
   expect.equal(row(model, { 'detail' }).control, 'optional')
 end)
 
-test('edits are immutable and share untouched snapshots without changing applied values', function()
+test('edits are immutable and share untouched snapshots', function()
   local config = { style = { width = 14 }, title = 'Before' }
   local model = editor.new(fixture(), config)
   local before = editor.draft(model)
@@ -70,7 +66,6 @@ test('edits are immutable and share untouched snapshots without changing applied
   local value = editor.draft(updated)
   expect.equal(value.style.inner.depth, 42)
   expect.equal(before.style.inner.depth, 30)
-  expect.equal(updated.applied, before)
   expect.truthy(value ~= before and value.style ~= before.style and value.style.inner ~= before.style.inner)
   expect.equal(value.list, before.list)
   expect.equal(value.map, before.map)

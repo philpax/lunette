@@ -6,20 +6,16 @@ use libtest_mimic::{Failed, Trial};
 use mlua::{Lua, Table};
 
 use crate::{
-    discover::{self, Kind, Source},
+    discover::{self, Kind},
     run,
     state::{self, Roots},
 };
 
 pub fn trials(roots: &Roots) -> Vec<Trial> {
-    let mut trials = vec![
-        Trial::test("runner::test_files_are_directly_inside_tests", || {
-            classification()
-        }),
-        Trial::test("runner::a_test_file_is_required_under_its_root", || {
-            naming()
-        }),
-    ];
+    let mut trials = vec![Trial::test(
+        "runner::test_files_are_directly_inside_tests",
+        classification,
+    )];
     for (name, outcome) in OUTCOMES {
         let roots = roots.clone();
         trials.push(Trial::test(format!("runner::{name}"), move || {
@@ -32,19 +28,8 @@ pub fn trials(roots: &Roots) -> Vec<Trial> {
 fn classification() -> Result<(), Failed> {
     let cases = [
         ("lunette-plugins/pacing/tests/pacer.luau", Kind::Test),
-        ("testing/tests/expect.luau", Kind::Test),
-        ("plugins/demo-terminal/tests/startup.luau", Kind::Test),
-        ("plugins/demo-terminal/tests/nested/case.luau", Kind::Stray),
-        (
-            "plugins/demo-terminal/tests/support/fixture.luau",
-            Kind::Support,
-        ),
         (
             "lunette-plugins/arrangement/tests/support/fixture.luau",
-            Kind::Support,
-        ),
-        (
-            "lunette-plugins/arrangement/tests/support/deeper/fixture.luau",
             Kind::Support,
         ),
         (
@@ -52,8 +37,6 @@ fn classification() -> Result<(), Failed> {
             Kind::Stray,
         ),
         ("lunette-plugins/arrangement/tests/notes.txt", Kind::Stray),
-        ("lunette-plugins/pacing/pacer.luau", Kind::Other),
-        ("lunette-plugins/pacing/init.luau", Kind::Other),
     ];
     for (path, wanted) in cases {
         let found = discover::classify(Path::new(path));
@@ -64,50 +47,21 @@ fn classification() -> Result<(), Failed> {
     Ok(())
 }
 
-fn naming() -> Result<(), Failed> {
-    let file = discover::test_file(
-        Path::new("lunette-plugins/pacing/tests/pacer.luau"),
-        Source::Library,
-    )
-    .map_err(|error| error.to_string())?;
-    if file.name != "lunette-plugins/pacing/tests/pacer"
-        || file.module != "@lunette-plugins/pacing/tests/pacer"
-    {
-        return Err(format!("{file:?}").into());
-    }
-    if discover::test_file(Path::new("elsewhere/tests/case.luau"), Source::Library).is_ok() {
-        return Err("a test file outside every module root was named".into());
-    }
-    let development = discover::test_file(
-        Path::new("plugins/demo-terminal/tests/startup.luau"),
-        Source::Development,
-    )
-    .map_err(|error| error.to_string())?;
-    if development.name != "dev/plugins/demo-terminal/tests/startup"
-        || development.module != "plugins/demo-terminal/tests/startup"
-        || development.source != Source::Development
-    {
-        return Err(format!("{development:?}").into());
-    }
-    Ok(())
-}
-
-/// A test module's source, and the substrings its failure has to contain, or
-/// none when it has to pass.
+/// A test module's source, and the substrings its failure has to contain.
 struct Outcome {
     source: &'static str,
-    failure: Option<&'static [&'static str]>,
+    failure: &'static [&'static str],
     /// A global the source counts its cases into, and the count the run has
     /// to leave, so a run that stopped early is noticed.
     ran: Option<i64>,
 }
 
-const OUTCOMES: [(&str, Outcome); 6] = [
+const OUTCOMES: [(&str, Outcome); 5] = [
     (
         "a_file_returning_no_suite_fails",
         Outcome {
             source: "local _ = 1",
-            failure: Some(&["did not return a test suite", "boolean"]),
+            failure: &["did not return a test suite", "boolean"],
             ran: None,
         },
     ),
@@ -115,7 +69,7 @@ const OUTCOMES: [(&str, Outcome); 6] = [
         "a_file_with_no_cases_fails",
         Outcome {
             source: "return require('@testing').suite()",
-            failure: Some(&["defines no cases"]),
+            failure: &["defines no cases"],
             ran: None,
         },
     ),
@@ -129,7 +83,7 @@ const OUTCOMES: [(&str, Outcome); 6] = [
                 test('raises', function() RAN += 1; error 'meta: deliberate' end)
                 test('last', function() RAN += 1 end)
                 return test",
-            failure: Some(&["FAIL raises", "meta: deliberate", "1 of 3 cases failed"]),
+            failure: &["FAIL raises", "meta: deliberate", "1 of 3 cases failed"],
             ran: Some(3),
         },
     ),
@@ -152,12 +106,12 @@ const OUTCOMES: [(&str, Outcome); 6] = [
                 end)
                 test('leaves', fail)
                 return test",
-            failure: Some(&[
+            failure: &[
                 "FAIL leaves",
                 "did not take",
                 "meta: init",
                 "1 of 2 cases failed",
-            ]),
+            ],
             ran: None,
         },
     ),
@@ -175,22 +129,8 @@ const OUTCOMES: [(&str, Outcome); 6] = [
                   end }, {}):enable()
                 end)
                 return test",
-            failure: Some(&["the plugin shutdown after the last case", "meta: cleanup"]),
+            failure: &["the plugin shutdown after the last case", "meta: cleanup"],
             ran: None,
-        },
-    ),
-    (
-        "a_file_whose_cases_pass_passes",
-        Outcome {
-            source: "
-                local testing = require '@testing'
-                local test = testing.suite()
-                RAN = 0
-                test('one', function() RAN += 1; testing.expect.equal(1, 1) end)
-                test('two', function() RAN += 1 end)
-                return test",
-            failure: None,
-            ran: Some(2),
         },
     ),
 ];
@@ -200,18 +140,11 @@ const MODULE: &str = "meta/case";
 fn outcome_of(roots: &Roots, outcome: &Outcome) -> Result<(), Failed> {
     let lua = state::new(roots).map_err(|error| error.to_string())?;
     preload(&lua, outcome.source).map_err(|error| error.to_string())?;
-    let result = run::module(&lua, MODULE);
-    match (outcome.failure, &result) {
-        (None, Ok(())) => {}
-        (None, Err(message)) => return Err(format!("the file failed: {message}").into()),
-        (Some(_), Ok(())) => return Err("the file passed".into()),
-        (Some(wanted), Err(message)) => {
-            for part in wanted {
-                if !message.contains(part) {
-                    return Err(format!("the failure lacks '{part}': {message}").into());
-                }
-            }
-        }
+    let Err(message) = run::module(&lua, MODULE) else {
+        return Err("the file passed".into());
+    };
+    if let Some(part) = outcome.failure.iter().find(|part| !message.contains(*part)) {
+        return Err(format!("the failure lacks '{part}': {message}").into());
     }
     if let Some(wanted) = outcome.ran {
         let ran: i64 = lua

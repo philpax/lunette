@@ -9,7 +9,9 @@ local compose = {}
 export type Definition = adapter.Definition<any>
 export type Config = { [string]: any }
 
--- Each entry has one definition source. A factory runs once per start, preserving its definition across provider outages.
+-- Each entry has one definition source. Composition calls a factory to read its schema, and each start calls it once
+-- more for the instance, which keeps that definition across provider outages. A factory therefore has no side effects
+-- until its definition activates.
 export type Entry = {
   read id: string,
   read definition: Definition?,
@@ -52,10 +54,6 @@ local function fail(message: string): never
   error('compose: ' .. message, 0)
 end
 
--- Deferred factories need detached structural values and the original identities of opaque values.
-local originals: { [Raw]: Raw } = setmetatable({}, { __mode = 'k' }) :: any
-local layers: { [Config]: { Config } } = setmetatable({}, { __mode = 'k' }) :: any
-
 local function unwrapped(metadata: schemaRuntime.Node?): schemaRuntime.Node?
   local node = metadata
   while node and (node.kind == 'default' or node.kind == 'optional' or node.kind == 'refine') do
@@ -64,14 +62,14 @@ local function unwrapped(metadata: schemaRuntime.Node?): schemaRuntime.Node?
   return node
 end
 
-local frozenCopy: (unknown, schemaRuntime.Node?, { [Raw]: { [unknown]: Raw } }?) -> unknown
+local frozenCopy: (unknown, schemaRuntime.Node?, { [Raw]: boolean }?) -> unknown
 
+-- A union copies by the first alternative that parses the value. When none does, resolution reports the problem.
 local function selected(value: unknown, metadata: schemaRuntime.Node?): schemaRuntime.Node?
   local node = unwrapped(metadata)
   if node and node.kind == 'union' then
     for _, alternative in node.alternatives or {} do
-      local restored = frozenCopy(value, alternative)
-      if pcall(schemaRuntime.parse, alternative, restored, 'compose configuration') then
+      if pcall(schemaRuntime.parse, alternative, value, 'compose configuration') then
         return selected(value, alternative)
       end
     end
@@ -79,26 +77,22 @@ local function selected(value: unknown, metadata: schemaRuntime.Node?): schemaRu
   return node
 end
 
-frozenCopy = function(value: unknown, metadata: schemaRuntime.Node?, seen: { [Raw]: { [unknown]: Raw } }?): unknown
+-- Custom and callback values keep their identity. Every other plain table is copied and frozen.
+frozenCopy = function(value: unknown, metadata: schemaRuntime.Node?, visiting: { [Raw]: boolean }?): unknown
   local node = selected(value, metadata)
   if node and (node.kind == 'custom' or node.kind == 'callback') then
-    return if type(value) == 'table' then originals[value :: Raw] or value else value
+    return value
   end
   if type(value) ~= 'table' or getmetatable(value :: any) ~= nil then
     return value
   end
   local raw = value :: Raw
-  local copied = seen or {}
-  local interpretations: { [unknown]: Raw } = copied[raw] or {}
-  local shape: unknown = node or false
-  local known = interpretations[shape]
-  if known then
-    return known
+  local active = visiting or {}
+  if active[raw] then
+    fail 'configuration contains a recursive table'
   end
+  active[raw] = true
   local copy: Raw = {}
-  copied[raw] = interpretations
-  interpretations[shape] = copy
-  originals[copy] = originals[raw] or raw
   for key, item in raw do
     local child = if node
         and node.kind == 'object'
@@ -107,8 +101,9 @@ frozenCopy = function(value: unknown, metadata: schemaRuntime.Node?, seen: { [Ra
       then node.fields[key]
       elseif node and (node.kind == 'array' or node.kind == 'map') then node.child
       else nil
-    copy[key] = frozenCopy(item, child, copied)
+    copy[key] = frozenCopy(item, child, active)
   end
+  active[raw] = nil
   return table.freeze(copy)
 end
 
@@ -127,69 +122,36 @@ local function schemaMerged(base: unknown, over: unknown, metadata: schemaRuntim
   return result
 end
 
--- Empty tables replace because they do not distinguish records from lists.
-local function isRecord(value: unknown): boolean
-  if type(value) ~= 'table' or getmetatable(value :: any) ~= nil or rawlen(value :: any) > 0 then
-    return false
-  end
-  for key, _ in value :: Raw do
-    if type(key) ~= 'string' then
-      return false
-    end
-  end
-  return next(value :: Raw) ~= nil
-end
-
-local function recordMerged(base: Raw, over: Raw, seen: { [Raw]: { [Raw]: Raw } }?): Raw
-  local copied = seen or {}
-  local previous: { [Raw]: Raw } = copied[base] or {}
-  local known = previous[over]
-  if known then
-    return known
-  end
-  local result = table.clone(base)
-  copied[base] = previous
-  previous[over] = result
-  for key, value in over do
-    local prior = result[key]
-    result[key] = if isRecord(prior) and isRecord(value)
-      then recordMerged(prior :: Raw, value :: Raw, copied)
-      else value
-  end
-  return result
-end
-
-local function configuration(value: Config?, metadata: schemaRuntime.Node?): Config?
-  if value == nil then
-    return nil
-  end
-  local pending = layers[value]
-  if pending and metadata then
-    local result: unknown = nil
-    for _, layer in pending do
-      -- A reused composed patch resolves its own layers before merging with this destination.
-      local snapshot = configuration(layer, metadata)
-      result = schemaMerged(result, snapshot, metadata)
-    end
-    return frozenCopy(result, metadata) :: Config
-  end
-  local snapshot = frozenCopy(value, metadata) :: Config
-  if pending then
-    layers[snapshot] = pending
-  end
-  return snapshot
-end
-
 local function checkSource(what: string, definition: unknown, factory: unknown): ()
   if definition ~= nil and factory ~= nil then
     fail(what .. ' gives both a definition and a factory; it gives one')
   end
-  if definition ~= nil and type(definition) ~= 'table' then
+  if definition ~= nil and not adapter.isDefinition(definition) then
     fail(what .. ': definition is a plugin definition, not a ' .. type(definition))
   end
   if factory ~= nil and type(factory) ~= 'function' then
     fail(what .. ': factory is a function, not a ' .. type(factory))
   end
+end
+
+local function sourced(id: string, definition: Definition?, factory: (() -> Definition)?): Definition
+  if definition then
+    return definition
+  end
+  local made: unknown = (factory :: () -> Definition)()
+  if not adapter.isDefinition(made) then
+    fail('the factory of ' .. id .. ' answered a ' .. type(made) .. ', not a plugin definition')
+  end
+  return made :: Definition
+end
+
+local function settled(id: string, definition: Definition?, factory: (() -> Definition)?, config: unknown): Entry
+  return table.freeze {
+    id = id,
+    definition = definition,
+    factory = factory,
+    config = if config ~= nil then frozenCopy(config, sourced(id, definition, factory).schema) :: Config else nil,
+  }
 end
 
 local function checkConfig(what: string, config: unknown): ()
@@ -214,13 +176,7 @@ local function checkedEntry(value: unknown, position: string): Entry
     fail(what .. ' gives neither a definition nor a factory')
   end
   checkConfig(what, raw.config)
-  local definition = raw.definition :: Definition?
-  return table.freeze {
-    id = id :: string,
-    definition = definition,
-    factory = raw.factory :: (() -> Definition)?,
-    config = configuration(raw.config :: Config?, if definition then definition.schema else nil),
-  }
+  return settled(id :: string, raw.definition :: Definition?, raw.factory :: (() -> Definition)?, raw.config)
 end
 
 local function checkedList(value: unknown, what: string): { unknown }
@@ -303,27 +259,13 @@ local function patched(entry: Entry, patch: Keyed): Entry
   if patch.definition ~= nil or patch.factory ~= nil then
     definition, factory = patch.definition, patch.factory
   end
-  local metadata = if definition then definition.schema else nil
-  local config = configuration(entry.config, metadata)
+  local config: unknown = entry.config
   if patch.config ~= nil then
-    local over = configuration(patch.config, metadata) :: Config
-    if metadata then
-      config = frozenCopy(schemaMerged(config, over, metadata), metadata) :: Config
-    else
-      local pending = if config then layers[config] else nil
-      local merged = frozenCopy(recordMerged((config or {}) :: Raw, over :: Raw)) :: Config
-      if factory then
-        local sequence = if pending then table.clone(pending) else {}
-        if not pending and config then
-          table.insert(sequence, config)
-        end
-        table.insert(sequence, over)
-        layers[merged] = table.freeze(sequence)
-      end
-      config = merged
-    end
+    -- Without a schema there is no merge rule, so the patch's configuration replaces the entry's.
+    local metadata = sourced(entry.id, definition, factory).schema
+    config = if metadata then schemaMerged(config, patch.config, metadata) else patch.config
   end
-  return checkedEntry({ id = entry.id, definition = definition, factory = factory, config = config }, 'entry')
+  return settled(entry.id, definition, factory, config)
 end
 
 -- Returns the patched entries in order. It rejects duplicate ids, missing patch targets, and patches that disable and update one entry.
@@ -422,7 +364,7 @@ function compose.configure<C>(id: string, target: adapter.Definition<C> | () -> 
   if type(id) ~= 'string' or id == '' then
     error('compose: configure: id is a non-empty string, not ' .. tostring(id), 2)
   end
-  if type(target) ~= 'function' and (type(target) ~= 'table' or type((target :: Raw).name) ~= 'string') then
+  if type(target) ~= 'function' and not adapter.isDefinition(target) then
     error('compose: configure takes a plugin definition or a factory of one, not a ' .. type(target), 2)
   end
   return function(config: C): Patch
@@ -430,22 +372,17 @@ function compose.configure<C>(id: string, target: adapter.Definition<C> | () -> 
   end
 end
 
--- Resolves one checked entry's source and deferred configuration once per start, without initializing or validating settings.
+-- Answers a frozen copy of a configuration, interpreted by the schema so custom values keep their identity.
+function compose.snapshot(config: unknown, metadata: schemaRuntime.Node?): unknown
+  return frozenCopy(config, metadata)
+end
+
+local empty: Config = {}
+local EMPTY = table.freeze(empty)
+
+-- Answers a checked entry's definition, calling its factory, and its configuration. It initializes and validates nothing.
 function compose.resolveEntry(entry: Entry): ResolvedEntry
-  local factory = entry.factory
-  local definition = entry.definition or (factory and factory())
-  if type(definition) ~= 'table' then
-    error('compose: the factory of ' .. entry.id .. ' answered a ' .. type(definition) .. ', not a definition', 0)
-  end
-  local snapshot = configuration(entry.config, definition.schema)
-  local config: Config
-  if snapshot then
-    config = snapshot
-  else
-    local empty: Config = {}
-    config = table.freeze(empty)
-  end
-  return table.freeze { definition = definition, config = config }
+  return table.freeze { definition = sourced(entry.id, entry.definition, entry.factory), config = entry.config or EMPTY }
 end
 
 return compose

@@ -4,7 +4,6 @@ local fixture = require './support/fixture'
 local test = testing.suite()
 
 local function callbackFree(value)
-  expect.truthy(table.isfrozen(value), 'each snapshot table is frozen')
   for _, member in pairs(value) do
     expect.truthy(type(member) ~= 'function', 'a snapshot contains no callback')
     if type(member) == 'table' then
@@ -13,7 +12,7 @@ local function callbackFree(value)
   end
 end
 
-test('lists are copied callback-free frozen descriptors sorted by group order and id', function()
+test('lists are copied callback-free descriptors sorted by group order and id', function()
   local env = fixture.start()
   expect.equal(#env.service:list(), 0, 'an empty list')
   local calls = 0
@@ -46,9 +45,6 @@ test('lists are copied callback-free frozen descriptors sorted by group order an
   expect.equal(row.registration, second[3].registration, 'the token is stable for its registration')
   expect.equal(env.service:invoke(row.id, row.registration).kind, 'invoked', 'the snapshotted callback invokes')
   expect.equal(calls, 1, 'mutation does not replace the callback')
-  expect.raises(function()
-    first[1].label = 'Changed'
-  end, 'readonly', 'a descriptor cannot mutate')
   env.session:close()
 end)
 

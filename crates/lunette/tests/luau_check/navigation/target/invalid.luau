@@ -1,5 +1,5 @@
-local bare = require '@bare'
-local collision = require '@collision'
-local missing = require '@missing'
-local reserved = require '@reserved'
+local bare = require '@bare' -- reject: unsupported path.
+local collision = require '@collision' -- reject: unsupported path.
+local missing = require '@missing' -- reject: unsupported path.
+local reserved = require '@reserved' -- reject: unsupported path.
 return { bare, collision, missing, reserved }

@@ -5,7 +5,8 @@ local themesContract = require '@lunette-contracts/theme'
 local surfaces = require '@lunette-contracts/surfaces'
 local quad = require '@lunette-contracts/quad'
 local styleDefinition = require './titlebar-style'
-local depth = require './depth'
+local draw = require './draw'
+local cleanup = require './cleanup'
 local titlebarOptions = require './titlebar-options'
 local titlebarDraw = require './titlebar-draw'
 local rounded = require '@lunette-plugins/theme/rounded-geometry'
@@ -18,27 +19,32 @@ local titlebar = {}
 
 titlebar.options = titlebarOptions.parse
 
+-- One provider activation shares these with every titlebar it creates.
+export type Provider = {
+  read context: plugin.Context,
+  read service: ui.Service,
+  read surfaces: surfaces.Service,
+  read style: ui.TitlebarStyleOverrides,
+  read themes: themesContract.Service,
+  read contour: (ui.Panel, records.Contour) -> (),
+}
+
 function titlebar.new(
-  context: plugin.Context,
+  provider: Provider,
   owner: ui.Owner,
   name: string,
   target: vocabulary.Surface,
   given: ui.TitlebarOptions,
-  visible: (() -> boolean)?,
-  service: ui.Service,
-  offers: surfaces.Service,
-  defaultStyle: ui.TitlebarStyleOverrides,
-  themes: themesContract.Service,
-  contour: (ui.Panel, records.Contour) -> (),
-  onDestroyed: (() -> ())?
+  visible: (() -> boolean)?
 ): ui.Titlebar
+  local context, themes = provider.context, provider.themes
   context:checkOwner(owner)
   assert(type(name) == 'string' and name ~= '', 'ui titlebar: name is non-empty')
   assert(target.pose and target.width and target.height, 'ui titlebar: target has panel geometry')
   local options = titlebar.options(given)
   local function resolveStyle(current: ui.TitlebarOptions): ui.TitlebarStyleOverrides
     return styleDefinition.inherit(
-      styleDefinition.inherit(styleDefinition.global(themes:current().theme), defaultStyle),
+      styleDefinition.inherit(styleDefinition.global(themes:current().theme), provider.style),
       current.style
     )
   end
@@ -46,9 +52,9 @@ function titlebar.new(
   local style = styleDefinition.materialize(spec, themes:font(spec.font))
   local themeRevision = themes:current().revision
   local dead, highlighted = false, false
-  local refreshing = false
+  local handleFields: { dead: boolean } = { dead = false }
   local function refresh(force: boolean?): ()
-    if dead or not context:active() or not context:owns(owner) or refreshing then
+    if dead or not context:active() or not context:owns(owner) then
       return
     end
     local snapshot = themes:current()
@@ -86,7 +92,7 @@ function titlebar.new(
     end
   end
   local actionHeight = style.barHeight
-  local actionFont = spec.font
+  local actionFace = style.font
   local toolbarPose: { number } = {}
   local function sync(): ()
     refresh()
@@ -117,16 +123,10 @@ function titlebar.new(
     if dead or not panel or panel.dead then
       return
     end
-    local nextFont = spec.font
-    local sameFont = actionFont ~= nil and nextFont ~= nil and actionFont.kind == nextFont.kind
-    if sameFont and actionFont and nextFont and actionFont.kind == 'file' and nextFont.kind == 'file' then
-      sameFont = actionFont.file == nextFont.file
-        and actionFont.size == nextFont.size
-        and actionFont.spread == nextFont.spread
-    end
-    if actionHeight ~= style.barHeight or not sameFont then
-      actionHeight, actionFont = style.barHeight, nextFont
-      panel:setTheme { font = nextFont, fontSize = actionHeight * 1000 * 0.4, padding = 3 }
+    -- The theme service caches one face per font specification, so the face identifies the specification.
+    if actionHeight ~= style.barHeight or actionFace ~= style.font then
+      actionHeight, actionFace = style.barHeight, style.font
+      panel:setTheme { font = spec.font, fontSize = actionHeight * 1000 * 0.4, padding = 3 }
     end
     place()
     local width = target.width or 0
@@ -217,9 +217,9 @@ function titlebar.new(
     if key ~= headerKey then
       headerKey = key
       drawing.clear(meshes)
-      contour(panel, { bounds = headerBounds, profile = logicalProfile })
+      provider.contour(panel, { bounds = headerBounds, profile = logicalProfile })
     end
-    local nextPose = lovr.math.newMat4(pose):translate(width / 2 - toolbarWidth / 2, 0, depth.layer)
+    local nextPose = lovr.math.newMat4(pose):translate(width / 2 - toolbarWidth / 2, 0, draw.depth.layer)
     local values = { nextPose:unpack(true) }
     local moved = #toolbarPose ~= #values
     for index, value in values do
@@ -238,50 +238,32 @@ function titlebar.new(
     dead = true
     local panel, offered, inverse, oldAttachment = toolbar, offer, release, attachment
     toolbar, offer, release, attachment = nil, nil, nil, nil
-    local failures: { string } = {}
-    for _, operation in
-      {
-        function(): ()
-          if onDestroyed then
-            onDestroyed()
-          end
-        end,
-        function(): ()
-          if panel then
-            panel:destroy()
-          end
-        end,
-        function(): ()
-          if offered then
-            offered:dispose()
-          end
-        end,
-        function(): ()
-          if oldAttachment then
-            oldAttachment:dispose()
-          end
-        end,
-        function(): ()
-          drawing.clear(meshes)
-        end,
-        function(): ()
-          if inverse then
-            inverse:dispose()
-          end
-        end,
-      }
-    do
-      local ok, failure = pcall(function(): boolean
-        operation()
-        return true
-      end)
-      if not ok then
-        failures[#failures + 1] = tostring(failure)
-      end
-    end
-    if #failures > 0 then
-      error('ui titlebar cleanup: ' .. table.concat(failures, '; '), 0)
-    end
+    handleFields.dead = true
+    cleanup.run('ui titlebar cleanup', {
+      function(): ()
+        if panel then
+          panel:destroy()
+        end
+      end,
+      function(): ()
+        if offered then
+          offered:dispose()
+        end
+      end,
+      function(): ()
+        if oldAttachment then
+          oldAttachment:dispose()
+        end
+      end,
+      function(): ()
+        drawing.clear(meshes)
+      end,
+      function(): ()
+        if inverse then
+          inverse:dispose()
+        end
+      end,
+    })
     return true
   end
   local function raycast(
@@ -330,6 +312,7 @@ function titlebar.new(
       sync()
     end,
   }
+  -- The drag surface derives its fields from the target on every read, because the target moves and resizes on its own.
   local bar = table.freeze(setmetatable({}, {
     __index = function(_self: unknown, key: string): unknown
       if key == 'dead' then
@@ -351,52 +334,48 @@ function titlebar.new(
       return methods[key]
     end,
   })) :: vocabulary.Surface
-  local handle = table.freeze(setmetatable({}, {
-    __index = function(_self: unknown, key: string): unknown
-      if key == 'dead' then
-        return dead
-      end
-      return ({
-        sync = function(_self: ui.Titlebar): ()
-          sync()
-        end,
-        update = function(_self: ui.Titlebar, nextOptions: ui.TitlebarOptions): ()
-          if not dead then
-            local parsed = titlebar.options(nextOptions)
-            local previous, previousStyle = options, style
-            options = parsed
-            local ok, failure = pcall(refresh, true)
-            if not ok then
-              if style == previousStyle then
-                options = previous
-              end
-              error(failure, 0)
-            end
-            sync()
-          end
-        end,
-        destroy = function(_self: ui.Titlebar): boolean
-          return destroy()
-        end,
-        draw = function(_self: ui.Titlebar, pass: Pass): ()
-          sync()
-          if not live() then
-            return
-          end
-          local width, height, targetPose = target.width, target.height, target.pose
-          if not width or not height or not targetPose then
-            return
-          end
-          titlebarDraw.render(pass, meshes, target, pose, style, options.title, reserved, highlighted, joined)
-          if toolbar then
-            toolbar:draw(pass)
-          end
-        end,
-      })[key]
+  local handle: ui.Titlebar = {
+    dead = false,
+    sync = function(_self: ui.Titlebar): ()
+      sync()
     end,
-  })) :: ui.Titlebar
+    update = function(_self: ui.Titlebar, nextOptions: ui.TitlebarOptions): ()
+      if dead then
+        return
+      end
+      local parsed = titlebar.options(nextOptions)
+      local previous, previousStyle = options, style
+      options = parsed
+      local ok, failure = pcall(refresh, true)
+      if not ok then
+        if style == previousStyle then
+          options = previous
+        end
+        error(failure, 0)
+      end
+      sync()
+    end,
+    destroy = function(_self: ui.Titlebar): boolean
+      return destroy()
+    end,
+    draw = function(_self: ui.Titlebar, pass: Pass): ()
+      sync()
+      if not live() then
+        return
+      end
+      local width, height, targetPose = target.width, target.height, target.pose
+      if not width or not height or not targetPose then
+        return
+      end
+      titlebarDraw.render(pass, meshes, target, pose, style, options.title, reserved, highlighted, joined)
+      if toolbar then
+        toolbar:draw(pass)
+      end
+    end,
+  }
+  handleFields = (handle :: unknown) :: { dead: boolean }
   local ok, failure = pcall(function(): ()
-    toolbar = service:newPanel(owner, {
+    toolbar = provider.service:newPanel(owner, {
       name = name,
       width = 0.001,
       height = style.barHeight,
@@ -406,7 +385,7 @@ function titlebar.new(
       grabTarget = target,
       theme = { font = spec.font, fontSize = style.barHeight * 1000 * 0.4, padding = 3 },
     })
-    offer = offers:offer(context, {
+    offer = provider.surfaces:offer(context, {
       name = name .. '/drag',
       list = function(): { vocabulary.Surface }
         sync()

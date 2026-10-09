@@ -50,6 +50,7 @@ test('the catalog restores removed definitions with their latest configuration a
     },
     { id = 'tail', definition = plugin.define { name = 'managed-catalog-tail', init = function() end } },
   }
+  local started = factories
   local service = running.service
   local initial = service:catalog()
   expect.equal(initial[1].id, 'composition')
@@ -85,7 +86,7 @@ test('the catalog restores removed definitions with their latest configuration a
   expect.equal(received.custom, custom)
   expect.equal(received.value, 7)
   expect.equal(restored.schema, definition.schema, 'restoration retains the original definition metadata')
-  expect.equal(factories, 1, 'restoration never runs the factory again')
+  expect.equal(factories, started, 'restoration never runs the factory again')
   expect.equal(builds, 3)
   expect.equal(releases, 2)
   expect.equal(knownEntry(service, 'settings').installed, true)

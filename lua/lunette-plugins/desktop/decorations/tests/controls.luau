@@ -136,14 +136,14 @@ local function combinedOutline(running, registry, target, color, bottomRadius)
       end
     end
   end
-  local attached, inspected
+  local attached
   for _, entry in registry.service:inspect().registrations do
-    if entry.details.sourceId == target.source.id and entry.details.sourceKind == target.kind then
-      if entry.source == 'panels.attachFrame' then
-        attached = entry
-      elseif entry.kind == 'panel' then
-        inspected = entry
-      end
+    if
+      entry.details.sourceId == target.source.id
+      and entry.details.sourceKind == target.kind
+      and entry.source == 'panels.attachFrame'
+    then
+      attached = entry
     end
   end
   expect.truthy(attached and attached.live and attached.details.joined, 'the action target has one joined attachment')
@@ -151,10 +151,6 @@ local function combinedOutline(running, registry, target, color, bottomRadius)
     attached.details.borderThickness,
     HEADER_STYLE.borderThickness,
     'inspection records the header thickness'
-  )
-  expect.truthy(
-    inspected.details.outlineMesh and inspected.details.frameJoined,
-    'the target owns the joined outline mesh'
   )
   expect.falsy(target.chrome, 'the action target still has ordinary chrome disabled')
   return mesh

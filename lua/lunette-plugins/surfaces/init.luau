@@ -16,9 +16,6 @@ local function create(context: plugin.Context): contract.Service
       return inspection.snapshot(offers:inspect('offer', 'surfaces.offer'), nil, { 'offer results require callbacks' })
     end,
     offer = function(_self: contract.Service, owner: contract.Owner, spec: contract.Offer): plugin.Effect
-      if type(spec) ~= 'table' then
-        error('surfaces offer: an offer is a table of fields, not a ' .. type(spec), 2)
-      end
       plugin.rejectUnknownFields('surfaces offer', spec, OFFER_KEYS, 'name and list', 2)
       local name, list = spec.name, spec.list
       if type(name) ~= 'string' or name == '' then

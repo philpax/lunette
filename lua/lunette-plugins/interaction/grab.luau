@@ -33,7 +33,7 @@ export type PointerState = {
 }
 
 export type Methods = {
-  beginGrab: (Pointer, Surface, Mat4?) -> boolean,
+  beginGrab: (Pointer, Surface, Mat4) -> boolean,
   scaleWith: (Pointer, Mat4?) -> (),
   push: (Pointer, number, number) -> (),
   dragTo: (Pointer, Mat4?) -> (),
@@ -122,17 +122,9 @@ function grab.new(host: Host): Methods
     end
   end
 
-  local function beginGrab(self: Pointer, target: Surface, handPose: Mat4?): boolean
+  local function beginGrab(self: Pointer, target: Surface, handPose: Mat4): boolean
     local state = host.state(self)
-    local current = host.current(self)
-    if not current() or target.dead or not handPose or not target.setPose then
-      return false
-    end
-
     local position = vector.pack(handPose:getPosition())
-    if not current() then
-      return false
-    end
     state.handPosition = position
     state.grabbed = target
 
@@ -160,14 +152,10 @@ function grab.new(host: Host): Methods
     local current = host.current(self)
     local scaling = state.scaling
     local target = state.grabbed
-    if not scaling or not target or not handPose then
+    if not current() or not scaling or not target or target.dead or not handPose then
       return
     end
-    local position = vector.pack(handPose:getPosition())
-    if not current() or target.dead then
-      return
-    end
-    state.handPosition = position
+    state.handPosition = vector.pack(handPose:getPosition())
 
     local partner = scaling.partner
     if partner.grabbed ~= target or partner.dead then
@@ -230,9 +218,6 @@ function grab.new(host: Host): Methods
     end
 
     local position = vector.pack(handPose:getPosition())
-    if not valid() then
-      return
-    end
     state.handPosition = position
     if not current.moving then
       local displacement = position - current.origin

@@ -8,7 +8,10 @@
 use std::sync::Arc;
 
 use lunette_capture::{
-    mirror::screencopy::PreferredStreams, monitor::MonitorKey, stream::DrmFourcc, tokens,
+    mirror::screencopy::PreferredStreams,
+    monitor::MonitorKey,
+    stream::{CaptureFormat, CapturedFrame, DrmFourcc},
+    tokens,
 };
 use lunette_compositor::{
     protocol::{ImportedBuffer, PixelSize},
@@ -18,8 +21,9 @@ use tracing::{debug, info, warn};
 
 use crate::{
     frame::{Compositor, FrameDriver, capture_formats, stopped_monitors},
-    import::device::GraphicsDevice,
-    texture::LovrTexture,
+    import::{CaptureImporter, device::GraphicsDevice, export::exporters},
+    lua::Session,
+    texture::{LovrTexture, describe},
 };
 
 impl FrameDriver {
@@ -90,71 +94,22 @@ impl FrameDriver {
         };
 
         for (monitor, frame) in host.mirrors.take_frames() {
-            let size = frame.format().size;
-            let transform = frame.format().transform;
-            if let Some(source) = frame.pixels() {
-                let mut packed = source.to_vec();
-                if matches!(
-                    frame.format().fourcc,
-                    DrmFourcc::Abgr8888 | DrmFourcc::Xbgr8888
-                ) {
-                    for pixel in packed.as_chunks_mut::<4>().0 {
-                        pixel.swap(0, 2);
-                    }
-                }
-                let shm_format = match frame.format().fourcc {
-                    DrmFourcc::Argb8888 | DrmFourcc::Abgr8888 => ShmFormat::Argb8888,
-                    _ => ShmFormat::Xrgb8888,
-                };
-                if shm_format == ShmFormat::Xrgb8888 {
-                    for pixel in packed.as_chunks_mut::<4>().0 {
-                        pixel[3] = 255;
-                    }
-                }
-                let Some(pixels) = PixelBuffer::new(
-                    PixelSize::new(size.width(), size.height()),
-                    shm_format,
-                    packed,
-                ) else {
-                    warn!(%monitor, "capture upload: shared-memory pixels have an invalid length");
-                    continue;
-                };
-                let description = crate::texture::describe(&ImportedBuffer::Pixels(pixels.clone()));
-                let refilled = self.session.with_monitor_textures(|textures| {
-                    textures
-                        .texture(&monitor)
-                        .zip(textures.describe(&monitor))
-                        .is_some_and(|(texture, previous)| {
-                            if previous != description {
-                                return false;
-                            }
-                            // SAFETY: this is the frame thread and graphics is initialized.
-                            unsafe { texture.refill(&pixels, previous) }
-                        })
-                });
-                if refilled {
-                    self.session.with_monitor_textures(|textures| {
-                        textures.refresh_frame(&monitor, transform);
-                    });
+            let CaptureFormat {
+                size, transform, ..
+            } = frame.format();
+            let frame = match frame {
+                CapturedFrame::Pixels { format, pixels } => {
+                    import_pixels(
+                        &self.session,
+                        &mut graphics.capture,
+                        &monitor,
+                        format,
+                        pixels,
+                    );
                     continue;
                 }
-                // SAFETY: this is the frame thread and graphics is initialized.
-                match unsafe { LovrTexture::upload(&pixels) } {
-                    Ok(texture) => {
-                        let displaced = self.session.with_monitor_textures(|textures| {
-                            textures.install(monitor.clone(), None, texture, description, transform)
-                        });
-                        if let Some(displaced) = displaced {
-                            displaced.release_ref();
-                        }
-                        graphics.capture.forget_stream(&monitor);
-                    }
-                    Err(error) => {
-                        warn!(%monitor, %error, "capture upload: shared-memory texture unavailable")
-                    }
-                }
-                continue;
-            }
+                dmabuf @ CapturedFrame::Dmabuf { .. } => dmabuf,
+            };
             // Read this first, because the importer requires it. The
             // image a monitor's texture wraps is the entry its buffer
             // retention must not release; releasing it would free an image a
@@ -199,7 +154,7 @@ impl FrameDriver {
                 retained = graphics.capture.held(),
                 "a mirrored monitor produced a new texture",
             );
-            let description = crate::texture::describe(&ImportedBuffer::Image(image));
+            let description = describe(&ImportedBuffer::Image(image));
             let displaced = self.session.with_monitor_textures(|textures| {
                 textures.install(
                     monitor.clone(),
@@ -301,11 +256,67 @@ impl FrameDriver {
             formats = formats.len(),
             "monitor capture can now negotiate a dmabuf"
         );
-        let exporters = crate::import::export::Exporters::new(Arc::clone(device), formats.clone());
         host.mirrors.set_streams(Box::new(PreferredStreams::new(
             host.capture_client,
-            Box::new(exporters),
+            exporters(Arc::clone(device), formats.clone()),
             formats,
         )));
+    }
+}
+
+/// Uploads a shared-memory frame, refilling the monitor's texture in place when
+/// its description is unchanged.
+fn import_pixels(
+    session: &Session<LovrTexture>,
+    capture: &mut CaptureImporter,
+    monitor: &MonitorKey,
+    format: CaptureFormat,
+    pixels: Vec<u8>,
+) {
+    let shm_format = match format.fourcc {
+        DrmFourcc::Argb8888 => ShmFormat::Argb8888,
+        _ => ShmFormat::Xrgb8888,
+    };
+    let size = PixelSize::new(format.size.width(), format.size.height());
+    let Some(pixels) = PixelBuffer::new(size, shm_format, pixels) else {
+        warn!(%monitor, "capture upload: shared-memory pixels have an invalid length");
+        return;
+    };
+    let description = describe(&ImportedBuffer::Pixels(pixels.clone()));
+    let refilled = session.with_monitor_textures(|textures| {
+        textures
+            .texture(monitor)
+            .zip(textures.describe(monitor))
+            .is_some_and(|(texture, previous)| {
+                // SAFETY: this is the frame thread and graphics is initialized.
+                previous == description && unsafe { texture.refill(&pixels, previous) }
+            })
+    });
+    if refilled {
+        session.with_monitor_textures(|textures| {
+            textures.refresh_frame(monitor, format.transform);
+        });
+        return;
+    }
+    // SAFETY: this is the frame thread and graphics is initialized.
+    match unsafe { LovrTexture::upload(&pixels) } {
+        Ok(texture) => {
+            let displaced = session.with_monitor_textures(|textures| {
+                textures.install(
+                    monitor.clone(),
+                    None,
+                    texture,
+                    description,
+                    format.transform,
+                )
+            });
+            if let Some(displaced) = displaced {
+                displaced.release_ref();
+            }
+            capture.forget_stream(monitor);
+        }
+        Err(error) => {
+            warn!(%monitor, %error, "capture upload: shared-memory texture unavailable");
+        }
     }
 }

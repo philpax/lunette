@@ -4,8 +4,7 @@ local native = require '@lunette'
 local adapter = require '@lunette-plugin/adapter'
 local compose = require '@lunette-plugin/compose'
 local options = require '@lunette-plugin/options'
-local provider = require '@lunette-plugin/provider'
-local consumer = require '@lunette-plugin/consumer'
+local configured = require '@lunette-plugin/configured'
 local schema = require '@lunette-plugin/schema'
 
 local plugin = {}
@@ -22,10 +21,10 @@ export type Spec<C> = adapter.Spec<C>
 export type Definition<C> = adapter.Definition<C>
 export type Instance<C> = adapter.Instance<C>
 export type Runtime = adapter.Runtime
-export type ProviderSpec<C, S, T> = provider.Spec<C, S, T>
-export type Provider<C, T> = provider.Provider<C, T>
-export type ConsumerSpec<C, S> = consumer.Spec<C, S>
-export type Consumer<C> = consumer.Consumer<C>
+export type ProviderSpec<C, S, T> = configured.ProviderSpec<C, S, T>
+export type Provider<C, T> = configured.Provider<C, T>
+export type ConsumerSpec<C, S> = configured.ConsumerSpec<C, S>
+export type Consumer<C> = configured.Consumer<C>
 export type Entry = compose.Entry
 export type Patch = compose.Patch
 export type PluginContractToken = native.PluginContractToken
@@ -70,12 +69,12 @@ end
 -- settings type, and the service type are named by explicit instantiation:
 -- `plugin.provider<<Config, Settings, Service>> { ... }`.
 function plugin.provider<C, S, T>(spec: ProviderSpec<C, S, T>): Provider<C, T>
-  return provider.create<<C, S, T>>(spec)
+  return configured.provider<<C, S, T>>(spec)
 end
 
 -- Makes a consumer module with configured definitions; initialization receives resolved settings.
 function plugin.consumer<C, S>(spec: ConsumerSpec<C, S>): Consumer<C>
-  return consumer.create<<C, S>>(spec)
+  return configured.consumer<<C, S>>(spec)
 end
 
 -- Answers the entries with the patches applied, frozen, defining and enabling nothing. It raises with the id
