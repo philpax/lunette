@@ -92,16 +92,6 @@ live = function(state: records.Panel): boolean
 end
 
 render = function(state: records.Panel, pass: Pass, value: ui.Visual, record: records.Control?): ()
-  local hooks: { ui.DrawHook } = {}
-  if state.providerDraw then
-    hooks[#hooks + 1] = state.providerDraw
-  end
-  if state.draw then
-    hooks[#hooks + 1] = state.draw
-  end
-  if record and record.draw then
-    hooks[#hooks + 1] = record.draw
-  end
   local prepared = panelGeometry.prepare(state)
   local shape = if not record or state.contour
     then {
@@ -113,7 +103,13 @@ render = function(state: records.Panel, pass: Pass, value: ui.Visual, record: re
         else nil,
     }
     else nil
-  draw.render(pass, value, hooks, if record then record.measurements else state.measurements, shape)
+  draw.render(
+    pass,
+    value,
+    if record then record.draw else nil,
+    if record then record.measurements else state.measurements,
+    shape
+  )
 end
 
 visual = function(state: records.Panel, record: records.Control, bounds: ui.Bounds): ui.Visual

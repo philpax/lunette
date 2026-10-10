@@ -5,15 +5,7 @@ local plugin = require '@lunette-plugin'
 local drops = require '@lunette-contracts/drops'
 local panels = require '@lunette-contracts/panels'
 local rules = require '@lunette-contracts/rules'
-local schema = require '@lunette-plugin/schema'
 local vocabulary = require '@lunette-contracts/vocabulary'
-
-local descriptor = schema.object {
-  precedence = schema.default(schema.number())(vocabulary.PRECEDENCE.native),
-}
-
-export type Config = schema.Input<typeof(descriptor)>
-export type Settings = schema.Output<typeof(descriptor)>
 
 local function keptPose(window: lunette.Window): rules.Properties?
   local kept = window:getProperty(vocabulary.POSE_PROPERTY)
@@ -23,15 +15,17 @@ local function keptPose(window: lunette.Window): rules.Properties?
   return { pose = kept }
 end
 
-return plugin.consumer<<Config, Settings>>({
+return plugin.consumer<<{}, {}>>({
   name = 'desktop/adoption/pose-memory',
-  schema = descriptor,
   requires = { rules.capability, drops.capability, panels.capability },
-  init = function(context: plugin.Context, settings: Settings): ()
+  init = function(context: plugin.Context, _settings: {}): ()
     local ruleService: rules.Service = context:require(rules.capability)
     local dropService: drops.Service = context:require(drops.capability)
     local panelService: panels.Service = context:require(panels.capability)
-    ruleService:addSource(context, { name = 'lunette.pose', precedence = settings.precedence, resolve = keptPose })
+    ruleService:addSource(
+      context,
+      { name = 'lunette.pose', precedence = vocabulary.PRECEDENCE.native, resolve = keptPose }
+    )
     dropService:onDropped(context, {
       run = function(drop: drops.Drop): ()
         local dropped = drop.surface

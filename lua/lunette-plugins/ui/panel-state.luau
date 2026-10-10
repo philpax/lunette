@@ -99,8 +99,6 @@ export type Panel = {
   frame: Frame?,
   frameMeshes: drawing.Cache,
   refresh: () -> (),
-  providerDraw: ui.DrawHook?,
-  draw: ui.DrawHook?,
   controls: { Control },
   owners: owners.Registry,
   nextOrder: number,

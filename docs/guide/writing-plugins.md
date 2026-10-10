@@ -14,7 +14,7 @@ The shipped `main.luau` is one call:
 require('@lunette-desktop').run()
 ```
 
-`run` takes `settings` and `patches`. [Desktop configuration](desktop-configuration.md) describes the settings. Patches change the desktop's entry list, which `require('@lunette-desktop').entries()` returns. Each entry has an `id`, such as `keyboard`, `laser`, or `desktop/keyboard`. The built-in providers publish services such as panels, pointers, and the keyboard, and the `desktop/` consumers use them. Every entry is a module under `@lunette-plugins`: a provider under its contract's name and any other plugin under its entry id, so `desktop/menu` is `@lunette-plugins/desktop/menu`, and `desktop/keyboard`, which provides `lunette/keyboard-display`, is `@lunette-plugins/keyboard-display`.
+`run` takes `settings` and `patches`. [Desktop configuration](desktop-configuration.md) describes the settings. Patches change the desktop's entry list, which `require('@lunette-desktop').compose()` returns. Each entry has an `id`, such as `keyboard`, `laser`, or `desktop/keyboard`. The built-in providers publish services such as panels, pointers, and the keyboard, and the `desktop/` consumers use them. Every entry is a module under `@lunette-plugins`: a provider under its contract's name and any other plugin under its entry id, so `desktop/menu` is `@lunette-plugins/desktop/menu`, and `desktop/keyboard`, which provides `lunette/keyboard-display`, is `@lunette-plugins/keyboard-display`.
 
 Plugin modules live in the configuration directory and are required by relative path, such as `require './hello'`. A relative path resolves against the directory of the requiring file, in a session and in `lunette check` alike. From `myplugin/init.luau`, `require '@self/draw'` names `myplugin/draw.luau`, because `./draw` from an `init.luau` names a sibling of its directory. A relative path cannot leave the configuration directory. [Module roots](../dev/stdlib.md#module-roots) states the rules.
 
@@ -157,7 +157,7 @@ Geometric positions, directions, and offsets are native `vector` values made wit
 
 ## Hooking a built-in provider
 
-Behaviour inside a provider changes through a hook: an option whose value is a function that receives the hook's arguments followed by `base`, the default implementation. Calling `base` keeps the default, and not calling it replaces it. The built-in hooks are the keyboard's `onKey` and `drawKey`, interaction's `drive` and `constrain`, the laser's `readInput` and `draw`, placement's `panelOptions`, and the UI provider's `draw`. An error a hook raises is reported where the provider was called from.
+Behaviour inside a provider changes through a hook: an option whose value is a function that receives the hook's arguments followed by `base`, the default implementation. Calling `base` keeps the default, and not calling it replaces it. The built-in hooks are the keyboard's `onKey` and `drawKey`, interaction's `drive` and `constrain`, the laser's `readInput` and `draw`, placement's `panelOptions`, and a UI control's `draw`. An error a hook raises is reported where the provider was called from.
 
 Only one active plugin can provide a contract. Where several implementations coexist, as with layouts, themes, menu actions, key bindings, rule sources, and surface offers, one provider is a broker and each implementation registers with it. A name registered with a broker has one holder at a time, and registering a taken name raises an error.
 

@@ -73,7 +73,6 @@ local function build(context: plugin.Context, settings: Settings): ui.Service
     context = context,
     services = services,
     theme = appearanceTheme.project(settings.theme),
-    draw = settings.draw,
     newTitlebar = newTitlebar,
   }
   service = {

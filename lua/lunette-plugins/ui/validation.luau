@@ -35,7 +35,6 @@ local PANEL: { string } = {
   'grabTarget',
   'titlebar',
   'theme',
-  'draw',
 }
 local RECEIVER: { string } = { 'key', 'text', 'onFocus', 'onBlur' }
 local stringValue = schema.string()
@@ -84,7 +83,6 @@ function validation.panel(options: ui.PanelOptions): ui.PanelOptions
     assert(type(grabTarget.raycast) == 'function', 'ui panel grabTarget: expected a surface raycast')
     assert(type(grabTarget.setPose) == 'function', 'ui panel grabTarget: expected a movable surface')
   end
-  callback(options.draw, 'ui panel draw')
   local overrides = theme.copyOverrides(options.theme)
   local pose = if options.pose ~= nil then lovr.math.newMat4(geometry.validatePose(options.pose)) else nil
   return table.freeze {
@@ -99,7 +97,6 @@ function validation.panel(options: ui.PanelOptions): ui.PanelOptions
     grabTarget = grabTarget,
     titlebar = if options.titlebar then titlebarOptions.parse(options.titlebar) else nil,
     theme = overrides,
-    draw = options.draw,
   }
 end
 

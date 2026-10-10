@@ -14,7 +14,7 @@ local test = testing.suite()
 
 test('settings cover every default entry that takes options', function()
   local fields = settings.schema.inspect().fields
-  for _, entry in ipairs(desktop.entries()) do
+  for _, entry in ipairs(desktop.compose()) do
     local node = compose.resolveEntry(entry).definition.schema
     while node and (node.kind == 'default' or node.kind == 'refine') do
       node = node.child

@@ -12,7 +12,7 @@ local vrUi = require '@testing/vr-ui'
 local test = testing.suite()
 
 test('keyboard and frame outages remove only what depends on them, and recovery restores it', function()
-  local session = testing.boot(desktop.entries())
+  local session = testing.boot(desktop.compose())
   local native, events, instances = session.native, session.native.events, session.instances
   local panels = session:observe(panelsContract.capability).service
   local display = session:observe(displayContract.capability)

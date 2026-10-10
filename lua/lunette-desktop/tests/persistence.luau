@@ -14,7 +14,7 @@ local function expectAt(panel, x, y, z, context)
 end
 
 test('a dropped window keeps its pose as others close, and the next session restores it', function()
-  local session = testing.boot(desktop.entries())
+  local session = testing.boot(desktop.compose())
   local native, events = session.native, session.native.events
   local panels = session:observe(panelsContract.capability).service
   local first, second, third = native.newWindow(1), native.newWindow(2), native.newWindow(3)
@@ -39,7 +39,7 @@ test('a dropped window keeps its pose as others close, and the next session rest
 
   local fake = testing.native()
   fake.events.saved = saved
-  session = testing.boot(desktop.entries(), { native = fake })
+  session = testing.boot(desktop.compose(), { native = fake })
   panels = session:observe(panelsContract.capability).service
   local reopened = fake.newWindow(4)
   fake.events.windows = { reopened }

@@ -83,7 +83,7 @@ Each workspace is a tag. Names are non-empty and unique, and the first workspace
 
 ## Entry patches
 
-`patches` replace, disable, or insert entries by id. `desktop.entries()` returns the default list, and `desktop.compose(options)` returns the patched list without starting anything, for tests and tools that inspect a composition. An entry's `definition` is the `definition` field of the plugin module's record:
+`patches` replace, disable, or insert entries by id. `desktop.compose(options)` returns the patched list without starting anything, and `desktop.compose()` returns the default list, for tests and tools that inspect a composition. An entry's `definition` is the `definition` field of the plugin module's record:
 
 ```luau
 desktop.run {

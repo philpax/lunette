@@ -17,7 +17,7 @@ return plugin.consumer<<Config, Settings>> {
     local service: adoption.Service = context:require(adoption.capability)
     -- Pose memory is a child, so a drops or panels outage leaves adoption running. Its rule source registers before
     -- the start resolves the first window.
-    context:child(poseMemory, { precedence = settings.precedence })
+    context:child(poseMemory)
     service:start(context, { defaults = { tags = settings.tags }, filter = settings.filter })
   end,
 }

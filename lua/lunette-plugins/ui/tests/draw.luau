@@ -25,8 +25,8 @@ local function resolve(overrides)
   return table.freeze(result)
 end
 
-local function draw(pass, visual, hooks)
-  drawing.render(pass, visual, hooks, drawing.newCache())
+local function draw(pass, visual, hook)
+  drawing.render(pass, visual, hook, drawing.newCache())
 end
 
 local function visual(kind, changes)
@@ -102,34 +102,26 @@ test('every built-in visual clips before a posed parent transform and restores c
   end
 end)
 
-test('provider, panel, and control hooks receive visuals and paint in precedence order', function()
+test('a control hook receives the visual and wraps the default renderer', function()
   local recorder = recorderForDrawing()
   local order = {}
-  local function hook(name)
-    return function(pass, snapshot, base)
-      table.insert(order, name .. ':before')
-      base(pass, snapshot)
-      table.insert(order, name .. ':after')
-    end
-  end
-  draw(recorder.pass, visual 'button', { hook 'provider', hook 'panel', hook 'control' })
-  expect.equal(
-    table.concat(order, ','),
-    'control:before,panel:before,provider:before,provider:after,panel:after,control:after'
-  )
+  draw(recorder.pass, visual 'button', function(pass, snapshot, base)
+    table.insert(order, 'control:before')
+    base(pass, snapshot)
+    table.insert(order, 'control:after')
+  end)
+  expect.equal(table.concat(order, ','), 'control:before,control:after')
   recorder:assertRestored()
 end)
 
 test('a failing hook restores the pass and preserves its error', function()
   local recorder = recorderForDrawing()
   expect.raises(function()
-    draw(recorder.pass, visual 'button', {
-      function(pass)
-        pass:translate(200, 100, 0)
-        pass:setColor(1, 0, 0, 1)
-        error('hook sentinel', 0)
-      end,
-    })
+    draw(recorder.pass, visual 'button', function(pass)
+      pass:translate(200, 100, 0)
+      pass:setColor(1, 0, 0, 1)
+      error('hook sentinel', 0)
+    end)
   end, 'hook sentinel')
   recorder:assertRestored()
 end)

@@ -103,11 +103,6 @@ local DEFAULT: { plugin.Entry } = plugin.compose {
   { id = 'desktop/manager', definition = manager.definition },
 }
 
--- Entries start in list order.
-function desktop.entries(): { plugin.Entry }
-  return DEFAULT
-end
-
 -- Each setting becomes one configuration patch after the given ones, so one composition rejects a setting and a patch
 -- naming one id.
 local function patchesFor(options: Options): { plugin.Patch }?
@@ -133,7 +128,7 @@ local function patchesFor(options: Options): { plugin.Patch }?
   return (patches :: unknown) :: { plugin.Patch }
 end
 
--- Returns the patched entries. Composition rejects unknown fields, duplicate ids, and two patches naming one id.
+-- Returns the patched entries, which start in list order. Composition rejects unknown fields, duplicate ids, and two patches naming one id.
 function desktop.compose(options: Options?): { plugin.Entry }
   if options == nil then
     return DEFAULT

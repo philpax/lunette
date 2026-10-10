@@ -38,7 +38,6 @@ export type Provider = {
   read context: plugin.Context,
   read services: Services,
   read theme: ui.ThemeOverrides,
-  read draw: ui.DrawHook?,
   read newTitlebar: (ui.Owner, string, vocabulary.Surface, ui.TitlebarOptions, (() -> boolean)?) -> ui.Titlebar,
 }
 
@@ -75,8 +74,6 @@ function panel.new(provider: Provider, owner: ui.Owner, options: ui.PanelOptions
     frame = nil,
     frameMeshes = drawing.newCache(),
     refresh = function(): () end,
-    providerDraw = provider.draw,
-    draw = options.draw,
     controls = {},
     owners = services.owners,
     nextOrder = 0,

@@ -1,6 +1,6 @@
 -- Draws declared logical geometry beneath the caller's panel-to-world transform.
--- Hooks are supplied provider, then panel, then control, with the last hook wrapping the earlier renderers.
--- Each hook may replace drawing, but must keep its own stack pushes balanced and clip custom geometry to Visual.clip.
+-- A control's optional hook wraps the default renderer.
+-- The hook may replace drawing, but must keep its stack pushes balanced and clip custom geometry to Visual.clip.
 local ui = require '@lunette-contracts/ui'
 local geometry = require './geometry'
 local textFieldGeometry = require './text-field-geometry'
@@ -53,13 +53,7 @@ local inset: (ui.Bounds, number) -> ui.Bounds
 local validateGeometry: (ui.Visual, ui.Visual) -> ()
 local setColor: (Pass, ui.Color) -> ()
 
-function draw.render(
-  pass: Pass,
-  visual: ui.Visual,
-  hooks: { read [number]: ui.DrawHook }?,
-  cache: Cache,
-  shape: Shape?
-): ()
+function draw.render(pass: Pass, visual: ui.Visual, hook: ui.DrawHook?, cache: Cache, shape: Shape?): ()
   local declared = table.freeze(table.clone(visual))
   local renderer: ui.Renderer = function(target: Pass, value: ui.Visual): ()
     validateGeometry(value, declared)
@@ -67,7 +61,7 @@ function draw.render(
       renderDefault(target, value, cache, shape)
     end)
   end
-  for _, hook in hooks or {} do
+  if hook then
     local base = renderer
     renderer = function(target: Pass, value: ui.Visual): ()
       validateGeometry(value, declared)

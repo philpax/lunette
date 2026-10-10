@@ -31,7 +31,7 @@ The built-in providers:
 | `interaction` | `lunette/interaction` 2 | drops, focus | `tuning`, `focusOnPress`, `drive`, `constrain` |
 | `laser` | `lunette/laser` 1 | interaction, theme | `style`, `aim`, `triggerLock`, `buttons`, `readInput`, `draw` |
 | `keyboard` | `lunette/keyboard` 3 | focus, theme | `rows`, `layers`, `style`, `modifierKeys`, `locks`, `onKey`, `drawKey` |
-| `ui` | `lunette/ui` 3 | focus, surfaces, theme, frame | `theme`, `titlebarStyle`, `draw` |
+| `ui` | `lunette/ui` 3 | focus, surfaces, theme, frame | `theme`, `titlebarStyle` |
 | `menu` | `lunette/menu` 1 | none | none |
 | `tags` | `lunette/tags` 1 | none | none |
 | `rules` | `lunette/rules` 1 | none | `precedence` |
@@ -66,7 +66,7 @@ Panels, UI panels, and the keyboard draw rounded faces from `lua/lunette-plugins
 
 ## Default configuration
 
-`etc/xdg/lunette/main.luau` calls `require('@lunette-desktop').run()`. The desktop is a list of entries, `{ id, definition, config }`, where `definition` is a definition or a factory that makes one once per runtime. Every plugin module returns a record whose `definition` field is what an entry names. `lua/lunette-desktop/init.luau` is the source of truth for the entries and their order. It lists the providers above, `layout/arc`, `theme/standard`, `theme/arcade`, and the `desktop/` consumers below, all from `@lunette-plugins`. `entries()` answers the list.
+`etc/xdg/lunette/main.luau` calls `require('@lunette-desktop').run()`. The desktop is a list of entries, `{ id, definition, config }`, where `definition` is a definition or a factory that makes one once per runtime. Every plugin module returns a record whose `definition` field is what an entry names. `lua/lunette-desktop/init.luau` is the source of truth for the entries and their order. It lists the providers above, `layout/arc`, `theme/standard`, `theme/arcade`, and the `desktop/` consumers below, all from `@lunette-plugins`. `compose()` answers the list, with any patches applied.
 
 `run { settings = { ... }, patches = { ... } }` applies settings and patches with `plugin.compose`, binds the LÖVR callbacks with `frame.install`, and starts the list through `@lunette-plugin/management` at load. `compose(options)` answers the patched list without starting it, for tests and tools that inspect a composition. Composition runs before any callback is bound, so a malformed patch fails the configuration's load and safe mode reports it. [Composition](lua-api.md#composition) states the patch rules.
 
@@ -102,7 +102,7 @@ The desktop consumers:
 | `desktop/rules` | Registers its rule list with `rules:setRules`. | `rules`; the default sizes and places Firefox. |
 | `desktop/persistence` | Saves and restores the arrangement and provides `lunette/arrangement`. A factory. | `file`, default `arrangement.state`. |
 | `desktop/arrange` | Arranges placed windows that have no pose, tag by tag, with its layout from the layouts broker. A factory. | `layout`, default `arc`; `tags`, every tag and untagged windows when empty. |
-| `desktop/adoption` | Adopts windows. Its pose memory child writes a dropped window's pose to `lunette.pose` and registers the native rule source that reads it back. | `tags`, default none; `filter`; `precedence` of the pose source, default `PRECEDENCE.native`. |
+| `desktop/adoption` | Adopts windows. Its pose memory child writes a dropped window's pose to `lunette.pose` and registers the native rule source that reads it back. | `tags`, default none; `filter`. |
 | `desktop/pacing` | Sets each window panel's frame rate from its `lunette/pacing` pacer and pauses hidden monitor captures. | `pauseMonitors`, default true. |
 | `desktop/scale` | Sets each output's scale from its `lunette/scale` chooser for the nearest shown window panel. | None. |
 | `desktop/manager` | The runtime manager panel, described below. | `visible`, `refreshInterval`, `view`, `position`, `width`, `height`, `pixels`. |

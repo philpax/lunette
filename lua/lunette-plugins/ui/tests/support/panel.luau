@@ -64,13 +64,13 @@ function fixture.boot(options)
         logicalWidth = 400,
         logicalHeight = 300,
         theme = options.theme,
-        draw = options.draw,
       })
       state.panel = panel
       state.button = panel:button {
         id = 'run',
         label = 'Run',
         bounds = { x = 10, y = 10, width = 80, height = 40 },
+        draw = options.draw,
         onActivate = function()
           state.activations[#state.activations + 1] = true
         end,
@@ -79,6 +79,7 @@ function fixture.boot(options)
         id = 'draft',
         label = 'Draft',
         bounds = { x = 110, y = 10, width = 270, height = 40 },
+        draw = options.draw,
         value = '',
         onSubmit = function(value)
           state.submits[#state.submits + 1] = value
