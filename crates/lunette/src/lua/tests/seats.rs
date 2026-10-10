@@ -28,7 +28,7 @@ const KEY_A: u32 = 30;
 ///
 /// The name is explicit, so the assertions below hold whatever the
 /// compositor's inherited default is.
-fn seat(raw: u64, name: &str, layout: &str) -> SeatSnapshot {
+pub(super) fn seat(raw: u64, name: &str, layout: &str) -> SeatSnapshot {
     let keymap = Keymap::compile(
         &KeymapConfig {
             layout: Some(layout.to_owned()),
@@ -51,7 +51,7 @@ fn seat(raw: u64, name: &str, layout: &str) -> SeatSnapshot {
 }
 
 /// A snapshot carrying windows and seats, which the shared helper does not.
-fn seated(windows: Vec<WindowSnapshot>, seats: Vec<SeatSnapshot>) -> Arc<Snapshot> {
+pub(super) fn seated(windows: Vec<WindowSnapshot>, seats: Vec<SeatSnapshot>) -> Arc<Snapshot> {
     Arc::new(Snapshot {
         windows,
         seats,

@@ -197,6 +197,40 @@ export type SeatOptions = {
   repeatRate: number?,
 }
 
+-- A drag a client started from a press of a seat's pointer, carrying the icon
+-- that follows the pointer. The handle is dead once the drag drops or is
+-- cancelled, and answers with its last values.
+export type Drag = {
+  -- Distinguishes this drag from the seat's earlier and later ones.
+  read id: number,
+  read dead: boolean,
+  -- The icon's width in surface coordinates, or zero when the drag has no icon
+  -- with content.
+  read width: number,
+  -- The icon's height in surface coordinates, or zero when the drag has no icon
+  -- with content.
+  read height: number,
+  -- How far right of the pointer the icon's left edge sits, in surface
+  -- coordinates. Negative places it left of the pointer.
+  read x: number,
+  -- How far below the pointer the icon's top edge sits, in surface coordinates.
+  -- Negative places it above the pointer.
+  read y: number,
+  -- Whether the fourth pixel component of the icon is padding, so a consumer
+  -- treats it as opaque. False until a texture exists.
+  read opaque: boolean,
+  -- This frame's icon pixels, or `false` when the drag has ended or has no icon
+  -- with content. The texture rotates with the client's buffers, so do not
+  -- cache it across frames.
+  read getTexture: (self: Drag) -> Texture | false,
+  -- The part of the icon's texture the icon shows, as `x, y, width, height`
+  -- fractions of the texture's size.
+  read getSourceCrop: (self: Drag) -> (number, number, number, number),
+  -- Returns a persistent copy of the icon's texture, updated whenever the icon
+  -- is damaged.
+  read stabilize: (self: Drag) -> Texture | false,
+}
+
 -- A seat with its own pointer and keyboard. Clients see it as `wl_seat`.
 export type Seat = {
   read id: number,
@@ -209,6 +243,9 @@ export type Seat = {
   -- Whether this seat's clipboard and primary selection are the host desktop's.
   -- At most one seat's are.
   read clipboardBridge: boolean,
+  -- The drag this seat's pointer carries, or nil. A client starts one from a
+  -- press, and it lasts until the release or a cancellation.
+  read drag: Drag?,
   -- Withdraws this seat's `wl_seat` global or cancels its pending creation. The
   -- default seat cannot be removed.
   read destroy: (self: Seat) -> boolean,

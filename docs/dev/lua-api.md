@@ -152,6 +152,8 @@ An event is delivered against the snapshot of the frame it was drained in, so `o
 
 `win.serverSideDecorations` is false when the client asked through `xdg-decoration` or the KDE protocol to draw its own decorations, so its pixels already carry a titlebar, and true otherwise ([Compositor](compositor.md#decorations)).
 
+`seat.drag` is the drag the seat's pointer carries, or nil, as a `lunette.Drag` handle ([Compositor](compositor.md#drag-and-drop)). The handle names one drag: it is dead once that drag drops or is cancelled, and the seat's next drag is a different handle. `drag.width` and `drag.height` are the icon's size in surface coordinates, and `drag.x` and `drag.y` place the icon's top-left corner relative to the pointer in the same units; all four are 0 for a drag without an icon. `drag:getTexture()`, `drag:stabilize()`, `drag:getSourceCrop()`, and `drag.opaque` answer for the icon as a window's do for its pixels, and `getTexture` and `stabilize` answer `false` without an icon.
+
 `win:setFrameRate` paces the window's frame callbacks with a floor of 1 Hz ([Rendering](rendering.md#frame-pacing)). A monitor's `mirrored` reports an installed stream, which does not prove frames still arrive ([Host desktop](host-desktop.md#identity-and-lifecycle)).
 
 ### Per-window properties
@@ -379,6 +381,10 @@ Extended grapheme rules are a correctness tail, so the native helper uses `unico
 ### State a frame reads is not also announced
 
 A claim's grant and a window's title are fields a consumer reads every frame. `onLayerGranted`, `onLayerRevoked`, and `onTitleChanged` were removed because nothing subscribed to them, and two ways to learn one fact let the documented one drift from the one in use. An event returns with the consumer that needs it.
+
+### A drag is state on its seat
+
+A drag is read from `seat.drag` every frame rather than announced by events, because its one consumer, the laser that draws the icon, reads it every frame, and two ways to learn one fact let them drift ([State a frame reads is not also announced](#state-a-frame-reads-is-not-also-announced)). It is a handle rather than a field table, because its icon is a surface whose texture is valid for one frame, as a window's is, and a stale table would hand out a texture after its frame. `Drag` is not a member of `Textured`: the union is the panel sources, which share fields a drag lacks.
 
 ### Handles compare by what they name
 

@@ -483,7 +483,7 @@ fn texture_ref<T>(window: &Window<T>) -> Option<TextureRef> {
 ///
 /// A client exiting mid-frame is a race and answers `false`. A stale handle or
 /// a refused copy is a defect, so each raises with the failure named.
-fn answer<T: LuaTexture>(
+pub(super) fn answer<T: LuaTexture>(
     lua: &mlua::Lua,
     answered: Result<&T, TextureUnavailable>,
 ) -> mlua::Result<MaybeTexture> {

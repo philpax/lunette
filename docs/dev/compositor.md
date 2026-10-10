@@ -58,7 +58,7 @@ A client starts a drag from a press of a seat's pointer, with `wl_data_device.st
 
 A release goes to the window its button was pressed on, wherever the pointer has moved since ([Input](input.md#drag-and-drop)). A drag released after the pointer has left every window drops nowhere and cancels its source. A drag whose window unmaps or closes, or whose data source the client destroys, is cancelled by the compositor, because Lua sends no release to a window that has gone. Destroying a seat cancels its drag.
 
-The seat snapshot reports the drag each seat carries: an identifier no other drag shares, and the icon the client gave it. The icon is a surface, so its buffers reach the frame thread as a window's do. The snapshot adds the icon's committed size and source crop, computed as a window's are, and where the icon's top-left corner sits relative to the pointer: at the pointer when the drag starts, moved by each `wl_surface.offset` the client commits. An icon without content is not reported. `crates/lunette-compositor/src/drag.rs` keeps the record.
+The seat snapshot reports the drag each seat carries: an identifier no other drag shares, and the icon the client gave it. The icon is a surface, so its buffers reach the frame thread as a window's do. The snapshot adds the icon's committed size and source crop, computed as a window's are, and where the icon's top-left corner sits relative to the pointer: at the pointer when the drag starts, moved by each `wl_surface.offset` the client commits. An icon without content is not reported. `crates/lunette-compositor/src/drag.rs` keeps the record, and Lua reads it as `seat.drag` ([The Lua API](lua-api.md#handles)).
 
 ## XWayland
 
@@ -141,7 +141,7 @@ smithay's `send_frames_surface_tree` cannot rate-limit: it always sends to surfa
 
 There is no sandboxing.
 
-The seat snapshot reports a drag and its icon, but the Lua API does not expose them, and nothing draws the icon.
+Lua can read a drag and its icon from `seat.drag`, but nothing draws the icon.
 
 A drag icon's subsurfaces are not reported, so only the icon's own surface can be drawn. WayVR draws the icon's whole surface tree.
 

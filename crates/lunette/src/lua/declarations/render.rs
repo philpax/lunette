@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 use crate::{
     events::{payload_records, subscription_functions},
     lua::{
-        Claim, ErrorEvent, Monitor, Output, Process, ReportError, Seat, Sink, Spawn, Window,
+        Claim, Drag, ErrorEvent, Monitor, Output, Process, ReportError, Seat, Sink, Spawn, Window,
         claim::ClaimLayer,
         declarations::{
             AliasSpec, Aliased, Handle, NullTexture, Record, Recorded, Textured, collect,
@@ -74,6 +74,7 @@ fn surface() -> Vec<Item> {
         Item::Handle(collect::<Process<NullTexture>>()),
         Item::Record(Stroke::RECORD),
         Item::Record(NewSeat::RECORD),
+        Item::Handle(collect::<Drag<NullTexture>>()),
         Item::Handle(collect::<Seat<NullTexture>>()),
         Item::Record(SetMode::RECORD),
         Item::Record(NewOutput::RECORD),

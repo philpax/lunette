@@ -6,6 +6,7 @@
 
 mod claim;
 pub mod declarations;
+mod drag;
 pub mod keys;
 mod monitor;
 mod output;
@@ -42,6 +43,7 @@ use mlua::{ErrorContext, Function, Lua, Table, Value};
 
 pub use crate::lua::{
     claim::{Claim, ClaimRegistry, LuaLayer, PoolRegistry},
+    drag::Drag,
     monitor::Monitor,
     output::Output,
     process::Process,

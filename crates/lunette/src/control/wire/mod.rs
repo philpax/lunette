@@ -47,7 +47,10 @@ use lunette_luau::closed_set;
 /// version 1 reader has no tag for either. Adding a reply requires a bump:
 /// without one, a version 1 reader would reach the new tag and report a peer
 /// using a later protocol against a matching version prefix.
-pub const PROTOCOL_VERSION: u8 = 2;
+///
+/// Version 3 is version 2 plus [`HandleKind::Drag`], whose tag a version 2
+/// reader does not know.
+pub const PROTOCOL_VERSION: u8 = 3;
 
 /// The largest frame either side will write or accept.
 ///
@@ -132,6 +135,7 @@ closed_set! {
         Sink = "sink",
         Claim = "claim",
         Output = "output",
+        Drag = "drag",
     }
 }
 
@@ -151,6 +155,7 @@ impl HandleKind {
             Self::Sink => 4,
             Self::Claim => 5,
             Self::Output => 6,
+            Self::Drag => 7,
         }
     }
 

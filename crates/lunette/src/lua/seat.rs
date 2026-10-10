@@ -18,7 +18,7 @@ use mlua::{Lua, Table, UserDataRef, Value};
 use crate::{
     control::wire::HandleKind,
     lua::{
-        LuaTexture, Session, Sink,
+        Drag, LuaTexture, Session, Sink,
         declarations::{Options, handle, record},
         keys::ModifierName,
         values::StrokeQuery,
@@ -104,6 +104,19 @@ handle! {
             .borrow()
             .as_ref()
             .is_some_and(|known| known.clipboard_bridge))
+    }
+
+    /// The drag this seat's pointer carries, or nil. A client starts one from a press, and it
+    /// lasts until the release or a cancellation.
+    field drag(_lua, this) -> Option<Drag<T>> {
+        this.refresh();
+        let known = this.known.borrow();
+        Ok(known.as_ref().and_then(|known| {
+            known
+                .drag
+                .as_ref()
+                .map(|drag| Drag::new(Rc::clone(&this.session), this.id, drag))
+        }))
     }
 
     /// Withdraws this seat's `wl_seat` global or cancels its pending creation. The default seat cannot be removed.
