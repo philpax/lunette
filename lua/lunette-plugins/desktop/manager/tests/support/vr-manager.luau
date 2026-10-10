@@ -1,6 +1,5 @@
 local testing = require '@testing'
 local lunette = require '@lunette'
-local plugin = require '@lunette-plugin'
 local adapter = require '@lunette-plugin/adapter'
 local management = require '@lunette-plugin/management'
 local frameProvider = require '@lunette-plugins/frame'

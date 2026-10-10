@@ -1,19 +1,17 @@
 -- Public UI inputs are validated and copied before callbacks or owned resources are acquired.
-local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local schema = require '@lunette-plugin/schema'
 local ui = require '@lunette-contracts/ui'
 local geometry = require './geometry'
 local theme = require './theme'
-local titlebar = require './titlebar'
+local titlebarOptions = require './titlebar-options'
 
 local validation = {}
 local copyControl: <T>(T, { string }, string) -> T
 local callback: (unknown, string, boolean?) -> ()
 local optional: <T>(schema.Schema<T, T>, unknown, string) -> ()
-local checkSeat: (lunette.Seat?) -> ()
 
-local COMMON: { string } = { 'id', 'owner', 'bounds', 'label', 'enabled', 'z', 'theme', 'draw', 'exclusive' }
+local COMMON: { string } = { 'id', 'owner', 'bounds', 'label', 'enabled', 'z', 'theme', 'draw' }
 local function controlFields(...: string): { string }
   local result = table.clone(COMMON)
   for _, field in { ... } do
@@ -22,7 +20,7 @@ local function controlFields(...: string): { string }
   return result
 end
 local BUTTON = controlFields 'onActivate'
-local TEXT = controlFields('value', 'onChange', 'onSubmit', 'onCancel', 'validate', 'keymapSeat')
+local TEXT = controlFields('value', 'onChange', 'onSubmit', 'onCancel')
 local CHOICE = controlFields('items', 'selected', 'onChange')
 local REGION = controlFields('items', 'onPointer', 'receiver', 'wantsKeyboard')
 local PANEL: { string } = {
@@ -99,7 +97,7 @@ function validation.panel(options: ui.PanelOptions): ui.PanelOptions
     visible = options.visible,
     grabbable = options.grabbable,
     grabTarget = grabTarget,
-    titlebar = if options.titlebar then titlebar.options(options.titlebar) else nil,
+    titlebar = if options.titlebar then titlebarOptions.parse(options.titlebar) else nil,
     theme = overrides,
     draw = options.draw,
   }
@@ -117,8 +115,6 @@ function validation.textField(options: ui.TextFieldOptions): ui.TextFieldOptions
   callback(copied.onChange, 'ui text field onChange')
   callback(copied.onSubmit, 'ui text field onSubmit')
   callback(copied.onCancel, 'ui text field onCancel')
-  callback(copied.validate, 'ui text field validate')
-  checkSeat(copied.keymapSeat)
   return copied
 end
 
@@ -206,7 +202,6 @@ copyControl = function<T>(options: T, allowed: { string }, kind: string): T
   identifier.parse(raw.id, 'ui ' .. kind .. ' id')
   optional(stringValue, raw.label, 'ui ' .. kind .. ' label')
   optional(booleanValue, raw.enabled, 'ui ' .. kind .. ' enabled')
-  optional(booleanValue, raw.exclusive, 'ui ' .. kind .. ' exclusive')
   optional(numberValue, raw.z, 'ui ' .. kind .. ' z')
   callback(raw.draw, 'ui ' .. kind .. ' draw')
   local copied = table.clone(raw)
@@ -223,23 +218,6 @@ optional = function<T>(descriptor: schema.Schema<T, T>, value: unknown, label: s
   if value ~= nil then
     descriptor.parse(value, label)
   end
-end
-
-checkSeat = function(seat: lunette.Seat?): ()
-  if seat == nil then
-    return
-  end
-  local raw: unknown = seat
-  assert(type(raw) == 'table' or type(raw) == 'userdata', 'ui text field keymapSeat: a live seat is required')
-  assert(
-    seat.dead == false
-      and type(seat.id) == 'number'
-      and type(seat.name) == 'string'
-      and type(seat.symbolFor) == 'function'
-      and type(seat.characterFor) == 'function'
-      and type(seat.strokeFor) == 'function',
-    'ui text field keymapSeat: a live seat is required'
-  )
 end
 
 return table.freeze(validation)

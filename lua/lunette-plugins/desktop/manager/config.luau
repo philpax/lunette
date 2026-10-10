@@ -21,8 +21,4 @@ local descriptor = schema.refine(fields)(function(settings: Settings): ()
   end
 end)
 
-return {
-  schema = descriptor,
-  minimumWidth = layout.minimumWidth,
-  minimumHeight = layout.minimumHeight,
-}
+return { schema = descriptor }

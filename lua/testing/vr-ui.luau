@@ -166,13 +166,13 @@ function vrUi.describe(service, name)
   }
 end
 
-function Fixture:discover(service, name, id, itemId, owner)
+function Fixture:discover(service, name, id, itemId)
   local description = vrUi.describe(service, name)
   local foundControl, foundItem
   if description and description.visible then
     for _, control in ipairs(description.controls) do
-      if control.id == id and control.enabled and (owner == nil or control.owner == owner) then
-        assert(foundControl == nil, 'vr-ui: ambiguous control ' .. name .. '/' .. id .. '; specify its owner')
+      if control.id == id and control.enabled then
+        assert(foundControl == nil, 'vr-ui: ambiguous control ' .. name .. '/' .. id)
         foundControl = control
         if itemId then
           for _, item in ipairs(control.items) do
@@ -185,16 +185,16 @@ function Fixture:discover(service, name, id, itemId, owner)
     end
   end
   if foundControl and (itemId == nil or foundItem ~= nil) then
-    return description, foundItem or foundControl, foundControl.owner
+    return description, foundItem or foundControl
   end
   error('vr-ui: no visible enabled control ' .. name .. '/' .. id .. (if itemId then '/' .. itemId else ''), 2)
 end
 
 -- Aims again after each step because a panel can follow the hand that moved.
-function Fixture:clickControl(service, name, id, hand, itemId, owner)
+function Fixture:clickControl(service, name, id, hand, itemId)
   hand = hand or 'right'
   local function aimCurrent()
-    local description, control = self:discover(service, name, id, itemId, owner)
+    local description, control = self:discover(service, name, id, itemId)
     local bounds = control.bounds
     assert(bounds and bounds.width > 0 and bounds.height > 0, 'vr-ui: the control has no visible hit bounds')
     self:aim(description, bounds.x + bounds.width / 2, bounds.y + bounds.height / 2, hand)

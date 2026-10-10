@@ -31,7 +31,7 @@ The built-in providers:
 | `interaction` | `lunette/interaction` 2 | drops, focus | `tuning`, `focusOnPress`, `drive`, `constrain` |
 | `laser` | `lunette/laser` 1 | interaction, theme | `style`, `aim`, `triggerLock`, `buttons`, `readInput`, `draw` |
 | `keyboard` | `lunette/keyboard` 3 | focus, theme | `rows`, `layers`, `style`, `modifierKeys`, `locks`, `onKey`, `drawKey` |
-| `ui` | `lunette/ui` 2 | focus, surfaces, theme, frame | `theme`, `titlebarStyle`, `draw` |
+| `ui` | `lunette/ui` 3 | focus, surfaces, theme, frame | `theme`, `titlebarStyle`, `draw` |
 | `menu` | `lunette/menu` 1 | none | none |
 | `tags` | `lunette/tags` 1 | none | none |
 | `rules` | `lunette/rules` 1 | none | `precedence` |

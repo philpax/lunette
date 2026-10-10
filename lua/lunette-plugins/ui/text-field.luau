@@ -3,14 +3,12 @@ local ui = require '@lunette-contracts/ui'
 local focus = require '@lunette-contracts/focus'
 local keys = require '@lunette-contracts/keys'
 local edit = require './text-edit'
-local measurement = require './measurement-cache'
 local records = require './panel-state'
 local textGeometry = require './text-field-geometry'
 local vocabulary = require '@lunette-contracts/vocabulary'
 
 local textField = {}
 
-local validate: (State) -> boolean
 local apply: (State, edit.State, boolean) -> ()
 local setError: (State, string?) -> ()
 local key: (State, focus.KeyEvent) -> boolean
@@ -21,7 +19,6 @@ local hasModifier: (focus.KeyEvent, string) -> boolean
 
 type State = {
   host: records.Host,
-  measurements: measurement.Cache,
   options: ui.TextFieldOptions,
   draft: edit.State,
   error: string?,
@@ -32,14 +29,12 @@ type State = {
 function textField.new(options: ui.TextFieldOptions, host: records.Host): records.Widget
   local state: State = {
     host = host,
-    measurements = measurement.new(),
     options = options,
     draft = edit.new(if options.value == nil then '' else options.value),
     error = nil,
     focused = false,
     dragging = nil,
   }
-  validate(state)
   local methods = {
     setValue = function(_self: ui.TextField, value: string): ()
       if host.live() then
@@ -80,7 +75,6 @@ function textField.new(options: ui.TextFieldOptions, host: records.Host): record
   return {
     methods = methods,
     receiver = receiver,
-    keymapSeat = options.keymapSeat,
     wantsKeyboard = true,
     onFocus = function(focused: boolean): ()
       if focused and not host.live() then
@@ -103,30 +97,7 @@ function textField.new(options: ui.TextFieldOptions, host: records.Host): record
     visual = function(base: ui.Visual): ui.Visual
       return visual(state, base)
     end,
-    clearMeasurements = function(): ()
-      measurement.clear(state.measurements)
-    end,
   }
-end
-
-validate = function(state: State): boolean
-  local validator = state.options.validate
-  if not validator then
-    return state.host.live()
-  end
-  local message: string? = nil
-  local value = state.draft.value
-  local succeeded = state.host.callback('validate', function(): ()
-    message = validator(value)
-    if message ~= nil and type(message) ~= 'string' then
-      error 'text field: validate must return a string or nil'
-    end
-  end)
-  if not state.host.live() then
-    return false
-  end
-  setError(state, if succeeded then message else 'Validation failed.')
-  return succeeded
 end
 
 apply = function(state: State, draft: edit.State, notify: boolean): ()
@@ -140,11 +111,8 @@ apply = function(state: State, draft: edit.State, notify: boolean): ()
     state.error = nil
   end
   state.host.changed()
-  if not changedValue or not validate(state) then
-    return
-  end
   local callback = state.options.onChange
-  if notify and callback and state.host.live() then
+  if changedValue and notify and callback and state.host.live() then
     state.host.callback('onChange', function(): ()
       callback(draft.value)
     end)
@@ -185,7 +153,7 @@ key = function(state: State, event: focus.KeyEvent): boolean
   elseif event.code == codes.backspace or event.code == codes.delete then
     apply(state, edit.erase(state.draft, if event.code == codes.backspace then 'backward' else 'forward'), true)
   elseif event.code == codes.enter or event.code == codes.keypadEnter then
-    if validate(state) and state.error == nil then
+    if state.error == nil then
       local callback = state.options.onSubmit
       if callback and state.host.live() then
         local value = state.draft.value
@@ -267,7 +235,7 @@ pointerCaret = function(state: State, x: number): number?
     clip,
     resolved,
     resolved.font,
-    state.measurements,
+    state.host.textMeasurements(),
     if state.host.textClip then state.host.textClip() else nil
   )
   return if layout then textGeometry.nearest(layout, x) else nil

@@ -9,6 +9,7 @@ local geometry = require '@lunette-plugins/ui/geometry'
 local theme = require '@lunette-plugins/ui/theme'
 local appearance = require './appearance'
 local drawing = require './draw'
+local measurement = require './measurement-cache'
 local cleanup = require './cleanup'
 local protected = require '@lunette-plugins/protected'
 local vocabulary = require '@lunette-contracts/vocabulary'
@@ -76,12 +77,6 @@ function handles.create(
         drawing.clearCache(record.measurements)
       end,
       function(): ()
-        local clear = record.widget.clearMeasurements
-        if clear then
-          clear()
-        end
-      end,
-      function(): ()
         input.cancel(panel, record, 'control-removed')
       end,
       function(): ()
@@ -110,7 +105,6 @@ function handles.create(
     enabled = options.enabled ~= false,
     z = options.z or 0,
     order = panel.nextOrder,
-    exclusive = options.exclusive ~= false,
     theme = resolved,
     spec = spec,
     measurements = drawing.newCache(),
@@ -174,6 +168,9 @@ function handles.create(
       panel.refresh()
       return record.theme
     end,
+    textMeasurements = function(): measurement.Cache
+      return record.measurements.fields
+    end,
     callback = function(name: string, run: () -> (), terminal: boolean?): boolean
       local allowed = if terminal then (owner :: plugin.Context):active() else current()
       return allowed and protected.call(callbackLabel .. ': ' .. name, run)
@@ -235,7 +232,6 @@ function handles.create(
       target = panel.focus:register(panel.context, {
         kind = 'local',
         wantsKeyboard = widget.wantsKeyboard,
-        keymapSeat = widget.keymapSeat,
         receiver = {
           key = function(event: focus.KeyEvent): boolean
             return interactive()

@@ -1,6 +1,6 @@
 # UI panels
 
-`@lunette-contracts/ui` declares `lunette/ui` at schema 2. Its service creates owner-scoped flat VR panels with buttons, single-line text fields, choices, lists, and custom regions. `lua/lunette-contracts/ui.luau` declares the public types. `@lunette-plugins/ui` implements the contract and requires the theme, focus, surfaces, and frame contracts. A consumer imports the contract, not the provider's modules, so another provider can replace the built-in one.
+`@lunette-contracts/ui` declares `lunette/ui` at schema 3. Its service creates owner-scoped flat VR panels with buttons, single-line text fields, choices, lists, and custom regions. `lua/lunette-contracts/ui.luau` declares the public types. `@lunette-plugins/ui` implements the contract and requires the theme, focus, surfaces, and frame contracts. A consumer imports the contract, not the provider's modules, so another provider can replace the built-in one.
 
 ## An example form
 
@@ -34,9 +34,9 @@ panel:textField {
 
 A panel's `width` and `height` are in metres. `logicalWidth` and `logicalHeight` set its logical coordinate space, with the origin at the top-left corner, x increasing rightward, and y increasing downward. Control bounds are logical and half-open: the left and top edges are inside, and the right and bottom edges are outside. Panel dimensions are positive. A control with zero width or height receives no input.
 
-Declared bounds define a control's input area and its entry in `panel:describe()` and `ui:inspect()`. Drawing a larger shape does not enlarge it. Where a panel has rounded corners, controls and their input are clipped to a rectangular content area inside the rounded outline, which can leave less room near the corners. A higher `z` wins overlapping input, and the later registration wins a tie. A custom region declares its items' bounds and optional routes.
+Declared bounds define a control's input area and its entry in `ui:inspect()`. Drawing a larger shape does not enlarge it. Where a panel has rounded corners, controls and their input are clipped to a rectangular content area inside the rounded outline, which can leave less room near the corners. A higher `z` wins overlapping input, and the later registration wins a tie. A custom region declares its items' bounds and optional routes.
 
-Each pointer button captures the control it pressed until release or cancellation, and a held gesture never moves to another control. Hiding the panel, disabling or destroying the control, resizing the panel, or replacing the control's bounds or items cancels the gesture without activating it. `Panel:setPose` keeps captures. A grip grab cancels the pointer's gestures before the panel moves. An `exclusive` control ignores other pointers while captured. Hover does not move keyboard focus. A region takes keyboard input through its `receiver` and `wantsKeyboard` options.
+Each pointer button captures the control it pressed until release or cancellation, and a held gesture never moves to another control. Hiding the panel, disabling or destroying the control, resizing the panel, or replacing the control's bounds or items cancels the gesture without activating it. `Panel:setPose` keeps captures. A grip grab cancels the pointer's gestures before the panel moves. A captured control ignores other pointers. Hover does not move keyboard focus. A region takes keyboard input through its `receiver` and `wantsKeyboard` options.
 
 ## Titlebars
 
@@ -50,7 +50,7 @@ The bar sits above the panel and follows its pose, size, and visibility. Trigger
 
 A text field holds valid single-line UTF-8; control characters and line separators are rejected. `setValue` replaces the text and `value` returns it. Editing moves and deletes whole grapheme clusters, and a draw hook's `visual` carries the caret and anchor as one-based byte offsets. `lunette.textBoundaries(text)` returns those boundaries for a string. Text is not shaped, laid out bidirectionally, or composed through an input method.
 
-`onChange`, `onSubmit`, and `onCancel` receive the current text; Escape blurs the field before `onCancel` runs. `validate` returns an error message or nil, and `setError` shows an external one. An error raised by a callback is reported once with the owner's label and does not undo the edit. Keys and text reach a field through the focus contract, from a physical keyboard or the virtual one.
+`onChange`, `onSubmit`, and `onCancel` receive the current text; Escape blurs the field before `onCancel` runs. `setError` shows an error message, and Enter does not submit while one is shown. Editing the text clears it. An error raised by a callback is reported once with the owner's label and does not undo the edit. Keys and text reach a field through the focus contract, from a physical keyboard or the virtual one.
 
 ## Shared keyboard and menu actions
 
@@ -72,11 +72,11 @@ Hooks draw in logical panel coordinates. A hook starts with the default shader, 
 
 Panel names are unique within one provider activation. A control's `id` is unique among the live controls of the owner that created it, so two owners can use the same id in one panel. The owner must be an active plugin bound to the provider. When the owner deactivates, or the provider is replaced or reloaded, its panels and controls die, and their surface offers, captures, and focus targets are released. A consumer checks `dead` before using a handle.
 
-`panel:describe()` returns a read-only snapshot. `description.generation` identifies the provider activation, and each control's `owner` identifies the owner activation that created it. Both are opaque tokens compared by identity. A generation, an owner, and an id together name one live control. `description.revision` changes whenever the panel changes within its activation. `ui:inspect()` reports every live panel, control, and item with the same geometry, for the plugin manager and for tests that drive a panel they did not create.
+A control handle's `owner` identifies the owner activation that created it, as an opaque token compared by identity. An owner and an id together name one live control. `ui:inspect()` reports every live panel, control, and item with the geometry input uses, for the plugin manager and for tests that drive a panel they did not create. A panel's `revision` in that report changes whenever the panel changes within its activation.
 
 ## Decisions
 
-Panels are inspected, not listed. A list of panel handles would give every plugin the methods of panels it did not create; `ui:inspect()` reports their geometry as data, which is what the plugin manager and the controller-driven tests read.
+Panels are inspected, not listed. A list of panel handles would give every plugin the methods of panels it did not create; `ui:inspect()` reports their geometry as data, which is what the plugin manager and the controller-driven tests read. A panel has no description method of its own, because a second view of the same geometry would only duplicate `ui:inspect()`.
 
 Rounded panels clip their content to a conservative rectangle inside the outline. This keeps caller bounds unchanged and needs no stencil or offscreen pass, at the cost of some room near the corners. Controls keep rectangular hit areas, which are easier to hit than rounded ones, while the panel outline still excludes its corners. Custom hooks follow the clip by convention.
 

@@ -413,7 +413,6 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
         label = 'Plugin graph',
         bounds = graphBounds,
         items = graphItems,
-        exclusive = true,
         z = -1,
         onPointer = graphEvent,
         draw = function(pass: Pass, visual: ui.Visual, _default: ui.Renderer): ()

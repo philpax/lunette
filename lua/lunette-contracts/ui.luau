@@ -1,5 +1,4 @@
 -- Owner-scoped VR panels share declared logical geometry for input, drawing, and inspection.
-local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local focus = require '@lunette-contracts/focus'
 local theme = require '@lunette-contracts/theme'
@@ -73,28 +72,6 @@ export type ItemDescription = {
   read bounds: Bounds?,
   read route: { read [number]: Point }?,
 }
-export type ControlDescription = {
-  read id: string,
-  read owner: OwnerIdentity,
-  read kind: Kind,
-  read label: string,
-  read enabled: boolean,
-  read bounds: Bounds?,
-  read items: { read [number]: ItemDescription },
-}
-export type Generation = { read kind: 'ui-generation' }
-export type Description = {
-  read name: string,
-  read generation: Generation,
-  read revision: number,
-  read pose: { read [number]: number },
-  read width: number,
-  read height: number,
-  read logicalWidth: number,
-  read logicalHeight: number,
-  read visible: boolean,
-  read controls: { read [number]: ControlDescription },
-}
 export type Visual = {
   read id: string,
   read kind: Kind | 'panel',
@@ -127,7 +104,6 @@ export type Options = {
   read z: number?,
   read theme: ThemeOverrides?,
   read draw: DrawHook?,
-  read exclusive: boolean?,
 }
 export type ButtonOptions = Options & { read onActivate: () -> () }
 export type TextFieldOptions = Options & {
@@ -135,8 +111,6 @@ export type TextFieldOptions = Options & {
   read onChange: ((string) -> ())?,
   read onSubmit: ((string) -> ())?,
   read onCancel: ((string) -> ())?,
-  read validate: ((string) -> string?)?,
-  read keymapSeat: lunette.Seat?,
 }
 export type ChoiceOptions = Options & {
   read items: { read [number]: Item },
@@ -246,7 +220,6 @@ export type Panel = {
   read setTheme: (Panel, ThemeOverrides?) -> (),
   read setTitlebar: (Panel, TitlebarOptions?) -> (),
   read draw: (Panel, Pass) -> (),
-  read describe: (Panel) -> Description,
   read destroy: (Panel) -> boolean,
   read button: (Panel, ButtonOptions) -> Button,
   read textField: (Panel, TextFieldOptions) -> TextField,
@@ -261,6 +234,6 @@ export type Service = {
   read inspect: (Service) -> inspection.Snapshot,
 }
 export type Capability = plugin.Capability<Service>
-ui.capability = plugin.capability<<Service>> { name = 'lunette/ui', version = 2 }
+ui.capability = plugin.capability<<Service>> { name = 'lunette/ui', version = 3 }
 
 return ui

@@ -19,16 +19,15 @@ local required: plugin.Declaration = {
 }
 
 type Paint = {
-  revision: number,
   textHeight: number,
   background: theme.Color,
   foreground: theme.Color,
   font: Font,
 }
 
-local function draw(pass: Pass, lines: { string }, settings: Settings, paint: Paint): boolean
+local function draw(pass: Pass, lines: { string }, settings: Settings, paint: Paint): ()
   if #lines == 0 then
-    return false
+    return
   end
   passState.withRestore(pass, function(): ()
     pass:setShader()
@@ -60,7 +59,6 @@ local function draw(pass: Pass, lines: { string }, settings: Settings, paint: Pa
       )
     end
   end)
-  return true
 end
 
 return plugin.consumer<<Config, Settings>> {
@@ -78,7 +76,6 @@ return plugin.consumer<<Config, Settings>> {
       local style = snapshot.theme
       local fontSpec = configuredFont or style.typography.font
       return {
-        revision = snapshot.revision,
         textHeight = settings.textHeight or style.typography.errorTextHeight,
         background = settings.background or style.colors.errorBackground,
         foreground = settings.foreground or style.colors.foreground,
@@ -86,19 +83,11 @@ return plugin.consumer<<Config, Settings>> {
       }
     end
     local paint = prepare(themeService:current())
-    local function applyCurrent(): ()
-      if not context:active() then
-        return
-      end
-      local snapshot = themeService:current()
-      if snapshot.revision == paint.revision then
-        return
-      end
-      paint = prepare(snapshot)
-    end
     themeService:onChanged(context, {
       run = function(_event: theme.Snapshot): ()
-        applyCurrent()
+        if context:active() then
+          paint = prepare(themeService:current())
+        end
       end,
     })
 

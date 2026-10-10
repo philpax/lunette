@@ -26,14 +26,6 @@ local required: plugin.Declaration = {
   scale.capability,
 }
 
-local function headPosition(): (number?, number?, number?)
-  local headset = lovr.headset
-  if not headset or not headset.getPosition then
-    return nil, nil, nil
-  end
-  return headset.getPosition 'head'
-end
-
 return plugin.consumer<<Config, Settings>> {
   name = 'desktop/scale',
   requires = required,
@@ -73,10 +65,7 @@ return plugin.consumer<<Config, Settings>> {
     frameService:onUpdate(context, {
       phase = 'overlay',
       run = function(_dt: number)
-        local hx, hy, hz = headPosition()
-        if hx == nil or hy == nil or hz == nil then
-          return
-        end
+        local hx, hy, hz = lovr.headset.getPosition 'head'
         for id, near in nearestPanels(hx, hy, hz) do
           local entry: Scaled = scaled[id] or track(id, near.output)
           entry.output = near.output

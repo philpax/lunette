@@ -100,13 +100,13 @@ Consumers resolve appearance in the order base theme, global theme, provider con
 
 ### UI panels
 
-`lunette/ui` panels share one declared geometry for input, drawing, descriptions, and inspection: top-left, y-down logical coordinates and half-open control bounds, clipped to the panel. Higher `z` wins an overlap, then later registration. A control belongs to its panel's owner unless its options name another `owner`, and a control id is unique per creation owner across the provider's live panels. `ui:inspect()` reports each live panel with its pose and size, each control with its clipped bounds, and each list, choice, or region item. `ui:newTitlebar(owner, spec)` takes the titlebar options together with `name`, `target`, and an optional `visible` predicate.
+`lunette/ui` panels share one declared geometry for input, drawing, and inspection: top-left, y-down logical coordinates and half-open control bounds, clipped to the panel. Higher `z` wins an overlap, then later registration. A control belongs to its panel's owner unless its options name another `owner`, and a control id is unique per creation owner across the provider's live panels. `ui:inspect()` reports each live panel with its pose and size, each control with its clipped bounds, and each list, choice, or region item. `ui:newTitlebar(owner, spec)` takes the titlebar options together with `name`, `target`, and an optional `visible` predicate.
 
-A pointer button captures the control it pressed until release or cancellation. A release activates only that control and only inside it; cancellation never activates. An exclusive control refuses a second pointer while held. Hiding, disabling, destroying, resizing, or replacing bounds or items cancels the affected captures, and `Panel:setPose` keeps them. Hover does not take keyboard focus. A text field holds valid single-line UTF-8 and edits at grapheme boundaries from `lunette.textBoundaries`. `setValue` calls no callback.
+A pointer button captures the control it pressed until release or cancellation. A release activates only that control and only inside it; cancellation never activates. A control refuses a second pointer while held. Hiding, disabling, destroying, resizing, or replacing bounds or items cancels the affected captures, and `Panel:setPose` keeps them. Hover does not take keyboard focus. A text field holds valid single-line UTF-8 and edits at grapheme boundaries from `lunette.textBoundaries`. `setValue` calls no callback.
 
-Theme overrides resolve from the global theme to the provider, panel, and control, and draw hooks wrap in the order provider, panel, control without changing hit bounds. Each hook invocation restores pass state and transforms, including on error. Draw errors propagate to the frame boundary, and widget callback errors are reported with the control owner. `lua/lunette-plugins/ui/depth.luau` owns the depth offsets that separate backing, controls, contents, and glyphs.
+Theme overrides resolve from the global theme to the provider, panel, and control, and draw hooks wrap in the order provider, panel, control without changing hit bounds. Each hook invocation restores pass state and transforms, including on error. Draw errors propagate to the frame boundary, and widget callback errors are reported with the control owner. `draw.depth` in `lua/lunette-plugins/ui/draw.luau` owns the depth offsets that separate backing, controls, contents, and glyphs.
 
-Panels and controls end with their creation owners, with the provider, and at source reload. A control's focus target is registered under the UI provider and held by the control. A frozen `ui.Generation` token identifies a provider activation, and a frozen `ui.OwnerIdentity` token a creation-owner activation; the generation, owner, and id together identify a live control. Descriptions grant no authority.
+Panels and controls end with their creation owners, with the provider, and at source reload. A control's focus target is registered under the UI provider and held by the control. A frozen `ui.OwnerIdentity` token identifies a creation-owner activation, and the owner and id together identify a live control. Inspection grants no authority.
 
 ### Bindings, menu actions, and layouts
 
@@ -360,9 +360,9 @@ The theme service is separate from the replaceable selector, so disabling the se
 
 A plugin calling `theme:select` with its theme was rejected because it would contend with the selector and never appear among its choices. Entries are complete themes so none silently inherits the base.
 
-### UI activation tokens are frozen tables
+### UI owner identities are frozen tables
 
-A numeric generation counter restarts after replacement and can repeat a panel's name and revision. Control ids are namespaced by owner rather than by panel, because one owner may build controls across panels and several owners may contribute to one.
+A numeric counter restarts after replacement and can repeat an owner and control id. Control ids are namespaced by owner rather than by panel, because one owner may build controls across panels and several owners may contribute to one.
 
 ### Joined frames expose a narrow optional relationship
 

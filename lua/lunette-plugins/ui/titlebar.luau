@@ -17,8 +17,6 @@ local records = require './panel-state'
 
 local titlebar = {}
 
-titlebar.options = titlebarOptions.parse
-
 -- One provider activation shares these with every titlebar it creates.
 export type Provider = {
   read context: plugin.Context,
@@ -27,6 +25,7 @@ export type Provider = {
   read style: ui.TitlebarStyleOverrides,
   read themes: themesContract.Service,
   read contour: (ui.Panel, records.Contour) -> (),
+  read size: (ui.Panel) -> (number, number),
 }
 
 function titlebar.new(
@@ -41,7 +40,7 @@ function titlebar.new(
   context:checkOwner(owner)
   assert(type(name) == 'string' and name ~= '', 'ui titlebar: name is non-empty')
   assert(target.pose and target.width and target.height, 'ui titlebar: target has panel geometry')
-  local options = titlebar.options(given)
+  local options = titlebarOptions.parse(given)
   local function resolveStyle(current: ui.TitlebarOptions): ui.TitlebarStyleOverrides
     return styleDefinition.inherit(
       styleDefinition.inherit(styleDefinition.global(themes:current().theme), provider.style),
@@ -197,8 +196,8 @@ function titlebar.new(
       end
     end
     local toolbarWidth = math.max(reserved, 0.001)
-    local description = panel:describe()
-    if description.width ~= toolbarWidth or description.height ~= style.barHeight then
+    local currentWidth, currentHeight = provider.size(panel)
+    if currentWidth ~= toolbarWidth or currentHeight ~= style.barHeight then
       panel:setSize(toolbarWidth, style.barHeight, toolbarWidth * 1000, style.barHeight * 1000)
     end
     local profile = titlebarDraw.profile(width, style.barHeight, style.cornerRadius, joined)
@@ -343,7 +342,7 @@ function titlebar.new(
       if dead then
         return
       end
-      local parsed = titlebar.options(nextOptions)
+      local parsed = titlebarOptions.parse(nextOptions)
       local previous, previousStyle = options, style
       options = parsed
       local ok, failure = pcall(refresh, true)

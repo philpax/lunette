@@ -23,8 +23,6 @@ export type SidebarPart = 'background' | 'details' | 'footer'
 
 export type Style = { read theme: theme.Theme, read visual: ui.Theme }
 
-local renderGraph: (Pass, Style, view.State, graph.Box, graph.Box?) -> ()
-local renderSidebar: (Pass, Style, Options, graph.Box, SidebarPart) -> ()
 local rectangle: (Pass, graph.Box, graph.Box, boolean?) -> ()
 local segment: (Pass, graph.Point, graph.Point, graph.Box) -> ()
 local textBox: (Pass, Font, string, graph.Box, graph.Box, number) -> boolean
@@ -33,10 +31,6 @@ local wrappedTextBox: (Pass, Font, { string }, graph.Box, graph.Box, number) -> 
 
 function draw.wrapDetails(font: Font, records: { string }, sidebar: number, size: number): { string }
   return font:getLines(table.concat(records, '\n'), (sidebar - 24) * math.max(font:getHeight(), 0.000001) / size)
-end
-
-function draw.graph(pass: Pass, state: view.State, bounds: graph.Box, style: Style, clip: graph.Box?): ()
-  renderGraph(pass, style, state, bounds, clip)
 end
 
 export type SidebarGeometry = {
@@ -63,10 +57,6 @@ function draw.sidebarGeometry(options: Options): SidebarGeometry
     },
     footer = { x = left, y = bottom, width = options.sidebar, height = footerHeight },
   }
-end
-
-function draw.details(pass: Pass, options: Options, clip: graph.Box, part: SidebarPart, style: Style): ()
-  renderSidebar(pass, style, options, clip, part)
 end
 
 local function arrow(
@@ -100,7 +90,7 @@ local function arrow(
   segment(pass, tip, { x = tip.x - ux * size + uy * size / 2, y = tip.y - uy * size - ux * size / 2 }, clip)
 end
 
-renderGraph = function(pass: Pass, style: Style, state: view.State, bounds: graph.Box, clip: graph.Box?): ()
+function draw.graph(pass: Pass, state: view.State, bounds: graph.Box, style: Style, clip: graph.Box?): ()
   local canvas = clip or bounds
   local font, colors, typography = style.visual.font, style.theme.colors, style.theme.typography
   local selection = state.selection
@@ -184,7 +174,7 @@ renderGraph = function(pass: Pass, style: Style, state: view.State, bounds: grap
   end
 end
 
-renderSidebar = function(pass: Pass, style: Style, options: Options, clip: graph.Box, part: SidebarPart): ()
+function draw.details(pass: Pass, options: Options, clip: graph.Box, part: SidebarPart, style: Style): ()
   local font, colors = style.visual.font, style.theme.colors
   local boxes = draw.sidebarGeometry(options)
   if part == 'background' then

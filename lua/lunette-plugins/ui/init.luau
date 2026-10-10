@@ -5,7 +5,6 @@ local focus = require '@lunette-contracts/focus'
 local surfaces = require '@lunette-contracts/surfaces'
 local panel = require '@lunette-plugins/ui/panel'
 local config = require '@lunette-plugins/ui/config'
-local cleanup = require '@lunette-plugins/ui/cleanup'
 local validation = require '@lunette-plugins/ui/validation'
 local titlebar = require '@lunette-plugins/ui/titlebar'
 local theme = require '@lunette-contracts/theme'
@@ -29,8 +28,6 @@ local function build(context: plugin.Context, settings: Settings): ui.Service
     owners = {},
     theme = context:require(theme.capability),
   }
-  local generation: ui.Generation = { kind = 'ui-generation' }
-  table.freeze(generation)
   -- Destroyed panels and titlebars stay listed until the next pass over each list prunes them.
   local panels: { ui.Panel } = {}
   local states: { [ui.Panel]: records.Panel } = {}
@@ -59,19 +56,25 @@ local function build(context: plugin.Context, settings: Settings): ui.Service
   end
   local service: ui.Service
   local titlebarProvider: titlebar.Provider
+  local function newTitlebar(
+    owner: ui.Owner,
+    name: string,
+    target: vocabulary.Surface,
+    options: ui.TitlebarOptions,
+    visible: (() -> boolean)?
+  ): ui.Titlebar
+    local result = titlebar.new(titlebarProvider, owner, name, target, options, visible)
+    if not result.dead then
+      titlebars[#titlebars + 1] = result
+    end
+    return result
+  end
   local provider: panel.Provider = {
     context = context,
     services = services,
     theme = appearanceTheme.project(settings.theme),
     draw = settings.draw,
-    generation = generation,
-    newTitlebar = function(owner: ui.Owner, name: string, target: vocabulary.Surface, options: ui.TitlebarOptions)
-      local result = titlebar.new(titlebarProvider, owner, name, target, options)
-      if not result.dead then
-        titlebars[#titlebars + 1] = result
-      end
-      return result
-    end,
+    newTitlebar = newTitlebar,
   }
   service = {
     newPanel = function(_self: ui.Service, owner: ui.Owner, options: ui.PanelOptions): ui.Panel
@@ -91,12 +94,7 @@ local function build(context: plugin.Context, settings: Settings): ui.Service
       options.name, options.target, options.visible = nil, nil, nil
       local visible = spec.visible
       assert(visible == nil or type(visible) == 'function', 'ui titlebar: visible is a function')
-      local result =
-        titlebar.new(titlebarProvider, owner, spec.name, spec.target, (options :: any) :: ui.TitlebarOptions, visible)
-      if not result.dead then
-        titlebars[#titlebars + 1] = result
-      end
-      return result
+      return newTitlebar(owner, spec.name, spec.target, (options :: any) :: ui.TitlebarOptions, visible)
     end,
     inspect = function(_self: ui.Service): inspection.Snapshot
       local result: { inspection.Registration } = {}
@@ -122,6 +120,10 @@ local function build(context: plugin.Context, settings: Settings): ui.Service
       panelGeometry.prepare(state)
       input.cancel(state, nil, 'control-removed')
     end,
+    size = function(handle: ui.Panel): (number, number)
+      local state = assert(states[handle], 'ui titlebar: missing action panel')
+      return state.width, state.height
+    end,
   }
   context:require(frame.capability):onUpdate(context, {
     phase = 'scene',
@@ -132,28 +134,6 @@ local function build(context: plugin.Context, settings: Settings): ui.Service
           current:sync()
         end
       end
-    end,
-  })
-  services.theme:onChanged(context, {
-    run = function(_snapshot: theme.Snapshot): ()
-      if not context:active() then
-        return
-      end
-      local operations: { () -> () } = {}
-      for _, current in liveTitlebars() do
-        operations[#operations + 1] = function(): ()
-          if not current.dead then
-            current:sync()
-          end
-        end
-      end
-      for _, current in livePanels() do
-        local state = states[current]
-        operations[#operations + 1] = function(): ()
-          state.refresh()
-        end
-      end
-      cleanup.run('ui appearance refresh', operations)
     end,
   })
   return service

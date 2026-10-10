@@ -39,8 +39,7 @@ export type Provider = {
   read services: Services,
   read theme: ui.ThemeOverrides,
   read draw: ui.DrawHook?,
-  read generation: ui.Generation,
-  read newTitlebar: (ui.Owner, string, vocabulary.Surface, ui.TitlebarOptions) -> ui.Titlebar,
+  read newTitlebar: (ui.Owner, string, vocabulary.Surface, ui.TitlebarOptions, (() -> boolean)?) -> ui.Titlebar,
 }
 
 -- Options arrive validated by the service; the returned record is the provider's private view of the handle.
@@ -54,7 +53,6 @@ function panel.new(provider: Provider, owner: ui.Owner, options: ui.PanelOptions
     visible = options.visible ~= false,
     cancelling = false,
     name = options.name,
-    generation = provider.generation,
     revision = 1,
     owner = owner,
     pose = pose,
@@ -311,35 +309,6 @@ function panel.new(provider: Provider, owner: ui.Owner, options: ui.PanelOptions
         end
         error(failure, 0)
       end
-    end,
-    describe = function(_self: ui.Panel): ui.Description
-      state.refresh()
-      local controls: { ui.ControlDescription } = {}
-      for _, record in ipairs(input.ordered(state.controls)) do
-        if not record.dead then
-          controls[#controls + 1] = table.freeze {
-            id = record.id,
-            owner = record.identity,
-            kind = record.kind,
-            label = record.label,
-            enabled = record.enabled,
-            bounds = input.bounds(state, record),
-            items = panelDraw.clippedItems(state, record),
-          }
-        end
-      end
-      return table.freeze {
-        name = state.name,
-        generation = state.generation,
-        revision = state.revision,
-        pose = table.freeze { state.pose:unpack(true) },
-        width = state.width,
-        height = state.height,
-        logicalWidth = state.logicalWidth,
-        logicalHeight = state.logicalHeight,
-        visible = state.visible and not state.dead,
-        controls = table.freeze(controls),
-      }
     end,
     setTitlebar = function(_self: ui.Panel, given: ui.TitlebarOptions?): ()
       if not live() then

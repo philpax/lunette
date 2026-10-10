@@ -1,35 +1,23 @@
 -- Measurement caches belong to one retained appearance and are cleared when its font changes.
 local cache = {}
-export type Cache = {
-  font: Font?,
-  measure: unknown,
-  height: number?,
-  density: number?,
-  entries: { unknown },
-}
+export type Cache = { font: Font?, entries: { unknown } }
 function cache.new(): Cache
-  return { font = nil, measure = nil, height = nil, density = nil, entries = {} }
+  return { font = nil, entries = {} }
 end
 function cache.clear(value: Cache): ()
-  value.font, value.measure, value.height, value.density, value.entries = nil, nil, nil, nil, {}
+  value.font, value.entries = nil, {}
 end
-function cache.entries(value: Cache?, font: Font): { unknown }?
-  if not value then
-    return nil
-  end
-  local height = font:getHeight()
-  local density = if font.getPixelDensity then font:getPixelDensity() else nil
-  if value.font ~= font or value.measure ~= font.getWidth or value.height ~= height or value.density ~= density then
-    value.font, value.measure, value.height, value.density, value.entries = font, font.getWidth, height, density, {}
+-- The theme caches one face per font specification, so a changed font is always a new Font.
+function cache.entries(value: Cache, font: Font): { unknown }
+  if value.font ~= font then
+    value.font, value.entries = font, {}
   end
   return value.entries
 end
-function cache.store(entries: { unknown }?, value: unknown): ()
-  if entries then
-    if #entries == 32 then
-      table.remove(entries, 1)
-    end
-    table.insert(entries, value)
+function cache.store(entries: { unknown }, value: unknown): ()
+  if #entries == 32 then
+    table.remove(entries, 1)
   end
+  table.insert(entries, value)
 end
 return cache

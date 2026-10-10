@@ -31,7 +31,7 @@ function textFieldGeometry.layout(
   clip: ui.Bounds,
   theme: ui.Theme,
   font: Font,
-  cache: measurement.Cache?,
+  cache: measurement.Cache,
   faceClip: ui.Bounds?
 ): Layout?
   local height = font:getHeight()
@@ -48,7 +48,7 @@ function textFieldGeometry.layout(
     else nil
   local scale = if visible then math.min(theme.fontSize, visible.height) / height else 0
   local entries = measurement.entries(cache, font)
-  if entries and visible then
+  if visible then
     for index, raw in entries do
       local entry = raw :: { value: string, caret: number, anchor: number, layout: Layout }
       local result, previous = entry.layout, entry.layout.visible

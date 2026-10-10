@@ -3,6 +3,7 @@ local plugin = require '@lunette-plugin'
 local adapter = require '@lunette-plugin/adapter'
 local ui = require '@lunette-contracts/ui'
 local surfaces = require '@lunette-contracts/surfaces'
+local vrUi = require '@testing/vr-ui'
 local expect = testing.expect
 local fixture = require './support/panel'
 local test = testing.suite()
@@ -14,6 +15,10 @@ end
 local function release(state, hand)
   state.fixture:button(hand or 'right', 'trigger', false)
   state.fixture:step()
+end
+
+local function describe(state)
+  return vrUi.describe(state.service, 'public-ui-form')
 end
 
 local function kinds(events, kind)
@@ -70,7 +75,6 @@ end)
 
 test('provider withdrawal invalidates handles and recovery reconnects the same consumers', function()
   local state = fixture.boot()
-  local first = state.panel:describe()
   click(state, 'draft')
   fixture.press(state, 'run')
   local panel, field, button = state.panel, state.field, state.button
@@ -78,7 +82,6 @@ test('provider withdrawal invalidates handles and recovery reconnects the same c
   expect.truthy(panel.dead and field.dead and button.dead, 'withdrawal invalidates retained handles')
   expect.equal(state.focus.service:focused(), nil, 'withdrawal clears local routing')
   state.fixture.session.instances.ui:enable()
-  expect.truthy(first.generation ~= state.panel:describe().generation, 'recovery changes the generation')
   state.fixture:step()
   release(state)
   expect.equal(#state.activations, 0, 'the held trigger cannot activate a replacement control')
@@ -139,7 +142,7 @@ end)
 test('panel motion and resizing preserve input', function()
   local state = fixture.boot()
   fixture.press(state, 'run')
-  local before = state.panel:describe()
+  local before = describe(state)
   state.panel:setPose(lovr.math.newMat4(table.unpack(before.pose)):translate(0.2, 0, 0))
   local moved, button = state.fixture:discover(state.service, 'public-ui-form', 'run')
   expect.truthy(moved.revision > before.revision, 'motion changes the revision')
@@ -149,7 +152,7 @@ test('panel motion and resizing preserve input', function()
   expect.equal(#state.activations, 1, 'a capture survives rigid motion')
   local offered = state.fixture.session:observe(surfaces.capability).service:all()[1]
   offered:setSize(before.width * 1.5)
-  local after = state.panel:describe()
+  local after = describe(state)
   expect.near(after.height, before.height * 1.5, 1e-5, 'resizing scales both world dimensions')
   expect.equal(after.logicalWidth, before.logicalWidth, 'logical layout is unchanged')
   click(state, 'run')
@@ -177,7 +180,7 @@ test('painting and pointer picking share overlap order', function()
     state.panel:draw(state.fixture.native.events.pass)
     local top = if equalZ then 'second' else 'first'
     expect.equal(painted[#painted], top, 'the winning control paints last')
-    state.fixture:click(state.panel:describe(), 320, 25)
+    state.fixture:click(describe(state), 320, 25)
     expect.equal(table.concat(activated, ','), top, 'the pointer activates the last painted control')
     state.fixture:close()
   end

@@ -1,6 +1,7 @@
 local testing = require '@testing'
 local textField = require '../../text-field'
 local themes = require '../../theme'
+local measurement = require '../../measurement-cache'
 
 local fixture = {}
 
@@ -13,6 +14,7 @@ function fixture.new(options)
     lovr.graphics.getDefaultFont()
   )
   local widget
+  local measurements = measurement.new()
   local host = {
     live = function()
       return true
@@ -48,6 +50,9 @@ function fixture.new(options)
     end,
     theme = function()
       return theme
+    end,
+    textMeasurements = function()
+      return measurements
     end,
     callback = function(_, run)
       run()

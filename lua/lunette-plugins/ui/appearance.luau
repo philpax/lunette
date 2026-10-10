@@ -22,14 +22,6 @@ local function stableRadius(value: number, previous: number): number
   return if math.abs(value - previous) <= 1e-6 * math.max(value, previous) then previous else value
 end
 
-local function clearControl(record: records.Control): ()
-  draw.clearCache(record.measurements)
-  local clear = record.widget.clearMeasurements
-  if clear then
-    clear()
-  end
-end
-
 function appearance.refresh(panel: records.Panel, force: boolean?): ()
   if panel.dead or panel.cancelling or not panel.context:active() or not panel.context:owns(panel.owner) then
     return
@@ -80,7 +72,7 @@ function appearance.refresh(panel: records.Panel, force: boolean?): ()
   end
   for _, record in affected do
     operations[#operations + 1] = function(): ()
-      clearControl(record)
+      draw.clearCache(record.measurements)
       input.cancel(panel, record, 'control-removed')
     end
   end
@@ -96,7 +88,7 @@ function appearance.control(panel: records.Panel, record: records.Control, overr
   record.overrides, record.spec, record.theme = copied, spec, value
   panel.revision += 1
   if changed then
-    clearControl(record)
+    draw.clearCache(record.measurements)
     input.cancel(panel, record, 'control-removed')
   end
 end

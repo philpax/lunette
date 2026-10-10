@@ -10,6 +10,16 @@ local vrUi = require '@testing/vr-ui'
 
 local fixture = {}
 
+local ROWS = {
+  {
+    { code = 30, label = 'A' },
+    { code = 14, label = 'Backspace' },
+    { code = 28, label = 'Submit' },
+    { code = 1, label = 'Cancel' },
+    { action = { kind = 'text', text = 'é👩🏽‍💻' }, label = 'Cluster' },
+  },
+}
+
 function fixture.boot(options)
   options = options or {}
   local running = vrUi.boot {
@@ -27,20 +37,10 @@ function fixture.boot(options)
     {
       id = 'keyboard',
       definition = require('@lunette-plugins/keyboard').definition,
-      config = {
-        rows = {
-          {
-            { code = 30, label = 'A' },
-            { code = 14, label = 'Backspace' },
-            { code = 28, label = 'Submit' },
-            { code = 1, label = 'Cancel' },
-            { action = { kind = 'text', text = 'é👩🏽‍💻' }, label = 'Cluster' },
-          },
-        },
-      },
+      config = { rows = ROWS },
     },
     'desktop/pointing',
-    options.provider or 'ui',
+    'ui',
   }
   local state = { fixture = running, activations = {}, submits = {}, cancels = {}, events = {} }
   state.instance = running.session:use(adapter.define {
@@ -132,17 +132,8 @@ function fixture.boot(options)
         end,
       })
       if options.keyboard then
-        local rows = {
-          {
-            { code = 30, label = 'A' },
-            { code = 14, label = 'Backspace' },
-            { code = 28, label = 'Submit' },
-            { code = 1, label = 'Cancel' },
-            { action = { kind = 'text', text = 'é👩🏽‍💻' }, label = 'Cluster' },
-          },
-        }
         local board = context:require(keyboard.capability):new(context, {
-          rows = rows,
+          rows = ROWS,
           layers = {},
           pose = lovr.math.newMat4():translate(0, 0.5, -1),
         })

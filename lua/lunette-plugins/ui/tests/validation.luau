@@ -1,5 +1,6 @@
 local testing = require '@testing'
 local surfaces = require '@lunette-contracts/surfaces'
+local vrUi = require '@testing/vr-ui'
 local expect = testing.expect
 local fixture = require './support/panel'
 local test = testing.suite()
@@ -20,7 +21,7 @@ end
 
 test('malformed options reject without changing the panel', function()
   local state = fixture.boot()
-  local revision = state.panel:describe().revision
+  local revision = vrUi.describe(state.service, 'public-ui-form').revision
   for _, case in
     {
       { 'button', { onActivate = false } },
@@ -41,7 +42,7 @@ test('malformed options reject without changing the panel', function()
   expect.raises(function()
     state.field:setValue(false :: any)
   end)
-  local current = state.panel:describe()
+  local current = vrUi.describe(state.service, 'public-ui-form')
   expect.equal(current.revision, revision, 'rejections commit nothing')
   expect.equal(current.controls[#current.controls].items[1].label, 'Node', 'the region keeps its items')
 end)

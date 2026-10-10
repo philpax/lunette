@@ -18,7 +18,6 @@ local required: plugin.Declaration = {
 }
 
 type Paint = {
-  revision: number,
   size: number,
   foreground: theme.Color,
   font: Font,
@@ -39,26 +38,17 @@ return plugin.consumer<<Config, Settings>> {
     local function prepare(snapshot: theme.Snapshot): Paint
       local style = snapshot.theme
       return {
-        revision = snapshot.revision,
         size = settings.textHeight or style.typography.hintTextHeight,
         foreground = settings.foreground or style.colors.foreground,
         font = themeService:font(configuredFont or style.typography.font),
       }
     end
     local paint = prepare(themeService:current())
-    local function applyCurrent(): ()
-      if not context:active() then
-        return
-      end
-      local snapshot = themeService:current()
-      if snapshot.revision == paint.revision then
-        return
-      end
-      paint = prepare(snapshot)
-    end
     themeService:onChanged(context, {
       run = function(_event: theme.Snapshot): ()
-        applyCurrent()
+        if context:active() then
+          paint = prepare(themeService:current())
+        end
       end,
     })
 

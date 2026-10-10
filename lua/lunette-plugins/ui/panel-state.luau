@@ -6,6 +6,7 @@ local focus = require '@lunette-contracts/focus'
 local globalTheme = require '@lunette-contracts/theme'
 local owners = require '@lunette-plugins/ui/control-owners'
 local draw = require './draw'
+local measurement = require './measurement-cache'
 local rounded = require '@lunette-plugins/theme/rounded-geometry'
 local drawing = require '@lunette-plugins/theme/drawing'
 local vocabulary = require '@lunette-contracts/vocabulary'
@@ -26,13 +27,11 @@ local state = {}
 export type Widget = {
   read methods: { read [string]: unknown },
   read receiver: focus.Receiver?,
-  read keymapSeat: lunette.Seat?,
   read wantsKeyboard: boolean,
   read onFocus: ((boolean) -> ())?,
   read pointer: (vocabulary.PointerEvent, string?) -> (),
   read items: (ui.Bounds, ui.Theme) -> { read [number]: ui.ItemDescription },
   read visual: (ui.Visual) -> ui.Visual,
-  read clearMeasurements: (() -> ())?,
 }
 -- A widget reaches its control's panel state only through its host.
 export type Host = {
@@ -47,6 +46,7 @@ export type Host = {
   read clip: () -> ui.Bounds?,
   read textClip: (() -> ui.Bounds?)?,
   read theme: () -> ui.Theme,
+  read textMeasurements: () -> measurement.Cache,
   read callback: (string, () -> (), boolean?) -> boolean,
 }
 
@@ -62,7 +62,6 @@ export type Control = {
   enabled: boolean,
   z: number,
   order: number,
-  exclusive: boolean,
   theme: ui.Theme,
   spec: ui.ThemeOverrides,
   measurements: draw.Cache,
@@ -78,7 +77,6 @@ export type Panel = {
   visible: boolean,
   cancelling: boolean,
   name: string,
-  generation: ui.Generation,
   revision: number,
   owner: ui.Owner,
   pose: Mat4,

@@ -30,7 +30,7 @@ test('configuration rejects a canvas shorter than the layout minimum', function(
   expect.raises(function()
     managerConfig.schema.parse({ width = 5, height = 0.1, pixels = 800 }, 'manager')
   end)
-  local minimum = managerConfig.schema.parse { width = 5, height = managerConfig.minimumHeight * 5 / 800, pixels = 800 }
+  local minimum = managerConfig.schema.parse { width = 5, height = toolbarLayout.minimumHeight * 5 / 800, pixels = 800 }
   expect.equal(minimum.view, 'entries', 'the entry list is the default view')
 end)
 

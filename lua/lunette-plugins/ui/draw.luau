@@ -235,11 +235,11 @@ end
 
 fittedText = function(font: Font, value: string, scale: number, width: number, cache: Cache): TextEntry
   local entries = measurement.entries(cache.labels, font)
-  for index, raw in entries or {} do
+  for index, raw in entries do
     local entry = raw :: TextEntry
     if entry.value == value and entry.scale == scale and entry.width == width then
-      table.remove(entries :: { unknown }, index)
-      table.insert(entries :: { unknown }, entry)
+      table.remove(entries, index)
+      table.insert(entries, entry)
       return entry
     end
   end

@@ -121,9 +121,6 @@ local function hover(panel: Panel, pointer: vocabulary.Pointer, selected: Contro
 end
 
 local function capturedByAnother(panel: Panel, control: Control, pointer: vocabulary.Pointer): boolean
-  if not control.exclusive then
-    return false
-  end
   for other, buttons in panel.captures do
     if other ~= pointer then
       for _, capture in buttons do

@@ -8,8 +8,6 @@ local config = require '@lunette-plugins/desktop/decorations/config'
 local controls = require '@lunette-plugins/desktop/decorations/controls'
 local titlebarStyle = require '@lunette-plugins/ui/titlebar-style'
 
-export type Color = config.Color
-export type Style = config.Style
 export type Config = config.Config
 export type Settings = config.Settings
 
@@ -43,19 +41,13 @@ return plugin.consumer<<Config, Settings>> {
         if bar then
           bar:update(options)
         else
-          entries[panel] = widgets:newTitlebar(context, {
-            name = 'desktop/decorations/' .. panel.kind .. '/' .. panel.source.id,
-            target = panel,
-            visible = function(): boolean
-              return not panel.hidden and not panel.chrome
-            end,
-            title = options.title,
-            onClose = options.onClose,
-            closeId = options.closeId,
-            actions = options.actions,
-            style = options.style,
-            draggable = options.draggable,
-          })
+          local spec = table.clone(options) :: { [string]: unknown }
+          spec.name = 'desktop/decorations/' .. panel.kind .. '/' .. panel.source.id
+          spec.target = panel
+          spec.visible = function(): boolean
+            return not panel.hidden and not panel.chrome
+          end
+          entries[panel] = widgets:newTitlebar(context, (spec :: any) :: ui.TitlebarSpec)
         end
       end
       for panel, bar in entries do

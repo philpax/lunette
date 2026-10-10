@@ -86,14 +86,11 @@ test('routes evdev editing commands while printable activations never insert tex
   expect.equal(field.receiver.key(fixture.key(codes.left, { 'alt' })), false, 'unsupported chord is unhandled')
 end)
 
-test('retains invalid drafts and prevents submission until validation passes', function()
+test('an error blocks submission until an edit clears it', function()
   local changed, submitted = {}, {}
   local field
   field = fixture.new {
     value = 'ok',
-    validate = function(value)
-      return if value == 'bad' then 'Use another value.' else nil
-    end,
     onChange = function(value)
       changed[#changed + 1] = value
       expect.equal(field.field:value(), value, 'state precedes callback')
@@ -103,11 +100,12 @@ test('retains invalid drafts and prevents submission until validation passes', f
     end,
   }
   field.field:setValue 'bad'
+  field.field:setError 'Use another value.'
   expect.equal(field.field:value(), 'bad')
   expect.equal(field.snapshot().error, 'Use another value.')
   expect.equal(#changed, 0, 'programmatic replacement does not echo onChange')
   field.receiver.key(fixture.key(codes.enter))
-  expect.equal(#submitted, 0)
+  expect.equal(#submitted, 0, 'an error blocks submission')
   field.receiver.key(fixture.key(codes.a, { 'control' }))
   field.receiver.text 'ok'
   expect.equal(changed[1], 'ok')
