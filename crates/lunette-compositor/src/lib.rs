@@ -5,7 +5,6 @@
 //! allows those tests to link without `liblovr.so`.
 
 pub mod client;
-pub(crate) mod hit_test;
 pub mod keymap;
 pub(crate) mod output;
 pub(crate) mod pacing;
@@ -23,5 +22,6 @@ pub mod thread;
 pub(crate) mod type_text;
 /// Files adapted from WayVR's `backend/wayvr`, kept close to upstream's text.
 pub(crate) mod wayvr {
+    pub(crate) mod hit_test;
     pub(crate) mod window;
 }

@@ -1,8 +1,21 @@
+//! Adapted from WayVR's `backend/wayvr/hit_test.rs` at commit
+//! 42e9deb54cc5c36037b49237867afa3dc4593f4a.
+//! Copyright (c) the WayVR authors (galister, oo8dev). Licensed GPL-3.0-only.
+//!
+//! Maps a point in a window's surface coordinates to the surface under it.
+//!
+//! lunette draws no decoration panel around a window and hit-tests in the
+//! sink's own pixel space, so `PointerHit`, `hit_target`, the panel and UV
+//! conversions, and the rendered image fields are left out, and the transforms
+//! are always built without server-side decorations. Imported images live on
+//! the frame thread, so the logical size of each surface comes from the
+//! caller's `surface_size` lookup rather than from the surface's data map.
+
 use glam::{Affine2, Vec2};
 use smithay::{
     desktop::PopupManager,
-    reexports::wayland_server::{Resource, backend::ObjectId, protocol::wl_surface::WlSurface},
-    utils::{Logical, Point},
+    reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface},
+    utils::{Logical, Point, Size},
     wayland::{
         compositor::{
             SUBSURFACE_ROLE, SubsurfaceCachedState, SurfaceAttributes, TraversalAction,
@@ -11,15 +24,13 @@ use smithay::{
         shell::xdg::XdgPopupSurfaceData,
     },
 };
-use std::{ops::RangeInclusive, rc::Rc, sync::Arc};
-use wgui::gfx::ImageView;
-
-use crate::backend::input::PointerHit;
-
-use super::SurfaceBufWithImage;
+use std::{ops::RangeInclusive, rc::Rc};
 
 pub const BORDER_SIZE: u32 = 5;
 pub const BAR_SIZE: u32 = 48;
+
+/// The logical size of a surface's current buffer, or `None` when it has none.
+pub type SurfaceSize<'a> = &'a dyn Fn(&WlSurface) -> Option<Size<i32, Logical>>;
 
 #[derive(Clone)]
 pub struct PopupRoot {
@@ -30,18 +41,16 @@ pub struct PopupRoot {
 #[derive(Clone)]
 pub struct RenderedSurface {
     pub surface: WlSurface,
-    pub surface_id: ObjectId,
-    pub image: Arc<ImageView>,
     pub pos: Vec2,
     pub size: Vec2,
-    pub has_alpha: bool,
-    /// normalized source rect in backing wl_buffer
-    pub source_uv: [f32; 4],
 }
 
+#[expect(
+    dead_code,
+    reason = "lunette's pointer path takes the motion location from the command, not from the hit"
+)]
 #[derive(Clone)]
 pub enum WvrHitTarget {
-    Panel(PointerHit),
     Toplevel {
         pos: Vec2,
     },
@@ -57,50 +66,30 @@ pub enum WvrHitTarget {
     },
 }
 
-pub struct WvrHitContext {
+pub struct WvrHitContext<'a> {
     pub surfaces: Rc<[RenderedSurface]>,
     pub popup_roots: Rc<[PopupRoot]>,
     pub mouse_transform: Affine2,
     pub uv_range: RangeInclusive<f32>,
     pub inner_extent: [u32; 2],
-    pub panel_height: u32,
+    pub surface_size: SurfaceSize<'a>,
 }
 
-impl WvrHitContext {
+impl WvrHitContext<'_> {
     pub fn popup_hit_at_client_pos(&self, pos: Vec2) -> Option<(WlSurface, Vec2)> {
         self.popup_roots.iter().find_map(|popup| {
-            surface_tree_input_hit_test(&popup.surface, popup.surface_origin, pos, true)
+            surface_tree_input_hit_test(
+                &popup.surface,
+                popup.surface_origin,
+                pos,
+                true,
+                self.surface_size,
+            )
         })
     }
 
     pub fn is_inside_client_area(&self, transformed: Vec2) -> bool {
         self.uv_range.contains(&transformed.x) && self.uv_range.contains(&transformed.y)
-    }
-
-    pub fn transformed_uv_from_hit(&self, hit: &PointerHit) -> Vec2 {
-        self.mouse_transform.transform_point2(hit.uv)
-    }
-
-    pub fn client_pos_from_transformed_uv(&self, transformed: Vec2) -> Vec2 {
-        Vec2::new(
-            transformed.x * self.inner_extent[0] as f32,
-            transformed.y * self.inner_extent[1] as f32,
-        )
-    }
-
-    pub fn unclamped_client_pos_from_hit(&self, hit: &PointerHit) -> Vec2 {
-        let transformed = self.transformed_uv_from_hit(hit);
-        self.client_pos_from_transformed_uv(transformed)
-    }
-
-    pub fn panel_hit_from_hit(&self, hit: &PointerHit) -> Option<PointerHit> {
-        if self.panel_height == 0 {
-            return None;
-        }
-        let mut hit2 = *hit;
-        let total_height = self.inner_extent[1] + self.panel_height;
-        hit2.uv.y *= total_height as f32 / self.panel_height as f32;
-        Some(hit2)
     }
 
     pub fn hit_target_at(&self, client_pos: Vec2) -> Option<WvrHitTarget> {
@@ -136,43 +125,6 @@ impl WvrHitContext {
 
         Some(WvrHitTarget::Toplevel { pos: client_pos })
     }
-
-    pub fn hit_target(&self, hit: &PointerHit) -> Option<WvrHitTarget> {
-        let transformed = self.transformed_uv_from_hit(hit);
-        let client_pos = self.client_pos_from_transformed_uv(transformed);
-
-        // popups are checked before the panel/client bounds.
-        if let Some((surface, surface_origin)) = self.popup_hit_at_client_pos(client_pos) {
-            return Some(WvrHitTarget::Popup {
-                surface,
-                global_pos: client_pos,
-                origin: surface_origin,
-            });
-        }
-
-        if !self.is_inside_client_area(transformed) {
-            return self.panel_hit_from_hit(hit).map(WvrHitTarget::Panel);
-        }
-
-        let hit_surface = self
-            .surfaces
-            .iter()
-            .rev()
-            .find(|s| surface_accepts_input(s, client_pos));
-
-        if let Some(surface) = hit_surface {
-            return Some(WvrHitTarget::Surface {
-                surface: surface.surface.clone(),
-                global_pos: client_pos,
-                origin: surface.pos,
-            });
-        }
-
-        let clamped = transformed.clamp(Vec2::ZERO, Vec2::ONE);
-        let pos = self.client_pos_from_transformed_uv(clamped);
-
-        Some(WvrHitTarget::Toplevel { pos })
-    }
 }
 
 fn surface_location(states: &smithay::wayland::compositor::SurfaceData) -> Point<i32, Logical> {
@@ -188,6 +140,7 @@ pub fn collect_rendered_surface_tree_at(
     root: &WlSurface,
     initial_pos: Point<i32, Logical>,
     include_root: bool,
+    surface_size: SurfaceSize<'_>,
 ) -> Vec<RenderedSurface> {
     let mut out = Vec::new();
     let root_id = root.id();
@@ -208,18 +161,11 @@ pub fn collect_rendered_surface_tree_at(
 
             let pos = *parent_pos + surface_location(states);
 
-            if let Some(surf) = SurfaceBufWithImage::get_from_surface(states) {
-                let logical_size = surf.logical_size(states);
-                let source_uv = surf.source_uv(states);
-
+            if let Some(logical_size) = surface_size(surface) {
                 out.push(RenderedSurface {
                     surface: surface.clone(),
-                    surface_id: surface.id(),
-                    image: surf.image,
                     pos: Vec2::new(pos.x as f32, pos.y as f32),
                     size: Vec2::new(logical_size.w as f32, logical_size.h as f32),
-                    has_alpha: surf.has_alpha,
-                    source_uv,
                 });
             }
         },
@@ -229,8 +175,17 @@ pub fn collect_rendered_surface_tree_at(
     out
 }
 
-pub fn collect_rendered_surface_tree(root: &WlSurface) -> Rc<[RenderedSurface]> {
-    collect_rendered_surface_tree_at(root, Point::<i32, Logical>::from((0, 0)), false).into()
+pub fn collect_rendered_surface_tree(
+    root: &WlSurface,
+    surface_size: SurfaceSize<'_>,
+) -> Rc<[RenderedSurface]> {
+    collect_rendered_surface_tree_at(
+        root,
+        Point::<i32, Logical>::from((0, 0)),
+        false,
+        surface_size,
+    )
+    .into()
 }
 
 fn surface_accepts_input(surface: &RenderedSurface, global_pos: Vec2) -> bool {
@@ -258,8 +213,10 @@ fn surface_accepts_input(surface: &RenderedSurface, global_pos: Vec2) -> bool {
 
 #[allow(clippy::significant_drop_tightening)]
 fn surface_accepts_input_states(
+    surface: &WlSurface,
     states: &smithay::wayland::compositor::SurfaceData,
     local: Vec2,
+    surface_size: SurfaceSize<'_>,
 ) -> bool {
     if local.x < 0.0 || local.y < 0.0 {
         return false;
@@ -276,8 +233,7 @@ fn surface_accepts_input_states(
     }
 
     // fallback for normal rendered surfaces
-    if let Some(surf) = SurfaceBufWithImage::get_from_surface(states) {
-        let size = surf.logical_size(states);
+    if let Some(size) = surface_size(surface) {
         return local.x < size.w as f32 && local.y < size.h as f32;
     }
 
@@ -289,6 +245,7 @@ pub fn surface_tree_input_hit_test(
     root_origin: Vec2,
     global_pos: Vec2,
     include_root: bool,
+    surface_size: SurfaceSize<'_>,
 ) -> Option<(WlSurface, Vec2)> {
     let mut hit = None;
     let root_id = root.id();
@@ -309,7 +266,7 @@ pub fn surface_tree_input_hit_test(
             let surface_origin = Vec2::new(pos.x as f32, pos.y as f32);
             let local = global_pos - surface_origin;
 
-            if surface_accepts_input_states(states, local) {
+            if surface_accepts_input_states(surface, states, local, surface_size) {
                 // with_surface_tree_upward visits bottom-to-top, so later hits win
                 hit = Some((surface.clone(), surface_origin));
             }
@@ -318,21 +275,6 @@ pub fn surface_tree_input_hit_test(
     );
 
     hit
-}
-
-pub fn rendered_surfaces_dirty(old: &[RenderedSurface], new: &[RenderedSurface]) -> bool {
-    if old.len() != new.len() {
-        return true;
-    }
-
-    old.iter().zip(new).any(|(a, b)| {
-        a.surface_id != b.surface_id
-            || a.pos != b.pos
-            || a.size != b.size
-            || a.has_alpha != b.has_alpha
-            || a.source_uv != b.source_uv
-            || !Arc::ptr_eq(a.image.image(), b.image.image())
-    })
 }
 
 pub fn compute_transforms(
@@ -365,20 +307,15 @@ pub fn compute_transforms(
     (mouse_transform, uv_range)
 }
 
-pub fn build_hit_context(
+pub fn build_hit_context<'a>(
     toplevel: &WlSurface,
     _popup_manager: &PopupManager,
     inner_extent: [u32; 2],
-    server_side_decorations: bool,
-) -> WvrHitContext {
-    let (mouse_transform, uv_range) = compute_transforms(inner_extent, server_side_decorations);
-    let panel_height = if server_side_decorations {
-        BORDER_SIZE * 2 + BAR_SIZE
-    } else {
-        0
-    };
+    surface_size: SurfaceSize<'a>,
+) -> WvrHitContext<'a> {
+    let (mouse_transform, uv_range) = compute_transforms(inner_extent, false);
 
-    let surfaces = collect_rendered_surface_tree(toplevel);
+    let surfaces = collect_rendered_surface_tree(toplevel, surface_size);
 
     let mut popup_roots = Vec::new();
 
@@ -411,6 +348,6 @@ pub fn build_hit_context(
         mouse_transform,
         uv_range,
         inner_extent,
-        panel_height,
+        surface_size,
     }
 }

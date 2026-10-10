@@ -9,6 +9,7 @@
 
 use std::{error::Error, fmt, sync::Arc};
 
+use glam::Vec2;
 use smithay::{
     backend::input::{Axis, AxisSource, ButtonState, KeyState},
     input::{
@@ -22,15 +23,15 @@ use smithay::{
 use tracing::{debug, info, warn};
 
 use crate::{
-    hit_test::{self, HitTarget},
     keymap::XKB_KEYCODE_OFFSET,
     protocol::{
         KeyboardConfig, Keycode, KeymapText, ModifierState, PixelPoint, PointerButton,
         SURFACE_UNITS_PER_DETENT, ScrollAxis, ScrollDelta, SeatId, SinkId,
     },
     seat::{self, MouseState, SeatEntry},
-    state::compositor::CompositorState,
+    state::{compositor::CompositorState, outputs::logical_size},
     type_text::{self, TypePlan, TypeStep},
+    wayvr::hit_test::{self, WvrHitTarget},
 };
 
 impl CompositorState {
@@ -312,21 +313,37 @@ impl CompositorState {
         let window = self.windows.by_sink(sink)?;
         let toplevel = window.toplevel.wl_surface().clone();
 
-        let context = hit_test::context(&toplevel, window.size(), &|surface| {
+        let surface_size = |surface: &WlSurface| {
             self.surfaces
                 .get(surface)
                 .and_then(|id| self.contents.get(&id))
-                .map(|content| content.logical_size())
-        });
+                .map(|content| logical_size(content.logical_size()))
+        };
+        let size = window.size();
+        let context = hit_test::build_hit_context(
+            &toplevel,
+            &self.popups,
+            [size.width, size.height],
+            &surface_size,
+        );
 
-        match context.target_at(position)? {
-            HitTarget::Toplevel { .. } => Some((toplevel, Point::from((0.0, 0.0)))),
-            HitTarget::Surface {
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "upstream's hit test works in f32, which is exact for any point on a window"
+        )]
+        let client_pos = Vec2::new(position.x as f32, position.y as f32);
+
+        match context.hit_target_at(client_pos)? {
+            WvrHitTarget::Toplevel { .. } => Some((toplevel, Point::from((0.0, 0.0)))),
+            WvrHitTarget::Surface {
                 surface, origin, ..
             }
-            | HitTarget::Popup {
+            | WvrHitTarget::Popup {
                 surface, origin, ..
-            } => Some((surface, Point::from((origin.x, origin.y)))),
+            } => Some((
+                surface,
+                Point::from((f64::from(origin.x), f64::from(origin.y))),
+            )),
         }
     }
 

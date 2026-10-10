@@ -100,8 +100,9 @@ pub struct TestClient {
     seats: Vec<(u32, WlSeat)>,
     /// Bound outputs keyed by registry name; repeated binds reuse the stored proxy.
     outputs: Vec<(u32, WlOutput)>,
-    /// Popups and their `xdg_surface` objects stay alive for the popup's protocol lifetime.
-    popups: Vec<(XdgPopup, XdgSurface)>,
+    /// Popups, their `xdg_surface` objects, and their surfaces stay alive for the popup's protocol
+    /// lifetime.
+    popups: Vec<(XdgPopup, XdgSurface, WlSurface)>,
     /// Subsurfaces stay alive while their surfaces have a subsurface role; destroying one removes
     /// that role.
     subsurfaces: Vec<WlSubsurface>,
@@ -326,36 +327,49 @@ impl TestClient {
         origin: (i32, i32),
         size: PixelSize,
     ) -> WlSurface {
-        let handle = self.queue.handle();
-        let wl_compositor = self.bind::<WlCompositor>(6);
-        let wm_base = self.bind::<XdgWmBase>(3);
         let parent = self
             .xdg_surface
             .clone()
             .expect("a toplevel was opened first");
-        let (width, height) = protocol_size(size);
+        self.open_buffered_popup(compositor, &parent, origin, size)
+    }
 
-        let positioner = wm_base.create_positioner(&handle, ());
-        positioner.set_size(width, height);
-        positioner.set_anchor_rect(origin.0, origin.1, 1, 1);
-        positioner.set_anchor(xdg_positioner::Anchor::TopLeft);
-        positioner.set_gravity(xdg_positioner::Gravity::BottomRight);
+    /// Opens an `xdg_popup` whose parent is the popup on `parent`, commits a
+    /// buffer to it, and returns its surface. `origin` is in the parent popup's
+    /// coordinates.
+    pub fn open_nested_popup(
+        &mut self,
+        compositor: &mut TestCompositor,
+        parent: &WlSurface,
+        origin: (i32, i32),
+        size: PixelSize,
+    ) -> WlSurface {
+        let parent = self
+            .popups
+            .iter()
+            .find(|(_, _, surface)| surface == parent)
+            .map(|(_, xdg_surface, _)| xdg_surface.clone())
+            .expect("the parent popup was opened by this client");
+        self.open_buffered_popup(compositor, &parent, origin, size)
+    }
 
-        let surface = wl_compositor.create_surface(&handle, ());
-        let xdg_surface = wm_base.get_xdg_surface(&surface, &handle, ());
-        let popup = xdg_surface.get_popup(Some(&parent), &positioner, &handle, ());
-        positioner.destroy();
-        surface.commit();
-
-        self.settle(compositor, |driver| {
-            driver.configure_serial(&xdg_surface).is_some()
-        });
+    /// Opens a popup whose configure is acknowledged and whose only content is
+    /// an input region of `rects`, each `(x, y, width, height)` in the popup's
+    /// coordinates. No buffer is ever attached.
+    pub fn open_bufferless_popup(
+        &mut self,
+        compositor: &mut TestCompositor,
+        origin: (i32, i32),
+        size: PixelSize,
+        rects: &[(i32, i32, i32, i32)],
+    ) -> WlSurface {
+        let parent = self
+            .xdg_surface
+            .clone()
+            .expect("a toplevel was opened first");
+        let (surface, xdg_surface) = self.create_popup(compositor, &parent, origin, size);
         self.acknowledge_configure(&xdg_surface);
-
-        let buffer = self.shm_buffer(size);
-        self.attach_to(compositor, &surface, &buffer, width, height);
-        self.buffers.push(buffer);
-        self.popups.push((popup, xdg_surface));
+        self.set_input_region(compositor, &surface, rects);
         surface
     }
 
@@ -367,40 +381,34 @@ impl TestClient {
         origin: (i32, i32),
         size: PixelSize,
     ) -> WlSurface {
-        let handle = self.queue.handle();
-        let wl_compositor = self.bind::<WlCompositor>(6);
-        let wm_base = self.bind::<XdgWmBase>(3);
         let parent = self
             .xdg_surface
             .clone()
             .expect("a toplevel was opened first");
         let (width, height) = protocol_size(size);
+        let (surface, _) = self.create_popup(compositor, &parent, origin, size);
+        self.set_input_region(compositor, &surface, &[(0, 0, width, height)]);
+        surface
+    }
 
-        let positioner = wm_base.create_positioner(&handle, ());
-        positioner.set_size(width, height);
-        positioner.set_anchor_rect(origin.0, origin.1, 1, 1);
-        positioner.set_anchor(xdg_positioner::Anchor::TopLeft);
-        positioner.set_gravity(xdg_positioner::Gravity::BottomRight);
-
-        let surface = wl_compositor.create_surface(&handle, ());
-        let xdg_surface = wm_base.get_xdg_surface(&surface, &handle, ());
-        let popup = xdg_surface.get_popup(Some(&parent), &positioner, &handle, ());
-        positioner.destroy();
-        surface.commit();
-
-        self.settle(compositor, |driver| {
-            driver.configure_serial(&xdg_surface).is_some()
-        });
-
-        let region = wl_compositor.create_region(&handle, ());
-        region.add(0, 0, width, height);
+    /// Replaces a surface's input region with the union of `rects`, each
+    /// `(x, y, width, height)` in the surface's coordinates, and commits it.
+    /// No rectangles is an empty region, which accepts input nowhere.
+    pub fn set_input_region(
+        &mut self,
+        compositor: &mut TestCompositor,
+        surface: &WlSurface,
+        rects: &[(i32, i32, i32, i32)],
+    ) {
+        let handle = self.queue.handle();
+        let region = self.bind::<WlCompositor>(6).create_region(&handle, ());
+        for &(x, y, width, height) in rects {
+            region.add(x, y, width, height);
+        }
         surface.set_input_region(Some(&region));
         region.destroy();
         surface.commit();
         self.settle_quiet(compositor);
-
-        self.popups.push((popup, xdg_surface));
-        surface
     }
 
     /// Adds a desynchronised subsurface at `origin` and commits its buffer.
@@ -411,26 +419,100 @@ impl TestClient {
         origin: (i32, i32),
         size: PixelSize,
     ) -> WlSurface {
+        let surface = self.create_subsurface(origin);
+        let buffer = self.shm_buffer(size);
+        let (width, height) = protocol_size(size);
+        self.attach_to(compositor, &surface, &buffer, width, height);
+        self.buffers.push(buffer);
+
+        self.commit_parent(compositor);
+        surface
+    }
+
+    /// Adds a desynchronised subsurface at `origin` that never has a buffer, as a
+    /// container whose children carry the content has none.
+    pub fn open_bufferless_subsurface(
+        &mut self,
+        compositor: &mut TestCompositor,
+        origin: (i32, i32),
+    ) -> WlSurface {
+        let surface = self.create_subsurface(origin);
+        self.commit_parent(compositor);
+        surface
+    }
+
+    /// Opens a popup on `parent`, acknowledges its configure, and commits a buffer to it.
+    fn open_buffered_popup(
+        &mut self,
+        compositor: &mut TestCompositor,
+        parent: &XdgSurface,
+        origin: (i32, i32),
+        size: PixelSize,
+    ) -> WlSurface {
+        let (surface, xdg_surface) = self.create_popup(compositor, parent, origin, size);
+        self.acknowledge_configure(&xdg_surface);
+
+        let (width, height) = protocol_size(size);
+        let buffer = self.shm_buffer(size);
+        self.attach_to(compositor, &surface, &buffer, width, height);
+        self.buffers.push(buffer);
+        surface
+    }
+
+    /// Creates a popup on `parent` anchored at `origin`, commits it without a
+    /// buffer, and waits for its configure without acknowledging it.
+    fn create_popup(
+        &mut self,
+        compositor: &mut TestCompositor,
+        parent: &XdgSurface,
+        origin: (i32, i32),
+        size: PixelSize,
+    ) -> (WlSurface, XdgSurface) {
+        let handle = self.queue.handle();
+        let wl_compositor = self.bind::<WlCompositor>(6);
+        let wm_base = self.bind::<XdgWmBase>(3);
+        let (width, height) = protocol_size(size);
+
+        let positioner = wm_base.create_positioner(&handle, ());
+        positioner.set_size(width, height);
+        positioner.set_anchor_rect(origin.0, origin.1, 1, 1);
+        positioner.set_anchor(xdg_positioner::Anchor::TopLeft);
+        positioner.set_gravity(xdg_positioner::Gravity::BottomRight);
+
+        let surface = wl_compositor.create_surface(&handle, ());
+        let xdg_surface = wm_base.get_xdg_surface(&surface, &handle, ());
+        let popup = xdg_surface.get_popup(Some(parent), &positioner, &handle, ());
+        positioner.destroy();
+        surface.commit();
+
+        self.settle(compositor, |driver| {
+            driver.configure_serial(&xdg_surface).is_some()
+        });
+
+        self.popups
+            .push((popup, xdg_surface.clone(), surface.clone()));
+        (surface, xdg_surface)
+    }
+
+    fn create_subsurface(&mut self, origin: (i32, i32)) -> WlSurface {
         let handle = self.queue.handle();
         let wl_compositor = self.bind::<WlCompositor>(6);
         let subcompositor = self.bind::<WlSubcompositor>(1);
         let parent = self.surface.clone().expect("a toplevel was opened first");
-        let (width, height) = protocol_size(size);
 
         let surface = wl_compositor.create_surface(&handle, ());
         let subsurface = subcompositor.get_subsurface(&surface, &parent, &handle, ());
         subsurface.set_position(origin.0, origin.1);
         subsurface.set_desync();
 
-        let buffer = self.shm_buffer(size);
-        self.attach_to(compositor, &surface, &buffer, width, height);
-        self.buffers.push(buffer);
-
-        parent.commit();
-        self.settle_quiet(compositor);
-
         self.subsurfaces.push(subsurface);
         surface
+    }
+
+    fn commit_parent(&mut self, compositor: &mut TestCompositor) {
+        let parent = self.surface.clone().expect("a toplevel was opened first");
+        parent.commit();
+        self.settle_quiet(compositor);
     }
 
     /// Unmaps the toplevel by attaching a null buffer.

@@ -41,7 +41,7 @@ The upstream path is relative to `wayvr/src/`. A file assembled from more than o
 | `backend/wayvr/mod.rs` (the surface-buffer fragments) | `src/surface.rs` |
 | `backend/wayvr/window.rs` at `42e9deb54cc5c36037b49237867afa3dc4593f4a`, `backend/wayvr/mod.rs` (the size-constraint fragment) | `src/wayvr/window.rs` |
 | `backend/wayvr/mod.rs` (the seat construction fragment), `backend/wayvr/window.rs` (the hover state) | `src/seat.rs` |
-| `backend/wayvr/hit_test.rs` | `src/hit_test.rs` |
+| `backend/wayvr/hit_test.rs` at `42e9deb54cc5c36037b49237867afa3dc4593f4a` | `src/wayvr/hit_test.rs` |
 | `backend/wayvr/client.rs` (`accept_connection` and `cleanup_clients`), `backend/wayvr/mod.rs` (the spawn fragment) | `src/state/processes.rs` |
 | `backend/wayvr/process.rs` (the registry and attribution), `backend/wayvr/mod.rs` (the spawn fragments) | `src/process/registry.rs` |
 | `backend/wayvr/process.rs` (spawning and signalling) | `src/process/spawn.rs` |
@@ -49,7 +49,7 @@ The upstream path is relative to `wayvr/src/`. A file assembled from more than o
 | `backend/wayvr/client.rs`, `backend/wayvr/mod.rs` (`WaylandEnv`, `ExternalProcessRequest`) | `src/client.rs` |
 | `backend/wayvr/image_importer.rs` (the `wl_shm` path) | `crates/lunette/src/import/shm.rs` |
 
-`hit_test.rs` comes across without its two couplings. The `Arc<ImageView>` on `RenderedSurface` is read only for a size, so the size arrives as a value and the image stays with whoever draws — which is what keeps this crate free of a graphics dependency. `PointerHit`, the UV transform, and the panel layer go entirely, because Lua performs the ray intersection and hands down pixel coordinates ([docs/dev/input.md](../../docs/dev/input.md)). `BORDER_SIZE` and `BAR_SIZE` are WayVR's titlebar chrome, which is the job of the `desktop/decorations` consumer.
+`hit_test.rs` comes across without its two couplings. The `Arc<ImageView>` on `RenderedSurface` is read only for a size, so the caller passes a `surface_size` lookup and the image stays with whoever draws, which keeps this crate free of a graphics dependency. `PointerHit`, `hit_target`, `panel_hit_from_hit`, the UV conversions, and the panel height go entirely, because Lua performs the ray intersection and hands down pixel coordinates ([docs/dev/input.md](../../docs/dev/input.md)), and `hit_target_at` is the operation that remains. The transforms are always built without server-side decorations, which makes them the identity. `BORDER_SIZE` and `BAR_SIZE` stay only because `compute_transforms` names them; drawing decorations is the job of the `desktop/decorations` consumer. The `has_alpha`, `source_uv`, and `surface_id` fields and `rendered_surfaces_dirty` serve upstream's renderer and are left out.
 
 `comp.rs` and `process.rs` each land in more than one file because a single one
 would be past the size threshold in [CONTRIBUTING.md](../../CONTRIBUTING.md).
@@ -58,7 +58,7 @@ off it, and the commit path answer different questions.
 
 `mod.rs` is 1391 lines of which only fragments are wanted, so it lands in several files rather than one. Each names the fragments it took.
 
-Twenty-six files carry no header, and the check is `rg --files-without-match 'Ported from WayVR' crates/lunette-compositor/src/` against this list. The check and the list reconcile exactly; a file appearing in one and not the other is the defect this list exists to catch.
+Twenty-five files carry no header, and the check is `rg --files-without-match 'Ported from WayVR' crates/lunette-compositor/src/` against this list. The check and the list reconcile exactly; a file appearing in one and not the other is the defect this list exists to catch.
 
 - `src/protocol/mod.rs`, `src/protocol/input.rs`, `src/protocol/keymap.rs`, `src/protocol/process.rs`, `src/thread.rs`, `src/testing.rs`, `src/test_client/mod.rs`, `src/test_client/driver.rs`, and `src/test_client/selection.rs` are lunette's own. WayVR has no equivalent: its compositor runs on the caller's thread, driven per-tick from `mod.rs`, and it has no cross-thread protocol to define.
 - `src/lib.rs` declares the crate's modules and states its boundary. It takes no code from upstream.
@@ -67,7 +67,7 @@ Twenty-six files carry no header, and the check is `rg --files-without-match 'Po
 - `src/output.rs` and `src/state/outputs.rs` are new. WayVR advertises one `wl_output` for everything (`mod.rs:209`) and clamps every window to its bounds, so there is no registry of virtual monitors upstream, no per-client filtering of the globals, and no rescale fanout to port.
 - `src/pacing.rs` and `src/state/pacing.rs` are new. WayVR answers every accumulated frame callback on every tick (`comp.rs:151-160`); the rate policy, the withholding, and the timer that wakes the loop for a withheld surface have no upstream counterpart.
 - `src/state/graphics.rs` is new. WayVR's compositor is constructed against a graphics device that outlives it, so it never gives one up and takes another.
-- `src/process/tests.rs`, `src/state/tests.rs`, `src/hit_test/tests.rs`, and `src/selection/tests.rs` are lunette's tests for ported and new code alike. WayVR ships none.
+- `src/process/tests.rs`, `src/state/tests.rs`, and `src/selection/tests.rs` are lunette's tests for ported and new code alike. WayVR ships none.
 
 ### The files carved out of `state/compositor.rs`
 

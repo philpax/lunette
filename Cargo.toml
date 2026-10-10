@@ -40,6 +40,9 @@ bindgen = "=0.72.1"
 cc = "=1.4.0"
 cmake = "=0.1.58"
 getrandom = "=0.3.4"
+# The vendored compositor keeps WayVR's hit test, which works in glam vectors.
+# The version matches WayVR's lockfile.
+glam = "=0.30.10"
 libc = "=0.2.189"
 # The Lua test runner reports each test file as a test of its own, with the
 # filtering and output of the built-in harness.

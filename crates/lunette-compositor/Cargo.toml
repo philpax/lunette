@@ -9,6 +9,9 @@ arc-swap.workspace = true
 # The token uses the operating system's CSPRNG. An unpredictable token prevents
 # a hostile client from claiming another process's attribution.
 getrandom.workspace = true
+# WayVR's hit test works in `glam` vectors; `src/wayvr/hit_test.rs` keeps them
+# so the file diffs cleanly against upstream.
+glam.workspace = true
 # Provides `dev_t` and `makedev` for DRM device numbers. The C type preserves the
 # platform-specific width accepted by `DmabufFeedbackBuilder::new`.
 libc.workspace = true
