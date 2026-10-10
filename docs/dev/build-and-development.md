@@ -139,7 +139,7 @@ The runner's own trials are named `runner::`. They check discovery classificatio
 
 ### Session tests
 
-`crates/lunette/tests/lunctl.rs` and `crates/lunette/tests/safe_mode.rs` start the binary against a fixture configuration, wait for the control socket, evaluate chunks through `lunctl`, and stop the session. `crates/lunette/tests/exit_status.rs` asserts the process exit status. These fixtures disable graphics, so the compositor thread never starts and no client can connect. `crates/lunette-compositor/tests/` covers client traffic in-process. A spawned test removes `HOME` and `LUNETTE_CONFIG_PATH` from the child's environment, so a mislaid fixture fails rather than loading the developer's configuration.
+`crates/lunette/tests/lunctl.rs` and `crates/lunette/tests/safe_mode.rs` share one running-session harness in `crates/lunette/tests/session`. It starts the binary against a fixture configuration, waits for the control socket, and evaluates chunks through `lunctl`, and the safe-mode tests stop the session with a chunk and assert the status it exits with. `crates/lunette/tests/exit_status.rs` holds the one-shot sessions, which report through the process exit status: the quit status itself, relative requires, ten soft reloads, and a write that must not reach a module root. These fixtures disable graphics, so the compositor thread never starts and no client can connect. `crates/lunette-compositor/tests/` covers client traffic in-process. A spawned test removes `HOME` and `LUNETTE_CONFIG_PATH` from the child's environment, so a mislaid fixture fails rather than loading the developer's configuration.
 
 ### Native headset tests
 

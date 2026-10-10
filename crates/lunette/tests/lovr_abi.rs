@@ -1,18 +1,107 @@
-//! Checks native key-event snapshots through LÖVR's Lua event binding.
+//! The mlua and LÖVR forks agree on the ABI that `liblovr.so` exports.
 //!
-//! Native injection replaces the host keyboard boundary, so OS modifier acquisition is not checked.
+//! mlua-sys's mirror of `lua_CompileOptions` must match the Luau the library exports. A missing
+//! field shifts every later one without a link or type error, so each compile-option case checks
+//! that one option changes the bytecode.
+//!
+//! A reference dropped after an external `lua_close` must not touch the closed state.
+//!
+//! Native key-event snapshots must survive LÖVR's Lua event binding. Native injection replaces
+//! the host keyboard boundary, so OS modifier acquisition is not checked. The event queue is
+//! process-global, and only the key-event case touches it.
 
-use std::{ffi::c_int, mem::ManuallyDrop};
+use std::{cell::Cell, ffi::c_int, mem::ManuallyDrop, rc::Rc};
 
 use lunette_lovr::raw::{
     Event, EventData, EventType, EventType_EVENT_KEYPRESSED, EventType_EVENT_KEYRELEASED, KeyEvent,
     lovrEventPush, luax_close, os_key_modifiers,
 };
-use mlua::{Function, Lua, MultiValue, Table, Value, ffi::lua_State};
+use mlua::{Function, Lua, MultiValue, Table, UserData, Value, chunk::Compiler, ffi::lua_State};
 use pretty_assertions::assert_eq;
 
 unsafe extern "C-unwind" {
     fn luaopen_lovr_event(state: *mut lua_State) -> c_int;
+}
+
+#[test]
+fn a_mutable_global_disables_the_import_of_its_fields() -> mlua::Result<()> {
+    let source = "return g.x";
+    let imported = Compiler::new().compile(source)?;
+    let looked_up = Compiler::new().add_mutable_global("g").compile(source)?;
+    assert_ne!(imported, looked_up);
+    Ok(())
+}
+
+#[test]
+fn a_disabled_builtin_is_not_compiled_into_a_fastcall() -> mlua::Result<()> {
+    let source = "local n = ... return math.abs(n)";
+    let fastcall = Compiler::new().compile(source)?;
+    let call = Compiler::new()
+        .add_disabled_builtin("math.abs")
+        .compile(source)?;
+    assert_ne!(fastcall, call);
+    Ok(())
+}
+
+/// The boot path closes the Lua state externally, so a reference the host holds is
+/// dropped after the state is gone. The mlua fork's closed-state guard makes that drop inert.
+#[test]
+fn a_reference_dropped_after_external_close_does_not_touch_the_state() -> mlua::Result<()> {
+    let state = ExternalState::new();
+    let dropped = Rc::new(Cell::new(false));
+    let factory: Function = state
+        .lua
+        .load(
+            "return function(witness) return function() assert(witness ~= nil); return 42 end end",
+        )
+        .eval()?;
+    let callback: Function = factory.call(
+        state
+            .lua
+            .create_userdata(DropWitness(Rc::clone(&dropped)))?,
+    )?;
+    drop(factory);
+    assert_eq!(callback.call::<i64>(())?, 42);
+    state.close();
+    assert!(
+        dropped.get(),
+        "closing the state collects the callback's payload"
+    );
+    drop(callback);
+    Ok(())
+}
+
+struct ExternalState {
+    lua: ManuallyDrop<Lua>,
+    raw: *mut lua_State,
+}
+
+impl ExternalState {
+    fn new() -> Self {
+        let lua = Lua::new();
+        let raw = lua.exec_raw_lua(|raw| raw.state());
+        Self {
+            lua: ManuallyDrop::new(lua),
+            raw,
+        }
+    }
+
+    fn close(self) {
+        self.lua.exec_raw_lua(|raw| raw.mark_closed());
+        // SAFETY: this is the unique owner, and no callback is executing.
+        unsafe { mlua::ffi::lua_close(self.raw) };
+    }
+}
+
+/// A userdata that records when Lua collects it.
+struct DropWitness(Rc<Cell<bool>>);
+
+impl UserData for DropWitness {}
+
+impl Drop for DropWitness {
+    fn drop(&mut self) {
+        self.0.set(true);
+    }
 }
 
 #[test]

@@ -1,9 +1,6 @@
-//! The per-window property store, exercised through the Lua surface.
-//!
-//! The store itself is tested in `crates/lunette/src/properties.rs`, which needs
-//! no Lua state. These tests cover the boundary: what a configuration is allowed
-//! to store, what error a disallowed value raises, and what is still there after
-//! the Lua state has been discarded and rebuilt.
+//! The per-window property store, exercised through the Lua surface: what a configuration is
+//! allowed to store, what error a disallowed value raises, and what is still there after the Lua
+//! state has been discarded and rebuilt.
 
 use lunette_compositor::protocol::PixelSize;
 use pretty_assertions::assert_eq;

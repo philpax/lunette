@@ -1,4 +1,4 @@
--- A session that runs until lunctl sets the `stop` global.
+-- A session that answers lunctl chunks until a test ends it.
 --
 -- `lunctl` evaluates chunks in the main state, where they reach globals, not locals.
 -- A chunk reaches `lunette` through the evaluator's module lookup, so the
@@ -14,9 +14,7 @@ local LIMIT = 60
 local started = lovr.timer.getTime()
 
 function lovr.update()
-  if stop then
-    lovr.event.quit(9)
-  elseif lovr.timer.getTime() - started > LIMIT then
+  if lovr.timer.getTime() - started > LIMIT then
     print('lunette: nothing reached the control socket within ' .. LIMIT .. ' seconds')
     lovr.event.quit(11)
   end

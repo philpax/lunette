@@ -30,19 +30,16 @@ impl WindowProperties {
         self.windows.entry(window).or_default().insert(key, value);
     }
 
-    /// Removes `key` from `window`, reporting whether it held anything.
-    ///
-    /// The window's own entry is removed alongside its last property.
-    pub fn clear(&mut self, window: WindowId, key: &str) -> bool {
+    /// Removes `key` from `window`, and the window's own entry alongside its last property.
+    pub fn clear(&mut self, window: WindowId, key: &str) {
         let Some(properties) = self.windows.get_mut(&window) else {
-            return false;
+            return;
         };
 
-        let removed = properties.remove(key).is_some();
+        properties.remove(key);
         if properties.is_empty() {
             self.windows.remove(&window);
         }
-        removed
     }
 
     /// Returns `None` when the window or key has no stored value.
@@ -54,13 +51,6 @@ impl WindowProperties {
     /// Removes properties for closed windows. The store survives Lua reloads.
     pub fn retain(&mut self, live: &[WindowId]) {
         self.windows.retain(|window, _| live.contains(window));
-    }
-
-    /// How many windows are carrying properties, for the tests that assert the
-    /// store empties.
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.windows.len()
     }
 
     #[must_use]
@@ -170,10 +160,6 @@ impl fmt::Display for PropertyError {
 impl Error for PropertyError {}
 
 #[cfg(test)]
-#[expect(
-    clippy::expect_used,
-    reason = "a failed expectation is how a test reports a failure; the ban is on production code"
-)]
 mod tests {
     use pretty_assertions::assert_eq;
 
@@ -208,147 +194,5 @@ mod tests {
             3,
             "the union carries a member with no variant"
         );
-    }
-
-    fn window(raw: u64) -> WindowId {
-        WindowId::new(raw).expect("non-zero")
-    }
-
-    fn key(name: &str) -> PropertyKey {
-        PropertyKey::new(name).expect("a non-empty key")
-    }
-
-    #[test]
-    fn a_stored_value_reads_back() {
-        let mut properties = WindowProperties::new();
-        properties.set(window(1), key("pose"), PropertyValue::Text("0 1 0".into()));
-
-        assert_eq!(
-            properties.get(window(1), "pose"),
-            Some(&PropertyValue::Text("0 1 0".into()))
-        );
-    }
-
-    #[test]
-    fn an_absent_key_is_nothing_rather_than_an_error() {
-        let mut properties = WindowProperties::new();
-        properties.set(window(1), key("pose"), PropertyValue::Boolean(true));
-
-        assert_eq!(properties.get(window(1), "tag"), None);
-        assert_eq!(properties.get(window(2), "pose"), None);
-    }
-
-    #[test]
-    fn a_second_write_replaces_the_first() {
-        let mut properties = WindowProperties::new();
-        properties.set(window(1), key("width"), PropertyValue::Number(1.0));
-        properties.set(window(1), key("width"), PropertyValue::Number(2.0));
-
-        assert_eq!(
-            properties.get(window(1), "width"),
-            Some(&PropertyValue::Number(2.0))
-        );
-    }
-
-    #[test]
-    fn two_windows_do_not_share_a_key() {
-        let mut properties = WindowProperties::new();
-        properties.set(window(1), key("tag"), PropertyValue::Text("left".into()));
-        properties.set(window(2), key("tag"), PropertyValue::Text("right".into()));
-
-        assert_eq!(
-            properties.get(window(1), "tag"),
-            Some(&PropertyValue::Text("left".into()))
-        );
-        assert_eq!(
-            properties.get(window(2), "tag"),
-            Some(&PropertyValue::Text("right".into()))
-        );
-    }
-
-    #[test]
-    fn clearing_removes_the_key_and_the_window_with_its_last_one() {
-        let mut properties = WindowProperties::new();
-        properties.set(window(1), key("tag"), PropertyValue::Boolean(true));
-
-        assert!(properties.clear(window(1), "tag"));
-        assert_eq!(properties.get(window(1), "tag"), None);
-        assert!(
-            properties.is_empty(),
-            "a window that lost its last property costs nothing"
-        );
-    }
-
-    #[test]
-    fn clearing_what_was_never_set_reports_that_and_raises_nothing() {
-        let mut properties = WindowProperties::new();
-
-        assert!(!properties.clear(window(1), "tag"));
-        properties.set(window(1), key("tag"), PropertyValue::Boolean(true));
-        assert!(!properties.clear(window(1), "pose"));
-    }
-
-    #[test]
-    fn a_window_the_frame_no_longer_names_loses_its_properties() {
-        let mut properties = WindowProperties::new();
-        properties.set(window(1), key("tag"), PropertyValue::Boolean(true));
-        properties.set(window(2), key("tag"), PropertyValue::Boolean(true));
-
-        properties.retain(&[window(2)]);
-
-        assert_eq!(properties.get(window(1), "tag"), None);
-        assert_eq!(
-            properties.get(window(2), "tag"),
-            Some(&PropertyValue::Boolean(true))
-        );
-        assert_eq!(properties.len(), 1);
-    }
-
-    #[test]
-    fn retaining_nothing_empties_the_store() {
-        let mut properties = WindowProperties::new();
-        properties.set(window(1), key("tag"), PropertyValue::Boolean(true));
-
-        properties.retain(&[]);
-
-        assert!(properties.is_empty());
-    }
-
-    #[test]
-    fn an_empty_key_names_nothing_and_is_refused() {
-        assert_eq!(PropertyKey::new(""), Err(PropertyError::EmptyKey));
-        assert_eq!(
-            PropertyError::EmptyKey.to_string(),
-            "properties: a property key cannot be empty"
-        );
-    }
-
-    #[test]
-    fn a_number_that_is_not_finite_is_refused_and_the_message_names_the_key() {
-        for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
-            let error = PropertyValue::number(&key("pose"), value)
-                .expect_err("a value that is not finite is refused");
-            assert!(
-                error.to_string().contains("'pose'"),
-                "unhelpful message: {error}"
-            );
-        }
-
-        assert_eq!(
-            PropertyValue::number(&key("pose"), 1.5),
-            Ok(PropertyValue::Number(1.5))
-        );
-    }
-
-    #[test]
-    fn the_message_for_an_unsupported_value_names_the_key_and_what_it_was() {
-        let error = PropertyError::Unsupported {
-            key: key("layout"),
-            kind: "table",
-        };
-
-        let message = error.to_string();
-        assert!(message.contains("'layout'"), "unhelpful message: {message}");
-        assert!(message.contains("table"), "unhelpful message: {message}");
     }
 }

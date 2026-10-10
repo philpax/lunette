@@ -47,8 +47,7 @@ fn contract_misuse_is_rejected() {
     assert_rejections("luau_check/authoring/contracts_negative.luau");
 }
 
-/// The native declarations refuse modifier names outside the closed set and the removed entry
-/// points.
+/// The native declarations refuse modifier names outside the closed set.
 #[test]
 fn native_api_misuse_is_rejected() {
     assert_rejections("luau_check/native/negative.luau");
@@ -79,7 +78,6 @@ fn require_navigation() {
     assert_rejections("luau_check/navigation/target/invalid.luau");
 }
 
-/// Checks that a fixture's diagnostics are exactly its rejection markers.
 /// A configuration beside the `.luaurc` that `--dump-config` writes checks against an
 /// installation copied from the install manifest.
 #[test]
@@ -120,6 +118,7 @@ return { lunette, plugin, keyboard, laser, desktop }
     assert!(report.diagnostics.is_empty(), "{:#?}", report.diagnostics);
 }
 
+/// Checks that a fixture's diagnostics are exactly its rejection markers.
 fn assert_rejections(path: &str) {
     let source = fs::read_to_string(fixture(path))
         .unwrap_or_else(|error| panic!("{path} could not be read: {error}"));

@@ -167,7 +167,9 @@ fn run_session(
             ptr::null(),
         );
         if loaded != 0 || lua::lua_pcall(state, 0, 1, -2) != 0 {
-            error!("lua: {}", describe_error(state));
+            let described = owned_string(state, -1)
+                .unwrap_or_else(|| "boot.lua failed with a non-string error value".to_owned());
+            error!("lua: {described}");
             return LOAD_FAILED;
         }
 
@@ -606,20 +608,6 @@ fn arg_entries(
 unsafe extern "C-unwind" fn message_handler(state: *mut lua::lua_State) -> c_int {
     // SAFETY: Lua calls this only with the state that raised the error.
     unsafe { raw::luax_getstack(state.cast()) }
-}
-
-/// Describes the error value on top of `state`'s stack.
-///
-/// # Safety
-///
-/// `state` must be a live Lua state with at least one value on its stack.
-unsafe fn describe_error(state: *mut lua::lua_State) -> String {
-    // SAFETY: the caller guarantees the stack slot exists, and the borrow is
-    // consumed before anything can pop it.
-    match unsafe { string_bytes(state, -1) } {
-        Some(bytes) => String::from_utf8_lossy(bytes).into_owned(),
-        None => "boot.lua failed with a non-string error value".to_owned(),
-    }
 }
 
 /// Fixed, because `tracing` metadata is `'static` and a LÖVR log tag is not.

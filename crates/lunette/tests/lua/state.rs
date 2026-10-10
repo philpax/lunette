@@ -175,7 +175,7 @@ fn host(lua: &Lua) -> mlua::Result<Table> {
                 if let Err(error) = clear.call::<()>(()) {
                     failure.borrow_mut().replace(error);
                 }
-            })?;
+            });
             if let Some(error) = failure.into_inner() {
                 return Err(error);
             }

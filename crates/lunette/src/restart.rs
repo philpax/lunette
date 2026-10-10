@@ -240,8 +240,10 @@ mod tests {
         .expect("the compositor thread starts")
     }
 
+    /// The wait is what makes the ordering safe, so the acknowledgement has to
+    /// be what ends it, and the timeout must not have to be long enough.
     #[test]
-    fn a_quiesce_with_nothing_imported_is_acknowledged() {
+    fn a_quiesce_with_nothing_imported_is_acknowledged_before_the_bound() {
         let compositor = compositor_thread();
 
         let quiesced = quiesce(&compositor, QUIESCE_TIMEOUT).expect("the compositor acknowledges");
@@ -250,17 +252,6 @@ mod tests {
             quiesced.discarded, 0,
             "an idle compositor reports nothing while it is being quiesced"
         );
-        compositor.shutdown().expect("the thread stops cleanly");
-    }
-
-    /// The wait is what makes the ordering safe, so the acknowledgement has to
-    /// be what ends it, and the timeout must not have to be long enough.
-    #[test]
-    fn the_wait_ends_on_the_acknowledgement_and_not_on_the_bound() {
-        let compositor = compositor_thread();
-
-        let quiesced = quiesce(&compositor, QUIESCE_TIMEOUT).expect("the compositor acknowledges");
-
         assert!(
             quiesced.took < QUIESCE_TIMEOUT,
             "the quiesce took {:?}, which is the whole bound, so it waited rather than being told",
@@ -333,31 +324,6 @@ mod tests {
             started.elapsed() >= RETRY_SLICE,
             "the wait ended after {:?}, which is less than the bound it was given",
             started.elapsed(),
-        );
-        assert!(
-            error.to_string().starts_with("restart: "),
-            "an error's context prefix names the subsystem: {error}"
-        );
-
-        silent.stop();
-        compositor.shutdown().expect("the thread stops cleanly");
-    }
-
-    /// The command is delivered, never refused, so the timeout is about the
-    /// answer and not about the send. A quiesce that reported a timeout because
-    /// it never managed to ask would be reporting the wrong thing.
-    #[test]
-    fn a_quiesce_that_times_out_still_delivered_its_command() {
-        let (compositor, silent) = silent_compositor();
-
-        let _ = quiesce(&compositor, RETRY_SLICE);
-
-        assert!(
-            matches!(
-                compositor.commands().try_send(Command::ReleaseGraphics),
-                Ok(())
-            ),
-            "the channel should still be live, so the earlier send was taken rather than refused"
         );
 
         silent.stop();

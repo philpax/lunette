@@ -12,10 +12,10 @@ use tracing::{error, info};
 use crate::reload;
 
 /// The safe-mode Lua source embedded in the binary.
-pub const SOURCE: &str = include_str!("safe_mode.luau");
+const SOURCE: &str = include_str!("safe_mode.luau");
 
 /// The chunk name used in safe-mode tracebacks.
-pub const CHUNK_NAME: &str = "@safe-mode.luau";
+const CHUNK_NAME: &str = "@safe-mode.luau";
 
 /// Compiles [`SOURCE`] without running it.
 ///
@@ -212,14 +212,9 @@ mod tests {
 
     /// Runs the chunk against the fakes and returns the state it ran on.
     fn started() -> Lua {
-        started_after(())
-    }
-
-    /// As [`started`], with the load error passed to safe mode.
-    fn started_after(load_error: impl mlua::IntoLuaMulti) -> Lua {
         let lua = environment();
         let chunk = load(&lua).expect("the safe-mode chunk should compile");
-        chunk.call::<()>(load_error).expect("the chunk should run");
+        chunk.call::<()>(()).expect("the chunk should run");
         lua
     }
 
@@ -249,8 +244,7 @@ mod tests {
     }
 
     /// Safe mode runs when the standard library may be the reason the
-    /// configuration failed, so it must not depend on one. The trigger that
-    /// starts it from a failed boot must not depend on one either.
+    /// configuration failed, so it must not depend on one.
     #[test]
     fn it_runs_with_no_standard_library_anywhere() {
         let lua = environment();
@@ -275,14 +269,6 @@ mod tests {
             vec!["@lunette".to_owned()],
             "safe mode should require lunette and nothing else"
         );
-
-        let lua = booting("error('main.luau:1: a deliberate defect')");
-        lua.load("package.path = '' package.cpath = ''")
-            .exec()
-            .expect("the search path should be emptied");
-        install_trigger(&lua).expect("the trigger should install");
-
-        assert_eq!(boot(&lua), "safe mode's loop");
     }
 
     /// The frame runs with no graphics module, no headset, and no window,
@@ -428,25 +414,6 @@ mod tests {
         call(&lua, "draw", pass);
     }
 
-    /// A user in a headset should not have to take it off to find out what
-    /// happened. That requirement is the reason the safe mode loop exists.
-    #[test]
-    fn the_load_error_is_shown_rather_than_only_logged() {
-        let lua = started_after("main.luau:12: '=' expected near 'panel'");
-
-        let drawn = drawn(&lua);
-
-        assert!(drawn.contains("safe mode"), "{drawn}");
-        assert!(
-            drawn.contains("main.luau:12") && drawn.contains("expected near"),
-            "the panel should say why the configuration did not load: {drawn}"
-        );
-        assert!(
-            drawn.contains("f5"),
-            "the panel should say how to leave safe mode: {drawn}"
-        );
-    }
-
     /// A state with the `lovr.boot` and `lovr.run` that `boot.lua` leaves in
     /// place. The case supplies the body of `lovr.boot`.
     fn booting(boot: &str) -> Lua {
@@ -480,7 +447,8 @@ mod tests {
     }
 
     /// A configuration that will not load produces safe mode, not a black
-    /// headset.
+    /// headset. A user in a headset should not have to take it off to find out
+    /// what happened, so the panel shows the load error and how to leave.
     #[test]
     fn a_configuration_that_does_not_load_produces_safe_mode() {
         let lua = booting("error('main.luau:1: a deliberate defect')");
@@ -493,6 +461,10 @@ mod tests {
         assert!(
             drawn.contains("main.luau:1"),
             "the load error should have reached safe mode: {drawn}"
+        );
+        assert!(
+            drawn.contains("f5"),
+            "the panel should say how to leave safe mode: {drawn}"
         );
     }
 

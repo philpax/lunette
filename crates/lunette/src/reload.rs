@@ -41,12 +41,12 @@ pub fn reload_from_lua(
     lua: &Lua,
     mirrors: &dyn MirrorRegistry,
     forget_subscriptions: &dyn Fn(),
-) -> mlua::Result<(bool, Option<String>)> {
+) -> (bool, Option<String>) {
     match reload(lua, mirrors, forget_subscriptions) {
-        Ok(()) => Ok((true, None)),
+        Ok(()) => (true, None),
         Err(error) => {
             warn!("{error}");
-            Ok((false, Some(error.to_string())))
+            (false, Some(error.to_string()))
         }
     }
 }
@@ -504,7 +504,9 @@ mod tests {
                     let module = lua.create_table()?;
                     module.set(
                         "reload",
-                        lua.create_function(|lua, ()| reload_from_lua(lua, &NoMonitors, &|| ()))?,
+                        lua.create_function(|lua, ()| {
+                            Ok(reload_from_lua(lua, &NoMonitors, &|| ()))
+                        })?,
                     )?;
                     Ok(module)
                 })

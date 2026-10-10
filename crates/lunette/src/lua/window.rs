@@ -365,9 +365,7 @@ fn set_property<T>(window: &Window<T>, key: &LuaString, value: &Value) -> mlua::
 
     window.session.with_properties(|properties| match stored {
         Some(value) => properties.set(window.id, key, value),
-        None => {
-            properties.clear(window.id, key.as_str());
-        }
+        None => properties.clear(window.id, key.as_str()),
     });
     Ok(true)
 }

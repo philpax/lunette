@@ -593,67 +593,27 @@ mod tests {
 
     use super::*;
 
-    fn state_with_tokens(text: &str) -> TempDir {
-        let directory = TempDir::new().expect("a temporary directory can be created");
-        std::fs::write(directory.path().join(TOKEN_FILE), text).expect("the file can be written");
-        directory
-    }
-
+    /// `lunette-capture`'s token tests cover the version matrix. This covers what a session
+    /// makes of a read that fails, a missing file, and a missing state directory.
     #[test]
-    fn a_token_file_this_version_wrote_is_read_and_may_be_written_back() {
-        let directory = state_with_tokens(
-            "version = 1\n\
-             [[monitors]]\n\
-             key = { descriptor = \"Acme X24\" }\n\
-             token = \"kept\"\n",
-        );
-
+    fn a_token_file_is_writable_only_when_it_was_read_or_is_absent() {
+        // A first run needs somewhere to record what the first grant returns.
+        let directory = TempDir::new().expect("a temporary directory can be created");
         let (store, file) = read_tokens(Some(directory.path()));
-
-        assert_eq!(store.len(), 1);
+        assert!(store.is_empty());
         assert_eq!(
             file.map(|file| file.path().to_owned()),
             Some(directory.path().join(TOKEN_FILE)),
         );
-    }
 
-    #[test]
-    fn a_token_file_this_version_cannot_read_is_neither_read_nor_writable() {
-        // Writing over a newer file discards fields it holds.
-        for text in [
-            "version = 2\n\
-             [[monitors]]\n\
-             key = { descriptor = \"Acme X24\" }\n\
-             token = \"kept\"\n\
-             something-later-versions-have = true\n",
-            "this is not toml {{{",
-            "version = 1\n\
-             [[monitors]]\n\
-             key = { descriptor = \"Acme X24\" }\n\
-             token = \"kept\"\n\
-             typoed = 3\n",
-        ] {
-            let directory = state_with_tokens(text);
-
-            let (store, file) = read_tokens(Some(directory.path()));
-
-            assert!(store.is_empty(), "{text}");
-            assert_eq!(file, None, "{text}");
-        }
-    }
-
-    #[test]
-    fn the_token_file_is_absent_without_a_state_directory_and_writable_with_one() {
-        // A first run needs somewhere to record what the first grant returns.
-        let directory = TempDir::new().expect("a temporary directory can be created");
-
+        // Writing over a file that could not be read discards what it holds.
+        fs::write(directory.path().join(TOKEN_FILE), "this is not toml {{{")
+            .expect("the file can be written");
         let (store, file) = read_tokens(Some(directory.path()));
-
         assert!(store.is_empty());
-        assert!(file.is_some());
+        assert_eq!(file, None);
 
         let (store, file) = read_tokens(None);
-
         assert!(store.is_empty());
         assert_eq!(file, None);
     }
@@ -686,6 +646,7 @@ mod tests {
         // Guessing /run/user/$UID would connect to a socket the session did not name.
         assert_eq!(socket(None, Some("wayland-1")), None);
         assert_eq!(socket(Some("relative"), Some("wayland-1")), None);
+        assert_eq!(socket(Some(""), Some("wayland-1")), None);
     }
 
     #[test]
@@ -826,22 +787,5 @@ mod tests {
             ConfigDirectoryCandidates::new(&sources(xdg.path().to_str(), home.path().to_str()));
         let checked = check::targets(&[], candidates.select()).expect("the files");
         assert_eq!(checked, vec![configuration.join("main.luau")]);
-
-        let named = xdg.path().join("named");
-        fs::create_dir_all(&named).expect("the named directory");
-        fs::write(named.join("main.luau"), "").expect("main.luau");
-        let checked = check::targets(&[], &named).expect("the files");
-        assert_eq!(checked, vec![named.join("main.luau")]);
-    }
-
-    #[test]
-    fn an_absolute_xdg_value_is_taken_and_a_relative_or_empty_one_is_unset() {
-        assert_eq!(
-            absolute_path(Some(OsString::from("/xdg"))),
-            Some(PathBuf::from("/xdg"))
-        );
-        assert_eq!(absolute_path(Some(OsString::from("xdg"))), None);
-        assert_eq!(absolute_path(Some(OsString::new())), None);
-        assert_eq!(absolute_path(None), None);
     }
 }

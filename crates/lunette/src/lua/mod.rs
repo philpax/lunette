@@ -576,7 +576,7 @@ module! {
 
     /// Shuts down plugin runtimes, retires their contract epoch, and re-runs the configuration in the same Lua state, keeping the compositor, the clients, and their textures. Answers whether it loaded, and the error if it did not.
     fn reload(lua, session) -> (bool, Option<String>) {
-        reload_from_lua(lua, session.mirrors(), &|| session.clear_subscribers())
+        Ok(reload_from_lua(lua, session.mirrors(), &|| session.clear_subscribers()))
     }
 }
 

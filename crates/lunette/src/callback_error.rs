@@ -110,13 +110,6 @@ mod tests {
             .expect("the handler is a function")
     }
 
-    /// The reporting path requires `lovr`.
-    fn state() -> Lua {
-        let lua = crate::test_lua::session_lua();
-        lua.load("lovr = {}").exec().expect("lovr is reachable");
-        lua
-    }
-
     /// Raises the way a callback does, so the error carries the traceback mlua appends.
     fn raised(lua: &Lua, body: &str) -> mlua::Error {
         lua.load(body)
@@ -158,33 +151,11 @@ mod tests {
         );
     }
 
+    /// A listener that raises does not stop later ones, and each is called directly with the
+    /// message and the traceback.
     #[test]
-    fn a_listener_is_called_directly_with_the_message_and_traceback() {
-        let lua = state();
-        lua.load("seen = {} function record(event) seen[#seen + 1] = event end")
-            .exec()
-            .expect("the handler installs");
-        let listener = listener(&lua, "record");
-
-        report(
-            &lua,
-            std::slice::from_ref(&listener),
-            "lunette.lunwindowopened",
-            &raised(&lua, "error('it broke')"),
-        );
-
-        let (count, message, traceback): (usize, String, String) = lua
-            .load("return #seen, seen[1].message, seen[1].traceback")
-            .eval()
-            .expect("the payload is readable");
-        assert_eq!(count, 1);
-        assert!(message.contains("it broke"), "{message}");
-        assert!(traceback.contains("stack traceback:"), "{traceback}");
-    }
-
-    #[test]
-    fn a_listener_that_raises_does_not_stop_later_listeners() {
-        let lua = state();
+    fn every_listener_is_offered_the_message_and_traceback_even_after_one_raises() {
+        let lua = crate::test_lua::session_lua();
         lua.load(
             "seen = {} function refuse() error('the handler said no') end \
              function record(event) seen[#seen + 1] = event end",
@@ -200,11 +171,12 @@ mod tests {
             &raised(&lua, "error('it broke')"),
         );
 
-        let (count, message): (usize, String) = lua
-            .load("return #seen, seen[1].message")
+        let (count, message, traceback): (usize, String, String) = lua
+            .load("return #seen, seen[1].message, seen[1].traceback")
             .eval()
             .expect("the payload is readable");
         assert_eq!(count, 1);
         assert!(message.contains("it broke"), "{message}");
+        assert!(traceback.contains("stack traceback:"), "{traceback}");
     }
 }

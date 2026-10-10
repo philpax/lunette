@@ -15,7 +15,7 @@ local function loadRoot(marker)
     return nil, 12
   end
 
-  if marker and root[marker] ~= true then
+  if root[marker] ~= true then
     print('the root module carries no ' .. marker .. ' field, so it is not the expected copy')
     return nil, 13
   end
@@ -50,6 +50,5 @@ local function checkReadOnly(marker)
 end
 
 function lovr.load()
-  local marker = arg[2]
-  lovr.event.quit(marker and checkReadOnly(marker) or 15)
+  lovr.event.quit(checkReadOnly(arg[1]))
 end

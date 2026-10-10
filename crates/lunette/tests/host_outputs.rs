@@ -43,32 +43,25 @@ fn the_compositors_only_output_is_enumerated_as_one_unrotated_monitor() {
     assert_eq!(monitors[0].key().to_string(), "lunette virtual display");
 }
 
+/// lunette's compositor advertises no `zxdg_output_manager_v1`, so the logical size is derived
+/// from the mode.
 #[test]
-fn a_mode_change_is_carried_through_to_the_roster() {
+fn the_mode_reaches_the_roster_and_the_logical_size_is_derived_from_it() {
     // Several sizes, so a constant cannot pass.
-    let (small, _) = enumerate(config(PixelSize::new(1280, 720)));
-    let (large, _) = enumerate(config(PixelSize::new(3840, 2160)));
-    let (mirrored, _) = enumerate(config(PixelSize::new(2560, 1440)));
+    for (width, height) in [(1280, 720), (3840, 2160), (2560, 1440)] {
+        let (roster, logical_geometry) = enumerate(config(PixelSize::new(width, height)));
+        let monitor = &roster.monitors()[0];
 
-    assert_eq!(small.monitors()[0].pixels(), PixelExtent::new(1280, 720));
-    assert_eq!(large.monitors()[0].pixels(), PixelExtent::new(3840, 2160));
-    assert_eq!(
-        mirrored.monitors()[0].pixels(),
-        PixelExtent::new(2560, 1440)
-    );
-}
-
-#[test]
-fn the_logical_size_is_derived_when_the_compositor_offers_no_xdg_output() {
-    // lunette's compositor advertises no `zxdg_output_manager_v1`.
-    let (roster, logical_geometry) = enumerate(config(PixelSize::new(2560, 1440)));
-
-    assert!(
-        !logical_geometry,
-        "this test is about the fallback, and there is nothing to fall back from"
-    );
-    assert_eq!(roster.monitors()[0].size().width, 2560);
-    assert_eq!(roster.monitors()[0].size().height, 1440);
+        assert_eq!(monitor.pixels(), PixelExtent::new(width, height));
+        assert_eq!(
+            (monitor.size().width, monitor.size().height),
+            (width, height)
+        );
+        assert!(
+            !logical_geometry,
+            "there is no reported logical geometry to fall back from"
+        );
+    }
 }
 
 /// A configuration whose output runs at `size`, unscaled.

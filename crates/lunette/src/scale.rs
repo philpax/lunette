@@ -138,21 +138,17 @@ mod tests {
     /// ladder's own ends.
     const SAMPLED: RangeInclusive<u32> = 1..=9000;
 
+    /// The scale chooser moves between neighbouring rungs, so the order matters, and an eighth
+    /// keeps every rung computed from a step a whole number of pixels.
     #[test]
-    fn the_ladder_ascends_and_holds_only_exact_eighths() {
-        let mut previous = 0;
-        for step in STEPS {
-            assert!(
-                step.in_120ths() > previous,
-                "{step:?} does not follow {previous}"
-            );
-            assert_eq!(
-                step.in_120ths() % 15,
-                0,
-                "{step:?} is not a whole eighth, so a rung from it is not a whole pixel"
-            );
-            previous = step.in_120ths();
-        }
+    fn the_ladder_is_every_eighth_from_one_to_three_ascending() {
+        assert_eq!(
+            ladder(),
+            vec![
+                1.0, 1.125, 1.25, 1.375, 1.5, 1.625, 1.75, 1.875, 2.0, 2.125, 2.25, 2.375, 2.5,
+                2.625, 2.75, 2.875, 3.0,
+            ]
+        );
     }
 
     #[test]
@@ -207,19 +203,11 @@ mod tests {
     }
 
     #[test]
-    fn a_zero_dimension_has_no_rung() {
-        assert_eq!(quantize_dimension(0), None);
-    }
-
-    #[test]
-    fn the_ends_of_the_ladder_are_the_declared_ones() {
+    fn the_ends_and_an_ordinary_panel_land_on_the_expected_rungs() {
+        assert_eq!(quantize_dimension(0), None, "a zero dimension has no rung");
         assert_eq!(quantize_dimension(1), Some(MIN_DIMENSION));
         assert_eq!(quantize_dimension(MAX_DIMENSION), Some(MAX_DIMENSION));
         assert_eq!(quantize_dimension(u32::MAX), Some(MAX_DIMENSION));
-    }
-
-    #[test]
-    fn an_ordinary_panel_lands_on_a_rung_near_what_it_asked_for() {
         // A mirrored monitor and most terminals ask for 1920x1080, so the
         // waste on that size matters most.
         assert_eq!(quantize_dimension(1920), Some(1920));
