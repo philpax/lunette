@@ -29,7 +29,7 @@ use lunette::{
 };
 use lunette_capture::{
     hid::{self, HidConfig, XkbKeymap},
-    mirror::{MirrorSet, screencopy::WlxClient},
+    mirror::{MirrorSet, NoNodeWatch, NodeWatch, PipewireNodeWatch, screencopy::WlxClient},
     monitor::OutputWatcher,
     portal::{
         CursorPolicy, PortalError, RequestId, RequestProgress, ScreenCastPortal, SessionRequest,
@@ -279,6 +279,12 @@ fn open_host(
     let portal = AvailablePortal(WlxPortal::connect().inspect_err(|error| {
         warn!("{error}; portal fallback is unavailable; direct capture remains available");
     }));
+    // Without a portal there is no session whose end needs noticing.
+    let nodes = if portal.0.is_ok() {
+        watch_portal_nodes()
+    } else {
+        Box::new(NoNodeWatch)
+    };
 
     let (stored, tokens) = read_tokens(state_directory);
 
@@ -298,15 +304,28 @@ fn open_host(
     );
 
     Some(Host {
-        mirrors: Rc::new(HostMirrors::new(MirrorSet::new(
-            portal,
-            CursorPolicy::Visible,
-            stored,
-        ))),
+        mirrors: Rc::new(HostMirrors::new(
+            MirrorSet::new(portal, CursorPolicy::Visible, stored).with_node_watch(nodes),
+        )),
         pointer: Rc::new(HostPointer::new(input)),
         outputs,
         tokens,
     })
+}
+
+/// Watches PipeWire for the removal of portal nodes, which is how a portal session that ends is
+/// noticed.
+fn watch_portal_nodes() -> Box<dyn NodeWatch> {
+    match PipewireNodeWatch::start() {
+        Ok(watch) => Box::new(watch),
+        Err(error) => {
+            warn!(
+                "{error}; a portal session that the user stops leaves its monitors marked as \
+                 mirrored with no frames"
+            );
+            Box::new(NoNodeWatch)
+        }
+    }
 }
 
 /// The layout the default seat compiles, which `wl_virtual` uploads when it opens.

@@ -34,7 +34,9 @@ An X11 host has no `wl_output`, so lunette sees no monitors there.
 
 A monitor's identity is its make and model from `wl_output.geometry`, then its connector name such as `DP-2`, then its logical position. The descriptor comes first because it survives a change of port. A Wayland client cannot read a serial, so of two monitors with the same make and model the second is identified by its connector alone, and lunette logs that. The connector name comes from `wl_output.name` (version 4); a name that does not parse as a DRM connector is treated as absent.
 
-Capture starts lazily. `monitor:mirror()` tries direct capture and requests a portal session only for a monitor that needs the fallback. A configuration that never mirrors and never asks for monitor selection never prompts. An explicit selection requests a fresh portal grant and replaces portal streams but keeps direct ones; portal revocation also leaves direct capture running.
+Capture starts lazily. `monitor:mirror()` tries direct capture and requests a portal session only for a monitor that needs the fallback. A configuration that never mirrors and never asks for monitor selection never prompts. An explicit selection requests a fresh portal grant and replaces portal streams but keeps direct ones.
+
+A portal session ends when the user stops it from the host desktop or the backend closes it, and the backend then removes the session's PipeWire nodes. lunette watches the PipeWire registry on a connection of its own and stops the stream on each removed node. Once none of the session's nodes remain, it drops the session, keeps direct capture running, and requests a new session for the monitors still wanted. That request carries the stored restore token, so a portal that honours the token restores the grant without a dialog. A monitor whose node alone is removed stays wanted until a later grant covers it. Removals are handled at the start of each poll, before a pending grant is taken.
 
 Streams negotiate against the DRM formats lunette's importer accepts, which exist only once LÖVR has a graphics device. A monitor mirrored earlier opens on the first frame after the device exists. Frames arrive on the backend's worker into a bounded newest-frame queue. The frame loop imports dmabufs through the client import path and answers a recurring buffer with the image it already made. The exporter creates images but submits no GPU work.
 
@@ -92,6 +94,8 @@ Direct capture uses the pinned WayVR implementation as it is, without a second s
 
 Restore tokens are rewritten after every grant, because a token is single-use and each `Start` response returns a new one. The granted `persist_mode` is recorded, never the requested one, because a backend may downgrade it. The file is versioned TOML. A file from a later version yields no store, because an older writer would drop fields it does not know; unknown fields within a known version are rejected for the same reason. TOML is used because the file holds EDID make and model strings.
 
+The end of a portal session is detected through the removal of its PipeWire nodes, not through the portal's `Session.Closed` signal. The signal is addressed to the D-Bus connection that created the session, which is `wlx-capture`'s private connection, and `wlx-capture` exposes neither that connection nor the session handle. Its capture thread logs the stream's state changes and reports none of them. Node removal is visible to any PipeWire client, so detection needs no change to `wlx-capture`. The session is revoked only when all of its nodes are gone, because a backend can remove one output's node, as when the output is unplugged, while the rest of the session stays live, and revoking it then would request again and could prompt.
+
 ## Known gaps
 
 The pinned screencopy backend has no cancellation or joined drop, its pause is empty, and a worker blocked in its event loop can stay detached after a monitor is dismissed or unplugged. Its asynchronous failures do not reach lunette, so a started direct stream can stay marked as mirrored with no frames, and there is no runtime failover to the portal.
@@ -99,6 +103,10 @@ The pinned screencopy backend has no cancellation or joined drop, its pause is e
 No configuration option changes the provider order, so a wlroots host where uinput is writable always uses uinput.
 
 If mutter binds an absolute uinput device to one display rather than mapping it across the whole layout, GNOME has no working absolute pointer path until libei is implemented.
+
+PipeWire reuses node identifiers, and the node watch runs on its own thread. If it reports a node's removal only after a grant that reused the identifier, and without the node's re-addition, lunette stops the new stream and requests again. Detecting the end through `Session.Closed` removes the race, and needs `wlx-capture` to expose the session handle and its closure. A lost PipeWire connection ends detection for the rest of the run, and lunette logs it.
+
+A session the user stops from the host desktop is requested again with its restore token. A portal that restores the grant silently therefore resumes the capture the user stopped.
 
 `wlx-capture`'s `parse_start_response` drops the granted `persist_mode`, so lunette records that the backend stated none. Lifting this upstream changes one adapter.
 

@@ -12,7 +12,7 @@ use pretty_assertions::assert_eq;
 
 use super::*;
 use crate::{
-    mirror::fake::{RecordingSource, StreamEvent, StreamLog},
+    mirror::fake::{RecordingSource, ScriptedNodes, StreamEvent, StreamLog},
     monitor::{
         geometry::{LogicalGeometry, LogicalPosition, LogicalSize, PixelExtent},
         name::{ConnectorName, MonitorName},
@@ -185,6 +185,17 @@ fn mirrors(log: &StreamLog) -> MirrorSet<FakePortal> {
     mirrors.set_streams(Box::new(RecordingSource::new(log.clone())));
     mirrors.attach(roster());
     mirrors
+}
+
+/// [`mirrors`] with a node watch the test drives.
+fn watched(log: &StreamLog) -> (MirrorSet<FakePortal>, ScriptedNodes) {
+    let nodes = ScriptedNodes::new();
+    let mirrors = mirrors(log).with_node_watch(Box::new(nodes.clone()));
+    (mirrors, nodes)
+}
+
+fn node(raw: u32) -> NodeId {
+    NodeId::new(raw).expect("a non-zero node identifier")
 }
 
 /// The bound turns a non-terminating portal script into a test failure instead of a hang.
@@ -739,4 +750,135 @@ fn a_monitor_mirrored_before_the_source_exists_starts_once_it_does() {
         1,
         "a deferred start does not ask the portal a second time",
     );
+}
+
+#[test]
+fn a_session_whose_every_node_is_removed_is_revoked_and_requested_again() {
+    let log = StreamLog::new();
+    let (mut mirrors, nodes) = watched(&log);
+    let first = key(mirrors.roster(), 0);
+    let second = key(mirrors.roster(), 1);
+    let _ = mirrors.mirror(&first);
+    let _ = mirrors.mirror(&second);
+    assert_eq!(
+        pump(&mut mirrors),
+        Progress::Started(vec![first.clone(), second.clone()])
+    );
+
+    nodes.remove(node(11));
+    nodes.remove(node(12));
+
+    assert_eq!(mirrors.poll(), Progress::Waiting);
+    assert!(!mirrors.is_mirroring(&first));
+    assert!(!mirrors.is_mirroring(&second));
+    assert!(mirrors.is_wanted(&first));
+    assert!(mirrors.is_wanted(&second));
+    assert_eq!(log.dropped(), vec![node(11), node(12)]);
+    let requests = &mirrors.portal().requests;
+    assert_eq!(requests.len(), 2);
+    assert_eq!(
+        requests[1].restore_token,
+        RestoreToken::new("fresh"),
+        "the new request restores the revoked grant's token",
+    );
+}
+
+#[test]
+fn a_session_that_loses_one_node_keeps_the_rest_and_asks_for_nothing() {
+    let log = StreamLog::new();
+    let (mut mirrors, nodes) = watched(&log);
+    let first = key(mirrors.roster(), 0);
+    let second = key(mirrors.roster(), 1);
+    let _ = mirrors.mirror(&first);
+    let _ = mirrors.mirror(&second);
+    let _ = pump(&mut mirrors);
+
+    nodes.remove(node(11));
+
+    assert_eq!(mirrors.poll(), Progress::Idle);
+    assert!(!mirrors.is_mirroring(&first));
+    assert!(
+        mirrors.is_wanted(&first),
+        "the monitor waits for a later grant"
+    );
+    assert!(mirrors.is_mirroring(&second));
+    assert_eq!(log.dropped(), vec![node(11)]);
+    assert_eq!(mirrors.portal().requests.len(), 1);
+}
+
+#[test]
+fn removing_the_last_remaining_node_revokes_the_session() {
+    let log = StreamLog::new();
+    let (mut mirrors, nodes) = watched(&log);
+    let first = key(mirrors.roster(), 0);
+    let second = key(mirrors.roster(), 1);
+    let _ = mirrors.mirror(&first);
+    let _ = mirrors.mirror(&second);
+    let _ = pump(&mut mirrors);
+
+    nodes.remove(node(11));
+    let _ = mirrors.poll();
+    nodes.remove(node(12));
+    let _ = mirrors.poll();
+
+    assert!(!mirrors.is_mirroring(&second));
+    assert_eq!(mirrors.portal().requests.len(), 2);
+}
+
+#[test]
+fn removing_a_node_the_session_does_not_hold_changes_nothing() {
+    let log = StreamLog::new();
+    let (mut mirrors, nodes) = watched(&log);
+    let first = key(mirrors.roster(), 0);
+    let _ = mirrors.mirror(&first);
+    let _ = pump(&mut mirrors);
+
+    nodes.remove(node(40));
+
+    assert_eq!(mirrors.poll(), Progress::Idle);
+    assert!(mirrors.is_mirroring(&first));
+    assert!(log.dropped().is_empty());
+    assert_eq!(mirrors.portal().requests.len(), 1);
+}
+
+#[test]
+fn a_removal_reported_before_the_grant_does_not_end_it() {
+    let log = StreamLog::new();
+    let (mut mirrors, nodes) = watched(&log);
+    let first = key(mirrors.roster(), 0);
+    let _ = mirrors.mirror(&first);
+
+    // A node of an earlier session whose identifier the new grant reuses.
+    nodes.remove(node(11));
+
+    assert_eq!(pump(&mut mirrors), Progress::Started(vec![first.clone()]));
+    assert_eq!(mirrors.poll(), Progress::Idle);
+    assert!(mirrors.is_mirroring(&first));
+}
+
+#[test]
+fn direct_capture_survives_the_removal_of_every_portal_node() {
+    let log = StreamLog::new();
+    let first = key(&roster(), 0);
+    let second = key(&roster(), 1);
+    let nodes = ScriptedNodes::new();
+    let mut portal = FakePortal::new();
+    portal.will_grant(response(vec![stream(12, 1)], "fresh"));
+    let mut mirrors = MirrorSet::new(portal, CursorPolicy::Visible, TokenStore::new())
+        .with_node_watch(Box::new(nodes.clone()));
+    mirrors.attach(roster());
+    mirrors.set_streams(Box::new(DirectSource {
+        log: log.clone(),
+        direct: Some(first.clone()),
+    }));
+    assert_eq!(mirrors.mirror(&first), MirrorOutcome::Mirroring);
+    let _ = mirrors.mirror(&second);
+    assert_eq!(pump(&mut mirrors), Progress::Started(vec![second.clone()]));
+
+    nodes.remove(node(12));
+    let _ = mirrors.poll();
+
+    assert!(mirrors.is_direct(&first));
+    assert!(!mirrors.is_mirroring(&second));
+    assert_eq!(mirrors.portal().requests.len(), 2);
 }

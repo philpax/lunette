@@ -749,6 +749,7 @@ dependencies = [
  "libc",
  "lunette-luau",
  "parking_lot",
+ "pipewire",
  "pretty_assertions",
  "serde",
  "smallvec",

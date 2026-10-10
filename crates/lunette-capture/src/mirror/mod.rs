@@ -4,7 +4,12 @@
 //! A [`MirrorSet`] starts with [`NoStreams`] because the importer's DRM formats exist only once
 //! LÖVR has a graphics device. A monitor requested before then opens on the first
 //! [`MirrorSet::poll`] after [`MirrorSet::set_streams`].
+//!
+//! A portal session ends when its PipeWire nodes are removed, which a [`NodeWatch`] reports.
+//! [`MirrorSet::poll`] stops the streams on removed nodes and revokes the session once none of its
+//! nodes remain.
 
+pub mod nodes;
 pub mod screencopy;
 pub mod source;
 
@@ -17,8 +22,9 @@ use std::mem;
 
 use tracing::{debug, info, warn};
 
-pub use crate::mirror::source::{
-    DirectOpen, MonitorStream, MonitorStreams, NoStreams, PipewireStreams,
+pub use crate::mirror::{
+    nodes::{NoNodeWatch, NodeWatch, NodeWatchError, PipewireNodeWatch},
+    source::{DirectOpen, MonitorStream, MonitorStreams, NoStreams, PipewireStreams},
 };
 use crate::{
     monitor::{name::MonitorKey, roster::Roster},
@@ -34,6 +40,7 @@ use crate::{
 pub struct MirrorSet<P> {
     portal: P,
     streams: Box<dyn MonitorStreams>,
+    nodes: Box<dyn NodeWatch>,
     cursor: CursorPolicy,
     roster: Roster,
     session: SessionState,
@@ -56,6 +63,7 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
         Self {
             portal,
             streams: Box::new(NoStreams),
+            nodes: Box::new(NoNodeWatch),
             cursor,
             roster: Roster::new(),
             session: SessionState::Idle,
@@ -67,6 +75,15 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
             tokens_changed: false,
             reload_dismissed: None,
         }
+    }
+
+    /// Installs the watch that reports when a portal session's nodes are removed.
+    ///
+    /// Without one, a session the user stops keeps its mirrors marked as running with no frames.
+    #[must_use]
+    pub fn with_node_watch(mut self, nodes: Box<dyn NodeWatch>) -> Self {
+        self.nodes = nodes;
+        self
     }
 
     /// Installs the source that opens capture streams.
@@ -283,8 +300,10 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
 
     /// Advances the portal exchange without blocking.
     ///
-    /// Queued, negotiating, and dialog states return [`Progress::Waiting`].
+    /// Queued, negotiating, and dialog states return [`Progress::Waiting`]. Node removals the
+    /// watch has reported are handled before a grant is taken, so they cannot end that grant.
     pub fn poll(&mut self) -> Progress {
+        self.end_removed_nodes();
         if let SelectionRequest::Pending { request, .. } = &self.selection {
             return self.poll_selection(*request);
         }
@@ -350,11 +369,44 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
         }
     }
 
+    /// Stops the streams whose nodes were removed, and revokes the session once it holds none.
+    ///
+    /// A monitor whose node alone is removed stays wanted and waits for a later grant, because
+    /// the rest of the session is still live. A removal of a node the session does not hold, such
+    /// as one from a session already replaced, changes nothing.
+    fn end_removed_nodes(&mut self) {
+        let removed = self.nodes.take_removed();
+        if removed.is_empty() {
+            return;
+        }
+        let SessionState::Held(held) = &mut self.session else {
+            return;
+        };
+        let before = held.nodes.len();
+        held.nodes.retain(|(_, node)| !removed.contains(node));
+        if held.nodes.len() == before {
+            return;
+        }
+
+        if held.nodes.is_empty() {
+            info!("every stream of the screencast session ended, so the session was revoked");
+            self.revoke_session();
+            return;
+        }
+        for mirror in &self.active {
+            if mirror.node.is_some_and(|node| removed.contains(&node)) {
+                info!(monitor = %mirror.key, "the portal ended this monitor's stream");
+            }
+        }
+        self.active
+            .retain(|mirror| mirror.node.is_none_or(|node| !removed.contains(&node)));
+    }
+
     /// Drops the held portal session and stops its PipeWire mirrors.
     ///
     /// Direct streams continue. Wanted monitors that still need the portal start
     /// a new request, which may prompt if the portal does not restore it.
-    pub fn revoke_session(&mut self) {
+    fn revoke_session(&mut self) {
         if matches!(self.session, SessionState::Idle) {
             return;
         }

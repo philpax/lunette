@@ -50,6 +50,10 @@ lunette-luau = { path = "crates/lunette-luau" }
 mlua = { version = "=0.12.2", features = ["luau-vector4"] }
 mlua-sys = "=0.13.0"
 parking_lot = "=0.12.5"
+# The version `wlx-capture` resolves, so both use one copy. lunette-capture
+# watches the PipeWire registry for the removal of a portal's nodes, which
+# `wlx-capture` neither reports nor exposes.
+pipewire = "=0.10.0"
 pretty_assertions = "=1.4.1"
 # The plugin graph's model checker generates operation sequences and shrinks
 # a failing one to a minimal reproduction.

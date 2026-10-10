@@ -9,6 +9,7 @@ lunette-luau.workspace = true
 # `src/hid/evdev.rs` defines the input ABI and states why `input-linux` is not used.
 libc.workspace = true
 parking_lot.workspace = true
+pipewire.workspace = true
 serde = { workspace = true, features = ["derive"] }
 # A frame has at most four planes, so the usual case fits in the inline buffer.
 smallvec.workspace = true

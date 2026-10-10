@@ -1,12 +1,16 @@
-//! A [`MonitorStreams`] implementation for deterministic lifecycle tests.
+//! [`MonitorStreams`] and [`NodeWatch`] implementations for deterministic lifecycle tests.
 //!
 //! The recording source logs stream lifecycle events without starting a PipeWire
-//! thread, connecting to a node, or waiting.
+//! thread, connecting to a node, or waiting. The scripted watch reports the node
+//! removals a test states.
 
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{
-    mirror::source::{MonitorStream, MonitorStreams},
+    mirror::{
+        nodes::NodeWatch,
+        source::{MonitorStream, MonitorStreams},
+    },
     portal::NodeId,
     stream::CapturedFrame,
 };
@@ -133,5 +137,31 @@ impl MonitorStream for RecordedStream {
 impl Drop for RecordedStream {
     fn drop(&mut self) {
         self.log.record(StreamEvent::Dropped { node: self.node });
+    }
+}
+
+/// A node watch that reports the removals a test queues.
+///
+/// Shared, so the test queues removals after the lifecycle owns the watch.
+#[derive(Clone, Debug, Default)]
+pub struct ScriptedNodes {
+    removed: Rc<RefCell<Vec<NodeId>>>,
+}
+
+impl ScriptedNodes {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Queues a node removal for the next [`NodeWatch::take_removed`].
+    pub fn remove(&self, node: NodeId) {
+        self.removed.borrow_mut().push(node);
+    }
+}
+
+impl NodeWatch for ScriptedNodes {
+    fn take_removed(&mut self) -> Vec<NodeId> {
+        self.removed.take()
     }
 }
