@@ -7,7 +7,9 @@
 //! lunette draws no decoration panel around a window and hit-tests in the
 //! sink's own pixel space, so `PointerHit`, `hit_target`, the panel and UV
 //! conversions, and the rendered image fields are left out, and the transforms
-//! are always built without server-side decorations.
+//! are always built without server-side decorations. The toplevel is listed
+//! among the window's surfaces where it stacks, so a subsurface placed below it
+//! does not take a point the toplevel accepts.
 
 use glam::{Affine2, Vec2};
 use smithay::{
@@ -166,6 +168,10 @@ pub fn collect_rendered_surface_tree_at(
     out
 }
 
+#[expect(
+    dead_code,
+    reason = "lunette's hit test lists the toplevel among its subsurfaces, so it walks the tree with the root included"
+)]
 pub fn collect_rendered_surface_tree(root: &WlSurface) -> Rc<[RenderedSurface]> {
     collect_rendered_surface_tree_at(root, Point::<i32, Logical>::from((0, 0)), false).into()
 }
@@ -294,7 +300,9 @@ pub fn build_hit_context(
 ) -> WvrHitContext {
     let (mouse_transform, uv_range) = compute_transforms(inner_extent, false);
 
-    let surfaces = collect_rendered_surface_tree(toplevel);
+    // lunette: the toplevel is listed where it stacks, so a subsurface placed
+    // below it takes only the points the toplevel does not accept.
+    let surfaces = collect_rendered_surface_tree_at(toplevel, Point::from((0, 0)), true).into();
 
     let mut popup_roots = Vec::new();
 

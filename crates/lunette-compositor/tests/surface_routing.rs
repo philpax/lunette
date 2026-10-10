@@ -227,6 +227,59 @@ fn a_click_beside_a_subsurface_reaches_the_toplevel() {
     assert_ne!(entered, child.id());
 }
 
+#[test]
+fn a_subsurface_below_the_window_does_not_take_a_point_the_window_covers() {
+    let (mut compositor, mut client) = with_one_window();
+    let pointer = client.open_pointer(&mut compositor);
+    let child = client.open_subsurface(&mut compositor, SUBSURFACE_ORIGIN, SUBSURFACE_SIZE);
+    client.place_subsurface_below_parent(&mut compositor, &child);
+    let sink = only_window(&compositor).sink;
+    let toplevel = client.surface_id().expect("a toplevel was opened");
+
+    let (entered, _, _) = enter_at(
+        &mut compositor,
+        &mut client,
+        &pointer,
+        sink,
+        (
+            f64::from(SUBSURFACE_ORIGIN.0) + 3.0,
+            f64::from(SUBSURFACE_ORIGIN.1) + 4.0,
+        ),
+    );
+    assert_eq!(
+        entered, toplevel,
+        "the window is drawn over the subsurface, so the window takes the point"
+    );
+}
+
+#[test]
+fn a_subsurface_below_the_window_takes_a_point_outside_the_window_input_region() {
+    let (mut compositor, mut client) = with_one_window();
+    let pointer = client.open_pointer(&mut compositor);
+    let child = client.open_subsurface(&mut compositor, SUBSURFACE_ORIGIN, SUBSURFACE_SIZE);
+    client.place_subsurface_below_parent(&mut compositor, &child);
+    let toplevel = client.surface().cloned().expect("a toplevel was opened");
+    client.set_input_region(&mut compositor, &toplevel, &[(0, 0, 10, 10)]);
+    let sink = only_window(&compositor).sink;
+
+    let (entered, x, y) = enter_at(
+        &mut compositor,
+        &mut client,
+        &pointer,
+        sink,
+        (
+            f64::from(SUBSURFACE_ORIGIN.0) + 3.0,
+            f64::from(SUBSURFACE_ORIGIN.1) + 4.0,
+        ),
+    );
+    assert_eq!(
+        entered,
+        child.id(),
+        "the window accepts no input there, so the point falls through to the subsurface"
+    );
+    assert_eq!((x, y), (3.0, 4.0));
+}
+
 /// Withdraws the default seat's pointer, moves it to `position` on `sink`, and
 /// returns the surface it enters with the surface-local position. Withdrawing
 /// first makes every move produce an enter, even onto the surface it left.
