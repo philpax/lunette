@@ -84,6 +84,8 @@ A hand has one laser owner at a time. `attach` answers a laser for each hand, an
 
 While analog trigger pressure exceeds the lock threshold over a live offered surface, the laser holds the previous ray, so pulling the trigger does not move the hit. Rotation or movement past the unlock bounds releases the hold for the rest of the pull; grip, a grab, tracking loss, a large frame gap, or the surface going away cancels it. A reader without analog pressure never locks. `lua/lunette-plugins/laser/aim.luau` and `trigger-lock.luau` define the fields, and [Pointer aim](../guide/desktop-configuration.md#pointer-aim) describes tuning.
 
+While the laser's seat carries a drag whose icon has content, the laser's default drawing draws the icon where its beam ends, facing the hand, with its top-left corner offset from that point as the client placed it. The icon takes the metres per surface pixel of the panel the beam last hovered, so it matches the window it came from, and a thousandth of a metre per pixel before any panel. It is an overlay like the beam, and it samples the icon's crop and converts its premultiplied pixels with the panels provider's shaders, which `@lunette-plugins/client-pixels` holds for both. A draw hook that replaces `base` replaces the icon too. `lua/lunette-plugins/laser/drag-icon.luau` draws it.
+
 ### Panels
 
 Giving a panel only `width` or only `height` derives the other from the source's aspect ratio and recomputes it when the source's size changes; giving both keeps the rectangle. A monitor's aspect ratio comes from its oriented logical size. A hidden panel is not drawn or picked and gives up its layer at once, but stays in `all` and `forSource`. `panel:close(owner)` asks a window's client to close without removing the panel, or dismisses a monitor's capture and removes its panel.
@@ -385,6 +387,10 @@ A claim's grant and a window's title are fields a consumer reads every frame. `o
 ### A drag is state on its seat
 
 A drag is read from `seat.drag` every frame rather than announced by events, because its one consumer, the laser that draws the icon, reads it every frame, and two ways to learn one fact let them drift ([State a frame reads is not also announced](#state-a-frame-reads-is-not-also-announced)). It is a handle rather than a field table, because its icon is a surface whose texture is valid for one frame, as a window's is, and a stale table would hand out a texture after its frame. `Drag` is not a member of `Textured`: the union is the panel sources, which share fields a drag lacks.
+
+### The laser draws the drag icon
+
+The icon follows a seat's pointer, and the laser is what owns the seat and knows where its pointer lands in the scene, so the laser draws it. Drawing it from the panels provider was rejected, because a panel does not know which seat points at it or where the beam ends off every panel. The icon faces the hand rather than lying on the hovered panel, as WayVR's faces the head, so it stays readable over a curved panel and over nothing.
 
 ### Handles compare by what they name
 

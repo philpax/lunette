@@ -1,6 +1,7 @@
 local contracts = require '@lunette-contracts/laser'
 local config = require '@lunette-plugins/laser/config'
 local passState = require '@lunette-plugins/pass-state'
+local dragIcon = require '@lunette-plugins/laser/drag-icon'
 
 local draw = {}
 
@@ -44,6 +45,12 @@ function draw.laser(target: Laser, pass: Pass): ()
       pass:sphere(endX, endY, endZ, style.cursorRadius)
     end
   end)
+
+  -- A drag's icon follows the pointer, so it is drawn where the beam ends.
+  local drag = if target.seat.dead then nil else target.seat.drag
+  if drag then
+    dragIcon.draw(target.icon, pass, drag, vector.pack(endX, endY, endZ), frame.origin, target.iconShaders)
+  end
 end
 
 return draw

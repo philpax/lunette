@@ -10,6 +10,7 @@ local inspection = require '@lunette-contracts/inspection'
 local theme = require '@lunette-contracts/theme'
 local appearance = require '@lunette-plugins/panels/appearance'
 local frame = require '@lunette-plugins/panels/frame'
+local clientPixels = require '@lunette-plugins/client-pixels'
 
 export type Service = contracts.Service
 export type Owner = contracts.Owner
@@ -27,28 +28,11 @@ type ProviderState = {
   active: boolean,
   context: plugin.Context,
   panels: { panel.State },
-  opaqueShader: Shader?,
-  alphaShader: Shader?,
+  shaders: clientPixels.Shaders,
   added: listeners.Listeners<contracts.PanelCallback>,
   removed: listeners.Listeners<RemovedListener>,
   host: panel.Host,
 }
-
-local OPAQUE_FRAGMENT = [[
-  vec4 lovrmain() {
-    vec3 linear = gammaToLinear(getPixel(ColorTexture, UV).rgb);
-    return vec4(linear * Color.rgb * Color.a, Color.a);
-  }
-]]
-local ALPHA_FRAGMENT = [[
-  vec4 lovrmain() {
-    vec4 pixel = getPixel(ColorTexture, UV);
-    if (pixel.a <= 0.) return vec4(0.);
-    vec3 linear = gammaToLinear(clamp(pixel.rgb / pixel.a, 0., 1.));
-    float alpha = pixel.a * Color.a;
-    return vec4(linear * Color.rgb * alpha, alpha);
-  }
-]]
 
 local config = require '@lunette-plugins/panels/config'
 local schema = require '@lunette-plugin/schema'
@@ -65,33 +49,6 @@ local function livePanels(state: ProviderState): { Panel }
     end
   end
   return live
-end
-
-local function contentShader(state: ProviderState, opaque: boolean): Shader?
-  if not state.active or not state.context:active() then
-    return nil
-  end
-  local cached = if opaque then state.opaqueShader else state.alphaShader
-  if cached then
-    return cached
-  end
-  state.context:effect(function()
-    local shader = lovr.graphics.newShader('unlit', if opaque then OPAQUE_FRAGMENT else ALPHA_FRAGMENT)
-    if opaque then
-      state.opaqueShader = shader
-    else
-      state.alphaShader = shader
-    end
-    return function()
-      shader:release()
-      if opaque then
-        state.opaqueShader = nil
-      else
-        state.alphaShader = nil
-      end
-    end
-  end)
-  return if opaque then state.opaqueShader else state.alphaShader
 end
 
 -- A failed initial claim leaves the panel unregistered.
@@ -154,7 +111,7 @@ local function build(context: plugin.Context, settings: Settings): Service
     settings = settings,
     paint = currentPaint,
     contentShader = function(opaque: boolean): Shader?
-      return contentShader(state, opaque)
+      return state.shaders.choose(opaque)
     end,
     removed = function(target: panel.State)
       local index = table.find(state.panels, target)
@@ -172,8 +129,9 @@ local function build(context: plugin.Context, settings: Settings): Service
     active = true,
     context = context,
     panels = {},
-    opaqueShader = nil,
-    alphaShader = nil,
+    shaders = clientPixels.shaders(context, function(): boolean
+      return state.active
+    end),
     added = listeners.new<<contracts.PanelCallback>>(context),
     removed = listeners.new<<RemovedListener>>(context),
     host = host,
@@ -269,7 +227,7 @@ local function build(context: plugin.Context, settings: Settings): Service
       end
       return inspection.snapshot(
         result,
-        { active = state.active, layerClaims = claims, meshes = meshes, opaqueShader = state.opaqueShader ~= nil }
+        { active = state.active, layerClaims = claims, meshes = meshes, opaqueShader = state.shaders.held(true) }
       )
     end,
     fromWindow = function(_self: Service, owner: Owner, window: lunette.Window, options: Options?): WindowPanel

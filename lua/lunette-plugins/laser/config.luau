@@ -6,6 +6,8 @@ local aim = require './aim'
 local triggerLock = require './trigger-lock'
 local style = require './style'
 local input = require './input'
+local dragIcon = require './drag-icon'
+local clientPixels = require '@lunette-plugins/client-pixels'
 
 -- The record a draw hook receives: the contract's laser and the provider state its drawing reads.
 export type Beam = {
@@ -18,6 +20,9 @@ export type Beam = {
   read pointer: interaction.Pointer,
   read style: style.Style,
   read input: contracts.Input?,
+  -- The geometry and shaders that draw the icon of a drag the seat carries.
+  read icon: dragIcon.State,
+  read iconShaders: clientPixels.Shaders,
   read dead: boolean,
   read update: (Beam, { read [number]: contracts.Surface }) -> (),
   read draw: (Beam, Pass) -> (),

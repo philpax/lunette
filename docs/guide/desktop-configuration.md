@@ -149,6 +149,7 @@ Logic-headless tests do not establish visual, timing, or comfort results. Native
 - Keyboard legends, menu rows, titlebar actions, and Plugins controls show no depth striping while the head and controllers move. The landing indicator stays visible over all of them.
 - Aim smoothing steadies a stationary controller, slow aiming reaches small controls, and fast sweeps stay responsive. The trigger lock holds a click on its target, deliberate movement releases it, and text selection, graph panning, and dragging still work. Both hands and every available refresh rate are covered.
 - Plugins toggles a readable entry list, and its selection, Disable, Enable, Graph, Configure, Catalog, and X work with the controllers. Frame time with the manager open is compared with it closed.
+- Dragging text or a file from one window to another drops it there, with the client's icon following the beam at the window's pixel scale; releasing over nothing or closing the source window cancels the drag and removes the icon.
 - Grip on panel content or a titlebar button moves the panel; trigger on a titlebar button runs only that action.
 - Reload configuration repeats without duplicate laser seats, stale menu rows, or extra keyboards.
 - `theme-rounded-content`: flat and curved windows and rotated monitors under Dark, Arcade, and zero and custom radii show no stretched pixels, and corner hits match visible content.

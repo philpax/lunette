@@ -122,7 +122,7 @@ After cancellation, a held button cannot start a gesture until it is released an
 
 ## Drag and drop
 
-A native window starts a drag from a press, and the seat's pointer carries it wherever Lua moves the pointer next. The drag needs nothing beyond the ordinary routing: hovering a panel moves the seat's pointer onto that panel's sink, leaving a panel withdraws it, and the release goes to the sink the button was pressed on. The native layer accepts that release wherever the pointer is, and the drag drops on the window under the pointer at that moment, or on nothing. [Compositor](compositor.md#drag-and-drop) describes the drag itself.
+A native window starts a drag from a press, and the seat's pointer carries it wherever Lua moves the pointer next. The drag needs nothing beyond the ordinary routing: hovering a panel moves the seat's pointer onto that panel's sink, leaving a panel withdraws it, and the release goes to the sink the button was pressed on. The native layer accepts that release wherever the pointer is, and the drag drops on the window under the pointer at that moment, or on nothing. The laser draws the drag's icon where its beam ends ([Lasers](lua-api.md#lasers)). [Compositor](compositor.md#drag-and-drop) describes the drag itself.
 
 ## XR input
 

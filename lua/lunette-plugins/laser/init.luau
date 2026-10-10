@@ -13,6 +13,8 @@ local passState = require '@lunette-plugins/pass-state'
 local inspection = require '@lunette-contracts/inspection'
 local theme = require '@lunette-contracts/theme'
 local style = require '@lunette-plugins/laser/style'
+local dragIcon = require '@lunette-plugins/laser/drag-icon'
+local clientPixels = require '@lunette-plugins/client-pixels'
 
 export type Service = contracts.Service
 export type Owner = contracts.Owner
@@ -47,6 +49,8 @@ type MutableLaser = {
   style: style.Style,
   read styleOverrides: contracts.StyleOverride,
   input: Input?,
+  icon: dragIcon.State,
+  iconShaders: clientPixels.Shaders,
   dead: boolean,
   update: (Beam, { read [number]: Surface }) -> (),
   draw: (Beam, Pass) -> (),
@@ -58,6 +62,7 @@ type ProviderState = {
   active: boolean,
   read context: plugin.Context,
   lasers: { MutableLaser },
+  read iconShaders: clientPixels.Shaders,
   read themes: theme.Service,
   read refreshStyle: () -> (),
 }
@@ -68,6 +73,7 @@ local function destroy(state: ProviderState, target: MutableLaser): ()
     return
   end
   target.dead = true
+  dragIcon.release(target.icon)
   local index = table.find(state.lasers, target)
   if index then
     table.remove(state.lasers, index)
@@ -158,6 +164,8 @@ local function makeLaser(
       style = style.resolve(state.themes:current().theme, settings.style, styleOverrides),
       styleOverrides = styleOverrides,
       input = frameInput,
+      icon = dragIcon.new(),
+      iconShaders = state.iconShaders,
       dead = false,
       update = function(self: Beam, surfaces: { read [number]: Surface })
         if self.dead or not state.active then
@@ -194,6 +202,7 @@ local function makeLaser(
         withdrawn = false
         local before = self.pointer.hovered
         self.pointer:update(frame, surfaces)
+        dragIcon.observe(target.icon, self.pointer.hovered)
         if self.pointer.hovered ~= before then
           self:vibrate()
         end
@@ -265,6 +274,9 @@ local function build(context: plugin.Context, settings: Settings): Service
     active = true,
     context = context,
     lasers = {},
+    iconShaders = clientPixels.shaders(context, function(): boolean
+      return state.active
+    end),
     themes = themes,
     refreshStyle = refreshStyle,
   }

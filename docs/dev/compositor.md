@@ -141,8 +141,6 @@ smithay's `send_frames_surface_tree` cannot rate-limit: it always sends to surfa
 
 There is no sandboxing.
 
-Lua can read a drag and its icon from `seat.drag`, but nothing draws the icon.
-
 A drag icon's subsurfaces are not reported, so only the icon's own surface can be drawn. WayVR draws the icon's whole surface tree.
 
 X11 window management semantics are whatever `xwayland-satellite` provides.
