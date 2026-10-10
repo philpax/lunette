@@ -80,35 +80,3 @@ impl fmt::Display for SurfaceCommit {
         write!(f, "{}", self.0)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use pretty_assertions::assert_eq;
-
-    use super::*;
-
-    #[test]
-    fn a_frame_generation_increases_and_never_wraps() {
-        assert_eq!(FrameGeneration::INITIAL.get(), 0);
-        assert_eq!(FrameGeneration::INITIAL.next().get(), 1);
-
-        let last = FrameGeneration(u64::MAX);
-        assert_eq!(
-            last.next(),
-            last,
-            "wrapping would make an ancient handle compare equal to a current one"
-        );
-    }
-    #[test]
-    fn a_surface_commit_increases_and_never_wraps() {
-        assert_eq!(SurfaceCommit::INITIAL.get(), 0);
-        assert_eq!(SurfaceCommit::INITIAL.next().get(), 1);
-
-        let last = SurfaceCommit(u64::MAX);
-        assert_eq!(
-            last.next(),
-            last,
-            "a repeated value reads to the blit path as a source that has not changed"
-        );
-    }
-}

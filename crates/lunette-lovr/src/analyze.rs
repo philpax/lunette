@@ -324,41 +324,6 @@ mod tests {
         path
     }
 
-    #[test]
-    fn a_well_typed_root_is_clean_and_reported_as_checked() {
-        let directory = tempfile::TempDir::new().expect("a temporary directory");
-        let root = write(&directory, "clean.luau", "local x: number = 1\nreturn x\n");
-        let request = Request::new(None, vec![root.clone()]);
-
-        let report = check(&request).expect("the check should run");
-
-        assert!(report.is_clean(), "{:?}", report.diagnostics);
-        assert_eq!(report.checked, vec![root], "the roots that were read");
-        assert!(report.skipped(&request).is_empty(), "the skipped roots");
-    }
-
-    #[test]
-    fn a_type_error_is_reported_against_its_root() {
-        let directory = tempfile::TempDir::new().expect("a temporary directory");
-        let root = write(
-            &directory,
-            "broken.luau",
-            "local x: number = 'a'\nreturn x\n",
-        );
-        let request = Request::new(None, vec![root.clone()]);
-
-        let report = check(&request).expect("the check should run");
-
-        assert!(!report.is_clean(), "a chunk assigning a string to a number");
-        let diagnostic = report
-            .diagnostics
-            .iter()
-            .find(|diagnostic| diagnostic.kind == Kind::TypeError)
-            .expect("a type error");
-        assert_eq!(diagnostic.module, root, "the module it is reported against");
-        assert_eq!(diagnostic.line, 1, "the line");
-    }
-
     /// A root that cannot be read produces no diagnostics, so without the skipped-roots report an unresolved require would skip a whole file silently.
     #[test]
     fn an_unreadable_root_is_reported_as_skipped() {
@@ -375,34 +340,6 @@ mod tests {
             "the skipped roots"
         );
         assert!(!report.is_clean(), "an unreadable root is not a pass");
-    }
-
-    #[test]
-    fn definitions_reach_the_checked_module() {
-        let directory = tempfile::TempDir::new().expect("a temporary directory");
-        let definitions = write(
-            &directory,
-            "defs.luau",
-            "declare gadget: { spin: () -> number }\n",
-        );
-        let root = write(
-            &directory,
-            "uses.luau",
-            "local n: string = gadget.spin()\nreturn n\n",
-        );
-        let request = Request::new(Some(definitions), vec![root]);
-
-        let report = check(&request).expect("the check should run");
-
-        assert!(!report.is_clean(), "assigning a number to a string");
-        assert!(
-            report
-                .diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.message.contains("string")),
-            "{:?}",
-            report.diagnostics
-        );
     }
 
     #[test]

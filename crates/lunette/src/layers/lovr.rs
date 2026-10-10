@@ -12,7 +12,7 @@ use crate::{
     layers::{
         backend::{LayerBackend, SessionId, SessionPresence},
         blit::LayerBlitter,
-        key::LayerKey,
+        key::LayerSize,
     },
     scene::SceneRendering,
     texture::{CopyableTexture, LovrTexture},
@@ -72,16 +72,38 @@ impl LayerBackend for LovrLayers {
         SessionId::new(generation).map_or(SessionPresence::Absent, SessionPresence::Present)
     }
 
-    fn create(&mut self, key: LayerKey) -> Option<Self::Layer> {
-        let properties = key.properties();
-        let size = key.size().get();
+    /// Every layer is mono, mutable, opaque, and filtered. Nothing produces
+    /// stereo content, and a pooled layer is reused, so it cannot be
+    /// immutable: LÖVR raises on the second acquire of an immutable layer.
+    ///
+    /// Opaque composition resolves the X-variant alpha problem, and no other
+    /// resolution exists on this path. `Xrgb8888` and `Xbgr8888` have no alpha
+    /// channel, so they are imported as the alpha-carrying format with the
+    /// same component order, and whatever the client left in the padding byte
+    /// arrives as alpha. The in-scene quad forces alpha to one in a fragment
+    /// stage. A composition layer reaches the runtime with no shader and no
+    /// Lua consumer. A copy cannot fix the alpha either: `lovrTextureCopy`
+    /// and `lovrTextureBlit` are `vkCmdCopyImage` and `vkCmdBlitImage`, which
+    /// read the image, not a view, so an image-view swizzle does not reach
+    /// them. The layer's blend flag is the remaining control, and turning it
+    /// off makes the padding byte unreachable for every source format;
+    /// renegotiating the format does not change that. LÖVR maps the flag to
+    /// `XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT`.
+    ///
+    /// The cost is that a translucent client is composited opaque while it
+    /// holds a layer. A translucent panel renders as an in-scene quad, where
+    /// the shader path resolves alpha. Lua chooses between sharpness and
+    /// translucency by claiming a layer or not. `docs/dev/rendering.md` records
+    /// this.
+    fn create(&mut self, size: LayerSize) -> Option<Self::Layer> {
+        let size = size.get();
         let info = LayerInfo {
             width: size.width,
             height: size.height,
-            stereo: properties.stereo,
-            immutable: properties.immutable,
-            transparent: properties.transparent,
-            filter: properties.filter,
+            stereo: false,
+            immutable: false,
+            transparent: false,
+            filter: true,
         };
 
         // SAFETY: the thread guarantee above. `info` is a live local for the

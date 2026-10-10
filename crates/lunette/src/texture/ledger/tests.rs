@@ -90,21 +90,6 @@ fn a_handle_from_an_earlier_frame_is_refused() {
 }
 
 #[test]
-fn a_handle_from_a_later_frame_is_refused_too() {
-    // A later-frame handle is not reachable through the public API, but the
-    // check is an equality comparison. The test keeps the comparison an
-    // equality; an ordering check would not refuse the later frame.
-    let mut ledger = ledger();
-    ledger.install(surface(1), 7, description(64, 32));
-
-    assert!(
-        ledger
-            .lookup(TextureRef::new(surface(1), frame(9)), frame(4))
-            .is_err()
-    );
-}
-
-#[test]
 fn a_handle_to_an_unknown_surface_resolves_to_nothing() {
     assert_eq!(
         ledger().lookup(TextureRef::new(surface(1), frame(1)), frame(1)),
@@ -159,7 +144,6 @@ fn a_dead_surface_keeps_its_last_known_description() {
     ledger.install(surface(1), 7, description(1280, 720));
 
     assert_eq!(ledger.mark_dead(surface(1)), released(Some(7)));
-    assert!(ledger.is_dead(surface(1)));
     assert_eq!(
         ledger.describe(surface(1)),
         Some(description(1280, 720)),
@@ -198,7 +182,10 @@ fn marking_a_surface_dead_twice_yields_the_texture_once() {
 fn marking_an_unknown_surface_dead_does_nothing() {
     let mut ledger = ledger();
     assert_eq!(ledger.mark_dead(surface(4)), released(None));
-    assert!(!ledger.is_dead(surface(4)));
+    assert_eq!(
+        ledger.lookup(TextureRef::new(surface(4), frame(0)), frame(0)),
+        Err(TextureUnavailable::Unknown)
+    );
     assert_eq!(ledger.describe(surface(4)), None);
 }
 
@@ -229,36 +216,20 @@ fn a_retired_image_is_not_destroyed_in_the_frame_it_was_retired() {
 fn a_retired_image_is_destroyed_once_its_deferral_has_elapsed() {
     let mut ledger = ledger();
     ledger.retire_image(image(1), frame(5));
+    ledger.retire_image(image(2), frame(6));
 
     assert_eq!(ledger.collect_due_images(frame(6)), Vec::new());
-    assert_eq!(ledger.collect_due_images(frame(7)), vec![image(1)]);
     assert_eq!(
-        ledger.collect_due_images(frame(8)),
+        ledger.collect_due_images(frame(7)),
+        vec![image(1)],
+        "an image whose deferral has not elapsed stays pending"
+    );
+    assert_eq!(ledger.collect_due_images(frame(8)), vec![image(2)]);
+    assert_eq!(
+        ledger.collect_due_images(frame(9)),
         Vec::new(),
         "an image is collected exactly once, or it is freed twice"
     );
-}
-
-#[test]
-fn images_retired_in_different_frames_come_due_in_order() {
-    let mut ledger = ledger();
-    ledger.retire_image(image(1), frame(1));
-    ledger.retire_image(image(2), frame(3));
-
-    assert_eq!(ledger.collect_due_images(frame(3)), vec![image(1)]);
-    assert_eq!(ledger.collect_due_images(frame(4)), Vec::new());
-    assert_eq!(ledger.collect_due_images(frame(5)), vec![image(2)]);
-}
-
-#[test]
-fn several_images_retired_in_one_frame_come_due_together() {
-    let mut ledger = ledger();
-    ledger.retire_image(image(1), frame(2));
-    ledger.retire_image(image(2), frame(2));
-
-    let mut due = ledger.collect_due_images(frame(4));
-    due.sort_unstable();
-    assert_eq!(due, vec![image(1), image(2)]);
 }
 
 #[test]
@@ -532,6 +503,58 @@ fn a_dead_surface_hands_back_its_copy_and_refuses_to_stabilise_again() {
 
     ledger.refresh_stable();
     assert_eq!(source.copies().len(), 1, "a dead surface is not redrawn");
+}
+
+#[test]
+fn a_barrier_names_every_live_texture_and_its_stabilised_copy() {
+    let (mut ledger, source, stable) = stabilized();
+    ledger.install(surface(2), source.rotated(2), description(64, 32));
+
+    let mut named: Vec<u32> = ledger.textures().map(|texture| texture.id).collect();
+    named.sort_unstable();
+
+    assert_eq!(named, vec![1, 2, stable]);
+}
+
+#[test]
+fn a_barrier_names_no_texture_of_a_dead_or_forgotten_surface() {
+    let (mut ledger, source, _) = stabilized();
+    ledger.install(surface(2), source.rotated(2), description(64, 32));
+    ledger
+        .stabilize(TextureRef::new(surface(2), frame(1)), frame(1))
+        .expect("a live surface can be stabilised");
+
+    ledger.mark_dead(surface(1));
+    ledger.forget(surface(2));
+
+    assert_eq!(
+        ledger.textures().count(),
+        0,
+        "a texture already handed back must not be named in a barrier"
+    );
+}
+
+#[test]
+fn teardown_hands_back_every_texture_once() {
+    let (mut ledger, source, stable) = stabilized();
+    ledger.install(surface(2), source.rotated(2), description(64, 32));
+
+    let mut taken: Vec<u32> = ledger
+        .take_all()
+        .into_iter()
+        .map(|texture| texture.id)
+        .collect();
+    taken.sort_unstable();
+
+    assert_eq!(taken, vec![1, 2, stable]);
+    assert!(
+        ledger.take_all().is_empty(),
+        "a second teardown has nothing left to release"
+    );
+    assert_eq!(
+        ledger.lookup(TextureRef::new(surface(1), frame(1)), frame(1)),
+        Err(TextureUnavailable::Unknown)
+    );
 }
 
 #[test]

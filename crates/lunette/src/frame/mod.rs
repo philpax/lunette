@@ -85,7 +85,7 @@ pub struct FrameDriver {
     /// The same pool [`Session`] reaches through `ClaimRegistry`, held concretely because the blit and the submit need the backend's `Layer` type, which no dyn-safe trait can return.
     layers: Rc<PoolRegistry<LovrLayers>>,
     blits: LovrBlits,
-    blitted: BlitLedger<LovrTexture>,
+    blitted: BlitLedger,
     /// Consumed by the first successful or failed start.
     startup: Option<Startup>,
     compositor: Option<Compositor>,
@@ -411,7 +411,6 @@ impl FrameDriver {
     ///
     /// A layer skipped because its window has not committed still goes to the runtime, which re-composites its last image. Omitting it would hide the panel.
     fn blit_layers(&mut self) {
-        let now = self.session.generation();
         let scene = self.session.scene();
         let session = Rc::clone(&self.session);
         let blits = &mut self.blits;
@@ -419,19 +418,13 @@ impl FrameDriver {
 
         self.layers.with_pool(|pool| {
             session.with_textures(|textures| {
-                let report = blitted.run(
-                    pool,
-                    blits,
-                    textures,
-                    |claim| {
-                        session
-                            .claims()
-                            .source(claim)
-                            .and_then(|window| session.window(window))
-                            .map(|window| window.surface)
-                    },
-                    now,
-                );
+                let report = blitted.run(pool, blits, textures, |claim| {
+                    session
+                        .claims()
+                        .source(claim)
+                        .and_then(|window| session.window(window))
+                        .map(|window| window.surface)
+                });
 
                 if report.iter().any(|(_, outcome)| outcome.copied()) {
                     // Matters only on a frame that draws no scene. `crate::scene` has the reasoning.

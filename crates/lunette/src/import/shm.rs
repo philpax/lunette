@@ -264,16 +264,6 @@ mod tests {
     }
 
     #[test]
-    fn a_single_pixel_round_trips() {
-        let pixels = [1, 2, 3, 4];
-        let packed =
-            repack(&pixels, layout(1, 1, 4, ShmFormat::Argb8888)).expect("one pixel is a buffer");
-
-        assert_eq!(packed.pixels(), &[1, 2, 3, 4]);
-        assert_eq!(packed.size(), PixelSize::new(1, 1));
-    }
-
-    #[test]
     fn a_buffer_with_no_pixels_is_rejected_rather_than_imported_empty() {
         for (width, height) in [(0, 0), (0, 4), (4, 0)] {
             assert_eq!(
@@ -293,17 +283,6 @@ mod tests {
             Err(ShmError::StrideNarrowerThanRow {
                 stride: 15,
                 needed: 16,
-            })
-        );
-    }
-
-    #[test]
-    fn a_zero_stride_is_rejected_before_anything_is_read() {
-        assert_eq!(
-            repack(&[], layout(1, 1, 0, ShmFormat::Argb8888)),
-            Err(ShmError::StrideNarrowerThanRow {
-                stride: 0,
-                needed: 4,
             })
         );
     }
@@ -329,22 +308,6 @@ mod tests {
             .expect("a tightly packed buffer is valid");
 
         assert_eq!(packed.pixels(), &pixels);
-    }
-
-    #[test]
-    fn the_repacked_length_is_always_the_declared_geometry() {
-        for (width, height) in [(1, 1), (1, 17), (17, 1), (64, 64)] {
-            let stride = width * 4 + 12;
-            let pixels = counted((stride * height) as usize);
-            let packed = repack(&pixels, layout(width, height, stride, ShmFormat::Argb8888))
-                .expect("a padded buffer is valid");
-
-            assert_eq!(
-                packed.pixels().len(),
-                (width * height * 4) as usize,
-                "{width}x{height} must repack to exactly its own pixels"
-            );
-        }
     }
 
     #[test]

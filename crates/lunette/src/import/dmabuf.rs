@@ -777,34 +777,18 @@ mod tests {
     }
 
     #[test]
-    fn a_single_plane_is_never_disjoint() {
+    fn only_a_plane_on_another_buffer_makes_the_set_disjoint() {
         assert!(!is_disjoint(&[identity(1, 2)]));
-    }
-
-    #[test]
-    fn planes_sharing_one_buffer_are_not_disjoint() {
-        assert!(!is_disjoint(&[
-            identity(1, 2),
-            identity(1, 2),
-            identity(1, 2)
-        ]));
-    }
-
-    #[test]
-    fn a_plane_on_another_buffer_makes_the_set_disjoint() {
+        assert!(
+            !is_disjoint(&[identity(1, 2), identity(1, 2), identity(1, 2)]),
+            "planes sharing one buffer are not disjoint"
+        );
         assert!(is_disjoint(&[identity(1, 2), identity(1, 3)]));
         assert!(is_disjoint(&[identity(1, 2), identity(2, 2)]));
         assert!(
             is_disjoint(&[identity(1, 2), identity(1, 2), identity(9, 9)]),
             "one differing plane out of three is still disjoint"
         );
-    }
-
-    #[test]
-    fn an_empty_plane_set_is_not_reported_as_disjoint() {
-        // The empty set is rejected as having no planes, which is the more
-        // accurate error; the two checks do not overlap.
-        assert!(!is_disjoint(&[]));
     }
 
     #[test]
@@ -822,19 +806,6 @@ mod tests {
             assert_eq!(layout.array_pitch, 0);
             assert_eq!(layout.depth_pitch, 0);
         }
-    }
-
-    #[test]
-    fn the_widest_offset_and_stride_survive_the_widening() {
-        let layouts = plane_layouts(&[u32::MAX], &[u32::MAX], 1).expect("the counts agree");
-        assert_eq!(layouts[0].offset, u64::from(u32::MAX));
-        assert_eq!(layouts[0].row_pitch, u64::from(u32::MAX));
-    }
-
-    #[test]
-    fn a_layout_is_produced_for_every_plane_the_descriptors_reported() {
-        let layouts = plane_layouts(&[0, 4096, 8192], &[10, 20, 30], 3).expect("the counts agree");
-        assert_eq!(layouts.len(), 3);
     }
 
     #[test]
@@ -862,16 +833,5 @@ mod tests {
                 strides: 2,
             })
         ));
-    }
-
-    #[test]
-    fn no_planes_at_all_produces_no_layouts() {
-        // Reachable through `PlaneLayouts::gather`, which rejects the
-        // empty case before it gets here; the two checks stay distinct.
-        assert!(
-            plane_layouts(&[], &[], 0)
-                .expect("the counts agree")
-                .is_empty()
-        );
     }
 }

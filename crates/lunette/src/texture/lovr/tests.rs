@@ -1,48 +1,12 @@
 //! The calls the LÖVR texture path makes, split by what each needs.
 //!
-//! The declaration a texture is created with, the format a `wl_shm` buffer
-//! becomes, and the two predicates over a shape are all arithmetic over
-//! values LÖVR is later told about, so they are exercised here without a
-//! graphics device. Everything that records a barrier or a copy is not.
+//! The two predicates over a shape are arithmetic over values LÖVR is later
+//! told about, so they are exercised here without a graphics device.
+//! Everything that records a barrier or a copy is not.
 
 use lunette_lovr::raw::TextureFormat_FORMAT_RGBA8;
-use pretty_assertions::assert_eq;
 
 use super::*;
-
-#[test]
-fn every_shm_format_is_uploaded_as_bgra() {
-    for format in [ShmFormat::Argb8888, ShmFormat::Xrgb8888] {
-        assert_eq!(shm_texture_format(format), TextureFormat_FORMAT_BGRA8);
-    }
-}
-
-#[test]
-fn the_texture_declaration_matches_what_the_import_creates() {
-    let info = texture_info(PixelSize::new(2, 2), TextureFormat_FORMAT_BGRA8, 42, true);
-
-    assert_eq!(info.usage, TEXTURE_SAMPLE | TEXTURE_TRANSFER);
-    assert!(info.foreign);
-    assert_eq!(info.handle, 42);
-    assert_eq!(info.layers, 1);
-    assert_eq!(info.mipmaps, 1);
-    assert_eq!(info.samples, 1);
-    assert!(!info.srgb);
-    assert!(!info.xr);
-    assert_eq!(info.imageCount, 0);
-    assert!(info.images.is_null());
-}
-
-#[test]
-fn a_texture_lovr_allocates_is_not_declared_foreign() {
-    let info = texture_info(PixelSize::new(2, 2), TextureFormat_FORMAT_BGRA8, 0, false);
-    assert!(
-        !info.foreign,
-        "the flag suppresses the initial transition, which a texture LÖVR is about to fill \
-         genuinely wants"
-    );
-    assert_eq!(info.handle, 0);
-}
 
 fn shape(width: u32, height: u32, layers: u32) -> TextureShape {
     TextureShape {

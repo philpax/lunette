@@ -199,12 +199,6 @@ impl LovrTexture {
         }
     }
 
-    /// The image behind the texture, for a texture that wraps one.
-    #[must_use]
-    pub fn image(&self) -> Option<ImageHandle> {
-        self.image
-    }
-
     /// Names a texture LÖVR owns, without taking a reference to it.
     ///
     /// Layer swapchain textures are borrowed; the layer retains their only reference.

@@ -179,22 +179,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_barrier_policy_defaults_to_what_the_specification_describes() {
-        let policy = BarrierPolicy::default();
-        assert_eq!(policy.source_family, QueueFamilyMode::Foreign);
-        assert_eq!(policy.old_layout, ForeignLayout::General);
-        assert_eq!(policy.source_family.index(), vk::QUEUE_FAMILY_FOREIGN_EXT);
-        assert_eq!(policy.old_layout.layout(), vk::ImageLayout::GENERAL);
-    }
-
-    #[test]
-    fn the_other_value_of_each_setting_is_reachable_without_a_rebuild() {
-        let policy = BarrierPolicy::from_settings(Some("ignored"), Some("undefined"));
-
-        assert_eq!(policy.source_family, QueueFamilyMode::Ignored);
-        assert_eq!(policy.source_family.index(), vk::QUEUE_FAMILY_IGNORED);
-        assert_eq!(policy.old_layout, ForeignLayout::Undefined);
-        assert_eq!(policy.old_layout.layout(), vk::ImageLayout::UNDEFINED);
+    fn the_settings_choose_a_policy_and_fall_back_to_the_documented_default() {
+        // A diagnostic switch is not worth failing a session over, so an
+        // unset or unrecognised value is the default, and the parse is exact.
+        let default = BarrierPolicy {
+            source_family: QueueFamilyMode::Foreign,
+            old_layout: ForeignLayout::General,
+        };
+        assert_eq!(BarrierPolicy::default(), default);
+        assert_eq!(BarrierPolicy::from_settings(None, None), default);
+        assert_eq!(
+            BarrierPolicy::from_settings(Some("FOREIGN"), Some("")),
+            default
+        );
+        assert_eq!(
+            BarrierPolicy::from_settings(Some("ignored"), Some("undefined")),
+            BarrierPolicy {
+                source_family: QueueFamilyMode::Ignored,
+                old_layout: ForeignLayout::Undefined,
+            },
+            "the other value of each setting is reachable without a rebuild"
+        );
     }
 
     #[test]
@@ -262,24 +267,5 @@ mod tests {
                 "the release side is the half of the ownership transfer the policy still governs"
             );
         }
-    }
-
-    #[test]
-    fn an_unrecognised_setting_falls_back_rather_than_stopping_the_session() {
-        assert_eq!(
-            BarrierPolicy::from_settings(Some("FOREIGN"), Some("")),
-            BarrierPolicy::default(),
-            "a diagnostic switch is not worth failing a session over, and the parse is exact"
-        );
-        assert_eq!(QueueFamilyMode::parse("neither"), None);
-        assert_eq!(ForeignLayout::parse("optimal"), None);
-    }
-
-    #[test]
-    fn an_unset_setting_is_the_default() {
-        assert_eq!(
-            BarrierPolicy::from_settings(None, None),
-            BarrierPolicy::default()
-        );
     }
 }

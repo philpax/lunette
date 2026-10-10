@@ -21,7 +21,7 @@ use crate::{
     frame::{Compositor, FrameDriver, capture_formats, stopped_monitors},
     import::{CaptureImporter, device::GraphicsDevice, export::exporters},
     lua::Session,
-    texture::{LovrTexture, describe},
+    texture::{LovrTexture, describe, describe_pixels},
 };
 
 impl FrameDriver {
@@ -248,7 +248,7 @@ fn import_pixels(
         warn!(%monitor, "capture upload: shared-memory pixels have an invalid length");
         return;
     };
-    let description = describe(&ImportedBuffer::Pixels(pixels.clone()));
+    let description = describe_pixels(&pixels);
     let refilled = session.with_monitor_textures(|textures| {
         textures
             .texture(monitor)

@@ -7,7 +7,7 @@ use tracing::{info, warn};
 use crate::{
     layers::{
         backend::{LayerBackend, SessionPresence},
-        key::LayerKey,
+        key::LayerSize,
     },
     scene::SceneRendering,
     texture::FrameGeneration,
@@ -115,31 +115,13 @@ impl LayerBudget {
     }
 }
 
-/// What a frame boundary changed. Lua reads the result from each claim's
-/// `granted` and `layer` instead.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct PoolOutcome {
-    /// Claims whose layer becomes granted at this boundary.
-    pub granted: Vec<ClaimId>,
-    /// Claims that lose a granted layer at this boundary.
-    pub revoked: Vec<ClaimId>,
-}
-
-impl PoolOutcome {
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.granted.is_empty() && self.revoked.is_empty()
-    }
-}
-
 /// The pool's record of one claim.
 ///
 /// The fields are read together so a handle never mixes state from before
 /// and after a revocation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ClaimState {
-    pub key: LayerKey,
-    pub priority: Priority,
+    pub size: LayerSize,
     /// Whether the claim holds a layer that has been reported granted. False
     /// while a new layer awaits its first blit.
     pub granted: bool,
@@ -148,12 +130,11 @@ pub struct ClaimState {
 /// A pool of `Layer` objects, and the claims requesting them.
 ///
 /// Whole layers are recycled. Everything a panel varies has a setter outside
-/// `LayerInfo`, so a layer of a given [`LayerKey`] serves any panel with that
-/// key.
+/// `LayerInfo`, so a layer of a given [`LayerSize`] serves any panel with that
+/// size.
 #[derive(Debug)]
 pub struct LayerPool<B: LayerBackend> {
     backend: B,
-    budget: LayerBudget,
     free: Vec<FreeLayer<B::Layer>>,
     claims: Vec<Claim<B::Layer>>,
     next_claim: u64,
@@ -183,9 +164,6 @@ impl<B: LayerBackend> LayerPool<B> {
     #[must_use]
     pub fn new(backend: B) -> Self {
         Self {
-            // Provisional: every resolve re-reads the budget, and there is
-            // usually no session yet.
-            budget: LayerBudget::from_runtime_limit(backend.layer_limit()),
             session: backend.session(),
             backend,
             free: Vec::new(),
@@ -199,13 +177,13 @@ impl<B: LayerBackend> LayerPool<B> {
     ///
     /// Never grants here, so a panel's realisation cannot change between its
     /// `lovr.update` and its `lovr.draw`.
-    pub fn claim(&mut self, key: LayerKey, priority: Priority) -> ClaimId {
+    pub fn claim(&mut self, size: LayerSize, priority: Priority) -> ClaimId {
         let id = ClaimId(NonZeroU64::new(self.next_claim).unwrap_or(NonZeroU64::MIN));
         self.next_claim = self.next_claim.saturating_add(1);
 
         self.claims.push(Claim {
             id,
-            key,
+            size,
             priority,
             held: None,
             refusal_reported: false,
@@ -225,7 +203,7 @@ impl<B: LayerBackend> LayerPool<B> {
 
         let entry = self.claims.remove(index);
         if let Some(held) = entry.held {
-            self.release_layer(entry.key, held);
+            self.release_layer(entry.size, held);
         }
         true
     }
@@ -259,14 +237,15 @@ impl<B: LayerBackend> LayerPool<B> {
     ///
     /// It also detects a lost session before any backend call uses a stale
     /// layer. See [`LayerPool::session_lost`].
-    pub fn resolve(&mut self, now: FrameGeneration) -> PoolOutcome {
+    pub fn resolve(&mut self, now: FrameGeneration) {
         self.resolved = now;
 
         let session = self.backend.session();
         match (mem::replace(&mut self.session, session), session) {
             (SessionPresence::Present(_), SessionPresence::Absent) => {
                 info!("the xr session is gone; every layer the pool held is given up");
-                return self.session_lost();
+                self.session_lost();
+                return;
             }
             (SessionPresence::Present(before), SessionPresence::Present(after))
                 if before != after =>
@@ -274,21 +253,19 @@ impl<B: LayerBackend> LayerPool<B> {
                 // A stop and a start inside one Lua callback. The new session
                 // is served from the next boundary.
                 info!(%before, %after, "the xr session was replaced; every layer the pool held is given up");
-                return self.session_lost();
+                self.session_lost();
+                return;
             }
             // Returns before the budget is read, because the system's limit
             // outlives the session and would budget for absent swapchains.
-            (SessionPresence::Absent, SessionPresence::Absent) => return PoolOutcome::default(),
+            (SessionPresence::Absent, SessionPresence::Absent) => return,
             (
                 SessionPresence::Absent | SessionPresence::Present(_),
                 SessionPresence::Present(_),
             ) => {}
         }
 
-        self.budget = LayerBudget::from_runtime_limit(self.backend.layer_limit());
-
-        let mut outcome = PoolOutcome::default();
-        let winners = self.rank();
+        let winners = self.rank(LayerBudget::from_runtime_limit(self.backend.layer_limit()));
 
         for index in 0..self.claims.len() {
             if winners.contains(&index) {
@@ -297,11 +274,8 @@ impl<B: LayerBackend> LayerPool<B> {
             let Some(held) = self.claims[index].held.take() else {
                 continue;
             };
-            if held.state == HeldState::Granted {
-                outcome.revoked.push(self.claims[index].id);
-            }
-            let key = self.claims[index].key;
-            self.release_layer(key, held);
+            let size = self.claims[index].size;
+            self.release_layer(size, held);
         }
 
         let mut created = 0;
@@ -310,20 +284,9 @@ impl<B: LayerBackend> LayerPool<B> {
                 continue;
             }
 
-            let key = self.claims[index].key;
-            if let Some(free) = self.take_free(key) {
+            let size = self.claims[index].size;
+            if let Some(free) = self.take_free(size) {
                 self.claims[index].held = Some(free);
-                continue;
-            }
-
-            // LÖVR refuses a second acquire of an immutable swapchain, so a
-            // recycled immutable layer would stop updating.
-            if key.properties().immutable {
-                warn!(
-                    %key,
-                    "the pool does not serve immutable layers, because a pooled layer is by \
-                     definition reused and LÖVR refuses the second acquire of an immutable one"
-                );
                 continue;
             }
 
@@ -332,12 +295,12 @@ impl<B: LayerBackend> LayerPool<B> {
             }
             created += 1;
 
-            let Some(layer) = self.backend.create(key) else {
+            let Some(layer) = self.backend.create(size) else {
                 // A refusing runtime refuses on every retry, so warn once.
                 if !self.claims[index].refusal_reported {
                     self.claims[index].refusal_reported = true;
                     warn!(
-                        %key,
+                        %size,
                         claim = %self.claims[index].id,
                         "the runtime refused a composition layer"
                     );
@@ -356,43 +319,29 @@ impl<B: LayerBackend> LayerPool<B> {
             };
             if held.state == HeldState::FirstBlitIssued {
                 held.state = HeldState::Granted;
-                outcome.granted.push(claim.id);
             }
         }
 
         self.sweep(now);
-        outcome
     }
 
     /// Discards every layer the pool holds, because the session that owned
     /// their swapchains is gone.
     ///
     /// No layer survives a session. Claims are kept empty for the next
-    /// session, and granted ones are reported revoked so Lua falls back to
-    /// in-scene quads.
-    fn session_lost(&mut self) -> PoolOutcome {
-        let mut outcome = PoolOutcome::default();
-
-        for index in 0..self.claims.len() {
-            self.claims[index].refusal_reported = false;
-            let Some(held) = self.claims[index].held.take() else {
-                continue;
-            };
-            if held.state == HeldState::Granted {
-                outcome.revoked.push(self.claims[index].id);
+    /// session, so Lua reads them as not granted and falls back to in-scene
+    /// quads.
+    fn session_lost(&mut self) {
+        for claim in &mut self.claims {
+            claim.refusal_reported = false;
+            if let Some(held) = claim.held.take() {
+                self.backend.destroy(held.layer);
             }
-            self.backend.destroy(held.layer);
         }
 
         for entry in std::mem::take(&mut self.free) {
             self.backend.destroy(entry.layer);
         }
-
-        // A caller before the next resolve would otherwise read the old
-        // session's budget.
-        self.budget = LayerBudget::from_runtime_limit(0);
-
-        outcome
     }
 
     /// Destroys every layer the pool holds, while the session still exists.
@@ -420,7 +369,7 @@ impl<B: LayerBackend> LayerPool<B> {
     pub fn forget_claims(&mut self) {
         for claim in std::mem::take(&mut self.claims) {
             if let Some(held) = claim.held {
-                self.release_layer(claim.key, held);
+                self.release_layer(claim.size, held);
             }
         }
     }
@@ -444,8 +393,7 @@ impl<B: LayerBackend> LayerPool<B> {
     pub fn state(&self, claim: ClaimId) -> Option<ClaimState> {
         let entry = self.claims.iter().find(|entry| entry.id == claim)?;
         Some(ClaimState {
-            key: entry.key,
-            priority: entry.priority,
+            size: entry.size,
             granted: entry
                 .held
                 .as_ref()
@@ -474,24 +422,17 @@ impl<B: LayerBackend> LayerPool<B> {
             .filter_map(|entry| Some((entry.id, &entry.held.as_ref()?.layer)))
     }
 
-    /// The layers to hand `lovrHeadsetSetLayers`, in registration order.
-    ///
-    /// A layer awaiting its first blit is absent, because submitting it is
-    /// `XR_ERROR_LAYER_INVALID`.
-    pub fn submitted(&self) -> impl Iterator<Item = &B::Layer> {
-        self.claims.iter().filter_map(|entry| {
-            let held = entry.held.as_ref()?;
-            (held.state == HeldState::Granted).then_some(&held.layer)
-        })
-    }
-
-    /// Hands the runtime every grantable layer, copied into this frame or not.
+    /// Hands the runtime every granted layer, copied into this frame or not,
+    /// in registration order.
     ///
     /// Runs once a frame, after the blit. An unchanged layer is still
     /// submitted, because leaving it out makes its panel disappear.
     ///
     /// `scene` travels with the list because only `lovrHeadsetSetLayers`
     /// carries it.
+    ///
+    /// A layer awaiting its first blit is absent, because submitting it is
+    /// `XR_ERROR_LAYER_INVALID`.
     ///
     /// Reports whether the runtime accepted the list.
     pub fn submit(&mut self, scene: SceneRendering) -> bool {
@@ -506,37 +447,9 @@ impl<B: LayerBackend> LayerPool<B> {
         self.backend.submit(&layers, scene)
     }
 
-    /// What the layers the pool holds cost against the budget, counting a
-    /// stereo layer as two.
-    ///
-    /// A layer awaiting its first blit is counted, so the pool cannot grant
-    /// past the budget for a frame.
-    #[must_use]
-    pub fn held_slots(&self) -> u32 {
-        self.claims
-            .iter()
-            .filter(|entry| entry.held.is_some())
-            .map(|entry| entry.key.slots())
-            .sum()
-    }
-
-    #[must_use]
-    pub const fn budget(&self) -> LayerBudget {
-        self.budget
-    }
-
-    /// How many layers are pooled and unclaimed.
-    #[must_use]
-    pub fn free_layers(&self) -> usize {
-        self.free.len()
-    }
-
     /// The claims that fit the budget, highest priority first, as indices into
-    /// `self.claims`.
-    ///
-    /// A claim that does not fit ends the walk, so a one-slot claim cannot
-    /// starve a higher-priority two-slot one.
-    fn rank(&self) -> Vec<usize> {
+    /// `self.claims`. Every claim spends one slot.
+    fn rank(&self, budget: LayerBudget) -> Vec<usize> {
         let mut order: Vec<usize> = (0..self.claims.len()).collect();
         // Stable, so equal priorities keep registration order and grants do
         // not churn between frames.
@@ -546,25 +459,16 @@ impl<B: LayerBackend> LayerPool<B> {
                 .cmp(&self.claims[*left].priority)
         });
 
-        let mut spent: u32 = 0;
-        let mut winners = Vec::new();
-        for index in order {
-            let slots = self.claims[index].key.slots();
-            if spent.saturating_add(slots) > self.budget.slots() {
-                break;
-            }
-            spent = spent.saturating_add(slots);
-            winners.push(index);
-        }
-        winners
+        order.truncate(usize::try_from(budget.slots()).unwrap_or(usize::MAX));
+        order
     }
 
     /// Takes a matching layer off the free list, most recently freed first.
     ///
     /// The layer comes back as [`HeldState::AwaitingFirstBlit`], because the
     /// swapchain still holds the previous claim's pixels.
-    fn take_free(&mut self, key: LayerKey) -> Option<Held<B::Layer>> {
-        let index = self.free.iter().rposition(|entry| entry.key == key)?;
+    fn take_free(&mut self, size: LayerSize) -> Option<Held<B::Layer>> {
+        let index = self.free.iter().rposition(|entry| entry.size == size)?;
         let entry = self.free.swap_remove(index);
         Some(Held {
             layer: entry.layer,
@@ -577,9 +481,9 @@ impl<B: LayerBackend> LayerPool<B> {
     /// The pool's own reference is load-bearing: `lovrHeadsetSetLayers`
     /// releases its old list before retaining the new one, which would
     /// otherwise destroy a re-granted layer.
-    fn release_layer(&mut self, key: LayerKey, held: Held<B::Layer>) {
+    fn release_layer(&mut self, size: LayerSize, held: Held<B::Layer>) {
         self.free.push(FreeLayer {
-            key,
+            size,
             layer: held.layer,
             idle_since: self.resolved,
         });
@@ -606,7 +510,7 @@ impl<B: LayerBackend> LayerPool<B> {
 #[derive(Debug)]
 struct Claim<L> {
     id: ClaimId,
-    key: LayerKey,
+    size: LayerSize,
     priority: Priority,
     held: Option<Held<L>>,
     /// Whether this claim's refusal has been reported. Cleared when a session
@@ -624,7 +528,7 @@ struct Held<L> {
 /// A layer nobody holds. See [`LayerPool::take_free`].
 #[derive(Debug)]
 struct FreeLayer<L> {
-    key: LayerKey,
+    size: LayerSize,
     layer: L,
     idle_since: FrameGeneration,
 }

@@ -42,10 +42,7 @@ use mlua::{Lua, Value};
 
 use crate::{
     control::wire::HandleKind,
-    layers::{
-        ClaimId, ClaimState, LayerBackend, LayerKey, LayerPool, LayerProperties, LayerSize,
-        LovrLayer, Priority,
-    },
+    layers::{ClaimId, ClaimState, LayerBackend, LayerPool, LayerSize, LovrLayer, Priority},
     lua::{
         LuaTexture, Session, Window,
         declarations::{NullTexture, Options, handle, record},
@@ -63,9 +60,9 @@ use crate::{
 /// costs to run. [`crate::events::EventSink`] is boxed under that same
 /// reasoning.
 pub trait ClaimRegistry: fmt::Debug {
-    /// Registers a claim on a layer of `key` for `source`, to be ranked at the
+    /// Registers a claim on a layer of `size` for `source`, to be ranked at the
     /// next frame boundary.
-    fn claim(&self, source: WindowId, key: LayerKey, priority: Priority) -> ClaimId;
+    fn claim(&self, source: WindowId, size: LayerSize, priority: Priority) -> ClaimId;
 
     /// Withdraws a claim, returning any layer it held to the free list.
     ///
@@ -78,7 +75,7 @@ pub trait ClaimRegistry: fmt::Debug {
     /// Which window's pixels a claim is for.
     ///
     /// Kept here and not in the pool: the pool is about layers, and a layer of
-    /// a given key serves any source that requests that key.
+    /// a given size serves any source that requests that size.
     fn source(&self, claim: ClaimId) -> Option<WindowId>;
 
     /// Pushes the `Layer` a claim has been granted, or `false` when it holds
@@ -182,8 +179,8 @@ where
     B: LayerBackend + fmt::Debug,
     B::Layer: LuaLayer,
 {
-    fn claim(&self, source: WindowId, key: LayerKey, priority: Priority) -> ClaimId {
-        let claim = self.pool.borrow_mut().claim(key, priority);
+    fn claim(&self, source: WindowId, size: LayerSize, priority: Priority) -> ClaimId {
+        let claim = self.pool.borrow_mut().claim(size, priority);
         self.sources.borrow_mut().insert(claim, source);
         claim
     }
@@ -277,7 +274,7 @@ impl From<ClaimState> for Known {
     fn from(state: ClaimState) -> Self {
         Self {
             granted: state.granted,
-            size: Some(state.key.size()),
+            size: Some(state.size),
         }
     }
 }
@@ -362,11 +359,7 @@ pub(crate) fn claim_layer<T: LuaTexture>(
         )
     })?;
 
-    // The key is `LayerProperties::PANEL`. The caller does not choose it.
-    // Stereo and immutable layers are not in this build. No source produces
-    // stereo content, and a pooled layer is reused, so it cannot be immutable.
-    let key = LayerKey::new(size, LayerProperties::PANEL);
-    let id = session.claims().claim(source, key, priority);
+    let id = session.claims().claim(source, size, priority);
     Ok(Claim::new(Rc::clone(session), id))
 }
 

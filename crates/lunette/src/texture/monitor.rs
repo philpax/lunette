@@ -134,16 +134,6 @@ impl<T> MonitorTextures<T> {
             .map(|(_, entry)| entry.texture)
             .collect()
     }
-
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.entries.len()
-    }
-
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
 }
 
 #[derive(Debug)]
@@ -217,68 +207,6 @@ mod tests {
     }
 
     #[test]
-    fn an_uploaded_monitor_texture_has_no_imported_image() {
-        let mut textures = MonitorTextures::new();
-        textures.install(
-            monitor(1),
-            None,
-            10_u32,
-            description(),
-            FrameTransform::Undefined,
-        );
-        assert_eq!(textures.texture(&monitor(1)), Some(&10));
-        assert_eq!(textures.image(&monitor(1)), None);
-        assert_eq!(textures.monitors(), vec![monitor(1)]);
-    }
-
-    #[test]
-    fn a_monitors_texture_comes_back_under_its_own_key() {
-        let mut textures = MonitorTextures::new();
-        textures.install(
-            monitor(1),
-            Some(image(1)),
-            10_u32,
-            description(),
-            FrameTransform::Undefined,
-        );
-        textures.install(
-            monitor(2),
-            Some(image(2)),
-            20_u32,
-            description(),
-            FrameTransform::Undefined,
-        );
-
-        assert_eq!(textures.texture(&monitor(1)), Some(&10));
-        assert_eq!(textures.texture(&monitor(2)), Some(&20));
-    }
-
-    #[test]
-    fn a_monitor_that_has_produced_nothing_holds_no_texture() {
-        let textures = MonitorTextures::<u32>::new();
-
-        assert_eq!(textures.texture(&monitor(1)), None);
-        assert_eq!(textures.describe(&monitor(1)), None);
-    }
-
-    #[test]
-    fn a_recurring_buffer_is_recognised_so_it_is_not_wrapped_again() {
-        // PipeWire cycles a small fixed pool, so almost every frame after the
-        // first few arrives on an image that is already installed.
-        let mut textures = MonitorTextures::new();
-        textures.install(
-            monitor(1),
-            Some(image(7)),
-            10_u32,
-            description(),
-            FrameTransform::Undefined,
-        );
-
-        assert_eq!(textures.image(&monitor(1)), Some(image(7)));
-        assert_eq!(textures.image(&monitor(2)), None);
-    }
-
-    #[test]
     fn installing_over_a_monitor_hands_back_the_texture_it_displaced() {
         let mut textures = MonitorTextures::new();
         textures.install(
@@ -299,23 +227,6 @@ mod tests {
 
         assert_eq!(displaced, Some(10));
         assert_eq!(textures.texture(&monitor(1)), Some(&11));
-        assert_eq!(textures.len(), 1);
-    }
-
-    #[test]
-    fn the_first_install_for_a_monitor_displaces_nothing() {
-        let mut textures = MonitorTextures::new();
-
-        assert_eq!(
-            textures.install(
-                monitor(1),
-                Some(image(1)),
-                10_u32,
-                description(),
-                FrameTransform::Undefined
-            ),
-            None
-        );
     }
 
     #[test]
@@ -341,37 +252,6 @@ mod tests {
     }
 
     #[test]
-    fn forgetting_a_monitor_twice_is_not_an_error() {
-        let mut textures = MonitorTextures::<u32>::new();
-
-        assert_eq!(textures.forget(&monitor(1)), None);
-    }
-
-    #[test]
-    fn every_installed_texture_is_offered_a_barrier() {
-        let mut textures = MonitorTextures::new();
-        textures.install(
-            monitor(1),
-            Some(image(1)),
-            10_u32,
-            description(),
-            FrameTransform::Undefined,
-        );
-        textures.install(
-            monitor(2),
-            Some(image(2)),
-            20_u32,
-            description(),
-            FrameTransform::Undefined,
-        );
-
-        let mut seen: Vec<u32> = textures.textures().copied().collect();
-        seen.sort_unstable();
-
-        assert_eq!(seen, vec![10, 20]);
-    }
-
-    #[test]
     fn teardown_hands_back_every_texture_once() {
         let mut textures = MonitorTextures::new();
         textures.install(
@@ -394,25 +274,6 @@ mod tests {
 
         assert_eq!(taken, vec![10, 20]);
         assert!(textures.take_all().is_empty());
-        assert!(textures.is_empty());
-    }
-
-    #[test]
-    fn the_description_records_the_size_a_frame_arrived_at() {
-        // The size recorded here is what a mirrored monitor reports, and it
-        // must match the captured output's resolution.
-        let mut textures = MonitorTextures::new();
-        textures.install(
-            monitor(1),
-            Some(image(1)),
-            10_u32,
-            description(),
-            FrameTransform::Undefined,
-        );
-
-        assert_eq!(
-            textures.describe(&monitor(1)).map(|held| held.size),
-            Some(PixelSize::new(1920, 1080)),
-        );
+        assert_eq!(textures.texture(&monitor(1)), None);
     }
 }

@@ -72,14 +72,6 @@ impl Platform {
         }
     }
 
-    /// Whether the desktop window is open.
-    ///
-    /// False when GLFW never initialised or the window was never created.
-    pub fn is_window_open(&self) -> bool {
-        // SAFETY: reads a single static field; no Rust state is involved.
-        unsafe { raw::os_window_is_open() }
-    }
-
     /// Tears the platform layer down.
     pub fn destroy(self) {
         // SAFETY: holding a `Platform` means `os_init` succeeded, and consuming

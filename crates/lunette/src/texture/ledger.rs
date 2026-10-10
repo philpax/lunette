@@ -14,9 +14,12 @@
 #[cfg(test)]
 mod tests;
 
-use std::{collections::HashMap, fmt, sync::Arc};
+use std::{collections::HashMap, fmt, ops::Deref, sync::Arc};
 
-use lunette_compositor::protocol::{ImageHandle, ImportedBuffer, PixelSize, SurfaceId};
+use lunette_compositor::{
+    protocol::{ImageHandle, ImportedBuffer, PixelSize, SurfaceId},
+    surface::PixelBuffer,
+};
 use tracing::warn;
 
 use crate::{
@@ -47,16 +50,6 @@ impl TextureRef {
             surface,
             generation,
         }
-    }
-
-    #[must_use]
-    pub const fn surface(self) -> SurfaceId {
-        self.surface
-    }
-
-    #[must_use]
-    pub const fn generation(self) -> FrameGeneration {
-        self.generation
     }
 }
 
@@ -229,20 +222,10 @@ impl<T> TextureLedger<T> {
         reference: TextureRef,
         current: FrameGeneration,
     ) -> Result<&T, TextureUnavailable> {
-        let Some(entry) = self.entries.get(&reference.surface) else {
-            return Err(TextureUnavailable::Unknown);
-        };
-        if entry.dead {
-            return Err(TextureUnavailable::Dead);
-        }
-        if reference.generation != current {
-            return Err(TextureUnavailable::Stale {
-                obtained: reference.generation,
-                current,
-            });
-        }
-
-        entry.texture.as_ref().ok_or(TextureUnavailable::Unknown)
+        admit(self.entries.get(&reference.surface), reference, current)?
+            .texture
+            .as_ref()
+            .ok_or(TextureUnavailable::Unknown)
     }
 
     /// What is known about a surface, alive or dead.
@@ -272,11 +255,6 @@ impl<T> TextureLedger<T> {
         Some((entry.texture.as_ref()?, entry.commit))
     }
 
-    #[must_use]
-    pub fn is_dead(&self, surface: SurfaceId) -> bool {
-        self.entries.get(&surface).is_some_and(|entry| entry.dead)
-    }
-
     /// Hands out the surface's stabilised copy, allocating it on first ask.
     ///
     /// The copy is lunette's own texture, so its identity survives the client
@@ -303,18 +281,7 @@ impl<T> TextureLedger<T> {
     where
         T: CopyableTexture,
     {
-        let Some(entry) = self.entries.get_mut(&reference.surface) else {
-            return Err(TextureUnavailable::Unknown);
-        };
-        if entry.dead {
-            return Err(TextureUnavailable::Dead);
-        }
-        if reference.generation != current {
-            return Err(TextureUnavailable::Stale {
-                obtained: reference.generation,
-                current,
-            });
-        }
+        let entry = admit(self.entries.get_mut(&reference.surface), reference, current)?;
         let Some(source) = entry.texture.as_ref() else {
             return Err(TextureUnavailable::Unknown);
         };
@@ -437,6 +404,31 @@ struct Entry<T> {
     commit: SurfaceCommit,
 }
 
+/// The entry a reference names, or why it cannot be used.
+///
+/// Death is checked before the frame, for the reason
+/// [`TextureLedger::lookup`] gives. Shared by the lookup and the stabilising
+/// copy, which borrow the entry immutably and mutably.
+fn admit<T, E: Deref<Target = Entry<T>>>(
+    entry: Option<E>,
+    reference: TextureRef,
+    current: FrameGeneration,
+) -> Result<E, TextureUnavailable> {
+    let Some(entry) = entry else {
+        return Err(TextureUnavailable::Unknown);
+    };
+    if entry.dead {
+        return Err(TextureUnavailable::Dead);
+    }
+    if reference.generation != current {
+        return Err(TextureUnavailable::Stale {
+            obtained: reference.generation,
+            current,
+        });
+    }
+    Ok(entry)
+}
+
 /// The textures a change to the ledger handed back for release.
 ///
 /// Two fields, not a list. The caller has to be able to tell an imported
@@ -536,12 +528,21 @@ pub fn describe(buffer: &ImportedBuffer) -> TextureDescription {
             alpha: mapping_for(image.format)
                 .map_or(Alpha::Present, |mapping: FormatMapping| mapping.alpha),
         },
-        ImportedBuffer::Pixels(pixels) => TextureDescription {
-            size: pixels.size(),
-            // The repack forced the padding byte to one, so a pixel buffer
-            // carries alpha whichever format the client used.
-            alpha: Alpha::Present,
-        },
+        ImportedBuffer::Pixels(pixels) => describe_pixels(pixels),
+    }
+}
+
+/// What a repacked pixel buffer holds about the texture it becomes.
+///
+/// Borrows the buffer, so a caller holding pixels needs no
+/// [`ImportedBuffer`] to ask.
+#[must_use]
+pub fn describe_pixels(pixels: &PixelBuffer) -> TextureDescription {
+    TextureDescription {
+        size: pixels.size(),
+        // The repack forced the padding byte to one, so a pixel buffer
+        // carries alpha whichever format the client used.
+        alpha: Alpha::Present,
     }
 }
 

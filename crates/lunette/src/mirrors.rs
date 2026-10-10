@@ -126,14 +126,6 @@ impl<P: ScreenCastPortal> HostMirrors<P> {
             appeared: RefCell::new(Vec::new()),
         }
     }
-
-    /// Runs `body` against the lifecycle.
-    ///
-    /// A closure, not a borrow guard, because a guard held across a Lua
-    /// callback would panic on re-entry.
-    pub fn with_mirrors<R>(&self, body: impl FnOnce(&mut MirrorSet<P>) -> R) -> R {
-        body(&mut self.mirrors.borrow_mut())
-    }
 }
 
 impl<P: ScreenCastPortal> MirrorFrames for HostMirrors<P> {

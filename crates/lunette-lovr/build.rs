@@ -283,7 +283,6 @@ fn generate_bindings(
         .allowlist_function("os_window_is_open")
         .allowlist_function("lovrSetLogCallback")
         // Calling a `lovr*Destroy` directly bypasses the reference count.
-        .allowlist_function("lovrRetain")
         .allowlist_function("lovrRelease")
         .allowlist_function("lovrGraphicsIsInitialized")
         .allowlist_function("lovrGraphicsWait")

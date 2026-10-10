@@ -4,7 +4,7 @@
 
 use std::{fmt, num::NonZeroU32};
 
-use crate::{layers::key::LayerKey, scene::SceneRendering};
+use crate::{layers::key::LayerSize, scene::SceneRendering};
 
 /// Which XR session exists, distinguishing one session from the session that replaces it.
 ///
@@ -55,10 +55,10 @@ pub trait LayerBackend {
     /// Read at every frame boundary, because a session can end or be replaced within one Lua callback. A layer from a destroyed session names an invalidated swapchain.
     fn session(&self) -> SessionPresence;
 
-    /// Creates a layer with the properties `key` fixes, or `None` when the runtime refuses.
+    /// Creates a layer of `size`, or `None` when the runtime refuses.
     ///
     /// Blocking, because `lovrLayerCreate` waits for a swapchain image, so the pool rate-limits calls at a frame boundary.
-    fn create(&mut self, key: LayerKey) -> Option<Self::Layer>;
+    fn create(&mut self, size: LayerSize) -> Option<Self::Layer>;
 
     /// Hands the runtime the layers to composite, in submit order, and reports whether it accepted them.
     ///

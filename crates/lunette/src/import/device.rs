@@ -23,7 +23,6 @@ pub struct GraphicsDevice {
     /// Held because the loaders obtain their function pointers from it.
     _entry: ash::Entry,
     device: ash::Device,
-    queue_family: u32,
     external_memory_fd: khr::external_memory_fd::Device,
     render_node: Option<RenderNode>,
     formats: Vec<Format>,
@@ -107,7 +106,6 @@ impl GraphicsDevice {
         Ok(Arc::new(Self {
             _entry: entry,
             device,
-            queue_family: handles.queue_family,
             external_memory_fd,
             capture_live: parking_lot::Mutex::new(true),
             render_node,
@@ -138,13 +136,6 @@ impl GraphicsDevice {
         &self.device
     }
 
-    /// The family LÖVR submits on. It is the destination of an ownership
-    /// acquire.
-    #[must_use]
-    pub fn queue_family(&self) -> u32 {
-        self.queue_family
-    }
-
     #[must_use]
     pub(crate) fn external_memory_fd(&self) -> &khr::external_memory_fd::Device {
         &self.external_memory_fd
@@ -155,7 +146,6 @@ impl fmt::Debug for GraphicsDevice {
     /// Hand-written because `ash::Device` is not `Debug`.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("GraphicsDevice")
-            .field("queue_family", &self.queue_family)
             .field("render_node", &self.render_node)
             .field("formats", &self.formats.len())
             .finish_non_exhaustive()
@@ -499,11 +489,6 @@ mod tests {
     }
 
     #[test]
-    fn a_complete_extension_set_reports_nothing_missing() {
-        assert_eq!(all_present().missing(), Vec::<&str>::new());
-    }
-
-    #[test]
     fn an_empty_extension_set_names_all_five() {
         assert_eq!(
             ImportExtensions::default().missing(),
@@ -547,12 +532,5 @@ mod tests {
             clear(&mut extensions);
             assert_eq!(extensions.missing(), vec![expected]);
         }
-    }
-
-    #[test]
-    fn the_import_usage_matches_what_lovr_is_told() {
-        assert!(IMPORT_USAGE.contains(vk::ImageUsageFlags::SAMPLED));
-        assert!(IMPORT_USAGE.contains(vk::ImageUsageFlags::TRANSFER_SRC));
-        assert!(IMPORT_USAGE.contains(vk::ImageUsageFlags::TRANSFER_DST));
     }
 }

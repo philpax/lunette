@@ -90,9 +90,8 @@ impl FrameDriver {
 ///
 /// 1. Layers go while the XR session that owns their swapchains exists.
 /// 2. Claims go, or they count against the next session's layer budget.
-/// 3. The blit ledger caches swapchain images the layers own.
-/// 4. Releasing textures must precede the images, because a view references each one.
-/// 5. The images are given up according to [`Disposal`].
+/// 3. Releasing textures must precede the images, because a view references each one.
+/// 4. The images are given up according to [`Disposal`].
 ///
 /// It is a free function over a trait so tests can record and assert the order.
 pub(super) fn tear_down_device(target: &mut impl DeviceTeardown, disposal: Disposal) {
@@ -101,7 +100,6 @@ pub(super) fn tear_down_device(target: &mut impl DeviceTeardown, disposal: Dispo
     target.drain_gpu();
     target.destroy_layers();
     target.forget_claims();
-    target.forget_blits();
     target.release_textures();
     target.give_up_images(disposal);
 }
@@ -111,7 +109,6 @@ pub(super) trait DeviceTeardown {
     fn drain_gpu(&mut self);
     fn destroy_layers(&mut self);
     fn forget_claims(&mut self);
-    fn forget_blits(&mut self);
     fn release_textures(&mut self);
     fn give_up_images(&mut self, disposal: Disposal);
 }
@@ -161,10 +158,6 @@ impl DeviceTeardown for FrameDriver {
 
     fn forget_claims(&mut self) {
         self.layers.forget_claims();
-    }
-
-    fn forget_blits(&mut self) {
-        self.blitted.clear();
     }
 
     fn release_textures(&mut self) {

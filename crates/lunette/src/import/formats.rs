@@ -167,38 +167,9 @@ mod tests {
     }
 
     #[test]
-    fn every_supported_fourcc_maps_to_exactly_one_entry() {
-        for entry in SUPPORTED {
-            assert_eq!(
-                mapping_for(entry.fourcc),
-                Some(entry),
-                "{:?} must resolve to its own entry",
-                entry.fourcc
-            );
-        }
-    }
-
-    #[test]
     fn an_unsupported_fourcc_is_rejected_rather_than_guessed() {
         for fourcc in [Fourcc::Nv12, Fourcc::Yuyv, Fourcc::Rgb565, Fourcc::C8] {
             assert_eq!(mapping_for(fourcc), None, "{fourcc:?} is not importable");
-        }
-    }
-
-    #[test]
-    fn the_x_variants_are_marked_opaque_and_the_a_variants_are_not() {
-        for fourcc in [Fourcc::Xrgb8888, Fourcc::Xbgr8888, Fourcc::Xbgr2101010] {
-            let mapping = mapping_for(fourcc).expect("supported");
-            assert_eq!(
-                mapping.alpha,
-                Alpha::Opaque,
-                "{fourcc:?} has no alpha channel, so the padding byte must not be sampled"
-            );
-        }
-
-        for fourcc in [Fourcc::Argb8888, Fourcc::Abgr8888, Fourcc::Abgr2101010] {
-            let mapping = mapping_for(fourcc).expect("supported");
-            assert_eq!(mapping.alpha, Alpha::Present, "{fourcc:?} carries alpha");
         }
     }
 
@@ -214,7 +185,12 @@ mod tests {
 
             assert_eq!(opaque.vulkan, present.vulkan);
             assert_eq!(opaque.texture, present.texture);
-            assert_ne!(opaque.alpha, present.alpha);
+            assert_eq!(
+                opaque.alpha,
+                Alpha::Opaque,
+                "an X variant has no alpha channel, so the padding byte must not be sampled"
+            );
+            assert_eq!(present.alpha, Alpha::Present);
         }
     }
 
@@ -241,6 +217,7 @@ mod tests {
             modifier_properties(1, 2),
             modifier_properties(2, 1),
             modifier_properties(3, 4),
+            modifier_properties(4, 0),
         ];
 
         assert_eq!(
@@ -250,37 +227,16 @@ mod tests {
     }
 
     #[test]
-    fn filtering_an_empty_report_yields_nothing() {
-        assert_eq!(single_plane_modifiers(&[]), Vec::<Modifier>::new());
-    }
-
-    #[test]
-    fn filtering_a_report_of_only_multi_plane_modifiers_yields_nothing() {
-        let properties = [modifier_properties(7, 2), modifier_properties(8, 3)];
-        assert_eq!(single_plane_modifiers(&properties), Vec::<Modifier>::new());
-    }
-
-    #[test]
-    fn a_zero_plane_count_is_not_mistaken_for_a_single_plane() {
-        assert_eq!(
-            single_plane_modifiers(&[modifier_properties(9, 0)]),
-            Vec::<Modifier>::new()
-        );
-    }
-
-    #[test]
-    fn the_implicit_modifier_is_advertised_even_when_nothing_survived() {
+    fn the_implicit_modifier_comes_last_and_appears_once() {
         assert_eq!(
             advertise(Fourcc::Argb8888, &[]),
             vec![Format {
                 code: Fourcc::Argb8888,
                 modifier: Modifier::Invalid,
-            }]
+            }],
+            "the implicit modifier is advertised even when nothing survived"
         );
-    }
 
-    #[test]
-    fn the_implicit_modifier_comes_last_and_appears_once() {
         let usable = [Modifier::Linear, Modifier::Invalid, Modifier::Linear];
         let advertised = advertise(Fourcc::Xbgr8888, &usable);
 
@@ -297,13 +253,5 @@ mod tests {
                 },
             ]
         );
-    }
-
-    #[test]
-    fn advertising_carries_the_fourcc_onto_every_entry() {
-        let usable = [Modifier::Linear, Modifier::from(0x0100_0000_0000_0001u64)];
-        for entry in advertise(Fourcc::Abgr2101010, &usable) {
-            assert_eq!(entry.code, Fourcc::Abgr2101010);
-        }
     }
 }

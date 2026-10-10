@@ -21,7 +21,7 @@ pub use self::{
     generation::{FrameGeneration, SurfaceCommit},
     ledger::{
         CopyableTexture, Released, TextureDescription, TextureLedger, TextureRef,
-        TextureUnavailable, describe, destroy_due_images,
+        TextureUnavailable, describe, describe_pixels, destroy_due_images,
     },
     lovr::{LovrTexture, TextureError},
     monitor::MonitorTextures,

@@ -11,7 +11,7 @@ use mlua::{Lua, Value};
 use pretty_assertions::assert_eq;
 
 use crate::{
-    layers::{ClaimId, LayerBackend, LayerBudget, LayerKey, SessionId, SessionPresence},
+    layers::{ClaimId, LayerBackend, LayerBudget, LayerSize, SessionId, SessionPresence},
     lua::{
         LuaLayer, PoolRegistry,
         tests::{TestSession, error, layered_session, lua, run, window},
@@ -59,7 +59,7 @@ impl LayerBackend for FakeLayers {
         SessionPresence::Present(SessionId::new(1).expect("one is not zero"))
     }
 
-    fn create(&mut self, _key: LayerKey) -> Option<Self::Layer> {
+    fn create(&mut self, _size: LayerSize) -> Option<Self::Layer> {
         self.created += 1;
         Some(FakeLayer(self.created))
     }

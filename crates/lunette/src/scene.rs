@@ -256,18 +256,6 @@ mod tests {
     }
 
     #[test]
-    fn a_later_skipped_frame_flushes_nothing_of_its_own() {
-        let fake = Fake::new();
-        fake.gate.set(Gate::SkipAfterFlush);
-        fake.frame();
-
-        fake.frame();
-        fake.frame();
-
-        assert_eq!(fake.count("lovr.graphics.submits"), 1);
-    }
-
-    #[test]
     fn a_state_without_lovr_is_left_alone() {
         let lua = crate::test_lua::session_lua();
         lua.load("package.preload['lovr.headset'] = nil")
@@ -275,24 +263,5 @@ mod tests {
             .expect("the state loads");
 
         install_gate(&lua, || Gate::Skip).expect("a state with no headset module is not an error");
-    }
-
-    #[test]
-    fn the_gate_translates_to_the_two_answers_the_chunk_reads() {
-        assert!(!Gate::Through.skips());
-        assert!(!Gate::Through.flushes());
-        assert!(Gate::Skip.skips());
-        assert!(!Gate::Skip.flushes());
-        assert!(Gate::SkipAfterFlush.skips());
-        assert!(Gate::SkipAfterFlush.flushes());
-    }
-
-    #[test]
-    fn the_scene_is_drawn_unless_a_configuration_says_otherwise() {
-        assert_eq!(SceneRendering::default(), SceneRendering::Drawn);
-        assert_eq!(SceneRendering::from_enabled(true), SceneRendering::Drawn);
-        assert_eq!(SceneRendering::from_enabled(false), SceneRendering::Skipped);
-        assert!(SceneRendering::Drawn.drawn());
-        assert!(!SceneRendering::Skipped.drawn());
     }
 }

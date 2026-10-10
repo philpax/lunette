@@ -15,8 +15,8 @@ mod tests;
 
 pub use self::{
     backend::{LayerBackend, SessionId, SessionPresence},
-    blit::{BlitLedger, Blitted, Decision, LayerBlitter, LayerTexture, StaleLayerTexture, decide},
-    key::{LayerKey, LayerProperties, LayerSize},
+    blit::{BlitLedger, Blitted, LayerBlitter},
+    key::LayerSize,
     lovr::{LovrBlits, LovrLayer, LovrLayers},
-    pool::{ClaimId, ClaimState, LayerBudget, LayerPool, PoolOutcome, Priority},
+    pool::{ClaimId, ClaimState, LayerBudget, LayerPool, Priority},
 };
