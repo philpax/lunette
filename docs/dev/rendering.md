@@ -40,6 +40,8 @@ For lunette-owned UI, only opaque backing and outline geometry writes depth. Con
 
 Client buffers arrive as dmabufs. The native layer imports each as a `VkImage` on LÖVR's device and wraps it as a LÖVR `Texture` through `TextureInfo.handle`. Import is zero-copy and per buffer. A client cycles among 2 to 4 buffers, and an import cache keyed on the dmabuf, as in WayVR, makes a surface rotate among a stable set of textures with no allocation after warm-up.
 
+Clients choose tiled modifiers. On the NVIDIA proprietary driver, every advertised format offered six block-linear modifiers and `DRM_FORMAT_MOD_LINEAR`, and Alacritty committed `AR24` with a block-linear one, so the import honours the negotiated modifier rather than assuming a linear layout.
+
 A texture from `window:getTexture()` is therefore valid for one frame only. wlroots, KWin, Mutter, and Hyprland also sample client buffers directly.
 
 ### `window:stabilize()`
@@ -48,7 +50,7 @@ A texture from `window:getTexture()` is therefore valid for one frame only. wlro
 
 ### Alpha
 
-An imported buffer holds premultiplied alpha ([Milestone 0 findings](2026-08-06-milestone-0-findings.md#colour-fidelity-and-premultiplied-alpha)). A consumer draws with `pass:setBlendMode('alpha', 'premultiplied')`. LÖVR's default alpha mode multiplies by alpha a second time and darkens translucent clients.
+An imported buffer holds premultiplied alpha. A client configured with an opacity of 0.8 read back with every colour channel scaled by exactly 0.8 and an alpha of 0.8, a linear factor that rules out a gamma or sRGB misreading. A consumer draws with `pass:setBlendMode('alpha', 'premultiplied')`. LÖVR's default alpha mode multiplies by alpha a second time and darkens translucent clients.
 
 `Xrgb8888`, `Xbgr8888`, and `Xbgr2101010` have a padding byte where alpha would be. Vulkan has no such format, so they import as the alpha-carrying format with the same component order, and the padding byte, usually zero, reads as alpha. `window.opaque` is true for such a buffer, and the consumer forces alpha to one. It is a property of the current buffer, so a consumer reads it each frame. The shared-memory path sets the padding byte to one when it repacks, so `window.opaque` is only ever true for a dmabuf. The panels provider implements both cases in `lua/lunette-plugins/panels/init.luau` (`OPAQUE_FRAGMENT`, `ALPHA_FRAGMENT`, and `contentShader`), creating the shaders on first use because the graphics module does not exist while a configuration loads.
 
@@ -124,6 +126,16 @@ The layer path counts its own buffer installs rather than using smithay's `Rende
 
 A mirrored monitor has its own texture ledger keyed by monitor identity. A surface needs a death flag, damage, a stabilised copy, and retirement scheduling; a monitor needs none of them but must record the image behind each texture, because the importer answers a recycled PipeWire buffer with an existing image.
 
+The imported-image acquire uses `VK_QUEUE_FAMILY_FOREIGN_EXT` from `VK_IMAGE_LAYOUT_GENERAL` by default. The specification describes the foreign family for a producer outside Vulkan, and `VK_EXT_queue_family_foreign` is enabled for it. WayVR uses `VK_QUEUE_FAMILY_IGNORED` on Mesa, and on the NVIDIA proprietary driver both families gave the same content census from `GENERAL`: five distinct colours, with the background at 98.5 per cent of the samples. Two drivers tolerating `IGNORED` do not show that it is correct, and the run had no validation layer to tell a correct barrier from a tolerated one, so the default stays on the conformant value. `TextureInfo.foreign` stays for the same reason. That driver kept an imported image's contents across a per-frame acquire from `UNDEFINED`, but the specification permits the discard, and a Mesa driver that performs it would not be caught on that machine. `LUNETTE_IMPORT_QUEUE_FAMILY` and `LUNETTE_IMPORT_LAYOUT` select the alternatives ([Build and development](build-and-development.md#the-development-loop)).
+
+The two measurements taken with the `UNDEFINED` old layout, one per queue family, are invalid. The release barrier then passed `UNDEFINED` as its `newLayout`, which `VUID-VkImageMemoryBarrier2-newLayout-01198` forbids, so they describe a driver tolerating a violation rather than an indifferent queue family. The release now returns the image in `VK_IMAGE_LAYOUT_GENERAL` whatever the switch says. Until the two are repeated on a GPU with a client, the `UNDEFINED` half of the queue-family comparison and of the discard question is unmeasured. The default rests only on the `GENERAL` measurements, so nothing depends on the repeat. Issue #25 tracks it.
+
+`LayerBudget::CEILING` caps the layer budget at 12 slots, below which the budget is a quarter of the runtime's reported limit. Monado with a real compositor reports `XRT_MAX_LAYERS`, 128 on Linux, so a quarter is 32 and the ceiling binds. Twelve layers, more than LÖVR's former `MAX_LAYERS` of 10, were drawn and submitted for 60 frames against that limit with no OpenXR error. With a Bigscreen Beyond under Monado, an 800x600 window took the 832x640 rung, the first grant arrived two frames after the claim with no stall in `lovrLayerCreate`, and a release followed by a claim of the same size was granted from the free list in one frame. Monado's null compositor implements no quad layers, and `lovrLayerCreate` returns NULL against it; issue #3 tracks the zero budget against a runtime that offers no layers.
+
+A composition layer is not required to be visibly sharper than a scene quad. A 1600x1200 client on its 1664x1280 rung, shown 0.6 m wide at 0.8 m and facing the viewer, was alternated every five seconds with a scene quad at the same pose and size. The panel subtended about 41 degrees at about 40 display pixels per degree, close to 1:1, and the observer could not tell the two apart. One well-filtered resample of a stationary, axis-aligned, roughly 1:1 image costs little. A layer is expected to win at oblique angles, under minification at a distance, and under reprojection when the session's frame rate diverges from the runtime's, and that comparison covered none of them. The layer pool rests on the scene skip instead: with three panels on layers and an empty `lovr.draw`, skipping the scene cut CPU time per frame from 0.312 ms to 0.153 ms on a debug build, at the same frame count, because the display paces both. Issue #23 tracks the same measurement under the shipped configuration, whose scene draws chrome.
+
+A panel on a layer cannot be seen from behind, because a quad composition layer is single-sided, while the same panel on a scene quad can. The panels provider chooses when a panel holds a layer, so a grant landing makes a panel that was readable from behind disappear. The scene quad is the fallback rather than a degraded mode, and this is the one visible difference between the two paths that the fallback does not account for.
+
 ### Rejected: keying the pool on swapchains
 
 The pool recycles whole `Layer` objects. LÖVR offers no way to separate a layer from its swapchain: `struct Layer` embeds its `Swapchain` by value, `lovrLayerDestroy` destroys it inline, and nothing sets the swapchain a layer's `subImage` names. Separating them would mean refcounting `Swapchain` and rewriting `subImage` on both the quad and cylinder records, a behavioural patch the fork rules forbid. Keeping the whole layer meets the same goal, because everything a panel varies has a setter.
@@ -132,7 +144,7 @@ The pool recycles whole `Layer` objects. LÖVR offers no way to separate a layer
 
 A restart destroys the `VkDevice` every imported image belongs to. lunette forgets the images rather than destroying them. LÖVR retires an imported texture's view through its morgue, which only `gpu_destroy` empties, and destroying an image that still has a view is invalid. Forgetting ensures no old handle outlives its device.
 
-This violates `VUID-vkDestroyDevice-device-05137`: the validation layers report one image and one device memory object per abandoned image on every restart. That output is expected. Flushing the morgue first was rejected: `FrameDriver::quiesce` runs after the boot coroutine has finished, so no further LÖVR tick is available, and the morgue is emptied inside `lovrGraphicsSubmit`, outside lunette's FFI surface. Destroying the images and leaving views over freed memory would be a use-after-free.
+This violates `VUID-vkDestroyDevice-device-05137`: the validation layers report one image and one device memory object per abandoned image on every restart. That output is expected. A restart with two clients connected, under the Khronos validation layer against a live session, reported only that message, and both clients re-imported. Flushing the morgue first was rejected: `FrameDriver::quiesce` runs after the boot coroutine has finished, so no further LÖVR tick is available, and the morgue is emptied inside `lovrGraphicsSubmit`, outside lunette's FFI surface. Destroying the images and leaving views over freed memory would be a use-after-free.
 
 ### A lost session is observed by the pool, and by identity
 
@@ -164,4 +176,4 @@ Captured dmabufs use the client importer. Shared-memory capture frames in the su
 
 Multi-planar YUV costs a conversion.
 
-Synchronisation is implicit only.
+Synchronisation is implicit only. A client repainting every 100 ms tracked continuously across 24 samples, but no test samples a heavy GPU client under contention, which is the race implicit sync exists to prevent.

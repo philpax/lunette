@@ -98,4 +98,6 @@ Whether mutter maps an absolute uinput device across the whole layout or binds i
 
 `monitor.width` and `monitor.height` report the host's unrotated mode, while textures use the captured frame's dimensions. Host disconnect, hotplug during capture, rotation, portrait presentation, and GPU-backed capture need manual acceptance.
 
+`SURFACE_UNITS_PER_DETENT` in `crates/lunette-compositor/src/protocol/input.rs` is 10.0, the value WayVR's `UNITS_PER_DETENT` carries with the comment "no clue". A host sink divides a scroll distance by it to count wheel detents, and nothing has measured what a host compositor or its applications do with the result.
+
 Dynamic output scale makes some clients, GTK in particular, flicker. Discrete scale steps with hysteresis reduce it.

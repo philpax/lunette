@@ -120,6 +120,8 @@ Logic-headless testing is a design constraint. The compositor, capture, input ro
 
 GPU-headless testing is available but unused. LÖVR opens a window only when `conf.window` is set, and `lovr.graphics.newReadback` reads pixels back.
 
+A readback is served when the graphics module next submits and polls. lunette's frame loop submits through its own path, so a configuration taking a readback calls `lovr.graphics.submit()` and waits on the readback rather than expecting a flush. A readback of `lovr.headset.getTexture()` taken in `lovr.update` reads the image for a frame whose draw pass has not run, and it is uniformly zero. A capture of what the headset shows is taken after the frame is submitted, against the image that frame used. A window's texture read back this way carries the client's pixels in the right orientation and colours, in `bgra8`.
+
 ### Lua tests
 
 `crates/lunette/tests/lua/` is a `libtest-mimic` harness. It walks `lua/` and `dev/` and takes each `.luau` file directly inside a `tests` directory as a test file. Files under `tests/support/` are helpers. Any other file under a `tests` directory fails discovery.
@@ -153,6 +155,8 @@ The manual OpenVR diagnostic is the configuration in `crates/lunette/tests/fixtu
 cargo build -p lunette --bin lunette
 timeout --signal=TERM --kill-after=5s 75s ./target/debug/lunette --config-path crates/lunette/tests/fixtures/openvr-diagnostic/lunette
 ```
+
+A hardware run that points `XDG_CONFIG_HOME` at a fixture directory also moves the OpenXR loader away from `$XDG_CONFIG_HOME/openxr/1/active_runtime.json`. LÖVR then starts with no headset and reports no driver, no session, and a layer limit of zero, which is indistinguishable from a runtime that offers nothing. Such a run names the runtime with `XR_RUNTIME_JSON`, which the loader honours whatever `XDG_CONFIG_HOME` says. The Khronos validation layer is not in the development shell, and a run that needs it adds it.
 
 The fixture selects OpenVR explicitly and rejects desktop fallback. It stops after 600 frames, or reports an error if its frame-driven timer reaches 60 seconds. Escape exits. Exit status 124 means the external timeout fired.
 
@@ -189,4 +193,6 @@ The automatic VR input fixture verifies callback delivery and recorded geometry,
 
 SteamVR binding acceptance, overlay coexistence with a real game, and headset visual acceptance remain unverified. [Input](input.md#known-gaps) and [Rendering](rendering.md#known-gaps) record the hardware observations made so far. WebXR builds are not validated, because `emcmake` is unavailable. An opt-in hardware check reports a missing prerequisite as a failure, never as a pass.
 
-Spawning a client in a session test needs the GPU-headless tier, which does not exist. Until it does, a client appearing in `lunette.windows()` is a manual gate, recorded in [milestone 0 findings](2026-08-06-milestone-0-findings.md#outstanding).
+Spawning a client in a session test needs the GPU-headless tier, which does not exist. Until it does, a client appearing in `lunette.windows()` is a manual gate.
+
+GitHub issues #21 to #30 track the hardware and host-desktop verification, and #3 tracks the layer budget against a runtime that offers no layers. A measurement taken on hardware is recorded in the Decisions or Known gaps section of the document whose subject it concerns, and the issue that asked for it links there.

@@ -4,7 +4,7 @@ v1, the point at which the system is usable for daily work, is implemented and c
 
 ## Human gates
 
-The automated checks run without a headset, GPU-backed session, or host desktop. The following remain unverified and need an operator:
+The automated checks run without a headset, GPU-backed session, or host desktop. GitHub issues #21 to #30 track the operator checks, and #3 tracks the layer budget against a runtime that offers no layers. A hardware result is recorded in the Decisions or Known gaps section of the document it concerns ([Build and development](build-and-development.md#known-gaps)). The following remain unverified and need an operator:
 
 - An actual XR or GPU-backed boot of the shipped configuration, and execution of an installed session.
 - `manual_xr_widget_and_manager_acceptance`: controller-only discovery, two-hand capture, grab and scroll, keyboard readability and placement, text editing and errors, long-list overflow, manager close and reopen, focus hand-off to applications, and reload, on the target headset and runtime.

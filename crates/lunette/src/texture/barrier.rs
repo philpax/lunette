@@ -12,9 +12,9 @@ use tracing::warn;
 
 /// How the barrier around an imported texture is recorded.
 ///
-/// Both fields are runtime settings. The answers for the two open questions
-/// are recorded in `docs/dev/2026-08-06-milestone-0-findings.md`, and a run must
-/// be able to try either value without a rebuild to produce them.
+/// Both fields are runtime settings, so a run can try either value without a
+/// rebuild. `docs/dev/rendering.md` records the measurements behind the
+/// defaults and the half that remains unmeasured.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct BarrierPolicy {
     pub source_family: QueueFamilyMode,

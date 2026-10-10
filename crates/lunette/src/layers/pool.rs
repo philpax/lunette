@@ -88,7 +88,7 @@ impl LayerBudget {
     /// The most slots lunette requests, however generous the runtime is.
     ///
     /// Twelve layers were submitted without trouble against Monado's reported
-    /// limit of 128; `docs/dev/2026-08-06-milestone-0-findings.md` records it.
+    /// limit of 128; `docs/dev/rendering.md` records it.
     pub const CEILING: u32 = 12;
 
     /// The fraction of the runtime's limit lunette takes.
