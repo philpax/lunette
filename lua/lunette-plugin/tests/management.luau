@@ -295,24 +295,4 @@ test('a provider outage keeps the factory definition and composed configuration 
   running.runtime:close()
 end)
 
-test('requestReload defers the reload to the next drain', function()
-  local observed
-  local runtime = adapter.runtime()
-  local instance = runtime:use(
-    adapter.define {
-      name = 'managed-deferred-reload',
-      init = function(_context, config)
-        observed = config.value
-      end,
-    },
-    { value = 1 }
-  )
-  instance:enable()
-  instance:requestReload { value = 2 }
-  expect.equal(observed, 1, 'before the drain')
-  runtime:drain()
-  expect.equal(observed, 2, 'after the drain')
-  runtime:close()
-end)
-
 return test

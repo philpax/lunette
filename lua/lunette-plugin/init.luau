@@ -4,7 +4,6 @@ local adapter = require '@lunette-plugin/adapter'
 local compose = require '@lunette-plugin/compose'
 local configured = require '@lunette-plugin/configured'
 local fields = require '@lunette-plugin/fields'
-local schema = require '@lunette-plugin/schema'
 
 local plugin = {}
 
@@ -21,8 +20,6 @@ export type Patch = compose.Patch
 function plugin.capability<T>(spec: adapter.CapabilitySpec): Capability<T>
   return adapter.capability<<T>>(spec)
 end
-
-plugin.schema = schema
 
 plugin.rejectUnknownFields = fields.rejectUnknownFields
 

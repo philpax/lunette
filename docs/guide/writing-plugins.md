@@ -262,7 +262,7 @@ return {
 }
 ```
 
-`pointer:vibrate` pulses the controller that pressed the key. `key.source` is the row entry the key was made from and stays the same table across frames. `@lunette-plugins/keyboard/draw` has the default drawing's parts, including `legend` and `faceColor`. `examples/keyboard/rounded.luau` draws rounded faces with the default legends. The built-in key and backing radii already follow the theme, so rounding needs no hook.
+`pointer:vibrate` pulses the controller that pressed the key. `key.source` is the row entry the key was made from and stays the same table across frames. `@lunette-plugins/keyboard/draw` has the default drawing's parts, including `legend`. The built-in key and backing radii already follow the theme, so rounding needs no hook.
 
 The definition replaces the desktop's keyboard by id, and every plugin that requires the keyboard contract then receives it:
 

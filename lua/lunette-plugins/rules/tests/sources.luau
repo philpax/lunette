@@ -11,6 +11,17 @@ local function start()
   return session, observed.service, observed.context, window
 end
 
+-- Counts a rules service's sources from its inspection.
+local function sourceCount(rules)
+  local count = 0
+  for _, entry in rules:inspect().registrations do
+    if entry.kind == 'ruleSource' then
+      count += 1
+    end
+  end
+  return count
+end
+
 test('a rule matches by value or predicate, and where over the whole window', function()
   local session, rules, owner, window = start()
   rules:setRules(owner, {
@@ -95,7 +106,7 @@ test('a source name is registered once, and a disposed name is free again', func
   end, nil, 'a duplicate source name')
   first:dispose()
   rules:addSource(owner, source)
-  expect.equal(#testing.ruleSources(rules), 1, 'the sources after the replacement')
+  expect.equal(sourceCount(rules), 1, 'the sources after the replacement')
   session:close()
 end)
 

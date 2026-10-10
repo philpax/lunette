@@ -6,6 +6,7 @@ local geometry = require '@lunette-plugins/theme/rounded-geometry'
 local drawing = require '@lunette-plugins/theme/drawing'
 
 local draw = {}
+local faceColor: (board.KeyState) -> { read [number]: number }
 local faceBounds: (board.RenderedKey, appearance.Style) -> geometry.Bounds
 
 function draw.plate(
@@ -29,18 +30,8 @@ function draw.plate(
   pass:setColor(1, 1, 1, 1)
 end
 
-function draw.faceColor(state: board.KeyState): { read [number]: number }
-  local style = state.style
-  if state.hovered then
-    return style.hoverColor
-  elseif state.held then
-    return style.heldColor
-  end
-  return style.keyColor
-end
-
 function draw.face(pass: Pass, cache: drawing.Cache, key: board.RenderedKey, state: board.KeyState): ()
-  local color = draw.faceColor(state)
+  local color = faceColor(state)
   passState.withRestore(pass, function(): ()
     pass:setColor(color[1], color[2], color[3], color[4])
     pass:transform(state.pose)
@@ -90,6 +81,16 @@ function draw.keyPose(pose: Mat4, key: board.RenderedKey, width: number, height:
   centre:set(pose)
   centre:translate(key.x + key.width / 2 - width / 2, height / 2 - (key.y + key.height / 2), 0)
   return centre
+end
+
+faceColor = function(state: board.KeyState): { read [number]: number }
+  local style = state.style
+  if state.hovered then
+    return style.hoverColor
+  elseif state.held then
+    return style.heldColor
+  end
+  return style.keyColor
 end
 
 faceBounds = function(key: board.RenderedKey, style: appearance.Style): geometry.Bounds

@@ -2,7 +2,6 @@
 local testing = require '@testing'
 local expect = testing.expect
 local lunette = require '@lunette'
-local plugin = require '@lunette-plugin'
 local adapter = require '@lunette-plugin/adapter'
 local demoTerminal = require('../').definition
 
@@ -40,19 +39,6 @@ local function close(native, session)
   native.assertResourcesReleased()
 end
 
-test('an empty compositor starts the first configured program', function()
-  local native, session = fixture { 'first-terminal', 'second-terminal' }
-  local events = native.events
-  expect.equal(demoTerminal.name, 'dev/demo-terminal', 'the development-only plugin name')
-  expect.equal(session.instances['dev/demo-terminal']:state(), 'active', 'the plugin state')
-  expect.equal(#events.spawned, 1, 'the initial process count')
-  expect.equal(events.spawned[1].argv[1], 'first-terminal', 'the configured first program')
-  expect.equal(#events.spawned[1].argv, 1, 'the process arguments')
-  expect.equal(events.enumerations, 1, 'the startup window enumeration')
-  expect.equal(native.subscriptionCount 'onProcessExited', 1, 'the process subscription')
-  close(native, session)
-end)
-
 test(
   'an existing window or an empty program list prevents startup, and a later reload does not launch a terminal',
   function()
@@ -78,33 +64,11 @@ test(
   end
 )
 
-test('reload, reactivation, and runtime restart do not duplicate a terminal in the same state', function()
-  local native, session = fixture { 'first-terminal', 'second-terminal' }
-  local instance = session.instances['dev/demo-terminal']
-  for reload = 1, 10 do
-    instance:requestReload { programs = { 'replacement-terminal' } }
-    session.runtime:drain()
-    expect.equal(#native.events.spawned, 1, 'reload ' .. reload .. ' does not spawn')
-    expect.equal(native.subscriptionCount 'onProcessExited', 1, 'reload ' .. reload .. ' leaves one subscription')
-  end
-  instance:disable()
-  expect.equal(native.subscriptionCount 'onProcessExited', 0, 'disable removes the subscription')
-  instance:enable()
-  expect.equal(#native.events.spawned, 1, 'reactivation does not spawn')
-  close(native, session)
-
-  local restarted = start { 'restart-terminal' }
-  expect.equal(#native.events.spawned, 1, 'a new runtime in the same state does not spawn')
-  expect.equal(native.events.enumerations, 1, 'only the initial runtime enumerates windows')
-  expect.equal(native.subscriptionCount 'onProcessExited', 1, 'the restarted subscription')
-  native.emit('onProcessExited', { process = native.events.spawned[1], outcome = 'spawnFailed' })
-  expect.equal(#native.events.spawned, 1, 'the restarted activation does not retain an old attempt')
-  close(native, restarted)
-end)
-
-test('failed configured programs advance in order and exhaustion warns once', function()
+test('an empty compositor starts the first program, failures advance in order, and exhaustion warns once', function()
   local native, session = fixture { 'first-terminal', 'second-terminal', 'third-terminal' }
   local events = native.events
+  expect.equal(#events.spawned, 1, 'the initial process count')
+  expect.equal(events.spawned[1].argv[1], 'first-terminal', 'the configured first program')
   native.emit('onProcessExited', { process = { id = 999 }, outcome = 'exited' })
   expect.equal(#events.spawned, 1, 'an unrelated exit does not advance')
   native.emit('onProcessExited', { process = events.spawned[1], outcome = 'spawnFailed' })

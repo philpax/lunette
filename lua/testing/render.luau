@@ -99,6 +99,7 @@ function Recorder:assertMeshesReleased()
   end
 end
 
+-- The box is in the coordinates of the transform current when within is called.
 function Recorder:within(box, callback)
   self.calls = self._sink()
   local first, frame = #self.calls + 1, lovr.math.newMat4(self._transform)
@@ -106,16 +107,10 @@ function Recorder:within(box, callback)
   if not results[1] then
     error(results[2], 0)
   end
-  self:assertBounds(box, first, #self.calls, frame)
-  return table.unpack(results, 2, results.n)
-end
-
--- A frame maps the assertion's local coordinates to world coordinates; it defaults to the identity.
-function Recorder:assertBounds(box, first, last, frame)
   self.calls = self._sink()
   local tolerance = box.tolerance or 0.001
-  local inverse = lovr.math.newMat4(frame):invert()
-  for index = first or 1, last or #self.calls do
+  local inverse = frame:invert()
+  for index = first, #self.calls do
     local call = self.calls[index]
     if call.draw then
       assert(call.points, 'render recorder: bounds: unmeasured ' .. call[1] .. ' at call ' .. index)
@@ -141,6 +136,7 @@ function Recorder:assertBounds(box, first, last, frame)
       end
     end
   end
+  return table.unpack(results, 2, results.n)
 end
 
 function Recorder:checkpoint()

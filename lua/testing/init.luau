@@ -6,17 +6,6 @@ local native = require '@testing/native'
 local session = require '@testing/session'
 local suite = require '@testing/suite'
 
--- Lists a rules service's sources in resolution order, from its inspection.
-local function ruleSources(rules)
-  local result = {}
-  for _, entry in rules:inspect().registrations do
-    if entry.kind == 'ruleSource' then
-      result[#result + 1] = { name = entry.name, precedence = entry.details.precedence }
-    end
-  end
-  return result
-end
-
 -- The diagnostic a runtime's snapshot holds for one of its instances.
 local function diagnostic(runtime, instance)
   for _, entry in runtime:snapshot().instances do
@@ -37,6 +26,5 @@ return {
   takeReports = host.takeReports,
   collect = host.collect,
   host = host,
-  ruleSources = ruleSources,
   diagnostic = diagnostic,
 }

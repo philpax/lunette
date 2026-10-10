@@ -52,6 +52,7 @@ test('a subscription ends with its activation, and a handler kept past it delive
 
   local kept = events.listeners[1].handler
   instance:requestReload { name = 'two' }
+  expect.truthy(#events.listeners == 1 and events.cancels == 0, 'a requested reload waits for the drain')
   runtime:drain()
   expect.truthy(#events.listeners == 1 and events.cancels == 1, 'a reload replaces the subscription')
   events.emit 'b'

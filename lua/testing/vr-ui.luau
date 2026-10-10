@@ -220,12 +220,8 @@ local function matching(events, kind)
   return result
 end
 
-function Fixture:drawCalls(method)
-  return if method then matching(self.native.events.draw, method) else table.clone(self.native.events.draw)
-end
-
 function Fixture:nativeCalls(method)
-  return if method then matching(self.native.events.input, method) else table.clone(self.native.events.input)
+  return matching(self.native.events.input, method)
 end
 
 function Fixture:keyboardCount()

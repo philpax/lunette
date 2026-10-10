@@ -24,7 +24,6 @@ function native.new()
     input = {},
     draw = {},
     logs = {},
-    timeline = {},
     held = {},
     controllers = {},
     reported = {},
@@ -261,7 +260,6 @@ installNative = function(fake, events, subscribe, clearSubscriptions)
         return false
       end
       self.dead = true
-      events.timeline[#events.timeline + 1] = 'seat disposed'
       return true
     end
     return seat
@@ -274,7 +272,6 @@ installNative = function(fake, events, subscribe, clearSubscriptions)
         return false
       end
       self.dead = true
-      events.timeline[#events.timeline + 1] = 'claim disposed'
       return true
     end
     function claim:setPose()
@@ -393,10 +390,6 @@ installLovr = function(events)
     end,
     write = function(_, text)
       events.writes += 1
-      events.timeline[#events.timeline + 1] = 'save'
-      if events.writeMode == 'throw' then
-        error 'filesystem write exception'
-      end
       if events.writeMode == 'refuse' then
         return false
       end
