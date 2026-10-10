@@ -24,7 +24,10 @@ use tracing as log;
 
 use crate::{
     protocol::{Pid, ProcessId, ProcessSignal},
-    spawn::{AUTH_VARIABLE, AuthToken, ChildProcess, ProcessInspector, signal_group},
+    spawn::{
+        AUTH_VARIABLE, AuthToken, ChildProcess, ProcessInspector, find_environment_value,
+        signal_group,
+    },
 };
 
 #[derive(Debug)]
@@ -55,39 +58,12 @@ impl Process {
             Self::External(p) => p.kill(signal),
         }
     }
-
-    pub fn id(&self) -> ProcessId {
-        match self {
-            Self::Managed(p) => p.id,
-            Self::External(p) => p.id,
-        }
-    }
-
-    pub fn pid(&self) -> Pid {
-        match self {
-            Self::Managed(p) => p.child.pid(),
-            Self::External(p) => p.pid,
-        }
-    }
 }
 
 pub fn get_process_env_value(pid: Pid, key: &str) -> io::Result<Option<Vec<u8>>> {
     let path = format!("/proc/{pid}/environ");
     let env_data = std::fs::read(path)?;
     Ok(find_environment_value(&env_data, key.as_bytes()))
-}
-
-/// Finds a variable in a NUL-separated environment block, as
-/// `/proc/<pid>/environ` presents it. It skips entries without `=`, and keeps
-/// non-UTF-8 values and everything after the first `=` in the matching entry.
-pub fn find_environment_value(env_data: &[u8], key: &[u8]) -> Option<Vec<u8>> {
-    env_data
-        .split(|byte| *byte == 0)
-        .filter(|line| !line.is_empty())
-        .find_map(|line| {
-            let separator = line.iter().position(|byte| *byte == b'=')?;
-            (&line[..separator] == key).then(|| line[separator + 1..].to_vec())
-        })
 }
 
 impl WayVRProcess {

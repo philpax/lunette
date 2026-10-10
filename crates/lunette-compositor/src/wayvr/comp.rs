@@ -89,23 +89,25 @@ use crate::{
     protocol::{
         ContentType, Event, ImportedBuffer, OutputId, PixelSize, ProcessId, SurfaceId,
     },
+    satellite::Satellite,
     seat::{self, SeatRegistry},
     selection::{HostOffer, SelectionBridge, SelectionKind},
     spawn::{AdoptedIds, DisplayEnvironment, ProcessInspector, ProcessSpawner},
     surface::{
-        BufferImporter, BufferTransform, ShmFormat, ShmLayout, SurfaceRegistry, copy_shm,
-        protocol_content_type,
+        BufferImporter, BufferTransform, ImportedExtent, ShmFormat, ShmLayout, SurfaceRegistry,
+        copy_shm, protocol_content_type,
     },
+    task_queue::TaskQueue,
     thread::{EventSender, LoopData, SnapshotPublisher},
     wayvr::{
-        client::{Satellite, WayVRClient},
+        client::WayVRClient,
         process::{Process, ProcessHandle},
         window::WindowManager,
     },
 };
 use slotmap::DenseSlotMap;
 
-use super::{ImportedExtent, SurfaceBufWithImage, TaskQueue, WayVRTask};
+use super::{SurfaceBufWithImage, WayVRTask};
 
 pub struct Application {
     /// Every virtual monitor lunette advertises. Holding an entry keeps its

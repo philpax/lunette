@@ -40,13 +40,16 @@ use crate::{
         Command, Event, ImageHandle, ImportedImage, OutputId, Pid, PixelSize, ProcessOutcome,
         ProcessSignal, SeatId, Snapshot, Stream,
     },
-    spawn::{ChildProcess, Liveness, ProcessInspector, ProcessSpawner, SpawnError, SpawnPlan},
+    spawn::{
+        ChildProcess, Liveness, ProcessInspector, ProcessSpawner, SpawnError, SpawnPlan,
+        find_environment_value,
+    },
     surface::{BufferImporter, ImportFailed, PixelBuffer, ShmFormat, ShmLayout},
     thread::{
         COMMAND_CAPACITY, CommandSender, CompositorHandle, CompositorLoop, EVENT_CAPACITY,
         EventReceiver, EventSender, Ingredients, LoopData, SnapshotReader, build, snapshot_channel,
     },
-    wayvr::{comp::ClientState, process::find_environment_value},
+    wayvr::comp::ClientState,
 };
 
 /// Maximum time to wait for a test condition.

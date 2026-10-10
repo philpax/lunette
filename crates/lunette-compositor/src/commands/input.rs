@@ -28,7 +28,7 @@ use crate::{
     seat::{self, MouseState},
     type_text::{self, TypePlan, TypeStep},
     wayvr::{
-        client::{WayVRCompositor, WheelDelta},
+        client::WayVRCompositor,
         comp::Application,
         hit_test::{self, WvrHitTarget},
     },
@@ -454,6 +454,15 @@ impl WayVRCompositor<'_> {
 
 /// What `wl_pointer.axis_value120` counts per wheel detent.
 const V120_PER_DETENT: i32 = 120;
+
+/// A wheel movement on each axis, in `wl_pointer.axis_value120` units, where
+/// one detent is 120.
+///
+/// Upstream's `hid::WheelDelta` carries the same values as `f32`.
+pub(crate) struct WheelDelta {
+    pub(crate) x: i32,
+    pub(crate) y: i32,
+}
 
 /// The XKB keycode for an evdev keycode, which upstream's `send_key` takes.
 fn xkb_keycode(key: Keycode) -> u32 {

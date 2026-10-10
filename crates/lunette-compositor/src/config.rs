@@ -3,9 +3,10 @@
 use smithay::backend::allocator::Format;
 
 use crate::{
+    listener::WaylandEnv,
     protocol::{KeymapDefaults, OutputId, OutputMode, OutputScale, PixelSize, RefreshRate, SeatId},
+    satellite::XwaylandSatellite,
     selection::HostSelectionSource,
-    wayvr::client::{WaylandEnv, XwaylandSatellite},
 };
 
 /// The seat used when a command does not name a specific seat.

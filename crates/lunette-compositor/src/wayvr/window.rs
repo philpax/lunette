@@ -19,6 +19,7 @@ use smithay::wayland::shell::xdg::ToplevelSurface;
 use crate::protocol::{
     ContentType, OutputId, ProcessId, SinkId, SourceCrop, SurfaceId, ToplevelStates, WindowId,
 };
+use crate::window::WindowIds;
 
 #[derive(Debug, Clone, Copy)]
 pub struct PendingConfigure {
@@ -223,12 +224,3 @@ impl WindowManager {
 new_key_type! {
     pub struct WindowHandle;
 }
-
-/// The identifiers lunette gives a window, which Lua sees.
-struct WindowIds {
-    id: WindowId,
-    sink: SinkId,
-    surface: SurfaceId,
-    output: OutputId,
-}
-

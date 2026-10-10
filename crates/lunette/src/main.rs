@@ -39,9 +39,10 @@ use lunette_capture::{
     tokens::{self, Loaded, TokenFile},
 };
 use lunette_compositor::{
-    client::{XwaylandSatellite, listen},
     keymap::Keymap,
+    listener::listen,
     protocol::{KeymapConfig, KeymapDefaults},
+    satellite::XwaylandSatellite,
 };
 use tracing::{error, info, warn};
 use tracing_subscriber::{EnvFilter, filter::LevelFilter};

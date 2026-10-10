@@ -291,6 +291,36 @@ impl BufferTransform {
     }
 }
 
+/// The size of an image lunette imported from a client buffer.
+///
+/// Upstream's `SurfaceBufWithImage` keeps the image itself. lunette's images
+/// belong to the frame thread, which receives each one in
+/// `Event::BufferImported`, so the compositor keeps only the extent it needs
+/// for sizes and hit tests.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ImportedExtent {
+    pub(crate) size: PixelSize,
+}
+
+impl ImportedExtent {
+    pub(crate) const fn extent_2d(&self) -> [u32; 2] {
+        [self.size.width, self.size.height]
+    }
+}
+
+impl SurfaceBufWithImage {
+    /// The image's extent in surface axes. A quarter turn exchanges the
+    /// buffer's axes, which upstream does not account for.
+    pub(crate) const fn oriented_extent(&self) -> [u32; 2] {
+        let extent = self.image.extent_2d();
+        if self.transform.swaps_axes() {
+            [extent[1], extent[0]]
+        } else {
+            extent
+        }
+    }
+}
+
 impl Application {
     /// Records the client's content-type hint for Lua's throttling policy.
     pub(crate) fn remember_content_type(&mut self, id: SurfaceId, content_type: ContentType) {

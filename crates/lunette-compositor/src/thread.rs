@@ -18,14 +18,17 @@ use std::{
 
 use arc_swap::ArcSwap;
 use smithay::reexports::{
-    calloop::{self, EventLoop, Interest, Mode, PostAction, channel::Channel, generic::Generic},
-    wayland_server::Display,
+    calloop::{
+        self, EventLoop, Interest, LoopHandle, LoopSignal, Mode, PostAction, channel::Channel,
+        generic::Generic,
+    },
+    wayland_server::{Display, DisplayHandle},
 };
 use tracing::{debug, error, info, warn};
 
 use crate::{
-    client::{self, WaylandSocket},
     config::CompositorConfig,
+    listener::{self, WaylandSocket},
     protocol::{
         Command, Event, Generation, OutputSnapshot, ProcessSnapshot, SeatSnapshot, Snapshot,
         WindowSnapshot,
@@ -33,7 +36,7 @@ use crate::{
     selection::{HostEvent, HostEvents},
     spawn::{ProcFilesystem, ProcessInspector, ProcessSpawner, SystemSpawner},
     surface::BufferImporter,
-    wayvr::{StateParts, comp::Application},
+    wayvr::comp::Application,
 };
 
 pub(crate) const COMMAND_CAPACITY: usize = 256;
@@ -442,7 +445,7 @@ pub(crate) fn build(ingredients: Ingredients) -> Result<(CompositorLoop, LoopDat
     if let Some(socket) = socket {
         handle
             .insert_source(socket.source, |stream, _metadata, data: &mut LoopData| {
-                client::accept(data, stream);
+                listener::accept(data, stream);
             })
             .map_err(|error| StartError::InsertSource {
                 source: "the listening socket",
@@ -501,6 +504,20 @@ pub(crate) fn build(ingredients: Ingredients) -> Result<(CompositorLoop, LoopDat
     state.publish_if_dirty();
 
     Ok((event_loop, LoopData { display, state }))
+}
+
+/// What the compositor state is given when the thread constructs it.
+pub(crate) struct StateParts<'a> {
+    pub(crate) display: &'a DisplayHandle,
+    pub(crate) config: CompositorConfig,
+    pub(crate) host_selection: HostEvents,
+    pub(crate) importer: Box<dyn BufferImporter>,
+    pub(crate) spawner: Box<dyn ProcessSpawner>,
+    pub(crate) inspector: Box<dyn ProcessInspector>,
+    pub(crate) events: EventSender,
+    pub(crate) snapshots: SnapshotPublisher,
+    pub(crate) signal: LoopSignal,
+    pub(crate) loop_handle: LoopHandle<'static, LoopData>,
 }
 
 pub(crate) struct LoopData {

@@ -5,9 +5,12 @@
 //! The files under this directory keep upstream's names and as much of its
 //! text as lunette can, so that they diff against `backend/wayvr`.
 //!
-//! This file keeps upstream's fragments that lunette uses: the state's
-//! construction from `WvrServerState::new`, the task queue the handlers fill,
-//! and the per-surface buffer record. The drag-and-drop pointer tracking is
+//! This file keeps upstream's fragments that lunette uses: `WaylandEnv`, the
+//! state's construction from `WvrServerState::new`, the tasks the handlers
+//! queue, and the per-surface buffer record. The constructor's parts are
+//! `crate::thread::StateParts`, the queue is `crate::task_queue::TaskQueue`,
+//! and the buffer record keeps the extent in `crate::surface::ImportedExtent`
+//! where upstream keeps the image. The drag-and-drop pointer tracking is
 //! replaced by the per-seat record in `crate::drag`, because lunette's seats
 //! are smithay's. lunette's compositor thread drains the task queue after
 //! each dispatch, in `crate::commands`, where upstream's `tick_events` drained
@@ -27,10 +30,9 @@ use smithay::{
     desktop::PopupManager,
     input::SeatState,
     reexports::{
-        calloop::{LoopHandle, LoopSignal},
         wayland_protocols_misc::server_decoration::server::org_kde_kwin_server_decoration_manager as kde_decoration,
         wayland_server::{
-            self, DisplayHandle,
+            self,
             backend::ClientId,
             protocol::wl_buffer,
         },
@@ -57,26 +59,47 @@ use smithay::{
 };
 use std::{
     cell::RefCell,
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{HashMap, HashSet},
     time::Instant,
 };
 use tracing as log;
 
 use crate::{
-    config::{CompositorConfig, DEFAULT_OUTPUT, DEFAULT_SEAT, SEAT_NAME},
+    commands::WheelDelta,
+    config::{DEFAULT_OUTPUT, DEFAULT_SEAT, SEAT_NAME},
     output::OutputRegistry,
     pacing::FramePacer,
-    protocol::{KeyboardConfig, PixelSize},
+    protocol::KeyboardConfig,
+    satellite::Satellite,
     seat::SeatRegistry,
-    selection::{HostEvents, SelectionBridge},
-    spawn::{AdoptedIds, ProcessInspector, ProcessSpawner},
-    surface::{BufferImporter, BufferTransform, SurfaceRegistry},
-    thread::{EventSender, LoopData, SnapshotPublisher},
-    wayvr::{
-        client::{Satellite, WaylandEnv},
-        window::WindowManager,
-    },
+    selection::SelectionBridge,
+    spawn::AdoptedIds,
+    surface::{BufferTransform, ImportedExtent, SurfaceRegistry},
+    task_queue::TaskQueue,
+    thread::StateParts,
+    wayvr::window::WindowManager,
 };
+
+/// The display a bound socket serves, as a number shared by the Wayland and
+/// X11 names.
+///
+/// The number matches between the two names, but they belong to separate
+/// namespaces.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct WaylandEnv {
+    pub(crate) display_num: u32,
+}
+
+impl WaylandEnv {
+    pub fn wayland_display_num_string(&self) -> String {
+        // e.g. "wayland-20"
+        format!("wayland-{}", self.display_num)
+    }
+    pub fn display_num_string(&self) -> String {
+        // e.g. ":20"
+        format!(":{}", self.display_num)
+    }
+}
 
 #[derive(Clone)]
 pub enum WayVRTask {
@@ -84,47 +107,6 @@ pub enum WayVRTask {
     DropToplevel(ClientId, ToplevelSurface),
     MinimizeRequest(ClientId, ToplevelSurface),
     TitleChange(ClientId, ToplevelSurface),
-}
-
-/// The tasks the handlers queue for the drain after dispatch.
-///
-/// Upstream's `SyncEventQueue` is shared with the overlay thread. lunette's
-/// state owns its queue, and only the compositor thread touches it.
-#[derive(Debug)]
-pub struct TaskQueue<T> {
-    queue: VecDeque<T>,
-}
-
-impl<T> Default for TaskQueue<T> {
-    fn default() -> Self {
-        Self {
-            queue: VecDeque::new(),
-        }
-    }
-}
-
-impl<T> TaskQueue<T> {
-    pub fn send(&mut self, task: T) {
-        self.queue.push_back(task);
-    }
-
-    pub fn read(&mut self) -> Option<T> {
-        self.queue.pop_front()
-    }
-}
-
-/// What the compositor thread is given when it starts.
-pub(crate) struct StateParts<'a> {
-    pub(crate) display: &'a DisplayHandle,
-    pub(crate) config: CompositorConfig,
-    pub(crate) host_selection: HostEvents,
-    pub(crate) importer: Box<dyn BufferImporter>,
-    pub(crate) spawner: Box<dyn ProcessSpawner>,
-    pub(crate) inspector: Box<dyn ProcessInspector>,
-    pub(crate) events: EventSender,
-    pub(crate) snapshots: SnapshotPublisher,
-    pub(crate) signal: LoopSignal,
-    pub(crate) loop_handle: LoopHandle<'static, LoopData>,
 }
 
 impl Application {
@@ -322,22 +304,6 @@ impl Application {
     }
 }
 
-/// The size of an image lunette imported from a client buffer.
-///
-/// Upstream keeps the image itself. lunette's images belong to the frame
-/// thread, which receives each one in `Event::BufferImported`, so the
-/// compositor keeps only the extent it needs for sizes and hit tests.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct ImportedExtent {
-    pub size: PixelSize,
-}
-
-impl ImportedExtent {
-    pub const fn extent_2d(&self) -> [u32; 2] {
-        [self.size.width, self.size.height]
-    }
-}
-
 struct SurfaceBufWithImageContainer {
     inner: RefCell<Option<SurfaceBufWithImage>>,
     retained_dmabuf_buffer: RefCell<Option<wl_buffer::WlBuffer>>,
@@ -389,17 +355,6 @@ impl SurfaceBufWithImage {
         let u1 = ((src.loc.x + src.size.w) / buffer_w).clamp(0.0, 1.0) as f32;
         let v1 = ((src.loc.y + src.size.h) / buffer_h).clamp(0.0, 1.0) as f32;
         [u0, v0, u1, v1]
-    }
-
-    /// The image's extent in surface axes. A quarter turn exchanges the
-    /// buffer's axes, which upstream does not account for.
-    pub const fn oriented_extent(&self) -> [u32; 2] {
-        let extent = self.image.extent_2d();
-        if self.transform.swaps_axes() {
-            [extent[1], extent[0]]
-        } else {
-            extent
-        }
     }
 
     fn apply_to_surface(

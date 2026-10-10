@@ -16,13 +16,13 @@ use pretty_assertions::assert_eq;
 use smithay::backend::allocator::{Format, Fourcc, Modifier};
 
 use crate::{
-    client::XwaylandSatellite,
     commands::{protocol_state, toplevel_state},
     config::{CompositorConfig, DEFAULT_OUTPUT, DmabufSupport},
     protocol::{
         Argv, Command, Event, PixelSize, ProcessId, ProcessOutcome, ProcessSignal,
         SpawnRequest as SpawnCommand, Stream, ToplevelState, ToplevelStates, WindowSnapshot,
     },
+    satellite::XwaylandSatellite,
     test_client::TestClient,
     testing::{DEADLINE, TestCompositor},
 };
@@ -500,7 +500,7 @@ fn a_client_presenting_a_spawned_process_token_is_attributed_to_it() {
 
 fn with_display() -> CompositorConfig {
     CompositorConfig {
-        display: Some(crate::client::WaylandEnv::for_test(20)),
+        display: Some(crate::listener::WaylandEnv::for_test(20)),
         satellite: Some(XwaylandSatellite {
             executable: std::path::PathBuf::from("xwayland-satellite"),
         }),

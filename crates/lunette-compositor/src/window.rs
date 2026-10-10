@@ -153,6 +153,14 @@ impl WindowManager {
 
 /// Reads the current size limits from the surface's cached xdg state. An empty
 /// minimum means one pixel, and an empty maximum means the supplied output bound.
+/// The identifiers lunette gives a window, which Lua sees.
+pub(crate) struct WindowIds {
+    pub(crate) id: WindowId,
+    pub(crate) sink: SinkId,
+    pub(crate) surface: SurfaceId,
+    pub(crate) output: OutputId,
+}
+
 pub(crate) fn size_constraints(
     toplevel: &ToplevelSurface,
     bounds: Size<i32, Logical>,

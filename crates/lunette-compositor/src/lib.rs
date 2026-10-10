@@ -9,13 +9,16 @@ pub mod config;
 pub(crate) mod drag;
 pub(crate) mod graphics;
 pub mod keymap;
+pub mod listener;
 pub(crate) mod output;
 pub(crate) mod pacing;
 pub mod protocol;
+pub mod satellite;
 pub(crate) mod seat;
 pub mod selection;
 pub mod spawn;
 pub mod surface;
+pub(crate) mod task_queue;
 #[cfg(any(test, feature = "test-fakes"))]
 pub mod test_client;
 #[cfg(any(test, feature = "test-fakes"))]
@@ -24,5 +27,3 @@ pub mod thread;
 pub(crate) mod type_text;
 pub(crate) mod wayvr;
 pub(crate) mod window;
-
-pub use wayvr::client;

@@ -11,13 +11,13 @@ use slotmap::DenseSlotMap;
 use crate::{
     protocol::{Argv, Pid, ProcessId, ProcessOutcome, ProcessSignal},
     spawn::{
-        inspect::ProcessInspector,
+        inspect::{ProcessInspector, find_environment_value},
         plan::{AUTH_VARIABLE, AuthToken, SpawnRequest, TOKEN_BYTES, decode_hex, is_flatpak},
         system::{DisplayEnvironment, SpawnError, SpawnPlan},
         table::{AdoptedIds, Report, add_external_process, poll, snapshot, spawn_process},
     },
     testing::{FakeInspector, FakeSpawner},
-    wayvr::process::{Process, ProcessHandle, find_by_pid, find_environment_value},
+    wayvr::process::{Process, ProcessHandle, find_by_pid},
 };
 
 type Processes = DenseSlotMap<ProcessHandle, Process>;

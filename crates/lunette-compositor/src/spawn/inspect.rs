@@ -42,3 +42,16 @@ impl ProcessInspector for ProcFilesystem {
         fs::metadata(format!("/proc/{pid}")).is_ok()
     }
 }
+
+/// Finds a variable in a NUL-separated environment block, as
+/// `/proc/<pid>/environ` presents it. It skips entries without `=`, and keeps
+/// non-UTF-8 values and everything after the first `=` in the matching entry.
+pub(crate) fn find_environment_value(env_data: &[u8], key: &[u8]) -> Option<Vec<u8>> {
+    env_data
+        .split(|byte| *byte == 0)
+        .filter(|line| !line.is_empty())
+        .find_map(|line| {
+            let separator = line.iter().position(|byte| *byte == b'=')?;
+            (&line[..separator] == key).then(|| line[separator + 1..].to_vec())
+        })
+}

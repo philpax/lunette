@@ -31,7 +31,7 @@ use smithay::{
 };
 use tracing::{debug, info};
 
-pub(crate) use crate::commands::input::KeymapUploadError;
+pub(crate) use crate::commands::input::{KeymapUploadError, WheelDelta};
 #[cfg(any(test, feature = "test-fakes"))]
 use crate::protocol::SeatId;
 use crate::{

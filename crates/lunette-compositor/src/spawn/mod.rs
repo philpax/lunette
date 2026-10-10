@@ -19,14 +19,15 @@ mod tests;
 /// group.
 #[cfg(any(test, feature = "test-fakes"))]
 pub(crate) use crate::spawn::system::Liveness;
+pub(crate) use crate::spawn::{
+    inspect::find_environment_value,
+    plan::{AUTH_VARIABLE, AuthToken, SpawnRequest},
+    system::signal_group,
+    table::{AdoptedIds, Report, add_external_process, poll, snapshot, spawn_process},
+};
 pub use crate::spawn::{
     inspect::{ProcFilesystem, ProcessInspector},
     system::{
         ChildProcess, DisplayEnvironment, ProcessSpawner, SpawnError, SpawnPlan, SystemSpawner,
     },
-};
-pub(crate) use crate::spawn::{
-    plan::{AUTH_VARIABLE, AuthToken, SpawnRequest},
-    system::signal_group,
-    table::{AdoptedIds, Report, add_external_process, poll, snapshot, spawn_process},
 };

@@ -8,7 +8,8 @@
 //! starts and adopts processes in `spawn_process` and
 //! `add_external_process` of `backend/wayvr/mod.rs` and polls them in
 //! `tick_events`; lunette keeps those operations here as functions of the
-//! table, so they can be tested without a compositor.
+//! table, so they can be tested without a compositor. lunette's accessors on
+//! upstream's `Process` are here too.
 
 use slotmap::DenseSlotMap;
 use tracing::debug;
@@ -148,5 +149,23 @@ impl AdoptedIds {
         });
         self.next -= 1;
         id
+    }
+}
+
+impl Process {
+    /// The identifier Lua sees for the process.
+    pub(crate) fn id(&self) -> ProcessId {
+        match self {
+            Self::Managed(p) => p.id,
+            Self::External(p) => p.id,
+        }
+    }
+
+    /// The pid of a managed child or an adopted process.
+    pub(crate) fn pid(&self) -> Pid {
+        match self {
+            Self::Managed(p) => p.child.pid(),
+            Self::External(p) => p.pid,
+        }
     }
 }

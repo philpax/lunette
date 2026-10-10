@@ -1,32 +1,26 @@
 //! Adapted from WayVR's `backend/wayvr/client.rs` at commit
-//! 42e9deb54cc5c36037b49237867afa3dc4593f4a, with `WaylandEnv` from
-//! `backend/wayvr/mod.rs`.
+//! 42e9deb54cc5c36037b49237867afa3dc4593f4a.
 //! Copyright (c) the WayVR authors (galister, oo8dev). Licensed GPL-3.0-only.
 //!
-//! Linux-only: owns the Wayland listening socket and the optional
-//! xwayland-satellite child.
-//!
-//! The listener, the client list, the attribution of a connecting client, the
-//! satellite, and the input methods a seat's commands run.
+//! The client list, the attribution of a connecting client, the choice of
+//! display socket, and the input methods a seat's commands run.
 //!
 //! lunette's event loop owns the display and the listening socket, and the
 //! compositor state owns the clients, so `accept_connection`, `add_client`,
-//! and `cleanup_clients` are methods of the state, and a connection is
-//! accepted when the loop reports it rather than polled on each tick.
-//! [`listen`] returns the display name and writes neither the environment nor
-//! `wayvr.disp`; the application entry point exports the name. lunette serves
-//! several seats, so [`WayVRCompositor`] is one seat's view of the state, and
-//! upstream's input methods run against it. The satellite runs behind the
-//! process-spawning seam, in a process group that is stopped and reaped when
-//! it drops, which replaces upstream's `Drop` for the compositor. The
-//! compositor clock replaces the wall clock for timestamps. Upstream's
-//! `release_all_keys`, `send_pointer_axis_wheel_accumulated`, and
-//! `cleanup_handles` are left out, because no lunette command needs them.
+//! and `cleanup_clients` are methods of the state, and `crate::listener`
+//! accepts a connection when the loop reports it rather than polling on each
+//! tick. The listener writes neither the environment nor `wayvr.disp`.
+//! lunette serves several seats, so [`WayVRCompositor`] is one seat's view of
+//! the state, and upstream's input methods run against it. `crate::satellite`
+//! starts and stops xwayland-satellite, which replaces upstream's spawn in
+//! `new` and its `Drop` for the compositor. The compositor clock replaces the
+//! wall clock for timestamps. Upstream's `release_all_keys`,
+//! `send_pointer_axis_wheel_accumulated`, and `cleanup_handles` are left out,
+//! because no lunette command needs them.
 
 use std::{
-    error::Error,
-    ffi::{OsStr, OsString},
-    fmt, io,
+    ffi::OsStr,
+    io,
     os::unix::net::UnixStream,
     path::PathBuf,
     sync::Arc,
@@ -39,7 +33,7 @@ use smithay::{
         keyboard::KeyboardHandle,
         pointer::{AxisFrame, ButtonEvent, MotionEvent, PointerHandle, RelativeMotionEvent},
     },
-    reexports::wayland_server::{self, BindError, protocol::wl_surface::WlSurface},
+    reexports::wayland_server::{self, protocol::wl_surface::WlSurface},
     utils::{Logical, Point, SerialCounter},
     wayland::socket::ListeningSocketSource,
 };
@@ -47,9 +41,9 @@ use tracing as log;
 
 use crate::{
     commands::KeymapUploadError,
-    protocol::{Argv, KeymapText, Pid, PointerButton, ProcessId},
-    spawn::{self, ChildProcess, DisplayEnvironment, ProcessSpawner, SpawnPlan},
-    thread::LoopData,
+    listener::ListenError,
+    protocol::{KeymapText, Pid, PointerButton, ProcessId},
+    spawn,
     wayvr::process::find_by_pid,
 };
 
@@ -76,109 +70,6 @@ pub(crate) struct WayVRCompositor<'a> {
     pub millis: u32,
     /// The compositor clock when the view was taken, in microseconds.
     pub micros: u64,
-}
-
-/// Owns the optional xwayland-satellite process.
-///
-/// Startup is best-effort. A missing executable is normal optional absence;
-/// other spawn failures warn. Wayland clients remain available in either case.
-#[derive(Default)]
-pub(crate) struct Satellite {
-    /// The child handle terminates and reaps the process group on drop, including
-    /// any `Xwayland` process the bridge started.
-    child: Option<Box<dyn ChildProcess>>,
-}
-
-impl fmt::Debug for Satellite {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Satellite")
-            .field("running", &self.child.is_some())
-            .finish()
-    }
-}
-
-impl Satellite {
-    /// Starts the bridge when configured.
-    ///
-    /// The compositor advertises `wl_compositor`, `wl_output`, `xdg_shell`, and
-    /// `wp_viewporter` before this call. The bridge receives the X11 display as
-    /// its positional argument and lunette's Wayland name in its environment.
-    pub(crate) fn start(
-        spawner: &mut dyn ProcessSpawner,
-        satellite: Option<&XwaylandSatellite>,
-        wayland_env: WaylandEnv,
-    ) -> Self {
-        let Some(satellite) = satellite else {
-            log::debug!("no xwayland-satellite was configured; x11 clients will not be served");
-            return Self::default();
-        };
-
-        let plan = SpawnPlan {
-            argv: Argv::new(
-                satellite.executable.clone(),
-                vec![OsString::from(wayland_env.display_num_string())],
-            ),
-            env: vec![(
-                OsString::from("WAYLAND_DISPLAY"),
-                OsString::from(wayland_env.wayland_display_num_string()),
-            )],
-            cwd: None,
-        };
-
-        match spawner.spawn(&plan) {
-            Ok(child) => {
-                log::info!(x11 = %wayland_env.display_num_string(), "started xwayland-satellite");
-                Self { child: Some(child) }
-            }
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                log::debug!(
-                    executable = %satellite.executable.display(),
-                    "optional xwayland-satellite is unavailable; serving wayland clients only"
-                );
-                Self::default()
-            }
-            Err(error) => {
-                log::warn!(
-                    %error,
-                    "could not start xwayland-satellite; check its installation and permissions; serving wayland clients only"
-                );
-                Self::default()
-            }
-        }
-    }
-
-    pub(crate) fn is_running(&self) -> bool {
-        self.child.is_some()
-    }
-
-    /// Polls the unregistered bridge and drops its handle after it exits.
-    ///
-    /// The process table does not wait for this child or report its outcome to
-    /// Lua. Polling here reaps it and removes the handle so its exit is logged
-    /// once.
-    pub(crate) fn poll(&mut self) {
-        let Some(child) = self.child.as_mut() else {
-            return;
-        };
-        if let Some(outcome) = child.poll() {
-            log::warn!(
-                ?outcome,
-                "xwayland-satellite stopped; x11 applications will not work"
-            );
-            self.child = None;
-        }
-    }
-}
-
-/// Inserts an accepted client and attributes it to a managed or external process.
-///
-/// Attribution runs before the client's initial `wl_registry` dispatch. If
-/// insertion fails, the stream is dropped because no protocol object exists for
-/// an error response.
-pub(crate) fn accept(data: &mut LoopData, stream: UnixStream) {
-    if let Err(e) = data.state.accept_connection(stream) {
-        log::error!("Failed to accept connection: {e}");
-    }
 }
 
 impl comp::Application {
@@ -369,7 +260,7 @@ impl WayVRCompositor<'_> {
         self.seat_pointer.frame(&mut self.state);
     }
 
-    pub fn send_pointer_axis_wheel_raw(&mut self, delta: WheelDelta) {
+    pub fn send_pointer_axis_wheel_raw(&mut self, delta: super::WheelDelta) {
         // 15 logical axis units for one wheel detent of 120 v120 units
         const AXIS_VALUE_PER_DETENT: f64 = 15.0;
 
@@ -407,10 +298,11 @@ impl WayVRCompositor<'_> {
     }
 }
 
-const STARTING_WAYLAND_ADDR_IDX: u32 = 20;
+pub(crate) const STARTING_WAYLAND_ADDR_IDX: u32 = 20;
 
-fn create_wayland_listener() -> Result<(WaylandEnv, ListeningSocketSource), ListenError> {
-    let mut env = WaylandEnv {
+pub(crate) fn create_wayland_listener() -> Result<(super::WaylandEnv, ListeningSocketSource), ListenError>
+{
+    let mut env = super::WaylandEnv {
         display_num: STARTING_WAYLAND_ADDR_IDX,
     };
 
@@ -448,293 +340,5 @@ pub fn bundled_executable(name: impl AsRef<std::path::Path>, appdir: Option<&OsS
     match appdir.filter(|appdir| !appdir.is_empty()) {
         Some(appdir) => PathBuf::from(appdir).join("usr").join("bin").join(name),
         None => PathBuf::from(name.as_ref()),
-    }
-}
-
-/// A wheel movement on each axis, in `wl_pointer.axis_value120` units, where
-/// one detent is 120.
-///
-/// Upstream's `hid::WheelDelta` carries the same values as `f32`.
-pub(crate) struct WheelDelta {
-    pub x: i32,
-    pub y: i32,
-}
-
-/// The display a bound socket serves, as a number shared by the Wayland and
-/// X11 names.
-///
-/// The number matches between the two names, but they belong to separate
-/// namespaces.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct WaylandEnv {
-    pub(crate) display_num: u32,
-}
-
-impl WaylandEnv {
-    pub fn wayland_display_num_string(&self) -> String {
-        // e.g. "wayland-20"
-        format!("wayland-{}", self.display_num)
-    }
-    pub fn display_num_string(&self) -> String {
-        // e.g. ":20"
-        format!(":{}", self.display_num)
-    }
-
-    /// Returns the display names that lunette passes to a spawned client.
-    #[must_use]
-    pub fn environment(self) -> DisplayEnvironment {
-        DisplayEnvironment {
-            wayland_display: OsString::from(self.wayland_display_num_string()),
-            x11_display: OsString::from(self.display_num_string()),
-        }
-    }
-}
-
-#[cfg(any(test, feature = "test-fakes"))]
-impl WaylandEnv {
-    /// Constructs a deterministic display name without binding a socket.
-    #[must_use]
-    pub fn for_test(display_num: u32) -> Self {
-        Self { display_num }
-    }
-}
-
-/// Binds the first available display socket and returns its event source and name.
-///
-/// The application calls this before starting the compositor thread. It exports
-/// the returned name after preserving the host display name.
-///
-/// # Errors
-///
-/// Returns [`ListenError`] when every candidate socket cannot be bound.
-pub fn listen() -> Result<(WaylandSocket, WaylandEnv), ListenError> {
-    let (wayland_env, listener) = create_wayland_listener()?;
-    Ok((WaylandSocket { source: listener }, wayland_env))
-}
-
-/// A bound listening socket source owned by the compositor thread.
-///
-/// The source is moved into that thread because calloop's event loop is not
-/// `Send`.
-pub struct WaylandSocket {
-    pub(crate) source: ListeningSocketSource,
-}
-
-impl fmt::Debug for WaylandSocket {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("WaylandSocket")
-            .field("name", &self.source.socket_name())
-            .finish()
-    }
-}
-
-/// Every candidate display socket was taken.
-#[derive(Debug)]
-pub struct ListenError {
-    /// The final bind failure, which preserves the underlying cause for error chaining.
-    cause: BindError,
-}
-
-impl fmt::Display for ListenError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "compositor: could not bind a wayland socket; wayland-{} through wayland-{} are all \
-             taken",
-            STARTING_WAYLAND_ADDR_IDX,
-            STARTING_WAYLAND_ADDR_IDX + 20
-        )
-    }
-}
-
-impl Error for ListenError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        Some(&self.cause)
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct XwaylandSatellite {
-    pub executable: PathBuf,
-}
-
-impl XwaylandSatellite {
-    /// Resolves the usual executable name from the optional AppImage root.
-    #[must_use]
-    pub fn resolve(appdir: Option<&OsStr>) -> Self {
-        Self {
-            executable: bundled_executable("xwayland-satellite", appdir),
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::{
-        io,
-        sync::{Arc, Mutex},
-    };
-
-    use pretty_assertions::assert_eq;
-    use tracing::{
-        Event, Level, Metadata, Subscriber,
-        span::{Attributes, Id, Record},
-    };
-
-    use super::*;
-    use crate::{spawn::SpawnError, testing::FakeSpawner};
-
-    #[derive(Clone, Default)]
-    struct Events(Arc<Mutex<Vec<Level>>>);
-
-    impl Subscriber for Events {
-        fn enabled(&self, _: &Metadata<'_>) -> bool {
-            true
-        }
-        fn new_span(&self, _: &Attributes<'_>) -> Id {
-            Id::from_u64(1)
-        }
-        fn record(&self, _: &Id, _: &Record<'_>) {}
-        fn record_follows_from(&self, _: &Id, _: &Id) {}
-        fn event(&self, event: &Event<'_>) {
-            self.0
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .push(*event.metadata().level());
-        }
-        fn enter(&self, _: &Id) {}
-        fn exit(&self, _: &Id) {}
-    }
-
-    struct RefusingSpawner(io::ErrorKind);
-
-    impl ProcessSpawner for RefusingSpawner {
-        fn spawn(&mut self, plan: &SpawnPlan) -> Result<Box<dyn ChildProcess>, SpawnError> {
-            Err(SpawnError::for_test(
-                plan.argv.program().to_owned(),
-                io::Error::new(self.0, "spawn refused"),
-            ))
-        }
-    }
-
-    #[test]
-    fn a_missing_optional_bridge_is_not_a_warning() {
-        assert_bridge_failure_level(io::ErrorKind::NotFound, Level::DEBUG);
-    }
-
-    #[test]
-    fn genuine_bridge_failures_still_warn() {
-        for kind in [
-            io::ErrorKind::PermissionDenied,
-            io::ErrorKind::InvalidInput,
-            io::ErrorKind::Other,
-        ] {
-            assert_bridge_failure_level(kind, Level::WARN);
-        }
-    }
-
-    fn assert_bridge_failure_level(kind: io::ErrorKind, level: Level) {
-        let events = Events::default();
-        let satellite = XwaylandSatellite::resolve(None);
-        let bridge = tracing::subscriber::with_default(events.clone(), || {
-            Satellite::start(&mut RefusingSpawner(kind), Some(&satellite), display())
-        });
-        assert!(!bridge.is_running());
-        assert_eq!(
-            *events.0.lock().unwrap_or_else(|error| error.into_inner()),
-            vec![level]
-        );
-    }
-
-    fn display() -> WaylandEnv {
-        WaylandEnv { display_num: 20 }
-    }
-
-    #[test]
-    fn a_display_name_has_both_forms() {
-        let name = display();
-
-        assert_eq!(name.wayland_display_num_string(), "wayland-20");
-        assert_eq!(name.display_num_string(), ":20");
-        assert_eq!(name.environment().wayland_display, OsStr::new("wayland-20"));
-        assert_eq!(name.environment().x11_display, OsStr::new(":20"));
-    }
-
-    #[test]
-    fn an_executable_is_taken_from_the_bundle_when_there_is_one() {
-        assert_eq!(
-            bundled_executable("xwayland-satellite", Some(OsStr::new("/tmp/appimage"))),
-            PathBuf::from("/tmp/appimage/usr/bin/xwayland-satellite")
-        );
-    }
-
-    #[test]
-    fn an_executable_falls_back_to_the_path_without_a_bundle() {
-        assert_eq!(
-            bundled_executable("xwayland-satellite", None),
-            PathBuf::from("xwayland-satellite")
-        );
-        assert_eq!(
-            bundled_executable("xwayland-satellite", Some(OsStr::new(""))),
-            PathBuf::from("xwayland-satellite"),
-            "an empty APPDIR is not a bundle, and joining it would produce /usr/bin"
-        );
-    }
-
-    #[test]
-    fn the_bridge_is_started_with_the_display_on_both_sides() {
-        let mut spawner = FakeSpawner::default();
-        let satellite = XwaylandSatellite {
-            executable: PathBuf::from("xwayland-satellite"),
-        };
-
-        let bridge = Satellite::start(&mut spawner, Some(&satellite), display());
-
-        let requested = spawner.log.requested();
-        assert_eq!(requested.len(), 1, "the bridge is started exactly once");
-        assert_eq!(
-            requested[0].argv.program(),
-            OsStr::new("xwayland-satellite")
-        );
-        assert_eq!(
-            requested[0].argv.arguments(),
-            [OsString::from(":20")],
-            "the X display number is positional"
-        );
-        assert_eq!(
-            requested[0].env,
-            [(
-                OsString::from("WAYLAND_DISPLAY"),
-                OsString::from("wayland-20")
-            )],
-            "the bridge is itself a wayland client of lunette"
-        );
-        assert!(bridge.child.is_some());
-    }
-
-    #[test]
-    fn nothing_is_started_when_no_bridge_is_configured() {
-        let mut spawner = FakeSpawner::default();
-
-        let bridge = Satellite::start(&mut spawner, None, display());
-
-        assert!(spawner.log.requested().is_empty());
-        assert!(bridge.child.is_none());
-    }
-
-    #[test]
-    fn an_unavailable_bridge_does_not_prevent_wayland_startup() {
-        let mut spawner = FakeSpawner::default();
-        spawner.log.refuse("no such file or directory");
-        let satellite = XwaylandSatellite {
-            executable: PathBuf::from("xwayland-satellite"),
-        };
-
-        let bridge = Satellite::start(&mut spawner, Some(&satellite), display());
-
-        assert!(
-            bridge.child.is_none(),
-            "the compositor carries on without an x11 bridge"
-        );
     }
 }
