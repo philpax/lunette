@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="lunette" viewBox="0 0 256 136" role="img" aria-label="lunette">
+  <title>lunette</title>
+  <!-- Colours are philpax.me's ink and accent (oklch hue 297), switched by the viewer's colour scheme. -->
+  <style>.lunette{color:#191423}.lunette .accent{fill:#5b26a3}@media (prefers-color-scheme:dark){.lunette{color:#e8e4ee}.lunette .accent{fill:#b29beb}}</style>
+  <g fill="currentColor">
+    <!-- Panes: the crescent between the circle at (128, 128) of radius 120 and the circle 120 below it of
+         radius 169.71, cut by gaps 16 wide at 60 and 120 degrees. The centre pane is the focused window. -->
+    <path d="M 248 128 A 120 120 0 0 0 194.79 28.31 L 163.74 82.1 A 169.71 169.71 0 0 1 248 128 Z"/>
+    <path class="accent" d="M 180.94 20.31 A 120 120 0 0 0 75.06 20.31 L 109.15 79.34 A 169.71 169.71 0 0 1 146.85 79.34 Z"/>
+    <path d="M 61.21 28.31 A 120 120 0 0 0 8 128 A 169.71 169.71 0 0 1 92.26 82.1 Z"/>
+    <!-- Hub: concentric with the panes' inner edge, one gap in. -->
+    <path d="M 31.95 128 A 153.71 153.71 0 0 1 224.05 128 Z"/>
+  </g>
+</svg>

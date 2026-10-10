@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" class="lunette" viewBox="0 0 895 140" role="img" aria-label="lunette">
+  <title>lunette</title>
+  <!-- lockup.svg with the light scheme's colours fixed, for pages that choose the variant themselves. -->
+  <style>.lunette{color:#191423}.lunette .accent{fill:#5b26a3}</style>
+  <g fill="currentColor">
+    <!-- The mark from mark.svg, scaled so its base sits on the baseline (y = 138) and its top meets the tops
+         of the t's (y = 14). -->
+    <g transform="matrix(1.033333 0 0 1.033333 -8.2667 5.7333)">
+      <path d="M 248 128 A 120 120 0 0 0 194.79 28.31 L 163.74 82.1 A 169.71 169.71 0 0 1 248 128 Z"/>
+      <path class="accent" d="M 180.94 20.31 A 120 120 0 0 0 75.06 20.31 L 109.15 79.34 A 169.71 169.71 0 0 1 146.85 79.34 Z"/>
+      <path d="M 61.21 28.31 A 120 120 0 0 0 8 128 A 169.71 169.71 0 0 1 92.26 82.1 Z"/>
+      <path d="M 31.95 128 A 153.71 153.71 0 0 1 224.05 128 Z"/>
+    </g>
+    <!-- The wordmark: n is an arch, u the same arch inverted, and the t's share a crossbar. -->
+    <path d="M304 138L304 0L321 0L321 138Z"/>
+    <path d="M347 38L364 38L364 94.6A28 30.38 0 0 0 420 94.6L420 38L437 38L437 94.6A45 45 0 0 1 347 94.6L347 38Z"/>
+    <path d="M463 138L463 81.4A45 45 0 0 1 553 81.4L553 138L536 138L536 81.4A28 30.38 0 0 0 480 81.4L480 138Z"/>
+    <path d="M667.87 91.8A47.5 51.6 0 1 0 657.93 119.77L646.14 108.03A30.5 36.98 0 0 1 590.16 91.8L667.87 91.8ZM591.09 78.2A30.5 36.98 0 0 1 649.91 78.2L591.09 78.2Z"/>
+    <path d="M694 138L694 51.6L678 51.6L678 38L694 38L694 14L711 14L711 38L751 38L751 14L768 14L768 38L790 38L790 51.6L768 51.6L768 138L751 138L751 51.6L711 51.6L711 138Z"/>
+    <path d="M894.87 91.8A47.5 51.6 0 1 0 884.93 119.77L873.14 108.03A30.5 36.98 0 0 1 817.16 91.8L894.87 91.8ZM818.09 78.2A30.5 36.98 0 0 1 876.91 78.2L818.09 78.2Z"/>
+  </g>
+</svg>
