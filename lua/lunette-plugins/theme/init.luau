@@ -144,10 +144,7 @@ local function build(context: plugin.Context, _settings: {}): Service
     end,
     onChanged = function(_self: Service, owner: contract.Owner, listener: contract.Listener): plugin.Effect
       context:checkOwner(owner)
-      plugin.rejectUnknownFields('theme onChanged', listener, { 'run' }, 2)
-      if type(listener.run) ~= 'function' then
-        error('theme onChanged: run is a function, not a ' .. type(listener.run), 2)
-      end
+      listeners.check('theme onChanged', listener)
       return changed:add(owner, listener.run)
     end,
     inspect = function(_self: Service): inspection.Snapshot

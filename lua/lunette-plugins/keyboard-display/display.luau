@@ -208,13 +208,7 @@ return function(context: plugin.Context, settings: config.Settings): contract.Se
       if not live() then
         error('keyboard-display onChanged: service is dead', 2)
       end
-      if type(listener) ~= 'table' then
-        error('keyboard-display onChanged: listener is a plain table', 2)
-      end
-      plugin.rejectUnknownFields('keyboard-display onChanged', listener, { 'run' }, 2)
-      if type(listener.run) ~= 'function' then
-        error('keyboard-display onChanged: run is a plain callback', 2)
-      end
+      listeners.check('keyboard-display onChanged', listener)
       return subscribers:add(owner, { run = listener.run })
     end,
   }

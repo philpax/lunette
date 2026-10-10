@@ -1,4 +1,4 @@
--- Extension functions are literal values unless their keys appear in the `evaluate` map.
+-- A function under a named property is evaluated against the window, and a function under any other key is a literal value.
 local lunette = require '@lunette'
 local rules = require '@lunette-contracts/rules'
 local policy = {}
@@ -107,29 +107,12 @@ function policy.checkProperties(value: unknown): rules.Properties
         or (kind ~= 'pose' and kind ~= 'number' and type(field) == kind)
       )
     then
-      error('rules: property ' .. key .. ' is a ' .. kind .. ' or evaluator, not a ' .. type(field))
+      error('rules: property ' .. key .. ' is a ' .. kind .. ' or function, not a ' .. type(field))
     end
   end
   for key in fields do
     if type(key) ~= 'string' then
       error('rules: a property key is a string, not a ' .. type(key))
-    end
-  end
-  if fields.evaluate ~= nil then
-    local evaluators = checkedTable(fields.evaluate, 'evaluate')
-    for key, evaluator in evaluators do
-      if type(key) ~= 'string' then
-        error('rules: an evaluator key is a string, not a ' .. type(key))
-      end
-      if type(evaluator) ~= 'function' then
-        error('rules: extension evaluator is not a function: ' .. key)
-      end
-      if named[key] or key == 'evaluate' then
-        error('rules: extension evaluator uses reserved property ' .. key)
-      end
-      if fields[key] ~= nil then
-        error('rules: property has both a literal and an evaluator: ' .. key)
-      end
     end
   end
   return value :: rules.Properties
@@ -193,23 +176,9 @@ end
 
 -- The applied properties were checked when their rule was registered or their source answered.
 function policy.layer(collected: rules.Properties, applied: rules.Properties): rules.Properties
-  local evaluators: { [string]: (lunette.Window, string) -> unknown } = {}
-  local previous: { read [string]: (lunette.Window, string) -> unknown } = collected.evaluate or {}
-  for key, evaluator in previous do
-    evaluators[key] = evaluator
-  end
   for key, value in pairs(applied) do
-    if key ~= 'evaluate' then
-      collected[key] = value
-      evaluators[key] = nil
-    end
+    collected[key] = value
   end
-  local incoming: { read [string]: (lunette.Window, string) -> unknown } = applied.evaluate or {}
-  for key, evaluator in incoming do
-    collected[key] = nil
-    evaluators[key] = evaluator
-  end
-  collected['evaluate'] = evaluators
   return collected
 end
 
@@ -217,15 +186,9 @@ function policy.evaluate(properties: rules.Properties, window: lunette.Window): 
   local given = (properties :: unknown) :: { [string]: unknown }
   local result: { [string]: unknown } = {}
   for key, value in given do
-    if key ~= 'evaluate' then
-      result[key] = if named[key] and type(value) == 'function'
-        then (value :: (lunette.Window, string) -> unknown)(window, key)
-        else value
-    end
-  end
-  local evaluators: { read [string]: (lunette.Window, string) -> unknown } = properties.evaluate or {}
-  for key, evaluator in evaluators do
-    result[key] = evaluator(window, key)
+    result[key] = if named[key] and type(value) == 'function'
+      then (value :: (lunette.Window, string) -> unknown)(window, key)
+      else value
   end
   return (result :: unknown) :: rules.Resolved
 end

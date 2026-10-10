@@ -408,10 +408,7 @@ local function create(context: plugin.Context): tags.Service
   end
 
   local function onChanged(_self: tags.Service, caller: Owner, listener: tags.ChangeListener): plugin.Effect
-    plugin.rejectUnknownFields('tags onChanged', listener, LISTENER_KEYS, 2)
-    if type(listener.run) ~= 'function' then
-      error('tags onChanged: run is a function, not a ' .. type(listener.run), 2)
-    end
+    listeners.check('tags onChanged', listener, LISTENER_KEYS)
     local wanted = listener.tag
     if wanted ~= nil then
       local record = records[wanted.name]

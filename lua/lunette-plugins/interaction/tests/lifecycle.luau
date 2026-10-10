@@ -29,17 +29,21 @@ test('a drop is emitted once while the listener sees the ending grab', function(
     self.pose:set(pose)
   end
   local drops = f.session:observe(require('@lunette-contracts/drops').capability)
-  local count = 0
+  local heard = {}
   drops.service:onDropped(drops.context, {
     run = function(event)
-      count += 1
+      heard[#heard + 1] = event
       expect.equal(event.pointer.grabbed, target, 'the listener can inspect the ending grab')
     end,
   })
   expect.truthy(pointer:beginGrab(target, lovr.math.newMat4()), 'the grab starts')
   expect.truthy(pointer:endGrab(), 'the grab ends')
-  expect.equal(count, 1, 'exactly one drop is emitted')
+  expect.equal(#heard, 1, 'exactly one drop is emitted')
+  expect.equal(heard[1].surface, target, 'the dropped surface')
+  expect.equal(heard[1].pointer, pointer, 'the dropping pointer')
   expect.equal(pointer.grabbed, nil, 'the grab clears')
+  expect.falsy(pointer:endGrab(), 'nothing is carried twice')
+  expect.equal(#heard, 1, 'a second end emits no drop')
   f:close()
 end)
 

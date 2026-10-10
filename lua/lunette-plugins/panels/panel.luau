@@ -7,6 +7,7 @@ local layer = require '@lunette-plugins/panels/layer'
 local shape = require '@lunette-plugins/panels/shape'
 local drawing = require '@lunette-plugins/panels/draw'
 local passState = require '@lunette-plugins/pass-state'
+local cleanup = require '@lunette-plugins/cleanup'
 local appearance = require '@lunette-plugins/panels/appearance'
 local vocabulary = require '@lunette-contracts/vocabulary'
 local frame = require '@lunette-plugins/panels/frame'
@@ -263,42 +264,35 @@ function panel.release(target: State): boolean
   target.hidden = false
   local mesh = target.mesh
   target.mesh, target.meshKey = nil, nil
-  local failures: { string } = {}
-  local function cleanup(run: () -> ()): ()
-    local ok, failure = pcall(run)
-    if not ok then
-      failures[#failures + 1] = tostring(failure)
-    end
-  end
-  cleanup(function(): ()
-    frame.clear(target)
-  end)
-  cleanup(function(): ()
-    drawing.clearOutline(target)
-  end)
-  cleanup(function(): ()
-    layer.release(target)
-  end)
+  local operations: { () -> () } = {
+    function(): ()
+      frame.clear(target)
+    end,
+    function(): ()
+      drawing.clearOutline(target)
+    end,
+    function(): ()
+      layer.release(target)
+    end,
+  }
   if mesh then
-    cleanup(function(): ()
+    operations[#operations + 1] = function(): ()
       mesh:release()
-    end)
+    end
   end
   for _, override in ipairs(overrides) do
     local effect = override.effect
     override.effect = nil
     if effect then
-      cleanup(function(): ()
+      operations[#operations + 1] = function(): ()
         effect:dispose()
-      end)
+      end
     end
   end
-  cleanup(function(): ()
+  operations[#operations + 1] = function(): ()
     target.host.removed(target)
-  end)
-  if #failures > 0 then
-    error('panels release: ' .. table.concat(failures, '; '), 0)
   end
+  cleanup.run('panels release', operations)
   return true
 end
 

@@ -31,7 +31,6 @@ type State = {
 }
 
 local REQUEST_KEYS: { string } = { 'window', 'properties', 'defaults' }
-local LISTENER_KEYS: { string } = { 'run' }
 
 local function report(message: string, level: ('info' | 'warn')?): ()
   local log = lovr.log
@@ -279,10 +278,7 @@ function service.build(context: plugin.Context, settings: Settings): contract.Se
       return result
     end,
     onPlaced = function(_self: contract.Service, owner: Owner, listener: contract.PlacedListener): plugin.Effect
-      plugin.rejectUnknownFields('placement onPlaced', listener, LISTENER_KEYS, 2)
-      if type(listener.run) ~= 'function' then
-        error('placement: onPlaced run is a function, not a ' .. type(listener.run), 2)
-      end
+      listeners.check('placement onPlaced', listener)
       return state.listeners:add(owner, listener.run)
     end,
   }

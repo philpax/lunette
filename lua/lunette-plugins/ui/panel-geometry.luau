@@ -8,7 +8,7 @@ local frameStyle = require '@lunette-plugins/theme/frame-style'
 local drawing = require '@lunette-plugins/theme/drawing'
 local geometry = require './geometry'
 local passState = require '@lunette-plugins/pass-state'
-local cleanup = require './cleanup'
+local cleanup = require '@lunette-plugins/cleanup'
 
 local panelGeometry = {}
 

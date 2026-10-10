@@ -38,7 +38,7 @@ The built-in providers:
 | `placement` | `lunette/placement` 1 | panels, rules, tags | `panelOptions` |
 | `adoption` | `lunette/adoption` 1 | panels, placement, rules | none |
 | `layouts` | `lunette/layouts` 1 | none | none |
-| `errors` | `lunette/errors` 1 | none | `window`, `maxKeys`, `history`, `clock` |
+| `errors` | `lunette/errors` 1 | none | `window`, `maxKeys` |
 | `pacing` | `lunette/pacing` 1 | none | `tuning` |
 | `scale` | `lunette/scale` 1 | none | `tuning` |
 

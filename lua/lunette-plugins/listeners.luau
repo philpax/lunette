@@ -6,6 +6,8 @@ local inspection = require '@lunette-contracts/inspection'
 
 local listeners = {}
 
+local RUN: { string } = { 'run' }
+
 export type Listeners<T> = {
   add: (self: Listeners<T>, owner: plugin.Owner, listener: T, details: inspection.Details?) -> plugin.Effect,
   inspect: (self: Listeners<T>, source: string) -> { inspection.Registration },
@@ -72,6 +74,16 @@ function listeners.new<T>(context: plugin.Context): Listeners<T>
       table.clear(entries)
     end,
   }
+end
+
+-- Checks a `{ run, ... }` listener table against its known fields. Each error names the caller of the service method
+-- that received the listener.
+function listeners.check(operation: string, listener: unknown, keys: { string }?): ()
+  plugin.rejectUnknownFields(operation, listener, keys or RUN, 3)
+  local run = (listener :: { [string]: unknown }).run
+  if type(run) ~= 'function' then
+    error(string.format('%s: run is a function, not a %s', operation, type(run)), 3)
+  end
 end
 
 return listeners

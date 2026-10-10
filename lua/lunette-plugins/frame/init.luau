@@ -348,7 +348,6 @@ local provider = plugin.provider<<Config, Settings, Service>> {
   build = build,
 }
 frame.definition = provider.definition
-frame.define = provider.define
 
 -- Starts from `lovr.load` and stops after quit handlers. `lovr.quit` always returns false.
 function frame.install(hooks: Hooks): ()

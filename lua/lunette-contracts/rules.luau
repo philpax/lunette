@@ -9,7 +9,6 @@ local rules = {}
 export type Owner = plugin.Owner
 
 export type Valued<T> = T | ((lunette.Window, string) -> T)
-export type Evaluators = { read [string]: (lunette.Window, string) -> unknown }
 
 export type Properties = {
   read pose: Valued<string | Mat4>?,
@@ -22,7 +21,6 @@ export type Properties = {
   read hidden: Valued<boolean>?,
   read adopt: Valued<boolean>?,
   read tags: Valued<{ read [number]: string }>?,
-  read evaluate: Evaluators?,
   [string]: unknown,
 }
 

@@ -2,8 +2,11 @@
 local lunette = require '@lunette'
 local contracts = require '@lunette-contracts/interaction'
 local vocabulary = require '@lunette-contracts/vocabulary'
+local cleanup = require '@lunette-plugins/cleanup'
 
 local input = {}
+
+local CLEANUP = 'interaction: pointer cleanup'
 
 type Pointer = contracts.Pointer
 type Surface = contracts.Surface
@@ -129,19 +132,6 @@ local function notify(surface: Surface, event: contracts.PointerEvent): ()
   local callback = surface.onPointer
   if callback then
     callback(surface, table.freeze(event))
-  end
-end
-
-function input.runInverses(inverses: { Inverse }): ()
-  local failures: { string } = {}
-  for _, inverse in ipairs(inverses) do
-    local ok, failure = pcall(inverse)
-    if not ok then
-      failures[#failures + 1] = tostring(failure)
-    end
-  end
-  if #failures > 0 then
-    error('interaction: pointer cleanup: ' .. table.concat(failures, '; '), 0)
   end
 end
 
@@ -284,7 +274,7 @@ function input.resolve(state: State, pointer: Pointer, surfaces: { read [number]
       end
     end
   end
-  input.runInverses(inverses)
+  cleanup.run(CLEANUP, inverses)
 end
 
 function input.observe(state: State, held: { read [Button]: boolean }): ()
@@ -401,7 +391,7 @@ function input.hover(
       end
     end
   end
-  input.runInverses(inverses)
+  cleanup.run(CLEANUP, inverses)
 end
 
 local function press(
@@ -469,7 +459,7 @@ function input.buttons(
   allowPress: boolean?
 ): ()
   local generation = state.generation
-  input.runInverses(input.releases(state, pointer, sample))
+  cleanup.run(CLEANUP, input.releases(state, pointer, sample))
   for _, button in ipairs(vocabulary.POINTER_BUTTONS) do
     if not host.live() or state.generation ~= generation then
       return
@@ -489,7 +479,7 @@ function input.setButton(state: State, pointer: Pointer, given: contracts.Button
   state.held[button] = if given.pressed then true else nil
   if not given.pressed then
     state.blocked[button] = nil
-    input.runInverses(detachButton(state, pointer, button, nil, true, true))
+    cleanup.run(CLEANUP, detachButton(state, pointer, button, nil, true, true))
   elseif not wasHeld and not state.blocked[button] and not state.quarantined then
     press(state, pointer, button, given.sink, given.surface, host)
   end

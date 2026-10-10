@@ -92,8 +92,7 @@ return plugin.consumer<<Config, Settings>> {
     })
 
     local shown: errors.Report? = nil
-    local recent = stream:recent()
-    shown = recent[#recent]
+    shown = stream:latest()
     stream:onReport(context, {
       run = function(report: errors.Report): ()
         shown = report

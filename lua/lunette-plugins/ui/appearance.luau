@@ -5,7 +5,7 @@ local records = require './panel-state'
 local theme = require './theme'
 local input = require './input'
 local draw = require './draw'
-local cleanup = require './cleanup'
+local cleanup = require '@lunette-plugins/cleanup'
 
 local appearance = {}
 

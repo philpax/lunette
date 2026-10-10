@@ -124,10 +124,7 @@ local function create(context: plugin.Context): contract.Service
     end,
     onChanged = function(_self: contract.Service, owner: contract.Owner, listener: contract.Listener): plugin.Effect
       context:checkOwner(owner)
-      plugin.rejectUnknownFields('menu onChanged', listener, { 'run' }, 2)
-      if type(listener.run) ~= 'function' then
-        error('menu onChanged: run is a function, not a ' .. type(listener.run), 2)
-      end
+      listeners.check('menu onChanged', listener)
       return changed:add(owner, listener.run)
     end,
     list = function(_self: contract.Service): { read [number]: contract.Descriptor }

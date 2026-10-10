@@ -8,9 +8,12 @@ local vocabulary = require '@lunette-contracts/vocabulary'
 local grab = require '@lunette-plugins/interaction/grab'
 local picking = require '@lunette-plugins/interaction/picking'
 local input = require '@lunette-plugins/interaction/input'
+local cleanup = require '@lunette-plugins/cleanup'
 local nativeFocus = require '@lunette-plugins/interaction/native-focus'
 local inspection = require '@lunette-contracts/inspection'
 local config = require '@lunette-plugins/interaction/config'
+
+local CLEANUP = 'interaction: pointer cleanup'
 
 type Service = contracts.Service
 type Pointer = contracts.Pointer
@@ -141,7 +144,7 @@ local function build(context: plugin.Context, settings: Settings): Service
       end
     end
     state.gripped = false
-    local ok, failure = pcall(input.runInverses, inverses)
+    local ok, failure = pcall(cleanup.run, CLEANUP, inverses)
     state.withdrawing = false
     if not ok then
       error(failure, 0)
@@ -154,7 +157,7 @@ local function build(context: plugin.Context, settings: Settings): Service
     end
     local inverses = input.detach(state, pointer, nil, 'grab', false)
     local generation = state.generation
-    input.runInverses(inverses)
+    cleanup.run(CLEANUP, inverses)
     if not live(state) or state.generation ~= generation or target.dead then
       return false
     end
@@ -204,10 +207,10 @@ local function build(context: plugin.Context, settings: Settings): Service
             endGrab(state, pointer)
           end,
           function()
-            input.runInverses(releases)
+            cleanup.run(CLEANUP, releases)
           end,
         }
-        input.runInverses(inverses)
+        cleanup.run(CLEANUP, inverses)
         return
       elseif state.scaling then
         carrying.scaleWith(pointer, frame.pose)
@@ -343,7 +346,7 @@ local function build(context: plugin.Context, settings: Settings): Service
       end
       local effect = cleanupEffect
       cleanupEffect = nil
-      input.runInverses {
+      cleanup.run(CLEANUP, {
         function()
           destroyRaw(reason)
         end,
@@ -352,7 +355,7 @@ local function build(context: plugin.Context, settings: Settings): Service
             effect:dispose()
           end
         end,
-      }
+      })
       return true
     end
     local methods = {
@@ -388,7 +391,7 @@ local function build(context: plugin.Context, settings: Settings): Service
       cancel = function(self: Pointer, target: Surface, reason: contracts.CancelReason)
         input.cancelReason(reason)
         if live(state) then
-          input.runInverses(input.detach(state, self, target, reason))
+          cleanup.run(CLEANUP, input.detach(state, self, target, reason))
         end
       end,
       withdraw = function(self: Pointer)
@@ -471,7 +474,7 @@ local function build(context: plugin.Context, settings: Settings): Service
           pointer:destroy()
         end
       end
-      input.runInverses(inverses)
+      cleanup.run(CLEANUP, inverses)
     end
   end)
 

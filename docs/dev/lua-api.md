@@ -128,7 +128,7 @@ Rule sources merge in ascending precedence, so a higher precedence wins. `vocabu
 
 ### Errors stream
 
-`lunette/errors` subscribes to `lunette.onError` for its activation, withholds identical reports for a window, and keeps a bounded history. `onReport` listeners receive each delivered report. A report raised while listeners run, such as a listener's own error, enters the history without being delivered, so a raising presenter cannot feed itself.
+`lunette/errors` subscribes to `lunette.onError` for its activation, withholds identical reports for a window, and keeps the latest report. `onReport` listeners receive each delivered report. A report raised while listeners run, such as a listener's own error, becomes the latest report without being delivered, so a raising presenter cannot feed itself.
 
 ### Frame pacing and output scale
 

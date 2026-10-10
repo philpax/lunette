@@ -10,7 +10,7 @@ local theme = require '@lunette-plugins/ui/theme'
 local appearance = require './appearance'
 local drawing = require './draw'
 local measurement = require './measurement-cache'
-local cleanup = require './cleanup'
+local cleanup = require '@lunette-plugins/cleanup'
 local protected = require '@lunette-plugins/protected'
 local vocabulary = require '@lunette-contracts/vocabulary'
 

@@ -23,7 +23,6 @@ local descriptor = schema.object {
   positionBeta = schema.default(nonnegative)(40),
   resetAfter = schema.default(positive)(0.2),
 }
-local overrides = schema.partial(descriptor)
 local ray = schema.object { origin = schema.vector(), direction = schema.vector() }
 local coefficient: (number, number) -> number
 local magnitude: (vector) -> number
@@ -99,4 +98,4 @@ magnitude = function(value: vector): number
   return length
 end
 
-return { schema = descriptor, overrides = overrides, resolve = aim.resolve, update = aim.update }
+return { schema = descriptor, resolve = aim.resolve, update = aim.update }

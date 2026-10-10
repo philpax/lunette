@@ -100,11 +100,7 @@ local function create(context: plugin.Context): contract.Service
       return table.freeze { name = name, continuous = registration.continuous }
     end,
     onChanged = function(_self: contract.Service, owner: contract.Owner, spec: contract.ChangedListener): plugin.Effect
-      plugin.rejectUnknownFields('layouts onChanged', spec, { 'run' }, 2)
-      local raw = (spec :: unknown) :: Raw
-      if type(raw.run) ~= 'function' then
-        error('layouts onChanged: run is a function, not a ' .. type(raw.run), 2)
-      end
+      listeners.check('layouts onChanged', spec)
       return heard:add(owner, spec.run)
     end,
   }

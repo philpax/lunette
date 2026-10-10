@@ -1,4 +1,4 @@
--- Each activation owns its history, limiter, listeners, and native error subscription. Reports received during delivery enter history without recursive delivery. See docs/dev/lua-api.md#errors-stream.
+-- Each activation owns its latest report, limiter, listeners, and native error subscription. A report received during delivery becomes the latest without recursive delivery. See docs/dev/lua-api.md#errors-stream.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
@@ -13,25 +13,16 @@ export type Service = contract.Service
 export type Settings = config.Settings
 export type Config = config.Config
 
-local LISTENER_KEYS: { string } = { 'run' }
-
 local function build(context: plugin.Context, settings: Settings): Service
   local limit = limiter.new(settings.window, settings.maxKeys)
-  local history: { contract.Report } = {}
+  local latest: contract.Report? = nil
   local reported = listeners.new<<(contract.Report) -> ()>>(context)
   local sequence = 0
   local delivering = false
 
-  local function remember(report: contract.Report): ()
-    history[#history + 1] = report
-    while #history > settings.history do
-      table.remove(history, 1)
-    end
-  end
-
   local function handle(message: string, traceback: string): ()
     -- Message and traceback together identify a repeated report.
-    local deliver, suppressed = limit:record(message .. '\n' .. traceback, settings.clock())
+    local deliver, suppressed = limit:record(message .. '\n' .. traceback, lovr.timer.getTime())
     if not deliver then
       return
     end
@@ -47,7 +38,7 @@ local function build(context: plugin.Context, settings: Settings): Service
       text = text,
       sequence = sequence,
     }
-    remember(report)
+    latest = report
     if delivering then
       return
     end
@@ -72,29 +63,19 @@ local function build(context: plugin.Context, settings: Settings): Service
         result[#result + 1] =
           inspection.registration('listener', 'errors.onError', context, nil, true, { nativeSubscription = true })
       end
-      return inspection.snapshot(
-        result,
-        { history = #history, sequence = sequence },
-        { 'limiter clock is not sampled' }
-      )
+      return inspection.snapshot(result, { sequence = sequence }, { 'limiter clock is not sampled' })
     end,
     onReport = function(_self: Service, owner: contract.Owner, listener: contract.Listener): plugin.Effect
-      if type(listener) ~= 'table' then
-        error('errors onReport: a listener is a table of fields, not a ' .. type(listener), 2)
-      end
-      plugin.rejectUnknownFields('errors onReport', listener, LISTENER_KEYS, 2)
-      if type(listener.run) ~= 'function' then
-        error('errors onReport: run is a function, not a ' .. type(listener.run), 2)
-      end
+      listeners.check('errors onReport', listener)
       return reported:add(owner, listener.run)
     end,
-    recent = function(_self: Service): { contract.Report }
-      return table.clone(history)
+    latest = function(_self: Service): contract.Report?
+      return latest
     end,
   }
   context:effect(function(): () -> ()
     return function(): ()
-      table.clear(history)
+      latest = nil
       reported:clear()
     end
   end)

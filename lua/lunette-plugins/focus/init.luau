@@ -6,6 +6,7 @@ local contract = require '@lunette-contracts/focus'
 local frame = require '@lunette-contracts/frame'
 local inspection = require '@lunette-contracts/inspection'
 local protected = require '@lunette-plugins/protected'
+local listeners = require '@lunette-plugins/listeners'
 local routes = require '@lunette-plugins/focus/routes'
 local validation = require '@lunette-plugins/focus/validation'
 local source = require '@lunette-plugins/focus/source'
@@ -22,13 +23,12 @@ type Entry = {
   dead: boolean,
   seatId: number?,
 }
-type Listener = { owner: contract.Owner, run: ((contract.Change) -> ())? }
 
 local function create(context: plugin.Context): Service
   local state = routes.new()
   local entries: { [contract.TargetHandle]: Entry } = {}
   local sources: { [contract.Source]: contract.Owner } = {}
-  local listeners: { Listener } = {}
+  local heard = listeners.new<<(contract.Change) -> ()>>(context)
   local recentSeat: lunette.Seat? = nil
   local failed = false
   local stopped = false
@@ -83,18 +83,11 @@ local function create(context: plugin.Context): Service
     if state.revision ~= revision then
       return
     end
-    for _, listener in ipairs(table.clone(listeners)) do
-      if listener.run and context:owns(listener.owner) then
-        protected.call('focus: listener ' .. plugin.ownerLabel(listener.owner), function(): ()
-          if listener.run then
-            listener.run(notification)
-          end
-        end)
-        if state.revision ~= revision then
-          return
-        end
-      end
-    end
+    heard:each('focus: listener', function(run: (contract.Change) -> ()): ()
+      run(notification)
+    end, function(): boolean
+      return state.revision == revision
+    end)
   end
   local function transition(entry: Entry?, blur: boolean): boolean
     if entry and not blur and not live(entry) then
@@ -244,9 +237,7 @@ local function create(context: plugin.Context): Service
   context:effect(function(): () -> ()
     return function(): ()
       stopped = true
-      for _, listener in ipairs(listeners) do
-        listener.run = nil
-      end
+      heard:clear()
       for input in pairs(table.clone(sources)) do
         input:destroy()
       end
@@ -255,7 +246,6 @@ local function create(context: plugin.Context): Service
         transition(entry, true)
       end
       table.clear(entries)
-      table.clear(listeners)
     end
   end)
 
@@ -276,21 +266,8 @@ local function create(context: plugin.Context): Service
     end,
     onChanged = function(_self: Service, owner: contract.Owner, listener: contract.Listener): plugin.Effect
       context:checkOwner(owner)
-      plugin.rejectUnknownFields('focus onChanged', listener, { 'run' }, 2)
-      if getmetatable(listener) ~= nil or type(listener.run) ~= 'function' then
-        error('focus onChanged: run is a plain callback', 2)
-      end
-      local entry: Listener = { owner = owner, run = listener.run }
-      return context:acquire(owner, function(): () -> ()
-        listeners[#listeners + 1] = entry
-        return function(): ()
-          entry.run = nil
-          local index = table.find(listeners, entry)
-          if index then
-            table.remove(listeners, index)
-          end
-        end
-      end)
+      listeners.check('focus onChanged', listener)
+      return heard:add(owner, listener.run)
     end,
     newSource = function(_self: Service, owner: contract.Owner, options: contract.SourceOptions?): contract.Source
       context:checkOwner(owner)
@@ -349,14 +326,8 @@ local function create(context: plugin.Context): Service
       local selected = current()
       local selectedTarget = selected and selected.target
       local seat = keymapSeat()
-      for _, entry in ipairs(listeners) do
-        result[#result + 1] = inspection.registration(
-          'listener',
-          'focus.onChanged',
-          entry.owner,
-          nil,
-          entry.run ~= nil and context:owns(entry.owner)
-        )
+      for _, registration in ipairs(heard:inspect 'focus.onChanged') do
+        result[#result + 1] = registration
       end
       local count = 0
       for _, owner in pairs(sources) do

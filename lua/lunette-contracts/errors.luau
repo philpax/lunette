@@ -1,4 +1,4 @@
--- The error stream rate-limits repeated reports, stores bounded history, and notifies listeners. The host logs errors independently.
+-- The error stream rate-limits repeated reports, keeps the latest report, and notifies listeners. The host logs errors independently.
 
 local plugin = require '@lunette-plugin'
 
@@ -24,7 +24,7 @@ local inspection = require '@lunette-contracts/inspection'
 export type Service = {
   read inspect: (Service) -> inspection.Snapshot,
   read onReport: (Service, Owner, Listener) -> plugin.Effect,
-  read recent: (Service) -> { Report },
+  read latest: (Service) -> Report?,
 }
 
 export type Capability = plugin.Capability<Service>

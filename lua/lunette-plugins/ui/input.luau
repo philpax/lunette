@@ -5,7 +5,7 @@ local ui = require '@lunette-contracts/ui'
 local records = require '@lunette-plugins/ui/panel-state'
 local geometry = require '@lunette-plugins/ui/geometry'
 local protected = require '@lunette-plugins/protected'
-local cleanup = require './cleanup'
+local cleanup = require '@lunette-plugins/cleanup'
 local panelGeometry = require './panel-geometry'
 local vocabulary = require '@lunette-contracts/vocabulary'
 

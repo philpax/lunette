@@ -441,7 +441,7 @@ stream:onReport(context, {
 })
 ```
 
-`errors:recent()` returns the retained reports, so a presenter that starts late can show them.
+`errors:latest()` returns the most recent report, so a presenter that starts late can show it.
 
 ## Saving the arrangement
 
