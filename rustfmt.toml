@@ -2,3 +2,6 @@ edition = "2024"
 style_edition = "2024"
 imports_granularity = "Crate"
 group_imports = "StdExternalCrate"
+# The upstream WayVR files keep upstream's formatting, so that a diff
+# against upstream shows only lunette's changes.
+ignore = ["crates/lunette-compositor/src/wayvr"]
