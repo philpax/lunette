@@ -26,10 +26,11 @@ use smithay::{
 };
 
 use crate::{
+    drag::ActiveDrag,
     keymap::{self, Keymap, KeymapError},
     protocol::{
-        KeyModifier, KeyboardConfig, KeymapConfig, KeymapDefaults, KeymapText, ModifierState,
-        PixelPoint, SeatId, SeatSnapshot, WindowId,
+        DragId, KeyModifier, KeyboardConfig, KeymapConfig, KeymapDefaults, KeymapText,
+        ModifierState, PixelPoint, PointerButton, SeatId, SeatSnapshot, WindowId,
     },
     wayvr::comp::Application,
 };
@@ -39,6 +40,8 @@ use crate::{
 #[derive(Default)]
 pub(crate) struct SeatRegistry {
     seats: Vec<SeatEntry>,
+    /// How many drags have started, which mints each drag's identifier.
+    drags: u64,
 }
 
 impl SeatRegistry {
@@ -105,6 +108,8 @@ impl SeatRegistry {
             keymap,
             uploaded: None,
             mouse: None,
+            pressed: Vec::new(),
+            drag: None,
         });
         self.seats
             .last()
@@ -124,6 +129,7 @@ impl SeatRegistry {
                 keymap: Arc::clone(entry.keymap().text()),
                 modifiers: held(entry.seat_keyboard.modifier_state()),
                 clipboard_bridge: bridge == Some(entry.id),
+                drag: entry.drag.as_ref().map(ActiveDrag::snapshot),
             })
             .collect()
     }
@@ -154,6 +160,21 @@ impl SeatRegistry {
             display.remove_global::<Application>(global);
         }
         Ok(())
+    }
+
+    pub(crate) fn iter(&self) -> impl Iterator<Item = &SeatEntry> {
+        self.seats.iter()
+    }
+
+    pub(crate) fn iter_mut(&mut self) -> impl Iterator<Item = &mut SeatEntry> {
+        self.seats.iter_mut()
+    }
+
+    /// Mints the identifier of a new drag. Identifiers are never reused.
+    pub(crate) fn mint_drag(&mut self) -> DragId {
+        self.drags = self.drags.saturating_add(1);
+        DragId::new(self.drags)
+            .unwrap_or_else(|| unreachable!("the counter starts at one and never decreases"))
     }
 
     pub(crate) fn get(&self, id: SeatId) -> Option<&SeatEntry> {
@@ -199,6 +220,11 @@ pub(crate) struct SeatEntry {
     uploaded: Option<Arc<KeymapText>>,
     /// The window and pixel position currently hovered by this seat's pointer.
     mouse: Option<MouseState>,
+    /// The window each held button was pressed on. Its release goes to the
+    /// same window, wherever the pointer has moved since.
+    pressed: Vec<(PointerButton, WindowId)>,
+    /// The drag this seat's pointer carries.
+    drag: Option<ActiveDrag>,
 }
 
 impl SeatEntry {
@@ -229,6 +255,42 @@ impl SeatEntry {
     pub(crate) const fn seat(&self) -> &Seat<Application> {
         &self.seat
     }
+
+    /// Records a press of `button` on `window`, or forgets it on release.
+    pub(crate) fn remember_press(
+        &mut self,
+        button: PointerButton,
+        window: WindowId,
+        pressed: bool,
+    ) {
+        self.pressed.retain(|(held, _)| *held != button);
+        if pressed {
+            self.pressed.push((button, window));
+        }
+    }
+
+    /// Whether `button` is held on `window`.
+    pub(crate) fn pressed_on(&self, button: PointerButton, window: WindowId) -> bool {
+        self.pressed.contains(&(button, window))
+    }
+
+    /// The window the earliest held button was pressed on.
+    pub(crate) fn pressed_window(&self) -> Option<WindowId> {
+        self.pressed.first().map(|(_, window)| *window)
+    }
+
+    pub(crate) const fn drag(&self) -> Option<&ActiveDrag> {
+        self.drag.as_ref()
+    }
+
+    pub(crate) const fn drag_mut(&mut self) -> Option<&mut ActiveDrag> {
+        self.drag.as_mut()
+    }
+
+    /// Replaces the drag this seat carries, returning the one it replaced.
+    pub(crate) const fn set_drag(&mut self, drag: Option<ActiveDrag>) -> Option<ActiveDrag> {
+        std::mem::replace(&mut self.drag, drag)
+    }
 }
 
 impl fmt::Debug for SeatEntry {
@@ -238,6 +300,8 @@ impl fmt::Debug for SeatEntry {
             .field("name", &self.seat.name())
             .field("keymap", &self.keymap)
             .field("mouse", &self.mouse)
+            .field("pressed", &self.pressed)
+            .field("drag", &self.drag)
             .finish()
     }
 }

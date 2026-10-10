@@ -52,6 +52,14 @@ The compositor owns hit-testing within a surface. Lua supplies a pixel coordinat
 
 Windows and mirrored monitors share the textured interface (`getTexture`) and the sink interface, so code that draws or points at a panel does not depend on where its pixels come from.
 
+## Drag and drop
+
+A client starts a drag from a press of a seat's pointer, with `wl_data_device.start_drag` quoting the press's serial, and smithay runs the drag as that pointer's grab. Lua moves the pointer between windows as it moves it for any other input, so the drag enters, moves over, and leaves each window under the pointer, and the release drops on the window under the pointer at that moment. A drag between two clients' windows works as one within a client, because both clients' data devices belong to the seat that carries it. Each seat carries its own drag, so two hands can drag at once.
+
+A release goes to the window its button was pressed on, wherever the pointer has moved since ([Input](input.md#drag-and-drop)). A drag released after the pointer has left every window drops nowhere and cancels its source. A drag whose window unmaps or closes, or whose data source the client destroys, is cancelled by the compositor, because Lua sends no release to a window that has gone. Destroying a seat cancels its drag.
+
+The seat snapshot reports the drag each seat carries: an identifier no other drag shares, and the icon the client gave it. The icon is a surface, so its buffers reach the frame thread as a window's do. The snapshot adds the icon's committed size and source crop, computed as a window's are, and where the icon's top-left corner sits relative to the pointer: at the pointer when the drag starts, moved by each `wl_surface.offset` the client commits. An icon without content is not reported. `crates/lunette-compositor/src/drag.rs` keeps the record.
+
 ## XWayland
 
 X11 applications run through the optional `xwayland-satellite`. The compositor starts one satellite bridge when it starts. A non-empty `APPDIR` selects `usr/bin/xwayland-satellite` inside that bundle; otherwise the spawner looks it up on `PATH`. A missing executable is logged at debug level and lunette continues without X11. Any other spawn failure, or a bridge that exits after starting, is logged as a warning naming the executable and the error. Every spawned child receives the bridge's `DISPLAY` beside `WAYLAND_DISPLAY`, with toolkit hints that select Wayland first. The `xwayland` spawn option is accepted and changes nothing.
@@ -99,7 +107,15 @@ The default output stays as the output for unassigned clients, because adopted c
 
 ### Window bookkeeping runs after dispatch, from WayVR's task queue
 
-The `xdg_shell` handlers queue a task for a new toplevel, a destroyed toplevel, a title change, and a minimize request, as WayVR's do, and the drag-and-drop handlers queue one when a drag starts and when it drops. The compositor thread drains the queue after each dispatch and before it flushes the clients, in `crates/lunette-compositor/src/commands/mod.rs`, where WayVR drains it on its tick. A new toplevel therefore becomes a window, and receives its initial configure, in the same loop iteration that created it, and reads its title and app id at that point. Registering the window inside the handler was rejected because it would rewrite the handlers that keep the vendored code diffable against WayVR. A toplevel whose client disconnects has no client to queue the task for, so its window is removed at once.
+The `xdg_shell` handlers queue a task for a new toplevel, a destroyed toplevel, a title change, and a minimize request, as WayVR's do. The compositor thread drains the queue after each dispatch and before it flushes the clients, in `crates/lunette-compositor/src/commands/mod.rs`, where WayVR drains it on its tick. A new toplevel therefore becomes a window, and receives its initial configure, in the same loop iteration that created it, and reads its title and app id at that point. Registering the window inside the handler was rejected because it would rewrite the handlers that keep the vendored code diffable against WayVR. A toplevel whose client disconnects has no client to queue the task for, so its window is removed at once.
+
+### A drag is recorded when its handler runs
+
+smithay's drag handlers name the seat, and lunette's seats are smithay's, so `begin_drag` and `end_drag` record the drag on that seat while the handler runs. WayVR's pointers share one seat, so it infers the pointer from the one that pressed last, which gives a drag to the wrong hand when the other presses in between, and it queues a task for its overlay. Queueing the record for the drain after dispatch was rejected, because a client commits its icon's first content and offset in the same dispatch as `start_drag`, and the commit would find no drag to belong to.
+
+### A drag is cancelled by moving its pointer onto nothing
+
+smithay has no call that cancels a drag, and unsetting its grab drops on whatever the drag is over. The compositor therefore first moves the seat's pointer onto nothing, which leaves the target and withdraws its offer, and then unsets the grab, which finds no target and cancels the source. The pointer then returns to the window Lua last put it over. The drain after each dispatch looks for drags to cancel, after it has removed the windows that dispatch closed.
 
 ### Upstream's files stay in their own directory
 
@@ -125,6 +141,8 @@ smithay's `send_frames_surface_tree` cannot rate-limit: it always sends to surfa
 
 There is no sandboxing.
 
-A client can start a drag, and the compositor tracks which seat owns it, but nothing reports the drag to Lua and nothing draws its icon.
+The seat snapshot reports a drag and its icon, but the Lua API does not expose them, and nothing draws the icon.
+
+A drag icon's subsurfaces are not reported, so only the icon's own surface can be drawn. WayVR draws the icon's whole surface tree.
 
 X11 window management semantics are whatever `xwayland-satellite` provides.

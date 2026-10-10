@@ -25,8 +25,11 @@ use smithay::{
             protocol::{wl_buffer, wl_output, wl_shm, wl_surface::WlSurface},
         },
     },
+    utils::{Logical, Size},
     wayland::{
-        compositor::with_states, shell::xdg::XdgToplevelSurfaceData, shm::with_buffer_contents,
+        compositor::{SurfaceData, with_states},
+        shell::xdg::XdgToplevelSurfaceData,
+        shm::with_buffer_contents,
     },
 };
 
@@ -301,17 +304,10 @@ impl Application {
     /// Records a window's committed size and source crop, mapping it on its
     /// first content.
     pub(crate) fn remember_committed_size(&mut self, surface: &WlSurface, id: SurfaceId) {
-        let Some((size, source_uv)) = with_states(surface, |states| {
-            SurfaceBufWithImage::get_from_surface(states)
-                .map(|buf| (buf.logical_size(states), buf.source_uv(states)))
-        }) else {
+        self.remember_drag_icon(surface);
+        let Some((size, source_crop)) = with_states(surface, committed_view) else {
             return;
         };
-        let [left, top, right, bottom] = source_uv.map(f64::from);
-        // `source_uv` clamps each edge into the buffer, and smithay refuses a
-        // source rectangle without a positive size, so the edges are ordered.
-        // The full buffer stands in if they ever were not.
-        let source_crop = SourceCrop::new(left, top, right, bottom).unwrap_or(SourceCrop::FULL);
         let bounds = self.output_bounds(
             self.windows
                 .by_surface(id)
@@ -438,6 +434,18 @@ pub(crate) fn copy_shm(buffer: &wl_buffer::WlBuffer) -> Result<(Vec<u8>, ShmLayo
         Ok(gathered) => gathered,
         Err(error) => Err(format!("could not read a shared-memory buffer: {error}")),
     }
+}
+
+/// A surface's committed size in surface coordinates and the part of its
+/// buffer it shows, or `None` while it has no content.
+pub(crate) fn committed_view(states: &SurfaceData) -> Option<(Size<i32, Logical>, SourceCrop)> {
+    let buffer = SurfaceBufWithImage::get_from_surface(states)?;
+    let [left, top, right, bottom] = buffer.source_uv(states).map(f64::from);
+    // `source_uv` clamps each edge into the buffer, and smithay refuses a
+    // source rectangle without a positive size, so the edges are ordered. The
+    // full buffer stands in if they ever were not.
+    let source_crop = SourceCrop::new(left, top, right, bottom).unwrap_or(SourceCrop::FULL);
+    Some((buffer.logical_size(states), source_crop))
 }
 
 #[cfg(test)]

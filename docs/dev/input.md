@@ -120,6 +120,10 @@ Tracking loss, pointer destruction, a dead or withdrawn surface, provider replac
 
 After cancellation, a held button cannot start a gesture until it is released and pressed again. After tracking loss, every button of that pointer stays blocked until one tracked sample reports them all up. Each pointer keeps its own capture state.
 
+## Drag and drop
+
+A native window starts a drag from a press, and the seat's pointer carries it wherever Lua moves the pointer next. The drag needs nothing beyond the ordinary routing: hovering a panel moves the seat's pointer onto that panel's sink, leaving a panel withdraws it, and the release goes to the sink the button was pressed on. The native layer accepts that release wherever the pointer is, and the drag drops on the window under the pointer at that moment, or on nothing. [Compositor](compositor.md#drag-and-drop) describes the drag itself.
+
 ## XR input
 
 lunette uses LÖVR's input API. `lovr.headset` provides poses, buttons, axes, and haptics. Gesture recognition, laser modes, and grab-to-move are Lua timing logic over that state.
@@ -139,6 +143,8 @@ With `XR_EXTX_overlay`, controller input reaches both the overlay and the applic
 Seats are multiple by default. Collapsing multiple seats to one is a small change in Lua; faking multiple seats over one, which WayVR does, is not possible to do well.
 
 One current route coexists with independent native seat focus. A stack that restores an older route on disposal was rejected, because the older target can belong to an ended interaction. Clearing every seat on a route change was rejected, because switching the input source must not destroy another seat's focus.
+
+A release is accepted on the sink its button was pressed on, wherever the seat's pointer is, and a press only on the sink the pointer is over. The pressed client holds smithay's implicit grab until the release, and a drag drops on it. Lua releases on the sink it pressed after its hover has moved to another panel or to nothing, so refusing that release, as other input to a sink the pointer is not over is refused, left the button held and a drag that never ended.
 
 Pointer cancellation is distinct from release, because a release can activate a control. Capture stays on the pressed surface so a drag does not move to another panel. Reacquired tracking requires an all-up sample, because lost tracking cannot tell which press edges happened meanwhile.
 

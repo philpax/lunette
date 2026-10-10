@@ -32,7 +32,10 @@ use wayland_protocols::wp::primary_selection::zv1::client::{
 
 use crate::{
     selection::SelectionKind,
-    test_client::{Driver, Global, TestClient},
+    test_client::{
+        Driver, Global, TestClient,
+        drag::{DragEvent, SourceEvent},
+    },
     testing::{DEADLINE, TestCompositor},
 };
 
@@ -179,7 +182,7 @@ impl TestClient {
     }
 
     /// Binds an advertised interface at the lower of the compositor and client-supported versions.
-    fn bind_global<I>(&mut self, interface: &str) -> I
+    pub(super) fn bind_global<I>(&mut self, interface: &str) -> I
     where
         I: Proxy + 'static,
         Driver: Dispatch<I, ()>,
@@ -308,7 +311,7 @@ pub fn read_to_end(pipe: OwnedFd) -> Vec<u8> {
 /// Creates the test transfer endpoints from a `UnixStream` pair because `std` has no pipe.
 /// The reader is nonblocking, the writer cannot receive data, and EOF occurs only after every
 /// writer descriptor is closed.
-fn pipe() -> (OwnedFd, OwnedFd) {
+pub(super) fn pipe() -> (OwnedFd, OwnedFd) {
     let (reader, writer) = UnixStream::pair().expect("a socket pair can always be made");
     reader
         .set_nonblocking(true)
@@ -328,13 +331,41 @@ impl Dispatch<WlDataDevice, ()> for Driver {
         _connection: &Connection,
         _handle: &QueueHandle<Self>,
     ) {
-        match event {
-            wl_data_device::Event::DataOffer { id } => state.offers.push((id.id(), Vec::new())),
-            wl_data_device::Event::Selection { id } => {
-                Self::selected(&mut state.clipboard, proxy.id(), id);
+        let device = proxy.id();
+        let recorded = match event {
+            wl_data_device::Event::DataOffer { id } => {
+                state.offers.push((id.id(), Vec::new()));
+                return;
             }
-            _ => {}
-        }
+            wl_data_device::Event::Selection { id } => {
+                Self::selected(&mut state.clipboard, device, id);
+                return;
+            }
+            wl_data_device::Event::Enter {
+                serial,
+                surface,
+                x,
+                y,
+                id,
+            } => {
+                if let Some(offer) = &id {
+                    state
+                        .drag_offers
+                        .push((device.clone(), serial, offer.clone()));
+                }
+                DragEvent::Enter {
+                    surface: surface.id(),
+                    x,
+                    y,
+                    offer: id.as_ref().map(Proxy::id),
+                }
+            }
+            wl_data_device::Event::Motion { x, y, .. } => DragEvent::Motion { x, y },
+            wl_data_device::Event::Leave => DragEvent::Leave,
+            wl_data_device::Event::Drop => DragEvent::Drop,
+            _ => return,
+        };
+        state.drags.push((device, recorded));
     }
 
     wayland_client::event_created_child!(Driver, WlDataDevice, [
@@ -360,19 +391,26 @@ impl Dispatch<WlDataOffer, ()> for Driver {
 impl Dispatch<WlDataSource, ()> for Driver {
     fn event(
         state: &mut Self,
-        _proxy: &WlDataSource,
+        proxy: &WlDataSource,
         event: wl_data_source::Event,
         (): &(),
         _connection: &Connection,
         _handle: &QueueHandle<Self>,
     ) {
-        match event {
+        let recorded = match event {
             wl_data_source::Event::Send { mime_type, fd } => {
                 state.sends.push((mime_type, fd));
+                return;
             }
-            wl_data_source::Event::Cancelled => state.cancelled = true,
-            _ => {}
-        }
+            wl_data_source::Event::Cancelled => {
+                state.cancelled = true;
+                SourceEvent::Cancelled
+            }
+            wl_data_source::Event::DndDropPerformed => SourceEvent::DropPerformed,
+            wl_data_source::Event::DndFinished => SourceEvent::Finished,
+            _ => return,
+        };
+        state.source_events.push((proxy.id(), recorded));
     }
 }
 

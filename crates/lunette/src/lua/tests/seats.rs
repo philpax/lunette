@@ -46,6 +46,7 @@ fn seat(raw: u64, name: &str, layout: &str) -> SeatSnapshot {
         // The default seat is the bridged one, which is the seat the compositor
         // starts with; a test that needs another constructs it with `seat`.
         clipboard_bridge: raw == 1,
+        drag: None,
     }
 }
 

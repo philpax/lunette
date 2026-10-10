@@ -378,6 +378,44 @@ pub struct SeatSnapshot {
     /// Whether this is the seat whose selections are the host desktop's. At most
     /// one seat is, because the host has one clipboard.
     pub clipboard_bridge: bool,
+    /// The drag this seat's pointer carries, if a client started one.
+    pub drag: Option<DragSnapshot>,
+}
+
+/// A drag a client started from a press of a seat's pointer.
+///
+/// It lasts until the seat's buttons are released, the window it started
+/// from goes away, its data source is destroyed, or its seat is destroyed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DragSnapshot {
+    /// Distinguishes this drag from the seat's earlier and later ones.
+    pub drag: DragId,
+    /// The image that follows the pointer. Absent when the client gave the
+    /// drag no icon or has not yet committed a buffer to it.
+    pub icon: Option<DragIcon>,
+}
+
+/// A drag icon's surface, with what drawing it at the pointer needs.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DragIcon {
+    pub surface: SurfaceId,
+    /// The size of the icon's content in surface coordinates, as
+    /// [`WindowSnapshot::size`] is a window's.
+    pub size: PixelSize,
+    /// The part of the buffer the icon shows.
+    pub source_crop: SourceCrop,
+    /// Where the icon's top-left corner sits relative to the pointer.
+    pub offset: SurfaceOffset,
+}
+
+/// A displacement in surface coordinates.
+///
+/// A drag icon starts with its top-left corner at the pointer, and each
+/// `wl_surface.offset` the client commits moves it by that much.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SurfaceOffset {
+    pub x: i32,
+    pub y: i32,
 }
 
 /// A virtual monitor in a snapshot.
@@ -710,6 +748,8 @@ identifier! {
     SinkId;
     OutputId;
     ProcessId;
+    /// One drag-and-drop operation, from its start to its drop or cancellation.
+    DragId;
 }
 
 #[cfg(test)]

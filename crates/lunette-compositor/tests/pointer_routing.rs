@@ -181,6 +181,59 @@ fn withdrawing_the_pointer_leaves_the_surface_it_had_entered() {
     );
 }
 
+#[test]
+fn a_release_reaches_the_pressed_window_after_the_pointer_has_moved_off_it() {
+    let (mut compositor, mut client) = with_one_window();
+    let pointer = client.open_pointer(&mut compositor);
+    let sink = only_window(&compositor).sink;
+
+    compositor.send(Command::Pointer {
+        seat: DEFAULT_SEAT,
+        sink,
+        position: PixelPoint::new(AIM.0, AIM.1),
+    });
+    compositor.send(Command::Button {
+        seat: DEFAULT_SEAT,
+        sink,
+        button: PointerButton::Left,
+        pressed: true,
+    });
+    // Lua withdraws the pointer from a panel it leaves, and releases on the
+    // sink it pressed.
+    compositor.send(Command::PointerLeave { seat: DEFAULT_SEAT });
+    compositor.send(Command::Button {
+        seat: DEFAULT_SEAT,
+        sink,
+        button: PointerButton::Left,
+        pressed: false,
+    });
+    client.settle(&mut compositor, |driver| {
+        driver.buttons(&pointer).len() == 2
+    });
+
+    assert_eq!(
+        client.driver().buttons(&pointer),
+        [(BTN_LEFT, true), (BTN_LEFT, false)]
+    );
+}
+
+#[test]
+fn a_release_without_a_press_is_refused_where_the_pointer_is_not() {
+    let (mut compositor, mut client) = with_one_window();
+    let pointer = client.open_pointer(&mut compositor);
+    let sink = only_window(&compositor).sink;
+
+    compositor.send(Command::Button {
+        seat: DEFAULT_SEAT,
+        sink,
+        button: PointerButton::Left,
+        pressed: false,
+    });
+    client.settle_quiet(&mut compositor);
+
+    assert_eq!(client.driver().buttons(&pointer), []);
+}
+
 /// Sets up a client with the default seat's pointer over its window.
 ///
 /// The pointer must enter a window before the client can receive an axis event.

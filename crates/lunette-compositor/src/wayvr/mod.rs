@@ -7,10 +7,11 @@
 //!
 //! This file keeps upstream's fragments that lunette uses: the state's
 //! construction from `WvrServerState::new`, the task queue the handlers fill,
-//! the drag-and-drop pointer tracking, and the per-surface buffer record.
-//! lunette's compositor thread drains the task queue after each dispatch,
-//! in `crate::commands`, where upstream's `tick_events` drained it into
-//! overlays. The overlay, IPC, input-capture, and process-spawning parts of
+//! and the per-surface buffer record. The drag-and-drop pointer tracking is
+//! replaced by the per-seat record in `crate::drag`, because lunette's seats
+//! are smithay's. lunette's compositor thread drains the task queue after
+//! each dispatch, in `crate::commands`, where upstream's `tick_events` drained
+//! it into overlays. The overlay, IPC, input-capture, and process-spawning parts of
 //! `WvrServerState`, `image_importer.rs`, `input_capture.rs`, and `time.rs`
 //! are left out; `crate::spawn` and the compositor clock replace the last
 //! two that lunette needs.
@@ -31,7 +32,7 @@ use smithay::{
         wayland_server::{
             self, DisplayHandle,
             backend::ClientId,
-            protocol::{wl_buffer, wl_surface::WlSurface},
+            protocol::wl_buffer,
         },
     },
     utils::{Logical, Size},
@@ -65,7 +66,7 @@ use crate::{
     config::{CompositorConfig, DEFAULT_OUTPUT, DEFAULT_SEAT, SEAT_NAME},
     output::OutputRegistry,
     pacing::FramePacer,
-    protocol::{KeyboardConfig, PixelSize, SeatId},
+    protocol::{KeyboardConfig, PixelSize},
     seat::SeatRegistry,
     selection::{HostEvents, SelectionBridge},
     spawn::{AdoptedIds, ProcessInspector, ProcessSpawner},
@@ -83,11 +84,6 @@ pub enum WayVRTask {
     DropToplevel(ClientId, ToplevelSurface),
     MinimizeRequest(ClientId, ToplevelSurface),
     TitleChange(ClientId, ToplevelSurface),
-    DndStarted {
-        icon: Option<WlSurface>,
-        pointer: SeatId,
-    },
-    DndDropped,
 }
 
 /// The tasks the handlers queue for the drain after dispatch.
@@ -281,9 +277,6 @@ impl Application {
             viewporter,
             no_server_decorations: HashSet::new(),
             pending_frame_callbacks: HashMap::new(),
-            vr_pointer: DEFAULT_SEAT,
-            pointer_button_owner: None,
-            dnd_pointer: None,
 
             environment: config
                 .display
@@ -326,19 +319,6 @@ impl Application {
 
         state.report_bridge();
         state
-    }
-
-    pub fn set_vr_pointer(&mut self, pointer: SeatId) {
-        self.vr_pointer = pointer;
-    }
-
-    pub fn set_vr_pointer_button(&mut self, pointer: SeatId, pressed: bool) {
-        self.vr_pointer = pointer;
-        if pressed {
-            self.pointer_button_owner = Some(pointer);
-        } else if self.dnd_pointer.is_none() && self.pointer_button_owner == Some(pointer) {
-            self.pointer_button_owner = None;
-        }
     }
 }
 

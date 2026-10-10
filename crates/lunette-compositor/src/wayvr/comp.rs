@@ -87,7 +87,7 @@ use crate::{
     output::OutputRegistry,
     pacing::FramePacer,
     protocol::{
-        ContentType, Event, ImportedBuffer, OutputId, PixelSize, ProcessId, SeatId, SurfaceId,
+        ContentType, Event, ImportedBuffer, OutputId, PixelSize, ProcessId, SurfaceId,
     },
     seat::{self, SeatRegistry},
     selection::{HostOffer, SelectionBridge, SelectionKind},
@@ -138,12 +138,6 @@ pub struct Application {
     /// The unanswered callbacks of each surface, keyed by the identifier that
     /// frame pacing uses.
     pub pending_frame_callbacks: HashMap<SurfaceId, Vec<wl_callback::WlCallback>>,
-    /// pointer that last drove the wvr_server mouse. used for DND
-    pub vr_pointer: SeatId,
-    /// pointer that produced the button press that correlates to DND serial
-    pub pointer_button_owner: Option<SeatId>,
-    /// pointer currently owning a DND grab
-    pub dnd_pointer: Option<SeatId>,
 
     pub config: CompositorConfig,
     /// Environment values passed to every spawned client.
@@ -521,20 +515,19 @@ impl BufferHandler for Application {
 impl ClientDndGrabHandler for Application {
     fn started(
         &mut self,
-        _source: Option<wl_data_source::WlDataSource>,
+        source: Option<wl_data_source::WlDataSource>,
         icon: Option<WlSurface>,
-        _seat: Seat<Self>,
+        seat: Seat<Self>,
     ) {
-        let pointer = self.pointer_button_owner.unwrap_or(self.vr_pointer);
-        self.dnd_pointer = Some(pointer);
-        self.wayvr_tasks
-            .send(WayVRTask::DndStarted { icon, pointer });
+        if let Some(pointer) = self.seats.id_of(&seat) {
+            self.begin_drag(pointer, source, icon);
+        }
     }
 
-    fn dropped(&mut self, _target: Option<WlSurface>, _validated: bool, _seat: Seat<Self>) {
-        self.dnd_pointer = None;
-        self.pointer_button_owner = None;
-        self.wayvr_tasks.send(WayVRTask::DndDropped);
+    fn dropped(&mut self, _target: Option<WlSurface>, _validated: bool, seat: Seat<Self>) {
+        if let Some(pointer) = self.seats.id_of(&seat) {
+            self.end_drag(pointer);
+        }
     }
 }
 

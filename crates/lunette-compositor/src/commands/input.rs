@@ -194,6 +194,7 @@ impl Application {
             return;
         }
 
+        self.cancel_drag(seat);
         self.move_pointer(seat, None);
         self.set_focus(seat, None);
         match self.seats.destroy(&self.display_handle, seat) {
@@ -234,7 +235,6 @@ impl Application {
         if let Some(entry) = self.seats.get_mut(seat) {
             entry.set_mouse(hovered);
         }
-        self.set_vr_pointer(seat);
 
         let global_pos = target.map_or(DVec2::new(-1.0, -1.0), |(_, position)| {
             DVec2::new(position.x, position.y)
@@ -273,6 +273,12 @@ impl Application {
         }
     }
 
+    /// Presses or releases a button over a sink.
+    ///
+    /// A press needs the seat's pointer over the sink. A release is also
+    /// accepted on the sink the button was pressed on, wherever the pointer
+    /// has moved since: the pressed client holds the pointer until the
+    /// release, and a drag drops on it.
     pub(crate) fn press_button(
         &mut self,
         seat: SeatId,
@@ -280,10 +286,24 @@ impl Application {
         button: PointerButton,
         pressed: bool,
     ) {
-        if !self.pointer_over(seat, sink, "a button was pressed") {
+        let window = self.windows.by_sink(sink).map(|window| window.id);
+        let held_here = !pressed
+            && window.is_some_and(|window| {
+                self.seats
+                    .get(seat)
+                    .is_some_and(|entry| entry.pressed_on(button, window))
+            });
+        let what = if pressed {
+            "a button was pressed"
+        } else {
+            "a button was released"
+        };
+        if !held_here && !self.pointer_over(seat, sink, what) {
             return;
         }
-        self.set_vr_pointer_button(seat, pressed);
+        if let (Some(window), Some(entry)) = (window, self.seats.get_mut(seat)) {
+            entry.remember_press(button, window, pressed);
+        }
         if let Some(mut compositor) = self.seat_view(seat) {
             compositor.send_pointer_button(button, pressed);
         }
@@ -356,7 +376,7 @@ impl Application {
 
     /// Takes the named seat's view of the state, which the input methods run
     /// against, with the compositor clock read once for its timestamps.
-    fn seat_view(&mut self, seat: SeatId) -> Option<WayVRCompositor<'_>> {
+    pub(crate) fn seat_view(&mut self, seat: SeatId) -> Option<WayVRCompositor<'_>> {
         let entry = self.seats.get(seat)?;
         let seat_keyboard = entry.seat_keyboard.clone();
         let seat_pointer = entry.seat_pointer.clone();

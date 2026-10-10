@@ -67,7 +67,10 @@ use wayland_protocols::{
     },
 };
 
-use crate::protocol::ScrollAxis;
+use crate::{
+    protocol::ScrollAxis,
+    test_client::drag::{DragEvent, SourceEvent},
+};
 
 #[derive(Debug, Default)]
 pub struct Driver {
@@ -115,6 +118,15 @@ pub struct Driver {
     /// closes it.
     pub(super) sends: Vec<(String, OwnedFd)>,
     pub(super) cancelled: bool,
+    /// Drag-and-drop events keyed by the data device that received each one,
+    /// in arrival order.
+    pub(super) drags: Vec<(ObjectId, DragEvent)>,
+    /// Drag-and-drop events keyed by the data source that received each one,
+    /// in arrival order.
+    pub(super) source_events: Vec<(ObjectId, SourceEvent)>,
+    /// The offer each drag entered a data device with, and the enter serial
+    /// that accepting it quotes.
+    pub(super) drag_offers: Vec<(ObjectId, u32, WlDataOffer)>,
 }
 
 impl Driver {
@@ -352,7 +364,9 @@ impl Driver {
         self.events(pointer)
             .into_iter()
             .filter_map(|event| match event {
-                PointerEvent::Button { button, pressed } => Some((button, pressed)),
+                PointerEvent::Button {
+                    button, pressed, ..
+                } => Some((button, pressed)),
                 _ => None,
             })
             .collect()
@@ -436,6 +450,8 @@ pub enum PointerEvent {
     Button {
         button: u32,
         pressed: bool,
+        /// The serial a client quotes to start a drag from this press.
+        serial: u32,
     },
     Leave {
         surface: ObjectId,
@@ -745,9 +761,15 @@ impl Dispatch<WlPointer, ()> for Driver {
                 x: surface_x,
                 y: surface_y,
             },
-            wl_pointer::Event::Button { button, state, .. } => PointerEvent::Button {
+            wl_pointer::Event::Button {
+                button,
+                state,
+                serial,
+                ..
+            } => PointerEvent::Button {
                 button,
                 pressed: state == wayland_client::WEnum::Value(ButtonState::Pressed),
+                serial,
             },
             wl_pointer::Event::Leave { surface, .. } => PointerEvent::Leave {
                 surface: surface.id(),

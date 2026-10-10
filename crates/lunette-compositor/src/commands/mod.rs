@@ -116,12 +116,10 @@ impl Application {
                     debug!("a client asked to be minimized; lunette leaves its panel to Lua");
                 }
                 WayVRTask::TitleChange(_client_id, toplevel) => self.remember_title(&toplevel),
-                WayVRTask::DndStarted { icon, pointer } => {
-                    debug!(seat = %pointer, icon = icon.is_some(), "a client started a drag");
-                }
-                WayVRTask::DndDropped => debug!("a client's drag ended"),
             }
         }
+        // A window the drain dropped may be the one a drag started from.
+        self.cancel_orphaned_drags();
     }
 
     /// Registers a new toplevel as a window and sends its initial configure.

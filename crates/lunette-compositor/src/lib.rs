@@ -6,6 +6,7 @@
 
 pub(crate) mod commands;
 pub mod config;
+pub(crate) mod drag;
 pub(crate) mod graphics;
 pub mod keymap;
 pub(crate) mod output;

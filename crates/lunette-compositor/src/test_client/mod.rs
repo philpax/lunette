@@ -16,6 +16,7 @@
               module is gated behind `cfg(test)` or the `test-fakes` feature"
 )]
 
+mod drag;
 mod driver;
 mod selection;
 
@@ -86,11 +87,13 @@ use wayland_protocols::{
 };
 
 pub use crate::test_client::{
+    drag::{DragEvent, DragSource, SourceEvent},
     driver::{Driver, Global, KeyboardEvent, PointerEvent},
     selection::{ClientSource, SelectionDevices, read_to_end},
 };
 use crate::{
     protocol::{ContentType, PixelSize},
+    test_client::selection::pipe,
     testing::{DEADLINE, TestCompositor},
 };
 
