@@ -493,6 +493,43 @@ impl Application {
     }
 }
 
+/// A client's output assignment, held in its client data because
+/// `GlobalDispatch::can_view` receives no compositor state. `ClientData` is
+/// `Send + Sync`, so the fields are locked for callbacks that may run outside
+/// the dispatching thread.
+impl ClientState {
+    /// Whether the client has disconnected, which a poisoned lock also implies.
+    #[must_use]
+    pub(crate) fn disconnected(&self) -> bool {
+        self.disconnected
+            .lock()
+            .map_or(true, |disconnected| *disconnected)
+    }
+
+    #[must_use]
+    pub(crate) fn output(&self) -> Option<OutputId> {
+        self.output.lock().ok().and_then(|output| *output)
+    }
+
+    /// Records the assignment before the client's first registry advertisement;
+    /// registry dispatch can then filter the initial globals by that assignment.
+    pub(crate) fn assign(&self, output: Option<OutputId>) {
+        if let Ok(mut held) = self.output.lock() {
+            *held = output;
+        }
+    }
+
+    /// Whether this client may see and bind an output's global.
+    ///
+    /// An assigned client sees exactly its assigned output. An unassigned client
+    /// sees the default output.
+    #[must_use]
+    pub(crate) fn sees_output(&self, output: OutputId) -> bool {
+        self.output()
+            .map_or(output == DEFAULT_OUTPUT, |assigned| assigned == output)
+    }
+}
+
 pub(crate) fn logical_size(size: PixelSize) -> Size<i32, Logical> {
     #[expect(
         clippy::cast_possible_wrap,

@@ -66,7 +66,7 @@ Upstream's `mod.rs` holds `WvrServerState`, which runs the whole backend from Wa
 |---|---|
 | `WvrServerState::new`, `WayVRTask`, the drag-and-drop pointer tracking, and `SurfaceBufWithImage` | `src/wayvr/mod.rs` |
 | `WaylandEnv` | `src/wayvr/client.rs` |
-| The size constraints read in `tick_events` | `src/wayvr/window.rs` |
+| The size constraints read in `tick_events` | `src/window.rs` |
 | The seat construction | `src/seat.rs` |
 | `configure_env` and `generate_auth_key` | `src/spawn/plan.rs` |
 | `spawn_process`, `add_external_process`, and the process tick in `tick_events` | `src/spawn/table.rs` |
@@ -76,11 +76,11 @@ The `wl_shm` repacking of `image_importer.rs` is in `crates/lunette/src/import/s
 
 ## What lunette changes in the ported files
 
-`comp.rs` keeps `Application`, its handler impls in upstream's order, and the `delegate_*!` macros. `Application` also holds what lunette's features need, in fields after upstream's: several seats and outputs, the host clipboard bridge, frame pacing, process attribution, and the ends of the event and snapshot transports. `commit` keeps upstream's match over the buffer type, but the images live on the frame thread, so each import is reported as an event and `SurfaceBufWithImage` keeps only the image's size. A buffer of an unknown type is released, and a retained dmabuf is released when anything else replaces it but not when the same buffer is committed again. The decoration handlers record the mode each toplevel asks for, as upstream does, and the window snapshot reports it. lunette adds `new_surface`, `destroyed`, `app_id_changed`, and the fractional-scale and content-type globals.
+`comp.rs` keeps `Application`, its handler impls in upstream's order, and the `delegate_*!` macros. `Application` also holds what lunette's features need, in fields after upstream's: several seats and outputs, the host clipboard bridge, frame pacing, process attribution, and the ends of the event and snapshot transports. `commit` keeps upstream's match over the buffer type, but the images live on the frame thread, so each import is reported as an event and `SurfaceBufWithImage` keeps only the image's size. A buffer of an unknown type is released, and a retained dmabuf is released when anything else replaces it but not when the same buffer is committed again. The `wl_shm` copy and the content-type conversion that `commit` calls are in `src/surface.rs`, and the accessors for the output assignment that `ClientState` carries are in `src/output.rs`. The decoration handlers record the mode each toplevel asks for, as upstream does, and the window snapshot reports it. lunette adds `new_surface`, `destroyed`, `app_id_changed`, and the fractional-scale and content-type globals.
 
 `mod.rs` keeps the state's construction, the `WayVRTask` queue the handlers fill, the drag-and-drop pointer tracking keyed by seat, and `SurfaceBufWithImage` in the surface data map, whose content a null-buffer commit clears. Its `logical_size` and `source_uv` are upstream's, read from the buffer extent after a quarter turn has exchanged its axes. lunette drains the task queue after each dispatch, in `src/commands/mod.rs`, where upstream drains it in `tick_events`. The drain sends a new toplevel's initial configure with the output's bounds only, where upstream's also carries a size and the activated state, and reads the title and app id at that point. A toplevel whose client has disconnected cannot queue its removal, so its window is removed at once.
 
-`window.rs` keeps `Window`, `WindowManager`, `PendingConfigure`, `CreateWindowParams`, the clamp, and the serial-checked `remember_committed_size`. Each window also carries the identifiers lunette mints for Lua, its output, its title and app id, its states, its content type, its source crop, and a snapshot. The client's size limits are read again at every commit rather than once at creation.
+`window.rs` keeps `Window`, `WindowManager`, `PendingConfigure`, `CreateWindowParams`, the clamp, and the serial-checked `remember_committed_size`. Each window also carries the identifiers lunette mints for Lua, its output, its title and app id, its states, its content type, and its source crop. lunette's methods over those fields, the window snapshot, and the lookups by lunette's identifiers are in `src/window.rs`. The client's size limits are read again at every commit rather than once at creation.
 
 `hit_test.rs` keeps `hit_target_at` and the surface-tree walk. Lua performs the ray intersection and hands down pixel coordinates ([docs/dev/input.md](../../docs/dev/input.md)), so the panel, UV, and image parts are left out, and the transforms are built without server-side decorations, which makes them the identity.
 
@@ -112,5 +112,5 @@ Each of these is a defect in WayVR at the recorded commit, fixed in lunette, and
 - `Drop for WayVRProcess` sends `SIGTERM` to the child's pid even after `try_wait` has reaped it, so it can signal an unrelated process that reused the pid. lunette never signals a reaped child.
 - `SurfaceBufWithImage::logical_size` ignores the buffer transform, so a quarter-turned buffer reports its axes exchanged. lunette exchanges them before computing the size, the source crop, and the viewport check.
 - `time.rs` reads `SystemTime`, which can go backwards, for Wayland timestamps, which must not. lunette reads a monotonic clock.
-- The popup commit path calls `popup.send_configure().expect("")`, so a client whose popup cannot be configured panics the compositor. lunette logs it.
+- The popup commit path calls `popup.send_configure().expect("initial configure failed")`, so a client whose popup cannot be configured panics the compositor. lunette logs it.
 - `comp.rs` delegates `wp_single_pixel_buffer_manager_v1` and handles the buffer type in `commit`, but never creates the global, so no client can create such a buffer. lunette creates it.

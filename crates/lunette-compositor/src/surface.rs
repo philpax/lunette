@@ -9,19 +9,25 @@
 //! supplies the seam used by device-free compositor tests.
 //!
 //! The bookkeeping a commit does for lunette's windows and the frame thread is
-//! here too: the content-type hint, the committed size, and the reports when a
-//! surface loses its content.
+//! here too: the content-type hint, the committed size, the reports when a
+//! surface loses its content, and the copy of a `wl_shm` buffer from its offset
+//! in the client's pool.
 
 use std::collections::HashMap;
 
 use smithay::{
     backend::allocator::dmabuf::Dmabuf,
-    reexports::wayland_server::{
-        Resource, Weak,
-        backend::ObjectId,
-        protocol::{wl_output, wl_shm, wl_surface::WlSurface},
+    reexports::{
+        wayland_protocols::wp::content_type::v1::server::wp_content_type_v1,
+        wayland_server::{
+            Resource, Weak,
+            backend::ObjectId,
+            protocol::{wl_buffer, wl_output, wl_shm, wl_surface::WlSurface},
+        },
     },
-    wayland::{compositor::with_states, shell::xdg::XdgToplevelSurfaceData},
+    wayland::{
+        compositor::with_states, shell::xdg::XdgToplevelSurfaceData, shm::with_buffer_contents,
+    },
 };
 
 use crate::{
@@ -368,6 +374,69 @@ impl Application {
             buffer.release();
         }
         self.report(Event::SurfaceGone { surface: id });
+    }
+}
+
+/// Converts the protocol's non-exhaustive content-type hint to lunette's closed
+/// set. Unknown future variants become [`ContentType::None`].
+pub(crate) fn protocol_content_type(reported: wp_content_type_v1::Type) -> ContentType {
+    match reported {
+        wp_content_type_v1::Type::Photo => ContentType::Photo,
+        wp_content_type_v1::Type::Video => ContentType::Video,
+        wp_content_type_v1::Type::Game => ContentType::Game,
+        _ => ContentType::None,
+    }
+}
+
+/// Copies a `wl_shm` buffer's own pixels out of the client's pool.
+///
+/// The buffer starts at its offset in the pool, and the pool must hold its
+/// whole stride and height from there. Only the buffer is copied, not the rest
+/// of the pool.
+pub(crate) fn copy_shm(buffer: &wl_buffer::WlBuffer) -> Result<(Vec<u8>, ShmLayout), String> {
+    let outcome = with_buffer_contents(buffer, |pointer, length, data| {
+        let Some(format) = ShmFormat::from_protocol(data.format) else {
+            return Err(format!("unsupported wl_shm format {:?}", data.format));
+        };
+
+        let size = match (u32::try_from(data.width), u32::try_from(data.height)) {
+            (Ok(width), Ok(height)) => PixelSize::new(width, height),
+            _ => return Err("a wl_shm buffer declared a negative size".to_owned()),
+        };
+        let Ok(stride) = u32::try_from(data.stride) else {
+            return Err("a wl_shm buffer declared a negative stride".to_owned());
+        };
+        let Ok(offset) = usize::try_from(data.offset) else {
+            return Err("a wl_shm buffer declared a negative offset".to_owned());
+        };
+
+        let needed = usize::try_from(stride)
+            .ok()
+            .and_then(|stride| stride.checked_mul(size.height as usize))
+            .and_then(|bytes| bytes.checked_add(offset))
+            .filter(|needed| *needed <= length);
+        let Some(needed) = needed else {
+            return Err("a wl_shm buffer is smaller than its own stride implies".to_owned());
+        };
+
+        // SAFETY: `with_buffer_contents` guarantees the pointer addresses
+        // `length` readable bytes of the client's pool for the duration of
+        // this call, and the bounds check above keeps the slice inside it.
+        let pixels = unsafe { std::slice::from_raw_parts(pointer.add(offset), needed - offset) };
+
+        Ok((
+            pixels.to_vec(),
+            ShmLayout {
+                size,
+                stride,
+                format,
+            },
+        ))
+    });
+
+    match outcome {
+        Ok(gathered) => gathered,
+        Err(error) => Err(format!("could not read a shared-memory buffer: {error}")),
     }
 }
 

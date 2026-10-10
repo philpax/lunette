@@ -31,7 +31,6 @@ use smithay::desktop::{
 use smithay::input::pointer::{CursorImageStatus, Focus};
 use smithay::input::{Seat, SeatHandler, SeatState};
 use smithay::reexports::calloop::{LoopHandle, LoopSignal, RegistrationToken};
-use smithay::reexports::wayland_protocols::wp::content_type::v1::server::wp_content_type_v1;
 use smithay::reexports::wayland_protocols::xdg::decoration::zv1::server::zxdg_toplevel_decoration_v1;
 use smithay::reexports::wayland_protocols::xdg::shell::server::xdg_toplevel;
 use smithay::reexports::wayland_protocols_misc::server_decoration::server::org_kde_kwin_server_decoration;
@@ -65,7 +64,7 @@ use smithay::wayland::shell::xdg::decoration::{XdgDecorationHandler, XdgDecorati
 use smithay::wayland::shell::xdg::{
     PopupSurface, PositionerState, ToplevelSurface, XdgShellHandler, XdgShellState,
 };
-use smithay::wayland::shm::{ShmHandler, ShmState, with_buffer_contents};
+use smithay::wayland::shm::{ShmHandler, ShmState};
 use smithay::wayland::single_pixel_buffer::{SinglePixelBufferState, get_single_pixel_buffer};
 use smithay::wayland::viewporter::ViewporterState;
 use smithay::{
@@ -84,7 +83,7 @@ use wayland_server::backend::{ClientData, ClientId, DisconnectReason};
 use wayland_server::protocol::wl_surface::WlSurface;
 
 use crate::{
-    config::{CompositorConfig, DEFAULT_OUTPUT},
+    config::CompositorConfig,
     output::OutputRegistry,
     pacing::FramePacer,
     protocol::{
@@ -93,7 +92,10 @@ use crate::{
     seat::{self, SeatRegistry},
     selection::{HostOffer, SelectionBridge, SelectionKind},
     spawn::{AdoptedIds, DisplayEnvironment, ProcessInspector, ProcessSpawner},
-    surface::{BufferImporter, BufferTransform, ShmFormat, ShmLayout, SurfaceRegistry},
+    surface::{
+        BufferImporter, BufferTransform, ShmFormat, ShmLayout, SurfaceRegistry, copy_shm,
+        protocol_content_type,
+    },
     thread::{EventSender, LoopData, SnapshotPublisher},
     wayvr::{
         client::{Satellite, WayVRClient},
@@ -575,52 +577,14 @@ impl SelectionHandler for Application {
     }
 }
 
-/// What lunette attaches to each connected client.
-///
-/// Stores the client output assignment because `GlobalDispatch::can_view`
-/// receives client data without compositor state.
 #[derive(Default)]
 pub struct ClientState {
     compositor_state: compositor::CompositorClientState,
-    /// Set by the disconnect callback, which may run on another thread.
-    disconnected: Arc<Mutex<bool>>,
-    /// The output this client is shown. `None` means the default output.
-    ///
-    /// `ClientData` is `Send + Sync`, so access is synchronized for callbacks
-    /// that may run outside the dispatching thread.
-    output: Mutex<Option<OutputId>>,
-}
-
-impl ClientState {
-    #[must_use]
-    pub fn disconnected(&self) -> bool {
-        self.disconnected
-            .lock()
-            .map_or(true, |disconnected| *disconnected)
-    }
-
-    #[must_use]
-    pub(crate) fn output(&self) -> Option<OutputId> {
-        self.output.lock().ok().and_then(|output| *output)
-    }
-
-    /// Records the assignment before the client's first registry advertisement;
-    /// registry dispatch can then filter the initial globals by that assignment.
-    pub(crate) fn assign(&self, output: Option<OutputId>) {
-        if let Ok(mut held) = self.output.lock() {
-            *held = output;
-        }
-    }
-
-    /// Whether this client may see and bind an output's global.
-    ///
-    /// An assigned client sees exactly its assigned output. An unassigned client
-    /// sees the default output.
-    #[must_use]
-    pub(crate) fn sees_output(&self, output: OutputId) -> bool {
-        self.output()
-            .map_or(output == DEFAULT_OUTPUT, |assigned| assigned == output)
-    }
+    pub disconnected: Arc<Mutex<bool>>,
+    /// The output this client is shown, read by `GlobalDispatch::can_view`,
+    /// which receives client data without compositor state. `None` means the
+    /// default output. lunette's accessors are in `crate::output`.
+    pub output: Mutex<Option<OutputId>>,
 }
 
 impl ClientData for ClientState {
@@ -629,9 +593,7 @@ impl ClientData for ClientState {
     }
 
     fn disconnected(&self, client_id: ClientId, reason: DisconnectReason) {
-        if let Ok(mut disconnected) = self.disconnected.lock() {
-            *disconnected = true;
-        }
+        *self.disconnected.lock().unwrap() = true;
         log::debug!("Client ID {client_id:?} disconnected. Reason: {reason:?}");
     }
 }
@@ -685,7 +647,7 @@ impl XdgShellHandler for Application {
     }
 
     fn grab(&mut self, surface: PopupSurface, seat: wl_seat::WlSeat, serial: Serial) {
-        log::debug!(
+        log::info!(
             "xdg_popup.grab: surface={:?} serial={:?}",
             surface.wl_surface().id(),
             serial
@@ -971,67 +933,4 @@ delegate_content_type!(Application);
 /// The commit refuses a buffer whose transform is unknown before it gets here.
 fn wl_transform_to_frame_transform(transform: wl_output::Transform) -> BufferTransform {
     BufferTransform::from_protocol(transform).unwrap_or_default()
-}
-
-/// Converts the protocol's non-exhaustive content-type hint to lunette's closed
-/// set. Unknown future variants become [`ContentType::None`].
-fn protocol_content_type(reported: wp_content_type_v1::Type) -> ContentType {
-    match reported {
-        wp_content_type_v1::Type::Photo => ContentType::Photo,
-        wp_content_type_v1::Type::Video => ContentType::Video,
-        wp_content_type_v1::Type::Game => ContentType::Game,
-        _ => ContentType::None,
-    }
-}
-
-/// Copies a `wl_shm` buffer's own pixels out of the client's pool.
-///
-/// The buffer starts at its offset in the pool, and the pool must hold its
-/// whole stride and height from there. Only the buffer is copied, not the rest
-/// of the pool.
-fn copy_shm(buffer: &wl_buffer::WlBuffer) -> Result<(Vec<u8>, ShmLayout), String> {
-    let outcome = with_buffer_contents(buffer, |pointer, length, data| {
-        let Some(format) = ShmFormat::from_protocol(data.format) else {
-            return Err(format!("unsupported wl_shm format {:?}", data.format));
-        };
-
-        let size = match (u32::try_from(data.width), u32::try_from(data.height)) {
-            (Ok(width), Ok(height)) => PixelSize::new(width, height),
-            _ => return Err("a wl_shm buffer declared a negative size".to_owned()),
-        };
-        let Ok(stride) = u32::try_from(data.stride) else {
-            return Err("a wl_shm buffer declared a negative stride".to_owned());
-        };
-        let Ok(offset) = usize::try_from(data.offset) else {
-            return Err("a wl_shm buffer declared a negative offset".to_owned());
-        };
-
-        let needed = usize::try_from(stride)
-            .ok()
-            .and_then(|stride| stride.checked_mul(size.height as usize))
-            .and_then(|bytes| bytes.checked_add(offset))
-            .filter(|needed| *needed <= length);
-        let Some(needed) = needed else {
-            return Err("a wl_shm buffer is smaller than its own stride implies".to_owned());
-        };
-
-        // SAFETY: `with_buffer_contents` guarantees the pointer addresses
-        // `length` readable bytes of the client's pool for the duration of
-        // this call, and the bounds check above keeps the slice inside it.
-        let pixels = unsafe { std::slice::from_raw_parts(pointer.add(offset), needed - offset) };
-
-        Ok((
-            pixels.to_vec(),
-            ShmLayout {
-                size,
-                stride,
-                format,
-            },
-        ))
-    });
-
-    match outcome {
-        Ok(gathered) => gathered,
-        Err(error) => Err(format!("could not read a shared-memory buffer: {error}")),
-    }
 }

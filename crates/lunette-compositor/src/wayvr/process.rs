@@ -28,6 +28,7 @@ use crate::{
 };
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct WayVRProcess {
     pub auth_key: AuthToken,
     pub child: Box<dyn ChildProcess>,
@@ -41,6 +42,7 @@ pub struct ExternalProcess {
 }
 
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum Process {
     Managed(WayVRProcess),     // Process spawned by WayVR
     External(ExternalProcess), // External process not directly controlled by us

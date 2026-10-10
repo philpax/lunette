@@ -22,5 +22,6 @@ pub mod testing;
 pub mod thread;
 pub(crate) mod type_text;
 pub(crate) mod wayvr;
+pub(crate) mod window;
 
 pub use wayvr::client;

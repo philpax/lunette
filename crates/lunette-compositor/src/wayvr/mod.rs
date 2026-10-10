@@ -57,7 +57,7 @@ use smithay::{
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet, VecDeque},
-    time::{Duration, Instant},
+    time::Instant,
 };
 use tracing as log;
 
@@ -311,7 +311,7 @@ impl Application {
             failing_uploads: std::cell::Cell::new((0, 0)),
             started: Instant::now(),
             #[cfg(any(test, feature = "test-fakes"))]
-            clock_offset: Duration::ZERO,
+            clock_offset: std::time::Duration::ZERO,
             events,
             snapshots,
             signal,

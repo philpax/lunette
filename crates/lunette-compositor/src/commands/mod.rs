@@ -32,17 +32,16 @@ use smithay::{
 use tracing::{debug, info};
 
 pub(crate) use crate::commands::input::KeymapUploadError;
+#[cfg(any(test, feature = "test-fakes"))]
+use crate::protocol::SeatId;
 use crate::{
     config::DEFAULT_OUTPUT,
     output::logical_size,
-    protocol::{Command, Event, PixelSize, SeatId, ToplevelState, ToplevelStates, WindowId},
+    protocol::{Command, Event, PixelSize, ToplevelState, ToplevelStates, WindowId},
     spawn,
     thread::SnapshotParts,
-    wayvr::{
-        WayVRTask,
-        comp::Application,
-        window::{CreateWindowParams, size_constraints},
-    },
+    wayvr::{WayVRTask, comp::Application, window::CreateWindowParams},
+    window::size_constraints,
 };
 
 impl Application {

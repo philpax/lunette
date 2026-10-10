@@ -194,7 +194,7 @@ impl comp::Application {
                 return false;
             };
 
-            if data.disconnected() {
+            if *data.disconnected.lock().unwrap() {
                 return false;
             }
 
