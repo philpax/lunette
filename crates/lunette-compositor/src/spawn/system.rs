@@ -1,11 +1,14 @@
-//! Adapted from the spawn and attribution fragments in WayVR
-//! (https://github.com/wayvr-org/wayvr), in backend/wayvr/process.rs and
-//! backend/wayvr/mod.rs, at commit
-//! 98f800c644719d3f23a20e50bd3237c29a8082cb.
-//! Copyright (c) the WayVR authors (galister, oo8dev). Licensed GPL-3.0-only.
+//! Linux-only: creates process groups with `setsid`, sets parent-death
+//! signalling with `prctl`, and configures non-blocking output pipes with
+//! `fcntl`.
 //!
-//! Linux-only: creates process groups with `setsid`, sets parent-death signalling with
-//! `prctl`, and configures non-blocking output pipes with `fcntl`.
+//! The spawner and child seams, and their system implementations.
+//!
+//! These replace the `std::process::Child` that WayVR's `WayVRProcess` holds.
+//! A child leads its own process group, receives `SIGTERM` if lunette dies,
+//! and has its output captured without blocking. Signals go to the whole group
+//! and never to a child that has been reaped, because the kernel can reuse its
+//! identifier. Dropping a running child terminates its group and reaps it.
 
 use std::{
     error::Error,
@@ -64,6 +67,14 @@ pub trait ChildProcess: Send {
     /// [`ChildProcess::poll`] returns an outcome. Reaping releases
     /// the process-group identifier for reuse.
     fn signal(&mut self, signal: ProcessSignal);
+}
+
+impl fmt::Debug for dyn ChildProcess {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ChildProcess")
+            .field("pid", &self.pid())
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

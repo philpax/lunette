@@ -8,10 +8,10 @@ pub mod client;
 pub mod keymap;
 pub(crate) mod output;
 pub(crate) mod pacing;
-pub mod process;
 pub mod protocol;
 pub(crate) mod seat;
 pub mod selection;
+pub mod spawn;
 pub mod state;
 pub mod surface;
 #[cfg(any(test, feature = "test-fakes"))]
@@ -23,5 +23,6 @@ pub(crate) mod type_text;
 /// Files adapted from WayVR's `backend/wayvr`, kept close to upstream's text.
 pub(crate) mod wayvr {
     pub(crate) mod hit_test;
+    pub(crate) mod process;
     pub(crate) mod window;
 }

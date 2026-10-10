@@ -20,16 +20,14 @@ use std::{
     fmt, io,
     os::unix::net::UnixStream,
     path::{Path, PathBuf},
-    sync::Arc,
 };
 
 use smithay::{reexports::wayland_server::BindError, wayland::socket::ListeningSocketSource};
 use tracing::{debug, info, warn};
 
 use crate::{
-    process::{ChildProcess, DisplayEnvironment, ProcessSpawner, SpawnPlan},
     protocol::Argv,
-    state::ClientState,
+    spawn::{ChildProcess, DisplayEnvironment, ProcessSpawner, SpawnPlan},
     thread::LoopData,
 };
 
@@ -169,14 +167,8 @@ impl Error for ListenError {
 /// insertion fails, the stream is dropped because no protocol object exists for
 /// an error response.
 pub(crate) fn accept(data: &mut LoopData, stream: UnixStream) {
-    let client = data
-        .display
-        .handle()
-        .insert_client(stream, Arc::new(ClientState::default()));
-
-    match client {
-        Ok(client) => data.state.attach_client(&client),
-        Err(error) => warn!(%error, "could not accept a client connection"),
+    if let Err(error) = data.state.accept_connection(stream) {
+        warn!(%error, "could not accept a client connection");
     }
 }
 
@@ -296,7 +288,10 @@ impl Satellite {
 
 #[cfg(test)]
 mod tests {
-    use std::{io, sync::Mutex};
+    use std::{
+        io,
+        sync::{Arc, Mutex},
+    };
 
     use pretty_assertions::assert_eq;
     use tracing::{
@@ -305,7 +300,7 @@ mod tests {
     };
 
     use super::*;
-    use crate::{process::SpawnError, testing::FakeSpawner};
+    use crate::{spawn::SpawnError, testing::FakeSpawner};
 
     #[derive(Clone, Default)]
     struct Events(Arc<Mutex<Vec<Level>>>);

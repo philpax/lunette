@@ -25,12 +25,12 @@ use tracing::{debug, error, info, warn};
 
 use crate::{
     client::{self, WaylandSocket},
-    process::{ProcFilesystem, ProcessInspector, ProcessSpawner, SystemSpawner},
     protocol::{
         Command, Event, Generation, OutputSnapshot, ProcessSnapshot, SeatSnapshot, Snapshot,
         WindowSnapshot,
     },
     selection::{HostEvent, HostEvents},
+    spawn::{ProcFilesystem, ProcessInspector, ProcessSpawner, SystemSpawner},
     state::{CompositorConfig, CompositorState, StateParts},
     surface::BufferImporter,
 };

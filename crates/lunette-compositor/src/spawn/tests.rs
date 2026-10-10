@@ -6,18 +6,30 @@
 use std::ffi::{OsStr, OsString};
 
 use pretty_assertions::assert_eq;
+use slotmap::DenseSlotMap;
 
 use crate::{
-    process::{
-        registry::{
-            AUTH_VARIABLE, AuthToken, ProcessRegistry, Report, SpawnRequest, TOKEN_BYTES,
-            decode_hex, find_environment_value, is_flatpak,
-        },
-        spawn::{DisplayEnvironment, SpawnError, SpawnPlan},
-    },
     protocol::{Argv, Pid, ProcessId, ProcessOutcome, ProcessSignal},
+    spawn::{
+        inspect::ProcessInspector,
+        plan::{AUTH_VARIABLE, AuthToken, SpawnRequest, TOKEN_BYTES, decode_hex, is_flatpak},
+        system::{DisplayEnvironment, SpawnError, SpawnPlan},
+        table::{AdoptedIds, Report, add_external_process, poll, snapshot, spawn_process},
+    },
     testing::{FakeInspector, FakeSpawner},
+    wayvr::process::{Process, ProcessHandle, find_by_pid, find_environment_value},
 };
+
+type Processes = DenseSlotMap<ProcessHandle, Process>;
+
+/// The identifier Lua sees for the process a connecting PID is attributed to.
+fn identify(
+    processes: &Processes,
+    pid: Pid,
+    inspector: &dyn ProcessInspector,
+) -> Option<ProcessId> {
+    find_by_pid(processes, pid, inspector).map(|handle| processes[handle].id())
+}
 
 #[test]
 fn spawn_errors_preserve_the_io_kind_for_optional_executables() {
@@ -59,14 +71,15 @@ fn value<'a>(plan: &'a SpawnPlan, key: &str) -> Option<&'a OsStr> {
 }
 
 fn spawn_into(
-    registry: &mut ProcessRegistry,
+    processes: &mut Processes,
     spawner: &mut FakeSpawner,
     id: ProcessId,
     parts: &[&str],
-) -> Result<(), SpawnError> {
+) -> Result<ProcessHandle, SpawnError> {
     let argv = argv(parts);
     let display = display();
-    registry.spawn(
+    spawn_process(
+        processes,
         spawner,
         SpawnRequest {
             process: id,
@@ -80,10 +93,10 @@ fn spawn_into(
 
 #[test]
 fn a_spawn_carries_the_display_and_the_toolkit_hints() {
-    let mut registry = ProcessRegistry::default();
+    let mut processes = Processes::with_key();
     let mut spawner = FakeSpawner::default();
 
-    spawn_into(&mut registry, &mut spawner, process(1), &["foot"])
+    spawn_into(&mut processes, &mut spawner, process(1), &["foot"])
         .expect("the fake spawner starts anything");
 
     let requested = spawner.log.requested();
@@ -106,11 +119,11 @@ fn a_spawn_carries_the_display_and_the_toolkit_hints() {
 
 #[test]
 fn two_spawns_get_different_tokens() {
-    let mut registry = ProcessRegistry::default();
+    let mut processes = Processes::with_key();
     let mut spawner = FakeSpawner::default();
 
-    spawn_into(&mut registry, &mut spawner, process(1), &["foot"]).expect("started");
-    spawn_into(&mut registry, &mut spawner, process(2), &["foot"]).expect("started");
+    spawn_into(&mut processes, &mut spawner, process(1), &["foot"]).expect("started");
+    spawn_into(&mut processes, &mut spawner, process(2), &["foot"]).expect("started");
 
     let requested = spawner.log.requested();
     let first = value(&requested[0], AUTH_VARIABLE).expect("a token");
@@ -120,11 +133,11 @@ fn two_spawns_get_different_tokens() {
 
 #[test]
 fn a_flatpak_launch_passes_its_environment_after_run() {
-    let mut registry = ProcessRegistry::default();
+    let mut processes = Processes::with_key();
     let mut spawner = FakeSpawner::default();
 
     spawn_into(
-        &mut registry,
+        &mut processes,
         &mut spawner,
         process(1),
         &["/usr/bin/flatpak", "run", "org.example.App", "--window"],
@@ -171,23 +184,23 @@ fn a_program_merely_named_flatpak_run_is_not_a_flatpak_launch() {
 
 #[test]
 fn a_caller_supplied_variable_overrides_a_toolkit_hint() {
-    let mut registry = ProcessRegistry::default();
+    let mut processes = Processes::with_key();
     let mut spawner = FakeSpawner::default();
     let argv = argv(&["foot"]);
     let display = display();
 
-    registry
-        .spawn(
-            &mut spawner,
-            SpawnRequest {
-                process: process(1),
-                argv: &argv,
-                env: &[(OsString::from("GDK_BACKEND"), OsString::from("x11"))],
-                cwd: None,
-                display: &display,
-            },
-        )
-        .expect("started");
+    spawn_process(
+        &mut processes,
+        &mut spawner,
+        SpawnRequest {
+            process: process(1),
+            argv: &argv,
+            env: &[(OsString::from("GDK_BACKEND"), OsString::from("x11"))],
+            cwd: None,
+            display: &display,
+        },
+    )
+    .expect("started");
 
     assert_eq!(
         value(&spawner.log.requested()[0], "GDK_BACKEND"),
@@ -198,33 +211,33 @@ fn a_caller_supplied_variable_overrides_a_toolkit_hint() {
 
 #[test]
 fn a_spawn_that_fails_registers_nothing() {
-    let mut registry = ProcessRegistry::default();
+    let mut processes = Processes::with_key();
     let mut spawner = FakeSpawner::default();
     spawner.log.refuse("no such file or directory");
 
-    let error = spawn_into(&mut registry, &mut spawner, process(1), &["not-a-program"])
+    let error = spawn_into(&mut processes, &mut spawner, process(1), &["not-a-program"])
         .expect_err("a refused spawn is an error");
 
     assert!(error.message().contains("not-a-program"));
     assert!(
-        registry.is_empty(),
+        processes.is_empty(),
         "a process that never ran is not tracked"
     );
-    assert!(registry.snapshot().is_empty());
+    assert!(snapshot(&processes).is_empty());
 }
 
 #[test]
 fn a_client_is_matched_by_its_connecting_pid_first() {
-    let mut registry = ProcessRegistry::default();
+    let mut processes = Processes::with_key();
     let mut spawner = FakeSpawner::default();
-    spawn_into(&mut registry, &mut spawner, process(7), &["foot"]).expect("started");
+    spawn_into(&mut processes, &mut spawner, process(7), &["foot"]).expect("started");
 
     let pid = spawner
         .log
         .pid(0)
         .expect("the fake spawner gave the child a pid");
     assert_eq!(
-        registry.identify(pid, &FakeInspector::default()),
+        identify(&processes, pid, &FakeInspector::default()),
         Some(process(7)),
         "the pid match must not need the environment at all"
     );
@@ -232,9 +245,9 @@ fn a_client_is_matched_by_its_connecting_pid_first() {
 
 #[test]
 fn a_client_behind_a_wrapper_is_matched_by_its_token() {
-    let mut registry = ProcessRegistry::default();
+    let mut processes = Processes::with_key();
     let mut spawner = FakeSpawner::default();
-    spawn_into(&mut registry, &mut spawner, process(7), &["sh"]).expect("started");
+    spawn_into(&mut processes, &mut spawner, process(7), &["sh"]).expect("started");
 
     let requested = spawner.log.requested();
     let token = value(&requested[0], AUTH_VARIABLE).expect("a token");
@@ -249,16 +262,16 @@ fn a_client_behind_a_wrapper_is_matched_by_its_token() {
 
     let grandchild = Pid::new(4242).expect("positive");
     assert_eq!(
-        registry.identify(grandchild, &environment),
+        identify(&processes, grandchild, &environment),
         Some(process(7))
     );
 }
 
 #[test]
 fn a_client_presenting_a_wrong_token_is_not_matched() {
-    let mut registry = ProcessRegistry::default();
+    let mut processes = Processes::with_key();
     let mut spawner = FakeSpawner::default();
-    spawn_into(&mut registry, &mut spawner, process(7), &["sh"]).expect("started");
+    spawn_into(&mut processes, &mut spawner, process(7), &["sh"]).expect("started");
 
     let environment = FakeInspector::default();
     for presented in [
@@ -270,7 +283,7 @@ fn a_client_presenting_a_wrong_token_is_not_matched() {
         environment.set_variable(4242, AUTH_VARIABLE, &presented);
 
         assert_eq!(
-            registry.identify(Pid::new(4242).expect("positive"), &environment),
+            identify(&processes, Pid::new(4242).expect("positive"), &environment),
             None,
             "a token of {presented:?} must not match"
         );
@@ -279,12 +292,12 @@ fn a_client_presenting_a_wrong_token_is_not_matched() {
 
 #[test]
 fn a_client_with_no_token_and_no_matching_pid_is_unknown() {
-    let registry = ProcessRegistry::default();
+    let processes = Processes::with_key();
     let environment = FakeInspector::default();
     environment.set_environment(4242, b"HOME=/home/somebody\0".to_vec());
 
     assert_eq!(
-        registry.identify(Pid::new(4242).expect("positive"), &environment),
+        identify(&processes, Pid::new(4242).expect("positive"), &environment),
         None,
         "an unmatched client is external, which the caller decides, not this"
     );
@@ -292,10 +305,14 @@ fn a_client_with_no_token_and_no_matching_pid_is_unknown() {
 
 #[test]
 fn an_adopted_process_is_reported_external_and_alive() {
-    let mut registry = ProcessRegistry::default();
-    let id = registry.adopt(Pid::new(4242).expect("positive"));
+    let mut processes = Processes::with_key();
+    let id = add_external_process(
+        &mut processes,
+        &mut AdoptedIds::default(),
+        Pid::new(4242).expect("positive"),
+    );
 
-    let snapshot = registry.snapshot();
+    let snapshot = snapshot(&processes);
     assert_eq!(snapshot.len(), 1);
     assert_eq!(snapshot[0].process, id);
     assert_eq!(snapshot[0].pid, Pid::new(4242));
@@ -305,32 +322,36 @@ fn an_adopted_process_is_reported_external_and_alive() {
 
 #[test]
 fn an_adopted_process_that_disappears_is_reported_once() {
-    let mut registry = ProcessRegistry::default();
-    let id = registry.adopt(Pid::new(4242).expect("positive"));
+    let mut processes = Processes::with_key();
+    let id = add_external_process(
+        &mut processes,
+        &mut AdoptedIds::default(),
+        Pid::new(4242).expect("positive"),
+    );
 
-    assert!(registry.poll(&FakeInspector::default()).is_empty());
+    assert!(poll(&mut processes, &FakeInspector::default()).is_empty());
 
     let gone = FakeInspector::default();
     gone.kill(4242);
-    let reports = registry.poll(&gone);
+    let reports = poll(&mut processes, &gone);
     assert_eq!(reports.len(), 1);
     assert!(matches!(reports[0], Report::Vanished { id: reported } if reported == id));
 
     assert!(
-        registry.poll(&gone).is_empty(),
+        poll(&mut processes, &gone).is_empty(),
         "a disappearance is reported once, not on every poll"
     );
-    assert!(registry.is_empty());
+    assert!(processes.is_empty());
 }
 
 #[test]
 fn a_child_that_has_exited_is_never_signalled_again() {
-    let mut registry = ProcessRegistry::default();
+    let mut processes = Processes::with_key();
     let mut spawner = FakeSpawner::default();
-    spawn_into(&mut registry, &mut spawner, process(1), &["foot"]).expect("started");
+    spawn_into(&mut processes, &mut spawner, process(1), &["foot"]).expect("started");
 
     spawner.log.finish(0, ProcessOutcome::Exited { code: 0 });
-    let reports = registry.poll(&FakeInspector::default());
+    let reports = poll(&mut processes, &FakeInspector::default());
     assert_eq!(reports.len(), 1, "the exit is reported: {reports:?}");
 
     // Reaping frees the child's process-group identifier for reuse. Signalling it afterward
@@ -341,7 +362,12 @@ fn a_child_that_has_exited_is_never_signalled_again() {
         "a reaped child's process group must not be signalled"
     );
 
-    registry.signal(process(1), ProcessSignal::Terminate);
+    if let Some(entry) = processes
+        .values_mut()
+        .find(|entry| entry.id() == process(1))
+    {
+        entry.kill(ProcessSignal::Terminate);
+    }
     assert_eq!(
         spawner.log.signals(0),
         Vec::new(),
@@ -352,10 +378,10 @@ fn a_child_that_has_exited_is_never_signalled_again() {
 #[test]
 fn a_child_that_is_still_running_is_asked_to_stop_when_the_registry_goes() {
     let mut spawner = FakeSpawner::default();
-    let mut registry = ProcessRegistry::default();
-    spawn_into(&mut registry, &mut spawner, process(1), &["foot"]).expect("started");
+    let mut processes = Processes::with_key();
+    spawn_into(&mut processes, &mut spawner, process(1), &["foot"]).expect("started");
 
-    drop(registry);
+    drop(processes);
 
     assert_eq!(
         spawner.log.signals(0),

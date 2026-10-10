@@ -11,6 +11,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use slotmap::DenseSlotMap;
 #[cfg(any(test, feature = "test-fakes"))]
 use smithay::input::pointer::CursorImageStatus;
 use smithay::{
@@ -55,7 +56,6 @@ use crate::{
     client::{DisplayName, Satellite, XwaylandSatellite},
     output::OutputRegistry,
     pacing::FramePacer,
-    process::{DisplayEnvironment, ProcessInspector, ProcessRegistry, ProcessSpawner},
     protocol::{
         Command, Event, KeyboardConfig, KeymapDefaults, OutputId, OutputMode, OutputScale,
         PixelSize, ProcessId, RefreshRate, SeatId, SurfaceId, ToplevelState, ToplevelStates,
@@ -63,10 +63,14 @@ use crate::{
     },
     seat::SeatRegistry,
     selection::{HostEvents, HostSelectionSource, SelectionBridge},
-    state::outputs::logical_size,
+    spawn::{self, AdoptedIds, DisplayEnvironment, ProcessInspector, ProcessSpawner},
+    state::{outputs::logical_size, processes::WayVRClient},
     surface::{BufferImporter, RetainedBuffers, SurfaceContent, SurfaceRegistry},
     thread::{EventSender, LoopData, SnapshotParts, SnapshotPublisher},
-    wayvr::window::{Window, WindowManager},
+    wayvr::{
+        process::{Process, ProcessHandle},
+        window::{Window, WindowManager},
+    },
 };
 
 /// The seat used when a command does not name a specific seat.
@@ -208,9 +212,10 @@ pub(crate) struct CompositorState {
     pub(super) buffers: RetainedBuffers<WlBuffer>,
     pub(super) contents: HashMap<SurfaceId, SurfaceContent>,
     pub(super) windows: WindowManager,
-    pub(super) processes: ProcessRegistry,
-    /// The process attributed to each connected client.
-    pub(super) clients: HashMap<ClientId, ProcessId>,
+    pub(super) processes: DenseSlotMap<ProcessHandle, Process>,
+    pub(super) adopted_ids: AdoptedIds,
+    /// Each connected client and the process it is attributed to.
+    pub(super) clients: Vec<WayVRClient>,
     pub(super) assignments: HashMap<ProcessId, OutputId>,
     /// The timer that reaps children and collects their output, present only
     /// while there is something to reap.
@@ -385,8 +390,9 @@ impl CompositorState {
             buffers: RetainedBuffers::default(),
             contents: HashMap::new(),
             windows: WindowManager::new(),
-            processes: ProcessRegistry::default(),
-            clients: HashMap::new(),
+            processes: DenseSlotMap::with_key(),
+            adopted_ids: AdoptedIds::default(),
+            clients: Vec::new(),
             assignments: HashMap::new(),
             process_poll: None,
             loop_handle,
@@ -527,7 +533,7 @@ impl CompositorState {
 
         self.snapshots.publish(SnapshotParts {
             windows,
-            processes: self.processes.snapshot(),
+            processes: spawn::snapshot(&self.processes),
             outputs: self.outputs.snapshot(),
             seats: self.seats.snapshot(self.selection.seat()),
         });

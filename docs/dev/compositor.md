@@ -64,7 +64,7 @@ local proc = lunette.spawn {
 
 ### Attribution
 
-A connecting client is attributed to a process so its output assignment applies. The connecting pid is often not the spawned child, because of shells, re-executing launchers, and Flatpak. lunette follows WayVR: each spawn receives a random 256-bit token in its environment, forwarded into Flatpak with `--env=`. On connect, the compositor reads the pid from the socket credentials, matches it against spawned processes, and otherwise looks for the token in `/proc/<pid>/environ`. `crates/lunette-compositor/src/process/registry.rs` implements it.
+A connecting client is attributed to a process so its output assignment applies. The connecting pid is often not the spawned child, because of shells, re-executing launchers, and Flatpak. lunette follows WayVR: each spawn receives a random 256-bit token in its environment, forwarded into Flatpak with `--env=`. On connect, the compositor reads the pid from the socket credentials, matches it against spawned and adopted processes, and otherwise looks for the token in `/proc/<pid>/environ`, read as bytes because an environment need not be UTF-8. `find_by_pid` in `crates/lunette-compositor/src/wayvr/process.rs` implements the match, and `accept_connection` in `crates/lunette-compositor/src/state/processes.rs` runs it for each connecting client.
 
 ### Adoption
 

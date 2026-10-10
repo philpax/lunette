@@ -1,14 +1,10 @@
-//! Adapted from the `get_process_env_value` fragment in WayVR's
-//! `backend/wayvr/process.rs`
-//! (https://github.com/wayvr-org/wayvr), at commit
-//! 98f800c644719d3f23a20e50bd3237c29a8082cb.
-//! Copyright (c) the WayVR authors (galister, oo8dev). Licensed GPL-3.0-only.
-//!
 //! Linux-only: reads `/proc/<pid>/environ` and checks `/proc/<pid>` metadata.
+//!
+//! The `/proc` seam behind client attribution and adopted-process liveness.
 
 use std::{fs, io};
 
-use crate::{process::registry::find_environment_value, protocol::Pid};
+use crate::{protocol::Pid, wayvr::process::get_process_env_value};
 
 /// Provides process observations for client attribution and adopted-process liveness.
 ///
@@ -39,8 +35,7 @@ pub struct ProcFilesystem;
 
 impl ProcessInspector for ProcFilesystem {
     fn read_environment(&self, pid: Pid, key: &str) -> io::Result<Option<Vec<u8>>> {
-        let raw = fs::read(format!("/proc/{pid}/environ"))?;
-        Ok(find_environment_value(&raw, key.as_bytes()))
+        get_process_env_value(pid, key)
     }
 
     fn is_running(&self, pid: Pid) -> bool {

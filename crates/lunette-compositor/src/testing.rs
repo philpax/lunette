@@ -35,20 +35,18 @@ use smithay::{
 
 pub use crate::selection::{FakeHost, FakeHostSource, HostCall};
 use crate::{
-    process::{
-        ChildProcess, Liveness, ProcessInspector, ProcessSpawner, SpawnError, SpawnPlan,
-        find_environment_value,
-    },
     protocol::{
         Command, Event, ImageHandle, ImportedImage, OutputId, Pid, PixelSize, ProcessOutcome,
         ProcessSignal, SeatId, Snapshot, Stream,
     },
+    spawn::{ChildProcess, Liveness, ProcessInspector, ProcessSpawner, SpawnError, SpawnPlan},
     state::{ClientState, CompositorConfig},
     surface::{BufferImporter, ImportFailed, PixelBuffer, ShmFormat, ShmLayout},
     thread::{
         COMMAND_CAPACITY, CommandSender, CompositorHandle, CompositorLoop, EVENT_CAPACITY,
         EventReceiver, EventSender, Ingredients, LoopData, SnapshotReader, build, snapshot_channel,
     },
+    wayvr::process::find_environment_value,
 };
 
 /// Maximum time to wait for a test condition.
@@ -178,16 +176,13 @@ impl TestCompositor {
             .set_nonblocking(true)
             .expect("a fresh socket accepts the flag");
 
+        // Accept the client as the listener does, so socket-pair clients
+        // receive the same process attribution as listener clients.
         let client = self
             .data
-            .display
-            .handle()
-            .insert_client(ours, Arc::new(ClientState::default()))
+            .state
+            .accept_connection(ours)
             .expect("the display accepts a client");
-
-        // Attach the client before returning it, so socket-pair clients receive
-        // the same process attribution as listener clients.
-        self.data.state.attach_client(&client);
 
         (theirs, client)
     }
