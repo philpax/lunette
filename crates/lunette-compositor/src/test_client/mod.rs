@@ -746,6 +746,16 @@ impl TestClient {
         self.settle_quiet(compositor);
     }
 
+    /// Acknowledges the toplevel's latest configure without committing. The next
+    /// commit applies it.
+    pub fn acknowledge_toplevel_configure(&mut self) {
+        let xdg_surface = self
+            .xdg_surface
+            .clone()
+            .expect("a toplevel was opened first");
+        self.acknowledge_configure(&xdg_surface);
+    }
+
     /// Acknowledges the latest configure; the protocol requires this before attaching a buffer.
     fn acknowledge_configure(&mut self, xdg_surface: &XdgSurface) {
         let Some(serial) = self.driver.configure_serial(xdg_surface) else {

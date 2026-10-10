@@ -39,7 +39,7 @@ The upstream path is relative to `wayvr/src/`. A file assembled from more than o
 | `backend/wayvr/comp.rs` (`CompositorHandler::commit`) | `src/state/commit.rs` |
 | `backend/wayvr/mod.rs` (the seat and pointer command paths), `backend/wayvr/client.rs` (the input methods) | `src/state/input.rs` |
 | `backend/wayvr/mod.rs` (the surface-buffer fragments) | `src/surface.rs` |
-| `backend/wayvr/window.rs`, `backend/wayvr/mod.rs` (the size-constraint fragment) | `src/window.rs` |
+| `backend/wayvr/window.rs` at `42e9deb54cc5c36037b49237867afa3dc4593f4a`, `backend/wayvr/mod.rs` (the size-constraint fragment) | `src/wayvr/window.rs` |
 | `backend/wayvr/mod.rs` (the seat construction fragment), `backend/wayvr/window.rs` (the hover state) | `src/seat.rs` |
 | `backend/wayvr/hit_test.rs` | `src/hit_test.rs` |
 | `backend/wayvr/client.rs` (`accept_connection` and `cleanup_clients`), `backend/wayvr/mod.rs` (the spawn fragment) | `src/state/processes.rs` |
@@ -85,7 +85,7 @@ Twenty-six files carry no header, and the check is `rg --files-without-match 'Po
 
 `input_capture.rs` is not ported. It grabs the host's own keyboard and pointer devices through libinput and evdev, which is host desktop integration rather than compositor work, and it belongs to no phase of v1.
 
-Parts of the ported files are deliberately dropped rather than translated: the single-pixel-buffer handling and the fractional-scale calls in `comp.rs`, and the `wayvr_ipc` packet conversions in `window.rs`. Each drop is recorded as a comment at the site it would otherwise have occupied.
+Parts of the ported files are deliberately dropped rather than translated: the single-pixel-buffer handling and the fractional-scale calls in `comp.rs`, and the `wayvr_ipc` packet conversions, the hover and keyboard-focus state, and the unused `visible`, `resizable`, and `checked_configure_size` in `window.rs`. Each drop is recorded as a comment at the site it would otherwise have occupied.
 
 ## House style
 

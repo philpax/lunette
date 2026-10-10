@@ -59,6 +59,9 @@ pretty_assertions = "=1.4.1"
 # a failing one to a minimal reproduction.
 proptest = "=1.11.0"
 serde = "=1.0.229"
+# The vendored compositor keeps WayVR's window storage, which is a slotmap. The
+# version matches the one smithay already pulls in.
+slotmap = "=1.1.1"
 smallvec = "=1.15.2"
 # `default-features = false` is set here, not at the member. The default
 # feature set includes libseat, libinput, udev, gbm, winit, and a GL

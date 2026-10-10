@@ -5,7 +5,7 @@
 //! Copyright (c) the WayVR authors (galister, oo8dev). Licensed GPL-3.0-only.
 //!
 
-use std::os::fd::OwnedFd;
+use std::{os::fd::OwnedFd, rc::Rc};
 
 use smithay::{
     backend::allocator::dmabuf::Dmabuf,
@@ -76,6 +76,7 @@ use crate::{
     seat,
     selection::{HostOffer, SelectionKind},
     state::compositor::{ClientState, CompositorState, toplevel_attribute, toplevel_state},
+    wayvr::window::{CreateWindowParams, size_constraints},
 };
 
 impl compositor::CompositorHandler for CompositorState {
@@ -220,7 +221,19 @@ impl XdgShellHandler for CompositorState {
         let id = self.surfaces.id_for(&wl_surface);
         let process = self.process_of(&wl_surface);
         let output = self.output_of(&wl_surface);
-        let window = self.windows.insert(surface, id, process, output, bounds);
+        let (min_size, max_size) = size_constraints(&surface, bounds);
+        let handle = self.windows.create_window(CreateWindowParams {
+            toplevel: Rc::new(surface),
+            process,
+            bounds,
+            min_size,
+            max_size,
+            size_x: 0,
+            size_y: 0,
+            surface: id,
+            output,
+        });
+        let window = self.windows.windows[handle].id;
         info!(%window, "a toplevel was created");
     }
 
@@ -228,14 +241,16 @@ impl XdgShellHandler for CompositorState {
         self.outputs.leave(surface.wl_surface());
         self.forget_surface(surface.wl_surface());
 
-        let Some(removed) = self.windows.remove(&surface) else {
+        let Some(removed) = self
+            .windows
+            .find_window_handle(&surface)
+            .and_then(|handle| self.windows.remove_window(handle))
+        else {
             return;
         };
         self.touch();
-        if removed.is_mapped() {
-            self.report(Event::WindowClosed {
-                window: removed.id(),
-            });
+        if removed.mapped {
+            self.report(Event::WindowClosed { window: removed.id });
         }
     }
 
@@ -248,8 +263,8 @@ impl XdgShellHandler for CompositorState {
             return;
         }
 
-        let window = tracked.id();
-        let title = tracked.title().unwrap_or_default().to_owned();
+        let window = tracked.id;
+        let title = tracked.title.clone().unwrap_or_default();
         self.touch();
         self.report(Event::TitleChanged { window, title });
     }

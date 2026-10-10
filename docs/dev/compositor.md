@@ -38,6 +38,8 @@ lunette forces server-side decorations through `xdg-decoration` and the KDE prot
 
 A window handle reports `title`, `appId`, its committed size, `opaque`, `contentType`, its input sink, and its output. It accepts `close`, `resize`, and `setFrameRate` requests. [The Lua API](lua-api.md#handles) lists the handle.
 
+A resize is clamped to the client's size limits and the output's logical bounds, as WayVR clamps it. The client's limits are read again at every commit. A maximum below 160 by 160 is raised to that floor, unless the output is smaller. The configure stays pending until the client commits with its serial acknowledged, and a request for the same size while it is pending is not sent again. A commit that has not acknowledged it leaves it pending.
+
 The compositor owns hit-testing within a surface. Lua supplies a pixel coordinate on a window, and the compositor resolves it to the toplevel, a subsurface, or a popup, honouring input regions. This is ported from WayVR's `hit_test.rs`.
 
 Windows and mirrored monitors share the textured interface (`getTexture`) and the sink interface, so code that draws or points at a panel does not depend on where its pixels come from.

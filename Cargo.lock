@@ -773,6 +773,7 @@ dependencies = [
  "lunette-compositor",
  "lunette-luau",
  "pretty_assertions",
+ "slotmap",
  "smallvec",
  "smithay",
  "subtle",

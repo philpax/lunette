@@ -15,6 +15,7 @@ use smithay::{
         compositor::{BufferAssignment, SurfaceAttributes, with_states},
         content_type::ContentTypeSurfaceCachedState,
         dmabuf::get_dmabuf,
+        shell::xdg::XdgToplevelSurfaceData,
         shm::with_buffer_contents,
     },
 };
@@ -22,7 +23,7 @@ use tracing::warn;
 
 use crate::{
     protocol::{ContentType, Event, ImportedBuffer, PixelSize, SurfaceId},
-    state::compositor::CompositorState,
+    state::{compositor::CompositorState, outputs::logical_size},
     surface::{BufferScale, BufferTransform, ShmFormat, ShmLayout, SurfaceContent},
 };
 
@@ -267,7 +268,7 @@ impl CompositorState {
         let bounds = self.output_bounds(
             self.windows
                 .by_surface(id)
-                .map_or(crate::state::DEFAULT_OUTPUT, crate::window::Window::output),
+                .map_or(crate::state::DEFAULT_OUTPUT, |window| window.output),
         );
         let Some(window) = self.windows.by_surface_mut(id) else {
             return;
@@ -275,10 +276,18 @@ impl CompositorState {
 
         // Size limits can change at any commit, so refresh them before sizing.
         window.refresh_constraints(bounds);
-        let change = window.remember_committed_size(content.logical_size());
-        let opened = change.mapped.then(|| window.id());
+        // Only a commit that acknowledged the pending configure settles it.
+        let configure_serial = with_states(window.toplevel.wl_surface(), |states| {
+            states
+                .data_map
+                .get::<XdgToplevelSurfaceData>()
+                .and_then(|data| data.lock().ok().and_then(|data| data.current_serial))
+        });
+        let opened = window.map().then_some(window.id);
+        let resized =
+            window.remember_committed_size(logical_size(content.logical_size()), configure_serial);
 
-        if change.is_visible() {
+        if opened.is_some() || resized {
             self.touch();
         }
         if let Some(window) = opened {
@@ -298,7 +307,7 @@ impl CompositorState {
         if let Some(window) = self.windows.by_surface_mut(id)
             && window.unmap()
         {
-            let window = window.id();
+            let window = window.id;
             self.report(Event::WindowClosed { window });
         }
 

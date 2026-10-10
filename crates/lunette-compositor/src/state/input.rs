@@ -31,7 +31,6 @@ use crate::{
     seat::{self, MouseState, SeatEntry},
     state::compositor::CompositorState,
     type_text::{self, TypePlan, TypeStep},
-    window::Window,
 };
 
 impl CompositorState {
@@ -89,7 +88,7 @@ impl CompositorState {
 
         let surface = match sink {
             Some(sink) => match self.windows.by_sink(sink) {
-                Some(window) => Some(window.toplevel().wl_surface().clone()),
+                Some(window) => Some(window.toplevel.wl_surface().clone()),
                 None => {
                     debug!(%sink, "focus was asked for a sink that is already gone");
                     return;
@@ -279,7 +278,7 @@ impl CompositorState {
 
         let hovered = target.and_then(|(sink, position)| {
             Some(MouseState {
-                hovered: self.windows.by_sink(sink)?.id(),
+                hovered: self.windows.by_sink(sink)?.id,
                 position,
             })
         });
@@ -311,7 +310,7 @@ impl CompositorState {
         position: PixelPoint,
     ) -> Option<(WlSurface, Point<f64, Logical>)> {
         let window = self.windows.by_sink(sink)?;
-        let toplevel = window.toplevel().wl_surface().clone();
+        let toplevel = window.toplevel.wl_surface().clone();
 
         let context = hit_test::context(&toplevel, window.size(), &|surface| {
             self.surfaces
@@ -413,7 +412,7 @@ impl CompositorState {
         let pointer = entry.pointer();
         let hovering = entry.mouse();
 
-        let Some(window) = self.windows.by_sink(sink).map(Window::id) else {
+        let Some(window) = self.windows.by_sink(sink).map(|window| window.id) else {
             debug!(%sink, "{what} over a sink that is already gone");
             return None;
         };

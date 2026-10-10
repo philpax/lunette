@@ -66,7 +66,7 @@ use crate::{
     state::outputs::logical_size,
     surface::{BufferImporter, RetainedBuffers, SurfaceContent, SurfaceRegistry},
     thread::{EventSender, LoopData, SnapshotParts, SnapshotPublisher},
-    window::{Window, WindowManager},
+    wayvr::window::{Window, WindowManager},
 };
 
 /// The seat used when a command does not name a specific seat.
@@ -384,7 +384,7 @@ impl CompositorState {
             surfaces: SurfaceRegistry::default(),
             buffers: RetainedBuffers::default(),
             contents: HashMap::new(),
-            windows: WindowManager::default(),
+            windows: WindowManager::new(),
             processes: ProcessRegistry::default(),
             clients: HashMap::new(),
             assignments: HashMap::new(),
@@ -484,7 +484,7 @@ impl CompositorState {
             debug!(%window, "a close was asked for a window that is already gone");
             return;
         };
-        tracked.toplevel().send_close();
+        tracked.toplevel.send_close();
     }
 
     /// Queues a toplevel size and state change.
@@ -500,7 +500,7 @@ impl CompositorState {
         let bounds = self.output_bounds(
             self.windows
                 .get(window)
-                .map_or(DEFAULT_OUTPUT, Window::output),
+                .map_or(DEFAULT_OUTPUT, |window| window.output),
         );
         let Some(tracked) = self.windows.get_mut(window) else {
             debug!(%window, "a configure was asked for a window that is already gone");
@@ -509,7 +509,7 @@ impl CompositorState {
 
         // Set the pending states before requesting the size, so both are sent
         // in the same configure.
-        tracked.toplevel().with_pending_state(|pending| {
+        tracked.toplevel.with_pending_state(|pending| {
             for state in states {
                 pending.states.set(protocol_state(*state));
             }

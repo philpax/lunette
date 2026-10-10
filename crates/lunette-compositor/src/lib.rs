@@ -21,4 +21,7 @@ pub mod test_client;
 pub mod testing;
 pub mod thread;
 pub(crate) mod type_text;
-pub mod window;
+/// Files adapted from WayVR's `backend/wayvr`, kept close to upstream's text.
+pub(crate) mod wayvr {
+    pub(crate) mod window;
+}

@@ -14,6 +14,9 @@ getrandom.workspace = true
 libc.workspace = true
 # Provides `closed_set!` without linking a Lua binding.
 lunette-luau.workspace = true
+# WayVR's `WindowManager` keys windows by slotmap handles; `src/wayvr/window.rs`
+# keeps that storage so the file diffs cleanly against upstream.
+slotmap.workspace = true
 smallvec.workspace = true
 # `desktop` provides `Window` and `PopupManager`. Keep `backend_vulkan` disabled:
 # lunette does not create a graphics device, and enabling it adds an unnecessary
