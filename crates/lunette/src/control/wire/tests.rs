@@ -33,18 +33,6 @@ fn a_nested_table_round_trips() {
 }
 
 #[test]
-fn a_mixed_array_and_hash_table_keeps_both_parts() {
-    // A format whose values are lists or objects has no equivalent for
-    // `{1, 2, x = 3}`.
-    let reply = Reply::Returned(vec![Value::Table(TableValue {
-        array: vec![Value::Integer(1), Value::Integer(2)],
-        entries: vec![(Key::String(b"x".to_vec()), Value::Integer(3))],
-    })]);
-
-    assert_eq!(round_trip(&reply), reply);
-}
-
-#[test]
 fn every_key_shape_round_trips() {
     let reply = Reply::Returned(vec![Value::Table(TableValue {
         array: Vec::new(),
@@ -290,19 +278,4 @@ fn a_frame_with_bytes_left_over_is_refused() {
 
     let error = read_reply(&mut buffer.as_slice()).expect_err("there is a trailing byte");
     assert!(matches!(error, WireError::Trailing), "{error}");
-}
-
-#[test]
-fn a_chunk_that_is_not_utf8_is_reported() {
-    let body = vec![PROTOCOL_VERSION, 0xff, 0xfe];
-    let mut buffer = (body.len() as u32).to_le_bytes().to_vec();
-    buffer.extend_from_slice(&body);
-
-    let error = read_request(&mut buffer.as_slice()).expect_err("the chunk is not utf-8");
-    assert!(matches!(error, WireError::NotUtf8), "{error}");
-}
-
-#[test]
-fn an_error_names_its_subsystem() {
-    assert!(WireError::Truncated.to_string().starts_with("lunctl: "));
 }

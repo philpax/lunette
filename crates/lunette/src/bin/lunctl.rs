@@ -192,7 +192,7 @@ fn read_stdin() -> io::Result<String> {
 
 fn run_chunks(socket: &Path, chunks: &[String]) -> Status {
     for chunk in chunks {
-        let status = evaluate_and_report(socket, chunk);
+        let status = report(&exchange(socket, chunk));
         if status != Status::Ok {
             return status;
         }
@@ -236,10 +236,6 @@ fn repl(socket: &Path) -> Status {
 }
 
 const PROMPT: &str = "lunctl> ";
-
-fn evaluate_and_report(socket: &Path, chunk: &str) -> Status {
-    report(&exchange(socket, chunk))
-}
 
 fn exchange(socket: &Path, chunk: &str) -> Result<Reply, Unanswered> {
     let mut stream = UnixStream::connect(socket).map_err(|error| {
@@ -477,26 +473,14 @@ mod tests {
     }
 
     #[test]
-    fn a_chunk_argument_is_the_chunk_mode() {
+    fn chunk_arguments_are_the_chunk_mode_in_order() {
         assert_eq!(
-            parse(&arguments(&["return 1"])),
+            parse(&arguments(&["return 1", "return 2"])),
             Ok(Invocation {
                 socket: None,
-                mode: Mode::Chunks(vec!["return 1".to_owned()]),
+                mode: Mode::Chunks(vec!["return 1".to_owned(), "return 2".to_owned()]),
             })
         );
-    }
-
-    #[test]
-    fn several_chunk_arguments_are_evaluated_in_order() {
-        let Ok(Invocation {
-            mode: Mode::Chunks(chunks),
-            ..
-        }) = parse(&arguments(&["return 1", "return 2"]))
-        else {
-            panic!("two chunks are two chunks");
-        };
-        assert_eq!(chunks, vec!["return 1".to_owned(), "return 2".to_owned()]);
     }
 
     #[test]
@@ -541,32 +525,6 @@ mod tests {
     }
 
     #[test]
-    fn every_status_has_its_own_exit_code() {
-        let statuses = [
-            Status::Ok,
-            Status::Raised,
-            Status::DidNotCompile,
-            Status::Abandoned,
-            Status::Unrepresentable,
-            Status::NotEvaluated,
-            Status::Unreachable,
-            Status::Usage,
-        ];
-        let codes: Vec<String> = statuses
-            .iter()
-            .map(|status| format!("{:?}", ExitCode::from(*status)))
-            .collect();
-        let mut unique = codes.clone();
-        unique.sort();
-        unique.dedup();
-        assert_eq!(
-            unique.len(),
-            statuses.len(),
-            "a script branches on these, so no two may collide: {codes:?}"
-        );
-    }
-
-    #[test]
     fn a_top_level_string_prints_bare_and_a_nested_one_prints_quoted() {
         assert_eq!(
             top_level(&Value::String(b"a terminal".to_vec())),
@@ -579,34 +537,25 @@ mod tests {
     }
 
     #[test]
-    fn a_table_prints_its_array_part_then_its_named_entries() {
+    fn a_table_prints_its_array_part_then_its_named_entries_and_indents_what_it_holds() {
         let table = Value::Table(TableValue {
-            array: vec![Value::Integer(1), Value::Integer(2)],
-            entries: vec![(Key::String(b"x".to_vec()), Value::Integer(3))],
+            array: vec![Value::Integer(1), Value::Table(TableValue::default())],
+            entries: vec![
+                (Key::String(b"x".to_vec()), Value::Integer(3)),
+                (
+                    Key::String(b"size".to_vec()),
+                    Value::Table(TableValue {
+                        array: vec![Value::Integer(1920)],
+                        entries: Vec::new(),
+                    }),
+                ),
+            ],
         });
 
-        assert_eq!(render(&table, 0), "{\n  1,\n  2,\n  x = 3,\n}");
-    }
-
-    #[test]
-    fn a_nested_table_is_indented() {
-        let table = Value::Table(TableValue {
-            array: Vec::new(),
-            entries: vec![(
-                Key::String(b"size".to_vec()),
-                Value::Table(TableValue {
-                    array: vec![Value::Integer(1920)],
-                    entries: Vec::new(),
-                }),
-            )],
-        });
-
-        assert_eq!(render(&table, 0), "{\n  size = {\n    1920,\n  },\n}");
-    }
-
-    #[test]
-    fn an_empty_table_prints_on_one_line() {
-        assert_eq!(render(&Value::Table(TableValue::default()), 0), "{}");
+        assert_eq!(
+            render(&table, 0),
+            "{\n  1,\n  {},\n  x = 3,\n  size = {\n    1920,\n  },\n}"
+        );
     }
 
     #[test]

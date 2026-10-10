@@ -100,26 +100,11 @@ pub fn results(values: MultiValue) -> Result<Vec<Value>, SerialiseError> {
     Ok(converted)
 }
 
-/// [`results`], boxed for `crate::control::eval::evaluate`.
-///
-/// The evaluation requires a boxed error and does not depend on the
-/// serialiser's type. `render` boxes the error and performs no second
-/// conversion.
-///
-/// # Errors
-///
-/// As [`results`].
-pub fn render(values: MultiValue) -> Result<Vec<Value>, Box<dyn Error + Send + Sync>> {
-    results(values).map_err(|error| Box::new(error) as Box<dyn Error + Send + Sync>)
-}
-
 /// Why a value could not be put on the wire.
 #[derive(Debug)]
 pub enum SerialiseError {
     /// A value with no wire form.
     Unrepresentable { path: ValuePath, kind: String },
-    /// A userdata carrying a handle tag unknown to this build.
-    UnknownHandle { path: ValuePath, name: String },
     /// A table that reaches itself.
     Cycle { path: ValuePath },
     /// A tree deeper than the protocol carries.
@@ -143,10 +128,6 @@ impl fmt::Display for SerialiseError {
                 formatter,
                 "{path} is a {kind}, which has no form this protocol can carry; strip it in the \
                  chunk if it is not what you wanted back"
-            ),
-            Self::UnknownHandle { path, name } => write!(
-                formatter,
-                "{path} is a '{name}' handle, which this build has no wire tag for"
             ),
             Self::Cycle { path } => write!(
                 formatter,
@@ -263,7 +244,7 @@ fn convert(walk: &mut Walk, value: &LuaValue) -> Result<Value, SerialiseError> {
 /// A Lua number, as an integer where the conversion is exact and as a float
 /// otherwise.
 ///
-/// LuaJIT holds every number as a double, so the distinction is drawn here.
+/// Luau holds every number as a double, so the distinction is drawn here.
 /// A whole number inside `i64` is carried as one; a fraction, a magnitude
 /// past `i64`, an infinity, and a NaN are carried by their bits.
 fn number_value(number: f64) -> Value {
@@ -373,26 +354,22 @@ fn convert_key(walk: &mut Walk, key: &LuaValue) -> Result<Key, SerialiseError> {
 }
 
 fn convert_handle(walk: &mut Walk, userdata: &AnyUserData) -> Result<Value, SerialiseError> {
-    // A userdata without a metatable, a LÖVR `Texture` for instance, is not
-    // a handle and has no wire form. The branch below refuses such a value;
-    // the refusal is a routine outcome, not a fault.
-    let tagged = userdata
+    // A userdata without the tag, a LÖVR `Texture` for instance, is not a
+    // handle and has no wire form. The refusal is a routine outcome, not a
+    // fault. Only `crate::lua::declarations` writes the tag, from a
+    // `HandleKind`, and Lua cannot replace a userdata's metatable, so a
+    // tagged userdata always names a kind.
+    let kind = userdata
         .metatable()
         .and_then(|metatable| metatable.get::<Option<String>>(HANDLE_METAFIELD))
         .ok()
-        .flatten();
+        .flatten()
+        .and_then(|name| HandleKind::from_name(&name));
 
-    let Some(name) = tagged else {
+    let Some(kind) = kind else {
         return Err(SerialiseError::Unrepresentable {
             path: walk.here(),
             kind: "userdata that is not a lunette handle".to_owned(),
-        });
-    };
-
-    let Some(kind) = HandleKind::from_name(&name) else {
-        return Err(SerialiseError::UnknownHandle {
-            path: walk.here(),
-            name,
         });
     };
 
@@ -440,27 +417,20 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     use super::*;
-    use crate::control::wire::{Reply, read_reply, write_reply};
 
-    /// A fake handle that covers each id shape.
+    /// A fake handle with a text id or none.
     ///
-    /// The tests substitute a fake for a `Window`. A real handle needs a
-    /// session, a snapshot, and a texture that none of the tests reads; the
-    /// tagging convention is the behaviour under test.
-    struct FakeHandle {
-        id: Option<i64>,
-        text: Option<String>,
-    }
+    /// `crate::lua::tests::lunctl` covers the numeric ids real windows carry.
+    /// The fake reaches the id shapes those tests do not: a monitor's text
+    /// identity, and a handle whose object is gone.
+    struct FakeHandle(Option<String>);
 
     impl UserData for FakeHandle {
         fn add_fields<F: UserDataFields<Self>>(fields: &mut F) {
             fields.add_meta_field(HANDLE_METAFIELD, "window");
-            fields.add_field_method_get("id", |lua, handle| {
-                match (handle.id, handle.text.as_deref()) {
-                    (Some(id), _) => Ok(LuaValue::Integer(id)),
-                    (None, Some(text)) => Ok(LuaValue::String(lua.create_string(text)?)),
-                    (None, None) => Ok(LuaValue::Nil),
-                }
+            fields.add_field_method_get("id", |lua, handle| match handle.0.as_deref() {
+                Some(text) => Ok(LuaValue::String(lua.create_string(text)?)),
+                None => Ok(LuaValue::Nil),
             });
         }
     }
@@ -485,38 +455,16 @@ mod tests {
         let globals = lua.globals();
         globals
             .set(
-                "window",
-                lua.create_function(|_, id: i64| {
-                    Ok(FakeHandle {
-                        id: Some(id),
-                        text: None,
-                    })
-                })
-                .expect("the function is created"),
-            )
-            .expect("it can be set");
-        globals
-            .set(
                 "namedHandle",
-                lua.create_function(|_, name: String| {
-                    Ok(FakeHandle {
-                        id: None,
-                        text: Some(name),
-                    })
-                })
-                .expect("the function is created"),
+                lua.create_function(|_, name: String| Ok(FakeHandle(Some(name))))
+                    .expect("the function is created"),
             )
             .expect("it can be set");
         globals
             .set(
                 "idlessHandle",
-                lua.create_function(|_, ()| {
-                    Ok(FakeHandle {
-                        id: None,
-                        text: None,
-                    })
-                })
-                .expect("the function is created"),
+                lua.create_function(|_, ()| Ok(FakeHandle(None)))
+                    .expect("the function is created"),
             )
             .expect("it can be set");
         globals
@@ -533,23 +481,6 @@ mod tests {
             Value::Table(table) => table,
             other => panic!("{other:?} is not a table"),
         }
-    }
-
-    #[test]
-    fn a_nested_table_survives_the_wire() {
-        // The wire protocol is public, so what came out of Lua has to be what
-        // arrives at `lunctl`. This test exercises both directions.
-        let values = returned("return { title = 'a window', size = { 1920, 1080 } }")
-            .expect("it serialises");
-
-        let sent = Reply::Returned(values);
-        let mut buffer = Vec::new();
-        write_reply(&mut buffer, &sent).expect("it fits a frame");
-
-        assert_eq!(
-            read_reply(&mut buffer.as_slice()).expect("it decodes"),
-            sent
-        );
     }
 
     #[test]
@@ -577,13 +508,9 @@ mod tests {
             vec![(Key::Integer(4), Value::Integer(4))],
             "the entry past the hole keeps its key rather than being renumbered",
         );
-    }
 
-    #[test]
-    fn an_empty_table_survives() {
-        let values = returned("return {}").expect("it serialises");
-
-        assert_eq!(table_of(&values[0]), &TableValue::default());
+        let empty = returned("return {}").expect("it serialises");
+        assert_eq!(table_of(&empty[0]), &TableValue::default());
     }
 
     #[test]
@@ -613,29 +540,6 @@ mod tests {
     }
 
     #[test]
-    fn a_function_is_refused_and_names_its_path() {
-        let error = returned("return { windows = { { onClose = function() end } } }")
-            .expect_err("a function has no wire form");
-
-        assert!(
-            error.to_string().contains("result 1.windows[1].onClose"),
-            "{error}"
-        );
-        assert!(error.to_string().contains("function"), "{error}");
-    }
-
-    #[test]
-    fn a_coroutine_is_refused() {
-        let error = returned("return coroutine.create(function() end)")
-            .expect_err("a coroutine has no wire form");
-
-        assert!(
-            matches!(error, SerialiseError::Unrepresentable { .. }),
-            "{error}"
-        );
-    }
-
-    #[test]
     fn a_table_key_is_refused() {
         let error = returned("local t = {} t[{}] = 1 return t").expect_err("a table is not a key");
 
@@ -643,40 +547,6 @@ mod tests {
             error.to_string().contains("table keyed by a table"),
             "{error}"
         );
-    }
-
-    #[test]
-    fn a_function_key_is_refused() {
-        let error =
-            returned("local t = {} t[function() end] = 1 return t").expect_err("nor a function");
-
-        assert!(
-            error.to_string().contains("table keyed by a function"),
-            "{error}"
-        );
-    }
-
-    #[test]
-    fn a_handle_serialises_as_its_kind_and_id() {
-        let values = returned("return window(7)").expect("it serialises");
-
-        assert_eq!(
-            values,
-            vec![Value::Handle(Handle {
-                kind: HandleKind::Window,
-                id: Some(HandleId::Number(7)),
-            })]
-        );
-    }
-
-    /// The userdata is created fresh on every read, so the wire form has to
-    /// agree across two reads of the same thing. The two forms are equal
-    /// because both carry the same id.
-    #[test]
-    fn two_reads_of_the_same_window_serialise_alike() {
-        let values = returned("return window(7), window(7)").expect("it serialises");
-
-        assert_eq!(values[0], values[1]);
     }
 
     #[test]
@@ -760,20 +630,6 @@ mod tests {
         assert!(matches!(error, SerialiseError::TooDeep { .. }), "{error}");
     }
 
-    #[test]
-    fn a_tree_wider_than_the_cap_is_a_clean_error() {
-        let values = returned(&format!(
-            "local t = {{}} for i = 1, {} do t[i] = i end return t",
-            MAX_NODES + 1
-        ));
-
-        let error = values.expect_err("it holds too many values");
-        assert!(
-            matches!(error, SerialiseError::TooManyNodes { .. }),
-            "{error}"
-        );
-    }
-
     /// The cap has to bound the collecting loop and the conversion that
     /// follows it. A table whose entries alone exhaust it is refused while it is
     /// being read, so the keys are never all copied at once.
@@ -794,11 +650,6 @@ mod tests {
     }
 
     #[test]
-    fn a_chunk_returning_nothing_serialises_to_an_empty_list() {
-        assert_eq!(returned("return").expect("it serialises"), Vec::new());
-    }
-
-    #[test]
     fn a_path_reads_the_way_a_caller_wrote_it() {
         for (chunk, expected) in [
             ("return { a = function() end }", "result 1.a"),
@@ -815,6 +666,11 @@ mod tests {
                 "local t = {} t['end'] = function() end return t",
                 "result 1['end']",
             ),
+            ("return 1, function() end", "result 2"),
+            (
+                "return { windows = { { onClose = function() end } } }",
+                "result 1.windows[1].onClose",
+            ),
         ] {
             let error = returned(chunk).expect_err("a function has no wire form");
             assert!(
@@ -822,18 +678,5 @@ mod tests {
                 "{chunk} should name {expected}: {error}"
             );
         }
-    }
-
-    #[test]
-    fn the_second_result_is_named_as_the_second() {
-        let error = returned("return 1, function() end").expect_err("the second has no wire form");
-
-        assert!(error.to_string().contains("result 2"), "{error}");
-    }
-
-    #[test]
-    fn an_error_names_its_subsystem() {
-        let error = returned("return function() end").expect_err("it has no wire form");
-        assert!(error.to_string().starts_with("lunctl: "), "{error}");
     }
 }

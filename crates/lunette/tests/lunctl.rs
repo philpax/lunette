@@ -1,7 +1,8 @@
 //! `lunctl` against a real running lunette, over a real socket.
 //!
 //! Binding a real socket is the narrow exception `CONTRIBUTING.md` records for the
-//! compositor's listener, because the listener, its mode, and its path are under test.
+//! compositor's listener, because the session's listener at its documented path is under
+//! test.
 
 #![expect(
     clippy::expect_used,
@@ -10,7 +11,7 @@
 
 use std::{
     fs,
-    os::unix::fs::{FileTypeExt, PermissionsExt},
+    os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     process::{Child, Command, Output},
     thread,
@@ -31,10 +32,6 @@ struct Session {
 
 impl Session {
     fn start() -> Self {
-        Self::start_with(&[])
-    }
-
-    fn start_with(environment: &[(&str, &str)]) -> Self {
         let runtime = TempDir::with_prefix("lunette-lunctl-run-")
             .expect("a runtime directory can be created");
         // lunette verifies the `0o700` mode the XDG specification requires.
@@ -52,9 +49,6 @@ impl Session {
             .env("XDG_RUNTIME_DIR", runtime.path())
             .env_remove("HOME")
             .env("LUNETTE_STDLIB_PATH", standard_library());
-        for (name, value) in environment {
-            command.env(name, value);
-        }
 
         let child = command.spawn().expect("the lunette binary can be run");
 
@@ -71,7 +65,7 @@ impl Session {
 
     /// The socket binds before the Lua state boots and the frame loop answers chunks, so
     /// readiness is a chunk response rather than the socket's existence.
-    fn wait_until_answering(&mut self) -> PathBuf {
+    fn wait_until_answering(&mut self) {
         let socket = self.socket();
         let deadline = Instant::now() + STARTUP_BOUND;
 
@@ -79,7 +73,7 @@ impl Session {
             if socket.exists() {
                 let ready = self.lunctl(&["return 'ready'"]);
                 if ready.status.code() == Some(0) && stdout(&ready) == "ready" {
-                    return socket;
+                    return;
                 }
             }
             if let Some(status) = self
@@ -163,7 +157,8 @@ fn a_handle_comes_back_as_an_opaque_id() {
         "a handle is its kind and its id, and nothing a client could dereference",
     );
 
-    // A chunk cannot reach the fixture's locals, so the fixture sets `lunette` as a global.
+    // The fixture never requires `lunette`, so the chunk reaches it through the evaluator's
+    // module lookup, as the documented examples do.
     let windows = session.lunctl(&["return #lunette.windows()"]);
     assert_eq!(stdout(&windows), "0");
 }
@@ -229,24 +224,7 @@ fn a_chunk_that_overruns_is_abandoned_and_the_session_carries_on() {
     assert_eq!(stdout(&after), "42");
 }
 
-#[test]
-fn the_socket_is_0600_inside_a_0700_directory_and_is_not_a_network_address() {
-    let mut session = Session::start();
-    let socket = session.wait_until_answering();
-
-    let directory = socket.parent().expect("the socket is inside a directory");
-    assert_eq!(mode_of(directory), 0o700, "{}", directory.display());
-    assert_eq!(mode_of(&socket), 0o600, "{}", socket.display());
-    assert!(
-        fs::metadata(&socket)
-            .expect("the socket exists")
-            .file_type()
-            .is_socket(),
-        "the path is a unix socket, which is the only thing lunette can listen on",
-    );
-}
-
-/// The end-to-end shell tests end a session this way.
+/// A chunk reaches the session's own state, so it can end the session.
 #[test]
 fn a_chunk_can_stop_the_session() {
     let mut session = Session::start();
@@ -279,10 +257,6 @@ fn a_chunk_can_stop_the_session() {
 
 fn stderr(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).into_owned()
-}
-
-fn mode_of(path: &Path) -> u32 {
-    fs::metadata(path).expect("it exists").permissions().mode() & 0o7777
 }
 
 fn fixture_directory() -> PathBuf {

@@ -23,11 +23,11 @@ pub fn is_identifier(name: &str) -> bool {
         && !KEYWORDS.contains(&name)
 }
 
-/// LuaJIT reserves the Lua 5.1 words.
+/// Luau reserves the Lua 5.1 words.
 ///
-/// `goto` is not listed. LuaJIT 2.1 lexes it as a name outside statement
-/// position, so `{ goto = 1 }` parses, and a test in this module checks the
-/// list against the linked interpreter.
+/// `goto` is not a Luau keyword, and `continue` is one only in statement
+/// position, so `{ goto = 1 }` and `{ continue = 1 }` parse. A test in this
+/// module checks the list against the linked interpreter.
 const KEYWORDS: [&str; 21] = [
     "and", "break", "do", "else", "elseif", "end", "false", "for", "function", "if", "in", "local",
     "nil", "not", "or", "repeat", "return", "then", "true", "until", "while",
@@ -41,7 +41,7 @@ mod tests {
     ///
     /// A hand-written keyword list drifts from the language it describes. This
     /// test loads `{ name = 1 }` for every candidate and requires the same
-    /// answer, so a reserved word added or removed by a LuaJIT bump changes the
+    /// answer, so a reserved word added or removed by a Luau bump changes the
     /// outcome from unparseable output to a test failure.
     #[test]
     fn the_keyword_list_agrees_with_the_interpreter() {

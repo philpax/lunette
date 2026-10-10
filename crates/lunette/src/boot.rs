@@ -16,7 +16,7 @@ use std::{
 
 use lunette::{
     aliases::ModuleRoots,
-    control::{Budget, CHUNKS_PER_FRAME, ChunkQueue, answer},
+    control::{CHUNKS_PER_FRAME, ChunkQueue, answer},
     frame::{FrameDriver, Startup},
     layers::{LovrBlits, LovrLayers},
     lua::{PoolRegistry, Session, install},
@@ -278,9 +278,7 @@ unsafe fn run_steps(
                 // Chunks run between frames, when no callback can race them.
                 // `lua_handle` outlives this loop, so the captured `&Lua` stays valid.
                 if let Some(control) = control {
-                    control.drain(CHUNKS_PER_FRAME, |chunk| {
-                        answer(lua_handle, chunk, Budget::DEFAULT)
-                    });
+                    control.drain(CHUNKS_PER_FRAME, |chunk| answer(lua_handle, chunk));
                 }
 
                 // SAFETY: `os_sleep` yields to the platform and does not access Lua state.

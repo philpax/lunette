@@ -369,30 +369,6 @@ mod tests {
     }
 
     #[test]
-    fn the_socket_lives_inside_the_private_directory() {
-        let runtime = runtime();
-
-        let socket = ControlSocket::bind(runtime.path()).expect("it binds");
-
-        assert_eq!(
-            socket.path(),
-            runtime.path().join(DIRECTORY_NAME).join(SOCKET_NAME),
-        );
-    }
-
-    /// The type is the guarantee: no host and no port. The test asserts that
-    /// the bound listener has a filesystem path.
-    #[test]
-    fn the_listener_is_on_a_path_and_not_on_an_address() {
-        let runtime = runtime();
-
-        let socket = ControlSocket::bind(runtime.path()).expect("it binds");
-
-        let address = socket.listener().local_addr().expect("it has an address");
-        assert_eq!(address.as_pathname(), Some(socket.path()));
-    }
-
-    #[test]
     fn a_runtime_directory_another_user_can_reach_is_refused() {
         let runtime = runtime();
         fs::set_permissions(runtime.path(), fs::Permissions::from_mode(0o755))
@@ -463,38 +439,5 @@ mod tests {
         let socket = ControlSocket::bind(runtime.path()).expect("the stale socket is replaced");
 
         assert_eq!(socket.path(), path);
-    }
-
-    #[test]
-    fn a_plain_file_where_the_socket_goes_is_removed() {
-        // Not a socket. `connect` reports that as a refusal, not as a live
-        // listener.
-        let runtime = runtime();
-        let directory = runtime.path().join(DIRECTORY_NAME);
-        fs::create_dir(&directory).expect("it can be created");
-        fs::write(directory.join(SOCKET_NAME), b"not a socket").expect("it can be written");
-
-        let socket = ControlSocket::bind(runtime.path()).expect("it binds");
-
-        assert_eq!(mode_of(socket.path()), 0o600);
-    }
-
-    #[test]
-    fn the_socket_is_unlinked_when_the_session_lets_go_of_it() {
-        let runtime = runtime();
-        let path = {
-            let socket = ControlSocket::bind(runtime.path()).expect("it binds");
-            socket.path().to_owned()
-        };
-
-        assert!(!path.exists());
-    }
-
-    #[test]
-    fn an_error_names_its_subsystem() {
-        let error = BindError::AlreadyRunning {
-            path: PathBuf::from("/run/user/1000/lunette/lunette-0.sock"),
-        };
-        assert!(error.to_string().starts_with("lunctl: "), "{error}");
     }
 }

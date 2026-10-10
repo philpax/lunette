@@ -1,8 +1,8 @@
 -- A session that runs until lunctl sets the `stop` global.
 --
 -- `lunctl` evaluates chunks in the main state, where they reach globals, not locals.
-
-lunette = require '@lunette'
+-- A chunk reaches `lunette` through the evaluator's module lookup, so the
+-- fixture does not require it.
 
 answer = 42
 title = 'a terminal'

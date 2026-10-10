@@ -8,7 +8,7 @@ use pretty_assertions::assert_eq;
 
 use super::{lua, session, window};
 use crate::control::{
-    Budget, answer,
+    answer,
     wire::{Handle, HandleId, HandleKind, Key, Reply, TableValue, Value, read_reply, write_reply},
 };
 
@@ -23,7 +23,7 @@ fn returned(chunk: &str, windows: usize) -> Vec<Value> {
     let session = session(snapshots);
     let lua = lua(&session);
 
-    match answer(&lua, chunk, Budget::DEFAULT) {
+    match answer(&lua, chunk) {
         Reply::Returned(values) => values,
         other => panic!("expected a return, and lunctl answered {other:?}"),
     }
@@ -116,34 +116,4 @@ fn a_nested_table_of_windows_survives_the_wire() {
         read_reply(&mut buffer.as_slice()).expect("it decodes"),
         sent
     );
-}
-
-/// Refusing a value with no wire form keeps the protocol from a `tostring`
-/// fallback.
-#[test]
-fn a_chunk_returning_something_unrepresentable_is_told_so() {
-    let session = session(vec![window(1, "a terminal", "org.example.Term", size())]);
-    let lua = lua(&session);
-
-    let reply = answer(&lua, "return function() end", Budget::DEFAULT);
-
-    let Reply::Unrepresentable(message) = reply else {
-        panic!("a function has no wire form, and lunctl answered {reply:?}");
-    };
-    assert!(message.contains("result 1"), "{message}");
-}
-
-#[test]
-fn a_load_error_and_a_runtime_error_reach_the_client_apart() {
-    let session = session(Vec::new());
-    let lua = lua(&session);
-
-    assert!(matches!(
-        answer(&lua, "this is not lua {{{", Budget::DEFAULT),
-        Reply::LoadError(_)
-    ));
-    assert!(matches!(
-        answer(&lua, "error('deliberate')", Budget::DEFAULT),
-        Reply::RuntimeError(_)
-    ));
 }

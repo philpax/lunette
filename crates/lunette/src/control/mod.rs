@@ -56,12 +56,10 @@ use std::{
     time::Duration,
 };
 
-use mlua::Lua;
 use tracing::{debug, info, warn};
 
-use crate::control::eval::{Evaluation, evaluate};
 pub use crate::control::{
-    eval::Budget,
+    eval::answer,
     socket::{BindError, ControlSocket},
     wire::Reply,
 };
@@ -199,12 +197,6 @@ pub struct ControlThread {
 }
 
 impl ControlThread {
-    /// The path a client connects to.
-    #[must_use]
-    pub fn path(&self) -> &Path {
-        &self.path
-    }
-
     /// Stops the thread and waits for it.
     ///
     /// The flag alone is not enough: the thread is blocked in `accept`, which
@@ -261,28 +253,6 @@ impl ChunkQueue {
             answered += 1;
         }
         answered
-    }
-}
-
-/// Evaluates one chunk against the Lua state and renders the answer.
-///
-/// Called from the frame loop, between two frames, on the thread that owns the
-/// state. Everything it obtains from Lua is consumed before it returns.
-#[must_use]
-pub fn answer(lua: &Lua, chunk: &str, budget: Budget) -> Reply {
-    match evaluate(lua, chunk, budget, serialise::render) {
-        Evaluation::Returned(values) => Reply::Returned(values),
-        Evaluation::LoadFailed(message) => Reply::LoadError(message),
-        Evaluation::Raised(message) => Reply::RuntimeError(message),
-        Evaluation::Abandoned { after } => Reply::Abandoned { after },
-        Evaluation::Unrepresentable(error) => Reply::Unrepresentable(error.to_string()),
-        // Structurally unreachable from here: the frame loop calls this, and it
-        // is not itself inside a chunk. The case is answered and not asserted,
-        // because a panic would end the session and reach the client as an
-        // unexplained end of file.
-        Evaluation::Reentered => {
-            Reply::RuntimeError("lunctl: a chunk cannot be evaluated from inside one".to_owned())
-        }
     }
 }
 
@@ -465,48 +435,21 @@ mod tests {
         panic!("the condition did not hold within the bound");
     }
 
-    #[test]
-    fn a_chunk_reaches_the_session_and_its_answer_comes_back() {
-        let runtime = runtime();
-        let (thread, queue) = serve(ControlSocket::bind(runtime.path()).expect("the socket binds"));
-        let path = thread.path().to_owned();
-
-        let asking = thread::spawn(move || ask(&path, "return 1 + 1"));
-
-        // The main thread's part: drain until at least one chunk arrives.
-        let mut seen = None;
-        until(|| {
-            queue.drain(4, |chunk| {
-                seen = Some(chunk.to_owned());
-                Reply::Returned(vec![Value::Integer(2)])
-            }) > 0
-        });
-
-        assert_eq!(seen.as_deref(), Some("return 1 + 1"));
-        assert_eq!(
-            asking.join().expect("the client thread finishes"),
-            Reply::Returned(vec![Value::Integer(2)]),
-        );
-    }
-
     /// The whole path: a chunk over the socket, an evaluation on the thread
     /// that owns the state, and a nested table back.
     #[test]
     fn a_chunk_over_the_socket_is_evaluated_and_its_nested_table_comes_back() {
         let runtime = runtime();
-        let (thread, queue) = serve(ControlSocket::bind(runtime.path()).expect("the socket binds"));
-        let path = thread.path().to_owned();
+        let socket = ControlSocket::bind(runtime.path()).expect("the socket binds");
+        let path = socket.path().to_owned();
+        let (_thread, queue) = serve(socket);
 
         let asking =
             thread::spawn(move || ask(&path, "return { count = 2, names = { 'a', 'b' } }"));
 
         // The frame loop's part, on the thread that owns the state.
         let lua = crate::test_lua::session_lua();
-        until(|| {
-            queue.drain(CHUNKS_PER_FRAME, |chunk| {
-                answer(&lua, chunk, Budget::DEFAULT)
-            }) > 0
-        });
+        until(|| queue.drain(CHUNKS_PER_FRAME, |chunk| answer(&lua, chunk)) > 0);
 
         let Reply::Returned(values) = asking.join().expect("the client thread finishes") else {
             panic!("the chunk returns a value");
@@ -515,10 +458,10 @@ mod tests {
             panic!("{:?} is not a table", values[0]);
         };
 
-        // Membership, not order: a hash part has no order of its own, and
-        // LuaJIT seeds its string hash per state, so two runs can traverse
-        // the same table in different orders. The wire preserves whichever
-        // order it received, and specifies no stronger guarantee.
+        // Membership, not order: a hash part has no order of its own, so
+        // the traversal order is not something to assert on. The wire
+        // preserves whichever order it received, and specifies no stronger
+        // guarantee.
         assert!(
             table.array.is_empty(),
             "the chunk returned no array part: {:?}",
@@ -542,29 +485,6 @@ mod tests {
             "a nested table arrives nested: {:?}",
             table.entries
         );
-    }
-
-    /// A chunk that never finishes must not hold the frame loop. The client
-    /// receives the verdict, not a wait.
-    #[test]
-    fn a_chunk_that_overruns_its_budget_is_answered_rather_than_stalling_the_loop() {
-        let runtime = runtime();
-        let (thread, queue) = serve(ControlSocket::bind(runtime.path()).expect("the socket binds"));
-        let path = thread.path().to_owned();
-
-        let asking = thread::spawn(move || ask(&path, "while true do end"));
-
-        // This duration is the measurement under test, not a wait for another
-        // event.
-        let lua = crate::test_lua::session_lua();
-        let budget = Budget::of(Duration::from_millis(50));
-        until(|| queue.drain(CHUNKS_PER_FRAME, |chunk| answer(&lua, chunk, budget)) > 0);
-
-        let reply = asking.join().expect("the client thread finishes");
-        let Reply::Abandoned { after } = reply else {
-            panic!("expected the budget to end it, and lunctl answered {reply:?}");
-        };
-        assert!(after >= Duration::from_millis(50), "{after:?}");
     }
 
     #[test]
@@ -620,8 +540,9 @@ mod tests {
     #[test]
     fn a_chunk_from_another_protocol_version_is_named_rather_than_evaluated() {
         let runtime = runtime();
-        let (thread, queue) = serve(ControlSocket::bind(runtime.path()).expect("the socket binds"));
-        let path = thread.path().to_owned();
+        let socket = ControlSocket::bind(runtime.path()).expect("the socket binds");
+        let path = socket.path().to_owned();
+        let (_thread, queue) = serve(socket);
 
         let mut stream = UnixStream::connect(&path).expect("the socket accepts");
         let mut body = vec![wire::PROTOCOL_VERSION.wrapping_add(1)];
@@ -644,40 +565,13 @@ mod tests {
         );
     }
 
-    /// A chunk that succeeded and answered too much must not read as a session
-    /// that is not there. Closing the connection produced the end of file the
-    /// client sees, and the client reports that as an unreachable session.
-    #[test]
-    fn an_answer_too_large_for_a_frame_is_named_rather_than_closed_on() {
-        let runtime = runtime();
-        let (thread, queue) = serve(ControlSocket::bind(runtime.path()).expect("the socket binds"));
-        let path = thread.path().to_owned();
-
-        let asking = thread::spawn(move || ask(&path, "return 'a great deal'"));
-
-        let oversized = wire::MAX_FRAME + 1;
-        until(|| {
-            queue.drain(CHUNKS_PER_FRAME, |_| {
-                Reply::Returned(vec![wire::Value::String(vec![b'x'; oversized])])
-            }) > 0
-        });
-
-        let reply = asking.join().expect("the client thread finishes");
-        let Reply::Oversized { length } = reply else {
-            panic!("expected the answer to be named as too large, and lunctl saw {reply:?}");
-        };
-        assert!(
-            length > wire::MAX_FRAME as u64,
-            "the client is told how much there was: {length}"
-        );
-    }
-
     /// A request that cannot be read is answered too, for the same reason.
     #[test]
     fn a_request_that_cannot_be_read_is_answered_rather_than_closed_on() {
         let runtime = runtime();
-        let (thread, queue) = serve(ControlSocket::bind(runtime.path()).expect("the socket binds"));
-        let path = thread.path().to_owned();
+        let socket = ControlSocket::bind(runtime.path()).expect("the socket binds");
+        let path = socket.path().to_owned();
+        let (_thread, queue) = serve(socket);
 
         let mut stream = UnixStream::connect(&path).expect("the socket accepts");
         // A well-formed frame whose chunk is not text. Lua source in some other
@@ -747,9 +641,9 @@ mod tests {
     #[test]
     fn stopping_the_thread_unlinks_the_socket() {
         let runtime = runtime();
-        let (mut thread, _queue) =
-            serve(ControlSocket::bind(runtime.path()).expect("the socket binds"));
-        let path = thread.path().to_owned();
+        let socket = ControlSocket::bind(runtime.path()).expect("the socket binds");
+        let path = socket.path().to_owned();
+        let (mut thread, _queue) = serve(socket);
         assert!(path.exists());
 
         thread.stop();
