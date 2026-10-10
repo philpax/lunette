@@ -297,36 +297,3 @@ fn a_sink_refuses_an_argument_it_cannot_represent() {
     }
     assert!(session.flush().is_empty());
 }
-
-/// Queues restart through LÖVR's event API.
-#[test]
-fn a_restart_is_asked_for_through_lovrs_own_event() {
-    let session = session(Vec::new());
-    let lua = lua(&session);
-    run::<()>(
-        &lua,
-        "restarts = 0
-         lovr.event = { restart = function() restarts = restarts + 1 end }",
-    );
-
-    run::<()>(&lua, "lunette.restart()");
-
-    assert_eq!(
-        run::<i64>(&lua, "return restarts"),
-        1,
-        "the call should have reached lovr.event.restart exactly once"
-    );
-}
-
-/// Reports an error when the LÖVR event module is unavailable.
-#[test]
-fn a_restart_with_no_event_module_is_reported() {
-    let session = session(Vec::new());
-    let lua = lua(&session);
-
-    let message = error(&lua, "lunette.restart()");
-    assert!(
-        message.contains("lovr.event.restart could not be reached"),
-        "unhelpful message: {message}"
-    );
-}

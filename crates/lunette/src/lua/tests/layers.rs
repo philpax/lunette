@@ -171,15 +171,20 @@ fn the_pool_serves_the_highest_priorities_it_can_afford() {
 }
 
 #[test]
-fn a_claim_raised_above_a_granted_one_revokes_it_and_the_revoked_claim_can_be_granted_again() {
+fn a_higher_claim_revokes_a_granted_one_and_the_revoked_claim_can_be_granted_again() {
     let (session, registry, lua) = claimed(ONE_SLOT, &[(1, 5.0), (2, 1.0)]);
     settle(&session, &registry);
     assert!(run::<bool>(&lua, "return claims[1].granted"));
 
-    run::<()>(&lua, "claims[2]:setPriority(9)");
+    run::<()>(
+        &lua,
+        "higher = lunette.claimLayer{
+             window = lunette.windows()[2], width = 1280, height = 720, priority = 9,
+         }",
+    );
     settle(&session, &registry);
 
-    let (first, second): (bool, bool) = run(&lua, "return claims[1].granted, claims[2].granted");
+    let (first, second): (bool, bool) = run(&lua, "return claims[1].granted, higher.granted");
     assert_eq!(
         (first, second),
         (false, true),
@@ -190,7 +195,7 @@ fn a_claim_raised_above_a_granted_one_revokes_it_and_the_revoked_claim_can_be_gr
         "revocation takes the layer, not the claim; a handle that died could never upgrade back"
     );
 
-    run::<()>(&lua, "claims[2]:setPriority(0)");
+    run::<()>(&lua, "higher:release()");
     settle(&session, &registry);
 
     assert!(
@@ -207,10 +212,9 @@ fn releasing_a_claim_kills_the_handle_and_frees_its_layer() {
     assert!(run::<bool>(&lua, "return claims[1]:release()"));
     settle(&session, &registry);
 
-    let (dead, granted, layer, again, set): (bool, bool, Value, bool, bool) = run(
+    let (dead, granted, layer, again): (bool, bool, Value, bool) = run(
         &lua,
-        "return claims[1].dead, claims[1].granted, claims[1].layer, claims[1]:release(),
-                claims[1]:setPriority(3)",
+        "return claims[1].dead, claims[1].granted, claims[1].layer, claims[1]:release()",
     );
 
     assert!(dead);
@@ -218,20 +222,15 @@ fn releasing_a_claim_kills_the_handle_and_frees_its_layer() {
     assert_eq!(layer, Value::Boolean(false));
     assert!(!again, "every method of a dead handle answers false");
     assert!(
-        !set,
-        "setting a priority on a dead claim answers false rather than raising"
-    );
-    assert!(
         run::<bool>(&lua, "return claims[2].granted"),
         "the released claim's layer is the one the survivor takes"
     );
 
-    let (id, priority, width): (u64, f64, u32) = run(
-        &lua,
-        "return claims[1].id, claims[1].priority, claims[1].width",
+    let (id, width): (u64, u32) = run(&lua, "return claims[1].id, claims[1].width");
+    assert_eq!(
+        width, 1280,
+        "a dead claim reports the last size it knew, not nothing"
     );
-    assert_eq!(priority, 5.0, "a dead claim reports the last thing it knew");
-    assert_eq!(width, 1280, "the size the claim was made at, not nothing");
     assert!(id > 0);
 }
 
@@ -256,23 +255,6 @@ fn a_claim_reports_the_layers_size_rather_than_the_size_asked_for() {
         "a requested size is rounded up to the ladder, and a caller setting a viewport needs the \
          rung rather than the request"
     );
-}
-
-#[test]
-fn a_claim_names_the_window_it_was_made_for() {
-    let (session, _, _) = layered_session(
-        vec![window(7, "htop", "foot", PixelSize::new(640, 480))],
-        TWO_SLOTS,
-    );
-    let lua = lua(&session);
-    run::<()>(
-        &lua,
-        "claim = lunette.claimLayer{
-             window = lunette.windows()[1], width = 640, height = 480, priority = 1,
-         }",
-    );
-
-    assert_eq!(run::<u64>(&lua, "return claim.window.id"), 7);
 }
 
 #[test]

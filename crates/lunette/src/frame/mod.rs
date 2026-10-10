@@ -98,7 +98,7 @@ pub struct FrameDriver {
 
 /// A running compositor, and the graphics state it currently shares with its thread.
 ///
-/// The thread and its clients last for the whole process, while `lunette.restart()` replaces the device. See [`crate::restart`].
+/// The thread and its clients last for the whole process, while a hard restart replaces the device. See [`crate::restart`].
 #[derive(Debug)]
 struct Compositor {
     handle: CompositorHandle,

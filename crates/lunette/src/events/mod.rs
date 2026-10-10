@@ -117,26 +117,6 @@ fn log_output(process: ProcessId, stream: Stream, bytes: &[u8]) {
 pub struct EventName(&'static str);
 
 impl EventName {
-    /// Returns `None` when the name exceeds the custom event field capacity or contains a NUL.
-    #[must_use]
-    pub const fn new(name: &'static str) -> Option<Self> {
-        if name.len() >= CUSTOM_EVENT_NAME_CAPACITY {
-            return None;
-        }
-
-        // An embedded NUL would truncate the name, so `lovr.handlers` would be indexed by a prefix.
-        let bytes = name.as_bytes();
-        let mut index = 0;
-        while index < bytes.len() {
-            if bytes[index] == 0 {
-                return None;
-            }
-            index += 1;
-        }
-
-        Some(Self(name))
-    }
-
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         self.0
@@ -302,14 +282,23 @@ events! {
 
 /// Names an event, refusing one that does not fit `CustomEvent.name`.
 ///
-/// The panic runs at compile time, so an overlong name fails the build.
+/// Every name is a constant, so the assertions run at compile time and an
+/// overlong or NUL-bearing name fails the build.
 const fn event_name(name: &'static str) -> EventName {
-    match EventName::new(name) {
-        Some(name) => name,
-        None => panic!(
-            "a lun* event name has to fit CustomEvent.name, which is char[32] at event.h:102-106"
-        ),
+    assert!(
+        name.len() < CUSTOM_EVENT_NAME_CAPACITY,
+        "a lun* event name has to fit CustomEvent.name, which is char[32] at event.h:102-106"
+    );
+
+    // An embedded NUL would truncate the name, so `lovr.handlers` would be indexed by a prefix.
+    let bytes = name.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        assert!(bytes[index] != 0, "a lun* event name cannot contain a NUL");
+        index += 1;
     }
+
+    EventName(name)
 }
 
 /// Capacity of the NUL-terminated `CustomEvent.name` field.

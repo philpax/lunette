@@ -20,10 +20,7 @@ pub(crate) use crate::lua::declarations::{
     macros::{handle, module, record},
     render::render_doc,
 };
-pub use crate::lua::declarations::{
-    render::render,
-    types::{Nil, Textured},
-};
+pub use crate::lua::declarations::{render::render, types::Textured};
 use crate::{
     control::{serialise::HANDLE_METAFIELD, wire::HandleKind},
     lua::{LuaTexture, reject_unknown_options},
@@ -111,23 +108,12 @@ where
 pub struct HandleSpec {
     pub name: &'static str,
     pub doc: &'static str,
-    /// Discriminated handle variants in [`FieldType::PerVariant`] order.
-    pub variants: &'static [&'static str],
 }
 
 #[derive(Clone, Copy, Debug)]
 pub struct FieldSpec {
     pub name: &'static str,
     pub doc: &'static str,
-    pub ty: FieldType,
-}
-
-/// Selects how the renderer determines a property's Luau type.
-#[derive(Clone, Copy, Debug)]
-pub enum FieldType {
-    Derived,
-    /// Uses a separate type for each discriminated variant.
-    PerVariant(&'static [fn() -> Type]),
 }
 
 /// A method's declaration metadata, including named non-receiver parameters.
@@ -261,13 +247,7 @@ pub trait Aliased {
 pub struct Property {
     pub name: &'static str,
     pub doc: &'static str,
-    pub ty: PropertyType,
-}
-
-#[derive(Debug)]
-pub enum PropertyType {
-    Same(Type),
-    PerVariant(Vec<Type>),
+    pub ty: Type,
 }
 
 /// A resolved method declaration.
@@ -390,12 +370,7 @@ impl<T: Described> Surface<T> for Collector {
         self.fields.push(Property {
             name: spec.name,
             doc: spec.doc,
-            ty: match spec.ty {
-                FieldType::Derived => PropertyType::Same(R::luau()),
-                FieldType::PerVariant(arms) => {
-                    PropertyType::PerVariant(arms.iter().map(|arm| arm()).collect())
-                }
-            },
+            ty: R::luau(),
         });
     }
 }

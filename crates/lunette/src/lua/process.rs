@@ -5,9 +5,9 @@
 //! The request carries the identifier to the compositor. [`Process`] can
 //! describe a process the compositor does not track yet.
 
-use std::{cell::RefCell, rc::Rc};
+use std::rc::Rc;
 
-use lunette_compositor::protocol::{Pid, ProcessId, ProcessSnapshot};
+use lunette_compositor::protocol::ProcessId;
 
 use crate::{
     control::wire::HandleKind,
@@ -19,7 +19,6 @@ use crate::{
 pub struct Process<T> {
     id: ProcessId,
     session: Rc<Session<T>>,
-    known: RefCell<Known>,
 }
 
 /// Two handles are equal when they name the same process.
@@ -31,37 +30,16 @@ impl<T> PartialEq for Process<T> {
 
 impl<T> Process<T> {
     pub(crate) fn new(session: Rc<Session<T>>, id: ProcessId) -> Self {
-        Self {
-            id,
-            session,
-            known: RefCell::new(Known { pid: None }),
-        }
+        Self { id, session }
     }
 
-    fn refresh(&self) -> bool {
-        let snapshot = self.session.snapshot();
-        let Some(process) = snapshot
+    /// Whether the snapshot reports the process alive.
+    fn alive(&self) -> bool {
+        self.session
+            .snapshot()
             .processes
             .iter()
-            .find(|process| process.process == self.id)
-        else {
-            return false;
-        };
-
-        *self.known.borrow_mut() = Known::from(process);
-        process.alive
-    }
-}
-
-/// The last known value of each field of a process.
-#[derive(Clone, Copy, Debug)]
-struct Known {
-    pid: Option<Pid>,
-}
-
-impl From<&ProcessSnapshot> for Known {
-    fn from(process: &ProcessSnapshot) -> Self {
-        Self { pid: process.pid }
+            .any(|process| process.process == self.id && process.alive)
     }
 }
 
@@ -77,11 +55,5 @@ handle! {
     /// never started. The caller distinguishes the last two by the outcome
     /// `lunette.onProcessExited` carries. A handle field cannot represent
     /// "not yet".
-    field dead(_lua, this) -> bool { Ok(!this.refresh()) }
-
-    /// Absent until the child is forked.
-    field pid(_lua, this) -> Option<i32> {
-        this.refresh();
-        Ok(this.known.borrow().pid.map(Pid::get))
-    }
+    field dead(_lua, this) -> bool { Ok(!this.alive()) }
 }

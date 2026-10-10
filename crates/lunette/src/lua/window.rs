@@ -19,7 +19,7 @@ use crate::{
         declarations::{Textured, handle},
         pixel_size,
         sink::Sink,
-        values::{ContentTypeName, MaybeTexture, PropertyArgument, PropertyMap, StoredProperty},
+        values::{ContentTypeName, MaybeTexture, PropertyArgument, StoredProperty},
     },
     properties::{PropertyError, PropertyKey, PropertyValue},
     texture::{TextureRef, TextureUnavailable},
@@ -204,9 +204,6 @@ handle! {
     method getProperty(lua, this, key: LuaString) -> StoredProperty {
         get_property(lua, this, &key)
     }
-
-    /// Every key this window carries.
-    method properties(lua, this) -> PropertyMap { properties(lua, this) }
 }
 
 /// Returns the output assigned to the window in the current snapshot.
@@ -396,17 +393,6 @@ fn get_property<T>(
                 .map_or(Ok(Value::Nil), |value| push_property(lua, value))
         })
         .map(StoredProperty)
-}
-
-/// Returns a fresh table containing copies of all stored properties for this window.
-fn properties<T>(lua: &mlua::Lua, window: &Window<T>) -> mlua::Result<PropertyMap> {
-    let table = lua.create_table()?;
-    window.session.with_properties(|properties| {
-        for (key, value) in properties.of(window.id) {
-            table.set(key.as_str(), push_property(lua, value)?)?;
-        }
-        Ok(PropertyMap(table))
-    })
 }
 
 /// Reads the name a property call was made against.

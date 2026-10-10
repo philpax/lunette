@@ -79,14 +79,6 @@ impl<T> Seat<T> {
     pub(crate) const fn id(&self) -> SeatId {
         self.id
     }
-
-    fn modifiers(&self) -> ModifierState {
-        self.known
-            .borrow()
-            .as_ref()
-            .map(|known| known.modifiers.clone())
-            .unwrap_or_default()
-    }
 }
 
 handle! {
@@ -112,24 +104,6 @@ handle! {
             .borrow()
             .as_ref()
             .is_some_and(|known| known.clipboard_bridge))
-    }
-
-    /// The modifiers this seat holds, as last sent to clients.
-    field modifiers(_lua, this) -> Vec<ModifierName> {
-        this.refresh();
-        Ok(named(&this.modifiers()))
-    }
-
-    /// Human-readable layout names from this seat's keymap.
-    field layouts(_lua, this) -> Vec<String> {
-        let Some(keymap) = this.keymap() else {
-            return Ok(Vec::new());
-        };
-        Ok(keymap
-            .layouts()
-            .iter()
-            .map(|layout| layout.as_str().to_owned())
-            .collect())
     }
 
     /// Withdraws this seat's `wl_seat` global or cancels its pending creation. The default seat cannot be removed.

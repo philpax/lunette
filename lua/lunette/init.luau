@@ -24,13 +24,16 @@ export type KeyName = 'escape' | 'digit1' | 'digit2' | 'digit3' | 'digit4' | 'di
 -- them. The runtime refuses anything else.
 export type ModifierName = 'shift' | 'capsLock' | 'control' | 'alt' | 'numLock' | 'mod3' | 'logo' | 'mod5'
 
--- Somewhere pixel input can be delivered. `domain` discriminates the sink: it
--- names either `window` or `host`. A caller tests `domain` to reach the handle
--- behind a sink without a nil check; such a check cannot fail.
-type SinkFields = {
+-- Somewhere pixel input can be delivered. `domain` names the pipeline its
+-- events travel: `window` or `host`.
+export type Sink = {
   -- Whether the sink still has a live target. A window sink is alive while its
   -- window is in the snapshot, and a host sink while its monitor is attached.
   read dead: boolean,
+  -- Which pipeline this sink's events travel. The value is stored on the sink,
+  -- so a list of sinks can report what each one reaches; the handle a sink came
+  -- from does not reveal the domain.
+  read domain: 'window' | 'host',
   -- The compositor's identifier for a window sink, and nothing for a host one:
   -- a mirrored monitor is not a `wl_surface` and has nothing the compositor
   -- could address.
@@ -42,11 +45,8 @@ type SinkFields = {
   read button: (self: Sink, button: PointerButton, pressed: boolean, seat: Seat?) -> boolean,
   -- Takes the pointer off this sink, ending a hover.
   read leave: (self: Sink, seat: Seat?) -> boolean,
-  -- Scrolls by a distance in surface pixels. A client uses the difference from
-  -- `scrollDiscrete` to determine whether to scroll kinetically.
+  -- Scrolls by a distance in surface pixels.
   read scroll: (self: Sink, dx: number, dy: number, seat: Seat?) -> boolean,
-  -- Scrolls by whole wheel clicks.
-  read scrollDiscrete: (self: Sink, dx: number, dy: number, seat: Seat?) -> boolean,
   -- Presses or releases an evdev keycode on the seat's keyboard.
   read key: (self: Sink, key: number, pressed: boolean, seat: Seat?) -> boolean,
   -- Enters text, which the seat resolves to the strokes that produce it.
@@ -54,12 +54,6 @@ type SinkFields = {
   -- Sets which modifiers the seat holds while delivering to this sink.
   read setModifiers: (self: Sink, names: { ModifierName }?, seat: Seat?) -> boolean,
 }
-
-type WindowSink = { read domain: 'window', read window: Window?, read monitor: nil }
-
-type HostSink = { read domain: 'host', read window: nil, read monitor: Monitor? }
-
-export type Sink = SinkFields & (WindowSink | HostSink)
 
 -- A mapped toplevel. A dead handle answers with cached values and refuses every
 -- mutation.
@@ -107,8 +101,6 @@ export type Window = {
   read setProperty: (self: Window, key: string, value: boolean | number | string | nil) -> boolean,
   -- What was kept under a key, or nil. Readable on a dead handle.
   read getProperty: (self: Window, key: string) -> boolean | number | string | nil,
-  -- Every key this window carries.
-  read properties: (self: Window) -> { [string]: boolean | number | string },
 }
 
 -- The latest fresh monitor-selection request's state, independent of running
@@ -171,8 +163,6 @@ export type Process = {
   -- `lunette.onProcessExited` carries. A handle field cannot represent "not
   -- yet".
   read dead: boolean,
-  -- Absent until the child is forked.
-  read pid: number?,
 }
 
 -- A key and the modifiers to hold with it. Together they produce one keysym.
@@ -209,10 +199,6 @@ export type Seat = {
   -- Whether this seat's clipboard and primary selection are the host desktop's.
   -- At most one seat's are.
   read clipboardBridge: boolean,
-  -- The modifiers this seat holds, as last sent to clients.
-  read modifiers: { ModifierName },
-  -- Human-readable layout names from this seat's keymap.
-  read layouts: { string },
   -- Withdraws this seat's `wl_seat` global or cancels its pending creation. The
   -- default seat cannot be removed.
   read destroy: (self: Seat) -> boolean,
@@ -290,8 +276,7 @@ export type ClaimOptions = {
 
 -- A claim on a composition layer for a window's pixels. Layers are scarce, so a
 -- panel requests one and the claim records whether the request is granted. An
--- in-scene quad is the fallback. `lunette.claimLayer` mints the claim; an event
--- names one that already exists.
+-- in-scene quad is the fallback. `lunette.claimLayer` mints the claim.
 export type Claim = {
   -- Fixed for the claim's whole life, so it is the key a table of per-claim
   -- state uses.
@@ -305,22 +290,14 @@ export type Claim = {
   -- claim holds none. Never cached across frames: what it names goes away on
   -- revoke.
   read layer: Layer | false,
-  read priority: number,
   -- The size of the layer a claim is for. The requested size is rounded up to
   -- the ladder, so the layer is at least as large as the request and usually
   -- larger. A caller setting the layer's viewport needs the number it actually
   -- has.
   read width: number?,
   read height: number?,
-  -- The source, as a fresh handle each read. Absent when the pool no longer
-  -- holds the claim.
-  read window: Window?,
-  -- Changes where this claim ranks against the others, taking effect at the
-  -- next frame boundary. Raising a claim above a granted one displaces it.
-  read setPriority: (self: Claim, priority: number) -> boolean,
   -- Withdraws the claim and returns the layer to the pool. The handle is dead
-  -- afterwards, and no revocation event fires. `false` when the claim is
-  -- already gone.
+  -- afterwards. `false` when the claim is already gone.
   read release: (self: Claim) -> boolean,
 }
 
@@ -594,8 +571,6 @@ export type Lunette = {
   -- Whether lunette draws a scene of its own. Latched at the next frame
   -- boundary, and kept across a soft reload.
   read setSceneEnabled: (enabled: boolean) -> (),
-  -- The value `setSceneEnabled` received last. The next frame latches it.
-  read sceneEnabled: () -> boolean,
   -- Calls `handler` whenever a callback raises, and answers the function that
   -- stops it. The standard library's error module subscribes to draw a panel;
   -- without a subscription, the error reaches the log and nothing else.
@@ -606,7 +581,7 @@ export type Lunette = {
   -- error with it and continues with the next.
   read reportError: (options: ReportErrorOptions) -> (),
   -- Every modifier name a seat accepts, in the order a keymap numbers them.
-  -- `sink:setModifiers` takes these names, and `seat.modifiers` returns them.
+  -- `sink:setModifiers` takes these names.
   read modifierNames: () -> { ModifierName },
   -- The subset of `modifierNames()` that toggles on a press.
   read lockingModifierNames: () -> { ModifierName },
@@ -624,8 +599,6 @@ export type Lunette = {
   -- configuration in the same Lua state, keeping the compositor, the clients,
   -- and their textures. Answers whether it loaded, and the error if it did not.
   read reload: () -> (boolean, string?),
-  -- Tears the session down and starts it again, graphics device included.
-  read restart: () -> (),
   -- Calls `handler` whenever this event is delivered, and answers the function
   -- that stops it. Every listener is called, in the order they subscribed, and
   -- a soft reload forgets all of them.

@@ -25,13 +25,10 @@
 ///
 /// `method name(lua, this: Textured, …)` names a receiver wider than the handle,
 /// for a method reached through a union.
-/// `field name(…) -> Ty as [A, B]` gives a field one type per arm, for the one
-/// field a single getter serves two views of.
 macro_rules! handle {
     (
         $(#[doc = $doc:literal])*
-        $name:ident<$generic:ident: $bound:path> = $kind:expr
-        $(, variants = [$($variant:ident),+ $(,)?])? ;
+        $name:ident<$generic:ident: $bound:path> = $kind:expr;
         $($items:tt)*
     ) => {
         impl<$generic: $bound> ::mlua::UserData for $name<$generic> {
@@ -55,7 +52,6 @@ macro_rules! handle {
                 $crate::lua::declarations::HandleSpec {
                     name: stringify!($name),
                     doc: concat!($($doc),*),
-                    variants: &[$($(stringify!($variant)),+)?],
                 };
 
             const KIND: $crate::control::wire::HandleKind = $kind;
@@ -70,24 +66,6 @@ macro_rules! handle {
 
     (@items $surface:ident,
         $(#[doc = $doc:literal])*
-        field $field:ident($lua:ident, $this:ident) -> $ty:ty as [$($arm:ty),+ $(,)?] $body:block
-        $($rest:tt)*
-    ) => {
-        $surface.field(
-            $crate::lua::declarations::FieldSpec {
-                name: stringify!($field),
-                doc: concat!($($doc),*),
-                ty: $crate::lua::declarations::FieldType::PerVariant(&[
-                    $($crate::lua::declarations::of::<$arm> as fn() -> $crate::lua::declarations::Type),+
-                ]),
-            },
-            |$lua: &::mlua::Lua, $this: &Self| -> ::mlua::Result<$ty> { $body },
-        );
-        handle!(@items $surface, $($rest)*);
-    };
-
-    (@items $surface:ident,
-        $(#[doc = $doc:literal])*
         field $field:ident($lua:ident, $this:ident) -> $ty:ty $body:block
         $($rest:tt)*
     ) => {
@@ -95,7 +73,6 @@ macro_rules! handle {
             $crate::lua::declarations::FieldSpec {
                 name: stringify!($field),
                 doc: concat!($($doc),*),
-                ty: $crate::lua::declarations::FieldType::Derived,
             },
             |$lua: &::mlua::Lua, $this: &Self| -> ::mlua::Result<$ty> { $body },
         );

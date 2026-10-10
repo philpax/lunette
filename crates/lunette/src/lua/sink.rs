@@ -58,11 +58,11 @@ use crate::{
     control::wire::HandleKind,
     host::{host_button, host_key, host_modifiers},
     lua::{
-        LuaTexture, Monitor, Seat, Session, Window,
-        declarations::{Nil, handle},
+        LuaTexture, Seat, Session,
+        declarations::handle,
         keys::ModifierName,
         seat::read_modifiers,
-        values::{HostDomain, PointerButtonName, SinkDomain, WindowDomain},
+        values::{PointerButtonName, SinkDomain},
     },
 };
 
@@ -149,11 +149,9 @@ impl<T> Sink<T> {
 }
 
 handle! {
-    /// Somewhere pixel input can be delivered. `domain` discriminates the
-    /// sink: it names either `window` or `host`. A caller tests `domain`
-    /// to reach the handle behind a sink without a nil check; such a check
-    /// cannot fail.
-    Sink<T: LuaTexture> = HandleKind::Sink, variants = [WindowSink, HostSink];
+    /// Somewhere pixel input can be delivered. `domain` names the pipeline
+    /// its events travel: `window` or `host`.
+    Sink<T: LuaTexture> = HandleKind::Sink;
 
     /// Whether the sink still has a live target. A window sink is alive
     /// while its window is in the snapshot, and a host sink while its monitor
@@ -163,7 +161,7 @@ handle! {
     /// Which pipeline this sink's events travel. The value is stored on the
     /// sink, so a list of sinks can report what each one reaches; the handle a
     /// sink came from does not reveal the domain.
-    field domain(_lua, this) -> SinkDomain as [WindowDomain, HostDomain] {
+    field domain(_lua, this) -> SinkDomain {
         Ok(SinkDomain(this.domain()))
     }
 
@@ -175,33 +173,6 @@ handle! {
             SinkTarget::Window(id) => Some(id.get()),
             SinkTarget::Host(_) => None,
         })
-    }
-
-    /// The window this sink reaches. A fresh handle each read: the handle
-    /// holds an identifier and an `Rc`, so caching one has no benefit and a
-    /// cached copy can go stale.
-    field window(_lua, this) -> Option<Window<T>> as [Option<Window<T>>, Nil] {
-        let SinkTarget::Window(id) = &this.target else {
-            return Ok(None);
-        };
-        let snapshot = this.session.snapshot();
-        Ok(snapshot
-            .windows
-            .iter()
-            .find(|window| window.sink == *id)
-            .map(|window| Window::new(Rc::clone(&this.session), window)))
-    }
-
-    /// The monitor this sink reaches, behind which is the user's own desktop.
-    field monitor(_lua, this) -> Option<Monitor<T>> as [Nil, Option<Monitor<T>>] {
-        let SinkTarget::Host(monitor) = &this.target else {
-            return Ok(None);
-        };
-        Ok(this
-            .session
-            .mirrors()
-            .state(monitor)
-            .map(|state| Monitor::new(Rc::clone(&this.session), state)))
     }
 
     /// Moves the pointer to a pixel of the surface. The seat argument
@@ -239,35 +210,14 @@ handle! {
         Ok(leave(this, seat))
     }
 
-    /// Scrolls by a distance in surface pixels. A client uses the
-    /// difference from `scrollDiscrete` to determine whether to scroll
-    /// kinetically.
+    /// Scrolls by a distance in surface pixels.
     method scroll(_lua, this, dx: f64, dy: f64, seat: Option<UserDataRef<Seat<T>>>) -> bool {
         let (dx, dy) = scroll_delta(dx, dy)?;
         let seat = seat_of(seat.as_deref());
         if !this.alive() {
             return Ok(false);
         }
-        Ok(scroll(
-            this,
-            seat,
-            ScrollDelta::Continuous(dx),
-            ScrollDelta::Continuous(dy),
-        ))
-    }
-
-    /// Scrolls by whole wheel clicks.
-    method scrollDiscrete(_lua, this, dx: i32, dy: i32, seat: Option<UserDataRef<Seat<T>>>) -> bool {
-        let seat = seat_of(seat.as_deref());
-        if !this.alive() {
-            return Ok(false);
-        }
-        Ok(scroll(
-            this,
-            seat,
-            ScrollDelta::Discrete(dx),
-            ScrollDelta::Discrete(dy),
-        ))
+        Ok(scroll(this, seat, dx, dy))
     }
 
     /// Presses or releases an evdev keycode on the seat's keyboard.
@@ -381,7 +331,7 @@ fn leave<T>(sink: &Sink<T>, seat: SeatId) -> bool {
     }
 }
 
-/// `sink:scroll(dx, dy, seat)` and `sink:scrollDiscrete(dx, dy, seat)`.
+/// `sink:scroll(dx, dy, seat)`: scrolls by a distance in surface pixels.
 ///
 /// Two axes arrive in one call: a caller has them together, as a thumbstick
 /// deflection or a trackpad delta, and two requests would make a diagonal
@@ -391,21 +341,21 @@ fn leave<T>(sink: &Sink<T>, seat: SeatId) -> bool {
 /// The host takes the vertical axis. `HidProvider::wheel` is one number,
 /// the form both `zwlr_virtual_pointer_v1`'s axis request and uinput's
 /// `REL_WHEEL` carry.
-fn scroll<T>(sink: &Sink<T>, seat: SeatId, horizontal: ScrollDelta, vertical: ScrollDelta) -> bool {
+fn scroll<T>(sink: &Sink<T>, seat: SeatId, horizontal: f64, vertical: f64) -> bool {
     match &sink.target {
         SinkTarget::Window(id) => {
             for (axis, delta) in [
                 (ScrollAxis::Horizontal, horizontal),
                 (ScrollAxis::Vertical, vertical),
             ] {
-                if is_still(delta) {
+                if delta == 0.0 {
                     continue;
                 }
                 sink.session.queue(Command::Scroll {
                     seat,
                     sink: *id,
                     axis,
-                    delta,
+                    delta: ScrollDelta::Continuous(delta),
                 });
             }
             true
@@ -421,24 +371,13 @@ fn scroll<T>(sink: &Sink<T>, seat: SeatId, horizontal: ScrollDelta, vertical: Sc
     }
 }
 
-/// Whether a scroll delta has no movement to deliver.
-fn is_still(delta: ScrollDelta) -> bool {
-    match delta {
-        ScrollDelta::Continuous(distance) => distance == 0.0,
-        ScrollDelta::Discrete(steps) => steps == 0,
-    }
-}
-
-/// A scroll delta in the detents the host provider counts in.
+/// A scroll distance in the detents the host provider counts in.
 ///
-/// The inverse of the compositor's conversion for a discrete count: the
-/// compositor multiplies a distance by `SURFACE_UNITS_PER_DETENT`, and this
-/// divides by the same constant. A discrete count is already detents.
-fn detents(delta: ScrollDelta) -> f64 {
-    match delta {
-        ScrollDelta::Continuous(distance) => distance / SURFACE_UNITS_PER_DETENT,
-        ScrollDelta::Discrete(steps) => f64::from(steps),
-    }
+/// The inverse of the compositor's conversion: the compositor multiplies a
+/// detent count by `SURFACE_UNITS_PER_DETENT`, and this divides a distance by
+/// the same constant.
+fn detents(distance: f64) -> f64 {
+    distance / SURFACE_UNITS_PER_DETENT
 }
 
 /// `sink:key(keycode, pressed, seat)`: presses or releases a key.

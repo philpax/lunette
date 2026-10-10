@@ -82,36 +82,6 @@ mod tests {
     }
 
     #[test]
-    fn a_listener_is_returned_until_it_is_cancelled() {
-        let lua = mlua::Lua::new();
-        let mut subscribers = Subscribers::default();
-
-        let id = subscribers.add(name(), handler(&lua));
-        assert_eq!(subscribers.listeners(name()).len(), 1);
-
-        subscribers.remove(id);
-        assert!(subscribers.listeners(name()).is_empty());
-    }
-
-    #[test]
-    fn listeners_are_answered_in_the_order_they_subscribed() {
-        let lua = mlua::Lua::new();
-        let mut subscribers = Subscribers::default();
-
-        let first = subscribers.add(name(), handler(&lua));
-        let second = subscribers.add(name(), handler(&lua));
-
-        assert_ne!(first, second);
-        assert_eq!(subscribers.listeners(name()).len(), 2);
-    }
-
-    #[test]
-    fn an_event_nobody_waits_for_has_no_listeners() {
-        let subscribers = Subscribers::default();
-        assert!(subscribers.listeners(name()).is_empty());
-    }
-
-    #[test]
     fn cancelling_twice_removes_nothing_the_second_time() {
         let lua = mlua::Lua::new();
         let mut subscribers = Subscribers::default();

@@ -51,11 +51,6 @@ impl WindowProperties {
         self.windows.get(&window)?.get(key)
     }
 
-    /// Returns the window's properties in key order.
-    pub fn of(&self, window: WindowId) -> impl Iterator<Item = (&PropertyKey, &PropertyValue)> {
-        self.windows.get(&window).into_iter().flatten()
-    }
-
     /// Removes properties for closed windows. The store survives Lua reloads.
     pub fn retain(&mut self, live: &[WindowId]) {
         self.windows.retain(|window, _| live.contains(window));
@@ -253,7 +248,6 @@ mod tests {
             properties.get(window(1), "width"),
             Some(&PropertyValue::Number(2.0))
         );
-        assert_eq!(properties.of(window(1)).count(), 1);
     }
 
     #[test]
@@ -292,21 +286,6 @@ mod tests {
         assert!(!properties.clear(window(1), "tag"));
         properties.set(window(1), key("tag"), PropertyValue::Boolean(true));
         assert!(!properties.clear(window(1), "pose"));
-    }
-
-    #[test]
-    fn everything_a_window_holds_comes_back_in_key_order() {
-        let mut properties = WindowProperties::new();
-        properties.set(window(1), key("pose"), PropertyValue::Number(1.0));
-        properties.set(window(1), key("actual"), PropertyValue::Number(2.0));
-        properties.set(window(1), key("tag"), PropertyValue::Number(3.0));
-
-        let names: Vec<&str> = properties
-            .of(window(1))
-            .map(|(key, _)| key.as_str())
-            .collect();
-        assert_eq!(names, vec!["actual", "pose", "tag"]);
-        assert_eq!(properties.of(window(2)).count(), 0);
     }
 
     #[test]

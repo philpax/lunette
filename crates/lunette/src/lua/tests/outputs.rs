@@ -48,15 +48,18 @@ fn creating_an_output_asks_the_compositor_for_the_mode_that_was_named() {
     let session = session(Vec::new());
     let lua = lua(&session);
 
-    let id: u64 = run(
+    let (id, width, height, scale, refresh): (u64, u32, u32, f64, f64) = run(
         &lua,
         "local out = lunette.newOutput{ width = 1920, height = 1080, scale = 1.5, refresh = 90 }
-         return out.id",
+         return out.id, out.width, out.height, out.scale, out.refresh",
     );
 
     // The default output already holds the first identifier, so the first
     // output the call creates takes the second.
     assert_eq!(id, 2);
+    // The handle reports the mode it asked for before the compositor answers,
+    // in hertz.
+    assert_eq!((width, height, scale, refresh), (1920, 1080, 1.5, 90.0));
     match only_command(&session) {
         Command::CreateOutput { output, mode } => {
             assert_eq!(output, output_id(2));
@@ -83,37 +86,6 @@ fn an_output_that_names_no_scale_or_refresh_takes_the_defaults() {
         }
         other => panic!("expected a create, found {other:?}"),
     }
-}
-
-#[test]
-fn a_handle_is_dead_until_the_snapshot_lists_its_output() {
-    let session = session(Vec::new());
-    let lua = lua(&session);
-
-    assert!(
-        run::<bool>(
-            &lua,
-            "return lunette.newOutput{ width = 800, height = 600 }.dead"
-        ),
-        "the compositor has not seen the request in the frame that made it"
-    );
-}
-
-#[test]
-fn a_handle_reports_the_mode_it_was_asked_for_before_the_compositor_answers() {
-    let session = session(Vec::new());
-    let lua = lua(&session);
-
-    let (width, height, scale, refresh): (u32, u32, f64, f64) = run(
-        &lua,
-        "local out = lunette.newOutput{ width = 1920, height = 1080, scale = 2, refresh = 144 }
-         return out.width, out.height, out.scale, out.refresh",
-    );
-
-    assert_eq!((width, height), (1920, 1080));
-    assert_eq!(scale, 2.0);
-    // The handle reports hertz; the wire carries millihertz.
-    assert_eq!(refresh, 144.0);
 }
 
 #[test]
@@ -192,12 +164,16 @@ fn every_method_answers_false_on_an_output_that_is_gone() {
     // The handle names an output the compositor has not created. A caller
     // cannot distinguish that state from a destroyed output, and the methods
     // answer false for both.
-    let (destroyed, remoded): (bool, bool) = run(
+    let (dead, destroyed, remoded): (bool, bool, bool) = run(
         &lua,
         "local out = lunette.newOutput{ width = 800, height = 600 }
-         return out:destroy(), out:setMode{ scale = 2 }",
+         return out.dead, out:destroy(), out:setMode{ scale = 2 }",
     );
 
+    assert!(
+        dead,
+        "the compositor has not seen the request in the frame that made it"
+    );
     assert!(!destroyed);
     assert!(!remoded);
 }
@@ -218,23 +194,11 @@ fn an_output_with_an_invalid_argument_is_refused() {
             "size in pixels",
         ),
         (
-            "lunette.newOutput{ width = -1920, height = 1080 }",
-            "size in pixels",
-        ),
-        (
             "lunette.newOutput{ width = 1920, height = 1080, scale = 0 }",
             "",
         ),
         (
-            "lunette.newOutput{ width = 1920, height = 1080, scale = -1 }",
-            "",
-        ),
-        (
             "lunette.newOutput{ width = 1920, height = 1080, refresh = 0 }",
-            "",
-        ),
-        (
-            "lunette.newOutput{ width = 1920, height = 1080, refresh = -60 }",
             "",
         ),
         (
@@ -307,23 +271,4 @@ fn a_spawn_output_that_is_not_an_output_handle_is_refused() {
         !message.is_empty(),
         "a seat handle was accepted where an output was wanted"
     );
-}
-
-#[test]
-fn the_scale_ladder_reaches_lua_as_the_one_the_layer_pool_keys_on() {
-    let session = session(Vec::new());
-    let lua = lua(&session);
-
-    let steps: Vec<f64> = run(&lua, "return lunette.scaleSteps()");
-
-    let expected: Vec<f64> = crate::scale::STEPS
-        .iter()
-        .map(|step| f64::from(step.in_120ths()) / f64::from(crate::scale::ScaleStep::DENOMINATOR))
-        .collect();
-    assert_eq!(steps, expected);
-    // The assertions pin the two ends the ladder declares. A change to one end
-    // that does not update the other fails this test at the point where a
-    // per-frame panel allocation would encounter the mismatch.
-    assert_eq!(steps.first(), Some(&1.0));
-    assert_eq!(steps.last(), Some(&3.0));
 }

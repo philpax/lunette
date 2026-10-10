@@ -172,7 +172,7 @@ Source reload and hard restart keep running applications, because the compositor
 
 `lunette.reload()` returns `true`, or `false` and a message, and never raises. A reload that fails after `main.luau` starts leaves whatever the failed run installed; safe mode is only for startup. A reload requested during a reload or from inside a plugin callback is refused.
 
-`lunette.restart()` performs a hard restart through `lovr.event.restart` after the frame's callbacks return, so several requests in one frame are one restart. The host shuts down plugin runtimes and clears native subscribers before the state closes, whichever way the restart was requested ([LÖVR integration](lovr-integration.md#restart-semantics)).
+LÖVR's own `lovr.event.restart()` requests a hard restart. LÖVR takes it after the frame's callbacks return, so several requests in one frame are one restart. The host shuts down plugin runtimes and clears native subscribers before the state closes ([LÖVR integration](lovr-integration.md#restart-semantics)).
 
 ## Errors
 

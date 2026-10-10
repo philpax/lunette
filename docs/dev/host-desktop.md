@@ -66,7 +66,7 @@ Per-monitor targeting happens before the provider, because no provider knows abo
 
 Windows and mirrored monitors share the sink interface but not its semantics. Each compositor window has independent focus and its own cursor per seat. Every mirrored monitor is driven by one `HidProvider` acting on a host desktop with one cursor and one keyboard focus. Two hands pointing at two monitors cannot produce two cursors, and typing at a monitor goes to whatever the host has focused.
 
-Every sink carries an input domain. `sink.domain` is `'window'` or `'host'`, and `sink.window` or `sink.monitor` names the target in its domain and is nil in the other. Routing matches on the domain exhaustively. A window sink's events become compositor commands flushed at frame end and reach the client through its seat. A host sink's events are mapped through the monitor's logical rectangle and accumulated by the provider, which sends once per frame. WayVR has one global `InputFocus` and cannot express two hands on two kinds of surface.
+Every sink carries an input domain. `sink.domain` is `'window'` or `'host'`. Routing matches on the domain exhaustively. A window sink's events become compositor commands flushed at frame end and reach the client through its seat. A host sink's events are mapped through the monitor's logical rectangle and accumulated by the provider, which sends once per frame. WayVR has one global `InputFocus` and cannot express two hands on two kinds of surface.
 
 ## Clipboard
 

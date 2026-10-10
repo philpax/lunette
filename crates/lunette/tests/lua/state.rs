@@ -23,8 +23,7 @@ use lunette::{
         attachment::{self, PluginFailure},
         declarations,
     },
-    reload, require,
-    scale::{STEPS, ScaleStep},
+    reload, require, scale,
 };
 use mlua::{Function, Lua, Table, Value, ffi::lua_State};
 use tracing_subscriber::fmt::MakeWriter;
@@ -150,12 +149,7 @@ fn native(lua: &Lua) -> mlua::Result<Table> {
     )?;
     native.set(
         "scaleSteps",
-        lua.create_function(|_, ()| {
-            Ok(STEPS
-                .iter()
-                .map(|step| f64::from(step.in_120ths()) / f64::from(ScaleStep::DENOMINATOR))
-                .collect::<Vec<_>>())
-        })?,
+        lua.create_function(|_, ()| Ok(scale::ladder()))?,
     )?;
     Ok(native)
 }

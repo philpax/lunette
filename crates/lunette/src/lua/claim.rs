@@ -8,8 +8,9 @@
 //!
 //! # The priority division
 //!
-//! `lunette.claimLayer` takes a scalar priority and `claim:setPriority` changes
-//! it. [`LayerPool`] sorts by that number, stably, and assigns the top N.
+//! `lunette.claimLayer` takes a scalar priority, fixed for the claim's life. A
+//! caller whose ranking changes releases the claim and makes a new one.
+//! [`LayerPool`] sorts by that number, stably, and assigns the top N.
 //! The caller supplies the ranking: focus, gaze, distance, a rule putting
 //! video above a terminal, hysteresis to stop grant oscillation. lunette adds
 //! no ranking of its own. `docs/dev/rendering.md` records that split.
@@ -65,11 +66,6 @@ pub trait ClaimRegistry: fmt::Debug {
     /// Registers a claim on a layer of `key` for `source`, to be ranked at the
     /// next frame boundary.
     fn claim(&self, source: WindowId, key: LayerKey, priority: Priority) -> ClaimId;
-
-    /// Changes a claim's ranking, taking effect at the next frame boundary.
-    ///
-    /// Reports whether the claim is still known.
-    fn set_priority(&self, claim: ClaimId, priority: Priority) -> bool;
 
     /// Withdraws a claim, returning any layer it held to the free list.
     ///
@@ -192,10 +188,6 @@ where
         claim
     }
 
-    fn set_priority(&self, claim: ClaimId, priority: Priority) -> bool {
-        self.pool.borrow_mut().set_priority(claim, priority)
-    }
-
     fn release(&self, claim: ClaimId) -> bool {
         self.sources.borrow_mut().remove(&claim);
         self.pool.borrow_mut().release_claim(claim)
@@ -236,14 +228,6 @@ where
 #[derive(Debug)]
 pub struct Claim<T> {
     id: ClaimId,
-    /// The window whose pixels this claim is for. Fixed when the claim is made:
-    /// a claim names one source for its whole life, and a panel that changes
-    /// source releases the claim and makes a new one.
-    ///
-    /// Absent when the pool no longer holds the claim.
-    /// A handler that releases a claim earlier than the event naming the claim
-    /// can produce such a handle.
-    source: Option<WindowId>,
     session: Rc<Session<T>>,
     known: RefCell<Known>,
 }
@@ -256,17 +240,14 @@ impl<T> PartialEq for Claim<T> {
 }
 
 impl<T> Claim<T> {
-    /// Builds a handle for a claim the pool has just created, or for one an event
-    /// names.
+    /// Builds a handle for a claim the pool has just created.
     pub(crate) fn new(session: Rc<Session<T>>, id: ClaimId) -> Self {
-        let source = session.claims().source(id);
         let known = session
             .claims()
             .state(id)
             .map_or_else(Known::default, Known::from);
         Self {
             id,
-            source,
             session,
             known: RefCell::new(known),
         }
@@ -290,7 +271,6 @@ struct Known {
     /// The size of the layer the claim is for. This is the requested size
     /// rounded up to the ladder, not the requested size itself.
     size: Option<LayerSize>,
-    priority: f64,
 }
 
 impl From<ClaimState> for Known {
@@ -298,13 +278,12 @@ impl From<ClaimState> for Known {
         Self {
             granted: state.granted,
             size: Some(state.key.size()),
-            priority: state.priority.get(),
         }
     }
 }
 
 handle! {
-    /// A claim on a composition layer for a window's pixels. Layers are scarce, so a panel requests one and the claim records whether the request is granted. An in-scene quad is the fallback. `lunette.claimLayer` mints the claim; an event names one that already exists.
+    /// A claim on a composition layer for a window's pixels. Layers are scarce, so a panel requests one and the claim records whether the request is granted. An in-scene quad is the fallback. `lunette.claimLayer` mints the claim.
     Claim<T: LuaTexture> = HandleKind::Claim;
 
     /// Fixed for the claim's whole life, so it is the key a table of per-claim state uses.
@@ -324,11 +303,6 @@ handle! {
         this.session.claims().push_layer(lua, this.id).map(MaybeLayer)
     }
 
-    field priority(_lua, this) -> f64 {
-        this.refresh();
-        Ok(this.known.borrow().priority)
-    }
-
     /// The size of the layer a claim is for. The requested size is rounded up to
     /// the ladder, so the layer is at least as large as the request and usually
     /// larger. A caller setting the layer's viewport needs the number it
@@ -337,20 +311,8 @@ handle! {
 
     field height(_lua, this) -> Option<u32> { Ok(size(this).map(|size| size.height)) }
 
-    /// The source, as a fresh handle each read. Absent when the pool no longer
-    /// holds the claim.
-    field window(_lua, this) -> Option<Window<T>> {
-        Ok(this
-            .source
-            .map(|source| Window::for_id(Rc::clone(&this.session), source)))
-    }
-
-    /// Changes where this claim ranks against the others, taking effect at the next frame boundary. Raising a claim above a granted one displaces it.
-    method setPriority(_lua, this, priority: f64) -> bool { set_priority(this, priority) }
-
     /// Withdraws the claim and returns the layer to the pool. The handle is dead
-    /// afterwards, and no revocation event fires. `false` when the claim is
-    /// already gone.
+    /// afterwards. `false` when the claim is already gone.
     method release(_lua, this) -> bool { Ok(release(this)) }
 }
 
@@ -420,40 +382,11 @@ record! {
     }
 }
 
-/// `claim:setPriority(n)`: changes where this claim ranks against the others.
-///
-/// Takes effect at the next frame boundary, with every other grant and
-/// revocation. Raising a claim above a granted one displaces it, and the
-/// displaced claim receives `lovr.lunlayerrevoked`.
-///
-/// `false` on a dead handle, without raising. A priority that is not a number
-/// raises: that is a defect in the caller's maths, and a claim silently
-/// keeping its old ranking would be diagnosed as a fault in the pool.
-///
-/// # Errors
-///
-/// If the priority is not a number that can be ordered.
-fn set_priority<T>(claim: &Claim<T>, priority: f64) -> mlua::Result<bool> {
-    // Validated before the liveness check, so a bad priority is reported
-    // whether or not the claim is still there.
-    let priority = Priority::new(priority).ok_or_else(|| {
-        mlua::Error::runtime(
-            "lunette: a claim's priority has to be a number that can be ordered, and nan cannot",
-        )
-    })?;
-
-    Ok(claim.session.claims().set_priority(claim.id, priority))
-}
-
 /// `claim:release()`: withdraws the claim, returning any layer to the pool.
 ///
-/// The handle is dead afterwards, and no `lovr.lunlayerrevoked` fires: the
-/// caller released the claim itself, and an event would restate the call.
+/// The handle is dead afterwards.
 ///
-/// Releasing is explicit. A collected handle does not release. The event
-/// payloads carry a second handle to the same claim, and a handle that releases
-/// on drop would withdraw a live claim as soon as the garbage collector reaches
-/// the copy a handler has finished with.
+/// Releasing is explicit. A collected handle does not release.
 ///
 /// `false` when the claim is already gone, without raising.
 fn release<T>(claim: &Claim<T>) -> bool {

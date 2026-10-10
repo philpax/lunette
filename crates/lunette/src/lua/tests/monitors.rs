@@ -456,12 +456,12 @@ fn a_monitors_sink_is_in_the_host_domain_and_a_windows_in_the_window_domain() {
     );
     let lua = lua(&session);
 
-    let (domain, id, monitor) = lua
+    let (domain, id) = lua
         .load(
             "local s = lunette.monitors()[1].sink
-             return s.domain, s.id, s.monitor.id",
+             return s.domain, s.id",
         )
-        .eval::<(String, Option<u64>, String)>()
+        .eval::<(String, Option<u64>)>()
         .expect("the fields read");
 
     assert_eq!(domain, "host");
@@ -469,19 +469,17 @@ fn a_monitors_sink_is_in_the_host_domain_and_a_windows_in_the_window_domain() {
         id, None,
         "a mirrored monitor is not a wl_surface and has no sink identifier",
     );
-    assert_eq!(monitor, "DP-1");
 
-    let (domain, id, monitor) = lua
+    let (domain, id) = lua
         .load(
             "local s = lunette.windows()[1].sink
-             return s.domain, s.id, s.monitor",
+             return s.domain, s.id",
         )
-        .eval::<(String, Option<u64>, Option<Value>)>()
+        .eval::<(String, Option<u64>)>()
         .expect("the fields read");
 
     assert_eq!(domain, "window");
     assert_eq!(id, Some(1));
-    assert!(monitor.is_none(), "a window sink reaches no monitor");
 }
 
 #[test]

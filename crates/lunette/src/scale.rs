@@ -61,6 +61,15 @@ pub const STEPS: [ScaleStep; 17] = [
     ScaleStep(360),
 ];
 
+/// The ladder as scale factors, ascending: what `lunette.scaleSteps()` answers.
+#[must_use]
+pub fn ladder() -> Vec<f64> {
+    STEPS
+        .iter()
+        .map(|step| f64::from(step.in_120ths()) / f64::from(ScaleStep::DENOMINATOR))
+        .collect()
+}
+
 /// The smallest rung, and so the smallest layer dimension the pool allocates.
 ///
 /// A panel below this is cheap enough that rounding it up costs less than the

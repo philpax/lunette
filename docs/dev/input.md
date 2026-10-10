@@ -57,8 +57,8 @@ MIME types are re-offered exactly as the source advertised them, and a request f
 Wayland clients take an xkb keymap, raw keycodes, and modifier state, and translate keysyms themselves. The native layer provides:
 
 - `sink:key(keycode, pressed)` and explicit modifier state through `sink:setModifiers`. The state is set directly, without synthesising presses of a representative key. Modifier names are the closed set `lunette.ModifierName`, which `lunette.modifierNames()` lists.
-- Keymap queries: `seat:symbolFor` and `seat:characterFor` give the keysym and text for a keycode under modifiers, `seat.layouts` lists the layouts, and `seat:strokeFor` is the reverse lookup from keysym or character to keycode and modifiers.
-- `sink:scroll` for a continuous distance and `sink:scrollDiscrete` for wheel notches. Clients use the difference to decide whether to scroll kinetically.
+- Keymap queries: `seat:symbolFor` and `seat:characterFor` give the keysym and text for a keycode under modifiers, and `seat:strokeFor` is the reverse lookup from keysym or character to keycode and modifiers.
+- `sink:scroll` for a continuous distance in surface pixels. A host sink converts the distance to wheel detents.
 
 A seat carries one layout group. A configuration that names several layouts for one seat is refused, and a second layout requires a second seat. `lua/lunette/init.luau` declares each call.
 

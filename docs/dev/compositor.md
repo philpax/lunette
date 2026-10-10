@@ -58,7 +58,7 @@ local proc = lunette.spawn {
 }
 ```
 
-`cwd` optionally sets the working directory, and `env` adds to the session's environment. The handle carries `id`, `dead`, and `pid`. `lunette.onProcessExited` reports exit, signal, or spawn failure, and `lunette.onProcessOutput` reports captured output.
+`cwd` optionally sets the working directory, and `env` adds to the session's environment. The handle carries `id` and `dead`. `lunette.onProcessExited` reports exit, signal, or spawn failure, and `lunette.onProcessOutput` reports captured output.
 
 ### Attribution
 

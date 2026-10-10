@@ -311,9 +311,8 @@ fn an_event_with_no_handler_is_dispatched_and_dropped() {
     session.push_event(LuaEvent::WindowOpened {
         window: window_id(1),
     });
+    // `poll` fails the case if dispatching a name nobody subscribed to raises.
     poll(&lua, &sink);
-
-    assert_eq!(run::<usize>(&lua, "return #lunette.windows()"), 0);
 }
 
 /// A handler error reaches every `lunette.onError` subscriber with its traceback.

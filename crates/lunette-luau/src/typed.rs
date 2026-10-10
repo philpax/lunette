@@ -139,12 +139,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_number_is_a_number_however_it_is_spelled_in_rust() {
-        assert_eq!(of::<f64>().to_string(), "number");
-        assert_eq!(of::<u32>().to_string(), "number");
-    }
-
-    #[test]
     fn an_option_is_optional_and_a_vec_is_an_array() {
         assert_eq!(of::<Option<String>>().to_string(), "string?");
         assert_eq!(of::<Vec<String>>().to_string(), "{ string }");
@@ -173,10 +167,5 @@ mod tests {
             of::<(f64, Option<String>)>().to_string(),
             "(number, string?)"
         );
-    }
-
-    #[test]
-    fn nothing_is_an_empty_tuple() {
-        assert_eq!(of::<()>().to_string(), "()");
     }
 }

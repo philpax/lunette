@@ -61,7 +61,7 @@ Each `lunette.on*` function subscribes a listener and returns the function that 
 
 `lunette.reload()` reloads the configuration in place. Plugins shut down, every module the configuration and its plugins loaded runs again, and `main.luau` and `lovr.load` run again. Applications, their windows, per-window properties, and the XR session stay. Only plugin cleanup runs, so a module that holds native resources outside a plugin keeps them, and a module must be safe to run twice. A reload that fails leaves what the failed run installed; correcting the file and reloading again recovers. The wrist menu's Reload configuration action calls it.
 
-`lunette.restart()` rebuilds the whole Lua state and the graphics device. Applications stay connected; everything held in Lua is lost.
+LÖVR's `lovr.event.restart()` rebuilds the whole Lua state and the graphics device. Applications stay connected; everything held in Lua is lost.
 
 ## Errors and safe mode
 

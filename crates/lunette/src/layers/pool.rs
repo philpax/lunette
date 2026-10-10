@@ -214,17 +214,6 @@ impl<B: LayerBackend> LayerPool<B> {
         id
     }
 
-    /// Changes a claim's ranking, taking effect at the next frame boundary.
-    ///
-    /// Reports whether the claim is still registered.
-    pub fn set_priority(&mut self, claim: ClaimId, priority: Priority) -> bool {
-        let Some(entry) = self.claims.iter_mut().find(|entry| entry.id == claim) else {
-            return false;
-        };
-        entry.priority = priority;
-        true
-    }
-
     /// Withdraws a claim, returning any layer it held to the free list.
     ///
     /// Reports whether the claim is registered. No revocation is recorded,

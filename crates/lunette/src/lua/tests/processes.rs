@@ -121,12 +121,11 @@ fn a_process_handle_reports_what_the_snapshot_says() {
         }],
     ));
 
-    let (dead, pid): (bool, i32) = run(&lua, "return proc.dead, proc.pid");
-    assert!(!dead);
-    assert_eq!(pid, 4242);
+    assert!(!run::<bool>(&lua, "return proc.dead"));
 
     session.begin(snapshot(Vec::new(), Vec::new()));
-    let (dead, pid): (bool, i32) = run(&lua, "return proc.dead, proc.pid");
-    assert!(dead, "a process absent from the snapshot has ended");
-    assert_eq!(pid, 4242, "an ended process reads its last-known pid");
+    assert!(
+        run::<bool>(&lua, "return proc.dead"),
+        "a process absent from the snapshot has ended"
+    );
 }

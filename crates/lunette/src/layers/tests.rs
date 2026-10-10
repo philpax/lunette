@@ -430,29 +430,6 @@ fn equal_priorities_do_not_reorder_between_frames() {
 }
 
 #[test]
-fn raising_a_priority_moves_the_layer_at_the_next_boundary() {
-    let mut harness = Harness::new(LayerBudget::SHARE);
-
-    let held = harness.pool.claim(key(512, 512), priority(5.0));
-    let wanting = harness.pool.claim(key(512, 512), priority(1.0));
-    harness.settle();
-
-    assert!(harness.pool.set_priority(wanting, priority(9.0)));
-    let outcome = harness.resolve();
-
-    assert_eq!(outcome.revoked, vec![held]);
-    assert_eq!(
-        outcome.granted,
-        Vec::new(),
-        "the layer that moved carries the other claim's pixels until this one is copied in"
-    );
-
-    assert!(harness.pool.note_blit_issued(wanting));
-
-    assert_eq!(harness.resolve().granted, vec![wanting]);
-}
-
-#[test]
 fn a_priority_that_is_not_a_number_is_refused() {
     assert_eq!(Priority::new(f64::NAN), None);
     assert!(Priority::new(f64::NEG_INFINITY).is_some());

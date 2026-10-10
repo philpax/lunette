@@ -43,9 +43,8 @@ fn gated_lua(session: &TestSession) -> Lua {
 #[test]
 fn the_scene_is_drawn_until_a_configuration_says_otherwise() {
     let session = session(Vec::new());
-    let lua = gated_lua(&session);
+    let _lua = gated_lua(&session);
 
-    assert!(run::<bool>(&lua, "return lunette.sceneEnabled()"));
     assert_eq!(session.scene(), SceneRendering::Drawn);
     assert_eq!(session.scene_gate(), Gate::Through);
 }
@@ -59,7 +58,6 @@ fn turning_the_scene_off_and_on_takes_effect_at_the_next_frame_boundary() {
 
     run::<()>(&lua, "lunette.setSceneEnabled(false)");
 
-    assert!(!run::<bool>(&lua, "return lunette.sceneEnabled()"));
     assert_eq!(
         session.scene(),
         SceneRendering::Drawn,

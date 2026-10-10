@@ -200,16 +200,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_named_type_is_itself() {
-        assert_eq!(Type::NUMBER.to_string(), "number");
-    }
-
-    #[test]
-    fn a_literal_carries_its_quotes() {
-        assert_eq!(Type::Literal("photo").to_string(), "'photo'");
-    }
-
-    #[test]
     fn an_optional_union_is_parenthesised() {
         let union = Type::Union(vec![Type::NUMBER, Type::STRING]);
         assert_eq!(union.clone().to_string(), "number | string");

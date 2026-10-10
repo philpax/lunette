@@ -163,34 +163,13 @@ pub(crate) struct CaptureTransform(FrameTransform);
 
 impl IntoLua for CaptureTransform {
     fn into_lua(self, lua: &Lua) -> mlua::Result<Value> {
-        match self.0 {
-            FrameTransform::Undefined => "undefined",
-            FrameTransform::Normal => "normal",
-            FrameTransform::Rotated90 => "rot90",
-            FrameTransform::Rotated180 => "rot180",
-            FrameTransform::Rotated270 => "rot270",
-            FrameTransform::Flipped => "flipped",
-            FrameTransform::Flipped90 => "flipped90",
-            FrameTransform::Flipped180 => "flipped180",
-            FrameTransform::Flipped270 => "flipped270",
-        }
-        .into_lua(lua)
+        self.0.as_str().into_lua(lua)
     }
 }
 
 impl Typed for CaptureTransform {
     fn luau() -> Type {
-        Type::literals(&[
-            "undefined",
-            "normal",
-            "rot90",
-            "rot180",
-            "rot270",
-            "flipped",
-            "flipped90",
-            "flipped180",
-            "flipped270",
-        ])
+        Type::literals(FrameTransform::NAMES)
     }
 }
 

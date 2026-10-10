@@ -12,7 +12,7 @@ use lunette_compositor::protocol::{
     ContentType, InputDomain, PointerButton, ProcessOutcome, Stream,
 };
 use lunette_luau::Type;
-use mlua::{FromLua, Function, IntoLua, Lua, Table, Value};
+use mlua::{FromLua, Function, IntoLua, Lua, Value};
 
 use crate::{
     lua::{
@@ -83,30 +83,6 @@ impl IntoLua for SinkDomain {
 impl Typed for SinkDomain {
     fn luau() -> Type {
         Type::literals(InputDomain::NAMES)
-    }
-}
-
-/// The domain of a sink that reaches a window this compositor hosts.
-///
-/// One arm of the union [`SinkDomain`] covers, for the view of a sink known to be a window's.
-/// No value of it crosses into Lua.
-/// The field it declares is satisfied by the domain the sink carries.
-#[derive(Clone, Copy, Debug)]
-pub struct WindowDomain;
-
-impl Typed for WindowDomain {
-    fn luau() -> Type {
-        Type::Literal(InputDomain::Window.as_str())
-    }
-}
-
-/// The domain of a sink that reaches the host desktop.
-#[derive(Clone, Copy, Debug)]
-pub struct HostDomain;
-
-impl Typed for HostDomain {
-    fn luau() -> Type {
-        Type::Literal(InputDomain::Host.as_str())
     }
 }
 
@@ -182,22 +158,6 @@ fn property_value_or_nil() -> Type {
     };
     members.push(Type::NIL);
     Type::Union(members)
-}
-
-/// Every property a window carries.
-#[derive(Debug)]
-pub struct PropertyMap(pub Table);
-
-impl IntoLua for PropertyMap {
-    fn into_lua(self, _: &Lua) -> mlua::Result<Value> {
-        Ok(Value::Table(self.0))
-    }
-}
-
-impl Typed for PropertyMap {
-    fn luau() -> Type {
-        Type::map(Type::STRING, property_value())
-    }
 }
 
 /// A stroke request names a character to type or a keysym to produce.

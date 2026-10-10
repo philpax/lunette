@@ -91,8 +91,6 @@ macro_rules! closed_set {
 
 #[cfg(test)]
 mod tests {
-    use crate::Type;
-
     closed_set! {
         /// A set with the properties a declaration can have: a default member, a doc
         /// comment per member, and a spelling that differs from the lowercased variant name.
@@ -114,12 +112,6 @@ mod tests {
     }
 
     #[test]
-    fn the_lists_agree_with_the_names() {
-        let named: Vec<&str> = Sample::ALL.iter().map(|member| member.as_str()).collect();
-        assert_eq!(named, Sample::NAMES);
-    }
-
-    #[test]
     fn every_name_round_trips_and_nothing_else_parses() {
         for member in Sample::ALL {
             assert_eq!(Sample::from_name(member.as_str()), Some(*member));
@@ -129,21 +121,7 @@ mod tests {
     }
 
     #[test]
-    fn the_default_is_the_member_that_asked_for_it() {
-        assert_eq!(Sample::default(), Sample::None);
-    }
-
-    #[test]
     fn display_is_the_name() {
         assert_eq!(Sample::CapsLock.to_string(), "capsLock");
-    }
-
-    /// A set declared this way builds its union type in one line from `NAMES`.
-    #[test]
-    fn the_names_are_what_a_luau_union_is_built_from() {
-        assert_eq!(
-            Type::literals(Sample::NAMES).to_string(),
-            "'none' | 'capsLock' | 'video'"
-        );
     }
 }

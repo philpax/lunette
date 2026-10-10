@@ -8,8 +8,7 @@ use crate::{
         Claim, ErrorEvent, Monitor, Output, Process, ReportError, Seat, Sink, Spawn, Window,
         claim::ClaimLayer,
         declarations::{
-            AliasSpec, Aliased, Handle, NullTexture, Property, PropertyType, Record, Recorded,
-            Textured, collect,
+            AliasSpec, Aliased, Handle, NullTexture, Record, Recorded, Textured, collect,
         },
         keys::{KeyName, ModifierName},
         module_functions,
@@ -117,50 +116,19 @@ fn render_alias(out: &mut String, alias: &AliasSpec, handles: &[&Handle]) {
 }
 
 fn render_handle(out: &mut String, handle: &Handle) {
-    let name = handle.spec.name;
-    let discriminated = !handle.spec.variants.is_empty();
-
     out.push('\n');
     render_doc(out, handle.spec.doc, "");
-    if discriminated {
-        let _ = writeln!(out, "type {name}Fields = {{");
-    } else {
-        let _ = writeln!(out, "export type {name} = {{");
-    }
+    let _ = writeln!(out, "export type {} = {{", handle.spec.name);
 
     for field in &handle.fields {
-        if let PropertyType::Same(ty) = &field.ty {
-            render_doc(out, field.doc, "  ");
-            let _ = writeln!(out, "  read {}: {ty},", field.name);
-        }
+        render_doc(out, field.doc, "  ");
+        let _ = writeln!(out, "  read {}: {},", field.name, field.ty);
     }
     for method in &handle.methods {
         render_doc(out, method.doc, "  ");
         let _ = writeln!(out, "  read {}: {},", method.name, method.ty);
     }
     out.push_str("}\n");
-
-    for (arm, variant) in handle.spec.variants.iter().enumerate() {
-        let fields: Vec<String> = handle
-            .fields
-            .iter()
-            .filter_map(|field| arm_type(field, arm))
-            .collect();
-        let _ = writeln!(out, "\ntype {variant} = {{ {} }}", fields.join(", "));
-    }
-
-    if discriminated {
-        let arms = handle.spec.variants.join(" | ");
-        let _ = writeln!(out, "\nexport type {name} = {name}Fields & ({arms})");
-    }
-}
-
-/// Renders the field type for one discriminated variant.
-fn arm_type(field: &Property, arm: usize) -> Option<String> {
-    match &field.ty {
-        PropertyType::Same(_) => None,
-        PropertyType::PerVariant(types) => Some(format!("read {}: {}", field.name, types[arm])),
-    }
 }
 
 fn render_record(out: &mut String, record: &Record) {

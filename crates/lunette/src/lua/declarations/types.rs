@@ -1,5 +1,4 @@
-//! Nil and Textured are the two markers that stand for a Luau type no value
-//! carries.
+//! Textured is a marker that stands for a Luau type no value carries.
 //!
 //! Everything else comes from [`lunette_luau`]: the leaves, the containers, and
 //! the tuples are stated once there, and a handle's name comes from the
@@ -9,21 +8,10 @@ use lunette_luau::{Type, Typed};
 
 use crate::lua::declarations::{AliasSpec, Aliased};
 
-/// A value Lua never receives. It is the type of the arm of a
-/// discriminated handle that carries none.
-#[derive(Clone, Copy, Debug)]
-pub struct Nil;
-
 /// The receiver of a method reached through the union of the handles that carry
 /// pixels.
 #[derive(Clone, Copy, Debug)]
 pub struct Textured;
-
-impl Typed for Nil {
-    fn luau() -> Type {
-        Type::NIL
-    }
-}
 
 impl Typed for Textured {
     fn luau() -> Type {

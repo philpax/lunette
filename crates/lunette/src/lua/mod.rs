@@ -75,8 +75,7 @@ use crate::{
     },
     properties::WindowProperties,
     reload::reload_from_lua,
-    restart::restart_from_lua,
-    scale::{STEPS, ScaleStep},
+    scale,
     scene::{Gate, SceneRendering, install_gate},
     texture::{CopyableTexture, FrameGeneration, LovrTexture, MonitorTextures, TextureLedger},
 };
@@ -340,12 +339,6 @@ impl<T> Session<T> {
         self.frame.borrow().scene
     }
 
-    /// What the configuration last requested. The next frame latches it.
-    #[must_use]
-    pub fn requested_scene(&self) -> SceneRendering {
-        self.scene.get()
-    }
-
     /// Records the value `lunette.setSceneEnabled` received, for the next boundary.
     pub fn set_scene(&self, scene: SceneRendering) {
         self.scene.set(scene);
@@ -547,9 +540,6 @@ module! {
         Ok(())
     }
 
-    /// The value `setSceneEnabled` received last. The next frame latches it.
-    fn sceneEnabled(_lua, session) -> bool { Ok(session.requested_scene().drawn()) }
-
     /// Calls `handler` whenever a callback raises, and answers the function that stops it. The standard library's error module subscribes to draw a panel; without a subscription, the error reaches the log and nothing else.
     fn onError(lua, session, handler: ErrorListener) -> Cancel {
         let id = session.subscribe(ERROR, handler.0);
@@ -568,7 +558,7 @@ module! {
         Ok(())
     }
 
-    /// Every modifier name a seat accepts, in the order a keymap numbers them. `sink:setModifiers` takes these names, and `seat.modifiers` returns them.
+    /// Every modifier name a seat accepts, in the order a keymap numbers them. `sink:setModifiers` takes these names.
     fn modifierNames(_lua, _session) -> Vec<ModifierName> { Ok(modifier_names()) }
 
     /// The subset of `modifierNames()` that toggles on a press.
@@ -583,15 +573,12 @@ module! {
     }
 
     /// The ladder a layer's requested size is quantised up, ascending. A panel whose scale Lua raises requests a size the free list already holds.
-    fn scaleSteps(_lua, _session) -> Vec<f64> { Ok(scale_steps()) }
+    fn scaleSteps(_lua, _session) -> Vec<f64> { Ok(scale::ladder()) }
 
     /// Shuts down plugin runtimes, retires their contract epoch, and re-runs the configuration in the same Lua state, keeping the compositor, the clients, and their textures. Answers whether it loaded, and the error if it did not.
     fn reload(lua, session) -> (bool, Option<String>) {
         reload_from_lua(lua, session.mirrors(), &|| session.clear_subscribers())
     }
-
-    /// Tears the session down and starts it again, graphics device included.
-    fn restart(lua, _session) -> () { restart_from_lua(lua) }
 }
 
 /// `lunette.windows()`: every mapped toplevel, as of this frame's snapshot.
@@ -605,16 +592,6 @@ fn window_handles<T: LuaTexture>(
         .iter()
         .map(|window| Window::new(Rc::clone(session), window))
         .collect())
-}
-
-/// `lunette.scaleSteps()`: the ladder [`crate::scale`] quantises layer sizes against, ascending.
-///
-/// Sharing the ladder avoids an allocation, which blocks on `XR_INFINITE_DURATION`.
-fn scale_steps() -> Vec<f64> {
-    STEPS
-        .iter()
-        .map(|step| f64::from(step.in_120ths()) / f64::from(ScaleStep::DENOMINATOR))
-        .collect()
 }
 
 /// `lunette.spawn{ argv = …, env = …, cwd = …, xwayland = … }`.

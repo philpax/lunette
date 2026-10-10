@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use lunette_compositor::{
     keymap::Keymap,
-    protocol::{Command, KeyModifier, KeymapConfig, KeymapDefaults, ModifierState, SeatSnapshot},
+    protocol::{Command, KeymapConfig, KeymapDefaults, ModifierState, SeatSnapshot},
 };
 use pretty_assertions::assert_eq;
 
@@ -139,23 +139,14 @@ fn default_seat_is_chosen_by_id_and_nil_when_absent_and_a_retained_handle_goes_d
 }
 
 #[test]
-fn a_seat_reports_its_name_and_the_layouts_its_keymap_carries() {
+fn a_seat_reports_its_name() {
     let session = session(Vec::new());
     session.begin(seated(Vec::new(), vec![seat(1, "lunette", "us")]));
     let lua = lua(&session);
 
-    let (name, layouts): (String, Table) = run(
-        &lua,
-        "local s = lunette.seats()[1] return s.name, s.layouts",
-    );
+    let name: String = run(&lua, "return lunette.seats()[1].name");
 
     assert_eq!(name, "lunette");
-    assert_eq!(layouts.len().expect("a sequence"), 1);
-    let first: String = layouts.get(1).expect("the first layout");
-    assert!(
-        first.contains("US"),
-        "the layout list does not name the compiled layout: {first}",
-    );
 }
 
 #[test]
@@ -704,30 +695,6 @@ fn a_window_sink_scroll_queues_one_command_per_moving_axis() {
 }
 
 #[test]
-fn a_discrete_scroll_stays_discrete() {
-    let session = us_session(vec![window(1, "term", "foot", PixelSize::new(800, 600))]);
-    let lua = lua(&session);
-
-    run::<()>(&lua, "lunette.windows()[1].sink:scrollDiscrete(1, 2)");
-
-    let deltas: Vec<_> = session
-        .flush()
-        .into_iter()
-        .filter_map(|command| match command {
-            Command::Scroll { axis, delta, .. } => Some((axis, delta)),
-            _ => None,
-        })
-        .collect();
-    assert_eq!(
-        deltas,
-        vec![
-            (ScrollAxis::Horizontal, ScrollDelta::Discrete(1)),
-            (ScrollAxis::Vertical, ScrollDelta::Discrete(2)),
-        ],
-    );
-}
-
-#[test]
 fn a_scroll_distance_that_is_not_finite_raises() {
     let session = us_session(vec![window(1, "term", "foot", PixelSize::new(800, 600))]);
     let lua = lua(&session);
@@ -842,27 +809,7 @@ fn a_seat_the_snapshot_no_longer_lists_is_dead_and_answers_from_what_it_knew() {
 
     session.begin(seated(Vec::new(), Vec::new()));
 
-    let (dead, name, layouts): (bool, String, Table) =
-        run(&lua, "return seat.dead, seat.name, seat.layouts");
+    let (dead, name): (bool, String) = run(&lua, "return seat.dead, seat.name");
     assert!(dead);
     assert_eq!(name, "left", "a dead seat reads its last-known name");
-    assert_eq!(
-        layouts.len().expect("a sequence"),
-        0,
-        "a seat that is gone has no layout to report"
-    );
-}
-
-#[test]
-fn the_modifiers_a_seat_holds_are_readable() {
-    let mut held = seat(1, "lunette", "us");
-    held.modifiers = ModifierState::from_iter([KeyModifier::Shift, KeyModifier::CapsLock]);
-
-    let session = session(Vec::new());
-    session.begin(seated(Vec::new(), vec![held]));
-    let lua = lua(&session);
-
-    let names: Vec<String> = run(&lua, "return lunette.seats()[1].modifiers");
-
-    assert_eq!(names, vec!["shift".to_owned(), "capsLock".to_owned()]);
 }

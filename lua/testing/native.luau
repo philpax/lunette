@@ -235,7 +235,7 @@ installNative = function(fake, events, subscribe, clearSubscriptions)
     return process
   end
   lunette.newSeat = function(options)
-    local seat = { id = #events.seats + 1, name = options.name, dead = false, layouts = { 'fixture' }, modifiers = {} }
+    local seat = { id = #events.seats + 1, name = options.name, dead = false }
     events.seats[#events.seats + 1] = seat
     function seat:setFocus(sink)
       self.focus = sink

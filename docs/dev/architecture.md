@@ -85,7 +85,7 @@ lunette-generate-definitions      generates the Luau definitions, declarations, 
 |---|---|---|---|---|
 | Source reload (`lunette.reload()`) | survive | survives | retained; modules run again | runtimes close; a new contract epoch starts |
 | Instance reload | survive | survives | retained | one instance unloads and loads again |
-| Hard restart (`lunette.restart()`) | survive | torn down and rebuilt | replaced | replaced with the Lua state |
+| Hard restart (`lovr.event.restart()`) | survive | torn down and rebuilt | replaced | replaced with the Lua state |
 | Process exit or crash | terminated | destroyed | destroyed | destroyed |
 
 After either reload or restart, `lunette.windows()` enumerates the same clients again.

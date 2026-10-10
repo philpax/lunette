@@ -118,35 +118,6 @@ fn an_absent_key_is_nil_and_storing_nil_removes_the_key() {
 }
 
 #[test]
-fn every_key_a_window_holds_can_be_enumerated() {
-    // Without this, a configuration could read back keys it hardcoded and no
-    // others. A key it computed, such as a tag name or a monitor identity, would
-    // survive the reload unreachable.
-    let session = session(vec![window(1, "editor", "foot", PixelSize::new(64, 32))]);
-
-    {
-        let lua = lua(&session);
-        run::<()>(
-            &lua,
-            "local w = lunette.windows()[1]
-             w:setProperty('tag:left', true)
-             w:setProperty('tag:right', true)",
-        );
-    }
-
-    let lua = lua(&session);
-    let mut names: Vec<String> = run(
-        &lua,
-        "local names = {}
-         for key in pairs(lunette.windows()[1]:properties()) do names[#names + 1] = key end
-         return names",
-    );
-    names.sort();
-
-    assert_eq!(names, vec!["tag:left".to_owned(), "tag:right".to_owned()]);
-}
-
-#[test]
 fn a_windows_properties_go_when_the_window_does() {
     // Entries have the window's lifetime, not the Lua state's. The frame the
     // window closes in still returns them, because that is the frame
