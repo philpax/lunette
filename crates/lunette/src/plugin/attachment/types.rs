@@ -194,11 +194,6 @@ impl MethodsDescribed for PluginRuntime {
                 snapshot::snapshot(&this.state)
             }
 
-            /// Reports whether this runtime installed the exact instance handle, including a retired handle.
-            method owns(_lua, this, instance: UserDataRef<PluginInstance>) -> bool {
-                Ok(instance.runtime.upgrade().is_some_and(|runtime| Rc::ptr_eq(&runtime, &this.state)))
-            }
-
             /// Returns a context's owning instance identity only when it belongs to this exact runtime, including after its activation ends.
             method ownerId(_lua, this, context: UserDataRef<PluginContext>) -> Option<String> {
                 Ok(context.runtime.upgrade()

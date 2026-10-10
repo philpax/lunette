@@ -8,10 +8,7 @@ use std::{cell::Cell, error::Error, fmt};
 use mlua::{Function, Lua, Table, Value};
 use tracing::{info, warn};
 
-use crate::{
-    mirrors::MirrorRegistry,
-    plugin::{attachment, host},
-};
+use crate::{mirrors::MirrorRegistry, plugin::attachment};
 
 /// Applies the configuration on disk to the running session.
 ///
@@ -55,7 +52,7 @@ pub fn reload_from_lua(
 }
 
 fn replace_configuration(lua: &Lua, forget_subscriptions: &dyn Fn()) -> Result<(), ReloadError> {
-    host::shutdown(lua, "reload");
+    attachment::shutdown(lua, "reload");
 
     let globals = lua.globals();
     forget_subscriptions();

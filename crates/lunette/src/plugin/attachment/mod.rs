@@ -14,7 +14,8 @@ use std::{
     sync::Arc,
 };
 
-use mlua::{Lua, Value};
+use mlua::Lua;
+use tracing::warn;
 
 pub(crate) use self::snapshot::records as snapshot_records;
 pub use self::{
@@ -31,24 +32,27 @@ pub use self::{
 };
 use self::{
     lifecycle::close_runtime,
-    state::{AttachmentHost, DeclarationField, DefinitionData, RuntimeState},
+    state::{AttachmentHost, DefinitionData, RuntimeState},
 };
+use crate::plugin::contracts::ContractRegistry;
 pub use crate::plugin::contracts::PluginContractToken;
-use crate::plugin::contracts::{ContractName, ContractRegistry, ValidatedDeclaration};
 
 /// Installs the state-bound contract registry without changing its epoch.
-pub fn install(lua: &Lua) -> Result<(), AttachmentError> {
-    if lua.app_data_ref::<Rc<RefCell<AttachmentHost>>>().is_none() {
-        lua.set_app_data(Rc::new(RefCell::new(AttachmentHost::new())));
-    }
-    Ok(())
+pub fn install(lua: &Lua) {
+    installed_host(lua);
 }
 
 /// Sets where failures during lifecycle drains are reported. The reporter survives epoch resets.
-pub fn set_reporter(lua: &Lua, reporter: Reporter) -> Result<(), AttachmentError> {
-    install(lua)?;
-    require_host(lua)?.borrow_mut().reporter = Some(reporter);
-    Ok(())
+pub fn set_reporter(lua: &Lua, reporter: Reporter) {
+    installed_host(lua).borrow_mut().reporter = Some(reporter);
+}
+
+/// Shuts down every attached runtime, starts a contract epoch, and logs each
+/// failure under `context` while cleanup continues.
+pub fn shutdown(lua: &Lua, context: &str) {
+    for failure in shutdown_all(lua) {
+        warn!("{context}: {failure}; cleanup continued");
+    }
 }
 
 /// Shuts down every runtime attached to this Lua state and starts a new contract epoch.
@@ -92,10 +96,9 @@ pub fn callback_active(lua: &Lua) -> bool {
 /// Declares a qualified contract identity in this state's current epoch.
 pub fn contract(lua: &Lua, (name, schema): (String, u64)) -> mlua::Result<PluginContractToken> {
     let host = require_host(lua)?;
-    let contract_name = ContractName::from_qualified(name).map_err(AttachmentError::Contract)?;
     let registry = host.borrow().registry.clone();
     Ok(registry
-        .declare(contract_name, schema)
+        .declare(&name, schema)
         .map_err(AttachmentError::Contract)?)
 }
 
@@ -112,8 +115,14 @@ pub fn define(
     let (required, provided, epoch) = {
         let host_ref = host.borrow();
         (
-            declaration_fields(&validate_declaration(&host_ref, required.0)?),
-            declaration_fields(&validate_declaration(&host_ref, provided.0)?),
+            host_ref
+                .registry
+                .validate_declaration(required.0)
+                .map_err(AttachmentError::Contract)?,
+            host_ref
+                .registry
+                .validate_declaration(provided.0)
+                .map_err(AttachmentError::Contract)?,
             host_ref.epoch,
         )
     };
@@ -154,6 +163,15 @@ pub fn runtime(lua: &Lua, _: ()) -> mlua::Result<PluginRuntime> {
     Ok(PluginRuntime { state })
 }
 
+fn installed_host(lua: &Lua) -> Rc<RefCell<AttachmentHost>> {
+    if let Some(host) = host_inner(lua) {
+        return host;
+    }
+    let host = Rc::new(RefCell::new(AttachmentHost::new()));
+    lua.set_app_data(Rc::clone(&host));
+    host
+}
+
 fn host_inner(lua: &Lua) -> Option<Rc<RefCell<AttachmentHost>>> {
     lua.app_data_ref::<Rc<RefCell<AttachmentHost>>>()
         .map(|host| Rc::clone(&host))
@@ -161,25 +179,6 @@ fn host_inner(lua: &Lua) -> Option<Rc<RefCell<AttachmentHost>>> {
 
 fn require_host(lua: &Lua) -> Result<Rc<RefCell<AttachmentHost>>, AttachmentError> {
     host_inner(lua).ok_or(AttachmentError::NotInstalled)
-}
-
-fn validate_declaration(
-    host: &AttachmentHost,
-    declaration: Value,
-) -> Result<ValidatedDeclaration, AttachmentError> {
-    host.registry
-        .validate_declaration(declaration)
-        .map_err(AttachmentError::Contract)
-}
-
-fn declaration_fields(declaration: &ValidatedDeclaration) -> Vec<DeclarationField> {
-    declaration
-        .iter()
-        .map(|(field, key)| DeclarationField {
-            field: field.to_owned(),
-            key: key.clone(),
-        })
-        .collect()
 }
 
 /// Releases every definition's initializer so escaped definitions do not

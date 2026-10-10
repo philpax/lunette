@@ -12,47 +12,6 @@ use mlua::{UserData, Value};
 
 use crate::plugin::graph::ContractKey;
 
-/// The identity of a contract, excluding its schema version.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct ContractName {
-    authority: String,
-    name: String,
-}
-
-impl ContractName {
-    /// Rejects a slash in either component, which would make the qualified form ambiguous.
-    pub fn new(
-        authority: impl Into<String>,
-        name: impl Into<String>,
-    ) -> Result<Self, ContractError> {
-        let authority = authority.into();
-        let name = name.into();
-        validate_name_component("authority", &authority)?;
-        validate_name_component("name", &name)?;
-        Ok(Self { authority, name })
-    }
-
-    /// Parses an authority-qualified name in `authority/name` form.
-    pub fn from_qualified(qualified: impl Into<String>) -> Result<Self, ContractError> {
-        let qualified = qualified.into();
-        let Some((authority, name)) = qualified.split_once('/') else {
-            return Err(ContractError::UnqualifiedName { name: qualified });
-        };
-        Self::new(authority, name)
-    }
-
-    #[must_use]
-    pub fn qualified(&self) -> String {
-        format!("{}/{}", self.authority, self.name)
-    }
-}
-
-impl fmt::Display for ContractName {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(formatter, "{}/{}", self.authority, self.name)
-    }
-}
-
 /// A native token that names one contract declaration. It has no fields or methods, so Lua cannot read or forge one.
 #[derive(Clone)]
 pub struct PluginContractToken {
@@ -71,16 +30,11 @@ impl fmt::Debug for PluginContractToken {
 
 impl UserData for PluginContractToken {}
 
-/// An immutable, copied declaration suitable for graph construction.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct ValidatedDeclaration {
-    bindings: BTreeMap<String, ContractKey>,
-}
-
-impl ValidatedDeclaration {
-    pub fn iter(&self) -> impl Iterator<Item = (&str, &ContractKey)> {
-        self.bindings.iter().map(|(name, key)| (name.as_str(), key))
-    }
+/// One field of a validated declaration and the contract its token names.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DeclarationField {
+    pub field: String,
+    pub key: ContractKey,
 }
 
 /// Errors raised while declaring, validating, or retiring contracts.
@@ -212,17 +166,21 @@ impl ContractRegistry {
         }
     }
 
-    /// An identity may be declared once per registry.
-    pub fn declare(
-        &self,
-        name: ContractName,
-        schema: u64,
-    ) -> Result<PluginContractToken, ContractError> {
+    /// Declares an `authority/name` identity, which may be declared once per registry.
+    /// A slash in either component would make the qualified form ambiguous.
+    pub fn declare(&self, name: &str, schema: u64) -> Result<PluginContractToken, ContractError> {
+        let Some((authority, local)) = name.split_once('/') else {
+            return Err(ContractError::UnqualifiedName {
+                name: name.to_owned(),
+            });
+        };
+        validate_name_component("authority", authority)?;
+        validate_name_component("name", local)?;
         let schema = u32::try_from(schema)
             .ok()
             .filter(|schema| *schema != 0)
             .ok_or(ContractError::InvalidSchema { schema })?;
-        let key = ContractKey::new(name.qualified(), schema);
+        let key = ContractKey::new(name, schema);
         if !self.inner.contracts.borrow_mut().insert(key.clone()) {
             return Err(ContractError::DuplicateIdentity { key });
         }
@@ -233,10 +191,11 @@ impl ContractRegistry {
     }
 
     /// Copies a Lua declaration whose keys are strings and whose values are tokens from this registry.
+    /// The fields are sorted by name.
     pub fn validate_declaration(
         &self,
         value: Value,
-    ) -> Result<ValidatedDeclaration, ContractError> {
+    ) -> Result<Vec<DeclarationField>, ContractError> {
         let Value::Table(table) = value else {
             return Err(ContractError::DeclarationNotTable {
                 actual: value.type_name().to_owned(),
@@ -277,7 +236,10 @@ impl ContractRegistry {
             };
             bindings.insert(key, contract);
         }
-        Ok(ValidatedDeclaration { bindings })
+        Ok(bindings
+            .into_iter()
+            .map(|(field, key)| DeclarationField { field, key })
+            .collect())
     }
 }
 

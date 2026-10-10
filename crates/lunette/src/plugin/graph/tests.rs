@@ -279,5 +279,5 @@ fn a_disposed_parent_retires_its_children_permanently() {
     );
     unload(&mut graph, child, true);
     unload(&mut graph, parent, true);
-    assert!(!graph.contains(child) && !graph.contains(parent));
+    assert!(graph.state(child).is_err() && graph.state(parent).is_err());
 }

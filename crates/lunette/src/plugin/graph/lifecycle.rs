@@ -310,11 +310,6 @@ impl Graph {
     }
 
     #[must_use]
-    pub fn contains(&self, instance: InstanceId) -> bool {
-        self.instances.contains_key(&instance)
-    }
-
-    #[must_use]
     pub fn len(&self) -> usize {
         self.instances.len()
     }

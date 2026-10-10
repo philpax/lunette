@@ -3,30 +3,28 @@ use std::error::Error;
 use mlua::{Lua, Value};
 
 use super::{
-    contracts::{ContractError, ContractName, ContractRegistry, PluginContractToken},
+    contracts::{ContractError, ContractRegistry, DeclarationField, PluginContractToken},
     graph::ContractKey,
 };
 
 #[test]
 fn a_contract_identity_is_its_name_and_schema_within_one_registry() -> Result<(), Box<dyn Error>> {
     let lua = Lua::new();
-    let stale = ContractRegistry::new().declare(contract_name("example", "clock"), 1)?;
+    let stale = ContractRegistry::new().declare("example/clock", 1)?;
     let registry = ContractRegistry::new();
-    let first = registry.declare(contract_name("example", "clock"), 1)?;
-    let other_schema = registry.declare(contract_name("example", "clock"), 2)?;
-    let other_authority = registry.declare(contract_name("other", "clock"), 1)?;
+    let first = registry.declare("example/clock", 1)?;
+    let other_schema = registry.declare("example/clock", 2)?;
+    let other_authority = registry.declare("other/clock", 1)?;
     let first_key = token_key(&lua, &registry, &first)?;
     assert_ne!(first_key, token_key(&lua, &registry, &other_schema)?);
     assert_ne!(first_key, token_key(&lua, &registry, &other_authority)?);
     assert!(matches!(
-        registry.declare(contract_name("example", "clock"), 1),
+        registry.declare("example/clock", 1),
         Err(ContractError::DuplicateIdentity { .. })
     ));
     for schema in [0, u64::from(u32::MAX) + 1] {
         assert_eq!(
-            registry
-                .declare(contract_name("example", "clock"), schema)
-                .err(),
+            registry.declare("example/clock", schema).err(),
             Some(ContractError::InvalidSchema { schema })
         );
     }
@@ -38,16 +36,34 @@ fn a_contract_identity_is_its_name_and_schema_within_one_registry() -> Result<()
             "plugin contract: the token in declaration field 'field' is from a retired epoch"
         ))
     );
-    let foreign = ContractRegistry::new().declare(contract_name("example", "clock"), 1)?;
+    let foreign = ContractRegistry::new().declare("example/clock", 1)?;
     assert!(token_key(&lua, &registry, &foreign).is_err());
     Ok(())
+}
+
+#[test]
+fn a_contract_name_is_one_authority_and_one_name() {
+    let registry = ContractRegistry::new();
+    assert!(matches!(
+        registry.declare("clock", 1),
+        Err(ContractError::UnqualifiedName { .. })
+    ));
+    for name in ["a/b/c", "a /b", "/clock", "example/"] {
+        assert!(
+            matches!(
+                registry.declare(name, 1),
+                Err(ContractError::InvalidNameComponent { .. })
+            ),
+            "{name} is rejected"
+        );
+    }
 }
 
 #[test]
 fn a_declaration_is_a_detached_table_of_named_tokens() -> Result<(), Box<dyn Error>> {
     let lua = Lua::new();
     let registry = ContractRegistry::new();
-    let token = registry.declare(contract_name("example", "clock"), 1)?;
+    let token = registry.declare("example/clock", 1)?;
     assert!(matches!(
         registry.validate_declaration(Value::Boolean(true)),
         Err(ContractError::DeclarationNotTable { .. })
@@ -70,7 +86,13 @@ fn a_declaration_is_a_detached_table_of_named_tokens() -> Result<(), Box<dyn Err
     let copied = registry.validate_declaration(Value::Table(valid.clone()))?;
     let token_id = token_key(&lua, &registry, &token)?;
     valid.set("clock", true)?;
-    assert_eq!(copied.iter().collect::<Vec<_>>(), [("clock", &token_id)]);
+    assert_eq!(
+        copied,
+        [DeclarationField {
+            field: String::from("clock"),
+            key: token_id,
+        }]
+    );
     Ok(())
 }
 
@@ -82,13 +104,6 @@ fn token_key(
     let declaration = lua.create_table()?;
     declaration.set("field", token.clone())?;
     let copied = registry.validate_declaration(Value::Table(declaration))?;
-    let key = copied.iter().map(|(_, key)| key.clone()).next();
+    let key = copied.into_iter().map(|field| field.key).next();
     key.ok_or_else(|| "the declaration copies its field".into())
-}
-
-fn contract_name(authority: &str, name: &str) -> ContractName {
-    match ContractName::new(authority, name) {
-        Ok(name) => name,
-        Err(error) => panic!("test contract name is valid: {error}"),
-    }
 }

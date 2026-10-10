@@ -9,9 +9,10 @@ use crate::{
     lua::declarations::{Record, RecordField, Recorded, of},
     plugin::{
         attachment::{
-            state::{ActivationAuthority, DeclarationField, RuntimeState},
+            state::{ActivationAuthority, RuntimeState},
             types::PluginState,
         },
+        contracts::DeclarationField,
         graph::{Binding, ContractKey, Graph, InstanceId},
     },
 };

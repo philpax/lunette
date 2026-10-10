@@ -20,13 +20,15 @@ fn snapshots_are_detached_and_reentrant_during_load_and_cleanup() -> mlua::Resul
         local p = native.plugin
         local runtime = p.runtime()
         local foreign = p.runtime()
-        local loading, effect
+        local loading, effect, child
+        local childDefinition = p.define({}, {}, function() return {} end, 'child')
         local definition = p.define({}, {}, function(context)
             loading = runtime:snapshot()
             assert(runtime:ownerId(context) == loading.instances[1].id)
             assert(foreign:ownerId(context) == nil)
             assert(loading.draining and loading.instances[1].state == 'loading')
             assert(loading.instances[1].authority == 'resources')
+            child = context:child(childDefinition, nil)
             effect = context:effect(function()
                 return function()
                     local cleaning = runtime:snapshot()
@@ -38,10 +40,11 @@ fn snapshots_are_detached_and_reentrant_during_load_and_cleanup() -> mlua::Resul
             return {}
         end, 'label')
         local instance = runtime:use(definition, nil)
-        assert(runtime:owns(instance) and not foreign:owns(instance))
         instance:enable()
         local active = runtime:snapshot()
         assert(active.instances[1].id == instance:id())
+        assert(active.instances[1].children[1] == child:id())
+        assert(active.instances[2].parentId == instance:id())
         assert(active.instances[1].state == 'active' and active.instances[1].enabled)
         assert(active.instances[1].effects[1].state == 'armed')
         effect:dispose()

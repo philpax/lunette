@@ -70,7 +70,7 @@ use crate::{
     },
     mirrors::MirrorRegistry,
     plugin::{
-        attachment::{self, PluginFailure, set_reporter},
+        attachment::{PluginFailure, set_reporter},
         declarations::install as install_plugin,
     },
     properties::WindowProperties,
@@ -92,7 +92,6 @@ pub const MODULE_NAME: &str = "@lunette";
 ///
 /// Returns an error if `package.preload` is unavailable or the loader cannot be created.
 pub fn install<T: LuaTexture>(lua: &Lua, session: &Rc<Session<T>>) -> mlua::Result<()> {
-    attachment::install(lua)?;
     // A plugin's load or cleanup failure reaches `lunette.onError` listeners like a callback error.
     let reporter_session = Rc::clone(session);
     set_reporter(
@@ -105,7 +104,7 @@ pub fn install<T: LuaTexture>(lua: &Lua, session: &Rc<Session<T>>) -> mlua::Resu
                 &failure.lua_error(),
             );
         }),
-    )?;
+    );
 
     // The gate belongs to the state, not the module, so a configuration that never requires
     // `lunette` still has it.

@@ -14,8 +14,8 @@ use crate::plugin::{
         error::{AttachmentError, PluginFailure, PluginLabel},
         snapshot::PluginEffectState,
     },
-    contracts::ContractRegistry,
-    graph::{ActivationId, ContractKey, Graph, InstanceId},
+    contracts::{ContractRegistry, DeclarationField},
+    graph::{ActivationId, Graph, InstanceId},
 };
 
 /// Receives plugin failures that happen while lifecycle work drains. Without
@@ -53,12 +53,6 @@ pub(super) struct DefinitionData {
     pub(super) required: Vec<DeclarationField>,
     pub(super) provided: Vec<DeclarationField>,
     pub(super) init: RefCell<Option<Function>>,
-}
-
-#[derive(Clone)]
-pub(super) struct DeclarationField {
-    pub(super) field: String,
-    pub(super) key: ContractKey,
 }
 
 pub(super) struct RuntimeState {
@@ -131,14 +125,6 @@ pub(super) struct InstanceState {
 pub(super) struct EffectState {
     pub(super) activation: ActivationId,
     pub(super) state: PluginEffectState,
-}
-
-impl InstanceState {
-    pub(super) fn mark_effect(&mut self, ordinal: u64, state: PluginEffectState) {
-        if let Some(effect) = self.effect_states.get_mut(&ordinal) {
-            effect.state = state;
-        }
-    }
 }
 
 /// Counts a plugin callback for [`crate::plugin::attachment::callback_active`]

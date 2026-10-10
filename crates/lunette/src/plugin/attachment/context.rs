@@ -12,14 +12,13 @@ use crate::plugin::{
             PluginFailure,
         },
         lifecycle::{
-            callback_call, lifecycle_operation, record_failure, rollback_effects, use_definition,
+            callback_call, lifecycle_operation, record_failure, rollback_effects, run_inverse,
+            use_definition,
         },
         snapshot::PluginEffectState,
-        state::{
-            ActivationAuthority, DeclarationField, DefinitionData, DrainGuard, EffectState,
-            RuntimeState,
-        },
+        state::{ActivationAuthority, DefinitionData, DrainGuard, EffectState, RuntimeState},
     },
+    contracts::DeclarationField,
     graph::{ActivationId, Binding, InstanceId, Stage},
 };
 
@@ -172,8 +171,7 @@ fn withdraw_acquisition(
         Some((Stage::Loading, _))
     );
     if loading {
-        rollback_effects(lua, runtime, context.instance, context.activation)?;
-        return Ok(());
+        return rollback_effects(lua, runtime, context.instance, context.activation);
     }
     let inverse = {
         let mut state = runtime.borrow_mut();
@@ -186,19 +184,7 @@ fn withdraw_acquisition(
         return Ok(());
     };
     let previous = enter_cleanup(runtime, context.instance, context.activation)?;
-    mark_effect(
-        runtime,
-        context.instance,
-        ordinal,
-        PluginEffectState::Cleaning,
-    );
-    let result = callback_call(runtime, || inverse.call::<()>(()));
-    mark_effect(
-        runtime,
-        context.instance,
-        ordinal,
-        PluginEffectState::Disarmed,
-    );
+    let result = run_inverse(runtime, context.instance, ordinal, &inverse);
     leave_cleanup(runtime, context.instance, context.activation, previous);
     if let Err(error) = result {
         quarantine(runtime, context.instance, context.activation)?;
@@ -241,20 +227,7 @@ pub(super) fn dispose_effect(lua: &Lua, effect: &PluginEffect) -> mlua::Result<(
     };
     lifecycle_operation(lua, &runtime, || {
         let previous = enter_cleanup(&runtime, effect.instance, effect.activation)?;
-        mark_effect(
-            &runtime,
-            effect.instance,
-            effect.ordinal,
-            PluginEffectState::Cleaning,
-        );
-        let result = callback_call(&runtime, || inverse.call::<()>(()));
-        mark_effect(
-            &runtime,
-            effect.instance,
-            effect.ordinal,
-            PluginEffectState::Disarmed,
-        );
-        if let Err(error) = result {
+        if let Err(error) = run_inverse(&runtime, effect.instance, effect.ordinal, &inverse) {
             // The authority stays cleanup-only: a quarantined activation acquires nothing more.
             quarantine(&runtime, effect.instance, effect.activation)?;
             let mut state = runtime.borrow_mut();
@@ -274,17 +247,6 @@ pub(super) fn dispose_effect(lua: &Lua, effect: &PluginEffect) -> mlua::Result<(
         leave_cleanup(&runtime, effect.instance, effect.activation, previous);
         Ok(())
     })
-}
-
-fn mark_effect(
-    runtime: &Rc<RefCell<RuntimeState>>,
-    instance: InstanceId,
-    ordinal: u64,
-    status: PluginEffectState,
-) {
-    if let Some(record) = runtime.borrow_mut().instances.get_mut(&instance) {
-        record.mark_effect(ordinal, status);
-    }
 }
 
 pub(super) fn child(

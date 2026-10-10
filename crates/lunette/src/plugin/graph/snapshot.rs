@@ -1,8 +1,8 @@
 //! Detached inspection records for the lifecycle graph.
 
 use crate::plugin::graph::{
-    ActivationId, Binding, ContractKey, Graph, InstanceId, IntentState, LifecycleState,
-    ProviderGeneration, lifecycle::Phase,
+    ActivationId, Binding, Graph, InstanceId, IntentState, LifecycleState, ProviderGeneration,
+    lifecycle::Phase,
 };
 
 /// A coherent, read-only copy of graph state. Inspection does not plan transitions.
@@ -20,8 +20,6 @@ pub struct InstanceSnapshot {
     pub activation: Option<ActivationId>,
     /// The generation published by this allocation, including while it unloads.
     pub generation: Option<ProviderGeneration>,
-    pub required: Vec<ContractKey>,
-    pub provided: Vec<ContractKey>,
     /// Exact bindings of a loading, active, or unloading allocation only.
     pub bindings: Vec<Binding>,
     pub failed_bindings: Vec<Binding>,
@@ -31,9 +29,6 @@ pub struct InstanceSnapshot {
     pub replacement_requested: bool,
     pub cleanup_failed: bool,
 }
-
-#[cfg(test)]
-mod tests;
 
 impl Graph {
     /// Copies all currently retained instances without draining actions.
@@ -53,8 +48,6 @@ impl Graph {
                         activation: allocation.map(|allocation| allocation.activation),
                         generation: allocation
                             .and_then(|allocation| allocation.published_generation),
-                        required: node.required.clone(),
-                        provided: node.provided.clone(),
                         bindings: allocation
                             .map_or_else(Vec::new, |allocation| allocation.bindings.clone()),
                         failed_bindings: match &node.phase {

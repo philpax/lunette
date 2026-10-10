@@ -191,7 +191,7 @@ impl Model {
         self.ids
             .iter()
             .copied()
-            .filter(|id| self.graph.contains(*id))
+            .filter(|id| self.graph.state(*id).is_ok())
     }
 
     fn check(&self) -> Result<(), TestCaseError> {
@@ -228,7 +228,10 @@ impl Model {
                 }
             }
             if let Some(parent) = declared.parent {
-                prop_assert!(self.graph.contains(parent), "{id} outlived parent {parent}");
+                prop_assert!(
+                    self.graph.state(parent).is_ok(),
+                    "{id} outlived parent {parent}"
+                );
                 let parent_view = live_allocation(&self.graph, parent);
                 if view.is_some() {
                     prop_assert!(

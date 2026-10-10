@@ -9,7 +9,7 @@ use std::{
     rc::{Rc, Weak},
 };
 
-use mlua::{Lua, Value};
+use mlua::{Function, Lua, Value};
 use tracing::{debug, error, info};
 
 use crate::plugin::{
@@ -18,11 +18,12 @@ use crate::plugin::{
         error::{AttachmentError, FailureCause, FailurePhase, PluginFailure, ProvisionError},
         snapshot::PluginEffectState,
         state::{
-            ActivationAuthority, AttachmentHost, CallbackGuard, DeclarationField, DefinitionData,
-            DrainGuard, InstanceState, RuntimeState,
+            ActivationAuthority, AttachmentHost, CallbackGuard, DefinitionData, DrainGuard,
+            InstanceState, RuntimeState,
         },
         types::PluginState,
     },
+    contracts::DeclarationField,
     graph::{
         Action, ActivationId, GraphError, InstanceId, Intent, LifecycleState, LoadOutcome,
         LoadResolution, Severity,
@@ -475,43 +476,35 @@ pub(super) fn rollback_effects(
     runtime: &Rc<RefCell<RuntimeState>>,
     instance: InstanceId,
     activation: ActivationId,
-) -> Result<bool, AttachmentError> {
+) -> Result<(), AttachmentError> {
     let effects = {
         let mut state = runtime.borrow_mut();
         let Some(instance_state) = state.instances.get_mut(&instance) else {
-            return Ok(true);
+            return Ok(());
         };
         instance_state.authority = ActivationAuthority::Cleanup(activation);
         std::mem::take(&mut instance_state.effects)
     };
-    let success = run_inverses(lua, runtime, instance, effects, FailurePhase::Rollback);
-    if !success {
+    if !run_inverses(lua, runtime, instance, effects, FailurePhase::Rollback) {
         runtime
             .borrow_mut()
             .graph
             .mark_cleanup_failed(instance, activation)
             .map_err(graph_error("quarantine a rollback"))?;
     }
-    Ok(success)
+    Ok(())
 }
 
 fn run_inverses(
     lua: &Lua,
     runtime: &Rc<RefCell<RuntimeState>>,
     instance: InstanceId,
-    effects: BTreeMap<u64, mlua::Function>,
+    effects: BTreeMap<u64, Function>,
     phase: FailurePhase,
 ) -> bool {
     let mut success = true;
     for (ordinal, inverse) in effects.into_iter().rev() {
-        if let Some(record) = runtime.borrow_mut().instances.get_mut(&instance) {
-            record.mark_effect(ordinal, PluginEffectState::Cleaning);
-        }
-        let result = callback_call(runtime, || inverse.call::<()>(()));
-        if let Some(record) = runtime.borrow_mut().instances.get_mut(&instance) {
-            record.mark_effect(ordinal, PluginEffectState::Disarmed);
-        }
-        if let Err(error) = result {
+        if let Err(error) = run_inverse(runtime, instance, ordinal, &inverse) {
             success = false;
             let plugin = runtime.borrow().label(instance);
             record_failure(
@@ -526,6 +519,36 @@ fn run_inverses(
         }
     }
     success
+}
+
+/// Calls one inverse, marking its effect as cleaning while it runs and as
+/// disarmed afterwards, whether or not it fails.
+pub(super) fn run_inverse(
+    runtime: &Rc<RefCell<RuntimeState>>,
+    instance: InstanceId,
+    ordinal: u64,
+    inverse: &Function,
+) -> mlua::Result<()> {
+    mark_effect(runtime, instance, ordinal, PluginEffectState::Cleaning);
+    let result = callback_call(runtime, || inverse.call::<()>(()));
+    mark_effect(runtime, instance, ordinal, PluginEffectState::Disarmed);
+    result
+}
+
+fn mark_effect(
+    runtime: &Rc<RefCell<RuntimeState>>,
+    instance: InstanceId,
+    ordinal: u64,
+    state: PluginEffectState,
+) {
+    if let Some(effect) = runtime
+        .borrow_mut()
+        .instances
+        .get_mut(&instance)
+        .and_then(|record| record.effect_states.get_mut(&ordinal))
+    {
+        effect.state = state;
+    }
 }
 
 fn validate_service(value: &Value, fields: &[DeclarationField]) -> Result<(), ProvisionError> {

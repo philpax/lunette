@@ -20,7 +20,7 @@ use lunette::{
     frame::{FrameDriver, Startup},
     layers::{LovrBlits, LovrLayers},
     lua::{PoolRegistry, Session, install},
-    plugin::host,
+    plugin::attachment,
     require, safe_mode,
     texture::LovrTexture,
 };
@@ -325,7 +325,7 @@ fn finish_terminal(
     lua_handle: &Lua,
     outcome: Outcome,
 ) -> Outcome {
-    host::shutdown(lua_handle, "terminal shutdown");
+    attachment::shutdown(lua_handle, "terminal shutdown");
     session.clear_subscribers();
     driver.end_frame();
     match outcome {

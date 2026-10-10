@@ -61,7 +61,7 @@ pub fn functions() -> &'static [FunctionSpec] {
 
 /// Installs the nested `lunette.plugin` table from the function descriptors.
 pub fn install(lua: &Lua, module: &Table) -> mlua::Result<()> {
-    attachment::install(lua).map_err(mlua::Error::from)?;
+    attachment::install(lua);
     let plugin = lua.create_table()?;
     for function in functions() {
         plugin.set(function.name, (function.callback.create)(lua)?)?;
@@ -200,30 +200,4 @@ struct HandleSpec {
     brand: &'static str,
     doc: &'static str,
     methods: fn() -> Vec<Signature>,
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn plugin_handles_are_nominal() {
-        let output = crate::lua::declarations::render();
-        for (handle, brand) in [
-            ("PluginContractToken", "__pluginContractToken"),
-            ("PluginDefinition", "__pluginDefinition"),
-            ("PluginRuntime", "__pluginRuntime"),
-            ("PluginInstance", "__pluginInstance"),
-            ("PluginContext", "__pluginContext"),
-            ("PluginEffect", "__pluginEffect"),
-        ] {
-            let declaration = output
-                .split(&format!("export type {handle} = {{"))
-                .nth(1)
-                .and_then(|rest| rest.split("\n}").next())
-                .unwrap_or_default();
-            assert!(
-                declaration.contains(&format!("read {brand}: '{handle}',")),
-                "{handle} is not branded: {declaration}"
-            );
-        }
-    }
 }

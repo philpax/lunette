@@ -453,9 +453,6 @@ export type PluginRuntime = {
   -- Copies coherent runtime state without lifecycle work, callbacks, or
   -- diagnostic consumption.
   read snapshot: (self: PluginRuntime) -> PluginRuntimeSnapshot,
-  -- Reports whether this runtime installed the exact instance handle, including
-  -- a retired handle.
-  read owns: (self: PluginRuntime, instance: PluginInstance) -> boolean,
   -- Returns a context's owning instance identity only when it belongs to this
   -- exact runtime, including after its activation ends.
   read ownerId: (self: PluginRuntime, context: PluginContext) -> string?,

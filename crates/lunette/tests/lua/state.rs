@@ -71,7 +71,7 @@ pub fn new(roots: &Roots) -> mlua::Result<Lua> {
                 reports.0.push(failure.to_string());
             }
         }),
-    )?;
+    );
 
     let lovr = lua.create_table()?;
     // SAFETY: the opener follows the Lua C function protocol, and the state
