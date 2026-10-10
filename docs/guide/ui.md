@@ -60,7 +60,7 @@ Focusing a text field shows the shared desktop keyboard when the composition inc
 
 ## Themes and drawing hooks
 
-A panel's appearance resolves from the current theme, then the provider's `theme` option, the panel's `theme`, and the control's `theme`, each overriding the one before. A colour replaces the whole colour. An omitted field follows later theme changes, and an explicit zero is an override. `setTheme(nil)` removes an override. UI `panelRadius` and `controlRadius` are in logical units, while the theme's `radii.uiPanel` is in metres. [The field checklist](desktop-configuration.md#theme-field-to-consumer-checklist) lists which theme fields reach the UI.
+A panel's appearance resolves from the current theme, then the provider's `theme` option, the panel's `theme`, and the control's `theme`, each overriding the one before. A colour replaces the whole colour. An omitted field follows later theme changes, and an explicit zero is an override. `setTheme(nil)` removes an override. UI `panelRadius` and `controlRadius` are in logical units, while the theme's `radii.uiPanel` is in metres. [Theme fields](desktop-configuration.md#theme-fields) lists which theme fields reach the UI.
 
 A theme change keeps drafts, controls, and focus. A change of geometry, such as padding or radius, cancels held gestures; a change of colour alone does not.
 

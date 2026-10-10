@@ -139,41 +139,7 @@ The panels provider draws windows and monitor mirrors in the scene, where they t
 
 Scene content rounds its corners with the theme's `window` and `monitor` radii, and its pointer hits follow the same outline. Dark and Light keep monitors square, and Arcade rounds them by 0.012 m. The panels provider's style `windowRadius` and `monitorRadius` override the theme. A flat panel with a titlebar draws the titlebar and body as one outline. Layer content, and the titlebar of a curved panel, stay rectangular. [Rendering](../dev/rendering.md#rounded-scene-geometry) states the rules.
 
-## Headset verification
-
-Logic-headless tests do not establish visual, timing, or comfort results. Native capture and seat changes need a new process; `make run` builds and starts the development configuration. The operator checks the following in a headset:
-
-- A grey ramp and desktop content match in brightness between the host display and the mirror, including translucent window edges.
-- Scene windows and the Plugins panel occlude each other by depth, and no window receives a composition layer by default.
-- Every configured monitor starts capture. Direct capture opens no portal dialog. Restart mirror, Select monitors, and X behave as described in [Monitors and titlebars](#monitors-and-titlebars). The cursor appears with embedded-cursor capture. A portrait monitor has the right aspect, orientation, and pointer coordinates.
-- Keyboard legends, menu rows, titlebar actions, and Plugins controls show no depth striping while the head and controllers move. The landing indicator stays visible over all of them.
-- Aim smoothing steadies a stationary controller, slow aiming reaches small controls, and fast sweeps stay responsive. The trigger lock holds a click on its target, deliberate movement releases it, and text selection, graph panning, and dragging still work. Both hands and every available refresh rate are covered.
-- Plugins toggles a readable entry list, and its selection, Disable, Enable, Graph, Configure, Catalog, and X work with the controllers. Frame time with the manager open is compared with it closed.
-- Dragging text or a file from one window to another drops it there, with the client's icon following the beam at the window's pixel scale; releasing over nothing or closing the source window cancels the drag and removes the icon.
-- Grip on panel content or a titlebar button moves the panel; trigger on a titlebar button runs only that action.
-- Reload configuration repeats without duplicate laser seats, stale menu rows, or extra keyboards.
-- `theme-rounded-content`: flat and curved windows and rotated monitors under Dark, Arcade, and zero and custom radii show no stretched pixels, and corner hits match visible content.
-- `theme-joined-frame`: a titlebar and its body meet at a square seam with one outline, from several angles and while resizing.
-- `theme-widget-edges`: controls and custom regions near rounded edges clip and hit consistently during selection, scrolling, and held input.
-- `theme-rendering-exceptions`: granted layers stay square under every theme, and curved panels keep a separate titlebar.
-
-## Theme acceptance workflows
-
-The operator runs these workflows in a headset. Logic tests and geometry recorders do not complete them.
-
-### theme-runtime-switch
-
-With a Plugins configuration draft and the shared keyboard open, the operator chooses Dark, Light, Arcade, and Dark again from the Appearance group. Exactly one row is selected after each choice. Drafts, focus, panel poses, and keyboard scale survive each switch; Arcade's geometry change cancels held gestures without activating them. The operator then disables and re-enables `desktop/theme` and `theme/arcade`, and reloads the configuration, and checks the fallbacks described in [Runtime themes](#runtime-themes).
-
-### theme-appearance-matrix
-
-The operator compares Dark, Light, and Arcade across window and mirror titlebars, a `chrome = true` native title, the compact and expanded menus, every Plugins view, the keyboard, errors, hints, and pointer feedback. Each control state stays distinguishable, and application pixels do not change colour. Every field in the [checklist](#theme-field-to-consumer-checklist) has a recorded observation. Plugins stays readable under Arcade at its 800x472 minimum canvas.
-
-### theme-font-fit
-
-In Plugins, the operator configures `desktop/theme` with `overrides.typography.font`, chooses `file`, enters a font path with the shared keyboard, and applies it. Text in fields, carets, selections, the manager, titlebars, and keyboard legends is drawn and measured with the same face. A missing file fails the entry, and Recover retries the last active configuration. Arcade's bundled font, `@lunette-plugins/theme/arcade/fonts/SpaceMono-Regular.ttf`, is a virtual filesystem path that session boot mounts; the operator confirms it loads in a development session and in a session installed to an isolated prefix.
-
-### Theme field-to-consumer checklist
+## Theme fields
 
 `lua/lunette-contracts/theme.luau` declares the fields and `lua/lunette-plugins/theme/descriptors.luau` validates them. The values are in `theme/base.luau`, `theme/standard/presets.luau`, and `theme/arcade/preset.luau` under `lua/lunette-plugins/`. Each field reaches the components below unless a component option overrides it.
 
