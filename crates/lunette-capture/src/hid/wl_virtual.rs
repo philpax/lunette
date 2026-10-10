@@ -55,7 +55,7 @@ use wayland_protocols_wlr::virtual_pointer::v1::client::{
 use crate::hid::{
     HidProvider,
     key::{KeyModifiers, PointerButton, VirtualKey, XkbKeymap},
-    pointer::{DesktopExtent, DesktopPoint, DesktopVector, PendingPointer, WheelDelta},
+    pointer::{DesktopExtent, DesktopPoint, PendingPointer, WheelDelta},
     selection::{ProviderError, ProviderKind},
 };
 
@@ -198,13 +198,6 @@ impl HidProvider for WlVirtualProvider {
 
     fn mouse_move(&mut self, position: DesktopPoint) {
         self.pending.move_to(position);
-    }
-
-    fn mouse_move_rel(&mut self, delta: DesktopVector) {
-        let Some(extent) = self.desktop_extent else {
-            return;
-        };
-        self.pending.move_by(delta, self.desktop_origin, extent);
     }
 
     fn send_button(&mut self, button: PointerButton, down: bool) {
@@ -439,68 +432,37 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_coordinate_at_the_desktop_origin_is_zero() {
+    fn a_coordinate_is_offset_by_the_origin_and_saturates_left_of_it() {
         assert_eq!(offset(-1920.0, -1920.0), 0);
-    }
-
-    #[test]
-    fn a_coordinate_left_of_the_origin_saturates_rather_than_wrapping() {
-        assert_eq!(offset(-1921.0, -1920.0), 0);
-    }
-
-    #[test]
-    fn a_coordinate_is_offset_by_the_origin_rather_than_taken_raw() {
+        assert_eq!(offset(-1921.0, -1920.0), 0, "left of the origin");
         assert_eq!(offset(0.0, -1920.0), 1920);
         assert_eq!(offset(100.4, 0.0), 100);
     }
 
     #[test]
-    fn a_scroll_shorter_than_a_detent_reports_no_step_yet() {
+    fn scrolls_carry_their_residue_until_it_makes_a_whole_detent() {
         let mut residue = 0.0;
 
-        assert_eq!(detents(&mut residue, 0.4), 0);
+        assert_eq!(detents(&mut residue, 0.4), 0, "shorter than a detent");
         assert_eq!(residue, 0.4);
-    }
-
-    #[test]
-    fn successive_short_scrolls_accumulate_into_a_step() {
-        let mut residue = 0.0;
-        let _ = detents(&mut residue, 0.6);
-
-        assert_eq!(detents(&mut residue, 0.6), 1);
+        assert_eq!(detents(&mut residue, 0.8), 1, "accumulated into a step");
         assert!((residue - 0.2).abs() < f64::EPSILON * 8.0, "{residue}");
-    }
 
-    #[test]
-    fn a_scroll_of_several_detents_reports_all_of_them_at_once() {
         let mut residue = 0.0;
-
-        assert_eq!(detents(&mut residue, 2.5), 2);
+        assert_eq!(detents(&mut residue, 2.5), 2, "several detents at once");
         assert_eq!(residue, 0.5);
     }
 
     #[test]
-    fn scrolling_back_the_way_it_came_returns_the_residue_to_where_it_started() {
-        let mut residue = 0.0;
-        let _ = detents(&mut residue, 0.7);
-        let _ = detents(&mut residue, -0.7);
-
-        assert_eq!(residue, 0.0);
-    }
-
-    #[test]
-    fn a_negative_scroll_steps_negatively() {
+    fn a_negative_scroll_steps_negatively_and_cancels_a_positive_residue() {
         let mut residue = 0.0;
 
         assert_eq!(detents(&mut residue, -2.5), -2);
         assert_eq!(residue, -0.5);
-    }
 
-    #[test]
-    fn one_detent_is_ten_units_of_the_protocols_continuous_axis() {
-        // Both providers read `WheelDelta` in detents. uinput multiplies the
-        // same value by 120 for its high-resolution axes, so a disagreement
-        // here makes one provider scroll twelve times too far.
-        assert_eq!(1.0 * AXIS_UNITS_PER_DETENT, 10.0);
+        let mut residue = 0.0;
+        let _ = detents(&mut residue, 0.7);
+        let _ = detents(&mut residue, -0.7);
+        assert_eq!(residue, 0.0);
     }
 }

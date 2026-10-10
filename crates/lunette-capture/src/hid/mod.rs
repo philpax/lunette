@@ -9,7 +9,7 @@ pub mod evdev;
 pub mod key;
 pub mod mapping;
 pub mod pointer;
-#[cfg(any(test, feature = "test-fakes"))]
+#[cfg(test)]
 pub mod recording;
 pub mod selection;
 pub mod uinput;
@@ -21,13 +21,11 @@ pub use crate::hid::{
     dummy::DummyProvider,
     key::{KeyModifiers, PointerButton, VirtualKey, XkbKeymap},
     mapping::{DesktopLayout, MappingError, MonitorMapping, PanelPoint},
-    pointer::{
-        DesktopExtent, DesktopPoint, DesktopVector, PendingPointer, PointerBatch, WheelDelta,
-    },
+    pointer::{DesktopExtent, DesktopPoint, PendingPointer, PointerBatch, WheelDelta},
     selection::{
-        NoHostInput, ProviderError, ProviderFailure, ProviderKind, ProviderOrder, Selected, select,
+        NoHostInput, PROVIDER_ORDER, ProviderError, ProviderFailure, ProviderKind, Selected, select,
     },
-    uinput::{UinputConfig, UinputProvider},
+    uinput::UinputProvider,
     wl_virtual::{WlVirtualConfig, WlVirtualProvider},
 };
 
@@ -42,9 +40,6 @@ pub trait HidProvider {
 
     /// Moves the cursor to a position on the host desktop.
     fn mouse_move(&mut self, position: DesktopPoint);
-
-    /// Moves the cursor by a displacement, clamped to the desktop bounds.
-    fn mouse_move_rel(&mut self, delta: DesktopVector);
 
     fn send_button(&mut self, button: PointerButton, down: bool);
 
@@ -100,24 +95,9 @@ pub trait HidProvider {
 /// The entry point resolves the environment and passes the result here.
 #[derive(Clone, Debug, Default)]
 pub struct HidConfig {
-    pub order: ProviderOrder,
-    pub uinput: UinputConfig,
     /// The host compositor and the layout to upload, or `None` when there is no
     /// host Wayland session, which reports [`ProviderError::NotConfigured`].
     pub wl_virtual: Option<WlVirtualConfig>,
-}
-
-impl HidConfig {
-    /// A configuration that attempts nothing and selects the dummy.
-    ///
-    /// Distinct from every provider failing, which is reported as a fault.
-    #[must_use]
-    pub fn disabled() -> Self {
-        Self {
-            order: ProviderOrder::none(),
-            ..Self::default()
-        }
-    }
 }
 
 /// The provider in use and the failures recorded while selecting it.
@@ -134,14 +114,6 @@ impl HostInput {
     #[must_use]
     pub const fn kind(&self) -> ProviderKind {
         self.kind
-    }
-
-    /// Every mechanism that was tried and failed, in the order they were tried.
-    ///
-    /// A non-empty list does not imply a fault when a later mechanism worked.
-    #[must_use]
-    pub fn failures(&self) -> &[ProviderFailure] {
-        &self.failures
     }
 
     /// The error to report when nothing reached the host, or `None`.
@@ -189,14 +161,14 @@ impl HostInput {
     }
 }
 
-/// Opens the first provider in the configured order that works.
+/// Opens the first provider in [`PROVIDER_ORDER`] that works.
 ///
 /// When nothing opens, the dummy does, and [`HostInput::unreachable`] reports
 /// that.
 #[must_use]
 pub fn open(config: &HidConfig) -> HostInput {
     let selected = select(
-        &config.order,
+        &PROVIDER_ORDER,
         |kind| open_one(kind, config),
         || Box::new(DummyProvider) as Box<dyn HidProvider>,
     );
@@ -204,7 +176,10 @@ pub fn open(config: &HidConfig) -> HostInput {
     for failure in &selected.failures {
         warn!(%failure, "an input provider could not be opened");
         if failure.kind() == ProviderKind::Uinput {
-            warn!(advice = %uinput::Advice { user: None }, "uinput is usually a permission");
+            warn!(
+                advice = uinput::ACCESS_ADVICE,
+                "uinput is usually a permission"
+            );
         }
     }
     info!(provider = %selected.kind, "host input");
@@ -219,8 +194,9 @@ pub fn open(config: &HidConfig) -> HostInput {
 /// Opens one mechanism, for [`select`].
 fn open_one(kind: ProviderKind, config: &HidConfig) -> Result<Box<dyn HidProvider>, ProviderError> {
     match kind {
-        ProviderKind::Uinput => UinputProvider::open(&config.uinput)
-            .map(|provider| Box::new(provider) as Box<dyn HidProvider>),
+        ProviderKind::Uinput => {
+            UinputProvider::open().map(|provider| Box::new(provider) as Box<dyn HidProvider>)
+        }
         ProviderKind::WlVirtual => {
             let wl_virtual = config
                 .wl_virtual
@@ -256,15 +232,6 @@ mod tests {
             kind,
             failures: Vec::new(),
         }
-    }
-
-    #[test]
-    fn a_disabled_configuration_attempts_nothing_and_reports_no_fault() {
-        let input = open(&HidConfig::disabled());
-
-        assert_eq!(input.kind(), ProviderKind::Dummy);
-        assert!(input.failures().is_empty());
-        assert!(input.unreachable().is_none());
     }
 
     #[test]
@@ -317,22 +284,14 @@ mod tests {
         );
 
         input.commit();
-
         assert_eq!(input.kind(), ProviderKind::Dummy);
-    }
 
-    #[test]
-    fn a_degraded_session_stops_calling_the_provider_that_went_away() {
-        let recording = Recording::new();
-        let mut input = host(
-            Box::new(recording.disconnecting_provider("broken pipe")),
-            ProviderKind::WlVirtual,
-        );
-
-        input.commit();
         input.provider().mouse_move(DesktopPoint::new(1.0, 1.0));
         input.commit();
-
-        assert_eq!(recording.events(), vec![HidEvent::Commit]);
+        assert_eq!(
+            recording.events(),
+            vec![HidEvent::Commit],
+            "the provider that went away is not called again",
+        );
     }
 }

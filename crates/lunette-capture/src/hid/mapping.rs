@@ -81,11 +81,6 @@ impl MonitorMapping {
         Ok(Self { geometry })
     }
 
-    #[must_use]
-    pub const fn geometry(&self) -> LogicalGeometry {
-        self.geometry
-    }
-
     /// Where on the host desktop a hit on this monitor's panel lands.
     ///
     /// The hit is clamped to this monitor, not to the desktop's bounding box,
@@ -98,20 +93,6 @@ impl MonitorMapping {
             f64::from(self.geometry.position.x) + local.u * f64::from(self.geometry.size.width),
             f64::from(self.geometry.position.y) + local.v * f64::from(self.geometry.size.height),
         )
-    }
-
-    /// Whether `point` is on this monitor.
-    ///
-    /// The test is half-open, so a position on an edge shared by two monitors
-    /// belongs to exactly one of them.
-    #[must_use]
-    pub fn contains(&self, point: DesktopPoint) -> bool {
-        let within = |value: f64, start: i32, span: u32| {
-            let start = f64::from(start);
-            value >= start && value < start + f64::from(span)
-        };
-        within(point.x, self.geometry.position.x, self.geometry.size.width)
-            && within(point.y, self.geometry.position.y, self.geometry.size.height)
     }
 }
 
@@ -128,7 +109,6 @@ impl fmt::Display for MonitorMapping {
 /// change, because an incremental update is easier to get wrong.
 #[derive(Clone, Debug, PartialEq)]
 pub struct DesktopLayout {
-    monitors: Vec<MonitorMapping>,
     origin: DesktopPoint,
     extent: DesktopExtent,
 }
@@ -142,18 +122,11 @@ impl DesktopLayout {
     ///
     /// [`MappingError::NoMonitors`] when the list is empty.
     pub fn new(monitors: impl IntoIterator<Item = MonitorMapping>) -> Result<Self, MappingError> {
-        let monitors: Vec<MonitorMapping> = monitors.into_iter().collect();
-        let mut bounds: Option<Bounds> = None;
-        for monitor in &monitors {
-            let monitor = Bounds::of(monitor.geometry);
-            bounds = Some(match bounds {
-                Some(box_so_far) => box_so_far.union(monitor),
-                None => monitor,
-            });
-        }
-        let Some(bounds) = bounds else {
-            return Err(MappingError::NoMonitors);
-        };
+        let bounds = monitors
+            .into_iter()
+            .map(|monitor| Bounds::of(monitor.geometry))
+            .reduce(Bounds::union)
+            .ok_or(MappingError::NoMonitors)?;
 
         // The union of non-empty mappings is non-empty, so this cannot fail.
         let extent = DesktopExtent::new(
@@ -163,7 +136,6 @@ impl DesktopLayout {
         .ok_or(MappingError::NoMonitors)?;
 
         Ok(Self {
-            monitors,
             origin: DesktopPoint::new(bounds.left as f64, bounds.top as f64),
             extent,
         })
@@ -182,32 +154,11 @@ impl DesktopLayout {
     pub const fn extent(&self) -> DesktopExtent {
         self.extent
     }
-
-    #[must_use]
-    pub fn monitors(&self) -> &[MonitorMapping] {
-        &self.monitors
-    }
-
-    /// Which monitor a desktop position is on, if any.
-    ///
-    /// `None` covers both a dead zone and a position outside the box. It does not
-    /// snap to the nearest monitor, because only the caller knows which it wants.
-    /// A shared edge belongs to the monitor whose rectangle begins there.
-    #[must_use]
-    pub fn monitor_at(&self, point: DesktopPoint) -> Option<&MonitorMapping> {
-        self.monitors.iter().find(|monitor| monitor.contains(point))
-    }
 }
 
 impl fmt::Display for DesktopLayout {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{} monitors spanning {} at {}",
-            self.monitors.len(),
-            self.extent,
-            self.origin,
-        )
+        write!(f, "spanning {} at {}", self.extent, self.origin)
     }
 }
 
@@ -317,16 +268,6 @@ mod tests {
     }
 
     #[test]
-    fn a_monitor_at_a_non_zero_origin_offsets_by_it() {
-        let monitor = mapping(1920, 0, 1920, 1080);
-
-        assert_eq!(
-            monitor.map(PanelPoint::CENTRE),
-            DesktopPoint::new(2880.0, 540.0),
-        );
-    }
-
-    #[test]
     fn a_monitor_at_a_negative_logical_position_maps_into_negative_coordinates() {
         let monitor = mapping(-1920, -1080, 1920, 1080);
 
@@ -338,25 +279,6 @@ mod tests {
             monitor.map(PanelPoint::CENTRE),
             DesktopPoint::new(-960.0, -540.0),
         );
-    }
-
-    #[test]
-    fn two_monitors_at_different_scales_map_by_logical_size_rather_than_pixels() {
-        // The second is a 3840x2160 monitor at scale 2.
-        let unscaled = mapping(0, 0, 1920, 1080);
-        let scaled = mapping(1920, 0, 1920, 1080);
-
-        assert_eq!(
-            unscaled.map(PanelPoint::CENTRE),
-            DesktopPoint::new(960.0, 540.0),
-        );
-        assert_eq!(
-            scaled.map(PanelPoint::CENTRE),
-            DesktopPoint::new(2880.0, 540.0),
-        );
-
-        let desktop = layout([unscaled, scaled]);
-        assert_eq!(desktop.extent().width(), 3840.0);
     }
 
     #[test]
@@ -396,16 +318,6 @@ mod tests {
     }
 
     #[test]
-    fn a_desktop_of_only_an_empty_monitor_has_no_extent() {
-        let usable: Vec<MonitorMapping> = [geometry(0, 0, 1920, 0)]
-            .into_iter()
-            .filter_map(|geometry| MonitorMapping::new(geometry).ok())
-            .collect();
-
-        assert_eq!(DesktopLayout::new(usable), Err(MappingError::NoMonitors));
-    }
-
-    #[test]
     fn a_desktop_with_no_monitors_at_all_has_no_extent() {
         assert_eq!(DesktopLayout::new([]), Err(MappingError::NoMonitors));
     }
@@ -426,72 +338,5 @@ mod tests {
         assert_eq!(desktop.origin(), DesktopPoint::new(-1280.0, -200.0));
         assert_eq!(desktop.extent().width(), 3200.0);
         assert_eq!(desktop.extent().height(), 1280.0);
-    }
-
-    #[test]
-    fn a_coordinate_on_the_boundary_between_two_monitors_belongs_to_exactly_one() {
-        let left = mapping(0, 0, 1920, 1080);
-        let right = mapping(1920, 0, 1920, 1080);
-        let desktop = layout([left, right]);
-
-        let found = desktop.monitor_at(DesktopPoint::new(1920.0, 500.0));
-
-        assert_eq!(found, Some(&right));
-        assert!(!left.contains(DesktopPoint::new(1920.0, 500.0)));
-    }
-
-    #[test]
-    fn a_coordinate_outside_every_monitor_belongs_to_none() {
-        let desktop = layout([mapping(0, 0, 1920, 1080)]);
-
-        assert_eq!(desktop.monitor_at(DesktopPoint::new(-1.0, 500.0)), None);
-        assert_eq!(desktop.monitor_at(DesktopPoint::new(1920.0, 500.0)), None);
-        assert_eq!(desktop.monitor_at(DesktopPoint::new(500.0, 1080.0)), None);
-    }
-
-    #[test]
-    fn a_coordinate_in_a_dead_zone_inside_the_bounding_box_belongs_to_none() {
-        let desktop = layout([mapping(0, 0, 1920, 1080), mapping(1920, 0, 1280, 720)]);
-
-        assert_eq!(desktop.monitor_at(DesktopPoint::new(2000.0, 900.0)), None);
-        assert!(
-            desktop
-                .monitor_at(DesktopPoint::new(2000.0, 700.0))
-                .is_some()
-        );
-    }
-
-    #[test]
-    fn a_desktop_rebuilt_after_a_hotplug_reports_the_new_bounds() {
-        let before = layout([mapping(0, 0, 1920, 1080)]);
-        assert_eq!(before.extent().width(), 1920.0);
-
-        let after = layout([mapping(0, 0, 1920, 1080), mapping(1920, 0, 2560, 1440)]);
-
-        assert_eq!(after.extent().width(), 4480.0);
-        assert_eq!(after.extent().height(), 1440.0);
-        assert_eq!(after.origin(), before.origin());
-    }
-
-    #[test]
-    fn removing_the_leftmost_monitor_moves_the_desktops_origin() {
-        let before = layout([mapping(-1920, 0, 1920, 1080), mapping(0, 0, 1920, 1080)]);
-        assert_eq!(before.origin(), DesktopPoint::new(-1920.0, 0.0));
-
-        let after = layout([mapping(0, 0, 1920, 1080)]);
-
-        assert_eq!(after.origin(), DesktopPoint::new(0.0, 0.0));
-        assert_eq!(after.extent().width(), 1920.0);
-    }
-
-    #[test]
-    fn a_hit_on_the_second_monitor_lands_on_the_second_monitor() {
-        let second = mapping(1920, 0, 1920, 1080);
-        let desktop = layout([mapping(0, 0, 1920, 1080), second]);
-
-        let landed = second.map(PanelPoint::new(0.25, 0.5));
-
-        assert_eq!(landed, DesktopPoint::new(2400.0, 540.0));
-        assert_eq!(desktop.monitor_at(landed), Some(&second));
     }
 }

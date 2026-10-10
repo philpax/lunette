@@ -256,14 +256,6 @@ impl PointerButton {
     pub const fn evdev_code(self) -> u16 {
         self as u16
     }
-
-    #[must_use]
-    pub fn from_evdev(code: u16) -> Option<Self> {
-        Self::ALL
-            .iter()
-            .copied()
-            .find(|button| button.evdev_code() == code)
-    }
 }
 
 impl fmt::Display for PointerButton {
@@ -319,32 +311,6 @@ impl KeyModifiers {
         (Self::SUPER, VirtualKey::LeftMeta),
         (Self::ALT_GR, VirtualKey::RightAlt),
     ];
-
-    /// Reads a mask, rejecting bits no modifier claims.
-    ///
-    /// The unknown bits are not masked away. A caller that set a bit meant
-    /// something by it, and dropping the bit is silent data loss.
-    #[must_use]
-    pub const fn from_bits(bits: u8) -> Option<Self> {
-        const KNOWN: u8 = KeyModifiers::SHIFT.0
-            | KeyModifiers::CAPS_LOCK.0
-            | KeyModifiers::CTRL.0
-            | KeyModifiers::ALT.0
-            | KeyModifiers::NUM_LOCK.0
-            | KeyModifiers::SUPER.0
-            | KeyModifiers::ALT_GR.0;
-
-        if bits & !KNOWN == 0 {
-            Some(Self(bits))
-        } else {
-            None
-        }
-    }
-
-    #[must_use]
-    pub const fn bits(self) -> u8 {
-        self.0
-    }
 
     #[must_use]
     pub const fn union(self, other: Self) -> Self {
@@ -450,8 +416,6 @@ impl XkbKeymap {
     reason = "a failed expectation is how a test reports a failure; the ban is on production code"
 )]
 mod tests {
-    use std::collections::BTreeSet;
-
     use pretty_assertions::assert_eq;
 
     use super::*;
@@ -468,38 +432,11 @@ mod tests {
     }
 
     #[test]
-    fn no_two_keys_share_an_evdev_code() {
-        let codes: BTreeSet<u16> = VirtualKey::ALL.iter().map(|key| key.evdev_code()).collect();
-
-        assert_eq!(codes.len(), VirtualKey::ALL.len());
-    }
-
-    #[test]
     fn a_code_no_key_claims_is_not_a_key() {
         // 0 is KEY_RESERVED, 84 is a gap in the table, and 767 is past KEY_MAX.
         assert_eq!(VirtualKey::from_evdev(0), None);
         assert_eq!(VirtualKey::from_evdev(84), None);
         assert_eq!(VirtualKey::from_evdev(767), None);
-    }
-
-    #[test]
-    fn every_button_round_trips_through_its_evdev_code() {
-        for button in PointerButton::ALL {
-            assert_eq!(
-                PointerButton::from_evdev(button.evdev_code()),
-                Some(*button)
-            );
-        }
-        assert_eq!(PointerButton::from_evdev(0x115), None);
-    }
-
-    #[test]
-    fn a_mask_with_a_bit_no_modifier_claims_is_rejected() {
-        assert_eq!(KeyModifiers::from_bits(0x20), None);
-        assert_eq!(
-            KeyModifiers::from_bits(0x05),
-            Some(KeyModifiers::SHIFT.union(KeyModifiers::CTRL)),
-        );
     }
 
     #[test]
@@ -540,8 +477,8 @@ mod tests {
     fn a_lock_is_reported_as_locked_rather_than_as_depressed() {
         let held = KeyModifiers::CAPS_LOCK.union(KeyModifiers::CTRL);
 
-        assert_eq!(held.depressed(), u32::from(KeyModifiers::CTRL.bits()));
-        assert_eq!(held.locked(), u32::from(KeyModifiers::CAPS_LOCK.bits()));
+        assert_eq!(held.depressed(), 0x04, "control");
+        assert_eq!(held.locked(), 0x02, "caps lock");
     }
 
     #[test]

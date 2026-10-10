@@ -18,7 +18,7 @@ The built-in panels apply each frame's UV transform with WayVR's `ScreenPipeline
 
 ### Monitor identification
 
-lunette correlates each portal stream with a `wl_output` by comparing the stream's `position` and `size` with the output's logical geometry, as wlx-overlay-s does. WayVR instead asks the user to select screens in a prescribed order. The portal's `mapping_id` is not read ([Decisions](#decisions)).
+lunette correlates each portal stream with a `wl_output` by comparing the stream's logical `position` with the output's, as wlx-overlay-s does. WayVR instead asks the user to select screens in a prescribed order. The portal's `mapping_id` is not read ([Decisions](#decisions)).
 
 ### Enumeration
 
@@ -52,7 +52,7 @@ Host input goes through the `HidProvider` trait, shaped after WayVR's (`src/subs
 - wl_virtual: `zwlr_virtual_pointer_v1` and `zwp_virtual_keyboard_v1`, which need no permissions but exist only on wlroots compositors. It uploads an XKB keymap so typing follows the user's layout.
 - dummy: injects nothing.
 
-`hid::open` tries the providers as an ordered chain, uinput then wl_virtual, and falls back to the dummy. Every failure is recorded and reported. `ProviderOrder::preferring` moves one provider to the front. WayVR instead calls one initialiser and installs the dummy on failure. A fatal send failure during a session replaces the provider with the dummy and logs the reason.
+`hid::open` tries the providers as an ordered chain, uinput then wl_virtual, and falls back to the dummy. Every failure is recorded and reported. WayVR instead calls one initialiser and installs the dummy on failure. A fatal send failure during a session replaces the provider with the dummy and logs the reason.
 
 libei through the portal's RemoteDesktop interface is the planned long-term provider.
 

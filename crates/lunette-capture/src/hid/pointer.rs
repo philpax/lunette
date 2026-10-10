@@ -37,18 +37,12 @@ impl DesktopPoint {
         Self { x, y }
     }
 
-    #[must_use]
-    pub fn offset(self, delta: DesktopVector) -> Self {
-        Self::new(self.x + delta.dx, self.y + delta.dy)
-    }
-
     /// Keeps the point inside the rectangle `origin` and `extent` describe.
     ///
     /// A non-rectangular arrangement leaves dead zones inside the desktop's
     /// bounding box, so this is not the whole of the clamping a pointer needs;
     /// [`crate::hid::mapping`] clamps to the target monitor first. This is the
-    /// last clamp, and it keeps a relative motion from leaving the desktop
-    /// entirely.
+    /// last clamp, and it keeps a position from leaving the desktop entirely.
     #[must_use]
     pub fn clamped(self, origin: Self, extent: DesktopExtent) -> Self {
         Self::new(
@@ -61,30 +55,6 @@ impl DesktopPoint {
 impl fmt::Display for DesktopPoint {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:.1},{:.1}", self.x, self.y)
-    }
-}
-
-/// A displacement on the host desktop, in the same logical coordinates.
-///
-/// Distinct from [`DesktopPoint`] so a relative motion cannot be passed where an
-/// absolute one is wanted; the two differ only in meaning, and that is exactly
-/// the case a newtype is for.
-#[derive(Clone, Copy, Debug, Default, PartialEq, PartialOrd)]
-pub struct DesktopVector {
-    pub dx: f64,
-    pub dy: f64,
-}
-
-impl DesktopVector {
-    #[must_use]
-    pub const fn new(dx: f64, dy: f64) -> Self {
-        Self { dx, dy }
-    }
-}
-
-impl fmt::Display for DesktopVector {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:+.1},{:+.1}", self.dx, self.dy)
     }
 }
 
@@ -171,8 +141,9 @@ impl fmt::Display for WheelDelta {
 #[derive(Clone, Debug, Default)]
 pub struct PendingPointer {
     /// Where the last call requested the cursor to be, whether or not that
-    /// position is still going to be sent. Relative motion starts from here,
-    /// so a sequence of relative moves within one frame composes.
+    /// position is still going to be sent. A click lands here, and it
+    /// survives a commit so that a click in a frame with no motion lands
+    /// where the previous frame left the cursor.
     last_requested: Option<DesktopPoint>,
     position: Option<DesktopPoint>,
     button: Option<(PointerButton, bool)>,
@@ -202,20 +173,6 @@ impl PendingPointer {
         if self.position.is_none() && self.wheel.is_none() {
             self.position = Some(position);
         }
-        self.last_requested = Some(position);
-    }
-
-    /// Requests a displacement from the last requested position.
-    ///
-    /// The result is clamped to the desktop. A relative motion has no other
-    /// bound, and an unbounded one moves the cursor off the desktop.
-    pub fn move_by(&mut self, delta: DesktopVector, origin: DesktopPoint, extent: DesktopExtent) {
-        let position = self
-            .last_requested
-            .unwrap_or(origin)
-            .offset(delta)
-            .clamped(origin, extent);
-        self.position = Some(position);
         self.last_requested = Some(position);
     }
 
@@ -260,12 +217,6 @@ impl PendingPointer {
             wheel: self.wheel.take(),
         }
     }
-
-    /// Where the cursor was last requested to be, whether or not it was sent.
-    #[must_use]
-    pub const fn last_requested(&self) -> Option<DesktopPoint> {
-        self.last_requested
-    }
 }
 
 /// One frame's worth of pointer activity, ready to be sent.
@@ -276,29 +227,11 @@ pub struct PointerBatch {
     pub wheel: Option<WheelDelta>,
 }
 
-impl PointerBatch {
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.position.is_none() && self.button.is_none() && self.wheel.is_none()
-    }
-}
-
 #[cfg(test)]
-#[expect(
-    clippy::expect_used,
-    reason = "a failed expectation is how a test reports a failure; the ban is on production code"
-)]
 mod tests {
     use pretty_assertions::assert_eq;
 
     use super::*;
-
-    fn desktop() -> (DesktopPoint, DesktopExtent) {
-        (
-            DesktopPoint::new(0.0, 0.0),
-            DesktopExtent::new(1920.0, 1080.0).expect("a positive extent"),
-        )
-    }
 
     #[test]
     fn an_extent_that_cannot_be_divided_through_is_rejected() {
@@ -313,7 +246,7 @@ mod tests {
     fn nothing_accumulated_commits_nothing() {
         let mut pending = PendingPointer::new();
 
-        assert!(pending.take().is_empty());
+        assert_eq!(pending.take(), PointerBatch::default());
     }
 
     #[test]
@@ -358,15 +291,11 @@ mod tests {
 
         assert_eq!(batch.position, None);
         assert_eq!(batch.wheel, Some(WheelDelta::new(0.0, 5.0)));
-    }
 
-    #[test]
-    fn a_motion_after_a_scroll_is_also_suppressed() {
-        let mut pending = PendingPointer::new();
         pending.scroll(WheelDelta::new(0.0, 5.0));
         pending.move_to(DesktopPoint::new(10.0, 10.0));
 
-        assert_eq!(pending.take().position, None);
+        assert_eq!(pending.take().position, None, "a motion after the scroll");
     }
 
     #[test]
@@ -400,58 +329,15 @@ mod tests {
     }
 
     #[test]
-    fn relative_motions_compose_within_one_frame() {
-        let (origin, extent) = desktop();
-        let mut pending = PendingPointer::new();
-        pending.move_to(DesktopPoint::new(100.0, 100.0));
-        pending.move_by(DesktopVector::new(10.0, 0.0), origin, extent);
-        pending.move_by(DesktopVector::new(0.0, 10.0), origin, extent);
-
-        assert_eq!(
-            pending.take().position,
-            Some(DesktopPoint::new(110.0, 110.0)),
-        );
-    }
-
-    #[test]
-    fn a_relative_motion_cannot_walk_off_the_desktop() {
-        let (origin, extent) = desktop();
-        let mut pending = PendingPointer::new();
-        pending.move_to(DesktopPoint::new(1900.0, 1070.0));
-        pending.move_by(DesktopVector::new(1000.0, 1000.0), origin, extent);
-
-        assert_eq!(
-            pending.take().position,
-            Some(DesktopPoint::new(1920.0, 1080.0)),
-        );
-    }
-
-    #[test]
-    fn a_relative_motion_before_any_absolute_one_starts_at_the_desktop_origin() {
-        let (origin, extent) = desktop();
-        let mut pending = PendingPointer::new();
-        pending.move_by(DesktopVector::new(5.0, 5.0), origin, extent);
-
-        assert_eq!(pending.take().position, Some(DesktopPoint::new(5.0, 5.0)));
-    }
-
-    #[test]
-    fn the_last_requested_position_survives_a_commit() {
-        // Otherwise a relative motion in the next frame restarts from the
-        // desktop origin. The cursor's actual position is lost.
-        let (origin, extent) = desktop();
+    fn a_click_in_a_frame_with_no_motion_lands_where_the_last_frame_left_the_cursor() {
         let mut pending = PendingPointer::new();
         pending.move_to(DesktopPoint::new(100.0, 100.0));
         let _ = pending.take();
-        pending.move_by(DesktopVector::new(10.0, 10.0), origin, extent);
+        pending.press(PointerButton::Left, true);
 
         assert_eq!(
             pending.take().position,
-            Some(DesktopPoint::new(110.0, 110.0)),
-        );
-        assert_eq!(
-            pending.last_requested(),
-            Some(DesktopPoint::new(110.0, 110.0)),
+            Some(DesktopPoint::new(100.0, 100.0)),
         );
     }
 }

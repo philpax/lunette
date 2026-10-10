@@ -3,79 +3,98 @@
 //! The portal grants anonymous streams. Nothing in the response says which
 //! screen a stream came from, and nothing guarantees the order corresponds to
 //! the user's selection order or to output enumeration order. The mapping is
-//! made from what the stream properties carry: `position` and `size`, in the
-//! compositor's logical space, which is the same space a `wl_output`'s geometry
-//! is reported in.
-//!
-//! That geometry match is the portable mechanism, and it is what wlx-overlay-s
-//! does. `mapping_id` is read opportunistically and takes precedence where it
-//! is a real connector name, but it cannot be the mechanism: two of the three
-//! portal backends do not supply a usable one. `docs/dev/host-desktop.md` records
-//! the evidence.
+//! made from the stream's `position`, in the compositor's logical space, which
+//! is the same space a `wl_output`'s geometry is reported in. This is what
+//! wlx-overlay-s does. `mapping_id` is not read, because two of the three
+//! portal backends do not supply a usable one; `docs/dev/host-desktop.md`
+//! records the evidence.
 //!
 //! The correlation is pure computation over plain data. Nothing here touches
-//! the portal, PipeWire, or a display. Both passes walk the streams in node
-//! order, and the result is sorted. Correlating the same streams in a
-//! different order produces the same answer, including where two streams
-//! contend for one monitor and only one of them can have it.
-//!
+//! the portal, PipeWire, or a display. Streams are grouped by position in an
+//! ordered map, and the result is sorted by node, so correlating the same
+//! streams in a different order produces the same answer.
 
 use std::{collections::BTreeMap, fmt};
 
 use crate::{
-    monitor::{
-        geometry::LogicalPosition,
-        name::MonitorKey,
-        roster::{Monitor, Roster},
-    },
+    monitor::{geometry::LogicalPosition, name::MonitorKey, roster::Roster},
     portal::{NodeId, PortalStream},
 };
 
-/// Ties each granted stream to the monitor it shows.
+/// Ties each granted stream to the monitor at its position.
 ///
-/// The connector pass runs first and across every stream, then the position
-/// pass over what is left. A stream that names its connector claims its
-/// monitor before a stream that only occupies the same coordinates.
+/// A stream matching no monitor is listed in [`Correlation::unmatched`] with
+/// the reason. Dropping it would hide a portal or arrangement problem: the
+/// mirror would silently never appear.
 ///
-/// Both halves of the answer are reported. A stream matching no monitor is
-/// listed in [`Correlation::unmatched`] with the reason, and a monitor no
-/// stream showed is listed in [`Correlation::unmirrored`]. Dropping either
-/// would hide a portal or arrangement problem: the mirror would silently
-/// never appear.
+/// The pass groups by position. The ambiguous case is a property of the
+/// group: two streams at one position are indistinguishable from each other,
+/// not merely from the monitors there.
 #[must_use]
 pub fn correlate(streams: &[PortalStream], roster: &Roster) -> Correlation {
-    let mut claims = Claims::new(roster);
+    let monitors = roster.monitors();
+    let mut matched = Vec::new();
+    let mut unmatched = Vec::new();
+    let mut by_position: BTreeMap<(i32, i32), Vec<NodeId>> = BTreeMap::new();
 
-    // The connector pass walks the streams by node. Two streams naming one
-    // connector cannot both have it, and taking the first in slice order would
-    // make which one wins a property of the portal's response ordering, which
-    // the portal does not guarantee. The position pass is already node-ordered,
-    // because it groups through a `BTreeMap`.
-    let mut ordered: Vec<&PortalStream> = streams.iter().collect();
-    ordered.sort_by_key(|stream| stream.node);
-
-    for stream in ordered {
-        claims.claim_by_connector(stream);
+    for stream in streams {
+        match stream.position {
+            Some(position) => by_position
+                .entry((position.x, position.y))
+                .or_default()
+                .push(stream.node),
+            None => unmatched.push(Unmatched {
+                node: stream.node,
+                reason: NoMatch::Featureless,
+            }),
+        }
     }
-    claims.claim_by_position(streams);
 
-    claims.finish(streams)
+    for ((x, y), nodes) in by_position {
+        let position = LogicalPosition::new(x, y);
+        let candidates: Vec<&MonitorKey> = monitors
+            .iter()
+            .filter(|monitor| monitor.position() == position)
+            .map(|monitor| monitor.key())
+            .collect();
+
+        match (nodes.as_slice(), candidates.as_slice()) {
+            ([node], [monitor]) => matched.push(StreamMatch {
+                node: *node,
+                monitor: (*monitor).clone(),
+            }),
+            ([node], []) => unmatched.push(Unmatched {
+                node: *node,
+                reason: NoMatch::NoMonitorThere { position },
+            }),
+            _ => unmatched.extend(nodes.iter().map(|node| Unmatched {
+                node: *node,
+                reason: NoMatch::Ambiguous {
+                    position,
+                    monitors: candidates.len(),
+                    streams: nodes.len(),
+                },
+            })),
+        }
+    }
+
+    matched.sort_by_key(|entry| entry.node);
+    unmatched.sort_by_key(|entry| entry.node);
+    unmatched.dedup_by_key(|entry| entry.node);
+
+    Correlation { matched, unmatched }
 }
 
 /// The outcome of tying a portal response's streams to the attached monitors.
+///
+/// Both halves are ordered by node identifier, so the result does not depend
+/// on the order the portal listed the streams in.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Correlation {
-    /// One entry per stream that found its monitor, ordered by node identifier
-    /// so the result does not depend on the order the portal listed them in.
+    /// One entry per stream that found its monitor.
     pub matched: Vec<StreamMatch>,
     /// The streams that found none, with the reason for each.
     pub unmatched: Vec<Unmatched>,
-    /// The monitors no stream showed, in the roster's own sorted order.
-    ///
-    /// Ordinary when the user selected only some of their screens. It
-    /// indicates a problem when the user selected all of them and one is
-    /// missing anyway.
-    pub unmirrored: Vec<MonitorKey>,
 }
 
 /// A stream and the monitor it shows.
@@ -83,28 +102,6 @@ pub struct Correlation {
 pub struct StreamMatch {
     pub node: NodeId,
     pub monitor: MonitorKey,
-    pub strength: MatchStrength,
-}
-
-/// How the match was made, strongest first.
-///
-/// A session where every match is [`Self::Position`] is one where moving a
-/// monitor silently re-points the mirror. Recording the strength keeps that
-/// visible in a log.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum MatchStrength {
-    /// The stream's `mapping_id` was a connector name, and it named this
-    /// monitor.
-    Connector,
-    /// The stream's position and size both agree with the monitor's.
-    PositionAndSize,
-    /// The stream's position agrees and its size does not, or it reported none.
-    ///
-    /// A size disagreement is not a failure. A backend that reports a stream's
-    /// size in pixels gives a value that differs from the monitor's logical
-    /// size by exactly the scale factor. The position is still correct, so a
-    /// size disagreement lowers the confidence but does not reject the match.
-    Position,
 }
 
 /// A stream that found no monitor, and why.
@@ -117,8 +114,7 @@ pub struct Unmatched {
 /// Why a stream could not be tied to a monitor.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NoMatch {
-    /// The stream reported neither a usable `mapping_id` nor a position, so
-    /// there is nothing to match it on.
+    /// The stream reported no position, so there is nothing to match it on.
     Featureless,
     /// No attached monitor occupies the stream's reported position. Unplugging
     /// a monitor between the portal's dialog and this correlation produces
@@ -133,18 +129,13 @@ pub enum NoMatch {
         monitors: usize,
         streams: usize,
     },
-    /// The stream named a connector no attached monitor carries.
-    NoSuchConnector,
-    /// The monitor this stream names was already taken by another stream.
-    AlreadyMirrored { monitor: MonitorKey },
 }
 
 impl fmt::Display for NoMatch {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Featureless => f.write_str(
-                "the stream reported neither a connector name nor a position, so there is nothing \
-                 to identify it by",
+                "the stream reported no position, so there is nothing to identify it by",
             ),
             Self::NoMonitorThere { position } => {
                 write!(f, "no attached monitor sits at {position}")
@@ -158,188 +149,7 @@ impl fmt::Display for NoMatch {
                 "{streams} streams and {monitors} monitors share the position {position}, and \
                  nothing distinguishes them"
             ),
-            Self::NoSuchConnector => {
-                f.write_str("the stream named a connector no attached monitor carries")
-            }
-            Self::AlreadyMirrored { monitor } => {
-                write!(f, "another stream already shows {monitor}")
-            }
         }
-    }
-}
-
-/// Which monitor each stream has taken, while the passes run.
-struct Claims<'a> {
-    monitors: &'a [Monitor],
-    /// The node that claimed each monitor, indexed alongside `monitors`.
-    claimed_by: Vec<Option<NodeId>>,
-    /// The monitor each node claimed, and how. Ordered, so the result is too.
-    taken: BTreeMap<NodeId, (usize, MatchStrength)>,
-    /// The nodes that failed, and why. Only consulted for a node that never
-    /// claimed anything.
-    refused: BTreeMap<NodeId, NoMatch>,
-}
-
-impl<'a> Claims<'a> {
-    fn new(roster: &'a Roster) -> Self {
-        let monitors = roster.monitors();
-        Self {
-            monitors,
-            claimed_by: vec![None; monitors.len()],
-            taken: BTreeMap::new(),
-            refused: BTreeMap::new(),
-        }
-    }
-
-    /// Takes the monitor a stream's `mapping_id` names, where it names one.
-    fn claim_by_connector(&mut self, stream: &PortalStream) {
-        let Some(connector) = stream.connector else {
-            return;
-        };
-        let target = connector.to_string();
-
-        let Some(index) = self
-            .monitors
-            .iter()
-            .position(|monitor| monitor.name().matches(&target))
-        else {
-            self.refused.insert(stream.node, NoMatch::NoSuchConnector);
-            return;
-        };
-
-        match self.claimed_by[index] {
-            None => self.take(stream.node, index, MatchStrength::Connector),
-            Some(_) => {
-                self.refused.insert(
-                    stream.node,
-                    NoMatch::AlreadyMirrored {
-                        monitor: self.monitors[index].key().clone(),
-                    },
-                );
-            }
-        }
-    }
-
-    /// Takes a monitor for each remaining stream whose position is that of
-    /// exactly one monitor.
-    ///
-    /// The pass groups by position. The ambiguous case is a property of the
-    /// group: two streams at one position are indistinguishable from each
-    /// other, not merely from the monitors there.
-    fn claim_by_position(&mut self, streams: &[PortalStream]) {
-        let mut by_position: BTreeMap<(i32, i32), Vec<NodeId>> = BTreeMap::new();
-
-        for stream in streams {
-            if self.taken.contains_key(&stream.node) || self.refused.contains_key(&stream.node) {
-                continue;
-            }
-            let Some(position) = stream.position else {
-                self.refused.insert(stream.node, NoMatch::Featureless);
-                continue;
-            };
-            by_position
-                .entry((position.x, position.y))
-                .or_default()
-                .push(stream.node);
-        }
-
-        for ((x, y), nodes) in by_position {
-            let position = LogicalPosition::new(x, y);
-            let candidates = self.unclaimed_at(position);
-
-            match (nodes.as_slice(), candidates.as_slice()) {
-                ([node], [index]) => {
-                    let strength = size_agrees(streams, *node, &self.monitors[*index]);
-                    self.take(*node, *index, strength);
-                }
-                ([node], []) => {
-                    self.refused
-                        .insert(*node, NoMatch::NoMonitorThere { position });
-                }
-                _ => {
-                    for node in &nodes {
-                        self.refused.insert(
-                            *node,
-                            NoMatch::Ambiguous {
-                                position,
-                                monitors: candidates.len(),
-                                streams: nodes.len(),
-                            },
-                        );
-                    }
-                }
-            }
-        }
-    }
-
-    fn unclaimed_at(&self, position: LogicalPosition) -> Vec<usize> {
-        self.monitors
-            .iter()
-            .enumerate()
-            .filter(|(index, monitor)| {
-                self.claimed_by[*index].is_none() && monitor.position() == position
-            })
-            .map(|(index, _)| index)
-            .collect()
-    }
-
-    fn take(&mut self, node: NodeId, index: usize, strength: MatchStrength) {
-        self.claimed_by[index] = Some(node);
-        self.taken.insert(node, (index, strength));
-    }
-
-    fn finish(self, streams: &[PortalStream]) -> Correlation {
-        let matched: Vec<StreamMatch> = self
-            .taken
-            .iter()
-            .map(|(node, (index, strength))| StreamMatch {
-                node: *node,
-                monitor: self.monitors[*index].key().clone(),
-                strength: *strength,
-            })
-            .collect();
-
-        let mut unmatched: Vec<Unmatched> = streams
-            .iter()
-            .filter(|stream| !self.taken.contains_key(&stream.node))
-            .map(|stream| Unmatched {
-                node: stream.node,
-                reason: self
-                    .refused
-                    .get(&stream.node)
-                    .cloned()
-                    .unwrap_or(NoMatch::Featureless),
-            })
-            .collect();
-        unmatched.sort_by_key(|entry| entry.node);
-        unmatched.dedup_by_key(|entry| entry.node);
-
-        let unmirrored = self
-            .monitors
-            .iter()
-            .enumerate()
-            .filter(|(index, _)| self.claimed_by[*index].is_none())
-            .map(|(_, monitor)| monitor.key().clone())
-            .collect();
-
-        Correlation {
-            matched,
-            unmatched,
-            unmirrored,
-        }
-    }
-}
-
-/// Whether the stream's reported size agrees with the monitor's logical size.
-fn size_agrees(streams: &[PortalStream], node: NodeId, monitor: &Monitor) -> MatchStrength {
-    let reported = streams
-        .iter()
-        .find(|stream| stream.node == node)
-        .and_then(|stream| stream.size);
-
-    match reported {
-        Some(size) if size == monitor.size() => MatchStrength::PositionAndSize,
-        _ => MatchStrength::Position,
     }
 }
 
@@ -353,7 +163,7 @@ mod tests {
 
     use super::*;
     use crate::monitor::{
-        geometry::{LogicalGeometry, LogicalSize, PixelExtent, SurfaceTransform},
+        geometry::{LogicalGeometry, LogicalSize, PixelExtent},
         name::{ConnectorName, MonitorName},
         roster::MonitorReport,
     };
@@ -375,18 +185,16 @@ mod tests {
     }
 
     /// A resolution correlation does not read: streams are tied to monitors by
-    /// logical geometry and by connector name, never by mode.
+    /// logical position, never by mode.
     fn resolution() -> PixelExtent {
         PixelExtent::new(1920, 1080)
     }
 
-    /// An unrotated monitor, which is what every correlation test is about.
     fn report(name: MonitorName, geometry: LogicalGeometry) -> MonitorReport {
         MonitorReport {
             name,
             geometry,
             pixels: resolution(),
-            transform: SurfaceTransform::Normal,
         }
     }
 
@@ -401,52 +209,40 @@ mod tests {
         roster
     }
 
-    fn stream(raw: u32, x: Option<i32>, width: Option<u32>) -> PortalStream {
+    fn stream(raw: u32, x: Option<i32>) -> PortalStream {
         PortalStream {
             node: node(raw),
             position: x.map(|x| LogicalPosition::new(x, 0)),
-            size: width.map(|width| LogicalSize::new(width, 1080)),
-            connector: None,
         }
     }
 
-    fn matched(correlation: &Correlation) -> Vec<(u32, String, MatchStrength)> {
+    fn matched(correlation: &Correlation) -> Vec<(u32, String)> {
         correlation
             .matched
             .iter()
-            .map(|entry| (entry.node.get(), entry.monitor.to_string(), entry.strength))
+            .map(|entry| (entry.node.get(), entry.monitor.to_string()))
             .collect()
     }
 
     #[test]
     fn two_streams_reach_the_monitors_their_geometry_names() {
         let correlation = correlate(
-            &[
-                stream(7, Some(1920), Some(1920)),
-                stream(3, Some(0), Some(1920)),
-            ],
+            &[stream(7, Some(1920)), stream(3, Some(0))],
             &two_monitors(),
         );
 
         assert_eq!(
             matched(&correlation),
-            vec![
-                (3, "Acme Left".to_owned(), MatchStrength::PositionAndSize),
-                (7, "Acme Right".to_owned(), MatchStrength::PositionAndSize),
-            ],
+            vec![(3, "Acme Left".to_owned()), (7, "Acme Right".to_owned()),],
         );
         assert!(correlation.unmatched.is_empty());
-        assert!(correlation.unmirrored.is_empty());
     }
 
     #[test]
     fn the_answer_does_not_depend_on_the_order_the_portal_listed_the_streams_in() {
         // The portal guarantees nothing about stream order. An arrangement
         // derived from it would change between runs with nothing else changing.
-        let forwards = [
-            stream(3, Some(0), Some(1920)),
-            stream(7, Some(1920), Some(1920)),
-        ];
+        let forwards = [stream(3, Some(0)), stream(7, Some(1920))];
         let backwards = [forwards[1].clone(), forwards[0].clone()];
 
         assert_eq!(
@@ -456,65 +252,8 @@ mod tests {
     }
 
     #[test]
-    fn a_connector_name_beats_the_geometry_of_a_stream_that_sits_elsewhere() {
-        // The stream says it is at the right-hand monitor's position, but names
-        // the left-hand monitor's connector. The connector is the more specific
-        // of the two, so it wins.
-        let mut stream = stream(3, Some(1920), Some(1920));
-        stream.connector = ConnectorName::parse("DP-1");
-
-        let correlation = correlate(&[stream], &two_monitors());
-
-        assert_eq!(
-            matched(&correlation),
-            vec![(3, "Acme Left".to_owned(), MatchStrength::Connector)],
-        );
-    }
-
-    #[test]
-    fn a_stream_naming_a_connector_no_monitor_carries_is_reported() {
-        let mut stream = stream(3, None, None);
-        stream.connector = ConnectorName::parse("DP-9");
-
-        let correlation = correlate(&[stream], &two_monitors());
-
-        assert!(correlation.matched.is_empty());
-        assert_eq!(
-            correlation.unmatched,
-            vec![Unmatched {
-                node: node(3),
-                reason: NoMatch::NoSuchConnector,
-            }],
-        );
-    }
-
-    #[test]
-    fn a_size_disagreement_lowers_the_confidence_rather_than_rejecting_the_match() {
-        // A backend reporting the stream's pixel size on a 2x display
-        // disagrees with the logical size by exactly the scale factor. The
-        // position is still right. Refusing here would leave a scaled monitor
-        // unmirrorable.
-        let correlation = correlate(&[stream(3, Some(0), Some(3840))], &two_monitors());
-
-        assert_eq!(
-            matched(&correlation),
-            vec![(3, "Acme Left".to_owned(), MatchStrength::Position)],
-        );
-    }
-
-    #[test]
-    fn a_stream_reporting_no_size_still_matches_on_its_position() {
-        let correlation = correlate(&[stream(3, Some(1920), None)], &two_monitors());
-
-        assert_eq!(
-            matched(&correlation),
-            vec![(3, "Acme Right".to_owned(), MatchStrength::Position)],
-        );
-    }
-
-    #[test]
-    fn a_stream_carrying_neither_a_connector_nor_a_position_is_reported() {
-        let correlation = correlate(&[stream(3, None, Some(1920))], &two_monitors());
+    fn a_stream_carrying_no_position_is_reported() {
+        let correlation = correlate(&[stream(3, None)], &two_monitors());
 
         assert_eq!(
             correlation.unmatched,
@@ -527,7 +266,7 @@ mod tests {
 
     #[test]
     fn a_stream_at_a_position_no_monitor_occupies_is_reported_rather_than_dropped() {
-        let correlation = correlate(&[stream(3, Some(5000), Some(1920))], &two_monitors());
+        let correlation = correlate(&[stream(3, Some(5000))], &two_monitors());
 
         assert!(correlation.matched.is_empty());
         assert_eq!(
@@ -539,7 +278,6 @@ mod tests {
                 },
             }],
         );
-        assert_eq!(correlation.unmirrored.len(), 2);
     }
 
     #[test]
@@ -550,13 +288,7 @@ mod tests {
         roster.add(report(named(Some("DP-1"), "Left"), geometry(0, 1920)));
         roster.add(report(named(Some("HDMI-A-1"), "Right"), geometry(0, 1920)));
 
-        let correlation = correlate(
-            &[
-                stream(3, Some(0), Some(1920)),
-                stream(7, Some(0), Some(1920)),
-            ],
-            &roster,
-        );
+        let correlation = correlate(&[stream(3, Some(0)), stream(7, Some(0))], &roster);
 
         assert!(correlation.matched.is_empty());
         assert_eq!(
@@ -583,96 +315,8 @@ mod tests {
     }
 
     #[test]
-    fn a_connector_match_frees_the_position_for_the_stream_that_is_left() {
-        // Two monitors at one position, but one stream names its connector.
-        // The connector pass takes that monitor. The position pass then sees
-        // exactly one candidate and one stream, which is no longer ambiguous.
-        let mut roster = Roster::new();
-        roster.add(report(named(Some("DP-1"), "Left"), geometry(0, 1920)));
-        roster.add(report(named(Some("HDMI-A-1"), "Right"), geometry(0, 1920)));
-
-        let mut first = stream(3, Some(0), Some(1920));
-        first.connector = ConnectorName::parse("DP-1");
-
-        let correlation = correlate(&[first, stream(7, Some(0), Some(1920))], &roster);
-
-        assert_eq!(
-            matched(&correlation),
-            vec![
-                (3, "Acme Left".to_owned(), MatchStrength::Connector),
-                (7, "Acme Right".to_owned(), MatchStrength::PositionAndSize),
-            ],
-        );
-    }
-
-    #[test]
-    fn which_of_two_streams_naming_one_connector_wins_does_not_depend_on_portal_order() {
-        // Only one of them can have the monitor. Deciding it by slice position
-        // would make the answer a property of the portal's response ordering.
-        let mut first = stream(3, None, None);
-        first.connector = ConnectorName::parse("DP-1");
-        let mut second = stream(7, None, None);
-        second.connector = ConnectorName::parse("DP-1");
-
-        let forwards = [first.clone(), second.clone()];
-        let backwards = [second, first];
-
-        assert_eq!(
-            correlate(&forwards, &two_monitors()),
-            correlate(&backwards, &two_monitors()),
-        );
-        assert_eq!(
-            matched(&correlate(&backwards, &two_monitors())),
-            vec![(3, "Acme Left".to_owned(), MatchStrength::Connector)],
-            "the lower node identifier takes it, whichever order they arrived in",
-        );
-    }
-
-    #[test]
-    fn a_second_stream_naming_a_monitor_already_mirrored_is_reported() {
-        let mut first = stream(3, None, None);
-        first.connector = ConnectorName::parse("DP-1");
-        let mut second = stream(7, None, None);
-        second.connector = ConnectorName::parse("DP-1");
-
-        let correlation = correlate(&[first, second], &two_monitors());
-
-        assert_eq!(correlation.matched.len(), 1);
-        assert_eq!(correlation.unmatched.len(), 1);
-        assert!(matches!(
-            correlation.unmatched[0].reason,
-            NoMatch::AlreadyMirrored { .. }
-        ));
-    }
-
-    #[test]
-    fn the_monitors_no_stream_showed_are_named() {
-        // Ordinary when the user selected one of two screens. The list is the
-        // only output that names the monitor with no stream.
-        let correlation = correlate(&[stream(3, Some(0), Some(1920))], &two_monitors());
-
-        assert_eq!(
-            correlation
-                .unmirrored
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>(),
-            vec!["Acme Right".to_owned()],
-        );
-    }
-
-    #[test]
-    fn no_streams_at_all_leaves_every_monitor_unmirrored() {
-        let correlation = correlate(&[], &two_monitors());
-
-        assert_eq!(correlation.matched, Vec::new());
-        assert_eq!(correlation.unmatched, Vec::new());
-        assert_eq!(correlation.unmirrored.len(), 2);
-    }
-
-    #[test]
     fn a_stream_against_an_empty_roster_is_reported_rather_than_dropped() {
-        let correlation = correlate(&[stream(3, Some(0), Some(1920))], &Roster::new());
+        let correlation = correlate(&[stream(3, Some(0))], &Roster::new());
 
         assert_eq!(
             correlation.unmatched,
@@ -687,11 +331,7 @@ mod tests {
 
     #[test]
     fn every_stream_appears_in_exactly_one_half_of_the_answer() {
-        let streams = [
-            stream(3, Some(0), Some(1920)),
-            stream(7, Some(5000), None),
-            stream(11, None, None),
-        ];
+        let streams = [stream(3, Some(0)), stream(7, Some(5000)), stream(11, None)];
         let correlation = correlate(&streams, &two_monitors());
 
         let mut seen: Vec<u32> = correlation

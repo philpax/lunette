@@ -17,10 +17,9 @@
 //! `parse_start_response` reads `streams` and `restore_token` and drops the
 //! response's `persist_mode` (`pipewire/mod.rs:686-691`), so every grant
 //! reports [`GrantedPersistMode::Unstated`]. `parse_streams` reads `node_id`,
-//! `position`, and `size` and drops `mapping_id` (`mod.rs:693-733`), so
-//! [`PortalStream::connector`] is always `None`. Both drops happen in
-//! upstream `wlx-capture`. Neither is load-bearing: geometry is the
-//! mechanism.
+//! `position`, and `size` and drops `mapping_id` (`mod.rs:693-733`). Both
+//! drops happen in upstream `wlx-capture`. Neither is load-bearing: the
+//! stream's position is the mechanism, and lunette reads neither.
 
 use std::{collections::HashMap, rc::Rc};
 
@@ -31,11 +30,10 @@ use wlx_capture::pipewire::{
 };
 
 use crate::{
-    monitor::geometry::{LogicalPosition, LogicalSize},
+    monitor::geometry::LogicalPosition,
     portal::{
-        CursorPolicy, GrantedPersistMode, NodeId, PersistMode, PortalError, PortalStream,
-        RequestId, RequestProgress, RestoreToken, ScreenCastPortal, SessionRequest,
-        SessionResponse,
+        CursorPolicy, GrantedPersistMode, NodeId, PortalError, PortalStream, RequestId,
+        RequestProgress, RestoreToken, ScreenCastPortal, SessionRequest, SessionResponse,
     },
 };
 
@@ -65,7 +63,7 @@ impl WlxPortal {
 
 impl ScreenCastPortal for WlxPortal {
     fn begin(&mut self, request: SessionRequest) -> Result<RequestId, PortalError> {
-        let params = params_for(&request)?;
+        let params = params_for(&request);
         let inner = self.manager.request(params).map_err(translate_error)?;
 
         self.next += 1;
@@ -107,29 +105,20 @@ impl ScreenCastPortal for WlxPortal {
 ///
 /// `screens_only` and `allow_multiple` are constants. A window belongs to
 /// lunette's own compositor. One dialog listing every screen removes the
-/// prescribed selection order.
-fn params_for(request: &SessionRequest) -> Result<ScreenCastParams, PortalError> {
-    // `ScreenCastParams.persist` is a bool encoding 0 or 2, so `WhileRunning`
-    // has no representation. Sending 2 for `WhileRunning` asks for a
-    // longer-lived grant than the caller wanted.
-    let persist = match request.persist_mode {
-        PersistMode::DoNot => false,
-        PersistMode::UntilRevoked => true,
-        mode @ PersistMode::WhileRunning => {
-            return Err(PortalError::UnsupportedPersistMode(mode));
-        }
-    };
-
-    Ok(ScreenCastParams {
+/// prescribed selection order. `persist` is true because every request asks
+/// for a session that lasts until revoked; `wlx-capture` encodes it as
+/// `persist_mode` 2.
+fn params_for(request: &SessionRequest) -> ScreenCastParams {
+    ScreenCastParams {
         token: request
             .restore_token
             .as_ref()
             .map(|token| Rc::from(token.as_str())),
         embed_mouse: matches!(request.cursor, CursorPolicy::Visible),
         screens_only: true,
-        persist,
+        persist: true,
         allow_multiple: true,
-    })
+    }
 }
 
 fn translate_response(response: ScreenCastResponse) -> Result<SessionResponse, PortalError> {
@@ -150,22 +139,7 @@ fn translate_stream(stream: &PipewireStream) -> Result<PortalStream, PortalError
             raw: stream.node_id,
         })?,
         position: stream.position.map(|(x, y)| LogicalPosition::new(x, y)),
-        size: stream.size.and_then(logical_size),
-        connector: None,
     })
-}
-
-/// Widens a stream's reported extent, discarding a negative one.
-///
-/// The portal's `size` is a pair of signed integers. A negative extent
-/// describes no rectangle, so it is discarded: wrapping it into an unsigned
-/// value would produce an enormous extent. A stream with no usable size still
-/// correlates on its position.
-fn logical_size((width, height): (i32, i32)) -> Option<LogicalSize> {
-    Some(LogicalSize::new(
-        u32::try_from(width).ok()?,
-        u32::try_from(height).ok()?,
-    ))
 }
 
 fn translate_error(error: ScreenCastError) -> PortalError {
@@ -212,8 +186,7 @@ mod tests {
     fn a_session_is_always_asked_for_every_screen_in_one_dialog() {
         // `allow_multiple` removes the prescribed selection order. `screens_only`
         // keeps lunette's own windows out of the list.
-        let params = params_for(&SessionRequest::new(None, CursorPolicy::Hidden))
-            .expect("the default request is expressible");
+        let params = params_for(&SessionRequest::new(None, CursorPolicy::Hidden));
 
         assert!(params.allow_multiple);
         assert!(params.screens_only);
@@ -223,8 +196,7 @@ mod tests {
 
     #[test]
     fn a_visible_cursor_asks_the_backend_to_supply_one() {
-        let params = params_for(&SessionRequest::new(None, CursorPolicy::Visible))
-            .expect("the default request is expressible");
+        let params = params_for(&SessionRequest::new(None, CursorPolicy::Visible));
 
         assert!(params.embed_mouse);
     }
@@ -232,23 +204,9 @@ mod tests {
     #[test]
     fn a_restore_token_is_carried_into_the_request() {
         let token = RestoreToken::new("stored").expect("a non-empty token");
-        let params = params_for(&SessionRequest::new(Some(token), CursorPolicy::Hidden))
-            .expect("the default request is expressible");
+        let params = params_for(&SessionRequest::new(Some(token), CursorPolicy::Hidden));
 
         assert_eq!(params.token.as_deref(), Some("stored"));
-    }
-
-    #[test]
-    fn a_persistence_mode_the_client_cannot_express_is_refused_rather_than_rounded_up() {
-        let mut request = SessionRequest::new(None, CursorPolicy::Hidden);
-        request.persist_mode = PersistMode::WhileRunning;
-
-        assert_eq!(
-            params_for(&request).err(),
-            Some(PortalError::UnsupportedPersistMode(
-                PersistMode::WhileRunning
-            )),
-        );
     }
 
     #[test]
@@ -257,15 +215,6 @@ mod tests {
             translate_stream(&stream(0, Some((1920, 1080)))),
             Err(PortalError::UnusableNode { raw: 0 }),
         );
-    }
-
-    #[test]
-    fn a_negative_extent_leaves_the_stream_matching_on_its_position_alone() {
-        let translated = translate_stream(&stream(7, Some((-1, 1080))))
-            .expect("a stream with a usable node identifier");
-
-        assert_eq!(translated.size, None);
-        assert_eq!(translated.position, Some(LogicalPosition::new(1920, 0)));
     }
 
     #[test]

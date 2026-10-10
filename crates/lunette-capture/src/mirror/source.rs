@@ -6,7 +6,7 @@ use tracing::debug;
 
 use crate::{
     portal::NodeId,
-    stream::{CaptureStream, CapturedFrame, DrmFormat, FrameCounts},
+    stream::{CaptureStream, CapturedFrame, DrmFormat},
 };
 
 /// A monitor's captured frames and lifecycle controls.
@@ -15,9 +15,6 @@ use crate::{
 pub trait MonitorStream {
     /// Returns the newest frame since the previous call and discards older frames.
     fn latest(&mut self) -> Option<CapturedFrame>;
-
-    /// Returns counts of delivered, dropped, and refused frames.
-    fn counts(&self) -> FrameCounts;
 
     /// Requests a pause without releasing the stream; backend support varies.
     fn pause(&mut self);
@@ -29,10 +26,6 @@ pub trait MonitorStream {
 impl MonitorStream for CaptureStream {
     fn latest(&mut self) -> Option<CapturedFrame> {
         Self::latest(self)
-    }
-
-    fn counts(&self) -> FrameCounts {
-        Self::counts(self)
     }
 
     fn pause(&mut self) {

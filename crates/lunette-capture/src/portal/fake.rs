@@ -62,33 +62,6 @@ impl FakePortal {
         self.begin_failure = Some(error);
         self
     }
-
-    /// Polls until the request reports a terminal progress.
-    ///
-    /// Bounded. A script that never terminates is a defect in the test, so the
-    /// method panics and the suite does not hang.
-    #[must_use]
-    pub fn drive(&mut self, request: RequestId) -> RequestProgress {
-        for _ in 0..16 {
-            let progress = self.poll(request);
-            if matches!(
-                progress,
-                RequestProgress::Ready(_) | RequestProgress::Failed(_)
-            ) {
-                return progress;
-            }
-        }
-        panic!("the scripted portal never reached a terminal progress");
-    }
-
-    /// Polls until the request is granted, and returns what it granted.
-    #[must_use]
-    pub fn grant(&mut self, request: RequestId) -> SessionResponse {
-        match self.drive(request) {
-            RequestProgress::Ready(response) => response,
-            other => panic!("the scripted portal answered {other:?} rather than granting"),
-        }
-    }
 }
 
 impl ScreenCastPortal for FakePortal {

@@ -64,12 +64,6 @@ impl CaptureStream {
         self.frames.take_latest()
     }
 
-    /// Returns counts for converted, dropped, and refused frames.
-    #[must_use]
-    pub fn counts(&self) -> FrameCounts {
-        self.frames.counts()
-    }
-
     /// Stops the stream producing without releasing the portal session.
     ///
     /// Pausing hides the panel temporarily, while dropping the stream dismisses the monitor.
@@ -89,7 +83,6 @@ impl fmt::Debug for CaptureStream {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("CaptureStream")
             .field("name", &self.name)
-            .field("counts", &self.counts())
             .finish_non_exhaustive()
     }
 }
@@ -471,7 +464,6 @@ impl<T> FrameQueue<T> {
             capacity,
             inner: Mutex::new(QueueInner {
                 entries: VecDeque::with_capacity(capacity.get()),
-                counts: FrameCounts::default(),
                 refused_before: false,
             }),
         }
@@ -483,56 +475,33 @@ impl<T> FrameQueue<T> {
 
         let pushed = if inner.entries.len() >= self.capacity.get() {
             inner.entries.pop_front();
-            inner.counts.dropped = inner.counts.dropped.saturating_add(1);
             Pushed::DroppedOldest
         } else {
             Pushed::Accepted
         };
 
         inner.entries.push_back(entry);
-        inner.counts.delivered = inner.counts.delivered.saturating_add(1);
         pushed
     }
 
-    /// Returns the newest entry and discards older queued entries, counting them as dropped.
+    /// Returns the newest entry and discards older queued entries.
     #[must_use]
     pub fn take_latest(&self) -> Option<T> {
         let mut inner = self.inner.lock();
         let newest = inner.entries.pop_back()?;
-
-        let stale = u64::try_from(inner.entries.len()).unwrap_or(u64::MAX);
         inner.entries.clear();
-        inner.counts.dropped = inner.counts.dropped.saturating_add(stale);
-
         Some(newest)
     }
 
     /// Records a conversion refusal and reports whether it is the first for this stream.
     pub fn record_refusal(&self) -> Refusal {
         let mut inner = self.inner.lock();
-        inner.counts.refused = inner.counts.refused.saturating_add(1);
-
         if inner.refused_before {
             Refusal::Again
         } else {
             inner.refused_before = true;
             Refusal::First
         }
-    }
-
-    #[must_use]
-    pub fn counts(&self) -> FrameCounts {
-        self.inner.lock().counts
-    }
-
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.inner.lock().entries.len()
-    }
-
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
     }
 }
 
@@ -549,17 +518,6 @@ pub enum Pushed {
 pub enum Refusal {
     First,
     Again,
-}
-
-/// Counts for frames produced by a stream.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct FrameCounts {
-    /// Frames converted and queued.
-    pub delivered: u64,
-    /// Frames queued and discarded before being drawn.
-    pub dropped: u64,
-    /// Frames rejected during conversion.
-    pub refused: u64,
 }
 
 /// Why a captured frame could not reach the importer.
@@ -685,7 +643,6 @@ fn deliver(delivery: &Delivery, frame: WlxFrame) -> Option<Never> {
 #[derive(Debug)]
 struct QueueInner<T> {
     entries: VecDeque<T>,
-    counts: FrameCounts,
     refused_before: bool,
 }
 
@@ -983,63 +940,16 @@ mod tests {
     }
 
     #[test]
-    fn a_full_queue_discards_the_oldest_and_counts_it() {
+    fn a_full_queue_keeps_the_newest_and_taking_it_discards_the_rest() {
         let queue = queue(2);
 
         assert_eq!(queue.push(1), Pushed::Accepted);
         assert_eq!(queue.push(2), Pushed::Accepted);
         assert_eq!(queue.push(3), Pushed::DroppedOldest);
+        let _ = queue.push(4);
 
-        assert_eq!(queue.len(), 2);
-        assert_eq!(
-            queue.counts(),
-            FrameCounts {
-                delivered: 3,
-                dropped: 1,
-                refused: 0,
-            },
-        );
-    }
-
-    #[test]
-    fn the_newest_frame_is_the_one_that_survives_a_full_queue() {
-        let queue = queue(2);
-        for entry in 1..=5 {
-            let _ = queue.push(entry);
-        }
-
-        assert_eq!(queue.take_latest(), Some(5));
-    }
-
-    #[test]
-    fn taking_the_latest_frame_discards_the_ones_behind_it_and_counts_them() {
-        let queue = queue(4);
-        for entry in 1..=3 {
-            assert_eq!(queue.push(entry), Pushed::Accepted);
-        }
-
-        assert_eq!(queue.take_latest(), Some(3));
-        assert!(queue.is_empty());
-        assert_eq!(queue.counts().dropped, 2);
+        assert_eq!(queue.take_latest(), Some(4));
         assert_eq!(queue.take_latest(), None);
-    }
-
-    #[test]
-    fn an_empty_queue_yields_nothing_and_counts_nothing() {
-        let queue = queue(2);
-
-        assert_eq!(queue.take_latest(), None);
-        assert_eq!(queue.counts(), FrameCounts::default());
-    }
-
-    #[test]
-    fn a_queue_of_one_keeps_only_the_newest() {
-        let queue = queue(1);
-        let _ = queue.push(1);
-        let _ = queue.push(2);
-
-        assert_eq!(queue.len(), 1);
-        assert_eq!(queue.take_latest(), Some(2));
     }
 
     #[test]
@@ -1049,6 +959,5 @@ mod tests {
         assert_eq!(queue.record_refusal(), Refusal::First);
         assert_eq!(queue.record_refusal(), Refusal::Again);
         assert_eq!(queue.record_refusal(), Refusal::Again);
-        assert_eq!(queue.counts().refused, 3);
     }
 }

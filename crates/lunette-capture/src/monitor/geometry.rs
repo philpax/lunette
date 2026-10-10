@@ -6,10 +6,10 @@
 //! they are described together here.
 //!
 //! The coordinates are logical throughout. A pointer maps into a monitor's
-//! logical rectangle, and the stream correlation compares portal stream
-//! `position` and `size` against this geometry. The ScreenCast portal reports
-//! those values in the compositor's arrangement space, so the comparison holds
-//! only when both sides are in that space.
+//! logical rectangle, and the stream correlation compares a portal stream's
+//! `position` against this geometry. The ScreenCast portal reports that value
+//! in the compositor's arrangement space, so the comparison holds only when
+//! both sides are in that space.
 
 use std::fmt;
 

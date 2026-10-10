@@ -34,7 +34,7 @@
 //! # Logical geometry, and the fallback
 //!
 //! `zxdg_output_v1` reports the logical position and size directly, which is the
-//! space the portal reports a stream's `position` and `size` in and the space a
+//! space the portal reports a stream's `position` in and the space a
 //! pointer is placed in. A compositor without `zxdg_output_manager_v1` is
 //! handled by deriving the size from `wl_output.mode` and `wl_output.scale`,
 //! swapping the axes when the transform rotates. The derived form is integer

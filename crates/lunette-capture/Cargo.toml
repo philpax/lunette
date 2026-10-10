@@ -26,7 +26,7 @@ wayland-protocols-wlr = { workspace = true, features = ["client"] }
 wlx-capture.workspace = true
 
 [features]
-# Exposes the scripted portal and recording input provider to integration tests.
+# Exposes `CapturedFrame::from_parts` to other crates' tests.
 test-fakes = []
 
 [dev-dependencies]

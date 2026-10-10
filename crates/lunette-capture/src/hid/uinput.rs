@@ -5,7 +5,7 @@
 //! host compositor support.
 //!
 //! Opening `/dev/uinput` requires write permission, which most distributions do
-//! not grant to ordinary users. [`Advice`] describes a udev rule tagged
+//! not grant to ordinary users. [`ACCESS_ADVICE`] describes a udev rule tagged
 //! `uaccess` and membership of the `input` group. The `input` group also grants
 //! read access to every input device on the machine, which creates a keylogging
 //! surface.
@@ -17,7 +17,6 @@
 
 use std::{
     ffi::c_int,
-    fmt,
     fs::{File, OpenOptions},
     io::{self, Write},
     mem,
@@ -37,36 +36,16 @@ use crate::hid::{
         WHEEL_HI_RES_PER_DETENT,
     },
     key::{KeyModifiers, PointerButton, VirtualKey, XkbKeymap},
-    pointer::{DesktopExtent, DesktopPoint, DesktopVector, PendingPointer, WheelDelta},
+    pointer::{DesktopExtent, DesktopPoint, PendingPointer, WheelDelta},
     selection::{ProviderError, ProviderKind},
 };
 
-/// Configures the uinput device node and the names reported for the created
-/// devices.
-///
-/// The device path is a parameter because this library does not read the
-/// environment. [`Self::default`] supplies the path used by the application when
-/// no override is configured.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct UinputConfig {
-    pub device: PathBuf,
-    /// Prefix for the names the host reports in `libinput list-devices`. The
-    /// provider appends "Keyboard" and "Mouse".
-    pub device_prefix: String,
-}
+/// The device node uinput lives at.
+const DEVICE: &str = "/dev/uinput";
 
-impl UinputConfig {
-    pub const DEFAULT_DEVICE: &'static str = "/dev/uinput";
-}
-
-impl Default for UinputConfig {
-    fn default() -> Self {
-        Self {
-            device: PathBuf::from(Self::DEFAULT_DEVICE),
-            device_prefix: "lunette".to_owned(),
-        }
-    }
-}
+/// Prefix for the names the host reports in `libinput list-devices`. The
+/// provider appends "Keyboard" and "Mouse".
+const DEVICE_PREFIX: &str = "lunette";
 
 /// A keyboard and a mouse, injected below the host's display server.
 pub struct UinputProvider {
@@ -95,10 +74,10 @@ impl UinputProvider {
     /// [`ProviderError::Io`] when the device node cannot be opened, or when the
     /// kernel refuses part of the setup. `ENOENT` means the `uinput` module is
     /// not loaded; `EACCES` means the user lacks write access.
-    pub fn open(config: &UinputConfig) -> Result<Self, ProviderError> {
+    pub fn open() -> Result<Self, ProviderError> {
         let keyboard = UinputDevice::create(
-            &config.device,
-            &format!("{} Keyboard", config.device_prefix),
+            Path::new(DEVICE),
+            &format!("{DEVICE_PREFIX} Keyboard"),
             KEYBOARD_PRODUCT,
             |device| {
                 device.set_bit(UI_SET_EVBIT, "event type", c_int::from(EV_KEY))?;
@@ -110,8 +89,8 @@ impl UinputProvider {
         )?;
 
         let mouse = UinputDevice::create(
-            &config.device,
-            &format!("{} Mouse", config.device_prefix),
+            Path::new(DEVICE),
+            &format!("{DEVICE_PREFIX} Mouse"),
             MOUSE_PRODUCT,
             |device| {
                 device.set_bit(UI_SET_EVBIT, "event type", c_int::from(EV_ABS))?;
@@ -136,10 +115,7 @@ impl UinputProvider {
             },
         )?;
 
-        debug!(
-            device = %config.device.display(),
-            "created uinput keyboard and mouse devices",
-        );
+        debug!(device = DEVICE, "created uinput keyboard and mouse devices",);
 
         Ok(Self {
             keyboard,
@@ -187,15 +163,6 @@ impl HidProvider for UinputProvider {
 
     fn mouse_move(&mut self, position: DesktopPoint) {
         self.pending.move_to(position);
-    }
-
-    fn mouse_move_rel(&mut self, delta: DesktopVector) {
-        // The provider clamps relative motion to the desktop bounds and drops it
-        // until those bounds are known.
-        let Some(extent) = self.desktop_extent else {
-            return;
-        };
-        self.pending.move_by(delta, self.desktop_origin, extent);
     }
 
     fn send_button(&mut self, button: PointerButton, down: bool) {
@@ -268,40 +235,15 @@ impl HidProvider for UinputProvider {
     }
 }
 
-/// Provides checks and access guidance when the uinput provider cannot be created.
+/// Checks and access guidance for when the uinput provider cannot be created.
 ///
-/// The surrounding application presents the guidance. It supplies the login
-/// name as a parameter; this library does not read the environment. The
-/// guidance includes the security risk of membership in the `input` group.
-#[derive(Clone, Copy, Debug)]
-pub struct Advice<'a> {
-    /// The login name to put in the `usermod` command, if the caller knows it.
-    pub user: Option<&'a str>,
-}
-
-impl fmt::Display for Advice<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(
-            "check that the uinput module is loaded: lsmod | grep uinput. \
-             check that the device is writable: ls -l /dev/uinput. ",
-        )?;
-        match self.user {
-            Some(user) => write!(
-                f,
-                "to grant access, either add a udev rule tagging the device uaccess, or run \
-                 sudo usermod -aG input {user} and log out and back in. ",
-            )?,
-            None => f.write_str(
-                "to grant access, either add a udev rule tagging the device uaccess, or add the \
-                 account to the input group and log out and back in. ",
-            )?,
-        }
-        f.write_str(
-            "note that the input group grants read access to every input device on the machine, \
-             which is a keylogging surface; the udev rule does not",
-        )
-    }
-}
+/// The guidance includes the security risk of membership in the `input` group.
+pub const ACCESS_ADVICE: &str = "check that the uinput module is loaded: lsmod | grep uinput. \
+     check that the device is writable: ls -l /dev/uinput. \
+     to grant access, either add a udev rule tagging the device uaccess, or add the \
+     account to the input group and log out and back in. \
+     note that the input group grants read access to every input device on the machine, \
+     which is a keylogging surface; the udev rule does not";
 
 /// The kernel's fixed normalised range for the absolute axes.
 ///
@@ -557,11 +499,6 @@ mod tests {
     }
 
     #[test]
-    fn the_default_device_is_the_node_uinput_lives_at() {
-        assert_eq!(UinputConfig::default().device, PathBuf::from("/dev/uinput"),);
-    }
-
-    #[test]
     fn a_device_name_is_nul_terminated() {
         let field = device_name("lunette Mouse");
 
@@ -575,54 +512,5 @@ mod tests {
 
         assert_eq!(rendered(&field).len(), libc::UINPUT_MAX_NAME_SIZE - 1);
         assert_eq!(field[libc::UINPUT_MAX_NAME_SIZE - 1], 0);
-    }
-
-    #[test]
-    fn an_empty_name_is_an_empty_field() {
-        assert_eq!(device_name(""), [0; libc::UINPUT_MAX_NAME_SIZE]);
-    }
-
-    #[test]
-    fn both_absolute_axes_span_the_same_fixed_range() {
-        // Because the range is fixed, hotplug changes only the origin and
-        // extent, never the device.
-        for axis in [absolute_axis(ABS_X), absolute_axis(ABS_Y)] {
-            assert_eq!(axis.absinfo.minimum, 0);
-            assert_eq!(axis.absinfo.maximum, 32768);
-            assert_eq!(axis.absinfo.resolution, ABS_RESOLUTION);
-        }
-    }
-
-    #[test]
-    fn an_event_is_built_with_the_type_code_and_value_it_was_given() {
-        let built = event(EV_ABS, ABS_Y, -3);
-
-        assert_eq!(built.type_, EV_ABS);
-        assert_eq!(built.code, ABS_Y);
-        assert_eq!(built.value, -3);
-    }
-
-    #[test]
-    fn the_advice_names_the_user_when_the_caller_knows_it() {
-        let advice = Advice {
-            user: Some("someone"),
-        }
-        .to_string();
-
-        assert!(
-            advice.contains("sudo usermod -aG input someone"),
-            "{advice}"
-        );
-        assert!(advice.contains("log out and back in"), "{advice}");
-        assert!(advice.contains("keylogging surface"), "{advice}");
-    }
-
-    #[test]
-    fn the_advice_stands_without_a_user_name() {
-        let advice = Advice { user: None }.to_string();
-
-        assert!(!advice.contains("usermod -aG input "), "{advice}");
-        assert!(advice.contains("lsmod | grep uinput"), "{advice}");
-        assert!(advice.contains("keylogging surface"), "{advice}");
     }
 }

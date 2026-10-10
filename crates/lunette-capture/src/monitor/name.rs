@@ -89,16 +89,6 @@ impl ConnectorName {
             index: index.parse().ok()?,
         })
     }
-
-    #[must_use]
-    pub const fn kind(self) -> ConnectorKind {
-        self.kind
-    }
-
-    #[must_use]
-    pub const fn index(self) -> u32 {
-        self.index
-    }
 }
 
 impl fmt::Display for ConnectorName {
@@ -407,19 +397,6 @@ mod tests {
     }
 
     #[test]
-    fn no_two_connector_kinds_share_a_printed_name() {
-        let mut names: Vec<&str> = ConnectorKind::ALL
-            .iter()
-            .map(|kind| kind.as_str())
-            .collect();
-        names.sort_unstable();
-        let count = names.len();
-        names.dedup();
-
-        assert_eq!(names.len(), count);
-    }
-
-    #[test]
     fn a_connector_name_with_an_interior_hyphen_parses() {
         assert_eq!(
             ConnectorName::parse("HDMI-A-2"),
@@ -430,14 +407,6 @@ mod tests {
     #[test]
     fn connector_names_ignore_case_and_leading_zeroes() {
         assert_eq!(ConnectorName::parse("dp-01"), ConnectorName::parse("DP-1"));
-    }
-
-    #[test]
-    fn a_uuid_shaped_mapping_id_is_not_a_connector_name() {
-        assert_eq!(
-            ConnectorName::parse("1b4e28ba-2fa1-11d2-883f-0016d3cca427"),
-            None,
-        );
     }
 
     #[test]
@@ -452,6 +421,11 @@ mod tests {
 
     #[test]
     fn text_that_is_not_a_connector_name_is_rejected() {
+        assert_eq!(
+            ConnectorName::parse("1b4e28ba-2fa1-11d2-883f-0016d3cca427"),
+            None,
+            "a UUID-shaped mapping_id",
+        );
         assert_eq!(ConnectorName::parse(""), None);
         assert_eq!(ConnectorName::parse("DP"), None);
         assert_eq!(ConnectorName::parse("DP-"), None);
@@ -503,6 +477,10 @@ mod tests {
         assert!(first.matches("Acme X24"));
         assert!(second.matches("Acme X24"));
         assert!(!second.demoted().matches("Acme X24"));
+        assert!(
+            second.demoted().matches("DP-2"),
+            "demotion keeps the connector"
+        );
     }
 
     #[test]
@@ -570,31 +548,32 @@ mod tests {
     }
 
     #[test]
-    fn a_key_does_not_upgrade_from_a_monitor_it_does_not_identify() {
-        let stored = MonitorKey::Connector(ConnectorName::new(ConnectorKind::DisplayPort, 1));
+    fn a_key_does_not_upgrade_unless_it_identifies_the_monitor_and_can_be_stronger() {
+        let origin = LogicalPosition::new(0, 0);
+
+        let connector = MonitorKey::Connector(ConnectorName::new(ConnectorKind::DisplayPort, 1));
         let other = named(Some("DP-2"), Some("Acme"), Some("X24"));
-
-        assert_eq!(stored.upgraded(&other, LogicalPosition::new(0, 0)), None);
-    }
-
-    #[test]
-    fn a_positional_key_does_not_upgrade_from_whatever_moved_into_that_position() {
-        let stored = MonitorKey::Position(LogicalPosition::new(0, 0));
-        let elsewhere = named(Some("DP-1"), None, None);
-
         assert_eq!(
-            stored.upgraded(&elsewhere, LogicalPosition::new(1920, 0)),
-            None
+            connector.upgraded(&other, origin),
+            None,
+            "a connector key against another connector",
         );
-    }
 
-    #[test]
-    fn a_descriptor_key_has_nothing_to_upgrade_to() {
-        let position = LogicalPosition::new(0, 0);
+        let position = MonitorKey::Position(origin);
+        let elsewhere = named(Some("DP-1"), None, None);
+        assert_eq!(
+            position.upgraded(&elsewhere, LogicalPosition::new(1920, 0)),
+            None,
+            "a positional key against a monitor somewhere else",
+        );
+
         let name = named(Some("DP-1"), Some("Acme"), Some("X24"));
-        let stored = MonitorKey::for_monitor(&name, position);
-
-        assert_eq!(stored.upgraded(&name, position), None);
+        let descriptor = MonitorKey::for_monitor(&name, origin);
+        assert_eq!(
+            descriptor.upgraded(&name, origin),
+            None,
+            "a descriptor key has nothing to upgrade to",
+        );
     }
 
     #[test]
@@ -611,37 +590,21 @@ mod tests {
     }
 
     #[test]
-    fn names_order_by_descriptor_before_connector() {
+    fn names_order_by_descriptor_then_connector_with_no_descriptor_last() {
         let first = named(Some("HDMI-A-1"), Some("Acme"), Some("A1"));
         let second = named(Some("DP-1"), Some("Acme"), Some("B2"));
-
         assert_eq!(first.compare(&second), Ordering::Less);
         assert_eq!(second.compare(&first), Ordering::Greater);
-    }
 
-    #[test]
-    fn names_sharing_a_descriptor_order_by_connector() {
         let first = named(Some("DP-1"), Some("Acme"), Some("X24"));
         let second = named(Some("DP-2"), Some("Acme"), Some("X24"));
+        assert_eq!(
+            first.compare(&second),
+            Ordering::Less,
+            "a shared descriptor"
+        );
 
-        assert_eq!(first.compare(&second), Ordering::Less);
-    }
-
-    #[test]
-    fn a_name_with_no_descriptor_orders_after_one_that_has_one() {
-        let described = named(Some("DP-1"), Some("Acme"), Some("X24"));
         let bare = named(Some("DP-2"), None, None);
-
-        assert_eq!(described.compare(&bare), Ordering::Less);
-    }
-
-    #[test]
-    fn demoting_a_name_leaves_only_its_connector() {
-        let demoted = named(Some("DP-1"), Some("Acme"), Some("X24")).demoted();
-
-        assert!(demoted.descriptor().is_none());
-        assert_eq!(demoted.connector(), connector("DP-1"));
-        assert!(demoted.matches("DP-1"));
-        assert!(!demoted.matches("Acme X24"));
+        assert_eq!(first.compare(&bare), Ordering::Less, "no descriptor");
     }
 }

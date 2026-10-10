@@ -8,7 +8,7 @@ use std::{cell::RefCell, rc::Rc};
 use crate::{
     mirror::source::{MonitorStream, MonitorStreams},
     portal::NodeId,
-    stream::{CapturedFrame, FrameCounts},
+    stream::CapturedFrame,
 };
 
 /// The ordered stream events recorded by a [`RecordingSource`].
@@ -119,10 +119,6 @@ struct RecordedStream {
 impl MonitorStream for RecordedStream {
     fn latest(&mut self) -> Option<CapturedFrame> {
         None
-    }
-
-    fn counts(&self) -> FrameCounts {
-        FrameCounts::default()
     }
 
     fn pause(&mut self) {

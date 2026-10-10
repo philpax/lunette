@@ -13,7 +13,7 @@
 use crate::hid::{
     HidProvider,
     key::{KeyModifiers, PointerButton, VirtualKey, XkbKeymap},
-    pointer::{DesktopExtent, DesktopPoint, DesktopVector, WheelDelta},
+    pointer::{DesktopExtent, DesktopPoint, WheelDelta},
     selection::{ProviderError, ProviderKind},
 };
 
@@ -26,8 +26,6 @@ impl HidProvider for DummyProvider {
     }
 
     fn mouse_move(&mut self, _position: DesktopPoint) {}
-
-    fn mouse_move_rel(&mut self, _delta: DesktopVector) {}
 
     fn send_button(&mut self, _button: PointerButton, _down: bool) {}
 

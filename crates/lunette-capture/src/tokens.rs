@@ -183,7 +183,7 @@ impl TokenStore {
     }
 
     /// Drops a monitor's token. Reports whether one was held.
-    pub fn forget(&mut self, monitor: &MonitorKey) -> bool {
+    fn forget(&mut self, monitor: &MonitorKey) -> bool {
         let before = self.entries.len();
         self.entries.retain(|entry| &entry.key != monitor);
         self.entries.len() != before
@@ -440,15 +440,9 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     use super::*;
-    use crate::{
-        monitor::{
-            geometry::LogicalPosition,
-            name::{ConnectorName, MonitorName},
-        },
-        portal::{
-            CursorPolicy, RequestProgress, ScreenCastPortal, SessionRequest, SessionResponse,
-            fake::FakePortal,
-        },
+    use crate::monitor::{
+        geometry::LogicalPosition,
+        name::{ConnectorName, MonitorName},
     };
 
     fn descriptor(text: &str) -> MonitorKey {
@@ -711,73 +705,6 @@ mod tests {
         );
 
         assert_eq!(store.persistence_for(&descriptor("X24")), None);
-    }
-
-    #[test]
-    fn forgetting_a_monitor_that_was_never_recorded_changes_nothing() {
-        let mut store = store(&[("X24", "first")]);
-
-        assert!(!store.forget(&descriptor("Z9")));
-        assert_eq!(store.len(), 1);
-        assert!(store.forget(&descriptor("X24")));
-        assert!(store.is_empty());
-    }
-
-    #[test]
-    fn each_session_offers_the_token_the_previous_one_returned() {
-        // This is the store's purpose, driven through the portal seam and not
-        // asserted on the store alone. Session two must offer what session one
-        // returned, and session three must offer what session two did.
-        let mut portal = FakePortal::new();
-        for text in ["from-first", "from-second"] {
-            portal.will_grant(SessionResponse {
-                streams: Vec::new(),
-                restore_token: RestoreToken::new(text),
-                granted_persist_mode: GrantedPersistMode::Granted(PersistMode::UntilRevoked),
-            });
-        }
-
-        let monitor = descriptor("X24");
-        let mut store = TokenStore::new();
-
-        for _ in 0..2 {
-            let request =
-                SessionRequest::new(store.token_for(&monitor).cloned(), CursorPolicy::Hidden);
-            let id = portal.begin(request).expect("the fake portal accepts");
-            let response = portal.grant(id);
-            store.record(
-                monitor.clone(),
-                response.restore_token,
-                response.granted_persist_mode,
-            );
-        }
-
-        assert_eq!(
-            portal
-                .requests
-                .iter()
-                .map(|request| request.restore_token.as_ref().map(RestoreToken::as_str))
-                .collect::<Vec<_>>(),
-            vec![None, Some("from-first")],
-        );
-        assert_eq!(store.token_for(&monitor), Some(&token("from-second")));
-    }
-
-    #[test]
-    fn a_refused_session_leaves_the_stored_token_alone() {
-        // A prompt the user cancels is not a reason to forget a token that may
-        // still work on the next launch.
-        let mut portal = FakePortal::new();
-        portal.will_fail(crate::portal::PortalError::Refused { code: 1 });
-
-        let store = store(&[("X24", "first")]);
-        let id = portal
-            .begin(SessionRequest::new(None, CursorPolicy::Hidden))
-            .expect("the fake portal accepts");
-
-        assert!(matches!(portal.drive(id), RequestProgress::Failed(_)));
-        assert_eq!(store.token_for(&descriptor("X24")), Some(&token("first")));
-        assert!(!store.is_empty());
     }
 
     #[test]

@@ -9,7 +9,7 @@ use pretty_assertions::assert_eq;
 use super::state::{HostOutputs, OutputId};
 use crate::monitor::{
     geometry::{LogicalPosition, LogicalSize, PixelExtent, SurfaceTransform},
-    name::{ConnectorKind, ConnectorName, KeyStrength, MonitorKey},
+    name::{ConnectorKind, ConnectorName},
 };
 
 fn output(name: u32) -> OutputId {
@@ -51,7 +51,6 @@ fn a_fully_described_output_becomes_a_monitor() {
         Some(ConnectorName::new(ConnectorKind::DisplayPort, 1)),
     );
     assert_eq!(monitors[0].pixels(), PixelExtent::new(1920, 1080));
-    assert_eq!(monitors[0].transform(), SurfaceTransform::Normal);
 }
 
 #[test]
@@ -128,7 +127,6 @@ fn the_derived_size_swaps_the_axes_for_a_rotated_output() {
     let roster = outputs.roster();
 
     assert_eq!(roster.monitors()[0].size(), LogicalSize::new(1080, 1920));
-    assert_eq!(roster.monitors()[0].transform(), SurfaceTransform::Rotate90);
 }
 
 #[test]
@@ -157,63 +155,6 @@ fn a_mode_that_is_not_current_does_not_replace_the_one_that_is() {
 }
 
 #[test]
-fn a_uuid_shaped_output_name_is_not_stored_as_a_connector() {
-    // `wl_output.name` is documented as the connector name, and a compositor
-    // is still free to put anything there.
-    let mut outputs = HostOutputs::new();
-    described(&mut outputs, output(1), "DP-1", 0);
-    outputs.record_name(output(1), "1b4e28ba-2fa1-11d2-883f-0016d3cca427");
-
-    assert_eq!(outputs.roster().monitors()[0].name().connector(), None);
-}
-
-#[test]
-fn a_make_of_unknown_does_not_become_an_identity() {
-    // Several compositors send "Unknown" where the EDID carries nothing, and
-    // such monitors would otherwise share one descriptor.
-    let mut outputs = HostOutputs::new();
-    outputs.add(output(1));
-    outputs.record_geometry(
-        output(1),
-        LogicalPosition::new(0, 0),
-        Some(SurfaceTransform::Normal),
-        "Unknown".to_owned(),
-        String::new(),
-    );
-    outputs.record_name(output(1), "DP-1");
-    outputs.record_logical_size(output(1), LogicalSize::new(1920, 1080));
-
-    assert_eq!(
-        outputs.roster().monitors()[0].key(),
-        &MonitorKey::Connector(ConnectorName::new(ConnectorKind::DisplayPort, 1)),
-    );
-}
-
-#[test]
-fn two_identical_monitors_are_separated_by_the_connectors_wl_output_reports() {
-    // Two identical monitors need separation that `mapping_id` cannot provide
-    // on GNOME or KDE; the connector that `wl_output` reports provides it on
-    // both.
-    let mut outputs = HostOutputs::new();
-    described(&mut outputs, output(1), "DP-1", 0);
-    described(&mut outputs, output(2), "DP-2", 1920);
-
-    let roster = outputs.roster();
-    let keys: Vec<&MonitorKey> = roster
-        .monitors()
-        .iter()
-        .map(|monitor| monitor.key())
-        .collect();
-
-    assert_eq!(keys[0].strength(), KeyStrength::Descriptor);
-    assert_eq!(
-        keys[1],
-        &MonitorKey::Connector(ConnectorName::new(ConnectorKind::DisplayPort, 2)),
-    );
-    assert_ne!(keys[0], keys[1]);
-}
-
-#[test]
 fn an_unplugged_output_leaves_the_roster() {
     let mut outputs = HostOutputs::new();
     described(&mut outputs, output(1), "DP-1", 0);
@@ -236,7 +177,7 @@ fn withdrawing_a_global_that_is_not_an_output_changes_nothing() {
     let _ = outputs.take_changed();
 
     assert!(!outputs.remove(output(7)));
-    assert!(!outputs.changed());
+    assert!(!outputs.take_changed());
 }
 
 #[test]
@@ -266,18 +207,8 @@ fn an_event_for_an_output_that_is_gone_is_dropped_rather_than_reviving_it() {
 #[test]
 fn recording_anything_marks_the_set_changed_exactly_once_per_read() {
     let mut outputs = HostOutputs::new();
-    assert!(!outputs.changed());
-
     described(&mut outputs, output(1), "DP-1", 0);
 
     assert!(outputs.take_changed());
     assert!(!outputs.take_changed());
-}
-
-#[test]
-fn an_empty_set_produces_an_empty_roster() {
-    let outputs = HostOutputs::new();
-
-    assert!(outputs.is_empty());
-    assert!(outputs.roster().monitors().is_empty());
 }

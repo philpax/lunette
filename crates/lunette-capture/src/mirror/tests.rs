@@ -14,7 +14,7 @@ use super::*;
 use crate::{
     mirror::fake::{RecordingSource, StreamEvent, StreamLog},
     monitor::{
-        geometry::{LogicalGeometry, LogicalPosition, LogicalSize, PixelExtent, SurfaceTransform},
+        geometry::{LogicalGeometry, LogicalPosition, LogicalSize, PixelExtent},
         name::{ConnectorName, MonitorName},
         roster::MonitorReport,
     },
@@ -49,7 +49,6 @@ fn report(index: usize, connector: &str) -> MonitorReport {
         ),
         geometry: LogicalGeometry::new(LogicalPosition::new(x, 0), LogicalSize::new(1920, 1080)),
         pixels: PixelExtent::new(1920, 1080),
-        transform: SurfaceTransform::Normal,
     }
 }
 
@@ -64,8 +63,6 @@ fn stream(node: u32, index: u32) -> PortalStream {
             i32::try_from(index).expect("a small index") * 1920,
             0,
         )),
-        size: Some(LogicalSize::new(1920, 1080)),
-        connector: None,
     }
 }
 
@@ -218,6 +215,11 @@ fn mirroring_asks_the_portal_once_however_many_monitors_are_wanted() {
     let roster = roster();
 
     assert_eq!(mirrors.mirror(&key(&roster, 0)), MirrorOutcome::Requested);
+    assert!(mirrors.is_wanted(&key(&roster, 0)));
+    assert!(
+        !mirrors.is_mirroring(&key(&roster, 0)),
+        "a dialog may still be on the user's screen, and nothing waits for it",
+    );
     assert_eq!(mirrors.mirror(&key(&roster, 1)), MirrorOutcome::Requested);
 
     assert_eq!(
@@ -247,21 +249,6 @@ fn a_granted_session_starts_a_stream_for_every_wanted_monitor() {
 }
 
 #[test]
-fn a_monitor_wanted_before_the_session_arrives_is_not_mirroring_yet() {
-    let log = StreamLog::new();
-    let mut mirrors = mirrors(&log);
-    let roster = roster();
-
-    let _ = mirrors.mirror(&key(&roster, 0));
-
-    assert!(mirrors.is_wanted(&key(&roster, 0)));
-    assert!(
-        !mirrors.is_mirroring(&key(&roster, 0)),
-        "a dialog may still be on the user's screen, and nothing waits for it",
-    );
-}
-
-#[test]
 fn dismissing_stops_the_stream_and_keeps_the_session() {
     let log = StreamLog::new();
     let mut mirrors = mirrors(&log);
@@ -270,6 +257,10 @@ fn dismissing_stops_the_stream_and_keeps_the_session() {
     let _ = pump(&mut mirrors);
 
     assert!(mirrors.dismiss(&key(&roster, 0)));
+    assert!(
+        !mirrors.dismiss(&key(&roster, 0)),
+        "a monitor no longer mirrored has nothing to dismiss",
+    );
 
     assert_eq!(
         log.dropped(),
@@ -301,19 +292,6 @@ fn re_adding_a_dismissed_monitor_restarts_without_a_second_request() {
         2,
         "the second open is the restarted stream"
     );
-}
-
-#[test]
-fn dismissing_a_monitor_that_is_not_mirrored_changes_nothing() {
-    let log = StreamLog::new();
-    let mut mirrors = mirrors(&log);
-    let roster = roster();
-    let _ = mirrors.mirror(&key(&roster, 0));
-    let _ = pump(&mut mirrors);
-
-    assert!(mirrors.dismiss(&key(&roster, 0)));
-    assert!(!mirrors.dismiss(&key(&roster, 0)));
-    assert_eq!(log.dropped().len(), 1);
 }
 
 #[test]
@@ -400,13 +378,20 @@ fn a_monitor_appearing_is_reported_as_added() {
 }
 
 #[test]
-fn pausing_a_mirror_keeps_its_stream() {
+fn pausing_a_mirror_keeps_its_stream_and_pauses_it_once() {
     let log = StreamLog::new();
     let mut mirrors = mirrors(&log);
     let roster = roster();
+
+    assert!(
+        !mirrors.set_paused(&key(&roster, 0), true),
+        "a monitor that is not mirrored cannot be paused",
+    );
+
     let _ = mirrors.mirror(&key(&roster, 0));
     let _ = pump(&mut mirrors);
 
+    assert!(mirrors.set_paused(&key(&roster, 0), true));
     assert!(mirrors.set_paused(&key(&roster, 0), true));
     assert!(mirrors.set_paused(&key(&roster, 0), false));
 
@@ -419,35 +404,6 @@ fn pausing_a_mirror_keeps_its_stream() {
         vec![StreamEvent::Paused { node }, StreamEvent::Resumed { node },],
     );
     assert!(mirrors.is_mirroring(&key(&roster, 0)));
-}
-
-#[test]
-fn pausing_a_mirror_twice_sends_one_pause() {
-    let log = StreamLog::new();
-    let mut mirrors = mirrors(&log);
-    let roster = roster();
-    let _ = mirrors.mirror(&key(&roster, 0));
-    let _ = pump(&mut mirrors);
-
-    assert!(mirrors.set_paused(&key(&roster, 0), true));
-    assert!(mirrors.set_paused(&key(&roster, 0), true));
-
-    assert_eq!(
-        log.entries()
-            .into_iter()
-            .filter(|event| matches!(event, StreamEvent::Paused { .. }))
-            .count(),
-        1,
-    );
-}
-
-#[test]
-fn pausing_a_monitor_that_is_not_mirrored_reports_that_it_is_not() {
-    let log = StreamLog::new();
-    let mut mirrors = mirrors(&log);
-    let roster = roster();
-
-    assert!(!mirrors.set_paused(&key(&roster, 0), true));
 }
 
 #[test]
@@ -738,17 +694,6 @@ fn uncorrelated_selection_retains_the_previous_capture_and_tokens() {
 }
 
 #[test]
-fn a_running_mirror_carries_no_frame_until_one_arrives() {
-    let log = StreamLog::new();
-    let mut mirrors = mirrors(&log);
-    let roster = roster();
-    let _ = mirrors.mirror(&key(&roster, 0));
-    let _ = pump(&mut mirrors);
-
-    assert!(mirrors.take_frames().is_empty());
-}
-
-#[test]
 fn a_monitor_mirrored_before_the_source_exists_starts_once_it_does() {
     // The source is unavailable until the graphics device supplies the importer's DRM formats.
     let log = StreamLog::new();
@@ -771,53 +716,27 @@ fn a_monitor_mirrored_before_the_source_exists_starts_once_it_does() {
         mirrors.is_wanted(&key(&roster, 0)),
         "the monitor has to stay wanted, or the deferral loses the request"
     );
+    for _ in 0..4 {
+        assert_eq!(mirrors.poll(), Progress::Idle);
+    }
+    assert_eq!(
+        mirrors.mirror(&key(&roster, 1)),
+        MirrorOutcome::Requested,
+        "a mirror cannot start while no source exists",
+    );
 
     mirrors.set_streams(Box::new(RecordingSource::new(log.clone())));
 
     assert_eq!(
         pump(&mut mirrors),
-        Progress::Started(vec![key(&roster, 0)]),
-        "the source first chooses the portal, then opens the granted stream",
+        Progress::Started(vec![key(&roster, 0), key(&roster, 1)]),
+        "the source first chooses the portal, then opens the granted streams",
     );
     assert!(mirrors.is_mirroring(&key(&roster, 0)));
-    assert_eq!(log.entries().len(), 1);
-}
-
-#[test]
-fn a_deferred_start_does_not_ask_the_portal_a_second_time() {
-    let log = StreamLog::new();
-    let roster = roster();
-    let mut portal = FakePortal::new();
-    portal.will_grant(response(vec![stream(11, 0), stream(12, 1)], "fresh"));
-
-    let mut mirrors = MirrorSet::new(portal, CursorPolicy::Hidden, TokenStore::new());
-    mirrors.attach(roster.clone());
-    let _ = mirrors.mirror(&key(&roster, 0));
-    let _ = pump(&mut mirrors);
-
-    for _ in 0..4 {
-        assert_eq!(mirrors.poll(), Progress::Idle);
-    }
-    mirrors.set_streams(Box::new(RecordingSource::new(log)));
-    let _ = mirrors.poll();
-
-    assert_eq!(mirrors.portal().requests.len(), 1);
-}
-
-#[test]
-fn mirroring_reports_a_request_rather_than_a_mirror_while_no_source_exists() {
-    let roster = roster();
-    let mut portal = FakePortal::new();
-    portal.will_grant(response(vec![stream(11, 0), stream(12, 1)], "fresh"));
-
-    let mut mirrors = MirrorSet::new(portal, CursorPolicy::Hidden, TokenStore::new());
-    mirrors.attach(roster.clone());
-    let _ = mirrors.mirror(&key(&roster, 0));
-    let _ = pump(&mut mirrors);
-
+    assert_eq!(log.entries().len(), 2);
     assert_eq!(
-        mirrors.mirror(&key(&roster, 1)),
-        MirrorOutcome::Requested,
-        "the session already covers this monitor; only the source is missing",
+        mirrors.portal().requests.len(),
+        1,
+        "a deferred start does not ask the portal a second time",
     );
 }

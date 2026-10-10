@@ -179,37 +179,11 @@ mod tests {
     }
 
     #[test]
-    fn the_structure_requests_carry_the_structure_size() {
-        // The size in the request number is taken from the request's own
-        // argument type. This states that the type is the one the kernel
-        // expects, not that two constants agree.
-        assert_eq!(
-            (UI_DEV_SETUP.code() >> IOC_SIZE_SHIFT) & 0x3fff,
-            size_of::<libc::uinput_setup>() as c_ulong,
-        );
-        assert_eq!(
-            (UI_ABS_SETUP.code() >> IOC_SIZE_SHIFT) & 0x3fff,
-            size_of::<libc::uinput_abs_setup>() as c_ulong,
-        );
-    }
-
-    #[test]
-    fn every_request_names_uinput() {
-        for request in [
-            UI_DEV_CREATE,
-            UI_DEV_DESTROY,
-            UI_DEV_SETUP.code(),
-            UI_ABS_SETUP.code(),
-            UI_SET_EVBIT.code(),
-            UI_SET_KEYBIT.code(),
-            UI_SET_RELBIT.code(),
-            UI_SET_ABSBIT.code(),
-        ] {
-            assert_eq!(
-                (request >> IOC_TYPE_SHIFT) & 0xff,
-                c_ulong::from(b'U'),
-                "{request:#x} is not a uinput request",
-            );
-        }
+    fn the_structure_requests_match_the_kernel_headers() {
+        // `_IOW('U', 3, struct uinput_setup)` and
+        // `_IOW('U', 4, struct uinput_abs_setup)`, whose structures are 92
+        // and 28 bytes.
+        assert_eq!(UI_DEV_SETUP.code(), 0x405c_5503);
+        assert_eq!(UI_ABS_SETUP.code(), 0x401c_5504);
     }
 }

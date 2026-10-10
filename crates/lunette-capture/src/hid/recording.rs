@@ -4,16 +4,13 @@
 //! trait is lunette's own. `/dev/uinput` and the host compositor are
 //! unmanaged dependencies, so the tests do not mock what they do not own.
 //! Nothing here opens a device.
-//!
-//! Available to the crate's own tests through `cfg(test)`, and to other crates'
-//! integration tests through the `test-fakes` feature.
 
 use std::{cell::RefCell, rc::Rc};
 
 use crate::hid::{
     HidProvider,
     key::{KeyModifiers, PointerButton, VirtualKey, XkbKeymap},
-    pointer::{DesktopExtent, DesktopPoint, DesktopVector, WheelDelta},
+    pointer::{DesktopExtent, DesktopPoint, WheelDelta},
     selection::{ProviderError, ProviderKind},
 };
 
@@ -25,7 +22,6 @@ use crate::hid::{
 #[derive(Clone, Debug, PartialEq)]
 pub enum HidEvent {
     MouseMove(DesktopPoint),
-    MouseMoveRelative(DesktopVector),
     Button {
         button: PointerButton,
         down: bool,
@@ -110,10 +106,6 @@ impl HidProvider for RecordingProvider {
 
     fn mouse_move(&mut self, position: DesktopPoint) {
         self.recording.push(HidEvent::MouseMove(position));
-    }
-
-    fn mouse_move_rel(&mut self, delta: DesktopVector) {
-        self.recording.push(HidEvent::MouseMoveRelative(delta));
     }
 
     fn send_button(&mut self, button: PointerButton, down: bool) {

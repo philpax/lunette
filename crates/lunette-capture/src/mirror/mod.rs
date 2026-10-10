@@ -8,7 +8,7 @@
 pub mod screencopy;
 pub mod source;
 
-#[cfg(any(test, feature = "test-fakes"))]
+#[cfg(test)]
 pub mod fake;
 #[cfg(test)]
 mod tests;
@@ -119,15 +119,6 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
     #[must_use]
     pub const fn portal(&self) -> &P {
         &self.portal
-    }
-
-    /// Returns the last portal error, if the last request failed.
-    #[must_use]
-    pub const fn last_failure(&self) -> Option<&PortalError> {
-        match &self.session {
-            SessionState::Failed(error) => Some(error),
-            SessionState::Idle | SessionState::Requested(_) | SessionState::Held(_) => None,
-        }
     }
 
     /// Requests mirroring for an attached monitor.

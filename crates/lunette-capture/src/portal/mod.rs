@@ -26,7 +26,7 @@
 //! nothing here can be on a frame's critical path.
 
 pub mod correlation;
-#[cfg(any(test, feature = "test-fakes"))]
+#[cfg(test)]
 pub mod fake;
 pub mod wlx;
 
@@ -34,12 +34,9 @@ use std::{error::Error, fmt, num::NonZeroU32};
 
 use serde::{Deserialize, Serialize};
 
-use crate::monitor::{
-    geometry::{LogicalPosition, LogicalSize},
-    name::ConnectorName,
-};
+use crate::monitor::geometry::LogicalPosition;
 pub use crate::portal::{
-    correlation::{Correlation, MatchStrength, StreamMatch, Unmatched, correlate},
+    correlation::{Correlation, StreamMatch, Unmatched, correlate},
     wlx::WlxPortal,
 };
 
@@ -88,23 +85,20 @@ pub struct SessionRequest {
     /// it and prompt anyway, and it reports nothing when it does.
     pub restore_token: Option<RestoreToken>,
     pub cursor: CursorPolicy,
-    /// How long the granted session should survive. The backend may grant less;
-    /// [`SessionResponse::granted_persist_mode`] is what it actually granted.
-    pub persist_mode: PersistMode,
 }
 
 impl SessionRequest {
     /// A request for a session that survives until the user revokes it.
     ///
-    /// [`PersistMode::UntilRevoked`] is the mode this constructor always
-    /// requests. Anything weaker re-prompts on the next launch, the outcome
-    /// the restore token exists to avoid.
+    /// Every request asks for [`PersistMode::UntilRevoked`]. Anything weaker
+    /// re-prompts on the next launch, the outcome the restore token exists to
+    /// avoid. The backend may grant less;
+    /// [`SessionResponse::granted_persist_mode`] is what it actually granted.
     #[must_use]
     pub const fn new(restore_token: Option<RestoreToken>, cursor: CursorPolicy) -> Self {
         Self {
             restore_token,
             cursor,
-            persist_mode: PersistMode::UntilRevoked,
         }
     }
 }
@@ -143,30 +137,6 @@ pub enum PersistMode {
     WhileRunning,
     /// The session survives until the user revokes it in the portal's settings.
     UntilRevoked,
-}
-
-impl PersistMode {
-    /// The integer the portal's `persist_mode` option carries.
-    #[must_use]
-    pub const fn as_portal_value(self) -> u32 {
-        match self {
-            Self::DoNot => 0,
-            Self::WhileRunning => 1,
-            Self::UntilRevoked => 2,
-        }
-    }
-
-    /// Reads a `persist_mode` from a portal response, or `None` if the backend
-    /// named a mode this version of the specification does not define.
-    #[must_use]
-    pub const fn from_portal_value(value: u32) -> Option<Self> {
-        match value {
-            0 => Some(Self::DoNot),
-            1 => Some(Self::WhileRunning),
-            2 => Some(Self::UntilRevoked),
-            _ => None,
-        }
-    }
 }
 
 impl fmt::Display for PersistMode {
@@ -240,30 +210,13 @@ impl fmt::Display for NodeId {
 
 /// One stream the portal granted.
 ///
-/// `position` and `size` are separately optional because the portal's stream
-/// properties are: a backend may report one, both, or neither.
-/// [`correlation`] uses whichever arrived and says so in the strength of the
-/// match it produces.
+/// `position` is optional because the portal's stream properties are: a
+/// backend may omit it, and [`correlation`] then reports the stream unmatched.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PortalStream {
     pub node: NodeId,
     /// The stream's top-left corner in the compositor's logical space.
     pub position: Option<LogicalPosition>,
-    /// The stream's extent in the same space.
-    pub size: Option<LogicalSize>,
-    /// A connector name, when the backend put a real one in `mapping_id`.
-    ///
-    /// Opportunistic, never the mechanism. xdg-desktop-portal-wlr sets
-    /// `mapping_id` to the `wl_output` name, which on wlroots is the connector
-    /// name; mutter sets a random UUID and only under a RemoteDesktop session;
-    /// xdg-desktop-portal-kde omits it entirely. [`ConnectorName::parse`] is
-    /// what separates the first case from the second.
-    ///
-    /// `wlx-capture` does not read `mapping_id` at all; `parse_streams` takes
-    /// `node_id`, `position`, and `size`. [`wlx::WlxPortal`] therefore always
-    /// leaves this `None`. Reading `mapping_id` is an upstream change, and
-    /// geometry is the mechanism either way.
-    pub connector: Option<ConnectorName>,
 }
 
 /// What the portal granted.
@@ -271,7 +224,7 @@ pub struct PortalStream {
 pub struct SessionResponse {
     /// One entry per screen the user selected. Order means nothing: it
     /// corresponds neither to the selection order nor to output enumeration
-    /// order, which is why [`correlate`] matches on geometry.
+    /// order, which is why [`correlate`] matches on position.
     pub streams: Vec<PortalStream>,
     /// The token to store for the next launch, replacing whatever was stored.
     pub restore_token: Option<RestoreToken>,
@@ -364,13 +317,6 @@ pub enum PortalError {
     /// starts producing such nodes is visible; the mirror count does not
     /// quietly halve.
     UnusableNode { raw: u32 },
-    /// A persistence mode the underlying client cannot express was requested.
-    ///
-    /// `wlx-capture`'s `ScreenCastParams.persist` is a bool mapping to 0 or 2,
-    /// so [`PersistMode::WhileRunning`] has no representation. Sending 2 would
-    /// ask for a longer-lived grant than the caller wanted, the wrong direction
-    /// to guess in.
-    UnsupportedPersistMode(PersistMode),
 }
 
 impl fmt::Display for PortalError {
@@ -396,10 +342,6 @@ impl fmt::Display for PortalError {
                 f,
                 "a stream named PipeWire node {raw}, which is the core rather than a stream"
             ),
-            Self::UnsupportedPersistMode(mode) => write!(
-                f,
-                "a session {mode} cannot be requested through this portal client"
-            ),
         }
     }
 }
@@ -413,26 +355,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn every_persist_mode_round_trips_through_its_portal_value() {
-        for mode in [
-            PersistMode::DoNot,
-            PersistMode::WhileRunning,
-            PersistMode::UntilRevoked,
-        ] {
-            assert_eq!(
-                PersistMode::from_portal_value(mode.as_portal_value()),
-                Some(mode),
-            );
-        }
-    }
-
-    #[test]
-    fn a_persist_mode_the_specification_does_not_define_is_rejected() {
-        assert_eq!(PersistMode::from_portal_value(3), None);
-        assert_eq!(PersistMode::from_portal_value(u32::MAX), None);
-    }
-
-    #[test]
     fn an_empty_restore_token_is_not_a_token() {
         assert_eq!(RestoreToken::new(""), None);
         assert!(RestoreToken::new("abc").is_some());
@@ -442,13 +364,6 @@ mod tests {
     fn pipewire_node_zero_is_the_core_rather_than_a_stream() {
         assert_eq!(NodeId::new(0), None);
         assert_eq!(NodeId::new(42).map(NodeId::get), Some(42));
-    }
-
-    #[test]
-    fn a_session_request_always_asks_for_the_longest_lived_grant() {
-        let request = SessionRequest::new(None, CursorPolicy::Hidden);
-
-        assert_eq!(request.persist_mode, PersistMode::UntilRevoked);
     }
 
     #[test]

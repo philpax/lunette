@@ -15,7 +15,7 @@ use crate::{
     mirror::{DirectOpen, MonitorStream, MonitorStreams, PipewireStreams},
     monitor::{Monitor, MonitorKey},
     portal::NodeId,
-    stream::{CapturedFrame, DrmFormat, DrmFourcc, DrmModifier, FrameCounts, FrameQueue, Refusal},
+    stream::{CapturedFrame, DrmFormat, DrmFourcc, DrmModifier, FrameQueue, Refusal},
 };
 
 /// The graphics-dependent half of WayVR's capture-buffer exporter.
@@ -169,9 +169,6 @@ impl MonitorStream for DirectStream {
         frame
     }
 
-    fn counts(&self) -> FrameCounts {
-        self.frames.counts()
-    }
     fn pause(&mut self) {
         self.capture.pause();
     }

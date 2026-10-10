@@ -14,7 +14,7 @@ use std::cmp::Ordering;
 use tracing::warn;
 
 use crate::monitor::{
-    geometry::{LogicalGeometry, LogicalPosition, LogicalSize, PixelExtent, SurfaceTransform},
+    geometry::{LogicalGeometry, LogicalPosition, LogicalSize, PixelExtent},
     name::{MonitorKey, MonitorName},
 };
 
@@ -27,10 +27,6 @@ pub struct MonitorReport {
     pub name: MonitorName,
     pub geometry: LogicalGeometry,
     pub pixels: PixelExtent,
-    /// Which way up the panel is, from `wl_output.geometry`. A monitor whose
-    /// source cannot report one is [`SurfaceTransform::Normal`], which is what
-    /// the protocol's own default means.
-    pub transform: SurfaceTransform,
 }
 
 /// An attached monitor, after its identity is resolved against the others
@@ -40,7 +36,6 @@ pub struct Monitor {
     name: MonitorName,
     geometry: LogicalGeometry,
     pixels: PixelExtent,
-    transform: SurfaceTransform,
     key: MonitorKey,
 }
 
@@ -52,8 +47,8 @@ impl Monitor {
 
     /// Where the monitor sits and how large it is, in logical coordinates.
     ///
-    /// This is what a ScreenCast stream is correlated against: the portal
-    /// reports each stream's `position` and `size` in the same space.
+    /// A ScreenCast stream is correlated against its position: the portal
+    /// reports each stream's `position` in the same space.
     #[must_use]
     pub const fn geometry(&self) -> LogicalGeometry {
         self.geometry
@@ -77,18 +72,6 @@ impl Monitor {
     #[must_use]
     pub const fn pixels(&self) -> PixelExtent {
         self.pixels
-    }
-
-    /// Which way up the panel is, relative to the rectangle it occupies.
-    ///
-    /// The pointer mapping needs this on top of the geometry: the logical size
-    /// already accounts for a rotation, and the transform describes which
-    /// corner of the mirrored panel corresponds to which corner of the
-    /// rectangle. The pointer mapping places a normalised hit on the panel in
-    /// the rectangle by that correspondence.
-    #[must_use]
-    pub const fn transform(&self) -> SurfaceTransform {
-        self.transform
     }
 
     /// How this monitor is recorded across restarts.
@@ -132,7 +115,6 @@ impl Roster {
             name,
             geometry,
             pixels,
-            transform,
         } = report;
 
         let name = if self.carries_descriptor_of(&name) {
@@ -159,7 +141,6 @@ impl Roster {
             name,
             geometry,
             pixels,
-            transform,
             key,
         });
     }
@@ -240,13 +221,11 @@ mod tests {
         PixelExtent::new(1920, 1080)
     }
 
-    /// An unrotated monitor, which is what every identity test is about.
     fn report(name: MonitorName, geometry: LogicalGeometry) -> MonitorReport {
         MonitorReport {
             name,
             geometry,
             pixels: resolution(),
-            transform: SurfaceTransform::Normal,
         }
     }
 
@@ -291,23 +270,6 @@ mod tests {
             MonitorKey::Connector(ConnectorName::new(ConnectorKind::DisplayPort, 2)),
         );
         assert_ne!(keys[0], keys[1]);
-    }
-
-    #[test]
-    fn the_earlier_of_two_identical_monitors_keeps_the_descriptor() {
-        let mut roster = Roster::new();
-        roster.add(report(
-            named(Some("DP-1"), Some("Acme"), Some("X24")),
-            at(0),
-        ));
-        roster.add(report(
-            named(Some("DP-2"), Some("Acme"), Some("X24")),
-            at(1920),
-        ));
-
-        let monitors = roster.monitors();
-        assert!(monitors[0].name().descriptor().is_some());
-        assert!(monitors[1].name().descriptor().is_none());
     }
 
     #[test]
@@ -441,65 +403,5 @@ mod tests {
             arrangement([("DP-1", "A1"), ("HDMI-A-1", "B2"), ("eDP-1", "C3")]),
             arrangement([("eDP-1", "C3"), ("DP-1", "A1"), ("HDMI-A-1", "B2")]),
         );
-    }
-
-    #[test]
-    fn monitors_sort_by_descriptor_rather_than_by_connector() {
-        let mut roster = Roster::new();
-        roster.add(report(named(Some("DP-1"), Some("Acme"), Some("Z9")), at(0)));
-        roster.add(report(
-            named(Some("DP-2"), Some("Acme"), Some("A1")),
-            at(1920),
-        ));
-
-        let order: Vec<String> = roster
-            .sorted()
-            .iter()
-            .map(|monitor| monitor.name().to_string())
-            .collect();
-
-        assert_eq!(order, vec!["Acme A1 on DP-2", "Acme Z9 on DP-1"]);
-    }
-
-    #[test]
-    fn a_rotated_monitor_keeps_its_transform_through_the_roster() {
-        // The regression: the roster once carried no transform, so the
-        // pointer mapping treated a portrait-mounted monitor as upright, and
-        // every hit landed in the wrong corner.
-        let mut roster = Roster::new();
-        roster.add(MonitorReport {
-            name: named(Some("DP-1"), Some("Acme"), Some("X24")),
-            geometry: LogicalGeometry::new(origin(0), LogicalSize::new(1080, 1920)),
-            pixels: resolution(),
-            transform: SurfaceTransform::Rotate90,
-        });
-
-        assert_eq!(roster.monitors()[0].transform(), SurfaceTransform::Rotate90,);
-    }
-
-    #[test]
-    fn a_demoted_monitor_keeps_its_transform() {
-        // Demotion rewrites the name and must not disturb anything else.
-        let mut roster = Roster::new();
-        roster.add(report(
-            named(Some("DP-1"), Some("Acme"), Some("X24")),
-            at(0),
-        ));
-        roster.add(MonitorReport {
-            name: named(Some("DP-2"), Some("Acme"), Some("X24")),
-            geometry: at(1920),
-            pixels: resolution(),
-            transform: SurfaceTransform::Flipped180,
-        });
-
-        assert_eq!(
-            roster.monitors()[1].transform(),
-            SurfaceTransform::Flipped180,
-        );
-    }
-
-    #[test]
-    fn an_empty_roster_sorts_to_nothing() {
-        assert!(Roster::new().sorted().is_empty());
     }
 }

@@ -15,7 +15,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use lunette_capture::monitor::{OutputWatcher, PixelExtent, Roster, SurfaceTransform};
+use lunette_capture::monitor::{OutputWatcher, PixelExtent, Roster};
 use lunette_compositor::{
     protocol::{OutputMode, OutputScale, PixelSize, RefreshRate},
     state::CompositorConfig,
@@ -29,14 +29,13 @@ use pretty_assertions::assert_eq;
 const DEADLINE: Duration = Duration::from_secs(10);
 
 #[test]
-fn the_compositors_only_output_is_enumerated_as_one_unrotated_monitor() {
+fn the_compositors_only_output_is_enumerated_as_one_monitor() {
     let (roster, _) = enumerate(CompositorConfig::default());
     let monitors = roster.monitors();
 
     assert_eq!(monitors.len(), 1, "the compositor advertises one wl_output");
     assert_eq!(monitors[0].name().make(), Some("lunette"));
     assert_eq!(monitors[0].name().model(), Some("virtual display"));
-    assert_eq!(monitors[0].transform(), SurfaceTransform::Normal);
     // `lunette-0` is not a DRM connector type, so the descriptor identifies
     // the monitor.
     assert_eq!(monitors[0].name().connector(), None);

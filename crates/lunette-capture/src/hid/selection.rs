@@ -1,6 +1,6 @@
 //! Pure selection of a host input provider.
 //!
-//! [`select`] tries providers in the configured order, records failures, and
+//! [`select`] tries providers in [`PROVIDER_ORDER`], records failures, and
 //! returns a dummy provider when none succeeds. Its opener is a function
 //! parameter, so selection tests do not access devices or compositors.
 
@@ -36,106 +36,34 @@ impl fmt::Display for ProviderKind {
     }
 }
 
-/// The configured order of real providers.
+/// The order real providers are tried in.
 ///
-/// The default tries uinput and then `wl_virtual`. uinput works under any
-/// compositor and under X11; `wl_virtual` is implemented by the wlroots family.
-/// [`select`] uses the dummy when no configured provider succeeds. Duplicate
-/// providers are removed while preserving their first position.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ProviderOrder(Vec<ProviderKind>);
-
-impl ProviderOrder {
-    /// Removes the dummy and duplicate providers while preserving order.
-    ///
-    /// A dummy before a real provider is selected first and reports success.
-    /// The real provider is not attempted.
-    /// [`crate::hid::HidConfig::disabled`] represents an intentional choice to
-    /// use no host input.
-    #[must_use]
-    pub fn new(order: impl IntoIterator<Item = ProviderKind>) -> Self {
-        let mut kinds = Vec::new();
-        for kind in order {
-            if kind != ProviderKind::Dummy && !kinds.contains(&kind) {
-                kinds.push(kind);
-            }
-        }
-        Self(kinds)
-    }
-
-    /// Moves `preferred` to the front when it names a real provider.
-    #[must_use]
-    pub fn preferring(preferred: ProviderKind) -> Self {
-        let mut kinds = vec![preferred];
-        kinds.extend(Self::default().0);
-        Self::new(kinds)
-    }
-
-    /// Returns an empty order. The caller selects the dummy without attempting
-    /// a real provider.
-    #[must_use]
-    pub const fn none() -> Self {
-        Self(Vec::new())
-    }
-
-    #[must_use]
-    pub fn kinds(&self) -> &[ProviderKind] {
-        &self.0
-    }
-}
-
-impl Default for ProviderOrder {
-    fn default() -> Self {
-        Self(vec![ProviderKind::Uinput, ProviderKind::WlVirtual])
-    }
-}
-
-impl fmt::Display for ProviderOrder {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.0.is_empty() {
-            return f.write_str("nothing");
-        }
-        for (index, kind) in self.0.iter().enumerate() {
-            if index > 0 {
-                f.write_str(", then ")?;
-            }
-            write!(f, "{kind}")?;
-        }
-        Ok(())
-    }
-}
+/// uinput works under any compositor and under X11, so it goes first;
+/// `wl_virtual` is implemented only by the wlroots family. [`select`] uses the
+/// dummy when neither succeeds.
+pub const PROVIDER_ORDER: [ProviderKind; 2] = [ProviderKind::Uinput, ProviderKind::WlVirtual];
 
 #[derive(Debug)]
 pub struct Selected<P> {
-    /// The selected provider, or the dummy when no configured provider succeeds.
+    /// The selected provider, or the dummy when no provider succeeds.
     pub provider: P,
     pub kind: ProviderKind,
-    /// Every configured provider that failed, in the order it was tried.
+    /// Every provider that failed, in the order it was tried.
     pub failures: Vec<ProviderFailure>,
-}
-
-impl<P> Selected<P> {
-    /// Returns the failures when the dummy provider was selected after at least
-    /// one configured provider failed. An empty order returns `None`.
-    #[must_use]
-    pub fn unreachable(&self) -> Option<NoHostInput> {
-        (self.kind == ProviderKind::Dummy && !self.failures.is_empty())
-            .then(|| NoHostInput::from_failures(self.failures.clone()))
-    }
 }
 
 /// Tries each provider in order and returns the first successful result.
 ///
 /// `open` is the production device or compositor boundary and the test seam.
-/// `dummy` supplies the result when every configured provider fails, so an
+/// `dummy` supplies the result when every provider fails, so an
 /// opener cannot accidentally report the dummy as a successful provider.
 pub fn select<P>(
-    order: &ProviderOrder,
+    order: &[ProviderKind],
     mut open: impl FnMut(ProviderKind) -> Result<P, ProviderError>,
     dummy: impl FnOnce() -> P,
 ) -> Selected<P> {
     let mut failures = Vec::new();
-    for kind in order.kinds().iter().copied() {
+    for kind in order.iter().copied() {
         match open(kind) {
             Ok(provider) => {
                 return Selected {
@@ -165,11 +93,6 @@ impl ProviderFailure {
     #[must_use]
     pub const fn kind(&self) -> ProviderKind {
         self.kind
-    }
-
-    #[must_use]
-    pub const fn cause(&self) -> &ProviderError {
-        &self.cause
     }
 }
 
@@ -305,11 +228,6 @@ impl NoHostInput {
     pub fn from_failures(failures: Vec<ProviderFailure>) -> Self {
         Self(failures)
     }
-
-    #[must_use]
-    pub fn failures(&self) -> &[ProviderFailure] {
-        &self.0
-    }
 }
 
 impl fmt::Display for NoHostInput {
@@ -359,9 +277,9 @@ mod tests {
         }
     }
 
-    fn chain(order: &ProviderOrder, available: &[ProviderKind]) -> Selected<Opened> {
+    fn chain(available: &[ProviderKind]) -> Selected<Opened> {
         select(
-            order,
+            &PROVIDER_ORDER,
             |kind| {
                 if available.contains(&kind) {
                     Ok(Opened(kind))
@@ -377,16 +295,15 @@ mod tests {
 
     #[test]
     fn uinput_available_selects_uinput() {
-        let selected = chain(&ProviderOrder::default(), &[ProviderKind::Uinput]);
+        let selected = chain(&[ProviderKind::Uinput]);
 
         assert_eq!(selected.kind, ProviderKind::Uinput);
         assert!(selected.failures.is_empty());
-        assert!(selected.unreachable().is_none());
     }
 
     #[test]
     fn uinput_unavailable_falls_through_to_wl_virtual() {
-        let selected = chain(&ProviderOrder::default(), &[ProviderKind::WlVirtual]);
+        let selected = chain(&[ProviderKind::WlVirtual]);
 
         assert_eq!(selected.kind, ProviderKind::WlVirtual);
         assert_eq!(
@@ -403,7 +320,7 @@ mod tests {
     fn a_provider_ahead_in_the_order_is_still_tried_first() {
         let mut attempted = Vec::new();
         let selected = select(
-            &ProviderOrder::default(),
+            &PROVIDER_ORDER,
             |kind| {
                 attempted.push(kind);
                 Err::<Opened, _>(missing("anything"))
@@ -420,11 +337,11 @@ mod tests {
 
     #[test]
     fn neither_available_selects_the_dummy_and_names_both_failures() {
-        let selected = chain(&ProviderOrder::default(), &[]);
+        let selected = chain(&[]);
 
         assert_eq!(selected.kind, ProviderKind::Dummy);
 
-        let error = selected.unreachable().expect("nothing reached the host");
+        let error = NoHostInput::from_failures(selected.failures);
         let rendered = error.to_string();
 
         assert!(
@@ -440,8 +357,8 @@ mod tests {
 
     #[test]
     fn the_cause_chain_walks_from_the_first_failure_to_its_system_error() {
-        let selected = chain(&ProviderOrder::default(), &[]);
-        let error = selected.unreachable().expect("nothing reached the host");
+        let selected = chain(&[]);
+        let error = NoHostInput::from_failures(selected.failures);
 
         let first = error.source().expect("the first failure");
         assert_eq!(first.to_string(), "uinput: could not open /dev/uinput");
@@ -456,50 +373,6 @@ mod tests {
                 .map(io::Error::raw_os_error),
             Some(Some(13)),
         );
-    }
-
-    #[test]
-    fn the_configured_override_is_tried_first_and_the_rest_still_stand_behind_it() {
-        let order = ProviderOrder::preferring(ProviderKind::WlVirtual);
-
-        assert_eq!(
-            order.kinds(),
-            [ProviderKind::WlVirtual, ProviderKind::Uinput],
-        );
-
-        let selected = chain(&order, &[ProviderKind::Uinput, ProviderKind::WlVirtual]);
-        assert_eq!(selected.kind, ProviderKind::WlVirtual);
-    }
-
-    #[test]
-    fn an_override_naming_the_default_first_choice_changes_nothing() {
-        assert_eq!(
-            ProviderOrder::preferring(ProviderKind::Uinput),
-            ProviderOrder::default(),
-        );
-    }
-
-    #[test]
-    fn the_dummy_cannot_be_placed_ahead_of_a_real_provider() {
-        let order = ProviderOrder::new([ProviderKind::Dummy, ProviderKind::Uinput]);
-
-        assert_eq!(order.kinds(), [ProviderKind::Uinput]);
-    }
-
-    #[test]
-    fn an_order_naming_a_mechanism_twice_attempts_it_once() {
-        let order = ProviderOrder::new([ProviderKind::Uinput, ProviderKind::Uinput]);
-
-        assert_eq!(order.kinds(), [ProviderKind::Uinput]);
-    }
-
-    #[test]
-    fn an_empty_order_selects_the_dummy_without_reporting_a_failure() {
-        let selected = chain(&ProviderOrder::none(), &[ProviderKind::Uinput]);
-
-        assert_eq!(selected.kind, ProviderKind::Dummy);
-        assert!(selected.failures.is_empty());
-        assert!(selected.unreachable().is_none());
     }
 
     #[test]

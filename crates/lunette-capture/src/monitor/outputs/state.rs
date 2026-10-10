@@ -30,11 +30,6 @@ impl OutputId {
     pub const fn new(name: u32) -> Self {
         Self(name)
     }
-
-    #[must_use]
-    pub const fn get(self) -> u32 {
-        self.0
-    }
 }
 
 impl fmt::Display for OutputId {
@@ -188,12 +183,6 @@ impl HostOutputs {
         self.changed = true;
     }
 
-    /// Whether anything has been recorded since the last [`Self::take_changed`].
-    #[must_use]
-    pub const fn changed(&self) -> bool {
-        self.changed
-    }
-
     /// Clears the change flag, reporting whether it was set.
     pub fn take_changed(&mut self) -> bool {
         std::mem::replace(&mut self.changed, false)
@@ -289,7 +278,6 @@ impl PendingOutput {
             // reports its own frame size and that is what the texture ends up
             // being; this is what the host says the display is.
             pixels: self.mode.unwrap_or_default(),
-            transform: self.transform,
         })
     }
 

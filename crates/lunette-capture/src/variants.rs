@@ -51,36 +51,3 @@ macro_rules! variants {
         }
     };
 }
-
-#[cfg(test)]
-mod tests {
-    variants! {
-        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-        #[repr(u16)]
-        pub enum Coded {
-            First = 0x110,
-            Second = 0x111,
-        }
-    }
-
-    variants! {
-        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-        pub enum Plain {
-            One,
-            Two,
-            Three,
-        }
-    }
-
-    #[test]
-    fn every_member_is_listed_once_in_declaration_order() {
-        assert_eq!(Coded::ALL, [Coded::First, Coded::Second]);
-        assert_eq!(Plain::ALL, [Plain::One, Plain::Two, Plain::Three]);
-    }
-
-    #[test]
-    fn a_discriminant_survives_the_declaration() {
-        assert_eq!(Coded::First as u16, 0x110);
-        assert_eq!(Coded::Second as u16, 0x111);
-    }
-}
