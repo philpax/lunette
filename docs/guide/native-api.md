@@ -23,6 +23,8 @@ Every configuration follows these rules:
 
 `win.width` and `win.height` are the window's size as the client sees it, which is also the space pointer positions use. The texture can be larger, for example when the client renders sharper at a fractional scale. A client can also show only part of its texture, and `win:getSourceCrop()` returns that part as `x, y, width, height` fractions of the texture, so code that draws the texture itself samples only that rectangle.
 
+`win.serverSideDecorations` is false for a client that draws its own titlebar inside its pixels, such as many GTK applications, and true for one that leaves it to lunette. The shipped desktop draws its own titlebar around every window either way.
+
 `win:setFrameRate(hz)` limits how often a client draws, which is how the shipped desktop slows hidden windows. `win.contentType` is the client's own hint, such as `video` or `game`, and `win.commit` changes whenever the client delivers a new buffer.
 
 ## Processes and outputs

@@ -41,7 +41,7 @@ use crate::{
     wayvr::{
         WayVRTask,
         comp::Application,
-        window::{CreateWindowParams, Window, size_constraints},
+        window::{CreateWindowParams, size_constraints},
     },
 };
 
@@ -269,7 +269,13 @@ impl Application {
         }
         self.dirty = false;
 
-        let windows = self.windows.mapped().map(Window::snapshot).collect();
+        let windows = self
+            .windows
+            .mapped()
+            .map(|window| {
+                window.snapshot(self.has_server_side_decorations(window.toplevel.wl_surface()))
+            })
+            .collect();
 
         self.snapshots.publish(SnapshotParts {
             windows,

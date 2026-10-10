@@ -12,7 +12,7 @@ use harness::{EXPECTED_GLOBALS, WINDOW_SIZE, only_window, with_one_window};
 use lunette_compositor::{
     config::DEFAULT_OUTPUT,
     protocol::{Event, PixelSize, WindowId},
-    surface::ShmFormat,
+    surface::{ShmFormat, ShmLayout},
     test_client::{OutputTransform, TestClient},
     testing::TestCompositor,
 };
@@ -136,6 +136,34 @@ fn a_shm_buffer_past_the_start_of_its_pool_imports_its_own_pixels() {
     client.attach_buffer_at_offset(&mut compositor, size, 64, &pixels);
 
     assert_eq!(compositor.imports().shm_pixels(), vec![pixels]);
+}
+
+#[test]
+fn a_single_pixel_buffer_is_imported_as_one_pixel_and_scaled_by_the_viewport() {
+    let mut compositor = TestCompositor::new();
+    let mut client = TestClient::connect(&mut compositor);
+    client.open_toplevel(&mut compositor);
+
+    client.set_viewport_destination(300, 200);
+    client.attach_single_pixel(
+        &mut compositor,
+        (u32::MAX, u32::MAX / 255 * 128, 0, u32::MAX),
+    );
+
+    assert_eq!(only_window(&compositor).size, PixelSize::new(300, 200));
+    assert_eq!(
+        compositor.imports().shm_layouts(),
+        vec![ShmLayout {
+            size: PixelSize::new(1, 1),
+            stride: 4,
+            format: ShmFormat::Argb8888,
+        }]
+    );
+    assert_eq!(
+        compositor.imports().shm_pixels(),
+        vec![vec![0, 128, 255, 255]],
+        "the pixel is packed as wl_shm's argb8888, blue first"
+    );
 }
 
 #[test]

@@ -100,6 +100,7 @@ struct Known {
     size: PixelSize,
     content_type: ContentType,
     source_crop: SourceCrop,
+    server_side_decorations: bool,
     /// Carried so a resize can restate them, because a configure replaces the
     /// whole state set.
     states: ToplevelStates,
@@ -116,6 +117,7 @@ impl From<&WindowSnapshot> for Known {
             size: window.size,
             content_type: window.content_type,
             source_crop: window.source_crop,
+            server_side_decorations: window.server_side_decorations,
             states: window.states.clone(),
         }
     }
@@ -163,6 +165,13 @@ handle! {
         this.refresh();
         let content_type = this.known.borrow().content_type;
         Ok(ContentTypeName(content_type))
+    }
+
+    /// Whether the client leaves its decorations to the compositor. False when the client asked to
+    /// draw its own, so its pixels already carry a titlebar.
+    field serverSideDecorations(_lua, this) -> bool {
+        this.refresh();
+        Ok(this.known.borrow().server_side_decorations)
     }
 
     /// Where input for this window goes. Nil only for a handle that has never

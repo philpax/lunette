@@ -209,7 +209,9 @@ impl Window {
         replace_if_changed(&mut self.source_crop, source_crop)
     }
 
-    pub fn snapshot(&self) -> WindowSnapshot {
+    /// The decoration mode is kept per surface by `Application`, which
+    /// passes it in.
+    pub fn snapshot(&self, server_side_decorations: bool) -> WindowSnapshot {
         WindowSnapshot {
             window: self.id,
             surface: self.surface,
@@ -225,6 +227,7 @@ impl Window {
             states: self.states.clone(),
             content_type: self.content_type,
             source_crop: self.source_crop,
+            server_side_decorations,
         }
     }
 }

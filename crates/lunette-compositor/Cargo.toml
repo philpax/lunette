@@ -37,9 +37,10 @@ xkbcommon.workspace = true
 # The in-process test client uses this crate. Keep its version aligned with
 # Smithay's `wayland-server` so both sides share `wayland-backend` types.
 wayland-client.workspace = true
-# The `client` feature supports the test client, and `unstable` enables the
-# `zv1` protocols its tests use.
-wayland-protocols = { workspace = true, features = ["client", "unstable"] }
+# The `client` feature supports the test client, `staging` enables
+# `wp_single_pixel_buffer_v1`, and `unstable` enables the `zv1` protocols its
+# tests use.
+wayland-protocols = { workspace = true, features = ["client", "staging", "unstable"] }
 
 [features]
 # Enables the in-process compositor, test client, fake graphics importer, and

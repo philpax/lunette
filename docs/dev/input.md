@@ -66,7 +66,7 @@ A seat carries one layout group. A configuration that names several layouts for 
 
 The keymap queries are stateless. They serve virtual-keyboard legends and single-key translation under explicit modifiers, including AltGr, and keep no dead-key or compose state. Physical text uses LÖVR's committed UTF-8.
 
-Key repeat is Lua policy. The virtual keyboard sends single activations.
+A seat tells its clients to repeat a held key after 500 ms at 50 repeats per second, WayVR's values, unless `lunette.newSeat` sets `repeatDelay` or `repeatRate`. Clients repeat keys themselves; whether a key is held is Lua policy, and the virtual keyboard sends single activations.
 
 ### `sink:typeText(utf8)`
 

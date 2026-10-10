@@ -63,6 +63,11 @@ use wayland_protocols::{
         linux_dmabuf::zv1::client::{
             zwp_linux_buffer_params_v1::Flags as DmabufFlags, zwp_linux_dmabuf_v1::ZwpLinuxDmabufV1,
         },
+        relative_pointer::zv1::client::{
+            zwp_relative_pointer_manager_v1::ZwpRelativePointerManagerV1,
+            zwp_relative_pointer_v1::ZwpRelativePointerV1,
+        },
+        single_pixel_buffer::v1::client::wp_single_pixel_buffer_manager_v1::WpSinglePixelBufferManagerV1,
         viewporter::client::{wp_viewport::WpViewport, wp_viewporter::WpViewporter},
     },
     xdg::{
@@ -133,6 +138,8 @@ pub struct TestClient {
     /// The toplevel's viewport stays alive while the client crops or scales
     /// it; destroying it removes both.
     viewport: Option<WpViewport>,
+    /// Relative pointers stay alive while the test reads their motion.
+    relative_pointers: Vec<ZwpRelativePointerV1>,
 }
 
 impl TestClient {
@@ -174,6 +181,7 @@ impl TestClient {
             content_types: Vec::new(),
             decoration: None,
             viewport: None,
+            relative_pointers: Vec::new(),
         }
     }
 
@@ -401,6 +409,25 @@ impl TestClient {
 
         let surface = self.surface.clone().expect("a toplevel was opened first");
         self.attach_to(compositor, &surface, &buffer, width, height);
+        self.buffers.push(buffer);
+    }
+
+    /// Attaches a `wp_single_pixel_buffer_v1` of one colour to the toplevel
+    /// and commits it. Each channel is premultiplied and spans the whole
+    /// `u32` range, as the protocol carries it.
+    pub fn attach_single_pixel(
+        &mut self,
+        compositor: &mut TestCompositor,
+        rgba: (u32, u32, u32, u32),
+    ) {
+        let handle = self.queue.handle();
+        let (red, green, blue, alpha) = rgba;
+        let buffer = self
+            .bind::<WpSinglePixelBufferManagerV1>(1)
+            .create_u32_rgba_buffer(red, green, blue, alpha, &handle, ());
+        let surface = self.surface.clone().expect("a toplevel was opened first");
+
+        self.attach_to(compositor, &surface, &buffer, 1, 1);
         self.buffers.push(buffer);
     }
 
@@ -727,6 +754,22 @@ impl TestClient {
         let keyboard = seat.get_keyboard(&handle, ());
         self.settle_quiet(compositor);
         keyboard
+    }
+
+    /// Binds a relative pointer for `pointer`. Its motion is read through
+    /// [`Driver::relative_motions`].
+    pub fn open_relative_pointer(
+        &mut self,
+        compositor: &mut TestCompositor,
+        pointer: &WlPointer,
+    ) -> ZwpRelativePointerV1 {
+        let handle = self.queue.handle();
+        let relative = self
+            .bind::<ZwpRelativePointerManagerV1>(1)
+            .get_relative_pointer(pointer, &handle, ());
+        self.relative_pointers.push(relative.clone());
+        self.settle_quiet(compositor);
+        relative
     }
 
     #[must_use]

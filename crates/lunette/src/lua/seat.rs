@@ -447,7 +447,9 @@ record! {
         layout: Option<String>,
         variant: Option<String>,
         options: Option<String>,
+        /// Milliseconds a key is held before it repeats. 500 when absent.
         repeatDelay: Option<u32>,
+        /// Repeats per second once a held key repeats. 50 when absent.
         repeatRate: Option<u32>,
     }
 }

@@ -40,6 +40,7 @@ use smithay::{
         content_type::ContentTypeState,
         dmabuf::{DmabufFeedbackBuilder, DmabufState},
         fractional_scale::FractionalScaleManagerState,
+        relative_pointer::RelativePointerManagerState,
         selection::{
             data_device::DataDeviceState, ext_data_control as selection_ext,
             primary_selection::PrimarySelectionState, wlr_data_control as selection_wlr,
@@ -49,6 +50,7 @@ use smithay::{
             xdg::{ToplevelSurface, XdgShellState, decoration::XdgDecorationState},
         },
         shm::ShmState,
+        single_pixel_buffer::SinglePixelBufferState,
         viewporter::ViewporterState,
     },
 };
@@ -194,12 +196,15 @@ impl Application {
         let xdg_decoration_state = XdgDecorationState::new::<Application>(dh);
         let kde_decoration_state =
             KdeDecorationState::new::<Application>(dh, kde_decoration::Mode::Server);
+        let relative_pointer_state = RelativePointerManagerState::new::<Application>(dh);
         let viewporter = ViewporterState::new::<Application>(dh);
         // Fractional scale support requires the viewporter. Clients use an
         // integer buffer scale with a corrected logical destination.
         let fractional_scale = FractionalScaleManagerState::new::<Application>(dh);
         // Report content type without applying throttling policy in the compositor.
         let content_type = ContentTypeState::new::<Application>(dh);
+        // WayVR handles single-pixel buffers but never advertises the global.
+        let single_pixel_buffer = SinglePixelBufferState::new::<Application>(dh);
 
         let mut outputs = OutputRegistry::default();
         if let Err(error) = outputs.create(dh, DEFAULT_OUTPUT, config.output) {
@@ -269,6 +274,7 @@ impl Application {
             ext_data_control_state,
             xdg_decoration_state,
             kde_decoration_state,
+            relative_pointer_state,
             wayvr_tasks: TaskQueue::default(),
             dmabuf_state,
             popup_manager: PopupManager::default(),
@@ -287,6 +293,7 @@ impl Application {
             selection: SelectionBridge::new(Some(DEFAULT_SEAT), host),
             content_type,
             fractional_scale,
+            single_pixel_buffer,
             spawner,
             inspector,
             surfaces: SurfaceRegistry::default(),

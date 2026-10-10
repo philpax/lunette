@@ -45,6 +45,11 @@ use wayland_protocols::{
             zwp_linux_dmabuf_v1::ZwpLinuxDmabufV1,
         },
         primary_selection::zv1::client::zwp_primary_selection_offer_v1::ZwpPrimarySelectionOfferV1,
+        relative_pointer::zv1::client::{
+            zwp_relative_pointer_manager_v1::ZwpRelativePointerManagerV1,
+            zwp_relative_pointer_v1::{self, ZwpRelativePointerV1},
+        },
+        single_pixel_buffer::v1::client::wp_single_pixel_buffer_manager_v1::WpSinglePixelBufferManagerV1,
         viewporter::client::{wp_viewport::WpViewport, wp_viewporter::WpViewporter},
     },
     xdg::{
@@ -85,6 +90,9 @@ pub struct Driver {
     /// Stores each keyboard event with the object that received it, in arrival
     /// order, so tests can verify routing between seats.
     keyboard: Vec<(ObjectId, KeyboardEvent)>,
+    /// Stores each relative pointer's unaccelerated motion deltas in arrival
+    /// order.
+    relative_motions: Vec<(ObjectId, Vec<(f64, f64)>)>,
     /// A client may reuse a buffer after the compositor sends `wl_buffer.release`.
     pub released: Vec<ObjectId>,
     /// Publishes each output's pending properties only when `wl_output.done`
@@ -247,6 +255,30 @@ impl Driver {
                 KeyboardEvent::Modifiers { depressed, locked } => Some((depressed, locked)),
                 _ => None,
             })
+    }
+
+    /// Returns the latest `wl_keyboard.repeat_info` as `(rate, delay)`, in
+    /// repeats per second and milliseconds.
+    #[must_use]
+    pub fn repeat_info(&self, keyboard: &WlKeyboard) -> Option<(i32, i32)> {
+        self.keyboard_events(keyboard)
+            .into_iter()
+            .rev()
+            .find_map(|event| match event {
+                KeyboardEvent::RepeatInfo { rate, delay } => Some((rate, delay)),
+                _ => None,
+            })
+    }
+
+    /// Returns the unaccelerated deltas this relative pointer received, in
+    /// arrival order.
+    #[must_use]
+    pub fn relative_motions(&self, pointer: &ZwpRelativePointerV1) -> Vec<(f64, f64)> {
+        let id = pointer.id();
+        self.relative_motions
+            .iter()
+            .find(|(target, _)| *target == id)
+            .map_or_else(Vec::new, |(_, motions)| motions.clone())
     }
 
     /// Returns keymap text delivered to this keyboard in arrival order. Each
@@ -768,6 +800,11 @@ pub enum KeyboardEvent {
         depressed: u32,
         locked: u32,
     },
+    /// Repeats per second and the delay before the first, in milliseconds.
+    RepeatInfo {
+        rate: i32,
+        delay: i32,
+    },
 }
 
 impl Dispatch<WlKeyboard, ()> for Driver {
@@ -801,6 +838,9 @@ impl Dispatch<WlKeyboard, ()> for Driver {
                 depressed: mods_depressed,
                 locked: mods_locked,
             },
+            wl_keyboard::Event::RepeatInfo { rate, delay } => {
+                KeyboardEvent::RepeatInfo { rate, delay }
+            }
             _ => return,
         };
         state.keyboard.push((keyboard.id(), recorded));
@@ -848,6 +888,26 @@ impl Dispatch<WlBuffer, ()> for Driver {
     }
 }
 
+impl Dispatch<ZwpRelativePointerV1, ()> for Driver {
+    fn event(
+        state: &mut Self,
+        pointer: &ZwpRelativePointerV1,
+        event: zwp_relative_pointer_v1::Event,
+        (): &(),
+        _connection: &Connection,
+        _handle: &QueueHandle<Self>,
+    ) {
+        if let zwp_relative_pointer_v1::Event::RelativeMotion {
+            dx_unaccel,
+            dy_unaccel,
+            ..
+        } = event
+        {
+            entry_for(&mut state.relative_motions, pointer.id()).push((dx_unaccel, dy_unaccel));
+        }
+    }
+}
+
 delegate_noop!(Driver: ignore WpContentTypeManagerV1);
 delegate_noop!(Driver: ignore WpContentTypeV1);
 delegate_noop!(Driver: ignore WlCompositor);
@@ -864,3 +924,5 @@ delegate_noop!(Driver: ignore WlSubsurface);
 delegate_noop!(Driver: ignore XdgPositioner);
 delegate_noop!(Driver: ignore XdgPopup);
 delegate_noop!(Driver: ignore ZxdgDecorationManagerV1);
+delegate_noop!(Driver: ignore ZwpRelativePointerManagerV1);
+delegate_noop!(Driver: ignore WpSinglePixelBufferManagerV1);

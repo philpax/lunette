@@ -362,6 +362,16 @@ fn a_seat_advertises_a_keyboard_and_uploads_its_layout() {
 }
 
 #[test]
+fn a_keyboard_repeats_after_half_a_second_at_fifty_keys_a_second_by_default() {
+    let mut compositor = TestCompositor::new();
+    let mut client = open_window(&mut compositor);
+    let (left, _) = add_both_seats(&mut compositor, &mut client);
+    let keyboard = client.open_keyboard_for(&mut compositor, left);
+
+    assert_eq!(client.driver().repeat_info(&keyboard), Some((50, 500)));
+}
+
+#[test]
 fn a_key_reaches_the_focused_client_and_no_other_seat() {
     let mut compositor = TestCompositor::new();
     let mut client = open_window(&mut compositor);

@@ -22,7 +22,7 @@ use lunette_compositor::{
 ///
 /// The selection globals stay advertised without a host compositor. A host
 /// bridge changes selection forwarding, not the client-facing protocol surface.
-pub const EXPECTED_GLOBALS: [&str; 16] = [
+pub const EXPECTED_GLOBALS: [&str; 18] = [
     "ext_data_control_manager_v1",
     "org_kde_kwin_server_decoration_manager",
     "wl_compositor",
@@ -33,11 +33,13 @@ pub const EXPECTED_GLOBALS: [&str; 16] = [
     "wl_subcompositor",
     "wp_content_type_manager_v1",
     "wp_fractional_scale_manager_v1",
+    "wp_single_pixel_buffer_manager_v1",
     "wp_viewporter",
     "xdg_wm_base",
     "zwlr_data_control_manager_v1",
     "zwp_linux_dmabuf_v1",
     "zwp_primary_selection_device_manager_v1",
+    "zwp_relative_pointer_manager_v1",
     "zxdg_decoration_manager_v1",
 ];
 

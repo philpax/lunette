@@ -60,6 +60,31 @@ fn a_pointer_aimed_at_a_sink_enters_that_sink_s_surface_in_surface_local_coordin
 }
 
 #[test]
+fn a_pointer_moving_within_a_window_reports_its_motion_to_a_relative_pointer() {
+    let (mut compositor, mut client) = with_one_window();
+    let pointer = client.open_pointer(&mut compositor);
+    let relative = client.open_relative_pointer(&mut compositor, &pointer);
+    let sink = only_window(&compositor).sink;
+
+    for position in [PixelPoint::new(AIM.0, AIM.1), PixelPoint::new(30.0, 40.0)] {
+        compositor.send(Command::Pointer {
+            seat: DEFAULT_SEAT,
+            sink,
+            position,
+        });
+    }
+    client.settle(&mut compositor, |driver| {
+        driver.relative_motions(&relative).len() >= 2
+    });
+
+    assert_eq!(
+        client.driver().relative_motions(&relative),
+        vec![(0.0, 0.0), (30.0 - AIM.0, 40.0 - AIM.1)],
+        "the first motion enters the window and moves nowhere relative to it"
+    );
+}
+
+#[test]
 fn a_click_over_a_sink_is_delivered_as_a_press_and_a_release() {
     let (mut compositor, mut client) = with_one_window();
     let pointer = client.open_pointer(&mut compositor);

@@ -279,6 +279,10 @@ pub struct WindowSnapshot {
     pub content_type: ContentType,
     /// The part of the buffer the surface shows, after `wp_viewport` cropping.
     pub source_crop: SourceCrop,
+    /// Whether the client leaves its decorations to the compositor. False
+    /// when it asked through `xdg-decoration` or the KDE protocol to draw
+    /// its own.
+    pub server_side_decorations: bool,
 }
 
 /// The part of a surface's buffer that the surface shows, as fractions of the

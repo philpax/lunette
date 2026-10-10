@@ -122,6 +122,7 @@ function native.new()
       properties = {},
       contentType = 'none',
       sourceCrop = { 0, 0, 1, 1 },
+      serverSideDecorations = true,
       commit = 0,
       output = events.outputs[1],
       sink = newSink 'window',

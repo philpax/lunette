@@ -75,6 +75,9 @@ export type Window = {
   -- The content type reported by `wp_content_type_v1`. It is a hint, and
   -- clients may report `none` while playing video.
   read contentType: 'none' | 'photo' | 'video' | 'game',
+  -- Whether the client leaves its decorations to the compositor. False when the
+  -- client asked to draw its own, so its pixels already carry a titlebar.
+  read serverSideDecorations: boolean,
   -- Where input for this window goes. Nil only for a handle that has never seen
   -- its window in a snapshot.
   read sink: Sink?,
@@ -188,7 +191,9 @@ export type SeatOptions = {
   layout: string?,
   variant: string?,
   options: string?,
+  -- Milliseconds a key is held before it repeats. 500 when absent.
   repeatDelay: number?,
+  -- Repeats per second once a held key repeats. 50 when absent.
   repeatRate: number?,
 }
 

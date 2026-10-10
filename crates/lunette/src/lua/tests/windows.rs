@@ -370,6 +370,24 @@ fn a_window_reports_its_source_crop_as_a_rectangle() {
     );
 }
 
+#[test]
+fn a_window_reports_whether_it_leaves_its_decorations_to_the_compositor() {
+    let mut drawn_by_client = window(1, "editor", "editor", PixelSize::new(200, 150));
+    drawn_by_client.server_side_decorations = false;
+    let left_to_compositor = window(2, "terminal", "terminal", PixelSize::new(200, 150));
+    let session = session(vec![drawn_by_client, left_to_compositor]);
+    let lua = lua(&session);
+
+    assert_eq!(
+        run::<(bool, bool)>(
+            &lua,
+            "local windows = lunette.windows()
+             return windows[1].serverSideDecorations, windows[2].serverSideDecorations",
+        ),
+        (false, true)
+    );
+}
+
 /// A snapshot holding `windows` and one output for each of `outputs`.
 fn with_outputs(windows: Vec<WindowSnapshot>, outputs: &[(u64, f64)]) -> Arc<Snapshot> {
     Arc::new(Snapshot {

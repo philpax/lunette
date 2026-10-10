@@ -14,10 +14,12 @@
 //! the same buffer is committed again. Unknown buffers are released.
 //! `wl_output` is lunette's own global, filtered per client, so smithay's
 //! `Output` and `delegate_output!` are left out, along with
-//! `set_clipboard_text`, the redraw requests, `wp_single_pixel_buffer_v1`, and
-//! the relative pointer. lunette adds `new_surface`, `destroyed`,
-//! `app_id_changed`, the fractional-scale and content-type globals, and the
-//! state lunette tracks for windows in each handler.
+//! `set_clipboard_text` and the redraw requests. WayVR handles
+//! `wp_single_pixel_buffer_v1` buffers but never creates the global; lunette
+//! advertises it, and passes the pixel to the importer as a one-pixel
+//! `wl_shm` image. lunette adds `new_surface`, `destroyed`, `app_id_changed`,
+//! the fractional-scale and content-type globals, and the state lunette
+//! tracks for windows in each handler.
 
 use smithay::backend::allocator::Buffer;
 use smithay::backend::allocator::dmabuf::Dmabuf;
@@ -47,6 +49,7 @@ use smithay::wayland::dmabuf::{
     DmabufFeedback, DmabufGlobal, DmabufHandler, DmabufState, ImportNotifier, get_dmabuf,
 };
 use smithay::wayland::fractional_scale::{FractionalScaleHandler, FractionalScaleManagerState};
+use smithay::wayland::relative_pointer::RelativePointerManagerState;
 use smithay::wayland::selection::data_device::{
     ClientDndGrabHandler, DataDeviceHandler, DataDeviceState, ServerDndGrabHandler,
     set_data_device_focus,
@@ -63,12 +66,13 @@ use smithay::wayland::shell::xdg::{
     PopupSurface, PositionerState, ToplevelSurface, XdgShellHandler, XdgShellState,
 };
 use smithay::wayland::shm::{ShmHandler, ShmState, with_buffer_contents};
+use smithay::wayland::single_pixel_buffer::{SinglePixelBufferState, get_single_pixel_buffer};
 use smithay::wayland::viewporter::ViewporterState;
 use smithay::{
     delegate_compositor, delegate_content_type, delegate_data_control, delegate_data_device,
     delegate_dmabuf, delegate_ext_data_control, delegate_fractional_scale, delegate_kde_decoration,
-    delegate_primary_selection, delegate_seat, delegate_shm, delegate_viewporter,
-    delegate_xdg_decoration, delegate_xdg_shell,
+    delegate_primary_selection, delegate_relative_pointer, delegate_seat, delegate_shm,
+    delegate_single_pixel_buffer, delegate_viewporter, delegate_xdg_decoration, delegate_xdg_shell,
 };
 use std::collections::{HashMap, HashSet};
 use std::os::fd::OwnedFd;
@@ -121,6 +125,8 @@ pub struct Application {
     #[allow(dead_code)]
     pub xdg_decoration_state: XdgDecorationState,
     pub kde_decoration_state: KdeDecorationState,
+    #[allow(dead_code)]
+    pub relative_pointer_state: RelativePointerManagerState,
     pub wayvr_tasks: TaskQueue<WayVRTask>,
     pub popup_manager: PopupManager,
     #[allow(dead_code)]
@@ -146,6 +152,8 @@ pub struct Application {
     pub content_type: ContentTypeState,
     #[allow(dead_code)]
     pub fractional_scale: FractionalScaleManagerState,
+    #[allow(dead_code)]
+    pub single_pixel_buffer: SinglePixelBufferState,
     pub spawner: Box<dyn ProcessSpawner>,
     pub inspector: Box<dyn ProcessInspector>,
     pub surfaces: SurfaceRegistry,
@@ -221,10 +229,6 @@ impl Application {
         self.send_surface_scale(surface);
     }
 
-    #[expect(
-        dead_code,
-        reason = "the window snapshot does not report decorations yet"
-    )]
     pub fn has_server_side_decorations(&self, surface: &WlSurface) -> bool {
         !self.no_server_decorations.contains(&surface.id())
     }
@@ -387,6 +391,38 @@ impl compositor::CompositorHandler for Application {
                                 };
                                 imported = Some(ImportedBuffer::Pixels(image));
                                 // The copied pixels no longer depend on a retained dmabuf.
+                                if let Some(old_buffer) = sbwi.apply_to_surface(states, None) {
+                                    old_buffer.release();
+                                }
+                            }
+                            buffer.release();
+                        }
+                        Some(BufferType::SinglePixel) => {
+                            let spb = get_single_pixel_buffer(&buffer).unwrap(); // always Ok
+                            let [r, g, b, a] = spb.rgba8888();
+                            let layout = ShmLayout {
+                                size: PixelSize::new(1, 1),
+                                stride: ShmFormat::BYTES_PER_PIXEL,
+                                format: ShmFormat::Argb8888,
+                            };
+                            if let Ok(image) = self
+                                .image_importer
+                                .import_shm(&[b, g, r, a], layout)
+                                .inspect_err(|e| {
+                                    log::warn!("wayland_server failed to import SPB: {e:?}");
+                                })
+                            {
+                                let sbwi = SurfaceBufWithImage {
+                                    image: ImportedExtent { size: layout.size },
+                                    transform: wl_transform_to_frame_transform(
+                                        // does this even matter
+                                        attrs.buffer_transform,
+                                    ),
+                                    scale: attrs.buffer_scale,
+                                    dmabuf: false,
+                                    has_alpha: true,
+                                };
+                                imported = Some(ImportedBuffer::Pixels(image));
                                 if let Some(old_buffer) = sbwi.apply_to_surface(states, None) {
                                     old_buffer.release();
                                 }
@@ -927,6 +963,8 @@ delegate_data_control!(Application);
 delegate_ext_data_control!(Application);
 delegate_xdg_decoration!(Application);
 delegate_kde_decoration!(Application);
+delegate_single_pixel_buffer!(Application);
+delegate_relative_pointer!(Application);
 delegate_fractional_scale!(Application);
 delegate_content_type!(Application);
 

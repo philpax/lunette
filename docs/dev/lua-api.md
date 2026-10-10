@@ -150,6 +150,8 @@ An event is delivered against the snapshot of the frame it was drained in, so `o
 
 `win.width` and `win.height` are the window's size in surface coordinates, the space pointer positions use. A client that scales its buffer down with a buffer scale or a `wp_viewport` destination has a texture larger than that size ([Compositor](compositor.md#windows)). `win:getSourceCrop()` returns the part of the texture the window shows as `x, y, width, height` fractions of the texture's size, `0, 0, 1, 1` unless the client crops with `wp_viewport`. A consumer that draws the texture samples only that rectangle.
 
+`win.serverSideDecorations` is false when the client asked through `xdg-decoration` or the KDE protocol to draw its own decorations, so its pixels already carry a titlebar, and true otherwise ([Compositor](compositor.md#decorations)).
+
 `win:setFrameRate` paces the window's frame callbacks with a floor of 1 Hz ([Rendering](rendering.md#frame-pacing)). A monitor's `mirrored` reports an installed stream, which does not prove frames still arrive ([Host desktop](host-desktop.md#identity-and-lifecycle)).
 
 ### Per-window properties

@@ -223,6 +223,8 @@ Geometry recorders do not rasterise edges, alpha, depth, or fonts.
 
 Pacing reads whether a panel is hidden, not whether it is in view, gazed at, or distant ([Rendering](rendering.md#frame-pacing)). Pacing by view direction risks a stutter as the head turns back, and the choice is left until it can be tried on hardware.
 
+`desktop/decorations` gives a titlebar to every native window, including one whose `serverSideDecorations` is false because its client draws its own titlebar, so such a window shows two. The shared titlebar carries the grab and close controls, and the client's own titlebar receives only pointer input, which cannot move the panel in space. Hiding the titlebar for those windows needs another VR handle for moving and closing them, such as grip on the panel alone or a slimmer bar, and the choice is left until it can be tried on hardware.
+
 The arc is the only shipped layout. `examples/layout` holds grid and follow layouts as examples.
 
 Issues #15, #36, and #39 hold deferred follow-up work.

@@ -111,10 +111,11 @@ pub struct RepeatPolicy {
 }
 
 impl Default for RepeatPolicy {
-    /// Uses a 200-millisecond delay and 50 repeats per second.
+    /// Uses WayVR's `KEY_REPEAT_DELAY` and `KEY_REPEAT_RATE`: a 500-millisecond
+    /// delay and 50 repeats per second.
     fn default() -> Self {
         Self {
-            delay: RepeatDelay::from_millis(200),
+            delay: RepeatDelay::from_millis(500),
             rate: RepeatRate::per_second(50),
         }
     }
