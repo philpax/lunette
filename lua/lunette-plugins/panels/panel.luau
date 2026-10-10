@@ -12,6 +12,7 @@ local appearance = require '@lunette-plugins/panels/appearance'
 local vocabulary = require '@lunette-contracts/vocabulary'
 local frame = require '@lunette-plugins/panels/frame'
 local silhouette = require '@lunette-plugins/panels/silhouette'
+local children = require '@lunette-plugins/panels/children'
 
 local panel = {}
 
@@ -68,6 +69,7 @@ type PanelData = {
   meshTransform: string?,
   meshCrop: string?,
   outline: drawing.Outline?,
+  childMeshes: children.Cache?,
   contour: silhouette.Cache?,
   frame: frame.Record?,
   effect: plugin.Effect?,
@@ -272,6 +274,9 @@ function panel.release(target: State): boolean
       drawing.clearOutline(target)
     end,
     function(): ()
+      drawing.clearChildren(target)
+    end,
+    function(): ()
       layer.release(target)
     end,
   }
@@ -465,9 +470,17 @@ function panel.raycast(
 end
 
 -- Acquires or replaces a window panel's layer claim when its source needs one.
--- A hidden panel holds none.
+-- A hidden panel holds none, and neither does a window showing popups or subsurfaces: a layer is composited
+-- over the scene, where they are drawn, and would cover them.
 function panel.claim(target: State)
   if target.dead or target.hidden or target.source.dead or target.host.settings.rendering ~= 'layer' then
+    return
+  end
+  local described: drawing.Source = target
+  if described.kind == 'window' and #described.source:getChildSurfaces() > 0 then
+    if target.claim then
+      layer.release(target)
+    end
     return
   end
   local pixelWidth, pixelHeight = panel.textureSize(target)

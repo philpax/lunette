@@ -152,6 +152,118 @@ test('a layer is claimed at the texture size and shows only the crop', function(
   session:close()
 end)
 
+local FULL = { x = 0, y = 0, width = 1, height = 1 }
+
+local function video()
+  return {
+    id = 21,
+    kind = 'subsurface',
+    below = true,
+    x = 0,
+    y = 0,
+    width = 500,
+    height = 250,
+    crop = FULL,
+    texture = { name = 'video' },
+    opaque = true,
+  }
+end
+
+local function menu()
+  return {
+    id = 20,
+    kind = 'popup',
+    below = false,
+    x = 100,
+    y = 100,
+    width = 200,
+    height = 100,
+    crop = FULL,
+    texture = { name = 'menu' },
+    opaque = false,
+  }
+end
+
+-- The texture each content draw samples, in drawing order, with the depth it is drawn at.
+local function sampled(native, panel)
+  table.clear(native.events.draw)
+  panel:draw(native.events.pass)
+  local names, depths = {}, {}
+  for _, call in native.events.draw do
+    if call[1] == 'draw' or call[1] == 'plane' then
+      local material = call.state.setMaterial and call.state.setMaterial[1]
+      if material then
+        names[#names + 1] = material.name
+        local pose = lovr.math.mat4(call.transform):mul(if call[1] == 'plane' then call[2] else call[3])
+        local _, _, z = pose:getPosition()
+        depths[#depths + 1] = z
+      end
+    end
+  end
+  return names, depths
+end
+
+test('a window draws the children below it first and the children above it last, each with its texture', function()
+  local native, session, panels, owner, window = start()
+  local panel = panels:fromWindow(owner, window, { pose = lovr.math.newMat4():translate(0, 1, -2) })
+  window.children = { video(), menu() }
+
+  local names, depths = sampled(native, panel)
+  expect.equal(table.concat(names, ', '), 'video, desktop pixels, menu', 'the drawing order')
+  expect.truthy(depths[1] < depths[2], 'the child below sits behind the window')
+  expect.truthy(depths[3] > depths[2], 'the child above sits in front of the window')
+  session:close()
+end)
+
+test("a child's mesh is kept while it is unchanged, and released once the child goes", function()
+  local native, session, panels, owner, window = start()
+  local panel = panels:fromWindow(owner, window)
+  local made = native.events.render.meshAcquisitions
+  window.children = { menu() }
+  sampled(native, panel)
+  local first = #made
+  sampled(native, panel)
+  expect.equal(#made, first, 'an unchanged child keeps its mesh')
+
+  local moved = menu()
+  moved.x = 300
+  window.children = { moved }
+  sampled(native, panel)
+  expect.equal(#made, first + 1, 'a moved child gets a new mesh')
+  expect.truthy(made[first].released, 'and its old mesh is released')
+
+  window.children = {}
+  local names = sampled(native, panel)
+  expect.equal(table.concat(names, ', '), 'desktop pixels', 'only the window is drawn')
+  expect.truthy(made[#made].released, 'the gone child releases its mesh')
+
+  window.children = { menu() }
+  sampled(native, panel)
+  session:close()
+end)
+
+test('a layer-rendered window with children gives up its layer while they show', function()
+  local native, session, panels, owner, window = start { rendering = 'layer' }
+  local panel = panels:fromWindow(owner, window)
+  expect.equal(#native.events.claims, 1, 'the claim')
+  grantLayer(panel, {})
+  panel:update()
+  expect.falsy(drawn(native, panel).plane, 'the granted layer draws the window')
+
+  window.children = { menu() }
+  panel:update()
+  expect.truthy(native.events.claims[1].dead, 'the claim is released, so the layer cannot cover the menu')
+  local names = sampled(native, panel)
+  expect.equal(table.concat(names, ', '), 'desktop pixels, menu', 'the scene draws the window and its menu')
+  panel:update()
+  expect.equal(#native.events.claims, 1, 'no claim is made while the menu shows')
+
+  window.children = {}
+  panel:update()
+  expect.equal(#native.events.claims, 2, 'the window claims a layer again once the menu goes')
+  session:close()
+end)
+
 -- UVs for top-left, top-right, bottom-left, and bottom-right from pinned WayVR transform_uv.
 local TRANSFORMS = {
   { 'normal', { { 0, 0 }, { 1, 0 }, { 0, 1 }, { 1, 1 } } },

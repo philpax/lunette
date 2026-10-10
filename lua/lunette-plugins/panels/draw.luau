@@ -7,6 +7,7 @@ local silhouette = require '@lunette-plugins/panels/silhouette'
 local frame = require '@lunette-plugins/panels/frame'
 local geometry = require '@lunette-plugins/theme/rounded-geometry'
 local passState = require '@lunette-plugins/pass-state'
+local children = require '@lunette-plugins/panels/children'
 
 local draw = {}
 
@@ -40,6 +41,7 @@ export type Drawable = {
   meshTransform: string?,
   meshCrop: string?,
   outline: Outline?,
+  childMeshes: children.Cache?,
 } & Source
 
 type CaptureTransform =
@@ -146,18 +148,24 @@ local function contentMesh(target: Drawable, transform: CaptureTransform, crop: 
   return made
 end
 
+-- A window's popups and subsurfaces are drawn with it, those below its own surface first, and are clipped
+-- to its silhouette as its picking is.
 function draw.content(target: Drawable, pass: Pass, style: appearance.Style, contentShader: (boolean) -> Shader?)
   local texture: Texture | false
   local opaque = true
   local transform: CaptureTransform = 'normal'
   local crop = FULL_CROP
   local described: Source = target
+  local list: { lunette.ChildSurface } = {}
+  local windowWidth, windowHeight = 0, 0
   if described.kind == 'window' then
     local window = described.source
     texture = window:getTexture()
     opaque = window.opaque
     local x, y, width, height = window:getSourceCrop()
     crop = { x = x, y = y, width = width, height = height }
+    list = window:getChildSurfaces()
+    windowWidth, windowHeight = window.width, window.height
   else
     texture = described.source:getTexture()
     local captured = described.source.frameTransform
@@ -166,19 +174,36 @@ function draw.content(target: Drawable, pass: Pass, style: appearance.Style, con
     end
   end
   if not texture then
+    draw.clearChildren(target)
     return
   end
 
   local sampled: Texture = texture
   local shader = contentShader(opaque)
   if not shader then
+    draw.clearChildren(target)
     return
   end
+  local cache: children.Cache = target.childMeshes or {}
+  target.childMeshes = cache
+  local drawn: { number } = {}
   passState.withRestore(pass, function()
     pass:setBlendMode('alpha', 'premultiplied')
+    local bounds, profile, polygon, rounded = silhouette.get(target, style)
+    local drawing: children.Drawing = {
+      target = target,
+      pose = target.pose,
+      polygon = polygon,
+      shapeKey = geometry.key(bounds, profile),
+      windowWidth = windowWidth,
+      windowHeight = windowHeight,
+      cache = cache,
+      shader = contentShader,
+      newMesh = buildMesh,
+    }
+    children.draw(pass, drawing, list, true, drawn)
     pass:setShader(shader)
     pass:setMaterial(sampled)
-    local _, _, _, rounded = silhouette.get(target, style)
     local transformed = transform ~= 'normal' and transform ~= 'undefined'
     local mesh = if target.curve > 0
         or transformed
@@ -197,7 +222,18 @@ function draw.content(target: Drawable, pass: Pass, style: appearance.Style, con
       local transform = lovr.math.newMat4():set(target.pose):scale(target.width, target.height, 1)
       pass:plane(transform, 'fill', 1, 1)
     end
+    children.draw(pass, drawing, list, false, drawn)
   end)
+  children.prune(cache, drawn)
+end
+
+-- Releases the meshes of a panel's children.
+function draw.clearChildren(target: { childMeshes: children.Cache? }): ()
+  local cache = target.childMeshes
+  target.childMeshes = nil
+  if cache then
+    children.prune(cache, nil)
+  end
 end
 
 function draw.border(target: Drawable, pass: Pass, style: appearance.Style): ()

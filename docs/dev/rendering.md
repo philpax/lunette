@@ -8,6 +8,14 @@ A composition layer is composited by the XR runtime at the layer's own resolutio
 
 The panels provider's `rendering` setting is `'plane'` by default, so windows take part in scene depth. `'layer'` makes window panels claim layers and fall back to the scene when a claim is not granted. Monitor panels always render in the scene. That choice is Lua policy ([Standard library](stdlib.md)); the native layer supplies only the two mechanisms.
 
+## Popups and subsurfaces
+
+A window's texture is its own surface's buffer and holds none of its popups or subsurfaces. The compositor reports them with their textures and their places relative to the window ([Compositor](compositor.md#windows)), and the panels provider draws them with the window's content in `lua/lunette-plugins/panels/children.luau`. Children stacked below the window's surface are drawn first, then the window, then the children above it, so a menu covers the window and a video subsurface beneath a transparent region shows through it. Each child is drawn 0.2 mm further toward the viewer than the layer before it, because coplanar meshes z-fight, and a child below the window 0.2 mm behind it per layer.
+
+A child is clipped to the panel's silhouette, its rounded corners included, and samples only the part of its crop that remains. Picking reaches only the window's own area, so the clip keeps what is drawn and what can be pointed at the same: the compositor routes a point inside a child's drawn area to the child. A child's mesh follows the panel's curve as the window's does, and is kept while the child's placement, its crop, and the panel's shape are unchanged.
+
+A composition layer is composited over the scene, so a window's layer would cover the children drawn in the scene. A window panel showing any child releases its layer claim and draws in the scene, and claims a layer again once none remain.
+
 ## Rounded scene geometry
 
 `lua/lunette-plugins/theme/rounded-geometry.luau` generates convex rounded-rectangle perimeters from a size and four corner radii. Each radius is clamped to the available extent, a zero radius gives a square corner, and each nonzero quarter arc has eight segments. Drawing and initial picking use the same emitted perimeter, chords included, so a point between a chord and its circle is outside. Borders are rings between an outer and an inner perimeter.
@@ -140,6 +148,10 @@ A composition layer is not required to be visibly sharper than a scene quad. A 1
 
 A panel on a layer cannot be seen from behind, because a quad composition layer is single-sided, while the same panel on a scene quad can. The panels provider chooses when a panel holds a layer, so a grant landing makes a panel that was readable from behind disappear. The scene quad is the fallback rather than a degraded mode, and this is the one visible difference between the two paths that the fallback does not account for.
 
+### Child surfaces are drawn by Lua
+
+The compositor reports a window's popups and subsurfaces with their own textures, and the panels provider draws them, as it draws the window. Compositing the surface tree into one texture per window on the frame thread, as WayVR does into its overlay, was rejected. It would replace the zero-copy import with a render pass into a lunette-owned image whenever a window has a child, duplicate the alpha and colour conversion the panels provider already performs in a native shader, and take the decision of where a child appears away from Lua, which places, clips, and picks panels. It would have made layers, `window:stabilize()`, and every other consumer of a window's texture show children with no change of their own. Drawing them in Lua instead gives a window with children the scene path, and leaves a custom renderer to draw them itself.
+
 ### Rejected: keying the pool on swapchains
 
 The pool recycles whole `Layer` objects. LÖVR offers no way to separate a layer from its swapchain: `struct Layer` embeds its `Swapchain` by value, `lovrLayerDestroy` destroys it inline, and nothing sets the swapchain a layer's `subImage` names. Separating them would mean refcounting `Swapchain` and rewriting `subImage` on both the quad and cylinder records, a behavioural patch the fork rules forbid. Keeping the whole layer meets the same goal, because everything a panel varies has a setter.
@@ -169,6 +181,10 @@ The target owns joining and the single outline because it owns the body geometry
 Native pointer motion stops on a perimeter miss, and the release still reaches the original sink. Extending motion through cutouts would add capture projection and change application drag behaviour. Protocol surfaces already project captures with an explicit outside state.
 
 ## Known gaps
+
+A popup is clipped to its window's panel, because a panel is picked only over the window's own area. The compositor constrains a popup to its window where the client's positioner allows, but a popup that reaches outside it anyway, such as a menu taller than its window, is cut off and its outside part cannot be pointed at.
+
+A window that shows a subsurface for its whole life, as some video players do, never holds a composition layer, and `window:stabilize()` copies only the window's own surface.
 
 A client's buffer transform is not applied when a window is drawn, so a transformed buffer is drawn untransformed and a crop of one samples the wrong region.
 

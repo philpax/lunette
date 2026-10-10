@@ -157,7 +157,7 @@ Safe mode is compiled into the binary and requires only `@lunette`, so a missing
 | Contract identity, provider bindings, lifecycle, and cleanup | The native plugin runtime |
 | Service and configuration types | Luau contracts and definitions |
 
-The panels provider adapts native pixels to Lua geometry. Its `rendering` defaults to `'plane'`, so window content takes part in scene depth. `'layer'` puts windows into composition layers with scene fallback. Monitor panels stay in the scene because the layer claim API accepts windows only. Pointer hover never takes keyboard focus; with `focusOnPress`, a press does.
+The panels provider adapts native pixels to Lua geometry. Its `rendering` defaults to `'plane'`, so window content takes part in scene depth. `'layer'` puts windows into composition layers with scene fallback. Monitor panels stay in the scene because the layer claim API accepts windows only. A window panel draws the window's popups and subsurfaces with its content, clipped to its silhouette, and a window showing any holds no layer ([Rendering](rendering.md#popups-and-subsurfaces)). Pointer hover never takes keyboard focus; with `focusOnPress`, a press does.
 
 ## Decisions
 
