@@ -205,11 +205,13 @@ impl TestCompositor {
 
     /// Runs one event-loop round, waiting up to `timeout` for an event.
     pub fn step_for(&mut self, timeout: Duration) {
-        // Keep the same post-dispatch ordering as the running compositor: retire
-        // imports, send frame callbacks, publish state, then flush clients.
+        // Keep the same post-dispatch ordering as the running compositor: drain
+        // the handlers' tasks, retire imports, send frame callbacks, publish
+        // state, then flush clients.
         self.event_loop
             .dispatch(timeout, &mut self.data)
             .expect("the event loop dispatches");
+        self.data.state.tick_events();
         self.data.state.sweep_imports();
         self.data.state.send_frame_callbacks();
         self.data.state.publish_if_dirty();

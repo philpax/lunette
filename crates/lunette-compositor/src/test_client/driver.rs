@@ -46,12 +46,18 @@ use wayland_protocols::{
         },
         primary_selection::zv1::client::zwp_primary_selection_offer_v1::ZwpPrimarySelectionOfferV1,
     },
-    xdg::shell::client::{
-        xdg_popup::XdgPopup,
-        xdg_positioner::XdgPositioner,
-        xdg_surface::{self, XdgSurface},
-        xdg_toplevel::{self, XdgToplevel},
-        xdg_wm_base::{self, XdgWmBase},
+    xdg::{
+        decoration::zv1::client::{
+            zxdg_decoration_manager_v1::ZxdgDecorationManagerV1,
+            zxdg_toplevel_decoration_v1::{self, ZxdgToplevelDecorationV1},
+        },
+        shell::client::{
+            xdg_popup::XdgPopup,
+            xdg_positioner::XdgPositioner,
+            xdg_surface::{self, XdgSurface},
+            xdg_toplevel::{self, XdgToplevel},
+            xdg_wm_base::{self, XdgWmBase},
+        },
     },
 };
 
@@ -68,6 +74,8 @@ pub struct Driver {
     /// serial uniqueness across surfaces.
     configure_serials: Vec<u32>,
     pub toplevel_size: Option<(i32, i32)>,
+    /// The decoration mode of the latest `zxdg_toplevel_decoration_v1.configure`.
+    pub decoration_mode: Option<zxdg_toplevel_decoration_v1::Mode>,
     pub closed: bool,
     seats: Vec<SeatRecord>,
     /// Stores each pointer event with the object that received it, in arrival
@@ -634,6 +642,24 @@ impl Dispatch<XdgToplevel, ()> for Driver {
     }
 }
 
+impl Dispatch<ZxdgToplevelDecorationV1, ()> for Driver {
+    fn event(
+        state: &mut Self,
+        _decoration: &ZxdgToplevelDecorationV1,
+        event: zxdg_toplevel_decoration_v1::Event,
+        (): &(),
+        _connection: &Connection,
+        _handle: &QueueHandle<Self>,
+    ) {
+        if let zxdg_toplevel_decoration_v1::Event::Configure {
+            mode: wayland_client::WEnum::Value(mode),
+        } = event
+        {
+            state.decoration_mode = Some(mode);
+        }
+    }
+}
+
 impl Dispatch<WlSeat, ()> for Driver {
     fn event(
         state: &mut Self,
@@ -834,3 +860,4 @@ delegate_noop!(Driver: ignore WpFractionalScaleManagerV1);
 delegate_noop!(Driver: ignore WlSubsurface);
 delegate_noop!(Driver: ignore XdgPositioner);
 delegate_noop!(Driver: ignore XdgPopup);
+delegate_noop!(Driver: ignore ZxdgDecorationManagerV1);

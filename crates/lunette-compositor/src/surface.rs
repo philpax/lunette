@@ -1,32 +1,34 @@
-//! Adapted from WayVR's `backend/wayvr/mod.rs` surface-buffer fragments at commit
-//! 98f800c644719d3f23a20e50bd3237c29a8082cb.
-//! Copyright (c) the WayVR authors (galister, oo8dev). Licensed GPL-3.0-only.
-//!
 //! Per-surface state for the compositor's commit path.
 //!
-//! [`SurfaceRegistry`] maps compositor-thread `wl_surface` object IDs to stable
-//! [`SurfaceId`] values that can cross to the main thread.
-//!
-//! [`RetainedBuffers`] holds each surface's client buffer while lunette samples it.
-//! It releases a buffer when the surface stops using it, so the client can reuse it
-//! only after sampling ends.
+//! [`SurfaceRegistry`] maps compositor-thread `wl_surface` objects to stable
+//! [`SurfaceId`] values that can cross to the main thread, and keeps a weak
+//! handle to each so the graphics handover can find the buffers they retain.
 //!
 //! [`BufferImporter`] separates Wayland buffer handling from graphics-device
 //! imports. The graphics implementation is in `lunette`, while this crate
 //! supplies the seam used by device-free compositor tests.
+//!
+//! The bookkeeping a commit does for lunette's windows and the frame thread is
+//! here too: the content-type hint, the committed size, and the reports when a
+//! surface loses its content.
 
 use std::collections::HashMap;
 
 use smithay::{
     backend::allocator::dmabuf::Dmabuf,
     reexports::wayland_server::{
-        Resource,
+        Resource, Weak,
         backend::ObjectId,
-        protocol::{wl_buffer::WlBuffer, wl_output, wl_shm, wl_surface::WlSurface},
+        protocol::{wl_output, wl_shm, wl_surface::WlSurface},
     },
+    wayland::{compositor::with_states, shell::xdg::XdgToplevelSurfaceData},
 };
 
-use crate::protocol::{ImportedImage, PixelSize, SurfaceId};
+use crate::{
+    config::DEFAULT_OUTPUT,
+    protocol::{ContentType, Event, ImportedImage, PixelSize, SurfaceId},
+    wayvr::{SurfaceBufWithImage, comp::Application},
+};
 
 /// Maps compositor-thread surface objects to stable identifiers.
 ///
@@ -34,14 +36,14 @@ use crate::protocol::{ImportedImage, PixelSize, SurfaceId};
 /// cannot refer to a different surface.
 #[derive(Debug, Default)]
 pub(crate) struct SurfaceRegistry {
-    ids: HashMap<ObjectId, SurfaceId>,
+    ids: HashMap<ObjectId, (SurfaceId, Weak<WlSurface>)>,
     minted: u64,
 }
 
 impl SurfaceRegistry {
     /// Returns the stable identifier for a surface, minting one on first sight.
     pub(crate) fn id_for(&mut self, surface: &WlSurface) -> SurfaceId {
-        if let Some(id) = self.ids.get(&surface.id()) {
+        if let Some((id, _)) = self.ids.get(&surface.id()) {
             return *id;
         }
 
@@ -49,90 +51,26 @@ impl SurfaceRegistry {
         let id = SurfaceId::new(self.minted).unwrap_or_else(|| {
             unreachable!("the counter starts at one and only increases, so it is never zero")
         });
-        self.ids.insert(surface.id(), id);
+        self.ids.insert(surface.id(), (id, surface.downgrade()));
         id
-    }
-
-    /// Returns a surface's identifier without minting one.
-    pub(crate) fn get(&self, surface: &WlSurface) -> Option<SurfaceId> {
-        self.ids.get(&surface.id()).copied()
     }
 
     /// Whether an identifier still names a live surface.
     #[must_use]
     pub(crate) fn knows(&self, id: SurfaceId) -> bool {
-        self.ids.values().any(|known| *known == id)
+        self.ids.values().any(|(known, _)| *known == id)
     }
 
     /// Removes a destroyed surface's identifier and returns it.
     pub(crate) fn forget(&mut self, surface: &WlSurface) -> Option<SurfaceId> {
-        self.ids.remove(&surface.id())
-    }
-}
-
-/// A buffer that can be released to its client.
-///
-/// This seam lets tests verify buffer lifetime without a Wayland connection.
-pub(crate) trait ReleasableBuffer {
-    fn release(&self);
-}
-
-impl ReleasableBuffer for WlBuffer {
-    fn release(&self) {
-        WlBuffer::release(self);
-    }
-}
-
-/// The buffer lunette is still sampling for each surface.
-///
-/// A retained buffer is not released until sampling stops, which prevents the
-/// client from drawing into memory that lunette is still reading.
-#[derive(Debug)]
-pub(crate) struct RetainedBuffers<B> {
-    retained: HashMap<SurfaceId, B>,
-}
-
-impl<B> Default for RetainedBuffers<B> {
-    fn default() -> Self {
-        Self {
-            retained: HashMap::new(),
-        }
-    }
-}
-
-impl<B: ReleasableBuffer + PartialEq> RetainedBuffers<B> {
-    /// Retains a surface's buffer and releases the buffer it replaces.
-    ///
-    /// Retaining the same buffer is a no-op. Re-importing a retained buffer during
-    /// a graphics restart must not release it while lunette still samples it.
-    pub(crate) fn retain(&mut self, surface: SurfaceId, buffer: B) {
-        let Some(previous) = self.retained.insert(surface, buffer) else {
-            return;
-        };
-        if self.retained.get(&surface) != Some(&previous) {
-            previous.release();
-        }
+        self.ids.remove(&surface.id()).map(|(id, _)| id)
     }
 
-    /// Iterates retained buffers with their surface identifiers.
-    ///
-    /// The graphics restart uses these buffers to re-import content without a new
-    /// client commit.
-    pub(crate) fn entries(&self) -> impl Iterator<Item = (SurfaceId, &B)> {
-        self.retained
-            .iter()
-            .map(|(surface, buffer)| (*surface, buffer))
-    }
-
-    pub(crate) fn forget(&mut self, surface: SurfaceId) {
-        if let Some(buffer) = self.retained.remove(&surface) {
-            buffer.release();
-        }
-    }
-
-    #[cfg(test)]
-    pub(crate) fn len(&self) -> usize {
-        self.retained.len()
+    /// The live surfaces with their identifiers.
+    pub(crate) fn live(&self) -> impl Iterator<Item = (SurfaceId, WlSurface)> + '_ {
+        self.ids
+            .values()
+            .filter_map(|(id, surface)| Some((*id, surface.upgrade().ok()?)))
     }
 }
 
@@ -344,63 +282,84 @@ impl BufferTransform {
     }
 }
 
-/// A positive integer buffer scale from `wl_surface.set_buffer_scale`.
-///
-/// A surface that has not set a scale uses 1. Zero and negative values are
-/// rejected as protocol errors.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct BufferScale(u32);
-
-impl BufferScale {
-    pub const ONE: Self = Self(1);
-
-    #[must_use]
-    pub const fn from_protocol(scale: i32) -> Option<Self> {
-        if scale > 0 {
-            #[expect(
-                clippy::cast_sign_loss,
-                reason = "the branch above establishes that the value is positive"
-            )]
-            Some(Self(scale as u32))
-        } else {
-            None
+impl Application {
+    /// Records the client's content-type hint for Lua's throttling policy.
+    pub(crate) fn remember_content_type(&mut self, id: SurfaceId, content_type: ContentType) {
+        if let Some(window) = self.windows.by_surface_mut(id)
+            && window.remember_content_type(content_type)
+        {
+            self.touch();
         }
     }
 
-    #[must_use]
-    pub const fn get(self) -> u32 {
-        self.0
-    }
-}
-
-impl Default for BufferScale {
-    fn default() -> Self {
-        Self::ONE
-    }
-}
-
-/// The size, transform, and scale from a surface's last committed buffer.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct SurfaceContent {
-    /// The buffer's size in its own pixels, before scaling.
-    pub(crate) size: PixelSize,
-    pub(crate) transform: BufferTransform,
-    pub(crate) scale: BufferScale,
-}
-
-impl SurfaceContent {
-    /// Returns the surface size in logical pixels.
-    ///
-    /// Quarter-turn transforms exchange the axes before the positive buffer scale
-    /// divides both dimensions.
-    pub(crate) fn logical_size(self) -> PixelSize {
-        let (width, height) = if self.transform.swaps_axes() {
-            (self.size.height, self.size.width)
-        } else {
-            (self.size.width, self.size.height)
+    /// Records a window's committed size, mapping it on its first content.
+    pub(crate) fn remember_committed_size(&mut self, surface: &WlSurface, id: SurfaceId) {
+        let Some(size) = with_states(surface, |states| {
+            SurfaceBufWithImage::get_from_surface(states).map(|buf| buf.logical_size(states))
+        }) else {
+            return;
+        };
+        let bounds = self.output_bounds(
+            self.windows
+                .by_surface(id)
+                .map_or(DEFAULT_OUTPUT, |window| window.output),
+        );
+        let Some(window) = self.windows.by_surface_mut(id) else {
+            return;
         };
 
-        PixelSize::new(width / self.scale.get(), height / self.scale.get())
+        // Size limits can change at any commit, so refresh them before sizing.
+        window.refresh_constraints(bounds);
+        // Only a commit that acknowledged the pending configure settles it.
+        let configure_serial = with_states(window.toplevel.wl_surface(), |states| {
+            states
+                .data_map
+                .get::<XdgToplevelSurfaceData>()
+                .and_then(|data| data.lock().ok().and_then(|data| data.current_serial))
+        });
+        let opened = window.map().then_some(window.id);
+        let resized = window.remember_committed_size(size, configure_serial);
+
+        if opened.is_some() || resized {
+            self.touch();
+        }
+        if let Some(window) = opened {
+            self.report(Event::WindowOpened { window });
+        }
+    }
+
+    /// Unmaps a surface after a null-buffer commit. A later commit may remap the
+    /// same window, so its identifier remains stable. Reports `WindowClosed`
+    /// before `SurfaceGone` so consumers observe the window before its texture
+    /// is dropped.
+    pub(crate) fn unmap_surface(&mut self, id: SurfaceId) {
+        self.touch();
+
+        if let Some(window) = self.windows.by_surface_mut(id)
+            && window.unmap()
+        {
+            let window = window.id;
+            self.report(Event::WindowClosed { window });
+        }
+
+        self.report(Event::SurfaceGone { surface: id });
+    }
+
+    /// Releases the state retained for a destroyed surface. Releasing its
+    /// retained `wl_buffer` lets the client's dmabuf be collected.
+    pub(crate) fn forget_surface(&mut self, surface: &WlSurface) {
+        let Some(id) = self.surfaces.forget(surface) else {
+            return;
+        };
+
+        // The surface's callbacks are destroyed with it; answering them would
+        // be a protocol error.
+        self.pending_frame_callbacks.remove(&id);
+        self.forget_pacing(id);
+        if let Some(buffer) = with_states(surface, SurfaceBufWithImage::remove_from_surface) {
+            buffer.release();
+        }
+        self.report(Event::SurfaceGone { surface: id });
     }
 }
 
@@ -410,203 +369,9 @@ impl SurfaceContent {
     reason = "a failed expectation is how a test reports a failure; the ban is on production code"
 )]
 mod tests {
-    use std::{cell::RefCell, rc::Rc};
-
     use pretty_assertions::assert_eq;
 
     use super::*;
-
-    /// Records releases in order for buffer-lifetime assertions.
-    #[derive(Clone, Debug, PartialEq)]
-    struct CountedBuffer {
-        name: &'static str,
-        released: Rc<RefCell<Vec<&'static str>>>,
-    }
-
-    impl ReleasableBuffer for CountedBuffer {
-        fn release(&self) {
-            self.released.borrow_mut().push(self.name);
-        }
-    }
-
-    fn surface(raw: u64) -> SurfaceId {
-        SurfaceId::new(raw).expect("non-zero")
-    }
-
-    #[test]
-    fn the_first_buffer_for_a_surface_releases_nothing() {
-        let released = Rc::new(RefCell::new(Vec::new()));
-        let mut buffers = RetainedBuffers::default();
-
-        buffers.retain(
-            surface(1),
-            CountedBuffer {
-                name: "first",
-                released: Rc::clone(&released),
-            },
-        );
-
-        assert!(released.borrow().is_empty());
-        assert_eq!(buffers.len(), 1);
-    }
-
-    #[test]
-    fn a_new_buffer_releases_the_one_it_replaces() {
-        let released = Rc::new(RefCell::new(Vec::new()));
-        let mut buffers = RetainedBuffers::default();
-        let buffer = |name| CountedBuffer {
-            name,
-            released: Rc::clone(&released),
-        };
-
-        buffers.retain(surface(1), buffer("first"));
-        buffers.retain(surface(1), buffer("second"));
-        buffers.retain(surface(1), buffer("third"));
-
-        assert_eq!(*released.borrow(), ["first", "second"]);
-        assert_eq!(
-            buffers.len(),
-            1,
-            "only the newest buffer is held, whatever the client's cycle length"
-        );
-    }
-
-    /// Retaining the same buffer must not release it while sampling continues.
-    #[test]
-    fn retaining_the_buffer_already_held_releases_nothing() {
-        let released = Rc::new(RefCell::new(Vec::new()));
-        let mut buffers = RetainedBuffers::default();
-        let buffer = CountedBuffer {
-            name: "held",
-            released: Rc::clone(&released),
-        };
-
-        buffers.retain(surface(1), buffer.clone());
-        buffers.retain(surface(1), buffer);
-
-        assert!(
-            released.borrow().is_empty(),
-            "the buffer is still being sampled, so the client must not be told it is free"
-        );
-        assert_eq!(buffers.len(), 1);
-    }
-
-    #[test]
-    fn the_retained_buffers_can_be_enumerated_for_re_import() {
-        let released = Rc::new(RefCell::new(Vec::new()));
-        let mut buffers = RetainedBuffers::default();
-        let buffer = |name| CountedBuffer {
-            name,
-            released: Rc::clone(&released),
-        };
-
-        buffers.retain(surface(1), buffer("one"));
-        buffers.retain(surface(2), buffer("two"));
-
-        let mut named: Vec<_> = buffers
-            .entries()
-            .map(|(surface, buffer)| (surface, buffer.name))
-            .collect();
-        named.sort_unstable();
-        assert_eq!(named, [(surface(1), "one"), (surface(2), "two")]);
-    }
-
-    #[test]
-    fn surfaces_do_not_release_each_others_buffers() {
-        let released = Rc::new(RefCell::new(Vec::new()));
-        let mut buffers = RetainedBuffers::default();
-        let buffer = |name| CountedBuffer {
-            name,
-            released: Rc::clone(&released),
-        };
-
-        buffers.retain(surface(1), buffer("one"));
-        buffers.retain(surface(2), buffer("two"));
-
-        assert!(released.borrow().is_empty());
-        assert_eq!(buffers.len(), 2);
-    }
-
-    #[test]
-    fn forgetting_a_surface_releases_its_buffer_and_is_idempotent() {
-        let released = Rc::new(RefCell::new(Vec::new()));
-        let mut buffers = RetainedBuffers::default();
-
-        buffers.retain(
-            surface(1),
-            CountedBuffer {
-                name: "held",
-                released: Rc::clone(&released),
-            },
-        );
-        buffers.forget(surface(1));
-        buffers.forget(surface(1));
-
-        assert_eq!(
-            *released.borrow(),
-            ["held"],
-            "a second forget must not release the same buffer twice"
-        );
-        assert_eq!(buffers.len(), 0);
-    }
-
-    #[test]
-    fn forgetting_a_surface_that_never_committed_does_nothing() {
-        let mut buffers = RetainedBuffers::<CountedBuffer>::default();
-        buffers.forget(surface(9));
-        assert_eq!(buffers.len(), 0);
-    }
-
-    #[test]
-    fn a_scale_rejects_what_the_protocol_forbids() {
-        assert_eq!(BufferScale::from_protocol(0), None);
-        assert_eq!(BufferScale::from_protocol(-2), None);
-        assert_eq!(BufferScale::from_protocol(i32::MIN), None);
-        assert_eq!(BufferScale::from_protocol(1), Some(BufferScale::ONE));
-        assert_eq!(BufferScale::from_protocol(3).map(BufferScale::get), Some(3));
-    }
-
-    #[test]
-    fn an_unrotated_surface_divides_by_its_scale() {
-        let content = SurfaceContent {
-            size: PixelSize::new(1920, 1080),
-            transform: BufferTransform::Normal,
-            scale: BufferScale::from_protocol(2).expect("positive"),
-        };
-
-        assert_eq!(content.logical_size(), PixelSize::new(960, 540));
-    }
-
-    #[test]
-    fn a_rotated_surface_exchanges_its_axes() {
-        for transform in [
-            BufferTransform::Rotated90,
-            BufferTransform::Rotated270,
-            BufferTransform::Flipped90,
-            BufferTransform::Flipped270,
-        ] {
-            let content = SurfaceContent {
-                size: PixelSize::new(1920, 1080),
-                transform,
-                scale: BufferScale::ONE,
-            };
-
-            assert_eq!(
-                content.logical_size(),
-                PixelSize::new(1080, 1920),
-                "{transform:?} rotates by a quarter turn"
-            );
-        }
-
-        for transform in [
-            BufferTransform::Normal,
-            BufferTransform::Rotated180,
-            BufferTransform::Flipped,
-            BufferTransform::Flipped180,
-        ] {
-            assert!(!transform.swaps_axes(), "{transform:?} keeps its axes");
-        }
-    }
 
     #[test]
     fn a_transform_from_a_later_protocol_version_is_not_mistaken_for_normal() {

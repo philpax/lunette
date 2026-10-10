@@ -6,7 +6,7 @@ lunette is a Wayland compositor. Applications it spawns connect to its socket an
 
 ## Protocols
 
-The compositor advertises `wl_compositor` (version 6), `xdg_wm_base`, `zxdg_decoration_manager_v1`, the KDE server decoration protocol, `wl_output`, `wl_seat`, `wl_shm`, `zwp_linux_dmabuf_v1`, `wp_viewporter`, `wp_fractional_scale_v1`, `wp_content_type_v1`, `wl_data_device_manager`, `zwp_primary_selection_device_manager_v1`, `zwlr_data_control_manager_v1`, and `ext_data_control_manager_v1`. `crates/lunette-compositor/src/state/compositor.rs` creates them.
+The compositor advertises `wl_compositor` (version 6), `xdg_wm_base`, `zxdg_decoration_manager_v1`, the KDE server decoration protocol, `wl_output`, `wl_seat`, `wl_shm`, `zwp_linux_dmabuf_v1`, `wp_viewporter`, `wp_fractional_scale_v1`, `wp_content_type_v1`, `wl_data_device_manager`, `zwp_primary_selection_device_manager_v1`, `zwlr_data_control_manager_v1`, and `ext_data_control_manager_v1`. `Application::new` in `crates/lunette-compositor/src/wayvr/mod.rs` creates them.
 
 `wp_fractional_scale_v1` decouples panel resolution from physical size, so a panel can render sharper as the user approaches. `wp_content_type_v1` is reported to Lua as `win.contentType` and not acted on natively; the pacing provider combines it with the observed commit rate ([Rendering](rendering.md#frame-pacing)). `linux-drm-syncobj-v1` is not supported ([Rendering](rendering.md#synchronisation)).
 
@@ -32,7 +32,7 @@ The scale provider, `@lunette-plugins/scale`, applied by the `desktop/scale` ent
 
 ## Decorations
 
-lunette forces server-side decorations through `xdg-decoration` and the KDE protocol, as WayVR does, and draws none itself. Titlebars and controls are 3D objects the standard library draws around the panel, which keeps panel pixels for content.
+lunette honours the decoration mode a client asks for through `xdg-decoration` or the KDE protocol, as WayVR does. A toplevel that asks for nothing, or withdraws its request, is told to use server-side decorations. The compositor records, for each toplevel, whether it draws its own decorations. lunette draws no server-side decorations in the client's pixels: titlebars and controls are 3D objects the standard library draws around the panel, which keeps panel pixels for content.
 
 ## Windows
 
@@ -89,6 +89,10 @@ The `wl_output` global is lunette's own (`crates/lunette-compositor/src/output.r
 
 The default output stays as the output for unassigned clients, because adopted clients are never assigned one and many toolkits assume at least one output exists. An absent `output` in a spawn request means the default output.
 
+### Window bookkeeping runs after dispatch, from WayVR's task queue
+
+The `xdg_shell` handlers queue a task for a new toplevel, a destroyed toplevel, a title change, and a minimize request, as WayVR's do, and the drag-and-drop handlers queue one when a drag starts and when it drops. The compositor thread drains the queue after each dispatch and before it flushes the clients, in `crates/lunette-compositor/src/commands.rs`, where WayVR drains it on its tick. A new toplevel therefore becomes a window, and receives its initial configure, in the same loop iteration that created it, and reads its title and app id at that point. Registering the window inside the handler was rejected because it would rewrite the handlers that keep the vendored code diffable against WayVR. A toplevel whose client disconnects has no client to queue the task for, so its window is removed at once.
+
 ### An adopted process's disappearance is not an exit
 
 `/proc` shows that an adopted process is gone but not how it ended, and the protocol has no unknown status. Reporting `Exited { code: 0 }` invented a status for a process Lua never held a handle to, so the registry drops the entry without an event. An `unknown` outcome was rejected because no consumer could act on it.
@@ -104,5 +108,9 @@ smithay's `send_frames_surface_tree` cannot rate-limit: it always sends to surfa
 ## Known gaps
 
 There is no sandboxing.
+
+Whether a toplevel draws its own decorations is not yet reported to Lua, so `desktop/decorations` also gives a titlebar to a window that draws its own.
+
+A client can start a drag, and the compositor tracks which seat owns it, but nothing reports the drag to Lua and nothing draws its icon.
 
 X11 window management semantics are whatever `xwayland-satellite` provides.

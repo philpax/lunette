@@ -34,7 +34,7 @@ use crate::{
         KeyModifier, KeyboardConfig, KeymapConfig, KeymapDefaults, KeymapText, ModifierState,
         PixelPoint, SeatId, SeatSnapshot, WindowId,
     },
-    state::CompositorState,
+    wayvr::comp::Application,
 };
 
 /// Stores seats in creation order, which is the order clients observe their
@@ -56,7 +56,7 @@ impl SeatRegistry {
     /// keymap, or a keyboard that smithay refuses to create.
     pub(crate) fn create(
         &mut self,
-        state: &mut SeatState<CompositorState>,
+        state: &mut SeatState<Application>,
         display: &DisplayHandle,
         id: SeatId,
         name: &str,
@@ -154,7 +154,7 @@ impl SeatRegistry {
         entry.seat.remove_pointer();
         entry.seat.remove_keyboard();
         if let Some(global) = entry.seat.global() {
-            display.remove_global::<CompositorState>(global);
+            display.remove_global::<Application>(global);
         }
         Ok(())
     }
@@ -171,7 +171,7 @@ impl SeatRegistry {
     ///
     /// Smithay passes the seat to per-compositor handlers without the identifier,
     /// so handlers use this mapping before accessing registry state.
-    pub(crate) fn id_of(&self, seat: &Seat<CompositorState>) -> Option<SeatId> {
+    pub(crate) fn id_of(&self, seat: &Seat<Application>) -> Option<SeatId> {
         self.seats
             .iter()
             .find(|entry| &entry.seat == seat)
@@ -187,11 +187,11 @@ impl fmt::Debug for SeatRegistry {
 
 pub(crate) struct SeatEntry {
     id: SeatId,
-    seat: Seat<CompositorState>,
+    seat: Seat<Application>,
     /// Upstream's `seat_pointer` and `seat_keyboard`, which the input methods
     /// in `src/wayvr/client.rs` run against.
-    pub(crate) seat_pointer: PointerHandle<CompositorState>,
-    pub(crate) seat_keyboard: KeyboardHandle<CompositorState>,
+    pub(crate) seat_pointer: PointerHandle<Application>,
+    pub(crate) seat_keyboard: KeyboardHandle<Application>,
     /// The keymap compiled in this crate for queries and restoration. Smithay
     /// compiles the same text in its own context because libxkbcommon keymaps
     /// are not thread-safe.
@@ -229,7 +229,7 @@ impl SeatEntry {
         self.mouse = mouse;
     }
 
-    pub(crate) const fn seat(&self) -> &Seat<CompositorState> {
+    pub(crate) const fn seat(&self) -> &Seat<Application> {
         &self.seat
     }
 }
@@ -256,7 +256,7 @@ pub(crate) struct MouseState {
 ///
 /// The handler receives no [`SeatId`], so the state is stored in that seat's
 /// user-data map.
-pub(crate) fn set_cursor_image(seat: &Seat<CompositorState>, image: CursorImageStatus) {
+pub(crate) fn set_cursor_image(seat: &Seat<Application>, image: CursorImageStatus) {
     seat.user_data().insert_if_missing(CursorImage::default);
     if let Some(cursor) = seat.user_data().get::<CursorImage>() {
         *cursor.status.borrow_mut() = image;
@@ -268,7 +268,7 @@ pub(crate) fn set_cursor_image(seat: &Seat<CompositorState>, image: CursorImageS
 /// This test-only seam checks the per-seat `SeatHandler::cursor_image` state;
 /// the compositor does not render the cursor itself.
 #[cfg(any(test, feature = "test-fakes"))]
-pub(crate) fn cursor_image(seat: &Seat<CompositorState>) -> CursorImageStatus {
+pub(crate) fn cursor_image(seat: &Seat<Application>) -> CursorImageStatus {
     seat.user_data()
         .get::<CursorImage>()
         .map_or_else(CursorImageStatus::default_named, |cursor| {

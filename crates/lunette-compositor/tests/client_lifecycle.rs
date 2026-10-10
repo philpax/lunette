@@ -10,10 +10,10 @@ mod harness;
 
 use harness::{EXPECTED_GLOBALS, WINDOW_SIZE, only_window, with_one_window};
 use lunette_compositor::{
-    protocol::{Event, WindowId},
+    protocol::{Event, PixelSize, WindowId},
     state::DEFAULT_OUTPUT,
     surface::ShmFormat,
-    test_client::TestClient,
+    test_client::{OutputTransform, TestClient},
     testing::TestCompositor,
 };
 use pretty_assertions::assert_eq;
@@ -135,4 +135,61 @@ fn a_buffer_the_importer_refuses_leaves_the_window_out_of_the_snapshot() {
         compositor.snapshot().windows.is_empty(),
         "a window with no importable content is not shown"
     );
+}
+
+#[test]
+fn a_window_with_a_scaled_buffer_is_its_buffer_divided_by_the_scale() {
+    let mut compositor = TestCompositor::new();
+    let mut client = TestClient::connect(&mut compositor);
+    client.open_toplevel(&mut compositor);
+
+    client.set_buffer_scale(2);
+    client.attach_buffer(&mut compositor, PixelSize::new(1280, 960));
+
+    assert_eq!(only_window(&compositor).size, PixelSize::new(640, 480));
+}
+
+#[test]
+fn a_window_with_a_quarter_turned_buffer_exchanges_its_axes() {
+    for transform in [
+        OutputTransform::_90,
+        OutputTransform::_270,
+        OutputTransform::Flipped90,
+        OutputTransform::Flipped270,
+    ] {
+        let mut compositor = TestCompositor::new();
+        let mut client = TestClient::connect(&mut compositor);
+        client.open_toplevel(&mut compositor);
+
+        client.set_buffer_transform(transform);
+        client.attach_buffer(&mut compositor, PixelSize::new(640, 480));
+
+        assert_eq!(
+            only_window(&compositor).size,
+            PixelSize::new(480, 640),
+            "{transform:?} turns the buffer a quarter"
+        );
+    }
+}
+
+#[test]
+fn a_window_with_a_half_turned_or_mirrored_buffer_keeps_its_axes() {
+    for transform in [
+        OutputTransform::_180,
+        OutputTransform::Flipped,
+        OutputTransform::Flipped180,
+    ] {
+        let mut compositor = TestCompositor::new();
+        let mut client = TestClient::connect(&mut compositor);
+        client.open_toplevel(&mut compositor);
+
+        client.set_buffer_transform(transform);
+        client.attach_buffer(&mut compositor, PixelSize::new(640, 480));
+
+        assert_eq!(
+            only_window(&compositor).size,
+            PixelSize::new(640, 480),
+            "{transform:?} keeps the buffer's axes"
+        );
+    }
 }

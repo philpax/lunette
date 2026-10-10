@@ -14,16 +14,17 @@ use smithay::{
 use tracing::{debug, info, warn};
 
 use crate::{
+    config::DEFAULT_OUTPUT,
     output::{OutputEntry, integer_scale},
     protocol::{OutputId, OutputMode, PixelSize},
-    state::{CompositorState, DEFAULT_OUTPUT, compositor::ClientState},
+    wayvr::comp::{Application, ClientState},
 };
 
-impl CompositorState {
+impl Application {
     /// Rejects a duplicate identifier. Replacing the existing output would
     /// silently reconfigure its bound clients.
-    pub(super) fn create_output(&mut self, output: OutputId, mode: OutputMode) {
-        match self.outputs.create(&self.display, output, mode) {
+    pub(crate) fn create_output(&mut self, output: OutputId, mode: OutputMode) {
+        match self.outputs.create(&self.display_handle, output, mode) {
             Ok(()) => {
                 info!(%output, "an output was created");
                 self.touch();
@@ -35,7 +36,7 @@ impl CompositorState {
     /// Updates the registry, surface scales, and toplevel configures together.
     /// A client that receives only the registry event keeps rendering at the old
     /// scale.
-    pub(super) fn reconfigure_output(&mut self, output: OutputId, mode: OutputMode) {
+    pub(crate) fn reconfigure_output(&mut self, output: OutputId, mode: OutputMode) {
         match self.outputs.reconfigure(output, mode) {
             Ok(()) => {
                 self.rescale_output(output);
@@ -46,13 +47,13 @@ impl CompositorState {
     }
 
     /// Refuses to withdraw the default output because unassigned clients use it.
-    pub(super) fn destroy_output(&mut self, output: OutputId) {
+    pub(crate) fn destroy_output(&mut self, output: OutputId) {
         if output == DEFAULT_OUTPUT {
             debug!("the default output cannot be destroyed; a client assigned none needs it");
             return;
         }
 
-        let orphaned = match self.outputs.destroy(&self.display, output) {
+        let orphaned = match self.outputs.destroy(&self.display_handle, output) {
             Ok(surfaces) => surfaces,
             Err(error) => {
                 warn!(%error, "could not destroy an output");
@@ -73,7 +74,7 @@ impl CompositorState {
 
         // Collect clients before looking up client data. Both operations acquire
         // the backend lock, so nesting them would deadlock.
-        let backend = self.display.backend_handle();
+        let backend = self.display_handle.backend_handle();
         let mut connected = Vec::new();
         backend.with_all_clients(|client| connected.push(client));
 
@@ -99,7 +100,11 @@ impl CompositorState {
         }
         self.windows.move_to_output(withdrawn, DEFAULT_OUTPUT);
 
-        if reassigned && let Err(error) = self.outputs.readvertise(&self.display, DEFAULT_OUTPUT) {
+        if reassigned
+            && let Err(error) = self
+                .outputs
+                .readvertise(&self.display_handle, DEFAULT_OUTPUT)
+        {
             warn!(%error, "could not re-advertise the default output");
         }
         self.rescale_output(DEFAULT_OUTPUT);
@@ -108,7 +113,7 @@ impl CompositorState {
     /// Updates surface scales, size limits, and toplevel configures together.
     /// Windows keep their committed size when it fits the new bounds and are
     /// clamped when it does not.
-    pub(super) fn rescale_output(&mut self, output: OutputId) {
+    pub(crate) fn rescale_output(&mut self, output: OutputId) {
         for surface in self.outputs.surfaces_on(output) {
             self.send_surface_scale(&surface);
         }
@@ -123,20 +128,20 @@ impl CompositorState {
 
     /// Returns the mode for `output`, falling back to the default output and then
     /// to the configured output mode.
-    pub(super) fn mode_of(&self, output: OutputId) -> OutputMode {
+    pub(crate) fn mode_of(&self, output: OutputId) -> OutputMode {
         self.outputs
             .get(output)
             .or_else(|| self.outputs.get(DEFAULT_OUTPUT))
             .map_or(self.config.output, OutputEntry::mode)
     }
 
-    pub(super) fn output_of(&self, surface: &WlSurface) -> OutputId {
+    pub(crate) fn output_of(&self, surface: &WlSurface) -> OutputId {
         assigned_output(surface).unwrap_or(DEFAULT_OUTPUT)
     }
 
     /// Returns logical bounds for `output`, falling back to the default output and
     /// then to the configured output size.
-    pub(super) fn output_bounds(&self, output: OutputId) -> Size<i32, Logical> {
+    pub(crate) fn output_bounds(&self, output: OutputId) -> Size<i32, Logical> {
         self.outputs
             .get(output)
             .or_else(|| self.outputs.get(DEFAULT_OUTPUT))
@@ -150,7 +155,7 @@ impl CompositorState {
     ///
     /// An unassigned client, or one whose assigned output is unavailable, uses
     /// the default output's bounds.
-    pub(super) fn surface_bounds(&self, surface: &WlSurface) -> Size<i32, Logical> {
+    pub(crate) fn surface_bounds(&self, surface: &WlSurface) -> Size<i32, Logical> {
         self.output_bounds(self.output_of(surface))
     }
 
@@ -165,7 +170,7 @@ impl CompositorState {
     ///
     /// Smithay stores fractional-scale state in thread-affine surface data, so this
     /// method runs on the compositor thread alone.
-    pub(super) fn send_surface_scale(&self, surface: &WlSurface) {
+    pub(crate) fn send_surface_scale(&self, surface: &WlSurface) {
         let mode = self.mode_of(self.output_of(surface));
 
         with_states(surface, |states| {
@@ -179,12 +184,6 @@ impl CompositorState {
                 fractional.set_preferred_scale(mode.scale.get());
             });
         });
-    }
-
-    /// Assigns the surface's output before advertising its scale.
-    pub(super) fn send_initial_surface_state(&mut self, surface: &WlSurface) {
-        self.outputs.enter(surface, self.output_of(surface));
-        self.send_surface_scale(surface);
     }
 }
 

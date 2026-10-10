@@ -13,8 +13,8 @@ use std::{error::Error, fmt};
 
 use smithay::{
     reexports::wayland_server::{
-        DisplayHandle, Resource, Weak,
-        backend::GlobalId,
+        Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New, Resource, Weak,
+        backend::{ClientId, GlobalId},
         protocol::{wl_output, wl_output::WlOutput, wl_surface::WlSurface},
     },
     utils::{Logical, Size},
@@ -23,7 +23,7 @@ use tracing::{debug, warn};
 
 use crate::{
     protocol::{OutputId, OutputMode, OutputScale, OutputSnapshot, PixelSize},
-    state::CompositorState,
+    wayvr::comp::{Application, ClientState},
 };
 
 /// Outputs in creation order; advertisement follows the same order.
@@ -51,10 +51,8 @@ impl OutputRegistry {
             });
         }
 
-        let global = display.create_global::<CompositorState, WlOutput, _>(
-            OUTPUT_VERSION,
-            OutputGlobal { output: id },
-        );
+        let global = display
+            .create_global::<Application, WlOutput, _>(OUTPUT_VERSION, OutputGlobal { output: id });
         self.outputs.push(OutputEntry {
             id,
             name: format!("lunette-{}", id.get()),
@@ -124,7 +122,7 @@ impl OutputRegistry {
             }
         }
         let orphaned: Vec<WlSurface> = entry.live_surfaces().collect();
-        display.remove_global::<CompositorState>(entry.global);
+        display.remove_global::<Application>(entry.global);
         Ok(orphaned)
     }
 
@@ -142,12 +140,10 @@ impl OutputRegistry {
         id: OutputId,
     ) -> Result<(), OutputError> {
         let stale = self.entry_mut(id)?.global.clone();
-        display.remove_global::<CompositorState>(stale);
+        display.remove_global::<Application>(stale);
 
-        let global = display.create_global::<CompositorState, WlOutput, _>(
-            OUTPUT_VERSION,
-            OutputGlobal { output: id },
-        );
+        let global = display
+            .create_global::<Application, WlOutput, _>(OUTPUT_VERSION, OutputGlobal { output: id });
         self.entry_mut(id)?.global = global;
         Ok(())
     }
@@ -444,6 +440,52 @@ fn physical_size(size: PixelSize, scale: f64) -> PhysicalSize {
 struct PhysicalSize {
     width: i32,
     height: i32,
+}
+
+impl GlobalDispatch<WlOutput, OutputGlobal> for Application {
+    fn bind(
+        state: &mut Self,
+        _display: &DisplayHandle,
+        _client: &Client,
+        resource: New<WlOutput>,
+        global: &OutputGlobal,
+        data_init: &mut DataInit<'_, Self>,
+    ) {
+        let instance = data_init.init(resource, OutputResource::new(global.output));
+        state.outputs.bind(global.output, &instance);
+    }
+
+    /// The backend calls this predicate both when advertising globals and when
+    /// binding them. The bind-time check prevents a client from binding a global
+    /// it was not shown; both checks are required.
+    ///
+    /// `can_view` receives the client but no compositor state, so the assignment
+    /// lives in [`ClientState`], not in compositor state keyed by `ClientId`.
+    fn can_view(client: Client, global: &OutputGlobal) -> bool {
+        client
+            .get_data::<ClientState>()
+            .is_some_and(|state| state.sees_output(global.output))
+    }
+}
+
+impl Dispatch<WlOutput, OutputResource> for Application {
+    /// `wl_output` has one request, `release`, and it is a destructor. The
+    /// backend destroys the object and calls [`Dispatch::destroyed`], so there is
+    /// nothing to do here.
+    fn request(
+        _state: &mut Self,
+        _client: &Client,
+        _resource: &WlOutput,
+        _request: wl_output::Request,
+        _data: &OutputResource,
+        _display: &DisplayHandle,
+        _data_init: &mut DataInit<'_, Self>,
+    ) {
+    }
+
+    fn destroyed(state: &mut Self, _client: ClientId, resource: &WlOutput, data: &OutputResource) {
+        state.outputs.unbind(data.output(), resource);
+    }
 }
 
 #[cfg(test)]

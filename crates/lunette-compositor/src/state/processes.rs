@@ -17,18 +17,18 @@ use crate::{
         Event, OutputId, ProcessId, ProcessOutcome, ProcessSignal, SpawnRequest as SpawnCommand,
     },
     spawn::{self, Report, SpawnRequest},
-    state::CompositorState,
     thread::LoopData,
+    wayvr::comp::Application,
 };
 
 /// The shared poll checks process output, exits, and the satellite every 100
 /// milliseconds. Child output is diagnostic, so polling stays off the frame path.
 const PROCESS_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
-impl CompositorState {
+impl Application {
     /// A failed spawn is reported as `ProcessExited` with a spawn-failure
     /// outcome, so the request has a terminal result.
-    pub(super) fn spawn_process(&mut self, request: &SpawnCommand) {
+    pub(crate) fn spawn_process(&mut self, request: &SpawnCommand) {
         let plan = SpawnRequest {
             process: request.process,
             argv: &request.argv,
@@ -64,7 +64,7 @@ impl CompositorState {
 
     /// An absent or unknown output leaves the process unassigned, so its clients
     /// see the default output.
-    pub(super) fn assign_output(&mut self, process: ProcessId, output: Option<OutputId>) {
+    pub(crate) fn assign_output(&mut self, process: ProcessId, output: Option<OutputId>) {
         let Some(output) = output else {
             return;
         };
@@ -81,14 +81,14 @@ impl CompositorState {
 
     /// An adopted process stays signalable until a poll observes its `/proc`
     /// entry disappear.
-    pub(super) fn signal_process(&mut self, process: ProcessId, signal: ProcessSignal) {
+    pub(crate) fn signal_process(&mut self, process: ProcessId, signal: ProcessSignal) {
         match self.processes.values_mut().find(|p| p.id() == process) {
             Some(p) => p.kill(signal),
             None => debug!(%process, "a signal was asked for a process that is already gone"),
         }
     }
 
-    pub(super) fn process_of(&self, surface: &WlSurface) -> Option<ProcessId> {
+    pub(crate) fn process_of(&self, surface: &WlSurface) -> Option<ProcessId> {
         let client = surface.client()?;
         self.clients
             .iter()
@@ -118,7 +118,7 @@ impl CompositorState {
         }
     }
 
-    pub(super) fn poll_processes(&mut self) -> TimeoutAction {
+    pub(crate) fn poll_processes(&mut self) -> TimeoutAction {
         self.satellite.poll();
 
         for report in spawn::poll(&mut self.processes, self.inspector.as_ref()) {

@@ -31,8 +31,9 @@ use crate::{
     },
     selection::{HostEvent, HostEvents},
     spawn::{ProcFilesystem, ProcessInspector, ProcessSpawner, SystemSpawner},
-    state::{CompositorConfig, CompositorState, StateParts},
+    state::CompositorConfig,
     surface::BufferImporter,
+    wayvr::{StateParts, comp::Application},
 };
 
 pub(crate) const COMMAND_CAPACITY: usize = 256;
@@ -376,8 +377,10 @@ fn run(ingredients: Ingredients, started: &mpsc::Sender<Result<(), StartError>>)
     info!("compositor thread running");
 
     let outcome = event_loop.run(None, &mut data, |data| {
-        // Sweep after dispatch so imports whose buffers were destroyed
-        // during dispatch can be collected.
+        // Drain the handlers' tasks first, so a new toplevel's initial
+        // configure goes out in this iteration's flush. Sweep after dispatch so
+        // imports whose buffers were destroyed during dispatch can be collected.
+        data.state.tick_events();
         data.state.sweep_imports();
         data.state.send_frame_callbacks();
         data.state.publish_if_dirty();
@@ -414,7 +417,7 @@ pub(crate) fn build(ingredients: Ingredients) -> Result<(CompositorLoop, LoopDat
     let event_loop = CompositorLoop::try_new().map_err(StartError::CreateEventLoop)?;
     let handle = event_loop.handle();
 
-    let mut display = Display::<CompositorState>::new().map_err(StartError::CreateDisplay)?;
+    let mut display = Display::<Application>::new().map_err(StartError::CreateDisplay)?;
 
     // Level-triggered readiness dispatches again while a client still has
     // unread requests.
@@ -478,7 +481,7 @@ pub(crate) fn build(ingredients: Ingredients) -> Result<(CompositorLoop, LoopDat
             cause: error.error,
         })?;
 
-    let mut state = CompositorState::new(StateParts {
+    let mut state = Application::new(StateParts {
         display: &display.handle(),
         config,
         importer,
@@ -501,8 +504,8 @@ pub(crate) fn build(ingredients: Ingredients) -> Result<(CompositorLoop, LoopDat
 }
 
 pub(crate) struct LoopData {
-    pub(crate) display: Display<CompositorState>,
-    pub(crate) state: CompositorState,
+    pub(crate) display: Display<Application>,
+    pub(crate) state: Application,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

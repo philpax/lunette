@@ -49,10 +49,11 @@ use crate::{
     commands::KeymapUploadError,
     protocol::{Argv, KeymapText, Pid, PointerButton, ProcessId},
     spawn::{self, ChildProcess, DisplayEnvironment, ProcessSpawner, SpawnPlan},
-    state::{self as comp, ClientState},
     thread::LoopData,
     wayvr::process::find_by_pid,
 };
+
+use super::comp::{self, ClientState};
 
 pub(crate) struct WayVRClient {
     pub client: wayland_server::Client,
@@ -216,10 +217,10 @@ impl comp::Application {
         stream: UnixStream,
     ) -> io::Result<wayland_server::Client> {
         let client = self
-            .display
+            .display_handle
             .insert_client(stream, Arc::new(comp::ClientState::default()))?;
 
-        let credentials = match client.get_credentials(&self.display) {
+        let credentials = match client.get_credentials(&self.display_handle) {
             Ok(credentials) => credentials,
             Err(error) => {
                 log::warn!(%error, "could not read a connecting client's credentials");

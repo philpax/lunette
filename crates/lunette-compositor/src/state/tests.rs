@@ -17,14 +17,12 @@ use smithay::backend::allocator::{Format, Fourcc, Modifier};
 
 use crate::{
     client::XwaylandSatellite,
+    commands::{protocol_state, toplevel_state},
     protocol::{
         Argv, Command, Event, PixelSize, ProcessId, ProcessOutcome, ProcessSignal,
         SpawnRequest as SpawnCommand, Stream, ToplevelState, ToplevelStates, WindowSnapshot,
     },
-    state::{
-        DEFAULT_OUTPUT,
-        compositor::{CompositorConfig, DmabufSupport, protocol_state, toplevel_state},
-    },
+    state::{CompositorConfig, DEFAULT_OUTPUT, DmabufSupport},
     test_client::TestClient,
     testing::{DEADLINE, TestCompositor},
 };

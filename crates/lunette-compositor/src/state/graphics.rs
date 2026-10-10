@@ -18,26 +18,34 @@
 //! uploads and other submissions. The importer trait is the graphics boundary used by device-free
 //! tests.
 
+use smithay::wayland::{compositor::with_states, dmabuf::get_dmabuf};
 use tracing::{info, warn};
 
 use crate::{
-    protocol::Event,
-    state::compositor::CompositorState,
+    protocol::{Event, ImportedBuffer},
     surface::{BufferImporter, NoGraphics},
+    wayvr::{SurfaceBufWithImage, comp::Application},
 };
 
-impl CompositorState {
+impl Application {
     /// Drops the device-bound importer before reporting [`Event::GraphicsReleased`]. The frame
     /// thread destroys the device after receiving that event.
-    pub(super) fn release_graphics(&mut self) {
+    pub(crate) fn release_graphics(&mut self) {
         let previous = std::mem::replace(
-            &mut self.importer,
+            &mut self.image_importer,
             Box::new(NoGraphics) as Box<dyn BufferImporter>,
         );
         drop(previous);
 
+        let retained = self
+            .surfaces
+            .live()
+            .filter(|(_, surface)| {
+                with_states(surface, SurfaceBufWithImage::retained_buffer).is_some()
+            })
+            .count();
         info!(
-            surfaces = self.buffers.entries().count(),
+            surfaces = retained,
             "released the graphics device; the clients and their buffers are untouched"
         );
         self.report(Event::GraphicsReleased);
@@ -46,31 +54,48 @@ impl CompositorState {
     /// Installs the replacement importer and re-imports each retained dmabuf. Successful
     /// re-imports report [`Event::BufferImported`] before [`Event::GraphicsAdopted`].
     ///
-    /// A failed re-import removes the retained buffer, which releases it to the client. The
-    /// surface has no new content until the client commits another buffer.
-    pub(super) fn adopt_graphics(&mut self, importer: Box<dyn BufferImporter>) {
-        self.importer = importer;
+    /// A failed re-import releases the retained buffer to the client. The surface has no new
+    /// content until the client commits another buffer.
+    pub(crate) fn adopt_graphics(&mut self, importer: Box<dyn BufferImporter>) {
+        self.image_importer = importer;
 
         let retained: Vec<_> = self
-            .buffers
-            .entries()
-            .map(|(surface, buffer)| (surface, buffer.clone()))
+            .surfaces
+            .live()
+            .filter_map(|(id, surface)| {
+                let buffer = with_states(&surface, SurfaceBufWithImage::retained_buffer)?;
+                Some((id, surface, buffer))
+            })
             .collect();
 
         let mut restored = 0;
         let mut failed = 0;
-        for (surface, buffer) in retained {
-            let Some(content) = self.contents.get(&surface).copied() else {
-                warn!(%surface, "a retained buffer had no recorded content; releasing it");
-                self.buffers.forget(surface);
-                failed += 1;
-                continue;
+        for (id, surface, buffer) in retained {
+            let image = match get_dmabuf(&buffer) {
+                Ok(dmabuf) => self
+                    .image_importer
+                    .import_dmabuf(dmabuf)
+                    .inspect_err(|error| warn!(%error, "could not import a client dmabuf again"))
+                    .ok(),
+                Err(_) => {
+                    warn!("a retained buffer carried no dmabuf");
+                    None
+                }
             };
 
-            if self.import_dmabuf(surface, &buffer, content.transform, content.scale) {
+            if let Some(image) = image {
+                self.report(Event::BufferImported {
+                    surface: id,
+                    buffer: ImportedBuffer::Image(image),
+                });
+                self.report(Event::SurfaceDamaged { surface: id });
                 restored += 1;
             } else {
-                self.buffers.forget(surface);
+                if let Some(buffer) =
+                    with_states(&surface, SurfaceBufWithImage::take_retained_buffer)
+                {
+                    buffer.release();
+                }
                 failed += 1;
             }
         }

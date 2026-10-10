@@ -28,6 +28,8 @@ use std::{
     time::Instant,
 };
 
+/// Re-exports the buffer transforms a surface can declare.
+pub use wayland_client::protocol::wl_output::Transform as OutputTransform;
 /// Re-exports the protocol's scroll-source enum without exposing the client crate.
 pub use wayland_client::protocol::wl_pointer::AxisSource;
 use wayland_client::{
@@ -46,6 +48,8 @@ use wayland_client::{
         wl_surface::WlSurface,
     },
 };
+/// Re-exports the decoration modes a toplevel can ask for.
+pub use wayland_protocols::xdg::decoration::zv1::client::zxdg_toplevel_decoration_v1::Mode as DecorationMode;
 use wayland_protocols::{
     wp::{
         content_type::v1::client::{
@@ -60,12 +64,18 @@ use wayland_protocols::{
             zwp_linux_buffer_params_v1::Flags as DmabufFlags, zwp_linux_dmabuf_v1::ZwpLinuxDmabufV1,
         },
     },
-    xdg::shell::client::{
-        xdg_popup::XdgPopup,
-        xdg_positioner::{self},
-        xdg_surface::XdgSurface,
-        xdg_toplevel::XdgToplevel,
-        xdg_wm_base::XdgWmBase,
+    xdg::{
+        decoration::zv1::client::{
+            zxdg_decoration_manager_v1::ZxdgDecorationManagerV1,
+            zxdg_toplevel_decoration_v1::ZxdgToplevelDecorationV1,
+        },
+        shell::client::{
+            xdg_popup::XdgPopup,
+            xdg_positioner::{self},
+            xdg_surface::XdgSurface,
+            xdg_toplevel::XdgToplevel,
+            xdg_wm_base::XdgWmBase,
+        },
     },
 };
 
@@ -116,6 +126,9 @@ pub struct TestClient {
     /// One content-type object is retained per surface; requesting a second one is a protocol
     /// error, and destroying the object resets the surface's content type.
     content_types: Vec<(ObjectId, WpContentTypeV1)>,
+    /// The toplevel's decoration object stays alive while the client wants a
+    /// mode; destroying it returns the toplevel to the compositor's choice.
+    decoration: Option<ZxdgToplevelDecorationV1>,
 }
 
 impl TestClient {
@@ -155,6 +168,7 @@ impl TestClient {
             buffers: Vec::new(),
             fractional_scales: Vec::new(),
             content_types: Vec::new(),
+            decoration: None,
         }
     }
 
@@ -301,6 +315,22 @@ impl TestClient {
 
         self.attach_to(compositor, &surface, &buffer, width, height);
         self.buffers.push(buffer);
+    }
+
+    /// Declares the toplevel's buffer transform, which its next commit applies.
+    pub fn set_buffer_transform(&mut self, transform: OutputTransform) {
+        self.surface
+            .as_ref()
+            .expect("a toplevel was opened first")
+            .set_buffer_transform(transform);
+    }
+
+    /// Declares the toplevel's buffer scale, which its next commit applies.
+    pub fn set_buffer_scale(&mut self, scale: i32) {
+        self.surface
+            .as_ref()
+            .expect("a toplevel was opened first")
+            .set_buffer_scale(scale);
     }
 
     /// Creates a roleless surface, commits a buffer to it, and returns it.
@@ -826,6 +856,35 @@ impl TestClient {
             surface.destroy();
         }
         self.settle_quiet(compositor);
+    }
+
+    /// Asks for a decoration mode on the open toplevel, creating its decoration
+    /// object on first use, and waits for the compositor's answer.
+    pub fn request_decoration(&mut self, compositor: &mut TestCompositor, mode: DecorationMode) {
+        let handle = self.queue.handle();
+        if self.decoration.is_none() {
+            let manager = self.bind::<ZxdgDecorationManagerV1>(1);
+            let toplevel = self.toplevel.as_ref().expect("a toplevel was opened first");
+            self.decoration = Some(manager.get_toplevel_decoration(toplevel, &handle, ()));
+        }
+        let decoration = self
+            .decoration
+            .as_ref()
+            .unwrap_or_else(|| unreachable!("the decoration was just stored"));
+        decoration.set_mode(mode);
+        self.settle(compositor, |driver| driver.decoration_mode == Some(mode));
+    }
+
+    /// Withdraws the toplevel's decoration preference and waits for the mode the
+    /// compositor chooses instead.
+    pub fn unset_decoration(&mut self, compositor: &mut TestCompositor, expected: DecorationMode) {
+        self.decoration
+            .as_ref()
+            .expect("a decoration mode was requested first")
+            .unset_mode();
+        self.settle(compositor, |driver| {
+            driver.decoration_mode == Some(expected)
+        });
     }
 
     /// Acknowledges the toplevel's latest configure without committing. The next

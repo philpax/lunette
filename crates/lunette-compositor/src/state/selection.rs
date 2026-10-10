@@ -8,16 +8,15 @@ use std::os::fd::OwnedFd;
 
 use smithay::{
     input::Seat,
-    reexports::wayland_server::{Resource, protocol::wl_surface::WlSurface},
     wayland::selection::{
         SelectionSource,
         data_device::{
             clear_data_device_selection, current_data_device_selection_userdata,
-            request_data_device_client_selection, set_data_device_focus, set_data_device_selection,
+            request_data_device_client_selection, set_data_device_selection,
         },
         primary_selection::{
             clear_primary_selection, current_primary_selection_userdata,
-            request_primary_client_selection, set_primary_focus, set_primary_selection,
+            request_primary_client_selection, set_primary_selection,
         },
     },
 };
@@ -26,23 +25,14 @@ use tracing::{debug, info, warn};
 use crate::{
     protocol::SeatId,
     selection::{HostEvent, HostOffer, HostRead, MimeType, SelectionKind},
-    state::compositor::CompositorState,
+    wayvr::comp::Application,
 };
 
-impl CompositorState {
-    /// Selection offers follow keyboard focus for both selection protocols.
-    ///
-    /// Wayland sends an offer only to the client focused on the seat.
-    pub(super) fn focus_selection(&mut self, seat: &Seat<Self>, focused: Option<&WlSurface>) {
-        let client = focused.and_then(|surface| surface.client());
-        set_data_device_focus(&self.display, seat, client.clone());
-        set_primary_focus(&self.display, seat, client);
-    }
-
+impl Application {
     /// Publishes or withdraws a client-owned selection only when it belongs to the
     /// bridge seat. Other seats retain independent selections for their focused
     /// clients.
-    pub(super) fn client_selection(
+    pub(crate) fn client_selection(
         &mut self,
         kind: SelectionKind,
         source: Option<&SelectionSource>,
@@ -77,7 +67,7 @@ impl CompositorState {
     ///
     /// The pipe belongs to the client. The host writes the requested bytes into
     /// it, or the compositor closes it when the request is refused.
-    pub(super) fn serve_selection(&mut self, mime: &str, pipe: OwnedFd, offer: &HostOffer) {
+    pub(crate) fn serve_selection(&mut self, mime: &str, pipe: OwnedFd, offer: &HostOffer) {
         let resolved = self.selection.resolve(offer, mime);
         let Some(host) = self.selection.host() else {
             debug!(mime, "there is no host desktop to read a selection from");
@@ -108,7 +98,7 @@ impl CompositorState {
     /// client-owned selection on the new seat is not re-advertised because
     /// Smithay does not expose its MIME list; a later selection change is
     /// forwarded.
-    pub(super) fn set_clipboard_bridge(&mut self, seat: Option<SeatId>) {
+    pub(crate) fn set_clipboard_bridge(&mut self, seat: Option<SeatId>) {
         if let Some(wanted) = seat
             && self.seats.get(wanted).is_none()
         {
@@ -164,8 +154,8 @@ impl CompositorState {
         }
 
         match kind {
-            SelectionKind::Clipboard => clear_data_device_selection(&self.display, &handle),
-            SelectionKind::Primary => clear_primary_selection(&self.display, &handle),
+            SelectionKind::Clipboard => clear_data_device_selection(&self.display_handle, &handle),
+            SelectionKind::Primary => clear_primary_selection(&self.display_handle, &handle),
         }
     }
 
@@ -212,10 +202,10 @@ impl CompositorState {
         let mimes = offer.mime_strings();
         match offer.kind {
             SelectionKind::Clipboard => {
-                set_data_device_selection(&self.display, &seat, mimes, offer.clone());
+                set_data_device_selection(&self.display_handle, &seat, mimes, offer.clone());
             }
             SelectionKind::Primary => {
-                set_primary_selection(&self.display, &seat, mimes, offer.clone());
+                set_primary_selection(&self.display_handle, &seat, mimes, offer.clone());
             }
         }
     }
@@ -263,7 +253,7 @@ impl CompositorState {
         }
     }
 
-    pub(super) fn report_bridge(&self) {
+    pub(crate) fn report_bridge(&self) {
         match (self.selection.seat(), self.selection.host().is_some()) {
             (Some(seat), true) => info!(%seat, "the host clipboard is bridged to this seat"),
             (_, false) => info!("no host clipboard is bridged; selections stay inside lunette"),

@@ -7,14 +7,14 @@ use tracing::{debug, warn};
 
 use crate::{
     protocol::{FramePacing, SurfaceId},
-    state::CompositorState,
     thread::LoopData,
+    wayvr::comp::Application,
 };
 
-impl CompositorState {
+impl Application {
     /// Ignores pacing changes for unknown surfaces. Surface identifiers are never
     /// reused, so a stale request cannot apply to a different surface later.
-    pub(super) fn set_frame_pacing(&mut self, surface: SurfaceId, pacing: FramePacing) {
+    pub(crate) fn set_frame_pacing(&mut self, surface: SurfaceId, pacing: FramePacing) {
         if !self.surfaces.knows(surface) {
             debug!(%surface, "frame pacing was set for a surface that has gone; ignoring it");
             return;
@@ -31,7 +31,7 @@ impl CompositorState {
     /// `SurfaceAttributes::merge_into` extends the callback list. It does not
     /// replace it, so withheld callbacks remain queued until the surface is due.
     pub(crate) fn send_frame_callbacks(&mut self) {
-        if self.frame_callbacks.is_empty() {
+        if self.pending_frame_callbacks.is_empty() {
             self.disarm_pacing_wakeup();
             return;
         }
@@ -42,7 +42,7 @@ impl CompositorState {
         // Use one clock reading for the batch so due checks and callback timestamps
         // refer to the same instant.
         let mut withheld = HashMap::new();
-        for (surface, callbacks) in self.frame_callbacks.drain() {
+        for (surface, callbacks) in self.pending_frame_callbacks.drain() {
             if !self.pacing.is_due(surface, now) {
                 withheld.insert(surface, callbacks);
                 continue;
@@ -53,7 +53,7 @@ impl CompositorState {
                 callback.done(stamp);
             }
         }
-        self.frame_callbacks = withheld;
+        self.pending_frame_callbacks = withheld;
 
         self.arm_pacing_wakeup(now);
     }
@@ -61,7 +61,7 @@ impl CompositorState {
     fn arm_pacing_wakeup(&mut self, now: Duration) {
         let Some(due) = self
             .pacing
-            .next_due(self.frame_callbacks.keys().copied(), now)
+            .next_due(self.pending_frame_callbacks.keys().copied(), now)
         else {
             self.disarm_pacing_wakeup();
             return;
@@ -97,7 +97,7 @@ impl CompositorState {
 
     /// Removes pacing state when a surface is destroyed, so its rate does not
     /// outlive the surface.
-    pub(super) fn forget_pacing(&mut self, surface: SurfaceId) {
+    pub(crate) fn forget_pacing(&mut self, surface: SurfaceId) {
         self.pacing.forget(surface);
     }
 
