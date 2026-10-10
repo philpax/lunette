@@ -10,7 +10,7 @@ The project is licensed GPL-3.0-only because it uses WayVR's GPL-3.0-only code. 
 
 ## Current status
 
-The workspace contains the compositor, capture, native API, Luau checker, standard library, and plugin runtime. The shipped configuration runs `@lunette-desktop`, which composes the built-in providers and desktop consumers in `@lunette-plugins` as entries that a configuration changes through settings or patches by id. Session controls are VR menu actions and shared UI panels, including a runtime plugin manager and runtime themes. The desktop saves its arrangement when a grab drops a panel and at quit, and arranges unplaced windows with a layout chosen by name. Lua integration tests cover provider outages, placement precedence, save failures, monitor hotplug, reopened windows, and ten production source reloads. [The roadmap](docs/dev/roadmap.md) records the work beyond v1.
+The workspace contains the compositor, capture, native API, Luau checker, standard library, and plugin runtime. The shipped configuration runs `@lunette-desktop`, which composes the built-in providers and desktop consumers in `@lunette-plugins` as entries that a configuration changes through settings or patches by id. Session controls are VR menu actions and shared UI panels, including a runtime plugin manager and runtime themes. The desktop saves its arrangement when a grab drops a panel and at quit, and arranges unplaced windows with a layout chosen by name. Lua integration tests cover provider outages, placement precedence, monitor hotplug, reopened windows, and ten production source reloads. [The roadmap](docs/dev/roadmap.md) records the work beyond v1.
 
 ## Repository layout
 
