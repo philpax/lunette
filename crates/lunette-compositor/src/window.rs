@@ -94,6 +94,7 @@ impl Window {
             content_type: self.content_type,
             source_crop: self.source_crop,
             server_side_decorations,
+            children: self.children.clone(),
         }
     }
 }

@@ -283,6 +283,49 @@ pub struct WindowSnapshot {
     /// when it asked through `xdg-decoration` or the KDE protocol to draw
     /// its own.
     pub server_side_decorations: bool,
+    /// The window's popups and subsurfaces that have content, in the order
+    /// they are drawn, bottom first. The window's own surface is not listed.
+    pub children: Vec<ChildSurface>,
+}
+
+/// A popup or subsurface of a window, with what drawing it with the window
+/// needs.
+///
+/// It is placed in the frame the pointer positions on the window's sink use,
+/// and the compositor's hit test reaches it there, so a consumer that draws it
+/// at `position` draws what the pointer reaches.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChildSurface {
+    pub surface: SurfaceId,
+    pub kind: ChildKind,
+    /// Where the child's top-left corner sits relative to the window
+    /// surface's, in the window's surface coordinates. A popup can lie partly
+    /// or wholly outside the window.
+    pub position: SurfaceOffset,
+    /// The size of the child's content in surface coordinates, as
+    /// [`WindowSnapshot::size`] is a window's.
+    pub size: PixelSize,
+    /// The part of the buffer the child shows.
+    pub source_crop: SourceCrop,
+    pub stacking: Stacking,
+}
+
+/// The role that makes a surface part of a window.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChildKind {
+    /// A `wl_subsurface`, of the window or of another child.
+    Subsurface,
+    /// An `xdg_popup`, of the window or of another popup.
+    Popup,
+}
+
+/// Which side of the window's own surface a child is drawn on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Stacking {
+    /// Beneath it, showing through where the window is transparent. Only a
+    /// subsurface placed below the window's surface is.
+    Below,
+    Above,
 }
 
 /// The part of a surface's buffer that the surface shows, as fractions of the

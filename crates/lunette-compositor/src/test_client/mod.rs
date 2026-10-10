@@ -122,9 +122,9 @@ pub struct TestClient {
     /// Popups, their `xdg_surface` objects, and their surfaces stay alive for the popup's protocol
     /// lifetime.
     popups: Vec<(XdgPopup, XdgSurface, WlSurface)>,
-    /// Subsurfaces stay alive while their surfaces have a subsurface role; destroying one removes
-    /// that role.
-    subsurfaces: Vec<WlSubsurface>,
+    /// Subsurfaces, with their surfaces, stay alive while the surfaces have a subsurface role;
+    /// destroying one removes that role.
+    subsurfaces: Vec<(WlSubsurface, WlSurface)>,
     pointer: Option<WlPointer>,
     /// Buffers stay alive until the compositor releases them; a dropped proxy cannot receive the
     /// release.
@@ -650,8 +650,51 @@ impl TestClient {
         subsurface.set_position(origin.0, origin.1);
         subsurface.set_desync();
 
-        self.subsurfaces.push(subsurface);
+        self.subsurfaces.push((subsurface, surface.clone()));
         surface
+    }
+
+    /// Moves a subsurface this client opened to `origin`, committing it and then its parent.
+    ///
+    /// smithay caches the position in the subsurface's own state, so a desynchronised subsurface
+    /// takes it at its own commit rather than at the parent's.
+    pub fn move_subsurface(
+        &mut self,
+        compositor: &mut TestCompositor,
+        surface: &WlSurface,
+        origin: (i32, i32),
+    ) {
+        self.subsurface_for(surface)
+            .set_position(origin.0, origin.1);
+        surface.commit();
+        self.commit_parent(compositor);
+    }
+
+    /// Restacks a subsurface this client opened beneath its parent, which takes effect at the
+    /// parent commit this makes.
+    pub fn place_subsurface_below_parent(
+        &mut self,
+        compositor: &mut TestCompositor,
+        surface: &WlSurface,
+    ) {
+        let parent = self.surface.clone().expect("a toplevel was opened first");
+        self.subsurface_for(surface).place_below(&parent);
+        self.commit_parent(compositor);
+    }
+
+    fn subsurface_for(&self, surface: &WlSurface) -> WlSubsurface {
+        self.subsurfaces
+            .iter()
+            .find(|(_, child)| child == surface)
+            .map(|(subsurface, _)| subsurface.clone())
+            .expect("the subsurface was opened by this client")
+    }
+
+    /// Unmaps any surface this client opened by attaching a null buffer.
+    pub fn unmap_surface(&mut self, compositor: &mut TestCompositor, surface: &WlSurface) {
+        surface.attach(None, 0, 0);
+        surface.commit();
+        self.settle_quiet(compositor);
     }
 
     fn commit_parent(&mut self, compositor: &mut TestCompositor) {

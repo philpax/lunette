@@ -261,6 +261,7 @@ impl Application {
     }
 
     pub(crate) fn publish_if_dirty(&mut self) {
+        self.refresh_surface_trees();
         if !self.dirty {
             return;
         }

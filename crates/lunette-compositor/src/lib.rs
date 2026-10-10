@@ -18,6 +18,7 @@ pub(crate) mod seat;
 pub mod selection;
 pub mod spawn;
 pub mod surface;
+pub(crate) mod surface_tree;
 pub(crate) mod task_queue;
 #[cfg(any(test, feature = "test-fakes"))]
 pub mod test_client;

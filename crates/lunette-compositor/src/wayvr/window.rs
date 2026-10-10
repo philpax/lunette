@@ -7,7 +7,8 @@
 //! lunette adds fields for the identifiers Lua sees, which are minted
 //! monotonically beside the slotmap handles and never reused, the assigned
 //! output, the title and app id, the toplevel states, the content-type hint,
-//! the source crop, and whether current imported content maps the window.
+//! the source crop, whether current imported content maps the window, and
+//! the popups and subsurfaces the snapshot reports.
 //! `crate::window` holds lunette's methods over them.
 
 use std::rc::Rc;
@@ -17,7 +18,8 @@ use smithay::utils::{Logical, Serial, Size};
 use smithay::wayland::shell::xdg::ToplevelSurface;
 
 use crate::protocol::{
-    ContentType, OutputId, ProcessId, SinkId, SourceCrop, SurfaceId, ToplevelStates, WindowId,
+    ChildSurface, ContentType, OutputId, ProcessId, SinkId, SourceCrop, SurfaceId, ToplevelStates,
+    WindowId,
 };
 use crate::window::WindowIds;
 
@@ -53,6 +55,8 @@ pub struct Window {
     pub source_crop: SourceCrop,
     /// Whether current imported content makes the window reportable.
     pub mapped: bool,
+    /// The popups and subsurfaces with content, as the snapshot reports them.
+    pub children: Vec<ChildSurface>,
 }
 
 impl Window {
@@ -83,6 +87,7 @@ impl Window {
             content_type: ContentType::None,
             source_crop: SourceCrop::FULL,
             mapped: false,
+            children: Vec::new(),
         }
     }
 

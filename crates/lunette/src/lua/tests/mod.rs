@@ -102,6 +102,7 @@ fn window(raw: u64, title: &str, app_id: &str, size: PixelSize) -> WindowSnapsho
         content_type: ContentType::None,
         source_crop: SourceCrop::FULL,
         server_side_decorations: true,
+        children: Vec::new(),
     }
 }
 
