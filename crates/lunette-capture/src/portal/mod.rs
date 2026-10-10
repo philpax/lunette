@@ -306,6 +306,9 @@ pub enum PortalError {
     /// The portal answered the request with a non-zero response code. Code 1
     /// is the user cancelling, a refusal and not a fault.
     Refused { code: u32 },
+    /// The granted session ended outside lunette, as when the user stops the screen share from
+    /// the host desktop. Like a refusal, it holds until an explicit selection.
+    Revoked,
     /// The backend offers no monitor sources, so there is nothing to mirror.
     NoMonitorSources { available: u32 },
     /// The backend offers no cursor mode compatible with the request.
@@ -329,6 +332,7 @@ impl fmt::Display for PortalError {
                 1 => write!(f, "the user cancelled the screen selection"),
                 other => write!(f, "the request was refused with response code {other}"),
             },
+            Self::Revoked => write!(f, "the screen share was stopped outside lunette"),
             Self::NoMonitorSources { available } => write!(
                 f,
                 "the backend offers no monitor sources to capture (source types {available:#x})"

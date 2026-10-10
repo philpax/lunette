@@ -35,7 +35,7 @@ An output is a virtual monitor shown to the clients assigned to it. Every client
 
 ## Monitors
 
-`lunette.monitors()` returns the user's own screens. `monitor:mirror()` starts capturing one, through wlr-screencopy where the host supports it and otherwise through the desktop portal, which may show a permission dialog. `monitor:getTexture()` returns the latest captured frame, or `false` before the first one. `lunette.selectMonitors()` asks the portal again, for example after the user refused. `monitor.id` is the saved identity: it survives a restart and a move to another port. [Host desktop](../dev/host-desktop.md) describes capture.
+`lunette.monitors()` returns the user's own screens. `monitor:mirror()` starts capturing one, through wlr-screencopy where the host supports it and otherwise through the desktop portal, which may show a permission dialog. `monitor:getTexture()` returns the latest captured frame, or `false` before the first one. `lunette.selectMonitors()` asks the portal again, for example after the user refused or stopped the screen share. `monitor.id` is the saved identity: it survives a restart and a move to another port. [Host desktop](../dev/host-desktop.md) describes capture.
 
 ## Pointing and typing
 

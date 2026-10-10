@@ -321,21 +321,67 @@ fn mirroring_a_monitor_already_mirrored_changes_nothing() {
 }
 
 #[test]
-fn a_revoked_session_falls_back_to_a_fresh_request() {
+fn a_revoked_session_is_refused_until_monitors_are_selected() {
     let log = StreamLog::new();
     let mut mirrors = mirrors(&log);
     let roster = roster();
-    let _ = mirrors.mirror(&key(&roster, 0));
+    let first = key(&roster, 0);
+    let _ = mirrors.mirror(&first);
     let _ = pump(&mut mirrors);
 
     mirrors.revoke_session();
 
-    assert!(!mirrors.is_mirroring(&key(&roster, 0)));
+    assert!(!mirrors.is_mirroring(&first));
     assert!(
-        mirrors.is_wanted(&key(&roster, 0)),
-        "the monitor is still wanted; only the session went away",
+        mirrors.is_wanted(&first),
+        "the monitor is still wanted, as after a declined dialog",
     );
-    assert_eq!(mirrors.portal().requests.len(), 2);
+    assert_eq!(mirrors.portal().requests.len(), 1, "nothing is asked again");
+    for _ in 0..8 {
+        assert_eq!(mirrors.poll(), Progress::Idle);
+    }
+    assert_eq!(
+        mirrors.mirror(&first),
+        MirrorOutcome::Refused(PortalError::Revoked)
+    );
+    assert_eq!(mirrors.portal().requests.len(), 1);
+}
+
+#[test]
+fn an_explicit_selection_after_revocation_asks_without_the_revoked_token() {
+    let log = StreamLog::new();
+    let mut mirrors = mirrors(&log);
+    mirrors
+        .portal
+        .will_grant(response(vec![stream(21, 0)], "selected"));
+    let first = key(mirrors.roster(), 0);
+    let _ = mirrors.mirror(&first);
+    let _ = pump(&mut mirrors);
+    mirrors.revoke_session();
+
+    assert_eq!(mirrors.select_monitors(), SelectionOutcome::Requested);
+    assert!(mirrors.portal().requests[1].restore_token.is_none());
+    assert_eq!(pump(&mut mirrors), Progress::Started(vec![first.clone()]));
+    assert!(mirrors.is_mirroring(&first));
+}
+
+#[test]
+fn revocation_after_a_selection_no_longer_reports_the_selection_ready() {
+    let log = StreamLog::new();
+    let mut mirrors = mirrors(&log);
+    mirrors
+        .portal
+        .will_grant(response(vec![stream(21, 0)], "selected"));
+    let first = key(mirrors.roster(), 0);
+    let _ = mirrors.mirror(&first);
+    let _ = pump(&mut mirrors);
+    assert_eq!(mirrors.select_monitors(), SelectionOutcome::Requested);
+    let _ = pump(&mut mirrors);
+    assert_eq!(mirrors.selection_state(), SelectionState::Ready);
+
+    mirrors.revoke_session();
+
+    assert_eq!(mirrors.selection_state(), SelectionState::Idle);
 }
 
 #[test]
@@ -753,7 +799,7 @@ fn a_monitor_mirrored_before_the_source_exists_starts_once_it_does() {
 }
 
 #[test]
-fn a_session_whose_every_node_is_removed_is_revoked_and_requested_again() {
+fn a_session_whose_every_node_is_removed_is_refused_and_not_requested_again() {
     let log = StreamLog::new();
     let (mut mirrors, nodes) = watched(&log);
     let first = key(mirrors.roster(), 0);
@@ -768,18 +814,19 @@ fn a_session_whose_every_node_is_removed_is_revoked_and_requested_again() {
     nodes.remove(node(11));
     nodes.remove(node(12));
 
-    assert_eq!(mirrors.poll(), Progress::Waiting);
+    assert_eq!(mirrors.poll(), Progress::Failed(PortalError::Revoked));
     assert!(!mirrors.is_mirroring(&first));
     assert!(!mirrors.is_mirroring(&second));
     assert!(mirrors.is_wanted(&first));
     assert!(mirrors.is_wanted(&second));
     assert_eq!(log.dropped(), vec![node(11), node(12)]);
-    let requests = &mirrors.portal().requests;
-    assert_eq!(requests.len(), 2);
+    for _ in 0..8 {
+        assert_eq!(mirrors.poll(), Progress::Idle);
+    }
     assert_eq!(
-        requests[1].restore_token,
-        RestoreToken::new("fresh"),
-        "the new request restores the revoked grant's token",
+        mirrors.portal().requests.len(),
+        1,
+        "the revoked grant's token is not offered again",
     );
 }
 
@@ -817,12 +864,41 @@ fn removing_the_last_remaining_node_revokes_the_session() {
     let _ = pump(&mut mirrors);
 
     nodes.remove(node(11));
-    let _ = mirrors.poll();
+    assert_eq!(mirrors.poll(), Progress::Idle);
     nodes.remove(node(12));
-    let _ = mirrors.poll();
+    assert_eq!(mirrors.poll(), Progress::Failed(PortalError::Revoked));
 
     assert!(!mirrors.is_mirroring(&second));
-    assert_eq!(mirrors.portal().requests.len(), 2);
+    assert_eq!(mirrors.portal().requests.len(), 1);
+}
+
+#[test]
+fn the_removed_node_of_an_unplugged_monitor_does_not_refuse_the_session() {
+    let log = StreamLog::new();
+    let nodes = ScriptedNodes::new();
+    let mut portal = FakePortal::new();
+    portal.will_grant(response(vec![stream(11, 0)], "fresh"));
+    portal.will_grant(response(vec![stream(21, 0)], "restored"));
+    let mut mirrors = MirrorSet::new(portal, CursorPolicy::Hidden, TokenStore::new())
+        .with_node_watch(Box::new(nodes.clone()));
+    mirrors.set_streams(Box::new(RecordingSource::new(log)));
+    mirrors.attach(roster());
+    let first = key(mirrors.roster(), 0);
+    let _ = mirrors.mirror(&first);
+    let _ = pump(&mut mirrors);
+
+    let _ = mirrors.attach(second_only());
+    nodes.remove(node(11));
+    assert_eq!(mirrors.poll(), Progress::Idle);
+    let _ = mirrors.attach(roster());
+
+    assert_eq!(mirrors.mirror(&first), MirrorOutcome::Requested);
+    assert_eq!(
+        mirrors.portal().requests[1].restore_token,
+        RestoreToken::new("fresh"),
+        "a replugged monitor restores the grant that still stands",
+    );
+    assert_eq!(pump(&mut mirrors), Progress::Started(vec![first]));
 }
 
 #[test]
@@ -876,9 +952,9 @@ fn direct_capture_survives_the_removal_of_every_portal_node() {
     assert_eq!(pump(&mut mirrors), Progress::Started(vec![second.clone()]));
 
     nodes.remove(node(12));
-    let _ = mirrors.poll();
+    assert_eq!(mirrors.poll(), Progress::Failed(PortalError::Revoked));
 
     assert!(mirrors.is_direct(&first));
     assert!(!mirrors.is_mirroring(&second));
-    assert_eq!(mirrors.portal().requests.len(), 2);
+    assert_eq!(mirrors.portal().requests.len(), 1);
 }

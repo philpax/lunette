@@ -7,7 +7,8 @@
 //!
 //! A portal session ends when its PipeWire nodes are removed, which a [`NodeWatch`] reports.
 //! [`MirrorSet::poll`] stops the streams on removed nodes and revokes the session once none of its
-//! nodes remain.
+//! nodes remain. A revoked session is a refusal: nothing asks the portal again until
+//! [`MirrorSet::select_monitors`].
 
 pub mod nodes;
 pub mod screencopy;
@@ -123,6 +124,11 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
         for key in &removed {
             self.stop(key);
             self.wanted.retain(|wanted| wanted != key);
+        }
+        // The backend removes an unplugged monitor's node, and that removal is not the user
+        // stopping the session, so the session stops holding the node before it is reported.
+        if let SessionState::Held(held) = &mut self.session {
+            held.nodes.retain(|(key, _)| !removed.contains(key));
         }
 
         RosterChange { added, removed }
@@ -301,11 +307,15 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
     /// Advances the portal exchange without blocking.
     ///
     /// Queued, negotiating, and dialog states return [`Progress::Waiting`]. Node removals the
-    /// watch has reported are handled before a grant is taken, so they cannot end that grant.
+    /// watch has reported are handled before a grant is taken, so they cannot end that grant. The
+    /// poll that revokes the session reports [`PortalError::Revoked`] as a failure.
     pub fn poll(&mut self) -> Progress {
-        self.end_removed_nodes();
+        let revoked = self.end_removed_nodes();
         if let SelectionRequest::Pending { request, .. } = &self.selection {
             return self.poll_selection(*request);
+        }
+        if revoked {
+            return Progress::Failed(PortalError::Revoked);
         }
         let SessionState::Requested(request) = self.session else {
             // Retries wanted monitors whose source was unavailable when the session arrived.
@@ -370,28 +380,29 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
     }
 
     /// Stops the streams whose nodes were removed, and revokes the session once it holds none.
+    /// Returns whether the session was revoked.
     ///
     /// A monitor whose node alone is removed stays wanted and waits for a later grant, because
     /// the rest of the session is still live. A removal of a node the session does not hold, such
-    /// as one from a session already replaced, changes nothing.
-    fn end_removed_nodes(&mut self) {
+    /// as one from a session already replaced or an unplugged monitor's, changes nothing.
+    fn end_removed_nodes(&mut self) -> bool {
         let removed = self.nodes.take_removed();
         if removed.is_empty() {
-            return;
+            return false;
         }
         let SessionState::Held(held) = &mut self.session else {
-            return;
+            return false;
         };
         let before = held.nodes.len();
         held.nodes.retain(|(_, node)| !removed.contains(node));
         if held.nodes.len() == before {
-            return;
+            return false;
         }
 
         if held.nodes.is_empty() {
             info!("every stream of the screencast session ended, so the session was revoked");
             self.revoke_session();
-            return;
+            return true;
         }
         for mirror in &self.active {
             if mirror.node.is_some_and(|node| removed.contains(&node)) {
@@ -400,14 +411,17 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
         }
         self.active
             .retain(|mirror| mirror.node.is_none_or(|node| !removed.contains(&node)));
+        false
     }
 
-    /// Drops the held portal session and stops its PipeWire mirrors.
+    /// Drops the held portal session and stops its PipeWire mirrors, as a refusal.
     ///
-    /// Direct streams continue. Wanted monitors that still need the portal start
-    /// a new request, which may prompt if the portal does not restore it.
+    /// Direct streams continue, and wanted monitors stay wanted. Nothing asks the portal again
+    /// until [`Self::select_monitors`], which offers no restore token, because a portal that
+    /// restores silently would resume the capture the user stopped. A pending selection
+    /// continues, and a completed one no longer describes a live grant.
     fn revoke_session(&mut self) {
-        if matches!(self.session, SessionState::Idle) {
+        if !matches!(self.session, SessionState::Held(_)) {
             return;
         }
 
@@ -416,10 +430,9 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
             "the screencast session is gone"
         );
         self.active.retain(|mirror| mirror.node.is_none());
-        self.session = SessionState::Idle;
-
-        if !matches!(self.selection, SelectionRequest::Pending { .. }) {
-            let _ = self.open_wanted();
+        self.session = SessionState::Failed(PortalError::Revoked);
+        if matches!(self.selection, SelectionRequest::Ready) {
+            self.selection = SelectionRequest::Idle;
         }
     }
 
@@ -633,7 +646,8 @@ enum SessionState {
     /// A request is in flight; [`MirrorSet::poll`] advances it.
     Requested(RequestId),
     Held(Held),
-    /// A failed request stays refused until explicit [`MirrorSet::select_monitors`].
+    /// A failed request or a revoked session stays refused until explicit
+    /// [`MirrorSet::select_monitors`].
     Failed(PortalError),
 }
 
@@ -686,7 +700,8 @@ pub enum MirrorOutcome {
     AlreadyMirroring,
     /// A portal request is in flight; [`MirrorSet::poll`] advances it.
     Requested,
-    /// The portal could not be asked at all.
+    /// The portal could not be asked, refused the request, or the session was revoked, and
+    /// nothing asks again until [`MirrorSet::select_monitors`].
     Refused(PortalError),
     /// No attached monitor carries that identity, as with a restored key whose monitor was
     /// unplugged.
