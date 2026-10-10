@@ -23,11 +23,11 @@ mod windows;
 use std::{rc::Rc, sync::Arc};
 
 use lunette_compositor::{
+    config::{DEFAULT_OUTPUT, DEFAULT_SEAT},
     protocol::{
         Command, ContentType, PixelSize, PointerButton, ProcessSnapshot, ScrollAxis, ScrollDelta,
         SeatId, SinkId, Snapshot, SurfaceId, ToplevelStates, WindowId, WindowSnapshot,
     },
-    state::{DEFAULT_OUTPUT, DEFAULT_SEAT},
 };
 use mlua::{Lua, Table, Value};
 use pretty_assertions::assert_eq;

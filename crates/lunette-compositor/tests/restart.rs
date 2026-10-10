@@ -15,8 +15,8 @@
 )]
 
 use lunette_compositor::{
+    config::{CompositorConfig, DmabufSupport},
     protocol::{Command, Event, PixelSize},
-    state::{CompositorConfig, DmabufSupport},
     test_client::TestClient,
     testing::{ImportLog, TestCompositor, recording_importer},
 };

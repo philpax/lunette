@@ -16,9 +16,9 @@ use lunette_capture::{
 };
 use lunette_compositor::{
     client::{WaylandEnv, WaylandSocket, XwaylandSatellite},
+    config::CompositorConfig,
     protocol::{Command, Event, ImportedBuffer, KeymapDefaults, Snapshot, SurfaceId, WindowId},
     selection::DataControlSource,
-    state::CompositorConfig,
     thread::{self, CompositorHandle, PanicPolicy, StartError, TrySendError},
 };
 use lunette_lovr::raw::lovrGraphicsIsInitialized;

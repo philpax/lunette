@@ -10,8 +10,8 @@ mod harness;
 
 use harness::{EXPECTED_GLOBALS, WINDOW_SIZE, only_window, with_one_window};
 use lunette_compositor::{
+    config::DEFAULT_OUTPUT,
     protocol::{Event, PixelSize, WindowId},
-    state::DEFAULT_OUTPUT,
     surface::ShmFormat,
     test_client::{OutputTransform, TestClient},
     testing::TestCompositor,

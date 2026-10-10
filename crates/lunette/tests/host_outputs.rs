@@ -17,8 +17,8 @@ use std::{
 
 use lunette_capture::monitor::{OutputWatcher, PixelExtent, Roster};
 use lunette_compositor::{
+    config::CompositorConfig,
     protocol::{OutputMode, OutputScale, PixelSize, RefreshRate},
-    state::CompositorConfig,
     testing::TestCompositor,
 };
 use pretty_assertions::assert_eq;

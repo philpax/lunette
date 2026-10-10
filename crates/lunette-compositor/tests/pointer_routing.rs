@@ -17,8 +17,8 @@ mod harness;
 
 use harness::{only_window, with_one_window};
 use lunette_compositor::{
+    config::DEFAULT_SEAT,
     protocol::{Command, PixelPoint, PointerButton, ScrollAxis, ScrollDelta, SeatId, SinkId},
-    state::DEFAULT_SEAT,
     test_client::{AxisSource, PointerEvent, TestClient},
     testing::TestCompositor,
 };

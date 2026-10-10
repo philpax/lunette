@@ -9,7 +9,7 @@ use ash::{
     ext, khr,
     vk::{self, Handle as _},
 };
-use lunette_compositor::state::{DmabufSupport, RenderNode};
+use lunette_compositor::config::{DmabufSupport, RenderNode};
 use lunette_lovr::raw::{GraphicsFeatures, lovrGraphicsGetFeatures, lovrGraphicsIsInitialized};
 use smithay::backend::allocator::Format;
 use tracing::{debug, warn};

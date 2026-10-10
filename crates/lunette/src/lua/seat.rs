@@ -6,12 +6,12 @@
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use lunette_compositor::{
+    config::DEFAULT_SEAT,
     keymap::Keymap,
     protocol::{
         Command, KeyboardConfig, Keycode, KeymapConfig, Keysym, ModifierState, RepeatDelay,
         RepeatPolicy, RepeatRate, SeatId, SeatSnapshot,
     },
-    state::DEFAULT_SEAT,
 };
 use mlua::{Lua, Table, UserDataRef, Value};
 

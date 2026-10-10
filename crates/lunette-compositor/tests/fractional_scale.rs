@@ -27,8 +27,8 @@
 mod harness;
 
 use lunette_compositor::{
+    config::DEFAULT_OUTPUT,
     protocol::{Command, OutputId, OutputMode, OutputScale, PixelSize, RefreshRate},
-    state::DEFAULT_OUTPUT,
     test_client::TestClient,
     testing::TestCompositor,
 };

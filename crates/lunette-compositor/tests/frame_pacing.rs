@@ -19,8 +19,8 @@ mod harness;
 use std::time::Duration;
 
 use lunette_compositor::{
+    config::DEFAULT_SEAT,
     protocol::{Command, FramePacing, FrameRate, PixelPoint, PointerButton, SurfaceId},
-    state::DEFAULT_SEAT,
     test_client::TestClient,
     testing::TestCompositor,
 };

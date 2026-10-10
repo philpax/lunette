@@ -17,11 +17,11 @@ mod harness;
 use std::ffi::{OsStr, OsString};
 
 use lunette_compositor::{
+    config::DEFAULT_OUTPUT,
     protocol::{
         Argv, Command, OutputId, OutputMode, OutputScale, PixelSize, ProcessId, RefreshRate,
         SpawnRequest,
     },
-    state::DEFAULT_OUTPUT,
     test_client::TestClient,
     testing::TestCompositor,
 };

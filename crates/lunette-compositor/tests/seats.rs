@@ -17,12 +17,12 @@ mod harness;
 
 use harness::WINDOW_SIZE;
 use lunette_compositor::{
+    config::{CompositorConfig, DEFAULT_SEAT},
     keymap::Keymap,
     protocol::{
         Command, KeyModifier, KeyboardConfig, Keycode, KeymapConfig, KeymapDefaults, ModifierState,
         PixelPoint, PointerButton, SeatId, WindowSnapshot,
     },
-    state::{CompositorConfig, DEFAULT_SEAT},
     test_client::{Driver, PointerEvent, TestClient},
     testing::{CursorImage, TestCompositor},
 };

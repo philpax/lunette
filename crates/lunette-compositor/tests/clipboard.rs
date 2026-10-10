@@ -25,9 +25,9 @@ use std::io::Write;
 
 use harness::WINDOW_SIZE;
 use lunette_compositor::{
+    config::{CompositorConfig, DEFAULT_SEAT},
     protocol::{Command, KeyboardConfig, KeymapConfig, SeatId},
     selection::{FakeHost, HostCall, HostEvent, MimeType, OfferCounter, SelectionKind},
-    state::{CompositorConfig, DEFAULT_SEAT},
     test_client::{SelectionDevices, TestClient, read_to_end},
     testing::TestCompositor,
 };

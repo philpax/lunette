@@ -14,7 +14,7 @@
 use pretty_assertions::assert_eq;
 
 use super::*;
-use crate::state::DEFAULT_SEAT;
+use crate::config::DEFAULT_SEAT;
 
 fn bridge() -> SelectionBridge {
     SelectionBridge::new(Some(DEFAULT_SEAT), None)

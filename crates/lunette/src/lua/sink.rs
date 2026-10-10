@@ -47,11 +47,11 @@ use lunette_capture::{
     monitor::MonitorKey,
 };
 use lunette_compositor::{
+    config::DEFAULT_SEAT,
     protocol::{
         Command, InputDomain, Keycode, ModifierState, PixelPoint, PointerButton,
         SURFACE_UNITS_PER_DETENT, ScrollAxis, ScrollDelta, SeatId, SinkId,
     },
-    state::DEFAULT_SEAT,
 };
 use mlua::UserDataRef;
 

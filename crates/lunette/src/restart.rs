@@ -216,7 +216,7 @@ impl Error for QuiesceError {}
 )]
 mod tests {
     use lunette_compositor::{
-        state::CompositorConfig,
+        config::CompositorConfig,
         testing::{FakeInspector, FakeSpawner, ImportLog, recording_importer, silent_compositor},
         thread::{PanicPolicy, spawn_with},
     };

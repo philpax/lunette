@@ -5,7 +5,8 @@
 //! allows those tests to link without `liblovr.so`.
 
 pub(crate) mod commands;
-pub(crate) mod config;
+pub mod config;
+pub(crate) mod graphics;
 pub mod keymap;
 pub(crate) mod output;
 pub(crate) mod pacing;
@@ -13,7 +14,6 @@ pub mod protocol;
 pub(crate) mod seat;
 pub mod selection;
 pub mod spawn;
-pub mod state;
 pub mod surface;
 #[cfg(any(test, feature = "test-fakes"))]
 pub mod test_client;

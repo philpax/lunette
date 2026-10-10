@@ -31,11 +31,11 @@ use std::{
 };
 
 use lunette_compositor::{
+    config::{DEFAULT_OUTPUT, DEFAULT_SEAT},
     protocol::{
         Argv, Command, OutputId, PixelSize, ProcessId, SeatId, Snapshot, SpawnRequest, WindowId,
         WindowSnapshot,
     },
-    state::{DEFAULT_OUTPUT, DEFAULT_SEAT},
 };
 use lunette_lovr::raw::{_luax_pushtype, ObjectType_T_Texture};
 use mlua::{ErrorContext, Function, Lua, Table, Value};

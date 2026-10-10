@@ -35,18 +35,18 @@ use smithay::{
 
 pub use crate::selection::{FakeHost, FakeHostSource, HostCall};
 use crate::{
+    config::CompositorConfig,
     protocol::{
         Command, Event, ImageHandle, ImportedImage, OutputId, Pid, PixelSize, ProcessOutcome,
         ProcessSignal, SeatId, Snapshot, Stream,
     },
     spawn::{ChildProcess, Liveness, ProcessInspector, ProcessSpawner, SpawnError, SpawnPlan},
-    state::{ClientState, CompositorConfig},
     surface::{BufferImporter, ImportFailed, PixelBuffer, ShmFormat, ShmLayout},
     thread::{
         COMMAND_CAPACITY, CommandSender, CompositorHandle, CompositorLoop, EVENT_CAPACITY,
         EventReceiver, EventSender, Ingredients, LoopData, SnapshotReader, build, snapshot_channel,
     },
-    wayvr::process::find_environment_value,
+    wayvr::{comp::ClientState, process::find_environment_value},
 };
 
 /// Maximum time to wait for a test condition.

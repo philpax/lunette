@@ -17,9 +17,9 @@ mod harness;
 
 use harness::WINDOW_SIZE;
 use lunette_compositor::{
+    config::DEFAULT_SEAT,
     keymap::Keymap,
     protocol::{Command, KeymapConfig, KeymapDefaults, ModifierState, SinkId},
-    state::DEFAULT_SEAT,
     test_client::TestClient,
     testing::TestCompositor,
 };

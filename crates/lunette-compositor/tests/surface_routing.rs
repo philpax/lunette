@@ -15,8 +15,8 @@ mod harness;
 
 use harness::{WINDOW_SIZE, only_window, with_one_window};
 use lunette_compositor::{
+    config::DEFAULT_SEAT,
     protocol::{Command, PixelPoint, PixelSize, SinkId},
-    state::DEFAULT_SEAT,
     test_client::{Driver, PointerEvent, TestClient},
     testing::TestCompositor,
 };

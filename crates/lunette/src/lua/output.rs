@@ -6,8 +6,8 @@
 use std::{cell::RefCell, rc::Rc};
 
 use lunette_compositor::{
+    config::DEFAULT_OUTPUT,
     protocol::{Command, OutputId, OutputMode, OutputScale, OutputSnapshot, RefreshRate},
-    state::DEFAULT_OUTPUT,
 };
 use mlua::{Lua, Table};
 

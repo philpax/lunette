@@ -43,6 +43,7 @@
 
 mod data_control;
 mod host;
+mod seat;
 #[cfg(test)]
 mod tests;
 
