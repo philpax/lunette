@@ -110,14 +110,14 @@ impl CompositorState {
     /// Uses elapsed time from compositor start so Wayland timestamps stay monotonic
     /// when the wall clock changes.
     #[cfg(not(any(test, feature = "test-fakes")))]
-    fn elapsed(&self) -> Duration {
+    pub(crate) fn elapsed(&self) -> Duration {
         self.started.elapsed()
     }
 
     /// Uses a virtual clock in tests, so pacing assertions do not depend on
     /// scheduler timing. Test code advances this clock explicitly.
     #[cfg(any(test, feature = "test-fakes"))]
-    fn elapsed(&self) -> Duration {
+    pub(crate) fn elapsed(&self) -> Duration {
         self.clock_offset
     }
 
@@ -128,7 +128,7 @@ impl CompositorState {
     }
 
     /// Returns elapsed compositor time as a wrapping Wayland millisecond timestamp.
-    pub(super) fn millis(&self) -> u32 {
+    pub(crate) fn millis(&self) -> u32 {
         protocol_millis(self.elapsed())
     }
 }

@@ -18,13 +18,12 @@ use smithay::backend::allocator::{Format, Fourcc, Modifier};
 use crate::{
     client::XwaylandSatellite,
     protocol::{
-        Argv, Command, Event, PixelSize, PointerButton, ProcessId, ProcessOutcome, ProcessSignal,
+        Argv, Command, Event, PixelSize, ProcessId, ProcessOutcome, ProcessSignal,
         SpawnRequest as SpawnCommand, Stream, ToplevelState, ToplevelStates, WindowSnapshot,
     },
     state::{
         DEFAULT_OUTPUT,
         compositor::{CompositorConfig, DmabufSupport, protocol_state, toplevel_state},
-        input::evdev_button,
     },
     test_client::TestClient,
     testing::{DEADLINE, TestCompositor},
@@ -503,7 +502,7 @@ fn a_client_presenting_a_spawned_process_token_is_attributed_to_it() {
 
 fn with_display() -> CompositorConfig {
     CompositorConfig {
-        display: Some(crate::client::DisplayName::for_test(20)),
+        display: Some(crate::client::WaylandEnv::for_test(20)),
         satellite: Some(XwaylandSatellite {
             executable: std::path::PathBuf::from("xwayland-satellite"),
         }),
@@ -589,23 +588,6 @@ fn a_spawned_client_is_told_nothing_when_no_display_was_bound() {
         "an empty display name would make a client connect to a socket called nothing, \
          rather than fall back to the session's own"
     );
-}
-
-#[test]
-fn every_pointer_button_maps_to_a_distinct_evdev_code() {
-    let buttons = [
-        PointerButton::Left,
-        PointerButton::Right,
-        PointerButton::Middle,
-        PointerButton::Back,
-        PointerButton::Forward,
-    ];
-    let mut codes: Vec<u32> = buttons.into_iter().map(evdev_button).collect();
-    codes.sort_unstable();
-    codes.dedup();
-
-    assert_eq!(codes.len(), buttons.len(), "two buttons share a code");
-    assert_eq!(evdev_button(PointerButton::Left), 0x110, "BTN_LEFT");
 }
 
 #[test]

@@ -53,7 +53,6 @@ use smithay::{
 use tracing::{debug, warn};
 
 use crate::{
-    client::{DisplayName, Satellite, XwaylandSatellite},
     output::OutputRegistry,
     pacing::FramePacer,
     protocol::{
@@ -64,10 +63,11 @@ use crate::{
     seat::SeatRegistry,
     selection::{HostEvents, HostSelectionSource, SelectionBridge},
     spawn::{self, AdoptedIds, DisplayEnvironment, ProcessInspector, ProcessSpawner},
-    state::{outputs::logical_size, processes::WayVRClient},
+    state::outputs::logical_size,
     surface::{BufferImporter, RetainedBuffers, SurfaceContent, SurfaceRegistry},
     thread::{EventSender, LoopData, SnapshotParts, SnapshotPublisher},
     wayvr::{
+        client::{Satellite, WayVRClient, WaylandEnv, XwaylandSatellite},
         process::{Process, ProcessHandle},
         window::{Window, WindowManager},
     },
@@ -104,7 +104,7 @@ pub struct CompositorConfig {
     /// inside lunette.
     pub host_selection: Option<Box<dyn HostSelectionSource>>,
     /// The display lunette uses. Absent when no socket is bound.
-    pub display: Option<DisplayName>,
+    pub display: Option<WaylandEnv>,
     /// Where to find xwayland-satellite. When absent, X11 clients are disabled.
     pub satellite: Option<XwaylandSatellite>,
     /// The desktop's own keyboard layout, which a seat that names none inherits.
@@ -167,18 +167,18 @@ impl RenderNode {
 ///
 /// Smithay invokes the delegate implementations for those requests.
 pub(crate) struct CompositorState {
-    pub(super) display: DisplayHandle,
-    pub(super) config: CompositorConfig,
+    pub(crate) display: DisplayHandle,
+    pub(crate) config: CompositorConfig,
     /// Environment values passed to every spawned client.
     pub(super) environment: DisplayEnvironment,
 
     pub(super) compositor: compositor::CompositorState,
     pub(super) xdg_shell: XdgShellState,
     pub(super) shm: ShmState,
-    pub(super) seat_state: SeatState<Self>,
+    pub(crate) seat_state: SeatState<Self>,
     /// Every seat lunette serves. Holding an entry keeps its `wl_seat` global
     /// advertised.
-    pub(super) seats: SeatRegistry,
+    pub(crate) seats: SeatRegistry,
     pub(super) dmabuf: DmabufState,
     pub(super) data_device: DataDeviceState,
     pub(super) primary_selection: PrimarySelectionState,
@@ -187,7 +187,7 @@ pub(crate) struct CompositorState {
     /// Which seat's selections are the host's, and what the host is offering.
     pub(super) selection: SelectionBridge,
     pub(super) kde_decoration: KdeDecorationState,
-    pub(super) popups: PopupManager,
+    pub(crate) popups: PopupManager,
     /// Every virtual monitor lunette advertises. Holding an entry keeps its
     /// `wl_output` global advertised.
     pub(super) outputs: OutputRegistry,
@@ -207,16 +207,16 @@ pub(crate) struct CompositorState {
 
     pub(super) importer: Box<dyn BufferImporter>,
     pub(super) spawner: Box<dyn ProcessSpawner>,
-    pub(super) inspector: Box<dyn ProcessInspector>,
-    pub(super) surfaces: SurfaceRegistry,
+    pub(crate) inspector: Box<dyn ProcessInspector>,
+    pub(crate) surfaces: SurfaceRegistry,
     pub(super) buffers: RetainedBuffers<WlBuffer>,
-    pub(super) contents: HashMap<SurfaceId, SurfaceContent>,
-    pub(super) windows: WindowManager,
-    pub(super) processes: DenseSlotMap<ProcessHandle, Process>,
-    pub(super) adopted_ids: AdoptedIds,
+    pub(crate) contents: HashMap<SurfaceId, SurfaceContent>,
+    pub(crate) windows: WindowManager,
+    pub(crate) processes: DenseSlotMap<ProcessHandle, Process>,
+    pub(crate) adopted_ids: AdoptedIds,
     /// Each connected client and the process it is attributed to.
-    pub(super) clients: Vec<WayVRClient>,
-    pub(super) assignments: HashMap<ProcessId, OutputId>,
+    pub(crate) clients: Vec<WayVRClient>,
+    pub(crate) assignments: HashMap<ProcessId, OutputId>,
     /// The timer that reaps children and collects their output, present only
     /// while there is something to reap.
     pub(super) process_poll: Option<RegistrationToken>,
@@ -359,7 +359,7 @@ impl CompositorState {
             display: display.clone(),
             environment: config
                 .display
-                .map(DisplayName::environment)
+                .map(WaylandEnv::environment)
                 .unwrap_or_default(),
             config,
             compositor,
@@ -539,7 +539,7 @@ impl CompositorState {
         });
     }
 
-    pub(super) fn touch(&mut self) {
+    pub(crate) fn touch(&mut self) {
         self.dirty = true;
     }
 
@@ -622,7 +622,7 @@ impl CompositorState {
         self.failing_uploads.set((skip, count));
     }
 
-    pub(super) fn take_upload_failure(&self) -> bool {
+    pub(crate) fn take_upload_failure(&self) -> bool {
         let (skip, remaining) = self.failing_uploads.get();
         if skip > 0 {
             self.failing_uploads.set((skip - 1, remaining));

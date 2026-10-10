@@ -165,7 +165,7 @@ fn main() -> ExitCode {
 
     info!(
         "connect a client from outside with WAYLAND_DISPLAY={}",
-        name.wayland().to_string_lossy()
+        name.wayland_display_num_string()
     );
 
     let (mirrors, sinks, desktop): (

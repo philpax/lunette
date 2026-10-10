@@ -93,6 +93,36 @@ fn a_click_over_a_sink_is_delivered_as_a_press_and_a_release() {
 }
 
 #[test]
+fn every_button_reaches_the_client_as_its_own_evdev_code() {
+    let (mut compositor, mut client, sink, pointer) = with_pointer_over_a_window();
+
+    let buttons = [
+        (PointerButton::Left, 0x110),
+        (PointerButton::Right, 0x111),
+        (PointerButton::Middle, 0x112),
+        (PointerButton::Back, 0x113),
+        (PointerButton::Forward, 0x114),
+    ];
+    for (button, _) in buttons {
+        compositor.send(Command::Button {
+            seat: DEFAULT_SEAT,
+            sink,
+            button,
+            pressed: true,
+        });
+    }
+    client.settle(&mut compositor, |driver| {
+        driver.buttons(&pointer).len() == buttons.len()
+    });
+
+    assert_eq!(
+        client.driver().buttons(&pointer),
+        buttons.map(|(_, code)| (code, true)),
+        "each button carries the evdev code applications expect, back and forward included"
+    );
+}
+
+#[test]
 fn withdrawing_the_pointer_leaves_the_surface_it_had_entered() {
     let (mut compositor, mut client) = with_one_window();
     let pointer = client.open_pointer(&mut compositor);
@@ -192,8 +222,7 @@ fn a_continuous_scroll_reaches_the_client_as_a_distance_on_the_axis_it_named() {
 #[test]
 fn a_discrete_scroll_reaches_the_client_as_notches_and_a_distance() {
     // Clients before `wl_pointer` version 5 receive only `axis`; each wheel
-    // detent is reported as ten surface-local units to preserve toolkit
-    // expectations.
+    // detent is reported as fifteen surface-local units, WayVR's value.
     for (axis, steps) in [(ScrollAxis::Vertical, 2), (ScrollAxis::Horizontal, -1)] {
         let (mut compositor, mut client, sink, pointer) = with_pointer_over_a_window();
 
@@ -218,7 +247,7 @@ fn a_discrete_scroll_reaches_the_client_as_notches_and_a_distance() {
         assert!(
             events.contains(&PointerEvent::Axis {
                 axis,
-                value: f64::from(steps) * 10.0
+                value: f64::from(steps) * 15.0
             }),
             "the notches carried no distance: {events:?}",
         );

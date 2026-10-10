@@ -372,11 +372,8 @@ fn scroll<T>(sink: &Sink<T>, seat: SeatId, horizontal: f64, vertical: f64) -> bo
     }
 }
 
-/// A scroll distance in the detents the host provider counts in.
-///
-/// The inverse of the compositor's conversion: the compositor multiplies a
-/// detent count by `SURFACE_UNITS_PER_DETENT`, and this divides a distance by
-/// the same constant.
+/// A scroll distance in the detents the host provider counts in, at
+/// `SURFACE_UNITS_PER_DETENT` units each.
 fn detents(distance: f64) -> f64 {
     distance / SURFACE_UNITS_PER_DETENT
 }

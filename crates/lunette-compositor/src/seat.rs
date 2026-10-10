@@ -85,8 +85,8 @@ impl SeatRegistry {
         })?;
 
         let mut seat = state.new_wl_seat(display, name.to_owned());
-        let pointer = seat.add_pointer();
-        let handle = seat
+        let seat_pointer = seat.add_pointer();
+        let seat_keyboard = seat
             .add_keyboard(
                 xkb_config(&resolved.names),
                 keyboard.repeat.delay.millis(),
@@ -103,8 +103,8 @@ impl SeatRegistry {
         self.seats.push(SeatEntry {
             id,
             seat,
-            pointer,
-            keyboard: handle,
+            seat_pointer,
+            seat_keyboard,
             keymap,
             uploaded: None,
             mouse: None,
@@ -125,7 +125,7 @@ impl SeatRegistry {
                 seat: entry.id,
                 name: entry.seat.name().to_owned(),
                 keymap: Arc::clone(entry.keymap().text()),
-                modifiers: held(entry.keyboard.modifier_state()),
+                modifiers: held(entry.seat_keyboard.modifier_state()),
                 clipboard_bridge: bridge == Some(entry.id),
             })
             .collect()
@@ -188,8 +188,10 @@ impl fmt::Debug for SeatRegistry {
 pub(crate) struct SeatEntry {
     id: SeatId,
     seat: Seat<CompositorState>,
-    pointer: PointerHandle<CompositorState>,
-    keyboard: KeyboardHandle<CompositorState>,
+    /// Upstream's `seat_pointer` and `seat_keyboard`, which the input methods
+    /// in `src/wayvr/client.rs` run against.
+    pub(crate) seat_pointer: PointerHandle<CompositorState>,
+    pub(crate) seat_keyboard: KeyboardHandle<CompositorState>,
     /// The keymap compiled in this crate for queries and restoration. Smithay
     /// compiles the same text in its own context because libxkbcommon keymaps
     /// are not thread-safe.
@@ -205,14 +207,6 @@ pub(crate) struct SeatEntry {
 impl SeatEntry {
     pub(crate) const fn id(&self) -> SeatId {
         self.id
-    }
-
-    pub(crate) fn pointer(&self) -> PointerHandle<CompositorState> {
-        self.pointer.clone()
-    }
-
-    pub(crate) fn keyboard(&self) -> KeyboardHandle<CompositorState> {
-        self.keyboard.clone()
     }
 
     pub(crate) const fn keymap(&self) -> &Keymap {

@@ -4,7 +4,7 @@
 //! run without a graphics device or XR runtime, and omitting the LÖVR bindings
 //! allows those tests to link without `liblovr.so`.
 
-pub mod client;
+pub(crate) mod commands;
 pub mod keymap;
 pub(crate) mod output;
 pub(crate) mod pacing;
@@ -22,7 +22,10 @@ pub mod thread;
 pub(crate) mod type_text;
 /// Files adapted from WayVR's `backend/wayvr`, kept close to upstream's text.
 pub(crate) mod wayvr {
+    pub mod client;
     pub(crate) mod hit_test;
     pub(crate) mod process;
     pub(crate) mod window;
 }
+
+pub use wayvr::client;

@@ -15,7 +15,7 @@ use lunette_capture::{
     tokens::TokenFile,
 };
 use lunette_compositor::{
-    client::{DisplayName, WaylandSocket, XwaylandSatellite},
+    client::{WaylandEnv, WaylandSocket, XwaylandSatellite},
     protocol::{Command, Event, ImportedBuffer, KeymapDefaults, Snapshot, SurfaceId, WindowId},
     selection::DataControlSource,
     state::CompositorConfig,
@@ -38,7 +38,7 @@ use crate::{
 #[derive(Debug)]
 pub struct Startup {
     pub socket: WaylandSocket,
-    pub display: DisplayName,
+    pub display: WaylandEnv,
     /// Where to find xwayland-satellite. Absent means X11 clients are not served.
     pub satellite: Option<XwaylandSatellite>,
     /// How the import barrier's open questions are answered for this run.
@@ -630,7 +630,10 @@ fn start(startup: Startup, graphics: &Graphics) -> Result<CompositorHandle, Star
     let handle = thread::spawn(config, socket, Box::new(importer), PanicPolicy::Abort)
         .map_err(StartupError::Thread)?;
 
-    info!(%name, "compositor running; clients may connect");
+    info!(
+        name = %name.wayland_display_num_string(),
+        "compositor running; clients may connect"
+    );
 
     Ok(handle)
 }

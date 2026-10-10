@@ -188,7 +188,7 @@ impl CompositorState {
     }
 }
 
-pub(super) fn logical_size(size: PixelSize) -> Size<i32, Logical> {
+pub(crate) fn logical_size(size: PixelSize) -> Size<i32, Logical> {
     #[expect(
         clippy::cast_possible_wrap,
         reason = "a size beyond two billion pixels is not a mode any hardware or protocol carries"

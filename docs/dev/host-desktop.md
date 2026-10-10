@@ -112,6 +112,6 @@ A session the user stops from the host desktop is requested again with its resto
 
 `monitor.width` and `monitor.height` report the host's unrotated mode, while textures use the captured frame's dimensions.
 
-`SURFACE_UNITS_PER_DETENT` in `crates/lunette-compositor/src/protocol/input.rs` is 10.0, the value WayVR's `UNITS_PER_DETENT` carries with the comment "no clue". A host sink divides a scroll distance by it to count wheel detents, and nothing has measured what a host compositor or its applications do with the result.
+`SURFACE_UNITS_PER_DETENT` in `crates/lunette-compositor/src/protocol/input.rs` is 10.0, the value WayVR's `UNITS_PER_DETENT` carries with the comment "no clue". A host sink divides a scroll distance by it to count wheel detents, and nothing has measured what a host compositor or its applications do with the result. The compositor reports a wheel detent to its own clients as 15 units, WayVR's `AXIS_VALUE_PER_DETENT`, so the two directions do not share a value, as they do not upstream.
 
 Dynamic output scale makes some clients, GTK in particular, flicker. Discrete scale steps with hysteresis reduce it.

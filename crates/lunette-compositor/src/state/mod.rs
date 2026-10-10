@@ -20,7 +20,6 @@ mod commit;
 mod compositor;
 mod graphics;
 mod handlers;
-mod input;
 mod outputs;
 mod pacing;
 mod processes;
@@ -31,4 +30,7 @@ mod tests;
 pub use crate::state::compositor::{
     ClientState, CompositorConfig, DEFAULT_OUTPUT, DEFAULT_SEAT, DmabufSupport, RenderNode,
 };
-pub(crate) use crate::state::compositor::{CompositorState, StateParts};
+pub(crate) use crate::state::{
+    compositor::{CompositorState, CompositorState as Application, StateParts},
+    outputs::logical_size,
+};

@@ -49,10 +49,12 @@ pub enum ScrollDelta {
     Discrete(i32),
 }
 
-/// Surface-local units represented by one wheel detent in `wl_pointer.axis`.
+/// Surface-local units host input counts as one wheel detent.
 ///
-/// Discrete deltas multiply by this value for clients. Host input divides a
-/// continuous distance by it to obtain wheel detents.
+/// Host input divides a continuous distance by this value to obtain wheel
+/// detents, as WayVR's virtual pointer does. The compositor reports a discrete
+/// delta to its own clients at WayVR's `AXIS_VALUE_PER_DETENT`, 15 units per
+/// detent, in `src/wayvr/client.rs`.
 pub const SURFACE_UNITS_PER_DETENT: f64 = 10.0;
 
 /// A Linux evdev keycode used by lunette's input protocol.
