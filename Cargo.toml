@@ -46,8 +46,9 @@ libc = "=0.2.189"
 libtest-mimic = "=0.8.2"
 clap = { version = "=4.6.6", features = ["derive"] }
 lunette-luau = { path = "crates/lunette-luau" }
-mlua = "=0.12.0"
-mlua-sys = "=0.11.0"
+# LÖVR builds Luau with four-component vectors, including the C push ABI.
+mlua = { version = "=0.12.2", features = ["luau-vector4"] }
+mlua-sys = "=0.13.0"
 parking_lot = "=0.12.5"
 pretty_assertions = "=1.4.1"
 # The plugin graph's model checker generates operation sequences and shrinks
@@ -103,7 +104,7 @@ wlx-capture = { git = "https://github.com/wayvr-org/wayvr", rev = "98f800c644719
 ] }
 
 # mlua is vendored as a submodule at vendor/mlua (`philpax/mlua` `lunette`, a
-# fork of mlua-rs/mlua at v0.12.0) and mlua-sys is patched in from it: lunette
+# fork of mlua-rs/mlua at v0.12.2) and mlua-sys is patched in from it: lunette
 # uses the LÖVR Luau fork (`philpax/luau` `lunette/luau-bump`), whose
 # LUA_TQUATERNION value type shifts Luau's type-tag numbering, and mlua-sys
 # compiles its luau ffi constants against upstream Luau. The submodule carries

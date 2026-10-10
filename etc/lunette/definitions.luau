@@ -1,5 +1,6 @@
 declare extern type userdata with end
 declare extern type lightuserdata with end
+declare loadstring: (source: string, chunkname: string?) -> (((...any) -> ...any)?, string?)
 
 
 declare extern type Object with
@@ -1144,7 +1145,7 @@ declare extern type Pass extends Object with
   function translate(self, translation: vector)
 end
 
-declare extern type Raytracer with
+declare extern type Raytracer extends Object with
   function add(self, mesh: Mesh, x: number?, y: number?, z: number?, scale: number?, angle: number?, ax: number?, ay: number?, az: number?, layers: number?, tag: number?): number
   function add(self, model: Model, x: number?, y: number?, z: number?, scale: number?, angle: number?, ax: number?, ay: number?, az: number?, layers: number?, tag: number?): number
   function add(self, mesh: Mesh, position: vector, scale3: vector, orientation: quaternion, layers: number?, tag: number?): number
@@ -1333,7 +1334,7 @@ export type DeviceButton =
   | "dpdown"
   | "dpleft"
   | "dpright"
-  | "bumper"
+  | "shoulder"
   | "nib"
 
 export type FoveationLevel =
@@ -1438,7 +1439,7 @@ export type HeadsetModule = {
   isTracked:
     & ((device: Device?) -> boolean)
     & ((model: Model) -> boolean),
-  isVisible: () -> boolean,
+  isVisible: () -> (boolean, boolean),
   newLayer:
     & ((width: number, height: number, options: { read stereo: boolean?, read static: boolean?, read transparent: boolean?, read filter: boolean? }?) -> Layer)
     & ((texture: Texture, options: { read stereo: boolean?, read static: boolean?, read transparent: boolean?, read filter: boolean? }?) -> Layer)
@@ -1497,7 +1498,7 @@ declare extern type Curve extends Object with
   function step(self, distance: number, iterations: number?): number
 end
 
-declare extern type Mat4 with
+declare extern type Mat4 extends Object with
   function equals(self, n: Mat4): boolean
   function fov(self, left: number, right: number, up: number, down: number, near: number, far: number?): Mat4
   function getOrientation(self): (number, number, number, number)
@@ -1732,7 +1733,7 @@ declare extern type Collider extends Object with
   function setUserData(self, data: any)
 end
 
-declare extern type Contact with
+declare extern type Contact extends Object with
   function getColliders(self): (Collider, Collider)
   function getFriction(self): number
   function getNormal(self): (number, number, number)
@@ -2004,7 +2005,7 @@ export type PhysicsModule = {
     & ((scale: number, heightmap: Image, stretch: number?) -> TerrainShape)
     & ((scale: number, callback: (x: number, z: number) -> (), samples: number?) -> TerrainShape),
   newWeldJoint: (colliderA: Collider?, colliderB: Collider) -> WeldJoint,
-  newWorld: (settings: { read tags: {}?, read staticTags: {}?, read maxColliders: number?, read threadSafe: boolean?, read allowSleep: boolean?, read stabilization: number?, read maxOverlap: number?, read restitutionThreshold: number?, read velocitySteps: number?, read positionSteps: number? }?) -> World,
+  newWorld: (settings: { read tags: {}?, read staticTags: {}?, read maxColliders: number?, read threadSafe: boolean?, read allowSleep: boolean?, read stabilization: number?, read maxOverlap: number?, read restitutionThreshold: number?, read velocitySteps: number?, read positionSteps: number?, read timeBeforeSleep: number?, read sleepVelocityThreshold: number? }?) -> World,
 }
 
 export type MouseMode =
@@ -2122,7 +2123,7 @@ export type VectorModule = {
   unpack: (v: vector) -> (number, number, number),
 }
 
-export type LovrConfiguration = { version: string, identity: string, saveprecedence: boolean, modules: { audio: boolean, data: boolean, event: boolean, graphics: boolean, headset: boolean, math: boolean, physics: boolean, system: boolean, task: boolean, thread: boolean, timer: boolean }, audio: { debug: boolean, samplerate: number?, read start: boolean, write start: boolean?, read reverb: { type: "none" | "convolution" | "parametric", rays: number, bounces: number, duration: number, rate: number }, write reverb: { type: "none" | "convolution" | "parametric", rays: number, bounces: number, duration: number, rate: number }? }, graphics: { debug: boolean, vsync: boolean, stencil: boolean, antialias: boolean, lowpower: boolean, hdr: boolean, shadercache: boolean }, headset: { backend: "auto" | "openxr" | "openvr", connect: boolean, start: boolean, debug: boolean, read supersample: boolean, write supersample: boolean | number | nil, seated: boolean, read mask: boolean, write mask: boolean?, read antialias: boolean, write antialias: boolean?, stencil: boolean, read dynamicresolution: boolean, write dynamicresolution: boolean?, submitdepth: boolean, read overlay: boolean, write overlay: boolean | number, read controllerskeleton: "none" | "controller" | "natural", write controllerskeleton: "none" | "controller" | "natural" | nil, extensions: {string}? }, math: { globals: boolean }, thread: { read workers: number, write workers: number? }, read window: { read width: number, write width: number?, read height: number, write height: number?, centered: boolean, fullscreen: boolean, resizable: boolean, read title: string, write title: string?, icon: string | Blob | Image | nil }, write window: { read width: number, write width: number?, read height: number, write height: number?, centered: boolean, fullscreen: boolean, resizable: boolean, read title: string, write title: string?, icon: string | Blob | Image | nil }? }
+export type LovrConfiguration = { version: string, identity: string, saveprecedence: boolean, modules: { audio: boolean, data: boolean, event: boolean, graphics: boolean, headset: boolean, math: boolean, physics: boolean, system: boolean, task: boolean, thread: boolean, timer: boolean }, audio: { debug: boolean, samplerate: number?, read start: boolean, write start: boolean?, read reverb: { type: "none" | "convolution" | "parametric", rays: number, bounces: number, duration: number, rate: number }, write reverb: { type: "none" | "convolution" | "parametric", rays: number, bounces: number, duration: number, rate: number }? }, graphics: { debug: boolean, vsync: boolean, stencil: boolean, antialias: boolean, lowpower: boolean, hdr: boolean, shadercache: boolean }, headset: { backend: "auto" | "openxr" | "openvr", connect: boolean, start: boolean, hdr: boolean, debug: boolean, read supersample: boolean, write supersample: boolean | number | nil, seated: boolean, read mask: boolean, write mask: boolean?, read antialias: boolean, write antialias: boolean?, stencil: boolean, read dynamicresolution: boolean, write dynamicresolution: boolean?, submitdepth: boolean, read overlay: boolean, write overlay: boolean | number, read controllerskeleton: "none" | "controller" | "natural", write controllerskeleton: "none" | "controller" | "natural" | nil, extensions: {string}? }, math: { globals: boolean }, thread: { read workers: number, write workers: number? }, read window: { read width: number, write width: number?, read height: number, write height: number?, centered: boolean, fullscreen: boolean, resizable: boolean, read title: string, write title: string?, icon: string | Blob | Image | nil }, write window: { read width: number, write width: number?, read height: number, write height: number?, centered: boolean, fullscreen: boolean, resizable: boolean, read title: string, write title: string?, icon: string | Blob | Image | nil }? }
 
 declare lovr: {
   getVersion: () -> (number, number, number, string, string),

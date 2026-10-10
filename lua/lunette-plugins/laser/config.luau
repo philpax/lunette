@@ -53,7 +53,7 @@ local CONTROL = schema.enum<<DeviceButton>> {
   'dpdown',
   'dpleft',
   'dpright',
-  'bumper',
+  'shoulder',
   'nib',
 }
 local BUTTON = schema.enum<<lunette.PointerButton>> { 'left', 'right', 'middle', 'back', 'forward' }

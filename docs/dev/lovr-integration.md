@@ -18,24 +18,25 @@ The series on `lunette`, oldest first:
 
 | Commit | Patch | Kind |
 |---|---|---|
-| `869696fa` | Point `deps/luau` at the lunette Luau fork | Integration |
-| `e6c5d3e6` | `LOVR_EXPORT_LUA_SYMBOLS` | Integration |
-| `b613c516` | `LOVR_LUAU_ANALYSIS` | Integration |
-| `a2771c65` | Register the module loader where Luau looks for it | Upstream defect |
-| `be05835e` | Enable external-memory and DRM format modifier extensions when available | Upstreamable |
-| `d16940bd` | `TextureInfo.foreign` for images that already hold contents | Upstreamable |
-| `0ab06f49` | `gpu_import_acquire` and `gpu_import_release` | Upstreamable |
-| `a90cee55` | Enforce the foreign contract in the Vulkan backend | Upstreamable |
-| `1c9c1947` | Raise `MAX_LAYERS` to 64 | Upstreamable |
-| `85995c71` | Expose the runtime's composition layer limit | Upstreamable |
-| `a6129bec` | Expose which session is running | Upstreamable |
-| `5edba6e8` | Bump `deps/luau` past the dropped checker CLI patch | Integration |
-| `6b974d23` | Load `conf.lua` when the project has no `main.lua` | Upstream defect |
-| `14ed0ea4` | Report whether a main session is visible | Upstreamable |
-| `1d284e6f` | Prefer `main.luau` under Luau | Upstreamable |
-| `b28c6574` | Append modifier snapshots to keyboard events | Upstreamable |
-| `c63249d1` to `490231a2` | The private headset operations boundary and the OpenVR backend, twelve commits | Exception |
-| `ef8b5dcf` | Make native initialization paths explicit | Upstream defect |
+| `8c8c8a59` | Point `deps/luau` at the lunette Luau fork | Integration |
+| `1426fba1` | `LOVR_EXPORT_LUA_SYMBOLS` | Integration |
+| `069a0a8e` | `LOVR_LUAU_ANALYSIS` | Integration |
+| `1a466028` | Register the module loader where Luau looks for it | Upstream defect |
+| `da4e926b` | Enable external-memory and DRM format modifier extensions when available | Upstreamable |
+| `6e866d18` | `TextureInfo.foreign` for images that already hold contents | Upstreamable |
+| `7b6ccb97` | `gpu_import_acquire` and `gpu_import_release` | Upstreamable |
+| `106258af` | Enforce the foreign contract in the Vulkan backend | Upstreamable |
+| `3f5f0b48` | Raise `MAX_LAYERS` to 64 | Upstreamable |
+| `448abf5e` | Expose the runtime's composition layer limit | Upstreamable |
+| `6b9d0afd` | Expose which session is running | Upstreamable |
+| `3467a2f9` | Bump `deps/luau` to the updated fork | Integration |
+| `b7dd0803` | Load `conf.lua` when the project has no `main.lua` | Upstream defect |
+| `fa1ccc7f` | Report whether a main session is visible | Upstreamable |
+| `12d6d73d` | Prefer `main.luau` under Luau | Upstreamable |
+| `3f22b7d7` | Append modifier snapshots to keyboard events | Upstreamable |
+| `c09b4b6c` to `6dbf5b03` | The private headset operations boundary and the OpenVR backend, twelve commits | Exception |
+| `887ee1e7` | Make native initialization paths explicit | Upstream defect |
+| `19c22780` | Fix material allocation and ownership failure paths | Upstream defect |
 
 `git -C vendor/lovr log --oneline upstream/dev..lunette` lists the series.
 
@@ -61,15 +62,19 @@ The option links Luau's type checker into `liblovr.so` as a whole archive, for `
 
 #### `conf.lua` ignored when `main.lua` is absent
 
-`boot.lua` loaded `conf.lua` only when a main file existed, so a project without one booted with every module and a desktop window. The patch loads `conf.lua` whenever the source mounts, then checks for the main file. lunette's safe mode depends on this: a configuration missing its main file must not start modules it disabled.
+`boot.lua` loads `conf.lua` before checking for the main file. The configuration resolves from the main file's real directory, or from the source directory when no main file exists. lunette's safe mode depends on this: a configuration missing its main file must not start modules it disabled.
 
 #### Native initialization paths
 
 `lovrModelAnimate` ends through `lovrUnreachable` for an invalid animation property instead of leaving its locals uninitialised. The bitmap font loader keeps its image-path presence and length checks under `LOVR_UNCHECKED`, because the font file is external data. `openxrLayerSetCurve` reads layer dimensions after validating the session rather than through a getter whose early return leaves locals indeterminate.
 
+#### Material allocation and ownership failures
+
+Material allocation releases partial resources on failure. Texture replacement prepares its allocation and uniform data before releasing the old descriptor or texture reference. Font atlas and model material setup propagate failures through their cleanup paths. Lua constructors give temporary textures and partial materials userdata ownership before field conversion can raise, and report rejected setters instead of returning an incomplete material.
+
 #### Optional callback contextual inference in Luau
 
-This fix is in `deps/luau`. Luau stripped nil from an anonymous function's expected function-or-nil type but not from a named function's, so a named `lovr.conf` callback lost the closed configuration type. The fix strips nil on the named path. Making `lovr.conf` mandatory was rejected because it misstates the runtime, and requiring a `LovrConfiguration` annotation at every site was rejected as the general remedy. Focused regressions pass under each solver configuration; the full upstream Luau suite has 212 failures that also occur on the baseline.
+This fix is in `deps/luau`. Luau stripped nil from an anonymous function's expected function-or-nil type but not from a named function's, so a named `lovr.conf` callback lost the closed configuration type. The fix strips nil on the named path. Making `lovr.conf` mandatory was rejected because it misstates the runtime, and requiring a `LovrConfiguration` annotation at every site was rejected as the general remedy. Focused regressions pass. The full upstream Luau suite does not pass: the updated unit suite has 231 failed cases, compared with 212 on the baseline. The comparison identifies shared fork-specific expectations and CodeGen failures; LÖVR does not link CodeGen.
 
 ### Upstreamable features
 
@@ -97,7 +102,7 @@ LÖVR enables `VK_KHR_external_memory`, `VK_KHR_external_memory_fd`, `VK_EXT_ext
 
 #### Report whether a main session is visible
 
-LÖVR handles `XR_TYPE_EVENT_DATA_MAIN_SESSION_VISIBILITY_CHANGED_EXTX` and reports it through `lovrHeadsetIsMainSessionVisible` and `lovr.headset.isMainSessionVisible`. An overlay draws its own background only when nothing is behind it, as WayVR decides its skybox. The flag starts false, so a runtime that never sends the event reads as nothing behind. A matching lovr-docs patch adds the binding to the generated definitions.
+LÖVR handles `XR_TYPE_EVENT_DATA_MAIN_SESSION_VISIBILITY_CHANGED_EXTX` and reports it through `lovrHeadsetIsMainSessionVisible` and `lovr.headset.isMainSessionVisible`. Upstream `lovr.headset.isVisible()` also returns it as the second result; the dedicated accessor remains for existing callers. An overlay draws its own background only when nothing is behind it, as WayVR decides its skybox. The flag starts false, so a runtime that never sends the event reads as nothing behind. The lovr-docs metadata declares both results and the dedicated accessor.
 
 #### `main.luau` as the entry point under Luau
 

@@ -58,7 +58,7 @@ fn table_schemas_keep_optional_fields_read_write_splits_and_empty_tables() -> ml
         schema_less.contains("fixture: ((t: {}) -> ())?"),
         "{schema_less}"
     );
-    assert!(!schema_less.contains("any"), "{schema_less}");
+    assert!(!schema_less.contains("fixture: ((t: any)"), "{schema_less}");
     Ok(())
 }
 
