@@ -310,13 +310,15 @@ pub struct ChildSurface {
     pub stacking: Stacking,
 }
 
-/// The role that makes a surface part of a window.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ChildKind {
-    /// A `wl_subsurface`, of the window or of another child.
-    Subsurface,
-    /// An `xdg_popup`, of the window or of another popup.
-    Popup,
+closed_set! {
+    /// The role that makes a surface part of a window.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum ChildKind {
+        /// A `wl_subsurface`, of the window or of another child.
+        Subsurface = "subsurface",
+        /// An `xdg_popup`, of the window or of another popup.
+        Popup = "popup",
+    }
 }
 
 /// Which side of the window's own surface a child is drawn on.

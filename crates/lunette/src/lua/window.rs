@@ -6,8 +6,8 @@
 use std::{cell::RefCell, rc::Rc};
 
 use lunette_compositor::protocol::{
-    Command, ContentType, FramePacing, FrameRate, OutputId, PixelSize, SinkId, SourceCrop,
-    SurfaceId, ToplevelStates, WindowId, WindowSnapshot,
+    ChildSurface as SnapshotChild, Command, ContentType, FramePacing, FrameRate, OutputId,
+    PixelSize, SinkId, SourceCrop, Stacking, SurfaceId, ToplevelStates, WindowId, WindowSnapshot,
 };
 use mlua::{LuaString, Value};
 
@@ -16,10 +16,13 @@ use crate::{
     import::formats::Alpha,
     lua::{
         LuaTexture, Output, Session,
-        declarations::{Textured, handle},
+        declarations::{Textured, handle, record},
         pixel_size,
         sink::Sink,
-        values::{ContentTypeName, MaybeTexture, PropertyArgument, StoredProperty},
+        values::{
+            ChildKindName, ContentTypeName, MaybeTexture, PresentTexture, PropertyArgument,
+            StoredProperty,
+        },
     },
     properties::{PropertyError, PropertyKey, PropertyValue},
     texture::{TextureRef, TextureUnavailable},
@@ -104,6 +107,7 @@ struct Known {
     /// Carried so a resize can restate them, because a configure replaces the
     /// whole state set.
     states: ToplevelStates,
+    children: Vec<SnapshotChild>,
 }
 
 impl From<&WindowSnapshot> for Known {
@@ -119,6 +123,7 @@ impl From<&WindowSnapshot> for Known {
             source_crop: window.source_crop,
             server_side_decorations: window.server_side_decorations,
             states: window.states.clone(),
+            children: window.children.clone(),
         }
     }
 }
@@ -200,6 +205,12 @@ handle! {
 
     /// Returns a persistent texture copy, updated whenever the surface is damaged.
     method stabilize(lua, this) -> MaybeTexture { stabilize(lua, this) }
+
+    /// The window's popups and subsurfaces that have a texture this frame, bottom first. Each is
+    /// placed where the pointer reaches it, so drawing it there draws what input goes to. The
+    /// textures rotate as the window's does, so call this again each frame. Empty for a dead
+    /// window.
+    method getChildSurfaces(lua, this) -> Vec<ChildSurface> { child_surfaces(lua, this) }
 
     /// Requests that the client close the window. The client controls whether it unmaps.
     method close(_lua, this) -> bool { Ok(close(this)) }
@@ -290,6 +301,85 @@ fn stabilize<T: LuaTexture>(lua: &mlua::Lua, window: &Window<T>) -> mlua::Result
     window
         .session
         .with_textures(|textures| answer(lua, textures.stabilize(reference, generation)))
+}
+
+/// Lists the window's children that have a texture this frame.
+fn child_surfaces<T: LuaTexture>(
+    lua: &mlua::Lua,
+    window: &Window<T>,
+) -> mlua::Result<Vec<ChildSurface>> {
+    if !window.refresh() {
+        return Ok(Vec::new());
+    }
+    let generation = window.session.generation();
+    let children = window.known.borrow().children.clone();
+    window.session.with_textures(|textures| {
+        let mut listed = Vec::with_capacity(children.len());
+        for child in &children {
+            let reference = TextureRef::new(child.surface, generation);
+            let MaybeTexture(texture) = answer(lua, textures.lookup(reference, generation))?;
+            if matches!(texture, Value::Boolean(false)) {
+                continue;
+            }
+            let opaque = textures
+                .describe(child.surface)
+                .is_some_and(|description| description.alpha == Alpha::Opaque);
+            let crop = child.source_crop;
+            listed.push(ChildSurface {
+                id: child.surface.get(),
+                kind: ChildKindName(child.kind),
+                below: child.stacking == Stacking::Below,
+                x: child.position.x,
+                y: child.position.y,
+                width: child.size.width,
+                height: child.size.height,
+                crop: Crop {
+                    x: crop.left(),
+                    y: crop.top(),
+                    width: crop.right() - crop.left(),
+                    height: crop.bottom() - crop.top(),
+                },
+                texture: PresentTexture(texture),
+                opaque,
+            });
+        }
+        Ok(listed)
+    })
+}
+
+record! {
+    /// A popup or subsurface of a window, as of this frame. Its texture rotates with the client's
+    /// buffers, so it is not kept across frames.
+    struct ChildSurface {
+        /// The child's surface, stable while it lives, so a consumer can keep per-child state.
+        id: u64,
+        kind: ChildKindName,
+        /// Whether the child is drawn beneath the window's own surface, showing where the window
+        /// is transparent. Only a subsurface placed below the window is.
+        below: bool,
+        /// The child's left edge relative to the window's, in the window's surface coordinates,
+        /// which pointer positions use. A popup can reach outside the window.
+        x: i32,
+        y: i32,
+        /// The child's size in surface coordinates.
+        width: u32,
+        height: u32,
+        /// The part of the texture the child shows, as fractions of the texture's size.
+        crop: Crop,
+        texture: PresentTexture,
+        /// Whether the fourth pixel component is padding, so a consumer treats it as opaque.
+        opaque: bool,
+    }
+}
+
+record! {
+    /// A rectangle as fractions of a texture's width and height, from its top-left corner.
+    struct Crop {
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+    }
 }
 
 /// Requests that the client close the window.

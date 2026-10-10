@@ -9,7 +9,7 @@
 //! What a wrapper carries and what it is declared to be are read together.
 
 use lunette_compositor::protocol::{
-    ContentType, InputDomain, PointerButton, ProcessOutcome, Stream,
+    ChildKind, ContentType, InputDomain, PointerButton, ProcessOutcome, Stream,
 };
 use lunette_luau::Type;
 use mlua::{FromLua, Function, IntoLua, Lua, Value};
@@ -35,6 +35,38 @@ impl IntoLua for MaybeTexture {
 impl Typed for MaybeTexture {
     fn luau() -> Type {
         Type::Union(vec![Type::Named("Texture"), Type::Named("false")])
+    }
+}
+
+/// A texture that exists, for a value listed only when it has one.
+#[derive(Debug)]
+pub struct PresentTexture(pub Value);
+
+impl IntoLua for PresentTexture {
+    fn into_lua(self, _: &Lua) -> mlua::Result<Value> {
+        Ok(self.0)
+    }
+}
+
+impl Typed for PresentTexture {
+    fn luau() -> Type {
+        Type::Named("Texture")
+    }
+}
+
+/// The role of a window's child surface.
+#[derive(Clone, Copy, Debug)]
+pub struct ChildKindName(pub ChildKind);
+
+impl IntoLua for ChildKindName {
+    fn into_lua(self, lua: &Lua) -> mlua::Result<Value> {
+        self.0.as_str().into_lua(lua)
+    }
+}
+
+impl Typed for ChildKindName {
+    fn luau() -> Type {
+        Type::literals(ChildKind::NAMES)
     }
 }
 

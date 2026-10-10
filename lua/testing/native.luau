@@ -146,6 +146,9 @@ function native.new()
     function window:getSourceCrop()
       return table.unpack(self.sourceCrop)
     end
+    function window:getChildSurfaces()
+      return self.children or {}
+    end
     function window:close()
       events.closed += 1
       self.dead = true

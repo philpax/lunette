@@ -97,6 +97,11 @@ export type Window = {
   read getSourceCrop: (self: Window) -> (number, number, number, number),
   -- Returns a persistent texture copy, updated whenever the surface is damaged.
   read stabilize: (self: Window) -> Texture | false,
+  -- The window's popups and subsurfaces that have a texture this frame, bottom
+  -- first. Each is placed where the pointer reaches it, so drawing it there
+  -- draws what input goes to. The textures rotate as the window's does, so call
+  -- this again each frame. Empty for a dead window.
+  read getChildSurfaces: (self: Window) -> { ChildSurface },
   -- Requests that the client close the window. The client controls whether it
   -- unmaps.
   read close: (self: Window) -> boolean,
@@ -109,6 +114,42 @@ export type Window = {
   read setProperty: (self: Window, key: string, value: boolean | number | string | nil) -> boolean,
   -- What was kept under a key, or nil. Readable on a dead handle.
   read getProperty: (self: Window, key: string) -> boolean | number | string | nil,
+}
+
+-- A popup or subsurface of a window, as of this frame. Its texture rotates with
+-- the client's buffers, so it is not kept across frames.
+export type ChildSurface = {
+  -- The child's surface, stable while it lives, so a consumer can keep
+  -- per-child state.
+  id: number,
+  kind: 'subsurface' | 'popup',
+  -- Whether the child is drawn beneath the window's own surface, showing where
+  -- the window is transparent. Only a subsurface placed below the window is.
+  below: boolean,
+  -- The child's left edge relative to the window's, in the window's surface
+  -- coordinates, which pointer positions use. A popup can reach outside the
+  -- window.
+  x: number,
+  y: number,
+  -- The child's size in surface coordinates.
+  width: number,
+  height: number,
+  -- The part of the texture the child shows, as fractions of the texture's
+  -- size.
+  crop: Crop,
+  texture: Texture,
+  -- Whether the fourth pixel component is padding, so a consumer treats it as
+  -- opaque.
+  opaque: boolean,
+}
+
+-- A rectangle as fractions of a texture's width and height, from its top-left
+-- corner.
+export type Crop = {
+  x: number,
+  y: number,
+  width: number,
+  height: number,
 }
 
 -- The latest fresh monitor-selection request's state, independent of running

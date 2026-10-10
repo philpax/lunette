@@ -16,6 +16,7 @@ use crate::{
         output::{NewOutput, SetMode},
         seat::{NewSeat, Stroke},
         values::PointerButtonName,
+        window::{ChildSurface, Crop},
     },
     plugin::declarations::{API_TYPE_NAME, render_types},
 };
@@ -69,6 +70,8 @@ fn surface() -> Vec<Item> {
     let mut items = vec![
         Item::Handle(collect::<Sink<NullTexture>>()),
         Item::Handle(collect::<Window<NullTexture>>()),
+        Item::Record(ChildSurface::RECORD),
+        Item::Record(Crop::RECORD),
         Item::Record(MonitorSelection::RECORD),
         Item::Handle(collect::<Monitor<NullTexture>>()),
         Item::Handle(collect::<Process<NullTexture>>()),
