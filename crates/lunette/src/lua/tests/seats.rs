@@ -6,8 +6,9 @@
 //!
 //! The host half is the mirroring contract this module establishes: a
 //! keystroke addressed to a host sink reaches the provider, under the seat's
-//! layout, after uploading that layout first. Because the upload must precede
-//! the first keystroke, `wl_virtual` is not configured in the production path.
+//! layout, after uploading that layout first, because `wl_virtual` disconnects
+//! on a key sent before a keymap. A seat absent from the frame's snapshot has
+//! no layout to upload, so its keystroke is refused.
 
 use std::sync::Arc;
 
@@ -616,6 +617,28 @@ fn a_key_on_a_host_sink_uploads_the_layout_before_the_keystroke() {
         }
         other => panic!("expected a keymap then a key, got {other:?}"),
     }
+}
+
+#[test]
+fn a_key_or_modifier_from_a_seat_absent_from_the_snapshot_is_refused_on_a_host_sink() {
+    // The frame's snapshot carries no seats, so not even the default one.
+    let (session, _, host) = mirrored_session(Vec::new(), FakeMirrors::one());
+    let lua = lua(&session);
+
+    let (key, modifiers): (bool, bool) = run(
+        &lua,
+        &format!(
+            "local sink = lunette.monitors()[1].sink
+             return sink:key({KEY_A}, true), sink:setModifiers({{ 'shift' }})"
+        ),
+    );
+
+    assert!(!key, "a key with no layout to read it under was sent");
+    assert!(
+        !modifiers,
+        "modifiers with no layout to read them under were set"
+    );
+    assert_eq!(host.events(), Vec::new());
 }
 
 #[test]

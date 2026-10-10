@@ -52,7 +52,11 @@ Host input goes through the `HidProvider` trait, shaped after WayVR's (`src/subs
 - wl_virtual: `zwlr_virtual_pointer_v1` and `zwp_virtual_keyboard_v1`, which need no permissions but exist only on wlroots compositors. It uploads an XKB keymap so typing follows the user's layout.
 - dummy: injects nothing.
 
-`hid::open` tries the providers as an ordered chain, uinput then wl_virtual, and falls back to the dummy. Every failure is recorded and reported. WayVR instead calls one initialiser and installs the dummy on failure. A fatal send failure during a session replaces the provider with the dummy and logs the reason.
+`hid::open` tries the providers as an ordered chain, uinput then wl_virtual, and falls back to the dummy. Every failure is recorded and reported. WayVR instead calls one initialiser and installs the dummy on failure.
+
+The binary supplies the chain's configuration: the host's Wayland socket, and the layout the default seat compiles from the `XKB_DEFAULT_*` names. `zwp_virtual_keyboard_v1` disconnects a client that sends a key before a keymap, so wl_virtual uploads that layout before it reports itself open, and it reports itself unconfigured when the layout does not compile. A key or modifier change on a host sink first gives the provider its seat's layout. The provider keeps the layout it last uploaded and skips an upload that would change nothing, so the default seat's first keystroke uploads nothing further. A seat absent from the frame's snapshot has no layout, and its key is refused. uinput accepts the layout and ignores it, because the host applies its own.
+
+A fatal failure, which is a lost connection to the host compositor, replaces the provider with the dummy at the call that reports it and logs the reason. A key, a modifier change, a layout upload, and the frame's commit can each report one. A failure that is not fatal is reported to the caller, and a failed upload is not remembered, so the next keystroke tries again.
 
 libei through the portal's RemoteDesktop interface is the planned long-term provider.
 
@@ -82,6 +86,8 @@ Monitor identity omits the serial, which a Wayland client cannot read; only the 
 
 The host's outputs are enumerated by lunette's own explicit-socket watcher rather than `WlxClient`. The watcher owns identity, logical geometry, and hotplug for both capture and input, and `WlxClient` ignores `wl_output.name` and needs more globals. Direct capture matches `WlxClient`'s outputs to the roster by unique logical geometry, never by enumeration order.
 
+uinput precedes wl_virtual in the provider chain. uinput works on every compositor and on X11, while wl_virtual exists only on wlroots compositors, so wl_virtual is the fallback for a wlroots host without `/dev/uinput` access. wl_virtual's layout is the default seat's, compiled at startup, because the provider opens before any seat exists and cannot send a key without one.
+
 Direct capture uses the pinned WayVR implementation as it is, without a second screencopy implementation or upstream API changes. Its cancellation, pause, and failure-reporting limits are accepted and recorded in [Known gaps](#known-gaps).
 
 Restore tokens are rewritten after every grant, because a token is single-use and each `Start` response returns a new one. The granted `persist_mode` is recorded, never the requested one, because a backend may downgrade it. The file is versioned TOML. A file from a later version yields no store, because an older writer would drop fields it does not know; unknown fields within a known version are rejected for the same reason. TOML is used because the file holds EDID make and model strings.
@@ -90,7 +96,7 @@ Restore tokens are rewritten after every grant, because a token is single-use an
 
 The pinned screencopy backend has no cancellation or joined drop, its pause is empty, and a worker blocked in its event loop can stay detached after a monitor is dismissed or unplugged. Its asynchronous failures do not reach lunette, so a started direct stream can stay marked as mirrored with no frames, and there is no runtime failover to the portal.
 
-The binary opens the input chain with `HidConfig::default()`. It supplies no wl_virtual configuration and no keymap, so wl_virtual reports itself unconfigured and uinput or the dummy is used. No configuration option changes the provider order.
+No configuration option changes the provider order, so a wlroots host where uinput is writable always uses uinput.
 
 If mutter binds an absolute uinput device to one display rather than mapping it across the whole layout, GNOME has no working absolute pointer path until libei is implemented.
 

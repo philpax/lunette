@@ -5,7 +5,7 @@
 //! unmanaged dependencies, so the tests do not mock what they do not own.
 //! Nothing here opens a device.
 
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, io, rc::Rc};
 
 use crate::hid::{
     HidProvider,
@@ -57,7 +57,7 @@ impl Recording {
     pub fn provider(&self) -> RecordingProvider {
         RecordingProvider {
             recording: self.clone(),
-            disconnect_on_commit: None,
+            failure: None,
         }
     }
 
@@ -68,9 +68,22 @@ impl Recording {
     /// next.
     #[must_use]
     pub fn disconnecting_provider(&self, detail: impl Into<String>) -> RecordingProvider {
+        self.failing_provider(Failure {
+            call: FailingCall::Commit,
+            fatal: true,
+            detail: detail.into(),
+        })
+    }
+
+    /// A provider whose `call` fails as `failure` describes.
+    ///
+    /// The call is still recorded, because a real provider has already
+    /// written its request when the connection reports the failure.
+    #[must_use]
+    pub fn failing_provider(&self, failure: Failure) -> RecordingProvider {
         RecordingProvider {
             recording: self.clone(),
-            disconnect_on_commit: Some(detail.into()),
+            failure: Some(failure),
         }
     }
 
@@ -85,14 +98,57 @@ impl Recording {
     }
 }
 
+/// A call a [`RecordingProvider`] can be made to fail.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FailingCall {
+    Commit,
+    Key,
+    Keymap,
+}
+
+/// How a [`RecordingProvider`] fails.
+#[derive(Clone, Debug)]
+pub struct Failure {
+    pub call: FailingCall,
+    /// Whether the failure is a disconnection, the only fatal
+    /// [`ProviderError`], or a failed write that a later call may survive.
+    pub fatal: bool,
+    pub detail: String,
+}
+
+impl Failure {
+    fn error(&self) -> ProviderError {
+        if self.fatal {
+            ProviderError::Disconnected {
+                detail: self.detail.clone(),
+            }
+        } else {
+            ProviderError::Io {
+                operation: "write to the fake provider",
+                path: None,
+                source: io::Error::other(self.detail.clone()),
+            }
+        }
+    }
+}
+
 /// A provider that appends every call to a [`Recording`].
 pub struct RecordingProvider {
     recording: Recording,
-    /// Why `commit` reports the compositor gone, or `None` to succeed.
+    /// Which call fails and how, or `None` for every call to succeed.
     ///
     /// Held, not returned once, because a fatal error is fatal on every call:
     /// a disconnected compositor does not reconnect itself.
-    disconnect_on_commit: Option<String>,
+    failure: Option<Failure>,
+}
+
+impl RecordingProvider {
+    fn outcome(&self, call: FailingCall) -> Result<(), ProviderError> {
+        match &self.failure {
+            Some(failure) if failure.call == call => Err(failure.error()),
+            _ => Ok(()),
+        }
+    }
 }
 
 impl HidProvider for RecordingProvider {
@@ -131,21 +187,16 @@ impl HidProvider for RecordingProvider {
 
     fn send_key(&mut self, key: VirtualKey, down: bool) -> Result<(), ProviderError> {
         self.recording.push(HidEvent::Key { key, down });
-        Ok(())
+        self.outcome(FailingCall::Key)
     }
 
     fn set_keymap(&mut self, keymap: &XkbKeymap) -> Result<(), ProviderError> {
         self.recording.push(HidEvent::Keymap(keymap.clone()));
-        Ok(())
+        self.outcome(FailingCall::Keymap)
     }
 
     fn commit(&mut self) -> Result<(), ProviderError> {
         self.recording.push(HidEvent::Commit);
-        match &self.disconnect_on_commit {
-            Some(detail) => Err(ProviderError::Disconnected {
-                detail: detail.clone(),
-            }),
-            None => Ok(()),
-        }
+        self.outcome(FailingCall::Commit)
     }
 }

@@ -15,6 +15,8 @@ pub mod selection;
 pub mod uinput;
 pub mod wl_virtual;
 
+use std::path::PathBuf;
+
 use tracing::{info, warn};
 
 pub use crate::hid::{
@@ -95,9 +97,36 @@ pub trait HidProvider {
 /// The entry point resolves the environment and passes the result here.
 #[derive(Clone, Debug, Default)]
 pub struct HidConfig {
-    /// The host compositor and the layout to upload, or `None` when there is no
-    /// host Wayland session, which reports [`ProviderError::NotConfigured`].
-    pub wl_virtual: Option<WlVirtualConfig>,
+    /// The host compositor's Wayland socket, or `None` when there is no host
+    /// Wayland session.
+    pub host_socket: Option<PathBuf>,
+    /// The layout `wl_virtual` uploads when it opens, or `None` when the entry
+    /// point could not compile one.
+    ///
+    /// `zwp_virtual_keyboard_v1` disconnects a client that sends a key before a
+    /// keymap, so `wl_virtual` does not open without one.
+    pub keymap: Option<XkbKeymap>,
+}
+
+impl HidConfig {
+    /// The configuration `wl_virtual` opens with.
+    ///
+    /// # Errors
+    ///
+    /// [`ProviderError::NotConfigured`] naming the first value the entry point
+    /// did not supply.
+    fn wl_virtual(&self) -> Result<WlVirtualConfig, ProviderError> {
+        let socket = self
+            .host_socket
+            .clone()
+            .ok_or(ProviderError::NotConfigured {
+                what: "host Wayland socket",
+            })?;
+        let keymap = self.keymap.clone().ok_or(ProviderError::NotConfigured {
+            what: "keyboard layout for the virtual keyboard",
+        })?;
+        Ok(WlVirtualConfig { socket, keymap })
+    }
 }
 
 /// The provider in use and the failures recorded while selecting it.
@@ -107,6 +136,11 @@ pub struct HostInput {
     provider: Box<dyn HidProvider>,
     kind: ProviderKind,
     failures: Vec<ProviderFailure>,
+    /// The layout the provider was last given.
+    ///
+    /// Kept because each upload makes the host compositor recompile. `wl_virtual`
+    /// starts with the layout it uploaded when it opened.
+    keymap: Option<XkbKeymap>,
 }
 
 impl HostInput {
@@ -137,27 +171,81 @@ impl HostInput {
         self.provider.as_mut()
     }
 
+    /// Sends a key press or release, degrading if the provider is gone.
+    ///
+    /// # Errors
+    ///
+    /// [`ProviderError`] when the key could not be sent. After a fatal error
+    /// the provider is already the dummy.
+    pub fn send_key(&mut self, key: VirtualKey, down: bool) -> Result<(), ProviderError> {
+        let result = self.provider.send_key(key, down);
+        self.degrade_on(result)
+    }
+
+    /// Brings the host's held modifiers to `modifiers`, degrading if the
+    /// provider is gone.
+    ///
+    /// # Errors
+    ///
+    /// [`ProviderError`] when the modifiers could not be set. After a fatal
+    /// error the provider is already the dummy.
+    pub fn set_modifiers(&mut self, modifiers: KeyModifiers) -> Result<(), ProviderError> {
+        let result = self.provider.set_modifiers(modifiers);
+        self.degrade_on(result)
+    }
+
+    /// Gives the provider a layout, unless it already has that one.
+    ///
+    /// A failed upload is not remembered, so the next call tries again.
+    ///
+    /// # Errors
+    ///
+    /// [`ProviderError`] when the layout could not be uploaded. After a fatal
+    /// error the provider is already the dummy.
+    pub fn set_keymap(&mut self, keymap: &XkbKeymap) -> Result<(), ProviderError> {
+        if self.keymap.as_ref() == Some(keymap) {
+            return Ok(());
+        }
+
+        let result = self.provider.set_keymap(keymap);
+        self.degrade_on(result)?;
+        self.keymap = Some(keymap.clone());
+        Ok(())
+    }
+
     /// Sends the frame's accumulated input, degrading if the provider is gone.
     ///
     /// A fatal failure replaces the provider with the dummy, so the session
     /// does not report the same disconnection every frame.
     pub fn commit(&mut self) {
-        let Err(error) = self.provider.commit() else {
-            return;
-        };
-
-        if !error.is_fatal() {
+        let result = self.provider.commit();
+        if let Err(error) = self.degrade_on(result)
+            && !error.is_fatal()
+        {
             warn!(provider = %self.kind, %error, "host input could not be sent this frame");
-            return;
         }
+    }
 
-        warn!(
-            provider = %self.kind,
-            %error,
-            "host input is no longer reachable, so lunette will stop driving the host desktop",
-        );
-        self.provider = Box::new(DummyProvider);
-        self.kind = ProviderKind::Dummy;
+    /// Replaces the provider with the dummy when `result` is a fatal failure,
+    /// and passes `result` on.
+    ///
+    /// Degrading on the first fatal failure, not at the next commit, stops
+    /// further requests from being written to a connection that has ended.
+    fn degrade_on(&mut self, result: Result<(), ProviderError>) -> Result<(), ProviderError> {
+        let Err(error) = result else {
+            return Ok(());
+        };
+        if error.is_fatal() {
+            warn!(
+                provider = %self.kind,
+                %error,
+                "host input is no longer reachable, so lunette will stop driving the host desktop",
+            );
+            self.provider = Box::new(DummyProvider);
+            self.kind = ProviderKind::Dummy;
+            self.keymap = None;
+        }
+        Err(error)
     }
 }
 
@@ -167,9 +255,17 @@ impl HostInput {
 /// that.
 #[must_use]
 pub fn open(config: &HidConfig) -> HostInput {
+    open_with(config, open_one)
+}
+
+/// Opens the chain through `opener`, the device and compositor boundary.
+fn open_with(
+    config: &HidConfig,
+    mut opener: impl FnMut(ProviderKind, &HidConfig) -> Result<Box<dyn HidProvider>, ProviderError>,
+) -> HostInput {
     let selected = select(
         &PROVIDER_ORDER,
-        |kind| open_one(kind, config),
+        |kind| opener(kind, config),
         || Box::new(DummyProvider) as Box<dyn HidProvider>,
     );
 
@@ -184,10 +280,17 @@ pub fn open(config: &HidConfig) -> HostInput {
     }
     info!(provider = %selected.kind, "host input");
 
+    // `wl_virtual` opens only after uploading the configured layout.
+    let keymap = match selected.kind {
+        ProviderKind::WlVirtual => config.keymap.clone(),
+        ProviderKind::Uinput | ProviderKind::Dummy => None,
+    };
+
     HostInput {
         provider: selected.provider,
         kind: selected.kind,
         failures: selected.failures,
+        keymap,
     }
 }
 
@@ -197,16 +300,8 @@ fn open_one(kind: ProviderKind, config: &HidConfig) -> Result<Box<dyn HidProvide
         ProviderKind::Uinput => {
             UinputProvider::open().map(|provider| Box::new(provider) as Box<dyn HidProvider>)
         }
-        ProviderKind::WlVirtual => {
-            let wl_virtual = config
-                .wl_virtual
-                .as_ref()
-                .ok_or(ProviderError::NotConfigured {
-                    what: "host Wayland socket",
-                })?;
-            WlVirtualProvider::open(wl_virtual)
-                .map(|provider| Box::new(provider) as Box<dyn HidProvider>)
-        }
+        ProviderKind::WlVirtual => WlVirtualProvider::open(&config.wl_virtual()?)
+            .map(|provider| Box::new(provider) as Box<dyn HidProvider>),
         // Unreachable through `select`, which supplies the dummy itself.
         ProviderKind::Dummy => Ok(Box::new(DummyProvider)),
     }
@@ -222,15 +317,58 @@ mod tests {
 
     use super::*;
     use crate::{
-        hid::recording::{HidEvent, Recording},
+        hid::recording::{FailingCall, Failure, HidEvent, Recording},
         monitor::{LogicalGeometry, LogicalPosition, LogicalSize},
     };
+
+    fn layout(name: &str) -> XkbKeymap {
+        XkbKeymap::new(format!("xkb_keymap {{ /* {name} */ }};")).expect("a non-empty keymap")
+    }
+
+    fn configured(keymap: Option<XkbKeymap>) -> HidConfig {
+        HidConfig {
+            host_socket: Some(PathBuf::from("/run/user/1000/wayland-1")),
+            keymap,
+        }
+    }
+
+    /// Opens the chain with uinput denied and `wl_virtual` standing in for
+    /// the real one: it requires a full configuration and uploads its layout
+    /// before reporting itself open, as `WlVirtualProvider::open` does.
+    fn open_without_uinput(config: &HidConfig, recording: &Recording) -> HostInput {
+        open_with(config, |kind, config| match kind {
+            ProviderKind::Uinput => Err(ProviderError::Io {
+                operation: "open",
+                path: Some(PathBuf::from("/dev/uinput")),
+                source: std::io::Error::from_raw_os_error(13),
+            }),
+            ProviderKind::WlVirtual => {
+                let wl_virtual = config.wl_virtual()?;
+                let mut provider = recording.provider();
+                provider.set_keymap(&wl_virtual.keymap)?;
+                Ok(Box::new(provider))
+            }
+            ProviderKind::Dummy => Ok(Box::new(DummyProvider)),
+        })
+    }
+
+    fn failing(recording: &Recording, call: FailingCall, fatal: bool) -> HostInput {
+        host(
+            Box::new(recording.failing_provider(Failure {
+                call,
+                fatal,
+                detail: "broken pipe".to_owned(),
+            })),
+            ProviderKind::WlVirtual,
+        )
+    }
 
     fn host(provider: Box<dyn HidProvider>, kind: ProviderKind) -> HostInput {
         HostInput {
             provider,
             kind,
             failures: Vec::new(),
+            keymap: None,
         }
     }
 
@@ -293,5 +431,169 @@ mod tests {
             vec![HidEvent::Commit],
             "the provider that went away is not called again",
         );
+    }
+
+    #[test]
+    fn uinput_unavailable_falls_back_to_wl_virtual_with_the_configured_layout() {
+        let recording = Recording::new();
+        let mut input = open_without_uinput(&configured(Some(layout("us"))), &recording);
+
+        assert_eq!(input.kind(), ProviderKind::WlVirtual);
+        assert!(input.unreachable().is_none());
+
+        input.set_keymap(&layout("us")).expect("the layout is set");
+        input
+            .send_key(VirtualKey::A, true)
+            .expect("the key is sent");
+
+        assert_eq!(
+            recording.events(),
+            vec![
+                HidEvent::Keymap(layout("us")),
+                HidEvent::Key {
+                    key: VirtualKey::A,
+                    down: true,
+                },
+            ],
+            "the layout uploaded on open precedes the key, and is not uploaded again",
+        );
+    }
+
+    #[test]
+    fn a_seat_with_another_layout_replaces_the_one_uploaded_on_open() {
+        let recording = Recording::new();
+        let mut input = open_without_uinput(&configured(Some(layout("us"))), &recording);
+
+        input.set_keymap(&layout("de")).expect("the layout is set");
+        input.set_keymap(&layout("de")).expect("the layout is kept");
+
+        assert_eq!(
+            recording.events(),
+            vec![
+                HidEvent::Keymap(layout("us")),
+                HidEvent::Keymap(layout("de")),
+            ],
+        );
+    }
+
+    #[test]
+    fn wl_virtual_without_a_layout_is_unconfigured_and_both_failures_are_reported() {
+        let recording = Recording::new();
+        let input = open_without_uinput(&configured(None), &recording);
+
+        assert_eq!(input.kind(), ProviderKind::Dummy);
+        assert_eq!(recording.events(), Vec::new());
+
+        let rendered = input
+            .unreachable()
+            .expect("nothing reached the host")
+            .to_string();
+        assert!(
+            rendered.contains("uinput: could not open /dev/uinput"),
+            "{rendered}"
+        );
+        assert!(
+            rendered
+                .contains("wl_virtual: no keyboard layout for the virtual keyboard was supplied"),
+            "{rendered}",
+        );
+    }
+
+    #[test]
+    fn wl_virtual_without_a_host_socket_names_the_socket() {
+        let recording = Recording::new();
+        let input = open_without_uinput(
+            &HidConfig {
+                host_socket: None,
+                keymap: Some(layout("us")),
+            },
+            &recording,
+        );
+
+        let rendered = input
+            .unreachable()
+            .expect("nothing reached the host")
+            .to_string();
+        assert!(
+            rendered.contains("wl_virtual: no host Wayland socket was supplied"),
+            "{rendered}",
+        );
+    }
+
+    #[test]
+    fn a_disconnection_while_sending_a_key_degrades_at_once() {
+        let recording = Recording::new();
+        let mut input = failing(&recording, FailingCall::Key, true);
+
+        let error = input
+            .send_key(VirtualKey::A, true)
+            .expect_err("the key reports the disconnection");
+        assert!(error.is_fatal());
+        assert_eq!(input.kind(), ProviderKind::Dummy);
+
+        input
+            .send_key(VirtualKey::A, false)
+            .expect("the dummy accepts the release");
+        input.commit();
+        assert_eq!(
+            recording.events(),
+            vec![HidEvent::Key {
+                key: VirtualKey::A,
+                down: true,
+            }],
+            "nothing more is written to the connection that ended",
+        );
+    }
+
+    #[test]
+    fn a_failed_upload_is_not_remembered_and_is_tried_again() {
+        let recording = Recording::new();
+        let mut input = failing(&recording, FailingCall::Keymap, false);
+
+        input
+            .set_keymap(&layout("us"))
+            .expect_err("the upload fails");
+        assert_eq!(
+            input.kind(),
+            ProviderKind::WlVirtual,
+            "a failed write is not fatal"
+        );
+        let _ = input.set_keymap(&layout("us"));
+
+        assert_eq!(
+            recording.events(),
+            vec![
+                HidEvent::Keymap(layout("us")),
+                HidEvent::Keymap(layout("us")),
+            ],
+        );
+    }
+
+    #[test]
+    fn a_disconnection_while_uploading_a_layout_degrades_at_once() {
+        let recording = Recording::new();
+        let mut input = failing(&recording, FailingCall::Keymap, true);
+
+        input
+            .set_keymap(&layout("us"))
+            .expect_err("the upload reports the disconnection");
+
+        assert_eq!(input.kind(), ProviderKind::Dummy);
+        assert!(
+            input.unreachable().is_none(),
+            "a provider lost mid-session is logged, not reported as never reached",
+        );
+    }
+
+    #[test]
+    fn a_failed_commit_that_is_not_fatal_keeps_the_provider() {
+        let recording = Recording::new();
+        let mut input = failing(&recording, FailingCall::Commit, false);
+
+        input.commit();
+        input.commit();
+
+        assert_eq!(input.kind(), ProviderKind::WlVirtual);
+        assert_eq!(recording.events(), vec![HidEvent::Commit, HidEvent::Commit]);
     }
 }

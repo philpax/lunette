@@ -28,7 +28,7 @@ use lunette::{
     texture::BarrierPolicy,
 };
 use lunette_capture::{
-    hid::{self, HidConfig},
+    hid::{self, HidConfig, XkbKeymap},
     mirror::{MirrorSet, screencopy::WlxClient},
     monitor::OutputWatcher,
     portal::{
@@ -39,6 +39,7 @@ use lunette_capture::{
 };
 use lunette_compositor::{
     client::{XwaylandSatellite, listen},
+    keymap::Keymap,
     protocol::{KeymapConfig, KeymapDefaults},
     selection::DataControlSource,
 };
@@ -121,6 +122,7 @@ fn main() -> ExitCode {
     info!(path = %module_data.display(), "mounting the module data");
 
     let state_directory = state_directory(&StateDirectorySources::from_environment());
+    let keymap_defaults = keymap_defaults_from_environment();
 
     // SAFETY: no application worker has started, and nothing above spawns threads.
     let host_socket = unsafe { prepare_host_display() };
@@ -172,7 +174,7 @@ fn main() -> ExitCode {
         Option<HostDesktop>,
     ) = match host_socket
         .as_deref()
-        .and_then(|socket| open_host(socket, state_directory.as_deref()))
+        .and_then(|socket| open_host(socket, state_directory.as_deref(), &keymap_defaults))
     {
         Some(host) => (
             Rc::clone(&host.mirrors) as _,
@@ -203,7 +205,7 @@ fn main() -> ExitCode {
         ),
         host: desktop,
         clipboard: host_socket.as_deref().map(DataControlSource::new),
-        keymap_defaults: keymap_defaults_from_environment(),
+        keymap_defaults,
     };
 
     // SAFETY: this thread owns the headset module for the process lifetime.
@@ -258,7 +260,11 @@ struct Host {
 }
 
 /// Opens host monitor capture and input. Returns `None` when host outputs or the portal are unavailable.
-fn open_host(socket: &Path, state_directory: Option<&Path>) -> Option<Host> {
+fn open_host(
+    socket: &Path,
+    state_directory: Option<&Path>,
+    keymap_defaults: &KeymapDefaults,
+) -> Option<Host> {
     let outputs = match OutputWatcher::connect(socket) {
         Ok(outputs) => outputs,
         Err(error) => {
@@ -276,9 +282,10 @@ fn open_host(socket: &Path, state_directory: Option<&Path>) -> Option<Host> {
 
     let (stored, tokens) = read_tokens(state_directory);
 
-    // `wl_virtual` requires an uploaded keymap before its first keystroke. Without a keymap
-    // builder, the provider falls back to uinput.
-    let input = hid::open(&HidConfig::default());
+    let input = hid::open(&HidConfig {
+        host_socket: Some(socket.to_owned()),
+        keymap: default_seat_keymap(keymap_defaults),
+    });
     if let Some(error) = input.unreachable() {
         warn!("{error}");
     }
@@ -300,6 +307,22 @@ fn open_host(socket: &Path, state_directory: Option<&Path>) -> Option<Host> {
         outputs,
         tokens,
     })
+}
+
+/// The layout the default seat compiles, which `wl_virtual` uploads when it opens.
+///
+/// `zwp_virtual_keyboard_v1` disconnects a client that sends a key before a keymap, so the
+/// provider needs one before any seat exists. The default seat's layout is the one a host
+/// keystroke most often carries, so its first keystroke uploads nothing further. Returns `None`
+/// when the layout does not compile, which leaves `wl_virtual` unconfigured.
+fn default_seat_keymap(defaults: &KeymapDefaults) -> Option<XkbKeymap> {
+    match Keymap::compile(&KeymapConfig::default(), defaults) {
+        Ok(keymap) => XkbKeymap::new(keymap.text().as_str()),
+        Err(error) => {
+            warn!("{error}; the virtual keyboard has no layout, so wl_virtual cannot open");
+            None
+        }
+    }
 }
 
 /// Loads restore tokens and returns a write handle only for compatible data.
@@ -592,6 +615,34 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
+
+    #[test]
+    fn wl_virtual_is_given_the_layout_the_default_seat_compiles() {
+        let defaults = KeymapDefaults::new(KeymapConfig {
+            layout: Some("de".to_owned()),
+            ..KeymapConfig::default()
+        });
+        let seat = Keymap::compile(&KeymapConfig::default(), &defaults)
+            .expect("the default seat's layout compiles");
+
+        let uploaded = default_seat_keymap(&defaults).expect("a layout to upload");
+
+        assert_eq!(
+            uploaded.as_str(),
+            seat.text().as_str(),
+            "the default seat's first host keystroke would upload its layout again",
+        );
+    }
+
+    #[test]
+    fn a_desktop_layout_that_does_not_compile_leaves_wl_virtual_without_one() {
+        let defaults = KeymapDefaults::new(KeymapConfig {
+            layout: Some("this-is-not-a-layout".to_owned()),
+            ..KeymapConfig::default()
+        });
+
+        assert_eq!(default_seat_keymap(&defaults), None);
+    }
 
     /// `lunette-capture`'s token tests cover the version matrix. This covers what a session
     /// makes of a read that fails, a missing file, and a missing state directory.

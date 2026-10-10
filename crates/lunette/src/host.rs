@@ -65,9 +65,6 @@ pub struct HostPointer {
     input: RefCell<HostInput>,
     /// One mapping per mappable monitor, in the roster's own order.
     monitors: RefCell<Vec<(MonitorKey, MonitorMapping)>>,
-    /// The layout most recently uploaded, kept because each upload makes the
-    /// host compositor recompile.
-    keymap: RefCell<Option<XkbKeymap>>,
 }
 
 impl HostPointer {
@@ -76,7 +73,6 @@ impl HostPointer {
         Self {
             input: RefCell::new(input),
             monitors: RefCell::new(Vec::new()),
-            keymap: RefCell::new(None),
         }
     }
 
@@ -147,28 +143,20 @@ impl HostSinks for HostPointer {
 
     fn key(&self, key: VirtualKey, pressed: bool) -> bool {
         report("a key could not be sent to the host desktop", || {
-            self.input.borrow_mut().provider().send_key(key, pressed)
+            self.input.borrow_mut().send_key(key, pressed)
         })
     }
 
     fn modifiers(&self, modifiers: KeyModifiers) -> bool {
         report("the host's modifiers could not be set", || {
-            self.input.borrow_mut().provider().set_modifiers(modifiers)
+            self.input.borrow_mut().set_modifiers(modifiers)
         })
     }
 
     fn set_keymap(&self, keymap: &XkbKeymap) -> bool {
-        if self.keymap.borrow().as_ref() == Some(keymap) {
-            return true;
-        }
-
-        let uploaded = report("the host's layout could not be set", || {
-            self.input.borrow_mut().provider().set_keymap(keymap)
-        });
-        if uploaded {
-            *self.keymap.borrow_mut() = Some(keymap.clone());
-        }
-        uploaded
+        report("the host's layout could not be set", || {
+            self.input.borrow_mut().set_keymap(keymap)
+        })
     }
 
     fn commit(&self) {

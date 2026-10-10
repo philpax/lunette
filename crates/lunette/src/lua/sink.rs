@@ -36,8 +36,9 @@
 //!
 //! Every method takes an optional trailing seat. Absent means the default
 //! seat, the seat a configuration that never calls `lunette.newSeat` has. A
-//! host sink ignores the argument, as `docs/guide/native-api.md` records: the host has
-//! one cursor and one keyboard focus however many hands point at it.
+//! host sink uses the argument only for the layout its keys are read under, as
+//! `docs/guide/native-api.md` records: the host has one cursor and one keyboard
+//! focus however many hands point at it.
 
 use std::rc::Rc;
 

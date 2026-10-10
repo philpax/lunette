@@ -60,6 +60,8 @@ Wayland clients take an xkb keymap, raw keycodes, and modifier state, and transl
 - Keymap queries: `seat:symbolFor` and `seat:characterFor` give the keysym and text for a keycode under modifiers, and `seat:strokeFor` is the reverse lookup from keysym or character to keycode and modifiers.
 - `sink:scroll` for a continuous distance in surface pixels. A host sink converts the distance to wheel detents.
 
+On a host sink, a key or modifier change is read under the seat's layout, which is uploaded to the host's input provider first; a seat absent from the frame's snapshot, or whose layout cannot be uploaded, has its key refused. [Host desktop](host-desktop.md#input-injection) describes the providers.
+
 A seat carries one layout group. A configuration that names several layouts for one seat is refused, and a second layout requires a second seat. `lua/lunette/init.luau` declares each call.
 
 The keymap queries are stateless. They serve virtual-keyboard legends and single-key translation under explicit modifiers, including AltGr, and keep no dead-key or compose state. Physical text uses LÖVR's committed UTF-8.
