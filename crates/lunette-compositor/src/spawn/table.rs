@@ -1,16 +1,12 @@
 //! Linux-only: adopted-process liveness depends on the production inspector
 //! reading `/proc`.
 //!
-//! Adapted from the `spawn_process` and `add_external_process` fragments of
-//! WayVR's `backend/wayvr/mod.rs`, and the process tick in its `tick_events`,
-//! at commit 42e9deb54cc5c36037b49237867afa3dc4593f4a.
-//! Copyright (c) the WayVR authors (galister, oo8dev). Licensed GPL-3.0-only.
-//!
 //! The operations on the process table: starting a managed process, adopting
 //! an external one, polling both, and reporting them to the snapshot.
 //!
 //! The table is upstream's `DenseSlotMap<ProcessHandle, Process>`. Upstream
-//! starts and adopts processes in `WayVRState` and polls them in
+//! starts and adopts processes in `spawn_process` and
+//! `add_external_process` of `backend/wayvr/mod.rs` and polls them in
 //! `tick_events`; lunette keeps those operations here as functions of the
 //! table, so they can be tested without a compositor.
 

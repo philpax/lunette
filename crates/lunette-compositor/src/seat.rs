@@ -1,9 +1,3 @@
-//! Adapted from the seat-construction fragments in WayVR's
-//! `backend/wayvr/mod.rs` and the hover state in `backend/wayvr/window.rs`
-//! (https://github.com/wayvr-org/wayvr), at commit
-//! `98f800c644719d3f23a20e50bd3237c29a8082cb`.
-//! Copyright (c) the WayVR authors (galister, oo8dev). Licensed GPL-3.0-only.
-//!
 //! A `wl_seat` exposes one pointer and one keyboard. Each simultaneous cursor
 //! needs its own seat, and [`SeatRegistry`] keys per-seat state by [`SeatId`].
 //!
@@ -16,6 +10,9 @@
 //!
 //! Smithay serials are global across seats. Input paths use smithay's shared
 //! serial counter and do not keep a per-seat counter.
+//!
+//! The construction of each seat follows `WvrServerState::new` in WayVR's
+//! `backend/wayvr/mod.rs`; `PROVENANCE.md` records it.
 
 use std::{cell::RefCell, error::Error, fmt, sync::Arc};
 

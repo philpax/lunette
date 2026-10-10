@@ -1,17 +1,13 @@
-//! Adapted from the `configure_env` and `generate_auth_key` fragments of WayVR's
-//! `backend/wayvr/mod.rs` at commit 42e9deb54cc5c36037b49237867afa3dc4593f4a.
-//! Copyright (c) the WayVR authors (galister, oo8dev). Licensed GPL-3.0-only.
-//!
 //! The command line and environment of a spawned child, and the token that
 //! attributes its clients.
 //!
-//! The variable list and the Flatpak `--env=` insertion after `run` are
-//! upstream's. lunette builds a plan rather than configuring a `Command`, so
-//! the spawner seam can record it; omits an empty display variable; applies
-//! the caller's variables last; names the token variable
-//! `LUNETTE_DISPLAY_AUTH`; and draws a 256-bit token from the operating
-//! system's random source, compared in constant time, where upstream uses a
-//! UUID.
+//! The variable list and the Flatpak `--env=` insertion after `run` follow
+//! `configure_env` in WayVR's `backend/wayvr/mod.rs`. lunette builds a plan
+//! rather than configuring a `Command`, so the spawner seam can record it;
+//! omits an empty display variable; applies the caller's variables last;
+//! names the token variable `LUNETTE_DISPLAY_AUTH`; and draws a 256-bit token
+//! from the operating system's random source, compared in constant time,
+//! where upstream uses a UUID.
 
 use std::{
     ffi::{OsStr, OsString},

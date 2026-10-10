@@ -8,7 +8,7 @@ lunette is GPL-3.0-only. That follows from WayVR: lunette uses WayVR's code, Way
 
 <https://github.com/wayvr-org/wayvr>, GPL-3.0-only, by galister and oo8dev. Previously WlxOverlay-S.
 
-lunette's Wayland compositor is a port of WayVR's `backend/wayvr`, carried in `crates/lunette-compositor`. Host monitor capture and input injection come from WayVR's `wlx-capture` and its `HidProvider` design. Provenance for the ported files, including the upstream commit each was taken at, is recorded in [crates/lunette-compositor/PROVENANCE.md](crates/lunette-compositor/PROVENANCE.md).
+lunette's Wayland compositor is a port of WayVR's `backend/wayvr`, carried in `crates/lunette-compositor`. Host monitor capture and input injection come from WayVR's `wlx-capture` and its `HidProvider` design. Provenance for the ported files, including the upstream commit they were taken at and the upstream defects lunette fixes, is recorded in [crates/lunette-compositor/PROVENANCE.md](crates/lunette-compositor/PROVENANCE.md).
 
 That contribution is not incidental. galister and WayVR's contributors solved capture across every Linux compositor, worked out which OpenXR extensions function on which runtime, and found the Monado input-blocking mechanism. lunette depends on all three.
 

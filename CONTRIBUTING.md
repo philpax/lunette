@@ -52,9 +52,9 @@ The documents use a plain technical register: short declarative sentences, activ
 
 ## Vendored code
 
-`crates/lunette-compositor` is a hard vendor of WayVR's `backend/wayvr`. It carries WayVR's copyright and licence, and each file taken from it states its provenance at the top.
+`crates/lunette-compositor` is a hard vendor of WayVR's `backend/wayvr`. It carries WayVR's copyright and licence. The files taken from upstream live in `src/wayvr/` under upstream's names, each carries WayVR's header, and no file outside that directory does. [PROVENANCE.md](crates/lunette-compositor/PROVENANCE.md) records the upstream commit and where each upstream file lands.
 
-Vendored code is exempt from the house style until it is rewritten, because wholesale reformatting destroys the ability to diff against upstream when a fix is worth taking. Bring a file up to house style when a change touches it substantially, not as drive-by churn.
+The files under `src/wayvr/` are exempt from the house style and keep upstream's identifiers and formatting, because rewriting them destroys the ability to diff against upstream when a fix is worth taking. `rustfmt.toml` excludes the directory, so an edit there follows upstream's formatting by hand, while lunette's own files beside it are formatted as usual.
 
 `wlx-capture` is a git-pinned external dependency, not a vendor, and fixes to it go upstream. Upstream is the `wlx-capture` directory of the WayVR monorepo. The standalone `galister/wlx-capture` repository stopped at 0.5.4, which pulls `ashpd` with an `async-std` executor and a personal fork of pipewire-rs; 0.6.0 removed both and exists only inside the monorepo, with no independent tag. The pin therefore names a WayVR revision, and repointing it at the standalone repository is a regression.
 

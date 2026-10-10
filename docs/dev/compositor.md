@@ -2,11 +2,13 @@
 
 lunette is a Wayland compositor. Applications it spawns connect to its socket and submit dmabufs or shared-memory buffers; the compositor sizes their surfaces, routes their input, and decides when they draw.
 
-`crates/lunette-compositor` is a hard vendor of WayVR's `backend/wayvr/`, with WayVR's vulkano import path replaced by lunette's ([Rendering](rendering.md#texture-import)). It is vendored rather than tracked because nearly every file has been modified. Capture is different: `wlx-capture` remains an external dependency ([Host desktop](host-desktop.md)). The compositor runs on its own thread and talks to the frame loop through bounded command and event channels. It starts at the first frame that has a LÖVR graphics device, because it imports buffers against that device.
+`crates/lunette-compositor` is a hard vendor of WayVR's `backend/wayvr/`, with WayVR's buffer import replaced by lunette's ([Rendering](rendering.md#texture-import)). It is vendored rather than taken as a dependency because WayVR's backend is not a library: it is a module of the WayVR binary, ticked from WayVR's overlay loop and coupled to its renderer and IPC, while lunette runs it on its own thread behind a channel protocol and adds several seats, per-client outputs, frame pacing, and a host clipboard bridge. The files under `src/wayvr/` keep upstream's names and as much of its text as lunette can, so that a fix worth taking from WayVR is a readable diff; [PROVENANCE.md](../../crates/lunette-compositor/PROVENANCE.md) records the upstream commit, where each upstream file lands, what is left out, and the upstream defects lunette fixes. Capture is different: `wlx-capture` remains an external dependency ([Host desktop](host-desktop.md)). The compositor runs on its own thread and talks to the frame loop through bounded command and event channels. It starts at the first frame that has a LÖVR graphics device, because it imports buffers against that device.
 
 ## Protocols
 
 The compositor advertises `wl_compositor` (version 6), `xdg_wm_base`, `zxdg_decoration_manager_v1`, the KDE server decoration protocol, `wl_output`, `wl_seat`, `wl_shm`, `zwp_linux_dmabuf_v1`, `wp_single_pixel_buffer_manager_v1`, `wp_viewporter`, `wp_fractional_scale_v1`, `wp_content_type_v1`, `zwp_relative_pointer_manager_v1`, `wl_data_device_manager`, `zwp_primary_selection_device_manager_v1`, `zwlr_data_control_manager_v1`, and `ext_data_control_manager_v1`. `Application::new` in `crates/lunette-compositor/src/wayvr/mod.rs` creates them.
+
+`wp_viewporter` lets a client set a surface's size and the part of its buffer it shows independently of the buffer, which is how a client following `wp_fractional_scale_v1` presents a buffer larger than its surface. The committed size and the source crop follow the viewport ([Windows](#windows)), and an invalid viewport is a protocol error.
 
 `wp_fractional_scale_v1` decouples panel resolution from physical size, so a panel can render sharper as the user approaches. `wp_content_type_v1` is reported to Lua as `win.contentType` and not acted on natively; the pacing provider combines it with the observed commit rate ([Rendering](rendering.md#frame-pacing)). `linux-drm-syncobj-v1` is not supported ([Rendering](rendering.md#synchronisation)).
 
@@ -98,6 +100,14 @@ The default output stays as the output for unassigned clients, because adopted c
 ### Window bookkeeping runs after dispatch, from WayVR's task queue
 
 The `xdg_shell` handlers queue a task for a new toplevel, a destroyed toplevel, a title change, and a minimize request, as WayVR's do, and the drag-and-drop handlers queue one when a drag starts and when it drops. The compositor thread drains the queue after each dispatch and before it flushes the clients, in `crates/lunette-compositor/src/commands/mod.rs`, where WayVR drains it on its tick. A new toplevel therefore becomes a window, and receives its initial configure, in the same loop iteration that created it, and reads its title and app id at that point. Registering the window inside the handler was rejected because it would rewrite the handlers that keep the vendored code diffable against WayVR. A toplevel whose client disconnects has no client to queue the task for, so its window is removed at once.
+
+### Upstream's files stay in their own directory
+
+The code taken from WayVR lives in `crates/lunette-compositor/src/wayvr/`, one file per upstream file under upstream's name, with upstream's identifiers and formatting. Each of those files carries WayVR's header, and no file outside the directory does. lunette's own subsystems sit beside the directory and call into it, and a lunette addition inside an upstream file is kept to the fewest lines that reach lunette's code. Renaming upstream's types and splitting its files along lunette's seams was the earlier arrangement, and it was rejected because no file could then be diffed against WayVR, so upstream fixes such as the `wp_viewport` sizing went unnoticed. `rustfmt.toml` excludes the directory, because the house import style would reformat upstream's lines.
+
+### The host clipboard client is not in the compositor crate
+
+The data-control client of the host desktop lives in `crates/lunette-capture/src/clipboard`, and this crate keeps only the `HostSelectionSource` seam it implements. It is host desktop integration with no counterpart in WayVR, and keeping it here put about a thousand lines of it among the vendored code ([Host desktop](host-desktop.md#decisions)).
 
 ### An adopted process's disappearance is not an exit
 
