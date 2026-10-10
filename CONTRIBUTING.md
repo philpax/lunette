@@ -21,7 +21,7 @@ crates/lunette/                       the lunette and lunctl binaries, Lua injec
 crates/lunette-compositor/            smithay; vendored fork of WayVR's backend/wayvr
 crates/lunette-lovr/                  cmake build and FFI surface for LÖVR
 crates/lunette-luau/                  the Luau type language, and the closed-set macro
-crates/lunette-capture/               host output enumeration, monitor capture, and host-input providers
+crates/lunette-capture/               host output enumeration, monitor capture, host-input providers, and the host clipboard client
 crates/lunette-generate-definitions/  generates the Luau definitions, declarations, .luaurc files, and install manifest
 lua/lunette/                          generated declarations for the native API
 lua/lunette-plugin/                   typed plugin facade, composition, schemas, and runtime management

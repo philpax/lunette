@@ -14,7 +14,7 @@
 //! The worker forwards selection descriptors without reading or writing their
 //! content. A read passes the lunette client's descriptor to the host, and a
 //! write passes the host's descriptor to the compositor thread. See
-//! [`crate::selection`] for the transfer contract.
+//! [`lunette_compositor::selection`] for the transfer contract.
 //!
 //! A host can re-announce a selection that lunette publishes. While lunette owns
 //! a selection, the worker discards that announcement and does not proxy its
@@ -37,10 +37,14 @@ use std::{
     time::Duration,
 };
 
-use smithay::reexports::calloop::{
-    self, EventLoop, Interest, Mode, PostAction,
+use calloop::{
+    EventLoop, Interest, Mode, PostAction,
     channel::{self, Channel},
     generic::Generic,
+};
+use lunette_compositor::selection::{
+    HostEvent, HostEvents, HostRead, HostSelection, HostSelectionSource, HostStartError, MimeType,
+    OfferCounter, OfferId, RejectReason, Rejected, SelectionKind,
 };
 use tracing::{debug, info, warn};
 use wayland_client::{
@@ -50,14 +54,7 @@ use wayland_client::{
     protocol::wl_seat::WlSeat,
 };
 
-use crate::selection::{
-    HostRead, MimeType, OfferCounter, OfferId, SelectionKind,
-    data_control::objects::{Device, Manager, Offer, Source},
-    host::{
-        HostEvent, HostEvents, HostSelection, HostSelectionSource, HostStartError, RejectReason,
-        Rejected,
-    },
-};
+use crate::clipboard::objects::{Device, Manager, Offer, Source};
 
 /// A full queue rejects reads and drops publish and withdraw commands.
 const COMMAND_CAPACITY: usize = 32;

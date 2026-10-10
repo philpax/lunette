@@ -12,7 +12,7 @@ lunette/
     lunette-compositor/           smithay; vendored fork of WayVR's backend/wayvr
     lunette-lovr/                 cmake build and FFI surface for LÖVR
     lunette-luau/                 the Luau type language and closed-set macro
-    lunette-capture/              wrappers over wlx-capture and HidProvider
+    lunette-capture/              wrappers over wlx-capture and HidProvider, and the host clipboard client
     lunette-generate-definitions/ generates the Luau definitions, native declarations, .luaurc files, and install manifest
   lua/lunette/                    generated declarations for the native API
   lua/lunette-plugin/             typed plugin authoring facade and erased adapter

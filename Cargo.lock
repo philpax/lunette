@@ -752,7 +752,9 @@ dependencies = [
 name = "lunette-capture"
 version = "0.1.0"
 dependencies = [
+ "calloop",
  "libc",
+ "lunette-compositor",
  "lunette-luau",
  "parking_lot",
  "pipewire",
@@ -787,7 +789,6 @@ dependencies = [
  "tracing",
  "wayland-client",
  "wayland-protocols",
- "wayland-protocols-wlr",
  "xkbcommon",
 ]
 

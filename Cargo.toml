@@ -37,6 +37,9 @@ ariadne = "=0.6.0"
 # it; `=0.38.0` pins the release.
 ash = "=0.38.0"
 bindgen = "=0.72.1"
+# The host clipboard worker in lunette-capture runs its own event loop. The
+# version is the one smithay re-exports, so the tree keeps one copy.
+calloop = "=0.14.4"
 cc = "=1.4.0"
 cmake = "=0.1.58"
 getrandom = "=0.3.4"

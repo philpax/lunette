@@ -10,6 +10,7 @@
 
 use std::os::fd::BorrowedFd;
 
+use lunette_compositor::selection::{HostStartError, SelectionKind};
 use wayland_client::{
     Connection, Dispatch, Proxy, QueueHandle,
     backend::ObjectId,
@@ -30,11 +31,7 @@ use wayland_protocols_wlr::data_control::v1::client::{
     zwlr_data_control_source_v1::{self, ZwlrDataControlSourceV1},
 };
 
-use crate::selection::{
-    SelectionKind,
-    data_control::{Handshake, Host},
-    host::HostStartError,
-};
+use crate::clipboard::{Handshake, Host};
 
 pub(super) enum Manager {
     Ext(ExtDataControlManagerV1),

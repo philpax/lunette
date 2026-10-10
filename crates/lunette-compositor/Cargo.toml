@@ -34,20 +34,12 @@ tracing.workspace = true
 # thread-safe, so each querying thread owns its context. Keep this dependency on
 # Smithay's xkb version so both contexts use one copy of the xkb types.
 xkbcommon.workspace = true
-# The host clipboard bridge and the in-process test client both use this crate.
-# Keep its version aligned with Smithay's `wayland-server` so both sides share
-# `wayland-backend` types.
+# The in-process test client uses this crate. Keep its version aligned with
+# Smithay's `wayland-server` so both sides share `wayland-backend` types.
 wayland-client.workspace = true
-# The `client` feature supports the host bridge and test client. `staging` enables
-# `ext::data_control`, and `unstable` enables the `zv1` protocols used by tests.
-wayland-protocols = { workspace = true, features = [
-    "client",
-    "staging",
-    "unstable",
-] }
-# Provides `zwlr_data_control_v1` as a fallback when the host lacks
-# `ext_data_control_v1`.
-wayland-protocols-wlr = { workspace = true, features = ["client"] }
+# The `client` feature supports the test client, and `unstable` enables the
+# `zv1` protocols its tests use.
+wayland-protocols = { workspace = true, features = ["client", "unstable"] }
 
 [features]
 # Enables the in-process compositor, test client, fake graphics importer, and

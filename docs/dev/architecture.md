@@ -71,13 +71,13 @@ LÖVR creates the `VkInstance`, `VkPhysicalDevice`, `VkDevice`, and queues. The 
 ```
 lunette                           binaries; main(), Lua injection, plugin runtime, frame orchestration
 lunette-compositor                smithay; no LÖVR dependency, no GPU use beyond image creation
-lunette-capture                   wlx-capture and HidProvider wrappers
+lunette-capture                   wlx-capture and HidProvider wrappers, and the host clipboard client
 lunette-lovr                      cmake build and FFI surface for LÖVR
 lunette-luau                      the Luau type language; mlua support behind a feature
 lunette-generate-definitions      generates the Luau definitions, declarations, and .luaurc files
 ```
 
-`lunette-compositor` must not depend on `lunette-lovr`. This keeps logic-headless testing possible ([Build and development](build-and-development.md#testing)) and keeps the graphics module out of window management.
+`lunette-compositor` must not depend on `lunette-lovr`. This keeps logic-headless testing possible ([Build and development](build-and-development.md#testing)) and keeps the graphics module out of window management. `lunette-capture` depends on `lunette-compositor` for the host clipboard seam, `HostSelectionSource`, and the compositor does not depend on it.
 
 ## Survival across lifecycle events
 

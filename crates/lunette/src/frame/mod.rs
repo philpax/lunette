@@ -9,6 +9,7 @@ mod tests;
 use std::{collections::HashSet, error::Error, fmt, rc::Rc, sync::Arc};
 
 use lunette_capture::{
+    clipboard::DataControlSource,
     mirror::screencopy::WlxClient,
     monitor::{MonitorKey, OutputWatcher},
     stream::DrmFormat,
@@ -18,7 +19,6 @@ use lunette_compositor::{
     client::{WaylandEnv, WaylandSocket, XwaylandSatellite},
     config::CompositorConfig,
     protocol::{Command, Event, ImportedBuffer, KeymapDefaults, Snapshot, SurfaceId, WindowId},
-    selection::DataControlSource,
     thread::{self, CompositorHandle, PanicPolicy, StartError, TrySendError},
 };
 use lunette_lovr::raw::lovrGraphicsIsInitialized;

@@ -1,11 +1,13 @@
 //! Linux-only: enumerates host outputs over Wayland, captures monitor frames
-//! through xdg-desktop-portal and PipeWire, and provides host-input providers for
-//! uinput and the wlroots virtual-input protocols.
+//! through xdg-desktop-portal and PipeWire, provides host-input providers for
+//! uinput and the wlroots virtual-input protocols, and connects to the host
+//! clipboard over the data-control protocols.
 //!
 //! This crate separates the host desktop from the Wayland clients hosted by
 //! `lunette-compositor`. It exposes monitor descriptions and capture streams for
-//! the host outputs, and the input-provider seam for the host pointer and
-//! keyboard.
+//! the host outputs, the input-provider seam for the host pointer and keyboard,
+//! and the host clipboard client that implements the compositor's
+//! `HostSelectionSource` seam.
 //!
 //! This crate must not depend on a graphics API, including `ash`. Capture
 //! threads forward owned buffer and dmabuf descriptions to the main thread,
@@ -16,6 +18,7 @@
 #[macro_use]
 mod variants;
 
+pub mod clipboard;
 pub mod hid;
 pub mod mirror;
 pub mod monitor;

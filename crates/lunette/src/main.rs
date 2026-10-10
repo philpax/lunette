@@ -28,6 +28,7 @@ use lunette::{
     texture::BarrierPolicy,
 };
 use lunette_capture::{
+    clipboard::DataControlSource,
     hid::{self, HidConfig, XkbKeymap},
     mirror::{MirrorSet, NoNodeWatch, NodeWatch, PipewireNodeWatch, screencopy::WlxClient},
     monitor::OutputWatcher,
@@ -41,7 +42,6 @@ use lunette_compositor::{
     client::{XwaylandSatellite, listen},
     keymap::Keymap,
     protocol::{KeymapConfig, KeymapDefaults},
-    selection::DataControlSource,
 };
 use tracing::{error, info, warn};
 use tracing_subscriber::{EnvFilter, filter::LevelFilter};

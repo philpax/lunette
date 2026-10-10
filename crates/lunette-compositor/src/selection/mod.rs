@@ -1,9 +1,12 @@
 //! Clipboard and primary-selection bridging across the host boundary.
 //!
 //! lunette advertises `wl_data_device`, `zwp_primary_selection_v1`,
-//! `zwlr_data_control_v1`, and `ext_data_control_v1` to its clients. It uses the
-//! data-control protocols as a client of the host compositor, so selections cross
-//! the boundary in both directions.
+//! `zwlr_data_control_v1`, and `ext_data_control_v1` to its clients. A
+//! [`HostSelectionSource`] connects the compositor to the host's clipboard, so
+//! selections cross the boundary in both directions. The production source is
+//! a data-control client of the host compositor, `DataControlSource` in
+//! `lunette-capture`, beside the other host desktop integration; this crate
+//! defines only the seam and the vocabulary that crosses it.
 //!
 //! Selections belong to individual seats in lunette. The host exposes one
 //! clipboard and one primary selection, so [`SelectionBridge`] maps one
@@ -41,7 +44,6 @@
 //! requests match byte for byte; a request for an unadvertised type is refused
 //! with [`Refusal::Unrepresentable`]. The bridge substitutes no encoding.
 
-mod data_control;
 mod host;
 mod seat;
 #[cfg(test)]
@@ -64,12 +66,9 @@ use smithay::wayland::selection::SelectionTarget;
 use crate::protocol::SeatId;
 #[cfg(any(test, feature = "test-fakes"))]
 pub use crate::selection::host::{FakeHost, FakeHostSource, HostCall};
-pub use crate::selection::{
-    data_control::DataControlSource,
-    host::{
-        HostEvent, HostEvents, HostSelection, HostSelectionSource, HostStartError, RejectReason,
-        Rejected,
-    },
+pub use crate::selection::host::{
+    HostEvent, HostEvents, HostSelection, HostSelectionSource, HostStartError, RejectReason,
+    Rejected,
 };
 
 closed_set! {
@@ -91,7 +90,10 @@ impl SelectionKind {
         }
     }
 
-    pub(crate) const fn index(self) -> usize {
+    /// The kind's position in a two-element array indexed by kind, such as a
+    /// bridge's per-kind offers.
+    #[must_use]
+    pub const fn index(self) -> usize {
         match self {
             Self::Clipboard => 0,
             Self::Primary => 1,

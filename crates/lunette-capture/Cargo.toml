@@ -5,6 +5,10 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+calloop.workspace = true
+# The host clipboard client implements the compositor's `HostSelectionSource`
+# seam and speaks its selection vocabulary.
+lunette-compositor = { path = "../lunette-compositor" }
 lunette-luau.workspace = true
 # `src/hid/evdev.rs` defines the input ABI and states why `input-linux` is not used.
 libc.workspace = true
@@ -18,11 +22,18 @@ smallvec.workspace = true
 toml.workspace = true
 tracing.workspace = true
 wayland-client.workspace = true
-# `unstable` exposes `zxdg_output_manager_v1` for logical output geometry.
-wayland-protocols = { workspace = true, features = ["client", "unstable"] }
+# `unstable` exposes `zxdg_output_manager_v1` for logical output geometry, and
+# `staging` exposes `ext_data_control_v1` for the host clipboard.
+wayland-protocols = { workspace = true, features = [
+    "client",
+    "staging",
+    "unstable",
+] }
 # `zwp_virtual_keyboard_v1` is generated in the misc protocol set, although
 # wlroots implements it.
 wayland-protocols-misc = { workspace = true, features = ["client"] }
+# `zwlr_virtual_pointer_v1` for host input, and `zwlr_data_control_v1` as the
+# clipboard fallback when the host lacks `ext_data_control_v1`.
 wayland-protocols-wlr = { workspace = true, features = ["client"] }
 wlx-capture.workspace = true
 

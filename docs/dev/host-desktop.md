@@ -1,6 +1,6 @@
 # Host desktop
 
-Mirroring the user's monitors and injecting input into them is separate from running the compositor. lunette reuses WayVR's work for both. `wlx-capture` is an external dependency pinned at WayVR revision `98f800c644719d3f23a20e50bd3237c29a8082cb`, not a vendored copy ([CONTRIBUTING.md](../../CONTRIBUTING.md) states why the pin names the monorepo). `crates/lunette-capture` wraps it and the input providers.
+Mirroring the user's monitors and injecting input into them is separate from running the compositor. lunette reuses WayVR's work for both. `wlx-capture` is an external dependency pinned at WayVR revision `98f800c644719d3f23a20e50bd3237c29a8082cb`, not a vendored copy ([CONTRIBUTING.md](../../CONTRIBUTING.md) states why the pin names the monorepo). `crates/lunette-capture` wraps it, the input providers, and the host clipboard client.
 
 ## Capture
 
@@ -76,7 +76,7 @@ Every sink carries an input domain. `sink.domain` is `'window'` or `'host'`. Rou
 
 ## Clipboard
 
-lunette bridges the clipboard and primary selection between its clients and the host. The compositor advertises `wl_data_device`, `zwp_primary_selection_v1`, `zwlr_data_control_v1`, and `ext_data_control_v1` to its clients, and uses the host's data-control protocols as a client. One designated seat's selections are the host's; `seat:setClipboardBridge` chooses it. Transfers pass file descriptors between the owning processes, and lunette buffers nothing. [Input](input.md#clipboard) states the contract.
+lunette bridges the clipboard and primary selection between its clients and the host. The compositor advertises `wl_data_device`, `zwp_primary_selection_v1`, `zwlr_data_control_v1`, and `ext_data_control_v1` to its clients, and uses the host's data-control protocols as a client. The client is `DataControlSource` in `crates/lunette-capture/src/clipboard`, which implements the compositor's `HostSelectionSource` seam. One designated seat's selections are the host's; `seat:setClipboardBridge` chooses it. Transfers pass file descriptors between the owning processes, and lunette buffers nothing. [Input](input.md#clipboard) states the contract.
 
 Drag-and-drop between the host desktop and lunette is not supported, because no protocol carries a drag across a compositor boundary. WayVR does not support it either. Drag-and-drop between lunette windows is smithay's `data_device`.
 
@@ -95,6 +95,8 @@ Direct capture uses the pinned WayVR implementation as it is, without a second s
 Restore tokens are rewritten after every grant, because a token is single-use and each `Start` response returns a new one. The granted `persist_mode` is recorded, never the requested one, because a backend may downgrade it. The file is versioned TOML. A file from a later version yields no store, because an older writer would drop fields it does not know; unknown fields within a known version are rejected for the same reason. TOML is used because the file holds EDID make and model strings.
 
 The end of a portal session is detected through the removal of its PipeWire nodes, not through the portal's `Session.Closed` signal. The signal is addressed to the D-Bus connection that created the session, which is `wlx-capture`'s private connection, and `wlx-capture` exposes neither that connection nor the session handle. Its capture thread logs the stream's state changes and reports none of them. Node removal is visible to any PipeWire client, so detection needs no change to `wlx-capture`. The session is revoked only when all of its nodes are gone, because a backend can remove one output's node, as when the output is unplugged, while the rest of the session stays live, and revoking it then would request again and could prompt.
+
+The host clipboard client lives in `lunette-capture`, and `lunette-compositor` keeps only the `HostSelectionSource` seam and the selection vocabulary that crosses it. The client is a Wayland client of the host desktop, like the output watcher and the virtual-input provider, and has no part in serving lunette's own clients. Keeping it in the compositor crate was rejected because it puts about a thousand lines of host integration among the code vendored from WayVR, which has no counterpart for it. `lunette-capture` depends on `lunette-compositor` for the seam; the compositor does not depend on the capture crate.
 
 ## Known gaps
 
