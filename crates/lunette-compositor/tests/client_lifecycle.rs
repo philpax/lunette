@@ -124,6 +124,21 @@ fn a_shm_commit_reaches_the_importer_with_the_layout_the_client_declared() {
 }
 
 #[test]
+fn a_shm_buffer_past_the_start_of_its_pool_imports_its_own_pixels() {
+    // A client that double-buffers in one pool places its second buffer at an
+    // offset, and the bytes before it belong to the first.
+    let mut compositor = TestCompositor::new();
+    let mut client = TestClient::connect(&mut compositor);
+    client.open_toplevel(&mut compositor);
+    let size = PixelSize::new(2, 2);
+    let pixels: Vec<u8> = (0..16).collect();
+
+    client.attach_buffer_at_offset(&mut compositor, size, 64, &pixels);
+
+    assert_eq!(compositor.imports().shm_pixels(), vec![pixels]);
+}
+
+#[test]
 fn a_buffer_the_importer_refuses_leaves_the_window_out_of_the_snapshot() {
     let mut compositor = TestCompositor::new();
     compositor.imports().refuse("no graphics device");

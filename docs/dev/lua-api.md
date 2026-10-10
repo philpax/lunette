@@ -148,6 +148,8 @@ An event is delivered against the snapshot of the frame it was drained in, so `o
 
 [Architecture](architecture.md#handles) describes the handle model. Every mutation returns `false` on a dead handle. `window:getTexture()` and `monitor:getTexture()` are valid for the current frame only, because textures rotate as the client cycles buffers; `window:stabilize()` is the persistent alternative ([Rendering](rendering.md#windowstabilize)). `win.commit` comes from a counter every surface shares and never reuses, and is 0 before the first buffer. A handle returned by `newSeat`, `newOutput`, or `spawn` is dead until a snapshot contains its object. Every read returns a fresh handle, and `==` compares two handles by what they name, so two reads of one window, or two sinks for one target, are equal. Ids remain the keys of a table indexed by handle.
 
+`win.width` and `win.height` are the window's size in surface coordinates, the space pointer positions use. A client that scales its buffer down with a buffer scale or a `wp_viewport` destination has a texture larger than that size ([Compositor](compositor.md#windows)). `win:getSourceCrop()` returns the part of the texture the window shows as `x, y, width, height` fractions of the texture's size, `0, 0, 1, 1` unless the client crops with `wp_viewport`. A consumer that draws the texture samples only that rectangle.
+
 `win:setFrameRate` paces the window's frame callbacks with a floor of 1 Hz ([Rendering](rendering.md#frame-pacing)). A monitor's `mirrored` reports an installed stream, which does not prove frames still arrive ([Host desktop](host-desktop.md#identity-and-lifecycle)).
 
 ### Per-window properties

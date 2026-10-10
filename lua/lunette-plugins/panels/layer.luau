@@ -6,14 +6,16 @@ local layer = {}
 
 export type Claim = lunette.Claim
 
+-- The pixel rectangle of the layer that the panel shows.
+export type Viewport = { read x: number, read y: number, read width: number, read height: number }
+
 type ClaimantFields = {
   read pose: Mat4,
   read width: number,
   read height: number,
   read priority: number,
   claim: Claim?,
-  appliedWidth: number?,
-  appliedHeight: number?,
+  appliedViewport: Viewport?,
   granted: boolean,
 }
 
@@ -21,7 +23,7 @@ export type Claimant =
   ClaimantFields
   & ({ read kind: 'window', read source: lunette.Window } | { read kind: 'monitor', read source: lunette.Monitor })
 
--- A window panel needs a claim when it holds none, or one that is dead or smaller than its source.
+-- A window panel needs a claim when it holds none, or one that is dead or smaller than its texture.
 function layer.needed(self: Claimant, pixelWidth: number, pixelHeight: number): boolean
   if self.kind ~= 'window' then
     return false
@@ -40,7 +42,7 @@ function layer.release(self: Claimant): ()
   local claim = self.claim
   self.claim = nil
   self.granted = false
-  self.appliedWidth, self.appliedHeight = nil, nil
+  self.appliedViewport = nil
   if claim and not claim.dead then
     claim:release()
   end
@@ -60,15 +62,20 @@ function layer.acquire(self: Claimant, pixelWidth: number, pixelHeight: number):
 end
 
 -- Applies the current grant. `place` puts the held layer where the panel is; the viewport is set here.
-function layer.drive(self: Claimant, pixelWidth: number, pixelHeight: number, place: (Layer) -> ()): ()
+function layer.drive(self: Claimant, viewport: Viewport, place: (Layer) -> ()): ()
   if not self.claim then
     return
   end
 
   local granted = self.claim.granted and true or false
-  local resized = self.appliedWidth ~= pixelWidth or self.appliedHeight ~= pixelHeight
+  local applied = self.appliedViewport
+  local changed = not applied
+    or applied.x ~= viewport.x
+    or applied.y ~= viewport.y
+    or applied.width ~= viewport.width
+    or applied.height ~= viewport.height
   if not granted then
-    self.appliedWidth, self.appliedHeight = nil, nil
+    self.appliedViewport = nil
     self.granted = false
     return
   end
@@ -78,9 +85,9 @@ function layer.drive(self: Claimant, pixelWidth: number, pixelHeight: number, pl
     return
   end
 
-  if resized or not self.granted then
-    held:setViewport(0, 0, pixelWidth, pixelHeight)
-    self.appliedWidth, self.appliedHeight = pixelWidth, pixelHeight
+  if changed or not self.granted then
+    held:setViewport(viewport.x, viewport.y, viewport.width, viewport.height)
+    self.appliedViewport = viewport
   end
 
   place(held)

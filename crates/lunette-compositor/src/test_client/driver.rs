@@ -45,6 +45,7 @@ use wayland_protocols::{
             zwp_linux_dmabuf_v1::ZwpLinuxDmabufV1,
         },
         primary_selection::zv1::client::zwp_primary_selection_offer_v1::ZwpPrimarySelectionOfferV1,
+        viewporter::client::{wp_viewport::WpViewport, wp_viewporter::WpViewporter},
     },
     xdg::{
         decoration::zv1::client::{
@@ -857,6 +858,8 @@ delegate_noop!(Driver: ignore ZwpLinuxBufferParamsV1);
 delegate_noop!(Driver: ignore WlRegion);
 delegate_noop!(Driver: ignore WlSubcompositor);
 delegate_noop!(Driver: ignore WpFractionalScaleManagerV1);
+delegate_noop!(Driver: ignore WpViewporter);
+delegate_noop!(Driver: ignore WpViewport);
 delegate_noop!(Driver: ignore WlSubsurface);
 delegate_noop!(Driver: ignore XdgPositioner);
 delegate_noop!(Driver: ignore XdgPopup);

@@ -26,7 +26,7 @@ use smithay::{
 
 use crate::{
     config::DEFAULT_OUTPUT,
-    protocol::{ContentType, Event, ImportedImage, PixelSize, SurfaceId},
+    protocol::{ContentType, Event, ImportedImage, PixelSize, SourceCrop, SurfaceId},
     wayvr::{SurfaceBufWithImage, comp::Application},
 };
 
@@ -292,13 +292,20 @@ impl Application {
         }
     }
 
-    /// Records a window's committed size, mapping it on its first content.
+    /// Records a window's committed size and source crop, mapping it on its
+    /// first content.
     pub(crate) fn remember_committed_size(&mut self, surface: &WlSurface, id: SurfaceId) {
-        let Some(size) = with_states(surface, |states| {
-            SurfaceBufWithImage::get_from_surface(states).map(|buf| buf.logical_size(states))
+        let Some((size, source_uv)) = with_states(surface, |states| {
+            SurfaceBufWithImage::get_from_surface(states)
+                .map(|buf| (buf.logical_size(states), buf.source_uv(states)))
         }) else {
             return;
         };
+        let [left, top, right, bottom] = source_uv.map(f64::from);
+        // `source_uv` clamps each edge into the buffer, and smithay refuses a
+        // source rectangle without a positive size, so the edges are ordered.
+        // The full buffer stands in if they ever were not.
+        let source_crop = SourceCrop::new(left, top, right, bottom).unwrap_or(SourceCrop::FULL);
         let bounds = self.output_bounds(
             self.windows
                 .by_surface(id)
@@ -319,8 +326,9 @@ impl Application {
         });
         let opened = window.map().then_some(window.id);
         let resized = window.remember_committed_size(size, configure_serial);
+        let cropped = window.remember_source_crop(source_crop);
 
-        if opened.is_some() || resized {
+        if opened.is_some() || resized || cropped {
             self.touch();
         }
         if let Some(window) = opened {

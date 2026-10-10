@@ -268,7 +268,8 @@ pub struct WindowSnapshot {
     pub output: OutputId,
     pub title: Option<String>,
     pub app_id: Option<String>,
-    /// The size of the last committed buffer, in pixels.
+    /// The size of the last committed content in surface coordinates: the
+    /// buffer after its transform, scale, and `wp_viewport`.
     pub size: PixelSize,
     pub min_size: Option<PixelSize>,
     pub max_size: Option<PixelSize>,
@@ -276,6 +277,74 @@ pub struct WindowSnapshot {
     pub states: ToplevelStates,
     /// The client's content-type hint.
     pub content_type: ContentType,
+    /// The part of the buffer the surface shows, after `wp_viewport` cropping.
+    pub source_crop: SourceCrop,
+}
+
+/// The part of a surface's buffer that the surface shows, as fractions of the
+/// buffer's width and height.
+///
+/// A client crops with `wp_viewport.set_source`. A surface without a source
+/// rectangle shows its whole buffer, which is [`SourceCrop::FULL`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SourceCrop {
+    left: f64,
+    top: f64,
+    right: f64,
+    bottom: f64,
+}
+
+/// Every edge is finite, which [`SourceCrop::new`] guarantees, so equality is
+/// total.
+impl Eq for SourceCrop {}
+
+impl SourceCrop {
+    pub const FULL: Self = Self {
+        left: 0.0,
+        top: 0.0,
+        right: 1.0,
+        bottom: 1.0,
+    };
+
+    /// Builds a crop from its edges. `None` unless
+    /// `0 <= left <= right <= 1` and `0 <= top <= bottom <= 1`, which also
+    /// excludes NaN.
+    #[must_use]
+    pub fn new(left: f64, top: f64, right: f64, bottom: f64) -> Option<Self> {
+        let ordered = |low: f64, high: f64| 0.0 <= low && low <= high && high <= 1.0;
+        (ordered(left, right) && ordered(top, bottom)).then_some(Self {
+            left,
+            top,
+            right,
+            bottom,
+        })
+    }
+
+    #[must_use]
+    pub const fn left(self) -> f64 {
+        self.left
+    }
+
+    #[must_use]
+    pub const fn top(self) -> f64 {
+        self.top
+    }
+
+    #[must_use]
+    pub const fn right(self) -> f64 {
+        self.right
+    }
+
+    #[must_use]
+    pub const fn bottom(self) -> f64 {
+        self.bottom
+    }
+}
+
+impl Default for SourceCrop {
+    fn default() -> Self {
+        Self::FULL
+    }
 }
 
 /// A process started or adopted by lunette.

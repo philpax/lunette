@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use lunette_compositor::protocol::{
     Command, ContentType, FramePacing, OutputId, OutputMode, OutputScale, OutputSnapshot,
-    PixelSize, RefreshRate, Snapshot, ToplevelState, ToplevelStates, WindowSnapshot,
+    PixelSize, RefreshRate, Snapshot, SourceCrop, ToplevelState, ToplevelStates, WindowSnapshot,
 };
 use pretty_assertions::assert_eq;
 
@@ -346,6 +346,27 @@ fn a_window_reports_the_content_type_its_client_set() {
         run::<String>(&lua, "return lunette.windows()[1].contentType"),
         "none",
         "the protocol's own default, and what most clients report"
+    );
+}
+
+#[test]
+fn a_window_reports_its_source_crop_as_a_rectangle() {
+    let mut cropped = window(1, "viewer", "viewer", PixelSize::new(200, 150));
+    cropped.source_crop = SourceCrop::new(0.25, 0.5, 0.75, 1.0).expect("the edges are ordered");
+    let session = session(vec![cropped]);
+    let lua = lua(&session);
+
+    run::<()>(&lua, "held = lunette.windows()[1]");
+    assert_eq!(
+        run::<(f64, f64, f64, f64)>(&lua, "return held:getSourceCrop()"),
+        (0.25, 0.5, 0.5, 0.5)
+    );
+
+    session.begin(snapshot(Vec::new(), Vec::new()));
+    assert_eq!(
+        run::<(f64, f64, f64, f64)>(&lua, "return held:getSourceCrop()"),
+        (0.25, 0.5, 0.5, 0.5),
+        "a dead handle answers with the crop it last saw"
     );
 }
 

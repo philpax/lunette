@@ -38,6 +38,7 @@ export type Drawable = {
   meshKey: string?,
   meshCurve: number?,
   meshTransform: string?,
+  meshCrop: string?,
   outline: Outline?,
 } & Source
 
@@ -72,6 +73,19 @@ local function transformUv(u: number, v: number, transform: CaptureTransform): (
   return u, v
 end
 
+-- The part of a texture a panel shows, as fractions of the texture's size.
+type Crop = { read x: number, read y: number, read width: number, read height: number }
+
+local FULL_CROP: Crop = { x = 0, y = 0, width = 1, height = 1 }
+
+local function isFull(crop: Crop): boolean
+  return crop.x == 0 and crop.y == 0 and crop.width == 1 and crop.height == 1
+end
+
+local function cropKey(crop: Crop): string
+  return `{crop.x},{crop.y},{crop.width},{crop.height}`
+end
+
 local function buildMesh(vertices: { { number } }, indices: { number }): Mesh
   local made = lovr.graphics.newMesh(#vertices)
   local ok, failure = pcall(function(): ()
@@ -87,15 +101,17 @@ local function buildMesh(vertices: { { number } }, indices: { number }): Mesh
   return made
 end
 
-local function contentMesh(target: Drawable, transform: CaptureTransform, style: appearance.Style): Mesh
+local function contentMesh(target: Drawable, transform: CaptureTransform, crop: Crop, style: appearance.Style): Mesh
   local bounds, profile, polygon, rounded = silhouette.get(target, style)
   local contour = target.contour
+  local cropped = cropKey(crop)
   if
     target.mesh
     and contour
     and target.meshKey == contour.key
     and target.meshCurve == target.curve
     and target.meshTransform == transform
+    and target.meshCrop == cropped
   then
     return target.mesh
   end
@@ -117,12 +133,13 @@ local function contentMesh(target: Drawable, transform: CaptureTransform, style:
     indices = { 1, 2, 3, 3, 2, 4 }
   end
   for _, vertex in vertices do
-    vertex[7], vertex[8] = transformUv(vertex[7], vertex[8], transform)
+    local u, v = transformUv(vertex[7], vertex[8], transform)
+    vertex[7], vertex[8] = crop.x + u * crop.width, crop.y + v * crop.height
   end
   local made = buildMesh(vertices, indices)
   local previous = target.mesh
   target.mesh, target.meshKey = made, key
-  target.meshCurve, target.meshTransform = target.curve, transform
+  target.meshCurve, target.meshTransform, target.meshCrop = target.curve, transform, cropped
   if previous then
     previous:release()
   end
@@ -133,11 +150,14 @@ function draw.content(target: Drawable, pass: Pass, style: appearance.Style, con
   local texture: Texture | false
   local opaque = true
   local transform: CaptureTransform = 'normal'
+  local crop = FULL_CROP
   local described: Source = target
   if described.kind == 'window' then
     local window = described.source
     texture = window:getTexture()
     opaque = window.opaque
+    local x, y, width, height = window:getSourceCrop()
+    crop = { x = x, y = y, width = width, height = height }
   else
     texture = described.source:getTexture()
     local captured = described.source.frameTransform
@@ -160,7 +180,12 @@ function draw.content(target: Drawable, pass: Pass, style: appearance.Style, con
     pass:setMaterial(sampled)
     local _, _, _, rounded = silhouette.get(target, style)
     local transformed = transform ~= 'normal' and transform ~= 'undefined'
-    local mesh = if target.curve > 0 or transformed or rounded then contentMesh(target, transform, style) else nil
+    local mesh = if target.curve > 0
+        or transformed
+        or rounded
+        or not isFull(crop)
+      then contentMesh(target, transform, crop, style)
+      else nil
     if mesh then
       pass:draw(mesh, target.pose)
     else

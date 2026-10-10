@@ -64,8 +64,9 @@ export type Window = {
   read dead: boolean,
   read title: string?,
   read appId: string?,
-  -- The size in pixels the client last committed, not the size last asked of
-  -- it.
+  -- The size the client last committed in surface coordinates, which pointer
+  -- positions use, not the size last asked of it. The texture can be larger
+  -- when the client scales it down.
   read width: number,
   read height: number,
   -- Whether the fourth pixel component is padding, so a consumer treats it as
@@ -87,6 +88,10 @@ export type Window = {
   -- buffer. The texture rotates with the client's buffers, so do not cache it
   -- across frames.
   read getTexture: (self: Textured) -> Texture | false,
+  -- The part of the texture the window shows, as `x, y, width, height`
+  -- fractions of the texture's size. A client crops with `wp_viewport`; an
+  -- uncropped window answers `0, 0, 1, 1`.
+  read getSourceCrop: (self: Window) -> (number, number, number, number),
   -- Returns a persistent texture copy, updated whenever the surface is damaged.
   read stabilize: (self: Window) -> Texture | false,
   -- Requests that the client close the window. The client controls whether it

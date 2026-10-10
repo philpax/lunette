@@ -14,9 +14,27 @@ local function start(config)
   local observed = session:observe(contract.capability)
   local window = native.newWindow(1)
   window.getTexture = function()
-    return { name = 'desktop pixels' }
+    return {
+      name = 'desktop pixels',
+      getDimensions = function()
+        return 2000, 1000
+      end,
+    }
   end
   return native, session, observed.service, observed.context, window
+end
+
+local function grantLayer(panel, viewports)
+  panel.claim.granted = true
+  panel.claim.layer = {
+    setViewport = function(_, x, y, width, height)
+      viewports[#viewports + 1] = { x, y, width, height }
+    end,
+    setPosition = function() end,
+    setOrientation = function() end,
+    setDimensions = function() end,
+    setCurve = function() end,
+  }
 end
 
 local function drawn(native, panel)
@@ -39,14 +57,7 @@ test('a window draws in the scene by default, and skips it only while an opted-i
   native, session, panels, owner, window = start { rendering = 'layer' }
   local layered = panels:fromWindow(owner, window)
   expect.equal(#native.events.claims, 1, 'the opted-in claim')
-  layered.claim.granted = true
-  layered.claim.layer = {
-    setViewport = function() end,
-    setPosition = function() end,
-    setOrientation = function() end,
-    setDimensions = function() end,
-    setCurve = function() end,
-  }
+  grantLayer(layered, {})
   layered:update()
   local granted = drawn(native, layered)
   expect.falsy(granted.plane or granted.draw, 'a granted layer draws no scene content')
@@ -93,6 +104,51 @@ test('chrome draws a ring and title in theme colours when a panel or the configu
   native, session, panels, owner, window = start { chrome = true }
   expect.equal(panels:fromWindow(owner, window, { height = 1 }).chrome, true, 'the configured default')
   expect.equal(panels:fromWindow(owner, native.newWindow(2), { chrome = false }).chrome, false, "a panel's own option")
+  session:close()
+end)
+
+test('a cropped window samples only its crop in the scene', function()
+  local native, session, panels, owner, window = start()
+  local panel = panels:fromWindow(owner, window)
+  local made = native.events.render.meshAcquisitions
+  expect.equal(drawn(native, panel).plane, 1, 'an uncropped window draws a plain quad')
+
+  window.sourceCrop = { 0.25, 0.5, 0.5, 0.25 }
+  local counts = drawn(native, panel)
+  expect.equal(counts.draw, 1, 'a cropped window draws a mesh')
+  local vertices = made[#made].vertices
+  local corners = { { 0.25, 0.5 }, { 0.75, 0.5 }, { 0.25, 0.75 }, { 0.75, 0.75 } }
+  for corner, index in { 1, 3, 2, 4 } do
+    expect.equal(vertices[index][7], corners[corner][1], 'u of corner ' .. corner)
+    expect.equal(vertices[index][8], corners[corner][2], 'v of corner ' .. corner)
+  end
+
+  drawn(native, panel)
+  expect.equal(#made, 1, 'an unchanged crop keeps its mesh')
+  window.sourceCrop = { 0, 0, 0.5, 1 }
+  drawn(native, panel)
+  expect.equal(#made, 2, 'a changed crop replaces the mesh')
+  session:close()
+end)
+
+test('a layer is claimed at the texture size and shows only the crop', function()
+  local native, session, panels, owner, window = start { rendering = 'layer' }
+  window.width, window.height = 1000, 500
+  local panel = panels:fromWindow(owner, window)
+  local claim = native.events.claims[1]
+  expect.equal(claim.width, 2000, 'the claim holds the whole texture across')
+  expect.equal(claim.height, 1000, 'the claim holds the whole texture down')
+
+  local viewports = {}
+  grantLayer(panel, viewports)
+  panel:update()
+  expect.equal(table.concat(viewports[1], ' '), '0 0 2000 1000', 'an uncropped window shows the whole texture')
+
+  window.sourceCrop = { 0.25, 0.5, 0.5, 0.25 }
+  panel:update()
+  expect.equal(table.concat(viewports[2], ' '), '500 500 1000 250', 'a cropped window shows its crop')
+  panel:update()
+  expect.equal(#viewports, 2, 'an unchanged crop sets no viewport again')
   session:close()
 end)
 

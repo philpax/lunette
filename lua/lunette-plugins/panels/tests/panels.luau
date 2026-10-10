@@ -88,7 +88,15 @@ end)
 
 test('the most recent live override decides whether a panel is hidden', function()
   local env = start { rendering = 'layer' }
-  local panel = env.panels:fromWindow(env.owner, env.native.newWindow(1), { height = 1 })
+  local source = env.native.newWindow(1)
+  source.getTexture = function()
+    return {
+      getDimensions = function()
+        return source.width, source.height
+      end,
+    }
+  end
+  local panel = env.panels:fromWindow(env.owner, source, { height = 1 })
   local claim = panel.claim
   local hiding = panel:setHidden(env.owner, true)
   expect.truthy(panel.hidden, 'the hidden panel')

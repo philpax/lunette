@@ -315,6 +315,8 @@ pub enum CursorImage {
 pub struct ImportLog {
     dmabufs: Arc<AtomicU64>,
     shm: Arc<Mutex<Vec<ShmLayout>>>,
+    /// The bytes each shared-memory import was handed, `stride * height` of them.
+    shm_pixels: Arc<Mutex<Vec<Vec<u8>>>>,
     /// A set refusal makes every subsequent import fail with this message.
     refusal: Arc<Mutex<Option<String>>>,
     sweeps: Arc<AtomicU64>,
@@ -338,6 +340,15 @@ impl ImportLog {
         self.shm
             .lock()
             .map(|layouts| layouts.clone())
+            .unwrap_or_default()
+    }
+
+    /// Returns the bytes each shared-memory import was handed, in import order.
+    #[must_use]
+    pub fn shm_pixels(&self) -> Vec<Vec<u8>> {
+        self.shm_pixels
+            .lock()
+            .map(|pixels| pixels.clone())
             .unwrap_or_default()
     }
 
@@ -419,6 +430,9 @@ impl BufferImporter for RecordingImporter {
 
         if let Ok(mut layouts) = self.log.shm.lock() {
             layouts.push(layout);
+        }
+        if let Ok(mut received) = self.log.shm_pixels.lock() {
+            received.push(pixels[..expected].to_vec());
         }
 
         // Repacking is outside this seam; the return is a buffer with the requested

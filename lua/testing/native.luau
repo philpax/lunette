@@ -121,6 +121,7 @@ function native.new()
       height = 500,
       properties = {},
       contentType = 'none',
+      sourceCrop = { 0, 0, 1, 1 },
       commit = 0,
       output = events.outputs[1],
       sink = newSink 'window',
@@ -140,6 +141,9 @@ function native.new()
     function window:getTexture()
       events.textures = (events.textures or 0) + 1
       return nil
+    end
+    function window:getSourceCrop()
+      return table.unpack(self.sourceCrop)
     end
     function window:close()
       events.closed += 1

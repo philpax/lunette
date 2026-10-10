@@ -423,6 +423,19 @@ impl compositor::CompositorHandler for Application {
             changed = previous != SurfaceBufWithImage::get_from_surface(states);
         });
 
+        // validate wp_viewport against currently attached backing buffer
+        smithay::wayland::compositor::with_states(surface, |states| {
+            if let Some(buf) = SurfaceBufWithImage::get_from_surface(states) {
+                let extent = buf.oriented_extent();
+                let scale = buf.scale.max(1) as u32;
+                let buffer_size = Size::new(
+                    (extent[0] / scale).max(1) as i32,
+                    (extent[1] / scale).max(1) as i32,
+                );
+                smithay::wayland::viewporter::ensure_viewport_valid(states, buffer_size);
+            }
+        });
+
         if let Some(buffer) = imported {
             self.report(Event::BufferImported {
                 surface: id,

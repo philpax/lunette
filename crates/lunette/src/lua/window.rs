@@ -6,8 +6,8 @@
 use std::{cell::RefCell, rc::Rc};
 
 use lunette_compositor::protocol::{
-    Command, ContentType, FramePacing, FrameRate, OutputId, PixelSize, SinkId, SurfaceId,
-    ToplevelStates, WindowId, WindowSnapshot,
+    Command, ContentType, FramePacing, FrameRate, OutputId, PixelSize, SinkId, SourceCrop,
+    SurfaceId, ToplevelStates, WindowId, WindowSnapshot,
 };
 use mlua::{LuaString, Value};
 
@@ -99,6 +99,7 @@ struct Known {
     app_id: Option<String>,
     size: PixelSize,
     content_type: ContentType,
+    source_crop: SourceCrop,
     /// Carried so a resize can restate them, because a configure replaces the
     /// whole state set.
     states: ToplevelStates,
@@ -114,6 +115,7 @@ impl From<&WindowSnapshot> for Known {
             app_id: window.app_id.clone(),
             size: window.size,
             content_type: window.content_type,
+            source_crop: window.source_crop,
             states: window.states.clone(),
         }
     }
@@ -139,8 +141,8 @@ handle! {
         Ok(this.known.borrow().app_id.clone())
     }
 
-    /// The size in pixels the client last committed, not the size last asked
-    /// of it.
+    /// The size the client last committed in surface coordinates, which pointer positions use, not
+    /// the size last asked of it. The texture can be larger when the client scales it down.
     field width(_lua, this) -> u32 {
         this.refresh();
         Ok(this.known.borrow().size.width)
@@ -183,6 +185,10 @@ handle! {
     /// texture rotates with the client's buffers, so do not cache it across frames.
     method getTexture(lua, this: Textured) -> MaybeTexture { get_texture(lua, this) }
 
+    /// The part of the texture the window shows, as `x, y, width, height` fractions of the
+    /// texture's size. A client crops with `wp_viewport`; an uncropped window answers `0, 0, 1, 1`.
+    method getSourceCrop(_lua, this) -> (f64, f64, f64, f64) { Ok(source_crop(this)) }
+
     /// Returns a persistent texture copy, updated whenever the surface is damaged.
     method stabilize(lua, this) -> MaybeTexture { stabilize(lua, this) }
 
@@ -216,6 +222,18 @@ fn output<T>(window: &Window<T>) -> Option<Output<T>> {
         .iter()
         .find(|output| output.output == id)
         .map(|output| Output::new(Rc::clone(&window.session), output))
+}
+
+/// Returns the window's source crop as a rectangle, from cached values on a dead handle.
+fn source_crop<T>(window: &Window<T>) -> (f64, f64, f64, f64) {
+    window.refresh();
+    let crop = window.known.borrow().source_crop;
+    (
+        crop.left(),
+        crop.top(),
+        crop.right() - crop.left(),
+        crop.bottom() - crop.top(),
+    )
 }
 
 /// Returns the texture ledger's buffer commit counter for this window.

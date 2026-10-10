@@ -36,7 +36,9 @@ lunette honours the decoration mode a client asks for through `xdg-decoration` o
 
 ## Windows
 
-A window handle reports `title`, `appId`, its committed size, `opaque`, `contentType`, its input sink, and its output. It accepts `close`, `resize`, and `setFrameRate` requests. [The Lua API](lua-api.md#handles) lists the handle.
+A window handle reports `title`, `appId`, its committed size, `opaque`, `contentType`, its source crop, its input sink, and its output. It accepts `close`, `resize`, and `setFrameRate` requests. [The Lua API](lua-api.md#handles) lists the handle.
+
+The committed size is in surface coordinates: the buffer's size after its transform and scale, replaced by the `wp_viewport` destination when the client sets one, or by the size of the viewport's source rectangle when it sets only that. A client that follows `wp_fractional_scale_v1` renders a buffer at the scale times its surface size and sets the destination to the surface size, so its texture is larger than its committed size. Pointer coordinates are in the same space. The source rectangle is reported as the fraction of the buffer the surface shows, after the buffer's transform. A quarter turn exchanges the buffer's axes before either is computed, where WayVR keeps them. A source rectangle that extends outside the buffer is the `wp_viewport` protocol error `out_of_buffer`, checked after each commit as WayVR checks it. `SurfaceBufWithImage::logical_size` and `source_uv` in `crates/lunette-compositor/src/wayvr/mod.rs` compute both.
 
 A resize is clamped to the client's size limits and the output's logical bounds, as WayVR clamps it. The client's limits are read again at every commit. A maximum below 160 by 160 is raised to that floor, unless the output is smaller. The configure stays pending until the client commits with its serial acknowledged, and a request for the same size while it is pending is not sent again. A commit that has not acknowledged it leaves it pending.
 

@@ -63,6 +63,7 @@ use wayland_protocols::{
         linux_dmabuf::zv1::client::{
             zwp_linux_buffer_params_v1::Flags as DmabufFlags, zwp_linux_dmabuf_v1::ZwpLinuxDmabufV1,
         },
+        viewporter::client::{wp_viewport::WpViewport, wp_viewporter::WpViewporter},
     },
     xdg::{
         decoration::zv1::client::{
@@ -129,6 +130,9 @@ pub struct TestClient {
     /// The toplevel's decoration object stays alive while the client wants a
     /// mode; destroying it returns the toplevel to the compositor's choice.
     decoration: Option<ZxdgToplevelDecorationV1>,
+    /// The toplevel's viewport stays alive while the client crops or scales
+    /// it; destroying it removes both.
+    viewport: Option<WpViewport>,
 }
 
 impl TestClient {
@@ -169,6 +173,7 @@ impl TestClient {
             fractional_scales: Vec::new(),
             content_types: Vec::new(),
             decoration: None,
+            viewport: None,
         }
     }
 
@@ -331,6 +336,86 @@ impl TestClient {
             .as_ref()
             .expect("a toplevel was opened first")
             .set_buffer_scale(scale);
+    }
+
+    /// Declares the toplevel's viewport source rectangle, `(x, y, width,
+    /// height)` in surface coordinates before cropping, which its next commit
+    /// applies.
+    pub fn set_viewport_source(&mut self, source: (f64, f64, f64, f64)) {
+        let (x, y, width, height) = source;
+        self.viewport().set_source(x, y, width, height);
+    }
+
+    /// Declares the toplevel's viewport destination size, which its next
+    /// commit applies.
+    pub fn set_viewport_destination(&mut self, width: i32, height: i32) {
+        self.viewport().set_destination(width, height);
+    }
+
+    /// Commits the toplevel's pending state without a new buffer.
+    pub fn commit_toplevel(&mut self, compositor: &mut TestCompositor) {
+        let surface = self.surface.clone().expect("a toplevel was opened first");
+        self.commit(compositor, &surface);
+    }
+
+    /// Attaches a shared-memory buffer of `size` whose pixels start `offset`
+    /// bytes into its pool, and commits it. The pool holds `pixels` from
+    /// `offset` on and a different byte before it, so a reader that ignores
+    /// the offset sees the wrong bytes.
+    pub fn attach_buffer_at_offset(
+        &mut self,
+        compositor: &mut TestCompositor,
+        size: PixelSize,
+        offset: u32,
+        pixels: &[u8],
+    ) {
+        let handle = self.queue.handle();
+        let shm = self.bind::<WlShm>(1);
+        let (width, height) = protocol_size(size);
+        let stride = width * 4;
+        let offset = i32::try_from(offset).expect("an offset the protocol can carry");
+        let length = offset + stride * height;
+        assert_eq!(
+            pixels.len(),
+            usize::try_from(stride * height).expect("a positive buffer length"),
+            "the pixels fill the buffer exactly"
+        );
+
+        let mut contents = vec![0xA5; usize::try_from(offset).expect("a positive offset")];
+        contents.extend_from_slice(pixels);
+        let memory = anonymous_file(i64::from(length));
+        let mut file = std::fs::File::from(memory);
+        io::Write::write_all(&mut file, &contents).expect("the pool accepts its contents");
+
+        let pool = shm.create_pool(file.as_fd(), length, &handle, ());
+        let buffer = pool.create_buffer(
+            offset,
+            width,
+            height,
+            stride,
+            wl_shm::Format::Argb8888,
+            &handle,
+            (),
+        );
+        pool.destroy();
+
+        let surface = self.surface.clone().expect("a toplevel was opened first");
+        self.attach_to(compositor, &surface, &buffer, width, height);
+        self.buffers.push(buffer);
+    }
+
+    /// The toplevel's viewport, created on first use.
+    fn viewport(&mut self) -> WpViewport {
+        if let Some(viewport) = &self.viewport {
+            return viewport.clone();
+        }
+        let handle = self.queue.handle();
+        let surface = self.surface.clone().expect("a toplevel was opened first");
+        let viewport = self
+            .bind::<WpViewporter>(1)
+            .get_viewport(&surface, &handle, ());
+        self.viewport = Some(viewport.clone());
+        viewport
     }
 
     /// Creates a roleless surface, commits a buffer to it, and returns it.

@@ -58,8 +58,7 @@ type PanelData = {
   granted: boolean,
   dead: boolean,
   claim: layer.Claim?,
-  appliedWidth: number?,
-  appliedHeight: number?,
+  appliedViewport: layer.Viewport?,
   owner: Owner,
   host: Host,
   overrides: { Override },
@@ -67,6 +66,7 @@ type PanelData = {
   meshKey: string?,
   meshCurve: number?,
   meshTransform: string?,
+  meshCrop: string?,
   outline: drawing.Outline?,
   contour: silhouette.Cache?,
   frame: frame.Record?,
@@ -373,6 +373,37 @@ function panel.sourceSize(target: State): (number?, number?)
   return source.width, source.height
 end
 
+-- A layer copy takes the window's texture pixel for pixel, so a claim is sized by the texture, which
+-- is larger than the window when the client scales it down with a viewport or a buffer scale.
+function panel.textureSize(target: State): (number?, number?)
+  local described: drawing.Source = target
+  if described.kind ~= 'window' or described.source.dead then
+    return nil, nil
+  end
+  local texture = described.source:getTexture()
+  if not texture then
+    return nil, nil
+  end
+  local width, height = texture:getDimensions()
+  return width, height
+end
+
+-- The pixel rectangle of a window's texture that its source crop selects.
+local function cropViewport(target: State, textureWidth: number, textureHeight: number): layer.Viewport
+  local x, y, width, height = 0, 0, 1, 1
+  local described: drawing.Source = target
+  if described.kind == 'window' then
+    x, y, width, height = described.source:getSourceCrop()
+  end
+  local left, top = math.round(x * textureWidth), math.round(y * textureHeight)
+  return {
+    x = left,
+    y = top,
+    width = math.max(1, math.round((x + width) * textureWidth) - left),
+    height = math.max(1, math.round((y + height) * textureHeight) - top),
+  }
+end
+
 local function sourceAspect(target: State): number
   if target.kind == 'monitor' then
     local width, height = target.source.logicalWidth, target.source.logicalHeight
@@ -439,7 +470,7 @@ function panel.claim(target: State)
   if target.dead or target.hidden or target.source.dead or target.host.settings.rendering ~= 'layer' then
     return
   end
-  local pixelWidth, pixelHeight = panel.sourceSize(target)
+  local pixelWidth, pixelHeight = panel.textureSize(target)
   if not pixelWidth or not pixelHeight or pixelWidth <= 0 or pixelHeight <= 0 then
     return
   end
@@ -482,8 +513,12 @@ function panel.update(target: State)
     return
   end
   panel.claim(target)
-  if target.kind == 'window' and target.host.settings.rendering == 'layer' then
-    layer.drive(target, pixelWidth, pixelHeight, function(held: Layer): ()
+  if target.kind ~= 'window' or target.host.settings.rendering ~= 'layer' then
+    return
+  end
+  local textureWidth, textureHeight = panel.textureSize(target)
+  if textureWidth and textureHeight then
+    layer.drive(target, cropViewport(target, textureWidth, textureHeight), function(held: Layer): ()
       held:setPosition(target.pose:getPosition())
       held:setOrientation(target.pose:getOrientation())
       held:setDimensions(target.width, target.height)

@@ -367,20 +367,52 @@ pub struct SurfaceBufWithImage {
 }
 
 impl SurfaceBufWithImage {
-    /// Logical size of wl_surface after buffer transform and scaling
-    pub fn logical_size(&self, _surface_data: &SurfaceData) -> Size<i32, Logical> {
+    /// Logical size of wl_surface after buffer transform, scaling and wp_viewport
+    pub fn logical_size(&self, surface_data: &SurfaceData) -> Size<i32, Logical> {
+        use smithay::wayland::viewporter::ViewportCachedState;
+
+        let extent = self.oriented_extent();
+        let scale = self.scale.max(1) as u32;
+        let buffer_size = Size::new(
+            (extent[0] / scale).max(1) as i32,
+            (extent[1] / scale).max(1) as i32,
+        );
+
+        let mut guard = surface_data.cached_state.get::<ViewportCachedState>();
+        guard.current().size().unwrap_or(buffer_size)
+    }
+
+    /// Normalized source rectangle in backing image cropped by wp_viewport
+    pub fn source_uv(&self, surface_data: &SurfaceData) -> [f32; 4] {
+        use smithay::wayland::viewporter::ViewportCachedState;
+
+        let extent = self.oriented_extent();
+        let scale = self.scale.max(1) as f64;
+        let buffer_w = (extent[0] as f64 / scale).max(1.0);
+        let buffer_h = (extent[1] as f64 / scale).max(1.0);
+
+        let mut guard = surface_data.cached_state.get::<ViewportCachedState>();
+        let viewport = *guard.current();
+        let Some(src) = viewport.src else {
+            return [0.0, 0.0, 1.0, 1.0];
+        };
+
+        let u0 = (src.loc.x / buffer_w).clamp(0.0, 1.0) as f32;
+        let v0 = (src.loc.y / buffer_h).clamp(0.0, 1.0) as f32;
+        let u1 = ((src.loc.x + src.size.w) / buffer_w).clamp(0.0, 1.0) as f32;
+        let v1 = ((src.loc.y + src.size.h) / buffer_h).clamp(0.0, 1.0) as f32;
+        [u0, v0, u1, v1]
+    }
+
+    /// The image's extent in surface axes. A quarter turn exchanges the
+    /// buffer's axes, which upstream does not account for.
+    pub const fn oriented_extent(&self) -> [u32; 2] {
         let extent = self.image.extent_2d();
-        // A quarter turn exchanges the buffer's axes.
-        let extent = if self.transform.swaps_axes() {
+        if self.transform.swaps_axes() {
             [extent[1], extent[0]]
         } else {
             extent
-        };
-        let scale = self.scale.max(1) as u32;
-        Size::new(
-            (extent[0] / scale).max(1) as i32,
-            (extent[1] / scale).max(1) as i32,
-        )
+        }
     }
 
     fn apply_to_surface(

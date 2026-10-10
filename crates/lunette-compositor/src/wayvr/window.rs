@@ -19,8 +19,8 @@ use smithay::wayland::compositor::with_states;
 use smithay::wayland::shell::xdg::{SurfaceCachedState, ToplevelSurface};
 
 use crate::protocol::{
-    ContentType, OutputId, PixelSize, ProcessId, SinkId, SurfaceId, ToplevelState,
-    ToplevelStates, WindowId, WindowSnapshot,
+    ContentType, OutputId, PixelSize, ProcessId, SinkId, SourceCrop, SurfaceId,
+    ToplevelState, ToplevelStates, WindowId, WindowSnapshot,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -51,6 +51,8 @@ pub struct Window {
     pub states: ToplevelStates,
     /// The content-type hint promoted by the client's buffer commit.
     pub content_type: ContentType,
+    /// The part of the buffer the client's viewport shows.
+    pub source_crop: SourceCrop,
     /// Whether current imported content makes the window reportable.
     pub mapped: bool,
 }
@@ -81,6 +83,7 @@ impl Window {
             app_id: None,
             states: ToplevelStates::new(),
             content_type: ContentType::None,
+            source_crop: SourceCrop::FULL,
             mapped: false,
         }
     }
@@ -202,6 +205,10 @@ impl Window {
         replace_if_changed(&mut self.content_type, content_type)
     }
 
+    pub fn remember_source_crop(&mut self, source_crop: SourceCrop) -> bool {
+        replace_if_changed(&mut self.source_crop, source_crop)
+    }
+
     pub fn snapshot(&self) -> WindowSnapshot {
         WindowSnapshot {
             window: self.id,
@@ -217,6 +224,7 @@ impl Window {
             parent: None,
             states: self.states.clone(),
             content_type: self.content_type,
+            source_crop: self.source_crop,
         }
     }
 }

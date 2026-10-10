@@ -44,6 +44,10 @@ Clients choose tiled modifiers. On the NVIDIA proprietary driver, every advertis
 
 A texture from `window:getTexture()` is therefore valid for one frame only. wlroots, KWin, Mutter, and Hyprland also sample client buffers directly.
 
+### Viewport crop
+
+A client can show part of its buffer through `wp_viewport`, and `window:getSourceCrop()` reports which part. The panels provider samples only that rectangle: a cropped window draws on a mesh whose texture coordinates span the crop, rebuilt when the crop changes, and an uncropped flat window keeps the plain quad. A layer is claimed at the texture's size, because the copy into the layer is one texel to one pixel, and the layer's viewport is set to the crop in texture pixels. A window whose texture is larger than its committed size, as with a fractional-scale client, therefore fills its layer rather than having its copy cut short. The crop is computed after the buffer's transform, and no consumer applies a client's buffer transform when drawing, so a client that both transforms and crops its buffer shows the wrong region.
+
 ### `window:stabilize()`
 
 `window:stabilize()` returns a lunette-owned texture that persists across frames, for shader chains, screenshots, cached mesh bindings, or freezing a window. It copies the client buffer through `lovrTextureCopy`, the call layer blits use, on each damaged frame. A second call returns the same texture. A resize releases the copy, and the next call allocates one of the new size. It returns `false` on a dead handle and before the client commits a buffer.
@@ -165,6 +169,8 @@ The target owns joining and the single outline because it owns the body geometry
 Native pointer motion stops on a perimeter miss, and the release still reaches the original sink. Extending motion through cutouts would add capture projection and change application drag behaviour. Protocol surfaces already project captures with an explicit outside state.
 
 ## Known gaps
+
+A client's buffer transform is not applied when a window is drawn, so a transformed buffer is drawn untransformed and a crop of one samples the wrong region.
 
 The OpenVR backend does not detect unchanged mutable layer content, so an idle native panel still costs an internal copy and handoff each frame.
 

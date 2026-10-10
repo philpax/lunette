@@ -26,7 +26,7 @@ use lunette_compositor::{
     config::{DEFAULT_OUTPUT, DEFAULT_SEAT},
     protocol::{
         Command, ContentType, PixelSize, PointerButton, ProcessSnapshot, ScrollAxis, ScrollDelta,
-        SeatId, SinkId, Snapshot, SurfaceId, ToplevelStates, WindowId, WindowSnapshot,
+        SeatId, SinkId, Snapshot, SourceCrop, SurfaceId, ToplevelStates, WindowId, WindowSnapshot,
     },
 };
 use mlua::{Lua, Table, Value};
@@ -99,6 +99,7 @@ fn window(raw: u64, title: &str, app_id: &str, size: PixelSize) -> WindowSnapsho
         parent: None,
         states: ToplevelStates::new(),
         content_type: ContentType::None,
+        source_crop: SourceCrop::FULL,
     }
 }
 
