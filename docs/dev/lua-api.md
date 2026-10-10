@@ -390,7 +390,7 @@ Source reload and hard restart run no cleanup for Lua modules outside the plugin
 
 An error in a LÖVR callback that no Lua dispatcher protects ends the session with status 1. Recovering in the host would need each callback called under its own protected call, and a frame that unwinds between `lovr.headset.getPass` and `lovr.headset.submit` would still have to end the XR frame it began. A `lovr.errhand` that returns the previous loop skips the rest of the frame, including its submit.
 
-A monitor panel cannot hold a composition layer, because `lunette.claimLayer` takes windows. The curved arc mesh and rounded scene geometry have not been seen on a GPU-backed session, and real font loading in installed and development sessions is unverified.
+A monitor panel cannot hold a composition layer, because `lunette.claimLayer` takes windows.
 
 Text shaping, bidirectional editing, and IME composition are absent from the UI toolkit, and draw hooks cannot make arbitrary pass misuse safe. [Input](input.md#known-gaps) records the routing limits.
 

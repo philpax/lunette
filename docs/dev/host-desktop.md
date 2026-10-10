@@ -92,11 +92,11 @@ The pinned screencopy backend has no cancellation or joined drop, its pause is e
 
 The binary opens the input chain with `HidConfig::default()`. It supplies no wl_virtual configuration and no keymap, so wl_virtual reports itself unconfigured and uinput or the dummy is used. No configuration option changes the provider order.
 
-Whether mutter maps an absolute uinput device across the whole layout or binds it to one display is unverified. If it binds to one, GNOME has no working absolute pointer path until libei is implemented.
+If mutter binds an absolute uinput device to one display rather than mapping it across the whole layout, GNOME has no working absolute pointer path until libei is implemented.
 
 `wlx-capture`'s `parse_start_response` drops the granted `persist_mode`, so lunette records that the backend stated none. Lifting this upstream changes one adapter.
 
-`monitor.width` and `monitor.height` report the host's unrotated mode, while textures use the captured frame's dimensions. Host disconnect, hotplug during capture, rotation, portrait presentation, and GPU-backed capture need manual acceptance.
+`monitor.width` and `monitor.height` report the host's unrotated mode, while textures use the captured frame's dimensions.
 
 `SURFACE_UNITS_PER_DETENT` in `crates/lunette-compositor/src/protocol/input.rs` is 10.0, the value WayVR's `UNITS_PER_DETENT` carries with the comment "no clue". A host sink divides a scroll distance by it to count wheel detents, and nothing has measured what a host compositor or its applications do with the result.
 

@@ -144,7 +144,7 @@ The service protects itself and the configured entries, following their current 
 
 Source reload runs every module again ([Reload](lua-api.md#reload)), so a module keeps no module-level state, and a non-plugin module that holds native resources releases them itself.
 
-Each module's tests are in a `tests` directory beside it, as [CONTRIBUTING.md](../../CONTRIBUTING.md#lua-tests) states. `lua/lunette-desktop/tests` drives the shipped desktop: startup and ten production reloads, provider outages, persistence through hotplug and reopened windows, settings, protection, and each example configuration. The tests run over the fake native API in `lua/testing` and do not establish an XR or GPU-backed boot, host-desktop acceptance, or an installed session.
+Each module's tests are in a `tests` directory beside it, as [CONTRIBUTING.md](../../CONTRIBUTING.md#lua-tests) states. `lua/lunette-desktop/tests` drives the shipped desktop: startup and ten production reloads, provider outages, persistence through hotplug and reopened windows, settings, protection, and each example configuration. The tests run over the fake native API in `lua/testing`.
 
 Safe mode is compiled into the binary and requires only `@lunette`, so a missing or broken module tree cannot prevent recovery.
 
@@ -217,7 +217,7 @@ Every source is `.luau` because every source uses Luau syntax, and an editor tha
 
 ## Known gaps
 
-The desktop tests do not establish an XR or GPU-backed boot, host-desktop acceptance, or an installed session. Geometry recorders do not rasterise edges, alpha, depth, or fonts. The theme and rounded-geometry gates in [Desktop configuration](../guide/desktop-configuration.md) remain pending.
+Geometry recorders do not rasterise edges, alpha, depth, or fonts.
 
 ## Deliberately left open
 

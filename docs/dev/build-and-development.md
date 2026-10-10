@@ -187,12 +187,12 @@ Development-only application launch lives in `dev/`, outside the installed roots
 
 ## Known gaps
 
-There is no flake package output, for the reason [Nix](#nix) gives. Installing from a clean build and running an installed session, including a configuration copied with `--dump-config`, have not been validated.
+There is no flake package output, for the reason [Nix](#nix) gives.
 
-The automatic VR input fixture verifies callback delivery and recorded geometry, not presentation. The manual check `manual_xr_widget_and_manager_acceptance` remains open: wrist-menu discovery with controllers alone, capture, grab, and scroll with both hands, keyboard readability and placement, search and configuration editing, errors and overflow, panel movement, close, and reopen, application focus hand-off, and reload on the target headset and runtime. `theme-font-fit` remains open for mounted font rendering.
+The automatic VR input fixture verifies callback delivery and recorded geometry, not presentation.
 
-SteamVR binding acceptance, overlay coexistence with a real game, and headset visual acceptance remain unverified. [Input](input.md#known-gaps) and [Rendering](rendering.md#known-gaps) record the hardware observations made so far. WebXR builds are not validated, because `emcmake` is unavailable. An opt-in hardware check reports a missing prerequisite as a failure, never as a pass.
+[Input](input.md#known-gaps) and [Rendering](rendering.md#known-gaps) record the hardware observations made so far. WebXR builds are not validated, because `emcmake` is unavailable. An opt-in hardware check reports a missing prerequisite as a failure, never as a pass.
 
-Spawning a client in a session test needs the GPU-headless tier, which does not exist. Until it does, a client appearing in `lunette.windows()` is a manual gate.
+Spawning a client in a session test needs the GPU-headless tier, which does not exist.
 
 GitHub issues #21 to #30 track the hardware and host-desktop verification, and #3 tracks the layer budget against a runtime that offers no layers. A measurement taken on hardware is recorded in the Decisions or Known gaps section of the document whose subject it concerns, and the issue that asked for it links there.

@@ -1,16 +1,6 @@
 # Roadmap
 
-v1, the point at which the system is usable for daily work, is implemented and covered by hardware-free tests. What remains are the gates that need an operator and the work beyond v1.
-
-## Human gates
-
-The automated checks run without a headset, GPU-backed session, or host desktop. GitHub issues #21 to #30 track the operator checks, and #3 tracks the layer budget against a runtime that offers no layers. A hardware result is recorded in the Decisions or Known gaps section of the document it concerns ([Build and development](build-and-development.md#known-gaps)). The following remain unverified and need an operator:
-
-- An actual XR or GPU-backed boot of the shipped configuration, and execution of an installed session.
-- `manual_xr_widget_and_manager_acceptance`: controller-only discovery, two-hand capture, grab and scroll, keyboard readability and placement, text editing and errors, long-list overflow, manager close and reopen, focus hand-off to applications, and reload, on the target headset and runtime.
-- The theme and rounded-geometry gates in [Desktop configuration](../guide/desktop-configuration.md): `theme-runtime-switch`, `theme-appearance-matrix`, `theme-font-fit`, `theme-documentation-check`, `theme-rounded-content`, `theme-joined-frame`, `theme-widget-edges`, and `theme-rendering-exceptions`.
-- Host-desktop acceptance of capture, injection, the clipboard bridge, and physical keypad lock state.
-- OpenVR controller bindings and haptics on SteamVR beyond the observed controllers ([Input](input.md#known-gaps)).
+v1, the point at which the system is usable for daily work, is implemented. What remains is the work beyond v1.
 
 ## Beyond v1
 

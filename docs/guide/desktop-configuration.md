@@ -215,13 +215,9 @@ In Plugins, the operator configures `desktop/theme` with `overrides.typography.f
 
 The manager caps some tokens in its fixed-size toolbar and editors, as [Session styling](runtime-manager.md#session-styling) lists. Theme fields do not change keyboard layout, `keyUnit`, depth offsets, haptics, panel placement, or input routing.
 
-## Known gaps
-
-Logic-headless tests do not establish XR or GPU-backed behaviour, host-desktop acceptance, or installed-session execution. The headset checks above remain open, including text readability, controller ergonomics, shaping, bidirectional editing, and input methods.
-
 ## Decisions
 
-Aim smoothing runs before picking, so selection and feedback use one ray. It follows the [1 Euro filter](https://gery.casiez.net/1euro/) with separate speed gains for position and direction. The grab pose and button edges stay raw because filtering them would delay manipulation and clicks. Smoothing in each widget was rejected because every consumer would have to keep its drawn and dispatched coordinates in step. The default gains need headset tuning.
+Aim smoothing runs before picking, so selection and feedback use one ray. It follows the [1 Euro filter](https://gery.casiez.net/1euro/) with separate speed gains for position and direction. The grab pose and button edges stay raw because filtering them would delay manipulation and clicks. Smoothing in each widget was rejected because every consumer would have to keep its drawn and dispatched coordinates in step.
 
 The trigger lock acts on analog pressure before the click edge, because the controller moves during a pull. It holds the shared ray rather than per-widget coordinates, so native windows and UI panels behave alike. Coarse movement releases it until the trigger is released, which keeps dragging and avoids repeated locking.
 

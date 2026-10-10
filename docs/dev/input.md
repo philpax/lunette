@@ -172,4 +172,4 @@ Virtual activations have no dead-key or compose engine, and local receivers have
 
 Keypad routing supports ordinary PC Num Lock and Shift behaviour. Host keypad remappings and backends without a modifier snapshot are unsupported.
 
-Physical batches are bounded by updates, not correlated per key, so a route change, consumed binding key, or consumed or failed local key can discard unrelated text until the next update. XR and host-desktop acceptance of routing and the virtual keyboard remain unverified.
+Physical batches are bounded by updates, not correlated per key, so a route change, consumed binding key, or consumed or failed local key can discard unrelated text until the next update.

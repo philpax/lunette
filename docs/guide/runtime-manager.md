@@ -61,5 +61,3 @@ Changes last for the session. The manager writes no configuration file, download
 The native record of an activation's effects grows with every acquisition until the activation ends, so a long-lived activation that acquires repeatedly has inspection cost proportional to its history.
 
 While a graph pan is held, the graph keeps the layout it had at the press and moves on release.
-
-Headset readability, GPU rendering, controller ergonomics, and installed-session behaviour remain unverified.

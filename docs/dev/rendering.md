@@ -168,11 +168,11 @@ Native pointer motion stops on a perimeter miss, and the release still reaches t
 
 The OpenVR backend does not detect unchanged mutable layer content, so an idle native panel still costs an internal copy and handoff each frame.
 
-OpenVR presentation uses native panels and two per-eye projection overlays. It submits no `IVRCompositor::Submit` frames and has no occlusion against a game's depth. On hardware, native overlays appear at their intended positions, scene content registers with native panels under head motion ([LÖVR integration](lovr-integration.md#decisions) records the projection convention), and the wrist UI appears on Steam Frame controllers. Stereo alignment, alpha, motion, and full visual acceptance remain unverified.
+OpenVR presentation uses native panels and two per-eye projection overlays. It submits no `IVRCompositor::Submit` frames and has no occlusion against a game's depth. On hardware, native overlays appear at their intended positions, scene content registers with native panels under head motion ([LÖVR integration](lovr-integration.md#decisions) records the projection convention), and the wrist UI appears on Steam Frame controllers.
 
-Geometry and draw recorders do not establish rasterization, MSAA edges, alpha blending, stereo seams, or cutout depth on a GPU. The manual checks `theme-rounded-content`, `theme-joined-frame`, `theme-widget-edges`, `theme-rendering-exceptions`, `theme-appearance-matrix`, `theme-runtime-switch`, and `theme-font-fit` remain pending.
+Geometry and draw recorders do not establish rasterization, MSAA edges, alpha blending, stereo seams, or cutout depth on a GPU.
 
-Captured dmabufs use the client importer. Shared-memory capture frames in the supported 32-bit RGB layouts are copied, normalised, and uploaded on the frame thread. Frames that supply only a mapped pointer are unsupported, because the pinned callback provides no owned descriptor or validated extent. Portrait capture on a GPU needs manual acceptance.
+Captured dmabufs use the client importer. Shared-memory capture frames in the supported 32-bit RGB layouts are copied, normalised, and uploaded on the frame thread. Frames that supply only a mapped pointer are unsupported, because the pinned callback provides no owned descriptor or validated extent.
 
 Multi-planar YUV costs a conversion.
 

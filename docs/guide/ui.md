@@ -82,4 +82,4 @@ Rounded panels clip their content to a conservative rectangle inside the outline
 
 ## Known gaps
 
-The UI is a bounded toolkit for local VR controls. Text shaping, bidirectional editing, input methods, layout containers, and a general widget framework are outside the contract. Each panel and control caches up to 32 text layouts and 32 truncated labels; a long, changing draft can still cost quadratic measurement per frame, with no verified frame-time bound. GPU drawing and headset use remain unverified, as do the `theme-widget-edges`, `theme-joined-frame`, `theme-rounded-content`, and `theme-rendering-exceptions` checks in [Headset verification](desktop-configuration.md#headset-verification).
+The UI is a bounded toolkit for local VR controls. Text shaping, bidirectional editing, input methods, layout containers, and a general widget framework are outside the contract. Each panel and control caches up to 32 text layouts and 32 truncated labels; a long, changing draft can still cost quadratic measurement per frame.

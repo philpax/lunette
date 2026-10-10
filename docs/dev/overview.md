@@ -60,5 +60,5 @@ A window is not a distinct object type. It is a texture, an input sink, and meta
 - [Standard library](stdlib.md): the module roots, the built-in plugins, and the shipped desktop.
 - [Audio](audio.md): per-application spatial audio, specified and deferred.
 - [Build and development](build-and-development.md): layout, build, Nix, the development loop, and testing.
-- [Roadmap](roadmap.md): milestones and the human acceptance gates.
+- [Roadmap](roadmap.md): the work beyond v1 and upstream work.
 - [Credits](../../CREDITS.md): the projects lunette builds on and their licences.
