@@ -4,25 +4,46 @@ local focus = require '@lunette-contracts/focus'
 local expect = testing.expect
 local test = testing.suite()
 
-local strokes = {
+type Adapter = typeof(require '@lunette-plugin/adapter')
+type Native = typeof(require '@testing/native')
+type Sessions = typeof(require '@testing/session')
+type InputSink = {
+  dead: boolean,
+  domain: 'window' | 'host',
+  id: number,
+  setModifiers: (InputSink, { lunette.ModifierName }) -> boolean,
+  key: (InputSink, number, boolean) -> boolean,
+  typeText: (InputSink, string) -> boolean,
+}
+type Fixture = {
+  session: Sessions.Session,
+  focus: focus.Service,
+  owner: Adapter.Context,
+  log: { string },
+  seat: Native.Seat,
+  native: focus.TargetHandle,
+  field: (string) -> focus.TargetHandle,
+}
+
+local strokes: { [string]: lunette.Stroke } = {
   q = { keycode = 16, modifiers = {} },
   Q = { keycode = 16, modifiers = { 'shift' } },
 }
 
-local function boot(domain)
+local function boot(domain: 'window' | 'host'): Fixture
   local session = testing.boot { 'frame', 'focus', 'desktop/input' }
   local observed = session:observe(focus.capability)
-  local f = { session = session, focus = observed.service, owner = observed.context, log = {} }
-  local function record(value)
+  local f: Fixture = { session = session, focus = observed.service, owner = observed.context, log = {} }
+  local function record(value: string)
     f.log[#f.log + 1] = value
   end
-  f.seat = observed.context:resource(observed.context, function()
+  f.seat = observed.context:resource(observed.context, function(): (Native.Seat, () -> ())
     local seat = lunette.newSeat { name = 'input-fixture' }
     return seat, function()
       seat:destroy()
     end
   end)
-  f.seat.strokeFor = function(_self, value)
+  f.seat.strokeFor = function(_self: Native.Seat, value: string): lunette.Stroke?
     local stroke = strokes[value]
     return stroke and { keycode = stroke.keycode, modifiers = table.clone(stroke.modifiers) }
   end
@@ -33,31 +54,31 @@ local function boot(domain)
       dead = false,
       domain = domain,
       id = 701,
-      setModifiers = function(_self, modifiers)
+      setModifiers = function(_self: InputSink, modifiers: { lunette.ModifierName }): boolean
         record('mods:' .. table.concat(modifiers, '+'))
         return true
       end,
-      key = function(_self, code, down)
+      key = function(_self: InputSink, code: number, down: boolean): boolean
         record('key:' .. code .. ':' .. (if down then 'down' else 'up'))
         return true
       end,
-      typeText = function(_self, text)
+      typeText = function(_self: InputSink, text: string): boolean
         record('text:' .. text)
         return true
       end,
     },
   })
-  f.field = function(label)
+  f.field = function(label: string): focus.TargetHandle
     return f.focus:register(f.owner, {
       kind = 'local',
       keymapSeat = f.seat,
       wantsKeyboard = true,
       receiver = {
-        key = function(event)
+        key = function(event: focus.KeyEvent): boolean
           record(label .. ':key:' .. event.code .. ':' .. table.concat(event.modifiers, '+'))
           return false
         end,
-        text = function(value)
+        text = function(value: string): boolean
           record(label .. ':text:' .. value)
           return true
         end,
@@ -68,7 +89,7 @@ local function boot(domain)
 end
 
 -- Opens a batch, presses a key with the given keys held, commits its text, and returns what reached the route.
-local function press(f, held, key, text)
+local function press(f: Fixture, held: { string }, key: string, text: string?): string
   f.session:update()
   table.clear(f.log)
   table.clear(f.session.native.events.held)

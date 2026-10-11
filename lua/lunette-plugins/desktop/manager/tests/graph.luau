@@ -3,7 +3,9 @@ local graph = require '@lunette-plugins/desktop/manager/graph'
 local expect = testing.expect
 local test = testing.suite()
 
-local function snapshot()
+type Snapshot = { nodes: { graph.Node }, edges: { graph.Edge } }
+
+local function snapshot(): Snapshot
   return {
     nodes = {
       { id = 'a', name = 'source', state = 'active', enabled = true },
@@ -19,7 +21,7 @@ local function snapshot()
   }
 end
 
-local function equalIds(actual, expected, label)
+local function equalIds(actual: { string }, expected: { string }, label: string)
   expect.equal(table.concat(actual, ','), table.concat(expected, ','), label)
 end
 

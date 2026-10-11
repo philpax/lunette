@@ -4,7 +4,9 @@ local managerConfig = require '@lunette-plugins/desktop/manager/config'
 local expect = testing.expect
 local test = testing.suite()
 
-local function overlaps(a, b)
+type Bounds = { read x: number, read y: number, read width: number, read height: number }
+
+local function overlaps(a: Bounds, b: Bounds): boolean
   return a.x < b.x + b.width and b.x < a.x + a.width and a.y < b.y + b.height and b.y < a.y + a.height
 end
 

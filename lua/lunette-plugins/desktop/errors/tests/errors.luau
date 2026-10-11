@@ -1,6 +1,8 @@
 local testing = require '@testing'
 local expect = testing.expect
 
+type Render = typeof(require '@testing/render')
+
 local test = testing.suite()
 
 test('the error overlay draws the latest report at its configured position', function()
@@ -17,7 +19,7 @@ test('the error overlay draws the latest report at its configured position', fun
   }
   session.native.raise('fixture overlay error', 'fixture traceback')
   session:draw()
-  local plane, text
+  local plane: Render.Call?, text: Render.Call?
   for _, call in ipairs(session.native.events.draw) do
     if call[1] == 'plane' then
       plane = call

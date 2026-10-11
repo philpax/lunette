@@ -5,12 +5,14 @@ local schema = require '@lunette-plugin/schema'
 local fixture = require './support/vr-manager'
 local test = testing.suite()
 
+type Settings = { title: string }
+
 test('the wrist menu opens the manager, the VR keyboard edits a field, and Apply reconfigures', function()
-  local current
+  local current: Settings?
   local definition = plugin.consumer({
     name = 'vr-workflow-editor',
     schema = schema.object { title = schema.default(schema.string()) 'initial' },
-    init = function(_context, settings)
+    init = function(_context: plugin.Context, settings: Settings)
       current = settings
     end,
   }).definition

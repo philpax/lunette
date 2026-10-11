@@ -7,7 +7,19 @@ local vrUi = require '@testing/vr-ui'
 local expect = testing.expect
 local test = testing.suite()
 
-local function boot(config)
+type DesktopMenu = typeof(require '@lunette-plugins/desktop/menu')
+type Environment = {
+  running: vrUi.Fixture,
+  ui: ui.Service,
+  hand: vrUi.Hand,
+  pointer: vrUi.Hand,
+  owner: adapter.Context,
+  menu: menu.Service,
+}
+type ActionOptions = { label: string?, order: number?, selected: boolean? }
+type Action = { calls: number, registration: menu.Registration }
+
+local function boot(config: DesktopMenu.Config?): Environment
   local running = vrUi.boot {
     'frame',
     'surfaces',
@@ -22,7 +34,7 @@ local function boot(config)
     'menu',
     { id = 'desktop/menu', definition = require('@lunette-plugins/desktop/menu').definition, config = config or {} },
   }
-  local env = { running = running, ui = running.session:observe(ui.capability).service }
+  local env: Environment = { running = running, ui = running.session:observe(ui.capability).service }
   env.hand = config and config.hand or 'left'
   env.pointer = if env.hand == 'left' then 'right' else 'left'
   running:pose(env.hand, lovr.math.newMat4():translate(0, 1.2, -0.5))
@@ -31,15 +43,15 @@ local function boot(config)
   running.session:use(adapter.define {
     name = 'testing/actions',
     requires = { menu.capability },
-    init = function(context)
+    init = function(context: adapter.Context)
       env.owner, env.menu = context, context:require(menu.capability)
     end,
   })
   return env
 end
 
-local function register(env, id, options)
-  local action = { calls = 0 }
+local function register(env: Environment, id: string, options: ActionOptions): Action
+  local action: Action = { calls = 0 }
   action.registration = env.menu:register(env.owner, {
     id = id,
     label = options.label or id,
@@ -53,13 +65,13 @@ local function register(env, id, options)
   return action
 end
 
-local function click(env, id, itemId)
+local function click(env: Environment, id: string, itemId: string?)
   local panel = if id == 'close' then 'desktop/menu/titlebar' else 'desktop/menu'
   env.running:clickControl(env.ui, panel, id, env.pointer, itemId)
 end
 
-local function items(env)
-  local result = {}
+local function items(env: Environment): { vrUi.Item }
+  local result: { vrUi.Item } = {}
   for _, control in vrUi.describe(env.ui, 'desktop/menu').controls do
     for _, item in control.items or {} do
       result[#result + 1] = item

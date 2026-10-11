@@ -8,8 +8,24 @@ local actions = require('@lunette-plugins/desktop/actions').definition
 local expect = testing.expect
 local test = testing.suite()
 
-local function boot()
-  local state = { visible = false, listeners = {} }
+type Sessions = typeof(require '@testing/session')
+type DisplayFixture = {
+  dead: boolean,
+  isVisible: () -> boolean,
+  toggle: () -> boolean,
+  onChanged: (DisplayFixture, plugin.Owner, display.Listener) -> plugin.Effect,
+}
+type State = {
+  visible: boolean,
+  listeners: { [display.Listener]: boolean },
+  service: DisplayFixture,
+  session: Sessions.Session,
+  menu: menu.Service,
+  change: (State, boolean) -> (),
+}
+
+local function boot(): State
+  local state: State = { visible = false, listeners = {} }
   state.session = testing.boot {
     'menu',
     {
@@ -17,19 +33,19 @@ local function boot()
       definition = adapter.define {
         name = 'testing/display',
         provides = { display.capability },
-        init = function(context, _, provide)
+        init = function(context: adapter.Context, _: {}, provide: adapter.Publisher)
           state.service = {
             dead = false,
-            isVisible = function()
+            isVisible = function(): boolean
               return state.visible
             end,
-            toggle = function()
+            toggle = function(): boolean
               state:change(not state.visible)
               return true
             end,
-            onChanged = function(_self, owner, listener)
+            onChanged = function(_self: DisplayFixture, owner: plugin.Owner, listener: display.Listener): plugin.Effect
               state.listeners[listener] = true
-              return context:acquire(owner, function()
+              return context:acquire(owner, function(): () -> ()
                 return function()
                   state.listeners[listener] = nil
                 end
@@ -43,7 +59,7 @@ local function boot()
     { id = 'desktop/actions', definition = actions },
   }
   state.menu = state.session:observe(menu.capability).service
-  function state:change(value)
+  function state.change(self: State, value: boolean)
     self.visible = value
     for listener in self.listeners do
       listener.run { visible = value, reason = if value then 'show' else 'hide', revision = 1 }
@@ -65,11 +81,11 @@ end)
 test('a refused reload is logged', function()
   local env = boot()
   local reload, log = lunette.reload, lovr.log
-  local messages = {}
-  lunette.reload = function()
+  local messages: { string } = {}
+  lunette.reload = function(): (boolean, string)
     return false, 'reload already pending'
   end
-  lovr.log = function(message, level)
+  lovr.log = function(message: string, level: 'debug' | 'info' | 'warn' | 'error')
     messages[#messages + 1] = level .. ': ' .. message
   end
   local result = env.menu:invoke 'desktop/reload'

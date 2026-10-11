@@ -7,20 +7,27 @@ local rules = require '@lunette-contracts/rules'
 local vocabulary = require '@lunette-contracts/vocabulary'
 local poseMemory = require '@lunette-plugins/desktop/adoption/pose-memory'
 
+type Environment = {
+  owner: adapter.Context,
+  panels: panels.Service,
+  drops: drops.Service,
+  rules: rules.Service,
+}
+
 local test = testing.suite()
 
-local function pose(x)
+local function pose(x: number): string
   return vocabulary.encodePose(lovr.math.newMat4():translate(x, 0, 0))
 end
 
 test('a dropped window keeps its pose, and the kept pose wins over a persisted one', function()
   local fake = testing.native()
   local session = testing.start { 'theme', 'panels', 'drops', 'rules' }
-  local env = {}
+  local env: Environment = {}
   session:use(adapter.define {
     name = 'pose-memory-test',
     requires = { panels.capability, drops.capability, rules.capability },
-    init = function(context)
+    init = function(context: adapter.Context)
       env.owner = context
       env.panels = context:require(panels.capability)
       env.drops = context:require(drops.capability)
@@ -30,7 +37,7 @@ test('a dropped window keeps its pose, and the kept pose wins over a persisted o
   env.rules:addSource(env.owner, {
     name = 'persistence',
     precedence = vocabulary.PRECEDENCE.persisted,
-    resolve = function()
+    resolve = function(): rules.Properties
       return { pose = pose(2) }
     end,
   })

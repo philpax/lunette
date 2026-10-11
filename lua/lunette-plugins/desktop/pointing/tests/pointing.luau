@@ -6,6 +6,15 @@ local surfaces = require '@lunette-contracts/surfaces'
 local quad = require '@lunette-contracts/quad'
 local vrUi = require '@testing/vr-ui'
 
+type Native = typeof(require '@testing/native')
+type Target = quad.Quad & {
+  dead: boolean,
+  grabbable: boolean,
+  raycast: (Target, vector, vector) -> (number?, number?, number?),
+  project: (Target, vector, vector) -> (number?, number?, number?),
+  sink: (Target) -> Native.Sink,
+}
+
 local test = testing.suite()
 
 test('the trigger and thumbstick reach a native sink as a primary button and scroll', function()
@@ -29,21 +38,21 @@ test('the trigger and thumbstick reach a native sink as a primary button and scr
   fixture.session:use(adapter.define {
     name = 'testing/native-sink',
     requires = { surfaces.capability },
-    init = function(context)
-      local target =
+    init = function(context: adapter.Context)
+      local target: Target =
         { dead = false, grabbable = false, pose = pose, width = 2, height = 1, pixelWidth = 200, pixelHeight = 100 }
-      function target:raycast(origin, direction)
+      function target.raycast(self: Target, origin: vector, direction: vector): (number?, number?, number?)
         return quad.hit(self, origin, direction)
       end
-      function target:project(origin, direction)
+      function target.project(self: Target, origin: vector, direction: vector): (number?, number?, number?)
         return quad.project(self, origin, direction)
       end
-      function target:sink()
+      function target.sink(self: Target): Native.Sink
         return window.sink
       end
       context:require(surfaces.capability):offer(context, {
         name = 'native-sink',
-        list = function()
+        list = function(): { Target }
           return { target }
         end,
       })
@@ -65,7 +74,7 @@ test('the trigger and thumbstick reach a native sink as a primary button and scr
   fixture:step()
   fixture:button('right', 'trigger', false)
   fixture:step()
-  local buttons, scrolls = {}, 0
+  local buttons: { Native.InputCall }, scrolls = {}, 0
   for _, event in fixture.native.events.input do
     if event[1] == 'button' then
       buttons[#buttons + 1] = event

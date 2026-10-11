@@ -11,8 +11,21 @@ local test = testing.suite()
 
 local WORKSPACES = require '@lunette-plugins/desktop/workspaces'
 
-local function start(config)
-  local env = {}
+type Native = typeof(require '@testing/native')
+type Sessions = typeof(require '@testing/session')
+type Environment = {
+  session: Sessions.Session,
+  native: Native.Fake,
+  owner: adapter.Context,
+  tags: tagsContract.Service,
+  placement: placementContract.Service,
+  actions: Sessions.Observed<menuContract.Service>,
+  main: tagsContract.Tag?,
+  web: tagsContract.Tag?,
+}
+
+local function start(config: WORKSPACES.Config?): Environment
+  local env: Environment = {}
   env.session = testing.boot {
     'frame',
     'menu',
@@ -35,7 +48,7 @@ local function start(config)
       tagsContract.capability,
       placementContract.capability,
     },
-    init = function(context)
+    init = function(context: adapter.Context)
       env.owner = context
       env.tags = context:require(tagsContract.capability)
       env.placement = context:require(placementContract.capability)
@@ -46,17 +59,17 @@ local function start(config)
   return env
 end
 
-local function open(env, id)
+local function open(env: Environment, id: number): (panelsContract.WindowPanel, plugin.Effect)
   local placed, effect =
     env.placement:place(env.owner, { window = env.native.newWindow(id), defaults = { tags = { 'main' } } })
   return placed.panel, effect
 end
 
-local function choose(env, name)
+local function choose(env: Environment, name: string)
   expect.equal(env.actions.service:invoke('desktop/workspace/' .. name).kind, 'invoked', 'the workspace action')
 end
 
-local function row(env, name)
+local function row(env: Environment, name: string): menuContract.Descriptor
   for _, action in env.actions.service:list() do
     if action.id == 'desktop/workspace/' .. name then
       return action

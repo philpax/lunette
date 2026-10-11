@@ -8,10 +8,32 @@ local surfaces = require '@lunette-contracts/surfaces'
 local vrUi = require '@testing/vr-ui'
 local test = testing.suite()
 
+type Native = typeof(require '@testing/native')
+type Sessions = typeof(require '@testing/session')
+type Inspection = typeof(require '@lunette-contracts/inspection')
+type Plugin = typeof(require '@lunette-plugin')
+type WindowPanel = {
+  read source: Native.Window,
+  read pose: Mat4,
+  read height: number,
+  read dead: boolean,
+  read setPose: (WindowPanel, Mat4) -> (),
+  read setHidden: (WindowPanel, Plugin.Owner, boolean) -> Plugin.Effect,
+}
+type Environment = {
+  running: vrUi.Fixture,
+  registry: Sessions.Observed<panels.Service>,
+  monitor: Native.Monitor,
+  widgets: ui.Service,
+  closeRequests: number,
+  panel: WindowPanel,
+  mirror: panels.Panel,
+}
+
 local WINDOW = 'desktop/decorations/window/7'
 local MONITOR = 'desktop/decorations/monitor/screen-a'
 
-local function boot()
+local function boot(): Environment
   local native = testing.native()
   local monitor = native.newMonitor 'screen-a'
   native.events.monitors = { monitor }
@@ -32,7 +54,7 @@ local function boot()
     'desktop/monitors',
   }, { native = native })
   local registry = running.session:observe(panels.capability)
-  local env = {
+  local env: Environment = {
     running = running,
     registry = registry,
     monitor = monitor,
@@ -40,7 +62,7 @@ local function boot()
     closeRequests = 0,
   }
   local window = native.newWindow(7)
-  function window:close()
+  function window.close(self: Native.Window): boolean
     env.closeRequests += 1
     return true
   end
@@ -55,12 +77,12 @@ local function boot()
   return env
 end
 
-local function click(env, name, id)
+local function click(env: Environment, name: string, id: string)
   env.running:clickControl(env.widgets, name, id)
 end
 
 -- Reads the control directly, since discovery finds only enabled controls and a pending selection is disabled.
-local function selection(env)
+local function selection(env: Environment): Inspection.Details
   for _, registration in env.widgets:inspect().registrations do
     if registration.kind == 'control' and registration.name == 'select/monitor/screen-a' then
       return registration.details
@@ -74,7 +96,7 @@ test('a window titlebar requests close, reports a refusal, and is withdrawn whil
   click(env, WINDOW, 'close/window/7')
   expect.equal(env.closeRequests, 1, 'the close button sends one close request')
   expect.falsy(env.panel.dead, 'the panel waits for the client to unmap')
-  function env.panel.source:close()
+  function env.panel.source.close(self: Native.Window): boolean
     return false
   end
   click(env, WINDOW, 'close/window/7')
@@ -92,10 +114,10 @@ end)
 
 test('dragging a window titlebar moves the window and drops it once', function()
   local env = boot()
-  local released = {}
+  local released: { drops.Drop } = {}
   local observer = env.running.session:observe(drops.capability)
   observer.service:onDropped(observer.context, {
-    run = function(drop)
+    run = function(drop: drops.Drop)
       released[#released + 1] = drop
     end,
   })
@@ -134,7 +156,7 @@ test('monitor selection shows a refused, pending, and failed request, and retrie
   local env = boot()
   local native = env.running.native
   local selectMonitors = lunette.selectMonitors
-  lunette.selectMonitors = function()
+  lunette.selectMonitors = function(): (boolean, string)
     return false, 'portal unavailable'
   end
   local ok, message = pcall(click, env, MONITOR, 'select/monitor/screen-a')

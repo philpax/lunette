@@ -10,9 +10,21 @@ local descriptors = require '@lunette-plugins/theme/descriptors'
 local presets = require '@lunette-plugins/theme/standard/presets'
 local arcade = require '@lunette-plugins/theme/arcade/preset'
 
+type Native = typeof(require '@testing/native')
+type Sessions = typeof(require '@testing/session')
+type Selector = typeof(require '@lunette-plugins/desktop/theme')
+type Environment = {
+  session: Sessions.Session,
+  native: Native.Fake,
+  owner: adapter.Context,
+  menu: menuContract.Service,
+  theme: themeContract.Service,
+  themes: themesContract.Service,
+}
+
 local test = testing.suite()
 
-local function boot(config)
+local function boot(config: Selector.Config?): Environment
   local session = testing.boot {
     'frame',
     'theme',
@@ -22,7 +34,7 @@ local function boot(config)
     'menu',
     { id = 'desktop/theme', definition = require('@lunette-plugins/desktop/theme').definition, config = config or {} },
   }
-  local env = { session = session, native = session.native }
+  local env: Environment = { session = session, native = session.native }
   session:use(adapter.define {
     name = 'selector-test',
     requires = {
@@ -30,7 +42,7 @@ local function boot(config)
       themeContract.capability,
       themesContract.capability,
     },
-    init = function(context)
+    init = function(context: adapter.Context)
       env.owner = context
       env.menu = context:require(menuContract.capability)
       env.theme = context:require(themeContract.capability)
@@ -40,13 +52,13 @@ local function boot(config)
   return env
 end
 
-local function shows(env, expected, label)
+local function shows(env: Environment, expected: themeContract.Theme, label: string)
   expect.truthy(descriptors.equal(env.theme:current().theme, expected), label)
 end
 
 -- Returns the Appearance choice ids in menu order, with the selected one marked by an asterisk.
-local function choices(env)
-  local result = {}
+local function choices(env: Environment): string
+  local result: { string } = {}
   for _, action in env.menu:list() do
     if action.group == 'Appearance' then
       result[#result + 1] = action.id:gsub('^desktop/theme/', '') .. (if action.selected then '*' else '')
@@ -55,11 +67,11 @@ local function choices(env)
   return table.concat(result, ',')
 end
 
-local function invoke(env, name)
+local function invoke(env: Environment, name: string): 'invoked' | 'unavailable' | 'failed'
   return env.menu:invoke('desktop/theme/' .. name).kind
 end
 
-local function logged(env, message)
+local function logged(env: Environment, message: string): number
   local count = 0
   for _, log in env.native.events.logs do
     if log[1]:find(message, 1, true) then
