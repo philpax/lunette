@@ -7,7 +7,11 @@ local schema = require '@lunette-plugin/schema'
 
 local test = testing.suite()
 
-local function descriptor()
+type Settings = { count: number, style: { width: number, colors: { number } } }
+type Config = { count: number?, style: { width: number?, colors: { number }? }? }
+type NativeSettings = { callback: (number) -> number, handle: { marker: string }, position: vector }
+
+local function descriptor(): schema.Schema<Config, Settings>
   return schema.object {
     count = schema.default(schema.number { minimum = 1, integer = true })(2),
     style = schema.default(schema.object {
@@ -17,7 +21,7 @@ local function descriptor()
   }
 end
 
-local function activate(definition, config)
+local function activate<C>(definition: adapter.Definition<C>, config: C?): (adapter.Runtime, adapter.Instance<C>)
   local runtime = adapter.runtime()
   local instance = runtime:use(definition, config or {})
   instance:enable()
@@ -38,11 +42,11 @@ test('a configured definition rejects an unknown field and a schema with a requi
 end)
 
 test('define binds nested defaults that activation merges with its configuration', function()
-  local observed = {}
+  local observed: { Settings } = {}
   local made = plugin.consumer {
     name = 'schema-consumer',
     schema = descriptor(),
-    init = function(_context, settings)
+    init = function(_context: adapter.Context, settings: Settings)
       observed[#observed + 1] = settings
     end,
   }
@@ -72,12 +76,12 @@ test('an invalid configuration never reaches the builder and fails the activatio
   local made = plugin.provider {
     name = 'schema-provider',
     capability = plugin.capability { name = 'local/schema-provider', version = 1 },
-    schema = schema.refine(descriptor())(function(settings)
+    schema = schema.refine(descriptor())(function(settings: Settings)
       if settings.count > settings.style.width then
         error('count exceeds width', 0)
       end
     end),
-    build = function(_context, settings)
+    build = function(_context: adapter.Context, settings: Settings): Settings
       built += 1
       return settings
     end,
@@ -96,7 +100,7 @@ test('an invalid configuration never reaches the builder and fails the activatio
   expect.raises(function()
     plugin.consumer {
       name = 'schema-invalid-base',
-      schema = schema.refine(descriptor())(function()
+      schema = schema.refine(descriptor())(function(): never
         error('invalid base', 0)
       end),
       init = function() end,
@@ -105,25 +109,25 @@ test('an invalid configuration never reaches the builder and fails the activatio
 end)
 
 test('callbacks, custom values, and vectors keep their identity through resolution', function()
-  local callback = function(value)
+  local callback = function(value: number): number
     return value + 1
   end
   local handle = setmetatable({ marker = 'custom' }, {})
   local position = vector.pack(1, 2, 3)
-  local received
+  local received: NativeSettings?
   local made = plugin.consumer {
     name = 'schema-native-values',
     schema = schema.object {
       callback = schema.default(schema.callback(callback))(callback),
       handle = schema.default(schema.custom {
         runtimeType = 'table',
-        validate = function(value)
+        validate = function<T>(value: T): T
           return value
         end,
       })(handle),
       position = schema.default(schema.vector())(position),
     },
-    init = function(_context, settings)
+    init = function(_context: adapter.Context, settings: NativeSettings)
       received = settings
     end,
   }
@@ -136,11 +140,11 @@ test('callbacks, custom values, and vectors keep their identity through resoluti
 end)
 
 test('an invalid reload fails before init, and a later valid reload uses the bound defaults', function()
-  local observed = {}
+  local observed: { Settings } = {}
   local made = plugin.consumer {
     name = 'schema-reload',
     schema = descriptor(),
-    init = function(_context, settings)
+    init = function(_context: adapter.Context, settings: Settings)
       observed[#observed + 1] = settings
     end,
   }
@@ -159,8 +163,8 @@ test('an invalid reload fails before init, and a later valid reload uses the bou
 end)
 
 test('a definition factory keeps state across its activations but not across runtimes', function()
-  local observed = {}
-  local function factory()
+  local observed: { number } = {}
+  local function factory(): adapter.Definition<{}>
     local count = 0
     return plugin.consumer({
       name = 'configured-factory',

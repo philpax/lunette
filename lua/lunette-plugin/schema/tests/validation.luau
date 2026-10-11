@@ -3,7 +3,9 @@ local expect = testing.expect
 local schema = require '@lunette-plugin/schema'
 local test = testing.suite()
 
-local function failure(run, name, code, path)
+type Recursive = { self: Recursive?, marker: boolean? }
+
+local function failure(run: () -> unknown, name: string, code: schema.ErrorCode, path: string): schema.Error
   local ok, problem = pcall(run)
   expect.falsy(ok, 'the invalid input raises')
   expect.equal(problem.name, name, 'the diagnostic prefix')
@@ -13,8 +15,13 @@ local function failure(run, name, code, path)
   return problem
 end
 
-local function rejects(descriptor, value, code, path)
-  return failure(function()
+local function rejects<I, O>(
+  descriptor: schema.Schema<I, O>,
+  value: unknown,
+  code: schema.ErrorCode,
+  path: string
+): schema.Error
+  return failure(function(): O
     return descriptor.parse(value, 'probe')
   end, 'probe', code, path)
 end
@@ -101,13 +108,13 @@ test('arrays reject holes and foreign keys, and maps require string keys', funct
 end)
 
 test('recursive containers and metatables fail, while custom values stay atomic', function()
-  local recursive = {}
+  local recursive: Recursive = {}
   recursive.self = recursive
   rejects(schema.object { self = schema.object {} }, recursive, 'cycle', 'self')
   rejects(schema.object {}, setmetatable({}, {}), 'metatable', '')
   local custom = schema.custom {
     runtimeType = 'table',
-    validate = function(value)
+    validate = function(value: Recursive): Recursive
       assert(value.marker ~= false, 'marker is required')
       return value
     end,
@@ -121,7 +128,7 @@ test('a callback descriptor checks only the runtime kind', function()
   local descriptor = schema.callback(function(value: number): string
     return tostring(value)
   end)
-  local other = function()
+  local other = function(): boolean
     return false
   end
   expect.equal(descriptor.parse(other), other)
@@ -132,7 +139,7 @@ test('refinements run after nested defaults', function()
   local descriptor = schema.refine(schema.object {
     lower = schema.default(schema.number())(1),
     upper = schema.default(schema.number())(2),
-  })(function(value)
+  })(function(value: { lower: number, upper: number })
     assert(value.lower < value.upper, 'lower must precede upper')
   end, 'An ordered interval.')
   expect.equal(descriptor.parse({}).lower, 1)
@@ -152,11 +159,11 @@ test('explicit union input replaces its base, and omission keeps it', function()
 end)
 
 test('a descriptor deeper than the limit raises a diagnostic instead of exhausting the stack', function()
-  local wrapped = schema.number()
+  local wrapped: schema.Schema<number?, number?> = schema.number()
   for _ = 1, 65 do
     wrapped = schema.optional(wrapped)
   end
-  local problem = failure(function()
+  local problem = failure(function(): number?
     return wrapped.parse(1, 'depth')
   end, 'depth', 'depth', '')
   expect.truthy(string.find(problem.message, 'exceeds the maximum schema depth of 64', 1, true), problem.message)

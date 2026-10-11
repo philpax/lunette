@@ -5,17 +5,26 @@ local plugin = require('@lunette').plugin
 
 local test = testing.suite()
 
+type function InitializerContext(define: type): type
+  return define:parameters().head[3]:parameters().head[1]
+end
+
+type NativeContext = InitializerContext<typeof(require('@lunette').plugin.define)>
+type NativeInstance = typeof(require('@lunette').plugin.runtime():use(nil, nil))
+type Resource = { alive: boolean }
+type AttemptResource = Resource & { attempt: number }
+
 test('a provider cancelled and re-enabled during its load publishes only the fresh generation', function()
   local runtime = plugin.runtime()
   local token = plugin.contract('audit/reenable', 1)
-  local instance
-  local consumer
+  local instance: NativeInstance?
+  local consumer: NativeInstance?
   local attempts = 0
-  local observed = {}
-  local provider = plugin.define({}, { service = token }, function(context)
+  local observed: { AttemptResource } = {}
+  local provider = plugin.define({}, { service = token }, function(context: NativeContext): { service: AttemptResource }
     attempts += 1
     local resource = { attempt = attempts, alive = true }
-    context:effect(function()
+    context:effect(function(): () -> ()
       return function()
         resource.alive = false
       end
@@ -28,7 +37,7 @@ test('a provider cancelled and re-enabled during its load publishes only the fre
     return { service = resource }
   end)
   consumer = runtime:use(
-    plugin.define({ service = token }, {}, function(context)
+    plugin.define({ service = token }, {}, function(context: NativeContext): {}
       table.insert(observed, context:services().service)
       return {}
     end),
@@ -45,10 +54,10 @@ end)
 
 test('an initializer whose own activation is cancelled ends the load as inactive, without a diagnostic', function()
   local runtime = plugin.runtime()
-  local instance
-  local definition = plugin.define({}, {}, function(context)
+  local instance: NativeInstance?
+  local definition = plugin.define({}, {}, function(context: NativeContext): {}
     instance:disable()
-    context:effect(function()
+    context:effect(function(): () -> ()
       return function() end
     end)
     return {}
@@ -63,15 +72,15 @@ end)
 test('a disable during an active acquisition cancels it and releases the old inverses once', function()
   for _, acquisition in { 'effect', 'effectDeferred' } do
     local runtime = plugin.runtime()
-    local instance
-    local contexts = {}
-    local events = {}
+    local instance: NativeInstance?
+    local contexts: { NativeContext } = {}
+    local events: { string } = {}
     local loads = 0
-    local definition = plugin.define({}, {}, function(context)
+    local definition = plugin.define({}, {}, function(context: NativeContext): {}
       loads += 1
       local generation = loads
       contexts[generation] = context
-      context:effect(function()
+      context:effect(function(): () -> ()
         return function()
           table.insert(events, 'base-' .. generation)
         end
@@ -81,7 +90,7 @@ test('a disable during an active acquisition cancels it and releases the old inv
     instance = runtime:use(definition, {})
     instance:enable()
     expect.raises(function()
-      contexts[1][acquisition](contexts[1], function()
+      contexts[1][acquisition](contexts[1], function(): () -> ()
         instance:disable()
         expect.falsy(contexts[1]:active(), 'pending cancellation revokes acquisition authority before draining')
         runtime:drain()
@@ -106,16 +115,16 @@ end)
 test("a disable during a provider's acquisition drains its consumer before it", function()
   local runtime = plugin.runtime()
   local token = plugin.contract('audit/active-provider', 1)
-  local escaped
-  local events = {}
+  local escaped: NativeContext?
+  local events: { string } = {}
   local loads = 0
   local provider = runtime:use(
-    plugin.define({}, { service = token }, function(context)
+    plugin.define({}, { service = token }, function(context: NativeContext): { service: Resource }
       loads += 1
       local generation = loads
       local resource = { alive = true }
       escaped = context
-      context:effect(function()
+      context:effect(function(): () -> ()
         return function()
           resource.alive = false
           table.insert(events, 'provider-' .. generation)
@@ -126,10 +135,10 @@ test("a disable during a provider's acquisition drains its consumer before it", 
     {}
   )
   provider:enable()
-  local consumer = plugin.define({ service = token }, {}, function(context)
-    local dependency = context:services().service
+  local consumer = plugin.define({ service = token }, {}, function(context: NativeContext): {}
+    local dependency: Resource = context:services().service
     local generation = loads
-    context:effect(function()
+    context:effect(function(): () -> ()
       return function()
         assert(
           dependency.alive and context:services().service == dependency,
@@ -142,7 +151,7 @@ test("a disable during a provider's acquisition drains its consumer before it", 
   end)
   runtime:use(consumer, {}):enable()
   expect.raises(function()
-    escaped:effect(function()
+    escaped:effect(function(): () -> ()
       provider:disable()
       return function()
         table.insert(events, 'acquired-1')

@@ -29,7 +29,7 @@ test('the layout example runs, and its grid arranges five windows in rows of thr
   )
   local panels = session:observe(panelsContract.capability).service
   events.windows = {}
-  local placed = {}
+  local placed: { panelsContract.Panel } = {}
   for index = 1, 5 do
     events.windows[index] = native.newWindow(100 + index)
     native.emit('onWindowOpened', { window = events.windows[index] })

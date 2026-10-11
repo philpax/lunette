@@ -7,9 +7,9 @@ local ui = require '@lunette-contracts/ui'
 local observer = adapter.define {
   name = 'vr-reload-observer',
   requires = { ui.capability },
-  init = function(context)
+  init = function(context: adapter.Context)
     _G.vrReloadControls = { ui = context:require(ui.capability) }
-    context:effect(function()
+    context:effect(function(): () -> ()
       return function()
         _G.vrReloadControls = nil
       end

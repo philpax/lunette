@@ -9,7 +9,10 @@ local composition = require '@lunette-contracts/composition'
 local schema = require '@lunette-plugin/schema'
 local test = testing.suite()
 
-local function find(list, id)
+type Settings = { value: number }
+type Config = { value: number? }
+
+local function find<T>(list: { read [number]: T & { read id: string } }, id: string): (T & { read id: string })?
   for _, current in list do
     if current.id == id then
       return current
@@ -18,17 +21,17 @@ local function find(list, id)
   return nil
 end
 
-local function entry(service, id)
+local function entry(service: composition.Service, id: string): composition.Entry?
   return find(service:entries(), id)
 end
 
-local function report(needle)
+local function report(needle: string)
   local reports = testing.takeReports()
   expect.equal(#reports, 1, table.concat(reports, '\n'))
   expect.truthy(reports[1]:find(needle, 1, true), reports[1])
 end
 
-local function configured(init)
+local function configured(init: (adapter.Context, Settings) -> ()): adapter.Definition<Config>
   return plugin.consumer({
     name = 'managed-settings',
     schema = schema.object { value = schema.default(schema.number { integer = true, minimum = 0 })(1) },
@@ -37,20 +40,21 @@ local function configured(init)
 end
 
 test('start publishes a read-only service that tracks active, inactive, and failed entries', function()
-  local observed, service
-  local definition = configured(function(_context, settings)
+  local observed: number?
+  local service: composition.Service?
+  local definition = configured(function(_context: adapter.Context, settings: Settings)
     observed = settings.value
   end)
   local viewer = adapter.define {
     name = 'management-viewer',
     requires = { composition.capability },
-    init = function(context)
+    init = function(context: adapter.Context)
       service = context:require(composition.capability)
     end,
   }
   local broken = adapter.define {
     name = 'managed-broken',
-    init = function()
+    init = function(): never
       error('managed initialization fails', 0)
     end,
   }
@@ -97,9 +101,9 @@ end)
 
 test('an invalid configuration is rejected without disturbing the live activation', function()
   local loads, releases = 0, 0
-  local definition = configured(function(context)
+  local definition = configured(function(context: adapter.Context)
     loads += 1
-    context:effect(function()
+    context:effect(function(): () -> ()
       return function()
         releases += 1
       end
@@ -118,8 +122,8 @@ test('an invalid configuration is rejected without disturbing the live activatio
 end)
 
 test('a failed change keeps the last working configuration for recovery', function()
-  local observed, failRecovery = nil, false
-  local definition = configured(function(_context, settings)
+  local observed: number?, failRecovery = nil, false
+  local definition = configured(function(_context: adapter.Context, settings: Settings)
     if settings.value == 9 or (failRecovery and settings.value == 2) then
       error('managed build fails', 0)
     end
@@ -151,15 +155,15 @@ end)
 test(
   'a removed entry restores from the catalog with its latest configuration, and a failed cleanup quarantines',
   function()
-    local factories, received = 0, nil
-    local definition = configured(function(_context, settings)
+    local factories, received: number? = 0, nil
+    local definition = configured(function(_context: adapter.Context, settings: Settings)
       received = settings.value
     end)
     local broken = adapter.define {
       name = 'managed-cleanup',
-      init = function(context)
-        context:effect(function()
-          return function()
+      init = function(context: adapter.Context)
+        context:effect(function(): () -> ()
+          return function(): never
             error('managed cleanup fails', 0)
           end
         end)
@@ -168,7 +172,7 @@ test(
     local running = management.start {
       {
         id = 'settings',
-        definition = function()
+        definition = function(): adapter.Definition<Config>
           factories += 1
           return definition
         end,
@@ -204,12 +208,12 @@ test(
 )
 
 test('protection covers the providers a protected entry depends on and the owners of their children', function()
-  local capability = plugin.capability { name = 'local/management-protected', version = 1 }
-  local rootCapability = plugin.capability { name = 'local/management-root', version = 1 }
+  local capability: plugin.Capability<{}> = plugin.capability { name = 'local/management-protected', version = 1 }
+  local rootCapability: plugin.Capability<{}> = plugin.capability { name = 'local/management-root', version = 1 }
   local root = plugin.provider({
     name = 'managed-root',
     capability = rootCapability,
-    build = function()
+    build = function(): {}
       return {}
     end,
   }).definition
@@ -217,15 +221,15 @@ test('protection covers the providers a protected entry depends on and the owner
     name = 'managed-child',
     requires = { rootCapability },
     provides = { capability },
-    init = function(context, _config, publish)
+    init = function(context: adapter.Context, _config: {}, publish: adapter.Publisher)
       context:require(rootCapability)
       publish:provide(capability, {})
     end,
   }
-  local owner
+  local owner: adapter.Context?
   local parent = adapter.define {
     name = 'managed-parent',
-    init = function(context)
+    init = function(context: adapter.Context)
       owner = context
       context:child(child)
     end,
@@ -233,7 +237,7 @@ test('protection covers the providers a protected entry depends on and the owner
   local viewer = adapter.define {
     name = 'managed-protected-viewer',
     requires = { capability },
-    init = function(context)
+    init = function(context: adapter.Context)
       context:require(capability)
     end,
   }
@@ -257,20 +261,20 @@ test('protection covers the providers a protected entry depends on and the owner
 end)
 
 test('a provider outage keeps the factory definition and composed configuration of a dependent', function()
-  local capability = plugin.capability { name = 'local/managed-composed-provider', version = 1 }
+  local capability: plugin.Capability<{}> = plugin.capability { name = 'local/managed-composed-provider', version = 1 }
   local provider = adapter.define {
     name = 'managed-composed-provider',
     provides = { capability },
-    init = function(_context, _config, publisher)
+    init = function(_context: adapter.Context, _config: {}, publisher: adapter.Publisher)
       publisher:provide(capability, {})
     end,
   }
-  local made, received = 0, nil
+  local made, received: string? = 0, nil
   local consumer = plugin.consumer {
     name = 'managed-composed-dependent',
     requires = { capability },
     schema = schema.object { label = schema.default(schema.string()) 'default' },
-    init = function(context, settings)
+    init = function(context: adapter.Context, settings: { label: string })
       context:require(capability)
       received = settings.label
     end,
@@ -279,7 +283,7 @@ test('a provider outage keeps the factory definition and composed configuration 
     { id = 'provider', definition = provider },
     {
       id = 'dependent',
-      definition = function()
+      definition = function(): adapter.Definition<{ label: string? }>
         made += 1
         return consumer.definition
       end,

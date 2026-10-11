@@ -5,7 +5,7 @@ local vrUi = require '@testing/vr-ui'
 
 local test = testing.suite()
 
-local function live(list)
+local function live(list: { read [number]: { read dead: boolean } }): number
   local count = 0
   for _, handle in ipairs(list) do
     if not handle.dead then
@@ -65,7 +65,7 @@ test('the shipped configuration starts on load and survives ten production reloa
     events.logs = {}
     fixture:clickControl(currentUi, 'desktop/menu', 'actions', 'right', 'desktop/reload')
     expect.falsy(
-      pcall(function()
+      pcall(function(): typeof(require('@lunette-contracts/inspection').snapshot {})
         return currentUi:inspect()
       end),
       'reload withdraws the previous UI generation'

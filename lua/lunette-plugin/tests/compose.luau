@@ -6,6 +6,16 @@ local schema = require '@lunette-plugin/schema'
 
 local test = testing.suite()
 
+type CompositionEntry = { read id: string }
+type Patches = {
+  {
+    read insert: { read id: string, read definition: adapter.Definition<{}> },
+    read before: string?,
+    read after: string?,
+  }
+}
+type LabelledConfig = { label: string?, style: { size: number?, color: { number }? }? }
+
 local hud = adapter.define { name = 'hud', init = function() end }
 local labelled = plugin.consumer({
   name = 'labelled',
@@ -19,8 +29,8 @@ local labelled = plugin.consumer({
   init = function() end,
 }).definition
 
-local function ids(entries)
-  local result = {}
+local function ids(entries: { read [number]: CompositionEntry }): string
+  local result: { string } = {}
   for index, entry in ipairs(entries) do
     result[index] = entry.id
   end
@@ -48,7 +58,7 @@ test('disabling removes the entry and nothing else moves', function()
 end)
 
 test('an insert goes at the end, or before or after the entry it names', function()
-  local function inserted(patches)
+  local function inserted(patches: Patches): string
     return ids(plugin.compose(ENTRIES, patches))
   end
   expect.equal(inserted { { insert = { id = 'extra', definition = hud } } }, 'first labelled last extra', 'at the end')
@@ -69,7 +79,7 @@ end)
 
 test('a configure patch must target the entry it names, and making it calls no factory', function()
   local made = 0
-  local function factory()
+  local function factory(): adapter.Definition<LabelledConfig>
     made += 1
     return labelled
   end

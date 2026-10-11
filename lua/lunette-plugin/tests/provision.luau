@@ -6,8 +6,11 @@ local adapter = require '@lunette-plugin/adapter'
 
 local test = testing.suite()
 
-local function recorded(context, events, name)
-  context:effect(function()
+type Clock = { read kind: 'clock' }
+type Marker = { read marker: string }
+
+local function recorded(context: adapter.Context, events: { string }, name: string)
+  context:effect(function(): () -> ()
     events[#events + 1] = name .. ' acquire'
     return function()
       events[#events + 1] = name .. ' release'
@@ -16,15 +19,15 @@ local function recorded(context, events, name)
 end
 
 test('a provider, its child, and its consumers load in order and unload in reverse', function()
-  local clock = plugin.capability { name = 'local/order-clock', version = 1 }
-  local childCapability = plugin.capability { name = 'local/order-child', version = 1 }
-  local events = {}
-  local providerContext
-  local childConfig
+  local clock: plugin.Capability<Clock> = plugin.capability { name = 'local/order-clock', version = 1 }
+  local childCapability: plugin.Capability<Clock> = plugin.capability { name = 'local/order-child', version = 1 }
+  local events: { string } = {}
+  local providerContext: adapter.Context?
+  local childConfig: Clock?
   local child = adapter.define {
     name = 'child',
     provides = { childCapability },
-    init = function(context, config, publish)
+    init = function(context: adapter.Context, config: { value: Clock }, publish: adapter.Publisher)
       childConfig = config.value
       recorded(context, events, 'child')
       publish:provide(childCapability, config.value)
@@ -33,7 +36,7 @@ test('a provider, its child, and its consumers load in order and unload in rever
   local provider = adapter.define {
     name = 'provider',
     provides = { clock },
-    init = function(context, config, publish)
+    init = function(context: adapter.Context, config: { clock: Clock }, publish: adapter.Publisher)
       providerContext = context
       context:child(child, { value = config.clock })
       recorded(context, events, 'provider')
@@ -43,7 +46,7 @@ test('a provider, its child, and its consumers load in order and unload in rever
   local consumer = adapter.define {
     name = 'consumer',
     requires = { clock },
-    init = function(context, config)
+    init = function(context: adapter.Context, config: { name: string })
       expect.equal(context:require(clock).kind, 'clock', 'the service ' .. config.name .. ' reads')
       providerContext:checkOwner(context)
       recorded(context, events, config.name)
@@ -71,12 +74,12 @@ test('a provider, its child, and its consumers load in order and unload in rever
 end)
 
 test('a provider reload releases the old activation and its dependents, then loads them again', function()
-  local service = plugin.capability { name = 'local/reloaded', version = 1 }
-  local events = {}
+  local service: plugin.Capability<string> = plugin.capability { name = 'local/reloaded', version = 1 }
+  local events: { string } = {}
   local provider = adapter.define {
     name = 'reloaded',
     provides = { service },
-    init = function(context, config, publish)
+    init = function(context: adapter.Context, config: { value: string }, publish: adapter.Publisher)
       recorded(context, events, 'provider ' .. config.value)
       publish:provide(service, config.value)
     end,
@@ -84,7 +87,7 @@ test('a provider reload releases the old activation and its dependents, then loa
   local consumer = adapter.define {
     name = 'dependent',
     requires = { service },
-    init = function(context)
+    init = function(context: adapter.Context)
       recorded(context, events, 'consumer ' .. context:require(service))
     end,
   }
@@ -104,14 +107,14 @@ test('a provider reload releases the old activation and its dependents, then loa
 end)
 
 test('consumers load only once every provision is staged, behind a view of the value', function()
-  local first = plugin.capability { name = 'local/staged-first', version = 1 }
-  local second = plugin.capability { name = 'local/staged-second', version = 1 }
+  local first: plugin.Capability<Marker> = plugin.capability { name = 'local/staged-first', version = 1 }
+  local second: plugin.Capability<Marker> = plugin.capability { name = 'local/staged-second', version = 1 }
   local firstValue = { marker = 'first' }
-  local loaded = {}
+  local loaded: { string } = {}
   local provider = adapter.define {
     name = 'provider',
     provides = { first, second },
-    init = function(_context, _config, publish)
+    init = function(_context: adapter.Context, _config: {}, publish: adapter.Publisher)
       publish:provide(first, firstValue)
       expect.equal(#loaded, 0, 'consumers after the first provision')
       publish:provide(second, { marker = 'second' })
@@ -121,7 +124,7 @@ test('consumers load only once every provision is staged, behind a view of the v
   local consumer = adapter.define {
     name = 'consumer',
     requires = { second, first },
-    init = function(context, config)
+    init = function(context: adapter.Context, config: { name: string })
       local view = context:require(first)
       expect.truthy(view.marker == 'first' and not rawequal(view, firstValue), 'the first service is a view')
       expect.equal(context:require(second).marker, 'second', 'the second service')
@@ -147,16 +150,17 @@ test('a failed provision rolls back every effect in reverse and publishes nothin
     {
       name = 'raised',
       message = 'initializer failure after a provision',
-      provide = function(publish, capability)
+      provide = function(publish: adapter.Publisher, capability: plugin.Capability<string>): never
         publish:provide(capability, 'staged')
         error 'initializer failure after a provision'
       end,
     },
   }
   for _, case in cases do
-    local capability = plugin.capability { name = 'local/failing-' .. case.name, version = 1 }
-    local events = {}
-    local escaped
+    local capability: plugin.Capability<string> =
+      plugin.capability { name = 'local/failing-' .. case.name, version = 1 }
+    local events: { string } = {}
+    local escaped: adapter.Publisher?
     local consumed = false
     local runtime = adapter.runtime()
     runtime
@@ -175,7 +179,7 @@ test('a failed provision rolls back every effect in reverse and publishes nothin
       adapter.define {
         name = 'failing',
         provides = { capability },
-        init = function(context, _config, publish)
+        init = function(context: adapter.Context, _config: {}, publish: adapter.Publisher)
           escaped = publish
           recorded(context, events, 'outer')
           recorded(context, events, 'inner')

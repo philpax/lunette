@@ -6,7 +6,7 @@ local panelsContract = require '@lunette-contracts/panels'
 
 local test = testing.suite()
 
-local function expectAt(panel, x, y, z, context)
+local function expectAt(panel: panelsContract.Panel, x: number, y: number, z: number, context: string)
   local px, py, pz = panel.pose:getPosition()
   expect.near(px, x, 1e-5, context .. ', x')
   expect.near(py, y, 1e-5, context .. ', y')

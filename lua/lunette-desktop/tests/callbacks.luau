@@ -9,15 +9,15 @@ local surfacesContract = require '@lunette-contracts/surfaces'
 local test = testing.suite()
 
 test('a raising handler or offer is reported and the ones after it still run', function()
-  local ran, broker = {}, nil
+  local ran: { update: boolean?, key: string?, quit: boolean? }, broker: surfacesContract.Service? = {}, nil
   local raising = adapter.define {
     name = 'raising',
     requires = { frameContract.capability, surfacesContract.capability },
-    init = function(context)
+    init = function(context: adapter.Context)
       local frame = context:require(frameContract.capability)
       broker = context:require(surfacesContract.capability)
-      local function fails(message)
-        return function()
+      local function fails(message: string): () -> never
+        return function(): never
           error(message)
         end
       end
@@ -33,14 +33,14 @@ test('a raising handler or offer is reported and the ones after it still run', f
       frame:onKey(context, { run = fails 'fixture key failure' })
       frame:onKey(context, {
         phase = 'delivery',
-        run = function(event)
+        run = function(event: frameContract.HostKeyEvent)
           ran.key = event.key
         end,
       })
       broker:offer(context, { name = 'raising', list = fails 'fixture surfaces failure' })
       broker:offer(context, {
         name = 'not-a-list',
-        list = function()
+        list = function(): string
           return 'not a list'
         end,
       })
@@ -61,7 +61,7 @@ test('a raising handler or offer is reported and the ones after it still run', f
     'desktop/errors',
   }
   local events = session.native.events
-  local function reported(text)
+  local function reported(text: string): boolean
     local last = events.reported[#events.reported]
     return last ~= nil and last.message:find(text, 1, true) ~= nil and last.traceback ~= ''
   end
@@ -73,7 +73,7 @@ test('a raising handler or offer is reported and the ones after it still run', f
 
   expect.equal(session:draw(), false, 'a raising draw handler does not veto the draw')
   expect.truthy(reported 'lovr.draw: ' and reported 'fixture draw failure', 'the draw failure is reported')
-  local drawn = {}
+  local drawn: { string } = {}
   for _, call in ipairs(events.draw) do
     if call[1] == 'text' then
       drawn[#drawn + 1] = tostring(call[2])

@@ -16,7 +16,15 @@ local test = testing.suite()
 
 test('wrist menu actions are VR accessible', function()
   local native = testing.native()
-  local services = {}
+  local services: {
+    ui: ui.Service?,
+    menu: menu.Service?,
+    display: display.Service?,
+    tags: tags.Service?,
+    surfaces: surfaces.Service?,
+    theme: theme.Service?,
+  } =
+    {}
   local observer = adapter.define {
     name = 'session-action-observer',
     requires = {
@@ -27,7 +35,7 @@ test('wrist menu actions are VR accessible', function()
       surfaces.capability,
       theme.capability,
     },
-    init = function(context)
+    init = function(context: adapter.Context)
       services.ui = context:require(ui.capability)
       services.menu = context:require(menu.capability)
       services.display = context:require(display.capability)
@@ -45,7 +53,7 @@ test('wrist menu actions are VR accessible', function()
   }
   lovr.load()
   local reloads = 0
-  lunette.reload = function()
+  lunette.reload = function(): boolean
     reloads += 1
     return true
   end
@@ -54,7 +62,7 @@ test('wrist menu actions are VR accessible', function()
   fixture:tracked('left', true)
   fixture:step()
   fixture:clickControl(services.ui, 'desktop/menu', 'open')
-  local function invoke(id)
+  local function invoke(id: string)
     fixture:axis('right', 0, 0)
     fixture:button('right', 'trigger', false)
     local description, list = fixture:discover(services.ui, 'desktop/menu', 'actions')

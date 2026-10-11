@@ -4,7 +4,9 @@ local quad = require '@lunette-contracts/quad'
 local expect = testing.expect
 local test = testing.suite()
 
-local function newTarget()
+type Target = { pose: Mat4, width: number, height: number, pixelWidth: number, pixelHeight: number, backFace: boolean? }
+
+local function newTarget(): Target
   return {
     pose = lovr.math.newMat4(),
     width = 2,
@@ -14,7 +16,7 @@ local function newTarget()
   }
 end
 
-local function expectRejected(target, origin, direction, context)
+local function expectRejected(target: quad.Quad, origin: vector, direction: vector, context: string)
   for _, name in { 'hit', 'project' } do
     local x, y, distance = quad[name](target, origin, direction)
     expect.equal(x, nil, context .. ', ' .. name .. ' x')
@@ -23,7 +25,7 @@ local function expectRejected(target, origin, direction, context)
   end
 end
 
-local function expectUnchanged(pose, before, context)
+local function expectUnchanged(pose: Mat4, before: { number }, context: string)
   local after = { pose:unpack(true) }
   for index = 1, 16 do
     local same = after[index] == before[index] or (after[index] ~= after[index] and before[index] ~= before[index])
