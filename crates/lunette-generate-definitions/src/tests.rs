@@ -86,6 +86,28 @@ fn argument_arrays_are_read_only_and_optional_returns_keep_the_result_required()
     Ok(())
 }
 
+#[test]
+fn keyed_return_tables_preserve_their_domain_key_and_fields() -> mlua::Result<()> {
+    let timing = generate_signature(
+        "{ type = 'number' }",
+        "{ type = 'table?', keyType = 'Pass', table = { { name = '[].duration', type = 'number' }, { name = '[].start', type = 'number?' } } }",
+    )?;
+    assert!(
+        timing.contains("-> { [Pass]: { read duration: number, read start: number? } }?"),
+        "{timing}"
+    );
+    for invalid in [
+        "{ type = 'table', keyType = 'Pass' }",
+        "{ type = 'table', keyType = 'Pass', table = { { name = 'duration', type = 'number' } } }",
+    ] {
+        assert!(
+            generate_signature("{ type = 'number' }", invalid).is_err(),
+            "{invalid}"
+        );
+    }
+    Ok(())
+}
+
 fn generate(argument: &str) -> mlua::Result<String> {
     generate_signature(argument, "")
 }

@@ -1,5 +1,7 @@
 //! Luau type checker built from the interpreter vendored by the LÖVR fork.
 
+pub mod surface;
+
 #[cfg(unix)]
 use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
 use std::{
@@ -8,6 +10,8 @@ use std::{
     path::{Path, PathBuf},
     ptr, slice,
 };
+
+pub use surface::surface;
 
 #[derive(Clone, Debug)]
 pub struct Request {

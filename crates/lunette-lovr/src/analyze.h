@@ -61,6 +61,30 @@ lunette_luau_report* lunette_luau_check_annotations(const lunette_luau_request* 
     ;
 void lunette_luau_report_free(lunette_luau_report* report);
 
+// Named paths reachable from global declarations, excluding function arguments and return types.
+typedef struct
+{
+    char** path;
+    size_t path_count;
+    bool optional;
+    // A string indexer declares all string keys at this path.
+    bool string_indexed;
+} lunette_luau_surface_member;
+
+typedef struct
+{
+    lunette_luau_surface_member* members;
+    size_t member_count;
+    char* failure;
+} lunette_luau_surface;
+
+lunette_luau_surface* lunette_luau_definition_surface(const char* source, size_t length)
+#ifdef __cplusplus
+    noexcept
+#endif
+    ;
+void lunette_luau_surface_free(lunette_luau_surface* surface);
+
 #ifdef __cplusplus
 }
 #endif

@@ -15,9 +15,12 @@
 #include <algorithm>
 #include <cstring>
 #include <fstream>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <set>
+#include <stdexcept>
 #include <sstream>
 #include <string>
 #include <tuple>
@@ -571,10 +574,247 @@ lunette_luau_report* check_within(const lunette_luau_request* request)
     return finish(collected);
 }
 
+// Only value declarations contribute paths. Types inside function signatures describe values
+// supplied by callers or returned later, not members of the runtime's module tables.
+struct DefinitionSurface
+{
+    std::unordered_map<std::string, Luau::AstType*> aliases;
+    std::set<std::string> genericAliases;
+    std::set<std::string> externTypes;
+    std::map<std::vector<std::string>, bool> members;
+    std::set<std::vector<std::string>> stringIndexed;
+    std::set<Luau::AstType*> active;
+
+    bool nilType(Luau::AstType* type, std::set<Luau::AstType*> seen = {})
+    {
+        if (!seen.insert(type).second)
+            throw std::runtime_error("recursive type in a runtime declaration");
+        if (type->is<Luau::AstTypeOptional>())
+            return true;
+        if (auto group = type->as<Luau::AstTypeGroup>())
+            return nilType(group->type, seen);
+        if (auto reference = type->as<Luau::AstTypeReference>())
+        {
+            if (std::strcmp(reference->name.value, "nil") == 0)
+                return true;
+            auto alias = aliases.find(reference->name.value);
+            return alias != aliases.end() && nilType(alias->second, seen);
+        }
+        return false;
+    }
+
+    bool nullable(Luau::AstType* type, std::set<Luau::AstType*> seen = {})
+    {
+        if (!seen.insert(type).second)
+            throw std::runtime_error("recursive type in a runtime declaration");
+        if (type->is<Luau::AstTypeOptional>())
+            return true;
+        if (auto group = type->as<Luau::AstTypeGroup>())
+            return nullable(group->type, seen);
+        if (auto reference = type->as<Luau::AstTypeReference>())
+        {
+            if (std::strcmp(reference->name.value, "nil") == 0)
+                return true;
+            auto alias = aliases.find(reference->name.value);
+            return alias != aliases.end() && nullable(alias->second, seen);
+        }
+        if (auto unionType = type->as<Luau::AstTypeUnion>())
+        {
+            for (Luau::AstType* part : unionType->types)
+                if (nullable(part, seen))
+                    return true;
+        }
+        if (auto intersection = type->as<Luau::AstTypeIntersection>())
+        {
+            for (Luau::AstType* part : intersection->types)
+                if (!nullable(part, seen))
+                    return false;
+            return true;
+        }
+        return false;
+    }
+
+    void walk(Luau::AstType* type, const std::vector<std::string>& path, bool optional)
+    {
+        optional = optional || nullable(type);
+        auto [entry, inserted] = members.emplace(path, optional);
+        if (!inserted)
+            entry->second = entry->second && optional;
+        if (!active.insert(type).second)
+            throw std::runtime_error("recursive type in a runtime declaration");
+
+        if (auto table = type->as<Luau::AstTypeTable>())
+        {
+            if (table->indexer != nullptr)
+            {
+                auto key = table->indexer->indexType->as<Luau::AstTypeReference>();
+                if (key == nullptr || key->prefix || std::strcmp(key->name.value, "string") != 0)
+                    throw std::runtime_error("only string-indexed runtime tables can be enumerated");
+                // Indexed event handlers have no statically named keys or nested table members.
+                Luau::AstType* value = table->indexer->resultType;
+                if (auto optionalValue = value->as<Luau::AstTypeUnion>())
+                {
+                    size_t alternatives = 0;
+                    for (Luau::AstType* part : optionalValue->types)
+                        if (!nilType(part))
+                        {
+                            value = part;
+                            ++alternatives;
+                        }
+                    if (alternatives != 1)
+                        throw std::runtime_error("a runtime indexer must have one non-nil function alternative");
+                }
+                while (auto group = value->as<Luau::AstTypeGroup>())
+                    value = group->type;
+                if (!value->is<Luau::AstTypeFunction>())
+                    throw std::runtime_error("only function-valued runtime indexers can be enumerated");
+                stringIndexed.insert(path);
+            }
+            for (const Luau::AstTableProp& property : table->props)
+            {
+                std::vector<std::string> child = path;
+                child.emplace_back(property.name.value);
+                walk(property.type, child, false);
+            }
+        }
+        else if (auto reference = type->as<Luau::AstTypeReference>())
+        {
+            if (reference->prefix || reference->hasParameterList || genericAliases.count(reference->name.value))
+                throw std::runtime_error("a qualified or generic runtime type cannot be enumerated");
+            auto alias = aliases.find(reference->name.value);
+            if (alias != aliases.end())
+                walk(alias->second, path, optional);
+            else if (!externTypes.count(reference->name.value) &&
+                std::strcmp(reference->name.value, "number") != 0 &&
+                std::strcmp(reference->name.value, "string") != 0 &&
+                std::strcmp(reference->name.value, "boolean") != 0 &&
+                std::strcmp(reference->name.value, "thread") != 0 &&
+                std::strcmp(reference->name.value, "buffer") != 0 &&
+                std::strcmp(reference->name.value, "nil") != 0)
+                throw std::runtime_error(std::string("unresolved runtime type: ") + reference->name.value);
+        }
+        else if (auto group = type->as<Luau::AstTypeGroup>())
+            walk(group->type, path, optional);
+        else if (auto intersection = type->as<Luau::AstTypeIntersection>())
+            for (Luau::AstType* part : intersection->types)
+                walk(part, path, optional);
+        else if (auto unionType = type->as<Luau::AstTypeUnion>())
+        {
+            size_t alternatives = 0;
+            for (Luau::AstType* part : unionType->types)
+                if (!nilType(part))
+                    ++alternatives;
+            if (alternatives > 1)
+                throw std::runtime_error("a runtime union must have at most one non-nil alternative");
+            for (Luau::AstType* part : unionType->types)
+                if (!nilType(part))
+                    walk(part, path, optional);
+        }
+        else if (!type->is<Luau::AstTypeFunction>() && !type->is<Luau::AstTypeOptional>() &&
+            !type->is<Luau::AstTypeSingletonBool>() && !type->is<Luau::AstTypeSingletonString>())
+            throw std::runtime_error("unsupported type in a runtime declaration");
+        active.erase(type);
+    }
+
+    void collect(Luau::AstStatBlock* root)
+    {
+        for (Luau::AstStat* statement : root->body)
+        {
+            if (auto alias = statement->as<Luau::AstStatTypeAlias>())
+            {
+                if (alias->generics.size != 0 || alias->genericPacks.size != 0)
+                    genericAliases.emplace(alias->name.value);
+                else
+                    aliases.emplace(alias->name.value, alias->type);
+            }
+            else if (auto external = statement->as<Luau::AstStatDeclareExternType>())
+                externTypes.emplace(external->name.value);
+        }
+        for (Luau::AstStat* statement : root->body)
+        {
+            if (auto global = statement->as<Luau::AstStatDeclareGlobal>())
+                walk(global->type, {global->name.value}, false);
+            else if (auto function = statement->as<Luau::AstStatDeclareFunction>())
+                members.emplace(std::vector<std::string>{function->name.value}, false);
+            else if (!statement->is<Luau::AstStatTypeAlias>() && !statement->is<Luau::AstStatDeclareExternType>())
+                throw std::runtime_error("unsupported statement in runtime definitions");
+        }
+    }
+};
+
 } // namespace
 
 extern "C"
 {
+
+lunette_luau_surface* lunette_luau_definition_surface(const char* source, size_t length) noexcept
+{
+    try
+    {
+        if (source == nullptr)
+            throw std::runtime_error("no definitions source was given");
+        Luau::Allocator allocator;
+        Luau::AstNameTable names(allocator);
+        Luau::ParseOptions options;
+        options.allowDeclarationSyntax = true;
+        Luau::ParseResult parsed = Luau::Parser::parse(source, length, names, allocator, options);
+        if (!parsed.errors.empty())
+            throw std::runtime_error(parsed.errors.front().getMessage());
+        if (parsed.root == nullptr)
+            throw std::runtime_error("the parser returned no syntax tree");
+        DefinitionSurface collected;
+        collected.collect(parsed.root);
+        std::unique_ptr<lunette_luau_surface, decltype(&lunette_luau_surface_free)> result(
+            new lunette_luau_surface{}, &lunette_luau_surface_free);
+        result->members = new lunette_luau_surface_member[collected.members.size()]{};
+        result->member_count = collected.members.size();
+        size_t index = 0;
+        for (const auto& [path, optional] : collected.members)
+        {
+            auto& member = result->members[index++];
+            member.optional = optional;
+            member.string_indexed = collected.stringIndexed.count(path) != 0;
+            member.path = new char*[path.size()]{};
+            member.path_count = path.size();
+            for (size_t part = 0; part < path.size(); ++part)
+                member.path[part] = copy(path[part]).release();
+        }
+        return result.release();
+    }
+    catch (const std::exception& raised)
+    {
+        try
+        {
+            auto result = std::make_unique<lunette_luau_surface>();
+            result->failure = copy(raised.what()).release();
+            return result.release();
+        }
+        catch (...)
+        {
+            return nullptr;
+        }
+    }
+    catch (...)
+    {
+        return nullptr;
+    }
+}
+
+void lunette_luau_surface_free(lunette_luau_surface* surface)
+{
+    if (surface == nullptr)
+        return;
+    for (size_t index = 0; index < surface->member_count; ++index)
+    {
+        auto& member = surface->members[index];
+        for (size_t part = 0; part < member.path_count; ++part)
+            delete[] member.path[part];
+        delete[] member.path;
+    }
+    delete[] surface->members;
+    delete[] surface->failure;
+    delete surface;
+}
 
 void lunette_luau_report_free(lunette_luau_report* report)
 {
