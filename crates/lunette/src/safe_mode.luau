@@ -3,7 +3,18 @@
 
 local lunette = require '@lunette'
 
-local loadError = ...
+type Hand = { read pointer: Device, read controller: Device }
+type Beam = {
+  read originX: number,
+  read originY: number,
+  read originZ: number,
+  read directionX: number,
+  read directionY: number,
+  read directionZ: number,
+  read distance: number?,
+}
+
+local loadError: unknown = ...
 
 local PANEL_X, PANEL_Y, PANEL_Z = 0, 1.5, -1.5
 local PANEL_HEIGHT = 0.9
@@ -20,7 +31,7 @@ local BEAM_LENGTH = 1.5
 local RELOAD_KEY = 'f5'
 
 -- The pointer ray follows the runtime's aim pose, which can differ from the controller pose.
-local HANDS = {
+local HANDS: { Hand } = {
   { pointer = 'hand/left/point', controller = 'hand/left' },
   { pointer = 'hand/right/point', controller = 'hand/right' },
 }
@@ -43,16 +54,16 @@ local OPAQUE_FRAGMENT = [[
 ]]
 
 -- Graphics may be unavailable when safe mode runs without a graphics module.
-local opaqueShader = nil
+local opaqueShader: Shader? = nil
 
 local attempt = 0
-local attempted = nil
+local attempted: lunette.Process? = nil
 
 -- A release goes to the sink that received the press, even after the pointer leaves it.
-local pressed = {}
-local pressedSink = {}
+local pressed: { [number]: boolean? } = {}
+local pressedSink: { [number]: lunette.Sink? } = {}
 
-local function firstWindow()
+local function firstWindow(): lunette.Window?
   local window = lunette.windows()[1]
   if not window or window.dead then
     return nil
@@ -60,7 +71,7 @@ local function firstWindow()
   return window
 end
 
-local function panelSize(window)
+local function panelSize(window: lunette.Window?): (number, number)
   local aspect = DEFAULT_ASPECT
   if window and window.width > 0 and window.height > 0 then
     aspect = window.width / window.height
@@ -69,7 +80,15 @@ local function panelSize(window)
 end
 
 -- The panel's +y axis points up; surface pixels count +y downward.
-local function hit(window, originX, originY, originZ, directionX, directionY, directionZ)
+local function hit(
+  window: lunette.Window,
+  originX: number,
+  originY: number,
+  originZ: number,
+  directionX: number,
+  directionY: number,
+  directionZ: number
+): (number?, number?, number?)
   if directionZ == 0 or window.width <= 0 or window.height <= 0 then
     return nil
   end
@@ -90,12 +109,12 @@ local function hit(window, originX, originY, originZ, directionX, directionY, di
 end
 
 -- Error text wraps at fixed widths because paths and tracebacks lack useful word boundaries.
-local function errorLines(text)
+local function errorLines(text: unknown): { string }
   if not text then
     return {}
   end
 
-  local lines = {}
+  local lines: { string } = {}
   for paragraph in (tostring(text) .. '\n'):gmatch '([^\n]*)\n' do
     local remaining = paragraph
     repeat
@@ -124,7 +143,7 @@ local function spawnNextTerminal()
   attempted = lunette.spawn { argv = argv }
 end
 
-local function updateHand(index, hand, window)
+local function updateHand(index: number, hand: Hand, window: lunette.Window?): Beam?
   local headset = lovr.headset
   if not headset.isTracked(hand.pointer) then
     -- When tracking stops, release the held button so the client does not retain a press.
@@ -173,7 +192,7 @@ local function updateHand(index, hand, window)
 end
 
 -- Beams use the same hand pose as the hit test, before the next frame updates it.
-local beams = {}
+local beams: { Beam } = {}
 
 function lovr.load()
   if lovr.graphics then
@@ -182,7 +201,7 @@ function lovr.load()
   spawnNextTerminal()
 end
 
-lunette.onProcessExited(function(event)
+lunette.onProcessExited(function(event: lunette.ProcessExitedEvent)
   if not attempted or event.process.id ~= attempted.id then
     return
   end
@@ -194,7 +213,7 @@ lunette.onProcessExited(function(event)
   end
 end)
 
-function lovr.keypressed(key)
+function lovr.keypressed(key: KeyCode)
   if key ~= RELOAD_KEY then
     return
   end
@@ -221,7 +240,7 @@ function lovr.update()
   end
 end
 
-function lovr.draw(pass)
+function lovr.draw(pass: Pass)
   local window = firstWindow()
 
   local top = PANEL_Y + PANEL_HEIGHT / 2 + NOTE_HEIGHT * (#errorText + 1)

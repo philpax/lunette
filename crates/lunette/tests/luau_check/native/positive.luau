@@ -11,12 +11,12 @@ end
 
 local seat = lunette.newSeat { name = 'example', layout = 'us' }
 
-lunette.onMonitorAdded(function(event)
+lunette.onMonitorAdded(function(event: lunette.MonitorAddedEvent)
   local monitor: lunette.Monitor = event.monitor
   assert(not monitor.dead)
 end)
 
-lunette.onProcessExited(function(event)
+lunette.onProcessExited(function(event: lunette.ProcessExitedEvent)
   local dead: boolean = event.process.dead
   assert(dead)
 end)

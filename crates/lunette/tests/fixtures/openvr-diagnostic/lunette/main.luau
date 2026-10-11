@@ -7,10 +7,10 @@ local frameCount = 0
 local graphicsSubmissions = 0
 local headsetSubmissionsReturned = 0
 local sceneEnabled = true
-local movingPanel
-local stereoPanel
-local eyeShader
-local lastPhase
+local movingPanel: Layer?
+local stereoPanel: Layer?
+local eyeShader: Shader?
+local lastPhase: string?
 local registrationPose = { 0, 1.9, -2, 0, 0, 1, 0 }
 local registrationMarkers = {
   { label = 'TL', x = 40, y = 40 },
@@ -20,11 +20,11 @@ local registrationMarkers = {
   { label = 'BR', x = 600, y = 280 },
 }
 
-local function log(message)
+local function log(message: string)
   lovr.log('openvr diagnostic: ' .. message, 'info')
 end
 
-local function logTracking(phase)
+local function logTracking(phase: string)
   log(
     string.format(
       '%s: frame=%d focused=%s left-grip=%s left-point=%s right-grip=%s right-point=%s',
@@ -93,7 +93,7 @@ function lovr.load()
   log 'registration oracle: native red LEFT / cyan RIGHT squares and yellow scene crosses share pose (0, 1.9, -2), identity rotation, 1.2 x 0.6m; TL/TR/BL/BR/CENTER identify image orientation; observe alignment, no inversion applied'
 end
 
-function lovr.keypressed(key)
+function lovr.keypressed(key: KeyCode)
   if key == 'escape' then
     lovr.event.quit(0)
   end
@@ -107,7 +107,7 @@ function lovr.restart()
   cleanup()
 end
 
-local function drawMovingPanel()
+local function drawMovingPanel(): Pass
   movingPanel:setPose(0.35 * math.sin(elapsed), 1, -1.7, 0.15 * math.sin(elapsed * 0.7), 0, 1, 0)
   local pass = movingPanel:getPass()
   pass:setClear(0, 0, 0, 0)
@@ -131,7 +131,7 @@ local function drawMovingPanel()
   return pass
 end
 
-local function drawStereoPanel(phase)
+local function drawStereoPanel(phase: string): Pass
   local pass = stereoPanel:getPass()
   pass:setClear(0, 0, 0, 0)
   pass:setShader(eyeShader)
@@ -157,7 +157,7 @@ local function drawStereoPanel(phase)
   return pass
 end
 
-local function drawScene(pass)
+local function drawScene(pass: Pass)
   pass:setClear(0, 0, 0, 0)
   pass:push()
   pass:translate(registrationPose[1], registrationPose[2], registrationPose[3])
@@ -185,10 +185,10 @@ local function drawScene(pass)
   pass:text('WORLD-SPACE SCENE', 0, 1.3, -3, 0.12)
 end
 
-function lovr.run()
+function lovr.run(): () -> (number | 'restart' | nil, nil?)
   lovr.timer.step()
   lovr.load(arg)
-  return function()
+  return function(): (number | 'restart' | nil, nil?)
     lovr.headset.pollEvents()
     if lovr.system then
       lovr.system.pollEvents()
@@ -234,7 +234,7 @@ function lovr.run()
       lastPhase = phase
     end
 
-    local layers = { stereoPanel, main = sceneEnabled }
+    local layers: { [number]: Layer?, main: boolean } = { stereoPanel, main = sceneEnabled }
     if not omitMoving then
       table.insert(layers, movingPanel)
     end

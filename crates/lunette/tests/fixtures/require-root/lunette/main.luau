@@ -4,7 +4,9 @@
 -- Requires the root module and checks it is the copy the run meant.
 --
 -- Compares module contents, because PhysFS reports the supplied mount point rather than which tree answered.
-local function loadRoot(marker)
+type Root = { [string]: unknown }
+
+local function loadRoot(marker: string): (Root?, number)
   local resolved, root = pcall(require, '@lunette-plugin')
   if not resolved then
     print(root)
@@ -24,7 +26,7 @@ local function loadRoot(marker)
 end
 
 -- Asserts that a configuration cannot overwrite a module root. The write lands in the save directory, which is mounted behind the module roots.
-local function checkReadOnly(marker)
+local function checkReadOnly(marker: string): number
   local _, status = loadRoot(marker)
   if status ~= 9 then
     return status

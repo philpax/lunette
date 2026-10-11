@@ -2,7 +2,11 @@
 -- first wrong resolution. The top-level `b.luau` is what a root-relative resolution would load.
 
 -- Protected, because an error at the top level would start safe mode, which does not quit.
-local function modules()
+type Location = { where: string }
+type Nested = { where: string, sibling: string, parent: string, siblingModule: Location }
+type Tools = { helper: string, sibling: string }
+
+local function modules(): (Nested, Tools, Location, Location)
   return require './nested/a', require './tools', require './b', require './nested/b'
 end
 

@@ -4,7 +4,7 @@
 -- sound device. `lovr.math` stays on, because the required vocabulary decodes
 -- poses into `Mat4`s.
 
-function lovr.conf(t)
+function lovr.conf(t: LovrConfiguration)
   -- A distinct identity, because two runs sharing a save directory race to create it.
   t.identity = 'lunette-reload'
 
