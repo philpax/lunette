@@ -154,55 +154,34 @@ void enableDefaultFlags()
     });
 }
 
-char* copy(const std::string& text)
+std::unique_ptr<char[]> copy(const std::string& text)
 {
-    char* owned = new char[text.size() + 1];
-    std::memcpy(owned, text.c_str(), text.size() + 1);
+    auto owned = std::make_unique<char[]>(text.size() + 1);
+    std::memcpy(owned.get(), text.c_str(), text.size() + 1);
     return owned;
 }
 
+struct Diagnostic
+{
+    int kind;
+    std::string module;
+    Luau::Location location;
+    std::string message;
+};
+
 struct Collector
 {
-    std::vector<lunette_luau_diagnostic> diagnostics;
-    std::vector<char*> checked;
-
-    Collector() = default;
-    Collector(const Collector&) = delete;
-    Collector& operator=(const Collector&) = delete;
-
-    ~Collector()
-    {
-        for (const lunette_luau_diagnostic& diagnostic : diagnostics)
-        {
-            delete[] diagnostic.module;
-            delete[] diagnostic.message;
-        }
-        for (char* root : checked)
-            delete[] root;
-    }
+    std::vector<Diagnostic> diagnostics;
+    std::vector<std::string> checked;
 
     void add(int kind, const std::string& module, const Luau::Location& location, const std::string& message)
     {
-        std::unique_ptr<char[]> ownedModule(copy(module));
-        std::unique_ptr<char[]> ownedMessage(copy(message));
-        lunette_luau_diagnostic diagnostic;
-        diagnostic.kind = kind;
-        diagnostic.module = ownedModule.get();
-        diagnostic.line = static_cast<int>(location.begin.line) + 1;
-        diagnostic.column = static_cast<int>(location.begin.column);
-        diagnostic.end_line = static_cast<int>(location.end.line) + 1;
-        diagnostic.end_column = static_cast<int>(location.end.column);
-        diagnostic.message = ownedMessage.get();
-        diagnostics.push_back(diagnostic);
-        ownedModule.release();
-        ownedMessage.release();
+        diagnostics.push_back({kind, module, location, message});
     }
 
     void addChecked(const std::string& root)
     {
-        std::unique_ptr<char[]> owned(copy(root));
-        checked.push_back(owned.get());
-        owned.release();
+        checked.push_back(root);
     }
 };
 
@@ -269,32 +248,40 @@ struct FunctionAnnotations : Luau::AstVisitor
     }
 };
 
-lunette_luau_report* finish(Collector& collected, const std::string* failure = nullptr)
+lunette_luau_report* finish(const Collector& collected, const std::string* failure = nullptr)
 {
-    std::unique_ptr<lunette_luau_report> report(new lunette_luau_report{});
-    std::unique_ptr<char[]> reason(failure == nullptr ? nullptr : copy(*failure));
-    std::unique_ptr<lunette_luau_diagnostic[]> diagnostics;
-    std::unique_ptr<char*[]> checked;
+    std::unique_ptr<lunette_luau_report, decltype(&lunette_luau_report_free)> report(
+        std::make_unique<lunette_luau_report>().release(), &lunette_luau_report_free);
 
-    report->diagnostic_count = collected.diagnostics.size();
-    if (report->diagnostic_count > 0)
+    // Zero-initialized arrays let the report deleter clean up partially copied strings.
+    if (!collected.diagnostics.empty())
     {
-        diagnostics.reset(new lunette_luau_diagnostic[report->diagnostic_count]);
-        std::copy(collected.diagnostics.begin(), collected.diagnostics.end(), diagnostics.get());
+        report->diagnostics = std::make_unique<lunette_luau_diagnostic[]>(collected.diagnostics.size()).release();
+        report->diagnostic_count = collected.diagnostics.size();
+        for (size_t index = 0; index < report->diagnostic_count; ++index)
+        {
+            const Diagnostic& source = collected.diagnostics[index];
+            lunette_luau_diagnostic& diagnostic = report->diagnostics[index];
+            diagnostic.kind = source.kind;
+            diagnostic.line = static_cast<int>(source.location.begin.line) + 1;
+            diagnostic.column = static_cast<int>(source.location.begin.column);
+            diagnostic.end_line = static_cast<int>(source.location.end.line) + 1;
+            diagnostic.end_column = static_cast<int>(source.location.end.column);
+            diagnostic.module = copy(source.module).release();
+            diagnostic.message = copy(source.message).release();
+        }
     }
 
-    report->checked_count = collected.checked.size();
-    if (report->checked_count > 0)
+    if (!collected.checked.empty())
     {
-        checked.reset(new char*[report->checked_count]);
-        std::copy(collected.checked.begin(), collected.checked.end(), checked.get());
+        report->checked = std::make_unique<char*[]>(collected.checked.size()).release();
+        report->checked_count = collected.checked.size();
+        for (size_t index = 0; index < report->checked_count; ++index)
+            report->checked[index] = copy(collected.checked[index]).release();
     }
 
-    report->failure = reason.release();
-    report->diagnostics = diagnostics.release();
-    report->checked = checked.release();
-    collected.diagnostics.clear();
-    collected.checked.clear();
+    if (failure != nullptr)
+        report->failure = copy(*failure).release();
     return report.release();
 }
 
@@ -470,15 +457,19 @@ lunette_luau_report* check_annotations_within(const lunette_luau_request* reques
     }
 
     std::sort(collected.diagnostics.begin(), collected.diagnostics.end(),
-        [](const lunette_luau_diagnostic& left, const lunette_luau_diagnostic& right) {
-            int module = std::strcmp(left.module, right.module);
+        [](const Diagnostic& left, const Diagnostic& right) {
+            int module = std::strcmp(left.module.c_str(), right.module.c_str());
             if (module != 0)
                 return module < 0;
-            auto leftLocation = std::tie(left.line, left.column, left.end_line, left.end_column, left.kind);
-            auto rightLocation = std::tie(right.line, right.column, right.end_line, right.end_column, right.kind);
+            auto leftLocation = std::make_tuple(static_cast<int>(left.location.begin.line) + 1,
+                static_cast<int>(left.location.begin.column), static_cast<int>(left.location.end.line) + 1,
+                static_cast<int>(left.location.end.column), left.kind);
+            auto rightLocation = std::make_tuple(static_cast<int>(right.location.begin.line) + 1,
+                static_cast<int>(right.location.begin.column), static_cast<int>(right.location.end.line) + 1,
+                static_cast<int>(right.location.end.column), right.kind);
             if (leftLocation != rightLocation)
                 return leftLocation < rightLocation;
-            return std::strcmp(left.message, right.message) < 0;
+            return std::strcmp(left.message.c_str(), right.message.c_str()) < 0;
         });
     return finish(collected);
 }
