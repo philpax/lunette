@@ -9,11 +9,11 @@ local LADDER = { 1, 2, 4 }
 
 local TUNING = { reference = 1, raise = 0.1, lower = 0.2, nearest = 0.05 }
 
-local function chooser(steps)
+local function chooser(steps: { number }?): scale.Chooser
   return scale.new(steps or LADDER, TUNING)
 end
 
-local function distanceFor(wanted)
+local function distanceFor(wanted: number): number
   return 1 / wanted
 end
 
@@ -56,7 +56,7 @@ test('a jump of several steps arrives in one call', function()
 end)
 
 test('every step is on the ladder, and a walk only closes or only recedes monotonically', function()
-  local rungs = {}
+  local rungs: { [number]: boolean } = {}
   for _, rung in ipairs(LADDER) do
     rungs[rung] = true
   end

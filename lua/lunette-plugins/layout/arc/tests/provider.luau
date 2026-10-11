@@ -7,9 +7,11 @@ local arc = require '@lunette-plugins/layout/arc'
 
 local test = testing.suite()
 
-local function moving(width)
-  local panel = { dead = false, width = width }
-  function panel:setPose(pose)
+type MovingPanel = { dead: boolean, width: number, pose: Mat4?, setPose: (MovingPanel, Mat4) -> () }
+
+local function moving(width: number): MovingPanel
+  local panel: MovingPanel = { dead = false, width = width }
+  function panel:setPose(pose: Mat4)
     self.pose = pose
   end
   return panel

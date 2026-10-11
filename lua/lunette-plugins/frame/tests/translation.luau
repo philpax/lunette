@@ -8,8 +8,9 @@ local translation = require '@lunette-plugins/frame/translation'
 
 local test = testing.suite()
 
-local function host(fields)
-  local value = { shift = false, control = false, alt = false, super = false, capsLock = false, numLock = false }
+local function host(fields: { [string]: boolean }?): keys.PhysicalModifiers
+  local value: { [string]: boolean } =
+    { shift = false, control = false, alt = false, super = false, capsLock = false, numLock = false }
   for name, enabled in fields or {} do
     value[name] = enabled
   end
@@ -17,7 +18,7 @@ local function host(fields)
 end
 
 test('LÖVR keys translate to named evdev codes, not platform scancodes', function()
-  local named = {}
+  local named: { [number]: boolean } = {}
   for _, code in pairs(keys.CODES) do
     named[code] = true
   end
@@ -30,8 +31,8 @@ test('LÖVR keys translate to named evdev codes, not platform scancodes', functi
 end)
 
 test('polled modifiers include Shift and distinguish right Alt from command Alt', function()
-  local held = { lshift = true, ralt = true }
-  local function query(name)
+  local held: { [string]: boolean } = { lshift = true, ralt = true }
+  local function query(name: string): boolean
     return held[name] == true
   end
   expect.equal(table.concat(translation.held(query), ','), 'mod5,shift', 'AltGr and Shift')
@@ -41,8 +42,8 @@ end)
 
 test('the host snapshot names the logo modifier and is authoritative except for the side of Alt', function()
   expect.truthy(host({ super = true }).logo, "LÖVR's super is the logo modifier")
-  local queried = {}
-  local function held(name)
+  local queried: { string } = {}
+  local function held(name: string): boolean
     queried[#queried + 1] = name
     return name == 'ralt'
   end
@@ -51,7 +52,7 @@ test('the host snapshot names the logo modifier and is authoritative except for 
   for _, name in queried do
     expect.truthy(name == 'ralt' or name == 'lalt', 'only sided Alt queries remain')
   end
-  names = translation.fromHost(host { control = true, super = true, capsLock = true }, function()
+  names = translation.fromHost(host { control = true, super = true, capsLock = true }, function(): boolean
     return true
   end)
   expect.equal(table.concat(names, ','), 'control,logo,capsLock', 'event commands and locks, whatever is polled')

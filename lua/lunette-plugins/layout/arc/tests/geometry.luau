@@ -18,13 +18,13 @@ test('an arc is centred, and does not overlap panels that fit its span or else f
 
   -- The widths are a fixed pseudo-random sequence, so the run is deterministic.
   local seed = 7
-  local function nextWidth()
+  local function nextWidth(): number
     seed = (seed * 1103515245 + 12345) % 2147483648
     return 0.2 + (seed % 1000) / 1000 * 2.3
   end
   local fitted, filled = 0, 0
   for count = 2, 9 do
-    local widths = {}
+    local widths: { number } = {}
     for index = 1, count do
       widths[index] = nextWidth()
     end
@@ -55,7 +55,7 @@ test('poses stay on the configured circle and do not change its center', functio
     local tuning = table.clone(TUNING)
     tuning.center = center
     for count = 0, 9 do
-      local widths = {}
+      local widths: { number } = {}
       for index = 1, count do
         widths[index] = 0.2 + index * 0.1
       end

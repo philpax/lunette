@@ -5,16 +5,25 @@ local errorsContract = require '@lunette-contracts/errors'
 
 local test = testing.suite()
 
-local function start()
-  local env = { native = testing.native(), heard = {} }
+type Environment = {
+  native: typeof(testing.native()),
+  heard: { errorsContract.Report },
+  session: typeof(testing.start {})?,
+  presenter: adapter.Definition<{}>?,
+  service: errorsContract.Service?,
+  owner: adapter.Context?,
+}
+
+local function start(): Environment
+  local env: Environment = { native = testing.native(), heard = {} }
   env.session = testing.start { 'errors' }
   env.presenter = adapter.define {
     name = 'presenter',
     requires = { errorsContract.capability },
-    init = function(context)
+    init = function(context: adapter.Context)
       env.service, env.owner = context:require(errorsContract.capability), context
       env.service:onReport(context, {
-        run = function(report)
+        run = function(report: errorsContract.Report)
           env.heard[#env.heard + 1] = report
         end,
       })

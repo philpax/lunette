@@ -25,8 +25,47 @@ local ROWS = {
 }
 local SYMBOLS = { { { code = 2 }, { action = { kind = 'layer', layer = 'base' }, label = 'abc' } } }
 
-local function start()
-  local env = { native = testing.native(), pressed = {}, custom = {}, drawn = {}, sent = {}, pulses = {} }
+type Sent = { string | number | boolean }
+type Environment = {
+  native: typeof(testing.native()),
+  pressed: { keyboard.RenderedKey },
+  custom: { string },
+  drawn: {
+    {
+      key: keyboard.RenderedKey,
+      hovered: boolean,
+      board: keyboard.Board,
+      style: { read font: Font, read gap: number, read legendHeight: number, read keyColor: { read [number]: number } },
+    }
+  },
+  sent: { Sent },
+  pulses: { interactionContract.Haptic },
+  session: typeof(testing.start {})?,
+  service: keyboardContract.Service?,
+  owner: adapter.Context?,
+  pointer: interactionContract.Pointer?,
+  board: keyboard.Board?,
+}
+type Sink = {
+  monitor: { read id: number },
+  domain: 'host',
+  dead: boolean,
+  setModifiers: (Sink, { string }) -> boolean,
+  key: (Sink, number, boolean) -> boolean,
+  typeText: (Sink, string) -> boolean,
+}
+type Seat = {
+  id: number,
+  dead: boolean,
+  focus: Sink?,
+  setFocus: (Seat, Sink?) -> boolean,
+  characterFor: (Seat, number) -> string?,
+  symbolFor: (Seat) -> nil,
+  strokeFor: (Seat) -> nil,
+}
+
+local function start(): Environment
+  local env: Environment = { native = testing.native(), pressed = {}, custom = {}, drawn = {}, sent = {}, pulses = {} }
   local definition = keyboard.define {
     name = 'custom-keyboard',
     rows = ROWS,
@@ -34,7 +73,7 @@ local function start()
     style = { keyUnit = 1, gap = 0, keyRadius = 0.003 },
     modifierKeys = { [42] = 'shift', [29] = 'control' },
     locks = { 'shift' },
-    onKey = function(board, key, pointer, base)
+    onKey = function(board: keyboard.Board, key: keyboard.RenderedKey, pointer: keyboard.Pointer, base: keyboard.Press)
       env.pressed[#env.pressed + 1] = key
       pointer:vibrate { strength = 0.5, duration = 0.02 }
       local action = key.action
@@ -44,14 +83,14 @@ local function start()
       end
       base(board, key, pointer)
     end,
-    drawKey = function(pass, key, state, base)
+    drawKey = function(pass: Pass, key: keyboard.RenderedKey, state: keyboard.KeyState, base: keyboard.Paint)
       env.drawn[#env.drawn + 1] = { key = key, hovered = state.hovered, board = state.keyboard, style = state.style }
       expect.equal(pass:getFont(), state.style.font, 'the hook measures with the exact leased face')
       base(pass, key, state)
     end,
   }
   env.session = testing.start { 'theme', 'drops', 'focus', 'interaction', { id = 'keyboard', definition = definition } }
-  local service, owner, pointers, focus
+  local service: keyboardContract.Service?, owner: adapter.Context?, pointers: interactionContract.Service?, focus: focusContract.Service?
   env.session:use(adapter.define {
     name = 'keyboard-options-test',
     requires = {
@@ -59,44 +98,44 @@ local function start()
       interactionContract.capability,
       focusContract.capability,
     },
-    init = function(context)
+    init = function(context: adapter.Context)
       service, owner = context:require(keyboardContract.capability), context
       pointers, focus = context:require(interactionContract.capability), context:require(focusContract.capability)
     end,
   })
   env.service, env.owner = service, owner
 
-  local seat = { id = 1, dead = false }
-  function seat:setFocus(target)
+  local seat: Seat = { id = 1, dead = false }
+  function seat:setFocus(target: Sink?): boolean
     self.focus = target
     return true
   end
-  function seat:characterFor(code)
+  function seat:characterFor(code: number): string?
     return if code == 30 then 'a' else nil
   end
-  function seat:symbolFor()
+  function seat:symbolFor(): nil
     return nil
   end
-  function seat:strokeFor()
+  function seat:strokeFor(): nil
     return nil
   end
   local sink = { monitor = { id = 1 }, domain = 'host', dead = false }
-  function sink:setModifiers(held)
+  function sink:setModifiers(held: { string }): boolean
     env.sent[#env.sent + 1] = { 'modifiers', table.concat(held, '+') }
     return true
   end
-  function sink:key(code, down)
+  function sink:key(code: number, down: boolean): boolean
     env.sent[#env.sent + 1] = { 'key', code, down }
     return true
   end
-  function sink:typeText(text)
+  function sink:typeText(text: string): boolean
     env.sent[#env.sent + 1] = { 'text', text }
     return true
   end
   focus:register(owner, { kind = 'native', seat = seat, sink = sink }):focus()
   env.pointer = pointers:newPointer(owner, {
     seat = seat,
-    vibrate = function(haptic)
+    vibrate = function(haptic: interactionContract.Haptic): boolean
       env.pulses[#env.pulses + 1] = haptic
       return true
     end,
@@ -105,7 +144,7 @@ local function start()
   return env
 end
 
-local function keyWhere(board, predicate)
+local function keyWhere(board: keyboard.Board, predicate: (keyboard.RenderedKey) -> boolean): keyboard.RenderedKey
   for _, key in ipairs(board:keys()) do
     if predicate(key) then
       return key
@@ -114,19 +153,19 @@ local function keyWhere(board, predicate)
   error 'no such key'
 end
 
-local function code(board, wanted)
-  return keyWhere(board, function(key)
+local function code(board: keyboard.Board, wanted: number): keyboard.RenderedKey
+  return keyWhere(board, function(key: keyboard.RenderedKey): boolean
     return key.code == wanted
   end)
 end
 
-local function action(board, kind)
-  return keyWhere(board, function(key)
+local function action(board: keyboard.Board, kind: string): keyboard.RenderedKey
+  return keyWhere(board, function(key: keyboard.RenderedKey): boolean
     return key.action ~= nil and key.action.kind == kind
   end)
 end
 
-local function pressAt(env, x, y)
+local function pressAt(env: Environment, x: number, y: number)
   env.board:onPointer {
     kind = 'press',
     pointer = env.pointer,
@@ -138,7 +177,7 @@ local function pressAt(env, x, y)
   }
 end
 
-local function press(env, key)
+local function press(env: Environment, key: keyboard.RenderedKey)
   pressAt(env, key.x + key.width / 2, key.y + key.height / 2)
 end
 

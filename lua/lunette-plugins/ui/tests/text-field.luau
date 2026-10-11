@@ -8,7 +8,7 @@ local test = testing.suite()
 local codes = keys.CODES
 
 -- Reads the caret and anchor through the visual a draw hook receives.
-local function selection(field)
+local function selection(field: fixture.Fixture): (number?, number?)
   local visual = field.snapshot()
   return visual.caret, visual.anchor
 end
@@ -87,15 +87,15 @@ test('routes evdev editing commands while printable activations never insert tex
 end)
 
 test('an error blocks submission until an edit clears it', function()
-  local changed, submitted = {}, {}
-  local field
+  local changed: { string }, submitted: { string } = {}, {}
+  local field: fixture.Fixture
   field = fixture.new {
     value = 'ok',
-    onChange = function(value)
+    onChange = function(value: string)
       changed[#changed + 1] = value
       expect.equal(field.field:value(), value, 'state precedes callback')
     end,
-    onSubmit = function(value)
+    onSubmit = function(value: string)
       submitted[#submitted + 1] = value
     end,
   }

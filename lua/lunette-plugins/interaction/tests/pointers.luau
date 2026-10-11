@@ -8,12 +8,54 @@ local interaction = require '@lunette-plugins/interaction'
 
 local test = testing.suite()
 
-local function translation(x, y, z)
+type Sink = {
+  domain: 'window' | 'host',
+  id: number?,
+  monitor: { read id: string }?,
+  dead: boolean,
+  button: (Sink, string, boolean, Seat?) -> (),
+  leave: ((Sink) -> ())?,
+  pointer: ((Sink) -> ())?,
+  scroll: ((Sink) -> ())?,
+}
+type Seat = { id: number, dead: boolean, calls: number, focus: Sink?, setFocus: (Seat, Sink?) -> boolean }
+type Environment = {
+  native: typeof(testing.native()),
+  pressed: { string },
+  released: { string },
+  leaves: number,
+  session: typeof(testing.start {})?,
+  consumer: adapter.Instance<unknown>?,
+  owner: adapter.Context?,
+  interaction: interactionContract.Service?,
+  focus: focusContract.Service?,
+  seat: Seat?,
+  defaultSeat: Seat?,
+  sink: Sink?,
+  newSeat: (number) -> Seat,
+  window: (number) -> Sink,
+  host: (string) -> Sink,
+}
+type Surface = {
+  dead: boolean,
+  pose: Mat4,
+  width: number,
+  height: number,
+  highlighted: boolean?,
+  setHighlighted: (Surface, boolean) -> (),
+  setPose: (Surface, Mat4) -> (),
+  setSize: (Surface, number) -> (),
+  sink: (Surface) -> Sink,
+  raycast: (Surface) -> (number, number, number),
+}
+type InputFields = { read pose: Mat4?, read buttons: { [string]: boolean }?, read grip: boolean? }
+
+local function translation(x: number?, y: number?, z: number?): Mat4
   return lovr.math.newMat4():translate(x or 0, y or 0, z or 0)
 end
 
-local function start(definition)
-  local env = { native = testing.native(), pressed = {}, released = {}, leaves = 0 }
+local function start(definition: typeof(interaction.definition)?): Environment
+  local env: Environment = { native = testing.native(), pressed = {}, released = {}, leaves = 0 }
   env.session = testing.start {
     'drops',
     'focus',
@@ -22,15 +64,15 @@ local function start(definition)
   env.consumer = env.session:use(adapter.define {
     name = 'interaction-test',
     requires = { interactionContract.capability, focusContract.capability },
-    init = function(context)
+    init = function(context: adapter.Context)
       env.owner = context
       env.interaction = context:require(interactionContract.capability)
       env.focus = context:require(focusContract.capability)
     end,
   })
-  function env.newSeat(id)
-    local seat = { id = id, dead = false, calls = 0 }
-    function seat:setFocus(sink)
+  function env.newSeat(id: number): Seat
+    local seat: Seat = { id = id, dead = false, calls = 0 }
+    function seat:setFocus(sink: Sink?): boolean
       self.calls += 1
       self.focus = sink
       return true
@@ -39,11 +81,11 @@ local function start(definition)
   end
   local seat = env.newSeat(1)
   env.seat, env.defaultSeat = seat, seat
-  require('@lunette').defaultSeat = function()
+  require('@lunette').defaultSeat = function(): Seat?
     return env.defaultSeat
   end
-  local sink = { domain = 'window', id = 1, dead = false }
-  function sink:button(button, isDown, actualSeat)
+  local sink: Sink = { domain = 'window', id = 1, dead = false }
+  function sink:button(button: string, isDown: boolean, actualSeat: Seat?)
     expect.equal(actualSeat, seat, 'the seat a button arrives from')
     local list = if isDown then env.pressed else env.released
     list[#list + 1] = button
@@ -56,47 +98,47 @@ local function start(definition)
   env.sink = sink
   -- Native sinks compare by what they deliver to, as the handles do.
   local sameTarget = {
-    __eq = function(first, second)
+    __eq = function(first: Sink, second: Sink): boolean
       return first.domain == second.domain
         and first.id == second.id
         and (first.monitor and first.monitor.id) == (second.monitor and second.monitor.id)
     end,
   }
-  function env.window(id)
+  function env.window(id: number): Sink
     return setmetatable({ domain = 'window', id = id, dead = false, button = function() end }, sameTarget)
   end
-  function env.host(id)
+  function env.host(id: string): Sink
     return setmetatable({ domain = 'host', monitor = { id = id }, dead = false, button = function() end }, sameTarget)
   end
   return env
 end
 
-local function click(pointer, sink)
+local function click(pointer: interactionContract.Pointer, sink: Sink)
   pointer:setButton { pressed = true, sink = sink }
   pointer:setButton { pressed = false }
 end
 
-local function surface(env, z)
-  local result = { dead = false, pose = translation(0, 0, z), width = 1, height = 1 }
-  function result:setHighlighted(value)
+local function surface(env: Environment, z: number?): Surface
+  local result: Surface = { dead = false, pose = translation(0, 0, z), width = 1, height = 1 }
+  function result:setHighlighted(value: boolean)
     self.highlighted = value
   end
-  function result:setPose(value)
+  function result:setPose(value: Mat4)
     self.pose:set(value)
   end
-  function result:setSize(width)
+  function result:setSize(width: number)
     self.width = width
   end
-  function result:sink()
+  function result:sink(): Sink
     return env.sink
   end
-  function result:raycast()
+  function result:raycast(): (number, number, number)
     return 10, 20, 1
   end
   return result
 end
 
-local function input(fields)
+local function input(fields: InputFields): interactionContract.Input
   return {
     origin = vector.pack(0, 0, 0),
     direction = vector.pack(0, 0, -1),
@@ -111,7 +153,7 @@ test('a pointer is made only for a context requiring interaction, with tuning me
   local env = start()
   env.session:use(adapter.define {
     name = 'stranger',
-    init = function(context)
+    init = function(context: adapter.Context)
       expect.raises(function()
         env.interaction:newPointer(context)
       end, nil, 'a pointer for a context that does not require interaction')
@@ -207,7 +249,12 @@ test('a drive hook remaps input, a constrain hook places what is carried, and fo
   local env = start(interaction.define {
     name = 'hooked-interaction',
     focusOnPress = false,
-    drive = function(pointer, given, surfaces, base)
+    drive = function(
+      pointer: interactionContract.Pointer,
+      given: interactionContract.Input,
+      surfaces: { interactionContract.Surface },
+      base: interaction.DriveBase
+    )
       base(pointer, {
         origin = given.origin,
         direction = given.direction,
@@ -217,7 +264,7 @@ test('a drive hook remaps input, a constrain hook places what is carried, and fo
         dt = given.dt,
       }, surfaces)
     end,
-    constrain = function(target, pose, base)
+    constrain = function(target: interactionContract.Surface, pose: Mat4, base: interaction.ConstrainBase): Mat4
       local x, _, z = base(target, pose):getPosition()
       return translation(x, 1.5, z)
     end,
@@ -248,10 +295,10 @@ test(
     local field = env.focus:register(env.owner, {
       kind = 'local',
       receiver = {
-        key = function()
+        key = function(): boolean
           return true
         end,
-        text = function()
+        text = function(): boolean
           return true
         end,
       },

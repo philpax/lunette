@@ -10,8 +10,20 @@ local display = require '@lunette-contracts/keyboard-display'
 local expect = testing.expect
 local test = testing.suite()
 
-local function start()
-  local env = {}
+type Environment = {
+  session: typeof(testing.boot {})?,
+  owner: adapter.Context?,
+  focus: focus.Service?,
+  first: ui.TextField?,
+  second: ui.TextField?,
+  keyboard: keyboard.Service?,
+  surfaces: surfaces.Service?,
+  display: display.Service?,
+}
+type Board = { read pose: Mat4, read setPose: (Board, Mat4) -> () }
+
+local function start(): Environment
+  local env: Environment = {}
   env.session = testing.boot {
     'frame',
     'theme',
@@ -25,7 +37,7 @@ local function start()
       definition = adapter.define {
         name = 'testing/display-fields',
         requires = { ui.capability, focus.capability },
-        init = function(context)
+        init = function(context: adapter.Context)
           env.owner = context
           env.focus = context:require(focus.capability)
           local panel = context:require(ui.capability):newPanel(context, {
@@ -51,7 +63,7 @@ local function start()
   return env
 end
 
-local function shown(env)
+local function shown(env: Environment): Board?
   for _, candidate in env.surfaces:all() do
     if candidate.setLayer then
       return candidate
@@ -60,13 +72,13 @@ local function shown(env)
   return nil
 end
 
-local function boards(env)
+local function boards(env: Environment): number
   return #env.keyboard:inspect().registrations
 end
 
-local function nativeTarget(env)
+local function nativeTarget(env: Environment): focus.TargetHandle
   local seat = lunette.newSeat { name = 'display-native' }
-  env.owner:effect(function()
+  env.owner:effect(function(): () -> ()
     return function()
       seat:destroy()
     end

@@ -9,8 +9,21 @@ local placementContract = require '@lunette-contracts/placement'
 
 local test = testing.suite()
 
-local function start()
-  local env = { native = testing.native() }
+type Environment = {
+  native: typeof(testing.native()),
+  session: typeof(testing.start {})?,
+  consumer: adapter.Instance<{}>?,
+  owner: plugin.Context?,
+  panels: panelsContract.Service?,
+  tags: tagsContract.Service?,
+  rules: rulesContract.Service?,
+  placement: placementContract.Service?,
+  primary: tagsContract.Tag?,
+  window: typeof(testing.native().newWindow(1))?,
+}
+
+local function start(): Environment
+  local env: Environment = { native = testing.native() }
   env.session = testing.start { 'theme', 'panels', 'tags', 'rules', 'placement' }
   env.consumer = env.session:use(adapter.define {
     name = 'placement-test',
@@ -20,7 +33,7 @@ local function start()
       rulesContract.capability,
       placementContract.capability,
     },
-    init = function(context)
+    init = function(context: plugin.Context)
       env.owner = context
       env.panels = context:require(panelsContract.capability)
       env.tags = context:require(tagsContract.capability)
@@ -34,23 +47,23 @@ local function start()
   env.rules:addSource(env.owner, {
     name = 'fixture',
     precedence = 100,
-    resolve = function()
+    resolve = function(): rulesContract.Properties
       return { width = 3, tags = { 'primary', 'implicit' } }
     end,
   })
   return env
 end
 
-local function place(env)
+local function place(env: Environment): (panelsContract.Panel, placementContract.Properties, plugin.Effect)
   local placed, effect = env.placement:place(env.owner, { window = env.window, defaults = { width = 5, height = 1 } })
   return placed.panel, placed.properties, effect
 end
 
 test('a placed window takes its resolved properties over the defaults, joins their tags, and is announced', function()
   local env = start()
-  local announced = {}
+  local announced: { placementContract.Placement } = {}
   env.placement:onPlaced(env.owner, {
-    run = function(placed)
+    run = function(placed: placementContract.Placement)
       announced[#announced + 1] = placed
     end,
   })
@@ -70,7 +83,7 @@ end)
 test('a placement that fails part way releases its panel and the tags it made', function()
   local env = start()
   -- A log failure after panel creation exercises acquisition rollback.
-  lovr.log = function()
+  lovr.log = function(): never
     error 'injected report failure'
   end
   expect.raises(function()

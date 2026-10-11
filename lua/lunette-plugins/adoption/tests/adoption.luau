@@ -10,14 +10,30 @@ local vocabulary = require '@lunette-contracts/vocabulary'
 
 local test = testing.suite()
 
-local function pose(x)
+type Environment = {
+  owner: plugin.Context?,
+  panels: panelsContract.Service?,
+  placement: placementContract.Service?,
+  rules: rulesContract.Service?,
+  adoption: adoptionContract.Service?,
+}
+type Window = typeof(testing.native().newWindow(1))
+type SubstitutePlacement = {
+  read place: (
+    SubstitutePlacement,
+    plugin.Owner,
+    placementContract.Request
+  ) -> (placementContract.Placement, plugin.Effect),
+}
+
+local function pose(x: number): string
   return vocabulary.encodePose(lovr.math.newMat4():translate(x, 0, 0))
 end
 
 test('start adopts each accepted window once with its resolved properties, and releases them when disposed', function()
   local fake = testing.native()
   local session = testing.start { 'theme', 'panels', 'tags', 'rules', 'placement', 'adoption' }
-  local env = {}
+  local env: Environment = {}
   session:use(adapter.define {
     name = 'adoption-test',
     requires = {
@@ -26,7 +42,7 @@ test('start adopts each accepted window once with its resolved properties, and r
       rulesContract.capability,
       adoptionContract.capability,
     },
-    init = function(context)
+    init = function(context: plugin.Context)
       env.owner = context
       env.panels = context:require(panelsContract.capability)
       env.placement = context:require(placementContract.capability)
@@ -37,7 +53,7 @@ test('start adopts each accepted window once with its resolved properties, and r
   env.rules:addSource(env.owner, {
     name = 'persistence',
     precedence = vocabulary.PRECEDENCE.persisted,
-    resolve = function(target)
+    resolve = function(target: Window): rulesContract.Properties
       return if target.appId == 'fixture.declined' then { adopt = false } else { pose = pose(2) }
     end,
   })
@@ -45,7 +61,7 @@ test('start adopts each accepted window once with its resolved properties, and r
   local refused, declined = fake.newWindow(3, 'fixture.refused'), fake.newWindow(4, 'fixture.declined')
   fake.events.windows = { saved, ordinary, refused, declined }
   local started = env.adoption:start(env.owner, {
-    filter = function(target)
+    filter = function(target: Window): boolean
       return target.appId ~= 'fixture.refused'
     end,
   })
@@ -65,17 +81,21 @@ end)
 
 test('adoption places through a substitute placement provider, and ends with its caller', function()
   local native = testing.native()
-  local placements = {}
+  local placements: { panelsContract.Panel } = {}
   local substitute = adapter.define {
     name = 'substitute-placement',
     requires = { panelsContract.capability },
     provides = { placementContract.capability },
-    init = function(context, _, publish)
+    init = function(context: plugin.Context, _: unknown, publish: adapter.Publisher)
       local panels = context:require(panelsContract.capability)
       publish:provide(placementContract.capability, {
-        place = function(_, owner, request)
-          local panel
-          local effect = context:acquire(owner, function()
+        place = function(
+          _: SubstitutePlacement,
+          owner: plugin.Owner,
+          request: placementContract.Request
+        ): (placementContract.Placement, plugin.Effect)
+          local panel: panelsContract.Panel?
+          local effect = context:acquire(owner, function(): () -> ()
             panel = panels:fromWindow(context, request.window)
             placements[#placements + 1] = panel
             return function()
@@ -99,7 +119,7 @@ test('adoption places through a substitute placement provider, and ends with its
   local caller = session:use(adapter.define {
     name = 'substitute-placement-test',
     requires = { adoptionContract.capability },
-    init = function(context)
+    init = function(context: plugin.Context)
       local adoption = context:require(adoptionContract.capability)
       adoption:start(context)
     end,

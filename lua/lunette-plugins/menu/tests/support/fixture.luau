@@ -5,7 +5,19 @@ local contract = require '@lunette-contracts/menu'
 
 local fixture = {}
 
-function fixture.start()
+type Native = typeof(testing.native())
+type Session = typeof(testing.start {})
+type Observed = typeof(testing.start({}):observe(contract.capability))
+export type Environment = {
+  native: Native,
+  session: Session,
+  observed: Observed,
+  service: contract.Service,
+  owner: plugin.Context,
+}
+export type Probe = { owner: plugin.Context?, service: contract.Service?, instance: adapter.Instance<{}>? }
+
+function fixture.start(): Environment
   local native = testing.native()
   local session = testing.start { 'menu' }
   local observed = session:observe(contract.capability)
@@ -18,12 +30,12 @@ function fixture.start()
   }
 end
 
-function fixture.probe(env, name)
-  local found = {}
+function fixture.probe(env: Environment, name: string): Probe
+  local found: Probe = {}
   found.instance = env.session:use(adapter.define {
     name = name,
     requires = { contract.capability },
-    init = function(context)
+    init = function(context: plugin.Context)
       found.owner = context
       found.service = context:require(contract.capability)
     end,
@@ -31,7 +43,7 @@ function fixture.probe(env, name)
   return found
 end
 
-function fixture.action(id, run)
+function fixture.action(id: string, run: (() -> ())?): contract.Action
   return { id = id, label = 'Action ' .. id, run = run or function() end }
 end
 

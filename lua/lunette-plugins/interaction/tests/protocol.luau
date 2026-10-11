@@ -4,11 +4,21 @@ local fixture = require './support/protocol'
 local expect = testing.expect
 local test = testing.suite()
 
+type Sink = {
+  dead: boolean,
+  domain: 'host',
+  monitor: { read id: string },
+  pointer: () -> (),
+  button: (Sink, string, boolean) -> (),
+  scroll: (Sink, number, number) -> (),
+  leave: () -> (),
+}
+
 test('each pointer captures its own buttons on a surface', function()
   local f = fixture()
   local first, second = f:pointer(), f:pointer()
   local target = f:surface 'plate'
-  local held = {}
+  local held: { [string]: boolean } = {}
   for _, button in ipairs(vocabulary.POINTER_BUTTONS) do
     held[button] = true
   end
@@ -27,7 +37,7 @@ test('captured motion projects outside bounds and release reaches the original s
   local f = fixture()
   local pointer = f:pointer()
   local original, replacement = f:surface 'original', f:surface 'replacement'
-  function replacement:raycast(origin)
+  function replacement:raycast(origin: vector): (number?, number?, number?)
     if origin.x > 0.5 then
       return 0.25, 0.5, 0.5
     end
@@ -94,12 +104,12 @@ test('a native sink receives buttons and scroll instead of surface events', func
   local f = fixture()
   local pointer, target = f:pointer(), f:surface 'native'
   local down, up, scrolled = 0, 0, 0
-  local sink = {
+  local sink: Sink = {
     dead = false,
     domain = 'host',
     monitor = { id = 'native-pointer' },
     pointer = function() end,
-    button = function(_self, button, pressed)
+    button = function(_self: Sink, button: string, pressed: boolean)
       expect.equal(button, 'right', 'the actual native button')
       if pressed then
         down += 1
@@ -107,13 +117,13 @@ test('a native sink receives buttons and scroll instead of surface events', func
         up += 1
       end
     end,
-    scroll = function(_self, _dx, dy)
+    scroll = function(_self: Sink, _dx: number, dy: number)
       scrolled += 1
       expect.near(dy, -pointer.tuning.scrollScale, 1e-6, 'the native vertical delta scales once')
     end,
     leave = function() end,
   }
-  function target:sink()
+  function target:sink(): Sink
     return sink
   end
   f:update(pointer, { target }, { buttons = { right = true }, scrollY = 1 })

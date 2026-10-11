@@ -7,10 +7,21 @@ local geometry = require '@lunette-plugins/theme/rounded-geometry'
 
 local test = testing.suite()
 
+type Panel = {
+  pose: Mat4,
+  width: number,
+  height: number,
+  pixelWidth: number,
+  pixelHeight: number,
+  curve: number,
+  polygon: { geometry.Point }?,
+  backFace: boolean?,
+}
+
 local WIDTH, HEIGHT = 2, 1
 local PIXELS_WIDE, PIXELS_HIGH = 1000, 500
 
-local function panel(curve, pose)
+local function panel(curve: number, pose: Mat4?): Panel
   return {
     pose = pose or lovr.math.newMat4():translate(0, 1, -2),
     width = WIDTH,

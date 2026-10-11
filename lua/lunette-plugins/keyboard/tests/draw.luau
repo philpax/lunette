@@ -5,7 +5,7 @@ local contract = require '@lunette-contracts/keyboard'
 local expect = testing.expect
 local test = testing.suite()
 
-local function fixture(hook)
+local function fixture(hook: keyboard.DrawKey?): (contract.Keyboard, render.Recorder)
   testing.native()
   local session = testing.start {
     'theme',
@@ -27,7 +27,7 @@ local function fixture(hook)
   local observer = session:observe(contract.capability)
   local board = observer.service:new(observer.context)
   local recorder = render.new()
-  lovr.graphics.newMesh = function(count)
+  lovr.graphics.newMesh = function(count: number): render.Mesh
     return recorder:newMesh(count)
   end
   recorder.pass:setShader 'scene shader'
@@ -40,14 +40,16 @@ end
 
 test('keyboard paints untextured faces and depth-tested legends, and restores the pass after a hook error', function()
   local raising = false
-  local board, recorder = fixture(function(pass, key, state, base)
-    if raising then
-      pass:translate(1, 2, 3)
-      error 'keyboard failure'
+  local board, recorder = fixture(
+    function(pass: Pass, key: keyboard.RenderedKey, state: keyboard.KeyState, base: keyboard.Paint)
+      if raising then
+        pass:translate(1, 2, 3)
+        error 'keyboard failure'
+      end
+      expect.equal(pass:getFont(), state.style.font, 'the hook receives the theme face')
+      base(pass, key, state)
     end
-    expect.equal(pass:getFont(), state.style.font, 'the hook receives the theme face')
-    base(pass, key, state)
-  end)
+  )
   local caller = recorder:checkpoint()
   board:draw(recorder.pass)
   local faces, legends = 0, 0

@@ -6,20 +6,29 @@ local layoutsContract = require '@lunette-contracts/layouts'
 
 local test = testing.suite()
 
-local function start()
-  local env = { native = testing.native() }
+type Environment = {
+  native: typeof(testing.native()),
+  session: typeof(testing.start {}),
+  layouts: layoutsContract.Service?,
+  owner: plugin.Context?,
+}
+type Probe = { owner: plugin.Context?, layouts: layoutsContract.Service?, instance: adapter.Instance<{}>? }
+type MovingPanel = { dead: boolean, width: number, pose: Mat4?, setPose: (MovingPanel, Mat4) -> () }
+
+local function start(): Environment
+  local env: Environment = { native = testing.native() }
   env.session = testing.start { 'layouts', 'layout/arc' }
   local observed = env.session:observe(layoutsContract.capability)
   env.layouts, env.owner = observed.service, observed.context
   return env
 end
 
-local function probe(env, name)
-  local found = {}
+local function probe(env: Environment, name: string): Probe
+  local found: Probe = {}
   found.instance = env.session:use(adapter.define {
     name = name,
     requires = { layoutsContract.capability },
-    init = function(context)
+    init = function(context: plugin.Context)
       found.owner = context
       found.layouts = context:require(layoutsContract.capability)
     end,
@@ -27,9 +36,9 @@ local function probe(env, name)
   return found
 end
 
-local function moving(width)
-  local panel = { dead = false, width = width }
-  function panel:setPose(pose)
+local function moving(width: number): MovingPanel
+  local panel: MovingPanel = { dead = false, width = width }
+  function panel:setPose(pose: Mat4)
     self.pose = pose
   end
   return panel
@@ -64,10 +73,10 @@ end)
 
 test('apply passes the live panels, and names the layouts for an unknown name', function()
   local env = start()
-  local seen
+  local seen: number?
   env.layouts:register(env.owner, {
     name = 'stack',
-    apply = function(panels)
+    apply = function(panels: { read [number]: layoutsContract.Panel })
       seen = #panels
     end,
   })

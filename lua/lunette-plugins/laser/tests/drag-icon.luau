@@ -5,12 +5,38 @@ local contract = require '@lunette-contracts/laser'
 local expect = testing.expect
 local test = testing.suite()
 
+type native = typeof(require '@testing/native')
+type Panel = {
+  dead: boolean,
+  kind: 'window',
+  source: native.Window,
+  width: number,
+  height: number,
+  pose: Mat4,
+  raycast: () -> (number, number, number),
+}
+type Drag = {
+  dead: boolean,
+  width: number,
+  height: number,
+  x: number,
+  y: number,
+  opaque: boolean,
+  crop: { number },
+  texture: (string | false)?,
+  getTexture: ((Drag) -> string | false | nil)?,
+  getSourceCrop: ((Drag) -> ...number)?,
+}
+type DragFields = { opaque: boolean?, crop: { number }?, texture: (string | false)?, width: number?, height: number? }
+type Seat = native.Seat & { drag: Drag? }
+type Fixture = { native: native.Fake, target: laser.Beam, panel: Panel, seat: Seat }
+
 local ICON = 'icon texture'
 local ORIGIN = vector.pack(0, 1, 0)
 
 -- A left laser aiming straight ahead from ORIGIN, and a window panel two metres wide for a thousand pixels, three
 -- metres ahead, so a surface pixel is two millimetres.
-local function fixture()
+local function fixture(): Fixture
   local native = testing.native()
   local session = testing.start {
     'theme',
@@ -21,7 +47,7 @@ local function fixture()
   }
   local observer = session:observe(contract.capability)
   local target = observer.service:attach(observer.context, {
-    readInput = function(hand)
+    readInput = function(hand: contract.Hand): contract.Input?
       if hand ~= 'left' then
         return nil
       end
@@ -43,32 +69,32 @@ local function fixture()
     width = 2,
     height = 1,
     pose = lovr.math.newMat4():translate(0, 1, -3),
-    raycast = function()
+    raycast = function(): (number, number, number)
       return 500, 250, 3
     end,
   }
   return { native = native, target = target, panel = panel, seat = native.events.seats[1] }
 end
 
-local function drag(fields)
-  local made = { dead = false, width = 40, height = 20, x = -10, y = -5, opaque = false, crop = { 0, 0, 1, 1 } }
+local function drag(fields: DragFields?): Drag
+  local made: Drag = { dead = false, width = 40, height = 20, x = -10, y = -5, opaque = false, crop = { 0, 0, 1, 1 } }
   made.texture = ICON
   for key, value in fields or {} do
     made[key] = value
   end
-  function made:getTexture()
+  function made.getTexture(self: Drag): string | false | nil
     return self.texture
   end
-  function made:getSourceCrop()
+  function made.getSourceCrop(self: Drag): ...number
     return table.unpack(self.crop)
   end
   return made
 end
 
-local function drawn(env)
+local function drawn(env: Fixture): ({ render.Call }, render.Recorder)
   local recorder = render.new()
   env.target:draw(recorder.pass)
-  local found = {}
+  local found: { render.Call } = {}
   for _, call in recorder.calls do
     if call[1] == 'draw' and call.state.setMaterial and call.state.setMaterial[1] == ICON then
       found[#found + 1] = call
@@ -77,7 +103,7 @@ local function drawn(env)
   return found, recorder
 end
 
-local function bounds(call)
+local function bounds(call: render.Call): (vector, vector)
   local low = vector.pack(math.huge, math.huge, math.huge)
   local high = vector.pack(-math.huge, -math.huge, -math.huge)
   for _, point in call.points do

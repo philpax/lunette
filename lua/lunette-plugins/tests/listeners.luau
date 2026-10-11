@@ -6,16 +6,24 @@ local listeners = require '../listeners'
 
 local test = testing.suite()
 
+type Callback = () -> ()
+type Environment = {
+  native: typeof(testing.native()),
+  session: typeof(testing.start {})?,
+  list: listeners.Listeners<Callback>?,
+  owner: plugin.Context?,
+}
+
 local capability = plugin.capability { name = 'test/listeners', version = 1 }
 
 -- The listeners belong to a provider, and a consumer of it owns the registrations.
-local function start()
-  local env = { native = testing.native() }
+local function start(): Environment
+  local env: Environment = { native = testing.native() }
   env.session = testing.start {}
   env.session:use(adapter.define {
     name = 'listeners-provider',
     provides = { capability },
-    init = function(context, _settings, publish)
+    init = function(context: plugin.Context, _settings: unknown, publish: adapter.Publisher)
       env.list = listeners.new(context)
       publish:provide(capability, env.list)
     end,
@@ -23,23 +31,24 @@ local function start()
   env.session:use(adapter.define {
     name = 'listeners-consumer',
     requires = { capability },
-    init = function(context)
+    init = function(context: plugin.Context)
       env.owner = context
     end,
   })
   return env
 end
 
-local function deliver(env)
-  env.list:each('listeners test', function(run)
+local function deliver(env: Environment)
+  env.list:each('listeners test', function(run: Callback)
     run()
   end)
 end
 
 test('delivery defers listeners added during it and skips one disposed during it', function()
   local env = start()
-  local heard = {}
-  local pending, late
+  local heard: { string } = {}
+  local pending: plugin.Effect?
+  local late: plugin.Effect?
   env.list:add(env.owner, function()
     heard[#heard + 1] = 'first'
     pending:dispose()

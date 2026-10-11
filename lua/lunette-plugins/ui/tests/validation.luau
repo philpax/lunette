@@ -5,11 +5,22 @@ local expect = testing.expect
 local fixture = require './support/panel'
 local test = testing.suite()
 
-local function bounds()
+type ui = typeof(require '@lunette-contracts/ui')
+type InvalidPanelOptions = {
+  name: string,
+  width: number,
+  height: number,
+  logicalWidth: number | boolean,
+  logicalHeight: number,
+  visible: string?,
+  unknown: boolean?,
+}
+
+local function bounds(): ui.Bounds
   return { x = 10, y = 260, width = 370, height = 30 }
 end
 
-local function liveSurfaces(state)
+local function liveSurfaces(state: fixture.State): number
   local count = 0
   for _, registration in state.fixture.session:observe(surfaces.capability).service:inspect().registrations do
     if registration.live then
@@ -51,7 +62,8 @@ test('malformed panel options acquire no surface', function()
   local state = fixture.boot()
   local count = liveSurfaces(state)
   for _, change in { { 'visible', 'yes' }, { 'unknown', true }, { 'logicalWidth', false } } do
-    local options: any = { name = 'invalid', width = 1, height = 1, logicalWidth = 100, logicalHeight = 100 }
+    local options: InvalidPanelOptions =
+      { name = 'invalid', width = 1, height = 1, logicalWidth = 100, logicalHeight = 100 }
     options[change[1]] = change[2] or nil
     expect.falsy(pcall(state.service.newPanel, state.service, state.owner, options))
   end

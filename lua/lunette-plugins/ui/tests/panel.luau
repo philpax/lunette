@@ -8,21 +8,23 @@ local expect = testing.expect
 local fixture = require './support/panel'
 local test = testing.suite()
 
-local function click(state, id, hand, item)
+type vocabulary = typeof(require '@lunette-contracts/vocabulary')
+
+local function click(state: fixture.State, id: string, hand: vrUi.Hand?, item: string?)
   state.fixture:clickControl(state.service, 'public-ui-form', id, hand, item)
 end
 
-local function release(state, hand)
+local function release(state: fixture.State, hand: vrUi.Hand?)
   state.fixture:button(hand or 'right', 'trigger', false)
   state.fixture:step()
 end
 
-local function describe(state)
+local function describe(state: fixture.State): vrUi.Description
   return vrUi.describe(state.service, 'public-ui-form')
 end
 
-local function kinds(events, kind)
-  local result = {}
+local function kinds(events: { fixture.Event }, kind: 'cancel' | 'release'): { fixture.Event }
+  local result: { fixture.Event } = {}
   for _, event in events do
     if event.kind == kind then
       result[#result + 1] = event
@@ -91,17 +93,17 @@ end)
 
 test('owner teardown invalidates its controls without calling it back', function()
   local state = fixture.boot()
-  local control
+  local control: ui.Region
   local instance = state.fixture.session:use(adapter.define {
     name = 'testing/capture-owner',
     requires = { ui.capability },
-    init = function(context)
+    init = function(context: adapter.Context)
       control = state.panel:region {
         owner = context,
         id = 'owned',
         bounds = { x = 10, y = 260, width = 370, height = 30 },
         z = 1,
-        onPointer = function(event)
+        onPointer = function(event: vocabulary.PointerEvent)
           state.events[#state.events + 1] = { kind = event.kind }
         end,
       }
@@ -162,7 +164,7 @@ end)
 test('painting and pointer picking share overlap order', function()
   for _, equalZ in { false, true } do
     local state = fixture.boot()
-    local painted, activated = {}, {}
+    local painted: { string }, activated: { string } = {}, {}
     for index, id in { 'first', 'second' } do
       state.panel:button {
         id = id,
@@ -171,7 +173,7 @@ test('painting and pointer picking share overlap order', function()
         onActivate = function()
           activated[#activated + 1] = id
         end,
-        draw = function(pass, visual, base)
+        draw = function(pass: Pass, visual: ui.Visual, base: ui.Renderer)
           painted[#painted + 1] = visual.id
           base(pass, visual)
         end,
@@ -187,10 +189,10 @@ test('painting and pointer picking share overlap order', function()
 end)
 
 test('themes and draw hooks change rendering without changing input', function()
-  local heard = {}
+  local heard: { ui.Visual } = {}
   local state = fixture.boot {
     theme = { background = { 0.9, 0.1, 0.7, 1 }, rowHeight = 35 },
-    draw = function(pass, visual, base)
+    draw = function(pass: Pass, visual: ui.Visual, base: ui.Renderer)
       heard[#heard + 1] = visual
       base(pass, visual)
     end,

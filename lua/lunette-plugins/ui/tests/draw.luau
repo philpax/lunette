@@ -5,19 +5,78 @@ local themes = require '../theme'
 local expect = testing.expect
 local test = testing.suite()
 
-local default
+type ui = typeof(require '@lunette-contracts/ui')
+type Theme = {
+  read background: ui.Color,
+  read foreground: ui.Color,
+  read control: ui.Color,
+  read hovered: ui.Color,
+  read pressed: ui.Color,
+  read disabled: ui.Color,
+  read focus: ui.Color,
+  read selection: ui.Color,
+  read error: ui.Color,
+  read border: ui.Color,
+  read font: render.Font,
+  read fontSize: number,
+  read panelRadius: number,
+  read controlRadius: number,
+  read padding: number,
+  read spacing: number,
+  read borderWidth: number,
+  read rowHeight: number,
+  read hapticStrength: number,
+  read hapticDuration: number,
+}
+type ThemeChanges = { padding: number?, fontSize: number?, rowHeight: number?, spacing: number? }
+type Visual = {
+  id: string,
+  kind: ui.Kind | 'panel',
+  label: string,
+  bounds: ui.Bounds,
+  clip: ui.Bounds,
+  theme: Theme,
+  enabled: boolean,
+  hovered: boolean,
+  pressed: boolean,
+  focused: boolean,
+  items: { ui.ItemDescription },
+  value: string?,
+  caret: number?,
+  anchor: number?,
+  error: string?,
+  opened: boolean?,
+  overflow: boolean?,
+}
+type VisualChanges = {
+  label: string?,
+  bounds: ui.Bounds?,
+  clip: ui.Bounds?,
+  theme: Theme?,
+  items: { ui.ItemDescription }?,
+  value: string?,
+  caret: number?,
+  anchor: number?,
+  error: string?,
+  opened: boolean?,
+  overflow: boolean?,
+}
+type Renderer = (render.Pass, Visual) -> ()
+type Hook = (render.Pass, Visual, Renderer) -> ()
 
-local function recorderForDrawing()
+local default: Theme
+
+local function recorderForDrawing(): render.Recorder
   testing.native()
   local recorder = render.new()
   default = themes.materialize(themes.DEFAULT, recorder.font)
-  lovr.graphics.getDefaultFont = function()
+  lovr.graphics.getDefaultFont = function(): render.Font
     return recorder.font
   end
   return recorder
 end
 
-local function resolve(overrides)
+local function resolve(overrides: ThemeChanges): Theme
   local result = table.clone(default)
   for key, value in overrides do
     result[key] = value
@@ -25,12 +84,12 @@ local function resolve(overrides)
   return table.freeze(result)
 end
 
-local function draw(pass, visual, hook)
+local function draw(pass: render.Pass, visual: Visual, hook: Hook?)
   drawing.render(pass, visual, hook, drawing.newCache())
 end
 
-local function visual(kind, changes)
-  local value = {
+local function visual(kind: ui.Kind | 'panel', changes: VisualChanges?): Visual
+  local value: Visual = {
     id = 'control',
     kind = kind,
     label = 'A long label',
@@ -49,8 +108,8 @@ local function visual(kind, changes)
   return value
 end
 
-local function texts(recorder)
-  local result = {}
+local function texts(recorder: render.Recorder): { render.Argument }
+  local result: { render.Argument } = {}
   for _, call in recorder.calls do
     if call[1] == 'text' then
       table.insert(result, call[2])
@@ -104,8 +163,8 @@ end)
 
 test('a control hook receives the visual and wraps the default renderer', function()
   local recorder = recorderForDrawing()
-  local order = {}
-  draw(recorder.pass, visual 'button', function(pass, snapshot, base)
+  local order: { string } = {}
+  draw(recorder.pass, visual 'button', function(pass: render.Pass, snapshot: Visual, base: Renderer)
     table.insert(order, 'control:before')
     base(pass, snapshot)
     table.insert(order, 'control:after')
@@ -117,7 +176,7 @@ end)
 test('a failing hook restores the pass and preserves its error', function()
   local recorder = recorderForDrawing()
   expect.raises(function()
-    draw(recorder.pass, visual 'button', function(pass)
+    draw(recorder.pass, visual 'button', function(pass: render.Pass)
       pass:translate(200, 100, 0)
       pass:setColor(1, 0, 0, 1)
       error('hook sentinel', 0)
