@@ -74,10 +74,6 @@ fn main() -> ExitCode {
 
     let arguments = Cli::parse();
 
-    if let Some(cli::Command::CheckAnnotations { roots }) = &arguments.command {
-        return check::run_annotations(roots);
-    }
-
     let candidates = ConfigDirectoryCandidates::new(&ConfigDirectorySources::from_environment());
     // A check given no paths checks the directory a session would load.
     let config_directory = arguments

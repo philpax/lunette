@@ -53,7 +53,7 @@ run:
 	LUNETTE_STDLIB_PATH="$(CURDIR)/lua" LUNETTE_CONFIG_PATH="$(CURDIR)/dev" $(CARGO) run -p lunette --bin lunette -- $(ARGS)
 
 # The standing checks, in the order .github/workflows/ci.yml runs them.
-check: check-format check-install check-headset check-rust check-definitions check-luau
+check: check-format check-install check-headset check-rust check-definitions check-luau-annotations check-luau
 
 check-install:
 	python3 crates/lunette/tests/fixtures/install.py
@@ -100,11 +100,11 @@ check-luau-annotations:
 	LC_ALL=C sort -z -o "$$listing" "$$listing"; \
 	mapfile -d '' -t roots < "$$listing"; \
 	if [ "$${#roots[@]}" -eq 0 ]; then printf '%s\n' 'make: no Luau files found for annotation checking' >&2; exit 1; fi; \
-	$(CARGO) run -p lunette --bin lunette -- check-annotations "$${roots[@]}"
+	$(CARGO) run -p lunette --example check_annotations -- "$${roots[@]}"
 
 # Tests and lua/testing stay out, because they build partial handles and fake
 # natives that strict checking would force them to cast.
-check-luau: check-luau-annotations
+check-luau:
 	$(CARGO) run -p lunette --bin lunette -- check --definitions etc/lunette/definitions.luau $$(find lua/lunette lua/lunette-plugin lua/lunette-contracts lua/lunette-plugins lua/lunette-desktop -type d -name tests -prune -o -type f -name '*.luau' -print | sort) etc/xdg/lunette/main.luau etc/xdg/lunette/conf.luau $$(find examples dev -type d -name tests -prune -o -type f -name '*.luau' -print | sort)
 
 install: install-binary install-lua install-config
