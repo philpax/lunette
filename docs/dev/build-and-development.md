@@ -195,4 +195,4 @@ The automatic VR input fixture verifies callback delivery and recorded geometry,
 
 Spawning a client in a session test needs the GPU-headless tier, which does not exist.
 
-GitHub issues #21 to #30 track the hardware and host-desktop verification, and #3 tracks the layer budget against a runtime that offers no layers. A measurement taken on hardware is recorded in the Decisions or Known gaps section of the document whose subject it concerns, and the issue that asked for it links there.
+GitHub issues #21 to #30 track the hardware and host-desktop verification. Issue #3's zero-layer budget check is covered by regression tests and live-session fault injection. Monado's null compositor reports 128 layers, so it does not verify a runtime that natively reports zero. [Rendering](rendering.md#decisions) records the live-session measurement and the separate zero-limit fault-injection run. A measurement taken on hardware is recorded in the Decisions or Known gaps section of the document whose subject it concerns, and the issue that asked for it links there.

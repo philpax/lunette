@@ -265,7 +265,22 @@ impl<B: LayerBackend> LayerPool<B> {
             ) => {}
         }
 
-        let winners = self.rank(LayerBudget::from_runtime_limit(self.backend.layer_limit()));
+        let runtime_limit = self.backend.layer_limit();
+        let budget = LayerBudget::from_runtime_limit(runtime_limit);
+        if budget.slots() == 0 {
+            for claim in &mut self.claims {
+                if !claim.refusal_reported {
+                    claim.refusal_reported = true;
+                    warn!(
+                        %runtime_limit,
+                        size = %claim.size,
+                        claim = %claim.id,
+                        "the runtime offers no composition layer budget"
+                    );
+                }
+            }
+        }
+        let winners = self.rank(budget);
 
         for index in 0..self.claims.len() {
             if winners.contains(&index) {

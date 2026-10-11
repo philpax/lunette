@@ -28,6 +28,7 @@ use crate::{
 /// the backend.
 #[derive(Debug, Default)]
 struct Calls {
+    create_attempts: usize,
     created: Vec<LayerSize>,
     destroyed: Vec<u64>,
     /// One entry per submit: the layers it named and whether lunette's own
@@ -71,6 +72,7 @@ impl LayerBackend for FakeLayers {
     }
 
     fn create(&mut self, size: LayerSize) -> Option<Self::Layer> {
+        self.calls.borrow_mut().create_attempts += 1;
         if self.refusing.get() {
             return None;
         }
@@ -424,14 +426,105 @@ fn withdrawing_a_claim_frees_its_layer() {
 }
 
 #[test]
-fn nothing_is_granted_before_the_runtime_reports_a_limit() {
-    // The state before a session exists and after one is lost.
+fn a_live_session_with_no_layer_budget_reports_each_claim_once_without_allocating() {
+    const NO_BUDGET: &str = "the runtime offers no composition layer budget";
+
+    let warnings = Logs::capture(|| {
+        let mut harness = Harness::new(0);
+        harness.refusing.set(true);
+        let first = harness.pool.claim(size(512, 512), priority(1.0));
+        let second = harness.pool.claim(size(512, 512), priority(2.0));
+
+        for _ in 0..120 {
+            harness.resolve();
+            for claim in [first, second] {
+                assert!(!harness.granted(claim));
+                assert!(harness.pool.layer(claim).is_none());
+            }
+        }
+
+        assert!(harness.pool.release_claim(first));
+        let replacement = harness.pool.claim(size(512, 512), priority(1.0));
+        for _ in 0..120 {
+            harness.resolve();
+            assert!(!harness.granted(replacement));
+            assert!(harness.pool.layer(replacement).is_none());
+        }
+        assert_eq!(harness.calls.borrow().create_attempts, 0);
+        harness.pool.submit(SceneRendering::Skipped);
+        assert!(harness.last_submitted().is_empty());
+    });
+
+    assert_eq!(warnings.mentioning(NO_BUDGET), 3);
+    for id in 1..=3 {
+        assert_eq!(warnings.mentioning(&format!("claim=claim {id}")), 1);
+    }
+}
+
+#[test]
+fn a_limit_below_one_budget_slot_reports_the_limit_without_attempting_creation() {
+    for limit in 1..LayerBudget::SHARE {
+        let warnings = Logs::capture(|| {
+            let mut harness = Harness::new(limit);
+            harness.pool.claim(size(512, 512), priority(1.0));
+            for _ in 0..8 {
+                harness.resolve();
+            }
+            assert_eq!(harness.calls.borrow().create_attempts, 0);
+        });
+        assert_eq!(
+            warnings.mentioning("the runtime offers no composition layer budget"),
+            1
+        );
+        assert_eq!(warnings.mentioning(&format!("runtime_limit={limit}")), 1);
+    }
+}
+
+#[test]
+fn an_absent_session_does_not_report_a_zero_layer_budget() {
+    let warnings = Logs::capture(|| {
+        let mut harness = Harness::new(0);
+        harness.session.set(SessionPresence::Absent);
+        harness.pool.claim(size(512, 512), priority(1.0));
+        for _ in 0..8 {
+            harness.resolve();
+        }
+        assert_eq!(harness.calls.borrow().create_attempts, 0);
+    });
+    assert_eq!(
+        warnings.mentioning("the runtime offers no composition layer budget"),
+        0
+    );
+}
+
+#[test]
+fn a_zero_budget_claim_can_be_granted_when_the_limit_recovers() {
     let mut harness = Harness::new(0);
     let claim = harness.pool.claim(size(512, 512), priority(1.0));
-    harness.settle();
+    harness.resolve();
+    assert!(!harness.granted(claim));
+    assert_eq!(harness.calls.borrow().create_attempts, 0);
 
-    assert!(harness.pool.layer(claim).is_none());
-    assert_eq!(harness.created(), 0);
+    harness.limit.set(ONE_SLOT);
+    harness.settle();
+    assert!(harness.granted(claim));
+    assert_eq!(harness.calls.borrow().create_attempts, 1);
+}
+
+#[test]
+fn a_zero_budget_refusal_is_reported_again_for_a_replacement_session() {
+    let warnings = Logs::capture(|| {
+        let mut harness = Harness::new(0);
+        harness.pool.claim(size(512, 512), priority(1.0));
+        harness.settle();
+        harness.replace_session();
+        harness.settle();
+        assert_eq!(harness.calls.borrow().create_attempts, 0);
+    });
+    assert_eq!(
+        warnings.mentioning("the runtime offers no composition layer budget"),
+        2
+    );
 }
 
 #[test]
