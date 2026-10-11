@@ -37,12 +37,13 @@ The series on `lunette`, oldest first:
 | `c09b4b6c` to `6dbf5b03` | The private headset operations boundary and the OpenVR backend, twelve commits | Exception |
 | `887ee1e7` | Make native initialization paths explicit | Upstream defect |
 | `19c22780` | Fix material allocation and ownership failure paths | Upstream defect |
+| `ce8705a1` | Expose the audio function registration table | Integration |
 
 `git -C vendor/lovr log --oneline upstream/dev..lunette` lists the series.
 
 ### Integration plumbing
 
-These exist because lunette embeds LÖVR as a library. They are build options that default to off and are not proposed upstream.
+These exist because lunette embeds LÖVR as a library. The build options default to off. The audio registration table has external linkage in the shared library. These patches are not proposed upstream.
 
 #### `LOVR_EXPORT_LUA_SYMBOLS`
 
@@ -53,6 +54,10 @@ mlua links the Lua C API from `liblovr.so` rather than carrying a second Lua. No
 The option links Luau's type checker into `liblovr.so` as a whole archive, for `lunette check`. It must live in the library rather than the binary: two copies of Luau in one process unify their FFlag statics as GNU unique symbols, a flag registers twice, and static initialisation loops. It adds several megabytes.
 
 `crates/lunette-lovr/src/analyze.cpp` drives the checker. It enables every non-experimental `Luau*` flag, as `luau-analyze`'s `setLuauFlagsDefault()` does; without that the checker accepts an obsolete dialect. `lunette check` fails on any diagnostic that is not a lint warning, and on any root it never read, because an unresolved require skips a file and an unloadable definitions file checks nothing. ariadne indexes source by character while Luau reports bytes, so offsets are converted. `.luaurc` carries neither definitions nor platform; those are luau-lsp client settings, and `"languageMode": "strict"` is required for an editor to report what `lunette check` reports.
+
+#### The audio function registration table
+
+`lovrAudio` has external linkage and a declaration in `api.h`. The runtime declaration test registers this table without calling `luaopen_lovr_audio`, which initializes miniaudio even when `t.audio.start` is false. The table is the same immutable, sentinel-terminated function list used by the normal opener. The test compares its registered names without initializing an audio backend. This relies on lunette's `LOVR_BUILD_WITH_SYMBOLS` shared build and changes no session behavior.
 
 ### Upstream defects
 

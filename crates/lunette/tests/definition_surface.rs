@@ -24,6 +24,16 @@ fn compare_runtime(math_globals: bool, declarations: &[surface::Member]) -> Test
     // These native types belong to the LÖVR surface even though luaL_openlibs installs their globals.
     baseline.remove("vector");
     baseline.remove("quaternion");
+    let package: Table = lua.globals().get("package")?;
+    let preload: Table = package.get("preload")?;
+    assert!(
+        matches!(preload.raw_get::<Value>("lovr.audio")?, Value::Function(_)),
+        "the linked runtime must register its audio loader"
+    );
+    // The native opener initializes miniaudio even with audio.start=false. This registers the same functions without it.
+    // SAFETY: the callback follows the Lua C function protocol and registers only the linked runtime's immutable table.
+    let audio = unsafe { lua.create_c_function(register_audio)? };
+    preload.set("lovr.audio", audio)?;
     // Defining boot callbacks does not run the returned coroutine or start the session.
     let _: mlua::Thread = lua.load(BOOT_LUA).set_name("@boot.lua").eval()?;
     lua.globals().set("mathGlobals", math_globals)?;
@@ -370,6 +380,21 @@ fn public_keys(table: &Table) -> mlua::Result<BTreeSet<String>> {
         }
     }
     Ok(keys)
+}
+
+unsafe extern "C-unwind" fn register_audio(state: *mut ffi::lua_State) -> std::ffi::c_int {
+    // SAFETY: Lua supplies a live state, and lovrAudio is the sentinel-terminated array used by luaopen_lovr_audio.
+    // No registered function is called, and no audio userdata or finalizer is created.
+    unsafe {
+        ffi::lua_newtable(state);
+        ffi::luaL_register(state, std::ptr::null(), &raw const lovrAudio);
+    }
+    1
+}
+
+unsafe extern "C" {
+    // The C symbol is an array. Its first element gives luaL_register the sentinel-terminated sequence.
+    static lovrAudio: ffi::luaL_Reg;
 }
 
 struct Runtime {

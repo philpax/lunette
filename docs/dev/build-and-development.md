@@ -143,7 +143,7 @@ The runner's own trials are named `runner::`. They check discovery classificatio
 
 `crates/lunette/tests/definition_surface.rs` executes LÖVR's boot script without resuming its coroutine, loads the linked modules through the session's preload registry, and compares their public tables with `etc/lunette/definitions.luau` in both directions. Luau's parser enumerates global declarations, follows table aliases and intersections, and preserves optional members. A missing required declaration or an undeclared runtime member fails `cargo test --workspace` with its full path. Optional callbacks may be absent. An optional table's required members are checked when the table is present. Underscore-prefixed implementation fields and the interpreter's standard globals are outside this comparison, except for globals explicitly named by the generated definitions.
 
-The probe checks both settings of `t.math.globals`. It does not start audio playback, graphics, a window, or an XR connection. LÖVR's finalizers release the loaded modules when the state closes. The comparison checks member names, not function signatures, instance methods, or callback invocation.
+The probe checks both settings of `t.math.globals`. It registers the linked `lovrAudio` function table through a test-local preload callback, because the normal audio opener initializes miniaudio even when playback is disabled. It does not initialize audio, graphics, a window, or an XR connection. LÖVR's finalizers release the other loaded modules when the state closes. The comparison checks member names, not function signatures, instance methods, or callback invocation.
 
 ### Session tests
 
