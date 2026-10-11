@@ -10,20 +10,44 @@ local suite = require '@testing/suite'
 
 local session = {}
 
+export type Entry = string | compose.Entry
+export type Options = { read native: native.Fake? }
+export type Observed<T> = {
+  instance: adapter.Instance<compose.Config>?,
+  service: T?,
+  context: adapter.Context?,
+}
+export type Session = {
+  runtime: adapter.Runtime,
+  instances: { [string]: adapter.Instance<compose.Config> },
+  native: native.Fake?,
+  observers: number,
+  closed: boolean,
+  dropObserver: Observed<drops.Service>?,
+  use: <C>(Session, adapter.Definition<C>, C?) -> adapter.Instance<C>,
+  observe: <T>(Session, adapter.Capability<T>) -> Observed<T>,
+  drop: (Session, drops.Surface) -> (),
+  update: (Session, number?) -> (),
+  draw: (Session) -> boolean,
+  quit: (Session) -> boolean,
+  close: (Session) -> (),
+}
+
 local Session = {}
 Session.__index = Session
 
-local entryOf, startSession
+local entryOf: (Entry) -> compose.Entry
+local startSession: ({ Entry }, native.Fake?) -> Session
 
 -- Starts entries in a new runtime without installing the fake native API.
-function session.start(entries)
+function session.start(entries: { Entry }): Session
   return startSession(entries, nil)
 end
 
 -- Installs the fake native API and binds LÖVR's callbacks for the session.
-function session.boot(entries, options)
+function session.boot(entries: { Entry }, options: Options?): Session
   local fake = options and options.native or native.new()
-  local current
+  local current: Session
   frame.install {
     start = function() end,
     stop = function()
@@ -34,20 +58,20 @@ function session.boot(entries, options)
   return current
 end
 
-function Session:use(definition, config)
+function Session.use<C>(self: Session, definition: adapter.Definition<C>, config: C?): adapter.Instance<C>
   local instance = self.runtime:use(definition, config or {})
   instance:enable()
   return instance
 end
 
 -- Observes a service through a dependent plugin, refreshing the service and context after provider recovery.
-function Session:observe(capability)
+function Session.observe<T>(self: Session, capability: adapter.Capability<T>): Observed<T>
   self.observers += 1
-  local observed = {}
+  local observed: Observed<T> = {}
   observed.instance = self:use(adapter.define {
     name = 'testing/observer-' .. self.observers,
     requires = { capability },
-    init = function(context)
+    init = function(context: adapter.Context)
       observed.service = context:require(capability)
       observed.context = context
     end,
@@ -55,7 +79,7 @@ function Session:observe(capability)
   return observed
 end
 
-function Session:drop(surface)
+function Session.drop(self: Session, surface: drops.Surface)
   local observed = self.dropObserver
   if not observed then
     observed = self:observe(drops.capability)
@@ -64,21 +88,21 @@ function Session:drop(surface)
   observed.service:emit(observed.context, { surface = surface, pointer = {} })
 end
 
-function Session:update(dt)
+function Session.update(self: Session, dt: number?)
   lovr.update(dt or 0.016)
 end
 
-function Session:draw()
+function Session.draw(self: Session): boolean
   return lovr.draw(self.native.events.pass)
 end
 
-function Session:quit()
+function Session.quit(self: Session): boolean
   return lovr.quit()
 end
 
 -- Closes the runtime and verifies release of native resources when the fake API is installed. A closed session
 -- ignores a second close.
-function Session:close()
+function Session.close(self: Session)
   if self.closed then
     return
   end
@@ -89,20 +113,20 @@ function Session:close()
   end
 end
 
-entryOf = function(entry)
+entryOf = function(entry: Entry): compose.Entry
   if type(entry) ~= 'string' then
     return entry
   end
   return { id = entry, definition = require('@lunette-plugins/' .. entry).definition }
 end
 
-startSession = function(entries, fake)
-  local resolved = {}
+startSession = function(entries: { Entry }, fake: native.Fake?): Session
+  local resolved: { compose.Entry } = {}
   for index, entry in ipairs(entries) do
     resolved[index] = entryOf(entry)
   end
   local runtime = adapter.runtime()
-  local instances = {}
+  local instances: { [string]: adapter.Instance<compose.Config> } = {}
   local ok, failure = pcall(function()
     for _, entry in ipairs(plugin.compose(resolved)) do
       local source = compose.resolveEntry(entry)

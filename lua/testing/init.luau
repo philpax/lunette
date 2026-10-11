@@ -7,7 +7,13 @@ local session = require '@testing/session'
 local suite = require '@testing/suite'
 
 -- The diagnostic a runtime's snapshot holds for one of its instances.
-local function diagnostic(runtime, instance)
+-- Native and adapter handles retain their own receivers behind this read-only view.
+export type SnapshotRuntime<R> = {
+  read snapshot: (R) -> { read instances: { read [number]: { read id: string, read diagnostic: string? } } },
+}
+export type IdentifiedInstance<I> = { read id: (I) -> string }
+
+local function diagnostic<R, I>(runtime: R & SnapshotRuntime<R>, instance: I & IdentifiedInstance<I>): string?
   for _, entry in runtime:snapshot().instances do
     if entry.id == instance:id() then
       return entry.diagnostic

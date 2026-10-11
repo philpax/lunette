@@ -2,19 +2,25 @@
 
 local suite = {}
 
+export type Case = { name: string, run: () -> () }
+export type Closeable<S> = { read close: (S) -> () }
+-- Heterogeneous storage erases the receiver type; closing pairs each method with its original session.
+type StoredSession = { read close: (any) -> () }
+type Cases = { cases: { Case } }
+
 local metatable = {}
 metatable.__index = metatable
 
 -- Sessions opened by the running case, or nil outside a case.
-local opened = nil
+local opened: { StoredSession }? = nil
 
-local function closing(run)
+local function closing(run: () -> ()): () -> ()
   return function()
     opened = {}
     local ok, failure = xpcall(run, debug.traceback)
     local sessions = opened
     opened = nil
-    local problems = {}
+    local problems: { string } = {}
     for index = #sessions, 1, -1 do
       local closed, problem = pcall(sessions[index].close, sessions[index])
       if not closed then
@@ -30,7 +36,7 @@ local function closing(run)
   end
 end
 
-function metatable:__call(name, run)
+function metatable.__call(self: Cases, name: string, run: () -> ())
   if type(name) ~= 'string' then
     error('testing: a case is named by a string, not a ' .. type(name), 2)
   end
@@ -40,16 +46,18 @@ function metatable:__call(name, run)
   self.cases[#self.cases + 1] = { name = name, run = closing(run) }
 end
 
-function suite.new()
+export type Suite = typeof(setmetatable({ cases = {} :: { Case } }, metatable))
+
+function suite.new(): Suite
   return setmetatable({ cases = {} }, metatable)
 end
 
-function suite.isSuite(value)
+function suite.isSuite(value: unknown): boolean
   return type(value) == 'table' and getmetatable(value) == metatable
 end
 
 -- Records a session to close after the running case. A session opened outside a case is the caller's to close.
-function suite.opened(session)
+function suite.opened<S>(session: S & Closeable<S>)
   if opened then
     opened[#opened + 1] = session
   end
