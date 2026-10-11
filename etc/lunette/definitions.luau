@@ -180,6 +180,11 @@ export type ChannelLayout =
   | "stereo"
   | "ambisonic"
 
+export type CompressionMethod =
+  | "deflate"
+  | "zlib"
+  | "gzip"
+
 export type DefaultAttribute =
   | "position"
   | "normal"
@@ -426,6 +431,12 @@ declare extern type Sound extends Object with
 end
 
 export type DataModule = {
+  compress:
+    & ((string: string, method: CompressionMethod?, level: number?) -> string)
+    & ((blob: Blob, method: CompressionMethod?, level: number?) -> Blob),
+  decompress:
+    & ((string: string, method: CompressionMethod?) -> string)
+    & ((blob: Blob, method: CompressionMethod?) -> Blob),
   newAudioStream: (capacity: number, format: SampleFormat?, channels: number, rate: number?) -> AudioStream,
   newBlob:
     & ((size: number, name: string?) -> Blob)
@@ -589,6 +600,7 @@ export type FilesystemModule = {
   append: (filename: string, content: string | Blob) -> (boolean, string?),
   createDirectory: (path: string) -> (boolean, string?),
   getAppdataDirectory: () -> string?,
+  getBundlePath: () -> (string?, string?),
   getDirectoryItems: (path: string) -> {string},
   getExecutablePath: () -> string?,
   getIdentity: () -> string?,
@@ -611,6 +623,7 @@ export type FilesystemModule = {
   remove: (path: string) -> (boolean, string?),
   setIdentity: (identity: string) -> (),
   setRequirePath: (path: string?) -> (),
+  setSource: (source: string) -> (),
   unmount: (path: string) -> boolean,
   unwatch: () -> (),
   watch: () -> (),
@@ -1223,9 +1236,12 @@ export type GraphicsModule = {
   getFeatures: () -> { read textureBC: boolean, read textureASTC: boolean, read wireframe: boolean, read depthClamp: boolean, read depthResolve: boolean, read raytracing: boolean, read indirectDrawFirstInstance: boolean, read float64: boolean, read int64: boolean, read int16: boolean, read cubic: boolean },
   getLimits: () -> { read textureSize2D: number, read textureSize3D: number, read textureSizeCube: number, read textureLayers: number, read renderSize: {}, read uniformBuffersPerStage: number, read storageBuffersPerStage: number, read sampledTexturesPerStage: number, read storageTexturesPerStage: number, read samplersPerStage: number, read resourcesPerShader: number, read uniformBufferRange: number, read storageBufferRange: number, read uniformBufferAlign: number, read storageBufferAlign: number, read vertexAttributes: number, read vertexBufferStride: number, read vertexShaderOutputs: number, read clipDistances: number, read cullDistances: number, read clipAndCullDistances: number, read workgroupCount: {}, read workgroupSize: {}, read totalWorkgroupSize: number, read computeSharedMemory: number, read indirectDrawCount: number, read instances: number, read anisotropy: number, read pointSize: number },
   getStats: () -> { read bufferMemory: number, read textureMemory: number, read memoryBudget: number, read memoryUsage: number },
+  getTiming: () -> { [Pass]: { read duration: number, read submit: number, read start: number?, read finish: number? } }?,
   getWindowPass: () -> Pass?,
+  initialize: () -> (),
   isFormatSupported: (format: TextureFormat, ...TextureFeature) -> (boolean, boolean),
   isHDR: () -> boolean,
+  isInitialized: () -> boolean,
   isTimingEnabled: () -> boolean,
   newBuffer:
     & ((size: number) -> Buffer)
@@ -1342,6 +1358,13 @@ export type FoveationLevel =
   | "medium"
   | "high"
 
+export type HandPose =
+  | "grip"
+  | "point"
+  | "pinch"
+  | "poke"
+  | "palm"
+
 export type HeadsetDriver =
   | "simulator"
   | "openxr"
@@ -1402,7 +1425,11 @@ export type HeadsetModule = {
   getDriver: () -> string,
   getFeatures: () -> { read battery: boolean, read overlay: boolean, read proximity: boolean, read passthrough: boolean, read refreshRate: boolean, read depthSubmission: boolean, read eyeTracking: boolean, read handTracking: boolean, read handTrackingElbow: boolean, read keyboardTracking: boolean, read viveTrackers: boolean, read handModel: boolean, read controllerModel: boolean, read controllerSkeleton: boolean, read cubeBackground: boolean, read equirectBackground: boolean, read layerColor: boolean, read layerCurve: boolean, read layerDepthTest: boolean, read layerFilter: boolean },
   getFoveation: () -> (FoveationLevel, boolean),
+  getHandOrientation: (hand: "left" | "right", pose: HandPose?) -> (number, number, number, number),
+  getHandPose: (hand: "left" | "right", pose: HandPose?) -> (number, number, number, number, number, number, number),
+  getHandPosition: (hand: "left" | "right", pose: HandPose?) -> (number, number, number),
   getHands: () -> {Device},
+  getLayerLimit: () -> number,
   getLayers: () -> {Layer},
   getModelKeys: () -> {lightuserdata},
   getName: () -> string,
@@ -1420,6 +1447,7 @@ export type HeadsetModule = {
     & ((model: Model) -> (number, number, number)),
   getRefreshRate: () -> number?,
   getRefreshRates: () -> {number}?,
+  getSessionGeneration: () -> number,
   getSkeleton:
     & ((device: Device) -> {{number}}?)
     & ((device: Device, t: {}) -> {{number}}?),
@@ -1432,6 +1460,7 @@ export type HeadsetModule = {
   isActive: () -> boolean,
   isDown: (device: Device?, button: DeviceButton) -> boolean?,
   isFocused: () -> boolean,
+  isHDR: () -> boolean,
   isMainSessionVisible: () -> boolean,
   isMounted: () -> boolean,
   isSeated: () -> boolean,
@@ -1582,18 +1611,20 @@ export type MathModule = {
     & ((position: vector, rotation: quaternion?) -> Mat4)
     & ((...number) -> Mat4)
     & ((d: number) -> Mat4),
-  newQuat: () -> quaternion,
+  newQuat: QuaternionModule
+    & ((x: number, y: number, z: number, w: number) -> quaternion)
+    & (() -> quaternion),
   newRandomGenerator:
     & (() -> RandomGenerator)
     & ((seed: number) -> RandomGenerator)
     & ((low: number, high: number) -> RandomGenerator),
-  newVec2:
+  newVec2: VectorModule
     & ((x: number, y: number, z: number?) -> vector)
     & ((n: number) -> vector),
-  newVec3:
+  newVec3: VectorModule
     & ((x: number, y: number, z: number?) -> vector)
     & ((n: number) -> vector),
-  newVec4:
+  newVec4: VectorModule
     & ((x: number, y: number, z: number?) -> vector)
     & ((n: number) -> vector),
   noise:
@@ -1601,20 +1632,22 @@ export type MathModule = {
     & ((x: number, y: number) -> number)
     & ((x: number, y: number, z: number) -> number)
     & ((x: number, y: number, z: number, w: number) -> number),
-  quat: () -> quaternion,
+  quat: QuaternionModule
+    & ((x: number, y: number, z: number, w: number) -> quaternion)
+    & (() -> quaternion),
   random:
     & (() -> number)
     & ((high: number) -> number)
     & ((low: number, high: number) -> number),
   randomNormal: (sigma: number?, mu: number?) -> number,
   setRandomSeed: (seed: number) -> (),
-  vec2:
+  vec2: VectorModule
     & ((x: number, y: number, z: number?) -> vector)
     & ((n: number) -> vector),
-  vec3:
+  vec3: VectorModule
     & ((x: number, y: number, z: number?) -> vector)
     & ((n: number) -> vector),
-  vec4:
+  vec4: VectorModule
     & ((x: number, y: number, z: number?) -> vector)
     & ((n: number) -> vector),
 }
@@ -2034,6 +2067,7 @@ export type SystemModule = {
   isWindowFullscreen: () -> boolean,
   isWindowOpen: () -> boolean,
   isWindowVisible: () -> boolean,
+  openConsole: () -> (),
   openWindow: (options: { read width: number?, read height: number?, read fullscreen: boolean?, read resizable: boolean?, read title: string?, read icon: string? }) -> (),
   pollEvents: (timeout: number?) -> (),
   requestPermission: (permission: Permission) -> (),
@@ -2086,6 +2120,7 @@ export type ThreadModule = {
 export type TimerModule = {
   getAverageDelta: () -> number,
   getDelta: () -> number,
+  getDisplayTime: () -> number,
   getFPS: () -> number,
   getTime: () -> number,
   sleep: (duration: number) -> (),
@@ -2093,6 +2128,7 @@ export type TimerModule = {
 }
 
 export type QuaternionModule = {
+  identity: quaternion,
   angleaxis: (angle: number, ax: number, ay: number, az: number) -> quaternion,
   between: (a: vector, b: vector) -> quaternion,
   conjugate: (q: quaternion) -> quaternion,
@@ -2109,23 +2145,45 @@ export type QuaternionModule = {
 }
 
 export type VectorModule = {
+  back: vector,
+  backward: vector,
+  down: vector,
+  forward: vector,
+  left: vector,
+  one: vector,
+  right: vector,
+  up: vector,
+  zero: vector,
+  abs: (v: vector) -> vector,
   angle: (a: vector, b: vector, axis: vector?) -> number,
+  ceil: (v: vector) -> vector,
+  clamp: (v: vector, min: vector, max: vector) -> vector,
+  create:
+    & ((x: number, y: number, z: number?) -> vector)
+    & ((n: number) -> vector),
   cross: (a: vector, b: vector) -> vector,
   distance: (a: vector, b: vector) -> number,
   dot: (a: vector, b: vector) -> number,
+  floor: (v: vector) -> vector,
   length: (v: vector) -> number,
   lerp: (a: vector, b: vector, t: number) -> vector,
+  magnitude: (v: vector) -> number,
+  max: (v: vector, ...vector) -> vector,
+  min: (v: vector, ...vector) -> vector,
   normalize: (v: vector) -> vector,
   pack:
     & ((x: number, y: number, z: number?) -> vector)
     & ((n: number) -> vector),
-  rotate: (v: vector, q: quaternion) -> number,
+  rotate: (v: vector, q: quaternion) -> vector,
+  sign: (v: vector) -> vector,
   unpack: (v: vector) -> (number, number, number),
 }
 
 export type LovrConfiguration = { version: string, identity: string, saveprecedence: boolean, modules: { audio: boolean, data: boolean, event: boolean, graphics: boolean, headset: boolean, math: boolean, physics: boolean, system: boolean, task: boolean, thread: boolean, timer: boolean }, audio: { debug: boolean, samplerate: number?, read start: boolean, write start: boolean?, read reverb: { type: "none" | "convolution" | "parametric", rays: number, bounces: number, duration: number, rate: number }, write reverb: { type: "none" | "convolution" | "parametric", rays: number, bounces: number, duration: number, rate: number }? }, graphics: { debug: boolean, vsync: boolean, stencil: boolean, antialias: boolean, lowpower: boolean, hdr: boolean, shadercache: boolean }, headset: { backend: "auto" | "openxr" | "openvr", connect: boolean, start: boolean, hdr: boolean, debug: boolean, read supersample: boolean, write supersample: boolean | number | nil, seated: boolean, read mask: boolean, write mask: boolean?, read antialias: boolean, write antialias: boolean?, stencil: boolean, read dynamicresolution: boolean, write dynamicresolution: boolean?, submitdepth: boolean, read overlay: boolean, write overlay: boolean | number, read controllerskeleton: "none" | "controller" | "natural", write controllerskeleton: "none" | "controller" | "natural" | nil, extensions: {string}? }, math: { globals: boolean }, thread: { read workers: number, write workers: number? }, read window: { read width: number, write width: number?, read height: number, write height: number?, centered: boolean, fullscreen: boolean, resizable: boolean, read title: string, write title: string?, icon: string | Blob | Image | nil }, write window: { read width: number, write width: number?, read height: number, write height: number?, centered: boolean, fullscreen: boolean, resizable: boolean, read title: string, write title: string?, icon: string | Blob | Image | nil }? }
 
 declare lovr: {
+  handlers: { [string]: ((...any) -> ...any)? },
+  boot: () -> (() -> (number | "restart" | nil, any)),
   getVersion: () -> (number, number, number, string, string),
 
   conf: ((t: LovrConfiguration) -> ())?,
@@ -2171,6 +2229,26 @@ declare lovr: {
   timer: TimerModule,
 }
 
+declare Mat4: (((n: Mat4) -> Mat4) & ((position: vector, scale: vector?, rotation: quaternion?) -> Mat4) & ((position: vector, rotation: quaternion?) -> Mat4) & ((...number) -> Mat4) & ((d: number) -> Mat4))?
+
+declare mat4: (((n: Mat4) -> Mat4) & ((position: vector, scale: vector?, rotation: quaternion?) -> Mat4) & ((position: vector, rotation: quaternion?) -> Mat4) & ((...number) -> Mat4) & ((d: number) -> Mat4))?
+
+declare Quat: (QuaternionModule & ((x: number, y: number, z: number, w: number) -> quaternion) & (() -> quaternion))?
+
+declare quat: (QuaternionModule & ((x: number, y: number, z: number, w: number) -> quaternion) & (() -> quaternion))?
+
+declare Vec2: (VectorModule & ((x: number, y: number, z: number?) -> vector) & ((n: number) -> vector))?
+
+declare Vec3: (VectorModule & ((x: number, y: number, z: number?) -> vector) & ((n: number) -> vector))?
+
+declare Vec4: (VectorModule & ((x: number, y: number, z: number?) -> vector) & ((n: number) -> vector))?
+
+declare vec2: (VectorModule & ((x: number, y: number, z: number?) -> vector) & ((n: number) -> vector))?
+
+declare vec3: (VectorModule & ((x: number, y: number, z: number?) -> vector) & ((n: number) -> vector))?
+
+declare vec4: (VectorModule & ((x: number, y: number, z: number?) -> vector) & ((n: number) -> vector))?
+
 declare extern type quaternion with
   x: number
   y: number
@@ -2206,16 +2284,26 @@ declare extern type vector with
   function __div(self, other: vector): vector
   function __div(self, other: number): vector
   function __unm(self): vector
+  function abs(self): vector
   function angle(self, b: vector, axis: vector?): number
+  function ceil(self): vector
+  function clamp(self, min: vector, max: vector): vector
+  function create(self, y: number, z: number?): vector
+  function create(self): vector
   function cross(self, b: vector): vector
   function distance(self, b: vector): number
   function dot(self, b: vector): number
+  function floor(self): vector
   function length(self): number
   function lerp(self, b: vector, t: number): vector
+  function magnitude(self): number
+  function max(self, ...: vector): vector
+  function min(self, ...: vector): vector
   function normalize(self): vector
   function pack(self, y: number, z: number?): vector
   function pack(self): vector
-  function rotate(self, q: quaternion): number
+  function rotate(self, q: quaternion): vector
+  function sign(self): vector
   function unpack(self): (number, number, number)
 end
 

@@ -139,6 +139,12 @@ The runner's own trials are named `runner::`. They check discovery classificatio
 
 `lua/testing/vr-ui.luau` drives the real frame, laser, interaction, and surfaces providers through LÖVR callbacks with per-hand controller state, and records native input, draws, and keyboard registrations. `lua/testing/render.luau` records draw calls, LÖVR transforms, and pass state, measures deterministic text boxes, and detects transform and state leaks after a drawing error. Neither rasterizes pixels or shapes text.
 
+### Runtime declaration tests
+
+`crates/lunette/tests/definition_surface.rs` executes LÖVR's boot script without resuming its coroutine, loads the linked modules through the session's preload registry, and compares their public tables with `etc/lunette/definitions.luau` in both directions. Luau's parser enumerates global declarations, follows table aliases and intersections, and preserves optional members. A missing required declaration or an undeclared runtime member fails `cargo test --workspace` with its full path. Optional callbacks may be absent. An optional table's required members are checked when the table is present. Underscore-prefixed implementation fields and the interpreter's standard globals are outside this comparison, except for globals explicitly named by the generated definitions.
+
+The probe checks both settings of `t.math.globals`. It does not start audio playback, graphics, a window, or an XR connection. LÖVR's finalizers release the loaded modules when the state closes. The comparison checks member names, not function signatures, instance methods, or callback invocation.
+
 ### Session tests
 
 `crates/lunette/tests/lunctl.rs` and `crates/lunette/tests/safe_mode.rs` share one running-session harness in `crates/lunette/tests/session`. It starts the binary against a fixture configuration, waits for the control socket, and evaluates chunks through `lunctl`, and the safe-mode tests stop the session with a chunk and assert the status it exits with. `crates/lunette/tests/exit_status.rs` holds the one-shot sessions, which report through the process exit status: the quit status itself, relative requires, ten soft reloads, and a write that must not reach a module root. These fixtures disable graphics, so the compositor thread never starts and no client can connect. `crates/lunette-compositor/tests/` covers client traffic in-process. A spawned test removes `HOME` and `LUNETTE_CONFIG_PATH` from the child's environment, so a mislaid fixture fails rather than loading the developer's configuration.
@@ -182,6 +188,8 @@ The development launch belongs to `make run`, not to the Nix shell. The shell su
 Lua tests run in an in-process state rather than in a session of the binary. A binary run needs a fixture configuration and data directory, reports every file as one test, and reaches neither the plugin host's failure reports nor a fake native API. The in-process state reports each file separately and uses LÖVR's own math, which a hand-written matrix fake could not match for rotations.
 
 `lunette --dump-config` writes the configuration embedded in the binary rather than the installed one. The installed directory is fixed at build time, absent for an uninstalled binary, and possibly from another version. The `.luaurc` names the root a session would mount. Resolving roots relative to the executable was rejected because it would add a candidate that a session does not use, and a configuration could then check clean and fail to load.
+
+Runtime declaration checks parse Luau's AST rather than matching generated text. Aliases, nested tables, and multiline intersections affect which names a declaration exposes. The check follows those constructs and rejects unsupported runtime types instead of returning a partial inventory. Interpreter-standard globals remain outside the comparison because Luau supplies their declarations; the LÖVR definitions explicitly name the native vector and quaternion tables.
 
 Development-only application launch lives in `dev/`, outside the installed roots. A terminal spawn in the default desktop was rejected because a normal session must not start an application implicitly.
 
