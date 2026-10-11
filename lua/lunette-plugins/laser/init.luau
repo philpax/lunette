@@ -129,7 +129,7 @@ local function makeLaser(
       end
       return headset.vibrate(controller, haptic.strength, haptic.duration, 0) and true
     end
-    local made, pointer = pcall(function()
+    local made, pointer = pcall(function(): interaction.Pointer
       return interactionService:newPointer(state.context, { seat = seat, tuning = given.tuning, vibrate = pulse })
     end)
     if not made then
@@ -280,7 +280,7 @@ local function build(context: plugin.Context, settings: Settings): Service
     themes = themes,
     refreshStyle = refreshStyle,
   }
-  context:effect(function()
+  context:effect(function(): () -> ()
     return function()
       state.active = false
       for _, target in ipairs(live(state)) do

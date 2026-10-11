@@ -11,6 +11,10 @@ local vocabulary = require '@lunette-contracts/vocabulary'
 
 local test = testing.suite()
 
+type Native = testing.Native
+type Binding = { read save: (Binding) -> (boolean, string?), read restore: (Binding) -> number }
+type BindingCallback = (Binding, plugin.Context, panelsContract.Service, Native) -> ()
+
 local POSE = vocabulary.encodePose(lovr.math.newMat4():translate(1, 1.5, -2))
 
 test('an arrangement round-trips through render and read, sizes to the last digit', function()
@@ -33,7 +37,7 @@ test('an arrangement round-trips through render and read, sizes to the last digi
 end)
 
 -- Runs `run` with a binding of a state that read `text` as the saved file, and answers the fake native API.
-local function withBinding(text: string?, run)
+local function withBinding(text: string?, run: BindingCallback): Native
   local native = testing.native()
   native.events.saved = text
   local state = persist.new(persist.FILE)
@@ -45,7 +49,7 @@ local function withBinding(text: string?, run)
       tagsContract.capability,
       rulesContract.capability,
     },
-    init = function(context)
+    init = function(context: plugin.Context)
       local panels = context:require(panelsContract.capability)
       local tags = context:require(tagsContract.capability)
       local binding = state:bind(context, panels, tags, context:require(rulesContract.capability))
@@ -58,7 +62,7 @@ end
 
 test('a broken file or one from a later version is refused and never overwritten', function()
   for _, text in { 'return { version = ' .. (format.VERSION + 1) .. ', entries = {} }', 'return {' } do
-    local native = withBinding(text, function(binding)
+    local native = withBinding(text, function(binding: Binding)
       local saved, message = binding:save()
       expect.equal(saved, false, 'the save')
       expect.truthy(message:find('written by version', 1, true) or message:find('could not be read', 1, true), message)
@@ -69,7 +73,7 @@ test('a broken file or one from a later version is refused and never overwritten
 end)
 
 test('a save then a restore puts live windows back in their slots', function()
-  withBinding(nil, function(binding, context, panels, native)
+  withBinding(nil, function(binding: Binding, context: plugin.Context, panels: panelsContract.Service, native: Native)
     local first = panels:fromWindow(context, native.newWindow(1), { pose = lovr.math.newMat4():translate(-1, 1, -2) })
     local second = panels:fromWindow(context, native.newWindow(2), { pose = lovr.math.newMat4():translate(1, 1, -2) })
     expect.equal(binding:save(), true, 'the save')

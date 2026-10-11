@@ -3,7 +3,18 @@ local expect = testing.expect
 local schema = require '@lunette-plugin/schema'
 local test = testing.suite()
 
-local function fixture()
+type Settings = {
+  count: number,
+  style: { width: number, inner: { depth: number }, colors: { number }, names: { [string]: string } },
+  note: string?,
+}
+type Config = {
+  count: number?,
+  style: { width: number?, inner: { depth: number? }?, colors: { number }?, names: { [string]: string }? }?,
+  note: string?,
+}
+
+local function fixture(): schema.Schema<Config, Settings>
   return schema.object {
     count = schema.default(schema.number())(3),
     style = schema.default(schema.object {
@@ -96,7 +107,7 @@ test('a malformed descriptor fails at construction, and a schema keeps the shape
   do
     expect.raises(run, 'schema')
   end
-  local shape = { count = schema.number() }
+  local shape: { count: schema.Schema<number, number> | schema.Schema<string, string> } = { count = schema.number() }
   local descriptor = schema.object(shape)
   shape.count = schema.string()
   expect.equal(descriptor.parse({ count = 2 }).count, 2, 'the schema retains its shape')

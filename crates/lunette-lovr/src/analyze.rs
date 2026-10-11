@@ -1,5 +1,7 @@
 //! Luau type checker built from the interpreter vendored by the LÖVR fork.
 
+#[cfg(unix)]
+use std::{ffi::OsStr, os::unix::ffi::OsStrExt};
 use std::{
     ffi::{CStr, CString, NulError, c_char},
     fmt,
@@ -132,26 +134,70 @@ pub fn check(request: &Request) -> Result<Report, Error> {
     // SAFETY: every pointer in `raw` is valid for the call, and the callee
     // copies what it keeps. Every path that obtains a report frees it.
     let report = unsafe { ffi::lunette_luau_check(&raw) };
+    // SAFETY: the callee returns a live report or null, and transfers ownership.
+    unsafe { collect_owned(report, lossy_path) }
+}
+
+/// Parses the named roots and requires explicit parameter, vararg, and value-return annotations.
+///
+/// This does not load definitions or run type inference. Successfully parsed roots count as checked even when annotations are missing.
+///
+/// # Errors
+///
+/// If a path holds an interior NUL, no roots are given, or the parser cannot run.
+pub fn check_annotations(roots: &[PathBuf]) -> Result<Report, Error> {
+    let roots = roots
+        .iter()
+        .map(|path| CString::new(path.as_os_str().as_encoded_bytes()))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(Error::Path)?;
+    let root_pointers: Vec<*const c_char> = roots.iter().map(|root| root.as_ptr()).collect();
+    let raw = ffi::lunette_luau_request {
+        definitions: ptr::null(),
+        roots: root_pointers.as_ptr(),
+        root_count: root_pointers.len(),
+    };
+
+    // SAFETY: the request and its paths live for the call, which copies what it keeps.
+    let report = unsafe { ffi::lunette_luau_check_annotations(&raw) };
+    // SAFETY: the callee returns a live report or null, and transfers ownership.
+    unsafe { collect_owned(report, annotation_path) }
+}
+
+/// # Safety
+///
+/// `report` must be null or a live report whose ownership the caller transfers.
+unsafe fn collect_owned(
+    report: *mut ffi::lunette_luau_report,
+    decode_path: fn(&CStr) -> PathBuf,
+) -> Result<Report, Error> {
     if report.is_null() {
         return Err(Error::Failed {
             reason: "the checker returned nothing".to_owned(),
             diagnostics: Vec::new(),
         });
     }
+    let owned = OwnedReport(report);
+    // SAFETY: the report is live and its arrays are valid for their stated counts.
+    unsafe { collect(owned.0, decode_path) }
+}
 
-    // SAFETY: a non-null report is a live allocation that the callee
-    // populated, and its arrays are valid for their stated counts.
-    let outcome = unsafe { collect(report) };
-    // SAFETY: the report has not been freed, and nothing borrows it after
-    // `collect` copies everything out.
-    unsafe { ffi::lunette_luau_report_free(report) };
-    outcome
+struct OwnedReport(*mut ffi::lunette_luau_report);
+
+impl Drop for OwnedReport {
+    fn drop(&mut self) {
+        // SAFETY: this owner holds the live report, and conversion keeps no borrows of it.
+        unsafe { ffi::lunette_luau_report_free(self.0) };
+    }
 }
 
 /// # Safety
 ///
 /// `report` must be a live report whose arrays match their counts.
-unsafe fn collect(report: *mut ffi::lunette_luau_report) -> Result<Report, Error> {
+unsafe fn collect(
+    report: *mut ffi::lunette_luau_report,
+    decode_path: fn(&CStr) -> PathBuf,
+) -> Result<Report, Error> {
     // SAFETY: the caller guarantees the report is live.
     let report = unsafe { &*report };
 
@@ -164,7 +210,7 @@ unsafe fn collect(report: *mut ffi::lunette_luau_report) -> Result<Report, Error
             .iter()
             // SAFETY: each string is NUL-terminated and remains valid until
             // the report is freed.
-            .map(|raw| unsafe { diagnostic(raw) })
+            .map(|raw| unsafe { diagnostic(raw, decode_path) })
             .collect()
     };
 
@@ -187,13 +233,7 @@ unsafe fn collect(report: *mut ffi::lunette_luau_report) -> Result<Report, Error
             .iter()
             // SAFETY: the pointer for the string is valid for the
             // lifetime of the report's checked array.
-            .map(|raw| {
-                PathBuf::from(
-                    unsafe { CStr::from_ptr(*raw) }
-                        .to_string_lossy()
-                        .into_owned(),
-                )
-            })
+            .map(|raw| decode_path(unsafe { CStr::from_ptr(*raw) }))
             .collect()
     };
 
@@ -206,7 +246,10 @@ unsafe fn collect(report: *mut ffi::lunette_luau_report) -> Result<Report, Error
 /// # Safety
 ///
 /// `raw`'s strings must be NUL-terminated and live for the call.
-unsafe fn diagnostic(raw: &ffi::lunette_luau_diagnostic) -> Diagnostic {
+unsafe fn diagnostic(
+    raw: &ffi::lunette_luau_diagnostic,
+    decode_path: fn(&CStr) -> PathBuf,
+) -> Diagnostic {
     let kind = match raw.kind {
         ffi::LUNETTE_LUAU_SYNTAX_ERROR => Kind::SyntaxError,
         ffi::LUNETTE_LUAU_LINT_ERROR => Kind::LintError,
@@ -214,9 +257,7 @@ unsafe fn diagnostic(raw: &ffi::lunette_luau_diagnostic) -> Diagnostic {
         _ => Kind::TypeError,
     };
     // SAFETY: the caller guarantees the strings.
-    let module = unsafe { CStr::from_ptr(raw.module) }
-        .to_string_lossy()
-        .into_owned();
+    let module = decode_path(unsafe { CStr::from_ptr(raw.module) });
     // SAFETY: the caller guarantees the string is NUL-terminated and
     // remains valid until the report is freed.
     let message = unsafe { CStr::from_ptr(raw.message) }
@@ -225,13 +266,27 @@ unsafe fn diagnostic(raw: &ffi::lunette_luau_diagnostic) -> Diagnostic {
 
     Diagnostic {
         kind,
-        module: PathBuf::from(module),
+        module,
         line: raw.line.max(0).unsigned_abs(),
         column: raw.column.max(0).unsigned_abs(),
         end_line: raw.end_line.max(0).unsigned_abs(),
         end_column: raw.end_column.max(0).unsigned_abs(),
         message,
     }
+}
+
+fn lossy_path(path: &CStr) -> PathBuf {
+    PathBuf::from(path.to_string_lossy().into_owned())
+}
+
+#[cfg(unix)]
+fn annotation_path(path: &CStr) -> PathBuf {
+    PathBuf::from(OsStr::from_bytes(path.to_bytes()))
+}
+
+#[cfg(not(unix))]
+fn annotation_path(path: &CStr) -> PathBuf {
+    lossy_path(path)
 }
 
 /// A check that cannot run.
@@ -302,6 +357,9 @@ mod ffi {
     unsafe extern "C" {
         pub fn lunette_luau_check(request: *const lunette_luau_request)
         -> *mut lunette_luau_report;
+        pub fn lunette_luau_check_annotations(
+            request: *const lunette_luau_request,
+        ) -> *mut lunette_luau_report;
         pub fn lunette_luau_report_free(report: *mut lunette_luau_report);
     }
 }

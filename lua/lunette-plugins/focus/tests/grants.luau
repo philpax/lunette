@@ -3,15 +3,43 @@ local expect = testing.expect
 local contract = require '@lunette-contracts/focus'
 local test = testing.suite()
 
-local function start()
-  local env = { native = testing.native(), heard = {} }
+type Sink = { dead: boolean, domain: 'window', id: number, key: (() -> boolean)?, setModifiers: (() -> boolean)? }
+type Seat = {
+  id: number,
+  dead: boolean,
+  calls: { { sink: Sink? } },
+  refuse: boolean?,
+  focus: Sink?,
+  setFocus: (Seat, Sink?) -> boolean,
+}
+type Context = testing.Context
+type Observed = testing.Observed<contract.Service>
+type Environment = {
+  native: testing.Native,
+  heard: { contract.Change },
+  session: testing.Session?,
+  first: Observed?,
+  second: Observed?,
+  focus: contract.Service?,
+  owner: Context?,
+  other: Context?,
+  left: Seat?,
+  right: Seat?,
+  sink: Sink?,
+  otherSink: Sink?,
+  nativeTarget: (Environment, Context, Seat, Sink) -> contract.TargetHandle,
+  localTarget: (Environment) -> contract.TargetHandle,
+}
+
+local function start(): Environment
+  local env: Environment = { native = testing.native(), heard = {} }
   env.session = testing.boot({ 'frame', 'focus' }, { native = env.native })
   env.first = env.session:observe(contract.capability)
   env.second = env.session:observe(contract.capability)
   env.focus, env.owner, env.other = env.first.service, env.first.context, env.second.context
-  local function seat(id)
-    local value = { id = id, dead = false, calls = {} }
-    function value:setFocus(sink)
+  local function seat(id: number): Seat
+    local value: Seat = { id = id, dead = false, calls = {} }
+    function value:setFocus(sink: Sink?): boolean
       self.calls[#self.calls + 1] = { sink = sink }
       if self.refuse then
         return false
@@ -24,32 +52,32 @@ local function start()
   env.left, env.right = seat(11), seat(12)
   env.sink, env.otherSink = { dead = false, domain = 'window', id = 1 }, { dead = false, domain = 'window', id = 2 }
   for _, sink in { env.sink, env.otherSink } do
-    sink.key = function()
+    sink.key = function(): boolean
       return true
     end
-    sink.setModifiers = function()
+    sink.setModifiers = function(): boolean
       return true
     end
   end
-  function env:nativeTarget(owner, seatValue, sink)
+  function env:nativeTarget(owner: Context, seatValue: Seat, sink: Sink): contract.TargetHandle
     return self.focus:register(owner, { kind = 'native', seat = seatValue, sink = sink })
   end
-  function env:localTarget()
+  function env:localTarget(): contract.TargetHandle
     return self.focus:register(self.owner, {
       kind = 'local',
       wantsKeyboard = true,
       receiver = {
-        key = function()
+        key = function(): boolean
           return false
         end,
-        text = function()
+        text = function(): boolean
           return false
         end,
       },
     })
   end
   env.focus:onChanged(env.owner, {
-    run = function(change)
+    run = function(change: contract.Change)
       env.heard[#env.heard + 1] = change
     end,
   })

@@ -1,4 +1,4 @@
-function lovr.conf(t)
+function lovr.conf(t: LovrConfiguration)
   t.identity = 'lunette-openvr-manual-diagnostic'
   t.saveprecedence = false
   t.modules.audio = false

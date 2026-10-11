@@ -5,12 +5,16 @@ local plugin = require('@lunette').plugin
 
 local test = testing.suite()
 
+type NativeContext = testing.NativeContext
+type NativeDefinition = testing.NativeDefinition
+type Attempts = { active: boolean, effect: boolean, child: boolean, owner: boolean }
+
 -- Attempts each acquisition a cleanup must not make, and answers which succeeded.
-local function attempt(context, providerContext, child)
+local function attempt(context: NativeContext, providerContext: NativeContext, child: NativeDefinition): Attempts
   return {
     active = context:active(),
     effect = pcall(function()
-      context:effect(function()
+      context:effect(function(): () -> ()
         return function() end
       end)
     end),
@@ -26,11 +30,11 @@ end
 test('a failing load rolls back in reverse with its services readable, and a failing inverse quarantines it', function()
   local runtime = plugin.runtime()
   local dependency = plugin.contract('audit/rollback-dependency', 1)
-  local events = {}
-  local providerContext
+  local events: { string } = {}
+  local providerContext: NativeContext?
   runtime
     :use(
-      plugin.define({}, { service = dependency }, function(context)
+      plugin.define({}, { service = dependency }, function(context: NativeContext): { service: number }
         providerContext = context
         return { service = 42 }
       end),
@@ -38,17 +42,17 @@ test('a failing load rolls back in reverse with its services readable, and a fai
     )
     :enable()
   local childLoads = 0
-  local child = plugin.define({}, {}, function()
+  local child = plugin.define({}, {}, function(): {}
     childLoads += 1
     return {}
   end)
   local loads = 0
-  local attempts = {}
+  local attempts: { Attempts } = {}
   local instance = runtime:use(
-    plugin.define({ dependency = dependency }, {}, function(context)
+    plugin.define({ dependency = dependency }, {}, function(context: NativeContext): never
       loads += 1
       for index = 1, 3 do
-        context:effect(function()
+        context:effect(function(): () -> ()
           return function()
             table.insert(events, tostring(index))
             expect.equal(context:services().dependency, 42, 'the dependency during rollback')
@@ -85,25 +89,25 @@ end)
 
 test('a cleanup reads its services but acquires nothing, and an owner check accepts only the current caller', function()
   local token = plugin.contract('audit/authority', 1)
-  local providerContext
-  local contexts = {}
-  local cleanups = {}
-  local child = plugin.define({}, {}, function()
+  local providerContext: NativeContext?
+  local contexts: { NativeContext } = {}
+  local cleanups: { Attempts } = {}
+  local child = plugin.define({}, {}, function(): {}
     return {}
   end)
   local runtime = plugin.runtime()
   local provider = runtime:use(
-    plugin.define({}, { service = token }, function(context)
+    plugin.define({}, { service = token }, function(context: NativeContext): { service: number }
       providerContext = context
       return { service = 42 }
     end),
     {}
   )
   local consumer = runtime:use(
-    plugin.define({ service = token }, {}, function(context)
+    plugin.define({ service = token }, {}, function(context: NativeContext): {}
       table.insert(contexts, context)
       providerContext:checkOwner(context)
-      context:effect(function()
+      context:effect(function(): () -> ()
         return function()
           expect.equal(context:services().service, 42, 'the service during cleanup')
           table.insert(cleanups, attempt(context, providerContext, child))
@@ -129,8 +133,8 @@ test('a cleanup reads its services but acquires nothing, and an owner check acce
 end)
 
 test('an acquisition that yields fails the load', function()
-  local definition = plugin.define({}, {}, function(context)
-    context:effect(function()
+  local definition = plugin.define({}, {}, function(context: NativeContext): {}
+    context:effect(function(): () -> ()
       coroutine.yield()
       return function() end
     end)

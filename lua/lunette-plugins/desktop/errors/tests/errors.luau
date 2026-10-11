@@ -17,7 +17,7 @@ test('the error overlay draws the latest report at its configured position', fun
   }
   session.native.raise('fixture overlay error', 'fixture traceback')
   session:draw()
-  local plane, text
+  local plane: testing.DrawCall?, text: testing.DrawCall?
   for _, call in ipairs(session.native.events.draw) do
     if call[1] == 'plane' then
       plane = call

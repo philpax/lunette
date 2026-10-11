@@ -3,7 +3,7 @@
 -- The modules that need a display, an XR runtime, or a sound device are off,
 -- and `t.window = nil` suppresses the window.
 
-function lovr.conf(t)
+function lovr.conf(t: LovrConfiguration)
   -- A distinct identity, because boot.lua creates
   -- $XDG_DATA_HOME/LOVR/<identity> on every run and two runs sharing a leaf
   -- race to create it.

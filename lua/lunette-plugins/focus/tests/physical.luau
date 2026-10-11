@@ -8,8 +8,9 @@ local physical = require '@lunette-plugins/focus/physical'
 
 local test = testing.suite()
 
-local function snapshot(fields)
-  local value = { shift = false, control = false, alt = false, logo = false, capsLock = false, numLock = false }
+local function snapshot(fields: { [string]: boolean }?): { [string]: boolean? }
+  local value: { [string]: boolean? } =
+    { shift = false, control = false, alt = false, logo = false, capsLock = false, numLock = false }
   for name, enabled in fields or {} do
     value[name] = enabled
   end

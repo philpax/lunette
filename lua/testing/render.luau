@@ -2,10 +2,113 @@
 -- Text bounds are metric boxes, not rasterized glyph ink.
 
 local render = {}
+
+export type FontSpec =
+  { read kind: 'default' }
+  | { read kind: 'file', read file: string, read size: number, read spread: number }
+export type Font = {
+  spec: FontSpec,
+  released: boolean,
+  release: (Font) -> (),
+  getHeight: (Font) -> number,
+  getLineSpacing: (Font) -> number,
+  getWidth: (Font, string) -> number,
+  getLines: (Font, string, number?) -> { string },
+}
+export type Mesh = {
+  capacity: number,
+  vertices: { { number } },
+  indices: { number },
+  released: boolean,
+  setVertices: (Mesh, { { number } }) -> (),
+  setIndices: (Mesh, { number }) -> (),
+  release: (Mesh) -> (),
+}
+export type Shader = { vertex: string, fragment: string, released: boolean, release: (Shader) -> () }
+-- Recorded graphics calls retain the different overloads accepted at the LÖVR boundary.
+export type TextureToken = { read name: string?, read getDimensions: ((TextureToken) -> (number, number))? }
+export type Argument =
+  nil
+  | boolean
+  | number
+  | string
+  | vector
+  | Mat4
+  | quaternion
+  | Texture
+  | Material
+  | Font
+  | Mesh
+  | Shader
+  | TextureToken
+  | { number }
+  | { vector }
+  | { x: number, y: number, z: number }
+export type Arguments = { [number]: Argument, n: number }
+export type State = { [string]: Arguments }
+export type Stacks = { state: { State }, transform: { Mat4 } }
+export type Checkpoint = { state: State, transform: Mat4, stacks: Stacks }
+export type Call = { [number]: Argument, n: number, state: State, transform: Mat4, draw: boolean?, points: { vector }? }
+export type Box = { read x: number, read y: number, read width: number, read height: number, read tolerance: number? }
+export type Pass = {
+  getFont: (Pass) -> Font,
+  setColor: (Pass, ...Argument) -> (),
+  setFont: (Pass, Font) -> (),
+  setDepthTest: (Pass, ...Argument) -> (),
+  setDepthWrite: (Pass, boolean) -> (),
+  setShader: (Pass, (Shader | string)?) -> (),
+  setMaterial: (Pass, Argument) -> (),
+  setBlendMode: (Pass, ...Argument) -> (),
+  setCullMode: (Pass, ...Argument) -> (),
+  setScissor: (Pass, ...Argument) -> (),
+  push: (Pass, ...Argument) -> (),
+  pop: (Pass, ...Argument) -> (),
+  transform: (Pass, ...Argument) -> (),
+  translate: (Pass, ...Argument) -> (),
+  rotate: (Pass, ...Argument) -> (),
+  scale: (Pass, ...Argument) -> (),
+  plane: (Pass, ...Argument) -> (),
+  roundrect: (Pass, ...Argument) -> (),
+  text: (Pass, ...Argument) -> (),
+  line: (Pass, ...Argument) -> (),
+  sphere: (Pass, ...Argument) -> (),
+  draw: (Pass, ...Argument) -> (),
+}
+export type Recorder = {
+  calls: { Call },
+  _sink: () -> { Call },
+  font: Font,
+  pass: Pass,
+  fontMeasurements: { { font: Font, method: string, text: string? } },
+  meshAcquisitions: { Mesh },
+  shaderAcquisitions: { Shader },
+  meshReleases: { Mesh },
+  _state: State,
+  _transform: Mat4,
+  _stacks: Stacks,
+  _initial: Checkpoint,
+  newFont: (Recorder, string, number, number) -> Font,
+  newMesh: (Recorder, number) -> Mesh,
+  newShader: (Recorder, string, string) -> Shader,
+  assertMeshesReleased: (Recorder) -> (),
+  within: <R...>(Recorder, Box, (Pass) -> R...) -> R...,
+  checkpoint: (Recorder) -> Checkpoint,
+  assertRestored: (Recorder, Checkpoint?) -> (),
+}
+
 local Recorder = {}
 Recorder.__index = Recorder
 
-local newFont, newPass, copyState, copyStacks, sameMatrix, sameState, geometry, readTransform, readVector
+type FileFontSpec = { read kind: 'file', read file: string, read size: number, read spread: number }
+local newFont: (FileFontSpec?, Recorder?) -> Font
+local newPass: (Recorder) -> Pass
+local copyState: (State) -> State
+local copyStacks: (Stacks) -> Stacks
+local sameMatrix: (Mat4, Mat4) -> boolean
+local sameState: (State, State) -> boolean
+local geometry: (string, Arguments, Mat4, Font) -> { vector }?
+local readTransform: (Arguments, number, number) -> (Mat4, number)
+local readVector: (Arguments, number) -> (number, number, number, number)
 local SETTERS = {
   'setColor',
   'setFont',
@@ -19,11 +122,11 @@ local SETTERS = {
 }
 local DRAW_METHODS = { 'plane', 'roundrect', 'text', 'line', 'sphere', 'draw' }
 
-function render.new(calls)
+function render.new(calls: ({ Call } | () -> { Call })?): Recorder
   calls = calls or {}
   local sink = if type(calls) == 'function'
     then calls
-    else function()
+    else function(): { Call }
       return calls
     end
   local self = setmetatable({
@@ -43,16 +146,16 @@ function render.new(calls)
   return self
 end
 
-function Recorder:newFont(file, size, spread)
+function Recorder.newFont(self: Recorder, file: string, size: number, spread: number): Font
   local spec = table.freeze { kind = 'file', file = file, size = size, spread = spread }
   return newFont(spec, self)
 end
 
-function Recorder:newMesh(count)
+function Recorder.newMesh(self: Recorder, count: number): Mesh
   assert(type(count) == 'number' and count >= 0, 'render recorder: invalid mesh capacity')
   local recorder = self
-  local mesh = { capacity = count, vertices = {}, indices = {}, released = false }
-  function mesh:setVertices(vertices)
+  local mesh: Mesh = { capacity = count, vertices = {}, indices = {}, released = false }
+  function mesh.setVertices(self: Mesh, vertices: { { number } })
     assert(not self.released, 'render recorder: released mesh updated')
     assert(#vertices <= self.capacity, 'render recorder: mesh vertex capacity exceeded')
     self.vertices = {}
@@ -67,14 +170,14 @@ function Recorder:newMesh(count)
       self.vertices[#self.vertices + 1] = table.clone(vertex)
     end
   end
-  function mesh:setIndices(indices)
+  function mesh.setIndices(self: Mesh, indices: { number })
     assert(not self.released, 'render recorder: released mesh updated')
     self.indices = table.clone(indices)
     for _, index in indices do
       assert(index % 1 == 0 and index > 0 and index <= #self.vertices, 'render recorder: invalid vertex index')
     end
   end
-  function mesh:release()
+  function mesh.release(self: Mesh)
     assert(not self.released, 'render recorder: mesh released twice')
     self.released = true
     recorder.meshReleases[#recorder.meshReleases + 1] = self
@@ -83,9 +186,9 @@ function Recorder:newMesh(count)
   return mesh
 end
 
-function Recorder:newShader(vertex, fragment)
+function Recorder.newShader(self: Recorder, vertex: string, fragment: string): Shader
   local shader = { vertex = vertex, fragment = fragment, released = false }
-  function shader:release()
+  function shader.release(self: Shader)
     assert(not self.released, 'render recorder: shader released twice')
     self.released = true
   end
@@ -93,14 +196,14 @@ function Recorder:newShader(vertex, fragment)
   return shader
 end
 
-function Recorder:assertMeshesReleased()
+function Recorder.assertMeshesReleased(self: Recorder)
   for _, mesh in self.meshAcquisitions do
     assert(mesh.released, 'render recorder: leaked mesh')
   end
 end
 
 -- The box is in the coordinates of the transform current when within is called.
-function Recorder:within(box, callback)
+function Recorder.within<R...>(self: Recorder, box: Box, callback: (Pass) -> R...): R...
   self.calls = self._sink()
   local first, frame = #self.calls + 1, lovr.math.newMat4(self._transform)
   local results = table.pack(pcall(callback, self.pass))
@@ -139,7 +242,7 @@ function Recorder:within(box, callback)
   return table.unpack(results, 2, results.n)
 end
 
-function Recorder:checkpoint()
+function Recorder.checkpoint(self: Recorder): Checkpoint
   return {
     state = copyState(self._state),
     transform = lovr.math.newMat4(self._transform),
@@ -147,7 +250,7 @@ function Recorder:checkpoint()
   }
 end
 
-function Recorder:assertRestored(checkpoint)
+function Recorder.assertRestored(self: Recorder, checkpoint: Checkpoint?)
   local wanted = checkpoint or self._initial
   for _, kind in { 'state', 'transform' } do
     local actual, saved = self._stacks[kind], wanted.stacks[kind]
@@ -164,30 +267,30 @@ function Recorder:assertRestored(checkpoint)
   assert(sameState(self._state, wanted.state), 'render recorder: restoration: drawing state changed')
 end
 
-newFont = function(spec, recorder)
+newFont = function(spec: FileFontSpec?, recorder: Recorder?): Font
   local font = { spec = spec or table.freeze { kind = 'default' }, released = false }
   local advance = if spec then 0.7 + spec.size / 1000 + spec.spread / 10000 else 0.5
   local height = if spec then 1.2 else 1
-  local function live(method, text)
+  local function live(method: string, text: string?)
     assert(not font.released, 'render recorder: released font used for ' .. method)
     if recorder then
       recorder.fontMeasurements[#recorder.fontMeasurements + 1] = { font = font, method = method, text = text }
     end
   end
-  function font:release()
+  function font.release(self: Font)
     assert(spec, 'render recorder: default font must not be released')
     assert(not self.released, 'render recorder: font released twice')
     self.released = true
   end
-  function font:getHeight()
+  function font.getHeight(self: Font): number
     live 'getHeight'
     return height
   end
-  function font:getLineSpacing()
+  function font.getLineSpacing(self: Font): number
     live 'getLineSpacing'
     return if spec then 1.1 else 1
   end
-  function font:getWidth(text)
+  function font.getWidth(self: Font, text: string): number
     live('getWidth', text)
     local width = 0
     for line in (text .. '\n'):gmatch '(.-)\n' do
@@ -197,12 +300,12 @@ newFont = function(spec, recorder)
     end
     return width
   end
-  function font:getLines(text, wrap)
+  function font.getLines(self: Font, text: string, wrap: number?): { string }
     live('getLines', text)
     wrap = wrap or 0
     assert(wrap >= 0 and wrap < math.huge, 'render recorder: font: invalid wrap')
     local limit = if wrap == 0 then math.huge else math.max(1, math.floor(wrap / advance))
-    local lines = {}
+    local lines: { string } = {}
     for line in (text .. '\n'):gmatch '(.-)\n' do
       assert(utf8.len(line), 'render recorder: font: invalid UTF-8')
       local start, count = 1, 0
@@ -220,11 +323,11 @@ newFont = function(spec, recorder)
   return font
 end
 
-newPass = function(recorder)
+newPass = function(recorder: Recorder): Pass
   local pass = {}
-  local function record(name, ...)
+  local function record(name: string, ...: Argument): Call
     recorder.calls = recorder._sink()
-    local call = table.pack(name, ...)
+    local call: Call = table.pack(name, ...)
     for index = 2, call.n do
       if type(call[index]) == 'userdata' and call[index].type and call[index]:type() == 'Mat4' then
         call[index] = lovr.math.newMat4(call[index])
@@ -236,16 +339,16 @@ newPass = function(recorder)
     return call
   end
   for _, method in SETTERS do
-    pass[method] = function(_, ...)
+    pass[method] = function(_: Pass, ...: Argument)
       record(method, ...)
       recorder._state[method] = table.pack(...)
     end
   end
-  function pass:getFont()
+  function pass.getFont(self: Pass): Font
     local setting = recorder._state.setFont
     return setting and setting[1] or recorder.font
   end
-  function pass:push(...)
+  function pass.push(self: Pass, ...: Argument)
     local kind = (...) or 'transform'
     assert(recorder._stacks[kind], 'render recorder: push: unknown stack ' .. tostring(kind))
     record('push', ...)
@@ -254,7 +357,7 @@ newPass = function(recorder)
       if kind == 'state' then copyState(recorder._state) else lovr.math.newMat4(recorder._transform)
     )
   end
-  function pass:pop(...)
+  function pass.pop(self: Pass, ...: Argument)
     local kind = (...) or 'transform'
     record('pop', ...)
     local stack = recorder._stacks[kind]
@@ -268,15 +371,15 @@ newPass = function(recorder)
     end
   end
   for _, method in { 'translate', 'rotate', 'scale' } do
-    pass[method] = function(_, ...)
+    pass[method] = function(_: Pass, ...: Argument)
       record(method, ...)
       recorder._transform[method](recorder._transform, ...)
     end
   end
-  function pass:transform(...)
+  function pass.transform(self: Pass, ...: Argument)
     record('transform', ...)
     local args = table.pack(...)
-    local matrix
+    local matrix: Mat4
     if args.n == 7 then
       matrix = lovr.math.newMat4():translate(args[1], args[2], args[3]):rotate(args[4], args[5], args[6], args[7])
     else
@@ -285,7 +388,7 @@ newPass = function(recorder)
     recorder._transform:mul(matrix)
   end
   for _, method in DRAW_METHODS do
-    pass[method] = function(_, ...)
+    pass[method] = function(_: Pass, ...: Argument)
       local call = record(method, ...)
       call.draw = true
       call.points = geometry(method, table.pack(...), call.transform, pass:getFont())
@@ -294,16 +397,16 @@ newPass = function(recorder)
   return pass
 end
 
-copyState = function(state)
-  local result = {}
+copyState = function(state: State): State
+  local result: State = {}
   for key, value in state do
     result[key] = table.clone(value)
   end
   return result
 end
 
-copyStacks = function(stacks)
-  local result = { state = {}, transform = {} }
+copyStacks = function(stacks: Stacks): Stacks
+  local result: Stacks = { state = {}, transform = {} }
   for kind, entries in stacks do
     for index, entry in entries do
       result[kind][index] = if kind == 'state' then copyState(entry) else lovr.math.newMat4(entry)
@@ -312,7 +415,7 @@ copyStacks = function(stacks)
   return result
 end
 
-sameMatrix = function(a, b)
+sameMatrix = function(a: Mat4, b: Mat4): boolean
   local left, right = { a:unpack(true) }, { b:unpack(true) }
   for index, value in left do
     if not (math.abs(value - right[index]) <= 0.00001) then
@@ -322,7 +425,7 @@ sameMatrix = function(a, b)
   return true
 end
 
-sameState = function(a, b)
+sameState = function(a: State, b: State): boolean
   for key, value in a do
     local other = b[key]
     if not other or value.n ~= other.n then
@@ -342,13 +445,13 @@ sameState = function(a, b)
   return true
 end
 
-geometry = function(method, args, transform, font)
-  local points = {}
-  local function point(matrix, x, y, z)
+geometry = function(method: string, args: Arguments, transform: Mat4, font: Font): { vector }?
+  local points: { vector } = {}
+  local function point(matrix: Mat4, x: number, y: number, z: number?)
     local px, py, pz = matrix:mul(x, y, z or 0)
     points[#points + 1] = vector.pack(px, py, pz)
   end
-  local function rectangle(matrix, x, y, width, height, z)
+  local function rectangle(matrix: Mat4, x: number, y: number, width: number, height: number, z: number?)
     point(matrix, x, y, z)
     point(matrix, x + width, y, z)
     point(matrix, x + width, y + height, z)
@@ -418,7 +521,7 @@ geometry = function(method, args, transform, font)
   return points
 end
 
-readTransform = function(args, index, dimensions)
+readTransform = function(args: Arguments, index: number, dimensions: number): (Mat4, number)
   local value = args[index]
   if value == nil then
     return lovr.math.newMat4(), index + 1
@@ -452,7 +555,7 @@ readTransform = function(args, index, dimensions)
   return matrix:scale(sx, sy, sz), index
 end
 
-readVector = function(args, index)
+readVector = function(args: Arguments, index: number): (number, number, number, number)
   local value = args[index]
   if type(value) == 'number' then
     return value, args[index + 1] or value, args[index + 2] or value, index + 3

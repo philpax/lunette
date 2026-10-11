@@ -4,7 +4,7 @@ local view = require '@lunette-plugins/desktop/manager/view'
 local expect = testing.expect
 local test = testing.suite()
 
-local function fixture()
+local function fixture(): (view.State, graph.Point)
   local state = view.new { x = 640, y = 480 }
   view.update(state, {
     nodes = {

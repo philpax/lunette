@@ -7,8 +7,24 @@ local interactionContract = require '@lunette-contracts/interaction'
 
 local test = testing.suite()
 
-local function start(definition)
-  local env = { native = testing.native() }
+type PointerEvent = laserContract.PointerEvent
+type Env = {
+  native: testing.Native,
+  controls: vrUi.Fixture?,
+  session: testing.Session?,
+  consumer: testing.Observed<laserContract.Service>?,
+  service: laserContract.Service?,
+  owner: testing.Context?,
+}
+type LaserDetails = { read hand: laserContract.Hand, read ownsSeat: boolean, read seatId: number? }
+type BorrowedSeat = {
+  dead: boolean,
+  setFocus: ((BorrowedSeat) -> boolean)?,
+  destroy: ((BorrowedSeat) -> boolean)?,
+}
+
+local function start(definition: testing.Definition<laser.Config>?): Env
+  local env: Env = { native = testing.native() }
   env.controls = vrUi.hands(env.native)
   env.session = testing.start {
     'theme',
@@ -23,7 +39,7 @@ local function start(definition)
 end
 
 -- Counts the live pointers and the lasers' owned seats through inspection.
-local function pointers(env)
+local function pointers(env: Env): number
   local count = 0
   for _, registration in env.session:observe(interactionContract.capability).service:inspect().registrations do
     if registration.kind == 'pointer' and registration.live then
@@ -33,8 +49,8 @@ local function pointers(env)
   return count
 end
 
-local function lasers(env)
-  local found = {}
+local function lasers(env: Env): { [laserContract.Hand]: LaserDetails }
+  local found: { [laserContract.Hand]: LaserDetails } = {}
   for _, registration in env.service:inspect().registrations do
     if registration.live then
       found[registration.details.hand] = registration.details
@@ -43,13 +59,13 @@ local function lasers(env)
   return found
 end
 
-local function trigger(env, held)
+local function trigger(env: Env, held: boolean)
   env.controls:button('left', 'trigger', held)
   env.controls:button('right', 'trigger', held)
 end
 
-local function calls(env, name)
-  local found = {}
+local function calls(env: Env, name: string): { testing.DrawCall }
+  local found: { testing.DrawCall } = {}
   for _, call in ipairs(env.native.events.draw) do
     if call[1] == name then
       found[#found + 1] = call
@@ -58,7 +74,7 @@ local function calls(env, name)
   return found
 end
 
-local function frame(x, y, z)
+local function frame(x: number, y: number, z: number): laserContract.Input
   return {
     pose = lovr.math.newMat4(),
     origin = vector.create(0, 0, 0),
@@ -72,13 +88,13 @@ end
 test("the default reader maps the trigger, and a hover pulses that hand's controller and draws a cursor", function()
   local env = start()
   trigger(env, true)
-  local pressed = {}
+  local pressed: { testing.PointerButton } = {}
   local target = {
     dead = false,
-    raycast = function()
+    raycast = function(): (number, number, number)
       return 1, 2, 3
     end,
-    onPointer = function(_, event)
+    onPointer = function(_: laserContract.Surface, event: PointerEvent)
       if event.kind == 'press' then
         pressed[#pressed + 1] = event.button
       end
@@ -92,7 +108,7 @@ test("the default reader maps the trigger, and a hover pulses that hand's contro
   env.native.events.haptics = 0
   local inputs = { left = frame(0, 0, -1), right = frame(0, 1, 0) }
   env.service:attach(env.owner, {
-    readInput = function(hand)
+    readInput = function(hand: laserContract.Hand): laserContract.Input?
       return inputs[hand]
     end,
     style = { hapticStrength = 0.3 },
@@ -105,13 +121,13 @@ test("the default reader maps the trigger, and a hover pulses that hand's contro
   local hovers = 0
   local surface = {
     dead = false,
-    raycast = function(_, _, direction)
+    raycast = function(_: laserContract.Surface, _: vector, direction: vector): (number?, number?, number?)
       if direction.y > 0.5 then
         return nil
       end
       return 1, 2, 3
     end,
-    onPointer = function(_, event)
+    onPointer = function(_: laserContract.Surface, event: PointerEvent)
       if event.kind == 'enter' then
         hovers += 1
       end
@@ -130,11 +146,11 @@ test("the default reader maps the trigger, and a hover pulses that hand's contro
 end)
 
 test('the readInput hook wraps the default for every laser, and buttons map the controller', function()
-  local read = {}
+  local read: { { hand: laserContract.Hand, frame: laserContract.Input? } } = {}
   local hooked = laser.define {
     name = 'hooked-laser',
     buttons = { { control = 'trigger', button = 'right' } },
-    readInput = function(hand, base)
+    readInput = function(hand: laserContract.Hand, base: laser.ReadBase): laserContract.Input?
       local result = base(hand)
       read[#read + 1] = { hand = hand, frame = result }
       return result
@@ -155,21 +171,21 @@ end)
 test('a laser reader cancels on loss and requires all buttons up before reacquisition', function()
   local env = start()
   local tracked, held = true, true
-  local events = {}
+  local events: { PointerEvent } = {}
   local target = {
     dead = false,
     grabbable = false,
-    raycast = function()
+    raycast = function(): (number, number, number)
       return 10, 20, 1
     end,
-    onPointer = function(_self, event)
+    onPointer = function(_self: laserContract.Surface, event: PointerEvent)
       if event.kind == 'press' or event.kind == 'release' or event.kind == 'cancel' then
         events[#events + 1] = event
       end
     end,
   }
   env.service:attach(env.owner, {
-    readInput = function(hand)
+    readInput = function(hand: laserContract.Hand): laserContract.Input?
       if not tracked or hand ~= 'right' then
         return nil
       end
@@ -194,12 +210,12 @@ test('a laser reader cancels on loss and requires all buttons up before reacquis
   env.session:close()
 end)
 
-local function borrowedSeat()
-  local seat = { dead = false }
-  function seat:setFocus()
+local function borrowedSeat(): BorrowedSeat
+  local seat: BorrowedSeat = { dead = false }
+  function seat.setFocus(_self: BorrowedSeat): boolean
     return true
   end
-  function seat:destroy()
+  function seat.destroy(self: BorrowedSeat): boolean
     self.dead = true
     return true
   end
@@ -208,7 +224,7 @@ end
 
 test('a hand has one laser, which attach answers to its own owner, and a laser owns only a seat it made', function()
   local env = start()
-  local function silent()
+  local function silent(): nil
     return nil
   end
   local attached = env.service:attach(env.owner, { readInput = silent })

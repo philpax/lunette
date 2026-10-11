@@ -304,7 +304,7 @@ parseAt = function(
     given = base
   end
   if kind == 'union' then
-    local failures = {}
+    local failures: { string } = {}
     for _, alternative in node.alternatives :: { read [number]: Node } do
       -- An explicit union value replaces its base, and an omitted value is validated as a complete base.
       local ok, result = pcall(parseAt, alternative, given, name, path, nil, table.clone(active), depth + 1)

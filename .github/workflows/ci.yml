@@ -143,5 +143,8 @@ jobs:
       - run: make check-definitions
         if: matrix.half == 'test'
 
+      - run: make check-luau-annotations
+        if: matrix.half == 'test'
+
       - run: make check-luau
         if: matrix.half == 'test'

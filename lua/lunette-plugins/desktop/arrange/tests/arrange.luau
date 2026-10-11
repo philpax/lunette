@@ -8,6 +8,12 @@ local panelsContract = require '@lunette-contracts/panels'
 local tagsContract = require '@lunette-contracts/tags'
 local desktop = require '@lunette-desktop'
 
+type Probe = {
+  owner: adapter.Context,
+  layouts: layoutsContract.Service,
+  placement: placementContract.Service,
+}
+
 local test = testing.suite()
 
 local MISSING = 'desktop/arrange: later is not a registered layout; the registered layouts are arc'
@@ -30,11 +36,11 @@ test('a layout that is not registered is logged once, and the consumer arranges 
     },
   }
   local native = session.native
-  local probe = {}
+  local probe: Probe = {}
   session:use(adapter.define {
     name = 'arrange-test',
     requires = { layoutsContract.capability, placementContract.capability },
-    init = function(context)
+    init = function(context: adapter.Context)
       probe.owner = context
       probe.layouts = context:require(layoutsContract.capability)
       probe.placement = context:require(placementContract.capability)
@@ -54,7 +60,7 @@ test('a layout that is not registered is logged once, and the consumer arranges 
   local arranged = 0
   probe.layouts:register(probe.owner, {
     name = 'later',
-    apply = function(panels)
+    apply = function(panels: { layoutsContract.Panel })
       arranged = #panels
     end,
   })
@@ -86,7 +92,7 @@ test(
     -- The layout places its panels one metre apart along x.
     layouts.service:register(layouts.context, {
       name = 'line',
-      apply = function(members)
+      apply = function(members: { layoutsContract.Panel })
         for index, panel in ipairs(members) do
           panel:setPose(lovr.math.newMat4():translate(index, 0, 0))
         end
@@ -100,7 +106,7 @@ test(
     local mail = assert(tags.service:find 'mail')
     local panel = assert(panels:forSource(native.events.windows[2]))
     local loose = assert(panels:forSource(native.events.windows[3]))
-    local function x(target)
+    local function x(target: panelsContract.Panel): number
       return (target.pose:getPosition())
     end
     expect.near(x(panel), 2, 1e-5, 'the selected tag arranges it')

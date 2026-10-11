@@ -10,7 +10,7 @@ local test = testing.suite()
 -- The fake enforces subscription-before-enumeration for the desktop's adoption path.
 local windowObserver = adapter.define {
   name = 'testing/window-observer',
-  init = function(context)
+  init = function(context: adapter.Context)
     context:on {
       event = lunette.onWindowOpened,
       run = function() end,
@@ -18,14 +18,14 @@ local windowObserver = adapter.define {
   end,
 }
 
-local function start(programs)
+local function start(programs: { string }?): testing.Session
   return testing.start {
     { id = 'window-observer', definition = windowObserver },
     { id = 'dev/demo-terminal', definition = demoTerminal, config = { programs = programs } },
   }
 end
 
-local function fixture(programs, occupied)
+local function fixture(programs: { string }?, occupied: boolean?): (testing.Native, testing.Session)
   _G.lunetteDemonstrationSpawned = nil
   local native = testing.native()
   if occupied then
@@ -34,7 +34,7 @@ local function fixture(programs, occupied)
   return native, start(programs)
 end
 
-local function close(native, session)
+local function close(native: testing.Native, session: testing.Session)
   session:close()
   native.assertResourcesReleased()
 end

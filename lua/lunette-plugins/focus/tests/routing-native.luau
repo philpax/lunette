@@ -3,24 +3,55 @@ local sourceModule = require '../source'
 local expect = testing.expect
 local test = testing.suite()
 
-local function fixture(hooks, options)
+type Stroke = { read keycode: number, read modifiers: { read [number]: string } }
+type Seat = { dead: boolean, strokeFor: (Seat, string) -> Stroke? }
+type Hooks = { read domain: ('window' | 'host')?, read key: ((string) -> boolean)? }
+type Options = { read mode: ('virtual' | 'physical')? }
+type Sink = {
+  dead: boolean,
+  domain: 'window' | 'host',
+  setModifiers: (Sink, { read [number]: string }?) -> boolean,
+  key: (Sink, number, boolean) -> boolean,
+  typeText: (Sink, string) -> boolean,
+}
+type Result = { read kind: 'consumed' | 'unhandled' | 'refused' | 'failed', read message: string? }
+type Source = {
+  read key: (Source, { read code: number, read modifiers: { read [number]: string }?, read batch: number? }) -> Result,
+  read text: (Source, string, number?) -> Result,
+  read beginBatch: (Source, number) -> (),
+}
+type Snapshot = {
+  read handle: { read dead: boolean },
+  read target: { read kind: 'native', read seat: Seat, read sink: Sink },
+  read revision: number,
+}
+type Fixture = {
+  source: Source,
+  inverse: () -> (),
+  seat: Seat,
+  sink: Sink,
+  events: { string },
+  reports: typeof(testing.native().events.reported),
+}
+
+local function fixture(hooks: Hooks?, options: Options?): Fixture
   local fake = testing.native()
   hooks = hooks or {}
-  local events = {}
+  local events: { string } = {}
   local seat = {
     dead = false,
-    strokeFor = function(_self, value)
+    strokeFor = function(_self: Seat, value: string): Stroke
       events[#events + 1] = 'stroke:' .. value
       return { keycode = value == 'é' and 40 or 30, modifiers = { 'shift' } }
     end,
   }
-  local sink = { dead = false, domain = hooks.domain or 'window' }
-  sink.setModifiers = function(_self, modifiers)
+  local sink: Sink = { dead = false, domain = hooks.domain or 'window' }
+  sink.setModifiers = function(_self: Sink, modifiers: { read [number]: string }?): boolean
     local event = 'mods:' .. table.concat(modifiers or {}, '+')
     events[#events + 1] = event
     return true
   end
-  sink.key = function(_self, code, pressed)
+  sink.key = function(_self: Sink, code: number, pressed: boolean): boolean
     local event = tostring(code) .. ':' .. tostring(pressed)
     events[#events + 1] = event
     if hooks.key then
@@ -28,25 +59,25 @@ local function fixture(hooks, options)
     end
     return true
   end
-  sink.typeText = function(_self, value)
+  sink.typeText = function(_self: Sink, value: string): boolean
     events[#events + 1] = 'text:' .. value
     return true
   end
   local snapshot = { handle = { dead = false }, target = { kind = 'native', seat = seat, sink = sink }, revision = 1 }
   local route = {
-    snapshot = function()
+    snapshot = function(): Snapshot
       return snapshot
     end,
-    keymapSeat = function()
+    keymapSeat = function(): Seat
       return seat
     end,
-    blocked = function()
+    blocked = function(): nil
       return nil
     end,
     dispose = function() end,
   }
   local source, inverse = sourceModule.new({
-    owns = function()
+    owns = function(): boolean
       return true
     end,
   }, {}, options, route)
@@ -69,7 +100,7 @@ end)
 
 test('a refused key down still releases everything it acquired', function()
   local f = fixture {
-    key = function(event)
+    key = function(event: string): boolean
       return event ~= '30:true'
     end,
   }
@@ -80,7 +111,7 @@ end)
 
 test('a failed native release blocks further delivery', function()
   local f = fixture {
-    key = function(event)
+    key = function(event: string): boolean
       if event == '30:false' then
         error 'key inverse error'
       end
@@ -107,7 +138,7 @@ test(
     )
     f.inverse()
     f = fixture()
-    f.seat.strokeFor = function()
+    f.seat.strokeFor = function(): nil
       return nil
     end
     expect.equal(f.source:text('🙂').kind, 'refused', 'an unrepresentable scalar')

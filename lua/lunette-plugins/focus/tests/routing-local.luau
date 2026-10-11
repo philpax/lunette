@@ -3,38 +3,66 @@ local sourceModule = require '../source'
 local expect = testing.expect
 local test = testing.suite()
 
-local function fixture(receiver, options)
+type KeyEvent = {
+  read code: number,
+  read modifiers: { read [number]: string },
+  read source: 'virtual' | 'physical',
+  read isRepeat: boolean,
+}
+type Receiver = { read key: (KeyEvent) -> boolean, read text: (string) -> boolean }
+type Seat = { dead: boolean, characterFor: (Seat, number, { read [number]: string }) -> string? }
+type Target = { read kind: 'local', read receiver: Receiver, read keymapSeat: Seat?, read wantsKeyboard: boolean }
+type Snapshot = { read handle: { read dead: boolean }, read target: Target, read revision: number, read owner: string? }
+type Options = { read mode: ('virtual' | 'physical')? }
+type Translation = { [number]: number | { read [number]: string } }
+type Result = { read kind: 'consumed' | 'unhandled' | 'refused' | 'failed', read message: string? }
+type Source = {
+  read key: (Source, { read code: number, read modifiers: { read [number]: string }?, read batch: number? }) -> Result,
+  read text: (Source, string, number?) -> Result,
+  read beginBatch: (Source, number) -> (),
+  read reset: (Source) -> boolean,
+}
+type Fixture = {
+  source: Source,
+  inverse: () -> (),
+  seat: Seat,
+  translations: { Translation },
+  change: (Target) -> (),
+  reports: typeof(testing.native().events.reported),
+}
+
+local function fixture(receiver: Receiver, options: Options?): Fixture
   local fake = testing.native()
-  local translations = {}
+  local translations: { Translation } = {}
   local seat = {
     dead = false,
-    characterFor = function(_self, code, modifiers)
+    characterFor = function(_self: Seat, code: number, modifiers: { read [number]: string }): string
       translations[#translations + 1] = { code, modifiers }
       return 'é'
     end,
   }
   local target = { kind = 'local', receiver = receiver, keymapSeat = seat, wantsKeyboard = true }
-  local snapshot = { handle = { dead = false }, target = target, revision = 1, owner = 'receiver owner' }
+  local snapshot: Snapshot = { handle = { dead = false }, target = target, revision = 1, owner = 'receiver owner' }
   local route = {
-    snapshot = function()
+    snapshot = function(): Snapshot
       return snapshot
     end,
-    keymapSeat = function()
+    keymapSeat = function(): Seat
       return seat
     end,
-    blocked = function()
+    blocked = function(): nil
       return nil
     end,
     dispose = function() end,
   }
   local owner = {}
   local context = {
-    owns = function()
+    owns = function(): boolean
       return true
     end,
   }
   local source, inverse = sourceModule.new(context, owner, options, route)
-  local function change(nextTarget)
+  local function change(nextTarget: Target)
     snapshot = { handle = { dead = false }, target = nextTarget, revision = snapshot.revision + 1 }
     source:reset()
   end
@@ -48,14 +76,14 @@ local function fixture(receiver, options)
   }
 end
 
-local function recorder(key)
-  local texts = {}
+local function recorder(key: ((KeyEvent) -> boolean)?): ({ string }, Receiver)
+  local texts: { string } = {}
   return texts,
     {
-      key = key or function()
+      key = key or function(): boolean
         return false
       end,
-      text = function(value)
+      text = function(value: string): boolean
         texts[#texts + 1] = value
         return true
       end,
@@ -77,7 +105,7 @@ test('shortcut modifiers and translated controls never enter local text', functi
   for _, modifiers in { { 'control' }, { 'logo' }, { 'alt' } } do
     expect.equal(f.source:key({ code = 30, modifiers = modifiers }).kind, 'unhandled', 'shortcut remains a key')
   end
-  f.seat.characterFor = function()
+  f.seat.characterFor = function(): string
     return '\n'
   end
   expect.equal(f.source:key({ code = 30 }).kind, 'unhandled', 'a control character remains a key')
@@ -97,10 +125,10 @@ end)
 
 test('a receiver error fails the delivery and is reported', function()
   local f = fixture {
-    key = function()
+    key = function(): never
       error 'receiver key failure'
     end,
-    text = function()
+    text = function(): boolean
       return true
     end,
   }
@@ -127,7 +155,7 @@ test('physical text is bound to the batch and route it began with', function()
 end)
 
 test('a consumed physical key suppresses the text of its batch', function()
-  local texts, receiver = recorder(function()
+  local texts, receiver = recorder(function(): boolean
     return true
   end)
   local f = fixture(receiver, { mode = 'physical' })

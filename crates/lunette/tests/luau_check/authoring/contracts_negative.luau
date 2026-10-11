@@ -16,7 +16,7 @@ local definition = adapter.define {
     drops.capability,
   },
   provides = { panels.capability, keyboard.capability },
-  init = function(ctx, config: Config, provide)
+  init = function(ctx: plugin.Context, config: Config, provide: adapter.Publisher)
     local panelRegistry = ctx:require(panels.capability)
     local input, dropService = ctx:require(interaction.capability), ctx:require(drops.capability)
     local keys = ctx:require(keyboard.capability)
@@ -36,7 +36,7 @@ local definition = adapter.define {
     local _wrongBoard: panels.Panel = board -- reject: Panel.
     local _wrongConfig: number = config.title -- reject: number.
     dropService:onDropped(ctx, {
-      run = function(drop)
+      run = function(drop: drops.Drop)
         panelRegistry:all()[1]:setSize('wide', nil) -- reject: number.
         drop.pointer:withdraw(42) -- reject: Argument count.
       end,
@@ -50,7 +50,7 @@ local runtime = adapter.runtime()
 runtime:use(definition, { title = 42, height = 1 }) -- reject: string.
 local instance = runtime:use(definition, { title = 'fixture', height = 1 })
 instance:requestReload { title = 'fixture', height = 'tall' } -- reject: number.
-local wrongName = adapter.define { name = 42, init = function(_ctx, _config: Config) end } -- reject: string.
+local wrongName = adapter.define { name = 42, init = function(_ctx: plugin.Context, _config: Config) end } -- reject: string.
 
 -- A contract's data properties are read-only, so a substitute provider's record satisfies them covariantly.
 local function mutate(surface: vocabulary.Surface, snapshot: native.PluginRuntimeSnapshot)

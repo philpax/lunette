@@ -30,7 +30,7 @@ local child = plugin.consumer<<contracts.ChildConfig, contracts.ChildConfig>> {
 }
 local function createChild(context: plugin.Context, owner: plugin.Owner)
   context:child(child.definition, { enabled = 'yes' }) -- reject: ChildConfig?.
-  owner:effect(function() -- reject: effect.
+  owner:effect(function(): () -> () -- reject: effect.
     return function() end
   end)
 end

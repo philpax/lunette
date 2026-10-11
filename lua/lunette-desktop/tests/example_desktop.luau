@@ -6,7 +6,7 @@ local panelsContract = require '@lunette-contracts/panels'
 
 local test = testing.suite()
 
-local function exampleEntries()
+local function exampleEntries(): typeof(desktop.compose())
   return desktop.compose {
     patches = {
       { insert = { id = 'hide-windows', definition = require('hide-windows').definition } },
@@ -15,7 +15,7 @@ local function exampleEntries()
   }
 end
 
-local function action(actions, id)
+local function action(actions: { read service: menuContract.Service }, id: string): menuContract.Descriptor
   for _, row in actions.service:list() do
     if row.id == id then
       return row

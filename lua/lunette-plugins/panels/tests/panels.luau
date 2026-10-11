@@ -4,8 +4,18 @@ local contract = require '@lunette-contracts/panels'
 
 local test = testing.suite()
 
-local function start(config)
-  local env = { native = testing.native() }
+type Config = testing.ConfiguredInput<typeof(require('@lunette-plugins/panels').define)>
+type Texture = { read getDimensions: () -> (number, number) }
+type Environment = {
+  native: testing.Native,
+  session: testing.Session?,
+  panels: contract.Service?,
+  owner: testing.Context?,
+  other: testing.Context?,
+}
+
+local function start(config: Config?): Environment
+  local env: Environment = { native = testing.native() }
   env.session = testing.start {
     'theme',
     { id = 'panels', definition = require('@lunette-plugins/panels').definition, config = config },
@@ -51,14 +61,16 @@ end)
 
 test('listeners hear arrivals and removals, and a raising listener is reported while the others run', function()
   local env = start()
-  local added, removed, everything = {}, {}, {}
+  local added: { contract.Panel } = {}
+  local removed: { contract.Panel } = {}
+  local everything: { contract.Panel } = {}
   env.panels:onAdded(env.owner, {
-    run = function(created)
+    run = function(created: contract.Panel)
       added[#added + 1] = created
     end,
   })
   env.panels:onAdded(env.owner, {
-    run = function()
+    run = function(): never
       error 'arrival listener failed'
     end,
   })
@@ -68,12 +80,12 @@ test('listeners hear arrivals and removals, and a raising listener is reported w
   expect.equal(#added, 2, 'the arrivals heard')
   env.panels:onRemoved(env.owner, {
     panel = first,
-    run = function(target)
+    run = function(target: contract.Panel)
       removed[#removed + 1] = target
     end,
   })
   env.panels:onRemoved(env.owner, {
-    run = function(target)
+    run = function(target: contract.Panel)
       everything[#everything + 1] = target
     end,
   })
@@ -89,9 +101,9 @@ end)
 test('the most recent live override decides whether a panel is hidden', function()
   local env = start { rendering = 'layer' }
   local source = env.native.newWindow(1)
-  source.getTexture = function()
+  source.getTexture = function(): Texture
     return {
-      getDimensions = function()
+      getDimensions = function(): (number, number)
         return source.width, source.height
       end,
     }

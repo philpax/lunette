@@ -1,5 +1,6 @@
 -- Hooks, menu actions, and configuration change the shipped desktop's behaviour. Copy the desktop configuration and adjacent Lua files into the directory `lunette --dump-config` wrote, which also holds conf.luau and the .luaurc that `lunette check` and an editor read. The settings are described in docs/guide/desktop-configuration.md, and the inserted plugins in docs/guide/writing-plugins.md.
 local desktop = require '@lunette-desktop'
+type Window = typeof(require('@lunette').windows()[1])
 
 -- Settings are keyed by entry id and typed by each entry's configuration.
 desktop.run {
@@ -19,7 +20,7 @@ desktop.run {
       rules = {
         {
           match = {
-            where = function(window): boolean
+            where = function(window: Window): boolean
               return type(window.title) == 'string' and window.title:lower():find('picture', 1, true) ~= nil
             end,
           },

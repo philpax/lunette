@@ -10,7 +10,7 @@ test('the development configuration starts on load and survives a source reload'
   testing.host.useConfiguration 'dev'
 
   require 'conf'
-  local configuration = { window = {}, headset = {} }
+  local configuration: LovrConfiguration = { window = {}, headset = {} }
   lovr.conf(configuration)
   expect.equal(configuration.identity, 'lunette-dev', 'development saves do not share the shipped identity')
   expect.equal(configuration.saveprecedence, false, 'saved files cannot shadow development sources')

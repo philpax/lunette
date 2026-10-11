@@ -5,9 +5,12 @@ local desktop = require '@lunette-desktop'
 local panelsContract = require '@lunette-contracts/panels'
 local tagsContract = require '@lunette-contracts/tags'
 
+type ConfigValue = boolean | number | string | vector | { [string | number]: ConfigValue }
+type Entries = typeof(desktop.compose())
+
 local test = testing.suite()
 
-local function sameValue(actual, expected, where)
+local function sameValue(actual: unknown, expected: unknown, where: string)
   if type(expected) ~= 'table' then
     expect.equal(actual, expected, where)
     return
@@ -21,7 +24,7 @@ local function sameValue(actual, expected, where)
   end
 end
 
-local function sameEntries(actual, expected)
+local function sameEntries(actual: Entries, expected: Entries)
   expect.equal(#actual, #expected, 'the entry count')
   for index, entry in ipairs(expected) do
     sameValue(actual[index], entry, 'entry ' .. index)
@@ -45,7 +48,7 @@ local CONFIGS = {
 }
 
 test('each setting is the configuration patch for the entry of its key', function()
-  local patches = {}
+  local patches: { { id: string, config: { [string]: ConfigValue } } } = {}
   for id, config in pairs(CONFIGS) do
     patches[#patches + 1] = { id = id, config = config }
   end

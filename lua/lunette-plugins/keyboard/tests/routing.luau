@@ -7,13 +7,55 @@ local focusContract = require '@lunette-contracts/focus'
 
 local test = testing.suite()
 
-local function start()
+type Environment = {
+  session: testing.Session,
+  consumer: adapter.Instance<unknown>?,
+  owner: adapter.Context?,
+  service: keyboardContract.Service?,
+  focus: focusContract.Service?,
+}
+type Sent = { string | number | boolean | { string } }
+type Sink = {
+  id: number,
+  domain: 'window',
+  dead: boolean,
+  setModifiers: (Sink, { string }) -> boolean,
+  key: (Sink, number, boolean) -> boolean,
+  typeText: (Sink, string) -> boolean,
+}
+type Stroke = { keycode: number, modifiers: { string } }
+type Seat = {
+  id: number,
+  dead: boolean,
+  focus: Sink?,
+  characterFor: (Seat, number, { string }) -> string?,
+  symbolFor: (Seat) -> number,
+  strokeFor: (Seat, string) -> Stroke?,
+  setFocus: (Seat, Sink?) -> boolean,
+}
+type Received = { keys: { focusContract.KeyEvent }, texts: { string } }
+type Board = keyboardContract.Keyboard & {
+  read keys: (
+    Board
+  ) -> {
+    {
+      read code: number?,
+      read legend: string,
+      read x: number,
+      read y: number,
+      read width: number,
+      read height: number,
+    }
+  },
+}
+
+local function start(): Environment
   testing.native()
-  local env = { session = testing.start { 'theme', 'focus', 'keyboard' } }
+  local env: Environment = { session = testing.start { 'theme', 'focus', 'keyboard' } }
   env.consumer = env.session:use(adapter.define {
     name = 'keyboard-routing-test',
     requires = { keyboardContract.capability, focusContract.capability },
-    init = function(context)
+    init = function(context: adapter.Context)
       env.owner = context
       env.service, env.focus = context:require(keyboardContract.capability), context:require(focusContract.capability)
     end,
@@ -21,35 +63,35 @@ local function start()
   return env
 end
 
-local function nativeTarget()
-  local sent = {}
-  local seat = { id = 1, dead = false }
-  function seat:characterFor(code, held)
+local function nativeTarget(): (Seat, Sink, { Sent })
+  local sent: { Sent } = {}
+  local seat: Seat = { id = 1, dead = false }
+  function seat:characterFor(code: number, held: { string }): string?
     if code == 30 then
       return if table.find(held, 'shift') then 'Q' else 'q'
     end
     return nil
   end
-  function seat:symbolFor()
+  function seat:symbolFor(): number
     return 123
   end
-  function seat:strokeFor(text)
+  function seat:strokeFor(text: string): Stroke?
     return if text == 'q' then { keycode = 30, modifiers = {} } else nil
   end
-  function seat:setFocus(target)
+  function seat:setFocus(target: Sink?): boolean
     self.focus = target
     return true
   end
   local sink = { id = 1, domain = 'window', dead = false }
-  function sink:setModifiers(held)
+  function sink:setModifiers(held: { string }): boolean
     sent[#sent + 1] = { 'modifiers', table.clone(held) }
     return true
   end
-  function sink:key(code, pressed)
+  function sink:key(code: number, pressed: boolean): boolean
     sent[#sent + 1] = { 'key', code, pressed }
     return true
   end
-  function sink:typeText(text)
+  function sink:typeText(text: string): boolean
     sent[#sent + 1] = { 'text', text }
     return true
   end
@@ -57,7 +99,7 @@ local function nativeTarget()
 end
 
 -- Presses the key with an evdev code the way a pointer would.
-local function tap(board, code)
+local function tap(board: Board, code: number)
   for _, key in board:keys() do
     if key.code == code then
       board:onPointer {
@@ -75,17 +117,17 @@ local function tap(board, code)
   error('the keyboard has no key ' .. code)
 end
 
-local function localTarget(env, accepts)
-  local received = { keys = {}, texts = {} }
+local function localTarget(env: Environment, accepts: boolean): (focusContract.TargetHandle, Received)
+  local received: Received = { keys = {}, texts = {} }
   local target = env.focus:register(env.owner, {
     kind = 'local',
     wantsKeyboard = true,
     receiver = {
-      key = function(event)
+      key = function(event: focusContract.KeyEvent): boolean
         received.keys[#received.keys + 1] = event
         return accepts
       end,
-      text = function(text)
+      text = function(text: string): boolean
         received.texts[#received.texts + 1] = text
         return accepts
       end,
@@ -99,7 +141,7 @@ test('the keyboard types into a focused native sink, and its owner unloading end
   local seat, sink, sent = nativeTarget()
   env.focus:register(env.owner, { kind = 'native', seat = seat, sink = sink }):focus()
   local board = env.service:new(env.owner)
-  local q
+  local q: { read code: number?, read legend: string }?
   for _, key in board:keys() do
     if key.code == 30 then
       q = key
@@ -155,10 +197,10 @@ end)
 
 test('visibility notifications name actual transitions and end with destruction', function()
   local env = start()
-  local changes = {}
-  local board
+  local changes: { keyboardContract.VisibilityReason } = {}
+  local board: keyboardContract.Keyboard?
   board = env.service:new(env.owner, {
-    onVisibilityChanged = function(change)
+    onVisibilityChanged = function(change: keyboardContract.VisibilityChange)
       expect.equal(board.visible, change.visible, 'visibility is committed before notification')
       changes[#changes + 1] = change.reason
     end,

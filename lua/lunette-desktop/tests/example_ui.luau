@@ -7,15 +7,28 @@ local menu = require '@lunette-contracts/menu'
 local display = require '@lunette-contracts/keyboard-display'
 local surfaces = require '@lunette-contracts/surfaces'
 
+type Session = testing.Session
+type Native = testing.Native
+type Board = desktop.Keyboard
+type Environment = {
+  fixture: vrUi.Fixture,
+  session: Session,
+  native: Native,
+  ui: ui.Service,
+  menu: menu.Service,
+  display: display.Service,
+  surfaces: surfaces.Service,
+}
+
 local test = testing.suite()
 local name = 'example/ui/form'
 local actionId = 'example/ui/open'
 
-local function description(service)
+local function description(service: ui.Service): vrUi.Description?
   return vrUi.describe(service, name)
 end
 
-local function boot()
+local function boot(): Environment
   testing.host.useConfiguration 'examples/ui'
   local patches = { { insert = { id = name, definition = require('form').definition } } }
   local fixture = vrUi.boot(desktop.compose { patches = patches })
@@ -35,24 +48,24 @@ local function boot()
   return env
 end
 
-local function withEnvironment(run)
+local function withEnvironment(run: (Environment) -> ())
   local env = boot()
   run(env)
   env.fixture:close()
 end
 
-local function click(env, id, itemId, hand)
+local function click(env: Environment, id: string, itemId: string?, hand: vrUi.Hand?)
   env.fixture:clickControl(env.ui, name, id, hand or 'right', itemId)
 end
 
-local function open(env)
+local function open(env: Environment)
   env.fixture:clickControl(env.ui, 'desktop/menu', 'open')
   env.fixture:clickControl(env.ui, 'desktop/menu', 'actions', 'right', actionId)
   env.fixture:clickControl(env.ui, 'desktop/menu/titlebar', 'close')
 end
 
-local function key(env, code)
-  local board
+local function key(env: Environment, code: number)
+  local board: Board?
   for _, candidate in env.surfaces:all() do
     if candidate.keys and candidate.setVisible then
       assert(board == nil, 'one shared keyboard is offered')
@@ -77,7 +90,7 @@ local function key(env, code)
   error('missing shared keyboard code ' .. tostring(code))
 end
 
-local function status(env)
+local function status(env: Environment): string
   env.native.events.draw = {}
   env.fixture:draw()
   for _, call in env.native.events.draw do
@@ -100,7 +113,7 @@ test('the UI configuration boots and draws through the shipped desktop', functio
 end)
 
 test('the form opens from the wrist menu and completes its workflow by controller', function()
-  withEnvironment(function(env)
+  withEnvironment(function(env: Environment)
     expect.falsy(assert(description(env.ui)).visible, 'the form starts hidden')
     open(env)
     expect.truthy(assert(description(env.ui)).visible, 'the wrist action opens the form')

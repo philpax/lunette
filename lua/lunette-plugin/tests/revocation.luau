@@ -6,33 +6,49 @@ local adapter = require '@lunette-plugin/adapter'
 
 local test = testing.suite()
 
+type Counter = {
+  LIMIT: number,
+  read bump: (Counter, number) -> (number, number),
+  read refuse: (Counter) -> never,
+}
+type Doubler = setmetatable<{}, { __call: ({}, number) -> number }>
+type Environment = {
+  seen: { [string]: Counter },
+  counter: plugin.Capability<Counter>,
+  doublerCapability: plugin.Capability<Doubler>,
+  kept: Counter?,
+  doubler: Doubler?,
+  runtime: adapter.Runtime?,
+  provider: adapter.Instance<{}>?,
+}
+
 local REVOKED = 'capability local/revocation-counter@1 is no longer available because its provider activation has ended'
 
-local COUNTER = plugin.capability { name = 'local/revocation-counter', version = 1 }
-local DOUBLER = plugin.capability { name = 'local/revocation-doubler', version = 1 }
+local COUNTER: plugin.Capability<Counter> = plugin.capability { name = 'local/revocation-counter', version = 1 }
+local DOUBLER: plugin.Capability<Doubler> = plugin.capability { name = 'local/revocation-doubler', version = 1 }
 
 -- A counter and a callable doubler, each read by two consumers. `env.kept` and `env.doubler` are the views
 -- the last consumer to load read.
-local function start()
-  local env = { seen = {}, counter = COUNTER, doublerCapability = DOUBLER }
+local function start(): Environment
+  local env: Environment = { seen = {}, counter = COUNTER, doublerCapability = DOUBLER }
   local provider = adapter.define {
     name = 'provider',
     provides = { env.counter, env.doublerCapability },
-    init = function(_context, _config, publish)
+    init = function(_context: adapter.Context, _config: {}, publish: adapter.Publisher)
       local count = 0
       local service = { LIMIT = 3 }
-      function service.bump(self, by)
+      function service.bump(self: Counter, by: number): (number, number)
         count += by
         return self.LIMIT, count
       end
-      function service.refuse(_self)
+      function service.refuse(_self: Counter): never
         error('the bump is refused', 2)
       end
       publish:provide(env.counter, service)
       publish:provide(
         env.doublerCapability,
         setmetatable({}, {
-          __call = function(_self, value)
+          __call = function(_self: {}, value: number): number
             return value * 2
           end,
         })
@@ -42,7 +58,7 @@ local function start()
   local consumer = adapter.define {
     name = 'consumer',
     requires = { env.counter, env.doublerCapability },
-    init = function(context, config)
+    init = function(context: adapter.Context, config: { name: string })
       env.seen[config.name] = context:require(env.counter)
       env.kept = env.seen[config.name]
       env.doubler = context:require(env.doublerCapability)
@@ -62,7 +78,7 @@ test('consumers of one generation share a view that reads, calls, iterates, and 
   local limit, count = env.kept:bump(2)
   expect.truthy(limit == 3 and count == 2, 'a method receives the view as self')
   expect.equal(env.doubler(21), 42, 'a callable provision stays callable')
-  local fields = {}
+  local fields: { [string]: boolean } = {}
   for key in env.kept do
     fields[key] = true
   end
@@ -87,7 +103,7 @@ test('a kept view raises once its provider activation ends, and the next generat
     stale:bump(1)
   end, REVOKED:gsub('%p', '%%%0'))
   expect.truthy(message:find('revocation', 1, true), 'a revoked read names the consumer: ' .. message)
-  expect.raises(function()
+  expect.raises(function(): number
     return stale.LIMIT
   end, 'is no longer available', 'a field read')
   expect.raises(function()

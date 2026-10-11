@@ -12,6 +12,7 @@ export type Owner = plugin.Owner
 export type Hand = 'left' | 'right'
 export type Input = interaction.Input
 export type Surface = vocabulary.Surface
+export type PointerEvent = vocabulary.PointerEvent
 export type Color = { read [number]: number }
 
 export type StyleOverride = {

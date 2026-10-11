@@ -7,6 +7,9 @@ local records = require './panel-state'
 local textGeometry = require './text-field-geometry'
 local vocabulary = require '@lunette-contracts/vocabulary'
 
+export type Receiver = focus.Receiver
+export type KeyEvent = focus.KeyEvent
+
 local textField = {}
 
 local apply: (State, edit.State, boolean) -> ()

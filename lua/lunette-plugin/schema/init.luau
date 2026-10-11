@@ -11,6 +11,7 @@ export type Schema<I, O> = {
   read inspect: () -> Metadata,
 }
 export type Metadata = runtime.Node
+export type Path = runtime.Path
 export type Error = runtime.Error
 export type ErrorCode = runtime.ErrorCode
 export type Annotation = runtime.Annotation
@@ -98,7 +99,7 @@ type function Alternatives(list: type, direction: type): type
   assert(indexer, 'schema union alternatives are not a list')
   local element = indexer.readresult
   local members = if element:is 'union' then element:components() else { element }
-  local results = {}
+  local results: { type } = {}
   for _, member in members do
     local found = false
     for name, field in member:properties() do

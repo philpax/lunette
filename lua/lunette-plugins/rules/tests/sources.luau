@@ -4,7 +4,10 @@ local rulesContract = require '@lunette-contracts/rules'
 
 local test = testing.suite()
 
-local function start()
+type Window = { id: number, dead: boolean, width: number, height: number, appId: string, title: string }
+type Context = testing.Context
+
+local function start(): (testing.Session, rulesContract.Service, Context, Window)
   local session = testing.start { 'rules' }
   local observed = session:observe(rulesContract.capability)
   local window = { id = 1, dead = false, width = 800, height = 600, appId = 'fixture', title = 'Fixture' }
@@ -12,7 +15,7 @@ local function start()
 end
 
 -- Counts a rules service's sources from its inspection.
-local function sourceCount(rules)
+local function sourceCount(rules: rulesContract.Service): number
   local count = 0
   for _, entry in rules:inspect().registrations do
     if entry.kind == 'ruleSource' then
@@ -30,7 +33,7 @@ test('a rule matches by value or predicate, and where over the whole window', fu
     rules = {
       {
         match = {
-          appId = function(value)
+          appId = function(value: string): boolean
             return value == 'fixture'
           end,
           title = 'Fixture',
@@ -40,7 +43,7 @@ test('a rule matches by value or predicate, and where over the whole window', fu
       {
         match = {
           appId = 'fixture',
-          where = function()
+          where = function(): boolean
             return false
           end,
         },
@@ -63,9 +66,9 @@ test('a higher precedence source wins a key, and only the winning evaluator is c
   rules:addSource(owner, {
     name = 'low',
     precedence = 10,
-    resolve = function()
+    resolve = function(): { read width: () -> never, read chrome: boolean, read callback: () -> () }
       return {
-        width = function()
+        width = function(): never
           error 'overwritten evaluator called'
         end,
         chrome = false,
@@ -76,9 +79,9 @@ test('a higher precedence source wins a key, and only the winning evaluator is c
   rules:addSource(owner, {
     name = 'high',
     precedence = 20,
-    resolve = function()
+    resolve = function(): { read width: (Window) -> number }
       return {
-        width = function(source)
+        width = function(source: Window): number
           return source.width / 400
         end,
       }
@@ -96,7 +99,7 @@ test('a source name is registered once, and a disposed name is free again', func
   local source = {
     name = 'same',
     precedence = 100,
-    resolve = function()
+    resolve = function(): nil
       return nil
     end,
   }

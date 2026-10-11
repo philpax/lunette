@@ -3,6 +3,7 @@
 local graph = require './graph'
 local toolbarLayout = { minimumWidth = 800, minimumHeight = 472 }
 
+export type Bounds = graph.Box
 export type Group = 'sidebar' | 'graph' | 'edit'
 export type Placement = { read bounds: graph.Box, read group: Group }
 export type Layout = {

@@ -7,7 +7,9 @@ local schema = require '@lunette-plugin/schema'
 local expect = testing.expect
 local test = testing.suite()
 
-local function invoke(state, id)
+type Settings = { count: number, callback: () -> () }
+
+local function invoke(state: controller.State, id: string)
   controller.update(state)
   for _, button in state.buttons do
     if button.id == id then
@@ -19,7 +21,7 @@ local function invoke(state, id)
   error('missing action ' .. id)
 end
 
-local function row(state, label)
+local function row(state: controller.State, label: string)
   controller.update(state)
   for index, current in state.editorRows do
     if current.label == label or current.label == string.format('%q', label) then
@@ -30,7 +32,7 @@ local function row(state, label)
   error('missing row ' .. label)
 end
 
-local function entry(running)
+local function entry(running: management.Running): management.Entry?
   for _, current in running.service:entries() do
     if current.id == 'editable' then
       return current
@@ -39,15 +41,15 @@ local function entry(running)
   return nil
 end
 
-local function fixture(options)
-  local value
+local function fixture(options: management.Options?): (management.Running, controller.State, () -> Settings?)
+  local value: Settings?
   local definition = plugin.consumer({
     name = 'editable',
     schema = schema.object {
       count = schema.default(schema.number { minimum = 0 })(1),
       callback = schema.default(schema.callback(function() end))(function() end),
     },
-    init = function(_context, settings)
+    init = function(_context: plugin.Context, settings: Settings)
       if settings.count == 9 then
         error 'initializer rejects nine'
       end
@@ -59,12 +61,12 @@ local function fixture(options)
   invoke(state, 'graph-view')
   state.view.selection = { kind = 'node', id = assert(entry(running)).instanceId }
   controller.update(state)
-  return running, state, function()
+  return running, state, function(): Settings?
     return value
   end
 end
 
-local function confirm(state, text)
+local function confirm(state: controller.State, text: string): boolean
   controller.setText(state, text)
   return controller.confirmText(state)
 end

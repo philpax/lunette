@@ -6,13 +6,19 @@ local focus = require '@lunette-contracts/focus'
 local drops = require '@lunette-contracts/drops'
 
 type Config = { read title: string, read height: number }
+type Built = {
+  provider: adapter.Instance<Config>,
+  consumer: adapter.Instance<Config>,
+  runtime: adapter.Runtime,
+}
+
 local function build(
   panelService: panels.Service,
   interactionService: interaction.Service,
   keyboardService: keyboard.Service
-)
+): Built
   local implementation: keyboard.Service = {
-    inspect = function(_self: keyboard.Service)
+    inspect = function(_self: keyboard.Service): typeof(keyboardService:inspect())
       return keyboardService:inspect()
     end,
     new = function(_self: keyboard.Service, owner: keyboard.Owner, options: keyboard.Options?): keyboard.Keyboard
@@ -22,7 +28,7 @@ local function build(
   local provider = adapter.define {
     name = 'provider',
     provides = { panels.capability, interaction.capability, keyboard.capability },
-    init = function(_ctx, config: Config, provide)
+    init = function(_ctx: adapter.Context, config: Config, provide: adapter.Publisher)
       local height: number = config.height
       local title: string = config.title
       assert(height > 0 and #title > 0)
@@ -40,7 +46,7 @@ local function build(
       focus.capability,
       drops.capability,
     },
-    init = function(ctx, config, _provide)
+    init = function(ctx: adapter.Context, config: Config, _provide: adapter.Publisher)
       local panelRegistry: panels.Service = ctx:require(panels.capability)
       local input: interaction.Service = ctx:require(interaction.capability)
       local keys: keyboard.Service = ctx:require(keyboard.capability)

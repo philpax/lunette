@@ -40,8 +40,8 @@ typedef struct
 {
     lunette_luau_diagnostic* diagnostics;
     size_t diagnostic_count;
-    // The roots that produced a source module, which shows a skipped root
-    // that the diagnostics do not.
+    // The roots that produced a source module or parsed successfully, which
+    // distinguishes checked roots from skipped roots.
     char** checked;
     size_t checked_count;
     // Why no check ran, or null. Diagnostics may still be present.
@@ -49,6 +49,12 @@ typedef struct
 } lunette_luau_report;
 
 lunette_luau_report* lunette_luau_check(const lunette_luau_request* request)
+#ifdef __cplusplus
+    noexcept
+#endif
+    ;
+// Parses roots without definitions or inference and requires parameter and value-return annotations.
+lunette_luau_report* lunette_luau_check_annotations(const lunette_luau_request* request)
 #ifdef __cplusplus
     noexcept
 #endif

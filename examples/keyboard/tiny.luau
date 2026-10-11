@@ -11,6 +11,16 @@ local protected = require '@lunette-plugins/protected'
 export type Config = {}
 export type Settings = {}
 
+type State = {
+  kind: nil,
+  dead: boolean,
+  grabbable: boolean,
+  pose: Mat4,
+  width: number,
+  height: number,
+  visible: boolean,
+}
+
 local CODES = { keys.CODES.y, keys.CODES.n, keys.CODES.enter }
 local KEY = 0.05
 
@@ -41,7 +51,7 @@ return plugin.provider<<Config, Settings, keyboard.Service>> {
             end)
           end
         end
-        local state = {
+        local state: State = {
           kind = nil,
           dead = false,
           grabbable = true,

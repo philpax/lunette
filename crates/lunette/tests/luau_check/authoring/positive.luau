@@ -41,7 +41,7 @@ runtime:close()
 
 local function useOwner(context: plugin.Context, caller: plugin.Owner)
   context:checkOwner(caller)
-  context:acquire(caller, function()
+  context:acquire(caller, function(): () -> ()
     return function() end
   end)
   local _value: number = context:resource(caller, function(): (number, () -> ())

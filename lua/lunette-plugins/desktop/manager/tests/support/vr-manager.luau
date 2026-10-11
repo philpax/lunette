@@ -11,12 +11,26 @@ local display = require '@lunette-contracts/keyboard-display'
 local surfaces = require '@lunette-contracts/surfaces'
 local vrUi = require '@testing/vr-ui'
 
+type Services = { ui: ui.Service, focus: focus.Service, display: display.Service, surfaces: surfaces.Service }
+export type Environment = {
+  native: testing.Native,
+  services: Services,
+  controls: vrUi.Fixture,
+  running: management.Running,
+  open: (Environment) -> (),
+  click: (Environment, string, string?) -> (),
+  item: (Environment, string, string) -> (),
+  visible: (Environment) -> boolean,
+  key: (Environment, string) -> (),
+  close: (Environment) -> (),
+}
+
 local fixture = {}
 
 -- Boots the shipped desktop with a small keyboard layout and the given entries inserted.
-function fixture.boot(additions)
+function fixture.boot(additions: { testing.ComposeEntry }): Environment
   local native = testing.native()
-  local services = {}
+  local services: Services = {}
   local observer = adapter.define {
     name = 'manager-vr-observer',
     requires = {
@@ -25,7 +39,7 @@ function fixture.boot(additions)
       display.capability,
       surfaces.capability,
     },
-    init = function(context)
+    init = function(context: adapter.Context)
       services.ui = context:require(ui.capability)
       services.focus = context:require(focus.capability)
       services.display = context:require(display.capability)
@@ -33,13 +47,13 @@ function fixture.boot(additions)
     end,
   }
   local codes = lunette.keyCodes()
-  local rows = {
+  local rows: { keyboardProvider.KeyRow } = {
     {
       { label = 'Text', action = { kind = 'text', text = 'next' } },
       { label = 'All', action = { kind = 'chord', code = codes.a, modifiers = { 'control' } } },
     },
   }
-  local patches = {
+  local patches: { testing.Patch } = {
     { id = 'laser', config = { aim = { enabled = false }, triggerLock = { enabled = false } } },
     { id = 'keyboard', definition = keyboardProvider.define { rows = rows, layers = {} } },
     { insert = { id = 'manager-vr-observer', definition = observer } },
@@ -55,18 +69,18 @@ function fixture.boot(additions)
   controls:pose('left', lovr.math.newMat4():translate(0, 1.2, -0.5))
   controls:tracked('left', true)
   controls:step()
-  local env = { native = native, services = services, controls = controls, running = running }
-  function env:open()
+  local env: Environment = { native = native, services = services, controls = controls, running = running }
+  function env.open(self: Environment)
     self.controls:clickControl(self.services.ui, 'desktop/menu', 'open')
     self.controls:clickControl(self.services.ui, 'desktop/menu', 'actions', 'right', 'desktop/manager/open')
     self.controls:clickControl(self.services.ui, 'desktop/menu/titlebar', 'close')
   end
-  function env:click(id, itemId)
+  function env.click(self: Environment, id: string, itemId: string?)
     local panel = if id == 'close' then 'desktop/manager/titlebar' else 'desktop/manager'
     self.controls:clickControl(self.services.ui, panel, id, 'right', itemId)
   end
   -- Scrolls a list with the thumbstick until the item is visible, then clicks it.
-  function env:item(id, itemId)
+  function env.item(self: Environment, id: string, itemId: string)
     for _ = 1, 128 do
       local description, control = self.controls:discover(self.services.ui, 'desktop/manager', id)
       for _, item in control.items do
@@ -84,15 +98,15 @@ function fixture.boot(additions)
     end
     error('list item is not reachable: ' .. itemId)
   end
-  function env:visible()
+  function env.visible(self: Environment): boolean
     local description = vrUi.describe(self.services.ui, 'desktop/manager')
     if description then
       return description.visible
     end
     error 'manager panel is absent'
   end
-  function env:key(label)
-    local board
+  function env.key(self: Environment, label: string)
+    local board: keyboardProvider.Board?
     for _, surface in self.services.surfaces:all() do
       if surface.keys and surface.setVisible then
         board = surface
@@ -115,7 +129,7 @@ function fixture.boot(additions)
     end
     error('keyboard has no key ' .. label)
   end
-  function env:close()
+  function env.close(self: Environment)
     self.running.runtime:close()
     self.native.assertResourcesReleased()
   end

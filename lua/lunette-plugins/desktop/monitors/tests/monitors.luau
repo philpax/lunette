@@ -3,26 +3,28 @@ local expect = testing.expect
 local panelsContract = require '@lunette-contracts/panels'
 local tagsContract = require '@lunette-contracts/tags'
 
+type Config = testing.ConfiguredInput<typeof(require('@lunette-plugins/desktop/monitors').define)>
+
 local test = testing.suite()
 
 local TOLERANCE = 1e-5
 
 -- A monitor that the host reports to the consumer.
-local function plug(native, name)
+local function plug(native: testing.Native, name: string): testing.Monitor
   local monitor = native.newMonitor(name)
   native.events.monitors[monitor.id] = monitor
   return monitor
 end
 
 -- A monitor plugged in while the consumer runs.
-local function hotplug(native, name)
+local function hotplug(native: testing.Native, name: string): testing.Monitor
   local monitor = plug(native, name)
   native.emit('onMonitorAdded', { monitor = monitor })
   return monitor
 end
 
 -- The consumer with `config` over the panels and tags providers, started once `native` reports its monitors.
-local function start(native, config)
+local function start(native: testing.Native, config: Config): (testing.Session, panelsContract.Service)
   local session = testing.start {
     'theme',
     'panels',
@@ -32,7 +34,7 @@ local function start(native, config)
   return session, session:observe(panelsContract.capability).service
 end
 
-local function xOf(panels, monitor)
+local function xOf(panels: panelsContract.Service, monitor: testing.Monitor): number
   local x = assert(panels:forSource(monitor), 'the mirror of ' .. monitor.name).pose:getPosition()
   return x
 end

@@ -6,6 +6,9 @@ local adapter = require '@lunette-plugin/adapter'
 
 local test = testing.suite()
 
+type PluginState = testing.PluginState
+type Marker = { read marker: string? }
+
 local function init() end
 
 test('a malformed spec is rejected at the caller with the problem named', function()
@@ -20,14 +23,16 @@ test('a malformed spec is rejected at the caller with the problem named', functi
 end)
 
 test('a context reaches only its declared capabilities, and only while it is current', function()
-  local service = plugin.capability { name = 'local/reached-service', version = 1 }
-  local extra = plugin.capability { name = 'local/reached-extra', version = 1 }
-  local providerContext, consumerContext, escapedPublisher
+  local service: plugin.Capability<Marker> = plugin.capability { name = 'local/reached-service', version = 1 }
+  local extra: plugin.Capability<{}> = plugin.capability { name = 'local/reached-extra', version = 1 }
+  local providerContext: adapter.Context?
+  local consumerContext: adapter.Context?
+  local escapedPublisher: adapter.Publisher?
   local calls = 0
   local provider = adapter.define {
     name = 'provider',
     provides = { service },
-    init = function(context, _config, publish)
+    init = function(context: adapter.Context, _config: {}, publish: adapter.Publisher)
       providerContext = context
       escapedPublisher = publish
       publish:provide(service, { marker = 'original' })
@@ -36,7 +41,7 @@ test('a context reaches only its declared capabilities, and only while it is cur
   local consumer = adapter.define {
     name = 'consumer',
     requires = { service },
-    init = function(context)
+    init = function(context: adapter.Context)
       consumerContext = context
       expect.equal(context:require(service).marker, 'original', 'the declared service')
       expect.raises(function()
@@ -81,12 +86,12 @@ test('a child is enabled when it is installed and removed with the activation th
   }
   local parent = adapter.define {
     name = 'parent',
-    init = function(context)
+    init = function(context: adapter.Context)
       context:child(child)
     end,
   }
   local runtime = adapter.runtime()
-  local function childState()
+  local function childState(): PluginState?
     for _, instance in runtime:snapshot().instances do
       if instance.parentId then
         return instance.state
@@ -104,7 +109,7 @@ test('a child is enabled when it is installed and removed with the activation th
 end)
 
 test('a declaration is a list of distinct capabilities, keyed natively by contract', function()
-  local service = plugin.capability { name = 'local/declared-service', version = 2 }
+  local service: plugin.Capability<{}> = plugin.capability { name = 'local/declared-service', version = 2 }
   for _, case in
     {
       { requires = { service, service }, message = 'requires lists capability local/declared%-service@2 twice' },
@@ -123,7 +128,7 @@ test('a declaration is a list of distinct capabilities, keyed natively by contra
       adapter.define {
         name = 'declared',
         provides = { service },
-        init = function(_context, _config, publish)
+        init = function(_context: adapter.Context, _config: {}, publish: adapter.Publisher)
           publish:provide(service, {})
         end,
       },

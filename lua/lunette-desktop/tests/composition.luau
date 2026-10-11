@@ -47,7 +47,7 @@ test('a patch replaces a built-in definition, and an inserted plugin draws', fun
   local overlay = adapter.define {
     name = 'overlay',
     requires = { frameContract.capability },
-    init = function(context)
+    init = function(context: adapter.Context)
       context:require(frameContract.capability):onDraw(context, {
         phase = 'overlay',
         run = function()
@@ -69,7 +69,7 @@ test('a patch replaces a built-in definition, and an inserted plugin draws', fun
   session:draw()
   expect.equal(drawn, 1, 'the inserted plugin draws')
   -- The left hand is held aside, so its beam points at nothing and is drawn at full length.
-  local ends = {}
+  local ends: { number } = {}
   for _, call in ipairs(events.draw) do
     if call[1] == 'line' then
       ends[#ends + 1] = call[7]

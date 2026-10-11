@@ -4,7 +4,19 @@ local schema = require '@lunette-plugin/schema'
 local editor = require '../editor'
 local test = testing.suite()
 
-local function row(model, path)
+type Draft = {
+  enabled: boolean,
+  title: string,
+  style: { width: number },
+  list: { { name: string } },
+  map: { [string]: number },
+  position: vector,
+  mode: 'quiet' | 'paused',
+  detail: { label: string, count: number }?,
+}
+type OpaqueDraft = { count: number, callback: () -> (), custom: {}, extra: { retained: boolean } }
+
+local function row(model: editor.Model, path: editor.Path): editor.Row
   for _, item in editor.rows(model) do
     if table.concat(item.path, '.') == table.concat(path, '.') then
       return item
@@ -13,13 +25,18 @@ local function row(model, path)
   error('missing row ' .. table.concat(path, '.'))
 end
 
-local function change(operation, ...)
+local function change<A...>(operation: (A...) -> (editor.Model?, editor.Problem?), ...: A...): editor.Model
   local model, problem = operation(...)
   assert(model, if problem then problem.message else 'missing draft')
   return model
 end
 
-local function reject(model, operation, code, ...)
+local function reject<A...>(
+  model: editor.Model,
+  operation: (editor.Model, A...) -> (editor.Model?, editor.Problem?),
+  code: editor.Code,
+  ...: A...
+)
   local draft = editor.draft(model)
   local result, problem = operation(model, ...)
   expect.equal(result, nil)
@@ -27,7 +44,7 @@ local function reject(model, operation, code, ...)
   expect.equal(editor.draft(model), draft)
 end
 
-local function fixture()
+local function fixture(): schema.Metadata
   local shape = schema.object {
     enabled = schema.default(schema.boolean())(true),
     title = schema.describe(schema.default(schema.string()) 'Initial') { label = 'Title' },
@@ -48,7 +65,7 @@ end
 
 test('defaults resolve like the schema and rows describe each field', function()
   local model = editor.new(fixture(), { list = {} })
-  local value = editor.draft(model)
+  local value: Draft = editor.draft(model)
   expect.equal(value.style.width, 10)
   expect.equal(#value.list, 0, 'an explicit empty collection replaces the default')
   expect.equal(value.title, 'Initial')
@@ -129,7 +146,7 @@ test('opaque and undeclared values survive edits and stay read-only', function()
       callback = schema.callback(callback),
       custom = schema.custom {
         runtimeType = 'table',
-        validate = function(value)
+        validate = function(value: unknown): unknown
           return value
         end,
       },
@@ -137,7 +154,7 @@ test('opaque and undeclared values survive edits and stay read-only', function()
     .inspect()
   local extra = { retained = true }
   local model = editor.new(metadata, { extra = extra })
-  local draft = editor.draft(change(editor.set, model, { 'count' }, '3'))
+  local draft: OpaqueDraft = editor.draft(change(editor.set, model, { 'count' }, '3'))
   expect.equal(draft.callback, callback)
   expect.equal(draft.custom, custom)
   expect.equal(draft.extra, extra)

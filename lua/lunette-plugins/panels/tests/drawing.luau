@@ -5,7 +5,37 @@ local drawing = require '@lunette-plugins/panels/draw'
 
 local test = testing.suite()
 
-local function start(config)
+type Native = testing.Native
+type Window = testing.Window
+type Context = testing.Context
+type Texture = { read name: string, read getDimensions: (() -> (number, number))? }
+type Crop = { x: number, y: number, width: number, height: number }
+type Child = {
+  id: number,
+  kind: 'subsurface' | 'popup',
+  below: boolean,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  crop: Crop,
+  texture: Texture,
+  opaque: boolean,
+}
+type Layer = {
+  read setViewport: (Layer, number, number, number, number) -> (),
+  read setPosition: () -> (),
+  read setOrientation: () -> (),
+  read setDimensions: () -> (),
+  read setCurve: () -> (),
+}
+type Drawable = {
+  read draw: (Drawable, typeof(testing.native().events.pass)) -> (),
+  read claim: { granted: boolean, layer: Layer | false },
+}
+type Config = testing.ConfiguredInput<typeof(require('@lunette-plugins/panels').define)>
+
+local function start(config: Config?): (Native, testing.Session, contract.Service, Context, Window)
   local native = testing.native()
   local session = testing.start {
     'theme',
@@ -13,10 +43,10 @@ local function start(config)
   }
   local observed = session:observe(contract.capability)
   local window = native.newWindow(1)
-  window.getTexture = function()
+  window.getTexture = function(): Texture
     return {
       name = 'desktop pixels',
-      getDimensions = function()
+      getDimensions = function(): (number, number)
         return 2000, 1000
       end,
     }
@@ -24,10 +54,10 @@ local function start(config)
   return native, session, observed.service, observed.context, window
 end
 
-local function grantLayer(panel, viewports)
+local function grantLayer(panel: Drawable, viewports: { { number } })
   panel.claim.granted = true
   panel.claim.layer = {
-    setViewport = function(_, x, y, width, height)
+    setViewport = function(_: Layer, x: number, y: number, width: number, height: number)
       viewports[#viewports + 1] = { x, y, width, height }
     end,
     setPosition = function() end,
@@ -37,10 +67,10 @@ local function grantLayer(panel, viewports)
   }
 end
 
-local function drawn(native, panel)
+local function drawn(native: Native, panel: Drawable): { [string]: number }
   table.clear(native.events.draw)
   panel:draw(native.events.pass)
-  local counts = {}
+  local counts: { [string]: number } = {}
   for _, call in native.events.draw do
     counts[call[1]] = (counts[call[1]] or 0) + 1
   end
@@ -77,7 +107,7 @@ test('content decodes its colour and restores the pass state it inherited', func
   local caller = recorder:checkpoint()
   table.clear(native.events.draw)
   panel:draw(pass)
-  local shader
+  local shader: typeof(testing.native().events.render:newShader('', ''))?
   for _, call in native.events.draw do
     shader = shader or (call[1] == 'draw' or call[1] == 'plane') and call.state.setShader[1]
   end
@@ -93,7 +123,7 @@ test('chrome draws a ring and title in theme colours when a panel or the configu
   local selected = theme.service:select(theme.context, { colors = { foreground = { 0.8, 0.7, 0.6, 1 } } })
   local framed = panels:fromWindow(owner, native.newWindow(2), { height = 1, chrome = true })
   drawn(native, framed)
-  local title
+  local title: typeof(testing.native().events.draw[1])?
   for _, call in native.events.draw do
     title = if call[1] == 'text' then call else title
   end
@@ -139,7 +169,7 @@ test('a layer is claimed at the texture size and shows only the crop', function(
   expect.equal(claim.width, 2000, 'the claim holds the whole texture across')
   expect.equal(claim.height, 1000, 'the claim holds the whole texture down')
 
-  local viewports = {}
+  local viewports: { { number } } = {}
   grantLayer(panel, viewports)
   panel:update()
   expect.equal(table.concat(viewports[1], ' '), '0 0 2000 1000', 'an uncropped window shows the whole texture')
@@ -154,7 +184,7 @@ end)
 
 local FULL = { x = 0, y = 0, width = 1, height = 1 }
 
-local function video()
+local function video(): Child
   return {
     id = 21,
     kind = 'subsurface',
@@ -169,7 +199,7 @@ local function video()
   }
 end
 
-local function menu()
+local function menu(): Child
   return {
     id = 20,
     kind = 'popup',
@@ -185,10 +215,11 @@ local function menu()
 end
 
 -- The texture each content draw samples, in drawing order, with the depth it is drawn at.
-local function sampled(native, panel)
+local function sampled(native: Native, panel: Drawable): ({ string }, { number })
   table.clear(native.events.draw)
   panel:draw(native.events.pass)
-  local names, depths = {}, {}
+  local names: { string } = {}
+  local depths: { number } = {}
   for _, call in native.events.draw do
     if call[1] == 'draw' or call[1] == 'plane' then
       local material = call.state.setMaterial and call.state.setMaterial[1]
@@ -284,7 +315,7 @@ test('a capture draws the WayVR UVs of its transform, and a changed transform re
   local native = testing.native()
   local made = native.events.render.meshAcquisitions
   local monitor = native.newMonitor 'display'
-  monitor.getTexture = function()
+  monitor.getTexture = function(): Texture
     return { name = 'captured pixels' }
   end
   local target = { kind = 'monitor', source = monitor, pose = lovr.math.newMat4(), width = 2, height = 1, curve = 0.4 }

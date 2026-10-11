@@ -7,17 +7,21 @@ local geometry = require '@lunette-plugins/theme/rounded-geometry'
 local test = testing.suite()
 
 -- A 2 by 1 metre panel over a 1000 by 500 window: 500 surface units to the metre.
+type Crop = { read x: number, read y: number, read width: number, read height: number }
+type Child = { read x: number, read y: number, read width: number, read height: number, read crop: Crop }
+type Vertices = { { number } }
+
 local PANEL = { width = 2, height = 1, curve = 0 }
 local WINDOW_WIDTH, WINDOW_HEIGHT = 1000, 500
 local SQUARE = geometry.perimeter({ x = 0, y = 0, width = 2, height = 1 }, geometry.uniform(0))
 local FULL = { x = 0, y = 0, width = 1, height = 1 }
 
-local function child(x, y, width, height, crop)
+local function child(x: number, y: number, width: number, height: number, crop: Crop?): Child
   return { x = x, y = y, width = width, height = height, crop = crop or FULL }
 end
 
 -- The panel-local bounds of the vertices, from the top-left, in metres.
-local function extent(vertices)
+local function extent(vertices: Vertices): (number, number, number, number)
   local left, right, top, bottom = math.huge, -math.huge, math.huge, -math.huge
   for _, vertex in vertices do
     local x, y = vertex[1] + PANEL.width / 2, PANEL.height / 2 - vertex[2]
@@ -27,7 +31,7 @@ local function extent(vertices)
   return left, top, right, bottom
 end
 
-local function uvExtent(vertices)
+local function uvExtent(vertices: Vertices): (number, number, number, number)
   local left, right, top, bottom = math.huge, -math.huge, math.huge, -math.huge
   for _, vertex in vertices do
     left, right = math.min(left, vertex[7]), math.max(right, vertex[7])

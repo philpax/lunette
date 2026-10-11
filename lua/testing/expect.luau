@@ -50,7 +50,7 @@ function expect.near(actual: unknown, wanted: number, tolerance: number, context
   end
 end
 
-function expect.raises(run: () -> (), pattern: string?, context: string?): string
+function expect.raises<R...>(run: () -> R..., pattern: string?, context: string?): string
   local ok, message = pcall(run)
   if ok then
     fail((context or 'call') .. ': wanted it to raise, and it returned')

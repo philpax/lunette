@@ -6,14 +6,16 @@ local adapter = require '@lunette-plugin/adapter'
 
 local test = testing.suite()
 
-local function only(reports, needle)
+type Echo = { read ping: (Echo, string) -> string, read dropDoomed: (Echo) -> () }
+
+local function only(reports: { string }, needle: string): string
   expect.equal(#reports, 1, table.concat(reports, '\n'))
   expect.truthy(reports[1]:find(needle, 1, true), reports[1])
   return reports[1]
 end
 
 test('an initializer error fails its instance and is reported with its position and traceback', function()
-  local function raiseFromInitializer()
+  local function raiseFromInitializer(): never
     error 'initializer position failure'
   end
   local runtime = adapter.runtime()
@@ -45,10 +47,10 @@ test('an initializer error fails its instance and is reported with its position 
 end)
 
 test('a consumer waits unreported for a provider, but a schema mismatch is reported', function()
-  local first = plugin.capability { name = 'local/schema-mismatch', version = 1 }
-  local second = plugin.capability { name = 'local/schema-mismatch', version = 2 }
+  local first: plugin.Capability<{}> = plugin.capability { name = 'local/schema-mismatch', version = 1 }
+  local second: plugin.Capability<{}> = plugin.capability { name = 'local/schema-mismatch', version = 2 }
   local runtime = adapter.runtime()
-  local function consumer(capability)
+  local function consumer(capability: plugin.Capability<{}>): adapter.Instance<{}>
     return runtime:use(adapter.define { name = 'consumer', requires = { capability }, init = function() end }, {})
   end
   local waiting = consumer(first)
@@ -62,7 +64,7 @@ test('a consumer waits unreported for a provider, but a schema mismatch is repor
       adapter.define {
         name = 'provider',
         provides = { first },
-        init = function(_context, _config, publish)
+        init = function(_context: adapter.Context, _config: {}, publish: adapter.Publisher)
           publish:provide(first, {})
         end,
       },
@@ -80,28 +82,28 @@ test('a consumer waits unreported for a provider, but a schema mismatch is repor
 end)
 
 test('a failed disposal quarantines its provider once its consumers have unloaded', function()
-  local echo = plugin.capability { name = 'local/quarantine-echo', version = 1 }
-  local events = {}
-  local kept
+  local echo: plugin.Capability<Echo> = plugin.capability { name = 'local/quarantine-echo', version = 1 }
+  local events: { string } = {}
+  local kept: Echo?
   local definition = adapter.define {
     name = 'provider',
     provides = { echo },
-    init = function(context, _config, publish)
-      context:effect(function()
+    init = function(context: adapter.Context, _config: {}, publish: adapter.Publisher)
+      context:effect(function(): () -> ()
         return function()
           events[#events + 1] = 'provider remaining'
         end
       end)
-      local doomed = context:effect(function()
-        return function()
+      local doomed = context:effect(function(): () -> ()
+        return function(): never
           error('the doomed inverse fails', 0)
         end
       end)
       publish:provide(echo, {
-        ping = function(_self, value)
+        ping = function(_self: Echo, value: string): string
           return value
         end,
-        dropDoomed = function(_self)
+        dropDoomed = function(_self: Echo)
           doomed:dispose()
         end,
       })
@@ -114,10 +116,10 @@ test('a failed disposal quarantines its provider once its consumers have unloade
     adapter.define {
       name = 'consumer',
       requires = { echo },
-      init = function(context)
+      init = function(context: adapter.Context)
         local service = context:require(echo)
         kept = service
-        context:effect(function()
+        context:effect(function(): () -> ()
           return function()
             events[#events + 1] = 'consumer ' .. service:ping 'served'
           end
@@ -158,12 +160,12 @@ test('a failed disposal quarantines its provider once its consumers have unloade
 end)
 
 test('an owner label names the definition, also after the owner unloads', function()
-  local held
+  local held: adapter.Context?
   local runtime = adapter.runtime()
   local instance = runtime:use(
     adapter.define {
       name = 'labelled-consumer',
-      init = function(context)
+      init = function(context: adapter.Context)
         held = context
       end,
     },

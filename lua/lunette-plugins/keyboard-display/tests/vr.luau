@@ -10,7 +10,15 @@ local keyboard = require '@lunette-plugins/keyboard'
 local vrUi = require '@testing/vr-ui'
 local test = testing.suite()
 
-local function board(service)
+type Board = {
+  read pose: Mat4,
+  read width: number,
+  read height: number,
+  read visible: boolean,
+  read keys: (Board) -> { keyboard.RenderedKey },
+}
+
+local function board(service: surfaces.Service): Board
   for _, candidate in service:all() do
     if candidate.grabbable and candidate.setVisible then
       return candidate
@@ -19,7 +27,7 @@ local function board(service)
   error 'the shared keyboard is not offered'
 end
 
-local function clickKey(running, current, kind)
+local function clickKey(running: vrUi.Fixture, current: Board, kind: string)
   for _, key in current:keys() do
     if key.action and key.action.kind == kind then
       running:click({
@@ -65,12 +73,12 @@ test('controller clicks on fields share one keyboard that types, and its Hide ke
     'ui',
     { id = 'desktop/keyboard', definition = require('@lunette-plugins/keyboard-display').definition },
   }
-  local state = {}
+  local state: { service: ui.Service?, first: ui.TextField? } = {}
   running.session:use(
     adapter.define {
       name = 'testing/display-vr-fields',
       requires = { ui.capability },
-      init = function(owner)
+      init = function(owner: adapter.Context)
         state.service = owner:require(ui.capability)
         local panel = state.service:newPanel(owner, {
           name = 'Shared keyboard fields',

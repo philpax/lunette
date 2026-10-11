@@ -100,7 +100,7 @@ local function build(context: plugin.Context, settings: Settings): Service
       live = function(): boolean
         return live(state)
       end,
-      focus = function(sink)
+      focus = function(sink: lunette.Sink?)
         if settings.focusOnPress then
           local generation = state.generation
           nativeFocus.give(state, sink, context, focusService, function(): boolean
@@ -451,7 +451,7 @@ local function build(context: plugin.Context, settings: Settings): Service
     })
     public = (view :: any) :: Pointer
     state.pointer = public
-    local acquired = context:acquire(owner, function()
+    local acquired = context:acquire(owner, function(): () -> ()
       pointers[#pointers + 1] = public
       states[public], owners[public] = state, owner
       return function()
@@ -465,7 +465,7 @@ local function build(context: plugin.Context, settings: Settings): Service
     return public
   end
 
-  context:effect(function()
+  context:effect(function(): () -> ()
     return function()
       active = false
       local inverses: { () -> () } = {}

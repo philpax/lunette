@@ -5,16 +5,18 @@ local adapter = require '@lunette-plugin/adapter'
 
 local test = testing.suite()
 
+type Resource = { dead: boolean }
+
 test('a returned resource releases once on dispose and not again at close', function()
   local runtime = adapter.runtime()
-  local values = {}
-  local effects = {}
+  local values: { Resource } = {}
+  local effects: { adapter.Effect } = {}
   local releases = 0
   local instance = runtime:use(
     adapter.define {
       name = 'resource-owner',
-      init = function(context)
-        local value, effect = context:resource(context, function()
+      init = function(context: adapter.Context)
+        local value, effect = context:resource(context, function(): (Resource, () -> ())
           local acquired = { dead = false }
           return acquired, function()
             acquired.dead = true
@@ -42,13 +44,13 @@ end)
 test('a resource answers no value after acquisition failure or cancellation', function()
   for _, cancel in { false, true } do
     local runtime = adapter.runtime()
-    local instance
-    local context
+    local instance: adapter.Instance<{}>?
+    local context: adapter.Context?
     local released = 0
     instance = runtime:use(
       adapter.define {
         name = 'interrupted-resource-owner',
-        init = function(owner)
+        init = function(owner: adapter.Context)
           context = owner
         end,
       },
@@ -57,7 +59,7 @@ test('a resource answers no value after acquisition failure or cancellation', fu
     instance:enable()
     local returned = false
     expect.raises(function()
-      context:resource(context, function()
+      context:resource(context, function(): ({}, () -> ())
         if not cancel then
           error 'resource acquisition failure'
         end

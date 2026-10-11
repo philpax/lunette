@@ -8,14 +8,29 @@ local keys = require '@lunette-contracts/keys'
 
 local test = testing.suite()
 
-local function fixture()
+type Fixture = {
+  native: testing.Native,
+  keys: { number },
+  activations: { interaction.Pointer },
+  session: testing.Session?,
+  owner: focusContract.Owner?,
+  service: keyboardContract.Service?,
+  focus: focusContract.Service?,
+  target: focusContract.TargetHandle?,
+  board: keyboardContract.Keyboard?,
+  pointer: (Fixture) -> interaction.Pointer,
+  update: (Fixture, interaction.Pointer, { [string]: boolean }?, number?, number?) -> (),
+  close: (Fixture) -> (),
+}
+
+local function fixture(): Fixture
   local native = testing.native()
-  local f = { native = native, keys = {}, activations = {} }
+  local f: Fixture = { native = native, keys = {}, activations = {} }
   local definition = keyboard.define {
     name = 'pointer-adapter-keyboard',
     rows = { { { code = keys.CODES.y }, { code = keys.CODES.n } } },
     style = { keyUnit = 0.05 },
-    onKey = function(board, key, pointer, base)
+    onKey = function(board: keyboard.Board, key: keyboard.RenderedKey, pointer: keyboard.Pointer, base: keyboard.Press)
       f.activations[#f.activations + 1] = pointer
       base(board, key, pointer)
     end,
@@ -35,11 +50,11 @@ local function fixture()
     kind = 'local',
     wantsKeyboard = true,
     receiver = {
-      key = function(event)
+      key = function(event: focusContract.KeyEvent): boolean
         f.keys[#f.keys + 1] = event.code
         return true
       end,
-      text = function()
+      text = function(): boolean
         return false
       end,
     },
@@ -47,10 +62,10 @@ local function fixture()
   f.target:focus()
   f.board = f.service:new(f.owner)
   local pointers = f.session:observe(interaction.capability)
-  function f:pointer()
+  function f:pointer(): interaction.Pointer
     return pointers.service:newPointer(pointers.context)
   end
-  function f:update(pointer, buttons, x, y)
+  function f:update(pointer: interaction.Pointer, buttons: { [string]: boolean }?, x: number?, y: number?)
     pointer:update({
       origin = vector.pack((x or 0.025) - self.board.width / 2, self.board.height / 2 - (y or 0.025), 1),
       direction = vector.pack(0, 0, -1),
@@ -88,9 +103,9 @@ end)
 
 test('hiding the keyboard cancels its captured pointers, and showing it does not restart them', function()
   local f = fixture()
-  local cancelled = {}
+  local cancelled: { interaction.CancelReason } = {}
   local onPointer = f.board.onPointer
-  f.board.onPointer = function(board, event)
+  f.board.onPointer = function(board: keyboardContract.Surface, event: interaction.PointerEvent)
     if event.kind == 'cancel' then
       cancelled[#cancelled + 1] = event.reason
     end

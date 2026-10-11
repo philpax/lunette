@@ -14,7 +14,11 @@ local function panelOptions(
   return base(properties, window)
 end
 
-local function configuration<F>(hook: F)
+type ConfigurationShape<F> = { panelOptions: schema.Schema<F?, F> }
+local function configuration<F>(hook: F): schema.Schema<
+  schema.ObjectInput<ConfigurationShape<F>>,
+  schema.ObjectOutput<ConfigurationShape<F>>
+>
   local callback = schema.callback(hook)
   return schema.object {
     panelOptions = schema.default(callback)(hook),

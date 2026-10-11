@@ -39,7 +39,7 @@ confdir := $(DESTDIR)$(SYSCONFDIR)/xdg/lunette
 export LUNETTE_PREFIX = $(PREFIX)
 export LUNETTE_SYSCONFDIR = $(SYSCONFDIR)
 
-.PHONY: all build run install install-binary install-lua install-config check check-install check-format check-headset check-headset-runtime check-rust check-clippy check-test check-definitions check-luau clean
+.PHONY: all build run install install-binary install-lua install-config check check-install check-format check-headset check-headset-runtime check-rust check-clippy check-test check-definitions check-luau check-luau-annotations clean
 
 # The generator owns the install list. It omits the testing root.
 install_manifest := $(CARGO) run -p lunette-generate-definitions -- --manifest
@@ -53,7 +53,7 @@ run:
 	LUNETTE_STDLIB_PATH="$(CURDIR)/lua" LUNETTE_CONFIG_PATH="$(CURDIR)/dev" $(CARGO) run -p lunette --bin lunette -- $(ARGS)
 
 # The standing checks, in the order .github/workflows/ci.yml runs them.
-check: check-format check-install check-headset check-rust check-definitions check-luau
+check: check-format check-install check-headset check-rust check-definitions check-luau-annotations check-luau
 
 check-install:
 	python3 crates/lunette/tests/fixtures/install.py
@@ -88,6 +88,19 @@ check-test:
 # Fails when a checked-in generated artifact is stale.
 check-definitions:
 	$(CARGO) run -p lunette-generate-definitions -- --check
+
+# This safe-mode fixture intentionally contains invalid syntax to exercise startup recovery.
+# Find and sort run separately so either failure prevents Cargo from checking a partial list.
+check-luau-annotations: SHELL := /usr/bin/env bash
+check-luau-annotations:
+	@set -eu; \
+	listing=$$(mktemp); \
+	trap 'rm -f "$$listing"' EXIT; \
+	$(FIND) -P lua etc/xdg/lunette examples dev crates -type f -name '*.luau' ! -path 'crates/lunette/tests/fixtures/safe-mode/lunette/main.luau' -print0 > "$$listing"; \
+	LC_ALL=C sort -z -o "$$listing" "$$listing"; \
+	mapfile -d '' -t roots < "$$listing"; \
+	if [ "$${#roots[@]}" -eq 0 ]; then printf '%s\n' 'make: no Luau files found for annotation checking' >&2; exit 1; fi; \
+	$(CARGO) run -p lunette --example check_annotations -- "$${roots[@]}"
 
 # Tests and lua/testing stay out, because they build partial handles and fake
 # natives that strict checking would force them to cast.

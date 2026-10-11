@@ -7,19 +7,29 @@ local frameContract = require '@lunette-contracts/frame'
 
 local test = testing.suite()
 
-local function start()
-  local env = { ran = {}, delivered = {} }
+type Environment = {
+  ran: { bindingsContract.Press },
+  delivered: { string },
+  session: testing.Session?,
+  native: testing.Native?,
+  hotkeys: adapter.Instance<{}>?,
+  owner: plugin.Context?,
+  bindings: bindingsContract.Service?,
+}
+
+local function start(): Environment
+  local env: Environment = { ran = {}, delivered = {} }
   env.session = testing.boot { 'frame', 'bindings' }
   env.native = env.session.native
   env.hotkeys = env.session:use(adapter.define {
     name = 'hotkeys',
     requires = { bindingsContract.capability, frameContract.capability },
-    init = function(context)
+    init = function(context: plugin.Context)
       env.owner = context
       env.bindings = context:require(bindingsContract.capability)
       env.bindings:register(context, {
         chord = { key = 'backspace', modifiers = { 'alt', 'control' } },
-        run = function(press)
+        run = function(press: bindingsContract.Press)
           env.ran[#env.ran + 1] = press
         end,
       })
@@ -34,14 +44,14 @@ local function start()
   local frame = env.session:observe(frameContract.capability)
   frame.service:onKey(frame.context, {
     phase = 'delivery',
-    run = function(event)
+    run = function(event: frameContract.HostKeyEvent)
       env.delivered[#env.delivered + 1] = event.key
     end,
   })
   return env
 end
 
-local function press(env, key, held, isRepeat)
+local function press(env: Environment, key: string, held: { string }, isRepeat: boolean?)
   env.native.events.held = {}
   for _, name in ipairs(held) do
     env.native.events.held[name] = true

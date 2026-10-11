@@ -6,15 +6,18 @@ local tagsContract = require '@lunette-contracts/tags'
 
 local test = testing.suite()
 
-local function start()
+type Consumer = { instance: adapter.Instance<{}>?, owner: plugin.Context?, tags: tagsContract.Service? }
+type Panel = { dead: boolean }
+
+local function start(): (testing.Session, (string) -> Consumer)
   testing.native()
   local session = testing.start { 'tags' }
-  local function consumer(name)
-    local handle = {}
+  local function consumer(name: string): Consumer
+    local handle: Consumer = {}
     handle.instance = session:use(adapter.define {
       name = name,
       requires = { tagsContract.capability },
-      init = function(context)
+      init = function(context: plugin.Context)
         handle.owner = context
         handle.tags = context:require(tagsContract.capability)
       end,
@@ -24,7 +27,7 @@ local function start()
   return session, consumer
 end
 
-local function panel()
+local function panel(): Panel
   return { dead = false }
 end
 
@@ -48,9 +51,9 @@ test('a held tag is made by its first holder and ends with its last', function()
   local session, consumer = start()
   local first, second, watcher = consumer 'first', consumer 'second', consumer 'watcher'
   local tags = first.tags
-  local changes = {}
+  local changes: { string } = {}
   tags:onChanged(watcher.owner, {
-    run = function(change)
+    run = function(change: tagsContract.Change)
       changes[#changes + 1] = change.kind .. ':' .. change.tag.name
     end,
   })
@@ -93,10 +96,10 @@ test('the most recent live selection override decides, and disposing it reveals 
   local session, consumer = start()
   local first, second, watcher = consumer 'first', consumer 'second', consumer 'watcher'
   local owned = watcher.tags:hold(watcher.owner, { name = 'owned' })
-  local heard = {}
+  local heard: { tagsContract.ChangeKind } = {}
   first.tags:onChanged(watcher.owner, {
     tag = owned,
-    run = function(change)
+    run = function(change: tagsContract.Change)
       heard[#heard + 1] = change.kind
     end,
   })

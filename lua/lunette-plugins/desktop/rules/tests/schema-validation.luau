@@ -8,7 +8,7 @@ test('the desktop config rejects a malformed rule and accepts a callback predica
   expect.raises(function()
     definition.resolve { rules = { { match = { where = 42 } } } }
   end, 'match field where')
-  local predicate = function()
+  local predicate = function(): boolean
     return true
   end
   local pose = lovr.math.newMat4()

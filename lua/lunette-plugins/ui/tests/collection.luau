@@ -3,38 +3,88 @@ local collection = require '../collection'
 local expect = testing.expect
 local test = testing.suite()
 
+type Bounds = collection.Bounds
+type CancelReason = collection.CancelReason
+type PointerButton = testing.PointerButton
+type Row = { id: string, label: string, enabled: boolean? }
+type Theme = { rowHeight: number, padding: number, spacing: number }
+type Item = { id: string, label: string, enabled: boolean, selected: boolean, bounds: Bounds }
+type Visual = {
+  id: string,
+  kind: 'choice' | 'list',
+  label: string,
+  bounds: Bounds,
+  clip: Bounds,
+  theme: Theme,
+  enabled: boolean,
+  hovered: boolean,
+  pressed: boolean,
+  focused: boolean,
+  items: { Item },
+  value: string?,
+  opened: boolean?,
+  overflow: boolean?,
+}
+type Extra = { button: PointerButton?, dx: number?, dy: number?, reason: CancelReason? }
+type Methods = {
+  setItems: <R>(R, { Row }) -> (),
+  setSelected: <R>(R, string?) -> (),
+}
+type State = {
+  bounds: Bounds,
+  changes: { string },
+  focuses: number,
+  methods: Methods?,
+  items: (() -> { Item })?,
+  visual: (() -> Visual)?,
+  event: (('press' | 'release' | 'cancel' | 'scroll', number?, number?, Extra?) -> ())?,
+  click: ((number, number, Extra?) -> ())?,
+}
+type Event = {
+  kind: 'press' | 'release' | 'cancel' | 'scroll',
+  x: number?,
+  y: number?,
+  pointer: State,
+  inside: boolean,
+  captured: boolean,
+  button: PointerButton,
+  dx: number?,
+  dy: number?,
+  reason: CancelReason?,
+}
+
 local THEME = { rowHeight = 20, padding = 2, spacing = 3 }
 
-local function rows(count)
-  local items = {}
+local function rows(count: number): { Row }
+  local items: { Row } = {}
   for index = 1, count do
     items[index] = { id = tostring(index), label = 'Row ' .. index }
   end
   return items
 end
 
-local function fixture(kind, height, items, selected)
-  local state = { bounds = { x = 10, y = 20, width = 100, height = height }, changes = {}, focuses = 0 }
+local function fixture(kind: 'choice' | 'list', height: number, items: { Row }, selected: string?): State
+  local state: State = { bounds = { x = 10, y = 20, width = 100, height = height }, changes = {}, focuses = 0 }
   local host = {
-    live = function()
+    live = function(): boolean
       return true
     end,
     changed = function() end,
     cancel = function() end,
-    focus = function()
+    focus = function(): boolean
       state.focuses += 1
       return true
     end,
-    blur = function()
+    blur = function(): boolean
       return true
     end,
-    bounds = function()
+    bounds = function(): Bounds
       return state.bounds
     end,
-    theme = function()
+    theme = function(): Theme
       return THEME
     end,
-    callback = function(_, run)
+    callback = function(_: string, run: () -> ()): boolean
       run()
       return true
     end,
@@ -45,15 +95,15 @@ local function fixture(kind, height, items, selected)
     label = 'Rows',
     items = items,
     selected = selected,
-    onChange = function(id)
+    onChange = function(id: string)
       table.insert(state.changes, id)
     end,
   }, host)
   state.methods = widget.methods
-  function state.items()
+  function state.items(): { Item }
     return widget.items(state.bounds, THEME)
   end
-  function state.visual()
+  function state.visual(): Visual
     return widget.visual {
       id = kind,
       kind = kind,
@@ -68,12 +118,12 @@ local function fixture(kind, height, items, selected)
       items = {},
     }
   end
-  function state.event(kind, x, y, extra)
-    local event = { kind = kind, x = x, y = y, pointer = state, inside = true, captured = true, button = 'left' }
+  function state.event(kind: 'press' | 'release' | 'cancel' | 'scroll', x: number?, y: number?, extra: Extra?)
+    local event: Event = { kind = kind, x = x, y = y, pointer = state, inside = true, captured = true, button = 'left' }
     for key, value in extra or {} do
       event[key] = value
     end
-    local item
+    local item: string?
     for _, row in state.items() do
       local b = row.bounds
       if x and y and x >= b.x and x < b.x + b.width and y >= b.y and y < b.y + b.height then
@@ -82,7 +132,7 @@ local function fixture(kind, height, items, selected)
     end
     widget.pointer(event, item)
   end
-  function state.click(x, y, extra)
+  function state.click(x: number, y: number, extra: Extra?)
     state.event('press', x, y, extra)
     state.event('release', x, y, extra)
   end
@@ -152,7 +202,7 @@ test('list rows clip at the viewport and stay disjoint while scrolling', functio
 end)
 
 -- Reads the selection from the rows a list exposes.
-local function selected(state)
+local function selected(state: State): string?
   for _, item in state.items() do
     if item.selected then
       return item.id

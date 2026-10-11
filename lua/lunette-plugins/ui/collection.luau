@@ -6,6 +6,9 @@ local geometry = require './geometry'
 local validation = require './validation'
 local vocabulary = require '@lunette-contracts/vocabulary'
 
+export type Bounds = ui.Bounds
+export type CancelReason = vocabulary.CancelReason
+
 local collection = {}
 
 type Kind = 'choice' | 'list'

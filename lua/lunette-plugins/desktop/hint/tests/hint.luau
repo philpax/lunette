@@ -6,7 +6,7 @@ local test = testing.suite()
 
 local HINT = 'lunette: no windows yet'
 
-local function drawsHint(session)
+local function drawsHint(session: testing.Session): testing.DrawCall?
   local events = session.native.events
   events.draw = {}
   session:draw()

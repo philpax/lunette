@@ -25,7 +25,7 @@ if reloads == 0 then
   function lovr.lunwindowopened() end
 end
 
-local function firstFailure()
+local function firstFailure(): number?
   if package.loaded['lovr.filesystem'] ~= firstFilesystem then
     return 11
   end

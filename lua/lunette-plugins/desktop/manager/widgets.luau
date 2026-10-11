@@ -62,7 +62,7 @@ local function equal(left: unknown, right: unknown): boolean
   return true
 end
 
-local function pathId(path: { read [number]: string | number }): string
+local function pathId(path: controller.Path): string
   local parts = { 'row' }
   for _, part in path do
     local value = tostring(part):gsub('%%', '%%25'):gsub('/', '%%2f')
@@ -253,7 +253,7 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
     selected: string?,
     onChange: (string) -> ()
   ): ()
-    local record = retain(id, 'list', label, bounds, true, function()
+    local record = retain(id, 'list', label, bounds, true, function(): ui.List
       return panel:list {
         id = id,
         label = label,
@@ -270,7 +270,7 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
   end
   local function field(id: string, label: string, bounds: ui.Bounds, value: string): ui.TextField
     local created = retained[id] == nil
-    local record = retain(id, 'text-field', label, bounds, true, function()
+    local record = retain(id, 'text-field', label, bounds, true, function(): ui.TextField
       return panel:textField {
         id = id,
         label = label,
@@ -328,20 +328,27 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
       }
     end
     local selected = if state.row then state.editorRows[state.row] else nil
-    list('rows', 'Configuration rows', state.layout.bodyBounds, items, selected and pathId(selected.path), function(id)
-      for index, row in state.editorRows do
-        if pathId(row.path) == id then
-          controller.selectRow(state, index)
-          return
+    list(
+      'rows',
+      'Configuration rows',
+      state.layout.bodyBounds,
+      items,
+      selected and pathId(selected.path),
+      function(id: string)
+        for index, row in state.editorRows do
+          if pathId(row.path) == id then
+            controller.selectRow(state, index)
+            return
+          end
         end
       end
-    end)
+    )
     local fieldBounds = state.layout.editBounds
     if selected and not selected.readOnly and not state.edit then
       if selected.control == 'boolean' then
         assert(fieldBounds, 'manager widgets: boolean needs declared bounds')
         local label = selected.label .. ': ' .. tostring(selected.value)
-        retain('boolean-field', 'button', label, fieldBounds, true, function()
+        retain('boolean-field', 'button', label, fieldBounds, true, function(): ui.Button
           return panel:button {
             id = 'boolean-field',
             label = label,
@@ -365,7 +372,7 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
             selectedId = id
           end
         end
-        local record = retain('choice-field', 'choice', selected.label, fieldBounds, true, function()
+        local record = retain('choice-field', 'choice', selected.label, fieldBounds, true, function(): ui.Choice
           return panel:choice {
             id = 'choice-field',
             label = selected.label,
@@ -406,7 +413,7 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
       publishedView = table.clone(state.view)
     end
     local projected = geometry.project(publishedView, graphBounds)
-    local record = retain('graph', 'region', 'Plugin graph', graphBounds, true, function()
+    local record = retain('graph', 'region', 'Plugin graph', graphBounds, true, function(): ui.Region
       graphItems = projected.items
       return panel:region {
         id = 'graph',
@@ -445,7 +452,7 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
         selectedId = 'entry/' .. entry.id
       end
     end
-    list('entries', 'Plugin entries', state.layout.graphBounds, items, selectedId, function(id)
+    list('entries', 'Plugin entries', state.layout.graphBounds, items, selectedId, function(id: string)
       for _, entry in state.entries do
         if id == 'entry/' .. entry.id then
           view.select(state.view, { kind = 'node', id = entry.instanceId })
@@ -456,7 +463,7 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
   end
   local function sidebarRegion(id: string, label: string, part: draw.SidebarPart, bounds: ui.Bounds, z: number): ()
     local interactive = part == 'details'
-    retain(id, 'region', label, bounds, interactive, function()
+    retain(id, 'region', label, bounds, interactive, function(): ui.Region
       return panel:region {
         id = id,
         label = label,
@@ -493,7 +500,7 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
       sidebarRegion('sidebar-footer', 'Sidebar status', 'footer', sidebar.footer, -1)
       for _, button in state.buttons do
         local id = button.id
-        retain(id, 'button', button.label, button.bounds, button.enabled, function()
+        retain(id, 'button', button.label, button.bounds, button.enabled, function(): ui.Button
           return panel:button {
             id = id,
             label = button.label,
@@ -517,7 +524,7 @@ function widgets.new(panel: ui.Panel, owner: plugin.Context, state: controller.S
           }
         end
         local selected = if state.catalogSelection then 'catalog/' .. state.catalogSelection else nil
-        list('catalog-list', 'Catalog entries', state.layout.bodyBounds, items, selected, function(id)
+        list('catalog-list', 'Catalog entries', state.layout.bodyBounds, items, selected, function(id: string)
           controller.selectCatalog(state, id:sub(9))
         end)
       elseif state.tab == 'configure' and state.draft then

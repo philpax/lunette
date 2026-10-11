@@ -8,6 +8,36 @@ local focus = require '@lunette-contracts/focus'
 local theme = require '@lunette-contracts/theme'
 local vrUi = require '@testing/vr-ui'
 
+export type Bounds = ui.Bounds
+export type PointerEvent = ui.PointerEvent
+
+type Options = { keyboard: boolean?, theme: ui.ThemeOverrides?, draw: ui.DrawHook? }
+export type Event = {
+  read kind: 'enter' | 'leave' | 'move' | 'press' | 'release' | 'scroll' | 'cancel',
+  read reason: ui.CancelReason?,
+}
+export type State = {
+  fixture: vrUi.Fixture,
+  activations: { boolean },
+  submits: { string },
+  cancels: { string },
+  events: { Event },
+  instance: adapter.Instance<{}>?,
+  owner: adapter.Context?,
+  themes: theme.Service?,
+  service: ui.Service?,
+  panel: ui.Panel?,
+  button: ui.Button?,
+  field: ui.TextField?,
+  choice: ui.Choice?,
+  list: ui.List?,
+  region: ui.Region?,
+  chosen: string?,
+  listed: string?,
+  board: keyboard.Keyboard?,
+  focus: typeof(vrUi.boot({}).session:observe(focus.capability))?,
+}
+
 local fixture = {}
 
 local ROWS = {
@@ -20,7 +50,7 @@ local ROWS = {
   },
 }
 
-function fixture.boot(options)
+function fixture.boot(options: Options?): State
   options = options or {}
   local running = vrUi.boot {
     'theme',
@@ -42,7 +72,7 @@ function fixture.boot(options)
     'desktop/pointing',
     'ui',
   }
-  local state = { fixture = running, activations = {}, submits = {}, cancels = {}, events = {} }
+  local state: State = { fixture = running, activations = {}, submits = {}, cancels = {}, events = {} }
   state.instance = running.session:use(adapter.define {
     name = 'testing/public-ui-form',
     requires = {
@@ -52,7 +82,7 @@ function fixture.boot(options)
       surfaces.capability,
       theme.capability,
     },
-    init = function(context)
+    init = function(context: adapter.Context)
       state.owner = context
       state.themes = context:require(theme.capability)
       state.service = context:require(ui.capability)
@@ -81,14 +111,14 @@ function fixture.boot(options)
         bounds = { x = 110, y = 10, width = 270, height = 40 },
         draw = options.draw,
         value = '',
-        onSubmit = function(value)
+        onSubmit = function(value: string)
           state.submits[#state.submits + 1] = value
         end,
-        onCancel = function(value)
+        onCancel = function(value: string)
           state.cancels[#state.cancels + 1] = value
         end,
       }
-      local items = {}
+      local items: { ui.Item } = {}
       for index = 1, 20 do
         items[index] = { id = 'item-' .. index, label = 'Item ' .. index, enabled = index ~= 2 }
       end
@@ -97,7 +127,7 @@ function fixture.boot(options)
         label = 'Choice',
         bounds = { x = 10, y = 70, width = 180, height = 180 },
         items = items,
-        onChange = function(value)
+        onChange = function(value: string)
           state.chosen = value
         end,
       }
@@ -106,7 +136,7 @@ function fixture.boot(options)
         label = 'List',
         bounds = { x = 210, y = 70, width = 170, height = 180 },
         items = items,
-        onChange = function(value)
+        onChange = function(value: string)
           state.listed = value
         end,
       }
@@ -122,13 +152,13 @@ function fixture.boot(options)
             route = { { x = 20, y = 265 }, { x = 40, y = 285 } },
           },
         },
-        onPointer = function(event)
+        onPointer = function(event: ui.PointerEvent)
           state.events[#state.events + 1] = event
         end,
       }
       context:require(frame.capability):onDraw(context, {
         phase = 'scene',
-        run = function(pass)
+        run = function(pass: Pass)
           panel:draw(pass)
         end,
       })
@@ -141,13 +171,13 @@ function fixture.boot(options)
         state.board = board
         context:require(surfaces.capability):offer(context, {
           name = 'public-ui-form-keyboard',
-          list = function()
+          list = function(): { keyboard.Keyboard }
             return if board.visible then { board } else {}
           end,
         })
         context:require(frame.capability):onDraw(context, {
           phase = 'scene',
-          run = function(pass)
+          run = function(pass: Pass)
             board:draw(pass)
           end,
         })
@@ -158,7 +188,7 @@ function fixture.boot(options)
   return state
 end
 
-function fixture.press(state, id, hand, itemId)
+function fixture.press(state: State, id: string, hand: vrUi.Hand?, itemId: string?)
   hand = hand or 'right'
   local description, control = state.fixture:discover(state.service, 'public-ui-form', id, itemId)
   local bounds = assert(control.bounds)
@@ -169,7 +199,7 @@ function fixture.press(state, id, hand, itemId)
   state.fixture:step()
 end
 
-function fixture.scroll(state, id, y, hand)
+function fixture.scroll(state: State, id: string, y: number, hand: vrUi.Hand?)
   hand = hand or 'right'
   local description, control = state.fixture:discover(state.service, 'public-ui-form', id)
   local bounds = assert(control.bounds)
@@ -179,7 +209,7 @@ function fixture.scroll(state, id, y, hand)
   state.fixture:axis(hand, 0, 0)
 end
 
-function fixture.key(state, index, hand)
+function fixture.key(state: State, index: number, hand: vrUi.Hand?)
   local board = state.board
   local description = {
     visible = board.visible,

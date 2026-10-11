@@ -7,16 +7,20 @@
 #include "Luau/Config.h"
 #include "Luau/ExperimentalFlags.h"
 #include "Luau/Frontend.h"
+#include "Luau/Parser.h"
 #include "Luau/RequireNavigator.h"
 #include "Luau/Type.h"
 #include "Luau/TypePack.h"
 
+#include <algorithm>
 #include <cstring>
 #include <fstream>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <sstream>
 #include <string>
+#include <tuple>
 #include <unordered_map>
 #include <vector>
 
@@ -34,6 +38,22 @@ std::optional<std::string> slurp(const std::string& path)
     std::ostringstream contents;
     contents << stream.rdbuf();
     return contents.str();
+}
+
+std::optional<std::string> readAnnotationSource(const std::string& path)
+{
+    std::ifstream stream(path, std::ios::binary);
+    if (!stream)
+        return std::nullopt;
+
+    std::string contents;
+    char buffer[8192];
+    while (stream.read(buffer, sizeof(buffer)))
+        contents.append(buffer, static_cast<size_t>(stream.gcount()));
+    contents.append(buffer, static_cast<size_t>(stream.gcount()));
+    if (stream.bad() || !stream.eof())
+        return std::nullopt;
+    return contents;
 }
 
 std::string directoryOf(const std::string& path)
@@ -134,31 +154,136 @@ void enableDefaultFlags()
     });
 }
 
-char* copy(const std::string& text)
+std::unique_ptr<char[]> copy(const std::string& text)
 {
-    char* owned = new char[text.size() + 1];
-    std::memcpy(owned, text.c_str(), text.size() + 1);
+    auto owned = std::make_unique<char[]>(text.size() + 1);
+    std::memcpy(owned.get(), text.c_str(), text.size() + 1);
     return owned;
 }
 
+struct Diagnostic
+{
+    int kind;
+    std::string module;
+    Luau::Location location;
+    std::string message;
+};
+
 struct Collector
 {
-    std::vector<lunette_luau_diagnostic> diagnostics;
-    std::vector<char*> checked;
+    std::vector<Diagnostic> diagnostics;
+    std::vector<std::string> checked;
 
     void add(int kind, const std::string& module, const Luau::Location& location, const std::string& message)
     {
-        lunette_luau_diagnostic diagnostic;
-        diagnostic.kind = kind;
-        diagnostic.module = copy(module);
-        diagnostic.line = static_cast<int>(location.begin.line) + 1;
-        diagnostic.column = static_cast<int>(location.begin.column);
-        diagnostic.end_line = static_cast<int>(location.end.line) + 1;
-        diagnostic.end_column = static_cast<int>(location.end.column);
-        diagnostic.message = copy(message);
-        diagnostics.push_back(diagnostic);
+        diagnostics.push_back({kind, module, location, message});
+    }
+
+    void addChecked(const std::string& root)
+    {
+        checked.push_back(root);
     }
 };
+
+struct ValueReturns : Luau::AstVisitor
+{
+    bool found = false;
+
+    bool visit(Luau::AstStatReturn* statement) override
+    {
+        // A returned call is an expression even when inference would give it no values.
+        found = found || statement->list.size > 0;
+        return false;
+    }
+
+    bool visit(Luau::AstExprFunction*) override
+    {
+        return false;
+    }
+};
+
+struct FunctionAnnotations : Luau::AstVisitor
+{
+    Collector& collected;
+    const std::string& root;
+
+    FunctionAnnotations(Collector& collected, const std::string& root)
+        : collected(collected)
+        , root(root)
+    {
+    }
+
+    bool visit(Luau::AstExprFunction* function) override
+    {
+        // The implicit receiver is in `self`, not `args`, and has no source annotation.
+        for (Luau::AstLocal* argument : function->args)
+            if (argument->annotation == nullptr)
+                collected.add(LUNETTE_LUAU_LINT_ERROR, root, argument->location,
+                    std::string("parameter '") + argument->name.value + "' requires a type annotation");
+
+        if (function->vararg && function->varargAnnotation == nullptr)
+            collected.add(LUNETTE_LUAU_LINT_ERROR, root, function->varargLocation,
+                "variadic parameter requires a type annotation");
+
+        if (function->returnAnnotation == nullptr)
+        {
+            ValueReturns returns;
+            function->body->visit(&returns);
+            if (returns.found)
+                collected.add(LUNETTE_LUAU_LINT_ERROR, root, Luau::Location(function->location.begin, 8),
+                    "function with return expressions requires a return type annotation");
+        }
+
+        return true;
+    }
+
+    bool visit(Luau::AstType*) override
+    {
+        return true;
+    }
+
+    bool visit(Luau::AstTypePack*) override
+    {
+        return true;
+    }
+};
+
+lunette_luau_report* finish(const Collector& collected, const std::string* failure = nullptr)
+{
+    std::unique_ptr<lunette_luau_report, decltype(&lunette_luau_report_free)> report(
+        std::make_unique<lunette_luau_report>().release(), &lunette_luau_report_free);
+
+    // Zero-initialized arrays let the report deleter clean up partially copied strings.
+    if (!collected.diagnostics.empty())
+    {
+        report->diagnostics = std::make_unique<lunette_luau_diagnostic[]>(collected.diagnostics.size()).release();
+        report->diagnostic_count = collected.diagnostics.size();
+        for (size_t index = 0; index < report->diagnostic_count; ++index)
+        {
+            const Diagnostic& source = collected.diagnostics[index];
+            lunette_luau_diagnostic& diagnostic = report->diagnostics[index];
+            diagnostic.kind = source.kind;
+            diagnostic.line = static_cast<int>(source.location.begin.line) + 1;
+            diagnostic.column = static_cast<int>(source.location.begin.column);
+            diagnostic.end_line = static_cast<int>(source.location.end.line) + 1;
+            diagnostic.end_column = static_cast<int>(source.location.end.column);
+            diagnostic.module = copy(source.module).release();
+            diagnostic.message = copy(source.message).release();
+        }
+    }
+
+    if (!collected.checked.empty())
+    {
+        report->checked = std::make_unique<char*[]>(collected.checked.size()).release();
+        report->checked_count = collected.checked.size();
+        for (size_t index = 0; index < report->checked_count; ++index)
+            report->checked[index] = copy(collected.checked[index]).release();
+    }
+
+    if (failure != nullptr)
+        report->failure = copy(*failure).release();
+    return report.release();
+}
 
 // Whether a type is `{ read witness: (T) -> T }` at T = unknown. An
 // uninstantiated `plugin.capability` leaves T unknown, and every read through
@@ -210,15 +335,7 @@ const char* const kUnnamedCapability =
 
 lunette_luau_report* fail(const std::string& message, Collector& collected)
 {
-    lunette_luau_report* report = new lunette_luau_report{};
-    report->failure = copy(message);
-    report->diagnostic_count = collected.diagnostics.size();
-    if (report->diagnostic_count > 0)
-    {
-        report->diagnostics = new lunette_luau_diagnostic[report->diagnostic_count];
-        std::copy(collected.diagnostics.begin(), collected.diagnostics.end(), report->diagnostics);
-    }
-    return report;
+    return finish(collected, &message);
 }
 
 } // namespace
@@ -226,6 +343,7 @@ lunette_luau_report* fail(const std::string& message, Collector& collected)
 namespace
 {
 lunette_luau_report* check_within(const lunette_luau_request* request);
+lunette_luau_report* check_annotations_within(const lunette_luau_request* request);
 }
 
 extern "C"
@@ -251,10 +369,110 @@ lunette_luau_report* lunette_luau_check(const lunette_luau_request* request) noe
     }
 }
 
+lunette_luau_report* lunette_luau_check_annotations(const lunette_luau_request* request) noexcept
+{
+    try
+    {
+        return check_annotations_within(request);
+    }
+    catch (const std::exception& raised)
+    {
+        try
+        {
+            Collector collected;
+            return fail(std::string("the annotation checker raised: ") + raised.what(), collected);
+        }
+        catch (...)
+        {
+            // Reporting an allocation failure may itself fail to allocate.
+            return nullptr;
+        }
+    }
+    catch (...)
+    {
+        try
+        {
+            Collector collected;
+            return fail("the annotation checker raised something that is not an exception", collected);
+        }
+        catch (...)
+        {
+            return nullptr;
+        }
+    }
+}
+
 } // extern "C"
 
 namespace
 {
+
+lunette_luau_report* check_annotations_within(const lunette_luau_request* request)
+{
+    Collector collected;
+    if (request == nullptr)
+        return fail("no request was given", collected);
+    if (request->root_count == 0)
+        return fail("no roots were given", collected);
+    if (request->roots == nullptr)
+        return fail("the roots were not given", collected);
+
+    enableDefaultFlags();
+
+    std::vector<std::string> roots;
+    for (size_t index = 0; index < request->root_count; ++index)
+    {
+        if (request->roots[index] == nullptr)
+            return fail("a root was not given", collected);
+        roots.emplace_back(request->roots[index]);
+    }
+    std::sort(roots.begin(), roots.end());
+    roots.erase(std::unique(roots.begin(), roots.end()), roots.end());
+
+    for (const std::string& root : roots)
+    {
+        std::optional<std::string> source = readAnnotationSource(root);
+        if (!source)
+        {
+            collected.add(LUNETTE_LUAU_SYNTAX_ERROR, root, Luau::Location(), "the file could not be read");
+            continue;
+        }
+
+        Luau::Allocator allocator;
+        Luau::AstNameTable names(allocator);
+        Luau::ParseResult parsed = Luau::Parser::parse(source->data(), source->size(), names, allocator);
+        for (const Luau::ParseError& error : parsed.errors)
+            collected.add(LUNETTE_LUAU_SYNTAX_ERROR, root, error.getLocation(), error.getMessage());
+        if (!parsed.errors.empty())
+            continue;
+        if (parsed.root == nullptr)
+        {
+            collected.add(LUNETTE_LUAU_SYNTAX_ERROR, root, Luau::Location(), "the parser returned no syntax tree");
+            continue;
+        }
+
+        FunctionAnnotations annotations(collected, root);
+        parsed.root->visit(&annotations);
+        collected.addChecked(root);
+    }
+
+    std::sort(collected.diagnostics.begin(), collected.diagnostics.end(),
+        [](const Diagnostic& left, const Diagnostic& right) {
+            int module = std::strcmp(left.module.c_str(), right.module.c_str());
+            if (module != 0)
+                return module < 0;
+            auto leftLocation = std::make_tuple(static_cast<int>(left.location.begin.line) + 1,
+                static_cast<int>(left.location.begin.column), static_cast<int>(left.location.end.line) + 1,
+                static_cast<int>(left.location.end.column), left.kind);
+            auto rightLocation = std::make_tuple(static_cast<int>(right.location.begin.line) + 1,
+                static_cast<int>(right.location.begin.column), static_cast<int>(right.location.end.line) + 1,
+                static_cast<int>(right.location.end.column), right.kind);
+            if (leftLocation != rightLocation)
+                return leftLocation < rightLocation;
+            return std::strcmp(left.message.c_str(), right.message.c_str()) < 0;
+        });
+    return finish(collected);
+}
 
 lunette_luau_report* check_within(const lunette_luau_request* request)
 {
@@ -347,26 +565,10 @@ lunette_luau_report* check_within(const lunette_luau_request* request)
 
         // Lets a caller distinguish a passed file from a skipped one.
         if (frontend.getSourceModule(root) != nullptr)
-            collected.checked.push_back(copy(root));
+            collected.addChecked(root);
     }
 
-    lunette_luau_report* report = new lunette_luau_report{};
-
-    report->diagnostic_count = collected.diagnostics.size();
-    if (report->diagnostic_count > 0)
-    {
-        report->diagnostics = new lunette_luau_diagnostic[report->diagnostic_count];
-        std::copy(collected.diagnostics.begin(), collected.diagnostics.end(), report->diagnostics);
-    }
-
-    report->checked_count = collected.checked.size();
-    if (report->checked_count > 0)
-    {
-        report->checked = new char*[report->checked_count];
-        std::copy(collected.checked.begin(), collected.checked.end(), report->checked);
-    }
-
-    return report;
+    return finish(collected);
 }
 
 } // namespace

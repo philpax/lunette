@@ -18,7 +18,7 @@ test('keyboard and frame outages remove only what depends on them, and recovery 
   local display = session:observe(displayContract.capability)
   local menu = session:observe(menuContract.capability).service
   local ui = session:observe(uiContract.capability).service
-  local function action(id)
+  local function action(id: string): menuContract.Descriptor?
     for _, entry in menu:list() do
       if entry.id == id then
         return entry
@@ -39,7 +39,7 @@ test('keyboard and frame outages remove only what depends on them, and recovery 
   expect.equal(action 'desktop/keyboard/toggle', nil, 'only the Keyboard action disappears')
   local reloads = 0
   local reload = lunette.reload
-  lunette.reload = function()
+  lunette.reload = function(): boolean
     reloads += 1
     return true
   end

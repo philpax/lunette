@@ -5,16 +5,58 @@ local native = require '@testing/native'
 local keyboard = require '@lunette-contracts/keyboard'
 
 local vrUi = {}
+
+export type Hand = 'left' | 'right'
+export type Bounds = { x: number, y: number, width: number, height: number }
+export type Item = { id: string, label: string, enabled: boolean, selected: boolean?, bounds: Bounds? }
+export type Control = {
+  id: string,
+  owner: session.Owner,
+  kind: string,
+  label: string?,
+  enabled: boolean,
+  bounds: Bounds?,
+  items: { Item },
+}
+export type Geometry = {
+  read pose: Mat4 | { number },
+  read width: number,
+  read height: number,
+  read logicalWidth: number,
+  read logicalHeight: number,
+  read visible: boolean,
+}
+export type Description = Geometry & { name: string, revision: number, controls: { Control } }
+-- Inspection services keep their own receivers; the fixture only reads their snapshots.
+export type Inspectable<S> = { read inspect: (S) -> session.InspectionSnapshot }
+export type Fixture = {
+  native: native.Fake,
+  session: session.Session?,
+  keyboardObserver: session.Observed<keyboard.Service>?,
+  tracked: (Fixture, Hand, boolean) -> (),
+  button: (Fixture, Hand, string, boolean) -> (),
+  axis: (Fixture, Hand, number, number) -> (),
+  pose: (Fixture, Hand, Mat4) -> (),
+  aim: (Fixture, Geometry, number, number, Hand?) -> (),
+  step: (Fixture, number?) -> (),
+  draw: (Fixture) -> boolean,
+  click: (Fixture, Geometry, number, number, Hand?) -> (),
+  discover: <S>(Fixture, S & Inspectable<S>, string, string, string?) -> (Description, Control | Item),
+  clickControl: <S>(Fixture, S & Inspectable<S>, string, string, Hand?, string?) -> (),
+  nativeCalls: (Fixture, string) -> { native.InputCall },
+  keyboardCount: (Fixture) -> number,
+  close: (Fixture) -> (),
+}
 local Fixture = {}
 Fixture.__index = Fixture
 
-local function controller(fixture, hand)
+local function controller(fixture: Fixture, hand: Hand): native.Controller
   assert(hand == 'left' or hand == 'right', 'vr-ui: a hand is left or right')
   return fixture.native.events.controllers[hand]
 end
 
 -- Attaches controller input to a configuration already driven through LÖVR callbacks.
-function vrUi.attach(fake)
+function vrUi.attach(fake: native.Fake): Fixture
   for _, hand in ipairs { 'left', 'right' } do
     fake.events.controllers[hand] = {
       tracked = false,
@@ -30,7 +72,7 @@ function vrUi.attach(fake)
 end
 
 -- Attaches both hands tracked and aiming ahead, with the left hand held aside so only the right beam can hit.
-function vrUi.hands(fake)
+function vrUi.hands(fake: native.Fake): Fixture
   local fixture = vrUi.attach(fake)
   fixture:pose('left', lovr.math.newMat4():translate(-5, 1.5, 0))
   fixture:tracked('left', true)
@@ -38,7 +80,7 @@ function vrUi.hands(fake)
   return fixture
 end
 
-function vrUi.boot(entries, options)
+function vrUi.boot(entries: { session.Entry }?, options: session.Options?): Fixture
   local fake = options and options.native or native.new()
   local fixture = vrUi.attach(fake)
   local running = session.boot(entries or {
@@ -55,27 +97,27 @@ function vrUi.boot(entries, options)
   return fixture
 end
 
-function Fixture:tracked(hand, value)
+function Fixture.tracked(self: Fixture, hand: Hand, value: boolean)
   controller(self, hand).tracked = value
 end
 
-function Fixture:button(hand, button, pressed)
+function Fixture.button(self: Fixture, hand: Hand, button: string, pressed: boolean)
   controller(self, hand).buttons[button] = pressed
 end
 
-function Fixture:axis(hand, x, y)
+function Fixture.axis(self: Fixture, hand: Hand, x: number, y: number)
   local state = controller(self, hand)
   state.axisX, state.axisY = x, y
 end
 
-function Fixture:pose(hand, pose)
+function Fixture.pose(self: Fixture, hand: Hand, pose: Mat4)
   local state = controller(self, hand)
   state.pose:set(pose)
   state.origin = vector.pack(pose:getPosition())
   state.direction = vector.pack(pose:mul(0, 0, -1, 0)):normalize()
 end
 
-function Fixture:aim(description, x, y, hand)
+function Fixture.aim(self: Fixture, description: Geometry, x: number, y: number, hand: Hand?)
   local state = controller(self, hand or 'right')
   assert(description.visible, 'vr-ui: the panel is hidden')
   assert(description.logicalWidth > 0 and description.logicalHeight > 0, 'vr-ui: logical size is positive')
@@ -89,17 +131,17 @@ function Fixture:aim(description, x, y, hand)
   state.tracked = true
 end
 
-function Fixture:step(dt)
+function Fixture.step(self: Fixture, dt: number?)
   self.native.events.dt = dt or 0.016
   self.native.events.time += self.native.events.dt
   lovr.update(self.native.events.dt)
 end
 
-function Fixture:draw()
+function Fixture.draw(self: Fixture): boolean
   return lovr.draw(self.native.events.pass)
 end
 
-function Fixture:click(description, x, y, hand)
+function Fixture.click(self: Fixture, description: Geometry, x: number, y: number, hand: Hand?)
   hand = hand or 'right'
   self:button(hand, 'trigger', false)
   self:aim(description, x, y, hand)
@@ -110,7 +152,7 @@ function Fixture:click(description, x, y, hand)
   self:step()
 end
 
-local function bounds(details)
+local function bounds(details: session.InspectionDetails): Bounds?
   if details.width == nil then
     return nil
   end
@@ -118,8 +160,10 @@ local function bounds(details)
 end
 
 -- Rebuilds a panel's description from the ui service's inspection, or nil when no live panel has the name.
-function vrUi.describe(service, name)
-  local panel, controls, byId = nil, {}, {}
+function vrUi.describe<S>(service: S & Inspectable<S>, name: string): Description?
+  local panel: session.InspectionRegistration? = nil
+  local controls: { Control } = {}
+  local byId: { [string]: Control } = {}
   for _, registration in ipairs(service:inspect().registrations) do
     local details = registration.details
     if registration.kind == 'panel' and registration.name == name then
@@ -166,9 +210,16 @@ function vrUi.describe(service, name)
   }
 end
 
-function Fixture:discover(service, name, id, itemId)
+function Fixture.discover<S>(
+  self: Fixture,
+  service: S & Inspectable<S>,
+  name: string,
+  id: string,
+  itemId: string?
+): (Description, Control | Item)
   local description = vrUi.describe(service, name)
-  local foundControl, foundItem
+  local foundControl: Control?
+  local foundItem: Item?
   if description and description.visible then
     for _, control in ipairs(description.controls) do
       if control.id == id and control.enabled then
@@ -191,7 +242,14 @@ function Fixture:discover(service, name, id, itemId)
 end
 
 -- Aims again after each step because a panel can follow the hand that moved.
-function Fixture:clickControl(service, name, id, hand, itemId)
+function Fixture.clickControl<S>(
+  self: Fixture,
+  service: S & Inspectable<S>,
+  name: string,
+  id: string,
+  hand: Hand?,
+  itemId: string?
+)
   hand = hand or 'right'
   local function aimCurrent()
     local description, control = self:discover(service, name, id, itemId)
@@ -210,8 +268,11 @@ function Fixture:clickControl(service, name, id, hand, itemId)
   self:step()
 end
 
-local function matching(events, kind)
-  local result = {}
+local function matching<E>(
+  events: { E & { read kind: string?, read [number]: unknown } },
+  kind: string
+): { E & { read kind: string?, read [number]: unknown } }
+  local result: { E & { read kind: string?, read [number]: unknown } } = {}
   for _, event in ipairs(events) do
     if event.kind == kind or event[1] == kind then
       result[#result + 1] = event
@@ -220,11 +281,11 @@ local function matching(events, kind)
   return result
 end
 
-function Fixture:nativeCalls(method)
+function Fixture.nativeCalls(self: Fixture, method: string): { native.InputCall }
   return matching(self.native.events.input, method)
 end
 
-function Fixture:keyboardCount()
+function Fixture.keyboardCount(self: Fixture): number
   if not self.keyboardObserver then
     self.keyboardObserver = self.session:observe(keyboard.capability)
   end
@@ -241,7 +302,7 @@ function Fixture:keyboardCount()
   return count
 end
 
-function Fixture:close()
+function Fixture.close(self: Fixture)
   self.session:close()
 end
 

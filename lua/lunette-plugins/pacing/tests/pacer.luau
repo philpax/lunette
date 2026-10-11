@@ -22,14 +22,14 @@ local ONE_FRAME = {
   exemptTypes = { none = false, photo = false, video = false, game = false },
 }
 
-local function pacer(tuning)
+local function pacer(tuning: pacing.Tuning?): pacing.Pacer
   return pacing.new(tuning or TUNING)
 end
 
 -- Feeds `count` observations of the same state to the pacer and returns the
 -- last rate.
-local function observe(paced, state, count)
-  local rate
+local function observe(paced: pacing.Pacer, state: pacing.Observation, count: number?): number?
+  local rate: number?
   for _ = 1, count or 1 do
     rate = paced:observe(state)
   end
@@ -38,14 +38,14 @@ end
 
 -- Feeds one observation per character: 'd' draws, 'q' is quiet, and 's' says
 -- nothing about drawing. Returns the last rate.
-local DRAWING = {
+local DRAWING: { [string]: pacing.Observation } = {
   d = { visible = false, contentType = 'none', drew = true },
   q = { visible = false, contentType = 'none', drew = false },
   s = { visible = false, contentType = 'none' },
 }
 
-local function observeFrames(paced, frames)
-  local rate
+local function observeFrames(paced: pacing.Pacer, frames: string): number?
+  local rate: number?
   for index = 1, #frames do
     rate = paced:observe(DRAWING[frames:sub(index, index)])
   end

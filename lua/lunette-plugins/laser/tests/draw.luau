@@ -7,7 +7,7 @@ local theme = require '@lunette-contracts/theme'
 local expect = testing.expect
 local test = testing.suite()
 
-local function fixture(hook)
+local function fixture(hook: laser.Draw): (testing.Native, laser.Beam, render.Recorder)
   local native = testing.native()
   local session = testing.start {
     'theme',
@@ -19,7 +19,7 @@ local function fixture(hook)
   local observer = session:observe(contract.capability)
   -- The handle is the provider's record, so the test drives its update and draw directly.
   local target = observer.service:attach(observer.context, {
-    readInput = function()
+    readInput = function(): contract.Input
       return {
         pose = lovr.math.newMat4(),
         origin = vector.pack(0, 0, 0),
@@ -46,7 +46,7 @@ end
 
 test('the beam draws as an overlay in the theme colour, and a raising hook leaves the pass restored', function()
   local raising = false
-  local _, target, recorder = fixture(function(laserTarget, pass, base)
+  local _, target, recorder = fixture(function(laserTarget: laser.Beam, pass: Pass, base: laser.DrawBase)
     if raising then
       pass:setDepthTest 'less'
       pass:setDepthWrite(false)

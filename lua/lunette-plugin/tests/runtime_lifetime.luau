@@ -6,16 +6,19 @@ local plugin = require('@lunette').plugin
 
 local test = testing.suite()
 
+type NativeContext = testing.NativeContext
+type NativeRuntime = testing.NativeRuntime
+
 test('an active instance survives the collection of its runtime userdata', function()
-  local escaped
-  local definition = plugin.define({}, {}, function(context)
+  local escaped: NativeContext?
+  local definition = plugin.define({}, {}, function(context: NativeContext): {}
     escaped = context
-    context:effect(function()
+    context:effect(function(): () -> ()
       return function() end
     end)
     return {}
   end)
-  local runtime = plugin.runtime()
+  local runtime: NativeRuntime? = plugin.runtime()
   runtime:use(definition, {}):enable()
   runtime = nil
   testing.collect()
@@ -25,10 +28,10 @@ end)
 test('close releases every effect, each child before its parent', function()
   local count = 3
   local runtime = plugin.runtime()
-  local released = {}
+  local released: { [number]: number } = {}
   local parentReleased = 0
-  local child = plugin.define({}, {}, function(context, config)
-    context:effect(function()
+  local child = plugin.define({}, {}, function(context: NativeContext, config: { index: number }): {}
+    context:effect(function(): () -> ()
       return function()
         expect.equal(parentReleased, 0, 'the parent remains live during child cleanup')
         released[config.index] = (released[config.index] or 0) + 1
@@ -37,8 +40,8 @@ test('close releases every effect, each child before its parent', function()
     return {}
   end)
   local parent = runtime:use(
-    plugin.define({}, {}, function(context)
-      context:effect(function()
+    plugin.define({}, {}, function(context: NativeContext): {}
+      context:effect(function(): () -> ()
         return function()
           parentReleased += 1
           for index = 1, count do
@@ -62,8 +65,8 @@ test('close releases every effect, each child before its parent', function()
 end)
 
 test('the plugin shutdown releases a leaked effect payload', function()
-  local definition = plugin.define({}, {}, function(context, config)
-    context:effect(function()
+  local definition = plugin.define({}, {}, function(context: NativeContext, config: { released: boolean }): {}
+    context:effect(function(): () -> ()
       return function()
         config.released = true
       end

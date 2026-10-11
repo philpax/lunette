@@ -13,6 +13,18 @@ local passState = require '@lunette-plugins/pass-state'
 local layout = require './layout'
 local config = require './config'
 
+type State = {
+  kind: nil,
+  source: nil,
+  dead: boolean,
+  grabbable: boolean,
+  pose: Mat4,
+  width: number,
+  height: number,
+  visible: boolean,
+  layer: string,
+}
+
 local function extentOf(settings: config.Settings): (number, number)
   local width, height = layout.extentOf(settings.rows)
   for _, rows in settings.layers do
@@ -50,7 +62,7 @@ local function create(
   local hovered: { [board.Pointer]: board.RenderedKey } = {}
   local captures: { [board.Pointer]: { [lunette.PointerButton]: boolean } } = {}
   local created: board.Board
-  local state = {
+  local state: State = {
     kind = nil,
     source = nil,
     dead = false,

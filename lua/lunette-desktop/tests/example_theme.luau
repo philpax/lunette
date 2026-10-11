@@ -19,7 +19,7 @@ test('the theme example runs and starts with Dusk, offering it in place of Arcad
   expect.equal(#events.logs, 0, 'Dusk is registered by the first frame')
   expect.equal(lovr.quit(), false, 'quit does not veto')
 
-  local observed = {}
+  local observed: { menu: menuContract.Service?, theme: themeContract.Service? } = {}
   local session = testing.boot(
     desktop.compose {
       patches = {
@@ -32,7 +32,7 @@ test('the theme example runs and starts with Dusk, offering it in place of Arcad
             definition = adapter.define {
               name = 'example-theme-observer',
               requires = { menuContract.capability, themeContract.capability },
-              init = function(context)
+              init = function(context: adapter.Context)
                 observed.menu = context:require(menuContract.capability)
                 observed.theme = context:require(themeContract.capability)
               end,
@@ -43,7 +43,7 @@ test('the theme example runs and starts with Dusk, offering it in place of Arcad
     },
     { native = native }
   )
-  local choices = {}
+  local choices: { string } = {}
   for _, action in observed.menu:list() do
     if action.group == 'Appearance' then
       choices[#choices + 1] = action.label .. (if action.selected then '*' else '')

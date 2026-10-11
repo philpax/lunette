@@ -25,13 +25,13 @@ test('a drop is emitted once while the listener sees the ending grab', function(
   local f = fixture()
   local pointer, target = f:pointer(), f:surface 'carried'
   target.pose = lovr.math.newMat4():translate(0, 0, -1)
-  function target:setPose(pose)
+  function target:setPose(pose: Mat4)
     self.pose:set(pose)
   end
   local drops = f.session:observe(require('@lunette-contracts/drops').capability)
-  local heard = {}
+  local heard: { { read surface: fixture.Surface, read pointer: typeof(pointer) } } = {}
   drops.service:onDropped(drops.context, {
-    run = function(event)
+    run = function(event: { read surface: fixture.Surface, read pointer: typeof(pointer) })
       heard[#heard + 1] = event
       expect.equal(event.pointer.grabbed, target, 'the listener can inspect the ending grab')
     end,
@@ -54,7 +54,7 @@ test('grip cancels a UI capture before a panel moves and cannot reactivate its h
   target.pose = lovr.math.newMat4():translate(0, 0, -1)
   target.width, target.height = 1, 1
   local moved = 0
-  function target:setPose(pose)
+  function target:setPose(pose: Mat4)
     expect.equal(#f:matching('cancel', pointer, target), 1, 'capture cancels before the first grab motion')
     moved += 1
     self.pose:set(pose)

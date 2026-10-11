@@ -8,7 +8,18 @@ local test = testing.suite()
 
 local measurement = require '../measurement-cache'
 local cache = measurement.new()
-local function layout(value, caret, anchor, bounds, clip, overrides, font)
+type Bounds = theme.Bounds
+type ThemeOverrides = theme.ThemeOverrides
+
+local function layout(
+  value: string,
+  caret: number,
+  anchor: number,
+  bounds: Bounds,
+  clip: Bounds,
+  overrides: ThemeOverrides?,
+  font: render.Font?
+): geometry.Layout?
   font = font or render.new().font
   return geometry.layout(
     value,

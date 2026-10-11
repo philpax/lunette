@@ -103,7 +103,7 @@ renderEntry = function(entry: Entry): string
   if entry.height then
     fields[#fields + 1] = 'height = ' .. quote(entry.height)
   end
-  local tags = {}
+  local tags: { string } = {}
   for index, name in ipairs(entry.tags) do
     tags[index] = quote(name)
   end

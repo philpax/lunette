@@ -3,7 +3,7 @@
 -- `conf.luau` loads and `main.luau` does not, which is the case safe mode is
 -- for. The hardware modules are off so the session runs headless.
 
-function lovr.conf(t)
+function lovr.conf(t: LovrConfiguration)
   -- Distinct per fixture, because two runs sharing a save directory race to
   -- create it.
   t.identity = 'lunette-safe-mode'

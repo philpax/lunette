@@ -5,16 +5,23 @@ local base = require '@lunette-plugins/theme/base'
 
 local test = testing.suite()
 
-local function start(entries)
-  local env = { native = testing.native() }
+type Environment = {
+  native: testing.Native,
+  session: testing.Session?,
+  themes: themesContract.Service?,
+  owner: testing.Context?,
+}
+
+local function start(entries: { string }?): Environment
+  local env: Environment = { native = testing.native() }
   env.session = testing.start(entries or { 'themes' })
   local observed = env.session:observe(themesContract.capability)
   env.themes, env.owner = observed.service, observed.context
   return env
 end
 
-local function names(env)
-  local result = {}
+local function names(env: Environment): string
+  local result: { string } = {}
   for _, entry in env.themes:list() do
     result[#result + 1] = entry.name
   end
@@ -23,7 +30,12 @@ end
 
 test('a registration is checked before it is accepted', function()
   local env = start()
-  local function rejects(registration, message, label)
+  -- Validation accepts untrusted records, including deliberately incomplete themes.
+  local function rejects(
+    registration: { read name: string, read label: string, read theme: unknown },
+    message: string,
+    label: string
+  )
     expect.raises(function()
       env.themes:register(env.owner, registration)
     end, message, label)

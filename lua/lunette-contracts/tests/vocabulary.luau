@@ -8,7 +8,7 @@ local vocabulary = require '@lunette-contracts/vocabulary'
 local test = testing.suite()
 
 -- The encoding returns a 32-bit float unchanged, so a near comparison would assert less.
-local function expectSame(recovered, original, context)
+local function expectSame(recovered: Mat4, original: Mat4, context: string)
   local wanted = { original:unpack(true) }
   local got = { recovered:unpack(true) }
   for index = 1, vocabulary.POSE_ELEMENTS do
@@ -36,13 +36,13 @@ test('decoding anything that is not sixteen finite numbers answers nothing', fun
   expect.falsy(vocabulary.decodePose '1 2 3', 'too few numbers')
   expect.falsy(vocabulary.decodePose(nil), 'nil')
 
-  local seventeen = {}
+  local seventeen: { string } = {}
   for index = 1, vocabulary.POSE_ELEMENTS + 1 do
     seventeen[index] = '1'
   end
   expect.falsy(vocabulary.decodePose(table.concat(seventeen, ' ')), 'too many numbers')
 
-  local elements = {}
+  local elements: { string } = {}
   for index = 1, vocabulary.POSE_ELEMENTS do
     elements[index] = '1'
   end

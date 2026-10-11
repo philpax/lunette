@@ -2,11 +2,21 @@ local testing = require '@testing'
 local expect = testing.expect
 local panelsContract = require '@lunette-contracts/panels'
 
+type Environment = {
+  session: testing.Session,
+  native: testing.Native,
+  panels: testing.Observed<panelsContract.Service>,
+  window: testing.Window,
+  monitor: testing.Monitor,
+  windowPanel: panelsContract.WindowPanel,
+  monitorPanel: panelsContract.MonitorPanel,
+}
+
 local test = testing.suite()
 
 -- The consumer over the fake native API, with a quiet window and a monitor, each shown as a panel.
-local function start()
-  local env = {}
+local function start(): Environment
+  local env: Environment = {}
   env.session = testing.boot { 'frame', 'theme', 'surfaces', 'panels', 'pacing', 'desktop/pacing' }
   env.native = env.session.native
   env.panels = env.session:observe(panelsContract.capability)
@@ -17,7 +27,7 @@ local function start()
   return env
 end
 
-local function hide(env, hidden)
+local function hide(env: Environment, hidden: boolean)
   env.windowPanel:setHidden(env.panels.context, hidden)
   env.monitorPanel:setHidden(env.panels.context, hidden)
   env.session:update()

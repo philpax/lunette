@@ -3,11 +3,39 @@ local schema = require '@lunette-plugin/schema'
 local ui = require '@lunette-contracts/ui'
 local globalTheme = require '@lunette-contracts/theme'
 local descriptors = require '@lunette-plugins/theme/descriptors'
+export type Bounds = ui.Bounds
+export type Kind = ui.Kind
+export type ItemDescription = ui.ItemDescription
+export type ThemeOverrides = ui.ThemeOverrides
+export type Theme<F = Font> = ui.Theme<F>
+
 local theme = {}
 
 local positive = schema.number { positive = true }
 local nonnegative = schema.number { minimum = 0 }
-local function fields(font)
+type Fields<F> = {
+  background: schema.Schema<schema.Input<typeof(descriptors.color)>?, schema.Output<typeof(descriptors.color)>?>,
+  foreground: schema.Schema<schema.Input<typeof(descriptors.color)>?, schema.Output<typeof(descriptors.color)>?>,
+  control: schema.Schema<schema.Input<typeof(descriptors.color)>?, schema.Output<typeof(descriptors.color)>?>,
+  hovered: schema.Schema<schema.Input<typeof(descriptors.color)>?, schema.Output<typeof(descriptors.color)>?>,
+  pressed: schema.Schema<schema.Input<typeof(descriptors.color)>?, schema.Output<typeof(descriptors.color)>?>,
+  disabled: schema.Schema<schema.Input<typeof(descriptors.color)>?, schema.Output<typeof(descriptors.color)>?>,
+  focus: schema.Schema<schema.Input<typeof(descriptors.color)>?, schema.Output<typeof(descriptors.color)>?>,
+  selection: schema.Schema<schema.Input<typeof(descriptors.color)>?, schema.Output<typeof(descriptors.color)>?>,
+  error: schema.Schema<schema.Input<typeof(descriptors.color)>?, schema.Output<typeof(descriptors.color)>?>,
+  border: schema.Schema<schema.Input<typeof(descriptors.color)>?, schema.Output<typeof(descriptors.color)>?>,
+  font: schema.Schema<schema.Input<F>?, schema.Output<F>?>,
+  fontSize: schema.Schema<number?, number?>,
+  panelRadius: schema.Schema<number?, number?>,
+  controlRadius: schema.Schema<number?, number?>,
+  padding: schema.Schema<number?, number?>,
+  spacing: schema.Schema<number?, number?>,
+  borderWidth: schema.Schema<number?, number?>,
+  rowHeight: schema.Schema<number?, number?>,
+  hapticStrength: schema.Schema<number?, number?>,
+  hapticDuration: schema.Schema<number?, number?>,
+}
+local function fields<F>(font: F): Fields<F>
   return {
     background = schema.optional(descriptors.color),
     foreground = schema.optional(descriptors.color),
