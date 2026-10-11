@@ -160,6 +160,10 @@ An event is delivered against the snapshot of the frame it was drained in, so `o
 
 `win:setFrameRate` paces the window's frame callbacks with a floor of 1 Hz ([Rendering](rendering.md#frame-pacing)). A monitor's `mirrored` reports an installed stream, which does not prove frames still arrive ([Host desktop](host-desktop.md#identity-and-lifecycle)).
 
+### Processes
+
+`lunette.processes()` returns the registered processes in the current frame snapshot, including clients adopted when they connect to the compositor. `window.process` returns the associated `Process` handle or nil when attribution is unavailable. A dead window retains its last-known association. The process may remain live after every associated window closes. A queued spawn is not listed until it is registered; its returned handle's `dead` field remains true before that observation. Process handles identify logical session registrations rather than reusable host PIDs. [Audio](audio.md#process-attribution) specifies instance-safe capture attribution.
+
 ### Per-window properties
 
 The native property store keeps scalar values per window outside the Lua state, keyed by window id, so they survive source reload and hard restart. A table or a non-finite number raises. `getProperty` still answers on a dead handle, so an `onWindowClosed` handler can read what the window stored. Entries live until the window closes. Writing them to disk is policy.

@@ -19,13 +19,54 @@ use crate::{
     commands::{protocol_state, toplevel_state},
     config::{CompositorConfig, DEFAULT_OUTPUT, DmabufSupport},
     protocol::{
-        Argv, Command, Event, PixelSize, ProcessId, ProcessOutcome, ProcessSignal,
+        Argv, AudioAttributionRequest, AudioAttributionRequestId, AudioNodeSerial, Command, Event,
+        PipeWireGeneration, PixelSize, ProcessId, ProcessInstance, ProcessOutcome, ProcessSignal,
         SpawnRequest as SpawnCommand, Stream, ToplevelState, ToplevelStates, WindowSnapshot,
     },
     satellite::XwaylandSatellite,
     test_client::TestClient,
     testing::{DEADLINE, TestCompositor},
 };
+
+#[test]
+fn audio_attribution_reply_preserves_the_complete_request_tuple() {
+    let mut compositor = TestCompositor::new();
+    let process = ProcessId::new(7).expect("nonzero fixture id");
+    compositor.send(Command::Spawn(SpawnCommand {
+        process,
+        argv: Argv::new("wrapper", Vec::new()),
+        env: Vec::new(),
+        cwd: None,
+        output: None,
+        xwayland: false,
+    }));
+    compositor.step();
+    let pid = compositor.spawns().pid(0).expect("fake child pid");
+    compositor.drain_events();
+    let request = AudioAttributionRequest {
+        request: AudioAttributionRequestId(8),
+        generation: PipeWireGeneration(9),
+        node: AudioNodeSerial(10),
+        candidate: ProcessInstance::new(pid, 1),
+    };
+    compositor.send(Command::ResolveAudioProcess(request));
+    compositor.step();
+    assert!(
+        matches!(compositor.drain_events().as_slice(), [Event::AudioProcessResolved(reply)]
+        if reply.request == request && reply.process == Some(process))
+    );
+
+    compositor.proc().kill(pid.get());
+    compositor.send(Command::ResolveAudioProcess(request));
+    compositor.step();
+    assert!(
+        compositor
+            .drain_events()
+            .iter()
+            .any(|event| matches!(event, Event::AudioProcessResolved(reply)
+        if reply.request == request && reply.process.is_none()))
+    );
+}
 
 fn with_one_window() -> (TestCompositor, TestClient) {
     let mut compositor = TestCompositor::new();

@@ -14,7 +14,7 @@ use crate::{
     lua::{LuaTexture, Session, declarations::handle},
 };
 
-/// A process lunette started.
+/// A process lunette started or adopted from a connecting client.
 #[derive(Debug)]
 pub struct Process<T> {
     id: ProcessId,
@@ -44,8 +44,8 @@ impl<T> Process<T> {
 }
 
 handle! {
-    /// A process lunette started. The handle exists before the process does:
-    /// `lunette.spawn` queues a request and returns in the same call.
+    /// A process lunette started or adopted from a connecting client. A spawned handle exists
+    /// before the process does: `lunette.spawn` queues a request and returns in the same call.
     Process<T: LuaTexture> = HandleKind::Process;
 
     field id(_lua, this) -> u64 { Ok(this.id.get()) }

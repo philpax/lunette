@@ -551,6 +551,8 @@ fn ledger_change<'a>(
         | Event::SurfaceDamaged { .. }
         | Event::ProcessExited { .. }
         | Event::ProcessOutput { .. }
+        | Event::ProcessObservationChanged { .. }
+        | Event::AudioProcessResolved(_)
         | Event::GraphicsReleased
         | Event::GraphicsAdopted { .. } => LedgerChange::Nothing,
     }

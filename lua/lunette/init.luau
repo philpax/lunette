@@ -64,6 +64,10 @@ export type Window = {
   read dead: boolean,
   read title: string?,
   read appId: string?,
+  -- The registered process associated with this window, including adopted
+  -- clients. Nil when attribution is unavailable. A closed window retains its
+  -- last-known association.
+  read process: Process?,
   -- The size the client last committed in surface coordinates, which pointer
   -- positions use, not the size last asked of it. The texture can be larger
   -- when the client scales it down.
@@ -202,8 +206,9 @@ export type Monitor = {
   read setPaused: (self: Monitor, paused: boolean) -> boolean,
 }
 
--- A process lunette started. The handle exists before the process does:
--- `lunette.spawn` queues a request and returns in the same call.
+-- A process lunette started or adopted from a connecting client. A spawned
+-- handle exists before the process does: `lunette.spawn` queues a request and
+-- returns in the same call.
 export type Process = {
   read id: number,
   -- True in three situations this field does not distinguish: the request has
@@ -624,6 +629,9 @@ export type PluginApi = {
 export type Lunette = {
   -- Every mapped toplevel, as of this frame's snapshot.
   read windows: () -> { Window },
+  -- Every registered process, including adopted clients, as of this frame's
+  -- snapshot.
+  read processes: () -> { Process },
   -- Runs a program as a client of this compositor. The handle comes back before
   -- the request reaches the compositor, so it describes a process that does not
   -- exist yet: `dead` is true until the snapshot lists it.

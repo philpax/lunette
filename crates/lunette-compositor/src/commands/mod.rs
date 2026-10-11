@@ -77,6 +77,7 @@ impl Application {
                 pressed,
             } => self.press_button(seat, sink, button, pressed),
             Command::Spawn(request) => self.spawn_process(&request),
+            Command::ResolveAudioProcess(request) => self.resolve_audio_process(request),
             Command::SignalProcess { process, signal } => self.signal_process(process, signal),
             Command::CreateSeat {
                 seat,

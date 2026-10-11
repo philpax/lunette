@@ -98,7 +98,9 @@ impl LuaEvent {
             // These belong to the frame loop, and the configuration cannot act on them.
             CompositorEvent::SurfaceDamaged { .. }
             | CompositorEvent::BufferImported { .. }
-            | CompositorEvent::SurfaceGone { .. } => None,
+            | CompositorEvent::SurfaceGone { .. }
+            | CompositorEvent::ProcessObservationChanged { .. }
+            | CompositorEvent::AudioProcessResolved(_) => None,
             // Neither half of the restart handshake reaches Lua. The replacement state sees the outcome as windows with textures again.
             CompositorEvent::GraphicsReleased | CompositorEvent::GraphicsAdopted { .. } => None,
         }

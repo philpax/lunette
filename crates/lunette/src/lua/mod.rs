@@ -497,6 +497,12 @@ module! {
     /// Every mapped toplevel, as of this frame's snapshot.
     fn windows(lua, session) -> Vec<Window<T>> { window_handles(lua, session) }
 
+    /// Every registered process, including adopted clients, as of this frame's snapshot.
+    fn processes(_lua, session) -> Vec<Process<T>> {
+        Ok(session.snapshot().processes.iter()
+            .map(|process| Process::new(Rc::clone(session), process.process)).collect())
+    }
+
     /// Runs a program as a client of this compositor. The handle comes back
     /// before the request reaches the compositor, so it describes a process
     /// that does not exist yet: `dead` is true until the snapshot lists it.

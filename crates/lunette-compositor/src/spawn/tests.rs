@@ -9,7 +9,7 @@ use pretty_assertions::assert_eq;
 use slotmap::DenseSlotMap;
 
 use crate::{
-    protocol::{Argv, Pid, ProcessId, ProcessOutcome, ProcessSignal},
+    protocol::{Argv, Pid, ProcessId, ProcessObservation, ProcessOutcome, ProcessSignal},
     spawn::{
         inspect::{ProcessInspector, find_environment_value},
         plan::{AUTH_VARIABLE, AuthToken, SpawnRequest, TOKEN_BYTES, decode_hex, is_flatpak},
@@ -81,6 +81,7 @@ fn spawn_into(
     spawn_process(
         processes,
         spawner,
+        &FakeInspector::default(),
         SpawnRequest {
             process: id,
             argv: &argv,
@@ -192,6 +193,7 @@ fn a_caller_supplied_variable_overrides_a_toolkit_hint() {
     spawn_process(
         &mut processes,
         &mut spawner,
+        &FakeInspector::default(),
         SpawnRequest {
             process: process(1),
             argv: &argv,
@@ -310,6 +312,7 @@ fn an_adopted_process_is_reported_external_and_alive() {
         &mut processes,
         &mut AdoptedIds::default(),
         Pid::new(4242).expect("positive"),
+        &FakeInspector::default(),
     );
 
     let snapshot = snapshot(&processes);
@@ -327,6 +330,7 @@ fn an_adopted_process_that_disappears_is_reported_once() {
         &mut processes,
         &mut AdoptedIds::default(),
         Pid::new(4242).expect("positive"),
+        &FakeInspector::default(),
     );
 
     assert!(poll(&mut processes, &FakeInspector::default()).is_empty());
@@ -334,8 +338,11 @@ fn an_adopted_process_that_disappears_is_reported_once() {
     let gone = FakeInspector::default();
     gone.kill(4242);
     let reports = poll(&mut processes, &gone);
-    assert_eq!(reports.len(), 1);
-    assert!(matches!(reports[0], Report::Vanished { id: reported } if reported == id));
+    assert_eq!(reports.len(), 2);
+    assert!(
+        matches!(reports[0], Report::ObservationChanged { id: reported, observation: ProcessObservation::Ended } if reported == id)
+    );
+    assert!(matches!(reports[1], Report::Vanished { id: reported } if reported == id));
 
     assert!(
         poll(&mut processes, &gone).is_empty(),

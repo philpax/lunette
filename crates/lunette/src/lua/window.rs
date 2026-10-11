@@ -7,7 +7,8 @@ use std::{cell::RefCell, rc::Rc};
 
 use lunette_compositor::protocol::{
     ChildSurface as SnapshotChild, Command, ContentType, FramePacing, FrameRate, OutputId,
-    PixelSize, SinkId, SourceCrop, Stacking, SurfaceId, ToplevelStates, WindowId, WindowSnapshot,
+    PixelSize, ProcessId, SinkId, SourceCrop, Stacking, SurfaceId, ToplevelStates, WindowId,
+    WindowSnapshot,
 };
 use mlua::{LuaString, Value};
 
@@ -15,7 +16,7 @@ use crate::{
     control::wire::HandleKind,
     import::formats::Alpha,
     lua::{
-        LuaTexture, Output, Session,
+        LuaTexture, Output, Process, Session,
         declarations::{Textured, handle, record},
         pixel_size,
         sink::Sink,
@@ -98,6 +99,7 @@ struct Known {
     surface: Option<SurfaceId>,
     sink: Option<SinkId>,
     output: Option<OutputId>,
+    process: Option<ProcessId>,
     title: Option<String>,
     app_id: Option<String>,
     size: PixelSize,
@@ -116,6 +118,7 @@ impl From<&WindowSnapshot> for Known {
             surface: Some(window.surface),
             sink: Some(window.sink),
             output: Some(window.output),
+            process: window.process,
             title: window.title.clone(),
             app_id: window.app_id.clone(),
             size: window.size,
@@ -146,6 +149,13 @@ handle! {
     field appId(_lua, this) -> Option<String> {
         this.refresh();
         Ok(this.known.borrow().app_id.clone())
+    }
+
+    /// The registered process associated with this window, including adopted clients. Nil when
+    /// attribution is unavailable. A closed window retains its last-known association.
+    field process(_lua, this) -> Option<Process<T>> {
+        this.refresh();
+        Ok(this.known.borrow().process.map(|id| Process::new(Rc::clone(&this.session), id)))
     }
 
     /// The size the client last committed in surface coordinates, which pointer positions use, not

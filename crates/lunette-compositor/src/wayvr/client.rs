@@ -132,8 +132,12 @@ impl comp::Application {
         } else {
             // This is a new process which we didn't meet before.
             // Treat external processes exclusively (spawned by the user or external program)
-            let process =
-                spawn::add_external_process(&mut self.processes, &mut self.adopted_ids, pid);
+            let process = spawn::add_external_process(
+                &mut self.processes,
+                &mut self.adopted_ids,
+                pid,
+                self.inspector.as_ref(),
+            );
             log::info!(
                 %pid,
                 %process,

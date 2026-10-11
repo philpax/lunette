@@ -31,6 +31,8 @@ Every configuration follows these rules:
 
 `lunette.spawn { argv = { 'foot' } }` starts a program as a client of lunette. What it writes to standard output and error goes to lunette's log, and `lunette.onProcessOutput` also delivers it to Lua. Applications started from elsewhere, for example with `WAYLAND_DISPLAY` set to lunette's socket, appear as windows too.
 
+`lunette.processes()` lists registered processes in this frame, including adopted clients. `win.process` returns the process associated with a window, or nil when attribution is unavailable. Several windows can share one process. Closing a window does not necessarily end its process, and a closed window keeps its last-known association. A process handle identifies one session registration, not a reusable host PID. A handle returned by `spawn` has `dead = true` until the compositor observes the queued spawn.
+
 An output is a virtual monitor shown to the clients assigned to it. Every client sees the session's starting output unless it was spawned with `output = lunette.newOutput { ... }`. A client keeps its output for its whole life. `output:setMode { scale = 2 }` changes a live output, and the clients re-render at the new scale. `lunette.scaleSteps()` returns the scales the shipped scale policy chooses between. [Compositor](../dev/compositor.md#outputs) describes outputs in detail.
 
 ## Monitors

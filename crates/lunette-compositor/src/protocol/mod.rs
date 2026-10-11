@@ -30,7 +30,12 @@ pub use crate::protocol::{
         KeyboardConfig, KeymapConfig, KeymapDefaults, KeymapText, LayoutName, RepeatDelay,
         RepeatPolicy, RepeatRate,
     },
-    process::{Argv, Pid, ProcessOutcome, ProcessSignal, SignalNumber, SpawnRequest, Stream},
+    process::{
+        Argv, AudioAttributionReply, AudioAttributionRequest, AudioAttributionRequestId,
+        AudioNodeSerial, Pid, PipeWireGeneration, ProcessInstance, ProcessObservation,
+        ProcessObservationFailure, ProcessOutcome, ProcessSignal, SignalNumber, SpawnRequest,
+        Stream,
+    },
 };
 use crate::surface::{BufferImporter, PixelBuffer};
 
@@ -43,6 +48,8 @@ use crate::surface::{BufferImporter, PixelBuffer};
 pub enum Command {
     /// Starts a process and attributes its clients to it.
     Spawn(SpawnRequest),
+    /// Resolves an audio producer without blocking the main thread on `/proc`.
+    ResolveAudioProcess(AudioAttributionRequest),
     /// Signals a spawned process group.
     SignalProcess {
         process: ProcessId,
@@ -197,6 +204,14 @@ pub enum Event {
         process: ProcessId,
         outcome: ProcessOutcome,
     },
+    /// An observation changed. `Ended` can precede managed-child reaping and
+    /// must not replace `ProcessExited` as the public handle's death signal.
+    ProcessObservationChanged {
+        process: ProcessId,
+        observation: ProcessObservation,
+    },
+    /// Replies only to an explicit audio attribution request.
+    AudioProcessResolved(AudioAttributionReply),
     /// Output bytes from a spawned process. The bytes may not be UTF-8.
     ProcessOutput {
         process: ProcessId,
@@ -402,6 +417,11 @@ pub struct ProcessSnapshot {
     pub process: ProcessId,
     /// The process ID, if it is available.
     pub pid: Option<Pid>,
+    /// The captured registration instance. It is absent when registration could
+    /// not inspect the process, and is never filled from a later reusable PID.
+    pub instance: Option<ProcessInstance>,
+    /// Current inspectability, separate from ownership and public handle death.
+    pub observation: ProcessObservation,
     /// Whether the process was adopted or spawned.
     pub external: bool,
     pub alive: bool,

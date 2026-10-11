@@ -7,11 +7,13 @@
 
 use std::ffi::OsStr;
 
-use lunette_compositor::protocol::{Command, ProcessId, ProcessSnapshot};
+use lunette_compositor::protocol::{
+    Command, ProcessId, ProcessObservation, ProcessObservationFailure, ProcessSnapshot,
+};
 use mlua::Value;
 use pretty_assertions::assert_eq;
 
-use crate::lua::tests::{error, lua, run, session, snapshot};
+use crate::lua::tests::{error, lua, run, session, snapshot, window};
 
 #[test]
 fn spawning_queues_a_request_under_a_distinct_identifier_it_returned() {
@@ -82,6 +84,46 @@ fn a_spawn_carries_the_environment_directory_and_x_setting_it_was_given() {
 }
 
 #[test]
+fn window_process_handle_association() {
+    let session = session(Vec::new());
+    let lua = lua(&session);
+    let id = ProcessId::new(17).expect("non-zero");
+    let mut associated = window(1, "Playback", "example.player", Default::default());
+    associated.process = Some(id);
+    let unattributed = window(2, "Other", "example.other", Default::default());
+    session.begin(snapshot(
+        vec![associated, unattributed],
+        vec![ProcessSnapshot {
+            process: id,
+            pid: lunette_compositor::protocol::Pid::new(4242),
+            instance: None,
+            observation: ProcessObservation::Unavailable(ProcessObservationFailure::AccessDenied),
+            external: true,
+            alive: true,
+        }],
+    ));
+    run::<()>(
+        &lua,
+        "local processes = lunette.processes()
+         assert(#processes == 1 and not processes[1].dead)
+         local windows = lunette.windows()
+         kept = windows[1]
+         assert(kept.process == processes[1])
+         assert(windows[2].process == nil)",
+    );
+    session.begin(snapshot(Vec::new(), session.snapshot().processes.clone()));
+    assert!(run::<bool>(
+        &lua,
+        "return kept.dead and kept.process == lunette.processes()[1] and not kept.process.dead",
+    ));
+    session.begin(snapshot(Vec::new(), Vec::new()));
+    assert!(run::<bool>(
+        &lua,
+        "return #lunette.processes() == 0 and kept.process.dead",
+    ));
+}
+
+#[test]
 fn a_spawn_without_a_program_is_refused() {
     let session = session(Vec::new());
     let lua = lua(&session);
@@ -116,6 +158,8 @@ fn a_process_handle_reports_what_the_snapshot_says() {
         vec![ProcessSnapshot {
             process: id,
             pid: lunette_compositor::protocol::Pid::new(4242),
+            instance: None,
+            observation: ProcessObservation::Unavailable(ProcessObservationFailure::AccessDenied),
             external: false,
             alive: true,
         }],
