@@ -61,10 +61,13 @@ parking_lot = "=0.12.5"
 # `wlx-capture` neither reports nor exposes.
 pipewire = "=0.10.0"
 pretty_assertions = "=1.4.1"
+# Bounded SPSC reservations keep PCM and packet metadata atomic on the RT path.
+rtrb = "=0.4.0"
 # The plugin graph's model checker generates operation sequences and shrinks
 # a failing one to a minimal reproduction.
 proptest = "=1.11.0"
 serde = "=1.0.229"
+serde_json = "=1.0.154"
 # The vendored compositor keeps WayVR's window storage, which is a slotmap. The
 # version matches the one smithay already pulls in.
 slotmap = "=1.1.1"
