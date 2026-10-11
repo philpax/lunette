@@ -11,6 +11,7 @@ export type Schema<I, O> = {
   read inspect: () -> Metadata,
 }
 export type Metadata = runtime.Node
+export type Path = runtime.Path
 export type Error = runtime.Error
 export type ErrorCode = runtime.ErrorCode
 export type Annotation = runtime.Annotation

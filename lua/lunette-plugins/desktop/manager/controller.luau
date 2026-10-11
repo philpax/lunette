@@ -11,6 +11,7 @@ local editor = require './editor'
 local toolbarLayout = require './toolbar-layout'
 local controllerActions = require './controller-actions'
 local controller = {}
+export type Path = editor.Path
 type Registration = typeof(require('@lunette-contracts/inspection').snapshot({}).registrations[1])
 
 export type State = controllerActions.State & {

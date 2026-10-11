@@ -3,7 +3,7 @@
 local schema = require '@lunette-plugin/schema'
 local editor = {}
 
-export type Path = { read [number]: string | number }
+export type Path = schema.Path
 type MutablePath = { string | number }
 export type Control = 'group' | 'boolean' | 'number' | 'string' | 'choice' | 'optional' | 'array' | 'map' | 'readonly'
 export type Code = 'path' | 'readonly' | 'input' | 'key'

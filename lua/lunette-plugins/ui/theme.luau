@@ -3,6 +3,12 @@ local schema = require '@lunette-plugin/schema'
 local ui = require '@lunette-contracts/ui'
 local globalTheme = require '@lunette-contracts/theme'
 local descriptors = require '@lunette-plugins/theme/descriptors'
+export type Bounds = ui.Bounds
+export type Kind = ui.Kind
+export type ItemDescription = ui.ItemDescription
+export type ThemeOverrides = ui.ThemeOverrides
+export type Theme<F = Font> = ui.Theme<F>
+
 local theme = {}
 
 local positive = schema.number { positive = true }

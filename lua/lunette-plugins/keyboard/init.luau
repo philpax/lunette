@@ -9,6 +9,7 @@ local build = require '@lunette-plugins/keyboard/service'
 
 export type Settings = config.Settings
 export type Key = keyboard.Key
+export type KeyRow = keyboard.KeyRow
 export type Board = board.Board
 export type RenderedKey = board.RenderedKey
 export type KeyState = board.KeyState

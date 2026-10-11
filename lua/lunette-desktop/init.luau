@@ -49,6 +49,9 @@ local management = require '@lunette-plugin/management'
 
 local desktop = {}
 
+export type Keyboard = keyboard.Board
+export type RenderedKey = keyboard.RenderedKey
+
 type Options = {
   read patches: { plugin.Patch }?,
   read settings: settings.Config?,

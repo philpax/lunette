@@ -8,12 +8,14 @@ local inspection = require '@lunette-contracts/inspection'
 local ui = {}
 
 export type Owner = plugin.Owner
+export type PointerEvent = vocabulary.PointerEvent
+export type CancelReason = vocabulary.CancelReason
 export type OwnerIdentity = { read kind: 'ui-owner' }
 export type Bounds = { read x: number, read y: number, read width: number, read height: number }
 export type Point = { read x: number, read y: number }
 export type Kind = 'button' | 'text-field' | 'choice' | 'list' | 'region'
-export type Color = { read [number]: number }
-export type Theme = {
+export type Color = theme.Color
+export type Theme<F = Font> = {
   read background: Color,
   read foreground: Color,
   read control: Color,
@@ -24,7 +26,7 @@ export type Theme = {
   read selection: Color,
   read error: Color,
   read border: Color,
-  read font: Font,
+  read font: F,
   read fontSize: number,
   read panelRadius: number,
   read controlRadius: number,

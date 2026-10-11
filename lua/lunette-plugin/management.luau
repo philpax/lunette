@@ -7,6 +7,7 @@ local lunette = require '@lunette'
 local fields = require '@lunette-plugin/fields'
 local management = {}
 
+export type Entry = contract.Entry
 export type Options = { read protected: { string }? }
 export type Running = {
   read runtime: adapter.Runtime,

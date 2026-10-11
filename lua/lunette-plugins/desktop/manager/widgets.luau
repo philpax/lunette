@@ -62,7 +62,7 @@ local function equal(left: unknown, right: unknown): boolean
   return true
 end
 
-local function pathId(path: { read [number]: string | number }): string
+local function pathId(path: controller.Path): string
   local parts = { 'row' }
   for _, part in path do
     local value = tostring(part):gsub('%%', '%%25'):gsub('/', '%%2f')
