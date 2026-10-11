@@ -63,6 +63,18 @@ pub enum Command {
         #[arg(long, value_name = "FILE")]
         definitions: Option<PathBuf>,
     },
+    /// Require parameter annotations and return annotations for value-returning functions.
+    ///
+    /// Every explicit parameter, including `_` and varargs, needs an annotation.
+    /// Functions with only bare returns or fallthrough may omit a return annotation.
+    /// A return with expressions, including a forwarding call, needs an annotation
+    /// because this check only parses source and loads no definitions or inferred types.
+    CheckAnnotations {
+        /// The files or directories to parse. A directory checks every `.luau`
+        /// file below it, skipping names that begin with `.`.
+        #[arg(value_name = "PATH", required = true, num_args = 1..)]
+        roots: Vec<PathBuf>,
+    },
 }
 
 /// The shipped default configuration's files, which `install-config` also installs.

@@ -84,6 +84,57 @@ pub fn run(named: &[PathBuf], configuration: &Path, definitions: Option<&Path>) 
     ExitCode::FAILURE
 }
 
+/// Parses explicitly named roots and draws missing-function-annotation diagnostics.
+pub fn run_annotations(named: &[PathBuf]) -> ExitCode {
+    let Some(first) = named.first() else {
+        error!("check-annotations: no files were named");
+        return ExitCode::FAILURE;
+    };
+    // Explicit roots prevent `targets` from selecting a configuration directory.
+    let mut roots = match targets(named, first) {
+        Ok(roots) => roots,
+        Err(error) => {
+            error!("check-annotations: {error}");
+            return ExitCode::FAILURE;
+        }
+    };
+    roots.sort();
+    roots.dedup();
+    if roots.is_empty() {
+        error!("check-annotations: nothing to check");
+        return ExitCode::FAILURE;
+    }
+
+    let request = Request::new(None, roots);
+    let report = match analyze::check_annotations(&request.roots) {
+        Ok(report) => report,
+        Err(error) => {
+            error!("check-annotations: {error}");
+            if let analyze::Error::Failed { diagnostics, .. } = &error {
+                draw(diagnostics);
+            }
+            return ExitCode::FAILURE;
+        }
+    };
+    draw(&report.diagnostics);
+
+    let skipped = report.skipped(&request);
+    for path in &skipped {
+        error!(path = %path.display(), "check-annotations: this was not parsed successfully");
+    }
+    info!(
+        files = report.checked.len(),
+        diagnostics = report.diagnostics.len(),
+        skipped = skipped.len(),
+        "check-annotations: completed"
+    );
+    if report.is_clean() && skipped.is_empty() && !report.checked.is_empty() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    }
+}
+
 /// Returns named files and `.luau` files under named directories in path order.
 ///
 /// With no named paths, it reads files under `configuration`. It skips hidden
