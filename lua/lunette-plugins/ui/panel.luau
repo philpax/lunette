@@ -350,37 +350,61 @@ function panel.new(provider: Provider, owner: ui.Owner, options: ui.PanelOptions
     button = function(_self: ui.Panel, given: ui.ButtonOptions): ui.Button
       requireLive()
       given = validation.button(given)
-      return handles.create(state, given.owner or owner, 'button', given, function(host)
+      return handles.create(state, given.owner or owner, 'button', given, function(host: records.Host): records.Widget
         return button.new(given, host)
       end)
     end,
     textField = function(_self: ui.Panel, given: ui.TextFieldOptions): ui.TextField
       requireLive()
       given = validation.textField(given)
-      return handles.create(state, given.owner or owner, 'text-field', given, function(host)
-        return textField.new(given, host)
-      end) :: ui.TextField
+      return handles.create(
+        state,
+        given.owner or owner,
+        'text-field',
+        given,
+        function(host: records.Host): records.Widget
+          return textField.new(given, host)
+        end
+      ) :: ui.TextField
     end,
     choice = function(_self: ui.Panel, given: ui.ChoiceOptions): ui.Choice
       requireLive()
       given = validation.choice(given)
-      return handles.create(state, given.owner or owner, 'choice', given, function(host)
-        return collection.widget('choice', given, host)
-      end) :: ui.Choice
+      return handles.create(
+          state,
+          given.owner or owner,
+          'choice',
+          given,
+          function(host: records.Host): records.Widget
+            return collection.widget('choice', given, host)
+          end
+        ) :: ui.Choice
     end,
     list = function(_self: ui.Panel, given: ui.ListOptions): ui.List
       requireLive()
       given = validation.list(given)
-      return handles.create(state, given.owner or owner, 'list', given, function(host)
-        return collection.widget('list', given, host)
-      end) :: ui.List
+      return handles.create(
+          state,
+          given.owner or owner,
+          'list',
+          given,
+          function(host: records.Host): records.Widget
+            return collection.widget('list', given, host)
+          end
+        ) :: ui.List
     end,
     region = function(_self: ui.Panel, given: ui.RegionOptions): ui.Region
       requireLive()
       given = validation.region(given)
-      return handles.create(state, given.owner or owner, 'region', given, function(host)
-        return region.new(given, host)
-      end) :: ui.Region
+      return handles.create(
+          state,
+          given.owner or owner,
+          'region',
+          given,
+          function(host: records.Host): records.Widget
+            return region.new(given, host)
+          end
+        ) :: ui.Region
     end,
   }
   local surfaceFields = (offeredSurface :: unknown) :: { dead: boolean, width: number, height: number }

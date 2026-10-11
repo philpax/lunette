@@ -14,6 +14,9 @@ export type RenderedKey = board.RenderedKey
 export type KeyState = board.KeyState
 export type OnKey = board.OnKey
 export type DrawKey = board.DrawKey
+export type Pointer = board.Pointer
+export type Press = board.Press
+export type Paint = board.Paint
 
 export type Config = config.Config
 

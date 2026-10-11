@@ -55,7 +55,7 @@ end
 local function create(state: ProviderState, owner: Owner, source: panel.Source, options: Options?): panel.State
   state.context:checkOwner(owner)
   local target = panel.new(state.host, owner, source, options)
-  local acquired = state.context:acquire(owner, function()
+  local acquired = state.context:acquire(owner, function(): () -> ()
     state.panels[#state.panels + 1] = target
     local ok, failure = pcall(panel.claim, target)
     if not ok then
@@ -76,7 +76,7 @@ local function create(state: ProviderState, owner: Owner, source: panel.Source, 
     return target
   end
   target.effect = acquired
-  state.added:each('panels: added listener', function(callback)
+  state.added:each('panels: added listener', function(callback: contracts.PanelCallback)
     callback(target)
   end)
   return target
@@ -118,9 +118,9 @@ local function build(context: plugin.Context, settings: Settings): Service
       if index then
         table.remove(state.panels, index)
       end
-      state.removed:each('panels: removed listener', function(listener)
+      state.removed:each('panels: removed listener', function(listener: RemovedListener)
         listener.callback(target)
-      end, function(listener)
+      end, function(listener: RemovedListener): boolean
         return listener.panel == nil or listener.panel == target
       end)
     end,
@@ -143,7 +143,7 @@ local function build(context: plugin.Context, settings: Settings): Service
     end,
   })
   -- This effect runs last, while removal listeners still have live owners.
-  context:effect(function()
+  context:effect(function(): () -> ()
     return function()
       state.active = false
       for _, target in ipairs(table.clone(state.panels)) do

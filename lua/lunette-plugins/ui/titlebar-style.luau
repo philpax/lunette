@@ -22,7 +22,24 @@ export type Style = {
 }
 local positive = schema.number { positive = true }
 local nonnegative = schema.number { minimum = 0 }
-local function fields(font)
+type Fields<F> = {
+  font: schema.Schema<schema.Input<F>?, schema.Output<F>?>,
+  cornerRadius: schema.Schema<number?, number?>,
+  barHeight: schema.Schema<number?, number?>,
+  margin: schema.Schema<number?, number?>,
+  barColor: schema.Schema<schema.Input<typeof(descriptors.color)>?, schema.Output<typeof(descriptors.color)>?>,
+  barHighlightColor: schema.Schema<schema.Input<typeof(descriptors.color)>?, schema.Output<typeof(descriptors.color)>?>,
+  borderThickness: schema.Schema<number?, number?>,
+  borderDepth: schema.Schema<number?, number?>,
+  borderColor: schema.Schema<schema.Input<typeof(descriptors.color)>?, schema.Output<typeof(descriptors.color)>?>,
+  borderHighlightColor: schema.Schema<
+    schema.Input<typeof(descriptors.color)>?,
+    schema.Output<typeof(descriptors.color)>?
+  >,
+  titleHeight: schema.Schema<number?, number?>,
+  titleColor: schema.Schema<schema.Input<typeof(descriptors.color)>?, schema.Output<typeof(descriptors.color)>?>,
+}
+local function fields<F>(font: F): Fields<F>
   return {
     font = schema.optional(font),
     cornerRadius = schema.optional(nonnegative),

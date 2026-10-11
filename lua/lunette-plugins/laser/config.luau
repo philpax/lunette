@@ -67,7 +67,21 @@ local STYLE = style.configuration
 local function defaultCallback<F>(callback: F): schema.Schema<F?, F>
   return schema.default(schema.callback(callback))(callback)
 end
-local function configuration<R, D>(reader: R, drawing: D)
+type ConfigurationShape<R, D> = {
+  style: schema.Schema<schema.Input<typeof(STYLE)>?, schema.Output<typeof(STYLE)>>,
+  aim: schema.Schema<schema.Input<typeof(aim.schema)>?, schema.Output<typeof(aim.schema)>>,
+  triggerLock: schema.Schema<schema.Input<typeof(triggerLock.schema)>?, schema.Output<typeof(triggerLock.schema)>>,
+  buttons: schema.Schema<{ schema.Input<typeof(MAPPING)> }?, { read [number]: schema.Output<typeof(MAPPING)> }>,
+  readInput: schema.Schema<R?, R>,
+  draw: schema.Schema<D?, D>,
+}
+local function configuration<R, D>(
+  reader: R,
+  drawing: D
+): schema.Schema<
+  schema.ObjectInput<ConfigurationShape<R, D>>,
+  schema.ObjectOutput<ConfigurationShape<R, D>>
+>
   return schema.object {
     style = schema.default(STYLE)(STYLE.parse {}),
     aim = schema.default(aim.schema)(aim.schema.parse {}),

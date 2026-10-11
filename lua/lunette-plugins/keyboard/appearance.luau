@@ -27,7 +27,23 @@ export type Style = {
 local positive = schema.number { positive = true }
 local nonnegative = schema.number { minimum = 0 }
 
-local function style<F>(font: F)
+type StyleShape<F> = {
+  font: schema.Schema<schema.Input<F>?, schema.Output<F>?>,
+  backingRadius: schema.Schema<number?, number?>,
+  keyRadius: schema.Schema<number?, number?>,
+  keyUnit: schema.Schema<number?, number?>,
+  gap: schema.Schema<number?, number?>,
+  plateDepth: schema.Schema<number?, number?>,
+  legendDepth: schema.Schema<number?, number?>,
+  margin: schema.Schema<number?, number?>,
+  plateColor: schema.Schema<schema.Input<typeof(descriptors.color)>?, schema.Output<typeof(descriptors.color)>?>,
+  keyColor: schema.Schema<schema.Input<typeof(descriptors.color)>?, schema.Output<typeof(descriptors.color)>?>,
+  heldColor: schema.Schema<schema.Input<typeof(descriptors.color)>?, schema.Output<typeof(descriptors.color)>?>,
+  hoverColor: schema.Schema<schema.Input<typeof(descriptors.color)>?, schema.Output<typeof(descriptors.color)>?>,
+  legendColor: schema.Schema<schema.Input<typeof(descriptors.color)>?, schema.Output<typeof(descriptors.color)>?>,
+  legendHeight: schema.Schema<number?, number?>,
+}
+local function style<F>(font: F): schema.Schema<schema.ObjectInput<StyleShape<F>>, schema.ObjectOutput<StyleShape<F>>>
   return schema.object {
     font = schema.optional(font),
     backingRadius = schema.optional(nonnegative),

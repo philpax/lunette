@@ -34,7 +34,19 @@ local function defaultCallback<F>(callback: F): schema.Schema<F?, F>
   return schema.default(schema.callback(callback))(callback)
 end
 
-local function configuration<D, C>(driveHook: D, constrainHook: C)
+type ConfigurationShape<D, C> = {
+  tuning: schema.Schema<schema.Input<typeof(TUNING)>?, schema.Output<typeof(TUNING)>>,
+  focusOnPress: schema.Schema<boolean?, boolean>,
+  drive: schema.Schema<D?, D>,
+  constrain: schema.Schema<C?, C>,
+}
+local function configuration<D, C>(
+  driveHook: D,
+  constrainHook: C
+): schema.Schema<
+  schema.ObjectInput<ConfigurationShape<D, C>>,
+  schema.ObjectOutput<ConfigurationShape<D, C>>
+>
   return schema.object {
     tuning = schema.default(TUNING)(TUNING.parse {}),
     focusOnPress = schema.default(schema.boolean())(true),

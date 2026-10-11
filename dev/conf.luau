@@ -1,5 +1,5 @@
 -- Development state is separate from the shipped desktop's saved arrangement.
-function lovr.conf(t)
+function lovr.conf(t: LovrConfiguration)
   t.identity = 'lunette-dev'
   t.saveprecedence = false
   t.headset.backend = 'auto'

@@ -11,6 +11,7 @@ local editor = require './editor'
 local toolbarLayout = require './toolbar-layout'
 local controllerActions = require './controller-actions'
 local controller = {}
+type Registration = typeof(require('@lunette-contracts/inspection').snapshot({}).registrations[1])
 
 export type State = controllerActions.State & {
   projected: projection.Projected,
@@ -369,7 +370,7 @@ refresh = function(state: State): ()
       state.view.selection,
       state.entries,
       brokers.snapshot(state.readers),
-      function(registration)
+      function(registration: Registration): string?
         return state.service:ownerId(registration.owner)
       end
     )

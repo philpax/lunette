@@ -149,7 +149,7 @@ local function acquire(
     end
   end
   local panel, acquired = context:resource(owner, function(): (panelsContract.WindowPanel, () -> ())
-    local ok, result = pcall(function()
+    local ok, result = pcall(function(): panelsContract.WindowPanel
       -- schema.callback uses PanelOptions; naming it avoids comparing the schema's cloned recursive types.
       local panelOptions = state.settings.panelOptions :: config.PanelOptions
       local options = panelOptions(properties, window, service.panelOptions)

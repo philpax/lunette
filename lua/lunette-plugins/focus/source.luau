@@ -39,7 +39,7 @@ local function scalars(value: string): { string }?
   if utf8.len(value) == nil then
     return nil
   end
-  local result = {}
+  local result: { string } = {}
   for _, scalar in utf8.codes(value) do
     result[#result + 1] = utf8.char(scalar)
   end

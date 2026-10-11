@@ -15,6 +15,7 @@ local protected = require '@lunette-plugins/protected'
 local vocabulary = require '@lunette-contracts/vocabulary'
 
 local handles = {}
+type PointerButton = typeof(vocabulary.POINTER_BUTTONS[1])
 
 type Factory = (records.Host) -> records.Widget
 
@@ -131,7 +132,7 @@ function handles.create(
   local host: records.Host = {
     live = current,
     interactive = interactive,
-    captured = function(pointer: vocabulary.Pointer, button): boolean
+    captured = function(pointer: vocabulary.Pointer, button: PointerButton): boolean
       if not interactive() then
         return false
       end

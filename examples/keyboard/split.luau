@@ -114,12 +114,12 @@ return {
     rows = letters.rows,
     layers = { numpad = numpad.rows },
     style = { keyUnit = 0.03 },
-    onKey = function(board, key, pointer, base)
+    onKey = function(board: keyboard.Board, key: keyboard.RenderedKey, pointer: keyboard.Pointer, base: keyboard.Press)
       pointer:vibrate { strength = 0.2, duration = 0.01 }
       pressedAt[key.source] = lovr.timer.getTime()
       base(board, key, pointer)
     end,
-    drawKey = function(pass, key, state, base)
+    drawKey = function(pass: Pass, key: keyboard.RenderedKey, state: keyboard.KeyState, base: keyboard.Paint)
       local pressed = pressedAt[key.source]
       if pressed and lovr.timer.getTime() - pressed < FLASH then
         local style = state.style

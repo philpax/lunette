@@ -1,6 +1,6 @@
 -- This directory is the default configuration when no user configuration exists.
 
-function lovr.conf(t)
+function lovr.conf(t: LovrConfiguration)
   t.identity = 'lunette'
 
   -- Save-directory precedence can shadow packaged modules and `main.luau` across sessions. Disabling it keeps the directory readable without overriding packaged files.

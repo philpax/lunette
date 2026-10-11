@@ -57,7 +57,20 @@ local MODIFIER_KEYS = schema.custom<<{ read [number]: lunette.ModifierName }>> {
 local function defaultCallback<F>(callback: F): schema.Schema<F?, F>
   return schema.default(schema.callback(callback))(callback)
 end
-local function configuration<K, D>(keyHook: K, drawHook: D)
+type ConfigurationShape<K, D> = {
+  rows: schema.Schema<schema.Input<typeof(ROWS)>?, schema.Output<typeof(ROWS)>>,
+  layers: schema.Schema<{ [string]: schema.Input<typeof(ROWS)> }?, { read [string]: schema.Output<typeof(ROWS)> }>,
+  style: schema.Schema<schema.Input<typeof(STYLE)>?, schema.Output<typeof(STYLE)>>,
+  modifierKeys: schema.Schema<schema.Input<typeof(MODIFIER_KEYS)>?, schema.Output<typeof(MODIFIER_KEYS)>>,
+  locks: schema.Schema<{ lunette.ModifierName }?, { read [number]: lunette.ModifierName }>,
+  onKey: schema.Schema<K?, K>,
+  drawKey: schema.Schema<D?, D>,
+}
+type Configuration<K, D> = schema.Schema<
+  schema.ObjectInput<ConfigurationShape<K, D>>,
+  schema.ObjectOutput<ConfigurationShape<K, D>>
+>
+local function configuration<K, D>(keyHook: K, drawHook: D): Configuration<K, D>
   return schema.object {
     rows = schema.default(ROWS)(rows),
     layers = schema.default(schema.map(ROWS)) {},
@@ -70,11 +83,13 @@ local function configuration<K, D>(keyHook: K, drawHook: D)
     drawKey = defaultCallback(drawHook),
   }
 end
-local function described<K, D>(keyHook: K, drawHook: D)
+local function described<K, D>(keyHook: K, drawHook: D): Configuration<K, D>
   -- Rows and layers refer to one another, so they are checked together.
-  local descriptor = schema.refine(configuration(keyHook, drawHook))(function(settings): ()
-    validation.settings(settings :: any)
-  end)
+  local descriptor = schema.refine(configuration(keyHook, drawHook))(
+    function(settings: schema.ObjectOutput<ConfigurationShape<K, D>>): ()
+      validation.settings(settings :: any)
+    end
+  )
   type Input = schema.Input<typeof(descriptor)>
   type Output = schema.Output<typeof(descriptor)>
   local named: schema.Schema<Input, Output> = descriptor

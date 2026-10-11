@@ -42,7 +42,7 @@ function clientPixels.shaders(context: plugin.Context, live: () -> boolean): Sha
     if cached then
       return cached
     end
-    context:effect(function()
+    context:effect(function(): () -> ()
       local shader = lovr.graphics.newShader('unlit', if opaque then OPAQUE_FRAGMENT else ALPHA_FRAGMENT)
       made[opaque] = shader
       return function()

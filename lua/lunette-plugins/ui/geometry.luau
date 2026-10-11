@@ -11,7 +11,7 @@ local boundsSchema = schema.refine(schema.object {
   y = schema.number(),
   width = schema.number { minimum = 0 },
   height = schema.number { minimum = 0 },
-})(function(bounds): ()
+})(function(bounds: ui.Bounds): ()
   assert(math.abs(bounds.x + bounds.width) < math.huge, 'right edge must be finite')
   assert(math.abs(bounds.y + bounds.height) < math.huge, 'bottom edge must be finite')
 end)
