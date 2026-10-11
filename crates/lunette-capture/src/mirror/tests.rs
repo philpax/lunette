@@ -831,6 +831,31 @@ fn a_session_whose_every_node_is_removed_is_refused_and_not_requested_again() {
 }
 
 #[test]
+fn a_revoked_session_s_token_is_forgotten_so_the_next_run_prompts() {
+    let log = StreamLog::new();
+    let (mut mirrors, nodes) = watched(&log);
+    let first = key(mirrors.roster(), 0);
+    let second = key(mirrors.roster(), 1);
+    let _ = mirrors.mirror(&first);
+    let _ = mirrors.mirror(&second);
+    let _ = pump(&mut mirrors);
+    let granted = mirrors
+        .take_changed_tokens()
+        .expect("the grant records tokens")
+        .clone();
+    assert_eq!(granted.len(), 2);
+
+    nodes.remove(node(11));
+    nodes.remove(node(12));
+    assert_eq!(mirrors.poll(), Progress::Failed(PortalError::Revoked));
+
+    let stored = mirrors
+        .take_changed_tokens()
+        .expect("the revocation rewrites the stored tokens");
+    assert!(stored.is_empty(), "{stored:?}");
+}
+
+#[test]
 fn a_session_that_loses_one_node_keeps_the_rest_and_asks_for_nothing() {
     let log = StreamLog::new();
     let (mut mirrors, nodes) = watched(&log);

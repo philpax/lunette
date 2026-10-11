@@ -30,8 +30,8 @@ pub use crate::mirror::{
 use crate::{
     monitor::{name::MonitorKey, roster::Roster},
     portal::{
-        CursorPolicy, NodeId, PortalError, RequestId, RequestProgress, ScreenCastPortal,
-        SessionRequest, correlate,
+        CursorPolicy, NodeId, PortalError, RequestId, RequestProgress, RestoreToken,
+        ScreenCastPortal, SessionRequest, correlate,
     },
     stream::CapturedFrame,
     tokens::TokenStore,
@@ -345,6 +345,7 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
                 }
 
                 let held = Held {
+                    token: response.restore_token.clone(),
                     nodes: correlation
                         .matched
                         .iter()
@@ -420,9 +421,17 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
     /// until [`Self::select_monitors`], which offers no restore token, because a portal that
     /// restores silently would resume the capture the user stopped. A pending selection
     /// continues, and a completed one no longer describes a live grant.
+    ///
+    /// The session's restore token is forgotten, so the next run prompts rather than restoring
+    /// the capture the user stopped.
     fn revoke_session(&mut self) {
-        if !matches!(self.session, SessionState::Held(_)) {
+        let SessionState::Held(held) = &self.session else {
             return;
+        };
+        if let Some(token) = &held.token
+            && self.tokens.forget_token(token)
+        {
+            self.tokens_changed = true;
         }
 
         debug!(
@@ -523,7 +532,10 @@ impl<P: ScreenCastPortal> MirrorSet<P> {
                     );
                 }
                 self.tokens_changed = true;
-                self.session = SessionState::Held(Held { nodes });
+                self.session = SessionState::Held(Held {
+                    nodes,
+                    token: response.restore_token.clone(),
+                });
                 self.selection = SelectionRequest::Ready;
                 Progress::Started(self.open_wanted())
             }
@@ -682,6 +694,8 @@ pub enum SelectionState {
 
 struct Held {
     nodes: Vec<(MonitorKey, NodeId)>,
+    /// The restore token the grant returned, which every monitor it covered stores.
+    token: Option<RestoreToken>,
 }
 
 impl Held {

@@ -189,6 +189,15 @@ impl TokenStore {
         self.entries.len() != before
     }
 
+    /// Drops every monitor's entry that holds `token`. Reports whether any did.
+    ///
+    /// One token restores a whole session, so every monitor the session covered holds it.
+    pub(crate) fn forget_token(&mut self, token: &RestoreToken) -> bool {
+        let before = self.entries.len();
+        self.entries.retain(|entry| &entry.token != token);
+        self.entries.len() != before
+    }
+
     /// How many monitors have a token held for them.
     #[must_use]
     pub fn len(&self) -> usize {
