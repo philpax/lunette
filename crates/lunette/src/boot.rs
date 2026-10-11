@@ -3,6 +3,8 @@
 //! The sequence preserves LÖVR's step order and passes Unix paths to Lua as raw bytes. It also
 //! mounts the Lua module roots into LÖVR's virtual filesystem before configuration code runs.
 
+mod headset;
+
 use std::{
     env,
     ffi::{CStr, OsString, c_int},
@@ -254,6 +256,11 @@ unsafe fn run_steps(
                         has_window,
                         has_session, headset_loaded, "first frame completed"
                     );
+                    if let Err(error) =
+                        headset::report_fallback(lua_handle, headset_loaded, has_session)
+                    {
+                        warn!("headset: the startup configuration could not be inspected: {error}");
+                    }
                     if !has_window && headset_loaded && !has_session {
                         error!(
                             "no display and no XR runtime: \

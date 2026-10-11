@@ -5,6 +5,9 @@ mod boot;
 mod check;
 mod cli;
 
+#[cfg(test)]
+mod log_capture;
+
 use std::{
     env,
     ffi::{OsStr, OsString},

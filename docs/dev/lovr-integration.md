@@ -193,6 +193,8 @@ The configuration directory resolves as [Build and development](build-and-develo
 
 Each failed attempt releases its runtime state before the next, and at most one connection exists. Pending cleanup blocks further attempts and GPU creation. Selection freezes before Vulkan instance and device creation; a GPU or presentation-start failure does not trigger fallback. Stop and start reuse the selected backend and connection. Full teardown releases the connection before destroying Vulkan, and a fresh initialization selects again. The selected backend chooses the required adapter, and a missing one fails before device creation.
 
+On the first completed frame, lunette warns when the resolved configuration requests headset connection and startup, the headset module is loaded, and no XR session exists. The configuration reads honor metatable inheritance, as LÖVR's startup reads do. The warning states that the desktop simulator is running instead. It names an unavailable runtime or headset, a runtime refusal, and insufficient GPU memory as possible causes, without identifying one as the cause. A runtime name from `getDriver()` does not establish that a session started; `lovrHeadsetGetSessionGeneration` supplies that observation. A session that reaches XR, disables the headset module, sets `connect = false`, or defers startup with `start = false` emits no fallback warning. The warning runs once per Lua state, including after a hard restart, and does not prevent simulation.
+
 ## Restart semantics
 
 `lovr.event.restart` closes the Lua state and builds a new one in the same process. LÖVR's module state lives in that Lua state, so graphics and the XR session restart too, and the runtime sees the overlay session leave and return.
