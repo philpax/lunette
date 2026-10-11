@@ -6,9 +6,9 @@ local errorsContract = require '@lunette-contracts/errors'
 local test = testing.suite()
 
 type Environment = {
-  native: typeof(testing.native()),
+  native: testing.Native,
   heard: { errorsContract.Report },
-  session: typeof(testing.start {})?,
+  session: testing.Session?,
   presenter: adapter.Definition<{}>?,
   service: errorsContract.Service?,
   owner: adapter.Context?,

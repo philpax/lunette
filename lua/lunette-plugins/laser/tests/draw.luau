@@ -7,9 +7,7 @@ local theme = require '@lunette-contracts/theme'
 local expect = testing.expect
 local test = testing.suite()
 
-type native = typeof(require '@testing/native')
-
-local function fixture(hook: laser.Draw): (native.Fake, laser.Beam, render.Recorder)
+local function fixture(hook: laser.Draw): (testing.Native, laser.Beam, render.Recorder)
   local native = testing.native()
   local session = testing.start {
     'theme',

@@ -5,9 +5,6 @@ local lunette = require '@lunette'
 local adapter = require '@lunette-plugin/adapter'
 local demoTerminal = require('../').definition
 
-type Native = typeof(require '@testing/native')
-type Sessions = typeof(require '@testing/session')
-
 local test = testing.suite()
 
 -- The fake enforces subscription-before-enumeration for the desktop's adoption path.
@@ -21,14 +18,14 @@ local windowObserver = adapter.define {
   end,
 }
 
-local function start(programs: { string }?): Sessions.Session
+local function start(programs: { string }?): testing.Session
   return testing.start {
     { id = 'window-observer', definition = windowObserver },
     { id = 'dev/demo-terminal', definition = demoTerminal, config = { programs = programs } },
   }
 end
 
-local function fixture(programs: { string }?, occupied: boolean?): (Native.Fake, Sessions.Session)
+local function fixture(programs: { string }?, occupied: boolean?): (testing.Native, testing.Session)
   _G.lunetteDemonstrationSpawned = nil
   local native = testing.native()
   if occupied then
@@ -37,7 +34,7 @@ local function fixture(programs: { string }?, occupied: boolean?): (Native.Fake,
   return native, start(programs)
 end
 
-local function close(native: Native.Fake, session: Sessions.Session)
+local function close(native: testing.Native, session: testing.Session)
   session:close()
   native.assertResourcesReleased()
 end

@@ -7,9 +7,9 @@ local menu = require '@lunette-contracts/menu'
 local display = require '@lunette-contracts/keyboard-display'
 local surfaces = require '@lunette-contracts/surfaces'
 
-type Session = typeof(testing.boot {})
-type Native = typeof(testing.native())
-type Board = typeof(require '@lunette-plugins/keyboard/instance'(nil, nil, nil, nil, nil, nil))
+type Session = testing.Session
+type Native = testing.Native
+type Board = desktop.Keyboard
 type Environment = {
   fixture: vrUi.Fixture,
   session: Session,

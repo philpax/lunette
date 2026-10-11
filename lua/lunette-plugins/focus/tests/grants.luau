@@ -12,12 +12,12 @@ type Seat = {
   focus: Sink?,
   setFocus: (Seat, Sink?) -> boolean,
 }
-type Context = typeof(testing.start({}):observe(contract.capability).context)
-type Observed = typeof(testing.start({}):observe(contract.capability))
+type Context = testing.Context
+type Observed = testing.Observed<contract.Service>
 type Environment = {
-  native: typeof(testing.native()),
+  native: testing.Native,
   heard: { contract.Change },
-  session: typeof(testing.boot {})?,
+  session: testing.Session?,
   first: Observed?,
   second: Observed?,
   focus: contract.Service?,

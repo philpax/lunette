@@ -6,13 +6,12 @@ local surfaces = require '@lunette-contracts/surfaces'
 local quad = require '@lunette-contracts/quad'
 local vrUi = require '@testing/vr-ui'
 
-type Native = typeof(require '@testing/native')
 type Target = quad.Quad & {
   dead: boolean,
   grabbable: boolean,
   raycast: (Target, vector, vector) -> (number?, number?, number?),
   project: (Target, vector, vector) -> (number?, number?, number?),
-  sink: (Target) -> Native.Sink,
+  sink: (Target) -> testing.Sink,
 }
 
 local test = testing.suite()
@@ -47,7 +46,7 @@ test('the trigger and thumbstick reach a native sink as a primary button and scr
       function target.project(self: Target, origin: vector, direction: vector): (number?, number?, number?)
         return quad.project(self, origin, direction)
       end
-      function target.sink(self: Target): Native.Sink
+      function target.sink(self: Target): testing.Sink
         return window.sink
       end
       context:require(surfaces.capability):offer(context, {
@@ -74,7 +73,7 @@ test('the trigger and thumbstick reach a native sink as a primary button and scr
   fixture:step()
   fixture:button('right', 'trigger', false)
   fixture:step()
-  local buttons: { Native.InputCall }, scrolls = {}, 0
+  local buttons: { testing.InputCall }, scrolls = {}, 0
   for _, event in fixture.native.events.input do
     if event[1] == 'button' then
       buttons[#buttons + 1] = event

@@ -7,7 +7,6 @@ local schema = require '@lunette-plugin/schema'
 local expect = testing.expect
 local test = testing.suite()
 
-type Composition = typeof(require '@lunette-contracts/composition')
 type Settings = { count: number, callback: () -> () }
 
 local function invoke(state: controller.State, id: string)
@@ -33,7 +32,7 @@ local function row(state: controller.State, label: string)
   error('missing row ' .. label)
 end
 
-local function entry(running: management.Running): Composition.Entry?
+local function entry(running: management.Running): management.Entry?
   for _, current in running.service:entries() do
     if current.id == 'editable' then
       return current

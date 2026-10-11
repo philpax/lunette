@@ -3,9 +3,7 @@ local graph = require '@lunette-plugins/desktop/manager/graph'
 local expect = testing.expect
 local test = testing.suite()
 
-type Snapshot = { nodes: { graph.Node }, edges: { graph.Edge } }
-
-local function snapshot(): Snapshot
+local function snapshot(): graph.Snapshot
   return {
     nodes = {
       { id = 'a', name = 'source', state = 'active', enabled = true },

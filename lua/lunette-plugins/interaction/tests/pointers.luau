@@ -20,11 +20,11 @@ type Sink = {
 }
 type Seat = { id: number, dead: boolean, calls: number, focus: Sink?, setFocus: (Seat, Sink?) -> boolean }
 type Environment = {
-  native: typeof(testing.native()),
+  native: testing.Native,
   pressed: { string },
   released: { string },
   leaves: number,
-  session: typeof(testing.start {})?,
+  session: testing.Session?,
   consumer: adapter.Instance<unknown>?,
   owner: adapter.Context?,
   interaction: interactionContract.Service?,

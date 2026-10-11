@@ -5,42 +5,20 @@ local themes = require '../theme'
 local expect = testing.expect
 local test = testing.suite()
 
-type ui = typeof(require '@lunette-contracts/ui')
-type Theme = {
-  read background: ui.Color,
-  read foreground: ui.Color,
-  read control: ui.Color,
-  read hovered: ui.Color,
-  read pressed: ui.Color,
-  read disabled: ui.Color,
-  read focus: ui.Color,
-  read selection: ui.Color,
-  read error: ui.Color,
-  read border: ui.Color,
-  read font: render.Font,
-  read fontSize: number,
-  read panelRadius: number,
-  read controlRadius: number,
-  read padding: number,
-  read spacing: number,
-  read borderWidth: number,
-  read rowHeight: number,
-  read hapticStrength: number,
-  read hapticDuration: number,
-}
+type Theme = themes.Theme<render.Font>
 type ThemeChanges = { padding: number?, fontSize: number?, rowHeight: number?, spacing: number? }
 type Visual = {
   id: string,
-  kind: ui.Kind | 'panel',
+  kind: themes.Kind | 'panel',
   label: string,
-  bounds: ui.Bounds,
-  clip: ui.Bounds,
+  bounds: themes.Bounds,
+  clip: themes.Bounds,
   theme: Theme,
   enabled: boolean,
   hovered: boolean,
   pressed: boolean,
   focused: boolean,
-  items: { ui.ItemDescription },
+  items: { themes.ItemDescription },
   value: string?,
   caret: number?,
   anchor: number?,
@@ -50,10 +28,10 @@ type Visual = {
 }
 type VisualChanges = {
   label: string?,
-  bounds: ui.Bounds?,
-  clip: ui.Bounds?,
+  bounds: themes.Bounds?,
+  clip: themes.Bounds?,
   theme: Theme?,
-  items: { ui.ItemDescription }?,
+  items: { themes.ItemDescription }?,
   value: string?,
   caret: number?,
   anchor: number?,
@@ -88,7 +66,7 @@ local function draw(pass: render.Pass, visual: Visual, hook: Hook?)
   drawing.render(pass, visual, hook, drawing.newCache())
 end
 
-local function visual(kind: ui.Kind | 'panel', changes: VisualChanges?): Visual
+local function visual(kind: themes.Kind | 'panel', changes: VisualChanges?): Visual
   local value: Visual = {
     id = 'control',
     kind = kind,

@@ -5,12 +5,8 @@ local plugin = require('@lunette').plugin
 
 local test = testing.suite()
 
-type function InitializerContext(define: type): type
-  return define:parameters().head[3]:parameters().head[1]
-end
-
-type NativeContext = InitializerContext<typeof(require('@lunette').plugin.define)>
-type NativeDefinition = typeof(require('@lunette').plugin.define(nil, nil, nil))
+type NativeContext = testing.NativeContext
+type NativeDefinition = testing.NativeDefinition
 type Attempts = { active: boolean, effect: boolean, child: boolean, owner: boolean }
 
 -- Attempts each acquisition a cleanup must not make, and answers which succeeded.

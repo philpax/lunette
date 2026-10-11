@@ -10,8 +10,8 @@ local test = testing.suite()
 type Environment = {
   ran: { bindingsContract.Press },
   delivered: { string },
-  session: typeof(testing.boot {})?,
-  native: typeof(testing.native())?,
+  session: testing.Session?,
+  native: testing.Native?,
   hotkeys: adapter.Instance<{}>?,
   owner: plugin.Context?,
   bindings: bindingsContract.Service?,

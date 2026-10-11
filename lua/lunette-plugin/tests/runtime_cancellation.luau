@@ -5,12 +5,8 @@ local plugin = require('@lunette').plugin
 
 local test = testing.suite()
 
-type function InitializerContext(define: type): type
-  return define:parameters().head[3]:parameters().head[1]
-end
-
-type NativeContext = InitializerContext<typeof(require('@lunette').plugin.define)>
-type NativeInstance = typeof(require('@lunette').plugin.runtime():use(nil, nil))
+type NativeContext = testing.NativeContext
+type NativeInstance = testing.NativeInstance
 type Resource = { alive: boolean }
 type AttemptResource = Resource & { attempt: number }
 

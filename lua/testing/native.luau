@@ -17,7 +17,16 @@ export type Sink = {
   enter: (Sink, ...unknown) -> boolean,
   leave: (Sink, Seat?) -> boolean,
 }
-export type Texture = { read name: string?, read getDimensions: ((Texture) -> (number, number))? }
+export type Texture = render.TextureToken
+export type DrawCall = render.Call
+export type Font = render.Font
+export type PluginContext = lunette.PluginContext
+export type PluginDefinition = lunette.PluginDefinition
+export type PluginInstance = lunette.PluginInstance
+export type PluginRuntime = lunette.PluginRuntime
+export type PluginState = lunette.PluginState
+export type PointerButton = lunette.PointerButton
+export type ModifierName = lunette.ModifierName
 export type Drag = {
   dead: boolean,
   width: number,

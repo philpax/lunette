@@ -5,9 +5,9 @@ local drawing = require '@lunette-plugins/panels/draw'
 
 local test = testing.suite()
 
-type Native = typeof(testing.native())
-type Window = typeof(testing.native().newWindow(1))
-type Context = typeof(testing.start({}):observe(contract.capability).context)
+type Native = testing.Native
+type Window = testing.Window
+type Context = testing.Context
 type Texture = { read name: string, read getDimensions: (() -> (number, number))? }
 type Crop = { x: number, y: number, width: number, height: number }
 type Child = {
@@ -33,9 +33,9 @@ type Drawable = {
   read draw: (Drawable, typeof(testing.native().events.pass)) -> (),
   read claim: { granted: boolean, layer: Layer | false },
 }
-type Config = { read rendering: ('scene' | 'layer')?, read chrome: boolean? }
+type Config = testing.ConfiguredInput<typeof(require('@lunette-plugins/panels').define)>
 
-local function start(config: Config?): (Native, typeof(testing.start {}), contract.Service, Context, Window)
+local function start(config: Config?): (Native, testing.Session, contract.Service, Context, Window)
   local native = testing.native()
   local session = testing.start {
     'theme',

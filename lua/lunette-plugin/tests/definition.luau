@@ -6,7 +6,7 @@ local adapter = require '@lunette-plugin/adapter'
 
 local test = testing.suite()
 
-type PluginState = typeof(require('@lunette').plugin.runtime():snapshot().instances[1].state)
+type PluginState = testing.PluginState
 type Marker = { read marker: string? }
 
 local function init() end

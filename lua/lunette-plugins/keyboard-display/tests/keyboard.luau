@@ -4,7 +4,7 @@ local display = require '@lunette-contracts/keyboard-display'
 local surfaces = require '@lunette-contracts/surfaces'
 local test = testing.suite()
 
-type Environment = { session: typeof(testing.boot {})?, surfaces: surfaces.Service?, display: display.Service? }
+type Environment = { session: testing.Session?, surfaces: surfaces.Service?, display: display.Service? }
 type Config = { read placement: { read distance: number?, read drop: number?, read tilt: number? }? }
 type Board = { read pose: Mat4 }
 

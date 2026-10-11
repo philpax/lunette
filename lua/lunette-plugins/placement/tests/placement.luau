@@ -10,8 +10,8 @@ local placementContract = require '@lunette-contracts/placement'
 local test = testing.suite()
 
 type Environment = {
-  native: typeof(testing.native()),
-  session: typeof(testing.start {})?,
+  native: testing.Native,
+  session: testing.Session?,
   consumer: adapter.Instance<{}>?,
   owner: plugin.Context?,
   panels: panelsContract.Service?,
@@ -19,7 +19,7 @@ type Environment = {
   rules: rulesContract.Service?,
   placement: placementContract.Service?,
   primary: tagsContract.Tag?,
-  window: typeof(testing.native().newWindow(1))?,
+  window: testing.Window?,
 }
 
 local function start(): Environment

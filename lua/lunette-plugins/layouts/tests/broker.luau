@@ -7,8 +7,8 @@ local layoutsContract = require '@lunette-contracts/layouts'
 local test = testing.suite()
 
 type Environment = {
-  native: typeof(testing.native()),
-  session: typeof(testing.start {}),
+  native: testing.Native,
+  session: testing.Session,
   layouts: layoutsContract.Service?,
   owner: plugin.Context?,
 }

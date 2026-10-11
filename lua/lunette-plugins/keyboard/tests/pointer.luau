@@ -9,10 +9,10 @@ local keys = require '@lunette-contracts/keys'
 local test = testing.suite()
 
 type Fixture = {
-  native: typeof(testing.native()),
+  native: testing.Native,
   keys: { number },
   activations: { interaction.Pointer },
-  session: typeof(testing.start {})?,
+  session: testing.Session?,
   owner: focusContract.Owner?,
   service: keyboardContract.Service?,
   focus: focusContract.Service?,

@@ -6,10 +6,10 @@ local base = require '@lunette-plugins/theme/base'
 local test = testing.suite()
 
 type Environment = {
-  native: typeof(testing.native()),
-  session: typeof(testing.start {})?,
+  native: testing.Native,
+  session: testing.Session?,
   themes: themesContract.Service?,
-  owner: typeof(testing.start({}):observe(themesContract.capability).context)?,
+  owner: testing.Context?,
 }
 
 local function start(entries: { string }?): Environment

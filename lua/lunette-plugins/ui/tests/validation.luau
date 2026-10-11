@@ -5,7 +5,7 @@ local expect = testing.expect
 local fixture = require './support/panel'
 local test = testing.suite()
 
-type ui = typeof(require '@lunette-contracts/ui')
+type Bounds = fixture.Bounds
 type InvalidPanelOptions = {
   name: string,
   width: number,
@@ -16,7 +16,7 @@ type InvalidPanelOptions = {
   unknown: boolean?,
 }
 
-local function bounds(): ui.Bounds
+local function bounds(): Bounds
   return { x = 10, y = 260, width = 370, height = 30 }
 end
 

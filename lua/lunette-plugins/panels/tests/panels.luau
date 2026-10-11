@@ -4,14 +4,14 @@ local contract = require '@lunette-contracts/panels'
 
 local test = testing.suite()
 
-type Config = { read rendering: ('scene' | 'layer')?, read chrome: boolean? }
+type Config = testing.ConfiguredInput<typeof(require('@lunette-plugins/panels').define)>
 type Texture = { read getDimensions: () -> (number, number) }
 type Environment = {
-  native: typeof(testing.native()),
-  session: typeof(testing.start {})?,
+  native: testing.Native,
+  session: testing.Session?,
   panels: contract.Service?,
-  owner: typeof(testing.start({}):observe(contract.capability).context)?,
-  other: typeof(testing.start({}):observe(contract.capability).context)?,
+  owner: testing.Context?,
+  other: testing.Context?,
 }
 
 local function start(config: Config?): Environment

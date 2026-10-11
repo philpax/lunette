@@ -8,13 +8,13 @@ local focus = require '@lunette-contracts/focus'
 local theme = require '@lunette-contracts/theme'
 local vrUi = require '@testing/vr-ui'
 
-type session = typeof(require '@testing/session')
-type vocabulary = typeof(require '@lunette-contracts/vocabulary')
+export type Bounds = ui.Bounds
+export type PointerEvent = ui.PointerEvent
 
 type Options = { keyboard: boolean?, theme: ui.ThemeOverrides?, draw: ui.DrawHook? }
 export type Event = {
   read kind: 'enter' | 'leave' | 'move' | 'press' | 'release' | 'scroll' | 'cancel',
-  read reason: vocabulary.CancelReason?,
+  read reason: ui.CancelReason?,
 }
 export type State = {
   fixture: vrUi.Fixture,
@@ -35,7 +35,7 @@ export type State = {
   chosen: string?,
   listed: string?,
   board: keyboard.Keyboard?,
-  focus: session.Observed<focus.Service>?,
+  focus: typeof(vrUi.boot({}).session:observe(focus.capability))?,
 }
 
 local fixture = {}
@@ -152,7 +152,7 @@ function fixture.boot(options: Options?): State
             route = { { x = 20, y = 265 }, { x = 40, y = 285 } },
           },
         },
-        onPointer = function(event: vocabulary.PointerEvent)
+        onPointer = function(event: ui.PointerEvent)
           state.events[#state.events + 1] = event
         end,
       }

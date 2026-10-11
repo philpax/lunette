@@ -11,6 +11,15 @@ local suite = require '@testing/suite'
 local session = {}
 
 export type Entry = string | compose.Entry
+export type ComposeEntry = compose.Entry
+export type Patch = compose.Patch
+export type Context = adapter.Context
+export type Owner = plugin.Owner
+export type Effect = plugin.Effect
+export type Definition<C> = adapter.Definition<C>
+export type InspectionSnapshot = typeof(require('@lunette-contracts/inspection').snapshot {})
+export type InspectionDetails = typeof(require('@lunette-contracts/inspection').snapshot({}).state)
+export type InspectionRegistration = typeof(require('@lunette-contracts/inspection').snapshot({}).registrations[1])
 export type Options = { read native: native.Fake? }
 export type Observed<T> = {
   instance: adapter.Instance<compose.Config>?,

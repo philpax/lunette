@@ -10,12 +10,10 @@ local descriptors = require '@lunette-plugins/theme/descriptors'
 local presets = require '@lunette-plugins/theme/standard/presets'
 local arcade = require '@lunette-plugins/theme/arcade/preset'
 
-type Native = typeof(require '@testing/native')
-type Sessions = typeof(require '@testing/session')
-type Selector = typeof(require '@lunette-plugins/desktop/theme')
+type Config = typeof(require('@lunette-plugins/desktop/theme/config').schema.input {})
 type Environment = {
-  session: Sessions.Session,
-  native: Native.Fake,
+  session: testing.Session,
+  native: testing.Native,
   owner: adapter.Context,
   menu: menuContract.Service,
   theme: themeContract.Service,
@@ -24,7 +22,7 @@ type Environment = {
 
 local test = testing.suite()
 
-local function boot(config: Selector.Config?): Environment
+local function boot(config: Config?): Environment
   local session = testing.boot {
     'frame',
     'theme',

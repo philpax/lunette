@@ -3,8 +3,6 @@
 local session = require '@testing/session'
 local native = require '@testing/native'
 local keyboard = require '@lunette-contracts/keyboard'
-type Inspection = typeof(require '@lunette-contracts/inspection')
-type Plugin = typeof(require '@lunette-plugin')
 
 local vrUi = {}
 
@@ -13,7 +11,7 @@ export type Bounds = { x: number, y: number, width: number, height: number }
 export type Item = { id: string, label: string, enabled: boolean, selected: boolean?, bounds: Bounds? }
 export type Control = {
   id: string,
-  owner: Plugin.Owner,
+  owner: session.Owner,
   kind: string,
   label: string?,
   enabled: boolean,
@@ -30,7 +28,7 @@ export type Geometry = {
 }
 export type Description = Geometry & { name: string, revision: number, controls: { Control } }
 -- Inspection services keep their own receivers; the fixture only reads their snapshots.
-export type Inspectable<S> = { read inspect: (S) -> Inspection.Snapshot }
+export type Inspectable<S> = { read inspect: (S) -> session.InspectionSnapshot }
 export type Fixture = {
   native: native.Fake,
   session: session.Session?,
@@ -154,7 +152,7 @@ function Fixture.click(self: Fixture, description: Geometry, x: number, y: numbe
   self:step()
 end
 
-local function bounds(details: Inspection.Details): Bounds?
+local function bounds(details: session.InspectionDetails): Bounds?
   if details.width == nil then
     return nil
   end
@@ -163,7 +161,7 @@ end
 
 -- Rebuilds a panel's description from the ui service's inspection, or nil when no live panel has the name.
 function vrUi.describe<S>(service: S & Inspectable<S>, name: string): Description?
-  local panel: Inspection.Registration? = nil
+  local panel: session.InspectionRegistration? = nil
   local controls: { Control } = {}
   local byId: { [string]: Control } = {}
   for _, registration in ipairs(service:inspect().registrations) do

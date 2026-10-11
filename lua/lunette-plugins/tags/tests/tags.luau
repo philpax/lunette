@@ -9,7 +9,7 @@ local test = testing.suite()
 type Consumer = { instance: adapter.Instance<{}>?, owner: plugin.Context?, tags: tagsContract.Service? }
 type Panel = { dead: boolean }
 
-local function start(): (typeof(testing.start {}), (string) -> Consumer)
+local function start(): (testing.Session, (string) -> Consumer)
   testing.native()
   local session = testing.start { 'tags' }
   local function consumer(name: string): Consumer

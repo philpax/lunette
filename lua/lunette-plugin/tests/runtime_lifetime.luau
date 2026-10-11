@@ -6,12 +6,8 @@ local plugin = require('@lunette').plugin
 
 local test = testing.suite()
 
-type function InitializerContext(define: type): type
-  return define:parameters().head[3]:parameters().head[1]
-end
-
-type NativeContext = InitializerContext<typeof(require('@lunette').plugin.define)>
-type NativeRuntime = typeof(require('@lunette').plugin.runtime())
+type NativeContext = testing.NativeContext
+type NativeRuntime = testing.NativeRuntime
 
 test('an active instance survives the collection of its runtime userdata', function()
   local escaped: NativeContext?

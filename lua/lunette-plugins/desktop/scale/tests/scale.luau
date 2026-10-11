@@ -2,14 +2,12 @@ local testing = require '@testing'
 local expect = testing.expect
 local panelsContract = require '@lunette-contracts/panels'
 
-type Native = typeof(require '@testing/native')
-type Sessions = typeof(require '@testing/session')
 type Environment = {
-  session: Sessions.Session,
-  native: Native.Fake,
-  panels: Sessions.Observed<panelsContract.Service>,
-  primary: Native.Output,
-  secondary: Native.Output,
+  session: testing.Session,
+  native: testing.Native,
+  panels: testing.Observed<panelsContract.Service>,
+  primary: testing.Output,
+  secondary: testing.Output,
 }
 
 local test = testing.suite()
@@ -28,7 +26,7 @@ end
 local function windowAt(
   env: Environment,
   id: number,
-  output: Native.Output,
+  output: testing.Output,
   distance: number
 ): panelsContract.WindowPanel
   local window = env.native.newWindow(id)
@@ -38,7 +36,7 @@ local function windowAt(
   return panel
 end
 
-local function modesOf(env: Environment, output: Native.Output): number
+local function modesOf(env: Environment, output: testing.Output): number
   local count = 0
   for _, mode in ipairs(env.native.events.modes) do
     if mode.output == output.id then

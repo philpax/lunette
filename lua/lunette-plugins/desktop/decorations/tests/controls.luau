@@ -8,22 +8,18 @@ local surfaces = require '@lunette-contracts/surfaces'
 local vrUi = require '@testing/vr-ui'
 local test = testing.suite()
 
-type Native = typeof(require '@testing/native')
-type Sessions = typeof(require '@testing/session')
-type Inspection = typeof(require '@lunette-contracts/inspection')
-type Plugin = typeof(require '@lunette-plugin')
 type WindowPanel = {
-  read source: Native.Window,
+  read source: testing.Window,
   read pose: Mat4,
   read height: number,
   read dead: boolean,
   read setPose: (WindowPanel, Mat4) -> (),
-  read setHidden: (WindowPanel, Plugin.Owner, boolean) -> Plugin.Effect,
+  read setHidden: (WindowPanel, testing.Owner, boolean) -> testing.Effect,
 }
 type Environment = {
   running: vrUi.Fixture,
-  registry: Sessions.Observed<panels.Service>,
-  monitor: Native.Monitor,
+  registry: testing.Observed<panels.Service>,
+  monitor: testing.Monitor,
   widgets: ui.Service,
   closeRequests: number,
   panel: WindowPanel,
@@ -62,7 +58,7 @@ local function boot(): Environment
     closeRequests = 0,
   }
   local window = native.newWindow(7)
-  function window.close(self: Native.Window): boolean
+  function window.close(self: testing.Window): boolean
     env.closeRequests += 1
     return true
   end
@@ -82,7 +78,7 @@ local function click(env: Environment, name: string, id: string)
 end
 
 -- Reads the control directly, since discovery finds only enabled controls and a pending selection is disabled.
-local function selection(env: Environment): Inspection.Details
+local function selection(env: Environment): testing.InspectionDetails
   for _, registration in env.widgets:inspect().registrations do
     if registration.kind == 'control' and registration.name == 'select/monitor/screen-a' then
       return registration.details
@@ -96,7 +92,7 @@ test('a window titlebar requests close, reports a refusal, and is withdrawn whil
   click(env, WINDOW, 'close/window/7')
   expect.equal(env.closeRequests, 1, 'the close button sends one close request')
   expect.falsy(env.panel.dead, 'the panel waits for the client to unmap')
-  function env.panel.source.close(self: Native.Window): boolean
+  function env.panel.source.close(self: testing.Window): boolean
     return false
   end
   click(env, WINDOW, 'close/window/7')

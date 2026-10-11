@@ -17,7 +17,7 @@ type Environment = {
   rules: rulesContract.Service?,
   adoption: adoptionContract.Service?,
 }
-type Window = typeof(testing.native().newWindow(1))
+type Window = testing.Window
 type SubstitutePlacement = {
   read place: (
     SubstitutePlacement,

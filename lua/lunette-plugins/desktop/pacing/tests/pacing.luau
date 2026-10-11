@@ -2,14 +2,12 @@ local testing = require '@testing'
 local expect = testing.expect
 local panelsContract = require '@lunette-contracts/panels'
 
-type Native = typeof(require '@testing/native')
-type Sessions = typeof(require '@testing/session')
 type Environment = {
-  session: Sessions.Session,
-  native: Native.Fake,
-  panels: Sessions.Observed<panelsContract.Service>,
-  window: Native.Window,
-  monitor: Native.Monitor,
+  session: testing.Session,
+  native: testing.Native,
+  panels: testing.Observed<panelsContract.Service>,
+  window: testing.Window,
+  monitor: testing.Monitor,
   windowPanel: panelsContract.WindowPanel,
   monitorPanel: panelsContract.MonitorPanel,
 }

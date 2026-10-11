@@ -5,9 +5,9 @@ local contract = require '@lunette-contracts/menu'
 
 local fixture = {}
 
-type Native = typeof(testing.native())
-type Session = typeof(testing.start {})
-type Observed = typeof(testing.start({}):observe(contract.capability))
+type Native = testing.Native
+type Session = testing.Session
+type Observed = testing.Observed<contract.Service>
 export type Environment = {
   native: Native,
   session: Session,

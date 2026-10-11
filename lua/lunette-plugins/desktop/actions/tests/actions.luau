@@ -8,7 +8,6 @@ local actions = require('@lunette-plugins/desktop/actions').definition
 local expect = testing.expect
 local test = testing.suite()
 
-type Sessions = typeof(require '@testing/session')
 type DisplayFixture = {
   dead: boolean,
   isVisible: () -> boolean,
@@ -19,7 +18,7 @@ type State = {
   visible: boolean,
   listeners: { [display.Listener]: boolean },
   service: DisplayFixture,
-  session: Sessions.Session,
+  session: testing.Session,
   menu: menu.Service,
   change: (State, boolean) -> (),
 }

@@ -8,15 +8,16 @@ local test = testing.suite()
 
 local measurement = require '../measurement-cache'
 local cache = measurement.new()
-type ui = typeof(require '@lunette-contracts/ui')
+type Bounds = theme.Bounds
+type ThemeOverrides = theme.ThemeOverrides
 
 local function layout(
   value: string,
   caret: number,
   anchor: number,
-  bounds: ui.Bounds,
-  clip: ui.Bounds,
-  overrides: ui.ThemeOverrides?,
+  bounds: Bounds,
+  clip: Bounds,
+  overrides: ThemeOverrides?,
   font: render.Font?
 ): geometry.Layout?
   font = font or render.new().font

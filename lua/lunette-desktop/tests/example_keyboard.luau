@@ -4,8 +4,8 @@ local desktop = require '@lunette-desktop'
 local surfacesContract = require '@lunette-contracts/surfaces'
 local displayContract = require '@lunette-contracts/keyboard-display'
 
-type Board = typeof(require '@lunette-plugins/keyboard/instance'(nil, nil, nil, nil, nil, nil))
-type RenderedKey = typeof(require '@lunette-plugins/keyboard/instance'(nil, nil, nil, nil, nil, nil):keys()[1])
+type Board = desktop.Keyboard
+type RenderedKey = desktop.RenderedKey
 
 local test = testing.suite()
 

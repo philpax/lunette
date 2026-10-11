@@ -6,10 +6,7 @@ local test = testing.suite()
 
 local HINT = 'lunette: no windows yet'
 
-type Sessions = typeof(require '@testing/session')
-type Render = typeof(require '@testing/render')
-
-local function drawsHint(session: Sessions.Session): Render.Call?
+local function drawsHint(session: testing.Session): testing.DrawCall?
   local events = session.native.events
   events.draw = {}
   session:draw()

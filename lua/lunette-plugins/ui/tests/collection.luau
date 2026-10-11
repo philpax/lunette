@@ -3,18 +3,18 @@ local collection = require '../collection'
 local expect = testing.expect
 local test = testing.suite()
 
-type ui = typeof(require '@lunette-contracts/ui')
-type vocabulary = typeof(require '@lunette-contracts/vocabulary')
-type lunette = typeof(require '@lunette')
+type Bounds = collection.Bounds
+type CancelReason = collection.CancelReason
+type PointerButton = testing.PointerButton
 type Row = { id: string, label: string, enabled: boolean? }
 type Theme = { rowHeight: number, padding: number, spacing: number }
-type Item = { id: string, label: string, enabled: boolean, selected: boolean, bounds: ui.Bounds }
+type Item = { id: string, label: string, enabled: boolean, selected: boolean, bounds: Bounds }
 type Visual = {
   id: string,
   kind: 'choice' | 'list',
   label: string,
-  bounds: ui.Bounds,
-  clip: ui.Bounds,
+  bounds: Bounds,
+  clip: Bounds,
   theme: Theme,
   enabled: boolean,
   hovered: boolean,
@@ -25,13 +25,13 @@ type Visual = {
   opened: boolean?,
   overflow: boolean?,
 }
-type Extra = { button: lunette.PointerButton?, dx: number?, dy: number?, reason: vocabulary.CancelReason? }
+type Extra = { button: PointerButton?, dx: number?, dy: number?, reason: CancelReason? }
 type Methods = {
   setItems: <R>(R, { Row }) -> (),
   setSelected: <R>(R, string?) -> (),
 }
 type State = {
-  bounds: ui.Bounds,
+  bounds: Bounds,
   changes: { string },
   focuses: number,
   methods: Methods?,
@@ -47,10 +47,10 @@ type Event = {
   pointer: State,
   inside: boolean,
   captured: boolean,
-  button: lunette.PointerButton,
+  button: PointerButton,
   dx: number?,
   dy: number?,
-  reason: vocabulary.CancelReason?,
+  reason: CancelReason?,
 }
 
 local THEME = { rowHeight = 20, padding = 2, spacing = 3 }
@@ -78,7 +78,7 @@ local function fixture(kind: 'choice' | 'list', height: number, items: { Row }, 
     blur = function(): boolean
       return true
     end,
-    bounds = function(): ui.Bounds
+    bounds = function(): Bounds
       return state.bounds
     end,
     theme = function(): Theme

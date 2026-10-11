@@ -3,10 +3,13 @@ local textField = require '../../text-field'
 local themes = require '../../theme'
 local measurement = require '../../measurement-cache'
 
-type ui = typeof(require '@lunette-contracts/ui')
-type focus = typeof(require '@lunette-contracts/focus')
-type lunette = typeof(require '@lunette')
-type render = typeof(require '@testing/render')
+type Bounds = themes.Bounds
+type ItemDescription = themes.ItemDescription
+type Receiver = textField.Receiver
+type KeyEvent = textField.KeyEvent
+type PointerButton = testing.PointerButton
+type ModifierName = testing.ModifierName
+type Font = testing.Font
 
 type Options = {
   value: string?,
@@ -14,7 +17,7 @@ type Options = {
   onSubmit: ((string) -> ())?,
   onCancel: ((string) -> ())?,
   id: string?,
-  bounds: ui.Bounds?,
+  bounds: Bounds?,
 }
 type Methods = {
   value: (Methods) -> string,
@@ -23,40 +26,19 @@ type Methods = {
   focus: (Methods) -> boolean,
   blur: (Methods) -> boolean,
 }
-type Theme = {
-  read background: ui.Color,
-  read foreground: ui.Color,
-  read control: ui.Color,
-  read hovered: ui.Color,
-  read pressed: ui.Color,
-  read disabled: ui.Color,
-  read focus: ui.Color,
-  read selection: ui.Color,
-  read error: ui.Color,
-  read border: ui.Color,
-  read font: render.Font,
-  read fontSize: number,
-  read panelRadius: number,
-  read controlRadius: number,
-  read padding: number,
-  read spacing: number,
-  read borderWidth: number,
-  read rowHeight: number,
-  read hapticStrength: number,
-  read hapticDuration: number,
-}
+type Theme = themes.Theme<Font>
 type Visual = {
   id: string,
   kind: 'text-field'?,
   label: string,
-  bounds: ui.Bounds,
-  clip: ui.Bounds,
+  bounds: Bounds,
+  clip: Bounds,
   theme: Theme,
   enabled: boolean,
   hovered: boolean,
   pressed: boolean,
   focused: boolean,
-  items: { ui.ItemDescription },
+  items: { ItemDescription },
   caret: number?,
   anchor: number?,
   value: string?,
@@ -69,12 +51,12 @@ type PointerEvent<P> = {
   y: number,
   inside: boolean,
   captured: boolean,
-  button: lunette.PointerButton?,
+  button: PointerButton?,
 }
 type Widget = {
   methods: Methods,
   kind: 'text-field'?,
-  receiver: focus.Receiver,
+  receiver: Receiver,
   wantsKeyboard: boolean,
   onFocus: (boolean) -> (),
   pointer: <P>(PointerEvent<P>) -> (),
@@ -83,7 +65,7 @@ type Widget = {
 export type Fixture = {
   field: Methods,
   widget: Widget,
-  receiver: focus.Receiver,
+  receiver: Receiver,
   state: { changes: number, focused: boolean },
   snapshot: () -> Visual,
 }
@@ -127,10 +109,10 @@ function fixture.new(options: Options?): Fixture
       widget.onFocus(false)
       return true
     end,
-    bounds = function(): ui.Bounds
+    bounds = function(): Bounds
       return bounds
     end,
-    clip = function(): ui.Bounds
+    clip = function(): Bounds
       return bounds
     end,
     theme = function(): Theme
@@ -172,11 +154,7 @@ function fixture.new(options: Options?): Fixture
   }
 end
 
-function fixture.key(
-  code: number,
-  modifiers: { lunette.ModifierName }?,
-  source: ('virtual' | 'physical')?
-): focus.KeyEvent
+function fixture.key(code: number, modifiers: { ModifierName }?, source: ('virtual' | 'physical')?): KeyEvent
   return { code = code, modifiers = modifiers or {}, source = source or 'virtual', isRepeat = false }
 end
 
@@ -184,7 +162,7 @@ function fixture.pointer<P>(
   pointer: P,
   kind: 'press' | 'move' | 'release',
   x: number,
-  button: lunette.PointerButton?
+  button: PointerButton?
 ): PointerEvent<P>
   return { pointer = pointer, kind = kind, x = x, y = 25, inside = true, captured = true, button = button }
 end

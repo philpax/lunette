@@ -8,7 +8,7 @@ local focusContract = require '@lunette-contracts/focus'
 local test = testing.suite()
 
 type Environment = {
-  session: typeof(testing.start {}),
+  session: testing.Session,
   consumer: adapter.Instance<unknown>?,
   owner: adapter.Context?,
   service: keyboardContract.Service?,

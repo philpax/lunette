@@ -11,15 +11,13 @@ local test = testing.suite()
 
 local WORKSPACES = require '@lunette-plugins/desktop/workspaces'
 
-type Native = typeof(require '@testing/native')
-type Sessions = typeof(require '@testing/session')
 type Environment = {
-  session: Sessions.Session,
-  native: Native.Fake,
+  session: testing.Session,
+  native: testing.Native,
   owner: adapter.Context,
   tags: tagsContract.Service,
   placement: placementContract.Service,
-  actions: Sessions.Observed<menuContract.Service>,
+  actions: testing.Observed<menuContract.Service>,
   main: tagsContract.Tag?,
   web: tagsContract.Tag?,
 }

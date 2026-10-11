@@ -7,7 +7,7 @@ local frameContract = require '@lunette-contracts/frame'
 
 local test = testing.suite()
 
-type Environment = { native: typeof(testing.native()), stopped: number, session: typeof(testing.start {})? }
+type Environment = { native: testing.Native, stopped: number, session: testing.Session? }
 type Register = (plugin.Context, frameContract.Service) -> ()
 
 -- The frame provider over the fake native API, with the callbacks installed as `testing.boot` installs them,

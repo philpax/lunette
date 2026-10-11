@@ -8,7 +8,7 @@ local expect = testing.expect
 local fixture = require './support/panel'
 local test = testing.suite()
 
-type vocabulary = typeof(require '@lunette-contracts/vocabulary')
+type PointerEvent = fixture.PointerEvent
 
 local function click(state: fixture.State, id: string, hand: vrUi.Hand?, item: string?)
   state.fixture:clickControl(state.service, 'public-ui-form', id, hand, item)
@@ -103,7 +103,7 @@ test('owner teardown invalidates its controls without calling it back', function
         id = 'owned',
         bounds = { x = 10, y = 260, width = 370, height = 30 },
         z = 1,
-        onPointer = function(event: vocabulary.PointerEvent)
+        onPointer = function(event: PointerEvent)
           state.events[#state.events + 1] = { kind = event.kind }
         end,
       }

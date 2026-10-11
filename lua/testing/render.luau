@@ -34,7 +34,7 @@ export type Argument =
   | string
   | vector
   | Mat4
-  | Quat
+  | quaternion
   | Texture
   | Material
   | Font

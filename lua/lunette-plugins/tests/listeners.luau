@@ -8,8 +8,8 @@ local test = testing.suite()
 
 type Callback = () -> ()
 type Environment = {
-  native: typeof(testing.native()),
-  session: typeof(testing.start {})?,
+  native: testing.Native,
+  session: testing.Session?,
   list: listeners.Listeners<Callback>?,
   owner: plugin.Context?,
 }

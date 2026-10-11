@@ -27,7 +27,7 @@ local SYMBOLS = { { { code = 2 }, { action = { kind = 'layer', layer = 'base' },
 
 type Sent = { string | number | boolean }
 type Environment = {
-  native: typeof(testing.native()),
+  native: testing.Native,
   pressed: { keyboard.RenderedKey },
   custom: { string },
   drawn: {
@@ -40,7 +40,7 @@ type Environment = {
   },
   sent: { Sent },
   pulses: { interactionContract.Haptic },
-  session: typeof(testing.start {})?,
+  session: testing.Session?,
   service: keyboardContract.Service?,
   owner: adapter.Context?,
   pointer: interactionContract.Pointer?,

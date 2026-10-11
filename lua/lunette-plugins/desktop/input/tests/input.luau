@@ -4,9 +4,6 @@ local focus = require '@lunette-contracts/focus'
 local expect = testing.expect
 local test = testing.suite()
 
-type Adapter = typeof(require '@lunette-plugin/adapter')
-type Native = typeof(require '@testing/native')
-type Sessions = typeof(require '@testing/session')
 type InputSink = {
   dead: boolean,
   domain: 'window' | 'host',
@@ -16,11 +13,11 @@ type InputSink = {
   typeText: (InputSink, string) -> boolean,
 }
 type Fixture = {
-  session: Sessions.Session,
+  session: testing.Session,
   focus: focus.Service,
-  owner: Adapter.Context,
+  owner: testing.Context,
   log: { string },
-  seat: Native.Seat,
+  seat: testing.Seat,
   native: focus.TargetHandle,
   field: (string) -> focus.TargetHandle,
 }
@@ -37,13 +34,13 @@ local function boot(domain: 'window' | 'host'): Fixture
   local function record(value: string)
     f.log[#f.log + 1] = value
   end
-  f.seat = observed.context:resource(observed.context, function(): (Native.Seat, () -> ())
+  f.seat = observed.context:resource(observed.context, function(): (testing.Seat, () -> ())
     local seat = lunette.newSeat { name = 'input-fixture' }
     return seat, function()
       seat:destroy()
     end
   end)
-  f.seat.strokeFor = function(_self: Native.Seat, value: string): lunette.Stroke?
+  f.seat.strokeFor = function(_self: testing.Seat, value: string): lunette.Stroke?
     local stroke = strokes[value]
     return stroke and { keycode = stroke.keycode, modifiers = table.clone(stroke.modifiers) }
   end

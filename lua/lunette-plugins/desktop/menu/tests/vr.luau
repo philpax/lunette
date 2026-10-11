@@ -7,7 +7,7 @@ local vrUi = require '@testing/vr-ui'
 local expect = testing.expect
 local test = testing.suite()
 
-type DesktopMenu = typeof(require '@lunette-plugins/desktop/menu')
+type Config = testing.ConfiguredInput<typeof(require('@lunette-plugins/desktop/menu').define)>
 type Environment = {
   running: vrUi.Fixture,
   ui: ui.Service,
@@ -19,7 +19,7 @@ type Environment = {
 type ActionOptions = { label: string?, order: number?, selected: boolean? }
 type Action = { calls: number, registration: menu.Registration }
 
-local function boot(config: DesktopMenu.Config?): Environment
+local function boot(config: Config?): Environment
   local running = vrUi.boot {
     'frame',
     'surfaces',

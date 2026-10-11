@@ -5,11 +5,11 @@ local contract = require '@lunette-contracts/laser'
 local expect = testing.expect
 local test = testing.suite()
 
-type native = typeof(require '@testing/native')
+type Window = testing.Window
 type Panel = {
   dead: boolean,
   kind: 'window',
-  source: native.Window,
+  source: Window,
   width: number,
   height: number,
   pose: Mat4,
@@ -28,8 +28,8 @@ type Drag = {
   getSourceCrop: ((Drag) -> ...number)?,
 }
 type DragFields = { opaque: boolean?, crop: { number }?, texture: (string | false)?, width: number?, height: number? }
-type Seat = native.Seat & { drag: Drag? }
-type Fixture = { native: native.Fake, target: laser.Beam, panel: Panel, seat: Seat }
+type Seat = testing.Seat & { drag: Drag? }
+type Fixture = { native: testing.Native, target: laser.Beam, panel: Panel, seat: Seat }
 
 local ICON = 'icon texture'
 local ORIGIN = vector.pack(0, 1, 0)

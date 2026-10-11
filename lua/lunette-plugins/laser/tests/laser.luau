@@ -7,19 +7,14 @@ local interactionContract = require '@lunette-contracts/interaction'
 
 local test = testing.suite()
 
-type native = typeof(require '@testing/native')
-type render = typeof(require '@testing/render')
-type session = typeof(require '@testing/session')
-type adapter = typeof(require '@lunette-plugin/adapter')
-type vocabulary = typeof(require '@lunette-contracts/vocabulary')
-type lunette = typeof(require '@lunette')
+type PointerEvent = laserContract.PointerEvent
 type Env = {
-  native: native.Fake,
+  native: testing.Native,
   controls: vrUi.Fixture?,
-  session: session.Session?,
-  consumer: session.Observed<laserContract.Service>?,
+  session: testing.Session?,
+  consumer: testing.Observed<laserContract.Service>?,
   service: laserContract.Service?,
-  owner: adapter.Context?,
+  owner: testing.Context?,
 }
 type LaserDetails = { read hand: laserContract.Hand, read ownsSeat: boolean, read seatId: number? }
 type BorrowedSeat = {
@@ -28,7 +23,7 @@ type BorrowedSeat = {
   destroy: ((BorrowedSeat) -> boolean)?,
 }
 
-local function start(definition: adapter.Definition<laser.Config>?): Env
+local function start(definition: testing.Definition<laser.Config>?): Env
   local env: Env = { native = testing.native() }
   env.controls = vrUi.hands(env.native)
   env.session = testing.start {
@@ -69,8 +64,8 @@ local function trigger(env: Env, held: boolean)
   env.controls:button('right', 'trigger', held)
 end
 
-local function calls(env: Env, name: string): { render.Call }
-  local found: { render.Call } = {}
+local function calls(env: Env, name: string): { testing.DrawCall }
+  local found: { testing.DrawCall } = {}
   for _, call in ipairs(env.native.events.draw) do
     if call[1] == name then
       found[#found + 1] = call
@@ -93,13 +88,13 @@ end
 test("the default reader maps the trigger, and a hover pulses that hand's controller and draws a cursor", function()
   local env = start()
   trigger(env, true)
-  local pressed: { lunette.PointerButton } = {}
+  local pressed: { testing.PointerButton } = {}
   local target = {
     dead = false,
     raycast = function(): (number, number, number)
       return 1, 2, 3
     end,
-    onPointer = function(_: laserContract.Surface, event: vocabulary.PointerEvent)
+    onPointer = function(_: laserContract.Surface, event: PointerEvent)
       if event.kind == 'press' then
         pressed[#pressed + 1] = event.button
       end
@@ -132,7 +127,7 @@ test("the default reader maps the trigger, and a hover pulses that hand's contro
       end
       return 1, 2, 3
     end,
-    onPointer = function(_: laserContract.Surface, event: vocabulary.PointerEvent)
+    onPointer = function(_: laserContract.Surface, event: PointerEvent)
       if event.kind == 'enter' then
         hovers += 1
       end
@@ -176,14 +171,14 @@ end)
 test('a laser reader cancels on loss and requires all buttons up before reacquisition', function()
   local env = start()
   local tracked, held = true, true
-  local events: { vocabulary.PointerEvent } = {}
+  local events: { PointerEvent } = {}
   local target = {
     dead = false,
     grabbable = false,
     raycast = function(): (number, number, number)
       return 10, 20, 1
     end,
-    onPointer = function(_self: laserContract.Surface, event: vocabulary.PointerEvent)
+    onPointer = function(_self: laserContract.Surface, event: PointerEvent)
       if event.kind == 'press' or event.kind == 'release' or event.kind == 'cancel' then
         events[#events + 1] = event
       end

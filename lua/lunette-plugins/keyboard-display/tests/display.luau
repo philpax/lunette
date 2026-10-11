@@ -11,7 +11,7 @@ local expect = testing.expect
 local test = testing.suite()
 
 type Environment = {
-  session: typeof(testing.boot {})?,
+  session: testing.Session?,
   owner: adapter.Context?,
   focus: focus.Service?,
   first: ui.TextField?,

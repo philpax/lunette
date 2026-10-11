@@ -1,7 +1,7 @@
 local testing = require '@testing'
 local interaction = require '@lunette-contracts/interaction'
 
-type Context = typeof(testing.start({}):observe(interaction.capability).context)
+type Context = testing.Context
 type Buttons = { [string]: boolean }
 export type Fields = {
   read x: number?,
@@ -27,7 +27,7 @@ export type Surface = {
 }
 export type Event = { surface: interaction.Surface, event: interaction.PointerEvent }
 export type Fixture = {
-  session: typeof(testing.start {}),
+  session: testing.Session,
   service: interaction.Service,
   owner: Context,
   events: { Event },

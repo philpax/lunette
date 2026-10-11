@@ -6,7 +6,7 @@ local surfacesContract = require '@lunette-contracts/surfaces'
 
 local test = testing.suite()
 
-type Session = typeof(testing.start {})
+type Session = testing.Session
 type ListedSurface = { read dead: boolean, read raycast: () -> (), read label: string }
 
 local function consumer(

@@ -5,9 +5,9 @@ local rulesContract = require '@lunette-contracts/rules'
 local test = testing.suite()
 
 type Window = { id: number, dead: boolean, width: number, height: number, appId: string, title: string }
-type Context = typeof(testing.start({}):observe(rulesContract.capability).context)
+type Context = testing.Context
 
-local function start(): (typeof(testing.start {}), rulesContract.Service, Context, Window)
+local function start(): (testing.Session, rulesContract.Service, Context, Window)
   local session = testing.start { 'rules' }
   local observed = session:observe(rulesContract.capability)
   local window = { id = 1, dead = false, width = 800, height = 600, appId = 'fixture', title = 'Fixture' }

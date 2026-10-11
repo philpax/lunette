@@ -11,7 +11,7 @@ local vocabulary = require '@lunette-contracts/vocabulary'
 
 local test = testing.suite()
 
-type Native = typeof(testing.native())
+type Native = testing.Native
 type Binding = { read save: (Binding) -> (boolean, string?), read restore: (Binding) -> number }
 type BindingCallback = (Binding, plugin.Context, panelsContract.Service, Native) -> ()
 

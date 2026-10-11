@@ -11,13 +11,9 @@ local display = require '@lunette-contracts/keyboard-display'
 local surfaces = require '@lunette-contracts/surfaces'
 local vrUi = require '@testing/vr-ui'
 
-type Native = typeof(require '@testing/native')
-type Compose = typeof(require '@lunette-plugin/compose')
-type Keyboard = typeof(require '@lunette-contracts/keyboard')
-type Board = typeof(require '@lunette-plugins/keyboard/board')
 type Services = { ui: ui.Service, focus: focus.Service, display: display.Service, surfaces: surfaces.Service }
 export type Environment = {
-  native: Native.Fake,
+  native: testing.Native,
   services: Services,
   controls: vrUi.Fixture,
   running: management.Running,
@@ -32,7 +28,7 @@ export type Environment = {
 local fixture = {}
 
 -- Boots the shipped desktop with a small keyboard layout and the given entries inserted.
-function fixture.boot(additions: { Compose.Entry }): Environment
+function fixture.boot(additions: { testing.ComposeEntry }): Environment
   local native = testing.native()
   local services: Services = {}
   local observer = adapter.define {
@@ -51,13 +47,13 @@ function fixture.boot(additions: { Compose.Entry }): Environment
     end,
   }
   local codes = lunette.keyCodes()
-  local rows: { Keyboard.KeyRow } = {
+  local rows: { keyboardProvider.KeyRow } = {
     {
       { label = 'Text', action = { kind = 'text', text = 'next' } },
       { label = 'All', action = { kind = 'chord', code = codes.a, modifiers = { 'control' } } },
     },
   }
-  local patches: { Compose.Patch } = {
+  local patches: { testing.Patch } = {
     { id = 'laser', config = { aim = { enabled = false }, triggerLock = { enabled = false } } },
     { id = 'keyboard', definition = keyboardProvider.define { rows = rows, layers = {} } },
     { insert = { id = 'manager-vr-observer', definition = observer } },
@@ -110,7 +106,7 @@ function fixture.boot(additions: { Compose.Entry }): Environment
     error 'manager panel is absent'
   end
   function env.key(self: Environment, label: string)
-    local board: Board.Board?
+    local board: keyboardProvider.Board?
     for _, surface in self.services.surfaces:all() do
       if surface.keys and surface.setVisible then
         board = surface
