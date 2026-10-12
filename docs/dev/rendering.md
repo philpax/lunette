@@ -44,6 +44,18 @@ The titlebar still draws its face, text, and actions. Action faces clip to the h
 
 For lunette-owned UI, only opaque backing and outline geometry writes depth. Controls, details, and glyphs draw in painter order without writing depth. Offsets follow nesting: the backing sits 2 mm in front of its surface, control faces 1 mm further, contents 1 mm further, and glyphs 1 mm further. Intersecting or nearly coincident panels can show draw-order artefacts within that range.
 
+## Aurora background
+
+`desktop/backdrop` draws a head-centred sky and three translucent aurora curtains before foreground scene content. It requires the frame provider. Audio, panel direction, attention, and controls are optional attachments with independent owner-scoped lifetimes. Requiring the modules allocates no graphics resources. The first visible draw creates two indexed GPU meshes and two shaders in the consumer's context; context shutdown releases them.
+
+The sky radius is the configured distance, clamped to 15 to 40 m. Curtain layers remain close to that radius. Their elevation, fold depth, fine ripples, and travelling onset waves have bounded displacement. Quality changes mesh subdivisions rather than colour or response policy. The sky remains spatially varied without audio. Autonomous motion uses a bounded shared phase. Normalised bass expands the curtains' elevation, mid changes folds and radius, and treble changes fine ripples. An onset produces a local travelling deformation at a longitude rather than a screen-wide brightness pulse. The model accepts at most eight waves and removes each after three seconds.
+
+Brightness, response, and motion controls are clamped to 0 to 1. Each palette component is finite and clamped to 0 to 1. The sky shader limits its linear RGB components to 0.12 before premultiplication. Each curtain shader limits RGB to 0.65 and alpha to 0.32 before premultiplication. These are per-draw bounds, not a display-luminance guarantee or a bound on the accumulated layers. Audio response changes geometry and coverage as well as colour. Provider loss settles the response toward zero while autonomous rendering continues.
+
+The background uses premultiplied alpha blending with depth testing and depth writes disabled. Opaque foreground geometry hides it, translucent foreground content blends over it, and rounded cutouts remain open to farther scene content. Drawing restores shader, material, blend, colour, culling, depth state, and transforms. It does not change the pass's view pose. Foreground content retains the normal scene depth convention.
+
+Visibility moves linearly from its current value toward one while enabled and no main session is visible, and toward zero otherwise. The default fade duration is 0.8 seconds; configuration clamps it to 0 to 5 seconds. Reversing main-session visibility or the enabled control reverses the current fade without restarting it. Zero duration changes visibility immediately. At zero visibility the background records no draws and contributes no RGB or alpha. `lovr.headset.isMainSessionVisible()` supplies the session observation; unsupported backends or unavailable visibility events return false, so absence of that observation cannot hide the background.
+
 ## Texture import
 
 Client buffers arrive as dmabufs. The native layer imports each as a `VkImage` on LÖVR's device and wraps it as a LÖVR `Texture` through `TextureInfo.handle`. Import is zero-copy and per buffer. A client cycles among 2 to 4 buffers, and an import cache keyed on the dmabuf, as in WayVR, makes a surface rotate among a stable set of textures with no allocation after warm-up.
