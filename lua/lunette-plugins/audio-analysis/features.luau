@@ -7,6 +7,15 @@
 local fft = require './fft'
 
 local features = {}
+
+-- Exclusive upper edges of the eight spectrum bands, after a 30 Hz floor. Each edge of the three coarse bands,
+-- 250 and 2000 Hz, is also a spectrum edge, so bands 1-3 are bass, 4-6 are mid, and 7-8 are treble.
+features.spectrumEdges = table.freeze { 60, 120, 250, 500, 1000, 2000, 4000, 10000 }
+features.SPECTRUM_BANDS = 8
+local BAND_ONSET_FLOOR = 0.3
+local BAND_ONSET_SPAN = 0.4
+-- A band's flux divides by at least this share of the full-band magnitude, so noise in a quiet band stays quiet.
+local BAND_SHARE_FLOOR = 0.1
 local isFinite: (number) -> boolean
 local isInteger: (number) -> boolean
 
@@ -37,6 +46,10 @@ export type Hop = {
   read treble: number,
   read flux: number,
   read onset: number,
+  read spectrum: { read [number]: number },
+  read bassOnset: number,
+  read midOnset: number,
+  read trebleOnset: number,
 }
 
 export type GapReason = 'generation' | 'discontinuity' | 'capacity' | 'invalidSamples'
@@ -60,6 +73,8 @@ export type Analyzer = {
 }
 
 -- Band Power fields integrate one-sided bin powers by bin centre; bass, mid, and treble are their square roots.
+-- Spectrum holds eight band powers. A band with no bin centre, such as 30-60 Hz at size 512, has zero power.
+-- Band onsets apply bandOnset to the flux restricted to that coarse band's bins.
 -- A batch accepts at most 12,000 frames and emits at most 94 hops, across all feed calls in that render frame.
 function features.new(config: Config?): Analyzer
   local settings: Config = config or {}
@@ -79,6 +94,11 @@ function features.new(config: Config?): Analyzer
   local powers: { number } = table.create(size / 2 + 1, 0)
   local previous: { number } = table.create(size / 2 + 1, 0)
   local bands: { number } = table.create(size / 2 + 1, 0)
+  local spectrumBands: { number } = table.create(size / 2 + 1, 0)
+  local spectrum: { number } = table.create(features.SPECTRUM_BANDS, 0)
+  local increases: { number } = table.create(3, 0)
+  local previousSums: { number } = table.create(3, 0)
+  local bandFlux: { number } = table.create(3, 0)
   local windowSquares = 0
   for index = 0, size - 1 do
     local value = 0.5 - 0.5 * math.cos(2 * math.pi * index / size)
@@ -93,6 +113,14 @@ function features.new(config: Config?): Analyzer
       bands[bin + 1] = 2
     elseif frequency >= 2000 and frequency < 10000 then
       bands[bin + 1] = 3
+    end
+    if frequency >= 30 then
+      for band, edge in features.spectrumEdges do
+        if frequency < edge then
+          spectrumBands[bin + 1] = band
+          break
+        end
+      end
     end
   end
   local normalisation = 1 / (size * windowSquares)
@@ -163,6 +191,12 @@ function features.new(config: Config?): Analyzer
     local treble = 0
     local increase = 0
     local previousSum = 0
+    for band = 1, features.SPECTRUM_BANDS do
+      spectrum[band] = 0
+    end
+    for band = 1, 3 do
+      increases[band], previousSums[band] = 0, 0
+    end
     for index = 1, #powers do
       local band = bands[index]
       local power = powers[index]
@@ -175,15 +209,26 @@ function features.new(config: Config?): Analyzer
       end
       if band ~= 0 then
         local magnitude = math.sqrt(power)
-        increase += math.max(0, magnitude - previous[index])
+        local rise = math.max(0, magnitude - previous[index])
+        increase += rise
         previousSum += previous[index]
+        increases[band] += rise
+        previousSums[band] += previous[index]
         previous[index] = magnitude
+        spectrum[spectrumBands[index]] += power
       end
     end
     local flux = 0
+    for band = 1, 3 do
+      bandFlux[band] = 0
+    end
     -- The first complete window establishes a baseline, including after a discontinuity.
     if hasPrevious and rms >= 0.001 then
       flux = math.clamp(increase / math.max(previousSum, 0.001), 0, 1)
+      for band = 1, 3 do
+        local floor = math.max(previousSums[band], previousSum * BAND_SHARE_FLOOR, 0.001)
+        bandFlux[band] = math.clamp(increases[band] / floor, 0, 1)
+      end
     end
     hasPrevious = true
     return {
@@ -199,6 +244,10 @@ function features.new(config: Config?): Analyzer
       treble = math.sqrt(treble),
       flux = flux,
       onset = math.clamp((flux - 0.08) / 0.24, 0, 1),
+      spectrum = table.freeze(table.clone(spectrum)),
+      bassOnset = features.bandOnset(bandFlux[1]),
+      midOnset = features.bandOnset(bandFlux[2]),
+      trebleOnset = features.bandOnset(bandFlux[3]),
     }
   end
 
@@ -289,6 +338,11 @@ function features.new(config: Config?): Analyzer
       return batch
     end,
   }
+end
+
+-- A single band's flux rests higher than the full-band flux under steady noise, so its threshold is higher.
+function features.bandOnset(flux: number): number
+  return math.clamp((flux - BAND_ONSET_FLOOR) / BAND_ONSET_SPAN, 0, 1)
 end
 
 isFinite = function(value: number): boolean

@@ -402,6 +402,7 @@ steady = function(record: features.Hop): contract.Steady
     bassPower = record.bassPower,
     midPower = record.midPower,
     treblePower = record.treblePower,
+    spectrum = record.spectrum,
   }
 end
 
@@ -414,8 +415,12 @@ hopOf = function(record: features.Hop): contract.Hop
     bassPower = record.bassPower,
     midPower = record.midPower,
     treblePower = record.treblePower,
+    spectrum = record.spectrum,
     flux = record.flux,
     onset = record.onset,
+    bassOnset = record.bassOnset,
+    midOnset = record.midOnset,
+    trebleOnset = record.trebleOnset,
   }
 end
 

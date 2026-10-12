@@ -15,6 +15,9 @@ export type Profile = { read size: number, read hop: number }
 -- bass [30, 250), mid [250, 2000), and treble [2000, 10000) Hz. Sample rate is 48000 Hz.
 -- The periodic Hann spectrum uses abs(FFT)^2/(N*sum(window^2)), doubled except at DC and Nyquist.
 -- RMS and peak use the complete unweighted stereo window. endFrame is exclusive sample time within generation.
+-- Spectrum holds eight band powers with upper edges 60, 120, 250, 500, 1000, 2000, 4000, and 10000 Hz above
+-- a 30 Hz floor. Bands 1-3 sum to bassPower, 4-6 to midPower, and 7-8 to treblePower. A band that contains
+-- no bin centre at the profile's size has zero power.
 export type Steady = {
   read generation: number,
   read endFrame: number,
@@ -23,12 +26,22 @@ export type Steady = {
   read bassPower: number,
   read midPower: number,
   read treblePower: number,
+  read spectrum: { read [number]: number },
 }
 
 -- Flux sums positive sqrt-bin-power deltas across the bands and divides by the previous magnitude sum,
 -- floored at 0.001. Flux clamps to [0, 1] and is zero below RMS 0.001 and on the first window after a reset.
 -- Onset is clamp((flux - 0.08)/0.24, 0, 1). A hop describes one completed window, not a render-frame estimate.
-export type Hop = Steady & { read flux: number, read onset: number }
+-- Band flux restricts the sums to one coarse band and divides by the larger of that band's previous magnitude
+-- sum, a tenth of the full-band previous magnitude sum, and 0.001. Band onset is clamp((bandFlux - 0.3)/0.4, 0, 1),
+-- so a kick, snare, or hi-hat registers in its own band while steady noise does not.
+export type Hop = Steady & {
+  read flux: number,
+  read onset: number,
+  read bassOnset: number,
+  read midOnset: number,
+  read trebleOnset: number,
+}
 export type GapReason = 'generation' | 'discontinuity' | 'capacity' | 'invalidSamples' | 'state'
 
 export type Snapshot = {

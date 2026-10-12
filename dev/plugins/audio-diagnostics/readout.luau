@@ -69,6 +69,22 @@ function readout.format(raw: audio.Snapshot, features: analysis.Snapshot?): stri
         latest.treblePower,
         latest.endFrame
       )
+      local levels = table.create(#latest.spectrum, '')
+      for band, power in latest.spectrum do
+        -- Power is a mean square, so ten log10 gives decibels relative to full scale.
+        levels[band] = if power > 0 then string.format('%.0f', 10 * math.log10(power)) else '-inf'
+      end
+      lines[#lines + 1] = 'spectrum dBFS=' .. table.concat(levels, ' ')
+    end
+    local last = features.hops[#features.hops]
+    if last then
+      lines[#lines + 1] = string.format(
+        'onsets full=%.2f bass=%.2f mid=%.2f treble=%.2f',
+        last.onset,
+        last.bassOnset,
+        last.midOnset,
+        last.trebleOnset
+      )
     end
   end
   return table.concat(lines, '\n')

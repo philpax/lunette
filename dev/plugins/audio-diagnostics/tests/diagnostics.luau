@@ -50,6 +50,8 @@ test('readout reports public source format identity loss bands and provenance', 
       'size=512 hop=128',
       'RMS=0.2500',
       'powers bass=',
+      'spectrum dBFS=',
+      'onsets full=0.00 bass=0.00 mid=0.00 treble=0.00',
     }
   do
     expect.truthy(shown:find(expected, 1, true), expected)
