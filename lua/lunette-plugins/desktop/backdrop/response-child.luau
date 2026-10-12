@@ -1,4 +1,4 @@
--- The optional analysis consumer owns at most two readers; source policy and panel direction are supplied data.
+-- The optional analysis consumer owns at most two readers; source policy is supplied data.
 local plugin = require '@lunette-plugin'
 local analysis = require '@lunette-contracts/audio-analysis'
 local frame = require '@lunette-contracts/frame'
@@ -13,6 +13,8 @@ type Slot = {
   generation: number?,
   endFrame: number?,
   publication: number?,
+  -- Sample end of each band's last onset hop in the current stream generation.
+  lastOnset: { [model.Band]: number },
 }
 local ZERO: model.Features = table.freeze {
   bass = 0,
@@ -20,10 +22,20 @@ local ZERO: model.Features = table.freeze {
   treble = 0,
   spectrum = table.freeze(table.create(model.SPECTRUM_BANDS, 0)),
 }
+-- One transient often completes two or three adjacent 512-sample hops; onsets this close are one event.
+local MERGE_FRAMES = 1200
+-- Onsets anchor to the sector the viewer faces. A sector is a twelfth of a turn, and the anchor moves only once
+-- the view is past the sector's edge by a further 15 percent of its width, so onsets follow a turn of the head
+-- without chasing every small movement.
+local SECTORS = 12
+local SECTOR_HOLD = 0.65
+-- Full width, in turns, of each band's scatter about the anchor.
+local SCATTER = table.freeze { bass = 0.05, mid = 0.08, treble = 0.16 } :: { read [model.Band]: number }
 local BANDS: { model.Band } = table.freeze({ 'bass', 'mid', 'treble' } :: { model.Band })
--- Narrow bands hold less power than the coarse bands, and recorded music falls off with frequency, so the
--- fixed spectrum calibration rises from the coarse gain scaled for one octave to a treble lift.
-local SPECTRUM_GAINS = table.freeze { 7, 7, 7, 7, 8, 10, 12, 14 }
+-- Narrow bands hold less power than the coarse bands, and recorded music falls off steeply above 2 kHz. The
+-- fixed calibration brings a typical mastered mix near half scale in every band; it was measured on a
+-- system-output capture of commercial music, not derived from a model of the spectrum.
+local SPECTRUM_GAINS = table.freeze { 8, 6, 5, 5.5, 6.5, 7, 13, 13 }
 local same: (analysis.Source?, analysis.Source?) -> boolean
 local mapped: (analysis.Steady) -> model.Features
 local power: (number, number) -> number
@@ -31,15 +43,15 @@ local mixed: (model.Features, model.Features, number) -> model.Features
 local newest: (analysis.Snapshot) -> number?
 local bandOnset: (analysis.Hop, model.Band) -> number
 local removeOldest: ({ model.Onset }, model.Band) -> ()
-local scatter: (number, number) -> number
+local scatter: (number, number, model.Band) -> number
+local newestBand: ({ model.Onset }, model.Band) -> number?
 
--- Direction is normalized longitude. An optional panels child supplies it; analysis never requires panels or UI.
 function responseChild.new(
   choice: selection.State,
   state: model.State,
   settings: config.Settings,
   needed: () -> boolean,
-  direction: (() -> number?)?
+  facing: () -> number?
 ): plugin.Definition<{}>
   return plugin.consumer<<{}, {}>>({
     name = 'desktop/backdrop/response',
@@ -54,9 +66,7 @@ function responseChild.new(
       local from: model.Features = ZERO
       local last: model.Features = ZERO
       local readOutgoing = false
-      -- Longitude 0.5 faces -z, LÖVR's forward, until a panel offers a direction.
-      local longitude = 0.5
-      local directed = false
+      local anchor: number? = nil
       local function close(slot: Slot?): ()
         if slot then
           slot.reader:close()
@@ -83,6 +93,7 @@ function responseChild.new(
           reader = result.reader,
           source = source,
           generation = publication.generation,
+          lastOnset = {},
           endFrame = newest(publication),
           publication = publication.frameGeneration,
         }
@@ -124,14 +135,7 @@ function responseChild.new(
             close(previous)
             previous = nil
           end
-          local offered = if direction then direction() else nil
-          if offered and offered == offered and math.abs(offered) < math.huge then
-            local destination = math.clamp(offered, 0, 1)
-            local delta = (destination - longitude + 0.5) % 1 - 0.5
-            local follow = if directed then 1 - math.exp(-math.min(elapsed, 60) / 0.25) else 1
-            longitude = (longitude + delta * follow) % 1
-            directed = true
-          end
+          anchor = responseChild.sector(anchor, facing())
           local slot = current
           local snapshot = if slot then slot.reader:snapshot() else nil
           choice.audioState = if snapshot then snapshot.state elseif wanted then choice.audioState else nil
@@ -153,10 +157,15 @@ function responseChild.new(
           local gap: ('publication' | 'capacity')? = nil
           if active and slot and snapshot and slot.publication ~= snapshot.frameGeneration then
             gap = if snapshot.gap then 'publication' else nil
+            if snapshot.gap then
+              -- The analysis reset its history and the model clears its waves, so no earlier onset remains.
+              table.clear(slot.lastOnset)
+            end
             slot.publication = snapshot.frameGeneration
             if slot.generation ~= snapshot.generation then
               gap = 'publication'
               slot.generation, slot.endFrame = snapshot.generation, nil
+              table.clear(slot.lastOnset)
             end
             local publicationEnd = snapshot.endFrame
             for _, hop in snapshot.hops do
@@ -168,7 +177,24 @@ function responseChild.new(
                   else math.clamp((fadeAge - age) / settings.crossfadeDuration, 0, 1)
                 for _, band in BANDS do
                   local strength = bandOnset(hop, band)
+                  local previous = slot.lastOnset[band]
+                  local adjacent = previous ~= nil and hop.endFrame - previous <= MERGE_FRAMES
                   if strength > 0 then
+                    slot.lastOnset[band] = hop.endFrame
+                  end
+                  if strength > 0 and adjacent then
+                    -- The transient already has a wave. Raise it if this publication delivers it, else drop.
+                    local index = newestBand(onsets, band)
+                    if index then
+                      local earlier = onsets[index]
+                      onsets[index] = {
+                        strength = math.max(earlier.strength, strength * weight),
+                        position = earlier.position,
+                        age = earlier.age,
+                        band = band,
+                      }
+                    end
+                  elseif strength > 0 then
                     if counts[band] == model.wavePools[band] then
                       removeOldest(onsets, band)
                       discarded += 1
@@ -178,7 +204,7 @@ function responseChild.new(
                     end
                     onsets[#onsets + 1] = {
                       strength = strength * weight,
-                      position = if band == 'treble' then scatter(longitude, hop.endFrame) else longitude,
+                      position = scatter(anchor or 0.5, hop.endFrame, band),
                       age = age,
                       band = band,
                     }
@@ -192,6 +218,21 @@ function responseChild.new(
       })
     end,
   }).definition
+end
+
+-- The anchor longitude for a facing longitude, given the current anchor. Without a facing, the anchor holds, and
+-- without either, onsets face -z, LÖVR's forward direction.
+function responseChild.sector(current: number?, facing: number?): number?
+  if facing == nil or facing ~= facing or math.abs(facing) == math.huge then
+    return current
+  end
+  if current then
+    local offset = math.abs((facing - current + 0.5) % 1 - 0.5)
+    if offset <= SECTOR_HOLD / SECTORS then
+      return current
+    end
+  end
+  return (math.floor(facing * SECTORS + 0.5) % SECTORS) / SECTORS
 end
 
 same = function(a: analysis.Source?, b: analysis.Source?): boolean
@@ -245,6 +286,15 @@ bandOnset = function(hop: analysis.Hop, band: model.Band): number
   return if value == value then math.clamp(value, 0, 1) else 0
 end
 
+newestBand = function(onsets: { model.Onset }, band: model.Band): number?
+  for index = #onsets, 1, -1 do
+    if onsets[index].band == band then
+      return index
+    end
+  end
+  return nil
+end
+
 removeOldest = function(onsets: { model.Onset }, band: model.Band): ()
   for index, onset in onsets do
     if onset.band == band then
@@ -254,11 +304,13 @@ removeOldest = function(onsets: { model.Onset }, band: model.Band): ()
   end
 end
 
--- Treble glints spread across a quarter turn around the anchor. Sample time seeds the spread, so a replayed
--- publication would land at the same place and the result does not depend on the render clock.
-scatter = function(anchor: number, endFrame: number): number
-  local spread = (math.sin(endFrame * 12.9898) * 43758.5453) % 1
-  return (anchor + (spread - 0.5) * 0.25) % 1
+-- Onsets scatter about the anchor, treble widest. Sample time and band seed the offset, so a replayed publication
+-- lands in the same place, the result does not depend on the render clock, and bands struck by one transient start
+-- apart.
+scatter = function(anchor: number, endFrame: number, band: model.Band): number
+  local salt = if band == 'bass' then 0 elseif band == 'mid' then 1.618 else 3.236
+  local spread = (math.sin(endFrame * 12.9898 + salt * 78.233) * 43758.5453) % 1 - 0.5
+  return (anchor + spread * SCATTER[band]) % 1
 end
 
 newest = function(snapshot: analysis.Snapshot): number?

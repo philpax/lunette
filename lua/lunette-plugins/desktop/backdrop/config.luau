@@ -9,9 +9,9 @@ local palette = schema.object {
   high = schema.default(color) { 0.12, 0.18, 0.45 },
   glint = schema.default(color) { 0.4, 0.65, 0.6 },
   -- Each coarse audio band lights the curtains and colours its onset action in its own hue.
-  bass = schema.default(color) { 0.62, 0.04, 0.24 },
-  mid = schema.default(color) { 0.06, 0.62, 0.26 },
-  treble = schema.default(color) { 0.3, 0.36, 0.95 },
+  bass = schema.default(color) { 1, 0.03, 0.26 },
+  mid = schema.default(color) { 0.02, 1, 0.28 },
+  treble = schema.default(color) { 0.32, 0.06, 1 },
 }
 local descriptor = schema.object {
   enabled = schema.default(schema.boolean())(true),
@@ -27,8 +27,8 @@ local descriptor = schema.object {
   recoveryDuration = schema.default(schema.number { minimum = 0, maximum = 5 })(1.5),
   distance = schema.default(schema.number { minimum = 15, maximum = 40 })(25),
   quality = schema.default(schema.enum<<'low' | 'standard' | 'high'>> { 'low', 'standard', 'high' }) 'standard',
-  brightness = schema.default(schema.number { minimum = 0, maximum = 1 })(0.7),
-  response = schema.default(schema.number { minimum = 0, maximum = 1 })(0.7),
+  brightness = schema.default(schema.number { minimum = 0, maximum = 1 })(1),
+  response = schema.default(schema.number { minimum = 0, maximum = 1 })(1),
   motion = schema.default(schema.number { minimum = 0, maximum = 1 })(0.35),
   palette = schema.default(palette)(palette.parse {}),
 }

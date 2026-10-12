@@ -47,7 +47,7 @@ function selection.new(settings: Settings?): State
     pinned = nil :: lunette.Process?,
     attended = nil :: lunette.Process?,
     reactive = true,
-    response = 0.7,
+    response = 1,
     motion = 0.35,
     dwell = 0.75,
     frozen = false,
@@ -72,7 +72,7 @@ function State.configure(self: State, settings: Settings): ()
     self:setReactive(settings.reactive ~= false)
   end
   if previous == nil or previous.response ~= settings.response then
-    self:setResponse(settings.response or 0.7)
+    self:setResponse(settings.response or 1)
   end
   if previous == nil or previous.motion ~= settings.motion then
     self:setMotion(settings.motion or 0.35)

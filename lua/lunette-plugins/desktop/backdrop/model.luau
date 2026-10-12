@@ -1,6 +1,6 @@
 -- Pure visibility, autonomous motion, and bounded response to normalized audio features.
--- Each coarse band has its own onset action: bass heaves the curtains, mid sends a travelling ripple, and
--- treble scatters glints. Waves are pooled per band so frequent treble onsets cannot evict a bass heave.
+-- Each coarse band has its own onset action: bass heaves the curtains, mid flares them, and treble scatters
+-- glints. Waves are pooled per band so frequent treble onsets cannot evict a bass heave.
 local config = require './config'
 
 local model = {}
@@ -13,7 +13,7 @@ export type Features = {
   read treble: number,
   read spectrum: { read [number]: number }?,
 }
--- An onset without a band is a mid ripple.
+-- An onset without a band is a mid flare.
 export type Onset = { read strength: number, read position: number?, read age: number?, read band: Band? }
 export type FeatureOptions = { read gap: ('publication' | 'capacity')?, read discardedHops: number? }
 export type Wave = { age: number, strength: number, position: number, band: Band, lifetime: number }
@@ -60,7 +60,7 @@ State.__index = State
 model.SPECTRUM_BANDS = 8
 -- The coarse band of each spectrum band, matching the analysis edges at 250 and 2000 Hz.
 local COARSE: { Band } = table.freeze({ 'bass', 'bass', 'bass', 'mid', 'mid', 'mid', 'treble', 'treble' } :: { Band })
-model.waveLifetimes = table.freeze { bass = 1.6, mid = 3, treble = 0.9 } :: { read [Band]: number }
+model.waveLifetimes = table.freeze { bass = 0.9, mid = 1.2, treble = 0.9 } :: { read [Band]: number }
 model.wavePools = table.freeze { bass = 4, mid = 8, treble = 8 } :: { read [Band]: number }
 model.MAX_WAVES = model.wavePools.bass + model.wavePools.mid + model.wavePools.treble
 local finite: (number) -> boolean

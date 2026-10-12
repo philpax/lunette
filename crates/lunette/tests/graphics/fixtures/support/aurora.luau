@@ -38,6 +38,9 @@ function aurora.withFixture(options: backdrop.Config, run: (Fixture) -> ()): ()
       assert(current, 'head observation before fixture setup')
       return vector.unpack(current.head)
     end,
+    getDirection = function(_device: string): (number, number, number)
+      return 0, 0, -1
+    end,
   }
   local ok, failure = pcall(function(): ()
     current = start(options, releases)

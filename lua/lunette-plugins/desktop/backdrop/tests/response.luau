@@ -4,8 +4,6 @@ local support = require './support/response'
 local responseChild = require '../response-child'
 local analysis = require '@lunette-contracts/audio-analysis'
 local frame = require '@lunette-contracts/frame'
-local panels = require '@lunette-contracts/panels'
-local surfaces = require '@lunette-contracts/surfaces'
 local audio = require '@lunette-contracts/audio'
 local plugin = require '@lunette-plugin'
 
@@ -52,22 +50,23 @@ end)
 test('every new hop is delivered once with cumulative sample age and empty native frames never replay', function()
   local env = support.boot()
   env.update(1.2, false)
+  -- Hops are far enough apart to be separate transients rather than one transient split across hops.
   env.publish(SYSTEM, 1, 12000, {
-    support.hop(1, 11000, 0.5),
-    support.hop(1, 11500, 0.6),
+    support.hop(1, 8000, 0.5),
+    support.hop(1, 10000, 0.6),
     support.hop(1, 12000, 0.7),
   })
   env.update(0, false)
   expect.equal(#env.model.waves, 3, 'all completed hop onsets delivered')
-  expect.near(env.model.waves[1].age, 1000 / 48000, 1e-8, 'first hop sample age')
-  expect.near(env.model.waves[2].age, 500 / 48000, 1e-8, 'second hop sample age')
+  expect.near(env.model.waves[1].age, 4000 / 48000, 1e-8, 'first hop sample age')
+  expect.near(env.model.waves[2].age, 2000 / 48000, 1e-8, 'second hop sample age')
   expect.equal(env.model.waves[3].age, 0, 'latest ending')
   env.update(0, false)
   expect.equal(#env.model.waves, 3, 'same publication deduplicated')
   env.publish(SYSTEM, 1, 12000, {})
   env.update(0, false)
   expect.equal(#env.model.waves, 3, 'empty publication never replays latest onset')
-  env.publish(SYSTEM, 1, 14000, { support.hop(1, 12500, 1) })
+  env.publish(SYSTEM, 1, 15000, { support.hop(1, 13500, 1) })
   env.update(0, false)
   expect.near(env.model.waves[4].age, 1500 / 48000, 1e-8, 'PCM after last completed hop contributes to age')
   env.session:close()
@@ -78,14 +77,14 @@ test('excess hop onsets explicitly mark a capacity gap and retain only the newes
   env.update(1.2, false)
   local hops = {}
   for index = 1, 12 do
-    hops[index] = support.hop(1, index * 512, 0.5)
+    hops[index] = support.hop(1, index * 2048, 0.5)
   end
-  env.publish(SYSTEM, 1, 12 * 512, hops)
+  env.publish(SYSTEM, 1, 12 * 2048, hops)
   env.update(0, false)
   expect.equal(#env.model.waves, 8, 'bounded recent onsets')
   expect.equal(env.model.onsetGap, 'capacity', 'discard is explicit')
   expect.equal(env.model.discardedHops, 4, 'discarded onset hop count')
-  expect.near(env.model.waves[1].age, 7 * 512 / 48000, 1e-8, 'newest eight retained in order')
+  expect.near(env.model.waves[1].age, 7 * 2048 / 48000, 1e-8, 'newest eight retained in order')
   env.update(0, false)
   expect.equal(env.model.discardedHops, 4, 'repeated publication does not repeat discard')
   env.session:close()
@@ -288,42 +287,6 @@ test('backdrop_survives_analysis_provider_outages_and_independent_consumers_keep
   env.update(0.1, false)
   expect.equal(env.factory.choice.audioAvailable, true, 'child recovers independently')
   expect.equal(select(2, env.counts()), 1, 'reader reacquired after recovery')
-  env.session:close()
-end)
-
-test('offered selected panels supply smoothed onset longitude without coupling the audio reader lifetime', function()
-  local env = support.boot()
-  env.session:use(require('@lunette-plugins/theme').definition)
-  env.session:use(require('@lunette-plugins/surfaces').definition)
-  local panelProvider = env.session:use(require('@lunette-plugins/panels').definition)
-  env.session.runtime:drain()
-  local registry = env.session:observe(panels.capability)
-  local offers = env.session:observe(surfaces.capability)
-  local process = env.native.newProcess(501)
-  local window = env.native.newWindow(502, 'test.application', process)
-  local panel = registry.service:fromWindow(registry.context, window, {
-    pose = lovr.math.newMat4():translate(2, 1, 0),
-  })
-  offers.service:offer(offers.context, {
-    name = 'testing/selected-panel',
-    list = function(): { panels.Panel }
-      return { panel }
-    end,
-  })
-  env.factory.choice:pin(process)
-  env.update(1.2, false)
-  local source = { kind = 'process', process = process }
-  env.publish(source, 1, 4096, { support.hop(1, 4096, 1) })
-  env.update(0.01, false)
-  expect.equal(#env.model.waves, 1, 'selected onset')
-  local longitude = env.model.waves[1].position
-  expect.near(longitude, 0.25, 1e-8, 'the first panel azimuth is taken without a sweep')
-  panelProvider:disable()
-  env.session.runtime:drain()
-  env.publish(source, 1, 4608, { support.hop(1, 4608, 1) })
-  env.update(0.01, false)
-  expect.equal(select(2, env.counts()), 1, 'panels outage keeps analysis reader')
-  expect.equal(#env.model.waves, 2, 'audio onsets continue without panels')
   env.session:close()
 end)
 

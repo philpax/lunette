@@ -132,7 +132,7 @@ local function defaults(services: Services): ()
   expect.equal(selected(services.ui, 'enabled'), 'on', 'configuration restores enabled')
   expect.equal(selected(services.ui, 'reactive'), 'on', 'configuration restores reactivity')
   expect.equal(selected(services.ui, 'source-mode'), 'system', 'configuration restores the system mix')
-  expect.equal(selected(services.ui, 'response'), '0.75', 'configuration restores response')
+  expect.equal(selected(services.ui, 'response'), '1', 'configuration restores response')
   expect.equal(selected(services.ui, 'motion'), '0.25', 'configuration restores motion')
   expect.equal(selected(services.ui, 'applications'), nil, 'configuration forgets the pinned application')
 end
@@ -213,7 +213,7 @@ local function tenSourceReloads()
       sameTotals(native, services, baseline, 'source generation ' .. reload)
       local beforeParent, beforeChildren = children(services.composition:snapshot())
       expect.equal(beforeParent.state, 'active', 'the renderer is active')
-      for _, name in { 'response', 'direction', 'attention', 'controls' } do
+      for _, name in { 'response', 'attention', 'controls' } do
         expect.equal(
           assert(beforeChildren[backdropName .. '/' .. name], 'the ' .. name .. ' child exists').state,
           'active',
@@ -305,7 +305,7 @@ test('provider outages withdraw only dependent backdrop children and recover wit
   session:draw()
   local baseline = totals(native, services())
   local initialParent, initialChildren = children(session.runtime:snapshot())
-  for _, name in { 'response', 'direction', 'attention', 'controls' } do
+  for _, name in { 'response', 'attention', 'controls' } do
     expect.equal(
       assert(initialChildren[backdropName .. '/' .. name], 'the ' .. name .. ' child exists').state,
       'active',
@@ -327,13 +327,13 @@ test('provider outages withdraw only dependent backdrop children and recover wit
     },
     {
       provider = 'panels',
-      unavailable = { attention = true, direction = true },
+      unavailable = { attention = true },
       readers = baseline.audio,
       status = 'Attention unavailable',
     },
     {
       provider = 'surfaces',
-      unavailable = { attention = true, direction = true, controls = true },
+      unavailable = { attention = true, controls = true },
       readers = baseline.audio,
     },
     { provider = 'menu', unavailable = { controls = true }, readers = baseline.audio },

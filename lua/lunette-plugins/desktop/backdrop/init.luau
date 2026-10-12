@@ -2,8 +2,6 @@
 local plugin = require '@lunette-plugin'
 local frame = require '@lunette-contracts/frame'
 local audio = require '@lunette-contracts/audio'
-local panels = require '@lunette-contracts/panels'
-local surfaces = require '@lunette-contracts/surfaces'
 local config = require '@lunette-plugins/desktop/backdrop/config'
 local model = require '@lunette-plugins/desktop/backdrop/model'
 local draw = require '@lunette-plugins/desktop/backdrop/draw'
@@ -28,7 +26,6 @@ export type Factory = {
   read choice: selection.State,
 }
 local create: (Options, Attach?) -> Factory
-local panelDirection: (plugin.Context, selection.State) -> () -> number?
 local processStatus: (plugin.Context, selection.State) -> ()
 
 -- Choices belong to one definition and survive provider reactivation, but not a new definition or source reload.
@@ -85,6 +82,7 @@ create = function(given: Options, attach: Attach?): Factory
       local renderer = draw.new(context, settings)
       local current = state:update(0, true)
       local headPosition = vector.pack(0, 0, 0)
+      local facing: number? = nil
       local service: frame.Service = context:require(frame.capability)
       service:onUpdate(context, {
         phase = 'scene',
@@ -95,6 +93,11 @@ create = function(given: Options, attach: Attach?): Factory
           if x == x and y == y and z == z and math.max(math.abs(x), math.abs(y), math.abs(z)) < math.huge then
             headPosition = vector.pack(x, y, z)
           end
+          local dx, _dy, dz = lovr.headset.getDirection 'head'
+          local reach = dx * dx + dz * dz
+          if reach == reach and reach > 1e-6 and reach < math.huge then
+            facing = (math.atan2(dx, dz) / (2 * math.pi)) % 1
+          end
         end,
       })
       service:onDraw(context, {
@@ -104,10 +107,11 @@ create = function(given: Options, attach: Attach?): Factory
           renderer.render(pass, current, headPosition)
         end,
       })
-      local direction = panelDirection(context, choice)
       context:child(responseChild.new(choice, state, settings, function(): boolean
         return state.visibility > 0 or (controls.enabled() and not lovr.headset.isMainSessionVisible())
-      end, direction))
+      end, function(): number?
+        return facing
+      end))
       processStatus(context, choice)
       sourceControls.attach(context, choice, controls)
       if attach then
@@ -116,60 +120,6 @@ create = function(given: Options, attach: Attach?): Factory
     end,
   }
   return table.freeze { definition = consumer.define(given), controls = controls, choice = choice }
-end
-
-panelDirection = function(context: plugin.Context, choice: selection.State): () -> number?
-  local longitude: number? = nil
-  context:child(plugin.consumer<<{}, {}>>({
-    name = 'desktop/backdrop/direction',
-    requires = { frame.capability, panels.capability, surfaces.capability },
-    init = function(childContext: plugin.Context, _settings: {}): ()
-      local frames: frame.Service = childContext:require(frame.capability)
-      local registry: panels.Service = childContext:require(panels.capability)
-      local offered: surfaces.Service = childContext:require(surfaces.capability)
-      childContext:effect(function(): () -> ()
-        return function(): ()
-          longitude = nil
-        end
-      end)
-      frames:onUpdate(childContext, {
-        phase = 'scene',
-        order = 50,
-        run = function(): ()
-          longitude = nil
-          local source = choice:source()
-          if not source or source.kind ~= 'process' then
-            return
-          end
-          local available = offered:all()
-          local hx, _hy, hz = lovr.headset.getPosition 'head'
-          local nearest = math.huge
-          for _, panel in registry:all() do
-            if
-              panel.kind == 'window'
-              and not panel.dead
-              and not panel.hidden
-              and not panel.source.dead
-              and panel.source.process
-              and panel.source.process.id == source.process.id
-              and table.find(available, panel)
-            then
-              local x, _y, z = panel.pose:getPosition()
-              local dx, dz = x - hx, z - hz
-              local distance = dx * dx + dz * dz
-              if distance == distance and distance > 0 and distance < nearest then
-                nearest = distance
-                longitude = (math.atan2(dx, dz) / (2 * math.pi)) % 1
-              end
-            end
-          end
-        end,
-      })
-    end,
-  }).definition)
-  return function(): number?
-    return longitude
-  end
 end
 
 processStatus = function(context: plugin.Context, choice: selection.State): ()

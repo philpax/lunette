@@ -18,14 +18,14 @@ local function count(waves: { model.Wave }, band: model.Band): number
   return total
 end
 
-test('treble floods cannot evict a bass heave or a mid ripple', function()
+test('treble floods cannot evict a bass heave or a mid flare', function()
   local state = new()
   state:setFeatures(ZERO, { { strength = 1, band = 'bass' }, { strength = 1, band = 'mid' } })
   for index = 1, 30 do
     state:setFeatures(ZERO, { { strength = 1, position = index / 30, band = 'treble' } })
   end
   expect.equal(count(state.waves, 'bass'), 1, 'bass heave retained')
-  expect.equal(count(state.waves, 'mid'), 1, 'mid ripple retained')
+  expect.equal(count(state.waves, 'mid'), 1, 'mid flare retained')
   expect.equal(count(state.waves, 'treble'), model.wavePools.treble, 'treble pool bounded')
   expect.equal(state.discardedHops, 30 - model.wavePools.treble, 'each evicted glint is counted')
   expect.equal(#state.waves, 2 + model.wavePools.treble, 'total bounded by the pools')
@@ -54,19 +54,15 @@ test('a publication over one band pool keeps that band newest and leaves other b
 end)
 
 test('each band wave expires after its own lifetime', function()
+  for _, band in { 'bass', 'mid', 'treble' } :: { model.Band } do
+    local state = new()
+    state:setFeatures(ZERO, { { strength = 1, band = band } })
+    state:update(model.waveLifetimes[band] * 0.99, false)
+    expect.equal(count(state.waves, band), 1, band .. ' wave lives until its lifetime')
+    state:update(model.waveLifetimes[band] * 0.02, false)
+    expect.equal(count(state.waves, band), 0, band .. ' wave expires at its lifetime')
+  end
   local state = new()
-  state:setFeatures(ZERO, {
-    { strength = 1, band = 'bass' },
-    { strength = 1, band = 'mid' },
-    { strength = 1, band = 'treble' },
-  })
-  expect.equal(#state:update(0, false).waves, 3, 'all three present')
-  expect.equal(count(state:update(model.waveLifetimes.treble, false).waves, 'treble'), 0, 'treble expires first')
-  expect.equal(#state.waves, 2, 'bass and mid remain after treble lifetime')
-  state:update(model.waveLifetimes.bass - model.waveLifetimes.treble, false)
-  expect.equal(count(state.waves, 'bass'), 0, 'bass expires next')
-  state:update(model.waveLifetimes.mid - model.waveLifetimes.bass, false)
-  expect.equal(#state.waves, 0, 'mid expires last')
   state:setFeatures(ZERO, { { strength = 1, band = 'treble', age = model.waveLifetimes.treble } })
   expect.equal(#state.waves, 0, 'an onset already older than its lifetime is not delivered')
 end)
