@@ -2,6 +2,7 @@
 local testing = require '@testing'
 local expect = testing.expect
 local desktop = require '@lunette-desktop'
+local settings = require '@lunette-desktop/settings'
 local panelsContract = require '@lunette-contracts/panels'
 local tagsContract = require '@lunette-contracts/tags'
 
@@ -33,6 +34,9 @@ end
 
 local CONFIGS = {
   laser = { aim = { enabled = false } },
+  audio = {},
+  ['audio-analysis'] = {},
+  ['desktop/backdrop'] = { enabled = false },
   interaction = { tuning = { reach = 0.5 } },
   ['layout/arc'] = { tuning = { radius = 2 } },
   ['desktop/theme'] = { preset = 'light' },
@@ -46,6 +50,69 @@ local CONFIGS = {
   ['desktop/errors'] = { width = 1.2 },
   ['desktop/workspaces'] = { names = { 'work' } },
 }
+
+test('desktop_backdrop_composition_and_settings', function()
+  local expected = {
+    'frame',
+    'theme',
+    'themes',
+    'theme/standard',
+    'theme/arcade',
+    'surfaces',
+    'panels',
+    'drops',
+    'focus',
+    'bindings',
+    'interaction',
+    'laser',
+    'keyboard',
+    'ui',
+    'menu',
+    'desktop/theme',
+    'tags',
+    'rules',
+    'placement',
+    'adoption',
+    'layouts',
+    'layout/arc',
+    'errors',
+    'pacing',
+    'scale',
+    'audio',
+    'audio-analysis',
+    'desktop/render',
+    'desktop/hint',
+    'desktop/decorations',
+    'desktop/pointing',
+    'desktop/input',
+    'desktop/keyboard',
+    'desktop/menu',
+    'desktop/actions',
+    'desktop/errors',
+    'desktop/workspaces',
+    'desktop/monitors',
+    'desktop/rules',
+    'desktop/persistence',
+    'desktop/arrange',
+    'desktop/adoption',
+    'desktop/pacing',
+    'desktop/scale',
+    'desktop/backdrop',
+    'desktop/manager',
+  }
+  local entries = desktop.compose()
+  expect.equal(#entries, #expected, 'the default entry count')
+  for index, id in ipairs(expected) do
+    expect.equal(entries[index].id, id, 'the default entry ' .. index)
+  end
+
+  local parsed = settings.schema.parse({
+    audio = {},
+    ['audio-analysis'] = {},
+    ['desktop/backdrop'] = { enabled = false },
+  }, 'desktop settings')
+  expect.falsy(parsed['desktop/backdrop'].enabled, 'the backdrop setting is parsed')
+end)
 
 test('each setting is the configuration patch for the entry of its key', function()
   local patches: { { id: string, config: { [string]: ConfigValue } } } = {}

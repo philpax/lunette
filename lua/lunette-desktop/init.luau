@@ -26,7 +26,10 @@ local arc = require '@lunette-plugins/layout/arc'
 local errorStream = require '@lunette-plugins/errors'
 local pacingProvider = require '@lunette-plugins/pacing'
 local scaleProvider = require '@lunette-plugins/scale'
+local audio = require '@lunette-plugins/audio'
+local audioAnalysis = require '@lunette-plugins/audio-analysis'
 local render = require '@lunette-plugins/desktop/render'
+local backdrop = require '@lunette-plugins/desktop/backdrop'
 local monitors = require '@lunette-plugins/desktop/monitors'
 local hint = require '@lunette-plugins/desktop/hint'
 local decorations = require '@lunette-plugins/desktop/decorations'
@@ -86,6 +89,8 @@ local DEFAULT: { plugin.Entry } = plugin.compose {
   { id = 'errors', definition = errorStream.definition },
   { id = 'pacing', definition = pacingProvider.definition },
   { id = 'scale', definition = scaleProvider.definition },
+  { id = 'audio', definition = audio.definition },
+  { id = 'audio-analysis', definition = audioAnalysis.definition },
   { id = 'desktop/render', definition = render.definition },
   { id = 'desktop/hint', definition = hint.definition },
   { id = 'desktop/decorations', definition = decorations.definition },
@@ -103,6 +108,7 @@ local DEFAULT: { plugin.Entry } = plugin.compose {
   { id = 'desktop/adoption', definition = adoptionConsumer.definition },
   { id = 'desktop/pacing', definition = pacing.definition },
   { id = 'desktop/scale', definition = scale.definition },
+  { id = 'desktop/backdrop', definition = backdrop.definition },
   { id = 'desktop/manager', definition = manager.definition },
 }
 

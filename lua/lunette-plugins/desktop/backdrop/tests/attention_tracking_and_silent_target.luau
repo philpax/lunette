@@ -1,0 +1,40 @@
+local testing = require '@testing'
+local fixture = require './support/source-controls'
+local expect = testing.expect
+local test = testing.suite()
+
+test('attention_tracking_and_silent_target', function()
+  local env = fixture.boot { settings = { sourceMode = 'attention' } }
+  local first = env.native.newProcess(21)
+  local silent = env.native.newProcess(22)
+  fixture.window(env, 21, first)
+  fixture.window(env, 22, silent, 2)
+  env.running:step(0.75)
+  env.running:step(0)
+  expect.equal(env.choice.attended, first, 'unsupported eye tracking uses tracked head')
+  fixture.aimHead(env, 2)
+  env.running:step(0.4)
+  env.running:eyeTracking(true)
+  env.running:tracked('eye/gaze', false)
+  env.running:step(1)
+  expect.equal(env.choice.attended, first, 'temporary gaze loss never falls back to head')
+  env.running:pose('eye/gaze', lovr.math.newMat4():translate(2, 1.5, 0))
+  env.running:tracked('eye/gaze', true)
+  env.running:step(0.4)
+  env.running:step(0)
+  expect.equal(env.choice.attended, first, 'ray capability changes restart dwell')
+  env.running:step(0.35)
+  env.running:step(0)
+  expect.equal(env.choice.attended, silent, 'silence does not disqualify the selected process')
+  expect.equal(env.choice:source().process, silent, 'the silent target remains a process source')
+  env.running:tracked('eye/gaze', false)
+  env.running:step(1)
+  expect.equal(env.choice.attended, silent, 'tracking loss retains the last selection')
+  env.running:eyeTracking(false)
+  env.running:tracked('head', false)
+  env.running:step(1)
+  expect.equal(env.choice.attended, silent, 'untracked head also retains the selection')
+  env.running:close()
+end)
+
+return test

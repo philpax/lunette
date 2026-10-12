@@ -52,6 +52,14 @@ The periodic Hann transform integrates stereo-averaged one-sided bin powers. Bin
 
 Per-frame analysis accepts at most 12,000 frames and publishes at most 94 hops. Generation changes, sequence or sample-time discontinuity, capacity loss, invalid samples, and source-state interruptions reset carry, onset history, and the latest steady values. Gap metadata reports the reason and discarded frames.
 
+## Source-selection policy
+
+The desktop backdrop base requires only `lunette/frame`. A definition-local factory holds its runtime controls, while optional children acquire audio, observe attention, and render controls through their own required contracts. Audio or analysis loss removes reactivity without withdrawing the environment. Panel or surface loss stops automatic selection, and UI or menu loss withdraws controls. An independent consumer does not require any of these backdrop children.
+
+`sourceMode` is `system`, `application`, or `attention`. System mode reads the current default output mix. Application mode retains a selected live session process handle. Attention mode waits for dwell on an eligible window before selecting its process. Selection uses a supported eye-gaze ray or the tracked head ray, observes the nearest offered surface, and does not change focus or deliver input. Opening the controls freezes attention selection. Silence, unavailable attribution, and ended processes preserve the selected identity rather than selecting the system mix.
+
+Runtime choices survive optional-provider reactivation while their configured values stay unchanged. They end at source reload and are not persisted. No process handle, PID, or application label is serialized as a source preference. `lua/lunette-plugins/desktop/backdrop/config.luau` owns configured defaults and bounds; the selection and child modules own the policy. [Desktop configuration](../guide/desktop-configuration.md#audio-backdrop) describes the controls.
+
 ## Deferred spatial routing
 
 Spawned applications play audio through PipeWire to the default sink, unrelated to their panel's position. LÖVR bundles Steam Audio (`deps/phonon`), which provides HRTF spatialisation with occlusion, and every panel's pose is known. Future routing may redirect a process's playback to a `lovr.audio` source at the panel's pose. Spatialisation, falloff, and per-application policy belong to Lua. A flat passthrough mode remains necessary for ambient stereo.

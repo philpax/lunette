@@ -44,12 +44,19 @@ test('the theme example runs and starts with Dusk, offering it in place of Arcad
     { native = native }
   )
   local choices: { string } = {}
+  local backdropAvailable = false
   for _, action in observed.menu:list() do
     if action.group == 'Appearance' then
-      choices[#choices + 1] = action.label .. (if action.selected then '*' else '')
+      if action.id == 'desktop/backdrop/open' then
+        backdropAvailable = true
+      end
+      if action.label:sub(1, 7) == 'Theme: ' then
+        choices[#choices + 1] = action.label .. (if action.selected then '*' else '')
+      end
     end
   end
   expect.equal(table.concat(choices, ', '), 'Theme: Dark, Theme: Light, Theme: Dusk*', 'the offered themes')
+  expect.truthy(backdropAvailable, 'Backdrop is available in Appearance')
   local focus = observed.theme:current().theme.colors.focus
   expect.equal(focus[1], 1, 'the Dusk focus colour')
   expect.equal(focus[2], 0.60, 'the Dusk focus colour')

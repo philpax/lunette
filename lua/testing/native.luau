@@ -521,7 +521,10 @@ installNative = function(fake: Fake, events: Events, subscribe: Subscribe, clear
   end
   lunette.windows = function(): { Window }
     events.enumerations += 1
-    assert(fake.subscriptionCount 'onWindowOpened' > 0, 'subscribe before window enumeration')
+    -- Initial enumeration follows subscription; later frame-snapshot polling need not retain a window cache.
+    if events.frameGeneration == 0 then
+      assert(fake.subscriptionCount 'onWindowOpened' > 0, 'subscribe before window enumeration')
+    end
     return table.clone(events.windows)
   end
   lunette.monitors = function(): { [number | string]: Monitor }

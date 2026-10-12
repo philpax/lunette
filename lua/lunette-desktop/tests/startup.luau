@@ -74,7 +74,11 @@ test('the shipped configuration starts on load and survives ten production reloa
     expect.equal(#events.spawned, startupProcesses, 'reload ' .. reload .. ' spawns nothing')
     expect.truthy(events.closed == 0 and live(events.windows) == 2, 'reload ' .. reload .. ' closes no window')
     for _, name in ipairs { 'onWindowOpened', 'onMonitorAdded', 'onError' } do
-      expect.equal(native.subscriptionCount(name), 1, 'reload ' .. reload .. ' leaves one ' .. name)
+      expect.equal(
+        native.subscriptionCount(name),
+        if name == 'onWindowOpened' then 2 else 1,
+        'reload ' .. reload .. ' leaves the expected ' .. name .. ' subscriptions'
+      )
     end
     expect.equal(live(events.seats), 2, 'reload ' .. reload .. ' releases the previous seats')
     lovr.update(0.016)

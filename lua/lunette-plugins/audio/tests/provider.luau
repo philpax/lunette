@@ -301,7 +301,7 @@ test('process enumeration labels logical handles from live associated windows wi
   local reader = observed.service:open(observed.context, { kind = 'process', process = b })
   fake.setAudioState({ kind = 'process', process = b }, { kind = 'idle' })
   advance(session)
-  observed.context:on { event = lunette.onWindowOpened, run = function() end }
+  expect.equal(fake.subscriptionCount 'onWindowOpened', 0, 'frame polling needs no retained window cache')
   local listed = observed.service:processes()
   expect.equal(#listed, 4, 'live logical processes deduplicate windows and include window associations')
   expect.equal(listed[1].process, a, 'first logical handle')
