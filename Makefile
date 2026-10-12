@@ -39,7 +39,7 @@ confdir := $(DESTDIR)$(SYSCONFDIR)/xdg/lunette
 export LUNETTE_PREFIX = $(PREFIX)
 export LUNETTE_SYSCONFDIR = $(SYSCONFDIR)
 
-.PHONY: all build run install install-binary install-lua install-config check check-install check-format check-headset check-headset-runtime check-rust check-clippy check-test check-definitions check-luau check-luau-annotations clean
+.PHONY: all build run install install-binary install-lua install-config check check-install check-format check-headset check-headset-runtime check-graphics check-rust check-clippy check-test check-definitions check-luau check-luau-annotations clean
 
 # The generator owns the install list. It omits the testing root.
 install_manifest := $(CARGO) run -p lunette-generate-definitions -- --manifest
@@ -53,7 +53,7 @@ run:
 	LUNETTE_STDLIB_PATH="$(CURDIR)/lua" LUNETTE_CONFIG_PATH="$(CURDIR)/dev" $(CARGO) run -p lunette --bin lunette -- $(ARGS)
 
 # The standing checks, in the order .github/workflows/ci.yml runs them.
-check: check-format check-install check-headset check-rust check-definitions check-luau-annotations check-luau
+check: check-format check-install check-headset check-graphics check-rust check-definitions check-luau-annotations check-luau
 
 check-install:
 	python3 crates/lunette/tests/fixtures/install.py
@@ -69,9 +69,13 @@ check-headset-runtime:
 	cmake --build $(CARGO_TARGET_DIR)/openvr-coexistence --target lovr_openvr_coexistence
 	timeout --signal=TERM --kill-after=5s 90s $(CARGO_TARGET_DIR)/openvr-coexistence/runtime-tests/lovr_openvr_coexistence --expected-scene-pid "$(OPENVR_SCENE_PID)"
 
+# The caller selects Mesa lavapipe explicitly; the harness rejects an absent or hardware ICD.
+check-graphics:
+	$(CARGO) test -p lunette --features graphics-tests --test graphics
+
 check-format:
 	$(CARGO) +nightly fmt --all -- --check
-	stylua --check lua etc/xdg/lunette examples dev crates/lunette/tests/luau_check
+	stylua --check lua etc/xdg/lunette examples dev crates/lunette/tests/luau_check crates/lunette/tests/graphics/fixtures
 
 # Split in two because clippy builds through RUSTC_WORKSPACE_WRAPPER and shares
 # no artifacts with the tests, so CI runs the halves in parallel.

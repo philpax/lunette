@@ -56,6 +56,12 @@ The background uses premultiplied alpha blending with depth testing and depth wr
 
 Visibility moves linearly from its current value toward one while enabled and no main session is visible, and toward zero otherwise. The default fade duration is 0.8 seconds; configuration clamps it to 0 to 5 seconds. Reversing main-session visibility or the enabled control reverses the current fade without restarting it. Zero duration changes visibility immediately. At zero visibility the background records no draws and contributes no RGB or alpha. `lovr.headset.isMainSessionVisible()` supplies the session observation; unsupported backends or unavailable visibility events return false, so absence of that observation cannot hide the background.
 
+### Offscreen graphics checks
+
+`make check-graphics` renders the production consumer, meshes, shaders, model updates, and public enabled control through real LÖVR graphics on an explicitly selected Mesa lavapipe Vulkan device. Only frame delivery and headset position/visibility observations are test-local. It initializes no headset, compositor, window, or host audio. All GPU cases run serially, and each fixture module receives a fresh interpreter and graphics state.
+
+The checks use image ranges, brightness-normalised differences, alpha masks, onset-response positions, and interior foreground samples with tolerances rather than exact image goldens. They cover autonomous variation, separate bass/mid/treble shape response, spatial onset response, hidden and partial alpha, continuous visibility reversal, opaque and translucent foregrounds, rounded-cutout depth, and subsequent draws with restored state. Ten renderer context shutdown/reacquisition cycles compare warmed pixels and `bufferMemory`/`textureMemory` budgets after recorded passes release their mesh references. Those counters exclude shaders, pipeline allocations and caches, driver heaps, and Lua memory; they do not establish a total renderer memory budget.
+
 ## Texture import
 
 Client buffers arrive as dmabufs. The native layer imports each as a `VkImage` on LÖVR's device and wraps it as a LÖVR `Texture` through `TextureInfo.handle`. Import is zero-copy and per buffer. A client cycles among 2 to 4 buffers, and an import cache keyed on the dmabuf, as in WayVR, makes a surface rotate among a stable set of textures with no allocation after warm-up.

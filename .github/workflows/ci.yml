@@ -88,7 +88,7 @@ jobs:
             libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
             libxcb1-dev libxext-dev libxkbcommon-dev \
             libx11-xcb-dev libxcb-xinput-dev libxcb-xkb-dev libxkbcommon-x11-dev \
-            libvulkan-dev libgl1-mesa-dev libcurl4-openssl-dev \
+            libvulkan-dev mesa-vulkan-drivers libgl1-mesa-dev libcurl4-openssl-dev \
             libasound2-dev libdbus-1-dev libssl-dev libpipewire-0.3-dev \
             libwayland-dev wayland-protocols \
             libopenxr-dev
@@ -137,6 +137,15 @@ jobs:
 
       - run: make check-install
         if: matrix.half == 'test'
+
+      - name: Check offscreen graphics with Mesa lavapipe
+        if: matrix.half == 'test'
+        run: |
+          icd=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+          # Mesa versions that omit the architecture use this name.
+          if [ ! -f "$icd" ]; then icd=/usr/share/vulkan/icd.d/lvp_icd.json; fi
+          test -f "$icd"
+          env -u DISPLAY -u WAYLAND_DISPLAY VK_DRIVER_FILES="$icd" VK_ICD_FILENAMES="$icd" make check-graphics
 
       - run: make check-${{ matrix.half }}
 

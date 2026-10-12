@@ -118,7 +118,7 @@ Soft reload ([The Lua API](lua-api.md#reload)) is the iteration loop in a headse
 
 Logic-headless testing is a design constraint. The compositor, capture, input routing, and process management are tested as ordinary Rust. Buffer import sits behind a trait. Compositor tests connect a `wayland-client` test client over a `UnixStream::pair()`: one end goes to `DisplayHandle::insert_client`, the other to `Connection::from_socket`, and no socket is bound.
 
-GPU-headless testing is available but unused. LÖVR opens a window only when `conf.window` is set, and `lovr.graphics.newReadback` reads pixels back.
+GPU-headless testing runs through `make check-graphics`. It uses LÖVR's production platform and core, data, math, and graphics openers, and Mesa lavapipe, a software Vulkan driver. It opens no window and loads no headset, audio, filesystem, or compositor. Shader caching is disabled, so the graphics module neither reads nor writes a filesystem cache.
 
 A readback is served when the graphics module next submits and polls. lunette's frame loop submits through its own path, so a configuration taking a readback calls `lovr.graphics.submit()` and waits on the readback rather than expecting a flush. A readback of `lovr.headset.getTexture()` taken in `lovr.update` reads the image for a frame whose draw pass has not run, and it is uniformly zero. A capture of what the headset shows is taken after the frame is submitted, against the image that frame used. A window's texture read back this way carries the client's pixels in the right orientation and colours, in `bgra8`.
 
@@ -138,6 +138,31 @@ Cases run in file order, and every case runs even after one fails. A case fails 
 The runner's own trials are named `runner::`. They check discovery classification, each failure outcome above, and `runner::installed_roots_load_without_development_roots`. That trial copies the install manifest into a temporary directory, rejects unsafe destinations, rejects an installed module or the shipped configuration that names a development-only root, and requires every installed module from the copy. It does not exercise LÖVR's mounted filesystem, font loading, or graphics.
 
 `lua/testing/vr-ui.luau` drives the real frame, laser, interaction, and surfaces providers through LÖVR callbacks with per-hand controller state, and records native input, draws, and keyboard registrations. `lua/testing/render.luau` records draw calls, LÖVR transforms, and pass state, measures deterministic text boxes, and detects transform and state leaks after a drawing error. Neither rasterizes pixels or shapes text.
+
+### Offscreen graphics tests
+
+`make check-graphics` runs `cargo test -p lunette --features graphics-tests --test graphics`. The `graphics-tests` feature keeps the GPU target out of ordinary test discovery. Mesa lavapipe and the Vulkan loader are prerequisites. The caller sets `VK_DRIVER_FILES` to lavapipe's ICD JSON file; `VK_ICD_FILENAMES` supports older loaders. The harness rejects an absent selection, a hardware ICD, and a non-lavapipe device. A missing driver, initialization error, shader compiler error, or pixel assertion fails the check rather than skipping it.
+
+The Nix development shell has an opt-in software-driver variant:
+
+```sh
+nix develop .#graphics -c env -u DISPLAY -u WAYLAND_DISPLAY make check-graphics
+```
+
+On Debian or Ubuntu, `mesa-vulkan-drivers` supplies the software driver. The JSON path is `/usr/share/vulkan/icd.d/lvp_icd.x86_64.json` on releases with architecture-qualified names, or `/usr/share/vulkan/icd.d/lvp_icd.json` otherwise:
+
+```sh
+VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json \
+env -u DISPLAY -u WAYLAND_DISPLAY make check-graphics
+```
+
+`crates/lunette/tests/graphics/main.rs` runs every GPU fixture serially inside one `libtest-mimic` trial named `graphics`, because LÖVR's modules are process-global. GPU-only suites live under `crates/lunette/tests/graphics/fixtures/`, outside the ordinary Lua runner's `lua/` and `dev/` discovery roots. Each suite returns `testing.suite()` and uses the real graphics API. The harness shares the repository module loader, suite executor, plugin runtime, and failure reporting from `tests/lua/{state,run}.rs`. Fixtures do not call `testing.native()` or install rendering fakes.
+
+`fixtures/support/render.luau` supplies `target(width, height)`, which returns a linear RGBA8 texture and a single-sample pass without a depth attachment, and `read(texture, pass)`, which submits the pass, requests a texture readback, submits pending transfers, waits, and returns a LÖVR `Image`. The generic baseline compiles a shader and checks every pixel of an asymmetric two-color image. Production rendering fixtures can require modules through the same working-tree aliases and use this target and readback interface.
+
+The test-local owner shuts down plugin runtimes, submits pending graphics work, waits for completion, and closes the Lua state before destroying the platform. Rust Lua values leave their execution scopes before closing. The owner marks the mlua state closed and invokes `luax_close` exactly once; Lua releases reachable GPU userdata before LÖVR runs its module finalizers. The same owner covers partial setup, module loading, shader compilation, assertion failure, and Rust unwinding. It never calls `lovrGraphicsDestroy` itself.
+
+The internal selftests are `graphics_harness_failure_propagation` and `graphics_initialization_has_no_xr_or_window`. The first requires deliberate setup, module-load, shader, and assertion failures, then renders in a second fresh state after each failure. Failure fixtures retain textures, passes, and shaders in globals and module caches to exercise teardown of reachable userdata. The second checks that graphics initializes on lavapipe without loading host-device modules or opening a platform window.
 
 ### Runtime declaration tests
 
