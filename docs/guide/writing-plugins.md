@@ -2,7 +2,7 @@
 
 A lunette configuration is a LÖVR project whose `main.luau` composes the shipped desktop and adds or replaces plugins in it. A plugin is a definition: a name, the contracts it requires and provides, and an initializer that runs when the plugin activates. The plugin runtime releases everything an activation acquired when that activation ends.
 
-The code in this guide comes from the configurations under `examples/`: `first-plugin`, `keyboard`, `layout`, `theme`, `ui`, and `desktop`. `make check` typechecks them and runs each in the desktop test harness. [The Lua API](../dev/lua-api.md#plugin-authoring) is the specification this guide follows. [The native API](native-api.md) describes the `lunette` module beneath the plugins.
+The code in this guide comes from the configurations under `examples/`: `first-plugin`, `keyboard`, `layout`, `theme`, `ui`, `desktop`, and `audio-backdrop`. `make check` typechecks them and runs their desktop or independent consumer tests. [The Lua API](../dev/lua-api.md#plugin-authoring) is the specification this guide follows. [The native API](native-api.md) describes the `lunette` module beneath the plugins.
 
 ## A configuration to work in
 
@@ -179,6 +179,35 @@ A setting merges into the entry's configuration through the definition's schema:
 Patches change the entry list. A patch with an entry's `id` and `definition` replaces what the entry is made from, with an optional `config` for the new definition, and `disabled = true` removes the entry. An `insert` patch adds an entry at the end, or `before` or `after` a named entry. A patch naming an unknown id, two patches naming one id, or a setting and a patch naming one id raise an error when the configuration loads. A definition is a plugin definition or a factory that makes one; a factory makes a fresh definition each time the runtime starts.
 
 A composition built without the desktop configures an entry with `plugin.configure(id, target)`, which returns a function that makes a configuration patch typed with the target's options. The target is the entry's definition; composition raises when the entry with that id is made from another one.
+
+## Independent audio consumption
+
+`examples/audio-backdrop/meter.luau` is a consumer of `lunette/frame`, `lunette/audio`, and `lunette/audio-analysis`. It imports their neutral contracts and does not import the desktop, backdrop, or analysis implementation. Its `main.luau` inserts it into the complete default desktop, while its local tests run it with only the real frame, audio, and analysis providers over the fake native boundary. The same plugin can run in a composition with no backdrop.
+
+A raw reader opens with the caller's owner and a source descriptor:
+
+```luau
+local audio = require '@lunette-contracts/audio'
+local analysis = require '@lunette-contracts/audio-analysis'
+
+local source: audio.Source = { kind = 'system' }
+local raw = context:require(audio.capability):open(context, source)
+local result = context:require(analysis.capability):open(context, source)
+if result.kind == 'success' then
+  local features = result.reader
+  -- An update handler reads raw:snapshot() and features:snapshot().
+else
+  error(result.kind .. ': ' .. result.detail)
+end
+```
+
+The definition declares both capabilities in `requires`. Both readers end with the context; `close()` can release either earlier. Equal sources share native capture, and equal analysis profiles share work. A process source is `{ kind = 'process', process = handle }`, where the handle comes from the session's native process or window association. Neither a PID nor an application name selects a source. Handles belong to the session and are not saved in configuration or preferences.
+
+A raw snapshot contains the source, state, frame publication generation, and immutable blocks. `block:copySamples()` returns a fresh buffer of interleaved little-endian F32 samples. Its byte length is `block.frameCount * block.channels * 4`. `buffer.readf32(samples, index * 4)` reads one sample at a zero-based index. `raw-level.luau` reads at most 256 frames from the newest block to demonstrate this boundary; it does not replace the reusable streaming analysis. The raw block's stream generation and sequence identify discontinuity and duplicate data, and its `gap` and `droppedFrames` report loss.
+
+The analysis open result distinguishes success, invalid options, and exhausted profile capacity. `size` is 512, 1024, or 2048, and `hop` is a quarter or half of that size. The default profile is 2048/512. A feature snapshot has `state`, `frameGeneration`, optional stream `generation`, optional `endFrame`, `gap`, optional `gapReason`, `droppedFrames`, completed `hops`, and optional `latest` steady values. Each steady value has RMS, peak, and bass, mid, and treble powers. State loss, generation changes, sequence or sample-time discontinuities, capacity loss, invalid samples, and reader termination clear `latest` until a fresh complete window. Continuous active publications without a completed hop retain steady values. An empty `hops` list does not replay flux or onset. Snapshot `endFrame` is the optional exclusive cumulative end of the last processed PCM block within its stream generation. It is absent before the first processed block, advances for blocks that complete no hop, and stays unchanged when no new PCM arrives. A hop's `endFrame` is the exclusive end of its completed window; compare it with the snapshot end only when their stream generations match. [Audio](../dev/audio.md#lua-analysis) specifies sample-time semantics, normalisation, and budgets. The contract modules own the exact shapes.
+
+`dev/plugins/audio-diagnostics` is a repository-only opt-in consumer of the same contracts. It logs source identity, state, format, sequence, loss, generation, band powers, and attribution provenance without a draw handler. It observes every publication and reports accumulated gap, dropped-frame, and generation-change counts at each logging interval, so a later clean publication does not hide transient loss. Raw and analysis loss counters are separate views of the same stream and must not be added together. Its default `enabled = false` opens no reader. A development configuration can insert it through a relative require with `{ enabled = true }`; it is not installed, adds no alias, and is not enabled by the default development desktop. Synthetic signals stay in tests or development code. Live PipeWire and headset acceptance remain [pending](../dev/audio.md#acceptance).
 
 ## Themes
 
@@ -471,3 +500,17 @@ A replacement rule is a plugin that provides `lunette/pacing` or `lunette/scale`
 ## Checking a configuration
 
 `lunette check` typechecks every `.luau` file in the configuration directory, and every module they require, in strict mode against the runtime's definitions. Naming files or directories, as in `lunette check main.luau`, checks those instead. The checker reports type errors, accidental globals, locals used before their declaration, and capabilities with no service type. It does not run descriptors or initializers. Invalid settings and patches raise an error when the configuration loads, an invalid entry configuration stops startup before any plugin activates, and an initializer error fails only that plugin's activation.
+
+## Decisions
+
+Consumers import neutral service contracts instead of provider implementations. The independent audio example uses the same public services as the backdrop, because PCM and feature consumption must remain available without a visual effect. Owner-scoped readers make plugin interruption and recovery release only that consumer's resources.
+
+Development diagnostics stay opt-in and outside installed roots. Enabling capture merely to inspect an unused provider was rejected because requiring the development configuration must not add an unexpected reader. Diagnostics use public metadata and no renderer so a GPU, headset, or private production method is unnecessary.
+
+## Known gaps
+
+A static check verifies declared shapes, not plugin-graph wiring or live host behaviour. Local tests cover the real Lua providers over deterministic fake capture. Live PipeWire graph and headset acceptance remain [pending](../dev/audio.md#acceptance).
+
+## Deliberately left open
+
+Beat and tempo tracking, microphone input, persistent process-source preferences, and spatial playback routing are outside the audio-consumer contracts.

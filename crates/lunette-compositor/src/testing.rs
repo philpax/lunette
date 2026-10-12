@@ -27,6 +27,7 @@ use std::{
     time::Duration,
 };
 
+use slotmap::DenseSlotMap;
 use smithay::{
     backend::allocator::{Buffer, Fourcc, Modifier, dmabuf::Dmabuf},
     input::pointer::CursorImageStatus,
@@ -38,11 +39,12 @@ use crate::{
     config::CompositorConfig,
     protocol::{
         Command, Event, ImageHandle, ImportedImage, OutputId, Pid, PixelSize, ProcessInstance,
-        ProcessObservation, ProcessOutcome, ProcessSignal, SeatId, Snapshot, Stream,
+        ProcessObservation, ProcessOutcome, ProcessSignal, ProcessSnapshot, SeatId, Snapshot,
+        Stream,
     },
     spawn::{
-        ChildProcess, Liveness, ProcessInspector, ProcessSpawner, SpawnError, SpawnPlan,
-        find_environment_value,
+        AdoptedIds, ChildProcess, Liveness, ProcessInspector, ProcessSpawner, SpawnError,
+        SpawnPlan, add_external_process, find_environment_value, snapshot,
     },
     surface::{BufferImporter, ImportFailed, PixelBuffer, ShmFormat, ShmLayout},
     thread::{
@@ -51,6 +53,19 @@ use crate::{
     },
     wayvr::comp::ClientState,
 };
+
+/// Registers adopted processes through the production allocator and returns their snapshots.
+#[must_use]
+pub fn adopted_process_snapshots(pids: &[Pid]) -> Vec<ProcessSnapshot> {
+    let mut processes = DenseSlotMap::with_key();
+    let mut ids = AdoptedIds::default();
+    let inspector = FakeInspector::default();
+    for pid in pids {
+        add_external_process(&mut processes, &mut ids, *pid, &inspector)
+            .expect("fixture adopted identifiers are available");
+    }
+    snapshot(&processes)
+}
 
 /// Maximum time to wait for a test condition.
 pub const DEADLINE: Duration = Duration::from_secs(5);

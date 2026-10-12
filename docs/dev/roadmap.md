@@ -2,6 +2,12 @@
 
 v1, the point at which the system is usable for daily work, is implemented. What remains is the work beyond v1.
 
+## Non-routing audio
+
+The audio work exposes owner-scoped system-mix and logical-process capture, reusable Lua analysis, a desktop backdrop, and an independent example consumer. [Audio](audio.md) specifies the contracts and the pending live acceptance checks. `examples/audio-backdrop` demonstrates the shipped backdrop and separate raw-PCM and feature consumption. `dev/plugins/audio-diagnostics` is an opt-in inspection plugin. These consumers do not redirect playback, change the default sink, or implement spatial audio.
+
+Manual PipeWire graph acceptance and headset appearance, comfort, stereo presentation, and frame-time comparisons remain pending. Hardware-free tests establish contract, lifecycle, analysis, and raster properties only. The implementation does not establish tested host versions or actual playback preservation on a live host.
+
 ## Beyond v1
 
 Roughly WayVR's feature surface, plus what this architecture makes easier:
@@ -13,10 +19,22 @@ Roughly WayVR's feature surface, plus what this architecture makes easier:
 - libei injection through the portal.
 - Input blocking through libmonado ([Input](input.md#blocking-input-to-the-underlying-application)).
 - IME integration, such as fcitx5.
-- A GPU-headless test harness.
+- Extend the offscreen graphics tests beyond the aurora's raster and lifetime checks.
 
 ## Upstream work
 
 - LÖVR: the patches marked upstreamable or as upstream defects in [the patch set](lovr-integration.md#the-patch-set).
 - `wlx-capture`: selecting every monitor in one portal dialog and correlating the streams to outputs by logical geometry, and `ext-image-copy-capture-v1`.
 - WayVR: whatever of the above applies to it.
+
+## Decisions
+
+Non-routing capture and reusable analysis precede spatial playback routing. Independent consumers need PCM without changing where applications are heard, while routing adds separate attribution, host-graph, and playback policy requirements. The roadmap therefore keeps spatial audio in the deferred work.
+
+## Known gaps
+
+The non-routing audio implementation has no recorded live PipeWire or headset acceptance. Automated contract, graph, analysis, and raster tests are insufficient to close that gap.
+
+## Deliberately left open
+
+The order of the beyond-v1 items, persistent source preferences, and additional backdrop effects remain open. Spatial playback routing is not implemented by the audio backdrop.

@@ -9,6 +9,7 @@ local selection = require './selection'
 local controls = {}
 export type Renderer = { read enabled: () -> boolean, read setEnabled: (boolean) -> () }
 export type Row = { read id: string, read label: string, read process: lunette.Process }
+type RowToken = { read token: string, read process: lunette.Process }
 local modeItems: { ui.Item } = {
   { id = 'system', label = 'System mix' },
   { id = 'application', label = 'Pinned application' },
@@ -77,7 +78,7 @@ function controls.attach(context: plugin.Context, choice: selection.State, rende
       local registration: menu.Registration? = nil
       local visible, live = false, true
       local rowSerial = 0
-      local rowTokens: { [lunette.Process]: string } = {}
+      local rowTokens: { RowToken } = {}
       local currentRows: { [string]: lunette.Process } = {}
       local shownItems: { ui.Item } = {}
       local statusText = ''
@@ -247,21 +248,30 @@ function controls.attach(context: plugin.Context, choice: selection.State, rende
         motionChoice:setSelected(selectedPreset(choice.motion))
         pinButton:setEnabled(choice.mode == 'attention' and choice.attended ~= nil and not choice.attended.dead)
         local items: { ui.Item } = {}
+        local retained: { RowToken } = {}
         currentRows = {}
         local selected: string? = nil
         for _, row in controls.rows(choice, lunette.processes(), lunette.windows()) do
-          local token = rowTokens[row.process]
-          if token == nil then
+          local token = ''
+          -- Fresh userdata compare by process identity, but table keys use raw userdata identity.
+          for _, previous in rowTokens do
+            if previous.process == row.process then
+              token = previous.token
+              break
+            end
+          end
+          if token == '' then
             rowSerial += 1
             token = 'application-' .. tostring(rowSerial)
-            rowTokens[row.process] = token
           end
+          retained[#retained + 1] = { token = token, process = row.process }
           currentRows[token] = row.process
           items[#items + 1] = { id = token, label = row.label }
           if choice.mode == 'application' and choice.pinned == row.process then
             selected = token
           end
         end
+        rowTokens = retained
         local different = #items ~= #shownItems
         for index, item in items do
           local previous = shownItems[index]

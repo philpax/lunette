@@ -11,7 +11,14 @@ local lunette = require '@lunette'
 
 local fixture = {}
 
-export type Options = { read settings: selection.Settings?, read audio: boolean? }
+export type Options = {
+  read settings: selection.Settings?,
+  read audio: boolean?,
+  read audioAnalysis: boolean?,
+  read freshProcesses: boolean?,
+}
+export type Process = { id: number, argv: { read [number]: string }, dead: boolean }
+export type ProcessBoundary = { read retained: () -> number }
 export type Environment = {
   running: vrUi.Fixture,
   native: testing.Native,
@@ -21,11 +28,14 @@ export type Environment = {
   ui: ui.Service,
   menu: menu.Service,
   enabled: () -> boolean,
+  processBoundary: ProcessBoundary?,
 }
+local freshProcesses: (testing.Native) -> ProcessBoundary
 
 function fixture.boot(options: Options?): Environment
   options = options or {}
   local native = testing.native()
+  local processBoundary = if options.freshProcesses then freshProcesses(native) else nil
   local choice = selection.new(options.settings)
   local enabled = true
   local parent = plugin.consumer {
@@ -59,8 +69,11 @@ function fixture.boot(options: Options?): Environment
     'desktop/render',
     { id = 'testing/backdrop-source', definition = parent.definition },
   }
-  if options.audio then
+  if options.audio or options.audioAnalysis then
     table.insert(entries, 'audio')
+  end
+  if options.audioAnalysis then
+    table.insert(entries, 'audio-analysis')
   end
   local running = vrUi.boot(entries, { native = native })
   local observed = running.session:observe(panels.capability)
@@ -72,6 +85,7 @@ function fixture.boot(options: Options?): Environment
     owner = observed.context,
     ui = running.session:observe(ui.capability).service,
     menu = running.session:observe(menu.capability).service,
+    processBoundary = processBoundary,
     enabled = function(): boolean
       return enabled
     end,
@@ -114,6 +128,47 @@ end
 
 function fixture.aimHead(env: Environment, x: number?): ()
   env.running:pose('head', lovr.math.newMat4():translate(x or 0, 1.5, 0))
+end
+
+-- Native enumerations return fresh handles; equality follows the process, but table keys remain raw.
+freshProcesses = function(native: testing.Native): ProcessBoundary
+  local wrappers: { [Process]: boolean } = setmetatable({}, { __mode = 'k' })
+  local equality = {
+    __eq = function(left: Process, right: Process): boolean
+      return rawequal(rawget(left, 'identity') or left, rawget(right, 'identity') or right)
+    end,
+    __index = function(handle: Process, key: string): unknown
+      local process = rawget(handle, 'identity')
+      return if process then process[key] else nil
+    end,
+    __newindex = function(handle: Process, key: string, value: unknown): ()
+      rawset(rawget(handle, 'identity') or handle, key, value)
+    end,
+  }
+  local newProcess = native.newProcess
+  native.newProcess = function(id: number, argv: { string }?): Process
+    return setmetatable(newProcess(id, argv), equality)
+  end
+  local enumerate = lunette.processes
+  lunette.processes = function(): { Process }
+    local result: { Process } = {}
+    for _, process in enumerate() do
+      local handle = setmetatable({ identity = process }, equality)
+      wrappers[handle] = true
+      result[#result + 1] = handle
+    end
+    return result
+  end
+  return {
+    retained = function(): number
+      testing.collect()
+      local count = 0
+      for _ in wrappers do
+        count += 1
+      end
+      return count
+    end,
+  }
 end
 
 return fixture

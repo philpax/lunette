@@ -10,7 +10,7 @@ The project is licensed GPL-3.0-only because it uses WayVR's GPL-3.0-only code. 
 
 ## Current status
 
-The workspace contains the compositor, capture, native API, Luau checker, standard library, and plugin runtime. The shipped configuration runs `@lunette-desktop`, which composes the built-in providers and desktop consumers in `@lunette-plugins` as entries that a configuration changes through settings or patches by id. Session controls are VR menu actions and shared UI panels, including a runtime plugin manager and runtime themes. The desktop saves its arrangement when a grab drops a panel and at quit, and arranges unplaced windows with a layout chosen by name. Lua integration tests cover provider outages, placement precedence, monitor hotplug, reopened windows, and ten production source reloads. [The roadmap](docs/dev/roadmap.md) records the work beyond v1.
+The workspace contains the compositor, capture, native API, Luau checker, standard library, and plugin runtime. Non-routing audio capture and shared Lua analysis support independent consumers and the default aurora backdrop. Live PipeWire graph and headset acceptance remain pending. The shipped configuration runs `@lunette-desktop`, which composes the built-in providers and desktop consumers in `@lunette-plugins` as entries that a configuration changes through settings or patches by id. Session controls are VR menu actions and shared UI panels, including a runtime plugin manager and runtime themes. The desktop saves its arrangement when a grab drops a panel and at quit, and arranges unplaced windows with a layout chosen by name. Lua integration tests cover provider outages, placement precedence, monitor hotplug, reopened windows, and ten production source reloads. [The roadmap](docs/dev/roadmap.md) records the work beyond v1.
 
 ## Repository layout
 
@@ -21,7 +21,7 @@ crates/lunette/                       the lunette and lunctl binaries, Lua injec
 crates/lunette-compositor/            smithay; vendored fork of WayVR's backend/wayvr
 crates/lunette-lovr/                  cmake build and FFI surface for LÖVR
 crates/lunette-luau/                  the Luau type language, and the closed-set macro
-crates/lunette-capture/               host output enumeration, monitor capture, host-input providers, and the host clipboard client
+crates/lunette-capture/               monitor and audio capture, host output enumeration, host-input providers, and the host clipboard client
 crates/lunette-generate-definitions/  generates the Luau definitions, declarations, .luaurc files, and install manifest
 lua/lunette/                          generated declarations for the native API
 lua/lunette-plugin/                   typed plugin facade, composition, schemas, and runtime management
@@ -97,7 +97,7 @@ These conventions apply to the Lua tree under `lua/`, the example configurations
 
 ### Formatting
 
-`stylua.toml` configures StyLua, and `stylua --check lua etc/xdg/lunette examples dev crates/lunette/tests/luau_check` is a standing check. The settings record the style the tree already used: two-space indent, single quotes, no parentheses around a call's single string or table argument, and a 120-column width. `syntax = "Luau"` is set because the Lua grammars reject type annotations.
+`stylua.toml` configures StyLua, and `stylua --check lua etc/xdg/lunette examples dev crates/lunette/tests/luau_check crates/lunette/tests/graphics/fixtures` is a standing check. The settings record the style the tree already used: two-space indent, single quotes, no parentheses around a call's single string or table argument, and a 120-column width. `syntax = "Luau"` is set because the Lua grammars reject type annotations.
 
 `.styluaignore` exempts the generated `lua/lunette/init.luau`, because the generator writes one declaration per line and does not reproduce StyLua's line breaking.
 
@@ -241,6 +241,7 @@ The two sections that follow are the Rust template. They apply to Rust code in t
 - Make the checks pass at the end of each complete task; intermediate steps need not pass. `make check` runs all of them, and `.github/workflows/ci.yml` calls the same targets, so a check added to the Makefile is added to both. The Makefile holds the commands. The targets are:
   - `make check-format`: nightly rustfmt, and StyLua over the Luau (see [formatting](#formatting)).
   - `make check-headset`: hardware-free native headset tests through CMake and CTest, including harness failure propagation and missing-runtime cleanup. It builds the shader compiler from the vendored `deps/glslang`.
+  - `make check-graphics`: offscreen shader and pixel-readback tests through real LÖVR, with an explicitly selected Mesa lavapipe Vulkan ICD. It opens no window and loads no headset, audio, filesystem, or compositor. [Build and development](docs/dev/build-and-development.md#offscreen-graphics-tests) records the software-driver prerequisites.
   - `make check-install`: hardware-free installation tests using real ELF fixtures, fake Cargo, and the Makefile installation rules. It requires Python, a C compiler, and patchelf.
   - `make check-rust`, which is `make check-clippy` and `make check-test`, each over both feature sets. CI runs the two as separate parallel jobs, because clippy builds through `RUSTC_WORKSPACE_WRAPPER` and shares no artifacts with a normal build; in series the workspace would be compiled twice.
   - `make check-definitions`: regenerates every generated artifact in memory and fails if any differs from the checked-in copy, naming the first differing line. Run `cargo run -p lunette-generate-definitions` and commit the result. It covers `etc/lunette/definitions.luau`, `lua/lunette/init.luau`, and the `.luaurc` files (see [the module roots](#the-module-roots)).

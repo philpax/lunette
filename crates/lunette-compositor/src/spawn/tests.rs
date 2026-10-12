@@ -93,6 +93,19 @@ fn spawn_into(
 }
 
 #[test]
+fn managed_spawn_requests_outside_their_range_never_start_or_register_a_child() {
+    for raw in [1_u64 << 52, (1_u64 << 53) - 1, 1_u64 << 53, u64::MAX] {
+        let mut processes = Processes::with_key();
+        let mut spawner = FakeSpawner::default();
+        let error = spawn_into(&mut processes, &mut spawner, process(raw), &["player"])
+            .expect_err("out-of-range managed identifier");
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+        assert!(spawner.log.requested().is_empty());
+        assert!(snapshot(&processes).is_empty());
+    }
+}
+
+#[test]
 fn a_spawn_carries_the_display_and_the_toolkit_hints() {
     let mut processes = Processes::with_key();
     let mut spawner = FakeSpawner::default();
@@ -313,7 +326,8 @@ fn an_adopted_process_is_reported_external_and_alive() {
         &mut AdoptedIds::default(),
         Pid::new(4242).expect("positive"),
         &FakeInspector::default(),
-    );
+    )
+    .expect("adopted identifier available");
 
     let snapshot = snapshot(&processes);
     assert_eq!(snapshot.len(), 1);
@@ -331,7 +345,8 @@ fn an_adopted_process_that_disappears_is_reported_once() {
         &mut AdoptedIds::default(),
         Pid::new(4242).expect("positive"),
         &FakeInspector::default(),
-    );
+    )
+    .expect("adopted identifier available");
 
     assert!(poll(&mut processes, &FakeInspector::default()).is_empty());
 

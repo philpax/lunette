@@ -14,7 +14,9 @@ The compositor records a PID and an opaque instance discriminator from the Linux
 
 An audio attribution request carries a request identifier, PipeWire connection generation, node serial, and observed process instance. The compositor resolves a direct live instance first, then the inherited authentication token of a spawned descendant. It observes the candidate instance before reading the environment and again afterward. Both observations must equal the requested instance, and the matched logical root must remain live. The token never leaves the compositor. Exit, access denial, or identity change produces an unresolved result. A pending reply is discarded if its request, source, node, or connection identity changed. The same node is not retried against a replacement PID instance.
 
-Native PipeWire clients report their PID through `pipewire.sec.pid`. PulseAudio-compatible playback may instead report `application.process.id`. This second assertion is application metadata, not authentication. It requires corroboration with the current OS instance and the logical-process resolver. The public status preserves this provenance. Missing, ambiguous, inaccessible, or namespace-mismatched attribution remains unresolved. Automatic selection uses only a single resolved logical process and never uses application-name matching.
+A pending attribution delivery expires after the capture worker's injected retry interval, 500 ms by default. The next eligible bounded worker tick observes the same pinned process instance and issues a fresh request identifier. A dropped request or reply can therefore recover without replacing the node or process. Expired replies cannot complete a later attempt. Confirmed PID-instance replacement remains blocked for that node lifetime. Queue recovery, continued worker ticks, and process observation are prerequisites; a permanently full queue or stalled inspector has no finite recovery guarantee.
+
+Native PipeWire clients report their PID through `pipewire.sec.pid`. The compatibility server marks Pulse clients with `client.api = 'pipewire-pulse'`; application display names do not identify that protocol. PulseAudio-compatible playback may instead report `application.process.id`. This second assertion is application metadata, not authentication. It requires corroboration with the current OS instance and the logical-process resolver. The public status preserves this provenance. Missing, ambiguous, inaccessible, or namespace-mismatched attribution remains unresolved. Automatic selection uses only a single resolved logical process and never uses application-name matching.
 
 ### Source state
 
@@ -50,7 +52,7 @@ An analysis snapshot contains `source`, `profile`, `state`, `frameGeneration`, o
 
 The periodic Hann transform integrates stereo-averaged one-sided bin powers. Bin centres select bass from 30 Hz inclusive to 250 Hz exclusive, mid from 250 Hz inclusive to 2000 Hz exclusive, and treble from 2000 Hz inclusive to 10000 Hz exclusive. Power normalisation is `abs(FFT)^2 / (N * sum(window^2))`, doubled except at DC and Nyquist. RMS and peak use the complete unweighted stereo window. Flux sums positive square-root bin-power changes within the bands and divides by the previous magnitude sum with a 0.001 floor. Flux clamps to 0 through 1 and is zero below RMS 0.001 and on the first window after reset. Onset is `clamp((flux - 0.08) / 0.24, 0, 1)`. The contract's comments and the pure analysis modules own these definitions.
 
-Per-frame analysis accepts at most 12,000 frames and publishes at most 94 hops. Generation changes, sequence or sample-time discontinuity, capacity loss, invalid samples, and source-state interruptions reset carry, onset history, and the latest steady values. Gap metadata reports the reason and discarded frames.
+Per-frame analysis accepts at most 12,000 frames and publishes at most 94 hops. Generation changes, sequence or sample-time discontinuity, capacity loss, invalid samples, and source-state interruptions reset carry, onset history, and the latest steady values. Gap metadata reports the reason and discarded frames. `examples/audio-backdrop/meter.luau` demonstrates raw and feature readers without importing a backdrop module. Its tests run the real providers without the desktop, a GPU, playback, or a live PipeWire server.
 
 ## Source-selection policy
 
@@ -66,11 +68,23 @@ Spawned applications play audio through PipeWire to the default sink, unrelated 
 
 Routing depends on instance-safe process attribution ([Compositor](compositor.md#attribution)). Non-routing capture does not implement routing or change where applications are heard.
 
+## Acceptance
+
+Live acceptance remains pending. A recorded operator check names the host distribution, PipeWire and compatibility-server versions, XR backend, headset, and test date. No automated result supplies these facts. The checks use generated tones or other operator-controlled signals without bundling copyrighted audio.
+
+The capture check covers native PipeWire and PulseAudio-compatible playback, several playback nodes belonging to one logical process, pending spawn, process exit, sink changes, server restart, permission denial, attribution failure, and provider or source reload. It compares the host graph before capture, while readers are active, and after the last reader closes. Original playback links, the default sink, device volume, and audible playback remain unchanged. Two independent consumers share one source, and releasing either leaves the other active. Retained publications and copied buffers remain valid. Loss, generation changes, and attribution provenance appear in diagnostics.
+
+Headset acceptance separately checks appearance, comfort, stereo presentation, tracking loss, enable and disable transitions, and frame-time comparisons at each quality. Offscreen raster tests and logic-headless plugin tests do not establish these properties. Neither capture nor headset acceptance is recorded as complete until the operator records the observations.
+
 ## Decisions
 
 Capture and routing have separate contracts. The backdrop and independent analysis consumers need PCM without changing playback. Spatial routing has additional policy and host-graph risks and remains deferred.
 
 Stereo downmix is explicit at the public capture boundary. PipeWire performs mixing and conversion so independently scheduled application callbacks are not summed in Lua or on the frame thread.
+
+Audio and analysis have neutral contracts independent of the backdrop. Per-owner readers share capture and profile work without allowing one consumer to drain or mutate another consumer's publication. Requiring the visual consumer to obtain reusable features was rejected because independent plugins must work without it.
+
+Application choice holds the exact session process instance and does not fall back on silence or unavailable attribution. Application-name and PID-only selection were rejected because names are ambiguous and PID reuse changes identity. Persistent source preferences remain deferred because a process handle cannot cross sessions.
 
 Capture verification uses deterministic project-owned fakes and operator-driven live PipeWire checks. A private-server integration harness is excluded. Fake graph tests establish planned operations, not actual host linking, mixing, playback preservation, or cleanup.
 

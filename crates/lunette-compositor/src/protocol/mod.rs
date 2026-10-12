@@ -805,6 +805,11 @@ macro_rules! identifier {
     };
 }
 
+/// First identifier reserved for adopted processes; managed IDs are strictly below it.
+pub const ADOPTED_PROCESS_ID_MIN: u64 = 1_u64 << 52;
+/// Largest process identifier, exactly representable by Luau's double-precision numbers.
+pub const PROCESS_ID_MAX: u64 = (1_u64 << 53) - 1;
+
 identifier! {
     WindowId;
     /// A `wl_surface`, distinct from its toplevel window.

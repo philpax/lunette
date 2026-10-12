@@ -35,8 +35,8 @@ use std::{
 use lunette_compositor::{
     config::{DEFAULT_OUTPUT, DEFAULT_SEAT},
     protocol::{
-        Argv, Command, OutputId, PixelSize, ProcessId, SeatId, Snapshot, SpawnRequest, WindowId,
-        WindowSnapshot,
+        ADOPTED_PROCESS_ID_MIN, Argv, Command, OutputId, PixelSize, ProcessId, SeatId, Snapshot,
+        SpawnRequest, WindowId, WindowSnapshot,
     },
 };
 use lunette_lovr::raw::{_luax_pushtype, ObjectType_T_Texture};
@@ -421,11 +421,16 @@ impl<T> Session<T> {
     /// Allocates an identifier before the spawn request reaches the compositor.
     ///
     /// The main thread returns the process handle immediately. Compositor-assigned identifiers for
-    /// adopted processes use the opposite end of the identifier range.
+    /// adopted processes use a disjoint range. Both ranges stay exactly representable in Luau.
     fn mint_process(&self) -> Option<ProcessId> {
         let mut frame = self.frame.borrow_mut();
-        frame.processes = frame.processes.checked_add(1)?;
-        ProcessId::new(frame.processes)
+        let next = frame.processes.checked_add(1)?;
+        if next >= ADOPTED_PROCESS_ID_MIN {
+            return None;
+        }
+        let id = ProcessId::new(next)?;
+        frame.processes = next;
+        Some(id)
     }
 
     /// Allocates an identifier before the seat creation request reaches the compositor.

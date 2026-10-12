@@ -15,6 +15,9 @@ use lunette_compositor::protocol::{
     ProcessOutcome,
 };
 
+#[path = "delivery_tests.rs"]
+mod delivery_tests;
+
 use super::*;
 
 struct Inspector(ProcessObservation);

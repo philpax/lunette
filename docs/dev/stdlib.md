@@ -21,6 +21,8 @@ The built-in providers:
 | Id | Contract | Requires | Options |
 |---|---|---|---|
 | `frame` | `lunette/frame` 2 | none | none |
+| `audio` | `lunette/audio` 1 | frame | none |
+| `audio-analysis` | `lunette/audio-analysis` 1 | frame, audio | none |
 | `theme` | `lunette/theme` 1 | none | none |
 | `themes` | `lunette/themes` 1 | none | none |
 | `surfaces` | `lunette/surfaces` 1 | none | none |
@@ -43,6 +45,12 @@ The built-in providers:
 | `scale` | `lunette/scale` 1 | none | `tuning` |
 
 `layout/arc` registers the arc layout with the layouts broker and takes `layout`, the name it registers, and `tuning`. `theme/standard` and `theme/arcade` register themes with the catalog and take no options. `desktop/keyboard`, at `@lunette-plugins/keyboard-display`, provides `lunette/keyboard-display` 1, and `desktop/persistence`, at `@lunette-plugins/arrangement`, provides `lunette/arrangement` 1. Each contract module under `lua/lunette-contracts/` declares its service, each plugin's `config.luau` or descriptor its options, and [Contracts](lua-api.md#contracts) states their guarantees. Consumers that follow a panel's life use the panels contract's `onAdded` and `onRemoved` listeners rather than any provider's private modules.
+
+## Audio providers
+
+`@lunette-plugins/audio` publishes owner-scoped readers for the system output mix or a registered logical process. Readers expose retained immutable frame publications and fresh little-endian F32 PCM copies. `@lunette-plugins/audio-analysis` opens independent readers for a source and an FFT size/hop profile. It shares work for equal profiles and publishes completed sample-time hops plus the latest steady RMS, peak, and band powers. State loss, generation changes, discontinuities, capacity loss, invalid samples, and reader termination clear `latest` until a fresh complete window. Continuous active publications without a completed hop retain steady values and never replay an onset. An optional snapshot `endFrame` tracks the cumulative processed PCM end within its stream generation, including partial windows and zero-hop publications. Activating either provider opens no capture until a consumer acquires a reader. [Audio](audio.md#lua-providers) specifies ownership, source states, PCM layout, budgets, and the analysis boundary. The contracts in `lua/lunette-contracts/audio.luau` and `audio-analysis.luau` own the API types.
+
+The providers have no dependency on `desktop/backdrop`, UI, panels, focus, or interaction. `examples/audio-backdrop/meter.luau` consumes raw PCM and analysis through the contracts without a backdrop dependency. Its local suites run the real frame, audio, and analysis providers over the fake native boundary. The example's `main.luau` composes the shipped desktop as a separate choice. `dev/plugins/audio-diagnostics` reports source identity, state, format, sequence, loss, generation, bands, and attribution provenance from the public snapshots. It defaults to disabled, uses no renderer, and is not installed or inserted in the development desktop by default.
 
 ## Runtime themes
 
@@ -89,6 +97,7 @@ The desktop consumers:
 | Entry | Does | Options |
 |---|---|---|
 | `desktop/render` | Updates and draws panels in the `scene` phase. A child offers the shown panels as surfaces, so a surfaces outage stops pointing and leaves panels drawing. | None. |
+| `desktop/backdrop` | Draws the environment through a frame-only base. Optional audio, attention, and controls children attach independently. A factory. | `enabled`, `reactive`, `sourceMode`, `dwell`, `fadeDuration`, `attackDuration`, `releaseDuration`, `crossfadeDuration`, `recoveryDuration`, `distance`, `quality`, `brightness`, `response`, `motion`, `palette`. |
 | `desktop/hint` | Draws a line of text while no panel exists. | `text`, `position`, `textHeight`, `foreground`, `font`. |
 | `desktop/decorations` | Gives each native panel without its own chrome a shared UI titlebar with a close button, and monitor panels Restart mirror and monitor selection actions. Grip on the panel or titlebar, or trigger on the titlebar background, moves the panel. | `style`, overriding the UI provider's `titlebarStyle`. |
 | `desktop/pointing` | Attaches both lasers with the `laser` entry's configuration, updates them against every offered surface in the `pointing` phase, and draws them in the `feedback` phase. | None. |
@@ -144,7 +153,7 @@ The service protects itself and the configured entries, following their current 
 
 Source reload runs every module again ([Reload](lua-api.md#reload)), so a module keeps no module-level state, and a non-plugin module that holds native resources releases them itself.
 
-Each module's tests are in a `tests` directory beside it, as [CONTRIBUTING.md](../../CONTRIBUTING.md#lua-tests) states. `lua/lunette-desktop/tests` drives the shipped desktop: startup and ten production reloads, provider outages, persistence through hotplug and reopened windows, settings, protection, and each example configuration. The tests run over the fake native API in `lua/testing`.
+Each module's tests are in a `tests` directory beside it, as [CONTRIBUTING.md](../../CONTRIBUTING.md#lua-tests) states. `lua/lunette-desktop/tests` drives the shipped desktop: startup and ten production reloads, provider outages, persistence through hotplug and reopened windows, settings, protection, and example configurations. `examples/audio-backdrop/tests` keeps its composition and independent-consumer tests beside the example; wrapper suites in `lua/lunette-desktop/tests` run both through the normal runner. The tests run over the fake native API in `lua/testing`.
 
 Safe mode is compiled into the binary and requires only `@lunette`, so a missing or broken module tree cannot prevent recovery.
 
@@ -215,9 +224,15 @@ The manager refreshes its snapshots on an interval while visible, because rebuil
 
 Every source is `.luau` because every source uses Luau syntax, and an editor that sees `.lua` reports the annotations as errors. The fork resolves `main.luau` first ([LÖVR integration](lovr-integration.md#mainluau-as-the-entry-point-under-luau)).
 
+The audio and analysis providers remain independent of desktop rendering. A consumer acquires its own reader through the neutral contracts, so disabling a visual effect does not withdraw PCM from other consumers. Capture stays lazy because an unused provider must not open a host stream.
+
+The backdrop's frame-only base and optional children separate audio, attention, and controls outages. Requiring their combined providers in the base was rejected because an audio or UI outage would remove the environment. Runtime application choices keep live process handles in a definition-local factory state, not module globals or serialized preferences.
+
 ## Known gaps
 
 Geometry recorders do not rasterise edges, alpha, depth, or fonts.
+
+Live PipeWire graph acceptance and headset appearance, comfort, stereo presentation, and frame-time comparisons remain pending as [Audio](audio.md#acceptance) records.
 
 ## Deliberately left open
 

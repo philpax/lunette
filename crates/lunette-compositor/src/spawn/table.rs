@@ -11,11 +11,16 @@
 //! table, so they can be tested without a compositor. lunette's accessors on
 //! upstream's `Process` are here too.
 
+use std::{error::Error, fmt, io};
+
 use slotmap::DenseSlotMap;
 use tracing::debug;
 
 use crate::{
-    protocol::{Pid, ProcessId, ProcessObservation, ProcessOutcome, ProcessSnapshot, Stream},
+    protocol::{
+        ADOPTED_PROCESS_ID_MIN, PROCESS_ID_MAX, Pid, ProcessId, ProcessObservation, ProcessOutcome,
+        ProcessSnapshot, Stream,
+    },
     spawn::{
         inspect::{ProcessInspector, ProcessRecord},
         plan::{AuthToken, SpawnRequest, build_plan},
@@ -32,6 +37,15 @@ pub(crate) fn spawn_process(
     inspector: &dyn ProcessInspector,
     request: SpawnRequest<'_>,
 ) -> Result<ProcessHandle, SpawnError> {
+    if request.process.get() >= ADOPTED_PROCESS_ID_MIN {
+        return Err(SpawnError::refused(
+            request.argv.program().to_owned(),
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "process identifier is outside the managed range",
+            ),
+        ));
+    }
     let auth_key = AuthToken::generate(request.argv.program())?;
     let plan = build_plan(&request, &auth_key);
 
@@ -54,11 +68,11 @@ pub(crate) fn add_external_process(
     ids: &mut AdoptedIds,
     pid: Pid,
     inspector: &dyn ProcessInspector,
-) -> ProcessId {
-    let id = ids.next();
+) -> Result<ProcessId, AdoptedIdsExhausted> {
+    let id = ids.next()?;
     let record = ProcessRecord::capture(pid, inspector);
     processes.insert(Process::External(ExternalProcess { pid, id, record }));
-    id
+    Ok(id)
 }
 
 /// Collects managed output and removes processes that have ended, without
@@ -146,9 +160,8 @@ pub(crate) enum Report {
     Vanished { id: ProcessId },
 }
 
-/// Allocates adopted-process identifiers from the top of the non-zero `u64`
-/// range. The main thread allocates spawned-process identifiers from the
-/// bottom before sending the request, so the two allocators use disjoint ends.
+/// Allocates adopted-process identifiers downwards within the exact Luau integer range.
+/// Managed identifiers stay below the adopted range, so neither allocator can overlap the other.
 #[derive(Debug)]
 pub(crate) struct AdoptedIds {
     next: u64,
@@ -156,19 +169,33 @@ pub(crate) struct AdoptedIds {
 
 impl Default for AdoptedIds {
     fn default() -> Self {
-        Self { next: u64::MAX }
+        Self {
+            next: PROCESS_ID_MAX,
+        }
     }
 }
 
 impl AdoptedIds {
-    fn next(&mut self) -> ProcessId {
-        let id = ProcessId::new(self.next).unwrap_or_else(|| {
-            unreachable!("the counter starts at the top and only decreases, so it is never zero")
-        });
+    fn next(&mut self) -> Result<ProcessId, AdoptedIdsExhausted> {
+        if !(ADOPTED_PROCESS_ID_MIN..=PROCESS_ID_MAX).contains(&self.next) {
+            return Err(AdoptedIdsExhausted);
+        }
+        let id = ProcessId::new(self.next).ok_or(AdoptedIdsExhausted)?;
         self.next -= 1;
-        id
+        Ok(id)
     }
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct AdoptedIdsExhausted;
+
+impl fmt::Display for AdoptedIdsExhausted {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("compositor: the adopted process identifier space is exhausted")
+    }
+}
+
+impl Error for AdoptedIdsExhausted {}
 
 impl Process {
     pub(crate) fn record(&self) -> &ProcessRecord {
@@ -199,5 +226,75 @@ impl Process {
             Self::Managed(p) => p.child.pid(),
             Self::External(p) => p.pid,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testing::FakeInspector;
+
+    #[test]
+    fn adopted_ids_start_at_the_largest_exact_lua_integer() {
+        let mut ids = AdoptedIds::default();
+        let first = ids.next().expect("first adopted id");
+        let second = ids.next().expect("second adopted id");
+        assert_eq!(first.get(), (1_u64 << 53) - 1);
+        assert_eq!(second.get(), (1_u64 << 53) - 2);
+    }
+
+    #[test]
+    fn adopted_ids_reach_their_lower_bound_without_overlapping_managed_ids() {
+        let mut ids = AdoptedIds {
+            next: (1_u64 << 52) + 1,
+        };
+        assert_eq!(
+            ids.next().expect("penultimate adopted id").get(),
+            (1_u64 << 52) + 1
+        );
+        assert_eq!(ids.next().expect("last adopted id").get(), 1_u64 << 52);
+        for _ in 0..2 {
+            assert_eq!(
+                ids.next(),
+                Err(AdoptedIdsExhausted),
+                "exhaustion must not allocate a managed id"
+            );
+            assert_eq!(ids.next, (1_u64 << 52) - 1);
+        }
+    }
+
+    #[test]
+    fn adopted_exhaustion_and_invalid_counters_never_register_a_process() {
+        for invalid in [0, (1_u64 << 52) - 1, 1_u64 << 53, u64::MAX] {
+            let mut processes = DenseSlotMap::with_key();
+            let mut ids = AdoptedIds { next: invalid };
+            for _ in 0..2 {
+                assert_eq!(
+                    add_external_process(
+                        &mut processes,
+                        &mut ids,
+                        Pid::new(4242).expect("positive pid"),
+                        &FakeInspector::default(),
+                    ),
+                    Err(AdoptedIdsExhausted)
+                );
+                assert!(snapshot(&processes).is_empty());
+                assert_eq!(ids.next, invalid);
+            }
+        }
+    }
+
+    #[test]
+    fn the_table_only_registers_exact_numeric_ids() {
+        let mut processes = DenseSlotMap::with_key();
+        let id = add_external_process(
+            &mut processes,
+            &mut AdoptedIds::default(),
+            Pid::new(4242).expect("positive pid"),
+            &FakeInspector::default(),
+        )
+        .expect("adopted identifier available");
+        assert_eq!(id.get(), (1_u64 << 53) - 1);
+        assert_eq!(snapshot(&processes)[0].process, id);
     }
 }

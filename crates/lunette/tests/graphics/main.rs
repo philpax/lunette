@@ -59,7 +59,12 @@ fn serial_fixtures(roots: &Roots) -> Result<(), String> {
     graphics_initialization_has_no_xr_or_window(roots)?;
     graphics_harness_failure_propagation(roots)?;
     fixture(roots, "pixels")?;
-    for module in ["aurora-baseline", "aurora-transparency", "aurora-reload"] {
+    for module in [
+        "aurora-baseline",
+        "aurora-transparency",
+        "aurora-reload",
+        "shader-specialization",
+    ] {
         fixture(roots, module)?;
     }
     Ok(())

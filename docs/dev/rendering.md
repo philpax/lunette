@@ -170,6 +170,10 @@ A composition layer is not required to be visibly sharper than a scene quad. A 1
 
 A panel on a layer cannot be seen from behind, because a quad composition layer is single-sided, while the same panel on a scene quad can. The panels provider chooses when a panel holds a layer, so a grant landing makes a panel that was readable from behind disappear. The scene quad is the fallback rather than a degraded mode, and this is the one visible difference between the two paths that the fallback does not account for.
 
+### Bounded analytic background
+
+The aurora uses indexed meshes and analytic shaders instead of texture feedback or offscreen history. This keeps per-frame work bounded and lets context shutdown release all renderer-owned meshes and shaders. A screen-wide audio brightness response was rejected because it obscures the spatial effect and can create abrupt changes. Band features instead alter separate geometric parameters, and bounded onset waves carry local events. Shader colour bounds and continuous fades reduce abrupt contrast changes but do not establish headset comfort.
+
 ### Child surfaces are drawn by Lua
 
 The compositor reports a window's popups and subsurfaces with their own textures, and the panels provider draws them, as it draws the window. Compositing the surface tree into one texture per window on the frame thread, as WayVR does into its overlay, was rejected. It would replace the zero-copy import with a render pass into a lunette-owned image whenever a window has a child, duplicate the alpha and colour conversion the panels provider already performs in a native shader, and take the decision of where a child appears away from Lua, which places, clips, and picks panels. It would have made layers, `window:stabilize()`, and every other consumer of a window's texture show children with no change of their own. Drawing them in Lua instead gives a window with children the scene path, and leaves a custom renderer to draw them itself.
@@ -214,7 +218,11 @@ The OpenVR backend does not detect unchanged mutable layer content, so an idle n
 
 OpenVR presentation uses native panels and two per-eye projection overlays. It submits no `IVRCompositor::Submit` frames and has no occlusion against a game's depth. On hardware, native overlays appear at their intended positions, scene content registers with native panels under head motion ([LÖVR integration](lovr-integration.md#decisions) records the projection convention), and the wrist UI appears on Steam Frame controllers.
 
-Geometry and draw recorders do not establish rasterization, MSAA edges, alpha blending, stereo seams, or cutout depth on a GPU.
+Geometry and draw recorders do not establish rasterization, MSAA edges, alpha blending, stereo seams, or cutout depth on a GPU. The offscreen graphics checks establish selected single-sample rasterization, blending, and cutout-depth properties for the production aurora on lavapipe. Stereo seams, headset comfort, brightness under sustained loud input, prolonged motion, and runtime-specific visibility transitions still require manual headset checks.
+
+OpenXR main-session visibility depends on `XR_EXTX_overlay` events. An unsupported runtime or one that does not send those events leaves the observation false. The background then remains eligible to render until its enabled control is disabled; false does not establish that no main session exists.
+
+LÖVR graphics pipelines belong to the shader specialization that creates them. A clone has its own cache even while it shares its parent's GPU shader. Shader release removes its cache entries and pipeline wrappers; the GPU defers native pipeline destruction until submitted work completes. This prevents a reacquired sky or curtain shader from selecting a pipeline left by a released shader whose shader and flag addresses were reused. Compute pipelines follow the same ownership boundary, and failed clone initialization releases its partial resources. The strict ten-reacquisition pixel test and a clone-specialization pixel test pass in 20 repeated lavapipe runs. Native regressions cover identical raw keys across 9,000 released cache lifetimes, clone isolation, and compilation failure cleanup. These checks establish lifetime and selected pixel properties, not a total pipeline-memory or driver-cache budget.
 
 Captured dmabufs use the client importer. Shared-memory capture frames in the supported 32-bit RGB layouts are copied, normalised, and uploaded on the frame thread. Frames that supply only a mapped pointer are unsupported, because the pinned callback provides no owned descriptor or validated extent.
 

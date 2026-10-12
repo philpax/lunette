@@ -21,7 +21,7 @@ use std::{
 use lunette_compositor::{
     protocol::{
         AudioAttributionReply, AudioAttributionRequest, AudioNodeSerial, ProcessId,
-        ProcessObservation,
+        ProcessInstance, ProcessObservation,
     },
     spawn::{ProcFilesystem, ProcessInspector},
 };
@@ -274,6 +274,7 @@ fn worker(
             let mut requests = Vec::new();
             let budget = config.event_capacity - outbox.len();
             let backend_events = driver.tick_with_registry(now, &mut ops, &mut |registry| {
+                registry.attribution_tick(now, config.retry_interval);
                 for reply in replies.drain(..) {
                     attribution.reply(registry, reply, inspector.as_ref());
                 }
@@ -311,10 +312,16 @@ fn worker(
 #[path = "worker/tests.rs"]
 mod tests;
 
+enum InstanceCheck {
+    Resolved(ProcessInstance),
+    Candidate(AudioProcessCandidate),
+}
+
 #[derive(Default)]
 pub(crate) struct AttributionWorker {
     last_observed: BTreeMap<AudioNodeSerial, Duration>,
     generation: u64,
+    cursor: Option<AudioNodeSerial>,
 }
 impl AttributionWorker {
     pub(crate) fn observe(
@@ -325,29 +332,50 @@ impl AttributionWorker {
         inspector: &dyn ProcessInspector,
         budget: usize,
     ) -> Vec<AudioAttributionRequest> {
+        registry.attribution_tick(now, retry);
         if self.generation != registry.generation.0 {
             self.generation = registry.generation.0;
             self.last_observed.clear();
+            self.cursor = None;
         }
+        let live: BTreeSet<_> = registry
+            .nodes
+            .values()
+            .map(|node| node.identity.serial)
+            .collect();
+        self.last_observed.retain(|serial, _| live.contains(serial));
+        let mut due = BTreeMap::new();
         for (serial, instance) in registry.known_instances() {
             if self.due(serial, now, retry) {
-                registry.revalidate_instance(serial, inspector.observe(instance.pid()));
-                self.last_observed.insert(serial, now);
+                due.insert(serial, InstanceCheck::Resolved(instance));
             }
         }
-        let mut requests = Vec::new();
         for candidate in registry.process_candidates() {
-            if requests.len() >= budget {
-                break;
+            if self.due(candidate.node, now, retry) {
+                due.insert(candidate.node, InstanceCheck::Candidate(candidate));
             }
-            if !self.due(candidate.node, now, retry) {
-                continue;
-            }
-            self.last_observed.insert(candidate.node, now);
-            if let Some(request) =
-                registry.observe_process(candidate, inspector.observe(candidate.pid))
-            {
-                requests.push(request);
+        }
+        // Rotate bounded inspections so an inaccessible early node cannot starve later nodes.
+        let mut checks: Vec<_> = due.into_iter().collect();
+        if let Some(cursor) = self.cursor {
+            let split = checks.partition_point(|(serial, _)| *serial <= cursor);
+            checks.rotate_left(split);
+        }
+        let mut requests = Vec::new();
+        for (serial, check) in checks.into_iter().take(budget) {
+            self.cursor = Some(serial);
+            self.last_observed.insert(serial, now);
+            match check {
+                InstanceCheck::Resolved(instance) => {
+                    registry.revalidate_instance(serial, inspector.observe(instance.pid()));
+                }
+                InstanceCheck::Candidate(candidate) => {
+                    if let Some(request) =
+                        registry.observe_process(candidate, inspector.observe(candidate.pid))
+                    {
+                        requests.push(request);
+                    }
+                }
             }
         }
         requests

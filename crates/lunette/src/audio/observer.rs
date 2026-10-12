@@ -91,3 +91,30 @@ impl Drop for CandidateObserver {
         }
     }
 }
+
+#[cfg(test)]
+pub(super) mod tests_support {
+    use super::*;
+
+    pub(crate) struct ObserverControl {
+        pub jobs: Receiver<ObservationJob>,
+        pub results: SyncSender<(ObservationJob, ProcessObservation)>,
+    }
+
+    pub(crate) fn controlled() -> (CandidateObserver, ObserverControl) {
+        let (jobs, input) = mpsc::sync_channel(64);
+        let (output, results) = mpsc::sync_channel(64);
+        (
+            CandidateObserver {
+                jobs: Some(jobs),
+                results: Some(results),
+                shutdown: Arc::new(AtomicBool::new(false)),
+                join: None,
+            },
+            ObserverControl {
+                jobs: input,
+                results: output,
+            },
+        )
+    }
+}

@@ -106,7 +106,8 @@ fn process_instance_reuse_rejected() {
         &mut AdoptedIds::default(),
         external,
         &inspector,
-    );
+    )
+    .expect("adopted identifier available");
     inspector.set_observation(external.get(), live(external, 11));
     assert_eq!(find_by_pid(&adopted, external, &inspector), None);
     let reports = poll(&mut adopted, &inspector);
@@ -121,9 +122,11 @@ fn a_new_adoption_matches_even_with_a_stale_pid_record() {
     let external = pid(4242);
     let mut ids = AdoptedIds::default();
     inspector.set_observation(external.get(), live(external, 10));
-    let old = add_external_process(&mut processes, &mut ids, external, &inspector);
+    let old = add_external_process(&mut processes, &mut ids, external, &inspector)
+        .expect("adopted identifier available");
     inspector.set_observation(external.get(), live(external, 11));
-    let new = add_external_process(&mut processes, &mut ids, external, &inspector);
+    let new = add_external_process(&mut processes, &mut ids, external, &inspector)
+        .expect("adopted identifier available");
     assert_ne!(old, new);
     assert_eq!(
         find_by_pid(&processes, external, &inspector).map(|h| processes[h].id()),
@@ -312,7 +315,8 @@ fn denied_observation_preserves_ownership_reaping_and_adopted_liveness() {
         &mut AdoptedIds::default(),
         external,
         &inspector,
-    );
+    )
+    .expect("adopted identifier available");
     inspector.set_observation(external.get(), denied());
     poll(&mut processes, &inspector);
     assert!(snapshot(&processes)[0].alive);
@@ -338,7 +342,8 @@ fn denied_registration_is_never_bound_to_a_later_pid_observation() {
         &mut AdoptedIds::default(),
         external,
         &inspector,
-    );
+    )
+    .expect("adopted identifier available");
     assert_eq!(snapshot(&processes)[0].instance, None);
     inspector.set_observation(external.get(), live(external, 50));
     poll(&mut processes, &inspector);

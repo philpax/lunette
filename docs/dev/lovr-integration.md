@@ -38,6 +38,7 @@ The series on `lunette`, oldest first:
 | `887ee1e7` | Make native initialization paths explicit | Upstream defect |
 | `19c22780` | Fix material allocation and ownership failure paths | Upstream defect |
 | `ce8705a1` | Expose the audio function registration table | Integration |
+| `c017cccd` | Tie GPU pipelines to shader specialization lifetimes | Upstream defect |
 
 `git -C vendor/lovr log --oneline upstream/dev..lunette` lists the series.
 
@@ -76,6 +77,10 @@ The option links Luau's type checker into `liblovr.so` as a whole archive, for `
 #### Material allocation and ownership failures
 
 Material allocation releases partial resources on failure. Texture replacement prepares its allocation and uniform data before releasing the old descriptor or texture reference. Font atlas and model material setup propagate failures through their cleanup paths. Lua constructors give temporary textures and partial materials userdata ownership before field conversion can raise, and report rejected setters instead of returning an incomplete material.
+
+#### Shader pipeline cache lifetimes
+
+Graphics and compute pipelines belong to the shader specialization that creates them. Clones share their parent's GPU shader but keep separate pipeline caches. Shader release removes the CPU cache entries and queues native pipeline destruction until submitted work completes. Failed clone initialization releases its partial resources and balances the parent reference, and recording failures wait for already queued compilation jobs. The upstream global cache keyed shader and specialization-flag addresses without retaining their owners. Address reuse could therefore select a released shader's pipeline, and its fixed pipeline pool accumulated entries across released lifetimes. The fix belongs upstream because ordinary shader release and reacquisition can trigger the defect without lunette-specific behavior. Native tests cover retirement, identical keys across 9,000 released lifetimes, clone isolation, and failure cleanup. The real offscreen tier checks specialization output and unchanged aurora reacquisition pixels. [Rendering](rendering.md#offscreen-graphics-checks) records the limits of those measurements.
 
 #### Optional callback contextual inference in Luau
 

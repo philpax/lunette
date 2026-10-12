@@ -1,6 +1,9 @@
 //! Registry lifetimes, attribution assertions, and pure non-routing graph decisions.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    time::Duration,
+};
 
 use lunette_compositor::protocol::{
     AudioAttributionReply, AudioAttributionRequest, AudioAttributionRequestId, AudioNodeSerial,
@@ -96,6 +99,8 @@ pub struct RegistrySnapshot {
     attempts: BTreeMap<AudioNodeSerial, AttributionAttempt>,
     instances: BTreeMap<AudioNodeSerial, (NodeIdentity, ProcessInstance)>,
     next_request: u64,
+    attribution_time: Duration,
+    attribution_retry: Duration,
 }
 
 impl RegistrySnapshot {
@@ -110,6 +115,8 @@ impl RegistrySnapshot {
             attempts: BTreeMap::new(),
             instances: BTreeMap::new(),
             next_request: 0,
+            attribution_time: Duration::ZERO,
+            attribution_retry: Duration::from_millis(500),
         }
     }
 
@@ -135,6 +142,8 @@ impl RegistrySnapshot {
         incoming.attempts = std::mem::take(&mut self.attempts);
         incoming.attributions = std::mem::take(&mut self.attributions);
         incoming.next_request = self.next_request;
+        incoming.attribution_time = self.attribution_time;
+        incoming.attribution_retry = self.attribution_retry;
         *self = incoming;
     }
 
@@ -195,6 +204,20 @@ impl RegistrySnapshot {
         })
     }
 
+    /// Advances delivery deadlines without clearing the node's pinned OS instance.
+    /// A timeout only permits a fresh observation; it never authorizes PID reuse.
+    pub fn attribution_tick(&mut self, now: Duration, retry: Duration) {
+        self.attribution_time = self.attribution_time.max(now);
+        self.attribution_retry = retry;
+        for attempt in self.attempts.values_mut() {
+            if let AttemptState::Pending { retry_at, .. } = attempt.state
+                && self.attribution_time >= retry_at
+            {
+                attempt.state = AttemptState::Ready;
+            }
+        }
+    }
+
     pub fn process_candidates(&self) -> Vec<AudioProcessCandidate> {
         self.nodes
             .values()
@@ -248,6 +271,10 @@ impl RegistrySnapshot {
             .get(&candidate.node)
             .is_some_and(|(_, pinned)| *pinned != instance)
         {
+            if let Some(attempt) = self.attempts.get_mut(&candidate.node) {
+                attempt.state = AttemptState::Blocked;
+            }
+            self.attributions.remove(&candidate.node);
             return None;
         }
         self.instances
@@ -274,7 +301,10 @@ impl RegistrySnapshot {
             AttributionAttempt {
                 assertion,
                 instance,
-                state: AttemptState::Pending(request),
+                state: AttemptState::Pending {
+                    request,
+                    retry_at: self.attribution_time.saturating_add(self.attribution_retry),
+                },
             },
         );
         Some(request)
@@ -282,7 +312,7 @@ impl RegistrySnapshot {
 
     pub fn cancel_attribution(&mut self, request: AudioAttributionRequest) {
         if let Some(attempt) = self.attempts.get_mut(&request.node)
-            && attempt.state == AttemptState::Pending(request)
+            && matches!(attempt.state, AttemptState::Pending { request: pending, .. } if pending == request)
         {
             attempt.state = AttemptState::Ready;
         }
@@ -304,7 +334,7 @@ impl RegistrySnapshot {
             return false;
         };
         if reply.request.generation != self.generation
-            || attempt.state != AttemptState::Pending(reply.request)
+            || !matches!(attempt.state, AttemptState::Pending { request, .. } if request == reply.request)
             || self.assertion(reply.request.node) != AssertionStatus::Live(attempt.assertion)
         {
             return false;
@@ -368,7 +398,10 @@ struct AttributionAttempt {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum AttemptState {
     Ready,
-    Pending(AudioAttributionRequest),
+    Pending {
+        request: AudioAttributionRequest,
+        retry_at: Duration,
+    },
     Resolved,
     Blocked,
 }

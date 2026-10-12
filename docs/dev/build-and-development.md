@@ -147,6 +147,7 @@ The Nix development shell has an opt-in software-driver variant:
 
 ```sh
 nix develop .#graphics -c env -u DISPLAY -u WAYLAND_DISPLAY make check-graphics
+nix develop .#graphics -c env -u DISPLAY -u WAYLAND_DISPLAY make check
 ```
 
 On Debian or Ubuntu, `mesa-vulkan-drivers` supplies the software driver. The JSON path is `/usr/share/vulkan/icd.d/lvp_icd.x86_64.json` on releases with architecture-qualified names, or `/usr/share/vulkan/icd.d/lvp_icd.json` otherwise:

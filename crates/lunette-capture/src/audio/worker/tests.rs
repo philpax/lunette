@@ -128,6 +128,184 @@ fn fresh_registry_observation_rejects_reply_after_client_reuse() {
 }
 
 #[test]
+fn dropped_resolver_request_retries_the_same_node_and_rejects_the_old_reply() {
+    recover_dropped_delivery(false);
+}
+
+#[test]
+fn dropped_resolver_reply_retries_the_same_node_and_rejects_the_old_reply() {
+    recover_dropped_delivery(true);
+}
+
+fn recover_dropped_delivery(drop_reply: bool) {
+    let mut snapshot = system();
+    playback(&mut snapshot, 20, &["FL", "FR"]);
+    mixer(&mut snapshot);
+    let mut ops = RecordingGraphOps::new(snapshot);
+    let retry = Duration::from_millis(10);
+    let mut driver = GraphDriver::new("test".into(), retry);
+    driver.start(CaptureId(1), Source::Process(process()));
+    driver.process_status(process(), ProcessCaptureStatus::Live);
+    let inspector = Inspector::new(&[live(1); 4]);
+    let mut worker = AttributionWorker::default();
+    let mut requests = Vec::new();
+    driver.tick_with_registry(Duration::ZERO, &mut ops, &mut |registry| {
+        requests = worker.observe(registry, Duration::ZERO, retry, &inspector, 1);
+    });
+    assert_eq!(requests.len(), 1);
+    let old = AudioAttributionReply {
+        request: requests[0],
+        process: Some(process()),
+    };
+    let (sender, receiver) = mpsc::sync_channel(1);
+    sender.try_send(old).unwrap_or_else(|_| unreachable!());
+    if drop_reply {
+        assert!(matches!(sender.try_send(old), Err(TrySendError::Full(_))));
+    } else {
+        // A command batch can disappear after the request leaves the audio backend.
+        drop(receiver);
+    }
+    driver.tick_with_registry(Duration::from_millis(9), &mut ops, &mut |registry| {
+        assert!(
+            worker
+                .observe(registry, Duration::from_millis(9), retry, &inspector, 1)
+                .is_empty()
+        );
+    });
+    driver.tick_with_registry(retry, &mut ops, &mut |registry| {
+        requests = worker.observe(registry, retry, retry, &inspector, 1);
+    });
+    assert_eq!(
+        requests.len(),
+        1,
+        "undelivered attribution must become retryable"
+    );
+    let retried = requests[0];
+    assert_ne!(retried.request, old.request.request);
+    assert_eq!(retried.node, old.request.node);
+    assert_eq!(retried.generation, old.request.generation);
+    assert_eq!(retried.candidate, old.request.candidate);
+    let events = driver.tick_with_registry(Duration::from_millis(11), &mut ops, &mut |registry| {
+        assert!(!worker.reply(registry, old, &inspector));
+        assert!(worker.reply(
+            registry,
+            AudioAttributionReply {
+                request: retried,
+                process: Some(process())
+            },
+            &inspector
+        ));
+    });
+    assert!(events.iter().any(|event| matches!(
+        event,
+        AudioBackendEvent::State {
+            state: crate::audio::CaptureState::Active { .. },
+            ..
+        }
+    )));
+    assert_eq!(driver.registry.nodes[&20].identity, identity(20));
+    assert_eq!(
+        driver.registry.clients[&40].identity,
+        ops.snapshot.clients[&40].identity
+    );
+    assert_eq!(driver.registry.attributions.len(), 1);
+}
+
+#[test]
+fn timeout_cannot_rebind_a_reused_pid_or_revive_an_old_reply() {
+    let mut registry = system();
+    playback(&mut registry, 20, &["FL"]);
+    let mut worker = AttributionWorker::default();
+    let retry = Duration::from_millis(10);
+    let inspector = Inspector::new(&[live(1), live(2), live(2), live(1)]);
+    let original = worker.observe(&mut registry, Duration::ZERO, retry, &inspector, 1)[0];
+    assert!(
+        worker
+            .observe(&mut registry, retry, retry, &inspector, 1)
+            .is_empty()
+    );
+    assert!(
+        worker
+            .observe(&mut registry, retry * 2, retry, &inspector, 1)
+            .is_empty()
+    );
+    assert!(!worker.reply(
+        &mut registry,
+        AudioAttributionReply {
+            request: original,
+            process: Some(process())
+        },
+        &inspector
+    ));
+    assert!(registry.attributions.is_empty());
+    assert!(registry.process_candidates().is_empty());
+    assert!(
+        worker
+            .observe(&mut registry, retry * 3, retry, &inspector, 1)
+            .is_empty()
+    );
+}
+
+#[test]
+fn zero_budget_does_not_extend_a_pending_deadline_or_accept_its_late_reply() {
+    let mut registry = system();
+    playback(&mut registry, 20, &["FL"]);
+    let retry = Duration::from_millis(10);
+    let inspector = Inspector::new(&[live(1); 3]);
+    let mut worker = AttributionWorker::default();
+    let request = worker.observe(&mut registry, Duration::ZERO, retry, &inspector, 1)[0];
+    assert!(
+        worker
+            .observe(&mut registry, retry, retry, &inspector, 0)
+            .is_empty()
+    );
+    assert!(!worker.reply(
+        &mut registry,
+        AudioAttributionReply {
+            request,
+            process: Some(process())
+        },
+        &inspector
+    ));
+    let retried = worker.observe(&mut registry, retry, retry, &inspector, 1);
+    assert_eq!(retried.len(), 1);
+    assert_ne!(retried[0].request, request.request);
+}
+
+#[test]
+fn unavailable_nodes_cannot_starve_later_nodes_or_grow_timing_history() {
+    let mut registry = system();
+    for global in 20..24 {
+        playback(&mut registry, global, &["FL"]);
+    }
+    let denied = ProcessObservation::Unavailable(ProcessObservationFailure::AccessDenied);
+    let inspector = Inspector::new(&[denied; 9]);
+    let retry = Duration::from_millis(10);
+    let mut worker = AttributionWorker::default();
+    for tick in 0..4 {
+        let before = inspector.calls.lock().len();
+        assert!(
+            worker
+                .observe(&mut registry, retry * tick, retry, &inspector, 1)
+                .is_empty()
+        );
+        assert_eq!(inspector.calls.lock().len(), before + 1);
+        assert_eq!(worker.last_observed.len(), tick as usize + 1);
+    }
+    assert_eq!(
+        worker.last_observed.keys().copied().collect::<Vec<_>>(),
+        (20..24)
+            .map(|global| identity(global).serial)
+            .collect::<Vec<_>>()
+    );
+    for global in 20..24 {
+        registry.remove(global);
+    }
+    worker.observe(&mut registry, retry * 4, retry, &inspector, 1);
+    assert!(worker.last_observed.is_empty());
+}
+
+#[test]
 fn backend_poll_and_deferred_stops_remain_bounded_without_a_server() {
     let (commands, received) = mpsc::sync_channel(1);
     let (events, event_rx) = mpsc::sync_channel(64);

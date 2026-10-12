@@ -58,7 +58,7 @@ A window is not a distinct object type. It is a texture, an input sink, and meta
 - [Input](input.md): sinks, seats, keyboards, keyboard routing, pointer input, and XR input.
 - [The Lua API](lua-api.md): the native API, plugin authoring, the contracts, reload, errors, and `lunctl`.
 - [Standard library](stdlib.md): the module roots, the built-in plugins, and the shipped desktop.
-- [Audio](audio.md): per-application spatial audio, specified and deferred.
+- [Audio](audio.md): non-routing PCM capture, reusable analysis, and deferred spatial playback routing.
 - [Build and development](build-and-development.md): layout, build, Nix, the development loop, and testing.
 - [Roadmap](roadmap.md): the work beyond v1 and upstream work.
 - [Credits](../../CREDITS.md): the projects lunette builds on and their licences.
