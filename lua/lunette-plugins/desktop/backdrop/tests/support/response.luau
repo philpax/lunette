@@ -12,7 +12,16 @@ type Environment = typeof(fixture.boot(backdrop.create())) & {
   provider: adapter.Instance<{}>,
   readers: { analysis.Reader },
   counts: () -> (number, number, number),
-  publish: (analysis.Source, number, number, { analysis.Hop }?, { number }?, analysis.State?, boolean?) -> (),
+  publish: (
+    analysis.Source,
+    number,
+    number,
+    { analysis.Hop }?,
+    { number }?,
+    analysis.State?,
+    boolean?,
+    { number }?
+  ) -> (),
   update: (number, boolean?) -> (),
 }
 
@@ -95,7 +104,8 @@ function response.boot(): Environment
     hops: { analysis.Hop }?,
     powers: { number }?,
     audioState: analysis.State?,
-    gap: boolean?
+    gap: boolean?,
+    spectrum: { number }?
   ): ()
     local old = snapshots[key(source)]
     local steady: analysis.Steady = {
@@ -106,6 +116,7 @@ function response.boot(): Environment
       bassPower = powers and powers[1] or 0.01,
       midPower = powers and powers[2] or 0.02,
       treblePower = powers and powers[3] or 0.03,
+      spectrum = spectrum or { 0.002, 0.003, 0.005, 0.006, 0.007, 0.007, 0.02, 0.01 },
     }
     snapshots[key(source)] = {
       source = source,
@@ -128,7 +139,14 @@ function response.boot(): Environment
   return env
 end
 
-function response.hop(generation: number, ending: number, onset: number): analysis.Hop
+-- The onset lands in the mid band unless another band is named, matching a band-less model onset.
+function response.hop(
+  generation: number,
+  ending: number,
+  onset: number,
+  band: ('bass' | 'mid' | 'treble')?
+): analysis.Hop
+  local chosen = band or 'mid'
   return {
     generation = generation,
     endFrame = ending,
@@ -137,8 +155,12 @@ function response.hop(generation: number, ending: number, onset: number): analys
     bassPower = 0.01,
     midPower = 0.02,
     treblePower = 0.03,
+    spectrum = { 0.002, 0.003, 0.005, 0.006, 0.007, 0.007, 0.02, 0.01 },
     flux = 0.2,
     onset = onset,
+    bassOnset = if chosen == 'bass' then onset else 0,
+    midOnset = if chosen == 'mid' then onset else 0,
+    trebleOnset = if chosen == 'treble' then onset else 0,
   }
 end
 

@@ -11,6 +11,13 @@ local draw = {}
 export type Renderer = { read render: (Pass, model.Frame, vector) -> () }
 type Resources = { sky: Mesh, curtain: Mesh, skyShader: Shader, curtainShader: Shader }
 local acquireResources: (plugin.Context, config.Settings) -> Resources
+local BAND_INDEX = table.freeze { bass = 1, mid = 2, treble = 3 } :: { read [model.Band]: number }
+-- Each layer leans toward one band, inner to outer: bass, mid, then treble.
+local LAYER_FOCUS = table.freeze {
+  table.freeze { 1.6, 0.6, 0.6, 0 },
+  table.freeze { 0.6, 1.6, 0.6, 0 },
+  table.freeze { 0.6, 0.6, 1.6, 0 },
+}
 
 function draw.new(context: plugin.Context, settings: config.Settings): Renderer
   local resources: Resources? = nil
@@ -31,25 +38,44 @@ function draw.new(context: plugin.Context, settings: config.Settings): Renderer
         pass:setBlendMode('alpha', 'premultiplied')
         pass:setColor(1, 1, 1, 1)
         pass:setShader(held.skyShader)
+        local response = { frame.bass, frame.mid, frame.treble, frame.brightness }
+        local waves: { { number } } = {}
+        for index = 1, model.MAX_WAVES do
+          local wave = frame.waves[index]
+          waves[index] = if wave
+            then {
+              wave.age,
+              wave.strength * (1 - wave.age / wave.lifetime) * frame.responseStrength,
+              wave.position,
+              BAND_INDEX[wave.band],
+            }
+            else { 0, 0, 0, 0 }
+        end
+        local spectrum = frame.spectrum
         pass:send('backdropSky', { frame.visibility, frame.time, frame.brightness, 0 })
+        pass:send('backdropResponse', response)
         pass:send('backdropZenith', settings.palette.zenith)
         pass:send('backdropHorizon', settings.palette.horizon)
         pass:send('backdropGlint', settings.palette.glint)
+        pass:send('backdropBass', settings.palette.bass)
+        pass:send('backdropTreble', settings.palette.treble)
+        pass:send('backdropWaves', waves)
         pass:draw(held.sky)
         pass:setShader(held.curtainShader)
-        pass:send('backdropResponse', { frame.bass, frame.mid, frame.treble, frame.brightness })
+        pass:send('backdropResponse', response)
+        pass:send('backdropSpectrum', {
+          { spectrum[1], spectrum[2], spectrum[3], spectrum[4] },
+          { spectrum[5], spectrum[6], spectrum[7], spectrum[8] },
+        })
         pass:send('backdropLow', settings.palette.low)
         pass:send('backdropHigh', settings.palette.high)
-        local waves: { { number } } = {}
-        for index = 1, 8 do
-          local wave = frame.waves[index]
-          waves[index] = if wave
-            then { wave.age, wave.strength * (1 - wave.age / 3) * frame.responseStrength, wave.position, 0 }
-            else { 0, 0, 0, 0 }
-        end
+        pass:send('backdropBass', settings.palette.bass)
+        pass:send('backdropMid', settings.palette.mid)
+        pass:send('backdropTreble', settings.palette.treble)
         pass:send('backdropWaves', waves)
         for layer = 0, 2 do
           pass:send('backdropScene', { frame.visibility, frame.time, layer, settings.distance })
+          pass:send('backdropFocus', LAYER_FOCUS[layer + 1])
           pass:draw(held.curtain)
         end
       end)

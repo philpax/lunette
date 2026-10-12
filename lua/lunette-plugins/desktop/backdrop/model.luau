@@ -1,12 +1,23 @@
 -- Pure visibility, autonomous motion, and bounded response to normalized audio features.
+-- Each coarse band has its own onset action: bass heaves the curtains, mid sends a travelling ripple, and
+-- treble scatters glints. Waves are pooled per band so frequent treble onsets cannot evict a bass heave.
 local config = require './config'
 
 local model = {}
 
-export type Features = { read bass: number, read mid: number, read treble: number }
-export type Onset = { read strength: number, read position: number?, read age: number? }
+export type Band = 'bass' | 'mid' | 'treble'
+-- Spectrum holds eight normalized bands from low to high. Without it, each coarse band fills its own bands.
+export type Features = {
+  read bass: number,
+  read mid: number,
+  read treble: number,
+  read spectrum: { read [number]: number }?,
+}
+-- An onset without a band is a mid ripple.
+export type Onset = { read strength: number, read position: number?, read age: number?, read band: Band? }
 export type FeatureOptions = { read gap: ('publication' | 'capacity')?, read discardedHops: number? }
-export type Wave = { age: number, strength: number, position: number }
+export type Wave = { age: number, strength: number, position: number, band: Band, lifetime: number }
+type Response = { bass: number, mid: number, treble: number, spectrum: { number } }
 export type Frame = {
   read visibility: number,
   read time: number,
@@ -14,6 +25,7 @@ export type Frame = {
   read mid: number,
   read treble: number,
   read brightness: number,
+  read spectrum: { read [number]: number },
   read responseStrength: number,
   read onsetGap: ('publication' | 'capacity')?,
   read discardedHops: number,
@@ -24,11 +36,11 @@ export type State = {
   enabled: boolean,
   visibility: number,
   time: number,
-  response: Features,
-  target: Features,
+  response: Response,
+  target: Response,
   responseStrength: number,
   motionStrength: number,
-  transitionFrom: Features,
+  transitionFrom: Response,
   transitionAge: number,
   transitioning: boolean,
   settling: boolean,
@@ -45,13 +57,20 @@ export type State = {
 
 local State = {}
 State.__index = State
-local ZERO: Features = table.freeze { bass = 0, mid = 0, treble = 0 }
-local WAVE_LIFETIME = 3
-local MAX_WAVES = 8
+model.SPECTRUM_BANDS = 8
+-- The coarse band of each spectrum band, matching the analysis edges at 250 and 2000 Hz.
+local COARSE: { Band } = table.freeze({ 'bass', 'bass', 'bass', 'mid', 'mid', 'mid', 'treble', 'treble' } :: { Band })
+model.waveLifetimes = table.freeze { bass = 1.6, mid = 3, treble = 0.9 } :: { read [Band]: number }
+model.wavePools = table.freeze { bass = 4, mid = 8, treble = 8 } :: { read [Band]: number }
+model.MAX_WAVES = model.wavePools.bass + model.wavePools.mid + model.wavePools.treble
 local finite: (number) -> boolean
 local unit: (number) -> number
-local mix: (Features, Features, number) -> Features
+local zero: () -> Response
+local normalized: (Features) -> Response
+local mix: (Response, Response, number) -> Response
 local envelope: (number, number, number, config.Settings) -> number
+local countBand: ({ Wave }, Band) -> number
+local removeOldest: ({ Wave }, Band) -> ()
 
 function model.new(settings: config.Settings): State
   return setmetatable({
@@ -59,11 +78,11 @@ function model.new(settings: config.Settings): State
     enabled = settings.enabled,
     visibility = 0,
     time = 0,
-    response = ZERO,
-    target = ZERO,
+    response = zero(),
+    target = zero(),
     responseStrength = settings.response,
     motionStrength = settings.motion,
-    transitionFrom = ZERO,
+    transitionFrom = zero(),
     transitionAge = 0,
     transitioning = false,
     settling = true,
@@ -83,7 +102,7 @@ end
 
 -- Ages are relative to cumulative PCM publication sample time, not the render delta that delivers the hop.
 function State.setFeatures(self: State, features: Features, onsets: { Onset }?, options: FeatureOptions?): ()
-  self.target = { bass = unit(features.bass), mid = unit(features.mid), treble = unit(features.treble) }
+  self.target = normalized(features)
   if self.settling then
     self.transitioning = false
   end
@@ -99,22 +118,42 @@ function State.setFeatures(self: State, features: Features, onsets: { Onset }?, 
   if not onsets then
     return
   end
-  if #onsets > MAX_WAVES then
-    self.onsetGap = 'capacity'
-    self.discardedHops = math.min(self.discardedHops + #onsets - MAX_WAVES, 9007199254740991)
-    table.clear(self.waves)
+  -- Only the newest pool-sized run of each band can survive this publication.
+  local remaining: { [Band]: number } = { bass = 0, mid = 0, treble = 0 }
+  for _, onset in onsets do
+    local band: Band = onset.band or 'mid'
+    remaining[band] += 1
   end
-  for index = math.max(1, #onsets - MAX_WAVES + 1), #onsets do
-    local onset = onsets[index]
+  for band, count in remaining do
+    if count > model.wavePools[band] then
+      self.onsetGap = 'capacity'
+      self.discardedHops = math.min(self.discardedHops + count - model.wavePools[band], 9007199254740991)
+      for index = #self.waves, 1, -1 do
+        if self.waves[index].band == band then
+          table.remove(self.waves, index)
+        end
+      end
+    end
+  end
+  for _, onset in onsets do
+    local band: Band = onset.band or 'mid'
+    remaining[band] -= 1
+    local lifetime = model.waveLifetimes[band]
     local strength, givenAge = unit(onset.strength), onset.age or 0
-    local age = if finite(givenAge) then math.max(0, givenAge) else WAVE_LIFETIME
-    if strength > 0 and age < WAVE_LIFETIME then
-      if #self.waves == MAX_WAVES then
-        table.remove(self.waves, 1)
+    local age = if finite(givenAge) then math.max(0, givenAge) else lifetime
+    if remaining[band] < model.wavePools[band] and strength > 0 and age < lifetime then
+      if countBand(self.waves, band) == model.wavePools[band] then
+        removeOldest(self.waves, band)
         self.onsetGap = 'capacity'
         self.discardedHops = math.min(self.discardedHops + 1, 9007199254740991)
       end
-      table.insert(self.waves, { age = age, strength = strength, position = unit(onset.position or 0) })
+      table.insert(self.waves, {
+        age = age,
+        strength = strength,
+        position = unit(onset.position or 0),
+        band = band,
+        lifetime = lifetime,
+      })
     end
   end
 end
@@ -123,7 +162,7 @@ end
 function State.sourceChanged(self: State): ()
   self.transitionFrom = self.response
   self.transitionAge = 0
-  self.target = ZERO
+  self.target = zero()
   self.transitioning, self.settling = true, false
 end
 
@@ -134,7 +173,7 @@ function State.noAudio(self: State): ()
   end
   self.transitionFrom = self.response
   self.transitionAge = 0
-  self.target = ZERO
+  self.target = zero()
   self.transitioning, self.settling = true, true
 end
 
@@ -155,20 +194,30 @@ function State.update(self: State, dt: number, mainSessionVisible: boolean): Fra
       self.transitioning = false
     end
   elseif elapsed > 0 then
+    local current, goal = self.response, self.target
+    local spectrum = table.create(model.SPECTRUM_BANDS, 0)
+    for band = 1, model.SPECTRUM_BANDS do
+      spectrum[band] = envelope(current.spectrum[band], goal.spectrum[band], elapsed, self.settings)
+    end
     self.response = {
-      bass = envelope(self.response.bass, self.target.bass, elapsed, self.settings),
-      mid = envelope(self.response.mid, self.target.mid, elapsed, self.settings),
-      treble = envelope(self.response.treble, self.target.treble, elapsed, self.settings),
+      bass = envelope(current.bass, goal.bass, elapsed, self.settings),
+      mid = envelope(current.mid, goal.mid, elapsed, self.settings),
+      treble = envelope(current.treble, goal.treble, elapsed, self.settings),
+      spectrum = spectrum,
     }
   end
   for index = #self.waves, 1, -1 do
     local wave = self.waves[index]
-    wave.age = math.min(wave.age + elapsed, WAVE_LIFETIME)
-    if wave.age >= WAVE_LIFETIME then
+    wave.age = math.min(wave.age + elapsed, wave.lifetime)
+    if wave.age >= wave.lifetime then
       table.remove(self.waves, index)
     end
   end
   local response = self.responseStrength
+  local spectrum = table.create(model.SPECTRUM_BANDS, 0)
+  for band = 1, model.SPECTRUM_BANDS do
+    spectrum[band] = self.response.spectrum[band] * response
+  end
   return {
     visibility = self.visibility,
     time = self.time,
@@ -176,6 +225,7 @@ function State.update(self: State, dt: number, mainSessionVisible: boolean): Fra
     mid = self.response.mid * response,
     treble = self.response.treble * response,
     brightness = math.clamp(self.settings.brightness * (0.85 + 0.15 * self.response.bass * response), 0, 1),
+    spectrum = spectrum,
     responseStrength = response,
     onsetGap = self.onsetGap,
     discardedHops = self.discardedHops,
@@ -191,11 +241,37 @@ unit = function(value: number): number
   return if finite(value) then math.clamp(value, 0, 1) else 0
 end
 
-mix = function(a: Features, b: Features, amount: number): Features
+zero = function(): Response
+  return { bass = 0, mid = 0, treble = 0, spectrum = table.create(model.SPECTRUM_BANDS, 0) }
+end
+
+normalized = function(features: Features): Response
+  local result: Response = {
+    bass = unit(features.bass),
+    mid = unit(features.mid),
+    treble = unit(features.treble),
+    spectrum = table.create(model.SPECTRUM_BANDS, 0),
+  }
+  local given = features.spectrum
+  for band = 1, model.SPECTRUM_BANDS do
+    local value = if given then given[band] else nil
+    local coarse = COARSE[band]
+    local fallback = if coarse == 'bass' then result.bass elseif coarse == 'mid' then result.mid else result.treble
+    result.spectrum[band] = if value ~= nil then unit(value) else fallback
+  end
+  return result
+end
+
+mix = function(a: Response, b: Response, amount: number): Response
+  local spectrum = table.create(model.SPECTRUM_BANDS, 0)
+  for band = 1, model.SPECTRUM_BANDS do
+    spectrum[band] = a.spectrum[band] + (b.spectrum[band] - a.spectrum[band]) * amount
+  end
   return {
     bass = a.bass + (b.bass - a.bass) * amount,
     mid = a.mid + (b.mid - a.mid) * amount,
     treble = a.treble + (b.treble - a.treble) * amount,
+    spectrum = spectrum,
   }
 end
 
@@ -203,6 +279,25 @@ envelope = function(current: number, target: number, dt: number, settings: confi
   local duration = if target > current then settings.attackDuration else settings.releaseDuration
   local amount = if duration == 0 then 1 else 1 - math.exp(-math.min(dt, 60) / duration)
   return current + (target - current) * amount
+end
+
+countBand = function(waves: { Wave }, band: Band): number
+  local count = 0
+  for _, wave in waves do
+    if wave.band == band then
+      count += 1
+    end
+  end
+  return count
+end
+
+removeOldest = function(waves: { Wave }, band: Band): ()
+  for index, wave in waves do
+    if wave.band == band then
+      table.remove(waves, index)
+      return
+    end
+  end
 end
 
 return model

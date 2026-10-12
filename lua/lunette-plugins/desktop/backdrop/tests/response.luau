@@ -317,7 +317,7 @@ test('offered selected panels supply smoothed onset longitude without coupling t
   env.update(0.01, false)
   expect.equal(#env.model.waves, 1, 'selected onset')
   local longitude = env.model.waves[1].position
-  expect.truthy(longitude > 0.2 and longitude < 0.25, 'azimuth smoothed toward right-side panel')
+  expect.near(longitude, 0.25, 1e-8, 'the first panel azimuth is taken without a sweep')
   panelProvider:disable()
   env.session.runtime:drain()
   env.publish(source, 1, 4608, { support.hop(1, 4608, 1) })

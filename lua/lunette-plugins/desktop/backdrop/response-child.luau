@@ -14,13 +14,24 @@ type Slot = {
   endFrame: number?,
   publication: number?,
 }
-local ZERO: model.Features = table.freeze { bass = 0, mid = 0, treble = 0 }
-local MAX_ONSETS = 8
+local ZERO: model.Features = table.freeze {
+  bass = 0,
+  mid = 0,
+  treble = 0,
+  spectrum = table.freeze(table.create(model.SPECTRUM_BANDS, 0)),
+}
+local BANDS: { model.Band } = table.freeze({ 'bass', 'mid', 'treble' } :: { model.Band })
+-- Narrow bands hold less power than the coarse bands, and recorded music falls off with frequency, so the
+-- fixed spectrum calibration rises from the coarse gain scaled for one octave to a treble lift.
+local SPECTRUM_GAINS = table.freeze { 7, 7, 7, 7, 8, 10, 12, 14 }
 local same: (analysis.Source?, analysis.Source?) -> boolean
 local mapped: (analysis.Steady) -> model.Features
-local power: (number) -> number
+local power: (number, number) -> number
 local mixed: (model.Features, model.Features, number) -> model.Features
 local newest: (analysis.Snapshot) -> number?
+local bandOnset: (analysis.Hop, model.Band) -> number
+local removeOldest: ({ model.Onset }, model.Band) -> ()
+local scatter: (number, number) -> number
 
 -- Direction is normalized longitude. An optional panels child supplies it; analysis never requires panels or UI.
 function responseChild.new(
@@ -43,7 +54,9 @@ function responseChild.new(
       local from: model.Features = ZERO
       local last: model.Features = ZERO
       local readOutgoing = false
-      local longitude = 0
+      -- Longitude 0.5 faces -z, LÖVR's forward, until a panel offers a direction.
+      local longitude = 0.5
+      local directed = false
       local function close(slot: Slot?): ()
         if slot then
           slot.reader:close()
@@ -115,7 +128,9 @@ function responseChild.new(
           if offered and offered == offered and math.abs(offered) < math.huge then
             local destination = math.clamp(offered, 0, 1)
             local delta = (destination - longitude + 0.5) % 1 - 0.5
-            longitude = (longitude + delta * (1 - math.exp(-math.min(elapsed, 60) / 0.25))) % 1
+            local follow = if directed then 1 - math.exp(-math.min(elapsed, 60) / 0.25) else 1
+            longitude = (longitude + delta * follow) % 1
+            directed = true
           end
           local slot = current
           local snapshot = if slot then slot.reader:snapshot() else nil
@@ -133,6 +148,7 @@ function responseChild.new(
             return
           end
           local onsets: { model.Onset } = {}
+          local counts: { [model.Band]: number } = { bass = 0, mid = 0, treble = 0 }
           local discarded = 0
           local gap: ('publication' | 'capacity')? = nil
           if active and slot and snapshot and slot.publication ~= snapshot.frameGeneration then
@@ -146,21 +162,27 @@ function responseChild.new(
             for _, hop in snapshot.hops do
               if hop.generation == snapshot.generation and (slot.endFrame == nil or hop.endFrame > slot.endFrame) then
                 slot.endFrame = hop.endFrame
-                if hop.onset > 0 then
-                  if #onsets == MAX_ONSETS then
-                    table.remove(onsets, 1)
-                    discarded += 1
-                    gap = 'capacity'
+                local age = if publicationEnd then math.max(0, publicationEnd - hop.endFrame) / 48000 else 0
+                local weight = if settings.crossfadeDuration == 0
+                  then 1
+                  else math.clamp((fadeAge - age) / settings.crossfadeDuration, 0, 1)
+                for _, band in BANDS do
+                  local strength = bandOnset(hop, band)
+                  if strength > 0 then
+                    if counts[band] == model.wavePools[band] then
+                      removeOldest(onsets, band)
+                      discarded += 1
+                      gap = 'capacity'
+                    else
+                      counts[band] += 1
+                    end
+                    onsets[#onsets + 1] = {
+                      strength = strength * weight,
+                      position = if band == 'treble' then scatter(longitude, hop.endFrame) else longitude,
+                      age = age,
+                      band = band,
+                    }
                   end
-                  local age = if publicationEnd then math.max(0, publicationEnd - hop.endFrame) / 48000 else 0
-                  local weight = if settings.crossfadeDuration == 0
-                    then 1
-                    else math.clamp((fadeAge - age) / settings.crossfadeDuration, 0, 1)
-                  onsets[#onsets + 1] = {
-                    strength = math.clamp(hop.onset, 0, 1) * weight,
-                    position = longitude,
-                    age = age,
-                  }
                 end
               end
             end
@@ -182,23 +204,61 @@ same = function(a: analysis.Source?, b: analysis.Source?): boolean
 end
 
 mapped = function(steady: analysis.Steady): model.Features
-  return { bass = power(steady.bassPower), mid = power(steady.midPower), treble = power(steady.treblePower) }
+  local spectrum = table.create(model.SPECTRUM_BANDS, 0)
+  for band = 1, model.SPECTRUM_BANDS do
+    spectrum[band] = power(steady.spectrum[band] or 0, SPECTRUM_GAINS[band])
+  end
+  return {
+    bass = power(steady.bassPower, 4),
+    mid = power(steady.midPower, 4),
+    treble = power(steady.treblePower, 4),
+    spectrum = spectrum,
+  }
 end
 
 -- Fixed full-scale calibration preserves silence and absolute strength; no per-frame peak normalization is used.
-power = function(value: number): number
+power = function(value: number, gain: number): number
   if value ~= value or math.abs(value) == math.huge or value <= 0 then
     return 0
   end
-  return math.clamp(math.sqrt(value) * 4, 0, 1)
+  return math.clamp(math.sqrt(value) * gain, 0, 1)
 end
 
 mixed = function(a: model.Features, b: model.Features, amount: number): model.Features
+  local spectrum = table.create(model.SPECTRUM_BANDS, 0)
+  local from, to = a.spectrum, b.spectrum
+  for band = 1, model.SPECTRUM_BANDS do
+    local start = if from then from[band] else 0
+    local finish = if to then to[band] else 0
+    spectrum[band] = start + (finish - start) * amount
+  end
   return {
     bass = a.bass + (b.bass - a.bass) * amount,
     mid = a.mid + (b.mid - a.mid) * amount,
     treble = a.treble + (b.treble - a.treble) * amount,
+    spectrum = spectrum,
   }
+end
+
+bandOnset = function(hop: analysis.Hop, band: model.Band): number
+  local value = if band == 'bass' then hop.bassOnset elseif band == 'mid' then hop.midOnset else hop.trebleOnset
+  return if value == value then math.clamp(value, 0, 1) else 0
+end
+
+removeOldest = function(onsets: { model.Onset }, band: model.Band): ()
+  for index, onset in onsets do
+    if onset.band == band then
+      table.remove(onsets, index)
+      return
+    end
+  end
+end
+
+-- Treble glints spread across a quarter turn around the anchor. Sample time seeds the spread, so a replayed
+-- publication would land at the same place and the result does not depend on the render clock.
+scatter = function(anchor: number, endFrame: number): number
+  local spread = (math.sin(endFrame * 12.9898) * 43758.5453) % 1
+  return (anchor + (spread - 0.5) * 0.25) % 1
 end
 
 newest = function(snapshot: analysis.Snapshot): number?

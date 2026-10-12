@@ -8,6 +8,10 @@ local palette = schema.object {
   low = schema.default(color) { 0.05, 0.52, 0.24 },
   high = schema.default(color) { 0.12, 0.18, 0.45 },
   glint = schema.default(color) { 0.4, 0.65, 0.6 },
+  -- Each coarse audio band lights the curtains and colours its onset action in its own hue.
+  bass = schema.default(color) { 0.62, 0.04, 0.24 },
+  mid = schema.default(color) { 0.06, 0.62, 0.26 },
+  treble = schema.default(color) { 0.3, 0.36, 0.95 },
 }
 local descriptor = schema.object {
   enabled = schema.default(schema.boolean())(true),

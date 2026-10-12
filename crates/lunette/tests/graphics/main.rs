@@ -61,6 +61,7 @@ fn serial_fixtures(roots: &Roots) -> Result<(), String> {
     fixture(roots, "pixels")?;
     for module in [
         "aurora-baseline",
+        "aurora-bands",
         "aurora-transparency",
         "aurora-reload",
         "shader-specialization",

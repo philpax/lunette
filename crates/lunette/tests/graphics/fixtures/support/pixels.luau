@@ -6,6 +6,7 @@ export type Sample = { r: number, g: number, b: number, a: number }
 export type ImageData = { width: number, height: number, values: { Sample } }
 export type Summary = { low: number, high: number, nonblank: number, mean: number, alpha: number }
 export type Difference = { alpha: number, color: number, shape: number, changed: number, x: number }
+export type Added = { r: number, g: number, b: number, y: number }
 
 function pixels.read(image: Image): ImageData
   local width, height = image:getDimensions()
@@ -67,6 +68,23 @@ function pixels.difference(a: ImageData, b: ImageData): Difference
     changed = changed / #a.values,
     x = xMoment / math.max(weight, 1e-9),
   }
+end
+
+-- Light that b adds over a, per channel, with the added light's vertical centroid from 0 at the top.
+function pixels.added(a: ImageData, b: ImageData): Added
+  local r, g, bl, weight, yMoment = 0, 0, 0, 0, 0
+  for index, p in a.values do
+    local q = b.values[index]
+    local dr, dg, db = math.max(0, q.r - p.r), math.max(0, q.g - p.g), math.max(0, q.b - p.b)
+    r += dr
+    g += dg
+    bl += db
+    local total = dr + dg + db
+    weight += total
+    yMoment += total * ((index - 1) // a.width) / a.height
+  end
+  local count = #a.values
+  return { r = r / count, g = g / count, b = bl / count, y = yMoment / math.max(weight, 1e-9) }
 end
 
 function pixels.at(image: ImageData, x: number, y: number): Sample
