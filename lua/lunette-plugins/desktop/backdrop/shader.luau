@@ -25,7 +25,7 @@ local WAVES = [[
 ]]
 
 -- Wavefront speeds in turns of the ring per second.
-local BASS_SPEED = 0.22
+local BASS_SPEED = 0.3
 local MID_SPEED = 0.16
 
 local function withWaves(source: string): string
@@ -156,6 +156,10 @@ shader.curtainFragment = withWaves [[
   uniform vec3 backdropMid;
   uniform vec3 backdropTreble;
 
+  // A travelling wavefront as a few concentric ripples under one envelope, centred on the leading ring.
+  float ripple(float front) {
+    return exp(-front * front * 180.) * (.55 + .45 * cos(front * 110.));
+  }
   float spectrum(int index) {
     vec4 group = backdropSpectrum[index / 4];
     int lane = index - (index / 4) * 4;
@@ -181,14 +185,20 @@ shader.curtainFragment = withWaves [[
     mid *= mid;
     treble *= treble;
 
-    float r1 = .5 + .5 * sin(phase * 43. + sin(phase * 7. - time * 11.) * 2.);
-    float r2 = .5 + .5 * sin(phase * 89. + time * 17.);
-    float r3 = .5 + .5 * sin(phase * 157. - time * 41.);
-    // Thin, uneven rays: powers sharpen the sines into bright lines with darker gaps between them.
-    float rays = r1 * r1 * .55 + r2 * r2 * r2 * .3 + (.15 + band.z * .35) * pow(r3, 4.);
+    // Rays lean and wander as they rise, so they read as light streaming along field lines rather than as
+    // straight bars. Their drift is slow: fast-moving fine rays strobe in a headset.
+    float lean = v * (.08 * sin(phase * 3. + time * 2.) + .04 * sin(phase * 7. - time * 3.));
+    float q = phase + lean;
+    float r1 = .5 + .5 * sin(q * 43. + sin(q * 7. - time * 4.) * 2.);
+    float r2 = .5 + .5 * sin(q * 89. + time * 6.);
+    float r3 = .5 + .5 * sin(q * 157. - time * 9.);
+    // Soft, uneven rays. Squares sharpen the sines a little without cutting dark gaps between them.
+    float rays = r1 * r1 * .5 + r2 * r2 * .3 + (.1 + band.z * .25) * r3 * r3;
+    // Each ray brightens and dims along its length, so no ray is a uniform pillar.
+    float streak = .75 + .25 * sin(v * 7. + r1 * 3. - time * 2.);
     float folds = .6 + .4 * sin(phase * 5. + time * 13.);
     // Ray tops reach different heights along the curtain.
-    float tops = .7 + .2 * sin(phase * 9. + time * 5.) + .1 * sin(phase * 23. - time * 8.);
+    float tops = .7 + .2 * sin(phase * 9. + time * 3.) + .1 * sin(phase * 23. - time * 4.);
 
     float flash = 0.;
     float crest = 0.;
@@ -198,13 +208,16 @@ shader.curtainFragment = withWaves [[
       float distance = ringDistance(u, wave.z);
       if (wave.w < 1.5) {
         float front = distance - wave.x * BASS_SPEED;
-        // The heave lingers, but the colour punches and decays within a beat so steady kicks still pulse.
-        flash += wave.y * exp(-front * front * 120.) * exp(-wave.x * 6.5);
+        // A kick punches at its origin, then ripples outward both ways as narrow rings that fade over the
+        // wave's life. The rings are narrow, so steady kicks never hold the whole curtain in the bass colour.
+        flash += wave.y * exp(-distance * distance * 300.) * exp(-wave.x * 8.);
+        flash += wave.y * ripple(front) * exp(-wave.x * 1.2);
       } else if (wave.w < 2.5) {
         float front = distance - wave.x * MID_SPEED;
-        crest += wave.y * exp(-front * front * 300.) * exp(-wave.x * 3.);
+        crest += wave.y * ripple(front) * exp(-wave.x * 1.5);
       } else {
-        surge += wave.y * exp(-distance * distance * 160.) * exp(-wave.x * 4.);
+        // A treble burst swells in over a few frames rather than popping, which would strobe.
+        surge += wave.y * exp(-distance * distance * 160.) * exp(-wave.x * 3.) * smoothstep(0., .08, wave.x);
       }
     }
     flash = min(flash, 1.5);
@@ -224,9 +237,9 @@ shader.curtainFragment = withWaves [[
     // its zone as the band grows loud.
     light += (backdropLow * .75 + backdropMid * 1.8 * mid) * body + flare * body * crest * 2.2;
     // A treble onset flickers individual rays up the curtain rather than lighting it evenly.
-    light += (backdropHigh * .4 + backdropTreble * (1.6 * treble + surge * 3. * (.3 + r3 * r3 * 1.4))) * high;
+    light += (backdropHigh * .4 + backdropTreble * (1.6 * treble + surge * 2. * (.4 + r3 * r3))) * high;
     float extent = max(ribbon(phase, layer, time, own), clamp(flash + crest + surge, 0., 1.));
-    light *= hem * fade * (.25 + .75 * rays) * folds * extent * visibility * backdropResponse.w * .55;
+    light *= hem * fade * (.4 + .6 * rays) * streak * folds * extent * visibility * backdropResponse.w * .7;
 
     // The light is emitted rather than painted: alpha stays below the colour so overlapping curtains add up and
     // glow, while still dimming the stars behind them a little.
