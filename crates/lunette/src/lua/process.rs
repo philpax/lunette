@@ -33,6 +33,14 @@ impl<T> Process<T> {
         Self { id, session }
     }
 
+    pub(crate) fn id(&self) -> ProcessId {
+        self.id
+    }
+
+    pub(crate) fn belongs_to(&self, session: &Rc<Session<T>>) -> bool {
+        Rc::ptr_eq(&self.session, session)
+    }
+
     /// Whether the snapshot reports the process alive.
     fn alive(&self) -> bool {
         self.session

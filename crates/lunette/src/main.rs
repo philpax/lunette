@@ -21,6 +21,7 @@ use boot::SessionPaths;
 use clap::Parser;
 use cli::Cli;
 use lunette::{
+    audio::{AudioRegistry, NativeAudioRegistry, NoAudioRegistry},
     control::{self, ControlSwitch},
     events::LovrEventSink,
     frame::{HostDesktop, Startup},
@@ -31,6 +32,7 @@ use lunette::{
     texture::BarrierPolicy,
 };
 use lunette_capture::{
+    audio::{AudioService, PipeWireAudioBackend, PipeWireAudioConfig, SourceLimits},
     clipboard::DataControlSource,
     hid::{self, HidConfig, XkbKeymap},
     mirror::{MirrorSet, NoNodeWatch, NodeWatch, PipewireNodeWatch, screencopy::WlxClient},
@@ -46,6 +48,7 @@ use lunette_compositor::{
     listener::listen,
     protocol::{KeymapConfig, KeymapDefaults},
     satellite::XwaylandSatellite,
+    spawn::ProcFilesystem,
 };
 use tracing::{error, info, warn};
 use tracing_subscriber::{EnvFilter, filter::LevelFilter};
@@ -218,11 +221,23 @@ fn main() -> ExitCode {
     // The layer pool outlives Lua states so a restart preserves panel assignments.
     let layers = Rc::new(PoolRegistry::new(LayerPool::new(backend)));
 
-    let session = Session::new(
+    let audio = open_audio(PipeWireAudioConfig {
+        session_id: format!(
+            "{}_{}",
+            std::process::id(),
+            startup.display.wayland_display_num_string()
+        ),
+        remote_name: env::var(PIPEWIRE_REMOTE)
+            .ok()
+            .filter(|name| !name.is_empty()),
+        ..PipeWireAudioConfig::default()
+    });
+    let session = Session::new_with_audio(
         Box::new(LovrEventSink),
         Rc::clone(&layers) as _,
         mirrors,
         sinks,
+        audio,
     );
     boot::run(
         SessionPaths {
@@ -235,6 +250,23 @@ fn main() -> ExitCode {
         chunks.as_ref(),
         startup,
     )
+}
+
+/// Starts audio independently of LÖVR modules and the compositor's graphics device.
+fn open_audio(config: PipeWireAudioConfig) -> Rc<dyn AudioRegistry> {
+    let registry = PipeWireAudioBackend::new(config).and_then(|backend| {
+        NativeAudioRegistry::new(
+            AudioService::new(Box::new(backend), SourceLimits::default()),
+            Box::new(ProcFilesystem),
+        )
+    });
+    match registry {
+        Ok(registry) => Rc::new(registry),
+        Err(error) => {
+            warn!(%error, "audio capture is unavailable in this session");
+            Rc::new(NoAudioRegistry::new(error.to_string()))
+        }
+    }
 }
 
 struct AvailablePortal(Result<WlxPortal, PortalError>);
@@ -474,6 +506,7 @@ fn state_directory(sources: &StateDirectorySources) -> Option<PathBuf> {
 }
 
 const WAYLAND_DISPLAY: &str = "WAYLAND_DISPLAY";
+const PIPEWIRE_REMOTE: &str = "PIPEWIRE_REMOTE";
 
 const APPDIR: &str = "APPDIR";
 

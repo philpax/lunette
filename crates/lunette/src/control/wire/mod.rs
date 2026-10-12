@@ -50,7 +50,10 @@ use lunette_luau::closed_set;
 ///
 /// Version 3 is version 2 plus [`HandleKind::Drag`], whose tag a version 2
 /// reader does not know.
-pub const PROTOCOL_VERSION: u8 = 3;
+///
+/// Version 4 is version 3 plus [`HandleKind::AudioCapture`], whose tag a version
+/// 3 reader does not know.
+pub const PROTOCOL_VERSION: u8 = 4;
 
 /// The largest frame either side will write or accept.
 ///
@@ -136,6 +139,7 @@ closed_set! {
         Claim = "claim",
         Output = "output",
         Drag = "drag",
+        AudioCapture = "audio-capture",
     }
 }
 
@@ -156,6 +160,7 @@ impl HandleKind {
             Self::Claim => 5,
             Self::Output => 6,
             Self::Drag => 7,
+            Self::AudioCapture => 8,
         }
     }
 
@@ -272,6 +277,16 @@ pub struct Request {
     pub chunk: String,
 }
 
+impl Request {
+    /// Describes a version mismatch, if this session cannot read this request.
+    pub(crate) fn version_mismatch(&self, session_version: u8) -> Option<Reply> {
+        (self.version != session_version).then_some(Reply::Incompatible {
+            session: session_version,
+            client: self.version,
+        })
+    }
+}
+
 /// Writes one reply frame.
 ///
 /// # Errors
@@ -290,14 +305,18 @@ pub fn write_reply(writer: &mut impl Write, reply: &Reply) -> Result<(), WireErr
 /// If the frame is truncated or oversized, if it carries a tag this build does
 /// not know, or if it nests deeper than [`MAX_DEPTH`].
 pub fn read_reply(reader: &mut impl Read) -> Result<Reply, WireError> {
+    read_reply_for_version(reader, PROTOCOL_VERSION)
+}
+
+fn read_reply_for_version(reader: &mut impl Read, client_version: u8) -> Result<Reply, WireError> {
     let body = read_frame(reader)?;
     let (&version, rest) = body.split_first().ok_or(WireError::Truncated)?;
-    if version != PROTOCOL_VERSION {
+    if version != client_version {
         // The client reads a reply, so the version found in it is the
         // session's, and the client's own is the local one.
         return Ok(Reply::Incompatible {
             session: version,
-            client: PROTOCOL_VERSION,
+            client: client_version,
         });
     }
 

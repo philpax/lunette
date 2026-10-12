@@ -580,15 +580,32 @@ mod tests {
     }
 
     #[test]
-    fn userdata_that_is_not_a_handle_is_refused_rather_than_stringified() {
-        // A LÖVR `Texture` is exactly this case. The design rejects awesome's
-        // `tostring` fallback for it.
-        let error = returned("return untagged()").expect_err("it is not a handle");
+    fn a_luau_buffer_is_refused_with_its_structured_path_and_kind() {
+        let lua = crate::test_lua::session_lua();
+        let buffer = lua
+            .create_buffer(b"audio samples")
+            .expect("the buffer is created");
+        let error = results(MultiValue::from_vec(vec![LuaValue::Buffer(buffer)]))
+            .expect_err("a buffer has no wire form");
 
-        assert!(
-            error.to_string().contains("not a lunette handle"),
-            "{error}"
-        );
+        let SerialiseError::Unrepresentable { path, kind } = error else {
+            panic!("{error} is not an unrepresentable value");
+        };
+        assert_eq!(path.to_string(), "result 1");
+        assert_eq!(kind, "buffer");
+    }
+
+    #[test]
+    fn userdata_without_a_handle_tag_is_refused_structurally() {
+        // A non-handle userdata value is refused rather than converted to text.
+        let error = returned("return untagged()")
+            .expect_err("userdata without a handle tag has no wire form");
+
+        let SerialiseError::Unrepresentable { path, kind } = error else {
+            panic!("{error} is not an unrepresentable value");
+        };
+        assert_eq!(path.to_string(), "result 1");
+        assert_eq!(kind, "userdata that is not a lunette handle");
     }
 
     #[test]

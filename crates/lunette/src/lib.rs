@@ -4,6 +4,7 @@
 //! that the binary coordinates and the tests exercise directly.
 
 pub mod aliases;
+pub mod audio;
 pub mod callback_error;
 pub mod control;
 pub mod events;

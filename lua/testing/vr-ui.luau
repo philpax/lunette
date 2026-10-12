@@ -7,6 +7,7 @@ local keyboard = require '@lunette-contracts/keyboard'
 local vrUi = {}
 
 export type Hand = 'left' | 'right'
+export type TrackedDevice = Hand | 'head' | 'eye/gaze'
 export type Bounds = { x: number, y: number, width: number, height: number }
 export type Item = { id: string, label: string, enabled: boolean, selected: boolean?, bounds: Bounds? }
 export type Control = {
@@ -33,10 +34,12 @@ export type Fixture = {
   native: native.Fake,
   session: session.Session?,
   keyboardObserver: session.Observed<keyboard.Service>?,
-  tracked: (Fixture, Hand, boolean) -> (),
+  tracked: (Fixture, TrackedDevice, boolean) -> (),
+  eyeTracking: (Fixture, boolean) -> (),
+  mainSessionVisible: (Fixture, boolean) -> (),
   button: (Fixture, Hand, string, boolean) -> (),
   axis: (Fixture, Hand, number, number) -> (),
-  pose: (Fixture, Hand, Mat4) -> (),
+  pose: (Fixture, TrackedDevice, Mat4) -> (),
   aim: (Fixture, Geometry, number, number, Hand?) -> (),
   step: (Fixture, number?) -> (),
   draw: (Fixture) -> boolean,
@@ -97,8 +100,22 @@ function vrUi.boot(entries: { session.Entry }?, options: session.Options?): Fixt
   return fixture
 end
 
-function Fixture.tracked(self: Fixture, hand: Hand, value: boolean)
-  controller(self, hand).tracked = value
+function Fixture.tracked(self: Fixture, device: TrackedDevice, value: boolean)
+  if device == 'head' then
+    self.native.events.headTracked = value
+  elseif device == 'eye/gaze' then
+    self.native.events.eyeTracked = value
+  else
+    controller(self, device).tracked = value
+  end
+end
+
+function Fixture.eyeTracking(self: Fixture, available: boolean)
+  self.native.events.eyeTracking = available
+end
+
+function Fixture.mainSessionVisible(self: Fixture, visible: boolean)
+  self.native.events.mainSessionVisible = visible
 end
 
 function Fixture.button(self: Fixture, hand: Hand, button: string, pressed: boolean)
@@ -110,11 +127,17 @@ function Fixture.axis(self: Fixture, hand: Hand, x: number, y: number)
   state.axisX, state.axisY = x, y
 end
 
-function Fixture.pose(self: Fixture, hand: Hand, pose: Mat4)
-  local state = controller(self, hand)
-  state.pose:set(pose)
-  state.origin = vector.pack(pose:getPosition())
-  state.direction = vector.pack(pose:mul(0, 0, -1, 0)):normalize()
+function Fixture.pose(self: Fixture, device: TrackedDevice, pose: Mat4)
+  if device == 'head' then
+    self.native.events.headPose:set(pose)
+  elseif device == 'eye/gaze' then
+    self.native.events.eyePose:set(pose)
+  else
+    local state = controller(self, device)
+    state.pose:set(pose)
+    state.origin = vector.pack(pose:getPosition())
+    state.direction = vector.pack(pose:mul(0, 0, -1, 0)):normalize()
+  end
 end
 
 function Fixture.aim(self: Fixture, description: Geometry, x: number, y: number, hand: Hand?)
@@ -132,8 +155,7 @@ function Fixture.aim(self: Fixture, description: Geometry, x: number, y: number,
 end
 
 function Fixture.step(self: Fixture, dt: number?)
-  self.native.events.dt = dt or 0.016
-  self.native.events.time += self.native.events.dt
+  self.native.advanceFrame(dt or 0.016)
   lovr.update(self.native.events.dt)
 end
 

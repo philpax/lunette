@@ -180,6 +180,12 @@ impl FrameDriver {
 
         self.drain_events();
 
+        // Audio has no graphics dependency. Lifecycle reports precede the immutable PCM publication.
+        self.session.audio().begin_frame(&self.session.snapshot());
+        for request in self.session.audio().take_requests() {
+            self.session.queue(Command::ResolveAudioProcess(request));
+        }
+
         // Before the lifecycle's own poll, so a monitor plugged in this frame is announced this frame.
         self.attach_outputs();
 
@@ -463,6 +469,8 @@ impl FrameDriver {
 
     /// Applies to the ledger what one compositor event requests of it.
     fn apply(&self, event: &Event) {
+        self.session.audio().event(event);
+
         // The closed window is already absent from this snapshot, so its surface is read from the previous frame.
         let surface_of = |window| self.session.window(window).map(|window| window.surface);
 

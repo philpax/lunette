@@ -1,4 +1,6 @@
 -- Provides fake native APIs for tests. The plugin runtime, key and scale vocabularies, and `lovr.math` remain real.
+-- setAudioState and pushAudio queue source publications; advanceFrame publishes them without running lovr.update.
+-- Audio handle, stream, snapshot, and sample-copy counts are recorded on events.
 
 local lunette = require '@lunette'
 local host = require '@testing/host'
@@ -82,6 +84,7 @@ export type Window = {
   commit: number,
   output: Output,
   sink: Sink,
+  process: Process?,
   rate: number?,
   children: { ChildSurface }?,
   setFrameRate: (Window, number?) -> boolean,
@@ -133,6 +136,64 @@ export type Claim = {
   setSize: (Claim) -> boolean,
 }
 export type Process = { id: number, argv: { read [number]: string }, dead: boolean }
+export type AudioSource = { read kind: 'system' } | { read kind: 'process', read process: Process }
+export type AudioState =
+  { read kind: 'starting' | 'idle' | 'ended' }
+  | { read kind: 'active', read provenance: ('pipewire-client' | 'application-metadata')? }
+  | {
+    read kind: 'unavailable',
+    read reason: 'no-server'
+      | 'no-default-sink'
+      | 'invalid-default-sink'
+      | 'permission-denied'
+      | 'unsupported-format'
+      | 'unresolved-attribution'
+      | 'capacity-exceeded'
+      | 'graph-failure',
+    read detail: string,
+  }
+export type AudioBlock = {
+  read generation: number,
+  read sequence: number,
+  read frameCount: number,
+  read sampleRate: number,
+  read channels: number,
+  read startFrame: number,
+  read gap: boolean,
+  read droppedFrames: number,
+  read timing: 'sample-frames',
+  read copySamples: (AudioBlock) -> buffer,
+}
+export type AudioSnapshot = {
+  read source: AudioSource,
+  read state: AudioState,
+  read frameGeneration: number,
+  read blocks: { read [number]: AudioBlock },
+}
+export type AudioHandle = {
+  read id: number,
+  read dead: boolean,
+  read snapshot: (AudioHandle) -> AudioSnapshot,
+  read close: (AudioHandle) -> boolean,
+}
+export type AudioBlockOptions = {
+  read generation: number?,
+  read sequence: number?,
+  read startFrame: number?,
+  read gap: boolean?,
+  read droppedFrames: number?,
+}
+type AudioStream = {
+  source: AudioSource,
+  state: AudioState,
+  pendingState: AudioState?,
+  readers: number,
+  generation: number,
+  sequence: number,
+  startFrame: number,
+  pending: { AudioBlock },
+  publication: AudioSnapshot,
+}
 export type Controller = {
   tracked: boolean,
   origin: vector,
@@ -164,6 +225,22 @@ export type Events = {
   monitors: { [number | string]: Monitor },
   outputs: { Output },
   spawned: { Process },
+  processes: { Process },
+  processEnumerations: number,
+  audio: { AudioHandle },
+  audioOpened: number,
+  audioClosed: number,
+  audioSnapshots: number,
+  audioCopies: number,
+  audioStreamsOpened: number,
+  audioStreamsClosed: number,
+  frameGeneration: number,
+  headTracked: boolean,
+  eyeTracked: boolean,
+  eyeTracking: boolean,
+  headPose: Mat4,
+  eyePose: Mat4,
+  mainSessionVisible: boolean,
   input: { InputCall },
   draw: { render.Call },
   logs: { { string? } },
@@ -197,14 +274,19 @@ export type Fake = {
   subscriptionCount: (string) -> number,
   raise: (string, string) -> string,
   newOutput: (number, number?) -> Output,
-  newWindow: (number, string?) -> Window,
+  newWindow: (number, string?, Process?) -> Window,
   newMonitor: (string) -> Monitor,
+  newProcess: (number, { string }?) -> Process,
+  setAudioState: (AudioSource, AudioState) -> (),
+  pushAudio: (AudioSource, { number } | buffer, AudioBlockOptions?) -> AudioBlock,
+  advanceFrame: (number?) -> (),
   assertResourcesReleased: () -> (),
 }
 type Subscribe = <E>(string, (E) -> ()) -> () -> ()
 
 local installNative: (Fake, Events, Subscribe, () -> ()) -> ()
 local installLovr: (Events) -> ()
+local installAudio: (Fake, Events) -> ()
 
 local SINK_METHODS = { 'key', 'setModifiers', 'pointer', 'motion', 'button', 'scroll', 'enter', 'leave' }
 local SUBSCRIPTIONS = { 'onWindowOpened', 'onWindowClosed', 'onProcessExited', 'onMonitorAdded', 'onError' }
@@ -219,6 +301,22 @@ function native.new(): Fake
     monitors = {},
     outputs = {},
     spawned = {},
+    processes = {},
+    processEnumerations = 0,
+    audio = {},
+    audioOpened = 0,
+    audioClosed = 0,
+    audioSnapshots = 0,
+    audioCopies = 0,
+    audioStreamsOpened = 0,
+    audioStreamsClosed = 0,
+    frameGeneration = 0,
+    headTracked = true,
+    eyeTracked = false,
+    eyeTracking = false,
+    headPose = lovr.math.newMat4():translate(0, 1.5, 0),
+    eyePose = lovr.math.newMat4():translate(0, 1.5, 0),
+    mainSessionVisible = false,
     input = {},
     draw = {},
     logs = {},
@@ -309,8 +407,18 @@ function native.new(): Fake
     return sink
   end
 
-  function fake.newWindow(id: number, appId: string?): Window
+  function fake.newProcess(id: number, argv: { string }?): Process
+    for _, process in events.processes do
+      assert(process.id ~= id, 'native fake: process id already registered')
+    end
+    local process = { id = id, argv = table.freeze(table.clone(argv or {})), dead = false }
+    events.processes[#events.processes + 1] = process
+    return process
+  end
+
+  function fake.newWindow(id: number, appId: string?, process: Process?): Window
     local window = {
+      process = process,
       id = id,
       appId = appId or 'terminal',
       title = 'Fixture window',
@@ -386,14 +494,18 @@ function native.new(): Fake
     for _, claim in ipairs(events.claims) do
       assert(claim.dead, 'leaked native claim')
     end
+    for _, handle in events.audio do
+      assert(handle.dead, 'leaked native audio handle')
+    end
     for name in pairs(events.subscriptions) do
       assert(fake.subscriptionCount(name) == 0, 'leaked subscription: ' .. name)
     end
     assert(events.closed == 0, 'cleanup closed caller-owned window')
-    events.render:assertMeshesReleased()
+    events.render:assertResourcesReleased()
   end
 
   installNative(fake, events, subscribe, clearSubscriptions)
+  installAudio(fake, events)
   installLovr(events)
   return fake
 end
@@ -435,8 +547,22 @@ installNative = function(fake: Fake, events: Events, subscribe: Subscribe, clear
   lunette.seats = function(): { Seat }
     return events.seats
   end
+  lunette.processes = function(): { Process }
+    events.processEnumerations += 1
+    local result = table.clone(events.processes)
+    for _, process in events.spawned do
+      if not table.find(result, process) then
+        result[#result + 1] = process
+      end
+    end
+    return result
+  end
   lunette.spawn = function(options: lunette.SpawnOptions): Process
-    local process = { id = #events.spawned + 1, argv = options.argv, dead = false }
+    local id = #events.spawned + 1
+    for _, process in events.processes do
+      id = math.max(id, process.id + 1)
+    end
+    local process = fake.newProcess(id, options.argv)
     events.spawned[#events.spawned + 1] = process
     return process
   end
@@ -493,6 +619,209 @@ installNative = function(fake: Fake, events: Events, subscribe: Subscribe, clear
   end
 end
 
+-- Injection changes become visible together at advanceFrame, like native frame publication.
+installAudio = function(fake: Fake, events: Events)
+  local streams: { [string | Process]: AudioStream } = {}
+  local function sourceKey(source: AudioSource): string | Process
+    assert(type(source) == 'table', 'native fake: audio source must be a descriptor')
+    for field in source do
+      assert(
+        field == 'kind' or (source.kind == 'process' and field == 'process'),
+        'native fake: unknown audio source field'
+      )
+    end
+    if source.kind == 'system' then
+      assert(source.process == nil, 'native fake: system audio has no process')
+      return 'system'
+    end
+    assert(source.kind == 'process' and type(source.process) == 'table', 'native fake: invalid audio source')
+    assert(
+      table.find(events.processes, source.process) or table.find(events.spawned, source.process),
+      'native fake: unregistered audio process'
+    )
+    return source.process
+  end
+  local function publication(source: AudioSource, state: AudioState, blocks: { AudioBlock }): AudioSnapshot
+    return table.freeze {
+      source = source,
+      state = state,
+      frameGeneration = events.frameGeneration,
+      blocks = table.freeze(blocks),
+    }
+  end
+  local function streamFor(source: AudioSource): AudioStream
+    local key = sourceKey(source)
+    if not streams[key] then
+      local descriptor = table.freeze(table.clone(source))
+      local starting = table.freeze { kind = 'starting' }
+      streams[key] = {
+        source = descriptor,
+        state = starting,
+        readers = 0,
+        generation = 1,
+        sequence = 0,
+        startFrame = 0,
+        pending = {},
+        publication = publication(descriptor, starting, {}),
+      }
+    end
+    return streams[key]
+  end
+  local function immutableState(state: AudioState): AudioState
+    assert(
+      table.find({ 'starting', 'active', 'idle', 'unavailable', 'ended' }, state.kind),
+      'native fake: invalid audio state'
+    )
+    if state.kind == 'active' then
+      assert(
+        state.provenance == nil or state.provenance == 'pipewire-client' or state.provenance == 'application-metadata',
+        'native fake: invalid audio provenance'
+      )
+    elseif state.kind == 'unavailable' then
+      assert(
+        table.find({
+          'no-server',
+          'no-default-sink',
+          'invalid-default-sink',
+          'permission-denied',
+          'unsupported-format',
+          'unresolved-attribution',
+          'capacity-exceeded',
+          'graph-failure',
+        }, state.reason),
+        'native fake: invalid audio unavailable reason'
+      )
+      assert(type(state.detail) == 'string', 'native fake: audio unavailable requires detail')
+    end
+    return table.freeze(table.clone(state))
+  end
+  function fake.setAudioState(source: AudioSource, state: AudioState)
+    streamFor(source).pendingState = immutableState(state)
+  end
+  function fake.pushAudio(source: AudioSource, samples: { number } | buffer, options: AudioBlockOptions?): AudioBlock
+    local stream = streamFor(source)
+    options = options or {}
+    local pcm: buffer
+    if typeof(samples) == 'buffer' then
+      assert(buffer.len(samples) % 8 == 0, 'native fake: audio buffer must contain complete stereo F32 frames')
+      pcm = buffer.create(buffer.len(samples))
+      buffer.copy(pcm, 0, samples)
+    else
+      assert(#samples % 2 == 0, 'native fake: audio samples must contain complete stereo frames')
+      pcm = buffer.create(#samples * 4)
+      for index, value in samples do
+        assert(
+          type(value) == 'number' and value == value and math.abs(value) < math.huge,
+          'native fake: invalid audio sample'
+        )
+        buffer.writef32(pcm, (index - 1) * 4, value)
+      end
+    end
+    local generation = options.generation or stream.generation
+    if generation ~= stream.generation then
+      stream.generation, stream.sequence, stream.startFrame = generation, 0, 0
+      stream.pending = {}
+    end
+    local block = {
+      generation = generation,
+      sequence = options.sequence or stream.sequence,
+      frameCount = buffer.len(pcm) / 8,
+      sampleRate = 48000,
+      channels = 2,
+      startFrame = options.startFrame or stream.startFrame,
+      gap = options.gap == true or (options.droppedFrames or 0) > 0,
+      droppedFrames = options.droppedFrames or 0,
+      timing = 'sample-frames',
+    }
+    for _, field in { 'generation', 'sequence', 'startFrame', 'droppedFrames' } do
+      local value = block[field]
+      assert(
+        type(value) == 'number' and value >= 0 and value < math.huge and value % 1 == 0,
+        'native fake: invalid audio ' .. field
+      )
+    end
+    function block.copySamples(_: AudioBlock): buffer
+      events.audioCopies += 1
+      local copy = buffer.create(buffer.len(pcm))
+      buffer.copy(copy, 0, pcm)
+      return copy
+    end
+    table.freeze(block)
+    stream.sequence, stream.startFrame = block.sequence + 1, block.startFrame + block.frameCount
+    stream.pending[#stream.pending + 1] = block
+    return block
+  end
+  function fake.advanceFrame(dt: number?)
+    if dt ~= nil then
+      assert(dt >= 0 and dt < math.huge, 'native fake: invalid frame duration')
+      events.dt, events.time = dt, events.time + dt
+    end
+    events.frameGeneration += 1
+    for _, stream in streams do
+      stream.state = stream.pendingState or stream.state
+      stream.pendingState = nil
+      if stream.source.kind == 'process' and stream.source.process.dead then
+        stream.state = table.freeze { kind = 'ended' }
+      end
+      local blocks = if stream.state.kind == 'active' then stream.pending else {}
+      stream.pending = {}
+      stream.publication = publication(stream.source, stream.state, blocks)
+    end
+  end
+  lunette.openAudio = function(source: AudioSource): AudioHandle
+    local stream = streamFor(source)
+    local capacity = 0
+    for _, entry in streams do
+      if entry.readers > 0 then
+        capacity += 1
+      end
+    end
+    local denied = stream.readers == 0 and capacity >= 8
+    local handle = { id = #events.audio + 1, dead = false }
+    events.audio[#events.audio + 1] = handle
+    events.audioOpened += 1
+    if not denied then
+      if stream.readers == 0 then
+        events.audioStreamsOpened += 1
+      end
+      stream.readers += 1
+    end
+    function handle.snapshot(self: AudioHandle): AudioSnapshot
+      events.audioSnapshots += 1
+      if self.dead or (stream.source.kind == 'process' and stream.source.process.dead) then
+        return publication(stream.source, table.freeze { kind = 'ended' }, {})
+      elseif denied then
+        return publication(
+          stream.source,
+          table.freeze {
+            kind = 'unavailable',
+            reason = 'capacity-exceeded',
+            detail = 'native fake: audio source capacity exceeded',
+          },
+          {}
+        )
+      end
+      return stream.publication
+    end
+    function handle.close(self: AudioHandle): boolean
+      if self.dead then
+        return false
+      end
+      handle.dead = true
+      events.audioClosed += 1
+      if not denied then
+        stream.readers -= 1
+        if stream.readers == 0 then
+          events.audioStreamsClosed += 1
+          streams[sourceKey(stream.source)] = nil
+        end
+      end
+      return true
+    end
+    return handle
+  end
+end
+
 installLovr = function(events: Events)
   local recorder = render.new(function(): { render.Call }
     return events.draw
@@ -500,8 +829,8 @@ installLovr = function(events: Events)
   local font = recorder.font
   events.render = recorder
   lovr.graphics = {
-    newMesh = function(count: number): render.Mesh
-      return recorder:newMesh(count)
+    newMesh = function(...: any): render.Mesh
+      return recorder:newMesh(...)
     end,
     newFont = function(file: string, size: number, spread: number): render.Font
       return recorder:newFont(file, size, spread)
@@ -523,7 +852,7 @@ installLovr = function(events: Events)
       return events.held[key] == true
     end,
   }
-  -- A hand without controller state is untracked; the head keeps a fixed pose.
+  -- Hands, head, and gaze have independent tracking so a missing gaze never moves the head.
   local function controller(device: string?): Controller?
     if device and device:find('left', 1, true) then
       return events.controllers.left
@@ -532,13 +861,29 @@ installLovr = function(events: Events)
     end
     return nil
   end
+  local function pose(device: string?): Mat4
+    if device == 'eye/gaze' then
+      return events.eyePose
+    end
+    return events.headPose
+  end
   lovr.headset = {
+    getFeatures = function(): { read eyeTracking: boolean }
+      return { eyeTracking = events.eyeTracking }
+    end,
+    isMainSessionVisible = function(): boolean
+      return events.mainSessionVisible
+    end,
     isTracked = function(device: string): boolean
       local state = controller(device)
       if state then
         return state.tracked
+      elseif device == 'head' then
+        return events.headTracked
+      elseif device == 'eye/gaze' then
+        return events.eyeTracking and events.eyeTracked
       end
-      return device == 'head'
+      return false
     end,
     getPose = function(device: string): (number, number, number, number, number, number, number)
       local state = controller(device)
@@ -547,21 +892,23 @@ installLovr = function(events: Events)
         local angle, ax, ay, az = state.pose:getOrientation()
         return x, y, z, angle, ax, ay, az
       end
-      return 0, 1.5, 0, 0, 0, 1, 0
+      local x, y, z = pose(device):getPosition()
+      local angle, ax, ay, az = pose(device):getOrientation()
+      return x, y, z, angle, ax, ay, az
     end,
     getPosition = function(device: string): (number, number, number)
       local state = controller(device)
       if state then
         return state.origin:unpack()
       end
-      return 0, 1.5, 0
+      return pose(device):getPosition()
     end,
     getDirection = function(device: string): (number, number, number)
       local state = controller(device)
       if state then
         return state.direction:unpack()
       end
-      return 0, 0, -1
+      return vector.pack(pose(device):mul(0, 0, -1, 0)):normalize():unpack()
     end,
     isDown = function(device: string, button: string): boolean
       local state = controller(device)

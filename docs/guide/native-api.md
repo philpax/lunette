@@ -35,6 +35,52 @@ Every configuration follows these rules:
 
 An output is a virtual monitor shown to the clients assigned to it. Every client sees the session's starting output unless it was spawned with `output = lunette.newOutput { ... }`. A client keeps its output for its whole life. `output:setMode { scale = 2 }` changes a live output, and the clients re-render at the new scale. `lunette.scaleSteps()` returns the scales the shipped scale policy chooses between. [Compositor](../dev/compositor.md#outputs) describes outputs in detail.
 
+## Audio capture
+
+`lunette.openAudio { kind = 'system' }` reads the system output mix without changing playback routing. `lunette.openAudio { kind = 'process', process = handle }` reads one registered session process, including a handle returned by a queued `spawn`. Raw PIDs and process handles from other sessions are refused. Unknown source fields raise. Audio capture never substitutes another source after an outage.
+
+A reader's `snapshot()` returns the same immutable publication throughout a frame. Its `state.kind` distinguishes `starting`, `active`, `idle`, `unavailable`, and `ended`. Unavailable state includes a reason and diagnostic detail and can recover. `capture.dead` is true only after close or an ended source. A snapshot's source, state, and blocks array are read-only.
+
+Blocks are native read-only userdata. Metadata reads do not copy PCM. `block:copySamples()` returns a fresh mutable buffer of 48,000 Hz interleaved stereo F32 samples encoded little-endian. One frame contains a left and a right sample. A retained block remains valid in later frames and after its reader closes. Stream `generation` changes reset sample timing; `gap` and `droppedFrames` report discontinuities. `startFrame` is sample time, not a hardware timestamp. Analysis resets its accumulated history on a discontinuity.
+
+The following configuration copies at most 4,096 sample frames per update and sums their energy. It reads each frame publication once. Larger blocks are discarded by this example rather than partially copied, because `copySamples()` copies the complete block.
+
+```luau
+local lunette = require '@lunette'
+local capture = lunette.openAudio { kind = 'system' }
+local frameGeneration = -1
+local energy = 0
+
+function lovr.update()
+  local snapshot = capture:snapshot()
+  if snapshot.frameGeneration == frameGeneration then
+    return
+  end
+  frameGeneration = snapshot.frameGeneration
+  energy = 0
+  if snapshot.state.kind ~= 'active' then
+    return
+  end
+  local remainingFrames = 4096
+  for _, block in snapshot.blocks do
+    if block.frameCount <= remainingFrames then
+      local samples = block:copySamples()
+      for offset = 0, buffer.len(samples) - 4, 4 do
+        local sample = buffer.readf32(samples, offset)
+        energy += sample * sample
+      end
+      remainingFrames -= block.frameCount
+    end
+  end
+end
+
+function lovr.quit()
+  capture:close()
+end
+```
+
+`capture:close()` is idempotent and releases only that reader. Garbage collection does not close it. Plugins register the inverse on their context or caller's owner, as described in [writing plugins](writing-plugins.md), rather than assigning `lovr.quit`. Closed or missing readers return ended snapshots with empty blocks and the original source. [Audio](../dev/audio.md) specifies capture attribution and native queue bounds; `lua/lunette/init.luau` declares the native fields and methods. `lunctl` can return a reader handle, but native blocks and sample buffers are not control-wire values.
+
 ## Monitors
 
 `lunette.monitors()` returns the user's own screens. `monitor:mirror()` starts capturing one, through wlr-screencopy where the host supports it and otherwise through the desktop portal, which may show a permission dialog. `monitor:getTexture()` returns the latest captured frame, or `false` before the first one. `lunette.selectMonitors()` asks the portal again, for example after the user refused or stopped the screen share. `monitor.id` is the saved identity: it survives a restart and a move to another port. [Host desktop](../dev/host-desktop.md) describes capture.

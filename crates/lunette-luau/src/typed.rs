@@ -116,13 +116,19 @@ tuples! {
 /// does not link a Lua binding.
 #[cfg(feature = "mlua")]
 mod lua {
-    use mlua::{LuaString, UserDataRef};
+    use mlua::{Buffer, LuaString, UserDataRef};
 
     use crate::{expression::Type, typed::Typed};
 
     impl Typed for LuaString {
         fn luau() -> Type {
             Type::STRING
+        }
+    }
+
+    impl Typed for Buffer {
+        fn luau() -> Type {
+            Type::BUFFER
         }
     }
 
@@ -137,6 +143,13 @@ mod lua {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "mlua")]
+    #[test]
+    fn an_mlua_buffer_maps_to_the_luau_builtin_buffer_type() {
+        assert_eq!(of::<mlua::Buffer>().to_string(), "buffer");
+        assert_eq!(of::<Option<mlua::Buffer>>().to_string(), "buffer?");
+    }
 
     #[test]
     fn an_option_is_optional_and_a_vec_is_an_array() {

@@ -54,7 +54,7 @@ macro_rules! handle {
                     doc: concat!($($doc),*),
                 };
 
-            const KIND: $crate::control::wire::HandleKind = $kind;
+            const KIND: Option<$crate::control::wire::HandleKind> = Some($kind);
 
             fn describe(surface: &mut impl $crate::lua::declarations::Surface<Self>) {
                 handle!(@items surface, $($items)*);

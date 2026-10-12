@@ -63,6 +63,10 @@ fn a_handle_round_trips_by_kind_and_id() {
             kind: HandleKind::Sink,
             id: None,
         },
+        Handle {
+            kind: HandleKind::AudioCapture,
+            id: Some(HandleId::Number(11)),
+        },
     ] {
         let reply = Reply::Returned(vec![Value::Handle(handle.clone())]);
         assert_eq!(round_trip(&reply), reply, "{handle:?}");
@@ -71,6 +75,10 @@ fn a_handle_round_trips_by_kind_and_id() {
 
 #[test]
 fn every_handle_kind_has_a_distinct_tag_and_name() {
+    assert_eq!(PROTOCOL_VERSION, 4);
+    assert_eq!(HandleKind::AudioCapture.tag(), 8);
+    assert_eq!(HandleKind::AudioCapture.as_str(), "audio-capture");
+
     for &kind in HandleKind::ALL {
         assert_eq!(HandleKind::from_tag(kind.tag()), Some(kind));
         assert_eq!(HandleKind::from_name(kind.as_str()), Some(kind));
@@ -156,21 +164,64 @@ fn a_request_round_trips() {
 }
 
 #[test]
-fn a_frame_from_another_protocol_version_is_named_rather_than_parsed() {
-    // The version byte is at a fixed offset, so a peer from either side of
-    // a change can read it.
-    let mut buffer = Vec::new();
-    write_reply(&mut buffer, &Reply::Busy).expect("the reply fits a frame");
-    buffer[4] = PROTOCOL_VERSION.wrapping_add(1);
+fn audio_handle_protocol_version_matrix_rejects_v3_and_v4_in_both_directions() {
+    const OLD_VERSION: u8 = 3;
 
+    let mut old_request_frame = Vec::new();
+    write_request(&mut old_request_frame, "return 1").expect("the request fits a frame");
+    old_request_frame[4] = OLD_VERSION;
+    let old_request =
+        read_request(&mut old_request_frame.as_slice()).expect("the old request frame decodes");
     assert_eq!(
-        read_reply(&mut buffer.as_slice()).expect("the version is still readable"),
-        Reply::Incompatible {
-            // The reader of a reply is the client. The frame version is
-            // the session's; the constant is the client's.
-            session: PROTOCOL_VERSION.wrapping_add(1),
+        old_request.version_mismatch(PROTOCOL_VERSION),
+        Some(Reply::Incompatible {
+            session: PROTOCOL_VERSION,
+            client: OLD_VERSION,
+        }),
+        "a v4 session rejects a real v3 request frame",
+    );
+
+    let mut new_request_frame = Vec::new();
+    write_request(&mut new_request_frame, "return 1").expect("the request fits a frame");
+    let new_request =
+        read_request(&mut new_request_frame.as_slice()).expect("the v4 request frame decodes");
+    assert_eq!(
+        new_request.version_mismatch(OLD_VERSION),
+        Some(Reply::Incompatible {
+            session: OLD_VERSION,
             client: PROTOCOL_VERSION,
-        }
+        }),
+        "a v3 session rejects a real v4 request frame",
+    );
+
+    let mut new_reply = Vec::new();
+    write_reply(
+        &mut new_reply,
+        &Reply::Returned(vec![Value::Handle(Handle {
+            kind: HandleKind::AudioCapture,
+            id: Some(HandleId::Number(11)),
+        })]),
+    )
+    .expect("the v4 reply fits a frame");
+    assert_eq!(
+        read_reply_for_version(&mut new_reply.as_slice(), OLD_VERSION)
+            .expect("the old reader reports its mismatch before parsing new tags"),
+        Reply::Incompatible {
+            session: PROTOCOL_VERSION,
+            client: OLD_VERSION,
+        },
+    );
+
+    let mut old_reply = Vec::new();
+    write_reply(&mut old_reply, &Reply::Busy).expect("the reply fits a frame");
+    old_reply[4] = OLD_VERSION;
+    assert_eq!(
+        read_reply(&mut old_reply.as_slice()).expect("the v4 reader reports the old version"),
+        Reply::Incompatible {
+            session: OLD_VERSION,
+            client: PROTOCOL_VERSION,
+        },
+        "a v4 reader rejects a v3 reply",
     );
 }
 
