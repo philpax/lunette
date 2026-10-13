@@ -12,15 +12,16 @@ local frameContract = require '@lunette-contracts/frame'
 
 local test = testing.suite()
 
-test('settings cover every default entry that takes options', function()
+test('settings cover entries with options and shipped empty schemas', function()
   local fields = settings.schema.inspect().fields
   for _, entry in ipairs(desktop.compose()) do
     local node = compose.resolveEntry(entry).definition.schema
     while node and (node.kind == 'default' or node.kind == 'refine') do
       node = node.child
     end
-    local options = node and node.fields and next(node.fields) ~= nil
-    expect.equal(fields[entry.id] ~= nil, options == true, 'the setting of ' .. entry.id)
+    local hasOptions = node and node.fields and next(node.fields) ~= nil
+    local hasSetting = hasOptions == true or entry.id == 'audio' or entry.id == 'audio-analysis'
+    expect.equal(fields[entry.id] ~= nil, hasSetting, 'the setting of ' .. entry.id)
   end
 end)
 

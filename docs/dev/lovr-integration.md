@@ -38,6 +38,8 @@ The series on `lunette`, oldest first:
 | `887ee1e7` | Make native initialization paths explicit | Upstream defect |
 | `19c22780` | Fix material allocation and ownership failure paths | Upstream defect |
 | `ce8705a1` | Expose the audio function registration table | Integration |
+| `c017cccd` | Tie GPU pipelines to shader specialization lifetimes | Upstream defect |
+| `03f4db2c` | Restore shader variables with the pass render-state stack | Upstreamable |
 
 `git -C vendor/lovr log --oneline upstream/dev..lunette` lists the series.
 
@@ -77,6 +79,10 @@ The option links Luau's type checker into `liblovr.so` as a whole archive, for `
 
 Material allocation releases partial resources on failure. Texture replacement prepares its allocation and uniform data before releasing the old descriptor or texture reference. Font atlas and model material setup propagate failures through their cleanup paths. Lua constructors give temporary textures and partial materials userdata ownership before field conversion can raise, and report rejected setters instead of returning an incomplete material.
 
+#### Shader pipeline cache lifetimes
+
+Graphics and compute pipelines belong to the shader specialization that creates them. Clones share their parent's GPU shader but keep separate pipeline caches. Shader release removes the CPU cache entries and queues native pipeline destruction until submitted work completes. Failed clone initialization releases its partial resources and balances the parent reference, and recording failures wait for already queued compilation jobs. The upstream global cache keyed shader and specialization-flag addresses without retaining their owners. Address reuse could therefore select a released shader's pipeline, and its fixed pipeline pool accumulated entries across released lifetimes. The fix belongs upstream because ordinary shader release and reacquisition can trigger the defect without lunette-specific behavior. Native tests cover retirement, identical keys across 9,000 released lifetimes, clone isolation, and failure cleanup. The real offscreen tier checks specialization output and unchanged aurora reacquisition pixels. [Rendering](rendering.md#offscreen-graphics-checks) records the limits of those measurements.
+
 #### Optional callback contextual inference in Luau
 
 This fix is in `deps/luau`. Luau stripped nil from an anonymous function's expected function-or-nil type but not from a named function's, so a named `lovr.conf` callback lost the closed configuration type. The fix strips nil on the named path. Making `lovr.conf` mandatory was rejected because it misstates the runtime, and requiring a `LovrConfiguration` annotation at every site was rejected as the general remedy. Focused regressions pass. The full upstream Luau suite does not pass: the updated unit suite has 231 failed cases, compared with 212 on the baseline. The comparison identifies shared fork-specific expectations and CodeGen failures; LÖVR does not link CodeGen.
@@ -84,6 +90,10 @@ This fix is in `deps/luau`. Luau stripped nil from an anonymous function's expec
 ### Upstreamable features
 
 Each is shaped as an upstream pull request.
+
+#### Shader variables in the render-state stack
+
+`Pass:push('state')` saves the active shader's uniform bytes and resource bindings, and `Pass:pop('state')` restores them with the pipeline. Nested scopes keep separate backups. Backup storage is reused at each stack depth until the pass resets. Camera state remains outside the stack. Upstream saves the shader pointer but explicitly excludes variables sent through `Pass:send`. That exclusion lets an earlier draw handler overwrite a later handler's custom shader values, including values shared by name across shaders. The extension keeps independent handlers on one pass without a shader-specific Lua restore protocol or a new public API.
 
 #### External-memory device extensions
 

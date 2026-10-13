@@ -19,6 +19,7 @@
         system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
+          lavapipeIcd = "${pkgs.mesa}/share/vulkan/icd.d/lvp_icd.${if system == "x86_64-linux" then "x86_64" else "aarch64"}.json";
 
           # deps/joltc reaches JoltPhysics through FetchContent, which wants the
           # network at configure time. Prefetching it and pointing
@@ -48,11 +49,10 @@
             openxr-loader
             wayland
           ];
-        in
-        {
+
           # gcc14Stdenv matches the nixpkgs lovr derivation, which selects it for
           # better C++ support in LOVR's vendored dependencies.
-          default = (pkgs.mkShell.override { stdenv = pkgs.gcc14Stdenv; }) {
+          developmentShell = (pkgs.mkShell.override { stdenv = pkgs.gcc14Stdenv; }) {
             name = "lunette";
 
             nativeBuildInputs = with pkgs; [
@@ -109,6 +109,15 @@
 
             LD_LIBRARY_PATH = nixpkgs.lib.makeLibraryPath runtimeLibs;
           };
+        in
+        {
+          default = developmentShell;
+          graphics = developmentShell.overrideAttrs (_: {
+            name = "lunette-graphics";
+            # Select lavapipe without changing the default shell's hardware driver.
+            VK_DRIVER_FILES = lavapipeIcd;
+            VK_ICD_FILENAMES = lavapipeIcd;
+          });
         }
       );
     };

@@ -54,6 +54,25 @@ fn native_api_misuse_is_rejected() {
 }
 
 #[test]
+fn audio_api_positive_and_negative_shapes() {
+    let tree = TempDir::with_prefix("lunette-audio-check-").expect("temporary checker tree");
+    copy(&repository().join("lua"), &tree.path().join("lua"));
+    fs::write(
+        tree.path().join("lua/lunette/init.luau"),
+        lunette::lua::declarations::render(),
+    )
+    .expect("current native declarations");
+    fs::write(tree.path().join(".luaurc"), installed_luaurc("./lua")).expect("checker aliases");
+    let positive = tree.path().join("audio_positive.luau");
+    let negative = tree.path().join("audio_negative.luau");
+    copy(&fixture("luau_check/native/audio_positive.luau"), &positive);
+    copy(&fixture("luau_check/native/audio_negative.luau"), &negative);
+    let report = check(vec![positive]);
+    assert!(report.diagnostics.is_empty(), "{:#?}", report.diagnostics);
+    assert_rejections(negative.to_str().expect("the temporary path is UTF-8"));
+}
+
+#[test]
 fn schema_types_reject_wrong_inputs() {
     assert_rejections("luau_check/schema/negative.luau");
 }

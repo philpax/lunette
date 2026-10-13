@@ -81,14 +81,14 @@ lunette-generate-definitions      generates the Luau definitions, declarations, 
 
 ## Survival across lifecycle events
 
-| Event | Wayland clients | GPU and XR session | Lua state | Plugin attachment |
-|---|---|---|---|---|
-| Source reload (`lunette.reload()`) | survive | survives | retained; modules run again | runtimes close; a new contract epoch starts |
-| Instance reload | survive | survives | retained | one instance unloads and loads again |
-| Hard restart (`lovr.event.restart()`) | survive | torn down and rebuilt | replaced | replaced with the Lua state |
-| Process exit or crash | terminated | destroyed | destroyed | destroyed |
+| Event | Wayland clients | GPU and XR session | Lua state | Plugin attachment | Seats |
+|---|---|---|---|---|---|
+| Source reload (`lunette.reload()`) | survive | survives | retained; modules run again | runtimes close; a new contract epoch starts | survive when the new configuration asks for them by name |
+| Instance reload | survive | survives | retained | one instance unloads and loads again | the instance's seats are replaced |
+| Hard restart (`lovr.event.restart()`) | survive | torn down and rebuilt | replaced | replaced with the Lua state | replaced, except the default seat |
+| Process exit or crash | terminated | destroyed | destroyed | destroyed | destroyed |
 
-After either reload or restart, `lunette.windows()` enumerates the same clients again.
+After either reload or restart, `lunette.windows()` enumerates the same clients again. [Seats](input.md#seat-lifetime) states how a seat survives a source reload.
 
 [Reload](lua-api.md#reload) states the order of a source reload. Hard restart closes the plugin runtimes, clears subscribers, flushes the final frame, stops native users of the Lua state, marks the mlua state closed, and calls LÖVR's external close path.
 

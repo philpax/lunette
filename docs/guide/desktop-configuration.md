@@ -67,6 +67,36 @@ The Appearance group has a `Theme: <label>` row for each registered theme, in ca
 
 `overrides.typography.font` is `{ kind = 'default' }` or `{ kind = 'file', file = path, size?, spread? }`. A file font's `size` and `spread` default to 32 and 4, and `default` takes no other fields. `file` is a path in LÖVR's virtual filesystem. A missing font file fails the selector's activation, and the provider shows the base theme until a valid configuration is applied.
 
+## Audio backdrop
+
+`desktop/backdrop` draws the default environment and optionally reacts to the system output mix or one logical application. Capture does not change playback links, the default sink, or volume, and opens no microphone. `lua/lunette-plugins/desktop/backdrop/config.luau` owns the settings and defaults. The desktop includes the reusable `audio` and `audio-analysis` providers independently of this consumer.
+
+```luau
+require('@lunette-desktop').run {
+  settings = {
+    ['desktop/backdrop'] = {
+      enabled = true,
+      reactive = true,
+      sourceMode = 'system',
+      brightness = 0.55,
+      response = 0.6,
+      motion = 0.25,
+      quality = 'standard',
+    },
+  },
+}
+```
+
+`enabled` controls the environment, and `reactive` controls audio response. `sourceMode` is `system`, `application`, or `attention`. `system` reads the host's current default output mix. `application` retains the live process chosen in the Backdrop panel, including while it is silent or unavailable. Before a process is chosen, it reads no source. `attention` selects the process of an attended window after `dwell` seconds. Eye gaze is used when supported, and otherwise the tracked head ray is used. The nearest offered surface must be an eligible window; controls and monitor panels do not select an application. Opening the Backdrop panel freezes attention selection until the panel closes.
+
+The Backdrop action opens a movable shared VR panel. The panel controls enable, audio reactivity, source mode, application pinning, response, motion, and the diagnostic view. Its application rows name live session processes and display available window and capture status. Selecting a row pins that exact process. Pin the attended application retains the current attention choice; it is available only with the Attention source, and its label says so. The titlebar's close button hides the panel. A process that ends remains the chosen identity with an ended status. The consumer never substitutes the system mix for a silent, unavailable, or ended application.
+
+Runtime choices belong to the session and survive provider reactivation while their configured values stay unchanged. Source reload starts fresh choices. A process handle is never serialized into configuration or saved state. `sourceMode = 'application'` configures a policy, not a cross-session application identifier. The configuration and runtime controls expose no raw PID or application-name matcher.
+
+`brightness`, `response`, and `motion` range from 0 to 1. `quality` is `low`, `standard`, or `high`. `distance` is in metres. `fadeDuration`, `attackDuration`, `releaseDuration`, `crossfadeDuration`, and `recoveryDuration` are in seconds. They control visibility, band attack/release, source changes, and audio-loss settling respectively. `palette` contains linear-light RGB colours for `zenith`, `horizon`, `low`, `high`, and `glint`, and for `bass`, `mid`, and `treble`. `low` and `high` colour the curtains' body and ray tops at rest. Each band colour takes over one altitude as its band grows loud, from the hem for bass to the ray tops for treble, and colours that band's onset: a bass flash along the hem, a mid flare along the body, and treble rays shooting upward. Onsets land roughly where the viewer is looking. `diagnostic` is a development view that draws one stage of the overhead sky field with the curtains hidden, to locate rendering defects on a particular GPU: `direction`, `coordinates`, `cells`, `density`, or `field`. It defaults to `none`, and the Backdrop panel's Diagnostic view control changes it during a session. Defaults and bounds remain in `config.luau`. Audio, attention, and controls are optional children with their own provider requirements. An audio or analysis outage removes reactivity, an attention-provider outage stops automatic selection, and a UI or menu outage withdraws controls. These outages do not disable the base environment.
+
+`examples/audio-backdrop` combines the complete default desktop with an independent raw-PCM and analysis meter. Disabling `desktop/backdrop` leaves that consumer active. Removing `audio` or `audio-analysis` interrupts only the consumers that require it. [Audio](../dev/audio.md#acceptance) records the live capture and headset checks that remain pending; automated tests do not establish actual host playback preservation, headset appearance, or comfort.
+
 ## Workspaces
 
 `desktop/workspaces` shows the windows of one workspace at a time. The default is one workspace, `main`, with no menu rows.
@@ -195,3 +225,13 @@ Settings are keyed by entry id and expand to one ordinary patch each, so a confi
 `desktop/workspaces` puts a placed window in no workspace into the selected one, and leaves rule and saved tags alone, because those names are configuration and saved state. Composition pointing adoption at the first workspace was rejected because only the setting did it; an equivalent patch or a Configure edit left new windows outside every workspace.
 
 The desktop's lasers take their aim, trigger lock, style, and tuning from the `laser` and `interaction` entries alone. Per-hand options on `desktop/pointing` were rejected because they overrode the providers' options and made the same option settable in two places.
+
+The backdrop keeps its base environment independent of audio, attention, and controls providers. Their optional children stop only the behaviour that requires the absent service. Application choice uses an exact session process handle, because a label or reused PID does not identify an application instance. Runtime source choices are not serialized because those handles do not survive a session.
+
+## Known gaps
+
+Live PipeWire graph checks and headset appearance, comfort, stereo presentation, and frame-time comparisons remain pending. [Audio](../dev/audio.md#acceptance) records the required observations. Automated provider and rendering tests do not establish actual host versions or live playback preservation.
+
+## Deliberately left open
+
+Persistent cross-session source preferences, a catalog of backdrop effects, and per-application spatial playback remain outside the current configuration.

@@ -74,12 +74,43 @@ test('the shipped configuration starts on load and survives ten production reloa
     expect.equal(#events.spawned, startupProcesses, 'reload ' .. reload .. ' spawns nothing')
     expect.truthy(events.closed == 0 and live(events.windows) == 2, 'reload ' .. reload .. ' closes no window')
     for _, name in ipairs { 'onWindowOpened', 'onMonitorAdded', 'onError' } do
-      expect.equal(native.subscriptionCount(name), 1, 'reload ' .. reload .. ' leaves one ' .. name)
+      expect.equal(
+        native.subscriptionCount(name),
+        if name == 'onWindowOpened' then 2 else 1,
+        'reload ' .. reload .. ' leaves the expected ' .. name .. ' subscriptions'
+      )
     end
     expect.equal(live(events.seats), 2, 'reload ' .. reload .. ' releases the previous seats')
     lovr.update(0.016)
     expect.equal(lovr.draw(events.pass), false, 'reload ' .. reload .. ' draws')
   end
+
+  -- After the reloads the right beam still presses the panel in front, and text reaches it.
+  fixture:pose('left', lovr.math.newMat4():translate(-5, 1.5, 0))
+  fixture:pose('right', lovr.math.newMat4():translate(0, 1.5, 0))
+  fixture:step()
+  fixture:button('right', 'trigger', true)
+  fixture:step()
+  fixture:button('right', 'trigger', false)
+  fixture:step()
+  local right = nil
+  for _, seat in ipairs(events.seats) do
+    if not seat.dead and seat.name == 'laser.right' then
+      right = seat
+    end
+  end
+  assert(right, 'the right laser holds a live seat after the reloads')
+  expect.equal(right.focus, events.windows[1].sink, 'the right laser focuses the window in front after the reloads')
+  local typed = #events.input
+  lovr.textinput('q', 0)
+  local reached = false
+  for index = typed + 1, #events.input do
+    local call = events.input[index]
+    if call[#call] == right then
+      reached = true
+    end
+  end
+  expect.truthy(reached, 'text reaches the focused window through the right seat after the reloads')
 
   expect.equal(lovr.quit(), false, 'quit does not veto')
   expect.equal(#testing.host.shutdown(), 0, 'the failures of the shutdown')

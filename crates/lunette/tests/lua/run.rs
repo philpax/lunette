@@ -9,21 +9,7 @@ use std::fmt::Write as _;
 
 use mlua::{Function, Lua, Table, Value};
 
-use crate::{
-    discover::{Source, TestFile},
-    state::{self, Roots},
-};
-
-pub fn file(roots: &Roots, file: &TestFile) -> Result<(), String> {
-    let lua =
-        state::new(roots).map_err(|error| format!("the test state could not be built: {error}"))?;
-    if file.source == Source::Development {
-        state::use_configuration(&lua, roots.repository.join("dev")).map_err(|error| {
-            format!("the development configuration could not be selected: {error}")
-        })?;
-    }
-    module(&lua, &file.module)
-}
+use crate::state;
 
 /// Requires the test module `name` in `lua` and runs its suite.
 pub fn module(lua: &Lua, name: &str) -> Result<(), String> {

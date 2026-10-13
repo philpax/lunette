@@ -9,7 +9,7 @@ use pretty_assertions::assert_eq;
 use slotmap::DenseSlotMap;
 
 use crate::{
-    protocol::{Argv, Pid, ProcessId, ProcessOutcome, ProcessSignal},
+    protocol::{Argv, Pid, ProcessId, ProcessObservation, ProcessOutcome, ProcessSignal},
     spawn::{
         inspect::{ProcessInspector, find_environment_value},
         plan::{AUTH_VARIABLE, AuthToken, SpawnRequest, TOKEN_BYTES, decode_hex, is_flatpak},
@@ -81,6 +81,7 @@ fn spawn_into(
     spawn_process(
         processes,
         spawner,
+        &FakeInspector::default(),
         SpawnRequest {
             process: id,
             argv: &argv,
@@ -89,6 +90,19 @@ fn spawn_into(
             display: &display,
         },
     )
+}
+
+#[test]
+fn managed_spawn_requests_outside_their_range_never_start_or_register_a_child() {
+    for raw in [1_u64 << 52, (1_u64 << 53) - 1, 1_u64 << 53, u64::MAX] {
+        let mut processes = Processes::with_key();
+        let mut spawner = FakeSpawner::default();
+        let error = spawn_into(&mut processes, &mut spawner, process(raw), &["player"])
+            .expect_err("out-of-range managed identifier");
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+        assert!(spawner.log.requested().is_empty());
+        assert!(snapshot(&processes).is_empty());
+    }
 }
 
 #[test]
@@ -192,6 +206,7 @@ fn a_caller_supplied_variable_overrides_a_toolkit_hint() {
     spawn_process(
         &mut processes,
         &mut spawner,
+        &FakeInspector::default(),
         SpawnRequest {
             process: process(1),
             argv: &argv,
@@ -310,7 +325,9 @@ fn an_adopted_process_is_reported_external_and_alive() {
         &mut processes,
         &mut AdoptedIds::default(),
         Pid::new(4242).expect("positive"),
-    );
+        &FakeInspector::default(),
+    )
+    .expect("adopted identifier available");
 
     let snapshot = snapshot(&processes);
     assert_eq!(snapshot.len(), 1);
@@ -327,15 +344,20 @@ fn an_adopted_process_that_disappears_is_reported_once() {
         &mut processes,
         &mut AdoptedIds::default(),
         Pid::new(4242).expect("positive"),
-    );
+        &FakeInspector::default(),
+    )
+    .expect("adopted identifier available");
 
     assert!(poll(&mut processes, &FakeInspector::default()).is_empty());
 
     let gone = FakeInspector::default();
     gone.kill(4242);
     let reports = poll(&mut processes, &gone);
-    assert_eq!(reports.len(), 1);
-    assert!(matches!(reports[0], Report::Vanished { id: reported } if reported == id));
+    assert_eq!(reports.len(), 2);
+    assert!(
+        matches!(reports[0], Report::ObservationChanged { id: reported, observation: ProcessObservation::Ended } if reported == id)
+    );
+    assert!(matches!(reports[1], Report::Vanished { id: reported } if reported == id));
 
     assert!(
         poll(&mut processes, &gone).is_empty(),
@@ -362,11 +384,11 @@ fn a_child_that_has_exited_is_never_signalled_again() {
         "a reaped child's process group must not be signalled"
     );
 
-    if let Some(entry) = processes
+    if let Some(Process::Managed(entry)) = processes
         .values_mut()
         .find(|entry| entry.id() == process(1))
     {
-        entry.kill(ProcessSignal::Terminate);
+        entry.child.signal(ProcessSignal::Terminate);
     }
     assert_eq!(
         spawner.log.signals(0),

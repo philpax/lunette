@@ -15,7 +15,7 @@
 )]
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     io,
     os::unix::net::UnixStream,
     sync::{
@@ -27,6 +27,7 @@ use std::{
     time::Duration,
 };
 
+use slotmap::DenseSlotMap;
 use smithay::{
     backend::allocator::{Buffer, Fourcc, Modifier, dmabuf::Dmabuf},
     input::pointer::CursorImageStatus,
@@ -37,12 +38,13 @@ pub use crate::selection::{FakeHost, FakeHostSource, HostCall};
 use crate::{
     config::CompositorConfig,
     protocol::{
-        Command, Event, ImageHandle, ImportedImage, OutputId, Pid, PixelSize, ProcessOutcome,
-        ProcessSignal, SeatId, Snapshot, Stream,
+        Command, Event, ImageHandle, ImportedImage, OutputId, Pid, PixelSize, ProcessInstance,
+        ProcessObservation, ProcessOutcome, ProcessSignal, ProcessSnapshot, SeatId, Snapshot,
+        Stream,
     },
     spawn::{
-        ChildProcess, Liveness, ProcessInspector, ProcessSpawner, SpawnError, SpawnPlan,
-        find_environment_value,
+        AdoptedIds, ChildProcess, Liveness, ProcessInspector, ProcessSpawner, SpawnError,
+        SpawnPlan, add_external_process, find_environment_value, snapshot,
     },
     surface::{BufferImporter, ImportFailed, PixelBuffer, ShmFormat, ShmLayout},
     thread::{
@@ -51,6 +53,19 @@ use crate::{
     },
     wayvr::comp::ClientState,
 };
+
+/// Registers adopted processes through the production allocator and returns their snapshots.
+#[must_use]
+pub fn adopted_process_snapshots(pids: &[Pid]) -> Vec<ProcessSnapshot> {
+    let mut processes = DenseSlotMap::with_key();
+    let mut ids = AdoptedIds::default();
+    let inspector = FakeInspector::default();
+    for pid in pids {
+        add_external_process(&mut processes, &mut ids, *pid, &inspector)
+            .expect("fixture adopted identifiers are available");
+    }
+    snapshot(&processes)
+}
 
 /// Maximum time to wait for a test condition.
 pub const DEADLINE: Duration = Duration::from_secs(5);
@@ -630,7 +645,15 @@ impl Drop for FakeChild {
 #[derive(Clone, Debug, Default)]
 pub struct FakeInspector {
     environments: Arc<Mutex<HashMap<i32, Vec<u8>>>>,
-    dead: Arc<Mutex<Vec<i32>>>,
+    observations: Arc<Mutex<HashMap<i32, ProcessObservation>>>,
+    script: Arc<Mutex<VecDeque<InspectorStep>>>,
+}
+
+/// An ordered observation script for identity changes during attribution.
+#[derive(Clone, Debug)]
+pub enum InspectorStep {
+    Stat(Pid, ProcessObservation),
+    Environment(Pid, Result<Option<Vec<u8>>, io::ErrorKind>),
 }
 
 impl FakeInspector {
@@ -652,16 +675,39 @@ impl FakeInspector {
         self.set_environment(pid, block);
     }
 
-    /// Makes `is_running` report that the process no longer exists.
+    /// Sets the stat observation, including denied or ended records.
+    pub fn set_observation(&self, pid: i32, observation: ProcessObservation) {
+        self.observations
+            .lock()
+            .expect("fake observations lock")
+            .insert(pid, observation);
+    }
+
+    /// Overrides successive calls in exact order. A mismatched call fails the
+    /// test rather than silently changing the race it exercises.
+    pub fn script(&self, steps: impl IntoIterator<Item = InspectorStep>) {
+        self.script.lock().expect("fake script lock").extend(steps);
+    }
+
+    pub fn assert_script_finished(&self) {
+        assert!(self.script.lock().expect("fake script lock").is_empty());
+    }
+
+    /// Makes the observation report that the process no longer exists.
     pub fn kill(&self, pid: i32) {
-        if let Ok(mut dead) = self.dead.lock() {
-            dead.push(pid);
-        }
+        self.set_observation(pid, ProcessObservation::Ended);
     }
 }
 
 impl ProcessInspector for FakeInspector {
     fn read_environment(&self, pid: Pid, key: &str) -> io::Result<Option<Vec<u8>>> {
+        if let Some(step) = self.script.lock().expect("fake script lock").pop_front() {
+            let InspectorStep::Environment(expected, result) = step else {
+                panic!("expected environment read, got {step:?}");
+            };
+            assert_eq!(pid, expected);
+            return result.map_err(io::Error::from);
+        }
         let environments = self
             .environments
             .lock()
@@ -673,9 +719,22 @@ impl ProcessInspector for FakeInspector {
         Ok(find_environment_value(block, key.as_bytes()))
     }
 
-    fn is_running(&self, pid: Pid) -> bool {
-        self.dead
+    fn observe(&self, pid: Pid) -> ProcessObservation {
+        if let Some(step) = self.script.lock().expect("fake script lock").pop_front() {
+            let InspectorStep::Stat(expected, observation) = step else {
+                panic!("expected stat read, got {step:?}");
+            };
+            assert_eq!(pid, expected);
+            return observation;
+        }
+        self.observations
             .lock()
-            .is_ok_and(|dead| !dead.contains(&pid.get()))
+            .expect("fake observations lock")
+            .get(&pid.get())
+            .copied()
+            .unwrap_or(ProcessObservation::Live {
+                instance: ProcessInstance::new(pid, 1),
+                parent: None,
+            })
     }
 }

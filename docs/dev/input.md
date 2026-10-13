@@ -38,6 +38,14 @@ smithay supports seats directly. Popup grabs and drag-and-drop are per seat, and
 
 The host input domain is always one seat, because the host desktop has one cursor. See [Host desktop](host-desktop.md#the-input-domain-leak).
 
+### Seat lifetime
+
+The default seat lives as long as the compositor and cannot be destroyed. Every other seat lives until `seat:destroy()`, which withdraws its `wl_seat` global after sending pointer and keyboard leaves.
+
+A source reload holds the seats its closing plugins release instead of destroying them. While the replacement configuration loads, `lunette.newSeat` with a held seat's name hands that seat over: it keeps its identifier and its global, so clients keep the `wl_seat`, `wl_pointer`, and `wl_keyboard` objects they bound. The compositor then resets the seat for its new owner. It cancels the seat's drag, releases its held buttons and keys to the clients that saw them pressed, clears its modifiers, and withdraws its pointer and keyboard focus. Every handover supplies the new owner's keyboard configuration, so a dropped or refused request can be retried on the next reload. The compositor uploads its layout and repeat policy to the existing keyboard; a layout that does not compile is logged and the seat keeps its own. A held seat that no new owner asks for is destroyed after `lovr.load` returns, or after the reload fails. A held seat keeps its name reserved, and only one `newSeat` call can take it back.
+
+A seat handle names its seat by identifier, so a handle from before the reload names the handed-over seat and compares equal to the new owner's. `crates/lunette/src/lua/seat.rs` keeps the hold, and `Command::ResetSeat` is the reset.
+
 ## Clipboard
 
 Each seat owns a clipboard and a primary selection, because smithay stores both against the seat. The host desktop owns one of each. One designated bridge seat connects the two: its selections are the host's in both directions, and every other seat's selections stay inside lunette.
@@ -142,6 +150,8 @@ With `XR_EXTX_overlay`, controller input reaches both the overlay and the applic
 
 Seats are multiple by default. Collapsing multiple seats to one is a small change in Lua; faking multiple seats over one, which WayVR does, is not possible to do well.
 
+Seats survive source reload, keyed by name. A configuration's plugins release their seats as the runtime closes, and the replacement asks for them again, so a reload that destroyed and recreated each seat withdrew a global and advertised another under the same name, which wayland-backend gives the freed global name. Running clients are not relied on to move to the new seat: a GTK4 terminal open across a reload stopped receiving clicks and keys. The hold is native mechanism, because the plugin runtime closes every owner before the replacement exists, and a plugin cannot hand a resource to a configuration that has not run. Keeping seats alive in a module outside the plugin runtime was rejected, because a module keeps no state across reload. The seat is reset at the hand-over, because the previous owner may close with a button or key held, and a client must not keep a grab, a focus, or a pressed key that no owner will release.
+
 One current route coexists with independent native seat focus. A stack that restores an older route on disposal was rejected, because the older target can belong to an ended interaction. Clearing every seat on a route change was rejected, because switching the input source must not destroy another seat's focus.
 
 A release is accepted on the sink its button was pressed on, wherever the seat's pointer is, and a press only on the sink the pointer is over. The pressed client holds smithay's implicit grab until the release, and a drag drops on it. Lua releases on the sink it pressed after its hover has moved to another panel or to nothing, so refusing that release, as other input to a sink the pointer is not over is refused, left the button held and a drag that never ended.
@@ -175,6 +185,8 @@ Drag-and-drop from the host into lunette has no protocol. Drag-and-drop inside l
 Input blocking is not implemented, and the specified mechanism is Monado-only. On every runtime, clicking a panel also reaches the application underneath.
 
 Multi-seat is less exercised in toolkits. Bugs around popup grabs and drag-and-drop ownership are expected.
+
+Only source reload holds seats. Plugin instance reload and hard restart still destroy a plugin's seats and create new ones, so clients running across either must move to the new seats themselves. The seat hand-over is covered by Lua-side and compositor tests with an in-process client; GTK4's behaviour across it has been reproduced only in a live session.
 
 Virtual activations have no dead-key or compose engine, and local receivers have no IME or preedit protocol. Native window routing refuses text the keymap cannot represent.
 

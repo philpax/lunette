@@ -20,13 +20,11 @@
 use std::io;
 
 use slotmap::{DenseSlotMap, new_key_type};
-use tracing as log;
 
 use crate::{
-    protocol::{Pid, ProcessId, ProcessSignal},
+    protocol::{Pid, ProcessId, ProcessInstance, ProcessObservation},
     spawn::{
-        AUTH_VARIABLE, AuthToken, ChildProcess, ProcessInspector, find_environment_value,
-        signal_group,
+        AUTH_VARIABLE, AuthToken, ChildProcess, ProcessInspector, ProcessRecord, find_environment_value,
     },
 };
 
@@ -36,12 +34,14 @@ pub struct WayVRProcess {
     pub auth_key: AuthToken,
     pub child: Box<dyn ChildProcess>,
     pub id: ProcessId,
+    pub(crate) record: ProcessRecord,
 }
 
 #[derive(Debug)]
 pub struct ExternalProcess {
     pub pid: Pid,
     pub id: ProcessId,
+    pub(crate) record: ProcessRecord,
 }
 
 #[derive(Debug)]
@@ -51,37 +51,10 @@ pub enum Process {
     External(ExternalProcess), // External process not directly controlled by us
 }
 
-impl Process {
-    pub fn kill(&mut self, signal: ProcessSignal) {
-        match self {
-            Self::Managed(p) => p.kill(signal),
-            Self::External(p) => p.kill(signal),
-        }
-    }
-}
-
 pub fn get_process_env_value(pid: Pid, key: &str) -> io::Result<Option<Vec<u8>>> {
     let path = format!("/proc/{pid}/environ");
     let env_data = std::fs::read(path)?;
     Ok(find_environment_value(&env_data, key.as_bytes()))
-}
-
-impl WayVRProcess {
-    fn kill(&mut self, signal: ProcessSignal) {
-        self.child.signal(signal);
-    }
-}
-
-impl ExternalProcess {
-    pub fn is_running(&self, inspector: &dyn ProcessInspector) -> bool {
-        inspector.is_running(self.pid)
-    }
-
-    fn kill(&mut self, signal: ProcessSignal) {
-        if let Err(error) = signal_group(self.pid, signal) {
-            log::warn!(pid = %self.pid, %error, "could not signal an adopted process group");
-        }
-    }
 }
 
 new_key_type! {
@@ -93,41 +66,62 @@ pub fn find_by_pid(
     pid: Pid,
     inspector: &dyn ProcessInspector,
 ) -> Option<ProcessHandle> {
-    log::debug!("Finding process with PID {pid}");
+    let observed = inspector.observe(pid);
+    attribute_observed(processes, observed.instance()?, observed, inspector)
+}
 
+pub(crate) fn find_by_instance(
+    processes: &DenseSlotMap<ProcessHandle, Process>,
+    candidate: ProcessInstance,
+    inspector: &dyn ProcessInspector,
+) -> Option<ProcessHandle> {
+    let observed = inspector.observe(candidate.pid());
+    attribute_observed(processes, candidate, observed, inspector)
+}
+
+fn attribute_observed(
+    processes: &DenseSlotMap<ProcessHandle, Process>,
+    candidate: ProcessInstance,
+    observed: ProcessObservation,
+    inspector: &dyn ProcessInspector,
+) -> Option<ProcessHandle> {
+    if observed.instance() != Some(candidate) {
+        return None;
+    }
+
+    let mut registered_pid = false;
     for (handle, process) in processes {
-        match &process {
-            Process::Managed(wayvr_process) => {
-                if wayvr_process.child.pid() == pid {
-                    return Some(handle);
-                }
-            }
-            Process::External(external_process) => {
-                if external_process.pid == pid {
-                    return Some(handle);
-                }
+        if process.pid() == candidate.pid() {
+            registered_pid = true;
+            if process.record().instance == Some(candidate)
+                && process.record().observation.instance() == Some(candidate)
+            {
+                return Some(handle);
             }
         }
     }
-
-    log::debug!("Finding by PID failed, trying {AUTH_VARIABLE}...");
-
-    match inspector.read_environment(pid, AUTH_VARIABLE) {
-        Ok(Some(value)) => {
-            let presented = AuthToken::from_bytes(&value);
-            for (handle, process) in processes {
-                if let Process::Managed(wayvr_process) = &process
-                    && wayvr_process.auth_key.matches(&presented)
-                {
-                    return Some(handle);
-                }
-            }
-        }
-        Ok(None) => {}
-        // An unreadable environment cannot authenticate the client.
-        Err(error) => log::debug!(%pid, %error, "could not read a connecting client's environment"),
+    // A reused or unobservable registration cannot authenticate by PID or
+    // fall through to a token from a different process instance.
+    if registered_pid {
+        return None;
     }
 
-    log::debug!("Process find with PID {pid} failed");
+    let value = inspector.read_environment(candidate.pid(), AUTH_VARIABLE).ok()??;
+    if inspector.observe(candidate.pid()).instance() != Some(candidate) {
+        return None;
+    }
+    let presented = AuthToken::from_bytes(&value);
+    for (handle, process) in processes {
+        if let Process::Managed(root) = process
+            && root.auth_key.matches(&presented)
+            && let Some(instance) = root.record.instance
+            && root.record.observation.instance() == Some(instance)
+            && inspector.observe(root.child.pid()).instance() == Some(instance)
+        {
+            // Token possession establishes attribution only. Signalling still
+            // targets the registered process through its ownership path.
+            return Some(handle);
+        }
+    }
     None
 }

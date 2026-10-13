@@ -3,6 +3,9 @@ local lunette = require '@lunette'
 
 local function exercise(window: lunette.Window, seat: lunette.Seat, sink: lunette.Sink): boolean
   local names: { lunette.ModifierName } = lunette.modifierNames()
+  local processes: { lunette.Process } = lunette.processes()
+  local process: lunette.Process? = window.process
+  assert(#processes >= 0 and (process == nil or process.id > 0))
   return window:setProperty('example.key', nil)
     and sink:setModifiers({ 'control', 'logo' }, seat)
     and seat:symbolFor(30, names) ~= nil

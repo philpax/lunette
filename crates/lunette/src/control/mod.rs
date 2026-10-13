@@ -323,10 +323,9 @@ fn serve_connection(mut stream: UnixStream, sender: &SyncSender<Request>) {
         // reaches the client as an end of file, which the client reports as a
         // session it could not reach. The session is present.
         Err(error) => Reply::Malformed(error.to_string()),
-        Ok(request) if request.version == wire::PROTOCOL_VERSION => submit(sender, request.chunk),
-        Ok(request) => Reply::Incompatible {
-            session: wire::PROTOCOL_VERSION,
-            client: request.version,
+        Ok(request) => match request.version_mismatch(wire::PROTOCOL_VERSION) {
+            None => submit(sender, request.chunk),
+            Some(reply) => reply,
         },
     };
 

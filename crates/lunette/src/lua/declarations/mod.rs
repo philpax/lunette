@@ -31,7 +31,7 @@ use crate::{
 pub trait Described: Sized + Typed {
     const HANDLE: HandleSpec;
 
-    const KIND: HandleKind;
+    const KIND: Option<HandleKind>;
 
     fn describe(surface: &mut impl Surface<Self>);
 }
@@ -63,7 +63,9 @@ where
     T: Described + 'static,
     F: UserDataFields<T>,
 {
-    fields.add_meta_field(HANDLE_METAFIELD, T::KIND.as_str());
+    if let Some(kind) = T::KIND {
+        fields.add_meta_field(HANDLE_METAFIELD, kind.as_str());
+    }
     T::describe(&mut FieldRegistrar {
         fields,
         handle: PhantomData,

@@ -1,5 +1,7 @@
 -- Records development-only drawing with real LÖVR transforms and deterministic codepoint font metrics.
 -- Text bounds are metric boxes, not rasterized glyph ink.
+-- meshFailure and shaderFailure inject one acquisition error; acquisition and release lists record resource counts.
+-- Custom meshes and uniforms record submitted data without shader execution or GPU validation.
 
 local render = {}
 
@@ -15,8 +17,14 @@ export type Font = {
   getWidth: (Font, string) -> number,
   getLines: (Font, string, number?) -> { string },
 }
+export type VertexFormat = { { string | number } }
+export type MeshFlags = { read storage: string?, read mode: string? }
 export type Mesh = {
   capacity: number,
+  format: VertexFormat?,
+  flags: MeshFlags?,
+  attributeCount: number,
+  positionOffset: number?,
   vertices: { { number } },
   indices: { number },
   released: boolean,
@@ -42,6 +50,7 @@ export type Argument =
   | Shader
   | TextureToken
   | { number }
+  | { { number } }
   | { vector }
   | { x: number, y: number, z: number }
 export type Arguments = { [number]: Argument, n: number }
@@ -52,6 +61,8 @@ export type Call = { [number]: Argument, n: number, state: State, transform: Mat
 export type Box = { read x: number, read y: number, read width: number, read height: number, read tolerance: number? }
 export type Pass = {
   getFont: (Pass) -> Font,
+  send: (Pass, string, ...Argument) -> (),
+  setClear: (Pass, ...Argument) -> (),
   setColor: (Pass, ...Argument) -> (),
   setFont: (Pass, Font) -> (),
   setDepthTest: (Pass, ...Argument) -> (),
@@ -63,6 +74,7 @@ export type Pass = {
   setScissor: (Pass, ...Argument) -> (),
   push: (Pass, ...Argument) -> (),
   pop: (Pass, ...Argument) -> (),
+  origin: (Pass) -> (),
   transform: (Pass, ...Argument) -> (),
   translate: (Pass, ...Argument) -> (),
   rotate: (Pass, ...Argument) -> (),
@@ -83,14 +95,18 @@ export type Recorder = {
   meshAcquisitions: { Mesh },
   shaderAcquisitions: { Shader },
   meshReleases: { Mesh },
+  shaderReleases: { Shader },
+  meshFailure: string?,
+  shaderFailure: string?,
   _state: State,
   _transform: Mat4,
   _stacks: Stacks,
   _initial: Checkpoint,
   newFont: (Recorder, string, number, number) -> Font,
-  newMesh: (Recorder, number) -> Mesh,
+  newMesh: (Recorder, number | VertexFormat, ({ { number } } | number | MeshFlags)?, MeshFlags?) -> Mesh,
   newShader: (Recorder, string, string) -> Shader,
   assertMeshesReleased: (Recorder) -> (),
+  assertResourcesReleased: (Recorder) -> (),
   within: <R...>(Recorder, Box, (Pass) -> R...) -> R...,
   checkpoint: (Recorder) -> Checkpoint,
   assertRestored: (Recorder, Checkpoint?) -> (),
@@ -110,6 +126,7 @@ local geometry: (string, Arguments, Mat4, Font) -> { vector }?
 local readTransform: (Arguments, number, number) -> (Mat4, number)
 local readVector: (Arguments, number) -> (number, number, number, number)
 local SETTERS = {
+  'setClear',
   'setColor',
   'setFont',
   'setDepthTest',
@@ -137,6 +154,7 @@ function render.new(calls: ({ Call } | () -> { Call })?): Recorder
     meshAcquisitions = {},
     shaderAcquisitions = {},
     meshReleases = {},
+    shaderReleases = {},
     _state = {},
     _transform = lovr.math.newMat4(),
     _stacks = { state = {}, transform = {} },
@@ -151,16 +169,61 @@ function Recorder.newFont(self: Recorder, file: string, size: number, spread: nu
   return newFont(spec, self)
 end
 
-function Recorder.newMesh(self: Recorder, count: number): Mesh
-  assert(type(count) == 'number' and count >= 0, 'render recorder: invalid mesh capacity')
+function Recorder.newMesh(
+  self: Recorder,
+  formatOrCount: number | VertexFormat,
+  verticesOrCount: ({ { number } } | number | MeshFlags)?,
+  flags: MeshFlags?
+): Mesh
+  if self.meshFailure then
+    local message = self.meshFailure
+    self.meshFailure = nil
+    error(message, 0)
+  end
+  local custom = type(formatOrCount) == 'table'
+  if not custom and type(verticesOrCount) == 'table' then
+    flags = verticesOrCount
+  end
+  local vertices = if custom and type(verticesOrCount) == 'table' then verticesOrCount else nil
+  local count = if custom then (if vertices then #vertices else verticesOrCount) else formatOrCount
+  assert(type(count) == 'number' and count >= 0 and count % 1 == 0, 'render recorder: invalid mesh capacity')
+  local attributeCount, positionOffset = 8, 1
+  local format: VertexFormat? = nil
+  if custom then
+    format = {}
+    attributeCount, positionOffset = 0, nil
+    for _, attribute in formatOrCount do
+      local dataType = attribute[2]
+      local components = if type(attribute[3]) == 'number'
+        then attribute[3]
+        else tonumber(tostring(dataType):match 'x(%d+)$') or 1
+      assert(components > 0 and components % 1 == 0, 'render recorder: invalid mesh attribute')
+      if attribute[1] == 'VertexPosition' and components >= 3 then
+        positionOffset = attributeCount + 1
+      end
+      attributeCount += components
+      format[#format + 1] = table.freeze(table.clone(attribute))
+    end
+    assert(attributeCount > 0, 'render recorder: empty mesh format')
+    table.freeze(format)
+  end
   local recorder = self
-  local mesh: Mesh = { capacity = count, vertices = {}, indices = {}, released = false }
+  local mesh: Mesh = {
+    capacity = count,
+    format = format,
+    flags = if flags then table.freeze(table.clone(flags)) else nil,
+    attributeCount = attributeCount,
+    positionOffset = positionOffset,
+    vertices = {},
+    indices = {},
+    released = false,
+  }
   function mesh.setVertices(self: Mesh, vertices: { { number } })
     assert(not self.released, 'render recorder: released mesh updated')
     assert(#vertices <= self.capacity, 'render recorder: mesh vertex capacity exceeded')
     self.vertices = {}
     for _, vertex in vertices do
-      assert(#vertex == 8, 'render recorder: expected default mesh attributes')
+      assert(#vertex == self.attributeCount, 'render recorder: mesh attributes do not match the format')
       for _, value in vertex do
         assert(
           type(value) == 'number' and value == value and math.abs(value) < math.huge,
@@ -182,15 +245,25 @@ function Recorder.newMesh(self: Recorder, count: number): Mesh
     self.released = true
     recorder.meshReleases[#recorder.meshReleases + 1] = self
   end
+  if vertices then
+    mesh:setVertices(vertices)
+  end
   self.meshAcquisitions[#self.meshAcquisitions + 1] = mesh
   return mesh
 end
 
 function Recorder.newShader(self: Recorder, vertex: string, fragment: string): Shader
+  if self.shaderFailure then
+    local message = self.shaderFailure
+    self.shaderFailure = nil
+    error(message, 0)
+  end
+  local recorder = self
   local shader = { vertex = vertex, fragment = fragment, released = false }
   function shader.release(self: Shader)
     assert(not self.released, 'render recorder: shader released twice')
     self.released = true
+    recorder.shaderReleases[#recorder.shaderReleases + 1] = self
   end
   self.shaderAcquisitions[#self.shaderAcquisitions + 1] = shader
   return shader
@@ -199,6 +272,13 @@ end
 function Recorder.assertMeshesReleased(self: Recorder)
   for _, mesh in self.meshAcquisitions do
     assert(mesh.released, 'render recorder: leaked mesh')
+  end
+end
+
+function Recorder.assertResourcesReleased(self: Recorder)
+  self:assertMeshesReleased()
+  for _, shader in self.shaderAcquisitions do
+    assert(shader.released, 'render recorder: leaked shader')
   end
 end
 
@@ -344,6 +424,22 @@ newPass = function(recorder: Recorder): Pass
       recorder._state[method] = table.pack(...)
     end
   end
+  local function copyUniform(value: any): any
+    if type(value) ~= 'table' or value.release then
+      return value
+    end
+    local copy = {}
+    for key, entry in value do
+      copy[key] = copyUniform(entry)
+    end
+    return copy
+  end
+  function pass.send(self: Pass, name: string, ...: Argument)
+    local call = record('send', name, ...)
+    for index = 3, call.n do
+      call[index] = copyUniform(call[index])
+    end
+  end
   function pass.getFont(self: Pass): Font
     local setting = recorder._state.setFont
     return setting and setting[1] or recorder.font
@@ -375,6 +471,10 @@ newPass = function(recorder: Recorder): Pass
       record(method, ...)
       recorder._transform[method](recorder._transform, ...)
     end
+  end
+  function pass.origin(self: Pass)
+    record 'origin'
+    recorder._transform:identity()
   end
   function pass.transform(self: Pass, ...: Argument)
     record('transform', ...)
@@ -502,9 +602,20 @@ geometry = function(method: string, args: Arguments, transform: Mat4, font: Font
     assert(not mesh.released, 'render recorder: released mesh drawn')
     local localTransform = readTransform(args, 2, 3)
     local matrix = lovr.math.newMat4(transform):mul(localTransform)
-    for _, index in mesh.indices do
+    if not mesh.positionOffset then
+      return nil
+    end
+    local offset = mesh.positionOffset
+    local indices = mesh.indices
+    if #indices == 0 then
+      indices = {}
+      for index in mesh.vertices do
+        indices[#indices + 1] = index
+      end
+    end
+    for _, index in indices do
       local vertex = mesh.vertices[index]
-      point(matrix, vertex[1], vertex[2], vertex[3])
+      point(matrix, vertex[offset], vertex[offset + 1], vertex[offset + 2])
     end
   elseif method == 'line' then
     local vertices = if args.n == 1 and type(args[1]) == 'table' then args[1] else args

@@ -18,6 +18,7 @@
 #[macro_use]
 mod variants;
 
+pub mod audio;
 pub mod clipboard;
 pub mod hid;
 pub mod mirror;

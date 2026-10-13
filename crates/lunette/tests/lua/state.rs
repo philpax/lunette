@@ -59,26 +59,32 @@ struct Reports(Vec<String>);
 
 pub fn new(roots: &Roots) -> mlua::Result<Lua> {
     let lua = Lua::new();
-    lua.set_app_data(Sources {
-        roots: roots.clone(),
-        configuration: None,
-    });
-    lua.set_app_data(Reports::default());
-    attachment::set_reporter(
-        &lua,
-        Rc::new(|lua: &Lua, failure: &PluginFailure| {
-            if let Some(mut reports) = lua.app_data_mut::<Reports>() {
-                reports.0.push(failure.to_string());
-            }
-        }),
-    );
-
     let lovr = lua.create_table()?;
     // SAFETY: the opener follows the Lua C function protocol, and the state
     // shares the Luau build `liblovr.so` exports.
     let open = unsafe { lua.create_c_function(luaopen_lovr_math)? };
     lovr.set("math", open.call::<Table>(())?)?;
     lua.globals().set("lovr", lovr)?;
+    install(&lua, roots)?;
+    Ok(lua)
+}
+
+/// Installs repository modules and plugin reporting into a caller-owned state.
+/// The caller opens the LÖVR modules its tests need before installing this support.
+pub fn install(lua: &Lua, roots: &Roots) -> mlua::Result<()> {
+    lua.set_app_data(Sources {
+        roots: roots.clone(),
+        configuration: None,
+    });
+    lua.set_app_data(Reports::default());
+    attachment::set_reporter(
+        lua,
+        Rc::new(|lua: &Lua, failure: &PluginFailure| {
+            if let Some(mut reports) = lua.app_data_mut::<Reports>() {
+                reports.0.push(failure.to_string());
+            }
+        }),
+    );
 
     let package = lua.create_table()?;
     let preload = lua.create_table()?;
@@ -87,19 +93,19 @@ pub fn new(roots: &Roots) -> mlua::Result<Lua> {
     lua.globals().set("package", package)?;
     lua.globals()
         .set("require", lua.create_function(require_module)?)?;
-    require::install(&lua)?;
+    require::install(lua)?;
 
-    let native = native(&lua)?;
+    let native = native(lua)?;
     preload.set(
         "@lunette",
         lua.create_function(move |_, ()| Ok(native.clone()))?,
     )?;
-    let host = host(&lua)?;
+    let host = host(lua)?;
     preload.set(
         "@testing/host",
         lua.create_function(move |_, ()| Ok(host.clone()))?,
     )?;
-    Ok(lua)
+    Ok(())
 }
 
 pub fn take_reports(lua: &Lua) -> Vec<String> {
@@ -171,11 +177,12 @@ fn host(lua: &Lua) -> mlua::Result<Table> {
             // The reload cannot be stopped from inside the clearing, so a
             // clearing that raised is raised once the reload has returned.
             let failure = std::cell::RefCell::new(None);
-            let outcome = reload::reload_from_lua(lua, &NoMonitors, &|| {
-                if let Err(error) = clear.call::<()>(()) {
-                    failure.borrow_mut().replace(error);
-                }
-            });
+            let outcome =
+                reload::reload_from_lua(lua, &NoMonitors, &reload::NothingRetained, &|| {
+                    if let Err(error) = clear.call::<()>(()) {
+                        failure.borrow_mut().replace(error);
+                    }
+                });
             if let Some(error) = failure.into_inner() {
                 return Err(error);
             }

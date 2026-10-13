@@ -13,6 +13,8 @@ use std::fmt;
 pub enum Type {
     /// A type named by an identifier: `Window`, `number`, `nil`.
     Named(&'static str),
+    /// Luau's builtin buffer type.
+    Buffer,
     /// A string singleton: `'photo'`.
     Literal(&'static str),
     /// `T?`.
@@ -25,6 +27,8 @@ pub enum Type {
     ReadonlyArray(Box<Type>),
     /// `{ [K]: V }`.
     Map { key: Box<Type>, value: Box<Type> },
+    /// `{ read name: T }`. Record fields are read-only.
+    Record(Vec<Parameter>),
     /// `(self: R, name: P) -> T`.
     Function {
         receiver: Option<Box<Type>>,
@@ -36,7 +40,7 @@ pub enum Type {
     Tuple(Vec<Type>),
 }
 
-/// One named parameter of a [`Type::Function`].
+/// One named parameter of a [`Type::Function`] or field of a [`Type::Record`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Parameter {
     pub name: &'static str,
@@ -45,6 +49,7 @@ pub struct Parameter {
 
 impl Type {
     pub const BOOLEAN: Self = Self::Named("boolean");
+    pub const BUFFER: Self = Self::Buffer;
     pub const NIL: Self = Self::Named("nil");
     pub const NUMBER: Self = Self::Named("number");
     pub const STRING: Self = Self::Named("string");
@@ -106,6 +111,7 @@ impl Type {
     fn render(&self, out: &mut String) {
         match self {
             Self::Named(name) => out.push_str(name),
+            Self::Buffer => out.push_str("buffer"),
             Self::Literal(name) => {
                 out.push('\'');
                 out.push_str(name);
@@ -132,6 +138,24 @@ impl Type {
                 out.push_str("]: ");
                 value.render(out);
                 out.push_str(" }");
+            }
+            Self::Record(fields) => {
+                out.push('{');
+                for (index, field) in fields.iter().enumerate() {
+                    if index > 0 {
+                        out.push_str(", ");
+                    } else {
+                        out.push(' ');
+                    }
+                    out.push_str("read ");
+                    out.push_str(field.name);
+                    out.push_str(": ");
+                    field.ty.render(out);
+                }
+                if !fields.is_empty() {
+                    out.push(' ');
+                }
+                out.push('}');
             }
             Self::Function {
                 receiver,
@@ -200,6 +224,13 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_builtin_buffer_type_renders_as_a_builtin() {
+        assert_eq!(Type::BUFFER.to_string(), "buffer");
+        assert_ne!(Type::BUFFER, Type::Named("buffer"));
+        assert_eq!(Type::BUFFER.optional().to_string(), "buffer?");
+    }
+
+    #[test]
     fn an_optional_union_is_parenthesised() {
         let union = Type::Union(vec![Type::NUMBER, Type::STRING]);
         assert_eq!(union.clone().to_string(), "number | string");
@@ -248,6 +279,133 @@ mod tests {
         assert_eq!(
             Type::map(Type::STRING, union).to_string(),
             "{ [string]: number | string }"
+        );
+    }
+
+    #[test]
+    fn a_record_is_readonly_and_an_empty_record_is_empty_braces() {
+        assert_eq!(Type::Record(Vec::new()).to_string(), "{}");
+        assert_eq!(
+            Type::Record(vec![
+                Parameter {
+                    name: "kind",
+                    ty: Type::Literal("system"),
+                },
+                Parameter {
+                    name: "process",
+                    ty: Type::Named("Process"),
+                },
+            ])
+            .to_string(),
+            "{ read kind: 'system', read process: Process }"
+        );
+    }
+
+    #[test]
+    fn an_audio_source_union_renders_as_readonly_discriminated_records() {
+        let source = Type::Union(vec![
+            Type::Record(vec![Parameter {
+                name: "kind",
+                ty: Type::Literal("system"),
+            }]),
+            Type::Record(vec![
+                Parameter {
+                    name: "kind",
+                    ty: Type::Literal("process"),
+                },
+                Parameter {
+                    name: "process",
+                    ty: Type::Named("Process"),
+                },
+            ]),
+        ]);
+
+        assert_eq!(
+            source.to_string(),
+            "{ read kind: 'system' } | { read kind: 'process', read process: Process }"
+        );
+    }
+
+    #[test]
+    fn an_audio_state_union_renders_readonly_payload_fields() {
+        let state = Type::Union(vec![
+            Type::Record(vec![Parameter {
+                name: "kind",
+                ty: Type::Literal("starting"),
+            }]),
+            Type::Record(vec![
+                Parameter {
+                    name: "kind",
+                    ty: Type::Literal("active"),
+                },
+                Parameter {
+                    name: "provenance",
+                    ty: Type::Named("Provenance").optional(),
+                },
+            ]),
+            Type::Record(vec![Parameter {
+                name: "kind",
+                ty: Type::Literal("idle"),
+            }]),
+            Type::Record(vec![
+                Parameter {
+                    name: "kind",
+                    ty: Type::Literal("unavailable"),
+                },
+                Parameter {
+                    name: "reason",
+                    ty: Type::Named("UnavailableReason"),
+                },
+                Parameter {
+                    name: "detail",
+                    ty: Type::STRING,
+                },
+            ]),
+            Type::Record(vec![Parameter {
+                name: "kind",
+                ty: Type::Literal("ended"),
+            }]),
+        ]);
+
+        assert_eq!(
+            state.to_string(),
+            "{ read kind: 'starting' } | { read kind: 'active', read provenance: Provenance? } | { read kind: 'idle' } | { read kind: 'unavailable', read reason: UnavailableReason, read detail: string } | { read kind: 'ended' }"
+        );
+    }
+
+    #[test]
+    fn nested_record_payloads_preserve_optional_union_and_function_syntax() {
+        let payload = Type::Union(vec![
+            Type::Record(vec![
+                Parameter {
+                    name: "kind",
+                    ty: Type::Literal("bytes"),
+                },
+                Parameter {
+                    name: "copy",
+                    ty: Type::Function {
+                        receiver: None,
+                        parameters: vec![Parameter {
+                            name: "offset",
+                            ty: Type::NUMBER,
+                        }],
+                        returns: Box::new(Type::BUFFER),
+                    },
+                },
+            ]),
+            Type::Record(vec![Parameter {
+                name: "kind",
+                ty: Type::Literal("empty"),
+            }]),
+        ]);
+        let enclosing = Type::Record(vec![Parameter {
+            name: "payload",
+            ty: payload.optional(),
+        }]);
+
+        assert_eq!(
+            enclosing.to_string(),
+            "{ read payload: ({ read kind: 'bytes', read copy: (offset: number) -> buffer } | { read kind: 'empty' })? }"
         );
     }
 

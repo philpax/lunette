@@ -24,7 +24,11 @@ test('the development configuration starts on load and survives a source reload'
   expect.truthy(loaded, tostring(failure))
   expect.equal(#events.spawned, 1, 'the reload starts no terminal')
   for _, name in ipairs { 'onWindowOpened', 'onProcessExited', 'onMonitorAdded', 'onError' } do
-    expect.equal(native.subscriptionCount(name), 1, 'the reload leaves one ' .. name)
+    expect.equal(
+      native.subscriptionCount(name),
+      if name == 'onWindowOpened' then 2 else 1,
+      'the reload leaves the expected ' .. name .. ' subscriptions'
+    )
   end
   lovr.update(0.016)
   expect.equal(lovr.draw(events.pass), false, 'the reloaded desktop draws')

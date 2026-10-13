@@ -9,6 +9,88 @@ use lunette_luau::closed_set;
 
 use crate::protocol::{OutputId, ProcessId};
 
+/// An operating-system process instance, not just a reusable PID.
+///
+/// The discriminator is Linux's start time in clock ticks since boot. It is
+/// opaque to consumers and must not be exposed as a Lua process identifier.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ProcessInstance {
+    pid: Pid,
+    start_time: u64,
+}
+
+impl ProcessInstance {
+    /// Constructs an instance from a process inspector's stat observation.
+    #[must_use]
+    pub const fn new(pid: Pid, start_time: u64) -> Self {
+        Self { pid, start_time }
+    }
+
+    #[must_use]
+    pub const fn pid(self) -> Pid {
+        self.pid
+    }
+}
+
+/// A point-in-time process observation. Unavailability is not process death.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProcessObservation {
+    Live {
+        instance: ProcessInstance,
+        parent: Option<Pid>,
+    },
+    Ended,
+    Unavailable(ProcessObservationFailure),
+}
+
+impl ProcessObservation {
+    #[must_use]
+    pub const fn instance(self) -> Option<ProcessInstance> {
+        match self {
+            Self::Live { instance, .. } => Some(instance),
+            Self::Ended | Self::Unavailable(_) => None,
+        }
+    }
+}
+
+/// Why a process record cannot currently be inspected.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProcessObservationFailure {
+    AccessDenied,
+    InvalidData,
+    Other,
+}
+
+/// Correlates one audio attribution request with its asynchronous reply.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct AudioAttributionRequestId(pub u64);
+
+/// Identifies the PipeWire connection that supplied a node.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct PipeWireGeneration(pub u64);
+
+/// A PipeWire object's serial, rather than its reusable global id.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct AudioNodeSerial(pub u64);
+
+/// Resolves an observed audio producer to a logical process. No authentication
+/// token crosses the compositor boundary.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AudioAttributionRequest {
+    pub request: AudioAttributionRequestId,
+    pub generation: PipeWireGeneration,
+    pub node: AudioNodeSerial,
+    pub candidate: ProcessInstance,
+}
+
+/// A reply carries the complete correlation tuple so a replaced node or process
+/// cannot consume an older result. A match grants attribution, not signalling.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AudioAttributionReply {
+    pub request: AudioAttributionRequest,
+    pub process: Option<ProcessId>,
+}
+
 /// A request to start a process and assign its clients to an output.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SpawnRequest {

@@ -30,7 +30,12 @@ pub use crate::protocol::{
         KeyboardConfig, KeymapConfig, KeymapDefaults, KeymapText, LayoutName, RepeatDelay,
         RepeatPolicy, RepeatRate,
     },
-    process::{Argv, Pid, ProcessOutcome, ProcessSignal, SignalNumber, SpawnRequest, Stream},
+    process::{
+        Argv, AudioAttributionReply, AudioAttributionRequest, AudioAttributionRequestId,
+        AudioNodeSerial, Pid, PipeWireGeneration, ProcessInstance, ProcessObservation,
+        ProcessObservationFailure, ProcessOutcome, ProcessSignal, SignalNumber, SpawnRequest,
+        Stream,
+    },
 };
 use crate::surface::{BufferImporter, PixelBuffer};
 
@@ -43,6 +48,8 @@ use crate::surface::{BufferImporter, PixelBuffer};
 pub enum Command {
     /// Starts a process and attributes its clients to it.
     Spawn(SpawnRequest),
+    /// Resolves an audio producer without blocking the main thread on `/proc`.
+    ResolveAudioProcess(AudioAttributionRequest),
     /// Signals a spawned process group.
     SignalProcess {
         process: ProcessId,
@@ -117,6 +124,18 @@ pub enum Command {
     },
     DestroySeat {
         seat: SeatId,
+    },
+    /// Hands a seat to a new owner without withdrawing its global, so clients
+    /// keep the objects they bound.
+    ///
+    /// The seat's drag is cancelled, its held buttons and keys are released to
+    /// the clients that received them, its modifiers are cleared, and its
+    /// pointer and keyboard focus are withdrawn. A keyboard replaces the seat's
+    /// layout and repeat policy in place; one whose layout does not compile is
+    /// refused and the seat keeps its own.
+    ResetSeat {
+        seat: SeatId,
+        keyboard: Option<Box<KeyboardConfig>>,
     },
     /// Selects the seat that bridges the host clipboard and primary selection.
     /// At most one seat can bridge.
@@ -197,6 +216,14 @@ pub enum Event {
         process: ProcessId,
         outcome: ProcessOutcome,
     },
+    /// An observation changed. `Ended` can precede managed-child reaping and
+    /// must not replace `ProcessExited` as the public handle's death signal.
+    ProcessObservationChanged {
+        process: ProcessId,
+        observation: ProcessObservation,
+    },
+    /// Replies only to an explicit audio attribution request.
+    AudioProcessResolved(AudioAttributionReply),
     /// Output bytes from a spawned process. The bytes may not be UTF-8.
     ProcessOutput {
         process: ProcessId,
@@ -402,6 +429,11 @@ pub struct ProcessSnapshot {
     pub process: ProcessId,
     /// The process ID, if it is available.
     pub pid: Option<Pid>,
+    /// The captured registration instance. It is absent when registration could
+    /// not inspect the process, and is never filled from a later reusable PID.
+    pub instance: Option<ProcessInstance>,
+    /// Current inspectability, separate from ownership and public handle death.
+    pub observation: ProcessObservation,
     /// Whether the process was adopted or spawned.
     pub external: bool,
     pub alive: bool,
@@ -784,6 +816,11 @@ macro_rules! identifier {
         )*
     };
 }
+
+/// First identifier reserved for adopted processes; managed IDs are strictly below it.
+pub const ADOPTED_PROCESS_ID_MIN: u64 = 1_u64 << 52;
+/// Largest process identifier, exactly representable by Luau's double-precision numbers.
+pub const PROCESS_ID_MAX: u64 = (1_u64 << 53) - 1;
 
 identifier! {
     WindowId;

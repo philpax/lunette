@@ -33,7 +33,7 @@ use smithay::{
         keyboard::KeyboardHandle,
         pointer::{AxisFrame, ButtonEvent, MotionEvent, PointerHandle, RelativeMotionEvent},
     },
-    reexports::wayland_server::{self, protocol::wl_surface::WlSurface},
+    reexports::wayland_server::{self, backend::DisconnectReason, protocol::wl_surface::WlSurface},
     utils::{Logical, Point, SerialCounter},
     wayland::socket::ListeningSocketSource,
 };
@@ -102,7 +102,7 @@ impl comp::Application {
     ///
     /// # Errors
     ///
-    /// Returns the I/O error when the display cannot insert the client.
+    /// Returns an I/O error when the display cannot insert the client or adopted identifiers are exhausted.
     pub(crate) fn accept_connection(
         &mut self,
         stream: UnixStream,
@@ -132,8 +132,21 @@ impl comp::Application {
         } else {
             // This is a new process which we didn't meet before.
             // Treat external processes exclusively (spawned by the user or external program)
-            let process =
-                spawn::add_external_process(&mut self.processes, &mut self.adopted_ids, pid);
+            let process = match spawn::add_external_process(
+                &mut self.processes,
+                &mut self.adopted_ids,
+                pid,
+                self.inspector.as_ref(),
+            ) {
+                Ok(process) => process,
+                Err(error) => {
+                    self.display_handle.backend_handle().kill_client(
+                        client.id(),
+                        DisconnectReason::ConnectionClosed,
+                    );
+                    return Err(io::Error::other(error));
+                }
+            };
             log::info!(
                 %pid,
                 %process,

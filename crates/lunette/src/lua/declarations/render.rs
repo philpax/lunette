@@ -6,6 +6,7 @@ use crate::{
     events::{payload_records, subscription_functions},
     lua::{
         Claim, Drag, ErrorEvent, Monitor, Output, Process, ReportError, Seat, Sink, Spawn, Window,
+        audio::{AudioBlock, AudioCapture, AudioSnapshot, AudioSource, AudioState},
         claim::ClaimLayer,
         declarations::{
             AliasSpec, Aliased, Handle, NullTexture, Record, Recorded, Textured, collect,
@@ -40,6 +41,9 @@ pub fn render() -> String {
         PointerButtonName::ALIAS,
         KeyName::ALIAS,
         ModifierName::ALIAS,
+        AudioSource::<NullTexture>::ALIAS,
+        AudioState::ALIAS,
+        AudioSnapshot::<NullTexture>::ALIAS,
     ] {
         render_alias(&mut out, &alias, &handles);
     }
@@ -75,6 +79,8 @@ fn surface() -> Vec<Item> {
         Item::Record(MonitorSelection::RECORD),
         Item::Handle(collect::<Monitor<NullTexture>>()),
         Item::Handle(collect::<Process<NullTexture>>()),
+        Item::Handle(collect::<AudioCapture<NullTexture>>()),
+        Item::Handle(collect::<AudioBlock>()),
         Item::Record(Stroke::RECORD),
         Item::Record(NewSeat::RECORD),
         Item::Handle(collect::<Drag<NullTexture>>()),

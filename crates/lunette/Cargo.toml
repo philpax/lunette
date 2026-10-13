@@ -7,6 +7,10 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 
+[features]
+# Offscreen Vulkan tests require an explicitly selected software driver.
+graphics-tests = []
+
 [dependencies]
 # The Vulkan surface lunette uses on the device LOVR created.
 # The default features stay on, and `loaded` provides `Entry::load`:
@@ -64,6 +68,13 @@ tempfile.workspace = true
 name = "lua"
 path = "tests/lua/main.rs"
 harness = false
+
+# LÖVR's graphics state is process-global; one custom trial runs all fixtures serially.
+[[test]]
+name = "graphics"
+path = "tests/graphics/main.rs"
+harness = false
+required-features = ["graphics-tests"]
 
 [lints]
 workspace = true

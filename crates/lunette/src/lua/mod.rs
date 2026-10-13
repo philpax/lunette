@@ -4,6 +4,7 @@
 //! handles return `false` and keep their last-known values.
 //! [The Lua API](../../../docs/dev/lua-api.md#errors) states the error boundaries.
 
+mod audio;
 mod claim;
 pub mod declarations;
 mod drag;
@@ -34,8 +35,8 @@ use std::{
 use lunette_compositor::{
     config::{DEFAULT_OUTPUT, DEFAULT_SEAT},
     protocol::{
-        Argv, Command, OutputId, PixelSize, ProcessId, SeatId, Snapshot, SpawnRequest, WindowId,
-        WindowSnapshot,
+        ADOPTED_PROCESS_ID_MIN, Argv, Command, OutputId, PixelSize, ProcessId, SeatId, Snapshot,
+        SpawnRequest, WindowId, WindowSnapshot,
     },
 };
 use lunette_lovr::raw::{_luax_pushtype, ObjectType_T_Texture};
@@ -53,6 +54,7 @@ pub use crate::lua::{
     window::Window,
 };
 use crate::{
+    audio::{AudioRegistry, NoAudioRegistry},
     callback_error::{self, TracedError},
     events::{
         ERROR, EventName, EventQueue, EventSink, LuaEvent, install_dispatchers,
@@ -61,6 +63,7 @@ use crate::{
     host::HostSinks,
     keymaps::KeymapCache,
     lua::{
+        audio::{AudioCapture, AudioSource, open_audio},
         claim::{ClaimLayer, claim_layer},
         declarations::{FunctionSpec, NullTexture, Options, Record, Type, module, record},
         keys::{KeyCodes, ModifierName, locking_modifier_names, modifier_names},
@@ -143,6 +146,8 @@ pub struct Session<T> {
     mirrors: Rc<dyn MirrorRegistry>,
     /// The host input provider used by sink handles.
     host: Rc<dyn HostSinks>,
+    /// Audio reader ownership and frame publications, independent of graphics.
+    audio: Rc<dyn AudioRegistry>,
     /// Each seat's published layout, compiled on this thread; [`crate::keymaps`] states why.
     keymaps: RefCell<KeymapCache>,
     seat_names: RefCell<seat::SeatNames>,
@@ -164,6 +169,24 @@ impl<T> Session<T> {
         mirrors: Rc<dyn MirrorRegistry>,
         host: Rc<dyn HostSinks>,
     ) -> Rc<Self> {
+        Self::new_with_audio(
+            sink,
+            claims,
+            mirrors,
+            host,
+            Rc::new(NoAudioRegistry::default()),
+        )
+    }
+
+    /// Constructs a session with an explicit audio registry. The default constructor opens no backend.
+    #[must_use]
+    pub fn new_with_audio(
+        sink: Box<dyn EventSink>,
+        claims: Rc<dyn ClaimRegistry>,
+        mirrors: Rc<dyn MirrorRegistry>,
+        host: Rc<dyn HostSinks>,
+        audio: Rc<dyn AudioRegistry>,
+    ) -> Rc<Self> {
         let empty = Arc::new(Snapshot::default());
         Rc::new(Self {
             frame: RefCell::new(Frame {
@@ -184,6 +207,7 @@ impl<T> Session<T> {
             claims,
             mirrors,
             host,
+            audio,
             keymaps: RefCell::new(KeymapCache::default()),
             seat_names: RefCell::new(seat::SeatNames::default()),
             properties: RefCell::new(WindowProperties::new()),
@@ -217,6 +241,11 @@ impl<T> Session<T> {
     #[must_use]
     pub fn host(&self) -> &dyn HostSinks {
         self.host.as_ref()
+    }
+
+    #[must_use]
+    pub fn audio(&self) -> &dyn AudioRegistry {
+        self.audio.as_ref()
     }
 
     /// Resolves layer claims at the frame boundary.
@@ -382,6 +411,9 @@ impl<T> Session<T> {
 
     /// Queues a mutation for the frame's flush.
     pub(crate) fn queue(&self, command: Command) {
+        if let Command::Spawn(request) = &command {
+            self.audio.pending_process(request.process);
+        }
         self.seat_names.borrow_mut().apply(&command);
         self.frame.borrow_mut().commands.push(command);
     }
@@ -389,11 +421,16 @@ impl<T> Session<T> {
     /// Allocates an identifier before the spawn request reaches the compositor.
     ///
     /// The main thread returns the process handle immediately. Compositor-assigned identifiers for
-    /// adopted processes use the opposite end of the identifier range.
+    /// adopted processes use a disjoint range. Both ranges stay exactly representable in Luau.
     fn mint_process(&self) -> Option<ProcessId> {
         let mut frame = self.frame.borrow_mut();
-        frame.processes = frame.processes.checked_add(1)?;
-        ProcessId::new(frame.processes)
+        let next = frame.processes.checked_add(1)?;
+        if next >= ADOPTED_PROCESS_ID_MIN {
+            return None;
+        }
+        let id = ProcessId::new(next)?;
+        frame.processes = next;
+        Some(id)
     }
 
     /// Allocates an identifier before the seat creation request reaches the compositor.
@@ -497,10 +534,22 @@ module! {
     /// Every mapped toplevel, as of this frame's snapshot.
     fn windows(lua, session) -> Vec<Window<T>> { window_handles(lua, session) }
 
+    /// Every registered process, including adopted clients, as of this frame's snapshot.
+    fn processes(_lua, session) -> Vec<Process<T>> {
+        Ok(session.snapshot().processes.iter()
+            .map(|process| Process::new(Rc::clone(session), process.process)).collect())
+    }
+
     /// Runs a program as a client of this compositor. The handle comes back
     /// before the request reaches the compositor, so it describes a process
     /// that does not exist yet: `dead` is true until the snapshot lists it.
     fn spawn(_lua, session, options: Options<Spawn>) -> Process<T> { spawn(session, &options) }
+
+    /// Opens an independent non-routing audio reader for the system mix or a process in this session.
+    /// A queued spawn is valid. Close the reader explicitly when its owner releases it.
+    fn openAudio(_lua, session, source: AudioSource<T>) -> AudioCapture<T> {
+        open_audio(session, source)
+    }
 
     /// The user's own screens, whether or not they are being mirrored.
     fn monitors(lua, session) -> Vec<Monitor<T>> { monitors(lua, session) }
@@ -578,7 +627,12 @@ module! {
 
     /// Shuts down plugin runtimes, retires their contract epoch, and re-runs the configuration in the same Lua state, keeping the compositor, the clients, and their textures. Answers whether it loaded, and the error if it did not.
     fn reload(lua, session) -> (bool, Option<String>) {
-        Ok(reload_from_lua(lua, session.mirrors(), &|| session.clear_subscribers()))
+        Ok(reload_from_lua(
+            lua,
+            session.mirrors(),
+            session.as_ref(),
+            &|| session.clear_subscribers(),
+        ))
     }
 }
 

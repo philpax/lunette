@@ -14,11 +14,15 @@ use tracing::{debug, warn};
 
 use crate::{
     protocol::{
-        Event, OutputId, ProcessId, ProcessOutcome, ProcessSignal, SpawnRequest as SpawnCommand,
+        AudioAttributionReply, AudioAttributionRequest, Event, OutputId, ProcessId, ProcessOutcome,
+        ProcessSignal, SpawnRequest as SpawnCommand,
     },
     spawn::{self, Report, SpawnRequest},
     thread::LoopData,
-    wayvr::comp::Application,
+    wayvr::{
+        comp::Application,
+        process::{Process, find_by_instance},
+    },
 };
 
 /// The shared poll checks process output, exits, and the satellite every 100
@@ -44,7 +48,12 @@ impl Application {
             );
         }
 
-        match spawn::spawn_process(&mut self.processes, self.spawner.as_mut(), plan) {
+        match spawn::spawn_process(
+            &mut self.processes,
+            self.spawner.as_mut(),
+            self.inspector.as_ref(),
+            plan,
+        ) {
             Ok(_) => {
                 self.assign_output(request.process, request.output);
                 self.touch();
@@ -79,11 +88,29 @@ impl Application {
         self.assignments.insert(process, output);
     }
 
-    /// An adopted process stays signalable until a poll observes its `/proc`
-    /// entry disappear.
+    pub(crate) fn resolve_audio_process(&mut self, request: AudioAttributionRequest) {
+        let process = find_by_instance(&self.processes, request.candidate, self.inspector.as_ref())
+            .map(|handle| self.processes[handle].id());
+        self.report(Event::AudioProcessResolved(AudioAttributionReply {
+            request,
+            process,
+        }));
+    }
+
+    /// Managed children remain owned through denied observations. An adopted
+    /// group can be signalled only while its captured instance is observable.
     pub(crate) fn signal_process(&mut self, process: ProcessId, signal: ProcessSignal) {
         match self.processes.values_mut().find(|p| p.id() == process) {
-            Some(p) => p.kill(signal),
+            Some(Process::External(p)) => {
+                if p.record.instance.is_some()
+                    && p.record.observation.instance() == p.record.instance
+                    && self.inspector.observe(p.pid).instance() == p.record.instance
+                    && let Err(error) = spawn::signal_group(p.pid, signal)
+                {
+                    warn!(pid = %p.pid, %error, "could not signal an adopted process group");
+                }
+            }
+            Some(Process::Managed(p)) => p.child.signal(signal),
             None => debug!(%process, "a signal was asked for a process that is already gone"),
         }
     }
@@ -123,6 +150,13 @@ impl Application {
 
         for report in spawn::poll(&mut self.processes, self.inspector.as_ref()) {
             match report {
+                Report::ObservationChanged { id, observation } => {
+                    self.touch();
+                    self.report(Event::ProcessObservationChanged {
+                        process: id,
+                        observation,
+                    });
+                }
                 Report::Output { id, stream, bytes } => self.report(Event::ProcessOutput {
                     process: id,
                     stream,

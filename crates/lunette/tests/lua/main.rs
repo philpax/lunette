@@ -27,7 +27,7 @@ fn main() -> ExitCode {
             .map(|file| {
                 let roots = roots.clone();
                 Trial::test(file.name.clone(), move || {
-                    run::file(&roots, &file).map_err(Failed::from)
+                    run_file(&roots, &file).map_err(Failed::from)
                 })
             })
             .collect::<Vec<_>>(),
@@ -38,6 +38,17 @@ fn main() -> ExitCode {
     trials.push(installed::trial(roots.clone()));
     trials.extend(meta::trials(&roots));
     libtest_mimic::run(&arguments, trials).exit_code()
+}
+
+fn run_file(roots: &state::Roots, file: &discover::TestFile) -> Result<(), String> {
+    let lua =
+        state::new(roots).map_err(|error| format!("the test state could not be built: {error}"))?;
+    if file.source == discover::Source::Development {
+        state::use_configuration(&lua, roots.repository.join("dev")).map_err(|error| {
+            format!("the development configuration could not be selected: {error}")
+        })?;
+    }
+    run::module(&lua, &file.module)
 }
 
 /// The working tree that contains the `lua/` directory under test.

@@ -8,6 +8,7 @@
     reason = "a failed expectation is how a test reports a failure; the ban is on production code"
 )]
 
+mod audio;
 mod children;
 mod drags;
 mod events;
@@ -18,6 +19,7 @@ mod outputs;
 mod processes;
 mod properties;
 mod scene;
+mod seat_reload;
 mod seats;
 mod text;
 mod windows;

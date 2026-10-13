@@ -12,7 +12,8 @@ use crate::{mirrors::MirrorRegistry, plugin::attachment};
 
 /// Applies the configuration on disk to the running session.
 ///
-/// Mirrors stay acquired while the replacement configuration runs, so it can reuse them.
+/// Mirrors stay acquired and released seats stay held while the replacement configuration runs, so
+/// it can reuse them. Whatever it leaves unclaimed is released once it has loaded or failed.
 ///
 /// # Errors
 ///
@@ -21,6 +22,7 @@ use crate::{mirrors::MirrorRegistry, plugin::attachment};
 pub fn reload(
     lua: &Lua,
     mirrors: &dyn MirrorRegistry,
+    seats: &dyn Retention,
     forget_subscriptions: &dyn Fn(),
 ) -> Result<(), ReloadError> {
     // Prevent recursive reloads from exhausting the Lua stack.
@@ -28,9 +30,13 @@ pub fn reload(
     if attachment::callback_active(lua) {
         return Err(ReloadError::CallbackActive);
     }
-    let owns_reload = mirrors.begin_reload();
+    let owns_mirrors = mirrors.begin_reload();
+    let owns_seats = seats.begin_reload();
     let result = replace_configuration(lua, forget_subscriptions);
-    if owns_reload {
+    if owns_seats {
+        seats.finish_reload();
+    }
+    if owns_mirrors {
         mirrors.finish_reload();
     }
     result
@@ -40,15 +46,41 @@ pub fn reload(
 pub fn reload_from_lua(
     lua: &Lua,
     mirrors: &dyn MirrorRegistry,
+    seats: &dyn Retention,
     forget_subscriptions: &dyn Fn(),
 ) -> (bool, Option<String>) {
-    match reload(lua, mirrors, forget_subscriptions) {
+    match reload(lua, mirrors, seats, forget_subscriptions) {
         Ok(()) => (true, None),
         Err(error) => {
             warn!("{error}");
             (false, Some(error.to_string()))
         }
     }
+}
+
+/// Native objects a source reload holds for the replacement configuration to reclaim.
+///
+/// The mirrors keep their own hold on [`MirrorRegistry`], because a mirror is reused by monitor
+/// and not released by a plugin.
+pub trait Retention {
+    /// Starts holding what the closing configuration releases. Answers whether this call owns the
+    /// hold, which a nested call does not.
+    fn begin_reload(&self) -> bool;
+
+    /// Releases what the replacement configuration left unclaimed.
+    fn finish_reload(&self);
+}
+
+/// Holds nothing, for a reload with no session behind it.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct NothingRetained;
+
+impl Retention for NothingRetained {
+    fn begin_reload(&self) -> bool {
+        false
+    }
+
+    fn finish_reload(&self) {}
 }
 
 fn replace_configuration(lua: &Lua, forget_subscriptions: &dyn Fn()) -> Result<(), ReloadError> {
@@ -331,7 +363,7 @@ mod tests {
         );
         run(&lua, "require 'main' lovr.load()");
 
-        reload(&lua, &NoMonitors, &|| ()).expect("the reload succeeds");
+        reload(&lua, &NoMonitors, &NothingRetained, &|| ()).expect("the reload succeeds");
 
         assert_eq!(
             number(&lua, "runs.main"),
@@ -376,7 +408,7 @@ mod tests {
              package.loaded['@lunette'] = { n = 1 }",
         );
 
-        reload(&lua, &NoMonitors, &|| ()).expect("the reload succeeds");
+        reload(&lua, &NoMonitors, &NothingRetained, &|| ()).expect("the reload succeeds");
 
         let kept = libraries
             .iter()
@@ -424,7 +456,7 @@ mod tests {
         );
 
         set_main(&lua, "function lovr.draw() end");
-        reload(&lua, &NoMonitors, &|| ()).expect("the reload succeeds");
+        reload(&lua, &NoMonitors, &NothingRetained, &|| ()).expect("the reload succeeds");
 
         assert!(
             lua.load("return lovr.keypressed == nil and lovr.lunwindowopened == nil")
@@ -458,7 +490,7 @@ mod tests {
         run(&lua, "require 'main'");
 
         set_main(&lua, "error('a deliberate defect')");
-        let error = reload(&lua, &NoMonitors, &|| ())
+        let error = reload(&lua, &NoMonitors, &NothingRetained, &|| ())
             .expect_err("a configuration that raises fails the reload");
 
         assert!(
@@ -467,7 +499,7 @@ mod tests {
         );
         // Unlike safe mode, the session stays usable and the next reload works.
         set_main(&lua, "runs.main = runs.main + 1");
-        reload(&lua, &NoMonitors, &|| ())
+        reload(&lua, &NoMonitors, &NothingRetained, &|| ())
             .expect("the session can be reloaded again after a failure");
         assert_eq!(number(&lua, "runs.main"), 2);
     }
@@ -476,8 +508,8 @@ mod tests {
     fn a_lovr_load_that_raises_is_reported_separately() {
         let lua = state("function lovr.load() error('a deliberate defect') end");
 
-        let error =
-            reload(&lua, &NoMonitors, &|| ()).expect_err("lovr.load raising fails the reload");
+        let error = reload(&lua, &NoMonitors, &NothingRetained, &|| ())
+            .expect_err("lovr.load raising fails the reload");
 
         assert!(
             matches!(error, ReloadError::Load(_)),
@@ -505,7 +537,7 @@ mod tests {
                     module.set(
                         "reload",
                         lua.create_function(|lua, ()| {
-                            Ok(reload_from_lua(lua, &NoMonitors, &|| ()))
+                            Ok(reload_from_lua(lua, &NoMonitors, &NothingRetained, &|| ()))
                         })?,
                     )?;
                     Ok(module)
@@ -514,7 +546,7 @@ mod tests {
             )
             .expect("the module is reachable");
 
-        reload(&lua, &NoMonitors, &|| ()).expect("the outer reload succeeds");
+        reload(&lua, &NoMonitors, &NothingRetained, &|| ()).expect("the outer reload succeeds");
 
         assert!(
             !lua.load("return ok").eval::<bool>().expect("readable"),

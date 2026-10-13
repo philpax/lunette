@@ -24,6 +24,18 @@ export type KeyName = 'escape' | 'digit1' | 'digit2' | 'digit3' | 'digit4' | 'di
 -- them. The runtime refuses anything else.
 export type ModifierName = 'shift' | 'capsLock' | 'control' | 'alt' | 'numLock' | 'mod3' | 'logo' | 'mod5'
 
+-- A closed source descriptor. A process must belong to the current session; a
+-- queued spawn is valid.
+export type AudioSource = { read kind: 'system' } | { read kind: 'process', read process: Process }
+
+-- Capture status. Unavailable is recoverable and carries a reason; ended is
+-- terminal.
+export type AudioState = { read kind: 'starting' } | { read kind: 'active', read provenance: ('pipewire-client' | 'application-metadata')? } | { read kind: 'idle' } | { read kind: 'unavailable', read reason: 'no-server' | 'no-default-sink' | 'invalid-default-sink' | 'permission-denied' | 'unsupported-format' | 'unresolved-attribution' | 'capacity-exceeded' | 'graph-failure', read detail: string } | { read kind: 'ended' }
+
+-- One frame's read-only audio publication. Retained blocks remain valid in
+-- later frames.
+export type AudioSnapshot = { read source: AudioSource, read state: AudioState, read frameGeneration: number, read blocks: { read [number]: AudioBlock } }
+
 -- Somewhere pixel input can be delivered. `domain` names the pipeline its
 -- events travel: `window` or `host`.
 export type Sink = {
@@ -64,6 +76,10 @@ export type Window = {
   read dead: boolean,
   read title: string?,
   read appId: string?,
+  -- The registered process associated with this window, including adopted
+  -- clients. Nil when attribution is unavailable. A closed window retains its
+  -- last-known association.
+  read process: Process?,
   -- The size the client last committed in surface coordinates, which pointer
   -- positions use, not the size last asked of it. The texture can be larger
   -- when the client scales it down.
@@ -202,8 +218,9 @@ export type Monitor = {
   read setPaused: (self: Monitor, paused: boolean) -> boolean,
 }
 
--- A process lunette started. The handle exists before the process does:
--- `lunette.spawn` queues a request and returns in the same call.
+-- A process lunette started or adopted from a connecting client. A spawned
+-- handle exists before the process does: `lunette.spawn` queues a request and
+-- returns in the same call.
 export type Process = {
   read id: number,
   -- True in three situations this field does not distinguish: the request has
@@ -212,6 +229,39 @@ export type Process = {
   -- `lunette.onProcessExited` carries. A handle field cannot represent "not
   -- yet".
   read dead: boolean,
+}
+
+-- An independent non-routing audio reader. Close it explicitly when its owner
+-- releases it; collecting the userdata does not close the reader.
+export type AudioCapture = {
+  read id: number,
+  -- True after close or a terminal source outcome. Starting, idle, and
+  -- unavailable remain live.
+  read dead: boolean,
+  -- The immutable publication for this frame. Repeated reads do not consume
+  -- blocks.
+  read snapshot: (self: AudioCapture) -> AudioSnapshot,
+  -- Releases this reader once. Other readers of the same source remain open.
+  read close: (self: AudioCapture) -> (),
+}
+
+-- Immutable native interleaved stereo F32 PCM. Copy samples only when analysis
+-- needs them.
+export type AudioBlock = {
+  read sequence: number,
+  read generation: number,
+  read frameCount: number,
+  read sampleRate: number,
+  read channels: number,
+  -- Cumulative sample-frame position within this stream generation, not a
+  -- device timestamp.
+  read startFrame: number,
+  read timing: 'sample-frames',
+  read gap: boolean,
+  read droppedFrames: number,
+  -- Returns a fresh mutable buffer with each interleaved F32 sample encoded
+  -- little-endian.
+  read copySamples: (self: AudioBlock) -> buffer,
 }
 
 -- A key and the modifiers to hold with it. Together they produce one keysym.
@@ -288,7 +338,9 @@ export type Seat = {
   -- press, and it lasts until the release or a cancellation.
   read drag: Drag?,
   -- Withdraws this seat's `wl_seat` global or cancels its pending creation. The
-  -- default seat cannot be removed.
+  -- default seat cannot be removed. During a source reload the seat is held
+  -- instead, and the replacement configuration keeps it by asking `newSeat` for
+  -- its name.
   read destroy: (self: Seat) -> boolean,
   -- Assigns keyboard focus to a window sink, or clears it. The host compositor
   -- controls host focus, so host sinks are refused.
@@ -624,10 +676,17 @@ export type PluginApi = {
 export type Lunette = {
   -- Every mapped toplevel, as of this frame's snapshot.
   read windows: () -> { Window },
+  -- Every registered process, including adopted clients, as of this frame's
+  -- snapshot.
+  read processes: () -> { Process },
   -- Runs a program as a client of this compositor. The handle comes back before
   -- the request reaches the compositor, so it describes a process that does not
   -- exist yet: `dead` is true until the snapshot lists it.
   read spawn: (options: SpawnOptions) -> Process,
+  -- Opens an independent non-routing audio reader for the system mix or a
+  -- process in this session. A queued spawn is valid. Close the reader
+  -- explicitly when its owner releases it.
+  read openAudio: (source: AudioSource) -> AudioCapture,
   -- The user's own screens, whether or not they are being mirrored.
   read monitors: () -> { Monitor },
   -- Requests fresh host-monitor selection without a restore token. Existing
