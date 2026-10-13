@@ -26,7 +26,7 @@ fn a_seat_released_and_asked_for_again_during_a_reload_is_handed_over_with_its_i
     reload(&lua);
 
     // A seat kept across a reload is neither destroyed nor created again.
-    expect_reset(&session.flush(), id, None);
+    expect_reset(&session.flush(), id, Some(&KeyboardConfig::default()));
     let (now, same): (u64, bool) = run(&lua, "return held.id, before == held");
     assert_eq!(now, id.get(), "the replacement was given a new seat");
     assert!(same, "a handle from before the reload names the same seat");
@@ -85,7 +85,7 @@ fn a_seat_asked_for_with_another_keyboard_is_handed_over_with_that_keyboard() {
     };
     expect_reset(&session.flush(), id, Some(&german));
 
-    // The next reload compares against the keyboard the seat now has.
+    // The next reload supplies the replacement owner's resolved keyboard.
     set_main(&lua, LASER);
     reload(&lua);
     expect_reset(&session.flush(), id, Some(&KeyboardConfig::default()));
@@ -97,7 +97,7 @@ fn ten_reloads_keep_one_seat_and_its_name_stays_reserved() {
 
     for _ in 0..10 {
         reload(&lua);
-        expect_reset(&session.flush(), id, None);
+        expect_reset(&session.flush(), id, Some(&KeyboardConfig::default()));
         assert_eq!(run::<u64>(&lua, "return held.id"), id.get());
     }
 
@@ -120,7 +120,7 @@ fn a_reclaimed_name_cannot_be_reclaimed_twice_and_the_default_seat_is_never_rele
     );
     reload(&lua);
 
-    expect_reset(&session.flush(), id, None);
+    expect_reset(&session.flush(), id, Some(&KeyboardConfig::default()));
     let (ok, message): (bool, String) = run(&lua, "return ok, tostring(message)");
     assert!(!ok && message.contains("already exists"), "{message}");
     let (ok, message): (bool, String) = run(&lua, "return default, tostring(defaultMessage)");

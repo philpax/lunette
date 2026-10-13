@@ -167,7 +167,7 @@ handle! {
 /// The returned handle is dead until the compositor reports the seat in a snapshot. A keymap
 /// compilation failure is logged and prevents the seat from appearing. A held seat with the same
 /// name is handed over instead: it keeps its identifier and global, the compositor resets what its
-/// previous owner left held, and a different keyboard replaces its layout in place.
+/// previous owner left held, and the requested keyboard replaces its layout in place.
 ///
 /// # Errors
 ///
@@ -186,11 +186,11 @@ pub(crate) fn new_seat<T: LuaTexture>(
     }
     let keyboard = read_keyboard(options)?;
 
-    let reclaimed = session.seat_names.borrow_mut().reclaim(name, &keyboard);
-    if let Some(Reclaimed { seat, keyboard }) = reclaimed {
+    let reclaimed = session.seat_names.borrow_mut().reclaim(name);
+    if let Some(seat) = reclaimed {
         session.queue(Command::ResetSeat {
             seat,
-            keyboard: keyboard.map(Box::new),
+            keyboard: Some(Box::new(keyboard)),
         });
         return Ok(Seat {
             id: seat,
@@ -289,19 +289,9 @@ impl<T> Retention for Session<T> {
 #[derive(Debug, Default)]
 pub(super) struct SeatNames {
     seats: HashMap<SeatId, SeatName>,
-    /// The keyboard each seat was last asked for with. A seat handed over across a reload is
-    /// given a new keyboard only when the new owner asks for a different one.
-    keyboards: HashMap<SeatId, KeyboardConfig>,
     /// The seats released while a source reload holds them, in release order. `None` outside a
     /// reload. A held seat keeps its name reserved and cannot be destroyed again.
     held: Option<Vec<SeatId>>,
-}
-
-/// A held seat that a new owner has asked for by name.
-struct Reclaimed {
-    seat: SeatId,
-    /// The keyboard to replace the seat's with, when it differs from the one it has.
-    keyboard: Option<KeyboardConfig>,
 }
 
 #[derive(Debug)]
@@ -346,7 +336,7 @@ impl SeatNames {
     }
 
     /// Takes the held seat with this name back out of the hold.
-    fn reclaim(&mut self, name: &str, keyboard: &KeyboardConfig) -> Option<Reclaimed> {
+    fn reclaim(&mut self, name: &str) -> Option<SeatId> {
         let seats = &self.seats;
         let held = self.held.as_mut()?;
         let index = held.iter().position(|seat| {
@@ -355,16 +345,7 @@ impl SeatNames {
                 Some(SeatName::Creating(existing) | SeatName::Published(existing)) if existing == name
             )
         })?;
-        let seat = held.remove(index);
-
-        let changed = self.keyboards.get(&seat) != Some(keyboard);
-        if changed {
-            self.keyboards.insert(seat, keyboard.clone());
-        }
-        Some(Reclaimed {
-            seat,
-            keyboard: changed.then(|| keyboard.clone()),
-        })
+        Some(held.remove(index))
     }
 
     /// Ends the hold, answering the seats no new owner asked for, in release order.
@@ -374,16 +355,10 @@ impl SeatNames {
 
     pub(super) fn apply(&mut self, command: &Command) {
         match command {
-            Command::CreateSeat {
-                seat,
-                name,
-                keyboard,
-            } => {
+            Command::CreateSeat { seat, name, .. } => {
                 self.seats.insert(*seat, SeatName::Creating(name.clone()));
-                self.keyboards.insert(*seat, keyboard.as_ref().clone());
             }
             Command::DestroySeat { seat } => {
-                self.keyboards.remove(seat);
                 let state = match self.seats.get(seat) {
                     Some(SeatName::Creating(_) | SeatName::CancelledCreation) => {
                         SeatName::CancelledCreation
@@ -405,8 +380,6 @@ impl SeatNames {
                 seats.iter().any(|seat| seat.seat == *id)
             }
         });
-        let known = &self.seats;
-        self.keyboards.retain(|id, _| known.contains_key(id));
         for seat in seats {
             let state = self
                 .seats
