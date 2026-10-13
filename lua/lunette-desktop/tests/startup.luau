@@ -85,6 +85,33 @@ test('the shipped configuration starts on load and survives ten production reloa
     expect.equal(lovr.draw(events.pass), false, 'reload ' .. reload .. ' draws')
   end
 
+  -- After the reloads the right beam still presses the panel in front, and text reaches it.
+  fixture:pose('left', lovr.math.newMat4():translate(-5, 1.5, 0))
+  fixture:pose('right', lovr.math.newMat4():translate(0, 1.5, 0))
+  fixture:step()
+  fixture:button('right', 'trigger', true)
+  fixture:step()
+  fixture:button('right', 'trigger', false)
+  fixture:step()
+  local right = nil
+  for _, seat in ipairs(events.seats) do
+    if not seat.dead and seat.name == 'laser.right' then
+      right = seat
+    end
+  end
+  assert(right, 'the right laser holds a live seat after the reloads')
+  expect.equal(right.focus, events.windows[1].sink, 'the right laser focuses the window in front after the reloads')
+  local typed = #events.input
+  lovr.textinput('q', 0)
+  local reached = false
+  for index = typed + 1, #events.input do
+    local call = events.input[index]
+    if call[#call] == right then
+      reached = true
+    end
+  end
+  expect.truthy(reached, 'text reaches the focused window through the right seat after the reloads')
+
   expect.equal(lovr.quit(), false, 'quit does not veto')
   expect.equal(#testing.host.shutdown(), 0, 'the failures of the shutdown')
   native.assertResourcesReleased()

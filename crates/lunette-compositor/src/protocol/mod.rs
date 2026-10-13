@@ -125,6 +125,18 @@ pub enum Command {
     DestroySeat {
         seat: SeatId,
     },
+    /// Hands a seat to a new owner without withdrawing its global, so clients
+    /// keep the objects they bound.
+    ///
+    /// The seat's drag is cancelled, its held buttons and keys are released to
+    /// the clients that received them, its modifiers are cleared, and its
+    /// pointer and keyboard focus are withdrawn. A keyboard replaces the seat's
+    /// layout and repeat policy in place; one whose layout does not compile is
+    /// refused and the seat keeps its own.
+    ResetSeat {
+        seat: SeatId,
+        keyboard: Option<Box<KeyboardConfig>>,
+    },
     /// Selects the seat that bridges the host clipboard and primary selection.
     /// At most one seat can bridge.
     SetClipboardBridge {

@@ -19,6 +19,7 @@ mod outputs;
 mod processes;
 mod properties;
 mod scene;
+mod seat_reload;
 mod seats;
 mod text;
 mod windows;

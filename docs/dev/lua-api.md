@@ -198,6 +198,8 @@ Source reload and hard restart keep running applications, because the compositor
 
 `lunette.reload()` performs a source reload in the current Lua state, in this order: it shuts down plugin runtimes and retires the contract epoch, clears native event subscriptions, clears the configuration's LÖVR callbacks and `lovr.lun*` handlers, removes unprotected entries from `package.loaded`, and runs `main.luau` and then `lovr.load` with the startup `arg`. The LÖVR modules, XR session, GPU objects, compositor, clients, globals, and the Lua state remain. `crates/lunette/src/reload.rs` lists the protected `package.loaded` roots and the cleared callbacks. Plugin effects are the only cleanup a reload runs.
 
+Mirrors and seats outlast the closing configuration until the replacement has loaded. A seat the closing plugins destroy is held, and `lunette.newSeat` with its name hands it over to the replacement with its identifier and clients; a held seat no one asks for is destroyed after `lovr.load` returns or the reload fails ([Seat lifetime](input.md#seat-lifetime)).
+
 `lunette.reload()` returns `true`, or `false` and a message, and never raises. A reload that fails after `main.luau` starts leaves whatever the failed run installed; safe mode is only for startup. A reload requested during a reload or from inside a plugin callback is refused.
 
 LÖVR's own `lovr.event.restart()` requests a hard restart. LÖVR takes it after the frame's callbacks return, so several requests in one frame are one restart. The host shuts down plugin runtimes and clears native subscribers before the state closes ([LÖVR integration](lovr-integration.md#restart-semantics)).

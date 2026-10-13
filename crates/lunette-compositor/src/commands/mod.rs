@@ -85,6 +85,7 @@ impl Application {
                 keyboard,
             } => self.create_seat(seat, &name, keyboard.as_ref()),
             Command::DestroySeat { seat } => self.destroy_seat(seat),
+            Command::ResetSeat { seat, keyboard } => self.reset_seat(seat, keyboard.as_deref()),
             Command::SetClipboardBridge { seat } => self.set_clipboard_bridge(seat),
             Command::Key { seat, key, pressed } => self.press_key(seat, key, pressed),
             Command::Modifiers { seat, modifiers } => self.set_modifiers(seat, &modifiers),

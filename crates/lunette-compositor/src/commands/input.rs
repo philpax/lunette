@@ -20,7 +20,7 @@ use smithay::{
 use tracing::{debug, info, warn};
 
 use crate::{
-    keymap::XKB_KEYCODE_OFFSET,
+    keymap::{self, Keymap, XKB_KEYCODE_OFFSET},
     protocol::{
         KeyboardConfig, Keycode, KeymapText, ModifierState, PixelPoint, PointerButton, ScrollAxis,
         ScrollDelta, SeatId, SinkId,
@@ -203,6 +203,96 @@ impl Application {
                 self.touch();
             }
             Err(error) => warn!(%error, "could not destroy a seat"),
+        }
+    }
+
+    /// Hands a seat to a new owner, keeping its global so that clients keep
+    /// the objects they bound to it.
+    ///
+    /// Buttons are released before the pointer leaves and keys before the
+    /// keyboard does, so each client that saw a press sees its release. A
+    /// replacement keyboard is uploaded in place; one whose layout does not
+    /// compile is refused and the seat keeps its own.
+    pub(crate) fn reset_seat(&mut self, seat: SeatId, keyboard: Option<&KeyboardConfig>) {
+        if self.seats.get(seat).is_none() {
+            warn!(%seat, "a reset was asked for a seat that does not exist");
+            return;
+        }
+
+        self.cancel_drag(seat);
+        self.release_buttons(seat);
+        self.move_pointer(seat, None);
+        self.release_keys(seat);
+        self.set_modifiers(seat, &ModifierState::new());
+        self.set_focus(seat, None);
+        if let Some(keyboard) = keyboard {
+            self.replace_keyboard(seat, keyboard);
+        }
+        info!(%seat, "a seat was reset for a new owner");
+        self.touch();
+    }
+
+    fn release_buttons(&mut self, seat: SeatId) {
+        let held = self
+            .seats
+            .get_mut(seat)
+            .map(seat::SeatEntry::take_pressed)
+            .unwrap_or_default();
+        if held.is_empty() {
+            return;
+        }
+        if let Some(mut compositor) = self.seat_view(seat) {
+            for button in held {
+                compositor.send_pointer_button(button, false);
+            }
+        }
+    }
+
+    fn release_keys(&mut self, seat: SeatId) {
+        let Some(keyboard) = self
+            .seats
+            .get(seat)
+            .map(|entry| entry.seat_keyboard.clone())
+        else {
+            return;
+        };
+        // Sorted so the releases arrive in an order a test can state.
+        let mut held: Vec<u32> = keyboard
+            .pressed_keys()
+            .into_iter()
+            .map(|key| key.raw())
+            .collect();
+        held.sort_unstable();
+        if let Some(mut compositor) = self.seat_view(seat) {
+            for key in held {
+                compositor.send_key(key, false);
+            }
+        }
+    }
+
+    /// Replaces a seat's layout and repeat policy without replacing its
+    /// keyboard, so every bound `wl_keyboard` receives the new keymap.
+    fn replace_keyboard(&mut self, seat: SeatId, keyboard: &KeyboardConfig) {
+        let resolved = keymap::resolve(&keyboard.keymap, &self.config.keymap_defaults);
+        let compiled = match Keymap::compile_resolved(&resolved) {
+            Ok(compiled) => compiled,
+            Err(error) => {
+                warn!(%seat, %error, "the seat keeps its layout, because the new one does not compile");
+                return;
+            }
+        };
+        let Some(mut compositor) = self.seat_view(seat) else {
+            return;
+        };
+        if let Err(error) = compositor.upload_keymap(compiled.text()) {
+            warn!(%seat, %error, "the seat keeps its layout, because the new one was refused");
+            return;
+        }
+        compositor
+            .seat_keyboard
+            .change_repeat_info(keyboard.repeat.rate.get(), keyboard.repeat.delay.millis());
+        if let Some(entry) = self.seats.get_mut(seat) {
+            entry.replace_keymap(compiled);
         }
     }
 

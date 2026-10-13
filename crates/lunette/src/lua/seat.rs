@@ -2,6 +2,9 @@
 //!
 //! Each Wayland seat provides one pointer and keyboard, so multiple pointers require multiple
 //! seats. The Lua thread compiles its own keymaps because libxkbcommon is not thread-safe.
+//!
+//! A seat released during a source reload is held for the replacement configuration, which keeps
+//! it by asking for its name. Running clients are not relied on to move to a new seat.
 
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
@@ -23,6 +26,7 @@ use crate::{
         keys::ModifierName,
         values::StrokeQuery,
     },
+    reload::Retention,
 };
 
 /// One `wl_seat`, as Lua holds it.
@@ -119,7 +123,7 @@ handle! {
         }))
     }
 
-    /// Withdraws this seat's `wl_seat` global or cancels its pending creation. The default seat cannot be removed.
+    /// Withdraws this seat's `wl_seat` global or cancels its pending creation. The default seat cannot be removed. During a source reload the seat is held instead, and the replacement configuration keeps it by asking `newSeat` for its name.
     method destroy(_lua, this) -> bool { Ok(destroy(this)) }
 
     /// Assigns keyboard focus to a window sink, or clears it. The host compositor controls host
@@ -158,10 +162,12 @@ handle! {
     }
 }
 
-/// Creates a seat with its own pointer and keyboard.
+/// Creates a seat with its own pointer and keyboard, or keeps one a source reload holds.
 ///
 /// The returned handle is dead until the compositor reports the seat in a snapshot. A keymap
-/// compilation failure is logged and prevents the seat from appearing.
+/// compilation failure is logged and prevents the seat from appearing. A held seat with the same
+/// name is handed over instead: it keeps its identifier and global, the compositor resets what its
+/// previous owner left held, and a different keyboard replaces its layout in place.
 ///
 /// # Errors
 ///
@@ -178,6 +184,22 @@ pub(crate) fn new_seat<T: LuaTexture>(
             "lunette: a seat needs a name; clients tell two seats apart by it and nothing else",
         ));
     }
+    let keyboard = read_keyboard(options)?;
+
+    let reclaimed = session.seat_names.borrow_mut().reclaim(name, &keyboard);
+    if let Some(Reclaimed { seat, keyboard }) = reclaimed {
+        session.queue(Command::ResetSeat {
+            seat,
+            keyboard: keyboard.map(Box::new),
+        });
+        return Ok(Seat {
+            id: seat,
+            session: Rc::clone(session),
+            name: RefCell::new(name.to_owned()),
+            known: RefCell::new(None),
+        });
+    }
+
     if session.seat_names.borrow().in_use(name) {
         return Err(mlua::Error::runtime(format!(
             "lunette: a seat named '{name}' already exists, and a client cannot tell two seats \
@@ -185,7 +207,6 @@ pub(crate) fn new_seat<T: LuaTexture>(
         )));
     }
 
-    let keyboard = read_keyboard(options)?;
     let id = session
         .mint_seat()
         .ok_or_else(|| mlua::Error::runtime("lunette: the seat identifier space is exhausted"))?;
@@ -231,23 +252,56 @@ pub(crate) fn default_seat<T: LuaTexture>(session: &Rc<Session<T>>) -> Option<Se
         .map(|seat| Seat::new(Rc::clone(session), seat))
 }
 
-/// Withdraws a non-default seat's `wl_seat` global.
+/// Withdraws a non-default seat's `wl_seat` global, or holds it during a source reload.
 fn destroy<T>(seat: &Seat<T>) -> bool {
     if seat.id == DEFAULT_SEAT {
         return false;
     }
-    if !seat.session.seat_names.borrow().can_destroy(seat.id) {
-        return false;
+    {
+        let mut names = seat.session.seat_names.borrow_mut();
+        if !names.can_destroy(seat.id) {
+            return false;
+        }
+        if names.hold(seat.id) {
+            return true;
+        }
     }
 
     seat.session.queue(Command::DestroySeat { seat: seat.id });
     true
 }
 
+/// Holds the seats a closing configuration releases until its replacement has loaded.
+impl<T> Retention for Session<T> {
+    fn begin_reload(&self) -> bool {
+        self.seat_names.borrow_mut().begin_holding()
+    }
+
+    fn finish_reload(&self) {
+        let unclaimed = self.seat_names.borrow_mut().finish_holding();
+        for seat in unclaimed {
+            self.queue(Command::DestroySeat { seat });
+        }
+    }
+}
+
 /// Tracks requested names across command flushes and delayed compositor snapshots.
 #[derive(Debug, Default)]
 pub(super) struct SeatNames {
     seats: HashMap<SeatId, SeatName>,
+    /// The keyboard each seat was last asked for with. A seat handed over across a reload is
+    /// given a new keyboard only when the new owner asks for a different one.
+    keyboards: HashMap<SeatId, KeyboardConfig>,
+    /// The seats released while a source reload holds them, in release order. `None` outside a
+    /// reload. A held seat keeps its name reserved and cannot be destroyed again.
+    held: Option<Vec<SeatId>>,
+}
+
+/// A held seat that a new owner has asked for by name.
+struct Reclaimed {
+    seat: SeatId,
+    /// The keyboard to replace the seat's with, when it differs from the one it has.
+    keyboard: Option<KeyboardConfig>,
 }
 
 #[derive(Debug)]
@@ -270,15 +324,66 @@ impl SeatNames {
         matches!(
             self.seats.get(&seat),
             Some(SeatName::Creating(_) | SeatName::Published(_))
-        )
+        ) && !self.held.as_ref().is_some_and(|held| held.contains(&seat))
+    }
+
+    /// Starts holding released seats. Answers false when a hold is already in place.
+    fn begin_holding(&mut self) -> bool {
+        if self.held.is_some() {
+            return false;
+        }
+        self.held = Some(Vec::new());
+        true
+    }
+
+    /// Holds a released seat, answering false when no reload is holding seats.
+    fn hold(&mut self, seat: SeatId) -> bool {
+        let Some(held) = self.held.as_mut() else {
+            return false;
+        };
+        held.push(seat);
+        true
+    }
+
+    /// Takes the held seat with this name back out of the hold.
+    fn reclaim(&mut self, name: &str, keyboard: &KeyboardConfig) -> Option<Reclaimed> {
+        let seats = &self.seats;
+        let held = self.held.as_mut()?;
+        let index = held.iter().position(|seat| {
+            matches!(
+                seats.get(seat),
+                Some(SeatName::Creating(existing) | SeatName::Published(existing)) if existing == name
+            )
+        })?;
+        let seat = held.remove(index);
+
+        let changed = self.keyboards.get(&seat) != Some(keyboard);
+        if changed {
+            self.keyboards.insert(seat, keyboard.clone());
+        }
+        Some(Reclaimed {
+            seat,
+            keyboard: changed.then(|| keyboard.clone()),
+        })
+    }
+
+    /// Ends the hold, answering the seats no new owner asked for, in release order.
+    fn finish_holding(&mut self) -> Vec<SeatId> {
+        self.held.take().unwrap_or_default()
     }
 
     pub(super) fn apply(&mut self, command: &Command) {
         match command {
-            Command::CreateSeat { seat, name, .. } => {
+            Command::CreateSeat {
+                seat,
+                name,
+                keyboard,
+            } => {
                 self.seats.insert(*seat, SeatName::Creating(name.clone()));
+                self.keyboards.insert(*seat, keyboard.as_ref().clone());
             }
             Command::DestroySeat { seat } => {
+                self.keyboards.remove(seat);
                 let state = match self.seats.get(seat) {
                     Some(SeatName::Creating(_) | SeatName::CancelledCreation) => {
                         SeatName::CancelledCreation
@@ -300,6 +405,8 @@ impl SeatNames {
                 seats.iter().any(|seat| seat.seat == *id)
             }
         });
+        let known = &self.seats;
+        self.keyboards.retain(|id, _| known.contains_key(id));
         for seat in seats {
             let state = self
                 .seats

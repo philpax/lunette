@@ -338,7 +338,9 @@ export type Seat = {
   -- press, and it lasts until the release or a cancellation.
   read drag: Drag?,
   -- Withdraws this seat's `wl_seat` global or cancels its pending creation. The
-  -- default seat cannot be removed.
+  -- default seat cannot be removed. During a source reload the seat is held
+  -- instead, and the replacement configuration keeps it by asking `newSeat` for
+  -- its name.
   read destroy: (self: Seat) -> boolean,
   -- Assigns keyboard focus to a window sink, or clears it. The host compositor
   -- controls host focus, so host sinks are refused.

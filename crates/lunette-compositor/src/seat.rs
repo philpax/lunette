@@ -269,6 +269,21 @@ impl SeatEntry {
         }
     }
 
+    /// Forgets every held button, returning them in the order they were pressed.
+    pub(crate) fn take_pressed(&mut self) -> Vec<PointerButton> {
+        std::mem::take(&mut self.pressed)
+            .into_iter()
+            .map(|(button, _)| button)
+            .collect()
+    }
+
+    /// Records a layout smithay has already loaded. No synthetic layout is
+    /// left loaded after it.
+    pub(crate) fn replace_keymap(&mut self, keymap: Keymap) {
+        self.keymap = keymap;
+        self.uploaded = None;
+    }
+
     /// Whether `button` is held on `window`.
     pub(crate) fn pressed_on(&self, button: PointerButton, window: WindowId) -> bool {
         self.pressed.contains(&(button, window))

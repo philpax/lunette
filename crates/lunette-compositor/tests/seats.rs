@@ -2,7 +2,8 @@
 //!
 //! Seat names let clients distinguish protocol objects. Pointer position and hover, cursor images,
 //! keyboard focus, and modifiers remain scoped to their seat. Input targets the surface under that
-//! seat, and destruction sends leave events before withdrawing the seat global.
+//! seat, and destruction sends leave events before withdrawing the seat global. A reset releases
+//! what the seat held and keeps its global, so clients keep the objects they bound.
 
 #![expect(
     clippy::expect_used,
@@ -21,7 +22,7 @@ use lunette_compositor::{
     keymap::Keymap,
     protocol::{
         Command, KeyModifier, KeyboardConfig, Keycode, KeymapConfig, KeymapDefaults, ModifierState,
-        PixelPoint, PointerButton, SeatId, WindowSnapshot,
+        PixelPoint, PointerButton, RepeatDelay, RepeatPolicy, RepeatRate, SeatId, WindowSnapshot,
     },
     test_client::{Driver, PointerEvent, TestClient},
     testing::{CursorImage, TestCompositor},
@@ -567,6 +568,206 @@ fn the_default_seat_exists_when_the_desktop_default_names_two_layouts() {
         "the seat was given both groups: {:?}",
         keymap.layouts(),
     );
+}
+
+/// A seat kept across a source reload is reset for its new owner. The client keeps the seat it
+/// bound, sees everything the old owner held released, and goes on receiving input on it.
+#[test]
+fn a_reset_seat_releases_what_it_held_and_keeps_delivering_to_the_objects_clients_bound() {
+    let mut compositor = TestCompositor::new();
+    let mut client = open_window(&mut compositor);
+    let (left, _) = add_both_seats(&mut compositor, &mut client);
+    let pointer = client.open_pointer_for(&mut compositor, left);
+    let keyboard = client.open_keyboard_for(&mut compositor, left);
+
+    let sink = windows(&compositor, 1)[0].sink;
+    compositor.send(Command::Pointer {
+        seat: LEFT.0,
+        sink,
+        position: PixelPoint::new(5.0, 6.0),
+    });
+    compositor.send(Command::Button {
+        seat: LEFT.0,
+        sink,
+        button: PointerButton::Left,
+        pressed: true,
+    });
+    compositor.send(Command::Focus {
+        seat: LEFT.0,
+        sink: Some(sink),
+    });
+    compositor.send(Command::Key {
+        seat: LEFT.0,
+        key: KEY_A,
+        pressed: true,
+    });
+    compositor.send(Command::Modifiers {
+        seat: LEFT.0,
+        modifiers: ModifierState::from_iter([KeyModifier::Shift]),
+    });
+    client.settle(&mut compositor, |driver| {
+        driver.buttons(&pointer).len() == 1
+            && driver.keys(&keyboard).len() == 1
+            && driver
+                .modifiers(&keyboard)
+                .is_some_and(|(depressed, _)| depressed != 0)
+    });
+
+    compositor.send(Command::ResetSeat {
+        seat: LEFT.0,
+        keyboard: None,
+    });
+    client.settle(&mut compositor, |driver| {
+        driver.keyboard_focus(&keyboard).is_none()
+            && driver
+                .events(&pointer)
+                .iter()
+                .any(|event| matches!(event, PointerEvent::Leave { .. }))
+    });
+
+    assert_eq!(
+        client.driver().buttons(&pointer),
+        [(0x110, true), (0x110, false)],
+        "the button the old owner held was never released"
+    );
+    assert_eq!(
+        client.driver().keys(&keyboard),
+        [(KEY_A.evdev(), true), (KEY_A.evdev(), false)],
+        "the key the old owner held was never released"
+    );
+    assert!(
+        seat_modifiers(&compositor, LEFT.0).is_empty(),
+        "the old owner's modifiers outlived the reset"
+    );
+    assert_eq!(
+        seat_globals(&client),
+        SEAT_COUNT,
+        "a reset seat must keep its global, so no client has to bind a new one"
+    );
+
+    compositor.send(Command::Pointer {
+        seat: LEFT.0,
+        sink,
+        position: PixelPoint::new(7.0, 8.0),
+    });
+    compositor.send(Command::Button {
+        seat: LEFT.0,
+        sink,
+        button: PointerButton::Left,
+        pressed: true,
+    });
+    compositor.send(Command::Button {
+        seat: LEFT.0,
+        sink,
+        button: PointerButton::Left,
+        pressed: false,
+    });
+    compositor.send(Command::Focus {
+        seat: LEFT.0,
+        sink: Some(sink),
+    });
+    compositor.send(Command::Key {
+        seat: LEFT.0,
+        key: KEY_A,
+        pressed: true,
+    });
+    compositor.send(Command::Key {
+        seat: LEFT.0,
+        key: KEY_A,
+        pressed: false,
+    });
+    client.settle(&mut compositor, |driver| {
+        driver.buttons(&pointer).len() == 4 && driver.keys(&keyboard).len() == 4
+    });
+
+    let enters = client
+        .driver()
+        .events(&pointer)
+        .into_iter()
+        .filter(|event| matches!(event, PointerEvent::Enter { .. }))
+        .count();
+    assert_eq!(enters, 2, "the pointer did not enter again after the reset");
+    assert!(
+        client.driver().keyboard_focus(&keyboard).is_some(),
+        "the keyboard the client bound before the reset was not focused again"
+    );
+    assert_eq!(
+        client.driver().keys(&keyboard)[2..],
+        [(KEY_A.evdev(), true), (KEY_A.evdev(), false)],
+        "a key after the reset did not reach the keyboard the client bound before it"
+    );
+}
+
+#[test]
+fn a_reset_seat_given_a_keyboard_uploads_its_layout_and_repeat_in_place() {
+    let mut compositor = TestCompositor::new();
+    let mut client = open_window(&mut compositor);
+    let (left, _) = add_both_seats(&mut compositor, &mut client);
+    let keyboard = client.open_keyboard_for(&mut compositor, left);
+
+    compositor.send(Command::ResetSeat {
+        seat: LEFT.0,
+        keyboard: Some(Box::new(KeyboardConfig {
+            keymap: KeymapConfig {
+                layout: Some("de".to_owned()),
+                ..KeymapConfig::default()
+            },
+            repeat: RepeatPolicy {
+                delay: RepeatDelay::from_millis(300),
+                rate: RepeatRate::per_second(30),
+            },
+        })),
+    });
+    client.settle(&mut compositor, |driver| {
+        driver.keymaps(&keyboard).len() == 2 && driver.repeat_info(&keyboard) == Some((30, 300))
+    });
+
+    let uploaded = client.driver().keymaps(&keyboard);
+    let published = compositor
+        .snapshot()
+        .seats
+        .iter()
+        .find(|seat| seat.seat == LEFT.0)
+        .expect("the left seat is in the snapshot")
+        .keymap
+        .clone();
+    assert_eq!(
+        uploaded[1],
+        published.as_str(),
+        "the snapshot's keymap is not the one the client was given"
+    );
+    let layouts = Keymap::from_text(&published)
+        .expect("the published layout compiles")
+        .layouts()
+        .len();
+    assert_eq!(layouts, 1);
+    assert_ne!(uploaded[0], uploaded[1], "the layout did not change");
+    assert_eq!(seat_globals(&client), SEAT_COUNT);
+}
+
+#[test]
+fn a_reset_seat_given_a_layout_that_does_not_compile_keeps_the_one_it_has() {
+    let mut compositor = TestCompositor::new();
+    let mut client = open_window(&mut compositor);
+    let (left, _) = add_both_seats(&mut compositor, &mut client);
+    let keyboard = client.open_keyboard_for(&mut compositor, left);
+    let before = compositor.snapshot().seats[1].keymap.clone();
+
+    compositor.send(Command::ResetSeat {
+        seat: LEFT.0,
+        keyboard: Some(Box::new(KeyboardConfig {
+            keymap: KeymapConfig {
+                layout: Some("this-is-not-a-layout".to_owned()),
+                ..KeymapConfig::default()
+            },
+            ..KeyboardConfig::default()
+        })),
+    });
+    client.settle_quiet(&mut compositor);
+
+    assert_eq!(client.driver().keymaps(&keyboard).len(), 1);
+    assert_eq!(compositor.snapshot().seats[1].keymap, before);
+    assert_eq!(seat_globals(&client), SEAT_COUNT);
 }
 
 fn seat_modifiers(compositor: &TestCompositor, seat: SeatId) -> ModifierState {
