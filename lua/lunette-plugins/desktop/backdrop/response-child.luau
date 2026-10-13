@@ -9,7 +9,6 @@ local selection = require './selection'
 local responseChild = {}
 type Slot = {
   reader: analysis.Reader,
-  source: analysis.Source,
   generation: number?,
   endFrame: number?,
   publication: number?,
@@ -40,7 +39,6 @@ local same: (analysis.Source?, analysis.Source?) -> boolean
 local mapped: (analysis.Steady) -> model.Features
 local power: (number, number) -> number
 local mixed: (model.Features, model.Features, number) -> model.Features
-local newest: (analysis.Snapshot) -> number?
 local bandOnset: (analysis.Hop, model.Band) -> number
 local removeOldest: ({ model.Onset }, model.Band) -> ()
 local scatter: (number, number, model.Band) -> number
@@ -91,10 +89,9 @@ function responseChild.new(
         local publication = result.reader:snapshot()
         return {
           reader = result.reader,
-          source = source,
           generation = publication.generation,
           lastOnset = {},
-          endFrame = newest(publication),
+          endFrame = nil,
           publication = publication.frameGeneration,
         }
       end
@@ -311,17 +308,6 @@ scatter = function(anchor: number, endFrame: number, band: model.Band): number
   local salt = if band == 'bass' then 0 elseif band == 'mid' then 1.618 else 3.236
   local spread = (math.sin(endFrame * 12.9898 + salt * 78.233) * 43758.5453) % 1 - 0.5
   return (anchor + spread * SCATTER[band]) % 1
-end
-
-newest = function(snapshot: analysis.Snapshot): number?
-  local last = snapshot.latest
-  local ending = if last and last.generation == snapshot.generation then last.endFrame else nil
-  for _, hop in snapshot.hops do
-    if hop.generation == snapshot.generation and (ending == nil or hop.endFrame > ending) then
-      ending = hop.endFrame
-    end
-  end
-  return ending
 end
 
 return responseChild
