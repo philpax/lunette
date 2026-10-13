@@ -22,6 +22,14 @@ local presets: { ui.Item } = {
   { id = '0.75', label = 'High' },
   { id = '1', label = 'Full' },
 }
+local diagnosticItems: { ui.Item } = {
+  { id = 'none', label = 'Off' },
+  { id = 'direction', label = 'Sky direction' },
+  { id = 'coordinates', label = 'Field coordinates' },
+  { id = 'cells', label = 'Noise cells' },
+  { id = 'density', label = 'Field density' },
+  { id = 'field', label = 'Field, boosted' },
+}
 local selectedPreset: (number) -> string
 local rowState: (selection.State, lunette.Process) -> string
 
@@ -88,6 +96,7 @@ function controls.attach(context: plugin.Context, choice: selection.State, rende
       local reactiveChoice: ui.Choice
       local responseChoice: ui.Choice
       local motionChoice: ui.Choice
+      local diagnosticChoice: ui.Choice
       local pinButton: ui.Button
       local refresh: () -> ()
       local function setVisible(show: boolean): ()
@@ -108,9 +117,9 @@ function controls.attach(context: plugin.Context, choice: selection.State, rende
         name = 'desktop/backdrop/controls',
         pose = lovr.math.newMat4():translate(0, 1.35, -1.25),
         width = 0.86,
-        height = 1.105,
+        height = 1.375,
         logicalWidth = 860,
-        logicalHeight = 1105,
+        logicalHeight = 1375,
         theme = { rowHeight = 32, padding = 4, spacing = 4 },
         visible = false,
         grabbable = true,
@@ -207,6 +216,24 @@ function controls.attach(context: plugin.Context, choice: selection.State, rende
           end
         end,
       }
+      diagnosticChoice = panel:choice {
+        id = 'diagnostic',
+        label = 'Diagnostic view',
+        bounds = { x = 20, y = 1100, width = 820, height = 260 },
+        items = diagnosticItems,
+        onChange = function(id: string): ()
+          if
+            id == 'none'
+            or id == 'direction'
+            or id == 'coordinates'
+            or id == 'cells'
+            or id == 'density'
+            or id == 'field'
+          then
+            choice:setDiagnostic(id)
+          end
+        end,
+      }
       panel:region {
         id = 'status',
         label = 'Source status',
@@ -241,6 +268,7 @@ function controls.attach(context: plugin.Context, choice: selection.State, rende
         sourceChoice:setSelected(choice.mode)
         responseChoice:setSelected(selectedPreset(choice.response))
         motionChoice:setSelected(selectedPreset(choice.motion))
+        diagnosticChoice:setSelected(choice.diagnostic)
         pinButton:setEnabled(choice.mode == 'attention' and choice.attended ~= nil and not choice.attended.dead)
         local items: { ui.Item } = {}
         local retained: { RowToken } = {}

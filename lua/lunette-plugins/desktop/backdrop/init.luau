@@ -79,7 +79,9 @@ create = function(given: Options, attach: Attach?): Factory
           end
         end
       end)
-      local renderer = draw.new(context, settings)
+      local renderer = draw.new(context, settings, function(): selection.Diagnostic
+        return choice.diagnostic
+      end)
       local current = state:update(0, true)
       local headPosition = vector.pack(0, 0, 0)
       local facing: number? = nil

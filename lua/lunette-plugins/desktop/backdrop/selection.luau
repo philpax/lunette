@@ -4,12 +4,15 @@ local audio = require '@lunette-contracts/audio'
 
 local selection = {}
 export type Mode = 'system' | 'application' | 'attention'
+-- A development view of one stage of the overhead sky field; 'none' draws the backdrop normally.
+export type Diagnostic = 'none' | 'direction' | 'coordinates' | 'cells' | 'density' | 'field'
 export type Settings = {
   read sourceMode: Mode?,
   read reactive: boolean?,
   read response: number?,
   read motion: number?,
   read dwell: number?,
+  read diagnostic: Diagnostic?,
 }
 export type State = {
   mode: Mode,
@@ -19,6 +22,7 @@ export type State = {
   response: number,
   motion: number,
   dwell: number,
+  diagnostic: Diagnostic,
   frozen: boolean,
   revision: number,
   audioAvailable: boolean,
@@ -34,6 +38,7 @@ export type State = {
   read setReactive: (State, boolean) -> (),
   read setResponse: (State, number) -> (),
   read setMotion: (State, number) -> (),
+  read setDiagnostic: (State, Diagnostic) -> (),
   read status: (State) -> string,
 }
 local State = {}
@@ -50,6 +55,7 @@ function selection.new(settings: Settings?): State
     response = 1,
     motion = 1,
     dwell = 0.75,
+    diagnostic = 'none' :: Diagnostic,
     frozen = false,
     revision = 0,
     audioAvailable = false,
@@ -77,6 +83,9 @@ function State.configure(self: State, settings: Settings): ()
   if previous == nil or previous.motion ~= settings.motion then
     self:setMotion(settings.motion or 1)
   end
+  if previous == nil or previous.diagnostic ~= settings.diagnostic then
+    self:setDiagnostic(settings.diagnostic or 'none')
+  end
   if previous == nil or previous.dwell ~= settings.dwell then
     local duration = settings.dwell or 0.75
     self.dwell = if duration == duration and duration < math.huge then math.clamp(duration, 0.1, 3) else 0.75
@@ -88,6 +97,7 @@ function State.configure(self: State, settings: Settings): ()
     reactive = settings.reactive,
     response = settings.response,
     motion = settings.motion,
+    diagnostic = settings.diagnostic,
   }
 end
 
@@ -147,6 +157,10 @@ end
 
 function State.setMotion(self: State, motion: number): ()
   self.motion = bounded(motion)
+end
+
+function State.setDiagnostic(self: State, diagnostic: Diagnostic): ()
+  self.diagnostic = diagnostic
 end
 
 function State.status(self: State): string

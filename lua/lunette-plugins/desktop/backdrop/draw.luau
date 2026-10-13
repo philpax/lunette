@@ -5,6 +5,7 @@ local cleanup = require '@lunette-plugins/cleanup'
 local config = require './config'
 local geometry = require './geometry'
 local model = require './model'
+local selection = require './selection'
 local shader = require './shader'
 
 local draw = {}
@@ -19,6 +20,15 @@ type Resources = {
 }
 local acquireResources: (plugin.Context, config.Settings) -> Resources
 local BAND_INDEX = table.freeze { bass = 1, mid = 2, treble = 3 } :: { read [model.Band]: number }
+-- The sky shader's diagnostic views, by index; zero draws the backdrop normally.
+local DIAGNOSTIC = table.freeze {
+  none = 0,
+  direction = 1,
+  coordinates = 2,
+  cells = 3,
+  density = 4,
+  field = 5,
+} :: { read [selection.Diagnostic]: number }
 -- Each layer leans toward one band, inner to outer: bass, mid, then treble.
 local LAYER_FOCUS = table.freeze {
   table.freeze { 1.6, 0.6, 0.6, 0 },
@@ -26,7 +36,8 @@ local LAYER_FOCUS = table.freeze {
   table.freeze { 0.6, 0.6, 1.6, 0 },
 }
 
-function draw.new(context: plugin.Context, settings: config.Settings): Renderer
+-- The diagnostic view is read every frame, so the controls panel can switch it live.
+function draw.new(context: plugin.Context, settings: config.Settings, diagnostic: () -> selection.Diagnostic): Renderer
   local resources: Resources? = nil
   return table.freeze {
     render = function(pass: Pass, frame: model.Frame, headPosition: vector): ()
@@ -59,7 +70,8 @@ function draw.new(context: plugin.Context, settings: config.Settings): Renderer
             else { 0, 0, 0, 0 }
         end
         local spectrum = frame.spectrum
-        pass:send('backdropSky', { frame.visibility, frame.time, frame.brightness, 0 })
+        local view = DIAGNOSTIC[diagnostic()]
+        pass:send('backdropSky', { frame.visibility, frame.time, frame.brightness, view })
         pass:send('backdropResponse', response)
         pass:send('backdropZenith', settings.palette.zenith)
         pass:send('backdropHorizon', settings.palette.horizon)
@@ -68,6 +80,9 @@ function draw.new(context: plugin.Context, settings: config.Settings): Renderer
         pass:send('backdropMid', settings.palette.mid)
         pass:send('backdropWaves', waves)
         pass:draw(held.sky)
+        if view ~= 0 then
+          return
+        end
         pass:setShader(held.curtainShader)
         pass:send('backdropResponse', response)
         pass:send('backdropSpectrum', {

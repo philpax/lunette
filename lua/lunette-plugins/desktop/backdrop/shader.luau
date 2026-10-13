@@ -68,15 +68,29 @@ shader.skyFragment = withWaves [[
   float hash(vec2 p) {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
   }
+  // An integer hash of a lattice point. A sine hash is not exact: at the arguments this field reaches, a
+  // rounding difference in the last bit changes its result entirely, and a GPU may compute the corner two cells
+  // share differently from each side, which tears the noise along cell edges into angular shards.
+  float lattice(ivec2 cell) {
+    uvec2 q = uvec2(cell);
+    uint h = q.x * 1597334677u ^ q.y * 3812015801u;
+    h ^= h >> 16;
+    h *= 0x7feb352du;
+    h ^= h >> 15;
+    h *= 0x846ca68bu;
+    h ^= h >> 16;
+    return float(h) * (1. / 4294967296.);
+  }
   float noise(vec2 p) {
-    vec2 i = floor(p);
-    vec2 f = fract(p);
+    vec2 floored = floor(p);
+    ivec2 i = ivec2(floored);
+    vec2 f = p - floored;
     // Quintic interpolation is smooth in its second derivative, so no creases show along the cell edges.
     f = f * f * f * (f * (f * 6. - 15.) + 10.);
-    float a = hash(i);
-    float b = hash(i + vec2(1., 0.));
-    float c = hash(i + vec2(0., 1.));
-    float d = hash(i + vec2(1., 1.));
+    float a = lattice(i);
+    float b = lattice(i + ivec2(1, 0));
+    float c = lattice(i + ivec2(0, 1));
+    float d = lattice(i + ivec2(1, 1));
     return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
   }
   float fbm(vec2 p) {
@@ -97,14 +111,15 @@ shader.skyFragment = withWaves [[
   // dissolving as it changes, and each breathes in and out on its own phase as pulsating aurora does. Every
   // time term moves around a circle with a whole-number multiplier, so the field is continuous where the clock
   // wraps.
-  vec3 overhead(vec3 direction, float time, float energy) {
+  vec3 overhead(vec3 direction, float time, float energy, out vec2 projected, out vec2 field, out float density) {
     // Stereographic coordinates from the nadir have no seam at the zenith.
     vec2 q = direction.xz / (1. + direction.y) * 3.;
+    projected = q;
     float twist = .5 * sin(time * 20.) + .7 * length(q) * sin(time * 31.);
     q = mat2(cos(twist), sin(twist), -sin(twist), cos(twist)) * q;
     vec2 warp = vec2(fbm(q * 1.1 + circle(time * 45.) * 1.5), fbm(q * 1.1 + vec2(5.2, 1.3) + circle(time * 37. + 1.) * 1.5));
-    vec2 field = q + (warp - .5) * 1.4;
-    float density = fbm(field * vec2(1.6, 3.) + circle(time * 23.) * .8);
+    field = q + (warp - .5) * 1.4;
+    density = fbm(field * vec2(1.6, 3.) + circle(time * 23.) * .8);
     float pulse = .5 + .5 * sin(time * 160. + fbm(q * .7) * 9.);
     float threshold = .6 - .12 * energy;
     // A wide edge keeps the patches diffuse, and fine streaks along the field give them the texture of rays.
@@ -147,7 +162,24 @@ shader.skyFragment = withWaves [[
     vec3 direction = normalize(skyDirection);
     float energy = dot(backdropResponse.xyz, vec3(1. / 3.));
     float time = backdropSky.y * (TAU / 4096.);
-    vec3 field = overhead(direction, time, energy) * smoothstep(.3, .65, height) * backdropSky.z;
+    vec2 projected;
+    vec2 warped;
+    float density;
+    vec3 patches = overhead(direction, time, energy, projected, warped, density);
+    int view = int(backdropSky.w + .5);
+    if (view == 1) {
+      return vec4(direction * .5 + .5, 1.);
+    } else if (view == 2) {
+      return vec4(fract(projected), 0., 1.);
+    } else if (view == 3) {
+      ivec2 cell = ivec2(floor(warped * vec2(1.6, 3.)));
+      return vec4(lattice(cell), lattice(cell + ivec2(7, 3)), lattice(cell + ivec2(2, 9)), 1.);
+    } else if (view == 4) {
+      return vec4(vec3(density), 1.);
+    } else if (view == 5) {
+      return vec4(patches * 6., 1.);
+    }
+    vec3 field = patches * smoothstep(.3, .65, height) * backdropSky.z;
     float alpha = clamp(backdropSky.x, 0., 1.);
     return vec4((clamp(sky * backdropSky.z, 0., .12) + min(field, vec3(.35))) * alpha, alpha);
   }

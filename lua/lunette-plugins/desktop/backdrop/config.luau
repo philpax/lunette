@@ -31,6 +31,16 @@ local descriptor = schema.object {
   response = schema.default(schema.number { minimum = 0, maximum = 1 })(1),
   motion = schema.default(schema.number { minimum = 0, maximum = 1 })(1),
   palette = schema.default(palette)(palette.parse {}),
+  -- A development view of one stage of the overhead field, drawn on the sky with the curtains and fragments
+  -- hidden. It exists to locate rendering defects on a particular GPU.
+  diagnostic = schema.default(schema.enum<<'none' | 'direction' | 'coordinates' | 'cells' | 'density' | 'field'>> {
+    'none',
+    'direction',
+    'coordinates',
+    'cells',
+    'density',
+    'field',
+  }) 'none',
 }
 
 export type Config = schema.Input<typeof(descriptor)>
