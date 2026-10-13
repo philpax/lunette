@@ -112,6 +112,13 @@ shader.skyFragment = withWaves [[
   // time term moves around a circle with a whole-number multiplier, so the field is continuous where the clock
   // wraps.
   vec3 overhead(vec3 direction, float time, float energy, out vec2 projected, out vec2 field, out float density) {
+    // The overhead field is absent below the horizon, where the nadir projection is singular.
+    if (direction.y <= 0.) {
+      projected = vec2(0.);
+      field = vec2(0.);
+      density = 0.;
+      return vec3(0.);
+    }
     // Stereographic coordinates from the nadir have no seam at the zenith.
     vec2 q = direction.xz / (1. + direction.y) * 3.;
     projected = q;
