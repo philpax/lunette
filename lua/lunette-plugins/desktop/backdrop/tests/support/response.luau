@@ -1,5 +1,4 @@
 local plugin = require '@lunette-plugin'
-local adapter = require '@lunette-plugin/adapter'
 local analysis = require '@lunette-contracts/audio-analysis'
 local backdrop = require '@lunette-plugins/desktop/backdrop'
 local model = require '@lunette-plugins/desktop/backdrop/model'
@@ -9,7 +8,6 @@ local response = {}
 type Environment = typeof(fixture.boot(backdrop.create())) & {
   factory: backdrop.Factory,
   model: model.State,
-  provider: adapter.Instance<{}>,
   readers: { analysis.Reader },
   counts: () -> (number, number, number),
   publish: (
@@ -52,7 +50,7 @@ function response.boot(): Environment
         latest = nil,
       }
   end
-  local provider = base.session:use(plugin.provider<<{}, {}, analysis.Service>>({
+  base.session:use(plugin.provider<<{}, {}, analysis.Service>>({
     name = 'testing/analysis',
     capability = analysis.capability,
     build = function(context: plugin.Context): analysis.Service
@@ -92,7 +90,7 @@ function response.boot(): Environment
   base.session.runtime:drain()
   assert(state, 'backdrop model initialized')
   local env = base :: Environment
-  env.factory, env.model, env.provider = factory, state, provider
+  env.factory, env.model = factory, state
   env.readers = readers
   env.counts = function(): (number, number, number)
     return opened, live, peak

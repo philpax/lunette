@@ -18,39 +18,43 @@ local function count(waves: { model.Wave }, band: model.Band): number
   return total
 end
 
-test('treble floods cannot evict a bass heave or a mid flare', function()
-  local state = new()
-  state:setFeatures(ZERO, { { strength = 1, band = 'bass' }, { strength = 1, band = 'mid' } })
-  for index = 1, 30 do
-    state:setFeatures(ZERO, { { strength = 1, position = index / 30, band = 'treble' } })
-  end
-  expect.equal(count(state.waves, 'bass'), 1, 'bass heave retained')
-  expect.equal(count(state.waves, 'mid'), 1, 'mid flare retained')
-  expect.equal(count(state.waves, 'treble'), model.wavePools.treble, 'treble pool bounded')
-  expect.equal(state.discardedHops, 30 - model.wavePools.treble, 'each evicted glint is counted')
-  expect.equal(#state.waves, 2 + model.wavePools.treble, 'total bounded by the pools')
-end)
-
-test('a publication over one band pool keeps that band newest and leaves other bands', function()
-  local state = new()
-  state:setFeatures(ZERO, { { strength = 1, band = 'mid', position = 0.1 } })
-  local onsets: { model.Onset } = {}
-  for index = 1, 6 do
-    onsets[index] = { strength = 1, band = 'bass', position = index / 10 }
-  end
-  state:setFeatures(ZERO, onsets)
-  expect.equal(count(state.waves, 'bass'), model.wavePools.bass, 'bass pool bounded')
-  expect.equal(count(state.waves, 'mid'), 1, 'mid untouched by bass overflow')
-  expect.equal(state.onsetGap, 'capacity', 'overflow is explicit')
-  expect.equal(state.discardedHops, 6 - model.wavePools.bass, 'overflow count')
-  local positions = {}
-  for _, wave in state.waves do
-    if wave.band == 'bass' then
-      table.insert(positions, wave.position)
+test('band overflow retains the newest waves without evicting other bands', function()
+  for _, band in { 'bass', 'mid', 'treble' } :: { model.Band } do
+    for _, batchSize in { 1, 12 } do
+      local state = new()
+      for _, other in { 'bass', 'mid', 'treble' } :: { model.Band } do
+        if other ~= band then
+          state:setFeatures(ZERO, { { strength = 1, band = other } })
+        end
+      end
+      local onsets: { model.Onset } = {}
+      for index = 1, 12 do
+        onsets[#onsets + 1] = { strength = 1, band = band, position = index / 12 }
+        if #onsets == batchSize then
+          state:setFeatures(ZERO, onsets)
+          table.clear(onsets)
+        end
+      end
+      for _, other in { 'bass', 'mid', 'treble' } :: { model.Band } do
+        expect.equal(count(state.waves, other), if other == band then model.wavePools[band] else 1, 'independent pool')
+      end
+      expect.equal(state.onsetGap, 'capacity', 'overflow is explicit')
+      local discarded = 12 - model.wavePools[band]
+      expect.equal(state.discardedHops, discarded, 'each eviction counted')
+      local first
+      for _, wave in state.waves do
+        if wave.band == band then
+          first = wave
+          break
+        end
+      end
+      expect.equal(first.position, (13 - model.wavePools[band]) / 12, 'oldest surviving onset')
+      expect.equal(state.waves[#state.waves].position, 1, 'newest onset retained')
+      state:setFeatures(ZERO, {})
+      expect.equal(#state.waves, 2 + model.wavePools[band], 'empty publication retains waves')
+      expect.equal(state.discardedHops, discarded, 'empty publication does not repeat discard')
     end
   end
-  expect.equal(positions[1], 0.3, 'oldest surviving bass onset')
-  expect.equal(positions[#positions], 0.6, 'newest bass onset')
 end)
 
 test('each band wave expires after its own lifetime', function()
@@ -89,17 +93,6 @@ test('the spectrum follows the configured envelope and response strength', funct
   end
   expect.truthy(frame.spectrum[1] >= 0 and frame.spectrum[1] < 1e-6, 'non-finite input releases to zero')
   expect.truthy(frame.spectrum[8] >= 0 and frame.spectrum[8] < 1e-6, 'negative input releases to zero')
-end)
-
-test('source changes crossfade the spectrum with the coarse bands', function()
-  local state = new { response = 1, attackDuration = 0 }
-  state:setFeatures { bass = 0, mid = 0, treble = 0, spectrum = { 1, 1, 1, 1, 0, 0, 0, 0 } }
-  state:update(0.01, false)
-  state:sourceChanged()
-  state:setFeatures { bass = 0, mid = 0, treble = 0, spectrum = { 0, 0, 0, 0, 1, 1, 1, 1 } }
-  local half = state:update(0.6, false)
-  expect.near(half.spectrum[1], 0.5, 1e-8, 'old band halfway out')
-  expect.near(half.spectrum[8], 0.5, 1e-8, 'new band halfway in')
 end)
 
 return test

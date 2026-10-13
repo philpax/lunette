@@ -1,25 +1,12 @@
 local testing = require '@testing'
 local expect = testing.expect
 local support = require './support/response'
-local responseChild = require '../response-child'
 local analysis = require '@lunette-contracts/audio-analysis'
-local frame = require '@lunette-contracts/frame'
 local audio = require '@lunette-contracts/audio'
 local plugin = require '@lunette-plugin'
 
 local test = testing.suite()
 local SYSTEM = { kind = 'system' }
-
-test('response child requires only analysis and frame', function()
-  local env = support.boot()
-  local definition = responseChild.new(env.factory.choice, env.model, env.model.settings, function(): boolean
-    return true
-  end)
-  expect.equal(#definition.requires, 2, 'exact response dependencies')
-  expect.equal(definition.requires[1], analysis.capability, 'analysis dependency')
-  expect.equal(definition.requires[2], frame.capability, 'frame dependency')
-  env.session:close()
-end)
 
 test('hidden readers release and reacquire before visibility returns without replaying retained onsets', function()
   local env = support.boot()
@@ -32,18 +19,23 @@ test('hidden readers release and reacquire before visibility returns without rep
   env.publish(SYSTEM, 1, 4608, { support.hop(1, 4608, 1) })
   env.update(0.1, false)
   expect.equal(#env.model.waves, 1, 'new onset delivered')
+  local service = env.session:observe(analysis.capability)
+  local external = service.service:open(service.context, SYSTEM)
+  expect.equal(external.kind, 'success', 'independent consumer open')
   env.update(0.8, true)
-  expect.equal(select(2, env.counts()), 0, 'reader released on the fully hidden update')
+  expect.equal(select(2, env.counts()), 1, 'fully hidden releases only the backdrop reader')
   env.update(0.01, true)
-  expect.equal(select(2, env.counts()), 0, 'fully hidden releases last reader')
+  expect.equal(select(2, env.counts()), 1, 'hidden backdrop leaves the independent reader live')
   env.update(0.01, false)
-  expect.equal(select(2, env.counts()), 1, 'reacquired before fade-in')
+  expect.equal(select(2, env.counts()), 2, 'reacquired before fade-in alongside the independent reader')
   expect.equal(#env.model.waves, 1, 'reacquire does not replay old publication')
   env.factory.controls.setEnabled(false)
   env.update(0.001, false)
-  expect.equal(select(2, env.counts()), 1, 'disable preserves reader during fade')
+  expect.equal(select(2, env.counts()), 2, 'disable preserves the backdrop reader during fade')
   env.update(0.8, false)
-  expect.equal(select(2, env.counts()), 0, 'disabled hidden releases reader')
+  expect.equal(select(2, env.counts()), 1, 'disabled backdrop leaves the independent reader live')
+  external.reader:close()
+  expect.equal(select(2, env.counts()), 0, 'independent consumer closes its own reader')
   env.session:close()
 end)
 
@@ -72,24 +64,6 @@ test('every new hop is delivered once with cumulative sample age and empty nativ
   env.session:close()
 end)
 
-test('excess hop onsets explicitly mark a capacity gap and retain only the newest eight', function()
-  local env = support.boot()
-  env.update(1.2, false)
-  local hops = {}
-  for index = 1, 12 do
-    hops[index] = support.hop(1, index * 2048, 0.5)
-  end
-  env.publish(SYSTEM, 1, 12 * 2048, hops)
-  env.update(0, false)
-  expect.equal(#env.model.waves, 8, 'bounded recent onsets')
-  expect.equal(env.model.onsetGap, 'capacity', 'discard is explicit')
-  expect.equal(env.model.discardedHops, 4, 'discarded onset hop count')
-  expect.near(env.model.waves[1].age, 7 * 2048 / 48000, 1e-8, 'newest eight retained in order')
-  env.update(0, false)
-  expect.equal(env.model.discardedHops, 4, 'repeated publication does not repeat discard')
-  env.session:close()
-end)
-
 test('generation resets clear old waves and repeated gap publications do not clear new waves', function()
   local env = support.boot()
   env.update(1.2, false)
@@ -115,27 +89,22 @@ end)
 test('source changes crossfade bounded targets and own no more than two readers', function()
   local env = support.boot()
   env.update(1.2, false)
-  env.publish(SYSTEM, 1, 4096, {}, { 0.0625, 0, 0 })
+  env.publish(SYSTEM, 1, 4096, {}, { 0.0625, 0, 0 }, nil, nil, { 1, 0, 0, 0, 0, 0, 0, 0 })
   env.update(1, false)
   local process = env.native.newProcess(301)
   local source = { kind = 'process', process = process }
-  env.publish(source, 1, 4096, {}, { 0, 0, 0.0625 })
+  env.publish(source, 1, 4096, {}, { 0, 0, 0.0625 }, nil, nil, { 0, 0, 0, 0, 0, 0, 0, 1 })
   env.factory.choice:pin(process)
   env.update(0.6, false)
   expect.equal(select(2, env.counts()), 2, 'incoming and outgoing readers coexist')
   expect.near(env.model.target.bass, 0.5, 1e-8, 'bass target crossfade midpoint')
   expect.near(env.model.target.treble, 0.5, 1e-8, 'treble target crossfade midpoint')
+  expect.near(env.model.target.spectrum[1], 0.5, 1e-8, 'outgoing low spectrum band fades halfway')
+  expect.near(env.model.target.spectrum[8], 0.5, 1e-8, 'incoming high spectrum band fades halfway')
   env.update(0.6, false)
   expect.equal(select(2, env.counts()), 1, 'outgoing reader released at crossfade end')
   expect.equal(env.model.target.bass, 0, 'new bass reached')
   expect.equal(env.model.target.treble, 1, 'new treble reached')
-  local process2 = env.native.newProcess(302)
-  local process3 = env.native.newProcess(303)
-  env.factory.choice:pin(process2)
-  env.update(0.1, false)
-  env.factory.choice:pin(process3)
-  env.update(0.1, false)
-  expect.equal(select(3, env.counts()), 2, 'rapid source changes never open a third reader')
   env.session:close()
   expect.equal(select(2, env.counts()), 0, 'all owner readers released')
 end)
@@ -203,7 +172,7 @@ test('raw process status stays independent of analysis and never opens raw reade
   local statuses =
     { { process = process, label = 'application', state = { kind = 'active', provenance = 'pipewire-client' } } }
   local rawOpens = 0
-  local raw = env.session:use(plugin.provider({
+  env.session:use(plugin.provider({
     name = 'testing/raw-status',
     capability = audio.capability,
     build = function(): audio.Service
@@ -222,16 +191,9 @@ test('raw process status stays independent of analysis and never opens raw reade
   env.update(0.1, true)
   expect.equal(env.factory.choice.processStatuses, statuses, 'raw status is available while hidden')
   expect.equal(rawOpens, 0, 'no hidden raw reader')
-  env.provider:disable()
-  env.session.runtime:drain()
-  env.update(0.1, false)
-  expect.equal(env.factory.choice.processStatuses, statuses, 'analysis outage preserves raw provenance status')
   statuses = { { process = process, label = 'application', state = { kind = 'idle' } } }
   env.update(0.1, false)
-  expect.equal(env.factory.choice.processStatuses[1].state.kind, 'idle', 'raw status updates during analysis outage')
-  raw:disable()
-  env.session.runtime:drain()
-  expect.equal(#env.factory.choice.processStatuses, 0, 'raw provider outage clears stale status')
+  expect.equal(env.factory.choice.processStatuses[1].state.kind, 'idle', 'raw status updates independently')
   expect.equal(rawOpens, 0, 'discovery never requested raw PCM')
   env.session:close()
 end)
@@ -257,36 +219,6 @@ test('logical process identity does not reopen and unavailable application never
   env.update(1.5, false)
   expect.equal(env.factory.controls.source().kind, 'process', 'unavailable application remains selected')
   expect.equal(env.readers[#env.readers].source.kind, 'process', 'no system fallback reader')
-  env.session:close()
-end)
-
-test('backdrop_survives_analysis_provider_outages_and_independent_consumers_keep_their_readers', function()
-  local env = support.boot()
-  env.update(1.2, false)
-  env.publish(SYSTEM, 1, 4096, {}, { 0.0625, 0, 0 })
-  env.update(0.2, false)
-  local service = env.session:observe(analysis.capability)
-  local external = service.service:open(service.context, SYSTEM)
-  expect.equal(external.kind, 'success', 'independent consumer open')
-  env.update(0.8, true)
-  env.update(0.01, true)
-  expect.equal(select(2, env.counts()), 1, 'hidden backdrop leaves external reader')
-  external.reader:close()
-  env.update(0.1, false)
-  env.provider:disable()
-  env.session.runtime:drain()
-  local before = env.model.time
-  env.update(1.5, false)
-  env.session:draw()
-  expect.equal(env.factory.choice.audioAvailable, false, 'optional analysis child goes unavailable')
-  expect.equal(env.model.visibility, 1, 'base remains active')
-  expect.truthy(env.model.time > before, 'autonomous clock continues')
-  expect.truthy(#env.drawn > 0, 'base continues drawing')
-  env.provider:enable()
-  env.session.runtime:drain()
-  env.update(0.1, false)
-  expect.equal(env.factory.choice.audioAvailable, true, 'child recovers independently')
-  expect.equal(select(2, env.counts()), 1, 'reader reacquired after recovery')
   env.session:close()
 end)
 

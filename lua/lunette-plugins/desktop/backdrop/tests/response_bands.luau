@@ -18,20 +18,6 @@ local function waves(env: typeof(support.boot()), band: model.Band): { model.Wav
   return found
 end
 
-test('one hop delivers a wave for each band with an onset', function()
-  local env = support.boot()
-  env.update(1.2, false)
-  local hop = table.clone(support.hop(1, 4096, 0))
-  hop.bassOnset, hop.midOnset, hop.trebleOnset = 0.9, 0.5, 0.7
-  env.publish(SYSTEM, 1, 4096, { hop })
-  env.update(0, false)
-  expect.equal(#env.model.waves, 3, 'three band waves')
-  expect.equal(waves(env, 'bass')[1].strength, 0.9, 'bass strength')
-  expect.equal(waves(env, 'mid')[1].strength, 0.5, 'mid strength')
-  expect.equal(waves(env, 'treble')[1].strength, 0.7, 'treble strength')
-  env.session:close()
-end)
-
 test('waves land near the facing direction, each band scattered by its own width', function()
   local env = support.boot()
   env.update(1.2, false)
@@ -113,6 +99,9 @@ test('excess onsets are bounded per band within one publication', function()
   expect.equal(#waves(env, 'bass'), 1, 'bass survives a treble overflow')
   expect.equal(env.model.discardedHops, 12 - model.wavePools.treble, 'treble overflow counted')
   expect.equal(env.model.onsetGap, 'capacity', 'overflow is explicit')
+  expect.near(waves(env, 'treble')[1].age, 8 * 2048 / 48000, 1e-8, 'newest treble onsets retained in order')
+  env.update(0, false)
+  expect.equal(env.model.discardedHops, 12 - model.wavePools.treble, 'repeated publication does not repeat discard')
   env.session:close()
 end)
 
@@ -137,9 +126,13 @@ test('the renderer receives the spectrum and band-tagged waves', function()
   local env = support.boot()
   env.update(1.2, false)
   local hop = table.clone(support.hop(1, 4096, 0))
-  hop.bassOnset, hop.trebleOnset = 1, 1
+  hop.bassOnset, hop.midOnset, hop.trebleOnset = 0.9, 0.5, 0.7
   env.publish(SYSTEM, 1, 4096, { hop }, nil, nil, nil, { 0.01, 0, 0, 0, 0, 0, 0, 0.01 })
-  env.update(0.1, false)
+  env.update(0, false)
+  expect.equal(#env.model.waves, 3, 'one wave per band')
+  expect.equal(waves(env, 'bass')[1].strength, 0.9, 'bass strength')
+  expect.equal(waves(env, 'mid')[1].strength, 0.5, 'mid strength')
+  expect.equal(waves(env, 'treble')[1].strength, 0.7, 'treble strength')
   -- The base frame updates before the response child, so the drawn frame trails the delivery by one update.
   env.update(0.1, false)
   env.session:draw()
@@ -155,7 +148,7 @@ test('the renderer receives the spectrum and band-tagged waves', function()
       bands[wave[4]] = true
     end
   end
-  expect.truthy(bands[1] and bands[3] and not bands[2], 'bass and treble indices reach the shader')
+  expect.truthy(bands[1] and bands[2] and bands[3], 'each band index reaches the shader')
   for _, colour in { 'backdropBass', 'backdropMid', 'backdropTreble', 'backdropFocus' } do
     expect.truthy(env.uniforms[colour] ~= nil, colour .. ' sent')
   end

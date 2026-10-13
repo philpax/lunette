@@ -37,7 +37,7 @@ local capabilities = {
   surfaces = surfaces.capability,
 }
 
-function lifetimes.entries(): { plugin.Entry }
+function lifetimes.entries(factory: backdrop.Factory?): { plugin.Entry }
   local entries = {}
   for _, id in
     {
@@ -58,7 +58,7 @@ function lifetimes.entries(): { plugin.Entry }
   do
     entries[#entries + 1] = { id = id, definition = require('@lunette-plugins/' .. id).definition }
   end
-  entries[#entries + 1] = { id = 'desktop/backdrop', definition = backdrop.create().definition }
+  entries[#entries + 1] = { id = 'desktop/backdrop', definition = (factory or backdrop.create()).definition }
   return plugin.compose(entries)
 end
 

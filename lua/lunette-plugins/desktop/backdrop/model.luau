@@ -50,7 +50,6 @@ export type State = {
   read setEnabled: (State, boolean) -> (),
   read setStrengths: (State, number, number) -> (),
   read setFeatures: (State, Features, { Onset }?, FeatureOptions?) -> (),
-  read sourceChanged: (State) -> (),
   read noAudio: (State) -> (),
   read update: (State, number, boolean) -> Frame,
 }
@@ -158,14 +157,6 @@ function State.setFeatures(self: State, features: Features, onsets: { Onset }?, 
   end
 end
 
--- Standalone clients can request a source transition; the response child mixes its two sources before delivery.
-function State.sourceChanged(self: State): ()
-  self.transitionFrom = self.response
-  self.transitionAge = 0
-  self.target = zero()
-  self.transitioning, self.settling = true, false
-end
-
 -- Repeated unavailable samples must not restart the settling interval.
 function State.noAudio(self: State): ()
   if self.settling then
@@ -186,9 +177,9 @@ function State.update(self: State, dt: number, mainSessionVisible: boolean): Fra
   -- The period is shared by every autonomous shader frequency, keeping long sessions finite without a seam.
   self.time = (self.time + (elapsed % 4096) * self.motionStrength) % 4096
   if self.transitioning then
-    local transitionDuration = if self.settling then self.settings.recoveryDuration else self.settings.crossfadeDuration
-    self.transitionAge = math.min(self.transitionAge + elapsed, transitionDuration)
-    local amount = if transitionDuration == 0 then 1 else self.transitionAge / transitionDuration
+    local recoveryDuration = self.settings.recoveryDuration
+    self.transitionAge = math.min(self.transitionAge + elapsed, recoveryDuration)
+    local amount = if recoveryDuration == 0 then 1 else self.transitionAge / recoveryDuration
     self.response = mix(self.transitionFrom, self.target, amount)
     if amount == 1 then
       self.transitioning = false

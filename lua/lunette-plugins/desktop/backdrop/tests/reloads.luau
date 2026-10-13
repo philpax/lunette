@@ -4,6 +4,7 @@ local expect = testing.expect
 local lunette = require '@lunette'
 local vrUi = require '@testing/vr-ui'
 local lifetimes = require './support/lifetimes'
+local backdrop = require '@lunette-plugins/desktop/backdrop'
 local audio = require '@lunette-contracts/audio'
 local frame = require '@lunette-contracts/frame'
 local menu = require '@lunette-contracts/menu'
@@ -284,8 +285,14 @@ local function tenSourceReloads()
 end
 
 test('provider outages withdraw only dependent backdrop children and recover without duplicate resources', function()
-  local session = testing.boot(lifetimes.entries())
+  local factory = backdrop.create()
+  local session = testing.boot(lifetimes.entries(factory))
   local native = session.native
+  local process = native.newProcess(51)
+  local source = { kind = 'process', process = process }
+  factory.choice:setMode 'attention'
+  factory.choice:attend(process)
+  factory.choice:setResponse(0.25)
   native.events.mainSessionVisible = false
   local observed = lifetimes.observe(session)
   local function services(): Services
@@ -298,8 +305,8 @@ test('provider outages withdraw only dependent backdrop children and recover wit
     return result
   end
   local pcm = tone()
-  step(native, system, nil, pcm)
-  step(native, system, nil, pcm)
+  step(native, source, nil, pcm)
+  step(native, source, nil, pcm)
   session:draw()
   open(services())
   session:draw()
@@ -341,6 +348,7 @@ test('provider outages withdraw only dependent backdrop children and recover wit
   }
   for _, case in cases do
     local beforeParent, beforeChildren = children(session.runtime:snapshot())
+    expect.equal(factory.choice.frozen, true, 'open controls freeze attention before withdrawal')
     session.instances[case.provider]:disable()
     session.runtime:drain()
     local parent, current = children(session.runtime:snapshot())
@@ -365,6 +373,8 @@ test('provider outages withdraw only dependent backdrop children and recover wit
       case.readers,
       case.provider .. ' outage keeps only the expected native readers'
     )
+    expect.equal(factory.choice.attended, process, case.provider .. ' outage retains the attended process')
+    expect.equal(factory.choice.frozen, not case.unavailable.controls, 'controls cleanup releases its attention freeze')
     local currentServices = services()
     if currentServices.menu then
       local actionCount = 0
@@ -384,6 +394,11 @@ test('provider outages withdraw only dependent backdrop children and recover wit
     end
     native.events.draw = {}
     step(native)
+    expect.equal(
+      #factory.choice.processStatuses,
+      if case.provider == 'audio' then 0 else 1,
+      'raw status is independent of analysis'
+    )
     expect.equal(session:draw(), false, 'the renderer draws through the provider outage')
     expect.truthy(live(native.events.render.shaderAcquisitions, 'released') == 3, 'the renderer keeps its shaders')
     if case.status then
@@ -391,10 +406,13 @@ test('provider outages withdraw only dependent backdrop children and recover wit
     end
     session.instances[case.provider]:enable()
     session.runtime:drain()
-    step(native, system, nil, pcm)
-    step(native, system, nil, pcm)
+    step(native, source, nil, pcm)
+    step(native, source, nil, pcm)
     local recovered = services()
+    expect.equal(factory.choice.attended, process, case.provider .. ' recovery retains the attended process')
+    expect.equal(factory.choice.response, 0.25, 'child reactivation retains response choices')
     if case.unavailable.controls then
+      expect.equal(vrUi.describe(recovered.ui, panelName).visible, false, 'recovered controls start closed')
       open(recovered)
     end
     session:draw()
@@ -416,8 +434,8 @@ test('provider outages withdraw only dependent backdrop children and recover wit
   end
   session.instances.frame:enable()
   session.runtime:drain()
-  step(native, system, nil, pcm)
-  step(native, system, nil, pcm)
+  step(native, source, nil, pcm)
+  step(native, source, nil, pcm)
   open(services())
   session:draw()
   sameTotals(native, services(), baseline, 'frame recovery')

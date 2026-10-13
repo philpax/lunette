@@ -39,37 +39,18 @@ test('invalid deltas and feature values preserve finite bounded state', function
   expect.equal(new({ fadeDuration = 0 }):update(0, false).visibility, 1, 'explicit immediate fade')
 end)
 
-test('source changes crossfade and repeated loss settles without interrupting autonomous motion', function()
-  local state = new { response = 1 }
+test('repeated audio loss settles without interrupting autonomous motion', function()
+  local state = new { response = 1, attackDuration = 0 }
   state:setFeatures { bass = 1, mid = 0.6, treble = 0.2 }
-  local before = state:update(4, false)
-  state:sourceChanged()
-  state:setFeatures { bass = 0, mid = 0, treble = 1 }
-  local half = state:update(0.6, false)
-  expect.near(half.bass, before.bass / 2, 1e-8, 'old bass crossfades over 1.2 seconds')
-  expect.near(half.treble, (before.treble + 1) / 2, 1e-8, 'new treble crossfades separately')
-  local reached = state:update(0.6, false)
-  expect.equal(reached.bass, 0, 'new source reached')
-  expect.equal(reached.treble, 1, 'new source reached')
+  local before = state:update(1, false)
   state:noAudio()
-  local settledHalf = state:update(0.75, false)
+  local half = state:update(0.75, false)
   state:noAudio()
-  expect.near(settledHalf.treble, 0.5, 1e-8, 'half loss settling interval')
+  expect.near(half.bass, before.bass / 2, 1e-8, 'half loss settling interval')
   local settled = state:update(0.75, false)
-  expect.equal(settled.treble, 0, 'repeated loss does not restart settling')
+  expect.equal(settled.bass, 0, 'repeated loss does not restart settling')
   expect.equal(settled.visibility, 1, 'audio loss does not hide the backdrop')
-  expect.truthy(settled.time > reached.time, 'autonomous clock continues without audio')
-end)
-
-test('onsets remain bounded and expire', function()
-  local state = new()
-  local onsets = {}
-  for index = 1, 40 do
-    onsets[index] = { strength = 1, position = index / 40 }
-  end
-  state:setFeatures({ bass = 0, mid = 0, treble = 0 }, onsets)
-  expect.equal(#state:update(0, false).waves, 8, 'bounded onset list')
-  expect.equal(#state:update(3, false).waves, 0, 'all waves expire')
+  expect.truthy(settled.time > before.time, 'autonomous clock continues without audio')
 end)
 
 test('visibility evolution is invariant to frame partitioning', function()
@@ -100,25 +81,6 @@ test('response attack and release use independently configured exponential durat
   expect.equal(immediate:update(0.01, false).bass, 1, 'explicit immediate attack')
   immediate:setFeatures { bass = 0, mid = 0, treble = 0 }
   expect.equal(immediate:update(0.01, false).bass, 0, 'explicit immediate release')
-end)
-
-test('sustained onsets report rolling wave eviction without clearing the retained waves', function()
-  local state = new()
-  local zero = { bass = 0, mid = 0, treble = 0 }
-  for index = 1, 8 do
-    state:setFeatures(zero, { { strength = 1, position = index / 10 } })
-  end
-  expect.equal(#state.waves, 8, 'eight waves retained across separate publications')
-  expect.equal(state.discardedHops, 0, 'nothing discarded before capacity')
-  state:setFeatures(zero, { { strength = 1, position = 0.9 } })
-  expect.equal(#state.waves, 8, 'rolling retention remains bounded')
-  expect.equal(state.onsetGap, 'capacity', 'rolling eviction is explicit')
-  expect.equal(state.discardedHops, 1, 'one older onset discarded')
-  expect.equal(state.waves[1].position, 0.2, 'only oldest wave removed')
-  expect.equal(state.waves[8].position, 0.9, 'newest wave retained')
-  state:setFeatures(zero, {})
-  expect.equal(#state.waves, 8, 'empty next publication leaves retained waves')
-  expect.equal(state.discardedHops, 1, 'empty publication does not repeat discard')
 end)
 
 test('aged onsets and runtime strengths stay finite and make bounded discards explicit', function()

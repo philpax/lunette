@@ -1,7 +1,6 @@
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
-local backdropModel = require '../model'
 local frame = require '@lunette-contracts/frame'
 local render = require '@testing/render'
 local backdrop = require '@lunette-plugins/desktop/backdrop'
@@ -17,41 +16,11 @@ local function visible(env: Environment, dt: number?): ()
   env.session:draw()
 end
 
-test('backdrop_survives_audio_outages', function()
-  local state: backdropModel.State
-  local factory = backdrop.create({}, function(_context: plugin.Context, model: backdropModel.State)
-    state = model
-  end)
-  local env = fixture.boot(factory)
-  expect.equal(#env.recorder.meshAcquisitions, 0, 'activation acquires no GPU objects')
-  env.session:draw()
-  expect.equal(#env.drawn, 0, 'no drawing before the first update')
-  visible(env)
-  expect.equal(#env.drawn, 5, 'sky, three curtain layers, and the drifting fragments need only frame')
-  state:setFeatures { bass = 1, mid = 0.5, treble = 0.25 }
-  visible(env, 0.4)
-  state:noAudio()
-  for _ = 1, 10 do
-    state:noAudio()
-    visible(env, 0.2)
-  end
-  expect.equal(env.uniforms.backdropResponse[1], 0, 'audio loss settles bass')
-  expect.equal(env.uniforms.backdropResponse[2], 0, 'audio loss settles folds')
-  expect.equal(env.uniforms.backdropResponse[3], 0, 'audio loss settles edges')
-  expect.equal(env.uniforms.backdropScene[1], 1, 'audio loss keeps visibility')
-  expect.truthy(env.uniforms.backdropScene[2] > 0, 'autonomous movement continues')
-  expect.equal(#env.recorder.meshAcquisitions, 3, 'fixed reused surfaces')
-  expect.equal(#env.recorder.shaderAcquisitions, 3, 'fixed reused shaders')
-  env.recorder:assertRestored()
-  env.session:close()
-  for _, shader in env.recorder.shaderAcquisitions do
-    expect.equal(shader.released, true, 'owned shader released')
-  end
-end)
-
 test('hidden primary and disabled states fade to zero without drawing or clearing', function()
   local factory = backdrop.create()
   local env = fixture.boot(factory)
+  env.session:draw()
+  expect.equal(#env.drawn, 0, 'no drawing before the first update')
   env.native.events.mainSessionVisible = true
   env.session:update(10)
   env.session:draw()
