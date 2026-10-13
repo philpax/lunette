@@ -1,4 +1,4 @@
--- Provides owner-scoped keyboards built from the provider's rows, layers, and style. See docs/dev/lua-api.md#keyboard.
+-- Provides owner-scoped keyboards built from the provider's rows, layers, and style. See lua/lunette-plugins/keyboard/README.md.
 local config = require '@lunette-plugins/keyboard/config'
 local plugin = require '@lunette-plugin'
 local focus = require '@lunette-contracts/focus'

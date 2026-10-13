@@ -4,4 +4,4 @@ The surfaces provider collects owner-scoped offers of surfaces that pointers can
 
 Consumers register `list` callbacks through the [`lunette/surfaces` contract](../../lunette-contracts/surfaces.luau). The provider queries them when it builds the current surface list; a callback error or non-table result contributes no surfaces.
 
-[Surface pointer input](../../../docs/dev/input.md#surface-pointer-input) · [Shared input limits](../../../docs/dev/input.md#known-gaps)
+[Surface pointer input](../../lunette-contracts/docs/input.md#surface-pointer-delivery) · [Shared input limits](../../../docs/dev/input.md#known-gaps)

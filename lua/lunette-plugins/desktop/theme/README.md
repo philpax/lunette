@@ -6,4 +6,4 @@ Selects a theme from the catalog and registers Appearance actions for available 
 | --- |
 | `lunette/frame`, `lunette/menu`, `lunette/theme`, and `lunette/themes` |
 
-A missing theme name falls back to the configured preset when available, then to the theme provider's base theme. A user selection lasts across entry activations, but not source reload. See [Runtime themes](../../../../docs/dev/lua-api.md#runtime-themes) and [Desktop configuration](../../../../docs/guide/desktop-configuration.md#runtime-themes).
+A missing theme name falls back to the configured preset when available, then to the theme provider's base theme. A user selection lasts across entry activations, but not source reload. See [Runtime themes](../../../../lua/lunette-contracts/panels-and-ui.md#themes) and [Desktop configuration](../../../../docs/guide/desktop-configuration.md#themes-and-appearance).

@@ -4,4 +4,4 @@ The layouts provider stores named layout callbacks. A consumer applies a registe
 
 Plugins register layouts through [`lunette/layouts`](../../lunette-contracts/layouts.luau). A registration follows its owner's lifetime. The optional `continuous` flag lets a consumer apply a layout each frame.
 
-[Shared broker guarantees](../../../docs/dev/lua-api.md#bindings-menu-actions-and-layouts) · [Arc contributor](../layout/arc/README.md)
+[Shared broker guarantees](../../../lua/lunette-contracts/policy-services.md#brokers) · [Arc contributor](../layout/arc/README.md)

@@ -6,4 +6,4 @@ Updates and draws registered panels. Its optional surfaces child offers shown pa
 | --- | --- |
 | `lunette/frame`, `lunette/panels` | `lunette/surfaces` for pointer surfaces |
 
-The panel provider owns geometry and rendering mode. See [Window rendering](../../../../docs/guide/desktop-configuration.md#window-rendering) and [Rendering](../../../../docs/dev/rendering.md).
+The panel provider owns geometry and rendering mode. See [Window rendering](../../../../docs/guide/desktop-configuration.md#pointer-and-panel-appearance) and [Rendering](../../../../docs/dev/rendering.md).

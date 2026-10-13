@@ -1,6 +1,6 @@
 # Standard plugins
 
-The shipped desktop composes replaceable plugins. [Desktop configuration](../guide/desktop-configuration.md) shows settings and patches; the [entry list](../../lua/lunette-desktop/init.luau) defines the composition and order. [Plugin authoring](lua-api.md#plugin-authoring) specifies the shared runtime rules.
+The shipped desktop composes replaceable plugins. [Desktop configuration](../guide/desktop-configuration.md) shows settings and patches; the [entry list](../../lua/lunette-desktop/init.luau) defines the composition and order. [The plugin facade](../../lua/lunette-plugin/README.md) specifies the shared runtime rules.
 
 ## Contracts and providers
 
@@ -22,9 +22,9 @@ Plugin READMEs describe use and configuration. Service declarations live in [the
 
 ## Default configuration
 
-The shipped desktop opens no applications. [Desktop configuration](../guide/desktop-configuration.md) covers settings and patches; [composition](lua-api.md#composition) specifies validation and startup.
+The shipped desktop opens no applications. [Desktop configuration](../guide/desktop-configuration.md) covers settings and patches; [composition](../../lua/lunette-plugin/configuration-and-composition.md) specifies validation and startup.
 
-The desktop protects the manager and its VR recovery controls from runtime removal. [Runtime manager](../guide/runtime-manager.md) describes these controls; [session composition](lua-api.md#session-composition-and-inspection) specifies protection and recovery. Direct raw-runtime mutation bypasses that protection.
+The desktop protects the manager and its VR recovery controls from runtime removal. [Runtime manager](../guide/runtime-manager.md) describes these controls; [session management](../../lua/lunette-plugin/configuration-and-composition.md#start-and-manage-a-session) specifies protection and recovery. Direct raw-runtime mutation bypasses that protection.
 
 ## Service connections and outages
 
@@ -63,17 +63,17 @@ Pose memory belongs to the adoption consumer: it writes dropped poses and regist
 
 ## Other shared boundaries
 
-Small VR controls use the UI service; larger interfaces remain Wayland clients. The menu broker and its renderer are replaceable independently. [Contracts](lua-api.md#contracts) specify these shared boundaries.
+Small VR controls use the UI service; larger interfaces remain Wayland clients. The menu broker and its renderer are replaceable independently. [Service contracts](../../lua/lunette-contracts/README.md) specify these shared boundaries.
 
 ## Pacing and scale
 
-Providers select rates and scales; desktop consumers measure the scene and apply them. Changing selection policy does not require replacing scene observation. The consumers restore their changes on unload. [Rendering](rendering.md#frame-pacing) and [outputs](compositor.md#outputs) specify native mechanisms.
+Providers select rates and scales; desktop consumers measure the scene and apply them. Changing selection policy does not require replacing scene observation. The consumers restore their changes on unload. [Rendering](rendering.md#frame-pacing-and-scene-skipping) and [outputs](compositor.md#outputs) specify native mechanisms.
 
 ## Decisions
 
 Separate consumers preserve independent outages and allow replacement without copying unrelated policy. A fixed sequence in a configuration file would prevent reuse of the desktop. Stable entry ids make settings, patches, errors, and runtime inspection refer to the same plugin; short setting aliases made provider and consumer targets ambiguous.
 
-Contract modules remain separate from implementations, so consumers can use replacement providers. The desktop root only composes plugins. [Repository conventions](../../CONTRIBUTING.md#lua-conventions) specify module ownership; [configuration decisions](lua-api.md#configuration-types-and-validation-share-one-descriptor) specify typing and merging.
+Contract modules remain separate from implementations, so consumers can use replacement providers. The desktop root only composes plugins. [Repository conventions](../../CONTRIBUTING.md#lua-conventions) specify module ownership; [configuration decisions](../../lua/lunette-plugin/configuration-and-composition.md#decisions) specify typing and merging.
 
 ## Deliberately left open
 

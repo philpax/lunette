@@ -1,4 +1,4 @@
--- See docs/dev/lua-api.md#frame-pacing-and-output-scale for the pacing options.
+-- See lua/lunette-plugins/pacing/README.md for the pacing options.
 
 local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/pacing'

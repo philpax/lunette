@@ -6,4 +6,4 @@ Attaches both hands to the laser provider and updates them against offered surfa
 |---|
 | [`lunette/frame`](../../frame/README.md), [`lunette/laser`](../../laser/README.md), [`lunette/surfaces`](../../../lunette-contracts/surfaces.luau) |
 
-[Laser options](../../laser/config.luau)
+Aim, trigger lock, and appearance are configured on the laser provider, and movement on interaction. Per-hand consumer overrides would make the same option settable in two places. [Laser options](../../laser/config.luau)

@@ -8,4 +8,4 @@ Placement owns the panel, tag holds, memberships, and hidden override for the pl
 
 The provider announces placements with their resolved properties. This lets layout and other consumers handle manually placed windows like adopted windows. The provider keeps no resolved-property provenance in inspection snapshots.
 
-[Shared lifecycle guarantees](../../../../docs/dev/lua-api.md#rules-and-placement) · [Placement contract](../../../../lua/lunette-contracts/placement.luau)
+[Shared lifecycle guarantees](../../../../lua/lunette-contracts/policy-services.md#rules-and-placement) · [Placement contract](../../../../lua/lunette-contracts/placement.luau)

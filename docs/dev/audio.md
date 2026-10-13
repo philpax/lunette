@@ -1,4 +1,6 @@
-# Audio
+# Native audio capture
+
+[Native reader guarantees](lua-api.md#audio-capture) specify the Lua boundary. The [audio provider](../../lua/lunette-plugins/audio/README.md) and [analysis provider](../../lua/lunette-plugins/audio-analysis/README.md) specify owner-scoped Lua use and signal processing.
 
 ## Non-routing capture
 
@@ -34,14 +36,6 @@ Queues retain at most 250 ms of stereo frames. Publication snapshots committed o
 
 The worker tracks the `default` metadata object's `default.audio.sink` name and the live sink's serial and connection generation. Node, client, and port properties come from the registry global and from info events. An info event carries authoritative properties only when its change mask includes properties; PipeWire sends an empty dictionary with a state or parameter change, and the worker ignores it. Every worker tick plans the graph again from the current observations, so the system source recovers without reopening once the default sink names a live sink. System capture targets that sink's monitor with fallback and implicit reconnection disabled. Each process source owns one non-autoconnecting `Stream/Input/Audio` null-sink adapter and non-lingering additive links from every attributed playback node. Explicit channel mapping folds left channels to FL, right channels to FR, and centre, mono, and LFE channels to both at unity gain. Unknown channel positions make the whole source unavailable. Capture validates the converted monitor's negotiated stereo format before accepting PCM. Registry observations and graph operations cross project-owned interfaces; recording implementations exercise the same reconciliation driver without opening a host connection.
 
-## Lua providers
-
-[The audio provider](../../lua/lunette-plugins/audio/README.md) exposes owner-scoped readers over [native capture](lua-api.md#audio-capture). Its reader usage is separate from the host graph and attribution rules in [non-routing capture](#non-routing-capture).
-
-## Lua analysis
-
-[The analysis provider](../../lua/lunette-plugins/audio-analysis/README.md) shares sample-timed analysis between independent consumers. [Analysis](../../lua/lunette-plugins/audio-analysis/docs/analysis.md) specifies its transform and onset behaviour; [the contract](../../lua/lunette-contracts/audio-analysis.luau) defines profiles, results, and capacity limits.
-
 ## Deferred spatial routing
 
 Spawned applications play audio through PipeWire to the default sink, unrelated to their panel's position. LÖVR bundles Steam Audio (`deps/phonon`), which provides HRTF spatialisation with occlusion, and every panel's pose is known. Future routing may redirect a process's playback to a `lovr.audio` source at the panel's pose. Spatialisation, falloff, and per-application policy belong to Lua. A flat passthrough mode remains necessary for ambient stereo.
@@ -56,11 +50,9 @@ The capture check covers native PipeWire and PulseAudio-compatible playback, sev
 
 ## Decisions
 
-Capture and routing have separate contracts. The backdrop and independent analysis consumers need PCM without changing playback. Spatial routing has additional policy and host-graph risks and remains deferred.
+Capture does not imply playback routing. Consumers can read PCM without changing what the user hears. Spatial routing has additional policy and host-graph risks and remains deferred.
 
 Stereo downmix is explicit at the public capture boundary. PipeWire performs mixing and conversion so independently scheduled application callbacks are not summed in Lua or on the frame thread.
-
-Audio and analysis have neutral contracts independent of the backdrop. Per-owner readers share capture and profile work without allowing one consumer to drain or mutate another consumer's publication. Requiring the visual consumer to obtain reusable features was rejected because independent plugins must work without it. [Analysis](../../lua/lunette-plugins/audio-analysis/docs/analysis.md) records the signal-processing choices.
 
 Attribution distinguishes a playback node that cannot belong to a process from one whose owner is unknown. The compositor's answer that an instance belongs to no process is the distinguishing fact, because the worker already obtains it for every node with a PID assertion. Reporting `unresolved-attribution` whenever any playback node in the graph was unattributed was rejected: a host application's stream then made every silent session process look unattributed. The answer holds only for the current assertion and instance, and the worker keeps asking, because the compositor can adopt a process after answering.
 

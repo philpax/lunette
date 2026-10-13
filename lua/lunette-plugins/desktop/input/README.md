@@ -6,4 +6,4 @@ Routes physical key presses and committed text through a physical focus source. 
 |---|
 | [`lunette/frame`](../../frame/README.md), [`lunette/focus`](../../focus/README.md) |
 
-[Physical input batches](../../../../docs/dev/input.md#physical-input-batches) specify consumption and stale-text blocking. A custom physical-input consumer must preserve those boundaries.
+The [shared input protocol](../../../lunette-contracts/docs/input.md#physical-input-batches) defines event consumption and stale-text blocking. A replacement physical-input consumer preserves those batch boundaries.

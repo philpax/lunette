@@ -8,4 +8,4 @@ The panels provider creates and draws window and monitor panels. It owns their g
 
 A separate desktop child offers visible panels as pointer surfaces through [`lunette/surfaces`](../../lunette-contracts/surfaces.luau). Without that child, panels still draw but cannot be pointed at.
 
-[Options](config.luau) · [Panel API](../../../docs/dev/lua-api.md#panels) · [Rendering behavior](docs/rendering.md) · [Shared rendering guarantees](../../../docs/dev/rendering.md)
+[Options](config.luau) · [Panel API](../../../lua/lunette-contracts/panels-and-ui.md#panels) · [Rendering behavior](docs/rendering.md) · [Shared rendering guarantees](../../../docs/dev/rendering.md)

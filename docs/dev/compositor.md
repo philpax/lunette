@@ -2,7 +2,7 @@
 
 lunette is a Wayland compositor. Applications it spawns connect to its socket and submit dmabufs or shared-memory buffers; the compositor sizes their surfaces, routes their input, and decides when they draw.
 
-`crates/lunette-compositor` is a hard vendor of WayVR's `backend/wayvr/`, with WayVR's buffer import replaced by lunette's ([Rendering](rendering.md#texture-import)). It is vendored rather than taken as a dependency because WayVR's backend is not a library: it is a module of the WayVR binary, ticked from WayVR's overlay loop and coupled to its renderer and IPC, while lunette runs it on its own thread behind a channel protocol and adds several seats, per-client outputs, frame pacing, and a host clipboard bridge. The files under `src/wayvr/` keep upstream's names and as much of its text as lunette can, so that a fix worth taking from WayVR is a readable diff; [PROVENANCE.md](../../crates/lunette-compositor/PROVENANCE.md) records the upstream commit, where each upstream file lands, what is left out, and the upstream defects lunette fixes. Capture is different: `wlx-capture` remains an external dependency ([Host desktop](host-desktop.md)). The compositor runs on its own thread and talks to the frame loop through bounded command and event channels. It starts at the first frame that has a LÖVR graphics device, because it imports buffers against that device.
+`crates/lunette-compositor` is a hard vendor of WayVR's `backend/wayvr/`, with WayVR's buffer import replaced by lunette's ([Rendering](rendering.md#texture-import-and-lifetime)). It is vendored rather than taken as a dependency because WayVR's backend is not a library: it is a module of the WayVR binary, ticked from WayVR's overlay loop and coupled to its renderer and IPC, while lunette runs it on its own thread behind a channel protocol and adds several seats, per-client outputs, frame pacing, and a host clipboard bridge. The files under `src/wayvr/` keep upstream's names and as much of its text as lunette can, so that a fix worth taking from WayVR is a readable diff; [PROVENANCE.md](../../crates/lunette-compositor/PROVENANCE.md) records the upstream commit, where each upstream file lands, what is left out, and the upstream defects lunette fixes. Capture is different: `wlx-capture` remains an external dependency ([Host desktop](host-desktop.md)). The compositor runs on its own thread and talks to the frame loop through bounded command and event channels. It starts at the first frame that has a LÖVR graphics device, because it imports buffers against that device.
 
 ## Protocols
 
@@ -10,7 +10,7 @@ The compositor advertises `wl_compositor` (version 6), `xdg_wm_base`, `zxdg_deco
 
 `wp_viewporter` lets a client set a surface's size and the part of its buffer it shows independently of the buffer, which is how a client following `wp_fractional_scale_v1` presents a buffer larger than its surface. The committed size and the source crop follow the viewport ([Windows](#windows)), and an invalid viewport is a protocol error.
 
-`wp_fractional_scale_v1` decouples panel resolution from physical size, so a panel can render sharper as the user approaches. `wp_content_type_v1` is reported to Lua as `win.contentType` and not acted on natively; the pacing provider combines it with the observed commit rate ([Rendering](rendering.md#frame-pacing)). `linux-drm-syncobj-v1` is not supported ([Rendering](rendering.md#synchronisation)).
+`wp_fractional_scale_v1` lets a client render at a scale independent of its surface size. `wp_content_type_v1` is reported to Lua as `win.contentType` and not acted on natively. [Frame pacing](rendering.md#frame-pacing-and-scene-skipping) specifies native throttling. `linux-drm-syncobj-v1` is not supported ([Synchronisation](rendering.md#synchronisation)).
 
 A single-pixel buffer is imported as a one-pixel `wl_shm` image, so a client that fills a surface with one colour scales it with `wp_viewport`. WayVR handles the buffer type but never creates the global, so its clients cannot make one; lunette advertises it. A relative pointer reports how far a seat's pointer moved within one window, the difference between two successive positions on it, and reports no motion when the pointer enters another window, as WayVR does.
 
@@ -32,17 +32,17 @@ A scale change sends three things together: `wp_fractional_scale_v1.preferred_sc
 
 `refresh` is in hertz in Lua and millihertz on the wire. It is advertisement; `window:setFrameRate` paces callbacks.
 
-The scale provider, `@lunette-plugins/scale`, applied by the `desktop/scale` entry, picks a discrete scale step from the distance to the nearest panel an output's clients appear on, with hysteresis, because some toolkits re-lay out expensively on every scale change ([Frame pacing and output scale](lua-api.md#frame-pacing-and-output-scale)).
+Lua selects output scale. The shipped [output-scale consumer](../../lua/lunette-plugins/desktop/scale/README.md) observes the scene and applies its provider's policy.
 
 ## Decorations
 
 lunette honours the decoration mode a client asks for through `xdg-decoration` or the KDE protocol, as WayVR does. A toplevel that asks for nothing, or withdraws its request, is told to use server-side decorations. `Application` in `crates/lunette-compositor/src/wayvr/comp.rs` records, for each toplevel, whether it draws its own, and the window snapshot reports it to Lua as `win.serverSideDecorations`, which is false for a client that draws its own.
 
-lunette draws no server-side decorations in the client's pixels: titlebars and controls are 3D objects the desktop plugins draw around the panel, which keeps panel pixels for content. [Desktop decorations](../../lua/lunette-plugins/desktop/decorations/README.md) gives every native window a titlebar, including one that draws its own, because the titlebar carries the grab and close controls that the VR path needs. How it should treat a client-decorated window is left open in the plugin's documentation.
+The compositor draws no decorations into client pixels. [Desktop decorations](../../lua/lunette-plugins/desktop/decorations/README.md) specifies the shipped titlebar and VR control policy.
 
 ## Windows
 
-A window handle reports `title`, `appId`, its committed size, `opaque`, `contentType`, its source crop, whether it leaves its decorations to the compositor, its input sink, and its output. It accepts `close`, `resize`, and `setFrameRate` requests. [The Lua API](lua-api.md#handles) lists the handle.
+[Native declarations](../../lua/lunette/init.luau) define the window handle; [handle guarantees](lua-api.md#handles) specify identity and lifetime.
 
 The committed size is in surface coordinates: the buffer's size after its transform and scale, replaced by the `wp_viewport` destination when the client sets one, or by the size of the viewport's source rectangle when it sets only that. A client that follows `wp_fractional_scale_v1` renders a buffer at the scale times its surface size and sets the destination to the surface size, so its texture is larger than its committed size. Pointer coordinates are in the same space. The source rectangle is reported as the fraction of the buffer the surface shows, after the buffer's transform. A quarter turn exchanges the buffer's axes before either is computed, where WayVR keeps them. A source rectangle that extends outside the buffer is the `wp_viewport` protocol error `out_of_buffer`, checked after each commit as WayVR checks it. `SurfaceBufWithImage::logical_size` and `source_uv` in `crates/lunette-compositor/src/wayvr/mod.rs` compute both.
 

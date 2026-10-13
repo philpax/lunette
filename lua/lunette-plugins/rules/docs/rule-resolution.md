@@ -6,4 +6,4 @@ A rule may omit its match to apply to every window. Match fields accept typed li
 
 The desktop rule-list consumer registers its configured rules through the provider. Its schema owns the rule list; the provider schema owns source precedence. Placement stays a separate service so rules do not depend on panels or tags.
 
-[Rules contract](../../../lunette-contracts/rules.luau) · [Shared precedence and placement guarantees](../../../../docs/dev/lua-api.md#rules-and-placement)
+[Rules contract](../../../lunette-contracts/rules.luau) · [Shared precedence and placement guarantees](../../../../lua/lunette-contracts/policy-services.md#rules-and-placement)

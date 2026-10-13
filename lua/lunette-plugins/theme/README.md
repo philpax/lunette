@@ -4,4 +4,4 @@ The provider resolves appearance selections and supplies font faces to consumers
 
 An override and its font resolve before registration, so invalid data or a font-load failure leaves active state unchanged. Font faces are cached by descriptor because recorded passes can retain them. Shutdown clears the cache and lets LÖVR release faces through garbage collection.
 
-[Shared rounded geometry](docs/rounded-geometry.md) · [Runtime theme API](../../../docs/dev/lua-api.md#runtime-themes) · [Shipped connections](../../../docs/dev/standard-plugins.md#contracts-and-providers)
+[Shared rounded geometry](docs/rounded-geometry.md) · [Runtime theme API](../../lunette-contracts/panels-and-ui.md#themes) · [Shipped connections](../../../docs/dev/standard-plugins.md#contracts-and-providers)

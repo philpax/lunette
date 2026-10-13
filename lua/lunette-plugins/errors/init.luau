@@ -1,4 +1,4 @@
--- Each activation owns its latest report, limiter, listeners, and native error subscription. A report received during delivery becomes the latest without recursive delivery. See docs/dev/lua-api.md#errors-stream.
+-- Each activation owns its latest report, limiter, listeners, and native error subscription. A report received during delivery becomes the latest without recursive delivery. See lua/lunette-contracts/policy-services.md#errors.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'

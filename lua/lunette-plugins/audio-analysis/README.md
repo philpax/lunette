@@ -1,6 +1,6 @@
 # Audio analysis provider
 
-The provider turns shared PCM readers into sample-time FFT features for independent consumers. It selects no source and depends on no visual plugin.
+The provider turns shared PCM readers into sample-time FFT features for independent consumers. It selects no source and depends on no visual plugin. Keeping analysis separate lets a meter or another consumer use it without a backdrop.
 
 | Provides | Requires |
 | --- | --- |

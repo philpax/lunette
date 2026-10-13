@@ -1,6 +1,6 @@
 # Pacing policy
 
-The provider creates a resource-free pacer. The desktop consumer reads window visibility and applies the recommendation with `window:setFrameRate`. The native callback throttling and minimum rate are specified in [Rendering](../../../../docs/dev/rendering.md#frame-pacing).
+The provider creates a resource-free pacer. The desktop consumer reads window visibility and applies the recommendation with `window:setFrameRate`. The native callback throttling and minimum rate are specified in [Rendering](../../../../docs/dev/rendering.md#frame-pacing-and-scene-skipping).
 
 Visible windows remain unthrottled. Hidden windows use a lower rate unless recent unthrottled commits show activity or a content-type hint marks video or games as exempt. The hint keeps paused video responsive; commit history covers clients that omit it. An empty history does not prove that a new client is idle, but without an exempt hint it does not satisfy the busy test.
 

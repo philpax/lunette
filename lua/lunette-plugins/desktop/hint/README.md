@@ -6,4 +6,4 @@ Draws configured text while the panel registry has no panels. Configure the text
 | --- |
 | `lunette/frame`, `lunette/panels`, and `lunette/theme` |
 
-Any registered panel suppresses the hint, including a hidden panel. Panel lifetime and visibility follow the shared [panels contract](../../../../docs/dev/lua-api.md#panels).
+Any registered panel suppresses the hint, including a hidden panel. Panel lifetime and visibility follow the shared [panels contract](../../../../lua/lunette-contracts/panels-and-ui.md#panels).

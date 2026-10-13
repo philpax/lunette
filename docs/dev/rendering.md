@@ -1,187 +1,69 @@
 # Rendering
 
-## Two ways a panel reaches the eye
+## Presentation paths
 
-In-scene geometry samples the surface texture in `lovr.draw`, on a quad, a cylinder, or any mesh a script draws. It costs no copy and supports custom shaders, depth against the scene, and post-processing. It renders at the projection layer's resolution and through its MSAA, so text is softer than on a layer.
+Scene geometry samples a texture during `lovr.draw`. It shares projection-layer resolution, MSAA, and scene depth. A composition layer is submitted to the XR runtime at its own resolution and can receive its own reprojection. OpenXR uses runtime swapchain images for quad and cylinder layers; OpenVR uses owned images and native overlay handles. A backend operation that cannot be performed is reported rather than approximated with different geometry.
 
-A composition layer is composited by the XR runtime at the layer's own resolution, with its own reprojection, which makes desktop text legible. The client buffer is copied into backend-owned layer backing when it is damaged. OpenXR uses runtime swapchain images and supports quad and cylinder layers with `curve` and viewport sub-rectangles. OpenVR uses owned output images and native overlay handles. An operation a backend cannot perform is reported, not approximated with different geometry.
+The native API provides both paths. Lua decides which path to use and what to render when a layer is unavailable. The panels provider's geometry, child-surface, and chrome policy is specified in [panel rendering](../../lua/lunette-plugins/panels/docs/rendering.md).
 
-The panels provider's `rendering` setting is `'plane'` by default, so windows take part in scene depth. `'layer'` makes window panels claim layers and fall back to the scene when a claim is not granted. Monitor panels always render in the scene. That choice is Lua policy ([Standard plugins](standard-plugins.md#default-configuration)); the native layer supplies only the two mechanisms.
+## Texture import and lifetime
 
-## Popups and subsurfaces
+Client dmabufs are imported as `VkImage`s on LÖVR's device and wrapped as LÖVR textures through `TextureInfo.handle`. Import is zero-copy and cached per buffer, so a client can rotate among its committed buffers without allocating an image for every frame. The negotiated DRM format and modifier determine the import layout; clients may use tiled modifiers, so import does not assume linear memory.
 
-A window's texture contains only its own surface buffer. The native compositor reports popup and subsurface textures and their positions relative to the window ([Compositor](compositor.md#windows)). The panels provider owns child ordering, clipping, depth offsets, and layer fallback; [panel rendering](../../lua/lunette-plugins/panels/docs/rendering.md) specifies that policy. A composition layer is composited over the scene, which constrains how the provider draws children.
+`window:getTexture()` refers to the buffer committed for the current frame and must not be retained across frames. Mirrored monitor capture has separate image tracking because a capture source can reuse a texture for a different underlying image. Supported shared-memory capture frames in 32-bit RGB layouts are copied, normalised, and uploaded on the frame thread. A frame supplied only as a mapped pointer is unsupported because the capture callback provides neither an owned descriptor nor a validated extent.
 
-## Rounded scene geometry
+Monitor consumers apply the reported transform exactly once when deriving sampling coordinates and derive panel proportions from logical geometry rather than transformed buffer dimensions. The panels provider's UV permutations are described in [panel rendering](../../lua/lunette-plugins/panels/docs/rendering.md#monitor-transforms).
 
-[Rounded geometry](../../lua/lunette-plugins/theme/docs/rounded-geometry.md) specifies perimeter construction, clipping, picking, mesh ownership, and theme radii. [Panel rendering](../../lua/lunette-plugins/panels/docs/rendering.md) specifies panel clips, child geometry, and layer behavior. The native pointer stops when its ray leaves the perimeter, and its button release still reaches the sink that received the press. Protocol surfaces keep projecting a captured pointer through cutouts with `inside = false`, so a release there cannot activate a control. A geometry change cancels the affected Lua captures before callbacks run; a palette change preserves captures, drafts, and focus.
+The compositor reports a window's source crop for `wp_viewport`. Consumers use that crop when sampling the buffer. Crop coordinates are computed after the client buffer transform, but consumers do not apply client buffer transforms; a client that combines a transform with a crop can therefore render incorrectly. `window:stabilize()` returns a lunette-owned texture that remains valid across frames. The native implementation copies into it when the surface is damaged, reuses it on subsequent calls, and replaces it after a resize. It returns `false` for a dead window or before the client commits a buffer.
 
-### UI content clips
+## Pixel and colour semantics
 
-[UI rendering](../../lua/lunette-plugins/ui/docs/rendering.md#content-clips) specifies rounded backing, rectangular content clips, and hook clipping obligations. [UI panels](lua-api.md#ui-panels) defines the shared hook boundary.
+Imported client buffers use premultiplied alpha. Consumers preserve that convention when blending; applying alpha a second time darkens translucent pixels. `Xrgb8888`, `Xbgr8888`, and `Xbgr2101010` have padding where Vulkan expects alpha. Those dmabufs are imported through alpha-carrying formats with matching component order, so the padding value can appear as alpha. `window.opaque` identifies this case for the current buffer and consumers treat its alpha as one. Shared-memory repacking sets the padding byte to one, so the opaque flag is needed for dmabuf imports.
 
-### Joined flat frames
+Composition layers are opaque. A Vulkan copy or blit cannot force an alpha component, and the layer path does not run a shader during the copy. The layer path therefore cannot preserve per-pixel client transparency.
 
-[Panel rendering](../../lua/lunette-plugins/panels/docs/rendering.md#joined-flat-frames) specifies joined-frame geometry and drawing policy. [UI rendering](../../lua/lunette-plugins/ui/docs/rendering.md#text-and-titlebars) specifies titlebar passes and fallback. [Joined frame attachments](lua-api.md#joined-frame-attachments) defines the shared attachment contract.
-
-### UI scene depth
-
-[UI rendering](../../lua/lunette-plugins/ui/docs/rendering.md#scene-depth) specifies UI depth writes, painter order, and nesting offsets. Intersecting or nearly coincident UI panels can show draw-order artefacts within those offsets.
-
-## Texture import
-
-Client buffers arrive as dmabufs. The native layer imports each as a `VkImage` on LÖVR's device and wraps it as a LÖVR `Texture` through `TextureInfo.handle`. Import is zero-copy and per buffer. A client cycles among 2 to 4 buffers, and an import cache keyed on the dmabuf, as in WayVR, makes a surface rotate among a stable set of textures with no allocation after warm-up.
-
-Clients choose tiled modifiers. On the NVIDIA proprietary driver, every advertised format offered six block-linear modifiers and `DRM_FORMAT_MOD_LINEAR`, and Alacritty committed `AR24` with a block-linear one, so the import honours the negotiated modifier rather than assuming a linear layout.
-
-A texture from `window:getTexture()` is therefore valid for one frame only. wlroots, KWin, Mutter, and Hyprland also sample client buffers directly.
-
-### Viewport crop
-
-A client can show part of its buffer through `wp_viewport`, and `window:getSourceCrop()` reports which part. The panels provider samples only that rectangle: a cropped window draws on a mesh whose texture coordinates span the crop, rebuilt when the crop changes, and an uncropped flat window keeps the plain quad. A layer is claimed at the texture's size, because the copy into the layer is one texel to one pixel, and the layer's viewport is set to the crop in texture pixels. A window whose texture is larger than its committed size, as with a fractional-scale client, therefore fills its layer rather than having its copy cut short. The crop is computed after the buffer's transform, and no consumer applies a client's buffer transform when drawing, so a client that both transforms and crops its buffer shows the wrong region.
-
-### `window:stabilize()`
-
-`window:stabilize()` returns a lunette-owned texture that persists across frames, for shader chains, screenshots, cached mesh bindings, or freezing a window. It copies the client buffer through `lovrTextureCopy`, the call layer blits use, on each damaged frame. A second call returns the same texture. A resize releases the copy, and the next call allocates one of the new size. It returns `false` on a dead handle and before the client commits a buffer.
-
-### Alpha
-
-An imported buffer holds premultiplied alpha. A client configured with an opacity of 0.8 read back with every colour channel scaled by exactly 0.8 and an alpha of 0.8, a linear factor that rules out a gamma or sRGB misreading. A consumer draws with `pass:setBlendMode('alpha', 'premultiplied')`. LÖVR's default alpha mode multiplies by alpha a second time and darkens translucent clients.
-
-`Xrgb8888`, `Xbgr8888`, and `Xbgr2101010` have a padding byte where alpha would be. Vulkan has no such format, so they import as the alpha-carrying format with the same component order, and the padding byte, usually zero, reads as alpha. `window.opaque` is true for such a buffer, and the consumer forces alpha to one. It is a property of the current buffer, so a consumer reads it each frame. The shared-memory path sets the padding byte to one when it repacks, so `window.opaque` is only ever true for a dmabuf. The panels provider implements both cases in `lua/lunette-plugins/panels/init.luau` (`OPAQUE_FRAGMENT`, `ALPHA_FRAGMENT`, and `contentShader`), creating the shaders on first use because the graphics module does not exist while a configuration loads.
-
-Panel layers are opaque. A layer copy is a Vulkan copy or blit, which cannot force a component, and no shader runs on that path. `LovrLayers::create` clears `transparent` on every layer, so OpenXR receives no `XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT` and OpenVR uses its opaque convention. A window that needs translucency renders in the scene.
-
-### Colour transfer
-
-Imported desktop textures keep their encoded SDR sRGB values and use non-sRGB views. Layer copies keep those values unchanged. Scene rendering decodes them with LÖVR's `gammaToLinear` before linear blending. Translucent pixels are unpremultiplied, decoded, and premultiplied again in linear space; zero-alpha pixels give zero colour. The panels provider restores shader, material, blend mode, colour, and transform after drawing. A custom source renderer carries the same conversion obligation.
-
-### Forced conversion
-
-Multi-planar YUV buffers, from hardware video decoding and some PipeWire formats, need `VkSamplerYcbcrConversion`, which LÖVR lacks. They are converted to an RGBA texture. Lua sees no difference.
+Imported desktop textures retain encoded SDR sRGB values through non-sRGB views and layer copies. Scene consumers decode before linear blending. For translucent pixels they unpremultiply, decode, and premultiply again in linear space; zero-alpha pixels produce zero colour. Custom source renderers carry the same conversion obligation. Multi-planar YUV formats require sampler YCbCr conversion, which LÖVR does not provide, so those buffers are converted to RGBA.
 
 ## Synchronisation
 
-Client-to-compositor synchronisation is implicit, as in WayVR. There is no `linux-drm-syncobj-v1` support. Explicit sync needs external semaphore import in LÖVR ([LÖVR integration](lovr-integration.md#possibly-later)).
+Client-to-compositor synchronisation is implicit. `linux-drm-syncobj-v1` is not supported; explicit synchronisation requires external semaphore import in LÖVR, as noted in [LÖVR integration](lovr-integration.md#possibly-later).
 
-The compositor thread submits no GPU work; it only creates images. Every copy, including layer blits, stabilised copies, and conversions, is recorded in LÖVR's command stream on the main thread.
+The compositor thread creates imported images but submits no GPU work. Copies, layer blits, stabilised copies, and format conversions are recorded in LÖVR's command stream on the main thread. Imported images are acquired from `VK_IMAGE_LAYOUT_GENERAL` with `VK_QUEUE_FAMILY_FOREIGN_EXT` by default. `TextureInfo.foreign` carries the external-ownership information into LÖVR.
 
-The OpenVR backend submits rendering and a transfer-source barrier before calling the runtime under the shared graphics queue guard, then submits a restoration barrier. Normal frames perform no device-wide wait. Retiring an overlay waits for quiescence, destroys the runtime handle, invalidates the backing, and drains deferred destruction; a failed runtime destruction keeps the backing for a retry.
+The OpenVR backend submits rendering and a transfer-source barrier before calling the runtime under the shared graphics-queue guard, then restores the image state. Normal frames do not wait for the whole device. Overlay retirement waits for quiescence before destroying the runtime handle and invalidating its backing; a failed runtime destruction retains the backing for retry.
 
-## The layer pool
+## Layer allocation
 
-`lovr.headset.setLayers` sets a persistent, last-call-wins list, bounded by `MAX_LAYERS` and the runtime. Because the list persists, an undamaged layer needs no new work from lunette. OpenXR re-composites the last released swapchain image. OpenVR keeps the visible overlay texture, but a mutable layer still copies its backing into the output image and hands it off on every submission; only immutable OpenVR layers reuse their output.
+`lovr.headset.setLayers` sets a persistent, last-call-wins list bounded by LÖVR's `MAX_LAYERS` and the runtime. OpenXR re-composites the last released swapchain image for an unchanged layer. OpenVR retains the visible overlay image, but mutable layers still copy their backing into the output image and hand it off on each submission.
 
-Layers are expensive to create: an OpenXR layer allocates a swapchain synchronously, and an OpenVR layer allocates backing and overlay handles. Rust owns a pool that recycles whole `Layer` objects keyed on their size, the width and height `LayerInfo` fixes at creation. The other `LayerInfo` fields are the same for every layer: each is created mono, mutable, opaque, and filtered. No source produces stereo content, and a pooled layer is reused, so it cannot be immutable. A released 1920x1080 layer goes to the next 1920x1080 claimant with no allocation. Pose, size in metres, curve, colour, viewport, and origin all have setters and are not part of the key. Format is not part of the key, because LÖVR creates every OpenXR layer swapchain as `VK_FORMAT_R8G8B8A8_SRGB`.
+Native Rust code owns the layer pool. Layer creation can allocate an OpenXR swapchain synchronously or allocate OpenVR backing and overlay handles, so the pool recycles complete layer objects. Width and height are fixed at creation and form the pool key; other layer properties have setters. Requests round up to discrete size steps before pooling. Pooled layers are mono, mutable, opaque, and filtered.
 
-Requested sizes are rounded up to a ladder of discrete steps before keying, so a panel resized by a drag settles on sizes the free list already holds. The same ladder supplies the fractional scale steps (`lunette.scaleSteps()`).
+Lua supplies a numeric priority for each claim. The priority remains fixed for the claim's lifetime; native code grants the highest-priority claims within the available budget and adds no ranking policy. `granted` and `layer` report the result at the latest frame boundary. Native code updates the persistent layer list once per frame. Revocation also occurs at a frame boundary, so a layer is not invalidated during `lovr.draw`; a caller handles an unavailable claim in Lua.
 
-The division between Rust and Lua:
+The OpenXR claim budget is limited by the runtime's `XrSystemGraphicsProperties::maxLayerCount`, a local ceiling of 12, and one quarter of the reported runtime limit. The runtime limit is shared with the primary application when `XR_EXTX_overlay` is in use. OpenVR caps created panels at 62, reserving two overlays for the projection eyes; omitted panels and panels awaiting cleanup count toward this local cap. The OpenVR limit is not an SDK guarantee.
 
-- A claim carries a priority number from Lua, fixed for the claim's life. A caller whose ranking changes releases the claim and claims again, as the panels provider does. Rust sorts by the number and grants the top claims within the budget; it adds no ranking of its own.
-- A claim's `granted` and `layer` report the outcome of the latest frame boundary, and the panels provider reads them every frame: it draws in the scene while its claim holds no layer and onto the layer while it holds one. When a layer frees, the highest-priority ungranted claim receives it at the next frame boundary.
-- A granted claim exposes a real LÖVR `Layer`, which becomes invalid on revocation.
-- Rust makes one `setLayers` call per frame from the granted claims. A script that does not use claims can call `lovr.headset.setLayers` itself.
-- Revocation happens at frame boundaries, so Lua never holds a dead `Layer` inside `lovr.draw`.
-- A claim whose surface has not committed since its last copy is not copied again.
+A missing or changed session revokes grants and releases stale pooled layers. Session generation, rather than session presence alone, detects a stop and start between frame boundaries. The pool reads the limit again when a session is present. A live session with no usable budget grants no claims and makes no layer-creation attempts; refusal reporting is once per claim per session. An absent session does not produce a zero-budget warning.
 
-The OpenXR budget stays below `XrSystemGraphicsProperties::maxLayerCount`, because `XR_EXTX_overlay` shares the runtime's capacity with a primary application whose layer count is unknown. OpenVR caps created panels at 62 and reserves two overlays for the projection eyes; omitted panels and panels awaiting cleanup count. That cap is local accounting, not an SDK guarantee.
+Surface copies use installed-buffer identity as well as damage. The compositor's buffer-commit handler consumes the buffer needed for import, so the layer path records a session-wide commit stamp when each texture is installed and copies when that stamp changes. This detects a newly committed buffer even when the damage counter does not change. Monitor capture uses a separate ledger keyed by monitor identity and records the image behind a reused capture texture.
 
-A live session whose reported limit leaves no budget grants no claims and attempts no layer creation. The pool logs the reported limit, size, and claim id once per claim in that session. A failed allocation uses the same once-per-claim refusal state. Session loss resets that state, and an absent session produces no zero-budget warning. `LayerBudget::from_runtime_limit` and `LayerPool::resolve` in `crates/lunette/src/layers/pool.rs` define the budget and reporting.
+## Frame pacing and scene skipping
 
-## Frame pacing
+Wayland clients render after lunette answers their `wl_surface.frame` callbacks. Native mechanisms include per-window frame-callback throttling through `window:setFrameRate(hz)`, advertised output refresh, damage-driven layer copies, and skipping lunette's scene rendering. The native frame-rate floor is 1 Hz. A client that receives no frame callbacks may also stop processing input. The `wp_content_type_v1` hint is exposed as `win.contentType`. The pacing provider's policy is described in [pacing policy](../../lua/lunette-plugins/pacing/docs/pacing-policy.md).
 
-A Wayland client draws only after the compositor answers its `wl_surface.frame` callback, so lunette controls when every client renders. The native mechanisms are:
-
-- Per-window frame-callback throttling, `window:setFrameRate(hz)`.
-- Per-output advertised refresh, which clients use for their own pacing ([Compositor](compositor.md#outputs)).
-- Damage-driven layer copies.
-- Skipping lunette's scene when nothing needs drawing.
-
-The native layer enforces a floor of 1 Hz: a lower rate is paced at 1 Hz. A client that receives no frame callbacks often stops processing input as well. The content type from `wp_content_type_v1` is reported as `win.contentType`.
-
-Policy is Lua. The pacing provider, `@lunette-plugins/pacing`, applied by the `desktop/pacing` entry, sets each panel's rate from whether it is hidden, and exempts video, detected from the content-type hint or from a commit rate close to full. The hint covers a paused video; the commit rate covers a player that sets no hint. [Frame pacing and output scale](lua-api.md#frame-pacing-and-output-scale) states the policy.
-
-lunette submits an XR frame every cycle, as an overlay must. The saving is in lunette's own scene rendering.
-
-### Skipping the scene
-
-`lunette.setSceneEnabled(false)` skips the scene ([Lua API](lua-api.md#scene-rendering)). OpenXR acquires the colour swapchain inside `lovr.headset.getPass` and `lovr.headset.getTexture`, so a frame that calls neither skips the acquire, the wait, the render pass, and the resolve. `etc/boot.lua` calls `getPass` every frame and `lovr.mirror` calls `getTexture`. lunette keeps LÖVR's `lovr.run` ([LÖVR integration](lovr-integration.md#boot)) and wraps those two functions (`crates/lunette/src/scene.rs`) so each returns nothing while the scene is skipped; `boot.lua` then finds no pass and does not call `lovr.draw`. `setLayers{ main = false }` on its own saves little, because on OpenXR it only omits the already-rendered projection layer. On OpenVR it hides the two projection overlays.
-
-A skipped frame still paces the runtime and updates predicted tracking. On OpenXR it makes the three frame calls and submits a quad layer per flat panel. On OpenVR it performs the overlay wait and snapshot update, hides omitted overlays, and still copies and hands off each mutable panel's backing. When there is no pass and no window, lunette submits LÖVR's command stream itself, because `boot.lua` submits only alongside a pass.
+lunette continues submitting an XR frame each cycle so the runtime can pace and update predicted tracking. `lunette.setSceneEnabled(false)` skips scene rendering. On OpenXR, the wrapped `lovr.headset.getPass` and `lovr.headset.getTexture` return no projection resources, avoiding colour-swapchain acquisition, waiting, rendering, and resolve. Composition layers still submit. Setting `main = false` in `lovr.headset.setLayers` alone does not skip that scene work; it omits the already-rendered projection layer. On OpenVR, skipped frames still perform the overlay wait and snapshot update, hide omitted projection overlays, and submit mutable panel backings. When a frame has no pass and no window, lunette submits LÖVR's command stream so layer work is not left unsubmitted.
 
 ## Decisions
 
-Zero-copy import is the default, and stable per-surface textures are opt-in through `window:stabilize()`. A persistent texture per surface would cost a full copy per damaged frame (about 3 GB/s for a 4K mirror at 90 Hz) and would make the layer path two copies instead of one.
+Imported buffers remain zero-copy by default. A persistent copy is available through `window:stabilize()` for consumers that need a texture to survive buffer rotation; making every surface persistent would add a full-resolution copy on each damaged frame and another copy for layer presentation.
 
-Rust owns the layer pool and Lua supplies the priority. Allocation needs one owner and a recycling policy; ranking is application knowledge. A pool in Lua was rejected because direct creation churned layers.
+Native code owns allocation and recycling, while Lua owns claim priority. A Lua-owned pool would duplicate runtime allocation and recycling, while native code has no application knowledge for ranking claims.
 
-An opaque dmabuf's alpha is forced by the consumer, not at import. A `wl_shm` buffer is repacked on import, so its padding byte is fixed during the copy; a dmabuf is imported without a copy, so nothing writes to it. A `VkComponentMapping` on the image view would solve it structurally, but LÖVR creates the view from `TextureInfo`, and adding a swizzle field is a fork patch not yet justified. It becomes the right fix if a second consumer has to repeat the shader.
-
-Composition layers are opaque rather than transparent per claim. A view swizzle does not reach a copy, and a copy cannot force a component, so the layer's blend flag is the only place to discard padding alpha. A per-claim transparency flag was rejected because the key is fixed at claim time while a client's format can change afterwards. The cost is that a translucent client holding a layer is composited opaque.
-
-The layer path counts its own buffer installs rather than using smithay's `RendererSurfaceState`. `on_commit_buffer_handler` takes the buffer that the compositor's `commit` handler needs for import, and reading it back from smithay would move buffer release to smithay while lunette already releases it. `TextureLedger` stamps each installed texture with a session-wide `SurfaceCommit`, and the blit path copies when the stamp differs from the last copied one. This also catches a new buffer committed with no damage, which smithay's damage counter misses.
-
-A mirrored monitor has its own texture ledger keyed by monitor identity. A surface needs a death flag, damage, a stabilised copy, and retirement scheduling; a monitor needs none of them but must record the image behind each texture, because the importer answers a recycled PipeWire buffer with an existing image.
-
-The imported-image acquire uses `VK_QUEUE_FAMILY_FOREIGN_EXT` from `VK_IMAGE_LAYOUT_GENERAL` by default. The specification describes the foreign family for a producer outside Vulkan, and `VK_EXT_queue_family_foreign` is enabled for it. WayVR uses `VK_QUEUE_FAMILY_IGNORED` on Mesa, and on the NVIDIA proprietary driver both families gave the same content census from `GENERAL`: five distinct colours, with the background at 98.5 per cent of the samples. Two drivers tolerating `IGNORED` do not show that it is correct, and the run had no validation layer to tell a correct barrier from a tolerated one, so the default stays on the conformant value. `TextureInfo.foreign` stays for the same reason. That driver kept an imported image's contents across a per-frame acquire from `UNDEFINED`, but the specification permits the discard, and a Mesa driver that performs it would not be caught on that machine. `LUNETTE_IMPORT_QUEUE_FAMILY` and `LUNETTE_IMPORT_LAYOUT` select the alternatives ([Build and development](build-and-development.md#the-development-loop)).
-
-The two measurements taken with the `UNDEFINED` old layout, one per queue family, are invalid. The release barrier then passed `UNDEFINED` as its `newLayout`, which `VUID-VkImageMemoryBarrier2-newLayout-01198` forbids, so they describe a driver tolerating a violation rather than an indifferent queue family. The release now returns the image in `VK_IMAGE_LAYOUT_GENERAL` whatever the switch says. Until the two are repeated on a GPU with a client, the `UNDEFINED` half of the queue-family comparison and of the discard question is unmeasured. The default rests only on the `GENERAL` measurements, so nothing depends on the repeat. Issue #25 tracks it.
-
-`LayerBudget::CEILING` caps the layer budget at 12 slots, below which the budget is a quarter of the runtime's reported limit. Monado with a real compositor reports `XRT_MAX_LAYERS`, 128 on Linux, so a quarter is 32 and the ceiling binds. Twelve layers, more than LÖVR's former `MAX_LAYERS` of 10, were drawn and submitted for 60 frames against that limit with no OpenXR error. With a Bigscreen Beyond under Monado, an 800x600 window took the 832x640 rung, the first grant arrived two frames after the claim with no stall in `lovrLayerCreate`, and a release followed by a claim of the same size was granted from the free list in one frame. Monado's null compositor is not a zero-layer runtime. At revision `1c5fbbdadcccacd947abb1b6089c7303ab3c3bce`, a run with `XRT_COMPOSITOR_NULL=1`, `SIMULATED_ENABLE=1`, a private `XDG_RUNTIME_DIR`, and an explicit `XR_RUNTIME_JSON` reported a Monado driver, session generation 1, and a layer limit of 128. Its [null compositor](https://gitlab.freedesktop.org/monado/monado/-/blob/1c5fbbdadcccacd947abb1b6089c7303ab3c3bce/src/xrt/compositor/null/null_compositor.c) advertises `XRT_MAX_LAYERS`. It cannot verify a runtime-reported zero limit.
-
-A fault-injection run against that live session forced `lovrHeadsetGetLayerLimit` to return zero through a debugger. Three claims requesting 800x600 for a mapped Wayland window, followed by one replacement claim at frame 120, stayed ungranted for 240 frame boundaries. A breakpoint on `lovrLayerCreate` recorded no calls, and the pool logged four zero-budget warnings, one per claim. The run exited successfully. Layer-pool tests cover zero allocation attempts, limits below one budget slot, an absent session, recovery to a positive budget, and reporting after session replacement. The regression tests and live-session fault injection provide sufficient coverage for issue #3. A runtime that natively reports zero remains unobserved; the injected limit does not establish that runtime behaviour.
-
-A composition layer is not required to be visibly sharper than a scene quad. A 1600x1200 client on its 1664x1280 rung, shown 0.6 m wide at 0.8 m and facing the viewer, was alternated every five seconds with a scene quad at the same pose and size. The panel subtended about 41 degrees at about 40 display pixels per degree, close to 1:1, and the observer could not tell the two apart. One well-filtered resample of a stationary, axis-aligned, roughly 1:1 image costs little. A layer is expected to win at oblique angles, under minification at a distance, and under reprojection when the session's frame rate diverges from the runtime's, and that comparison covered none of them. The layer pool rests on the scene skip instead: with three panels on layers and an empty `lovr.draw`, skipping the scene cut CPU time per frame from 0.312 ms to 0.153 ms on a debug build, at the same frame count, because the display paces both. Issue #23 tracks the same measurement under the shipped configuration, whose scene draws chrome.
-
-A panel on a layer cannot be seen from behind, because a quad composition layer is single-sided, while the same panel on a scene quad can. The panels provider chooses when a panel holds a layer, so a grant landing makes a panel that was readable from behind disappear. The scene quad is the fallback rather than a degraded mode, and this is the one visible difference between the two paths that the fallback does not account for.
-
-### Child surfaces are drawn by Lua
-
-[Panel rendering](../../lua/lunette-plugins/panels/docs/rendering.md#decisions) records why the panels provider draws child surfaces in Lua rather than compositing each surface tree into one texture per window. The native compositor reports child textures and placement; Lua owns their rendering policy.
-
-### Rejected: keying the pool on swapchains
-
-The pool recycles whole `Layer` objects. LÖVR offers no way to separate a layer from its swapchain: `struct Layer` embeds its `Swapchain` by value, `lovrLayerDestroy` destroys it inline, and nothing sets the swapchain a layer's `subImage` names. Separating them would mean refcounting `Swapchain` and rewriting `subImage` on both the quad and cylinder records, a behavioural patch the fork rules forbid. Keeping the whole layer meets the same goal, because everything a panel varies has a setter.
-
-### Imported images are abandoned at a restart, not destroyed
-
-A restart destroys the `VkDevice` every imported image belongs to. lunette forgets the images rather than destroying them. LÖVR retires an imported texture's view through its morgue, which only `gpu_destroy` empties, and destroying an image that still has a view is invalid. Forgetting ensures no old handle outlives its device.
-
-This violates `VUID-vkDestroyDevice-device-05137`: the validation layers report one image and one device memory object per abandoned image on every restart. That output is expected. A restart with two clients connected, under the Khronos validation layer against a live session, reported only that message, and both clients re-imported. Flushing the morgue first was rejected: `FrameDriver::quiesce` runs after the boot coroutine has finished, so no further LÖVR tick is available, and the morgue is emptied inside `lovrGraphicsSubmit`, outside lunette's FFI surface. Destroying the images and leaving views over freed memory would be a use-after-free.
-
-### A lost session is observed by the pool, and by identity
-
-A restart is a teardown lunette performs: `FrameDriver::quiesce` shuts the pool down while the session exists, then forgets the claims. A session lost under a live Lua state, such as `lovr.headset.stop()` followed by `start()`, is one lunette observes. The native backend retires every registered layer before destroying the session, so a retained layer holds only a CPU wrapper.
-
-`LayerPool::resolve` reads `LayerBackend::session` at every frame boundary. A missing or different session runs `session_lost`: stale layers are released, every grant is revoked so Lua falls back to the scene, and nothing is granted until a session is present at a boundary, where the budget is read again. The session is identified by `lovrHeadsetGetSessionGeneration` rather than by presence, because a stop and start within one callback leaves a session present at both boundaries while every swapchain died between them. The layer limit is not a signal either, because it belongs to the system, which survives a stopped session.
-
-### Rounded meshes and conservative clips
-
-[Rounded geometry](../../lua/lunette-plugins/theme/docs/rounded-geometry.md#decisions) records why the providers use clipped meshes and rectangular content clips instead of stencil or offscreen passes, and why controls keep rectangular hit targets.
-
-### Joining follows the actual rendering path
-
-[Panel rendering](../../lua/lunette-plugins/panels/docs/rendering.md#decisions) records why the target owns joining and the single outline, why granted layers stay rectangular, and why curved bodies keep separate titlebars.
-
-### Native drag policy stays unchanged
-
-Native pointer motion stops on a perimeter miss, and the release still reaches the original sink. Extending motion through cutouts would add capture projection and change application drag behaviour. Protocol surfaces already project captures with an explicit outside state.
+Opaque dmabuf alpha is normalised by consumers because import does not copy or modify the image. A view swizzle would require a new LÖVR texture-import field. Layers remain opaque because a copy cannot force alpha and the client format can change during a claim.
 
 ## Known gaps
 
-[Panel rendering known gaps](../../lua/lunette-plugins/panels/docs/rendering.md#known-gaps) records popup clipping, windows that always show a subsurface, and unapplied client buffer transforms.
+Buffer transforms are not applied by consumers, so transformed content and transformed crops can be wrong. Multi-planar YUV requires an RGBA conversion. Shared-memory capture does not support pointer-only frames.
 
-The OpenVR backend does not detect unchanged mutable layer content, so an idle native panel still costs an internal copy and handoff each frame.
+Implicit synchronisation has not been tested under contention from a heavy GPU client. OpenVR does not detect unchanged mutable layer content, so it still copies and hands off those backings each submitted frame. OpenVR presents native overlays and two projection-eye overlays without `IVRCompositor::Submit` frames or occlusion against a game's depth.
 
-OpenVR presentation uses native panels and two per-eye projection overlays. It submits no `IVRCompositor::Submit` frames and has no occlusion against a game's depth. On hardware, native overlays appear at their intended positions, scene content registers with native panels under head motion ([LÖVR integration](lovr-integration.md#decisions) records the projection convention), and the wrist UI appears on Steam Frame controllers.
-
-Geometry and draw recorders do not establish rasterization, MSAA edges, alpha blending, stereo seams, or cutout depth on a GPU.
-
-[LÖVR integration](lovr-integration.md#shader-pipeline-cache-lifetimes) owns pipeline-cache lifetimes, the upstream defect rationale, and the native regression inventory. The strict ten-reacquisition and clone-specialization pixel tests passed in 20 repeated lavapipe runs. These checks establish lifetime and selected pixel properties, not a total pipeline-memory or driver-cache budget.
-
-Captured dmabufs use the client importer. Shared-memory capture frames in the supported 32-bit RGB layouts are copied, normalised, and uploaded on the frame thread. Frames that supply only a mapped pointer are unsupported, because the pinned callback provides no owned descriptor or validated extent.
-
-Multi-planar YUV costs a conversion.
-
-Synchronisation is implicit only. A client repainting every 100 ms tracked continuously across 24 samples, but no test samples a heavy GPU client under contention, which is the race implicit sync exists to prevent.
+Imported images are forgotten during device restart rather than explicitly destroyed because LÖVR can still hold their texture views for deferred destruction. The validation-layer consequence and restart observation are recorded in [rendering validation](rendering-validation.md). Driver, layer-budget, and scene-versus-layer observations are also recorded there; LÖVR pipeline-cache validation remains in [LÖVR integration](lovr-integration.md#shader-pipeline-cache-lifetimes).

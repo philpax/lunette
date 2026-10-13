@@ -1,5 +1,5 @@
 -- Each activation owns its hand registry. Owner effects release pointers and owned seats.
--- See docs/dev/lua-api.md#lasers for the options and hooks.
+-- See lua/lunette-plugins/laser/README.md for the options and hooks.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'

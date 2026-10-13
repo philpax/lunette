@@ -6,4 +6,4 @@ The chooser applies hysteresis to limit expensive toolkit relayouts near a rung 
 
 On unload, the consumer restores an output's original scale only if the output still has the last value this consumer set. This preserves changes made by another plugin. Dead outputs are discarded.
 
-[Scale contract](../../../lunette-contracts/scale.luau) · [Native scale ladder](../../../../docs/dev/rendering.md#the-layer-pool)
+[Scale contract](../../../lunette-contracts/scale.luau) · [Native scale ladder](../../../../docs/dev/rendering.md#layer-allocation)

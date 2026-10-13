@@ -6,4 +6,4 @@ Displays the latest shared error report on a panel. Configure its [position, wid
 | --- |
 | `lunette/errors`, `lunette/frame`, and `lunette/theme` |
 
-Error capture and delivery follow the shared [errors contract](../../../../docs/dev/lua-api.md#errors-stream).
+Error capture and delivery follow the shared [errors contract](../../../../lua/lunette-contracts/policy-services.md#errors).

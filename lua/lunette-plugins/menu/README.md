@@ -4,4 +4,4 @@ The menu provider stores owner-scoped actions and invokes callbacks. It renders 
 
 Plugins register actions through [`lunette/menu`](../../lunette-contracts/menu.luau). Listing reads explicit enabled and selected state and does not run action code. Consumers update that state through the broker.
 
-[Shared broker guarantees](../../../docs/dev/lua-api.md#bindings-menu-actions-and-layouts)
+[Shared broker guarantees](../../../lua/lunette-contracts/policy-services.md#brokers)

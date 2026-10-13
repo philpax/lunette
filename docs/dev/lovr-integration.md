@@ -109,11 +109,11 @@ LÖVR enables `VK_KHR_external_memory`, `VK_KHR_external_memory_fd`, `VK_EXT_ext
 
 #### Expose the runtime's composition layer limit
 
-`lovrHeadsetGetLayerLimit` and `lovr.headset.getLayerLimit` report `XrSystemGraphicsProperties::maxLayerCount`, or zero before a system exists. Monado does not return `XR_ERROR_LAYER_LIMIT_EXCEEDED` and writes past a fixed array instead, and under `XR_EXTX_overlay` that array is shared with the primary application, so lunette budgets well below the limit ([Rendering](rendering.md#the-layer-pool)).
+`lovrHeadsetGetLayerLimit` and `lovr.headset.getLayerLimit` report `XrSystemGraphicsProperties::maxLayerCount`, or zero before a system exists. Monado does not return `XR_ERROR_LAYER_LIMIT_EXCEEDED` and writes past a fixed array instead, and under `XR_EXTX_overlay` that array is shared with the primary application, so lunette budgets well below the limit ([Rendering](rendering.md#layer-allocation)).
 
 #### Expose which session is running
 
-`lovrHeadsetGetSessionGeneration` and `lovr.headset.getSessionGeneration` report a counter incremented on each successful session creation, or zero without a session. It lives outside the headset state that `lovrHeadsetDestroy` zeroes. `lovrHeadsetIsActive` cannot distinguish a session from its replacement after `stop` and `start` in one callback; the layer pool uses the generation for that ([Rendering](rendering.md#a-lost-session-is-observed-by-the-pool-and-by-identity)).
+`lovrHeadsetGetSessionGeneration` and `lovr.headset.getSessionGeneration` report a counter incremented on each successful session creation, or zero without a session. It lives outside the headset state that `lovrHeadsetDestroy` zeroes. `lovrHeadsetIsActive` cannot distinguish a session from its replacement after `stop` and `start` in one callback; the layer pool uses the generation for that ([Rendering](rendering.md#layer-allocation)).
 
 #### Report whether a main session is visible
 
@@ -179,7 +179,7 @@ LÖVR offers `LOVR_BUILD_EXE` and `LOVR_BUILD_SHARED` but no static target. A st
 
 ## Boot
 
-lunette keeps LÖVR's `lovr.run`, so `lovr.update` and `lovr.draw` behave as LÖVR documents. The loop cannot skip scene rendering, because it calls `lovr.headset.getPass` before anything decides whether to draw; lunette wraps `getPass` and `getTexture` where `package.preload` registers the headset module ([Rendering](rendering.md#skipping-the-scene)). The wrapper is a Lua closure, so Rust holds no reference into a state that a reload discards.
+lunette keeps LÖVR's `lovr.run`, so `lovr.update` and `lovr.draw` behave as LÖVR documents. The loop cannot skip scene rendering, because it calls `lovr.headset.getPass` before anything decides whether to draw; lunette wraps `getPass` and `getTexture` where `package.preload` registers the headset module ([Rendering](rendering.md#frame-pacing-and-scene-skipping)). The wrapper is a Lua closure, so Rust holds no reference into a state that a reload discards.
 
 Each frame:
 

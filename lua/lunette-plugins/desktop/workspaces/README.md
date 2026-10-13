@@ -8,4 +8,4 @@ Shows one configured workspace at a time by hiding panels in other workspace tag
 
 A placed window without a configured workspace tag joins the selected workspace, so it remains visible even when adoption assigns no tags. This makes the default workspace assignment independent of how adoption is configured.
 
-The consumer only hides panels in unselected workspaces; withdrawing its visibility override does not reveal panels hidden by another plugin. Menu actions are optional so a menu outage does not change workspace visibility or selection. See [Workspaces](../../../../docs/guide/desktop-configuration.md#workspaces).
+The consumer only hides panels in unselected workspaces; withdrawing its visibility override does not reveal panels hidden by another plugin. Menu actions are optional so a menu outage does not change workspace visibility or selection. See [Workspaces](../../../../docs/guide/desktop-configuration.md#windows-monitors-and-workspaces).

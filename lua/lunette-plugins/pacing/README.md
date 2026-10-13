@@ -6,4 +6,4 @@ The pacing provider recommends per-window frame rates. The desktop consumer appl
 | --- | --- |
 | `lunette/pacing` | `lunette/frame`, `lunette/panels`, `lunette/pacing` |
 
-[Provider options](config.luau) · [Consumer options](../desktop/pacing/config.luau) · [Native pacing](../../../docs/dev/rendering.md#frame-pacing) · [Policy](docs/pacing-policy.md)
+[Provider options](config.luau) · [Consumer options](../desktop/pacing/config.luau) · [Native pacing](../../../docs/dev/rendering.md#frame-pacing-and-scene-skipping) · [Policy](docs/pacing-policy.md)

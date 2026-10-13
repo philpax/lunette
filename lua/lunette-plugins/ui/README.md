@@ -6,4 +6,4 @@ The UI provider supplies flat VR panels, controls, and shared titlebars. Consume
 | --- | --- |
 | [`lunette/ui`](../../lunette-contracts/ui.luau) | `lunette/focus`, `lunette/surfaces`, `lunette/theme`, `lunette/frame` |
 
-The surfaces service receives panel offers from their owners; the theme service supplies inherited appearance and fonts. [Options](config.luau) · [Contract-only example](../../../docs/guide/ui.md) · [Rendering behavior](docs/rendering.md) · [UI API](../../../docs/dev/lua-api.md#ui-panels)
+The surfaces service receives panel offers from their owners; the theme service supplies inherited appearance and fonts. [Options](config.luau) · [Contract-only example](../../../docs/guide/ui.md) · [Rendering behavior](docs/rendering.md) · [UI API](../../lunette-contracts/panels-and-ui.md#ui-geometry)

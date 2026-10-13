@@ -18,7 +18,7 @@ A draw hook wraps the default renderer and receives the same visual geometry. Ea
 
 The default choice header displays its label and selected value, with a chevron that indicates whether it is open. LÖVR's default font lacks arrow glyphs, so the chevron uses strokes. Logical coordinates are y-down while glyphs are y-up; the default renderer rotates text, and custom hooks that draw text must do the same.
 
-A titlebar draws its face, text, and actions in a pass supplied by its owner. Joined-frame geometry is specified in [panel rendering](../../panels/docs/rendering.md#joined-flat-frames); attachment eligibility is defined in [the Lua API](../../../../docs/dev/lua-api.md#joined-frame-attachments).
+A titlebar draws its face, text, and actions in a pass supplied by its owner. Joined-frame geometry is specified in [panel rendering](../../panels/docs/rendering.md#joined-flat-frames); the [shared panels and UI contract](../../../lunette-contracts/panels-and-ui.md) defines attachment eligibility.
 
 ## Decisions
 

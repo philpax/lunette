@@ -8,4 +8,4 @@ Provides a VR panel for inspecting and managing the active plugin composition. T
 
 The panel starts hidden. While visible, it refreshes its runtime snapshot at the configured interval instead of every frame; hidden panels do not refresh. This avoids repeating inspection work faster than the panel can display updates.
 
-[Options](config.luau) · [Composition contract](../../../../docs/dev/lua-api.md#composition).
+[Options](config.luau) · [Composition contract](../../../../lua/lunette-plugin/configuration-and-composition.md#compose-entries-and-patches).

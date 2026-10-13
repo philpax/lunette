@@ -1,6 +1,6 @@
 # Aim and drag feedback
 
-The adaptive filter smooths the ray used for picking, pointer coordinates, and drawing. It does not filter the controller pose, buttons, trigger, grip, or scroll, so smoothing aim does not alter grab movement or input timing.
+The adaptive [1 Euro filter](https://gery.casiez.net/1euro/) smooths the ray before picking, with separate speed gains for position and direction. Picking, pointer coordinates, and drawing use that one ray; filtering in each widget would risk disagreement between drawn and dispatched coordinates. Controller pose, buttons, trigger, grip, and scroll remain raw so smoothing does not delay manipulation or clicks.
 
 Trigger lock holds the prior ray when an analog trigger is pulled over a live offered surface. It requires a previous sample so an initial pull cannot invent a stable hit. Movement past either unlock bound releases the lock for the rest of the pull. The release frame retains the locked position so it cannot move a click onto a neighboring surface.
 

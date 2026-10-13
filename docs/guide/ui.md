@@ -44,7 +44,7 @@ Each pointer button captures the control it pressed until release or cancellatio
 
 The bar sits above the panel and follows its pose, size, and visibility. Trigger on the bar outside its buttons moves the panel, and grip anywhere on a movable panel moves it. The provider's `titlebarStyle` option styles every bar, and a titlebar's `style` overrides individual fields.
 
-`Service:newTitlebar(owner, { name, target, visible?, ...options })` attaches the same titlebar to another surface, such as a native window. `visible` is a predicate that hides the titlebar while it returns false. The returned handle has `update`, `sync`, `draw`, and `destroy`, and the consumer draws it. A flat target joins its body and titlebar into one outline when it implements `attachFrame`; [Joined frame attachments](../dev/lua-api.md#joined-frame-attachments) specifies the method.
+`Service:newTitlebar(owner, { name, target, visible?, ...options })` attaches the same titlebar to another surface, such as a native window. `visible` is a predicate that hides the titlebar while it returns false. The returned handle has `update`, `sync`, `draw`, and `destroy`, and the consumer draws it. A flat target joins its body and titlebar into one outline when it implements `attachFrame`; [Joined frame attachments](../../lua/lunette-contracts/panels-and-ui.md#joined-frames) specifies the method.
 
 ## Text fields
 
@@ -56,11 +56,11 @@ A text field holds valid single-line UTF-8; control characters and line separato
 
 Focusing a text field shows the shared desktop keyboard when the composition includes `desktop/keyboard`. The field does not require `lunette/keyboard-display` itself. Hiding the keyboard ends the field's focus and keeps its text, and pointing at the field again resumes editing. A keyboard the user showed stays visible after editing ends. `@lunette-contracts/keyboard-display` defines `show`, `hide`, `toggle`, `isVisible`, `onChanged`, and `inspect`.
 
-`@lunette-contracts/menu` defines the action broker. An action has an `id`, a `label`, a `run` callback, and optional `group`, `order`, `enabled`, and `selected` values. `register` returns a registration whose `update { enabled, selected }` changes it, and it ends with its owner or its `dispose`. `desktop/menu` draws the actions on the wrist and redraws them when `onChanged` reports a change. [Bindings, menu actions, and layouts](../dev/lua-api.md#bindings-menu-actions-and-layouts) specifies the broker.
+`@lunette-contracts/menu` defines the action broker. An action has an `id`, a `label`, a `run` callback, and optional `group`, `order`, `enabled`, and `selected` values. `register` returns a registration whose `update { enabled, selected }` changes it, and it ends with its owner or its `dispose`. `desktop/menu` draws the actions on the wrist and redraws them when `onChanged` reports a change. [Bindings, menu actions, and layouts](../../lua/lunette-contracts/policy-services.md#brokers) specifies the broker.
 
 ## Themes and drawing hooks
 
-A panel's appearance resolves from the current theme, then the provider's `theme` option, the panel's `theme`, and the control's `theme`, each overriding the one before. A colour replaces the whole colour. An omitted field follows later theme changes, and an explicit zero is an override. `setTheme(nil)` removes an override. UI `panelRadius` and `controlRadius` are in logical units, while the theme's `radii.uiPanel` is in metres. [Theme fields](desktop-configuration.md#theme-fields) lists which theme fields reach the UI. The [UI provider page](../../lua/lunette-plugins/ui/README.md) links its rendering specification.
+A panel's appearance resolves from the current theme, then the provider's `theme` option, the panel's `theme`, and the control's `theme`, each overriding the one before. A colour replaces the whole colour. An omitted field follows later theme changes, and an explicit zero is an override. `setTheme(nil)` removes an override. UI `panelRadius` and `controlRadius` are in logical units, while the theme's `radii.uiPanel` is in metres. [Theme fields](desktop-configuration.md#themes-and-appearance) lists which theme fields reach the UI. The [UI provider page](../../lua/lunette-plugins/ui/README.md) links its rendering specification.
 
 A theme change keeps drafts, controls, and focus. A change of geometry, such as padding or radius, cancels held gestures; a change of colour alone does not.
 

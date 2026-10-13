@@ -4,4 +4,4 @@ The tags provider stores shared named groups of panels. Owners hold memberships,
 
 Plugins create tags and manage membership through [`lunette/tags`](../../lunette-contracts/tags.luau). Placement and workspace policy are defined by their consumers.
 
-[Shared ownership and membership guarantees](../../../docs/dev/lua-api.md#tags)
+[Shared ownership and membership guarantees](../../../lua/lunette-contracts/policy-services.md#tags)

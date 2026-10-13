@@ -54,13 +54,15 @@ A window is not a distinct object type. It is a texture, an input sink, and meta
 
 - [Architecture](architecture.md): threads, ownership, the snapshot model, and the plugin runtime.
 - [LÖVR integration](lovr-integration.md): the fork, the patch set, linking, boot, and restart.
-- [Rendering](rendering.md): texture import, composition layers, the layer pool, frame pacing, and rounded geometry.
-- [Compositor](compositor.md): the Wayland server, outputs, scale, decorations, XWayland, and processes.
+- [Rendering](rendering.md): native texture import, composition layers, layer allocation, frame pacing, and scene submission. [Validation records](rendering-validation.md) retain the observed driver and runtime limits.
+- [Compositor](compositor.md): the Wayland server, outputs, decorations, XWayland, and processes.
 - [Host desktop](host-desktop.md): monitor capture, input injection, and the clipboard bridge.
-- [Input](input.md): sinks, seats, keyboards, keyboard routing, pointer input, and XR input.
-- [The Lua API](lua-api.md): the native API, plugin authoring, the contracts, reload, errors, and `lunctl`.
-- [Standard plugins](standard-plugins.md): service connections, the built-in plugins, and the shipped desktop composition.
-- [Audio](audio.md): non-routing PCM capture, reusable analysis, and deferred spatial playback routing.
+- [Input](input.md): native sinks, seats, keymaps, clipboard, and XR input.
+- [Native Lua API](lua-api.md): native handle guarantees, events, reload, errors, and `lunctl`.
+- [Plugin facade](../../lua/lunette-plugin/README.md): declarations, ownership, configuration, composition, and management.
+- [Service contracts](../../lua/lunette-contracts/README.md): replacement-provider guarantees, including shared input delivery.
+- [Standard plugins](standard-plugins.md): service connections and the shipped desktop composition.
+- [Native audio capture](audio.md): non-routing PCM capture and deferred spatial playback routing.
 - [Build and development](build-and-development.md): layout, build, Nix, the development loop, and testing.
 - [Roadmap](roadmap.md): the work beyond v1 and upstream work.
 - [Credits](../../CREDITS.md): the projects lunette builds on and their licences.
