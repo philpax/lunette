@@ -1,6 +1,6 @@
 # UI panels
 
-`@lunette-contracts/ui` declares `lunette/ui` at schema 3. Its service creates owner-scoped flat VR panels with buttons, single-line text fields, choices, lists, and custom regions. `lua/lunette-contracts/ui.luau` declares the public types. `@lunette-plugins/ui` implements the contract and requires the theme, focus, surfaces, and frame contracts. A consumer imports the contract, not the provider's modules, so another provider can replace the built-in one.
+`@lunette-contracts/ui` declares `lunette/ui` at schema 3. Its service creates owner-scoped flat VR panels with buttons, single-line text fields, choices, lists, and custom regions. `lua/lunette-contracts/ui.luau` declares the public types. `@lunette-plugins/ui` implements the contract and requires the theme, focus, surfaces, and frame contracts. A consumer imports the contract, not the provider's modules, so another provider can replace the built-in one. The [UI provider README](../../lua/lunette-plugins/ui/README.md) records its configuration and dependencies.
 
 ## An example form
 
@@ -34,7 +34,7 @@ panel:textField {
 
 A panel's `width` and `height` are in metres. `logicalWidth` and `logicalHeight` set its logical coordinate space, with the origin at the top-left corner, x increasing rightward, and y increasing downward. Control bounds are logical and half-open: the left and top edges are inside, and the right and bottom edges are outside. Panel dimensions are positive. A control with zero width or height receives no input.
 
-Declared bounds define a control's input area and its entry in `ui:inspect()`. Drawing a larger shape does not enlarge it. Where a panel has rounded corners, controls and their input are clipped to a rectangular content area inside the rounded outline, which can leave less room near the corners. A higher `z` wins overlapping input, and the later registration wins a tie. A custom region declares its items' bounds and optional routes.
+Declared bounds define a control's input area and its entry in `ui:inspect()`. Drawing a larger shape does not enlarge it. Where a panel has rounded corners, controls and their input are clipped to a rectangular content area inside the rounded outline, which can leave less room near the corners. [UI rendering](../../lua/lunette-plugins/ui/docs/rendering.md) specifies the clip, depth, and titlebar geometry. A higher `z` wins overlapping input, and the later registration wins a tie. A custom region declares its items' bounds and optional routes.
 
 Each pointer button captures the control it pressed until release or cancellation, and a held gesture never moves to another control. Hiding the panel, disabling or destroying the control, resizing the panel, or replacing the control's bounds or items cancels the gesture without activating it. `Panel:setPose` keeps captures. A grip grab cancels the pointer's gestures before the panel moves. A captured control ignores other pointers. Hover does not move keyboard focus. A region takes keyboard input through its `receiver` and `wantsKeyboard` options.
 
@@ -44,7 +44,7 @@ Each pointer button captures the control it pressed until release or cancellatio
 
 The bar sits above the panel and follows its pose, size, and visibility. Trigger on the bar outside its buttons moves the panel, and grip anywhere on a movable panel moves it. The provider's `titlebarStyle` option styles every bar, and a titlebar's `style` overrides individual fields.
 
-`Service:newTitlebar(owner, { name, target, visible?, ...options })` attaches the same titlebar to another surface, such as a native window. `visible` is a predicate that hides the titlebar while it returns false. The returned handle has `update`, `sync`, `draw`, and `destroy`, and the consumer draws it. A flat target joins its body and titlebar into one outline when it implements `attachFrame`; [Joined frame attachments](../dev/lua-api.md#joined-frame-attachments) specifies the method.
+`Service:newTitlebar(owner, { name, target, visible?, ...options })` attaches the same titlebar to another surface, such as a native window. `visible` is a predicate that hides the titlebar while it returns false. The returned handle has `update`, `sync`, `draw`, and `destroy`, and the consumer draws it. A flat target joins its body and titlebar into one outline when it implements `attachFrame`; [Joined frame attachments](../../lua/lunette-contracts/panels-and-ui.md#joined-frames) specifies the method.
 
 ## Text fields
 
@@ -56,17 +56,17 @@ A text field holds valid single-line UTF-8; control characters and line separato
 
 Focusing a text field shows the shared desktop keyboard when the composition includes `desktop/keyboard`. The field does not require `lunette/keyboard-display` itself. Hiding the keyboard ends the field's focus and keeps its text, and pointing at the field again resumes editing. A keyboard the user showed stays visible after editing ends. `@lunette-contracts/keyboard-display` defines `show`, `hide`, `toggle`, `isVisible`, `onChanged`, and `inspect`.
 
-`@lunette-contracts/menu` defines the action broker. An action has an `id`, a `label`, a `run` callback, and optional `group`, `order`, `enabled`, and `selected` values. `register` returns a registration whose `update { enabled, selected }` changes it, and it ends with its owner or its `dispose`. `desktop/menu` draws the actions on the wrist and redraws them when `onChanged` reports a change. [Bindings, menu actions, and layouts](../dev/lua-api.md#bindings-menu-actions-and-layouts) specifies the broker.
+`@lunette-contracts/menu` defines the action broker. An action has an `id`, a `label`, a `run` callback, and optional `group`, `order`, `enabled`, and `selected` values. `register` returns a registration whose `update { enabled, selected }` changes it, and it ends with its owner or its `dispose`. `desktop/menu` draws the actions on the wrist and redraws them when `onChanged` reports a change. [Bindings, menu actions, and layouts](../../lua/lunette-contracts/policy-services.md#brokers) specifies the broker.
 
 ## Themes and drawing hooks
 
-A panel's appearance resolves from the current theme, then the provider's `theme` option, the panel's `theme`, and the control's `theme`, each overriding the one before. A colour replaces the whole colour. An omitted field follows later theme changes, and an explicit zero is an override. `setTheme(nil)` removes an override. UI `panelRadius` and `controlRadius` are in logical units, while the theme's `radii.uiPanel` is in metres. [Theme fields](desktop-configuration.md#theme-fields) lists which theme fields reach the UI.
+A panel's appearance resolves from the current theme, then the provider's `theme` option, the panel's `theme`, and the control's `theme`, each overriding the one before. A colour replaces the whole colour. An omitted field follows later theme changes, and an explicit zero is an override. `setTheme(nil)` removes an override. UI `panelRadius` and `controlRadius` are in logical units, while the theme's `radii.uiPanel` is in metres. [Theme fields](desktop-configuration.md#themes-and-appearance) lists which theme fields reach the UI. The [UI provider page](../../lua/lunette-plugins/ui/README.md) links its rendering specification.
 
 A theme change keeps drafts, controls, and focus. A change of geometry, such as padding or radius, cancels held gestures; a change of colour alone does not.
 
 A control's `draw` option is a hook that receives `(pass, visual, base)`. `visual` is a read-only snapshot of the control: logical `bounds`, `clip`, the resolved `theme` with its `font`, and the interaction state. Calling `base(pass, visual)` draws the default rendering, and not calling it replaces the drawing. A hook cannot change the bounds or clip that `base` receives.
 
-Hooks draw in logical panel coordinates. A hook starts with the default shader, no material, no culling, `gequal` depth testing, and depth writes off. Only the panel's opaque backing and outlines write depth. Control drawing sits a millimetre in front of the backing, and text a further step in front, without writing depth, so sibling controls keep their drawing order without depth conflicts. A hook keeps its drawing inside `visual.clip`; the provider does not enforce the clip. The provider restores the pass state and transform after the hook, including when a hook raises an error. A hook balances its own stack pushes and does not keep the pass.
+A hook keeps its drawing inside `visual.clip`; the provider does not enforce the clip. The [UI rendering specification](../../lua/lunette-plugins/ui/docs/rendering.md) describes the drawing state, depth offsets, and pass cleanup.
 
 ## Ownership and replacement
 

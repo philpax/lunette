@@ -1,5 +1,5 @@
 -- Each activation owns its panel registry and resources.
--- See docs/dev/lua-api.md#panels for options.
+-- See lua/lunette-plugins/panels/README.md for options.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'

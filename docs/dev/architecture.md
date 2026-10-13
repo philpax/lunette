@@ -44,9 +44,9 @@ The `lunette` API and the plugin attachment exist only in the main Lua state. `l
 
 ## Plugin runtime
 
-A Lua state owns one plugin attachment and one contract epoch. The attachment creates independent runtime graphs. Definitions and contract tokens are shared within the state; instances, services, effects, and configuration values belong to one runtime graph. [Plugin authoring](lua-api.md#plugin-authoring) specifies the Lua surface.
+A Lua state owns one plugin attachment and one contract epoch. The attachment creates independent runtime graphs. Definitions and contract tokens are shared within the state; instances, services, effects, and configuration values belong to one runtime graph. [The plugin facade](../../lua/lunette-plugin/README.md) specifies the Lua surface.
 
-A contract has an authority-qualified name and a positive schema number. A capability wraps the native token for that identity, and a definition declares the capabilities it requires and provides. Luau checks each service shape and configuration type locally. The runtime validates the graph: it rejects undeclared capability access, absent providers, duplicate or missing provisions, nil values, and publication after the initializer returns. The graph matches a consumer to a provider by exact name and schema and binds it to that provider's generation. A generation derives from the provider's load activation, and every load attempt takes a fresh activation, including failed and cancelled ones. The facade publishes each service as a view that raises once the provider's activation has ended ([Services](lua-api.md#services)).
+A contract has an authority-qualified name and a positive schema number. A capability wraps the native token for that identity, and a definition declares the capabilities it requires and provides. Luau checks each service shape and configuration type locally. The runtime validates the graph: it rejects undeclared capability access, absent providers, duplicate or missing provisions, nil values, and publication after the initializer returns. The graph matches a consumer to a provider by exact name and schema and binds it to that provider's generation. A generation derives from the provider's load activation, and every load attempt takes a fresh activation, including failed and cancelled ones. The facade publishes each service as a view that raises once the provider's activation has ended ([Service views](../../lua/lunette-plugin/ownership.md#service-views)).
 
 Initializers and cleanup callbacks run synchronously and do not yield. Provided services stay private until the initializer succeeds and every required provider generation is still active; the graph then publishes the instance's services together. A failed or cancelled initializer publishes nothing and runs its registered cleanup effects in reverse order. A child installed during an activation belongs to that activation and is retired when it ends. A retired instance cannot be enabled again.
 
@@ -116,15 +116,13 @@ An effect has one acquisition and one inverse. Cordis's harness accepts a genera
 
 A contract is matched by exact name and schema, without compatible ranges (issue #32). A range needs a compatibility relation the runtime cannot check, because the interface behind a schema number is a Luau type the runtime does not see. A provider that serves two schemas provides both contracts.
 
-The shipped composition binds LÖVR's callbacks outside the plugin graph and dispatches them inside it. `frame.install` assigns the callbacks once, before the runtime exists, because `lovr.load` creates the runtime and `lovr.quit` closes it. Assigning them from the frame provider's own effect and restoring the previous values on unload was rejected: the restore is correct only when assigners unload in reverse order, which instance reload and a second runtime do not guarantee.
-
 ## Known gaps
 
 Source reload is not transactional. It closes the runtimes and clears callbacks and modules before it runs the new `main.luau`, so a configuration that fails to evaluate leaves whatever it installed before it raised. Cordis imports replacement modules before disposing the old fibers and restores them when an import fails. Doing the same here requires evaluating a configuration without activating it, and two contract epochs live at once. [Reload](lua-api.md#reload) describes the failure path.
 
 ## Deliberately left open
 
-Realms are open. Cordis's `ctx.isolate` scopes a key to a subtree, so two providers of one key can coexist. lunette has one realm per runtime graph. A separate runtime graph is the coarse substitute, and a broker provider ([Confinement](lua-api.md#confinement)) substitutes for coexisting implementations. No shipped plugin needs a subtree-scoped service.
+Realms are open. Cordis's `ctx.isolate` scopes a key to a subtree, so two providers of one key can coexist. lunette has one realm per runtime graph. A separate runtime graph is the coarse substitute, and a broker provider ([Shared registrations](../../lua/lunette-contracts/README.md)) substitutes for coexisting implementations. No shipped plugin needs a subtree-scoped service.
 
 Configuration reconciliation is open. A running activation keeps the configuration it was loaded with. `instance:requestReload(config)` and the next drain unload and load the instance, and a changed configuration file is applied by source reload. Applying a configuration in place needs a stable instance identity across reloads and a configuration that `main.luau` declares rather than constructs.
 

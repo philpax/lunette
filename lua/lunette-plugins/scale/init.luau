@@ -1,4 +1,4 @@
--- Choosers use the compositor's scale ladder. See docs/dev/lua-api.md#frame-pacing-and-output-scale for options.
+-- Choosers use the compositor's scale ladder. See lua/lunette-plugins/scale/README.md for options.
 
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'

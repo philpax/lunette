@@ -1,4 +1,4 @@
--- See docs/dev/lua-api.md#rules-and-placement for the placement options and hook.
+-- See lua/lunette-plugins/placement/README.md for the placement options and hook.
 local config = require '@lunette-plugins/placement/config'
 local schema = require '@lunette-plugin/schema'
 local plugin = require '@lunette-plugin'

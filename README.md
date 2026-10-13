@@ -47,7 +47,7 @@ make install   # install to /usr/local, or set PREFIX
 
 On Nix or NixOS, `nix develop` provides all of the above.
 
-[Build and development](docs/dev/build-and-development.md) covers the details. The design specification is in [docs/dev](docs/dev/overview.md), and guides for writing configurations and plugins are in [docs/guide](docs/guide/).
+[Build and development](docs/dev/build-and-development.md) covers the details. [Standard plugins](docs/dev/standard-plugins.md) links plugin documentation and describes desktop composition. The [design specification](docs/dev/overview.md) records mechanisms and contracts; [guides](docs/guide/) cover configurations and plugins.
 
 ## Credits
 
