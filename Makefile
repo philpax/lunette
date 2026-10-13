@@ -1,6 +1,6 @@
 # Building and installing lunette.
 #
-# docs/dev/build-and-development.md states the installed paths. Five sets ship:
+# docs/development/build-and-development.md states the installed paths. Five sets ship:
 #
 #   $(PREFIX)/bin/lunette              the binary
 #   $(PREFIX)/bin/lunctl               the control client

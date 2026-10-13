@@ -11,7 +11,7 @@
 //! Selections belong to individual seats in lunette. The host exposes one
 //! clipboard and one primary selection, so [`SelectionBridge`] maps one
 //! designated seat to both host selections; other seats keep their selections
-//! local. See `docs/dev/input.md` for the selection contract.
+//! local. See `docs/development/native/input.md` for the selection contract.
 //!
 //! # Descriptor passing
 //!

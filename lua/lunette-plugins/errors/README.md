@@ -1,7 +1,5 @@
 # Error stream
 
-The error provider retains and publishes native Lua error reports. The separate desktop presenter can be replaced without disabling the stream.
+Retains and publishes native Lua error reports, suppressing repeated reports. The [desktop presenter](../desktop/errors/README.md) can be replaced without disabling the stream.
 
-`lunette/errors` suppresses repeated reports by exact message and traceback, then delivers the accumulated count when the suppression window ends. It retains the latest delivered report for consumers that start late. A report raised by a listener becomes latest but is not delivered recursively, so a failing presenter cannot feed itself.
-
-[Options](config.luau) · [Contract](../../lunette-contracts/errors.luau) · [Native error boundaries](../../../docs/dev/lua-api.md#errors)
+[Options](config.luau) · [Contract](../../lunette-contracts/errors.luau) · [Native error boundaries](../../../docs/development/native/lua-api.md#errors)

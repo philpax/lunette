@@ -1,9 +1,5 @@
 # Frame pacing
 
-The pacing provider recommends per-window frame rates. The desktop consumer applies those recommendations and manages hidden monitor capture.
+Recommends lower rates for hidden windows; the [desktop consumer](../desktop/pacing/README.md) applies them. Recent unthrottled activity and video or game content hints exempt a window, keeping active content responsive.
 
-| Provides | Consumer requires |
-| --- | --- |
-| `lunette/pacing` | `lunette/frame`, `lunette/panels`, `lunette/pacing` |
-
-[Provider options](config.luau) · [Consumer options](../desktop/pacing/config.luau) · [Native pacing](../../../docs/dev/rendering.md#frame-pacing-and-scene-skipping) · [Policy](docs/pacing-policy.md)
+[Options](config.luau) · [Contract](../../lunette-contracts/pacing.luau) · [Native pacing](../../../docs/development/native/rendering.md#frame-pacing-and-scene-skipping)

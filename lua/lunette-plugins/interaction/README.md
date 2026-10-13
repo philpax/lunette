@@ -1,9 +1,5 @@
-# Interaction provider
+# Interaction
 
-Turns pointer samples into surface hits, pointer events, and spatial grabs.
+Turns pointer samples into surface hits, input events, and spatial grabs. Grip moves a surface relative to the controller; the thumbstick changes reach, and a second pointer can scale it. Starting a grab cancels pointer gestures, so a held trigger must be released before another gesture.
 
-| Provides | Requires |
-|---|---|
-| [`lunette/interaction`](../../lunette-contracts/interaction.luau) | [`lunette/drops`](../drops/README.md), [`lunette/focus`](../focus/README.md) |
-
-[Grab behavior](docs/grabs.md) · [Options](config.luau)
+[Options](config.luau) · [Contract](../../lunette-contracts/interaction.luau) · [Input limits](../../../docs/development/native/input.md#known-gaps)

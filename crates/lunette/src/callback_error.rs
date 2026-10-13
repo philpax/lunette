@@ -1,6 +1,6 @@
 //! Linux-only: reports errors raised by configuration callbacks.
 //!
-//! [The Lua API](../../../docs/dev/lua-api.md#errors) defines the callback boundary. The error
+//! [The Lua API](../../../docs/development/native/lua-api.md#errors) defines the callback boundary. The error
 //! stream provider owns rate limiting. A listener failure does not stop later listeners.
 
 use mlua::{Function, IntoLua, Lua};

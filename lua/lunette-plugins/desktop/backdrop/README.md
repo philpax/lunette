@@ -1,15 +1,11 @@
 # Desktop backdrop
 
-The backdrop draws a head-centred sky and aurora before foreground content. It renders without audio; optional children add audio response, process status, attention selection, and controls.
+Draws a head-centred sky and aurora before foreground content. It works without audio; optional audio response, attention selection, and controls can fail without removing the environment.
 
-| Part | Requires |
-| --- | --- |
-| Base environment | `lunette/frame` |
-| Audio response | [`lunette/audio-analysis`](../../../lunette-contracts/audio-analysis.luau), `lunette/frame` |
-| Process status | [`lunette/audio`](../../../lunette-contracts/audio.luau), `lunette/frame` |
-| Attention selection | `lunette/frame`, `lunette/panels`, `lunette/surfaces` |
-| Runtime controls | `lunette/frame`, `lunette/ui`, `lunette/menu` |
+System mode reads the default output mix without changing routing or volume. Application mode selects an exact registered process; silence or unavailable attribution does not fall back to system audio. Attention mode uses gaze, or the head ray when eye tracking is unsupported, without changing focus or delivering input. Tracking loss retains the last selection.
 
-[Options](config.luau) · [Example](../../../../examples/audio-backdrop/main.luau) · [Source selection](docs/source-selection.md) · [Rendering](docs/rendering.md) · [Audio response](docs/audio-response.md)
+The Appearance panel pauses automatic selection while open. Runtime choices reset on source reload and process selections do not persist across sessions. Unavailable audio fades toward zero.
 
-When controls are attached, the Appearance panel changes the backdrop and its response. Opening the panel pauses automatic attention selection. Runtime choices last until source reload and do not serialize process identity. Live PipeWire and headset acceptance remain pending; see [rendering gaps](docs/rendering.md#acceptance) and [audio acceptance](../../../../docs/dev/audio.md#acceptance).
+[Options](config.luau) · [Example](../../../../examples/audio-backdrop/main.luau) · [Audio limits and pending live acceptance](../../../../docs/development/native/audio.md)
+
+Headset appearance, comfort, stereo presentation, and frame-time acceptance remain pending. Some OpenXR runtimes lack visibility events, so the environment may keep rendering until disabled.

@@ -27,7 +27,7 @@
 //! The compositor never speaks Vulkan to a client. It receives descriptors and
 //! imports them. The Wayland socket, the connections, and the `wl_buffer`
 //! objects are all plain Rust and plain file descriptors. None of them is
-//! invalidated when the device is destroyed. `docs/dev/architecture.md` records the rule
+//! invalidated when the device is destroyed. `docs/development/architecture.md` records the rule
 //! this rests on: Rust holds no long-lived reference into Lua, so nothing the
 //! compositor owns is reachable from the state being discarded.
 //!
@@ -52,7 +52,7 @@
 //!    that a view still names each image. Destroying an image a view names is a
 //!    use-after-free the driver may act on. Leaving it is a `vkDestroyDevice`
 //!    valid-usage violation the validation layers report and nothing else
-//!    observes. `docs/dev/rendering.md` records the trade.
+//!    observes. `docs/development/native/rendering.md` records the trade.
 //! 5. Close the Lua state. That is `crate::boot`'s to do, and it performs the
 //!    destruction the four steps above prepared for.
 //!

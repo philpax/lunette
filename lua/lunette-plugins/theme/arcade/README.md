@@ -1,9 +1,5 @@
 # Arcade theme
 
-Registers the complete Arcade theme with the [theme catalog](../../themes/README.md). Disabling this plugin removes the Arcade choice without affecting other registrations.
+Registers Arcade in the [theme catalog](../../themes/README.md). Disabling the plugin removes that choice. It uses the bundled Space Mono font.
 
-| Provides | Requires |
-| --- | --- |
-| Theme catalog entry | [`lunette/themes`](../../../lunette-contracts/themes.luau) |
-
-The preset uses the bundled Space Mono font. Its license is in [`fonts/OFL.txt`](fonts/OFL.txt). [Preset definition](preset.luau) · [Catalog behavior](../../themes/README.md)
+[Preset](preset.luau) · [Font license](fonts/OFL.txt)

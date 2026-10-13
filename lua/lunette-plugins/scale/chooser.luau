@@ -1,5 +1,5 @@
 -- Discrete output scales avoid reallocating clients for continuous distance changes.
--- The chooser uses the same ladder as the compositor layer pool. See docs/dev/compositor.md for the policy.
+-- The chooser uses the same ladder as the compositor layer pool. See docs/development/native/compositor.md for the policy.
 
 local contract = require '@lunette-contracts/scale'
 

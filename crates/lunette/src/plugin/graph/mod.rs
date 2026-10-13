@@ -1,5 +1,5 @@
 //! Pure plugin lifecycle graph. Intents update state immediately, and planning derives actions from that state.
-//! See `docs/dev/architecture.md#plugin-runtime`.
+//! See `docs/development/architecture.md#plugin-runtime`.
 
 mod error;
 mod ids;

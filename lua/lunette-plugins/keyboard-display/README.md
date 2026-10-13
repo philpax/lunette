@@ -1,9 +1,7 @@
 # Keyboard display
 
-Shows one session keyboard for focused local receivers that request one, or after an explicit show action. Its desktop entry id is `desktop/keyboard`; configuration patches use that id although its module path is `@lunette-plugins/keyboard-display`.
+Shows one shared keyboard for focused local receivers that request one, or after an explicit show action. Configuration patches use its entry id `desktop/keyboard`, despite the module path `@lunette-plugins/keyboard-display`.
 
-| Provides | Requires |
-|---|---|
-| [`lunette/keyboard-display`](../../lunette-contracts/keyboard-display.luau) | [`lunette/frame`](../frame/README.md), [`lunette/focus`](../focus/README.md), [`lunette/keyboard`](../keyboard/README.md), [`lunette/surfaces`](../../lunette-contracts/surfaces.luau), [`lunette/ui`](../../lunette-contracts/ui.luau) |
+Manual show survives the end of field editing; explicit hide clears both manual and automatic visibility without clearing field contents. The keyboard stays in place as the head moves and repositions only when shown again.
 
-[Visibility and placement](docs/visibility-and-placement.md) · [Options](config.luau)
+[Options](config.luau) · [Contract](../../lunette-contracts/keyboard-display.luau)

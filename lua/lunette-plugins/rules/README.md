@@ -1,9 +1,5 @@
 # Window rules
 
-The rules provider resolves window properties from ordered, owner-scoped sources. The desktop rule-list consumer is separate, so configurations can replace the list without replacing resolution.
+Resolves window properties from ordered sources. The separate [desktop rule list](../desktop/rules/README.md) supplies configured rules, so configurations can replace the list without replacing resolution.
 
-| Provides | Consumer requires |
-| --- | --- |
-| `lunette/rules` | `lunette/rules` |
-
-[Provider options](config.luau) · [Consumer options](../desktop/rules/config.luau) · [Contract](../../lunette-contracts/rules.luau) · [Resolution policy](docs/rule-resolution.md)
+[Options](config.luau) · [Contract](../../lunette-contracts/rules.luau) · [Precedence and placement](../../lunette-contracts/policy-services.md)

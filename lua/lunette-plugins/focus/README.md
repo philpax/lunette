@@ -1,9 +1,5 @@
-# Focus provider
+# Focus
 
-Routes keyboard input to a native sink or local receiver and creates input sources for consumers.
+Routes keyboard input to native sinks or local receivers. Physical keypad digits require a host Num Lock and Shift snapshot; unsupported snapshots and keypad remappings are not guessed.
 
-| Provides | Requires |
-|---|---|
-| [`lunette/focus`](../../lunette-contracts/focus.luau) | [`lunette/frame`](../frame/README.md) |
-
-[Routing behavior](docs/routing.md)
+[Contract](../../lunette-contracts/focus.luau) · [Input protocol](../../lunette-contracts/docs/input.md)

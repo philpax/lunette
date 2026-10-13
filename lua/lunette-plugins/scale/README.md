@@ -1,9 +1,5 @@
 # Output scale
 
-The scale provider creates a stateful chooser for each output. The desktop consumer measures shown window panels and applies the chooser's scale recommendation.
+Recommends output scale from panel distance. Hysteresis limits toolkit relayouts near scale boundaries. The [desktop consumer](../desktop/scale/README.md) measures panels and applies recommendations.
 
-| Provides | Consumer requires |
-| --- | --- |
-| `lunette/scale` | `lunette/frame`, `lunette/panels`, `lunette/scale` |
-
-[Provider options](config.luau) · [Contract](../../lunette-contracts/scale.luau) · [Native scale ladder](../../../docs/dev/rendering.md#layer-allocation) · [Policy](docs/output-scale.md)
+[Options](config.luau) · [Contract](../../lunette-contracts/scale.luau) · [Native layer allocation](../../../docs/development/native/rendering.md#layer-allocation)

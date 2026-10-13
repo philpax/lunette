@@ -1,9 +1,3 @@
 # Desktop pointing
 
-Attaches both hands to the laser provider and updates them against offered surfaces after scene updates. It draws feedback after overlay UI in the final feedback phase; handler order alone cannot move drawing across phases.
-
-| Requires |
-|---|
-| [`lunette/frame`](../../frame/README.md), [`lunette/laser`](../../laser/README.md), [`lunette/surfaces`](../../../lunette-contracts/surfaces.luau) |
-
-Aim, trigger lock, and appearance are configured on the laser provider, and movement on interaction. Per-hand consumer overrides would make the same option settable in two places. [Laser options](../../laser/config.luau)
+Attaches both hands to the laser provider and draws pointer feedback over UI. Configure aim, trigger lock, and appearance on the [laser provider](../../laser/README.md), and movement on [interaction](../../interaction/README.md).

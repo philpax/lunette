@@ -1,9 +1,5 @@
 # Runtime theme selector
 
-Selects a theme from the catalog and registers Appearance actions for available themes. Configure the [`preset` and sparse `overrides`](config.luau); the standard presets are Dark and Light, and the Arcade plugin adds Arcade.
+Selects a catalog theme and adds Appearance actions. A missing name falls back to the configured preset, then the provider's base theme. Runtime selection survives entry reactivation but resets on source reload.
 
-| Requires |
-| --- |
-| `lunette/frame`, `lunette/menu`, `lunette/theme`, and `lunette/themes` |
-
-A missing theme name falls back to the configured preset when available, then to the theme provider's base theme. A user selection lasts across entry activations, but not source reload. See [Runtime themes](../../../../lua/lunette-contracts/panels-and-ui.md#themes) and [Desktop configuration](../../../../docs/guide/desktop-configuration.md#themes-and-appearance).
+[Options](config.luau) · [Theme catalog](../../themes/README.md)

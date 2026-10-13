@@ -743,7 +743,7 @@ fn leaving_a_window_sink_withdraws_the_pointer_without_touching_focus() {
 
 #[test]
 fn leaving_a_sink_whose_window_is_gone_reports_false_like_every_other_method() {
-    // `docs/dev/lua-api.md` states that every method answers `false` on a dead
+    // `docs/development/native/lua-api.md` states that every method answers `false` on a dead
     // handle. A caller that trusts one method's answer and not another's has no
     // way to tell which is which.
     let session = us_session(vec![window(1, "term", "foot", PixelSize::new(800, 600))]);

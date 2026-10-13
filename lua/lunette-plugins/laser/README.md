@@ -1,11 +1,7 @@
-# Laser provider
+# Controller lasers
 
-Attaches controller input to interaction pointers and draws their beams and feedback.
+Attaches controller input to interaction pointers and draws feedback. Aim smoothing uses the same ray for picking and drawing without delaying buttons or grabs. Trigger lock stabilizes a hit during a pull; moving beyond its bounds releases the lock until the next pull.
 
-| Provides | Requires |
-|---|---|
-| [`lunette/laser`](../../lunette-contracts/laser.luau) | [`lunette/interaction`](../interaction/README.md), [`lunette/theme`](../theme/README.md) |
+Each hand creates its own seat unless an attachment supplies one. Both hands must name the same seat to share keyboard and pointer authority. Replacing the draw callback also replaces drag-icon drawing.
 
-Each attached hand has one laser owner. Unless its options supply a seat, the laser creates a seat for its pointer. To share one keyboard and pointer authority across hands, both attachments name the same seat. The host input domain remains a single seat.
-
-[Filtering and trigger lock](docs/aim-and-drag-feedback.md) · [Options](config.luau) · [Desktop consumer](../desktop/pointing/README.md)
+[Options](config.luau) · [Contract](../../lunette-contracts/laser.luau) · [Desktop consumer](../desktop/pointing/README.md)

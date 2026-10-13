@@ -1,5 +1,5 @@
 -- The pacer selects a frame rate from window visibility, content type, and observed commits.
--- See docs/dev/rendering.md for the default rates.
+-- See docs/development/native/rendering.md for the default rates.
 
 local contract = require '@lunette-contracts/pacing'
 

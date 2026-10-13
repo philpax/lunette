@@ -1,7 +1,7 @@
 //! Linux-only: reloads configuration modules and callbacks in the running session.
 //!
 //! The Lua state, XR session, graphics device, compositor thread, and clients stay active.
-//! See [the Lua API](../../../docs/dev/lua-api.md#reload).
+//! See [the Lua API](../../../docs/development/native/lua-api.md#reload).
 
 use std::{cell::Cell, error::Error, fmt};
 

@@ -1,9 +1,7 @@
-# Keyboard provider
+# Virtual keyboards
 
-Creates virtual keyboards that owners place, offer, and draw. Key rows and named layers are configurable; the `onKey` and `drawKey` callbacks wrap activation and rendering.
+Creates keyboards that owners place, offer, and draw. Rows and layers are configurable; layers share one board extent so switching layers does not move the display. Keys use evdev codes, with legends from the selected keymap unless overridden.
 
-| Provides | Requires |
-|---|---|
-| [`lunette/keyboard`](../../lunette-contracts/keyboard.luau) | [`lunette/focus`](../focus/README.md), [`lunette/theme`](../theme/README.md) |
+Modifier keys latch for the next non-modifier activation or toggle as locks. Changing focus, hiding, or destroying the board clears modifiers so they do not carry into another receiver.
 
-[Keyboard behavior](docs/keyboard.md) · [Options](config.luau) · [Appearance](appearance.luau)
+[Options and callbacks](config.luau) · [Appearance](appearance.luau) · [Contract](../../lunette-contracts/keyboard.luau) · [Input limits](../../lunette-contracts/docs/input.md)

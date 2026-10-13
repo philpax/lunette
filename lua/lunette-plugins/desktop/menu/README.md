@@ -1,9 +1,5 @@
 # Wrist menu
 
-Displays a tracked wrist button and the session actions registered by other plugins. Configure the [`hand`, panel size and offset, haptics, and expanded-list dimensions](config.luau).
+Displays a tracked wrist button and registered session actions. Other plugins add actions through the [menu service](../../menu/README.md), independently of this renderer.
 
-| Requires |
-| --- |
-| `lunette/ui`, `lunette/frame`, and `lunette/menu` |
-
-Plugins add actions through the [menu action contract](../../../../lua/lunette-contracts/policy-services.md#brokers), not through this renderer. The shipped menu has no keyboard shortcut; session controls remain available through VR input. See [Wrist menu](../../../../docs/guide/desktop-configuration.md#menu-and-keyboard).
+[Options](config.luau) · [Menu workflow](../../../../docs/users/desktop-configuration.md#menu-and-keyboard)

@@ -1,6 +1,6 @@
 //! Linux-only: `lunctl` sends Lua chunks to the running session's control socket.
 //!
-//! See [the Lua API](../../../docs/dev/lua-api.md#lunctl).
+//! See [the Lua API](../../../docs/development/native/lua-api.md#lunctl).
 
 use std::{
     env,

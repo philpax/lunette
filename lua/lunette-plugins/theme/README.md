@@ -1,7 +1,5 @@
 # Runtime theme
 
-The provider resolves appearance selections and supplies font faces to consumers. It provides [`lunette/theme`](../../lunette-contracts/theme.luau); the separate [theme catalog](../themes/README.md) stores named choices but does not select one.
+Resolves appearance and supplies fonts. The separate [theme catalog](../themes/README.md) stores named choices. An invalid override or font-load failure leaves active appearance unchanged.
 
-An override and its font resolve before registration, so invalid data or a font-load failure leaves active state unchanged. Font faces are cached by descriptor because recorded passes can retain them. Shutdown clears the cache and lets LÖVR release faces through garbage collection.
-
-[Shared rounded geometry](docs/rounded-geometry.md) · [Runtime theme API](../../lunette-contracts/panels-and-ui.md#themes) · [Shipped connections](../../../docs/dev/standard-plugins.md#contracts-and-providers)
+[Theme contract](../../lunette-contracts/panels-and-ui.md) · [Service declaration](../../lunette-contracts/theme.luau)

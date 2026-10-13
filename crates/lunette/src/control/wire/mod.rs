@@ -10,7 +10,7 @@
 //!
 //! [`Value`] is a tagged tree. `lunctl` prints a nested table from the tag;
 //! awesome's remote control falls back to `tostring`
-//! ([the Lua API](../../../docs/dev/lua-api.md#lunctl)). The tag on each node
+//! ([the Lua API](../../../docs/development/native/lua-api.md#lunctl)). The tag on each node
 //! names what the node is, and nothing is inferred from its shape.
 //!
 //! A table carries its array part and its other entries separately, because
