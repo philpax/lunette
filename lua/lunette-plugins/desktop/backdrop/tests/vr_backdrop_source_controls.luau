@@ -69,10 +69,31 @@ test('vr_backdrop_source_controls', function()
     scrolled.items[1].id ~= applications.items[1].id,
     'controller stick scrolling moves earlier application rows out of view'
   )
-  env.running:clickControl(env.ui, PANEL, 'dismiss')
-  expect.equal(env.choice.frozen, false, 'closing unfreezes attention')
+  env.running:clickControl(env.ui, PANEL .. '/titlebar', 'close')
+  expect.equal(env.choice.frozen, false, 'the titlebar close unfreezes attention')
   expect.equal(vrUi.describe(env.ui, PANEL).visible, false, 'closing hides the shared panel')
   expect.equal(env.running:keyboardCount(), 0, 'the controls never request a physical or virtual keyboard')
+  env.running:close()
+end)
+
+test('the source status reads upright at the theme font size', function()
+  local env = fixture.boot()
+  fixture.open(env)
+  table.clear(env.native.events.draw)
+  env.running:draw()
+  local status = nil
+  for _, call in env.native.events.draw do
+    if call[1] == 'text' and type(call[2]) == 'string' and string.find(call[2], 'System mix', 1, true) == 1 then
+      status = call
+    end
+  end
+  assert(status, 'the status region draws the source status')
+  local font = status.state.setFont[1] :: any
+  expect.near(status[6] :: number, 20 / font:getHeight(), 1e-9, 'the status uses the theme font size')
+  expect.equal(status[7], math.pi, 'the status undoes the y-down panel flip like framework text')
+  expect.equal(status[8], 1, 'the status rotates about the x axis')
+  expect.equal(status[9], 0, 'the status rotation has no y component')
+  expect.equal(status[10], 0, 'the status rotation has no z component')
   env.running:close()
 end)
 

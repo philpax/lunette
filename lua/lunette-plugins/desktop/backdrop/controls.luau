@@ -108,9 +108,9 @@ function controls.attach(context: plugin.Context, choice: selection.State, rende
         name = 'desktop/backdrop/controls',
         pose = lovr.math.newMat4():translate(0, 1.35, -1.25),
         width = 0.86,
-        height = 1.16,
+        height = 1.105,
         logicalWidth = 860,
-        logicalHeight = 1160,
+        logicalHeight = 1105,
         theme = { rowHeight = 32, padding = 4, spacing = 4 },
         visible = false,
         grabbable = true,
@@ -152,7 +152,7 @@ function controls.attach(context: plugin.Context, choice: selection.State, rende
       }
       pinButton = panel:button {
         id = 'pin-now',
-        label = 'Pin the attended application',
+        label = 'Pin the attended application (Attention source only)',
         bounds = { x = 20, y = 320, width = 820, height = 48 },
         onActivate = function(): ()
           local process = choice.attended
@@ -212,29 +212,24 @@ function controls.attach(context: plugin.Context, choice: selection.State, rende
         label = 'Source status',
         bounds = { x = 20, y = 945, width = 820, height = 140 },
         draw = function(pass: Pass, visual: ui.Visual, _default: ui.Renderer): ()
-          pass:setColor(visual.theme.foreground)
+          local style = visual.theme
+          local scale = style.fontSize / style.font:getHeight()
+          pass:setColor(style.foreground)
+          -- Glyphs are y-up while the panel's logical coordinates are y-down, so the text turns half about x.
           pass:text(
             statusText,
             visual.bounds.x,
             visual.bounds.y,
             0,
-            20,
-            0,
-            0,
-            0,
+            scale,
+            math.pi,
             1,
-            visual.bounds.width / 20,
+            0,
+            0,
+            visual.bounds.width / scale,
             'left',
             'top'
           )
-        end,
-      }
-      panel:button {
-        id = 'dismiss',
-        label = 'Close',
-        bounds = { x = 20, y = 1100, width = 820, height = 40 },
-        onActivate = function(): ()
-          setVisible(false)
         end,
       }
       refresh = function(): ()

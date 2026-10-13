@@ -180,6 +180,7 @@ end)
 test('an open choice keeps its selected value above its rows', function()
   local recorder = recorderForDrawing()
   local value = visual('choice', {
+    label = 'Mode',
     value = 'Selected label',
     opened = true,
     bounds = { x = 0, y = 0, width = 200, height = 100 },
@@ -197,8 +198,63 @@ test('an open choice keeps its selected value above its rows', function()
   })
   draw(recorder.pass, value)
   local drawn = texts(recorder)
-  expect.equal(drawn[1], 'Selected label')
+  expect.equal(drawn[1], 'Mode: Selected label')
   expect.equal(drawn[2], 'Option')
+end)
+
+local function choiceHeader(changes: VisualChanges): render.Recorder
+  local recorder = recorderForDrawing()
+  local value = visual('choice', {
+    label = 'Audio',
+    bounds = { x = 0, y = 0, width = 200, height = 100 },
+    clip = { x = 0, y = 0, width = 200, height = 100 },
+    theme = resolve { rowHeight = 30, spacing = 4, padding = 4, fontSize = 10 },
+  })
+  for key, replacement in changes do
+    value[key] = replacement
+  end
+  draw(recorder.pass, value)
+  return recorder
+end
+
+local function firstText(recorder: render.Recorder): render.Call
+  for _, call in recorder.calls do
+    if call[1] == 'text' then
+      return call
+    end
+  end
+  error('no text was drawn', 2)
+end
+
+test('a closed choice header names its label beside its value, centred in the header row', function()
+  local header = firstText(choiceHeader { value = 'On' })
+  expect.equal(header[2], 'Audio: On', 'the header names the setting and its value')
+  expect.equal(header[4], (30 - 10) / 2, 'the text is centred vertically in the header row')
+  expect.equal(firstText(choiceHeader {})[2], 'Audio', 'without a value the header shows only the label')
+  expect.equal(firstText(choiceHeader { value = '' })[2], 'Audio', 'an empty value shows only the label')
+  expect.equal(firstText(choiceHeader { label = '', value = 'On' })[2], 'On', 'an empty label shows only the value')
+end)
+
+local function chevron(opened: boolean): (number, number)
+  local recorder = choiceHeader { value = 'On', opened = opened }
+  local points: { { x: number, y: number } } = {}
+  for _, call in recorder.calls do
+    if call[1] == 'line' then
+      table.insert(points, { x = call[2] :: number, y = call[3] :: number })
+      table.insert(points, { x = call[5] :: number, y = call[6] :: number })
+    end
+  end
+  expect.equal(#points, 4, 'the indicator is two strokes')
+  expect.equal(points[2].x, points[3].x, 'the strokes meet at the tip')
+  expect.truthy(points[1].x > 200 - 30, 'the indicator sits at the right of the header')
+  return points[2].y, points[1].y
+end
+
+test('a choice header shows whether it is open with a chevron', function()
+  local tip, edge = chevron(false)
+  expect.truthy(tip > edge, 'a closed choice points down')
+  tip, edge = chevron(true)
+  expect.truthy(tip < edge, 'an open choice points up')
 end)
 
 return test

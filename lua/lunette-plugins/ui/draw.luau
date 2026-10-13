@@ -48,6 +48,7 @@ local roundedBorder: (Pass, Cache, ui.Bounds, rounded.Profile, number, ui.Bounds
 local text: (Pass, Font, string, ui.Bounds, ui.Bounds, number, Cache) -> boolean
 local fittedText: (Font, string, number, number, Cache) -> TextEntry
 local renderTextField: (Pass, Font, ui.Visual, ui.Bounds, Cache) -> boolean
+local renderChoiceHeader: (Pass, Font, ui.Visual, ui.Bounds, Cache) -> boolean
 local renderItems: (Pass, Font, ui.Visual, ui.Bounds, Cache) -> boolean
 local inset: (ui.Bounds, number) -> ui.Bounds
 local validateGeometry: (ui.Visual, ui.Visual) -> ()
@@ -129,22 +130,8 @@ renderDefault = function(pass: Pass, visual: ui.Visual, cache: Cache, shape: Sha
   if visual.kind == 'text-field' then
     overflow = renderTextField(pass, font, visual, textClip, cache) or overflow
   elseif visual.kind == 'choice' then
-    local header: ui.Bounds = {
-      x = visual.bounds.x,
-      y = visual.bounds.y,
-      width = visual.bounds.width,
-      height = math.min(visual.bounds.height, style.rowHeight),
-    }
     setColor(pass, if visual.enabled then style.foreground else style.border)
-    overflow = text(
-      pass,
-      font,
-      visual.value or visual.label,
-      inset(header, style.padding),
-      textClip,
-      style.fontSize,
-      cache
-    ) or overflow
+    overflow = renderChoiceHeader(pass, font, visual, textClip, cache) or overflow
     if visual.opened then
       overflow = renderItems(pass, font, visual, clip, cache) or overflow
     end
@@ -290,6 +277,42 @@ renderTextField = function(pass: Pass, font: Font, visual: ui.Visual, clip: ui.B
     rectangle(pass, layout.caretBounds, layout.visible)
   end
   return layout.overflow
+end
+
+-- The header names the setting beside its value, and a chevron states whether the options are open.
+-- The chevron is drawn as strokes because the default font has no arrow glyphs.
+renderChoiceHeader = function(pass: Pass, font: Font, visual: ui.Visual, clip: ui.Bounds, cache: Cache): boolean
+  local style = visual.theme
+  local header: ui.Bounds = {
+    x = visual.bounds.x,
+    y = visual.bounds.y,
+    width = visual.bounds.width,
+    height = math.min(visual.bounds.height, style.rowHeight),
+  }
+  local content = inset(header, style.padding)
+  local indicator = math.min(header.height, content.width)
+  local textHeight = math.min(style.fontSize, content.height)
+  local label = visual.label
+  local value = visual.value
+  local caption = if value == nil or value == '' then label elseif label == '' then value else label .. ': ' .. value
+  local overflow = text(pass, font, caption, {
+    x = content.x,
+    y = content.y + (content.height - textHeight) / 2,
+    width = math.max(0, content.width - indicator),
+    height = textHeight,
+  }, clip, style.fontSize, cache)
+  local half = math.min(textHeight, indicator) / 4
+  local centreX, centreY = header.x + header.width - indicator / 2, header.y + header.height / 2
+  local direction = if visual.opened then -1 else 1
+  local route: { ui.Point } = {
+    { x = centreX - half, y = centreY - direction * half / 2 },
+    { x = centreX, y = centreY + direction * half / 2 },
+    { x = centreX + half, y = centreY - direction * half / 2 },
+  }
+  for _, segment in geometry.clipPolyline(route, clip) do
+    pass:line(segment.from.x, segment.from.y, 0, segment.to.x, segment.to.y, 0)
+  end
+  return overflow
 end
 
 renderItems = function(pass: Pass, font: Font, visual: ui.Visual, clip: ui.Bounds, cache: Cache): boolean
