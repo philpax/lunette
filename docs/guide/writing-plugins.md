@@ -429,7 +429,7 @@ web:add(context, panel)
 
 `tags:onChanged(context, { run = function(change) end })` reports tags created and destroyed and changes to their selection and members; `change.kind` names the change and `change.tag` the tag. `web:setSelected(context, true)` returns an effect that selects the tag until it is disposed or the plugin deactivates.
 
-`desktop/workspaces` shows one workspace's windows at a time. The `desktop/workspaces` setting lists the workspaces, and with more than one the consumer registers a menu action for each. [Workspaces](desktop-configuration.md#workspaces) describes the setting. A workspace consumer of another kind listens to `onChanged` and hides panels with `setHidden` in the same way. The [workspace policy](../../lua/lunette-plugins/desktop/workspaces/docs/workspace-policy.md) describes the shipped consumer's selection and placement behavior.
+`desktop/workspaces` shows one workspace's windows at a time. The `desktop/workspaces` setting lists the workspaces, and with more than one the consumer registers a menu action for each. [Workspaces](desktop-configuration.md#workspaces) describes the setting. A workspace consumer of another kind listens to `onChanged` and hides panels with `setHidden` in the same way. The [workspace policy](../../lua/lunette-plugins/desktop/workspaces/README.md) describes the shipped consumer's selection and placement behavior.
 
 ## Rules
 
@@ -495,7 +495,7 @@ settings = {
 },
 ```
 
-A replacement rule is a plugin that provides `lunette/pacing` or `lunette/scale` in the provider's entry. A different policy, such as pacing by gaze, is a consumer in place of `desktop/pacing`. Disabling `desktop/pacing` or `desktop/scale` leaves every client at its own rate or scale. [Pacing policy](../../lua/lunette-plugins/desktop/pacing/docs/pacing-policy.md) and [output-scale policy](../../lua/lunette-plugins/desktop/scale/docs/output-scale-policy.md) specify the shipped consumers. [Frame pacing and output scale](../dev/lua-api.md#frame-pacing-and-output-scale) states the shared contract.
+A replacement rule is a plugin that provides `lunette/pacing` or `lunette/scale` in the provider's entry. A different policy, such as pacing by gaze, is a consumer in place of `desktop/pacing`. Disabling `desktop/pacing` or `desktop/scale` leaves every client at its own rate or scale. [Pacing policy](../../lua/lunette-plugins/desktop/pacing/README.md) and [output-scale policy](../../lua/lunette-plugins/desktop/scale/README.md) specify the shipped consumers. [Frame pacing and output scale](../dev/lua-api.md#frame-pacing-and-output-scale) states the shared contract.
 
 ## Checking a configuration
 

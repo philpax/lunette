@@ -1,11 +1,11 @@
 # Monitor mirrors
 
-`@lunette-plugins/desktop/monitors` mirrors selected host monitors into native monitor panels and handles monitors added while the entry is active. The shipped desktop uses entry `desktop/monitors`.
+Mirrors selected host monitors into panels. Configure [`select`, `placement`, and `tags`](config.luau); an empty selection includes every monitor.
 
-The entry requires `lunette/panels`. The optional tagging child requires `lunette/tags`; without that child, monitor mirroring remains active when the tags provider is unavailable. [`config.luau`](config.luau) is the source of truth for `select`, `placement`, and `tags`. An empty `select` mirrors every monitor. The placement fields use a vector center, width, and non-negative gap. [Monitor placement](docs/monitor-placement.md) specifies row assignment and tagging.
+| Requires | Optional |
+| --- | --- |
+| `lunette/panels` | `lunette/tags` for the tagging child |
 
-The panels contract owns monitor texture and panel behavior. [Monitors and titlebars](../../../../docs/guide/desktop-configuration.md#monitors-and-titlebars) describes capture and portal workflows; [Titlebar behavior](../decorations/docs/titlebar-behavior.md) specifies monitor titlebar actions. Tests: [`monitors.luau`](tests/monitors.luau).
+Each new mirror takes the lowest free place in the row. Existing mirrors do not move when monitors arrive or disappear, because saved arrangement restores each mirror as it appears.
 
-## Known gaps
-
-Host capture availability and portal permission behavior depend on the host desktop. Shared capture mechanisms and acceptance remain in [Host desktop](../../../../docs/dev/host-desktop.md) and [Build and development](../../../../docs/dev/build-and-development.md).
+A tag-provider outage stops tagging but leaves mirroring active. Monitor capture and permission workflows depend on the host desktop; see [Monitors and titlebars](../../../../docs/guide/desktop-configuration.md#monitors-and-titlebars).

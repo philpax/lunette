@@ -1,9 +1,15 @@
 # Window arrangement
 
-`@lunette-plugins/desktop/arrange` arranges live window placements that have no pose, grouped by tag. The shipped desktop uses entry `desktop/arrange`. Its definition is a factory so its dropped-panel exclusions can survive activations within a runtime.
+Arranges placed windows that have no pose, grouped by tag. Configure [`layout` and `tags`](config.luau) to select a named layout and the tags to arrange. A configuration can register another layout; [layout examples](../../../../examples/layout) include grid and follow arrangements.
 
-The entry requires `lunette/drops`, `lunette/frame`, `lunette/layouts`, `lunette/panels`, `lunette/placement`, and `lunette/tags`. [`config.luau`](config.luau) is the source of truth for `layout` and `tags`; the default layout name is `arc`, and an empty tag list means all tags. A configuration can register another named layout with the layouts broker, then select its name here.
+| Requires |
+| --- |
+| `lunette/drops`, `lunette/frame`, `lunette/layouts`, `lunette/panels`, `lunette/placement`, and `lunette/tags` |
 
-[Arrangement policy](docs/arrangement-policy.md) specifies candidate selection, tag ordering, reapplication, and missing-layout reporting. Shared layout registration semantics are in [`layout-registration.md`](../../layouts/docs/layout-registration.md) and [The Lua API](../../../../docs/dev/lua-api.md#bindings-menu-actions-and-layouts). Default composition and rule precedence remain central in [Standard plugins](../../../../docs/dev/standard-plugins.md#placement). Tests: [`arrange.luau`](tests/arrange.luau).
+Windows with a saved `lunette.pose` or dropped during the current activation are excluded, so a later layout does not undo hand placement.
 
-The arc is the only shipped layout. [`examples/layout`](../../../../examples/layout) holds grid and follow layouts as examples. See [Arrangement policy](docs/arrangement-policy.md#known-gaps).
+Arrangement runs on activation, placement or panel removal, tag changes, and layout registration changes. A drop itself does not trigger layout, because releasing one panel should not move its neighbours.
+
+When a window belongs to multiple configured tags, a selected tag takes priority over every unselected tag, and configuration order breaks ties. This gives the visible workspace priority. With an empty `tags` list, every tag and untagged windows are included; with configured tags, windows outside those tags stay untouched.
+
+The shipped layout is `arc`. Persistence and pose memory are separate entries; see [placement composition](../../../../docs/dev/standard-plugins.md#placement) and [layout registration](../../layouts/README.md).

@@ -22,7 +22,7 @@ A window's texture contains only its own surface buffer. The native compositor r
 
 ### Joined flat frames
 
-[Panel rendering](../../lua/lunette-plugins/panels/docs/rendering.md#joined-flat-frames) specifies joined-frame geometry and drawing policy. [UI rendering](../../lua/lunette-plugins/ui/docs/rendering.md#titlebars) specifies titlebar passes and fallback. [Joined frame attachments](lua-api.md#joined-frame-attachments) defines the shared attachment contract.
+[Panel rendering](../../lua/lunette-plugins/panels/docs/rendering.md#joined-flat-frames) specifies joined-frame geometry and drawing policy. [UI rendering](../../lua/lunette-plugins/ui/docs/rendering.md#text-and-titlebars) specifies titlebar passes and fallback. [Joined frame attachments](lua-api.md#joined-frame-attachments) defines the shared attachment contract.
 
 ### UI scene depth
 

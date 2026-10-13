@@ -1,11 +1,11 @@
 # Workspaces
 
-`@lunette-plugins/desktop/workspaces` uses tags to show one configured workspace at a time and hides panels in unselected workspace tags. The shipped desktop uses entry `desktop/workspaces`.
+Shows one configured workspace at a time by hiding panels in other workspace tags. Configure [`names` and `follow`](config.luau). With `follow` enabled, a newly placed window assigned only to unselected workspaces moves to the selected workspace.
 
-The entry requires `lunette/panels`, `lunette/placement`, and `lunette/tags`. Its optional menu-actions child requires `lunette/menu` and `lunette/tags`; the child registers workspace choices only when more than one workspace exists, so a menu outage leaves selection and visibility unchanged. [`config.luau`](config.luau) is the source of truth for `names` and `follow`. Names are non-empty and unique; the default list is `{ 'main' }`, and `follow` defaults to true.
+| Requires | Optional |
+| --- | --- |
+| `lunette/panels`, `lunette/placement`, and `lunette/tags` | `lunette/menu` and `lunette/tags` for workspace actions |
 
-[Workspace policy](docs/workspace-policy.md) specifies selection, hidden-panel overrides, and placement behavior. [Workspaces](../../../../docs/guide/desktop-configuration.md#workspaces) remains the user workflow. Shared tag and placement contracts are in [The Lua API](../../../../docs/dev/lua-api.md#tags) and [Standard plugins](../../../../docs/dev/standard-plugins.md#placement). Tests: [`workspaces.luau`](tests/workspaces.luau).
+A placed window without a configured workspace tag joins the selected workspace, so it remains visible even when adoption assigns no tags. This makes the default workspace assignment independent of how adoption is configured.
 
-## Decisions
-
-[Workspace policy](docs/workspace-policy.md#decisions) records the default selection, untagged-window behavior, menu outage isolation, and the decision not to ship workspace chords. Shared placement composition remains in [Standard plugins](../../../../docs/dev/standard-plugins.md#placement).
+The consumer only hides panels in unselected workspaces; withdrawing its visibility override does not reveal panels hidden by another plugin. Menu actions are optional so a menu outage does not change workspace visibility or selection. See [Workspaces](../../../../docs/guide/desktop-configuration.md#workspaces).

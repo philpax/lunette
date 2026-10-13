@@ -106,13 +106,13 @@ A physical source keeps keys and text apart. A local receiver gets physical keys
 
 The `lunette/frame` schema 2 contract opens an input batch before each update's handlers, or at the first key or text callback when no batch is open. Callbacks until the next update share its identifier. Owner-scoped `onBatch` observers run before update, binding, and delivery handlers, and a physical source records the route revision there, before a binding can change the route.
 
-The frame provider translates each host key event once, so every key handler sees the same press. The event carries the evdev `code` of LÖVR's key name, or none for a key with no evdev name, and `modifiers`, the held modifier names. With a host snapshot the names come from it; without one they come from the keys held at the callback. Text events carry the modifiers held at the callback. The bindings provider matches chords against these modifiers and `desktop/input` delivers them, so a binding and a focus route never disagree about one press. [Input batches](../../lua/lunette-plugins/frame/docs/input-batches.md) specifies the frame provider's translation.
+The frame provider translates each host key event once, so every key handler sees the same press. The event carries the evdev `code` of LÖVR's key name, or none for a key with no evdev name, and `modifiers`, the held modifier names. With a host snapshot the names come from it; without one they come from the keys held at the callback. Text events carry the modifiers held at the callback. The bindings provider matches chords against these modifiers and `desktop/input` delivers them, so a binding and a focus route never disagree about one press. [Input batches](../../lua/lunette-plugins/frame/README.md) specifies the frame provider's translation.
 
 Committed text is eligible only while the route keeps the revision recorded at the batch start. Any route transition, including one that returns to the same target, invalidates the rest of the batch's text. So does a binding key handler that consumes a key, and the frame provider then republishes the batch with `textBlocked=true`. `desktop/input` blocks the batch through `frame:blockText` after a command chord or a consumed, failed, or refused key, after failed or refused text, and when its source is released, so a replacement source cannot deliver the rest of that batch's text. Eligibility returns at the next update. Invalidating text does not suppress later key activations.
 
 ### Physical keypad modes
 
-The focus provider's built-in physical keypad policy uses the frame provider's modifier snapshot. [Routing and delivery](../../lua/lunette-plugins/focus/docs/routing.md#physical-keypad-policy) specifies the snapshot and keypad rules. The keypad rules support ordinary PC Num Lock and Shift behavior; host keypad remappings and backends without a modifier snapshot are unsupported.
+The focus provider's built-in physical keypad policy uses the frame provider's modifier snapshot. [Routing and delivery](../../lua/lunette-plugins/focus/docs/routing.md) specifies the snapshot and keypad rules. The keypad rules support ordinary PC Num Lock and Shift behavior; host keypad remappings and backends without a modifier snapshot are unsupported.
 
 ## Surface pointer input
 
@@ -162,7 +162,7 @@ Physical text is bound to the route recorded before bindings run. LÖVR does not
 
 Implicit text fallback is never produced for command chords or control characters, because a declined editing command must not insert a control character.
 
-The frame provider's key-translation rationale is in [Input batches](../../lua/lunette-plugins/frame/docs/input-batches.md#decisions).
+The frame provider's key-translation rationale is in [Input batches](../../lua/lunette-plugins/frame/README.md).
 
 A selection transfer passes the descriptor. A lunette client's paste pipe is forwarded unread to the host's data-control offer, and the host's paste pipe is handed to the owning lunette client. WayVR reads the bytes and spawns an unbounded, unjoined thread per request to write them out. Passing the descriptor removes buffering, scheduling, and format negotiation: a client that never reads its pipe stalls only the data's owner. Each host announcement carries an increasing identifier, and a read that quotes a superseded one is refused.
 

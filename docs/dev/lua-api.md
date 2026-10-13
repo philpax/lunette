@@ -60,7 +60,7 @@ The service protects itself and the configured entries, following their current 
 
 ## Contracts
 
-A contract module in `@lunette-contracts` declares a service type and exports a capability that pairs it with an authority-qualified name and version. Vocabulary shared by several contracts lives in a neutral contract module, so a service type never imports a provider. `@lunette-contracts/vocabulary` holds the surface and pointer types, the per-window pose property `lunette.pose` with `encodePose` and `decodePose`, and `PRECEDENCE`, the named precedences of rule sources. `@lunette-contracts/keys` holds the key vocabulary: the evdev codes from `lunette.keyCodes()`, the modifier each modifier key holds, the host modifier snapshot type, and which modifiers make a command chord. The frame provider translates LÖVR key names and modifiers, and the focus provider holds the physical delivery policy ([Input](input.md#physical-input-batches)). `@lunette-contracts/quad` holds flat-quad ray intersection.
+Import [service contracts](../../lua/lunette-contracts) rather than provider implementations, so consumers work with replacement providers. Shared types and rule precedence are in [vocabulary](../../lua/lunette-contracts/vocabulary.luau); [keys](../../lua/lunette-contracts/keys.luau) supplies the native key and modifier vocabulary. [Input](input.md#physical-input-batches) specifies translation and delivery.
 
 Every registration that takes an owner returns an effect and ends when the effect is disposed or the owner unloads. An owner-scoped override, such as a hidden panel or a selected tag, returns an effect the same way. A change notification is `on<Event>(owner, { run })`, where `run` receives the change's payload, and returns an effect. A listener or callback a provider invokes for another plugin runs under its own protected call and is reported through `lunette.reportError` without stopping the others. A call with a field the contract does not name raises at the call. Every broker that holds owner-scoped registrations implements `inspect()`, which returns registration metadata as data and invokes no plugin callback, and the plugin manager reads each one.
 
@@ -118,7 +118,7 @@ Consumers resolve appearance in the order base theme, global theme, provider con
 
 A pointer button captures the control it pressed until release or cancellation. A release activates only that control and only inside it; cancellation never activates. A control refuses a second pointer while held. Hiding, disabling, destroying, resizing, or replacing bounds or items cancels the affected captures, and `Panel:setPose` keeps them. Hover does not take keyboard focus. A text field holds valid single-line UTF-8 and edits at grapheme boundaries from `lunette.textBoundaries`. `setValue` calls no callback.
 
-Theme overrides resolve from the global theme to the provider, panel, and control, and a control's draw hook wraps the default renderer without changing hit bounds. Each hook invocation restores pass state and transforms, including on error. Draw errors propagate to the frame boundary, and widget callback errors are reported with the control owner. [UI rendering](../../lua/lunette-plugins/ui/docs/rendering.md#scene-depth) specifies depth offsets, and [choice headers and text orientation](../../lua/lunette-plugins/ui/docs/rendering.md#choice-headers-and-text-orientation) specifies the default choice rendering.
+Theme overrides resolve from the global theme to the provider, panel, and control, and a control's draw hook wraps the default renderer without changing hit bounds. Each hook invocation restores pass state and transforms, including on error. Draw errors propagate to the frame boundary, and widget callback errors are reported with the control owner. [UI rendering](../../lua/lunette-plugins/ui/docs/rendering.md#scene-depth) specifies depth offsets, and [choice headers and text orientation](../../lua/lunette-plugins/ui/docs/rendering.md#text-and-titlebars) specifies the default choice rendering.
 
 Panels and controls end with their creation owners, with the provider, and at source reload. A control's focus target is registered under the UI provider and held by the control. A frozen `ui.OwnerIdentity` token identifies a creation-owner activation, and the owner and id together identify a live control. Inspection grants no authority.
 
@@ -338,7 +338,7 @@ A configuration-local callback registry was rejected because a plugin could reac
 
 ### A keyboard is laid out from keys
 
-The built-in row layout rationale is in [Keyboard behavior](../../lua/lunette-plugins/keyboard/docs/keyboard.md#decisions). An action is a union discriminated by `kind`, and `custom` lets a hook give a key a meaning the provider lacks.
+The built-in row layout rationale is in [Keyboard behavior](../../lua/lunette-plugins/keyboard/docs/keyboard.md). An action is a union discriminated by `kind`, and `custom` lets a hook give a key a meaning the provider lacks.
 
 ### The keyboard contract is what consumers call
 
@@ -430,7 +430,7 @@ A drag is read from `seat.drag` every frame rather than announced by events, bec
 
 ### The laser draws the drag icon
 
-The drag-icon drawing rationale is in [Aim and drag feedback](../../lua/lunette-plugins/laser/docs/aim-and-drag-feedback.md#decisions).
+The drag-icon drawing rationale is in [Aim and drag feedback](../../lua/lunette-plugins/laser/docs/aim-and-drag-feedback.md).
 
 ### Handles compare by what they name
 

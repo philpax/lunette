@@ -1,23 +1,15 @@
-# Arrangement persistence
+# Persistence behavior
 
-The `desktop/persistence` entry provides `lunette/arrangement`. Its factory keeps loaded state and held window slots across activations that use the same `file`. The activation-scoped rule source and panel-arrival listener end when the provider unloads. The provider requires the drops, frame, panels, rules, and tags contracts. Its configuration schema is [config.luau](../config.luau), and the versioned file format is defined by [format.luau](../format.luau).
+The `desktop/persistence` entry keeps loaded arrangement state and window slots across activations that use the same file. Its rule source and monitor-arrival listener belong to each activation. The [format implementation](../format.luau) owns serialization and validation.
 
-## Identity and slots
+## Matching and slots
 
-A window is saved under its application id and a monitor under its id. A window holds a slot from the creation of its panel until it dies. When that window dies, its slot becomes available; a later window with the same application id can reuse a free slot. The saved match uses the application id and slot, not the identity of the old window. Taking a slot on every resolve would let `rules:resolve` consume slots. Freeing a slot when the panel is removed would let a provider outage, which removes every panel while the windows remain, shuffle windows between slots.
+A window is matched by application id and slot, not by the identity of the old window. It holds its slot until it dies; a later window with the same application id can reuse a free slot. Slots are not allocated during every rule resolution, which would let previews consume them. Removing a panel does not free a slot, because outages can remove panels while their windows remain alive.
 
-A monitor panel that appears later is restored as it appears. A saved entry that matches nothing is reported once per arrangement. The state is made at the first activation and kept across activations with the same `file`. The rules source and arrival listener are effects of the activation.
+Saved monitor panels restore when their monitors appear. Unmatched saved entries are reported once per arrangement.
 
-## Save and restore lifecycle
+## Saving
 
-A file the provider cannot read, or one from a newer version, is reported and never overwritten. The provider saves when a drop is announced and at quit. A quit-save failure is reported and does not veto the quit. The arrangement contract in [arrangement.luau](../../../lunette-contracts/arrangement.luau) defines the service methods; the drops and frame contracts define the shared notifications.
+Unreadable files and files from a newer format version are reported and never overwritten. The provider saves after a drop and at quit. It does not save on panel removal because removal also occurs during outages, reloads, and unloads. A quit-save failure is reported without vetoing quit.
 
-Saving on panel removal was rejected because removal happens mostly during outages, reloads, and unloads, when the desktop is coming apart. A drop is the moment the user finishes placing a panel.
-
-## Decisions
-
-A saved slot is held by its window. Taking a slot on every resolve would let `rules:resolve` consume slots. Freeing a slot when the panel is removed would let a provider outage, which removes every panel while the windows remain, shuffle windows between slots.
-
-The arrangement is saved on a drop and at quit. Saving on panel removal was rejected because removal happens mostly during outages, reloads, and unloads, when the desktop is coming apart. A drop is the moment the user finishes placing a panel.
-
-The format implementation in [format.luau](../format.luau) is the source of truth for serialization and validation.
+The drops and frame contracts provide the notifications; [the arrangement contract](../../../lunette-contracts/arrangement.luau) defines the service.

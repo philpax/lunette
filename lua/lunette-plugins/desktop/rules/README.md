@@ -1,11 +1,9 @@
 # Default window rules
 
-`@lunette-plugins/desktop/rules` registers the shipped rule list with the `lunette/rules` service. The desktop entry id is `desktop/rules`.
+Registers the shipped window rules with the rules service. Configure the [`rules` list](config.luau) to replace the defaults; add another provider when a separate rule source is needed.
 
-The entry requires `lunette/rules`. [`config.luau`](config.luau) is the source of truth for the rule schema and defaults. The default rule matches Firefox by `appId`, gives it width 2, and places it at `(-1.4, 1.5, -1.2)` with a 0.9-radian rotation about the y axis. A configured `rules` list replaces that default list. Use the rules contract to add other sources rather than editing this consumer.
+| Requires |
+| --- |
+| `lunette/rules` |
 
-[Placement precedence and composition](../../../../docs/dev/standard-plugins.md#placement) specifies how this source combines with persisted and native poses. The rules contract owns match and property types. Tests: [`schema-validation.luau`](tests/schema-validation.luau).
-
-## Decisions
-
-The default rules are a separately replaceable source. Shared rule precedence and placement resolution remain in [Standard plugins](../../../../docs/dev/standard-plugins.md#placement).
+Rule and saved-pose precedence is described in [Placement](../../../../docs/dev/standard-plugins.md#placement).

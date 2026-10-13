@@ -50,7 +50,7 @@ A window is not a distinct object type. It is a texture, an input sink, and meta
 
 ## The documents
 
-The central documents specify native mechanisms, shared contracts, runtime rules, and the standard plugins' service connections and default composition. Each built-in and development plugin has a configuration-facing `README.md` beside its entry module. Longer plugin specifications live under the plugin's `docs/` directory. These local documents are part of the design specification. [Standard plugins](standard-plugins.md) links the built-in providers, consumers, and broker contributors and records how the shipped desktop composes them.
+[Standard plugins](standard-plugins.md) links configuration and consumer documentation beside each plugin. Plugin-local specifications describe behaviour and rationale; central specifications cover native mechanisms and shared contracts.
 
 - [Architecture](architecture.md): threads, ownership, the snapshot model, and the plugin runtime.
 - [LÖVR integration](lovr-integration.md): the fork, the patch set, linking, boot, and restart.

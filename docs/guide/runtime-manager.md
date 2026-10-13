@@ -1,6 +1,6 @@
 # Runtime manager
 
-`desktop/manager` is the shipped desktop's plugin manager. The wrist menu's Plugins action toggles its panel, and the action shows whether the panel is visible. The panel's titlebar reads Plugins, and its X hides the panel. The panel moves like any other, as [Panel movement](desktop-configuration.md#panel-movement) describes. It is built on the public `lunette/ui` service, so it works with any provider of that contract. The [manager plugin page](../../lua/lunette-plugins/desktop/manager/README.md) lists its dependencies, and [manager behavior](../../lua/lunette-plugins/desktop/manager/docs/runtime-manager-behavior.md) specifies refresh, inspection, and recovery behavior.
+`desktop/manager` is the shipped desktop's plugin manager. The wrist menu's Plugins action toggles its panel, and the action shows whether the panel is visible. The panel's titlebar reads Plugins, and its X hides the panel. The panel moves like any other, as [Panel movement](desktop-configuration.md#panel-movement) describes. It is built on the public `lunette/ui` service, so it works with any provider of that contract. The [manager plugin page](../../lua/lunette-plugins/desktop/manager/README.md) lists its dependencies, and [manager behavior](../../lua/lunette-plugins/desktop/manager/README.md) specifies refresh, inspection, and recovery behavior.
 
 The `desktop/manager` setting configures it; `lua/lunette-plugins/desktop/manager/config.luau` holds the options and defaults:
 

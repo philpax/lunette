@@ -1,23 +1,13 @@
 # Arrangement persistence
 
-This provider saves and restores panel poses, sizes, and tags. It supplies the `desktop/persistence` entry and the `lunette/arrangement` capability.
+The `desktop/persistence` provider saves and restores panel poses, sizes, and tags.
 
-## Entry
+| Provides | Requires |
+| --- | --- |
+| `lunette/arrangement` | `lunette/drops`, `lunette/frame`, `lunette/panels`, `lunette/rules`, `lunette/tags` |
 
-- Module: `@lunette-plugins/arrangement` (`lua/lunette-plugins/arrangement/init.luau`).
-- Desktop entry id: `desktop/persistence`.
-- Capability: `lunette/arrangement` version 1, declared in [the arrangement contract](../../../lua/lunette-contracts/arrangement.luau).
+[Options](config.luau) · [Contract](../../lunette-contracts/arrangement.luau) · [File format](format.luau) · [Persistence behavior](docs/persistence.md)
 
-## Dependencies
+A window holds its saved slot until it dies. The slot is keyed by application id and slot number, so a later window can reuse it. Holding slots avoids consuming them during rule previews and prevents provider outages from shuffling still-live windows. Monitor panels restore when they appear.
 
-The provider requires `lunette/drops`, `lunette/frame`, `lunette/panels`, `lunette/rules`, and `lunette/tags`. It does not require interaction; the drops broker carries completed grabs.
-
-## Configuration and extension
-
-The schema in [config.luau](config.luau) defines the `file` setting and its default. The state format and version are owned by [format.luau](format.luau). The service contract defines its callable methods. Configurations can replace or disable the `desktop/persistence` entry through desktop composition.
-
-[Persistence behaviour](docs/persistence.md) specifies matching, save timing, and refusal of unreadable or newer files. The shipped entry and its requirements are listed in [standard plugins](../../../docs/dev/standard-plugins.md#contracts-and-providers). [Standard plugins](../../../docs/dev/standard-plugins.md#default-configuration) summarizes the shipped composition. [Drops and owner-scoped registrations](../../../docs/dev/lua-api.md#pointers-and-drops) documents the shared broker guarantee.
-
-## Tests
-
-[Format and persistence tests](tests/format.luau) cover round-tripping, refused files, malformed entries, saving, and restoring. [Desktop arrangement tests](../desktop/arrange/tests/arrange.luau) cover interaction with layout selection.
+Unreadable files and files from newer versions are reported and never overwritten. The provider saves on a completed drop and at quit, not on panel removal: removal also occurs during outages and reloads. A quit-save error is reported without vetoing quit.

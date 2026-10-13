@@ -48,7 +48,7 @@ Saved monitor placement restores the panel's width and derives its height from t
 
 ## Runtime themes
 
-`desktop/theme` selects a theme from the `lunette/themes` catalog and applies it through `lunette/theme`. Its configuration has `preset`, a catalog name defaulting to `dark`, and `overrides`, which change fields of the chosen theme. The shipped themes are plugins: `theme/standard` registers Dark and Light, and `theme/arcade` registers Arcade, with its own palette, font, metrics, and radii. The [theme selector](../../lua/lunette-plugins/desktop/theme/README.md) and its [selection policy](../../lua/lunette-plugins/desktop/theme/docs/theme-selection.md) describe the runtime behavior. [Adding a theme](writing-plugins.md#adding-a-theme) shows a configuration that adds a theme and removes Arcade.
+`desktop/theme` selects a theme from the `lunette/themes` catalog and applies it through `lunette/theme`. Its configuration has `preset`, a catalog name defaulting to `dark`, and `overrides`, which change fields of the chosen theme. The shipped themes are plugins: `theme/standard` registers Dark and Light, and `theme/arcade` registers Arcade, with its own palette, font, metrics, and radii. The [theme selector](../../lua/lunette-plugins/desktop/theme/README.md) and its [selection policy](../../lua/lunette-plugins/desktop/theme/README.md) describe the runtime behavior. [Adding a theme](writing-plugins.md#adding-a-theme) shows a configuration that adds a theme and removes Arcade.
 
 ```luau
 require('@lunette-desktop').run {
@@ -95,11 +95,11 @@ Runtime choices belong to the session and survive provider reactivation while th
 
 `brightness`, `response`, and `motion` range from 0 to 1. `quality` is `low`, `standard`, or `high`. `distance` is in metres. `fadeDuration`, `attackDuration`, `releaseDuration`, `crossfadeDuration`, and `recoveryDuration` are in seconds. They control visibility, band attack/release, source changes, and audio-loss settling respectively. `palette` contains linear-light RGB colours for `zenith`, `horizon`, `low`, `high`, and `glint`, and for `bass`, `mid`, and `treble`. `low` and `high` colour the curtains' body and ray tops at rest. Each band colour takes over one altitude as its band grows loud, from the hem for bass to the ray tops for treble, and colours that band's onset: a bass flash along the hem, a mid flare along the body, and treble rays shooting upward. Onsets land roughly where the viewer is looking. `diagnostic` is a development view that draws one stage of the overhead sky field with the curtains hidden, to locate rendering defects on a particular GPU: `direction`, `coordinates`, `cells`, `density`, or `field`. It defaults to `none`, and the Backdrop panel's Diagnostic view control changes it during a session. Defaults and bounds remain in `config.luau`. Audio, attention, and controls are optional children with their own provider requirements. An audio or analysis outage removes reactivity, an attention-provider outage stops automatic selection, and a UI or menu outage withdraws controls. These outages do not disable the base environment.
 
-`examples/audio-backdrop` combines the complete default desktop with an independent raw-PCM and analysis meter. Disabling `desktop/backdrop` leaves that consumer active. Removing `audio` or `audio-analysis` interrupts only the consumers that require it. [Audio acceptance](../dev/audio.md#acceptance) records the live capture checks that remain pending. [Backdrop rendering gaps](../../lua/lunette-plugins/desktop/backdrop/docs/rendering.md#known-gaps) records the headset appearance, stereo, comfort, and frame-time checks; automated tests do not establish those properties.
+`examples/audio-backdrop` combines the complete default desktop with an independent raw-PCM and analysis meter. Disabling `desktop/backdrop` leaves that consumer active. Removing `audio` or `audio-analysis` interrupts only the consumers that require it. [Audio acceptance](../dev/audio.md#acceptance) records the live capture checks that remain pending. [Backdrop rendering gaps](../../lua/lunette-plugins/desktop/backdrop/docs/rendering.md#acceptance) records the headset appearance, stereo, comfort, and frame-time checks; automated tests do not establish those properties.
 
 ## Workspaces
 
-`desktop/workspaces` shows the windows of one workspace at a time. The default is one workspace, `main`, with no menu rows. The [workspace policy](../../lua/lunette-plugins/desktop/workspaces/docs/workspace-policy.md) describes selection and placement behavior.
+`desktop/workspaces` shows the windows of one workspace at a time. The default is one workspace, `main`, with no menu rows. The [workspace policy](../../lua/lunette-plugins/desktop/workspaces/README.md) describes selection and placement behavior.
 
 ```luau
 require('@lunette-desktop').run {
@@ -171,7 +171,7 @@ Scene content rounds its corners with the theme's `window` and `monitor` radii, 
 
 ## Theme fields
 
-`lua/lunette-contracts/theme.luau` declares the fields and `lua/lunette-plugins/theme/descriptors.luau` validates them. The values are in `theme/base.luau`, `theme/standard/presets.luau`, and `theme/arcade/preset.luau` under `lua/lunette-plugins/`. Each field reaches the components below unless a component option overrides it. The [runtime theme provider](../../lua/lunette-plugins/theme/README.md) documents the shared theme service; [runtime theme details](../../lua/lunette-plugins/theme/docs/runtime-themes.md) specify its implementation.
+`lua/lunette-contracts/theme.luau` declares the fields and `lua/lunette-plugins/theme/descriptors.luau` validates them. The values are in `theme/base.luau`, `theme/standard/presets.luau`, and `theme/arcade/preset.luau` under `lua/lunette-plugins/`. Each field reaches the components below unless a component option overrides it. The [runtime theme provider](../../lua/lunette-plugins/theme/README.md) documents the shared theme service; [runtime theme details](../../lua/lunette-plugins/theme/README.md) specify its implementation.
 
 | Field | Consumers | Component override |
 |---|---|---|
@@ -210,7 +210,7 @@ Scene content rounds its corners with the theme's `window` and `monitor` radii, 
 | `radii.titlebar` | Titlebar corners, in metres | Titlebar `cornerRadius` |
 | `radii.window`, `radii.monitor` | Scene window and monitor content, in metres | Panels `windowRadius`, `monitorRadius` |
 
-The manager caps some tokens in its fixed-size toolbar and editors, as [Session styling](runtime-manager.md#session-styling) lists. [Runtime manager behavior](../../lua/lunette-plugins/desktop/manager/docs/runtime-manager-behavior.md) specifies how the manager renders and refreshes its panel. Theme fields do not change keyboard layout, `keyUnit`, depth offsets, haptics, panel placement, or input routing.
+The manager caps some tokens in its fixed-size toolbar and editors, as [Session styling](runtime-manager.md#session-styling) lists. [Runtime manager behavior](../../lua/lunette-plugins/desktop/manager/README.md) specifies how the manager renders and refreshes its panel. Theme fields do not change keyboard layout, `keyUnit`, depth offsets, haptics, panel placement, or input routing.
 
 ## Decisions
 
@@ -230,7 +230,7 @@ The backdrop keeps its base environment independent of audio, attention, and con
 
 ## Known gaps
 
-Live PipeWire graph checks and headset appearance, comfort, stereo presentation, and frame-time comparisons remain pending. [Audio acceptance](../dev/audio.md#acceptance) records the live capture observations. [Backdrop rendering gaps](../../lua/lunette-plugins/desktop/backdrop/docs/rendering.md#known-gaps) records the headset observations. Automated provider and rendering tests do not establish actual host versions or live playback preservation.
+Live PipeWire graph checks and headset appearance, comfort, stereo presentation, and frame-time comparisons remain pending. [Audio acceptance](../dev/audio.md#acceptance) records the live capture observations. [Backdrop acceptance](../../lua/lunette-plugins/desktop/backdrop/docs/rendering.md#acceptance) records the pending headset checks. Automated provider and rendering tests do not establish actual host versions or live playback preservation.
 
 ## Deliberately left open
 

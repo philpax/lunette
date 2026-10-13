@@ -1,11 +1,13 @@
 # Native panel titlebars
 
-`@lunette-plugins/desktop/decorations` gives native window and monitor panels a shared UI titlebar when the panel has no chrome of its own. The shipped desktop uses entry `desktop/decorations`.
+Adds a shared titlebar to native window and monitor panels. Configure the optional [`style`](config.luau) override to change its appearance.
 
-The entry requires `lunette/frame`, `lunette/panels`, and `lunette/ui`. [`config.luau`](config.luau) is the source of truth for the optional `style` override. The override uses the UI provider's titlebar style descriptor. The shared UI provider owns titlebar controls and joined-frame geometry; see [Joined frame attachments](../../../../docs/dev/lua-api.md#joined-frame-attachments) and [Joined flat frames](../../../../docs/dev/rendering.md#joined-flat-frames).
+| Requires |
+| --- |
+| `lunette/frame`, `lunette/panels`, and `lunette/ui` |
 
-[Titlebar behavior](docs/titlebar-behavior.md) specifies close, move, and monitor recovery actions. [Desktop configuration](../../../../docs/guide/desktop-configuration.md#monitors-and-titlebars) remains the workflow guide. Tests: [`controls.luau`](tests/controls.luau).
+Window close requests the application's close; the panel remains until the client unmaps it. Monitor controls restart or remove a mirror without unplugging the host monitor. Capture workflows are described in [Monitors and titlebars](../../../../docs/guide/desktop-configuration.md#monitors-and-titlebars).
 
-## Deliberately left open
+## Client titlebars
 
-The duplicate-titlebar question, interaction limitation, alternatives, and hardware acceptance condition are recorded in [Titlebar behavior](docs/titlebar-behavior.md#deliberately-left-open).
+A client-drawn titlebar can coexist with this titlebar. The shared titlebar carries the VR grab and close controls; the client's titlebar cannot move the panel in space. Hiding the shared titlebar would require another VR control for moving and closing the panel. The choice remains open pending headset acceptance. See [Native headset tests](../../../../docs/dev/build-and-development.md#native-headset-tests).
