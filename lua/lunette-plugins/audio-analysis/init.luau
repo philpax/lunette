@@ -16,7 +16,6 @@ local resolveOptions: (unknown) -> (contract.Profile?, string?)
 local sourceOf: (unknown) -> audio.Source
 local snapshot: (audio.Source, contract.Profile, audio.State, number, number?, number?) -> contract.Snapshot
 local steady: (features.Hop) -> contract.Steady
-local hopOf: (features.Hop) -> contract.Hop
 
 local ENDED: audio.State = table.freeze { kind = 'ended' :: 'ended' }
 
@@ -167,10 +166,7 @@ build = function(context: plugin.Context, _settings: Settings): Service
     for _, profile in pending do
       local batch = profile.batch
       assert(batch ~= nil, 'audio analysis: missing frame batch')
-      local hops: { contract.Hop } = {}
-      for _, record in batch.hops do
-        hops[#hops + 1] = hopOf(record)
-      end
+      local hops = table.freeze(table.clone(batch.hops))
       local latest: contract.Steady? = nil
       local fresh = batch.latest
       if fresh then
@@ -190,7 +186,7 @@ build = function(context: plugin.Context, _settings: Settings): Service
         gap = gap,
         gapReason = reason,
         droppedFrames = nativeDropped + batch.droppedFrames,
-        hops = table.freeze(hops),
+        hops = hops,
         latest = latest,
       }
       profile.batch = nil
@@ -405,24 +401,6 @@ steady = function(record: features.Hop): contract.Steady
     midPower = record.midPower,
     treblePower = record.treblePower,
     spectrum = record.spectrum,
-  }
-end
-
-hopOf = function(record: features.Hop): contract.Hop
-  return table.freeze {
-    generation = record.generation,
-    endFrame = record.endFrame,
-    rms = record.rms,
-    peak = record.peak,
-    bassPower = record.bassPower,
-    midPower = record.midPower,
-    treblePower = record.treblePower,
-    spectrum = record.spectrum,
-    flux = record.flux,
-    onset = record.onset,
-    bassOnset = record.bassOnset,
-    midOnset = record.midOnset,
-    trebleOnset = record.trebleOnset,
   }
 end
 

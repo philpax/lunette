@@ -9,9 +9,6 @@ type Oracle = {
   bassPower: number,
   midPower: number,
   treblePower: number,
-  bass: number,
-  mid: number,
-  treble: number,
   rms: number,
   peak: number,
 }
@@ -77,9 +74,6 @@ local function oracle(samples: buffer, size: number): (Oracle, { [number]: numbe
     bassPower = bandPower.bass,
     midPower = bandPower.mid,
     treblePower = bandPower.treble,
-    bass = math.sqrt(bandPower.bass),
-    mid = math.sqrt(bandPower.mid),
-    treble = math.sqrt(bandPower.treble),
     rms = math.sqrt(squares / (2 * size)),
     peak = peak,
   },
@@ -94,7 +88,7 @@ test('audio_features_known_signals', function()
       end),
       size
     )
-    for _, key in { 'bass', 'mid', 'treble', 'rms', 'peak', 'flux', 'onset' } do
+    for _, key in { 'bassPower', 'midPower', 'treblePower', 'rms', 'peak', 'flux', 'onset' } do
       expect.equal(silence[key], 0, 'silence ' .. key)
     end
     for _, tone in
@@ -115,9 +109,14 @@ test('audio_features_known_signals', function()
           end),
           size
         )
-        expect.near(inPhase[tone.band], 0.5 / math.sqrt(2), 1e-7, 'the tone band RMS ' .. size .. ' ' .. tone.band)
+        expect.near(
+          math.sqrt(inPhase[tone.band .. 'Power']),
+          0.5 / math.sqrt(2),
+          1e-7,
+          'the tone band RMS ' .. size .. ' ' .. tone.band
+        )
         expect.near(inPhase.rms, 0.5 / math.sqrt(2), 1e-7, 'the unweighted RMS')
-        for _, key in { 'bass', 'mid', 'treble', 'rms', 'peak' } do
+        for _, key in { 'bassPower', 'midPower', 'treblePower', 'rms', 'peak' } do
           expect.near(antiPhase[key], inPhase[key], 1e-12, 'anti-phase power does not cancel')
         end
       end
@@ -128,7 +127,7 @@ test('audio_features_known_signals', function()
       end),
       size
     )
-    expect.near(oneChannel.mid, 0.25, 1e-7, 'channel powers are averaged')
+    expect.near(math.sqrt(oneChannel.midPower), 0.25, 1e-7, 'channel powers are averaged')
     expect.near(oneChannel.rms, 0.25, 1e-7, 'stereo RMS averages both channels')
     local dc = analyse(
       pcm(size, function(): (number, number)
@@ -139,7 +138,7 @@ test('audio_features_known_signals', function()
     expect.equal(dc.rms, 0.5, 'DC unweighted RMS')
     expect.equal(dc.peak, 0.5, 'DC peak')
     local dcSideBin = if size == 2048 then 0 else 0.5 / math.sqrt(3)
-    expect.near(dc.bass, dcSideBin, 1e-10, 'the periodic Hann side bin follows bass bin membership')
+    expect.near(math.sqrt(dc.bassPower), dcSideBin, 1e-10, 'the periodic Hann side bin follows bass bin membership')
     local nyquist = analyse(
       pcm(size, function(frame: number): (number, number)
         return (-1) ^ frame * 0.5, 0
@@ -147,7 +146,12 @@ test('audio_features_known_signals', function()
       size
     )
     expect.near(nyquist.rms, 0.5 / math.sqrt(2), 1e-10, 'Nyquist unweighted RMS')
-    expect.near(nyquist.bass + nyquist.mid + nyquist.treble, 0, 1e-10, 'Nyquist is outside the bands')
+    expect.near(
+      math.sqrt(nyquist.bassPower) + math.sqrt(nyquist.midPower) + math.sqrt(nyquist.treblePower),
+      0,
+      1e-10,
+      'Nyquist is outside the bands'
+    )
   end
 end)
 
@@ -179,7 +183,7 @@ test('stereo random boundary tones and impulses agree with an independent DFT or
   for _, samples in signals do
     local wanted = oracle(samples, size)
     local actual = analyse(samples, size)
-    for _, key in { 'bassPower', 'midPower', 'treblePower', 'bass', 'mid', 'treble', 'rms', 'peak' } do
+    for _, key in { 'bassPower', 'midPower', 'treblePower', 'rms', 'peak' } do
       expect.near(actual[key], wanted[key], 1e-10, 'the independent stereo DFT ' .. key)
     end
   end

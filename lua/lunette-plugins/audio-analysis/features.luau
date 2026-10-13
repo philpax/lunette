@@ -41,9 +41,6 @@ export type Hop = {
   read bassPower: number,
   read midPower: number,
   read treblePower: number,
-  read bass: number,
-  read mid: number,
-  read treble: number,
   read flux: number,
   read onset: number,
   read spectrum: { read [number]: number },
@@ -72,7 +69,7 @@ export type Analyzer = {
   read reset: (Analyzer) -> (),
 }
 
--- Band Power fields integrate one-sided bin powers by bin centre; bass, mid, and treble are their square roots.
+-- Band power fields integrate one-sided bin powers by bin centre.
 -- Spectrum holds eight band powers. A band with no bin centre, such as 30-60 Hz at size 512, has zero power.
 -- Band onsets apply bandOnset to the flux restricted to that coarse band's bins.
 -- A batch accepts at most 12,000 frames and emits at most 94 hops, across all feed calls in that render frame.
@@ -231,7 +228,7 @@ function features.new(config: Config?): Analyzer
       end
     end
     hasPrevious = true
-    return {
+    return table.freeze {
       generation = currentGeneration,
       endFrame = endFrame,
       rms = rms,
@@ -239,9 +236,6 @@ function features.new(config: Config?): Analyzer
       bassPower = bass,
       midPower = mid,
       treblePower = treble,
-      bass = math.sqrt(bass),
-      mid = math.sqrt(mid),
-      treble = math.sqrt(treble),
       flux = flux,
       onset = math.clamp((flux - 0.08) / 0.24, 0, 1),
       spectrum = table.freeze(table.clone(spectrum)),
