@@ -384,11 +384,11 @@ fn a_child_that_has_exited_is_never_signalled_again() {
         "a reaped child's process group must not be signalled"
     );
 
-    if let Some(entry) = processes
+    if let Some(Process::Managed(entry)) = processes
         .values_mut()
         .find(|entry| entry.id() == process(1))
     {
-        entry.kill(ProcessSignal::Terminate);
+        entry.child.signal(ProcessSignal::Terminate);
     }
     assert_eq!(
         spawner.log.signals(0),

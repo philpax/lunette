@@ -110,7 +110,7 @@ impl Application {
                     warn!(pid = %p.pid, %error, "could not signal an adopted process group");
                 }
             }
-            Some(p) => p.kill(signal),
+            Some(Process::Managed(p)) => p.child.signal(signal),
             None => debug!(%process, "a signal was asked for a process that is already gone"),
         }
     }

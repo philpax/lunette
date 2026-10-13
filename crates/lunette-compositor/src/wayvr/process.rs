@@ -20,13 +20,11 @@
 use std::io;
 
 use slotmap::{DenseSlotMap, new_key_type};
-use tracing as log;
 
 use crate::{
-    protocol::{Pid, ProcessId, ProcessInstance, ProcessObservation, ProcessSignal},
+    protocol::{Pid, ProcessId, ProcessInstance, ProcessObservation},
     spawn::{
         AUTH_VARIABLE, AuthToken, ChildProcess, ProcessInspector, ProcessRecord, find_environment_value,
-        signal_group,
     },
 };
 
@@ -53,33 +51,10 @@ pub enum Process {
     External(ExternalProcess), // External process not directly controlled by us
 }
 
-impl Process {
-    pub fn kill(&mut self, signal: ProcessSignal) {
-        match self {
-            Self::Managed(p) => p.kill(signal),
-            Self::External(p) => p.kill(signal),
-        }
-    }
-}
-
 pub fn get_process_env_value(pid: Pid, key: &str) -> io::Result<Option<Vec<u8>>> {
     let path = format!("/proc/{pid}/environ");
     let env_data = std::fs::read(path)?;
     Ok(find_environment_value(&env_data, key.as_bytes()))
-}
-
-impl WayVRProcess {
-    fn kill(&mut self, signal: ProcessSignal) {
-        self.child.signal(signal);
-    }
-}
-
-impl ExternalProcess {
-    fn kill(&mut self, signal: ProcessSignal) {
-        if let Err(error) = signal_group(self.pid, signal) {
-            log::warn!(pid = %self.pid, %error, "could not signal an adopted process group");
-        }
-    }
 }
 
 new_key_type! {
