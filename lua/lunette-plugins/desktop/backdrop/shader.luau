@@ -18,11 +18,15 @@ local WAVES = [[
   // A layer's extent around the ring. Quiet, it breaks into separate drifting arcs; as its band grows louder
   // the gaps close until the curtain encircles the sky.
   float ribbon(float phase, float layer, float time, float level) {
-    float wander = sin(phase * 2. + layer * 2.1 + time * 1.7) * .6 + sin(phase * 3. - layer * 1.3 - time * 1.1) * .4;
+    float wander = sin(phase * 2. + layer * 2.1 + time * 52.) * .6 + sin(phase * 3. - layer * 1.3 - time * 38.) * .4;
     float open = clamp(level, 0., 1.);
     return smoothstep(-.6 - open * .8, .3 - open * .6, wander);
   }
 ]]
+
+-- Autonomous terms take time in radians per 4096 units of model time, which advances at the motion strength
+-- in units per second. Their multipliers are whole numbers so every term is continuous where the clock wraps;
+-- a multiplier of 140 completes a cycle in about 29 seconds at full motion.
 
 -- Wavefront speeds in turns of the ring per second.
 local BASS_SPEED = 0.3
@@ -43,7 +47,10 @@ local function withWaves(source: string): string
 end
 
 shader.skyVertex = [[
+  out vec3 skyDirection;
+
   vec4 lovrmain() {
+    skyDirection = VertexPosition.xyz;
     return DefaultPosition;
   }
 ]]
@@ -56,8 +63,56 @@ shader.skyFragment = withWaves [[
   uniform vec3 backdropTreble;
   uniform vec3 backdropMid;
 
+  in vec3 skyDirection;
+
   float hash(vec2 p) {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+  }
+  float noise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    // Quintic interpolation is smooth in its second derivative, so no creases show along the cell edges.
+    f = f * f * f * (f * (f * 6. - 15.) + 10.);
+    float a = hash(i);
+    float b = hash(i + vec2(1., 0.));
+    float c = hash(i + vec2(0., 1.));
+    float d = hash(i + vec2(1., 1.));
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+  }
+  float fbm(vec2 p) {
+    float value = 0.;
+    float amplitude = .5;
+    for (int i = 0; i < 4; i++) {
+      value += amplitude * noise(p);
+      // Each octave turns as well as scales, so the octaves' grids never line up into visible lines.
+      p = mat2(.8, .6, -.6, .8) * p * 2.03 + vec2(1.7, 9.2);
+      amplitude *= .5;
+    }
+    return value;
+  }
+  vec2 circle(float angle) {
+    return vec2(cos(angle), sin(angle));
+  }
+  // Patchy aurora overhead: elongated patches drift, shear, and swirl through a fluctuating field, forming and
+  // dissolving as it changes, and each breathes in and out on its own phase as pulsating aurora does. Every
+  // time term moves around a circle with a whole-number multiplier, so the field is continuous where the clock
+  // wraps.
+  vec3 overhead(vec3 direction, float time, float energy) {
+    // Stereographic coordinates from the nadir have no seam at the zenith.
+    vec2 q = direction.xz / (1. + direction.y) * 3.;
+    float twist = .5 * sin(time * 20.) + .7 * length(q) * sin(time * 31.);
+    q = mat2(cos(twist), sin(twist), -sin(twist), cos(twist)) * q;
+    vec2 warp = vec2(fbm(q * 1.1 + circle(time * 45.) * 1.5), fbm(q * 1.1 + vec2(5.2, 1.3) + circle(time * 37. + 1.) * 1.5));
+    vec2 field = q + (warp - .5) * 1.4;
+    float density = fbm(field * vec2(1.6, 3.) + circle(time * 23.) * .8);
+    float pulse = .5 + .5 * sin(time * 160. + fbm(q * .7) * 9.);
+    float threshold = .6 - .12 * energy;
+    // A wide edge keeps the patches diffuse, and fine streaks along the field give them the texture of rays.
+    float cloud = smoothstep(threshold - .08, threshold + .3, density) * mix(.25, 1., pulse);
+    // The streaks are a warped sine rather than stretched noise, whose stretched cells would show as straight lines.
+    float streaks = .55 + .45 * sin(field.y * 26. + fbm(field * 2. + 7.7) * 7.);
+    vec3 color = mix(backdropMid, backdropTreble, smoothstep(.35, .7, fbm(field * .8 + 3.1)));
+    return color * cloud * streaks * (.08 + .22 * energy);
   }
   vec4 lovrmain() {
     float height = sin((UV.y - .5) * 3.14159265);
@@ -87,8 +142,14 @@ shader.skyFragment = withWaves [[
     // The curtains' light spills into the low sky as a faint airglow that swells with the mid band.
     float airglow = exp(-abs(height - .3) * 6.) * smoothstep(.08, .2, height);
     sky += backdropMid * airglow * (.005 + .015 * backdropResponse.y);
+    // The direction comes from the interpolated position, not from UV. Near the zenith one triangle spans a wide
+    // range of longitude, and UV interpolated across it bends the field into visible facets at every edge.
+    vec3 direction = normalize(skyDirection);
+    float energy = dot(backdropResponse.xyz, vec3(1. / 3.));
+    float time = backdropSky.y * (TAU / 4096.);
+    vec3 field = overhead(direction, time, energy) * smoothstep(.3, .65, height) * backdropSky.z;
     float alpha = clamp(backdropSky.x, 0., 1.);
-    return vec4(clamp(sky * backdropSky.z, 0., .12) * alpha, alpha);
+    return vec4((clamp(sky * backdropSky.z, 0., .12) + min(field, vec3(.35))) * alpha, alpha);
   }
 ]]
 shader.curtainVertex = withWaves [[
@@ -105,7 +166,7 @@ shader.curtainVertex = withWaves [[
     float phase = angle + layer * 1.8;
     vec3 band = backdropResponse.xyz * backdropFocus.xyz;
     float energy = dot(backdropResponse.xyz, vec3(1. / 3.));
-    float fold = sin(phase * 5. + time * 13.) + .45 * sin(phase * 11. - time * 9.);
+    float fold = sin(phase * 5. + time * 140.) + .45 * sin(phase * 11. - time * 98.);
     float heave = 0.;
     float ripple = 0.;
     float lift = 0.;
@@ -128,19 +189,20 @@ shader.curtainVertex = withWaves [[
     float own = layer < .5 ? backdropResponse.x : layer < 1.5 ? backdropResponse.y : backdropResponse.z;
     // A passing onset restores full height, so an onset in a gap raises a curtain rather than a thread.
     float reach = max(ribbon(phase, layer, time, own), min(heave + lift + surge, 1.));
-    float fine = band.z * sin(phase * 29. + time * 23.) * pow(1. - v, 3.) * .012;
+    float fine = band.z * sin(phase * 29. + time * 315.) * pow(1. - v, 3.) * .012;
     // Each curtain tilts on its own slow cycle, so the curtains cross and weave instead of stacking in parallel.
-    float tilt = sin(angle + layer * 2.4 + time * 1.5) * .06;
-    float elevation = .15 + layer * .07 + tilt + sin(phase * 2. + time * 7.) * (.035 + band.x * .03);
+    float tilt = sin(angle + layer * 2.4 + time * 32.) * .06;
+    float elevation = .15 + layer * .07 + tilt + sin(phase * 2. + time * 70.) * (.035 + band.x * .03);
     // Rays rise further as the music grows, toward the zenith at full energy, and a treble onset shoots them up.
     float height = (.38 + .32 * energy + band.z * .1 + heave * .06 + min(surge, 1.) * .08) * (.5 + .5 * reach);
     elevation += v * height + fold * (.025 + band.y * .04);
     elevation += ripple * .022 + fine + v * min(lift, 1.) * .06;
     // In plan view each curtain meanders toward and away from the viewer in broad folds, so the curtains overlap
     // in depth and perspective makes the nearer stretches tower over the farther ones.
-    float meander = sin(angle * 2. + layer * 2.1 + time * 1.3) * .2 + sin(angle * 5. - layer * 1.4 + time * 2.9) * .07;
+    float meander = sin(angle * 2. + layer * 2.1 + time * 42.) * .2 + sin(angle * 5. - layer * 1.4 + time * 91.) * .07;
     float radius = backdropScene.w * (1. + meander - layer * .05);
-    radius += fold * (.16 + band.y * .28) + heave * 1.1;
+    // Folds swing the curtain several metres toward and away from the viewer as they travel along it.
+    radius += fold * (1.8 + band.y * 1.5) + heave * 1.1;
     vec3 position = vec3(sin(angle) * cos(elevation), sin(elevation), cos(angle) * cos(elevation)) * radius;
     return ClipFromLocal * vec4(position, 1.);
   }
@@ -186,19 +248,19 @@ shader.curtainFragment = withWaves [[
     treble *= treble;
 
     // Rays lean and wander as they rise, so they read as light streaming along field lines rather than as
-    // straight bars. Their drift is slow: fast-moving fine rays strobe in a headset.
-    float lean = v * (.08 * sin(phase * 3. + time * 2.) + .04 * sin(phase * 7. - time * 3.));
+    // straight bars.
+    float lean = v * (.08 * sin(phase * 3. + time * 70.) + .04 * sin(phase * 7. - time * 105.));
     float q = phase + lean;
-    float r1 = .5 + .5 * sin(q * 43. + sin(q * 7. - time * 4.) * 2.);
-    float r2 = .5 + .5 * sin(q * 89. + time * 6.);
-    float r3 = .5 + .5 * sin(q * 157. - time * 9.);
+    float r1 = .5 + .5 * sin(q * 43. + sin(q * 7. - time * 105.) * 2.);
+    float r2 = .5 + .5 * sin(q * 89. + time * 175.);
+    float r3 = .5 + .5 * sin(q * 157. - time * 245.);
     // Soft, uneven rays. Squares sharpen the sines a little without cutting dark gaps between them.
     float rays = r1 * r1 * .5 + r2 * r2 * .3 + (.1 + band.z * .25) * r3 * r3;
-    // Each ray brightens and dims along its length, so no ray is a uniform pillar.
-    float streak = .75 + .25 * sin(v * 7. + r1 * 3. - time * 2.);
-    float folds = .6 + .4 * sin(phase * 5. + time * 13.);
+    // Brightness streams up each ray, so no ray is a uniform pillar and the curtain seems to flow upward.
+    float streak = .75 + .25 * sin(v * 7. + r1 * 3. - time * 525.);
+    float folds = .6 + .4 * sin(phase * 5. + time * 140.);
     // Ray tops reach different heights along the curtain.
-    float tops = .7 + .2 * sin(phase * 9. + time * 3.) + .1 * sin(phase * 23. - time * 4.);
+    float tops = .7 + .2 * sin(phase * 9. + time * 88.) + .1 * sin(phase * 23. - time * 122.);
 
     float flash = 0.;
     float crest = 0.;
@@ -251,6 +313,80 @@ shader.curtainFragment = withWaves [[
     light += vec3(min(over, 1.) * .18);
     float alpha = clamp(peak * .2, 0., .2);
     return vec4(light, alpha);
+  }
+]]
+
+shader.wispVertex = withWaves [[
+  uniform vec4 backdropScene;
+  uniform vec4 backdropResponse;
+  uniform vec3 backdropLow;
+  uniform vec3 backdropHigh;
+  uniform vec3 backdropMid;
+  uniform vec3 backdropTreble;
+
+  out vec3 wispColor;
+  out float wispSeed;
+
+  float hash(vec2 p) {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+  }
+  vec4 lovrmain() {
+    float id = VertexNormal.x;
+    float time = backdropScene.y * (TAU / 4096.);
+    float energy = dot(backdropResponse.xyz, vec3(1. / 3.));
+    // A fragment lives for 4096 / rate units of model time, about 9 to 15 seconds at full motion. The
+    // whole-number rate keeps its phase continuous where the clock wraps, and folding the cycle count by the
+    // rate keeps its seed continuous there too.
+    float rate = floor(270. + 180. * hash(vec2(id, 1.)));
+    float cycles = backdropScene.y * rate / 4096. + hash(vec2(id, 2.));
+    float cycle = mod(floor(cycles), rate);
+    float life = fract(cycles);
+    float layer = floor(hash(vec2(id, cycle + 3.)) * 3.);
+    float u = hash(vec2(id, cycle + 4.));
+    float v = .15 + .5 * hash(vec2(id, cycle + 5.));
+    // Louder music sets more fragments loose; the rest stay dark and collapse to a point.
+    float loose = step(hash(vec2(id, cycle + 6.)), .3 + .7 * energy);
+    float fade = smoothstep(0., .2, life) * (1. - smoothstep(.45, 1., life)) * loose;
+    // A fragment leaves its curtain where it spawned, then rises, drifts sideways, and moves away as it fades.
+    float angle = TAU * (u + (hash(vec2(id, cycle + 7.)) - .5) * .025 * life);
+    float phase = angle + layer * 1.8;
+    float tilt = sin(angle + layer * 2.4 + time * 32.) * .06;
+    float elevation = .15 + layer * .07 + tilt + v * .45 + life * (.08 + .06 * hash(vec2(id, cycle + 8.)));
+    float meander = sin(angle * 2. + layer * 2.1 + time * 42.) * .2 + sin(angle * 5. - layer * 1.4 + time * 91.) * .07;
+    float radius = backdropScene.w * (1. + meander - layer * .05) * (1. + life * .08);
+    vec3 centre = vec3(sin(angle) * cos(elevation), sin(elevation), cos(angle) * cos(elevation)) * radius;
+    // The quad faces the head at the origin and stretches along the local vertical, like a loose ray.
+    vec3 toward = normalize(centre);
+    vec3 side = normalize(cross(vec3(0., 1., 0.), toward));
+    vec3 up = cross(toward, side);
+    float scale = radius / 25. * (.6 + .8 * hash(vec2(id, cycle + 9.))) * fade;
+    vec3 position = centre + side * (VertexUV.x - .5) * 4.5 * scale + up * (VertexUV.y - .5) * 10. * scale;
+    vec3 rest = mix(backdropLow, backdropHigh, smoothstep(.25, .6, v));
+    vec3 tint = mix(backdropMid, backdropTreble, smoothstep(.25, .6, v));
+    wispColor = mix(rest, tint, clamp(energy * 1.5, 0., 1.)) * fade * (.5 + energy);
+    wispSeed = hash(vec2(id, cycle + 10.));
+    return ClipFromLocal * vec4(position, 1.);
+  }
+]]
+shader.wispFragment = [[
+  uniform vec4 backdropScene;
+  uniform vec4 backdropResponse;
+
+  in vec3 wispColor;
+  in float wispSeed;
+
+  vec4 lovrmain() {
+    vec2 p = UV - .5;
+    // A soft, tall glow with a few faint streaks along its length. The Gaussian alone leaves a few percent of
+    // its light at the quad's border, which shows as a straight edge against the dark sky, so a window that
+    // reaches zero at every edge bounds it.
+    vec2 edge = 1. - 4. * p * p;
+    float shape = exp(-p.x * p.x * 14.) * exp(-p.y * p.y * 10.) * edge.x * edge.x * edge.y * edge.y;
+    float streaks = .7 + .3 * sin(UV.x * 13. + wispSeed * 40.);
+    vec3 light = wispColor * shape * streaks * backdropScene.x * backdropResponse.w * .6;
+    float peak = max(max(light.r, light.g), light.b);
+    light *= min(1., .6 / max(peak, .0001));
+    return vec4(light, clamp(peak * .2, 0., .12));
   }
 ]]
 

@@ -48,7 +48,7 @@ function selection.new(settings: Settings?): State
     attended = nil :: lunette.Process?,
     reactive = true,
     response = 1,
-    motion = 0.35,
+    motion = 1,
     dwell = 0.75,
     frozen = false,
     revision = 0,
@@ -75,7 +75,7 @@ function State.configure(self: State, settings: Settings): ()
     self:setResponse(settings.response or 1)
   end
   if previous == nil or previous.motion ~= settings.motion then
-    self:setMotion(settings.motion or 0.35)
+    self:setMotion(settings.motion or 1)
   end
   if previous == nil or previous.dwell ~= settings.dwell then
     local duration = settings.dwell or 0.75

@@ -27,7 +27,7 @@ test('backdrop_survives_audio_outages', function()
   env.session:draw()
   expect.equal(#env.drawn, 0, 'no drawing before the first update')
   visible(env)
-  expect.equal(#env.drawn, 4, 'sky and three curtain layers need only frame')
+  expect.equal(#env.drawn, 5, 'sky, three curtain layers, and the drifting fragments need only frame')
   state:setFeatures { bass = 1, mid = 0.5, treble = 0.25 }
   visible(env, 0.4)
   state:noAudio()
@@ -40,8 +40,8 @@ test('backdrop_survives_audio_outages', function()
   expect.equal(env.uniforms.backdropResponse[3], 0, 'audio loss settles edges')
   expect.equal(env.uniforms.backdropScene[1], 1, 'audio loss keeps visibility')
   expect.truthy(env.uniforms.backdropScene[2] > 0, 'autonomous movement continues')
-  expect.equal(#env.recorder.meshAcquisitions, 2, 'fixed reused surfaces')
-  expect.equal(#env.recorder.shaderAcquisitions, 2, 'fixed reused shaders')
+  expect.equal(#env.recorder.meshAcquisitions, 3, 'fixed reused surfaces')
+  expect.equal(#env.recorder.shaderAcquisitions, 3, 'fixed reused shaders')
   env.recorder:assertRestored()
   env.session:close()
   for _, shader in env.recorder.shaderAcquisitions do
@@ -103,7 +103,7 @@ test('resource compilation failure restores the pass and releases partial acquis
   end
   visible(env)
   expect.equal(#env.native.events.reported, 1, 'compile failure reaches frame boundary')
-  expect.equal(#env.recorder.meshAcquisitions, 2, 'meshes created before compilation')
+  expect.equal(#env.recorder.meshAcquisitions, 3, 'meshes created before compilation')
   env.recorder:assertMeshesReleased()
   env.recorder:assertRestored()
   env.session:close()
@@ -121,7 +121,7 @@ test('orientation stays world stable and the background draws before foreground'
       service:onDraw(context, {
         phase = 'scene',
         run = function()
-          foreground = #env.drawn == 4
+          foreground = #env.drawn == 5
         end,
       })
     end,

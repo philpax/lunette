@@ -21,7 +21,7 @@ local descriptor = schema.object {
   ) 'system',
   dwell = schema.default(schema.number { minimum = 0.1, maximum = 3 })(0.75),
   fadeDuration = schema.default(schema.number { minimum = 0, maximum = 5 })(0.8),
-  attackDuration = schema.default(schema.number { minimum = 0, maximum = 5 })(0.06),
+  attackDuration = schema.default(schema.number { minimum = 0, maximum = 5 })(0.12),
   releaseDuration = schema.default(schema.number { minimum = 0, maximum = 5 })(0.45),
   crossfadeDuration = schema.default(schema.number { minimum = 0, maximum = 5 })(1.2),
   recoveryDuration = schema.default(schema.number { minimum = 0, maximum = 5 })(1.5),
@@ -29,7 +29,7 @@ local descriptor = schema.object {
   quality = schema.default(schema.enum<<'low' | 'standard' | 'high'>> { 'low', 'standard', 'high' }) 'standard',
   brightness = schema.default(schema.number { minimum = 0, maximum = 1 })(1),
   response = schema.default(schema.number { minimum = 0, maximum = 1 })(1),
-  motion = schema.default(schema.number { minimum = 0, maximum = 1 })(0.35),
+  motion = schema.default(schema.number { minimum = 0, maximum = 1 })(1),
   palette = schema.default(palette)(palette.parse {}),
 }
 

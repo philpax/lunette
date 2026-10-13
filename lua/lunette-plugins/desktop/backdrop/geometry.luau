@@ -3,14 +3,17 @@ local config = require './config'
 
 local geometry = {}
 export type Data = { read vertices: { { number } }, read indices: { number } }
-export type Surfaces = { read sky: Data, read curtain: Data }
+export type Surfaces = { read sky: Data, read curtain: Data, read wisps: Data }
 
 local tessellation = {
   low = { segments = 64, vertical = 6 },
   standard = { segments = 128, vertical = 8 },
   high = { segments = 192, vertical = 12 },
 }
+-- Fragments that drift away from the curtains. Each is one quad whose shader derives its whole life from its index.
+local WISPS = 64
 local grid: (number, number, (number, number) -> vector) -> Data
+local quads: (number) -> Data
 
 function geometry.build(settings: config.Settings): Surfaces
   local quality = tessellation[settings.quality]
@@ -27,7 +30,7 @@ function geometry.build(settings: config.Settings): Surfaces
     -- The shader derives the position from UV; the default position remains finite for CPU inspection.
     return vector.pack(0, 0, 0)
   end)
-  return { sky = sky, curtain = curtain }
+  return { sky = sky, curtain = curtain, wisps = quads(WISPS) }
 end
 
 grid = function(segments: number, vertical: number, position: (number, number) -> vector): Data
@@ -48,6 +51,22 @@ grid = function(segments: number, vertical: number, position: (number, number) -
       for _, index in { a, c, b, b, c, d } do
         indices[#indices + 1] = index
       end
+    end
+  end
+  return { vertices = vertices, indices = indices }
+end
+
+-- The normal's x component carries the quad's index, since the shader has no instance data of its own.
+quads = function(count: number): Data
+  local vertices: { { number } } = {}
+  local indices: { number } = {}
+  for index = 0, count - 1 do
+    local base = #vertices
+    for _, corner in { { 0, 0 }, { 1, 0 }, { 0, 1 }, { 1, 1 } } do
+      vertices[#vertices + 1] = { 0, 0, 0, index, 0, 0, corner[1], corner[2] }
+    end
+    for _, offset in { 1, 3, 2, 2, 3, 4 } do
+      indices[#indices + 1] = base + offset
     end
   end
   return { vertices = vertices, indices = indices }

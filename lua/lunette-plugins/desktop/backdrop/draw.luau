@@ -9,7 +9,14 @@ local shader = require './shader'
 
 local draw = {}
 export type Renderer = { read render: (Pass, model.Frame, vector) -> () }
-type Resources = { sky: Mesh, curtain: Mesh, skyShader: Shader, curtainShader: Shader }
+type Resources = {
+  sky: Mesh,
+  curtain: Mesh,
+  wisps: Mesh,
+  skyShader: Shader,
+  curtainShader: Shader,
+  wispShader: Shader,
+}
 local acquireResources: (plugin.Context, config.Settings) -> Resources
 local BAND_INDEX = table.freeze { bass = 1, mid = 2, treble = 3 } :: { read [model.Band]: number }
 -- Each layer leans toward one band, inner to outer: bass, mid, then treble.
@@ -78,6 +85,14 @@ function draw.new(context: plugin.Context, settings: config.Settings): Renderer
           pass:send('backdropFocus', LAYER_FOCUS[layer + 1])
           pass:draw(held.curtain)
         end
+        pass:setShader(held.wispShader)
+        pass:send('backdropScene', { frame.visibility, frame.time, 0, settings.distance })
+        pass:send('backdropResponse', response)
+        pass:send('backdropLow', settings.palette.low)
+        pass:send('backdropHigh', settings.palette.high)
+        pass:send('backdropMid', settings.palette.mid)
+        pass:send('backdropTreble', settings.palette.treble)
+        pass:draw(held.wisps)
       end)
     end,
   }
@@ -108,8 +123,10 @@ acquireResources = function(context: plugin.Context, settings: config.Settings):
       held = {
         sky = mesh(data.sky),
         curtain = mesh(data.curtain),
+        wisps = mesh(data.wisps),
         skyShader = compile(shader.skyVertex, shader.skyFragment),
         curtainShader = compile(shader.curtainVertex, shader.curtainFragment),
+        wispShader = compile(shader.wispVertex, shader.wispFragment),
       }
     end)
     if not ok then

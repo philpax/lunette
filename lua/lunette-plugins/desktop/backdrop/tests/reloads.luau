@@ -133,7 +133,7 @@ local function defaults(services: Services): ()
   expect.equal(selected(services.ui, 'reactive'), 'on', 'configuration restores reactivity')
   expect.equal(selected(services.ui, 'source-mode'), 'system', 'configuration restores the system mix')
   expect.equal(selected(services.ui, 'response'), '1', 'configuration restores response')
-  expect.equal(selected(services.ui, 'motion'), '0.25', 'configuration restores motion')
+  expect.equal(selected(services.ui, 'motion'), '1', 'configuration restores motion')
   expect.equal(selected(services.ui, 'applications'), nil, 'configuration forgets the pinned application')
 end
 
@@ -385,7 +385,7 @@ test('provider outages withdraw only dependent backdrop children and recover wit
     native.events.draw = {}
     step(native)
     expect.equal(session:draw(), false, 'the renderer draws through the provider outage')
-    expect.truthy(live(native.events.render.shaderAcquisitions, 'released') == 2, 'the renderer keeps its shaders')
+    expect.truthy(live(native.events.render.shaderAcquisitions, 'released') == 3, 'the renderer keeps its shaders')
     if case.status then
       expect.truthy(textContains(native, case.status), 'the control panel reports the missing provider')
     end

@@ -79,7 +79,7 @@ end)
 test('the spectrum follows the configured envelope and response strength', function()
   local state = new { response = 0.5 }
   state:setFeatures { bass = 0, mid = 0, treble = 0, spectrum = { 1, 0, 0, 0, 0, 0, 0, 2 } }
-  local frame = state:update(0.06, false)
+  local frame = state:update(0.12, false)
   expect.near(frame.spectrum[1], (1 - math.exp(-1)) * 0.5, 1e-8, 'attack time constant and strength')
   expect.near(frame.spectrum[8], (1 - math.exp(-1)) * 0.5, 1e-8, 'values clamp to one before smoothing')
   expect.equal(frame.spectrum[4], 0, 'unlit band')

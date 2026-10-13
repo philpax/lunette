@@ -90,8 +90,8 @@ end)
 test('response attack and release use independently configured exponential durations', function()
   local state = new { response = 1 }
   state:setFeatures { bass = 1, mid = 1, treble = 1 }
-  local attack = state:update(0.06, false)
-  expect.near(attack.bass, 1 - math.exp(-1), 1e-8, '60 millisecond attack time constant')
+  local attack = state:update(0.12, false)
+  expect.near(attack.bass, 1 - math.exp(-1), 1e-8, '120 millisecond attack time constant')
   state:setFeatures { bass = 0, mid = 0, treble = 0 }
   local release = state:update(0.45, false)
   expect.near(release.bass, attack.bass * math.exp(-1), 1e-8, '450 millisecond release time constant')
