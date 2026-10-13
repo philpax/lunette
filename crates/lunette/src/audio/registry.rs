@@ -127,6 +127,7 @@ impl AudioRegistry for NativeAudioRegistry {
             .or_insert(ProcessEntry {
                 state: ProcessState::Pending,
                 sent: None,
+                observation: None,
             });
     }
 
@@ -140,8 +141,14 @@ impl AudioRegistry for NativeAudioRegistry {
             } => {
                 if *observation == ProcessObservation::Ended {
                     state.end_process(*process);
-                } else if let Some(entry) = state.processes.get_mut(process) {
+                } else {
+                    let entry = state.processes.entry(*process).or_insert(ProcessEntry {
+                        state: ProcessState::Pending,
+                        sent: None,
+                        observation: None,
+                    });
                     entry.state.refresh(*observation);
+                    entry.observation = Some(*observation);
                 }
             }
             Event::AudioProcessResolved(reply) => {
@@ -167,8 +174,14 @@ impl AudioRegistry for NativeAudioRegistry {
                 .or_insert(ProcessEntry {
                     state: ProcessState::Pending,
                     sent: None,
+                    observation: None,
                 });
             entry.state.register(process);
+        }
+        for entry in state.processes.values_mut() {
+            if let Some(observation) = entry.observation.take() {
+                entry.state.refresh(observation);
+            }
         }
         // A queued spawn may not have reached the compositor. Absence is not an exit report.
         state.frame_generation = next_generation;
@@ -292,6 +305,8 @@ struct RegistryState {
 struct ProcessEntry {
     state: ProcessState,
     sent: Option<ProcessCaptureStatus>,
+    // Events drained after the frame snapshot override its older observation.
+    observation: Option<ProcessObservation>,
 }
 
 #[derive(Clone, Copy)]
@@ -413,8 +428,10 @@ impl RegistryState {
         let entry = self.processes.entry(process).or_insert(ProcessEntry {
             state: ProcessState::Ended,
             sent: None,
+            observation: None,
         });
         entry.state = ProcessState::Ended;
+        entry.observation = None;
     }
 
     fn source_state(&self, source: Source) -> Option<CaptureState> {
