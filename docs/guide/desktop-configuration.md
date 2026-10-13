@@ -1,108 +1,50 @@
 # Desktop configuration
 
-A configuration is a Luau project whose `main.luau` can start the shipped desktop, compose plugins independently, or build another composition. The shipped configuration starts the default desktop with `require('@lunette-desktop').run()`. It composes providers and consumers as entries with stable ids; settings configure entries, and patches insert, replace, or disable them. The [default composition](../dev/standard-plugins.md#default-configuration) and [desktop composition reference](../../lua/lunette-plugin/configuration-and-composition.md) identify the entries and their roles. Each plugin's README describes how its settings and controls are used.
+The shipped desktop runs from a Luau configuration. Its `main.luau` starts `@lunette-desktop`; settings change built-in entries, and patches add, replace, or disable plugins. Plugin authors can use the same configuration to [compose their own plugins](writing-plugins.md).
 
-`lunette --dump-config` copies a runnable configuration and writes a `.luaurc` for the installed module roots. `lunette check` checks configuration modules without starting a session. `lunette --config-path DIR` starts the configuration in `DIR`, which holds `main.luau` and optionally `conf.luau`. [The development loop](../dev/build-and-development.md#the-development-loop) describes the repository's development configuration.
+## Copy and check a configuration
+
+```sh
+lunette --dump-config DIR
+# Edit DIR/main.luau.
+lunette check DIR
+lunette --config-path DIR
+```
+
+`--dump-config` writes the runnable configuration and a `.luaurc` for the installed modules. A `.luaurc` copied from the repository resolves the wrong paths beside an installed configuration. `lunette check` checks types without running plugins; starting the session validates settings and exercises behavior. With no custom configuration, lunette runs the shipped one directly.
 
 ## Settings
 
-`desktop.run` accepts settings keyed by entry id. The checker validates their types, and composition validates values when the configuration loads. Settings merge into an entry's configuration according to its schema. An entry cannot be named by both settings and patches; replace and configure it together in one patch. The plugin's configuration schema and implementation define accepted settings and defaults; its README explains how to use them and describes behavior.
+`desktop.run` accepts settings keyed by entry id. The [desktop composition](../../lua/lunette-desktop/init.luau) identifies those ids. Each plugin's configuration schema defines accepted values and defaults; its README describes use and controls. Unsupported or misspelt settings fail validation.
 
-```luau
-require('@lunette-desktop').run {
-  settings = {
-    ['desktop/menu'] = { hand = 'right' },
-    ['desktop/keyboard'] = { placement = { distance = 0.45 } },
-    ['desktop/workspaces'] = { names = { 'work', 'web' } },
-  },
-}
-```
-
-A misspelt or unsupported setting fails validation rather than silently changing behavior. Configuration authors can start with the shipped settings and add only the values they want to change.
+[`examples/desktop/main.luau`](../../examples/desktop/main.luau) combines settings, workspaces, and local plugins. To run an example, copy its `main.luau` and adjacent modules into the directory created above, keeping the generated `.luaurc` and configuration files.
 
 ## Change the composition
 
-Patches replace, disable, or insert entries. A plugin module returns a record whose `definition` can be used in a patch. This example replaces the keyboard, removes the Arcade theme, and inserts a local HUD:
-
-```luau
-local desktop = require '@lunette-desktop'
-
-desktop.run {
-  patches = {
-    { id = 'keyboard', definition = require('./split-keyboard').definition },
-    { id = 'theme/arcade', disabled = true },
-    { insert = { id = 'my-hud', definition = require('./hud').definition } },
-  },
-}
-```
-
-The `insert` form can also include `config`, and can place an entry before or after another entry. `desktop.compose()` returns the default list, and `desktop.compose(options)` returns a patched list without starting the runtime. [Configuration and composition](../../lua/lunette-plugin/configuration-and-composition.md) explains patch ordering and validation. [`examples/desktop/main.luau`](../../examples/desktop/main.luau) combines settings, workspaces, and an inserted plugin.
+Patches target an existing entry by id or insert a local plugin's `definition`. A replacement can include its configuration. Settings and patches cannot target the same id. [`examples/keyboard/main.luau`](../../examples/keyboard/main.luau) replaces a provider; [configuration and composition](../../lua/lunette-plugin/configuration-and-composition.md) states patch ordering and validation rules.
 
 ## Menu and keyboard
 
-The wrist menu is the entry point for session actions. Its rows come from active plugins: the built-in actions include configuration reload, the [runtime manager](runtime-manager.md), themes, and configured workspaces. The shipped desktop does not require key chords for these actions.
+The wrist menu exposes session actions, including configuration reload, the [runtime manager](runtime-manager.md), themes, and workspaces. These actions need no key chords. Reload applies source edits without closing applications.
 
-The shared keyboard appears when a UI text field receives focus. Hiding it ends focus without discarding the field's text. The `desktop/keyboard` setting controls its placement; the `keyboard` provider creates it. The [keyboard plugin](../../lua/lunette-plugins/keyboard/README.md) documents its options, and [`examples/keyboard/main.luau`](../../examples/keyboard/main.luau) replaces the provider.
+Focusing a UI text field shows the shared keyboard. Hiding it ends focus and keeps the text. The [keyboard plugin](../../lua/lunette-plugins/keyboard/README.md) describes placement and replacement.
 
 ## Windows, monitors, and workspaces
 
-A grip on a movable panel carries it; the thumbstick adjusts its distance, and a second grip resizes it. Releasing grip saves the placement. The [interaction provider](../../lua/lunette-plugins/interaction/README.md) documents movement constraints.
+Grip carries a movable panel, the thumbstick changes its distance, and a second grip resizes it. Releasing grip saves placement. The [interaction provider](../../lua/lunette-plugins/interaction/README.md) describes movement constraints.
 
-The desktop mirrors host monitors. Depending on host support, capture may ask for screen-sharing permission. Monitor titlebars can restart a mirror, choose monitors again when portal capture is in use, or stop a mirror. A window's close button asks its application to close. The [monitor plugin](../../lua/lunette-plugins/desktop/monitors/README.md) describes capture behavior.
+Monitor capture may ask for screen-sharing permission. Monitor titlebars can restart or stop a mirror and, with portal capture, choose monitors again. A window's close button asks its application to close. See the [monitor controls](../../lua/lunette-plugins/desktop/monitors/README.md).
 
-Workspaces show one configured tag at a time. The first configured name is selected at startup, and the menu offers a row for each workspace when there is more than one. For example:
-
-```luau
-require('@lunette-desktop').run {
-  settings = {
-    ['desktop/workspaces'] = { names = { 'work', 'web' }, follow = false },
-  },
-}
-```
-
-The [workspace consumer](../../lua/lunette-plugins/desktop/workspaces/README.md) explains selection and placement behavior. [`examples/desktop/main.luau`](../../examples/desktop/main.luau) includes a complete workspace configuration.
+Workspaces show one configured tag at a time. The wrist menu offers configured workspace names. The [workspace plugin](../../lua/lunette-plugins/desktop/workspaces/README.md) describes selection and placement; the desktop example configures it.
 
 ## Themes and appearance
 
-The `desktop/theme` setting selects the initial theme and overrides selected fields:
-
-```luau
-require('@lunette-desktop').run {
-  settings = {
-    ['desktop/theme'] = {
-      preset = 'light',
-      overrides = { radii = { uiControl = 4 } },
-    },
-  },
-}
-```
-
-The Appearance group in the wrist menu offers registered themes for the current session. A menu choice is not saved across sessions; set `preset` for the configured starting theme. The [theme selector](../../lua/lunette-plugins/desktop/theme/README.md) describes the settings and runtime controls. [Adding a theme](writing-plugins.md#add-a-theme) shows how a plugin registers one.
+The Appearance menu changes the theme for the current session. That choice is not saved; the `desktop/theme` settings select the starting theme. See the [theme selector](../../lua/lunette-plugins/desktop/theme/README.md), or [add a theme plugin](writing-plugins.md#add-a-theme).
 
 ## Audio backdrop
 
-The desktop's backdrop can react to the system output mix. Its base environment remains available without audio services. A minimal configuration enabling audio response is:
-
-```luau
-require('@lunette-desktop').run {
-  settings = {
-    ['desktop/backdrop'] = { enabled = true, reactive = true, sourceMode = 'system' },
-  },
-}
-```
-
-The [backdrop plugin README](../../lua/lunette-plugins/desktop/backdrop/README.md) describes its controls and dependencies; its configuration schema and implementation define the available options and defaults. Audio capture does not change playback routing or volume, and the `audio` and `audio-analysis` providers remain independent of the backdrop so other consumers can use them. The [audio provider README](../../lua/lunette-plugins/audio/README.md) describes capture. [`examples/audio-backdrop`](../../examples/audio-backdrop) demonstrates audio consumption without coupling a consumer to the backdrop implementation. Live capture and headset checks remain [pending](../dev/audio.md#acceptance).
+The [backdrop plugin](../../lua/lunette-plugins/desktop/backdrop/README.md) can react to the system output mix and remains available without audio services. Audio capture does not change playback routing or volume. Its schema owns the options; [`examples/audio-backdrop`](../../examples/audio-backdrop) demonstrates independent audio consumers.
 
 ## Pointer and panel appearance
 
-The `laser` setting configures both desktop pointers. For example, setting `aim.enabled = false` disables aim smoothing:
-
-```luau
-require('@lunette-desktop').run {
-  settings = {
-    laser = { aim = { enabled = false } },
-  },
-}
-```
-
-The [laser provider](../../lua/lunette-plugins/laser/README.md), [laser configuration](../../lua/lunette-plugins/laser/config.luau), and [aim and drag feedback guide](../../lua/lunette-plugins/laser/docs/aim-and-drag-feedback.md) explain pointer behavior and available settings. The [panels provider](../../lua/lunette-plugins/panels/README.md) describes window rendering options. The [theme contract](../../lua/lunette-contracts/theme.luau) defines shared appearance fields; the [panels configuration](../../lua/lunette-plugins/panels/config.luau) defines panel-specific options, and [panel appearance resolution](../../lua/lunette-plugins/panels/appearance.luau) applies them.
+The [laser provider](../../lua/lunette-plugins/laser/README.md) configures pointer behavior. The [panels provider](../../lua/lunette-plugins/panels/README.md) configures window rendering. Their schemas define the options.

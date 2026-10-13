@@ -1,71 +1,37 @@
 # Native audio capture
 
-[Native reader guarantees](lua-api.md#audio-capture) specify the Lua boundary. The [audio provider](../../lua/lunette-plugins/audio/README.md) and [analysis provider](../../lua/lunette-plugins/audio-analysis/README.md) specify owner-scoped Lua use and signal processing.
-
 ## Non-routing capture
 
-Native capture exposes the system output mix or an existing session process. It adds monitor streams and lunette-owned mixing links without changing application-to-device links, the default sink, or device volume. Capture never opens a microphone or substitutes another source after an outage. Spatial routing remains a separate deferred feature.
+Capture exposes the system output mix or a registered session process. It adds monitor streams and owned mixing links without changing application playback links, the default sink, or device volume. It never opens a microphone or substitutes a source after an outage. The [native reader boundary](lua-api.md#audio-capture) and [audio provider](../../lua/lunette-plugins/audio/README.md) specify ownership; signal processing belongs in Lua.
 
-`crates/lunette-capture/src/audio/` owns capture mechanism and its source/state vocabulary. The public PCM boundary is 48,000 Hz, interleaved stereo F32. PipeWire performs rate conversion and stereo downmix before this boundary. The stream requests and validates the negotiated format. A rejected or different format reports `unsupported-format`; it is never reinterpreted as stereo. Lua sample copies encode each F32 little-endian regardless of host endianness. One frame contains two samples.
-
-A source descriptor is a closed union of the system mix and a session `Process` handle. `lunette.processes()` lists registered processes, including adopted clients. `window.process` associates a window with its registered process when attribution is available. Lua cannot select a raw PID or adopt an arbitrary host process. Display names do not establish identity.
+`crates/lunette-capture/src/audio/` owns the mechanism. The PCM boundary is 48,000 Hz, interleaved stereo F32. PipeWire converts and downmixes before publication. Capture validates negotiation and rejects incompatible formats rather than reinterpreting them. Lua copies encode F32 little-endian.
 
 ### Process attribution
 
-The compositor records a PID and an opaque instance discriminator from the Linux process start time when registering a managed or adopted process. Exact PID matching and adopted liveness compare the recorded instance with a current observation. Observation failure does not transfer identity to a replacement process. A spawned child remains owned, its output remains collected, and it remains reaped even if its identity cannot be read.
+A source names a logical session process, never a raw PID or display name. Attribution pins the OS process instance, PipeWire connection generation, and node serial. Resolution accepts a live registered instance or corroborated inherited spawn token. The compositor observes the instance before and after reading its environment; replacement, access denial, or exit leaves attribution unresolved. Tokens stay in the compositor.
 
-An audio attribution request carries a request identifier, PipeWire connection generation, node serial, and observed process instance. The compositor resolves a direct live instance first, then the inherited authentication token of a spawned descendant. It observes the candidate instance before reading the environment and again afterward. Both observations must equal the requested instance, and the matched logical root must remain live. The token never leaves the compositor. Exit, access denial, or identity change produces an unresolved result. A pending reply is discarded if its request, source, node, or connection identity changed. The same node is not retried against a replacement PID instance.
+Native PipeWire PID assertions and PulseAudio-compatible application metadata have different provenance. A Pulse compatibility server's PID does not identify its client. Application metadata requires OS-instance and logical-process corroboration and is not authentication. Missing, ambiguous, inaccessible, or namespace-mismatched identity remains unresolved; name matching never substitutes for it.
 
-A pending attribution delivery expires after the capture worker's injected retry interval, 500 ms by default. The next eligible bounded worker tick observes the same pinned process instance and issues a fresh request identifier. A dropped request or reply can therefore recover without replacing the node or process. Expired replies cannot complete a later attempt. Confirmed PID-instance replacement remains blocked for that node lifetime. Queue recovery, continued worker ticks, and process observation are prerequisites; a permanently full queue or stalled inspector has no finite recovery guarantee.
+Replies apply only to their original request and identities. Expired requests can retry against the same pinned instance, but a confirmed replacement stays blocked for that node lifetime. Recovery depends on continued worker ticks, queue progress, and process observation; it has no unconditional time bound.
 
-Native PipeWire clients report their PID through `pipewire.sec.pid`. The compatibility server marks Pulse clients with `client.api = 'pipewire-pulse'`; application display names do not identify that protocol. PulseAudio-compatible playback may instead report `application.process.id`. A Pulse client's `pipewire.sec.pid` is the compatibility server's own PID, so a Pulse stream without `application.process.id` has no PID assertion and stays unresolved. This second assertion is application metadata, not authentication. It requires corroboration with the current OS instance and the logical-process resolver. The public status preserves this provenance. Missing, ambiguous, inaccessible, or namespace-mismatched attribution remains unresolved. Automatic selection uses only a single resolved logical process and never uses application-name matching.
+### Source state and publication
 
-### Source state
+A source can be starting, active, idle, unavailable, or ended. Active PCM may be silent. A process is idle only when no attributed playback exists and no unresolved node could belong to it. Recoverable outages retain source identity. A pending spawn stays starting; a missing frame snapshot alone does not end it. Ended sources never select replacements.
 
-The state union contains `starting`, `active`, `idle`, `unavailable`, and `ended`. `active` may contain silence. `idle` means no playback node attributed to the process is present, and no unattributed playback node may belong to it. A playback node may belong to the process until the compositor answers, for the node's current PID assertion and process instance, that the instance belongs to no process. A node without a PID assertion, or whose answer is pending or blocked, may belong to any process and makes a silent process source `unavailable` with `unresolved-attribution`. A retry keeps the previous answer until the next one arrives. `unavailable` carries a closed reason and diagnostic detail. Reasons include no server, no default sink, invalid default metadata, permission denied, unsupported format, unresolved attribution, capacity exceeded, and graph failure. Recoverable outages preserve the source identity and may return to `starting` or `active`. `ended` means a closed handle or an invalid or ended process.
+Readers share capture per source. The first opens it, and the last releases its owned graph objects. Process capture mixes attributed nodes through additive links; original playback links remain intact. System capture follows the observed default sink with implicit fallback disabled. Registry info properties are authoritative only when their change mask includes properties; applying empty state-update dictionaries would erase sink identity.
 
-The public `Process.dead` field remains true before a queued spawn appears in a snapshot. Capture tracks pending, live, and failed-or-ended registration separately. A valid pending process stays `starting` until the spawn succeeds or produces a terminal outcome. A missing snapshot is not a spawn failure. An unreadable managed or adopted instance reports attribution unavailable instead of permitting a PID-only match.
+Frame publication produces immutable complete blocks. Repeated reads in one frame do not drain again, and retained blocks survive reader close. Copies cannot alter native PCM or another reader's copy. Stream generations reset timing; sample positions are cumulative when native timestamps are absent. Loss and discarded history report gaps.
 
-### Publication and ownership
-
-Capture is lazy and shared per source within a session. The first reader opens the stream; the last reader releases it and its owned graph objects. The default source limit is eight. Each process source mixes all attributed playback nodes into one internal stereo monitor. Original playback links remain intact. A silent selected process remains selected.
-
-The frame thread publishes immutable complete PCM blocks once at the frame boundary. Repeated snapshots in the same frame do not drain queues. Retained blocks remain valid across frames. `copySamples()` returns a fresh Luau buffer, so consumers cannot alter native PCM or another consumer's copy. Blocks carry sequence, stream generation, frame count, format, sample-time position, and gap information. Cumulative sample timing is labelled as such when native timestamps are absent. Stream-generation changes reset timing.
-
-Queues retain at most 250 ms of stereo frames. Publication snapshots committed occupancy and consumes only packets present at that cutoff, with a limit of 12,000 frames and 64 packets per source. Producers cannot extend one publication by replenishing the queue. Packet loss and deliberate history discard produce explicit gaps. Process callbacks use preallocated storage, publish samples and metadata atomically, and perform no allocation, logging, Lua calls, blocking locks, or waits.
-
-The worker tracks the `default` metadata object's `default.audio.sink` name and the live sink's serial and connection generation. Node, client, and port properties come from the registry global and from info events. An info event carries authoritative properties only when its change mask includes properties; PipeWire sends an empty dictionary with a state or parameter change, and the worker ignores it. Every worker tick plans the graph again from the current observations, so the system source recovers without reopening once the default sink names a live sink. System capture targets that sink's monitor with fallback and implicit reconnection disabled. Each process source owns one non-autoconnecting `Stream/Input/Audio` null-sink adapter and non-lingering additive links from every attributed playback node. Explicit channel mapping folds left channels to FL, right channels to FR, and centre, mono, and LFE channels to both at unity gain. Unknown channel positions make the whole source unavailable. Capture validates the converted monitor's negotiated stereo format before accepting PCM. Registry observations and graph operations cross project-owned interfaces; recording implementations exercise the same reconciliation driver without opening a host connection.
+Queues and publication work are bounded. Publication consumes only packets committed at its cutoff, so replenishment cannot extend frame-thread work. Audio callbacks use preallocated storage and perform no allocation, logging, Lua calls, blocking locks, or waits. Exact capacity bounds belong in the implementation.
 
 ## Deferred spatial routing
 
-Spawned applications play audio through PipeWire to the default sink, unrelated to their panel's position. LÖVR bundles Steam Audio (`deps/phonon`), which provides HRTF spatialisation with occlusion, and every panel's pose is known. Future routing may redirect a process's playback to a `lovr.audio` source at the panel's pose. Spatialisation, falloff, and per-application policy belong to Lua. A flat passthrough mode remains necessary for ambient stereo.
-
-Routing depends on instance-safe process attribution ([Compositor](compositor.md#attribution)). Non-routing capture does not implement routing or change where applications are heard.
+Applications currently play through the host's default sink, independently of panel pose. Routing to spatialized LÖVR audio would change playback and adds attribution and host-graph risks. Position, falloff, and passthrough policy belong in Lua. Non-routing capture does not implement spatial routing, microphone capture, or beat tracking.
 
 ## Acceptance
 
-Live acceptance remains pending. A recorded operator check names the host distribution, PipeWire and compatibility-server versions, XR backend, headset, and test date. No automated result supplies these facts. The checks use generated tones or other operator-controlled signals without bundling copyrighted audio.
+Live PipeWire and headset acceptance remains pending. Deterministic graph fakes establish planned operations, not host linking, mixing, playback preservation, or cleanup. A private-server harness is not part of the verification strategy.
 
-The capture check covers native PipeWire and PulseAudio-compatible playback, several playback nodes belonging to one logical process, pending spawn, process exit, sink changes, server restart, permission denial, attribution failure, and provider or source reload. It compares the host graph before capture, while readers are active, and after the last reader closes. Original playback links, the default sink, device volume, and audible playback remain unchanged. Two independent consumers share one source, and releasing either leaves the other active. Retained publications and copied buffers remain valid. Loss, generation changes, and attribution provenance appear in diagnostics.
+An operator record must name the distribution, PipeWire and compatibility-server versions, XR backend, headset, and date. Checks use operator-controlled signals. They must establish native and Pulse-compatible attribution, multiple playback nodes per logical process, spawn and exit behavior, recovery across sink and server changes, permission and attribution failures, and reload cleanup.
 
-## Decisions
-
-Capture does not imply playback routing. Consumers can read PCM without changing what the user hears. Spatial routing has additional policy and host-graph risks and remains deferred.
-
-Stereo downmix is explicit at the public capture boundary. PipeWire performs mixing and conversion so independently scheduled application callbacks are not summed in Lua or on the frame thread.
-
-Attribution distinguishes a playback node that cannot belong to a process from one whose owner is unknown. The compositor's answer that an instance belongs to no process is the distinguishing fact, because the worker already obtains it for every node with a PID assertion. Reporting `unresolved-attribution` whenever any playback node in the graph was unattributed was rejected: a host application's stream then made every silent session process look unattributed. The answer holds only for the current assertion and instance, and the worker keeps asking, because the compositor can adopt a process after answering.
-
-Info event properties are applied only when the change mask names them. Treating every info dictionary as authoritative cleared a sink's class and name on each state or parameter change, such as a latency change when another application starts a stream, and the system source then stayed unavailable until a reconnect.
-
-Capture verification uses deterministic project-owned fakes and operator-driven live PipeWire checks. A private-server integration harness is excluded. Fake graph tests establish planned operations, not actual host linking, mixing, playback preservation, or cleanup.
-
-## Known gaps
-
-Live PipeWire graph acceptance remains pending until recorded operator checks pass. Automated capture tests do not establish host linking, mixing, playback preservation, or cleanup.
-
-PulseAudio-compatible process metadata is not a security boundary. Restricted process observation, PID namespaces, proxies, and sandboxing may prevent attribution. These sources remain unavailable rather than selecting unrelated audio.
-
-## Deliberately left open
-
-Spatial playback routing, microphone capture, and beat/BPM tracking are not implemented by non-routing capture.
+Graph comparisons before capture, during shared use, and after the final reader closes must show unchanged playback links, sink, volume, and audible playback. Independent readers must survive each other's release. Diagnostics must expose loss, generation changes, and attribution provenance. Retained blocks and copied buffers must remain valid. Automated results do not close these requirements.

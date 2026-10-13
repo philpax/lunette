@@ -1,9 +1,5 @@
 # Desktop input
 
-Routes physical key presses and committed text through a physical focus source. Bindings run before delivery, but desktop typing does not require the bindings provider.
+Routes physical keys and committed text to the focused target. Bindings run first, but a bindings-provider outage does not disable typing.
 
-| Requires |
-|---|
-| [`lunette/frame`](../../frame/README.md), [`lunette/focus`](../../focus/README.md) |
-
-The [shared input protocol](../../../lunette-contracts/docs/input.md#physical-input-batches) defines event consumption and stale-text blocking. A replacement physical-input consumer preserves those batch boundaries.
+[Physical input protocol](../../../lunette-contracts/docs/input.md)
