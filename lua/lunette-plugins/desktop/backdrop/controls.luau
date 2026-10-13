@@ -2,6 +2,7 @@
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local frame = require '@lunette-contracts/frame'
+local audio = require '@lunette-contracts/audio'
 local ui = require '@lunette-contracts/ui'
 local menu = require '@lunette-contracts/menu'
 local selection = require './selection'
@@ -10,6 +11,7 @@ local controls = {}
 export type Renderer = { read enabled: () -> boolean, read setEnabled: (boolean) -> () }
 export type Row = { read id: string, read label: string, read process: lunette.Process }
 type RowToken = { read token: string, read process: lunette.Process }
+type RowDetails = { process: lunette.Process, names: { string }, label: string?, state: audio.State? }
 local modeItems: { ui.Item } = {
   { id = 'system', label = 'System mix' },
   { id = 'application', label = 'Pinned application' },
@@ -31,44 +33,72 @@ local diagnosticItems: { ui.Item } = {
   { id = 'field', label = 'Field, boosted' },
 }
 local selectedPreset: (number) -> string
-local rowState: (selection.State, lunette.Process) -> string
+local rowState: (audio.State?, boolean) -> string
 
--- Row tokens are unique within a panel activation and bind live handles, never names or numeric IDs.
+-- Numeric IDs narrow the lookup; exact process equality rejects stale handles and matches fresh wrappers.
 function controls.rows(choice: selection.State, processes: { lunette.Process }, windows: { lunette.Window }): { Row }
-  local rows: { Row } = {}
+  local details: { RowDetails } = {}
+  local byId: { [number]: { RowDetails } } = {}
   for _, process in processes do
     if process.dead then
       continue
     end
-    local names: { string } = {}
-    for _, window in windows do
-      if not window.dead and window.process == process then
-        local title, appId = window.title, window.appId
-        local label = if title and title ~= ''
-          then title
-          elseif appId and appId ~= '' then appId
-          else 'Process ' .. tostring(process.id)
-        if appId and appId ~= '' and appId ~= label then
-          label ..= ' (' .. appId .. ')'
+    local entry: RowDetails = { process = process, names = {}, label = nil, state = nil }
+    details[#details + 1] = entry
+    local candidates = byId[process.id]
+    if candidates == nil then
+      candidates = {}
+      byId[process.id] = candidates
+    end
+    candidates[#candidates + 1] = entry
+  end
+  for _, window in windows do
+    if window.dead then
+      continue
+    end
+    local process = window.process
+    local candidates = if process then byId[process.id] else nil
+    if candidates then
+      for _, entry in candidates do
+        if entry.process == process then
+          local title, appId = window.title, window.appId
+          local label = if title and title ~= ''
+            then title
+            elseif appId and appId ~= '' then appId
+            else 'Process ' .. tostring(entry.process.id)
+          if appId and appId ~= '' and appId ~= label then
+            label ..= ' (' .. appId .. ')'
+          end
+          entry.names[#entry.names + 1] = label
         end
-        table.insert(names, label)
       end
     end
-    if #names == 0 then
-      for _, status in choice.processStatuses do
-        if status.process == process and status.label ~= '' then
-          table.insert(names, status.label)
-          break
+  end
+  for _, status in choice.processStatuses do
+    local candidates = byId[status.process.id]
+    if candidates then
+      for _, entry in candidates do
+        if entry.process == status.process then
+          if entry.label == nil and status.label ~= '' then
+            entry.label = status.label
+          end
+          if entry.state == nil then
+            entry.state = status.state
+          end
         end
       end
     end
+  end
+  local rows: { Row } = {}
+  for _, entry in details do
+    local process = entry.process
+    local label = if #entry.names > 0
+      then table.concat(entry.names, ', ')
+      else entry.label or 'Process ' .. tostring(process.id)
     rows[#rows + 1] = {
       id = '',
       process = process,
-      label = (if #names > 0 then table.concat(names, ', ') else 'Process ' .. tostring(process.id))
-        .. ' · #'
-        .. tostring(process.id)
-        .. rowState(choice, process),
+      label = label .. ' · #' .. tostring(process.id) .. rowState(entry.state, choice.audioAvailable),
     }
   end
   return rows
@@ -375,22 +405,19 @@ selectedPreset = function(value: number): string
   return nearest
 end
 
-rowState = function(choice: selection.State, process: lunette.Process): string
-  for _, status in choice.processStatuses do
-    if status.process == process and status.state then
-      local state = status.state
-      if state.kind == 'active' then
-        return if state.provenance == 'application-metadata' then ' · active (application metadata)' else ' · active'
-      elseif state.kind == 'idle' then
-        return ' · silent'
-      elseif state.kind == 'unavailable' then
-        return ' · unavailable (' .. state.reason .. ')'
-      else
-        return ' · ' .. state.kind
-      end
+rowState = function(state: audio.State?, audioAvailable: boolean): string
+  if state then
+    if state.kind == 'active' then
+      return if state.provenance == 'application-metadata' then ' · active (application metadata)' else ' · active'
+    elseif state.kind == 'idle' then
+      return ' · silent'
+    elseif state.kind == 'unavailable' then
+      return ' · unavailable (' .. state.reason .. ')'
+    else
+      return ' · ' .. state.kind
     end
   end
-  return if choice.audioAvailable then ' · no audio stream' else ' · audio provider unavailable'
+  return if audioAvailable then ' · no audio stream' else ' · audio provider unavailable'
 end
 
 return controls
