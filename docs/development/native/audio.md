@@ -2,7 +2,7 @@
 
 ## Non-routing capture
 
-Capture exposes the system output mix or a registered session process. It adds monitor streams and owned mixing links without changing application playback links, the default sink, or device volume. It never opens a microphone or substitutes a source after an outage. The [native reader boundary](lua-api.md#audio-capture) and [audio provider](../../lua/lunette-plugins/audio/README.md) specify ownership; signal processing belongs in Lua.
+Capture exposes the system output mix or a registered session process. It adds monitor streams and owned mixing links without changing application playback links, the default sink, or device volume. It never opens a microphone or substitutes a source after an outage. The [native reader boundary](lua-api.md#audio-capture) and [audio provider](../../../lua/lunette-plugins/audio/README.md) specify ownership; signal processing belongs in Lua.
 
 `crates/lunette-capture/src/audio/` owns the mechanism. The PCM boundary is 48,000 Hz, interleaved stereo F32. PipeWire converts and downmixes before publication. Capture validates negotiation and rejects incompatible formats rather than reinterpreting them. Lua copies encode F32 little-endian.
 

@@ -2,7 +2,7 @@
 //!
 //! Each frame reads one immutable snapshot, and mutations queue until [`Session::flush`]. Dead
 //! handles return `false` and keep their last-known values.
-//! [The Lua API](../../../docs/dev/lua-api.md#errors) states the error boundaries.
+//! [The Lua API](../../../docs/development/native/lua-api.md#errors) states the error boundaries.
 
 mod audio;
 mod claim;

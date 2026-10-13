@@ -231,7 +231,7 @@ impl<T> TextureLedger<T> {
     /// What is known about a surface, alive or dead.
     ///
     /// The description remains available after the client is gone.
-    /// `docs/dev/rendering.md` records that a dead handle reports last-known
+    /// `docs/development/native/rendering.md` records that a dead handle reports last-known
     /// values, so a Lua layout does not collapse the frame a window closes on.
     #[must_use]
     pub fn describe(&self, surface: SurfaceId) -> Option<TextureDescription> {
@@ -265,7 +265,7 @@ impl<T> TextureLedger<T> {
     /// whether or not [`TextureLedger::refresh_stable`] has run.
     ///
     /// The cost is a full-surface copy on every damaged frame, which for a 4K
-    /// mirror at 90 Hz is around 3 GB/s. `docs/dev/rendering.md` records why that
+    /// mirror at 90 Hz is around 3 GB/s. `docs/development/native/rendering.md` records why that
     /// makes this opt-in.
     ///
     /// # Errors

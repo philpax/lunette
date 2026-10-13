@@ -14,7 +14,7 @@ Capture has separate worker threads. Bounded channels connect the compositor and
 
 ## The snapshot model
 
-Lua reads one per-frame snapshot. Mutations are asynchronous requests; a resize is a configure request, and a client can delay or reject it. Completion is observed in later snapshots or events. [Handle guarantees](lua-api.md#handles) specify binding identity and lifetime.
+Lua reads one per-frame snapshot. Mutations are asynchronous requests; a resize is a configure request, and a client can delay or reject it. Completion is observed in later snapshots or events. [Handle guarantees](native/lua-api.md#handles) specify binding identity and lifetime.
 
 ## Ownership rules
 
@@ -34,7 +34,7 @@ An enabled instance reserves its provided contracts while waiting for dependenci
 
 ## GPU ownership
 
-LÖVR creates the Vulkan instance, device, and queues. The compositor creates imported images on that device but submits no queue work. Copies and conversions run in LÖVR's main-thread command stream. OpenVR texture handoff uses the graphics queue guard. [Rendering](rendering.md) specifies synchronization and image lifetime.
+LÖVR creates the Vulkan instance, device, and queues. The compositor creates imported images on that device but submits no queue work. Copies and conversions run in LÖVR's main-thread command stream. OpenVR texture handoff uses the graphics queue guard. [Rendering](native/rendering.md) specifies synchronization and image lifetime.
 
 ## Survival across lifecycle events
 
@@ -45,7 +45,7 @@ LÖVR creates the Vulkan instance, device, and queues. The compositor creates im
 | Hard restart | Survive | State, graphics, and XR session are replaced | Runtimes close; plugin seats are replaced |
 | Process exit | End | Destroyed | Destroyed |
 
-The default seat survives restart with the compositor. [Source reload](lua-api.md#reload), [seat handover](input.md#seat-lifetime), and [device restart](lovr-integration.md#restart-semantics) specify teardown ordering.
+The default seat survives restart with the compositor. [Source reload](native/lua-api.md#reload), [seat handover](native/input.md#seat-lifetime), and [device restart](native/lovr-integration.md#restart-semantics) specify teardown ordering.
 
 ## Known gaps
 

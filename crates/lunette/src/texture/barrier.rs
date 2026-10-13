@@ -13,7 +13,7 @@ use tracing::warn;
 /// How the barrier around an imported texture is recorded.
 ///
 /// Both fields are runtime settings, so a run can try either value without a
-/// rebuild. `docs/dev/rendering.md` records the measurements behind the
+/// rebuild. `docs/development/native/rendering.md` records the measurements behind the
 /// defaults and the half that remains unmeasured.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct BarrierPolicy {

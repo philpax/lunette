@@ -24,4 +24,4 @@ Shared-value overrides use the latest live value; disposal reveals the prior liv
 
 ## Instances and drains
 
-Reload requests wait for a drain; snapshots do not drain or invoke callbacks. The [runtime specification](../../docs/dev/architecture.md#plugin-runtime) owns lifecycle planning. Native subscriptions and resources acquired outside effects survive plugin cleanup: the host has no general teardown registry.
+Reload requests wait for a drain; snapshots do not drain or invoke callbacks. The [runtime specification](../../docs/development/architecture.md#plugin-runtime) owns lifecycle planning. Native subscriptions and resources acquired outside effects survive plugin cleanup: the host has no general teardown registry.

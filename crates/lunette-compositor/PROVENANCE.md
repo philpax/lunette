@@ -1,6 +1,6 @@
 # Provenance
 
-The compositor vendors WayVR's `wayvr/src/backend/wayvr/` at commit `42e9deb54cc5c36037b49237867afa3dc4593f4a` from <https://github.com/wayvr-org/wayvr>. The code is GPL-3.0-only, by galister and oo8dev. [Credits](../../CREDITS.md) records attribution; [Compositor](../../docs/dev/compositor.md) records the integration constraints.
+The compositor vendors WayVR's `wayvr/src/backend/wayvr/` at commit `42e9deb54cc5c36037b49237867afa3dc4593f4a` from <https://github.com/wayvr-org/wayvr>. The code is GPL-3.0-only, by galister and oo8dev. [Credits](../../CREDITS.md) records attribution; [Compositor](../../docs/development/native/compositor.md) records the integration constraints.
 
 ## Maintaining the vendor
 

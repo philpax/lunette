@@ -3,7 +3,7 @@
 //! # Between frames, on the thread that owns the state
 //!
 //! A chunk runs on the main thread between two frames, never concurrently with
-//! `lovr.update` or `lovr.draw` ([the Lua API](../../../docs/dev/lua-api.md#lunctl)).
+//! `lovr.update` or `lovr.draw` ([the Lua API](../../../docs/development/native/lua-api.md#lunctl)).
 //! The control thread never touches a `Lua`, so no other thread races the chunk
 //! and it can touch the same state a callback touches. `crate::boot` makes the
 //! call in the gap between `FrameDriver::end_frame` and the next `begin_frame`.
@@ -13,7 +13,7 @@
 //! [`answer`] serialises the chunk's results into a [`Reply`] and drops them
 //! before it returns. Rust never holds a Lua value past the call that produced
 //! it, so a soft reload can discard the state without anything left dangling.
-//! `docs/dev/architecture.md` records the rule.
+//! `docs/development/architecture.md` records the rule.
 //!
 //! # Best-effort budget
 //!
@@ -39,7 +39,7 @@
 //! Aborting turns a bad `lunctl` command into a crash that takes every
 //! connected client with it. The crash is worse than the hang the advisory
 //! bound prevents.
-//! `docs/dev/lua-api.md` records the reasoning.
+//! `docs/development/native/lua-api.md` records the reasoning.
 //!
 //! # Load errors and runtime errors
 //!
@@ -305,7 +305,7 @@ impl Overrun {
 
 /// Gives `function` an environment in which a module resolves by its own name.
 ///
-/// `docs/guide/native-api.md` documents `lunctl 'return #lunette.windows()'`. A
+/// `docs/plugins/native-api.md` documents `lunctl 'return #lunette.windows()'`. A
 /// configuration reaches the API through `local lunette = require '@lunette'`, so
 /// the name is a local and is not a global anywhere. Without this, every
 /// documented example indexes a nil.
@@ -463,7 +463,7 @@ mod tests {
 
     #[test]
     fn a_chunk_reaches_a_preloaded_module_by_its_bare_name() {
-        // Every example in docs/guide/native-api.md takes this form.
+        // Every example in docs/plugins/native-api.md takes this form.
         let lua = with_preloaded_module();
 
         assert_eq!(

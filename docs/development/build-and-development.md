@@ -37,7 +37,7 @@ make check-definitions check-luau-annotations check-luau
 
 Installation uses `PREFIX`, `SYSCONFDIR`, and `DESTDIR`. Lua roots live under `$PREFIX/share/lunette/lua`, libraries under `$PREFIX/lib/lunette`, and the default configuration under `$SYSCONFDIR/xdg/lunette`. Installation is not transactional; failure can leave a partial tree.
 
-The configuration search starts with `--config-path`, then `LUNETTE_CONFIG_PATH`, XDG user configuration, and the system default. `LUNETTE_STDLIB_PATH` overrides the Lua root. [The local control socket](lua-api.md#lunctl) lives under `XDG_RUNTIME_DIR`; saved desktop state uses LÖVR's save directory.
+The configuration search starts with `--config-path`, then `LUNETTE_CONFIG_PATH`, XDG user configuration, and the system default. `LUNETTE_STDLIB_PATH` overrides the Lua root. [The local control socket](native/lua-api.md#lunctl) lives under `XDG_RUNTIME_DIR`; saved desktop state uses LÖVR's save directory.
 
 The OpenVR action bundle must be beside the real `liblovr.so` in `lovr-openvr/`. Its ancestry and contents require trusted ownership, no untrusted write permission, and no symlinks. A path under `/tmp` does not qualify. Deleting a staged asset alone does not trigger CMake restaging; installation rejects incomplete bundles.
 
@@ -50,9 +50,9 @@ make run ARGS="--config-path etc/xdg/lunette"
 
 `make run` selects the source Lua roots and `dev/` configuration; the second command selects the shipped configuration. Plain `cargo run` uses installed defaults. The shipped desktop launches no application; development launch behavior stays in `dev/`.
 
-The desktop simulator runs real compositor, client, and input paths without an XR runtime. lunette logs its first free socket from `wayland-20`; `WAYLAND_DISPLAY=<logged-name> <app>` connects an adopted client. [Source reload](lua-api.md#reload) is the headset iteration path; hard restart replaces graphics.
+The desktop simulator runs real compositor, client, and input paths without an XR runtime. lunette logs its first free socket from `wayland-20`; `WAYLAND_DISPLAY=<logged-name> <app>` connects an adopted client. [Source reload](native/lua-api.md#reload) is the headset iteration path; hard restart replaces graphics.
 
-Logs use stderr. `lunctl` inspects the running state between frames. Imported-image diagnosis can set `LUNETTE_IMPORT_QUEUE_FAMILY` to `foreign` or `ignored` and `LUNETTE_IMPORT_LAYOUT` to `general` or `undefined`. These override barriers for experiments, not portability guarantees; [validation](rendering-validation.md#imported-image-ownership-barriers) records limits.
+Logs use stderr. `lunctl` inspects the running state between frames. Imported-image diagnosis can set `LUNETTE_IMPORT_QUEUE_FAMILY` to `foreign` or `ignored` and `LUNETTE_IMPORT_LAYOUT` to `general` or `undefined`. These override barriers for experiments, not portability guarantees; [validation](native/rendering-validation.md#imported-image-ownership-barriers) records limits.
 
 ## Testing
 
@@ -109,4 +109,4 @@ Use a trusted build path. The fixture owns its phases; the operator checks stere
 
 ## Known gaps
 
-Live acceptance requirements remain in [audio](audio.md#acceptance), [input](input.md#known-gaps), [host desktop](host-desktop.md#known-gaps), and [rendering validation](rendering-validation.md). WebXR builds are unvalidated. Graphics-only fixtures do not run a compositor session with connected clients.
+Live acceptance requirements remain in [audio](native/audio.md#acceptance), [input](native/input.md#known-gaps), [host desktop](native/host-desktop.md#known-gaps), and [rendering validation](native/rendering-validation.md). WebXR builds are unvalidated. Graphics-only fixtures do not run a compositor session with connected clients.

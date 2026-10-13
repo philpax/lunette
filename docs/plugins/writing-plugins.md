@@ -4,7 +4,7 @@ Plugins declare the services they require or provide and acquire resources durin
 
 ## Start a configuration
 
-Start with the [copy/check workflow](desktop-configuration.md#copy-and-check-a-configuration). Local plugin modules live beside `main.luau`; relative requires resolve from the requiring file in both a session and `lunette check`. The examples below are checked repository sources, not fragments to complete.
+Start with the [copy/check workflow](../users/desktop-configuration.md#copy-and-check-a-configuration). Local plugin modules live beside `main.luau`; relative requires resolve from the requiring file in both a session and `lunette check`. The examples below are checked repository sources, not fragments to complete.
 
 ## Define a consumer
 

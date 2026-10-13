@@ -1,6 +1,6 @@
 # Input
 
-Consumers and replacement providers preserve these frame, focus, and pointer guarantees. [Contract declarations](..) own service versions and shapes; [native input](../../../docs/dev/input.md) owns seats and sinks.
+Consumers and replacement providers preserve these frame, focus, and pointer guarantees. [Contract declarations](..) own service versions and shapes; [native input](../../../docs/development/native/input.md) owns seats and sinks.
 
 ## Keyboard routes
 

@@ -4,4 +4,4 @@ Shows one configured workspace by hiding panels tagged for other workspaces. Unt
 
 The entry never reveals panels hidden by another plugin. A menu outage leaves workspace visibility and selection unchanged.
 
-[Options](config.luau) · [Workspace workflow](../../../../docs/guide/desktop-configuration.md#windows-monitors-and-workspaces)
+[Options](config.luau) · [Workspace workflow](../../../../docs/users/desktop-configuration.md#windows-monitors-and-workspaces)

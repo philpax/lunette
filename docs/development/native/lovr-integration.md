@@ -4,7 +4,7 @@
 
 `vendor/lovr` points at `philpax/lovr`'s `lunette` branch, rebased onto upstream `dev`. Clone recursively. Patches stay narrow and additive unless they fix an upstream defect. The internal OpenVR backend is a deliberate larger exception: LÖVR still owns every headset session, and OpenXR behavior and defaults must remain intact.
 
-The nested Luau fork retains LÖVR's vector, quaternion, and Lua-ABI additions plus mlua requirements. Its upstream updates are merged rather than rebased. Submodule commits must be pushed before parent pointers; unresolved pointers break fresh clones. [Contribution rules](../../CONTRIBUTING.md) own fork workflow.
+The nested Luau fork retains LÖVR's vector, quaternion, and Lua-ABI additions plus mlua requirements. Its upstream updates are merged rather than rebased. Submodule commits must be pushed before parent pointers; unresolved pointers break fresh clones. [Contribution rules](../../../CONTRIBUTING.md) own fork workflow.
 
 ## The patch set
 
@@ -24,7 +24,7 @@ Defect fixes cover Luau loader registration, configuration without a main file, 
 
 Pipelines belong to the shader specialization that creates them. Clones share GPU shader backing but retain separate caches. Release removes CPU cache entries and defers native destruction until submitted work completes. The upstream address-keyed global cache can select stale pipelines after address reuse and accumulate entries across released lifetimes. This is an upstream defect, not lunette policy.
 
-Native lifetime tests and real offscreen rendering check retirement and reacquisition. They do not establish headset presentation. [Backdrop rendering](../../lua/lunette-plugins/desktop/backdrop/README.md) owns its remaining visual acceptance.
+Native lifetime tests and real offscreen rendering check retirement and reacquisition. They do not establish headset presentation. [Backdrop rendering](../../../lua/lunette-plugins/desktop/backdrop/README.md) owns its remaining visual acceptance.
 
 ## Backend selection
 
@@ -44,7 +44,7 @@ Projection transforms use the inverse eye pose and vertically reversed projectio
 
 Frame update waits and samples predicted tracking; getters do not wait. Regressed or invalid predictions expose no pose or synthetic time. Dashboard focus suppresses input. Haptics use bounded pulses because accepted vibrations cannot be cancelled. Quit acknowledgement waits until the host commits to exit because callbacks can veto quit.
 
-The trusted action bundle lives beside the real library. [Build and development](build-and-development.md#where-things-live-at-runtime) owns resolution and packaging. Failed action updates clear stale input. Touch grip transforms remain unverified; controller binding fallback is not acceptance evidence.
+The trusted action bundle lives beside the real library. [Build and development](../build-and-development.md#where-things-live-at-runtime) owns resolution and packaging. Failed action updates clear stale input. Touch grip transforms remain unverified; controller binding fallback is not acceptance evidence.
 
 ## Boot
 
@@ -56,7 +56,7 @@ Returning a truthy value from `lovr.draw` discards the headset pass. The session
 
 Hard restart closes Lua, graphics, and XR while the Rust compositor and clients survive. Before Lua closes, the host retrieves the borrowed device from the compositor and waits for acknowledgement. Closing Lua destroys the GPU; any other ordering risks use-after-free. The new device imports retained dmabufs again. Shared-memory content returns at the client's next commit.
 
-[The restart implementation](../../crates/lunette/src/restart.rs) owns the ordering. Plugin runtimes and native subscribers close first. [Source reload](lua-api.md#reload) avoids graphics teardown and covers routine iteration.
+[The restart implementation](../../../crates/lunette/src/restart.rs) owns the ordering. Plugin runtimes and native subscribers close first. [Source reload](lua-api.md#reload) avoids graphics teardown and covers routine iteration.
 
 ## Known gaps
 

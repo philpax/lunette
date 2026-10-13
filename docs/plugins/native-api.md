@@ -1,6 +1,6 @@
 # The native API
 
-Plugin code imports `@lunette` for windows, capture, input, and other native session mechanisms. The [generated declarations](../../lua/lunette/init.luau) own the API inventory and appear in editors through the `.luaurc` written by `lunette --dump-config`. [The Lua API specification](../dev/lua-api.md) owns native behavior; [service contracts](../../lua/lunette-contracts/README.md) describe the Lua services above it.
+Plugin code imports `@lunette` for windows, capture, input, and other native session mechanisms. The [generated declarations](../../lua/lunette/init.luau) own the API inventory and appear in editors through the `.luaurc` written by `lunette --dump-config`. [The Lua API specification](../development/native/lua-api.md) owns native behavior; [service contracts](../../lua/lunette-contracts/README.md) describe the Lua services above it.
 
 ## Handle and resource lifetimes
 
@@ -20,13 +20,13 @@ Never cache `window:getTexture()` across frames: client buffers rotate. `window:
 
 A process handle identifies a session registration, not a reusable host PID. Several windows can share a process, and closing one does not necessarily end it. A queued spawn's handle is dead until the compositor observes it.
 
-A client keeps its assigned virtual output for its lifetime. Output mode changes ask clients to render at the new scale. See [outputs](../dev/compositor.md#outputs) for native constraints.
+A client keeps its assigned virtual output for its lifetime. Output mode changes ask clients to render at the new scale. See [outputs](../development/native/compositor.md#outputs) for native constraints.
 
 ## Audio capture
 
 Audio readers capture without changing playback routing. They never substitute a different source after an outage. A frame exposes one immutable publication; read it once per publication rather than processing it again in each callback.
 
-Retained PCM blocks remain valid after later frames and reader closure. Copying samples allocates a mutable buffer; bound the work per update. Generation changes, gaps, and dropped frames invalidate accumulated analysis history. Closing a reader is explicit and idempotent. [`examples/audio-backdrop`](../../examples/audio-backdrop) shows owner-scoped readers; [Audio](../dev/audio.md) defines PCM format and queue bounds.
+Retained PCM blocks remain valid after later frames and reader closure. Copying samples allocates a mutable buffer; bound the work per update. Generation changes, gaps, and dropped frames invalidate accumulated analysis history. Closing a reader is explicit and idempotent. [`examples/audio-backdrop`](../../examples/audio-backdrop) shows owner-scoped readers; [Audio](../development/native/audio.md) defines PCM format and queue bounds.
 
 ## Monitors
 
@@ -48,7 +48,7 @@ Source reload runs loaded modules again while applications, windows, window prop
 
 ## Errors and safe mode
 
-Raise errors normally. Event listeners, plugin callbacks, and frame-service handlers have protected boundaries. A configuration's directly assigned LÖVR callbacks do not; uncaught update or draw errors end the session. [Errors](../dev/lua-api.md#errors) states the boundaries. A load failure starts built-in safe mode with error display and recovery controls.
+Raise errors normally. Event listeners, plugin callbacks, and frame-service handlers have protected boundaries. A configuration's directly assigned LÖVR callbacks do not; uncaught update or draw errors end the session. [Errors](../development/native/lua-api.md#errors) states the boundaries. A load failure starts built-in safe mode with error display and recovery controls.
 
 ## lunctl
 

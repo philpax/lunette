@@ -4,7 +4,7 @@
 //! module roots, so it can run when the standard library or installation is
 //! unavailable. Other callback failures use [`crate::callback_error`]. A failed
 //! reload leaves the current session running. See
-//! [error handling](../../../docs/dev/lua-api.md#errors).
+//! [error handling](../../../docs/development/native/lua-api.md#errors).
 
 use mlua::{Function, Lua, Table, Value};
 use tracing::{error, info};

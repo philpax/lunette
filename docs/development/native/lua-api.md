@@ -1,10 +1,10 @@
 # Native Lua API
 
-`@lunette` exposes native mechanisms in the main Luau state only. [Generated declarations](../../lua/lunette/init.luau) own names and types; Rust registration generates them. Binding changes update the registration and generator, not a hand-written stub. Configuration examples belong in [the native API guide](../guide/native-api.md), and plugin ownership belongs in [the facade](../../lua/lunette-plugin/README.md).
+`@lunette` exposes native mechanisms in the main Luau state only. [Generated declarations](../../../lua/lunette/init.luau) own names and types; Rust registration generates them. Binding changes update the registration and generator, not a hand-written stub. Configuration examples belong in [the native API guide](../../plugins/native-api.md), and plugin ownership belongs in [the facade](../../../lua/lunette-plugin/README.md).
 
 ## Handles
 
-Each read returns fresh userdata. Equality compares native identity, but table keys use raw userdata identity; use an object's id as a key. Queued objects remain dead until a frame snapshot contains them. Dead handles retain observed fields and refuse mutations without raising, because disappearance between frames is ordinary. [Snapshots](architecture.md#the-snapshot-model) define timing.
+Each read returns fresh userdata. Equality compares native identity, but table keys use raw userdata identity; use an object's id as a key. Queued objects remain dead until a frame snapshot contains them. Dead handles retain observed fields and refuse mutations without raising, because disappearance between frames is ordinary. [Snapshots](../architecture.md#the-snapshot-model) define timing.
 
 Textures from window, monitor, child-surface, and drag handles last only the current frame. A session-wide commit stamp detects installed content; texture identity cannot, because clients reuse buffers. [Persistent copies](rendering.md#texture-import-and-lifetime) are explicit. Geometry and pointer positions use surface coordinates and source crop, not texture dimensions.
 
@@ -26,7 +26,7 @@ The native scalar property store survives reload and restart while the window li
 
 ## Reload
 
-`lunette.reload()` closes plugin runtimes, retires the contract epoch, clears subscriptions and callbacks, removes unprotected loaded modules, and runs the replacement configuration. Lua globals, LÖVR, graphics, clients, and native state remain. Only plugin effects provide cleanup. The [implementation](../../crates/lunette/src/reload.rs) owns protected modules and cleared callbacks; module bodies must tolerate running again.
+`lunette.reload()` closes plugin runtimes, retires the contract epoch, clears subscriptions and callbacks, removes unprotected loaded modules, and runs the replacement configuration. Lua globals, LÖVR, graphics, clients, and native state remain. Only plugin effects provide cleanup. The [implementation](../../../crates/lunette/src/reload.rs) owns protected modules and cleared callbacks; module bodies must tolerate running again.
 
 Named seats can transfer through [native handover](input.md#seat-lifetime), and mirrors remain held until loading finishes. Reload returns success or a message rather than raising and refuses nesting and plugin callbacks. It is not transactional: failed evaluation leaves partial replacement state. Startup safe mode does not recover a failed reload.
 
@@ -46,4 +46,4 @@ Compiled-in safe mode replaces callbacks after initial configuration failure, in
 
 Evaluation time limits are best-effort Luau interrupts. A chunk can catch them, and native code may never reach a safepoint. A hard watchdog would kill the session and its clients, so none is supplied. The control socket is not a sandbox.
 
-Serialization rejects cycles, unsupported values, and non-scalar keys instead of substituting strings. Traversal is raw and bounded; handle results contain kind and session identity, never addresses. [The control implementation](../../crates/lunette/src/control/) owns the wire format.
+Serialization rejects cycles, unsupported values, and non-scalar keys instead of substituting strings. Traversal is raw and bounded; handle results contain kind and session identity, never addresses. [The control implementation](../../../crates/lunette/src/control/) owns the wire format.

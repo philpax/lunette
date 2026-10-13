@@ -6,7 +6,7 @@ lunette is a Rust host with a Luau scripting layer and a Wayland compositor. Con
 
 ## Development
 
-[Build and development](docs/dev/build-and-development.md) covers setup, running the working tree, and testing. [Architecture](docs/dev/architecture.md) records the boundaries that changes must preserve. The [Makefile](Makefile) owns build and check commands.
+[Build and development](docs/development/build-and-development.md) covers setup, running the working tree, and testing. [Architecture](docs/development/architecture.md) records the boundaries that changes must preserve. The [Makefile](Makefile) owns build and check commands.
 
 Run `make check` at the end of a complete task. Iterate in debug, use clippy for Rust typechecking and linting, and reserve release builds for packaging or benchmarking. Fix generated declarations in their metadata or generator, then run `cargo run -p lunette-generate-definitions`. Never edit generated output or work around an incorrect declaration in calling code.
 
@@ -16,9 +16,9 @@ Every session action must remain reachable through VR controls without a physica
 
 Each document serves one audience:
 
-- lunette users need configuration and session workflows in `docs/guide/desktop-configuration.md` and `docs/guide/runtime-manager.md`.
-- Plugin developers need authoring guides, the `lua/lunette-plugin/` facade documentation, shared guarantees in `lua/lunette-contracts/`, and plugin READMEs.
-- lunette developers need build instructions, architectural constraints, and integration hazards in `docs/dev/` and this file.
+- lunette users need configuration and session workflows in `docs/users/desktop-configuration.md` and `docs/users/runtime-manager.md`.
+- Plugin developers need authoring guides in `docs/plugins/`, the `lua/lunette-plugin/` facade documentation, shared guarantees in `lua/lunette-contracts/`, and plugin READMEs.
+- lunette developers need build instructions, architectural constraints, and integration hazards in `docs/development/` and this file.
 
 Keep workflows, public guarantees, consequential rationale, and unresolved limitations that affect the reader. Remove implementation walkthroughs, API inventories, default lists, test catalogs, and status narration. The pruning policy does not apply to contributor coding guidelines; retain their rules and rationale. Link to schemas, generated declarations, and checked examples instead of copying them. A short plugin topic stays in its README; internal helpers do not need separate manuals. Decisions belong beside the constraint they explain, not in mandatory trailing sections. Licensing and provenance belong in [CREDITS.md](CREDITS.md) and [PROVENANCE.md](crates/lunette-compositor/PROVENANCE.md).
 
@@ -28,7 +28,7 @@ A behaviour change updates the relevant workflow or guarantee in the same change
 
 `crates/lunette-compositor/src/wayvr/` preserves upstream names, identifiers, formatting, and attribution so fixes remain comparable with WayVR. It is exempt from house style. Files outside that directory follow the conventions below. [PROVENANCE.md](crates/lunette-compositor/PROVENANCE.md) records the source revision and relocated fragments. `wlx-capture` is an external dependency from the WayVR monorepo; fixes go upstream, and the standalone repository is not the maintained source.
 
-Clone submodules recursively. [LÖVR integration](docs/dev/lovr-integration.md) records the fork constraints. Keep patches narrow and additive, except for the documented internal OpenVR backend. Rebase the LÖVR patch branch onto upstream `dev` rather than merging it.
+Clone submodules recursively. [LÖVR integration](docs/development/native/lovr-integration.md) records the fork constraints. Keep patches narrow and additive, except for the documented internal OpenVR backend. Rebase the LÖVR patch branch onto upstream `dev` rather than merging it.
 
 A fork change requires a commit pushed to the fork and a pointer update here in the same change. An unpushed pointer breaks other clones. Keep recorded submodule URLs HTTPS for anonymous access; a contributor's push remote may use SSH. Preserve upstream remotes for rebases. [.gitmodules](.gitmodules) owns fork URLs and branches.
 
@@ -57,7 +57,7 @@ These conventions apply to the Lua tree under `lua/`, the example configurations
 - Register a resource on a caller's owner with `context:acquire(owner, acquire)`, and use `context:resource(owner, acquire)` when the acquisition returns a value as well as an effect. `acquire` returns the value and its inverse together, and releases its partial resources if it raises before returning. The helper returns only after native registration succeeds, and it does not replace context-owned cleanup.
 - Never assume a handle survives a frame. Check `handle.dead` before use.
 - Never cache the result of `window:getTexture()` across frames, because textures rotate as the client cycles its buffers. Use `window:stabilize()` when a persistent texture is needed.
-- Raise errors normally, and do not swallow them to keep a frame alive. Event listeners and plugin callbacks run under a protected call, the frame provider protects each update, draw, key, text, and quit handler, and the boundary reports what they raise. A LÖVR callback assigned outside such a dispatcher is not protected; [Errors](docs/dev/lua-api.md#errors) states the boundaries.
+- Raise errors normally, and do not swallow them to keep a frame alive. Event listeners and plugin callbacks run under a protected call, the frame provider protects each update, draw, key, text, and quit handler, and the boundary reports what they raise. A LÖVR callback assigned outside such a dispatcher is not protected; [Errors](docs/development/native/lua-api.md#errors) states the boundaries.
 - The file-size threshold is around 500 lines, lower than the Rust threshold because Lua modules carry less ceremony.
 - Comments end with a period. Headings and titles use sentence case.
 
@@ -95,13 +95,13 @@ end)
 return test
 ```
 
-`crates/lunette/tests/lua/` runs the Lua integration suites under `lua/` and `dev/`. [Build and development](docs/dev/build-and-development.md#lua-tests) describes the runner. Neither the tests nor `lua/testing` are installed.
+`crates/lunette/tests/lua/` runs the Lua integration suites under `lua/` and `dev/`. [Build and development](docs/development/build-and-development.md#lua-tests) describes the runner. Neither the tests nor `lua/testing` are installed.
 
 ### The module roots
 
-The root aliases and source directories are inventoried in `crates/lunette/src/aliases.rs`; [Build and development](docs/dev/build-and-development.md#module-roots) explains runtime resolution and installation. File-backed aliases resolve through LÖVR's virtual filesystem in a session and through `.luaurc` files in the checker and editor. `@lunette` is registered through `package.preload`.
+The root aliases and source directories are inventoried in `crates/lunette/src/aliases.rs`; [Build and development](docs/development/build-and-development.md#module-roots) explains runtime resolution and installation. File-backed aliases resolve through LÖVR's virtual filesystem in a session and through `.luaurc` files in the checker and editor. `@lunette` is registered through `package.preload`.
 
-A relative require, `./`, `../`, or `@self`, resolves against the requiring file by Luau's require-by-string rules, in the checker and in a session alike. `crates/lunette/src/require` wraps the session's `require` so that LÖVR's loader, which knows only the root of its virtual filesystem, agrees with the checker. [Module roots](docs/dev/build-and-development.md#module-roots) states the rules.
+A relative require, `./`, `../`, or `@self`, resolves against the requiring file by Luau's require-by-string rules, in the checker and in a session alike. `crates/lunette/src/require` wraps the session's `require` so that LÖVR's loader, which knows only the root of its virtual filesystem, agrees with the checker. [Module roots](docs/development/build-and-development.md#module-roots) states the rules.
 
 `crates/lunette/src/aliases.rs` describes the roots and their runtime resolution. The generator derives the `.luaurc` files from those descriptors, and `make check-definitions` verifies them. The Rust install manifest names the installed roots and generated declarations, and `make install` consumes it. `lunette --dump-config` writes a `.luaurc` beside the copied configuration that names the installation's Lua root by absolute path. A configuration is copied with that command, not by hand, because a `.luaurc` in the tree resolves its aliases relative to itself: a copy beside a user's configuration names a directory that does not exist, and every `require` fails to resolve, in `lunette check` and in the editor.
 
@@ -207,7 +207,7 @@ The two sections that follow are the Rust template. They apply to Rust code in t
 - Make the checks pass at the end of each complete task; intermediate steps need not pass. `make check` runs all of them, and `.github/workflows/ci.yml` calls the same targets, so a check added to the Makefile is added to both. The Makefile holds the commands. The targets are:
   - `make check-format`: nightly rustfmt, and StyLua over the Luau (see [formatting](#formatting)).
   - `make check-headset`: hardware-free native headset tests through CMake and CTest, including harness failure propagation and missing-runtime cleanup. It builds the shader compiler from the vendored `deps/glslang`.
-  - `make check-graphics`: offscreen shader and pixel-readback tests through real LÖVR, with an explicitly selected Mesa lavapipe Vulkan ICD. It opens no window and loads no headset, audio, filesystem, or compositor. [Build and development](docs/dev/build-and-development.md#offscreen-graphics-tests) records the software-driver prerequisites.
+  - `make check-graphics`: offscreen shader and pixel-readback tests through real LÖVR, with an explicitly selected Mesa lavapipe Vulkan ICD. It opens no window and loads no headset, audio, filesystem, or compositor. [Build and development](docs/development/build-and-development.md#offscreen-graphics-tests) records the software-driver prerequisites.
   - `make check-install`: hardware-free installation tests using real ELF fixtures, fake Cargo, and the Makefile installation rules. It requires Python, a C compiler, and patchelf.
   - `make check-rust`, which is `make check-clippy` and `make check-test`, each over both feature sets. CI runs the two as separate parallel jobs, because clippy builds through `RUSTC_WORKSPACE_WRAPPER` and shares no artifacts with a normal build; in series the workspace would be compiled twice.
   - `make check-definitions`: regenerates every generated artifact in memory and fails if any differs from the checked-in copy, naming the first differing line. Run `cargo run -p lunette-generate-definitions` and commit the result. It covers `etc/lunette/definitions.luau`, `lua/lunette/init.luau`, and the `.luaurc` files (see [the module roots](#the-module-roots)).

@@ -6,6 +6,6 @@ System mode reads the default output mix without changing routing or volume. App
 
 The Appearance panel pauses automatic selection while open. Runtime choices reset on source reload and process selections do not persist across sessions. Unavailable audio fades toward zero.
 
-[Options](config.luau) · [Example](../../../../examples/audio-backdrop/main.luau) · [Audio limits and pending live acceptance](../../../../docs/dev/audio.md)
+[Options](config.luau) · [Example](../../../../examples/audio-backdrop/main.luau) · [Audio limits and pending live acceptance](../../../../docs/development/native/audio.md)
 
 Headset appearance, comfort, stereo presentation, and frame-time acceptance remain pending. Some OpenXR runtimes lack visibility events, so the environment may keep rendering until disabled.

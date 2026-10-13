@@ -6,7 +6,7 @@ Observed results qualify [native rendering](rendering.md); they do not generaliz
 
 Import defaults to `GENERAL` and the foreign queue family. One proprietary NVIDIA-driver comparison produced equal sampled colors with foreign and ignored queue families, without validation enabled. That does not establish that ignored ownership is valid or portable.
 
-Earlier undefined-layout comparisons also used an invalid undefined release layout and are not evidence. Release now returns to `GENERAL`; a valid-sequence comparison remains pending. Driver retention of contents acquired from `UNDEFINED` cannot override Vulkan's permission to discard them. Issue #25 tracks validation with a GPU client. [Development overrides](build-and-development.md#the-development-loop) exist for diagnosis, not as supported alternatives.
+Earlier undefined-layout comparisons also used an invalid undefined release layout and are not evidence. Release now returns to `GENERAL`; a valid-sequence comparison remains pending. Driver retention of contents acquired from `UNDEFINED` cannot override Vulkan's permission to discard them. Issue #25 tracks validation with a GPU client. [Development overrides](../build-and-development.md#the-development-loop) exist for diagnosis, not as supported alternatives.
 
 ## Layer budget and reuse
 

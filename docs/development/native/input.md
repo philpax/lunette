@@ -26,7 +26,7 @@ Native sinks accept keycodes and explicit modifiers. Modifier changes do not syn
 
 Host keyboard delivery uploads the seat layout before keys and refuses missing seats or failed uploads. [Host input](host-desktop.md#input-injection) differs for uinput, which uses the host layout.
 
-`sink:typeText` can temporarily upload a keymap for UTF-8 that the current map cannot express. It must not interleave with manual key events; clients process keymap changes asynchronously. Shared physical input routing instead refuses unrepresentable characters. [Shared input guarantees](../../lua/lunette-contracts/README.md) own Lua delivery policy.
+`sink:typeText` can temporarily upload a keymap for UTF-8 that the current map cannot express. It must not interleave with manual key events; clients process keymap changes asynchronously. Shared physical input routing instead refuses unrepresentable characters. [Shared input guarantees](../../../lua/lunette-contracts/README.md) own Lua delivery policy.
 
 ## Drag and drop
 
@@ -44,4 +44,4 @@ OpenXR overlay input also reaches the application underneath. There is no standa
 
 OpenVR bindings and haptic frequency mapping need hardware acceptance. Panel interaction with both Steam Frame controllers has been observed; this does not validate other bindings or wear detection. Multi-seat popup grabs, drag ownership, and handover remain less exercised in toolkits. Only source reload preserves plugin seats.
 
-Live checks must cover the intended controller bindings, layout and arbitrary-text behavior, clipboard ordering, drag ownership, and seat transfer with GTK and Qt clients. Automated event and geometry recorders do not establish headset presentation. Shared Lua input limits belong in [the contracts](../../lua/lunette-contracts/README.md).
+Live checks must cover the intended controller bindings, layout and arbitrary-text behavior, clipboard ordering, drag ownership, and seat transfer with GTK and Qt clients. Automated event and geometry recorders do not establish headset presentation. Shared Lua input limits belong in [the contracts](../../../lua/lunette-contracts/README.md).

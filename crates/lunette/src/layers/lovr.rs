@@ -93,7 +93,7 @@ impl LayerBackend for LovrLayers {
     /// The cost is that a translucent client is composited opaque while it
     /// holds a layer. A translucent panel renders as an in-scene quad, where
     /// the shader path resolves alpha. Lua chooses between sharpness and
-    /// translucency by claiming a layer or not. `docs/dev/rendering.md` records
+    /// translucency by claiming a layer or not. `docs/development/native/rendering.md` records
     /// this.
     fn create(&mut self, size: LayerSize) -> Option<Self::Layer> {
         let size = size.get();

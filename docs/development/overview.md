@@ -18,11 +18,11 @@ lunette does not provide a login compositor, application sandboxing, or multi-us
 
 - [Build and development](build-and-development.md): build, iteration, debugging, and test prerequisites.
 - [Architecture](architecture.md): threads, resource ownership, and lifecycle boundaries.
-- [LÖVR integration](lovr-integration.md): fork maintenance, backend selection, and restart hazards.
-- [Rendering](rendering.md) and [validation](rendering-validation.md): imported images, layer allocation, and limits of the evidence.
-- [Compositor](compositor.md), [input](input.md), [host desktop](host-desktop.md), and [audio](audio.md): native integration constraints and acceptance requirements.
-- [Native Lua API](lua-api.md): binding lifetime, reload, errors, and control-socket authority.
+- [LÖVR integration](native/lovr-integration.md): fork maintenance, backend selection, and restart hazards.
+- [Rendering](native/rendering.md) and [validation](native/rendering-validation.md): imported images, layer allocation, and limits of the evidence.
+- [Compositor](native/compositor.md), [input](native/input.md), [host desktop](native/host-desktop.md), and [audio](native/audio.md): native integration constraints and acceptance requirements.
+- [Native Lua API](native/lua-api.md): binding lifetime, reload, errors, and control-socket authority.
 - [Standard plugins](standard-plugins.md): shipped desktop composition boundaries.
 - [Roadmap](roadmap.md): deferred work.
 
-Configuration workflows belong in [the guides](../guide/desktop-configuration.md). Plugin authoring and service guarantees belong beside [the facade](../../lua/lunette-plugin/README.md) and [the contracts](../../lua/lunette-contracts/README.md). Plugin behavior belongs beside its implementation.
+Configuration workflows belong in [the guides](../users/desktop-configuration.md). Plugin authoring and service guarantees belong beside [the facade](../../lua/lunette-plugin/README.md) and [the contracts](../../lua/lunette-contracts/README.md). Plugin behavior belongs beside its implementation.

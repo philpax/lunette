@@ -2,7 +2,7 @@
 
 `lunette-compositor` serves Wayland clients on its own thread through bounded channels. It starts when LÖVR has a graphics device for buffer import. [Rendering](rendering.md#texture-import-and-lifetime) owns import lifetime; Lua owns spatial arrangement.
 
-The crate hard-vendors WayVR's backend because that backend is coupled to WayVR's renderer and overlay loop rather than exposed as a library. Files under `src/wayvr/` retain upstream names, formatting, and headers so upstream fixes remain diffable. Additions belong beside that directory with minimal hooks inside it. [Provenance](../../crates/lunette-compositor/PROVENANCE.md) owns the upstream record.
+The crate hard-vendors WayVR's backend because that backend is coupled to WayVR's renderer and overlay loop rather than exposed as a library. Files under `src/wayvr/` retain upstream names, formatting, and headers so upstream fixes remain diffable. Additions belong beside that directory with minimal hooks inside it. [Provenance](../../../crates/lunette-compositor/PROVENANCE.md) owns the upstream record.
 
 ## Protocols
 

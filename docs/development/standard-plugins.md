@@ -1,6 +1,6 @@
 # Standard plugins
 
-The [desktop entry list](../../lua/lunette-desktop/init.luau) owns shipped composition and startup order. [Configuration workflows](../guide/desktop-configuration.md) and READMEs beside [the plugins](../../lua/lunette-plugins/) own use and settings. The desktop root composes plugins; it contains no native mechanism or service implementation.
+The [desktop entry list](../../lua/lunette-desktop/init.luau) owns shipped composition and startup order. [Configuration workflows](../users/desktop-configuration.md) and READMEs beside [the plugins](../../lua/lunette-plugins/) own use and settings. The desktop root composes plugins; it contains no native mechanism or service implementation.
 
 ## Contracts and providers
 
@@ -20,4 +20,4 @@ The adoption consumer owns both recording dropped poses and registering the sour
 
 ## Pacing and scale
 
-Providers select rates and scales; desktop consumers observe and apply them and restore changes on unload. [Native pacing](rendering.md#frame-pacing-and-scene-skipping) and [output configuration](compositor.md#outputs) remain independent mechanisms.
+Providers select rates and scales; desktop consumers observe and apply them and restore changes on unload. [Native pacing](native/rendering.md#frame-pacing-and-scene-skipping) and [output configuration](native/compositor.md#outputs) remain independent mechanisms.

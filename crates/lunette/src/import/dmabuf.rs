@@ -377,7 +377,7 @@ impl ImageArena {
     /// violates that call's valid usage: `VUID-vkDestroyDevice-device-05137`
     /// requires every child object to have been destroyed first. The validation
     /// layers report one image and one allocation per abandoned entry on every
-    /// restart, which is expected output; `docs/dev/rendering.md` records the trade.
+    /// restart, which is expected output; `docs/development/native/rendering.md` records the trade.
     ///
     /// Destroying the images here would be the invalid case
     /// `crates/lunette/src/texture/lovr.rs` records: LÖVR retires an imported

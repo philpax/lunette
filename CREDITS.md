@@ -18,7 +18,7 @@ Host monitor capture uses `wlx-capture` as a git-pinned dependency. Its maintain
 
 <https://github.com/bjornbytes/lovr>, MIT, by Bjorn Swenson and LÖVR contributors.
 
-lunette dynamically links its LÖVR fork for XR, rendering, audio, and Lua. Patches under `vendor/lovr` remain MIT so they can be contributed upstream. [LÖVR integration](docs/dev/lovr-integration.md) records the integration constraints.
+lunette dynamically links its LÖVR fork for XR, rendering, audio, and Lua. Patches under `vendor/lovr` remain MIT so they can be contributed upstream. [LÖVR integration](docs/development/native/lovr-integration.md) records the integration constraints.
 
 ## Space Mono
 

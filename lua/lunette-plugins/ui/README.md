@@ -4,4 +4,4 @@ Creates flat VR panels, controls, and titlebars. Consumers draw their panels in 
 
 Rounded panels use a conservative rectangular content clip. Custom draw hooks must enforce `visual.clip` themselves. Intersecting or nearly coincident panels can show draw-order artefacts.
 
-[Options](config.luau) · [Examples](../../../docs/guide/ui.md) · [UI contract](../../lunette-contracts/panels-and-ui.md)
+[Options](config.luau) · [Examples](../../../docs/plugins/ui.md) · [UI contract](../../lunette-contracts/panels-and-ui.md)

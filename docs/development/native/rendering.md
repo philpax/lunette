@@ -2,7 +2,7 @@
 
 ## Presentation paths
 
-Scene geometry shares projection resolution, MSAA, and depth. Composition layers have independent resolution and runtime reprojection. Lua chooses a path and its fallback; native code reports unsupported backend operations rather than approximating different geometry. [Panel rendering](../../lua/lunette-plugins/panels/README.md) owns shipped drawing policy.
+Scene geometry shares projection resolution, MSAA, and depth. Composition layers have independent resolution and runtime reprojection. Lua chooses a path and its fallback; native code reports unsupported backend operations rather than approximating different geometry. [Panel rendering](../../../lua/lunette-plugins/panels/README.md) owns shipped drawing policy.
 
 ## Texture import and lifetime
 
@@ -34,7 +34,7 @@ Session generation detects replacement even when stop and start occur between sn
 
 ## Frame pacing and scene skipping
 
-Native pacing withholds Wayland frame callbacks and arms a timer so a waiting client cannot leave the event loop asleep indefinitely. The native floor is 1 Hz because stopping callbacks can stop input processing. Advertised output refresh is separate. Lua owns selection policy through [the pacing plugins](../../lua/lunette-plugins/pacing/README.md).
+Native pacing withholds Wayland frame callbacks and arms a timer so a waiting client cannot leave the event loop asleep indefinitely. The native floor is 1 Hz because stopping callbacks can stop input processing. Advertised output refresh is separate. Lua owns selection policy through [the pacing plugins](../../../lua/lunette-plugins/pacing/README.md).
 
 `lunette.setSceneEnabled(false)` skips scene resources and drawing while XR pacing, tracking, and composition-layer submission continue. Omitting the main layer from `setLayers` alone does not avoid scene rendering. OpenVR still updates tracking and hands off mutable panel backings. The command stream submits even without a scene pass or desktop window.
 

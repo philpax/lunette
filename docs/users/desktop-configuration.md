@@ -1,6 +1,6 @@
 # Desktop configuration
 
-The shipped desktop runs from a Luau configuration. Its `main.luau` starts `@lunette-desktop`; settings change built-in entries, and patches add, replace, or disable plugins. Plugin authors can use the same configuration to [compose their own plugins](writing-plugins.md).
+The shipped desktop runs from a Luau configuration. Its `main.luau` starts `@lunette-desktop`; settings change built-in entries, and patches add, replace, or disable plugins. Plugin authors can use the same configuration to [compose their own plugins](../plugins/writing-plugins.md).
 
 ## Copy and check a configuration
 
@@ -39,7 +39,7 @@ Workspaces show one configured tag at a time. The wrist menu offers configured w
 
 ## Themes and appearance
 
-The Appearance menu changes the theme for the current session. That choice is not saved; the `desktop/theme` settings select the starting theme. See the [theme selector](../../lua/lunette-plugins/desktop/theme/README.md), or [add a theme plugin](writing-plugins.md#add-a-theme).
+The Appearance menu changes the theme for the current session. That choice is not saved; the `desktop/theme` settings select the starting theme. See the [theme selector](../../lua/lunette-plugins/desktop/theme/README.md), or [add a theme plugin](../plugins/writing-plugins.md#add-a-theme).
 
 ## Audio backdrop
 

@@ -6,7 +6,7 @@
 //! made from the stream's `position`, in the compositor's logical space, which
 //! is the same space a `wl_output`'s geometry is reported in. This is what
 //! wlx-overlay-s does. `mapping_id` is not read, because two of the three
-//! portal backends do not supply a usable one; `docs/dev/host-desktop.md`
+//! portal backends do not supply a usable one; `docs/development/native/host-desktop.md`
 //! records the evidence.
 //!
 //! The correlation is pure computation over plain data. Nothing here touches

@@ -1,14 +1,14 @@
 //! Linux-only: the control socket, and the thread that accepts on it.
 //!
 //! `lunctl` sends the running session a Lua chunk and receives the values
-//! back ([the Lua API](../../../docs/dev/lua-api.md#lunctl)). The module provides
+//! back ([the Lua API](../../../docs/development/native/lua-api.md#lunctl)). The module provides
 //! the transport and the queue. [`eval`] evaluates a chunk on the main thread.
 //! [`serialise`] turns the results into a form a socket carries. [`wire`] is
 //! that form, and it travels over the socket.
 //!
 //! # Threads and Lua
 //!
-//! `docs/dev/architecture.md` records the rule the design follows: Rust holds no
+//! `docs/development/architecture.md` records the rule the design follows: Rust holds no
 //! long-lived reference into Lua. A chunk cannot be evaluated where it
 //! arrives. The control thread reads a chunk, puts it on a bounded queue, and
 //! waits for an answer. The main thread takes the chunk off that queue between
@@ -91,7 +91,7 @@ const READ_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Whether the session offers a control socket.
 ///
-/// `docs/dev/lua-api.md` requires the switch: `lunctl` is equivalent to root access
+/// `docs/development/native/lua-api.md` requires the switch: `lunctl` is equivalent to root access
 /// on the user's session, and a user who wants no evaluation endpoint must be
 /// able to have none. The switch defaults to enabled, because in-headset
 /// iteration is the purpose of the endpoint.
