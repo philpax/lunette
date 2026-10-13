@@ -134,23 +134,21 @@ build = function(context: plugin.Context, _settings: Settings): Service
       context:checkOwner(owner)
       local source = sourceOf(given)
       local lifetime: plugin.Effect? = nil
-      local closed = false
       local terminal: contract.Snapshot? = nil
+      local attachment: Shared? = nil
       local reader, effect = context:resource(owner, function(): (contract.Reader, () -> ())
         local shared = share(source)
         shared.readers += 1
+        attachment = shared
         local made: contract.Reader = table.freeze {
           source = shared.source,
           snapshot = function(_reader: contract.Reader): contract.Snapshot
-            if closed or shared.closed then
-              if terminal ~= nil then
-                return terminal
-              end
-              local ended = empty(shared.source, ENDED, shared.latest.frameGeneration)
-              terminal = ended
-              return ended
+            if terminal then
+              return terminal
             end
-            return shared.latest
+            local attached = attachment
+            assert(attached ~= nil, 'audio: missing reader attachment')
+            return attached.latest
           end,
           close = function(_reader: contract.Reader): ()
             local owned = lifetime
@@ -161,14 +159,16 @@ build = function(context: plugin.Context, _settings: Settings): Service
         }
         return made,
           function(): ()
-            if closed then
+            local attached = attachment
+            if not attached then
               return
             end
-            if shared.readers == 1 then
-              release(shared)
+            terminal = empty(attached.source, ENDED, attached.latest.frameGeneration)
+            if attached.readers == 1 then
+              release(attached)
             end
-            shared.readers -= 1
-            closed = true
+            attached.readers -= 1
+            attachment = nil
             lifetime = nil
           end
       end)

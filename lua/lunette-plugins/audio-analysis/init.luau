@@ -252,8 +252,8 @@ build = function(context: plugin.Context, _settings: Settings): Service
         }
       end
       local lifetime: plugin.Effect? = nil
-      local closed = false
       local terminal: contract.Snapshot? = nil
+      local attachment: { shared: Shared, profile: Profile }? = nil
       local reader, effect = context:resource(owner, function(): (contract.Reader, () -> ())
         local analyzer: features.Analyzer? = if match == nil then features.new(resolved) else nil
         local shared = share(source)
@@ -281,26 +281,17 @@ build = function(context: plugin.Context, _settings: Settings): Service
         assert(selected ~= nil, 'audio analysis: missing acquired profile')
         local profile: Profile = selected
         profile.readers += 1
+        attachment = { shared = shared, profile = profile }
         local made: contract.Reader = table.freeze {
           source = shared.source,
           profile = profile.options,
           snapshot = function(_reader: contract.Reader): contract.Snapshot
-            if closed or profile.closed then
-              if terminal then
-                return terminal
-              end
-              local ended = snapshot(
-                shared.source,
-                profile.options,
-                ENDED,
-                profile.publication.frameGeneration,
-                profile.publication.generation,
-                profile.publication.endFrame
-              )
-              terminal = ended
-              return ended
+            if terminal then
+              return terminal
             end
-            return profile.publication
+            local attached = attachment
+            assert(attached ~= nil, 'audio analysis: missing reader attachment')
+            return attached.profile.publication
           end,
           close = function(_reader: contract.Reader): ()
             if lifetime then
@@ -310,14 +301,25 @@ build = function(context: plugin.Context, _settings: Settings): Service
         }
         return made,
           function(): ()
-            if closed then
+            local attached = attachment
+            if not attached then
               return
             end
-            profile.readers -= 1
-            if profile.readers == 0 then
-              releaseProfile(shared, profile)
+            local held = attached.profile
+            local latest = held.publication
+            terminal = snapshot(
+              attached.shared.source,
+              held.options,
+              ENDED,
+              latest.frameGeneration,
+              latest.generation,
+              latest.endFrame
+            )
+            held.readers -= 1
+            if held.readers == 0 then
+              releaseProfile(attached.shared, held)
             end
-            closed = true
+            attachment = nil
             lifetime = nil
           end
       end)
