@@ -23,6 +23,5 @@ lunette does not provide a login compositor, application sandboxing, or multi-us
 - [Compositor](native/compositor.md), [input](native/input.md), [host desktop](native/host-desktop.md), and [audio](native/audio.md): native integration constraints and acceptance requirements.
 - [Native Lua API](native/lua-api.md): binding lifetime, reload, errors, and control-socket authority.
 - [Standard plugins](standard-plugins.md): shipped desktop composition boundaries.
-- [Roadmap](roadmap.md): deferred work.
 
 Configuration workflows belong in [the guides](../users/desktop-configuration.md). Plugin authoring and service guarantees belong beside [the facade](../../lua/lunette-plugin/README.md) and [the contracts](../../lua/lunette-contracts/README.md). Plugin behavior belongs beside its implementation.
