@@ -29,7 +29,6 @@ type Profile = {
   batch: features.Batch?,
   streamGeneration: number?,
   endFrame: number?,
-  sequence: number?,
 }
 type Shared = {
   source: audio.Source,
@@ -146,17 +145,9 @@ build = function(context: plugin.Context, _settings: Settings): Service
           shared.streamGeneration, shared.sequence = block.generation, block.sequence
           nativeDropped += block.droppedFrames
           for _, profile in pending do
-            local unprocessed = profile.streamGeneration == nil
-              or block.generation > profile.streamGeneration
-              or (
-                block.generation == profile.streamGeneration
-                and (profile.sequence == nil or block.sequence > profile.sequence)
-              )
-            if unprocessed then
-              profile.streamGeneration, profile.sequence = block.generation, block.sequence
-              profile.analyzer:feed(pcm, block)
-              profile.endFrame = block.startFrame + block.frameCount
-            end
+            profile.streamGeneration = block.generation
+            profile.analyzer:feed(pcm, block)
+            profile.endFrame = block.startFrame + block.frameCount
           end
         end
       end
@@ -268,7 +259,6 @@ build = function(context: plugin.Context, _settings: Settings): Service
             batch = nil,
             streamGeneration = shared.streamGeneration,
             endFrame = nil,
-            sequence = shared.sequence,
           }
           profileCount += 1
           shared.profiles[#shared.profiles + 1] = made
