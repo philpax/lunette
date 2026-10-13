@@ -39,6 +39,7 @@ The series on `lunette`, oldest first:
 | `19c22780` | Fix material allocation and ownership failure paths | Upstream defect |
 | `ce8705a1` | Expose the audio function registration table | Integration |
 | `c017cccd` | Tie GPU pipelines to shader specialization lifetimes | Upstream defect |
+| `03f4db2c` | Restore shader variables with the pass render-state stack | Upstreamable |
 
 `git -C vendor/lovr log --oneline upstream/dev..lunette` lists the series.
 
@@ -89,6 +90,10 @@ This fix is in `deps/luau`. Luau stripped nil from an anonymous function's expec
 ### Upstreamable features
 
 Each is shaped as an upstream pull request.
+
+#### Shader variables in the render-state stack
+
+`Pass:push('state')` saves the active shader's uniform bytes and resource bindings, and `Pass:pop('state')` restores them with the pipeline. Nested scopes keep separate backups. Backup storage is reused at each stack depth until the pass resets. Camera state remains outside the stack. Upstream saves the shader pointer but explicitly excludes variables sent through `Pass:send`. That exclusion lets an earlier draw handler overwrite a later handler's custom shader values, including values shared by name across shaders. The extension keeps independent handlers on one pass without a shader-specific Lua restore protocol or a new public API.
 
 #### External-memory device extensions
 
