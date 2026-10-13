@@ -230,6 +230,8 @@ impl AudioConsumer {
                 if let QueueEntry::Header(packet) = entry {
                     discarded.packets = discarded.packets.saturating_add(1);
                     discarded.frames = discarded.frames.saturating_add(packet.frames as u64);
+                    self.gap.packets = self.gap.packets.saturating_add(packet.gap_packets);
+                    self.gap.frames = self.gap.frames.saturating_add(packet.gap_frames);
                 }
             }
             chunk.commit_all();
@@ -319,7 +321,11 @@ impl AudioConsumer {
                     malformed_packets: 0,
                 };
                 self.discarded = self.discarded.combined(discarded);
-                self.gap = self.gap.combined(discarded);
+                self.gap = self.gap.combined(TransportLoss {
+                    packets: discarded.packets.saturating_add(packet.gap_packets),
+                    frames: discarded.frames.saturating_add(packet.gap_frames),
+                    malformed_packets: 0,
+                });
             }
             chunk.commit_all();
             self.consumed
