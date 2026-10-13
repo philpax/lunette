@@ -179,13 +179,13 @@ impl RegistrySnapshot {
         if node.client.is_some() && client.is_none() {
             return AssertionStatus::Missing;
         }
+        let pulse = client.is_some_and(|client| client.kind == ClientKind::Pulse)
+            || node.client_api.as_deref() == Some("pipewire-pulse");
         let (pid, provenance) = match (client, node.application_pid) {
-            (Some(client), Some(pid))
-                if client.kind == ClientKind::Pulse
-                    || node.client_api.as_deref() == Some("pipewire-pulse") =>
-            {
-                (pid, AttributionProvenance::ApplicationMetadata)
-            }
+            (Some(_), Some(pid)) if pulse => (pid, AttributionProvenance::ApplicationMetadata),
+            // A Pulse client's security PID is the pipewire-pulse daemon's own,
+            // so only the node's application metadata can name the producer.
+            (Some(_), None) if pulse => return AssertionStatus::Missing,
             (Some(client), metadata) => match client.pid {
                 Some(pid) if metadata.is_none_or(|metadata| metadata == pid) => {
                     (pid, AttributionProvenance::PipeWireClient)

@@ -250,3 +250,36 @@ fn default_sink_json_and_ambiguous_name_never_fall_back_to_microphone() {
         }
     ));
 }
+
+// A Pulse client's security PID is the pipewire-pulse daemon's own PID, so it
+// cannot attribute a stream whose node lacks application metadata.
+#[test]
+fn pulse_stream_without_application_metadata_has_no_assertion() {
+    let mut snapshot = system();
+    playback(&mut snapshot, 20, &["FL", "FR"]);
+    if let Some(node) = snapshot.nodes.get_mut(&20) {
+        node.application_pid = None;
+    }
+    if let Some(client) = snapshot.clients.get_mut(&40) {
+        client.kind = ClientKind::Pulse;
+    }
+    assert_eq!(
+        snapshot.assertion(identity(20).serial),
+        AssertionStatus::Missing
+    );
+    assert!(snapshot.process_candidates().is_empty());
+    if let Some(client) = snapshot.clients.get_mut(&40) {
+        client.kind = ClientKind::Native;
+    }
+    if let Some(node) = snapshot.nodes.get_mut(&20) {
+        node.client_api = Some("pipewire-pulse".into());
+    }
+    assert_eq!(
+        snapshot.assertion(identity(20).serial),
+        AssertionStatus::Missing
+    );
+}
+
+// A host stream, such as a voice client lunette did not start, must not make a
+// silent pinned process look unattributed once the host answers that the
+// stream's process belongs to no lunette process.
