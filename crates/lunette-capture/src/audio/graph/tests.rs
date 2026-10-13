@@ -283,3 +283,57 @@ fn pulse_stream_without_application_metadata_has_no_assertion() {
 // A host stream, such as a voice client lunette did not start, must not make a
 // silent pinned process look unattributed once the host answers that the
 // stream's process belongs to no lunette process.
+#[test]
+fn stream_answered_as_unowned_leaves_a_silent_target_idle() {
+    let mut snapshot = system();
+    playback(&mut snapshot, 21, &["FL"]);
+    let state =
+        |snapshot: &RegistrySnapshot| plan_graph(Source::Process(process()), snapshot, None).state;
+    let unresolved = |state: CaptureState| {
+        matches!(
+            state,
+            CaptureState::Unavailable {
+                reason: UnavailableReason::UnresolvedAttribution,
+                ..
+            }
+        )
+    };
+    assert!(
+        unresolved(state(&snapshot)),
+        "an unanswered stream may belong to it"
+    );
+    let candidate = snapshot.process_candidates()[0];
+    let request = snapshot
+        .observe_process(candidate, live(1))
+        .unwrap_or_else(|| unreachable!());
+    assert!(snapshot.attribution_reply(
+        AudioAttributionReply {
+            request,
+            process: None
+        },
+        live(1)
+    ));
+    assert_eq!(state(&snapshot), CaptureState::Idle);
+    let retry = snapshot.process_candidates()[0];
+    assert!(snapshot.observe_process(retry, live(1)).is_some());
+    assert_eq!(
+        state(&snapshot),
+        CaptureState::Idle,
+        "a pending retry keeps the last answer"
+    );
+    node(&mut snapshot, 22, NodeKind::Playback, "anonymous");
+    assert!(
+        unresolved(state(&snapshot)),
+        "a stream with no process assertion may belong to it"
+    );
+    snapshot.remove(22);
+    if let Some(client) = snapshot.clients.get_mut(&40) {
+        client.identity.serial += 1;
+    }
+    let incoming = snapshot.clone();
+    snapshot.update_observations(incoming);
+    assert!(
+        unresolved(state(&snapshot)),
+        "a changed assertion discards the answer"
+    );
+}

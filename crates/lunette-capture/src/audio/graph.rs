@@ -271,24 +271,26 @@ impl RegistrySnapshot {
             .get(&candidate.node)
             .is_some_and(|(_, pinned)| *pinned != instance)
         {
-            if let Some(attempt) = self.attempts.get_mut(&candidate.node) {
-                attempt.state = AttemptState::Blocked;
-            }
-            self.attributions.remove(&candidate.node);
+            self.block(candidate.node);
             return None;
         }
         self.instances
             .insert(candidate.node, (assertion.node, instance));
-        if let Some(attempt) = self.attempts.get_mut(&candidate.node) {
+        if let Some(attempt) = self.attempts.get(&candidate.node) {
             if attempt.instance != instance {
-                attempt.state = AttemptState::Blocked;
-                self.attributions.remove(&candidate.node);
+                self.block(candidate.node);
                 return None;
             }
             if !matches!(attempt.state, AttemptState::Ready) {
                 return None;
             }
         }
+        // A retry for the same assertion and instance keeps the host's last
+        // answer until a new one arrives, so the source does not flicker.
+        let unowned = self
+            .attempts
+            .get(&candidate.node)
+            .is_some_and(|attempt| attempt.unowned);
         let request = AudioAttributionRequest {
             request: AudioAttributionRequestId(self.next_request),
             generation: self.generation,
@@ -301,6 +303,7 @@ impl RegistrySnapshot {
             AttributionAttempt {
                 assertion,
                 instance,
+                unowned,
                 state: AttemptState::Pending {
                     request,
                     retry_at: self.attribution_time.saturating_add(self.attribution_retry),
@@ -346,10 +349,7 @@ impl RegistrySnapshot {
                 return false;
             }
             _ => {
-                if let Some(attempt) = self.attempts.get_mut(&reply.request.node) {
-                    attempt.state = AttemptState::Blocked;
-                }
-                self.attributions.remove(&reply.request.node);
+                self.block(reply.request.node);
                 return false;
             }
         }
@@ -358,6 +358,7 @@ impl RegistrySnapshot {
                 .insert(reply.request.node, (process, attempt.assertion.provenance));
         }
         if let Some(attempt) = self.attempts.get_mut(&reply.request.node) {
+            attempt.unowned = reply.process.is_none();
             attempt.state = if reply.process.is_some() {
                 AttemptState::Resolved
             } else {
@@ -365,6 +366,23 @@ impl RegistrySnapshot {
             };
         }
         true
+    }
+
+    /// Reports whether the host's latest answer for the node's current assertion
+    /// and process instance is that the instance belongs to no process. The
+    /// answer is not permanent, because the host can adopt a process later.
+    pub fn unowned(&self, serial: AudioNodeSerial) -> bool {
+        self.attempts
+            .get(&serial)
+            .is_some_and(|attempt| attempt.unowned)
+    }
+
+    fn block(&mut self, serial: AudioNodeSerial) {
+        if let Some(attempt) = self.attempts.get_mut(&serial) {
+            attempt.state = AttemptState::Blocked;
+            attempt.unowned = false;
+        }
+        self.attributions.remove(&serial);
     }
 
     pub fn known_instances(&self) -> Vec<(AudioNodeSerial, ProcessInstance)> {
@@ -382,6 +400,7 @@ impl RegistrySnapshot {
             return;
         }
         self.attributions.remove(&serial);
+        attempt.unowned = false;
         attempt.state = match current {
             ProcessObservation::Unavailable(_) => AttemptState::Ready,
             _ => AttemptState::Blocked,
@@ -393,6 +412,8 @@ impl RegistrySnapshot {
 struct AttributionAttempt {
     assertion: PidAssertion,
     instance: ProcessInstance,
+    /// The host answered that this instance belongs to no process.
+    unowned: bool,
     state: AttemptState,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -557,10 +578,12 @@ fn plan_process(process: ProcessId, registry: &RegistrySnapshot, mixer: Option<u
     } else if registry.nodes.values().any(|node| {
         node.kind == NodeKind::Playback
             && !registry.attributions.contains_key(&node.identity.serial)
+            && !registry.unowned(node.identity.serial)
     }) {
         CaptureState::Unavailable {
             reason: UnavailableReason::UnresolvedAttribution,
-            detail: "audio producers are not attributed to this process".into(),
+            detail: "a playback stream that may belong to this process is not yet attributed"
+                .into(),
         }
     } else {
         CaptureState::Idle
