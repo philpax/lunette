@@ -45,6 +45,8 @@ The OpenVR SDK loader links statically into `liblovr.so`. It needs no SteamVR in
 
 LÖVR's vendored dependencies in `deps/` are used as upstream builds them. They are the set upstream CI tests. JoltPhysics is the exception: `deps/joltc` fetches it through cmake's `FetchContent`. The development shell prefetches the revision `deps/joltc` declares and sets `FETCHCONTENT_SOURCE_DIR_JOLTPHYSICS`, so configuring needs no network. Outside the shell the variable is optional, and `build.rs` warns and lets `FetchContent` fetch the same revision.
 
+`crates/lunette-lovr/build.rs` compiles `src/analyze.cpp` separately through `cc`. It marks the Luau header directories as system includes, so third-party header warnings do not obscure warnings from the shim. When Cargo's `OPT_LEVEL` is `0`, the shim defaults to `-O1` so the development shell's fortify checks remain enabled without warnings. Other Cargo optimisation levels remain unchanged. Explicit compiler flags retain precedence.
+
 `BINDGEN_EXTRA_CLANG_ARGS` supplies the development shell's clang search paths. `build.rs` disables bindgen's include-path detection when it is set.
 
 ## Nix

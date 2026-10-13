@@ -217,16 +217,25 @@ fn build_analyze_shim(lovr_dir: &Path) {
     println!("cargo::rerun-if-changed={}", shim.display());
     println!("cargo::rerun-if-changed=src/analyze_navigation.h");
 
-    cc::Build::new()
-        .cpp(true)
-        .std("c++17")
-        .file(&shim)
-        .include(luau.join("Analysis/include"))
-        .include(luau.join("Ast/include"))
-        .include(luau.join("Config/include"))
-        .include(luau.join("Common/include"))
-        .include(luau.join("Require/include"))
-        .compile("lunette_analyze");
+    let mut build = cc::Build::new();
+    build.cpp(true).std("c++17").file(&shim);
+
+    // Fortify requires optimisation, even when Cargo's debug profile requests none.
+    if env::var("OPT_LEVEL").as_deref() == Ok("0") {
+        build.opt_level(1);
+    }
+
+    // System includes suppress third-party header warnings without hiding shim warnings.
+    for directory in [
+        "Analysis/include",
+        "Ast/include",
+        "Config/include",
+        "Common/include",
+        "Require/include",
+    ] {
+        build.flag("-isystem").flag(luau.join(directory));
+    }
+    build.compile("lunette_analyze");
 }
 
 /// Copies `etc/boot.lua` into `OUT_DIR` for the crate to embed.
