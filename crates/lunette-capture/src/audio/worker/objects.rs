@@ -166,11 +166,11 @@ impl GraphOps for PipeWireGraphOps {
         let result = match object {
             OwnedObject::Adapter { _info, proxy } => {
                 drop(_info);
-                session.core.destroy_object(proxy._proxy)
+                session.core.destroy_object(proxy.into_proxy())
             }
             OwnedObject::Link { _info, proxy } => {
                 drop(_info);
-                session.core.destroy_object(proxy._proxy)
+                session.core.destroy_object(proxy.into_proxy())
             }
             OwnedObject::Monitor(monitor) => {
                 drop(monitor);
@@ -242,6 +242,14 @@ impl<P: ProxyT> OwnedProxy<P> {
             failure,
             status: Rc::new(RefCell::new(GraphObjectState::Starting)),
         }
+    }
+    fn into_proxy(self) -> P {
+        // The hook must be removed before a server-removed proxy can be freed.
+        let Self {
+            _listener, _proxy, ..
+        } = self;
+        drop(_listener);
+        _proxy
     }
     fn state(&self) -> GraphObjectState {
         match self.failure.borrow().as_ref() {
