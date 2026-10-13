@@ -36,7 +36,7 @@ impl Monitor {
         if self.failed.load(Ordering::Relaxed) {
             return GraphObjectState::Unavailable {
                 reason: UnavailableReason::GraphFailure,
-                detail: "monitor stream entered an error state".into(),
+                detail: "monitor stream disconnected or entered an error state".into(),
             };
         }
         if self.negotiated.load(Ordering::Relaxed) && !self.valid.load(Ordering::Relaxed) {
@@ -91,7 +91,10 @@ impl Monitor {
             })
             .state_changed(|_, data, _, state| {
                 data.failed.store(
-                    matches!(state, pw::stream::StreamState::Error(_)),
+                    matches!(
+                        state,
+                        pw::stream::StreamState::Error(_) | pw::stream::StreamState::Unconnected
+                    ),
                     Ordering::Relaxed,
                 );
                 data.streaming.store(
