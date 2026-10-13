@@ -38,7 +38,7 @@ The scale provider, `@lunette-plugins/scale`, applied by the `desktop/scale` ent
 
 lunette honours the decoration mode a client asks for through `xdg-decoration` or the KDE protocol, as WayVR does. A toplevel that asks for nothing, or withdraws its request, is told to use server-side decorations. `Application` in `crates/lunette-compositor/src/wayvr/comp.rs` records, for each toplevel, whether it draws its own, and the window snapshot reports it to Lua as `win.serverSideDecorations`, which is false for a client that draws its own.
 
-lunette draws no server-side decorations in the client's pixels: titlebars and controls are 3D objects the standard library draws around the panel, which keeps panel pixels for content. `desktop/decorations` gives every native window a titlebar, including one that draws its own, because the titlebar carries the grab and close controls that the VR path needs. How it should treat a client-decorated window is left open ([Standard library](stdlib.md#deliberately-left-open)).
+lunette draws no server-side decorations in the client's pixels: titlebars and controls are 3D objects the desktop plugins draw around the panel, which keeps panel pixels for content. [Desktop decorations](../../lua/lunette-plugins/desktop/decorations/README.md) gives every native window a titlebar, including one that draws its own, because the titlebar carries the grab and close controls that the VR path needs. How it should treat a client-decorated window is left open in the plugin's documentation.
 
 ## Windows
 

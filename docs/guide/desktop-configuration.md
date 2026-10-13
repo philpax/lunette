@@ -1,6 +1,6 @@
 # Desktop configuration
 
-The shipped configuration starts the default desktop with `require('@lunette-desktop').run()`. `lua/lunette-desktop/init.luau` owns the default entry list, and `lua/lunette-desktop/settings.luau` the settings types. Settings configure those entries by id, patches insert, replace, or disable them, and each provider and consumer stays independently replaceable.
+The shipped configuration starts the default desktop with `require('@lunette-desktop').run()`. `lua/lunette-desktop/init.luau` owns the default entry list, and `lua/lunette-desktop/settings.luau` the settings types. [Default configuration](../dev/standard-plugins.md#default-configuration) lists the composition. Settings configure those entries by id, patches insert, replace, or disable them, and each provider and consumer stays independently replaceable.
 
 `lunette --dump-config` copies the shipped configuration and writes a `.luaurc` that names the installation's module roots. `lunette check` checks a configuration without starting a session. `lunette --config-path DIR` starts the configuration in `DIR`, which holds `main.luau` and optionally `conf.luau`; a relative path resolves from the working directory. The shipped desktop opens no application. [The development loop](../dev/build-and-development.md#the-development-loop) describes the repository's `dev/` configuration, which adds a terminal.
 
@@ -48,7 +48,7 @@ Saved monitor placement restores the panel's width and derives its height from t
 
 ## Runtime themes
 
-`desktop/theme` selects a theme from the `lunette/themes` catalog and applies it through `lunette/theme`. Its configuration has `preset`, a catalog name defaulting to `dark`, and `overrides`, which change fields of the chosen theme. The shipped themes are plugins: `theme/standard` registers Dark and Light, and `theme/arcade` registers Arcade, with its own palette, font, metrics, and radii. [Adding a theme](writing-plugins.md#adding-a-theme) shows a configuration that adds a theme and removes Arcade.
+`desktop/theme` selects a theme from the `lunette/themes` catalog and applies it through `lunette/theme`. Its configuration has `preset`, a catalog name defaulting to `dark`, and `overrides`, which change fields of the chosen theme. The shipped themes are plugins: `theme/standard` registers Dark and Light, and `theme/arcade` registers Arcade, with its own palette, font, metrics, and radii. The [theme selector](../../lua/lunette-plugins/desktop/theme/README.md) and its [selection policy](../../lua/lunette-plugins/desktop/theme/docs/theme-selection.md) describe the runtime behavior. [Adding a theme](writing-plugins.md#adding-a-theme) shows a configuration that adds a theme and removes Arcade.
 
 ```luau
 require('@lunette-desktop').run {
@@ -69,7 +69,7 @@ The Appearance group has a `Theme: <label>` row for each registered theme, in ca
 
 ## Audio backdrop
 
-`desktop/backdrop` draws the default environment and optionally reacts to the system output mix or one logical application. Capture does not change playback links, the default sink, or volume, and opens no microphone. `lua/lunette-plugins/desktop/backdrop/config.luau` owns the settings and defaults. The desktop includes the reusable `audio` and `audio-analysis` providers independently of this consumer.
+`desktop/backdrop` draws the default environment and optionally reacts to the system output mix or one logical application. Capture does not change playback links, the default sink, or volume, and opens no microphone. `lua/lunette-plugins/desktop/backdrop/config.luau` owns the settings and defaults. The [backdrop plugin](../../lua/lunette-plugins/desktop/backdrop/README.md) lists its dependencies and controls. [Source selection](../../lua/lunette-plugins/desktop/backdrop/docs/source-selection.md), [audio response](../../lua/lunette-plugins/desktop/backdrop/docs/audio-response.md), and [rendering](../../lua/lunette-plugins/desktop/backdrop/docs/rendering.md) specify its implementation behavior. The desktop includes the reusable `audio` and `audio-analysis` providers independently of this consumer.
 
 ```luau
 require('@lunette-desktop').run {
@@ -95,11 +95,11 @@ Runtime choices belong to the session and survive provider reactivation while th
 
 `brightness`, `response`, and `motion` range from 0 to 1. `quality` is `low`, `standard`, or `high`. `distance` is in metres. `fadeDuration`, `attackDuration`, `releaseDuration`, `crossfadeDuration`, and `recoveryDuration` are in seconds. They control visibility, band attack/release, source changes, and audio-loss settling respectively. `palette` contains linear-light RGB colours for `zenith`, `horizon`, `low`, `high`, and `glint`, and for `bass`, `mid`, and `treble`. `low` and `high` colour the curtains' body and ray tops at rest. Each band colour takes over one altitude as its band grows loud, from the hem for bass to the ray tops for treble, and colours that band's onset: a bass flash along the hem, a mid flare along the body, and treble rays shooting upward. Onsets land roughly where the viewer is looking. `diagnostic` is a development view that draws one stage of the overhead sky field with the curtains hidden, to locate rendering defects on a particular GPU: `direction`, `coordinates`, `cells`, `density`, or `field`. It defaults to `none`, and the Backdrop panel's Diagnostic view control changes it during a session. Defaults and bounds remain in `config.luau`. Audio, attention, and controls are optional children with their own provider requirements. An audio or analysis outage removes reactivity, an attention-provider outage stops automatic selection, and a UI or menu outage withdraws controls. These outages do not disable the base environment.
 
-`examples/audio-backdrop` combines the complete default desktop with an independent raw-PCM and analysis meter. Disabling `desktop/backdrop` leaves that consumer active. Removing `audio` or `audio-analysis` interrupts only the consumers that require it. [Audio](../dev/audio.md#acceptance) records the live capture and headset checks that remain pending; automated tests do not establish actual host playback preservation, headset appearance, or comfort.
+`examples/audio-backdrop` combines the complete default desktop with an independent raw-PCM and analysis meter. Disabling `desktop/backdrop` leaves that consumer active. Removing `audio` or `audio-analysis` interrupts only the consumers that require it. [Audio acceptance](../dev/audio.md#acceptance) records the live capture checks that remain pending. [Backdrop rendering gaps](../../lua/lunette-plugins/desktop/backdrop/docs/rendering.md#known-gaps) records the headset appearance, stereo, comfort, and frame-time checks; automated tests do not establish those properties.
 
 ## Workspaces
 
-`desktop/workspaces` shows the windows of one workspace at a time. The default is one workspace, `main`, with no menu rows.
+`desktop/workspaces` shows the windows of one workspace at a time. The default is one workspace, `main`, with no menu rows. The [workspace policy](../../lua/lunette-plugins/desktop/workspaces/docs/workspace-policy.md) describes selection and placement behavior.
 
 ```luau
 require('@lunette-desktop').run {
@@ -129,7 +129,7 @@ A definition can be a factory, which builds a fresh definition each time the run
 
 ## Pointer aim
 
-The laser provider smooths each controller's aim before picking and drawing, so the beam, landing indicator, UI input, and application pointer coordinates use one ray. The grab pose, button edges, and scrolling are not filtered. `lua/lunette-plugins/laser/aim.luau` owns the settings and defaults:
+The laser provider smooths each controller's aim before picking and drawing, so the beam, landing indicator, UI input, and application pointer coordinates use one ray. The grab pose, button edges, and scrolling are not filtered. The [laser provider](../../lua/lunette-plugins/laser/README.md) documents its options, and [aim and drag feedback](../../lua/lunette-plugins/laser/docs/aim-and-drag-feedback.md) specifies the filtering and trigger-lock behavior. `lua/lunette-plugins/laser/aim.luau` owns the settings and defaults:
 
 - `enabled` turns smoothing on or off.
 - `minCutoff`, in hertz, sets stationary smoothing; a lower value suppresses more jitter and adds lag.
@@ -167,11 +167,11 @@ Grip while pointing at a movable panel grabs it and cancels any trigger gesture.
 
 The panels provider draws windows and monitor mirrors in the scene, where they take part in depth testing with other panels and session controls. The `panels` setting `{ rendering = 'layer' }` gives windows backend-owned composition layers instead. Layers can show sharper text, but the backend composites them after the scene, without depth ordering. A window whose layer claim is not granted falls back to the scene, and so does a window while it shows a menu, a dropdown, or another popup or subsurface, which a layer would cover. Monitor mirrors always draw in the scene.
 
-Scene content rounds its corners with the theme's `window` and `monitor` radii, and its pointer hits follow the same outline. Dark and Light keep monitors square, and Arcade rounds them by 0.012 m. The panels provider's style `windowRadius` and `monitorRadius` override the theme. A flat panel with a titlebar draws the titlebar and body as one outline. Layer content, and the titlebar of a curved panel, stay rectangular. [Rendering](../dev/rendering.md#rounded-scene-geometry) states the rules.
+Scene content rounds its corners with the theme's `window` and `monitor` radii, and its pointer hits follow the same outline. Dark and Light keep monitors square, and Arcade rounds them by 0.012 m. The panels provider's style `windowRadius` and `monitorRadius` override the theme. A flat panel with a titlebar draws the titlebar and body as one outline. Layer content, and the titlebar of a curved panel, stay rectangular. [Panel rendering](../../lua/lunette-plugins/panels/docs/rendering.md) and [shared rounded geometry](../../lua/lunette-plugins/theme/docs/rounded-geometry.md) specify the plugin behavior; [Rendering](../dev/rendering.md#rounded-scene-geometry) states the shared rules.
 
 ## Theme fields
 
-`lua/lunette-contracts/theme.luau` declares the fields and `lua/lunette-plugins/theme/descriptors.luau` validates them. The values are in `theme/base.luau`, `theme/standard/presets.luau`, and `theme/arcade/preset.luau` under `lua/lunette-plugins/`. Each field reaches the components below unless a component option overrides it.
+`lua/lunette-contracts/theme.luau` declares the fields and `lua/lunette-plugins/theme/descriptors.luau` validates them. The values are in `theme/base.luau`, `theme/standard/presets.luau`, and `theme/arcade/preset.luau` under `lua/lunette-plugins/`. Each field reaches the components below unless a component option overrides it. The [runtime theme provider](../../lua/lunette-plugins/theme/README.md) documents the shared theme service; [runtime theme details](../../lua/lunette-plugins/theme/docs/runtime-themes.md) specify its implementation.
 
 | Field | Consumers | Component override |
 |---|---|---|
@@ -210,7 +210,7 @@ Scene content rounds its corners with the theme's `window` and `monitor` radii, 
 | `radii.titlebar` | Titlebar corners, in metres | Titlebar `cornerRadius` |
 | `radii.window`, `radii.monitor` | Scene window and monitor content, in metres | Panels `windowRadius`, `monitorRadius` |
 
-The manager caps some tokens in its fixed-size toolbar and editors, as [Session styling](runtime-manager.md#session-styling) lists. Theme fields do not change keyboard layout, `keyUnit`, depth offsets, haptics, panel placement, or input routing.
+The manager caps some tokens in its fixed-size toolbar and editors, as [Session styling](runtime-manager.md#session-styling) lists. [Runtime manager behavior](../../lua/lunette-plugins/desktop/manager/docs/runtime-manager-behavior.md) specifies how the manager renders and refreshes its panel. Theme fields do not change keyboard layout, `keyUnit`, depth offsets, haptics, panel placement, or input routing.
 
 ## Decisions
 
@@ -230,7 +230,7 @@ The backdrop keeps its base environment independent of audio, attention, and con
 
 ## Known gaps
 
-Live PipeWire graph checks and headset appearance, comfort, stereo presentation, and frame-time comparisons remain pending. [Audio](../dev/audio.md#acceptance) records the required observations. Automated provider and rendering tests do not establish actual host versions or live playback preservation.
+Live PipeWire graph checks and headset appearance, comfort, stereo presentation, and frame-time comparisons remain pending. [Audio acceptance](../dev/audio.md#acceptance) records the live capture observations. [Backdrop rendering gaps](../../lua/lunette-plugins/desktop/backdrop/docs/rendering.md#known-gaps) records the headset observations. Automated provider and rendering tests do not establish actual host versions or live playback preservation.
 
 ## Deliberately left open
 

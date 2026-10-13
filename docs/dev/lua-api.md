@@ -36,7 +36,11 @@ A request on an instance (`enable`, `disable`, `dispose`) takes effect immediate
 
 ### Provider modules
 
-A module made by `plugin.provider` or `plugin.consumer` exposes `definition`, built from the defaults, and `define`, which binds other defaults and an optional `name`. A module's descriptor validates defaults at construction, bound settings at `define`, and configuration at activation, and each activation resolves its configuration afresh. Declared objects merge recursively; arrays, maps, unions, and atomic values replace. [Configuration schemas](../guide/configuration-schema.md) specifies descriptors.
+A module made by `plugin.provider` or `plugin.consumer` exposes `definition`, built from the defaults, and `define`, which binds other defaults and an optional `name`. Each activation resolves its configuration afresh. A replacement provider implements the existing contract; the contract is not weakened to fit it. Objects a provider method returns, such as panels, pointers, lasers, keyboards, and tags, outlive the call and check their own state.
+
+### Configuration descriptors
+
+`@lunette-plugin/schema` derives runtime validation, editor metadata, and the Luau `Input` and `Output` types from one descriptor. A module's descriptor validates defaults at construction, bound settings at `define`, and configuration at activation. Objects reject unknown fields and merge declared defaults recursively. Arrays and maps replace whole, including when empty; unions and atomic values replace. Numbers and vectors require finite components. A callback is checked as a function. Errors carry a path and a code. A schema-backed definition exposes its metadata and a resolver that validates configuration without running the initializer. [Configuration schemas](../guide/configuration-schema.md) specifies descriptors.
 
 Variation inside a provider is a hook: an option whose value is a function that receives its arguments followed by the default implementation, `hook(args..., base)`. A hook runs on the stack of whatever reached the provider, so its errors are reported there.
 
@@ -44,9 +48,19 @@ Variation inside a provider is a hook: an option whose value is a function that 
 
 A composition is a list of entries, `{ id, definition, config }`, where `definition` is a plugin definition or a factory of one. `plugin.compose(entries, patches)` returns the entries with the patches applied, validated, and frozen, and defines and enables nothing. `lua/lunette-plugin/compose.luau` is the source of truth for the patch rules. A patch that names an unknown or duplicate id, changes nothing, or both disables and changes an entry raises, because a patch that matches nothing does not do what it says.
 
-`@lunette-plugin/management.start` is the one start path. It preflights every configuration through its definition's `resolve` before creating the runtime, so a configuration error aborts startup before any entry activates, while initializer failures stay local to their instances. The entry id `composition` is reserved. [Session composition and inspection](stdlib.md#session-composition-and-inspection) states entry management and recovery.
+`@lunette-plugin/management.start` is the one start path. It preflights every configuration through its definition's `resolve` before creating the runtime, so a configuration error aborts startup before any entry activates, while initializer failures stay local to their instances. The entry id `composition` is reserved. [Session composition and inspection](#session-composition-and-inspection) states entry management and recovery.
+
+### Session composition and inspection
+
+`@lunette-plugin/management` owns the running entries and their configuration and provides `lunette/composition`, whose service lists, enables, disables, reloads, configures, removes, restores, and recovers entries. Configuration is validated through the definition's resolver before any cleanup. A failed initializer stays failed and inspectable, and `recover` reloads the last configuration observed active. Replacement is not transactional, and a cleanup failure leaves a quarantined entry. The catalog keeps each known entry's identity and order after removal, and `restore` reinstalls it from its retained definition and configuration.
+
+The service protects itself and the configured entries, following their current and failed provider bindings and parent ownership. [Standard plugins](standard-plugins.md#default-configuration) specifies the default desktop recovery protection set. Code that mutates the raw runtime bypasses this policy.
+
+`Runtime:snapshot()` returns detached records without running callbacks or draining work: instances, declared capabilities, current and failed bindings, generations, activations, ownership, dependents, diagnostics, and effect states. Brokers expose `inspect()` through their contracts, returning primitive metadata about registrations and owners without invoking any user callback.
 
 ## Contracts
+
+A contract module in `@lunette-contracts` declares a service type and exports a capability that pairs it with an authority-qualified name and version. Vocabulary shared by several contracts lives in a neutral contract module, so a service type never imports a provider. `@lunette-contracts/vocabulary` holds the surface and pointer types, the per-window pose property `lunette.pose` with `encodePose` and `decodePose`, and `PRECEDENCE`, the named precedences of rule sources. `@lunette-contracts/keys` holds the key vocabulary: the evdev codes from `lunette.keyCodes()`, the modifier each modifier key holds, the host modifier snapshot type, and which modifiers make a command chord. The frame provider translates LÖVR key names and modifiers, and the focus provider holds the physical delivery policy ([Input](input.md#physical-input-batches)). `@lunette-contracts/quad` holds flat-quad ray intersection.
 
 Every registration that takes an owner returns an effect and ends when the effect is disposed or the owner unloads. An owner-scoped override, such as a hidden panel or a selected tag, returns an effect the same way. A change notification is `on<Event>(owner, { run })`, where `run` receives the change's payload, and returns an effect. A listener or callback a provider invokes for another plugin runs under its own protected call and is reported through `lunette.reportError` without stopping the others. A call with a field the contract does not name raises at the call. Every broker that holds owner-scoped registrations implements `inspect()`, which returns registration metadata as data and invokes no plugin callback, and the plugin manager reads each one.
 
@@ -80,13 +94,11 @@ The keyboard display (`lunette/keyboard-display`, provided by the `desktop/keybo
 
 ### Lasers
 
-A hand has one laser owner at a time. `attach` answers a laser for each hand, and a laser handle names its hand and pointer; the provider keeps the rest. The provider smooths each laser's ray with an adaptive low-pass filter before the pointer sees it; picking, delivered coordinates, and drawing use the same filtered ray, and the grab pose, buttons, and scroll are unfiltered. History resets on tracking loss, a zero ray, or a gap longer than `aim.resetAfter`.
-
-While analog trigger pressure exceeds the lock threshold over a live offered surface, the laser holds the previous ray, so pulling the trigger does not move the hit. Rotation or movement past the unlock bounds releases the hold for the rest of the pull; grip, a grab, tracking loss, a large frame gap, or the surface going away cancels it. A reader without analog pressure never locks. `lua/lunette-plugins/laser/aim.luau` and `trigger-lock.luau` define the fields, and [Pointer aim](../guide/desktop-configuration.md#pointer-aim) describes tuning.
-
-While the laser's seat carries a drag whose icon has content, the laser's default drawing draws the icon where its beam ends, facing the hand, with its top-left corner offset from that point as the client placed it. The icon takes the metres per surface pixel of the panel the beam last hovered, so it matches the window it came from, and a thousandth of a metre per pixel before any panel. It is an overlay like the beam, and it samples the icon's crop and converts its premultiplied pixels with the panels provider's shaders, which `@lunette-plugins/client-pixels` holds for both. A draw hook that replaces `base` replaces the icon too. `lua/lunette-plugins/laser/drag-icon.luau` draws it.
+A hand has one laser owner at a time. `attach` answers a laser for each hand, and a laser handle names its hand and pointer; the provider keeps the rest. [Aim and drag feedback](../../lua/lunette-plugins/laser/docs/aim-and-drag-feedback.md) specifies the built-in ray filter, trigger lock, and drag-icon drawing. A draw hook that replaces `base` replaces the icon too.
 
 ### Panels
+
+Consumers that follow a panel's life use the panels contract's `onAdded` and `onRemoved` listeners rather than any provider's private modules. A panel is released before its owner's effect is disposed, because the runtime withholds an owner's authority while its inverse runs. A removal announced from the inverse would reach the owner's own listeners as if the owner were gone.
 
 Giving a panel only `width` or only `height` derives the other from the source's aspect ratio and recomputes it when the source's size changes; giving both keeps the rectangle. A monitor's aspect ratio comes from its oriented logical size. A hidden panel is not drawn or picked and gives up its layer at once, but stays in `all` and `forSource`. `panel:close(owner)` asks a window's client to close without removing the panel, or dismisses a monitor's capture and removes its panel.
 
@@ -106,7 +118,7 @@ Consumers resolve appearance in the order base theme, global theme, provider con
 
 A pointer button captures the control it pressed until release or cancellation. A release activates only that control and only inside it; cancellation never activates. A control refuses a second pointer while held. Hiding, disabling, destroying, resizing, or replacing bounds or items cancels the affected captures, and `Panel:setPose` keeps them. Hover does not take keyboard focus. A text field holds valid single-line UTF-8 and edits at grapheme boundaries from `lunette.textBoundaries`. `setValue` calls no callback.
 
-Theme overrides resolve from the global theme to the provider, panel, and control, and a control's draw hook wraps the default renderer without changing hit bounds. Each hook invocation restores pass state and transforms, including on error. Draw errors propagate to the frame boundary, and widget callback errors are reported with the control owner. `draw.depth` in `lua/lunette-plugins/ui/draw.luau` owns the depth offsets that separate backing, controls, contents, and glyphs. A choice's default header draws its label and selected value as `Label: value`, or whichever of the two is nonempty, centred vertically in the first row, with a chevron at its right edge that points down while closed and up while open. The chevron is drawn as strokes because LÖVR's default font has no arrow glyphs. Glyphs are y-up while logical coordinates are y-down, so the default renderer turns text half a turn about x, and a draw hook that draws its own text does the same.
+Theme overrides resolve from the global theme to the provider, panel, and control, and a control's draw hook wraps the default renderer without changing hit bounds. Each hook invocation restores pass state and transforms, including on error. Draw errors propagate to the frame boundary, and widget callback errors are reported with the control owner. [UI rendering](../../lua/lunette-plugins/ui/docs/rendering.md#scene-depth) specifies depth offsets, and [choice headers and text orientation](../../lua/lunette-plugins/ui/docs/rendering.md#choice-headers-and-text-orientation) specifies the default choice rendering.
 
 Panels and controls end with their creation owners, with the provider, and at source reload. A control's focus target is registered under the UI provider and held by the control. A frozen `ui.OwnerIdentity` token identifies a creation-owner activation, and the owner and id together identify a live control. Inspection grants no authority.
 
@@ -124,7 +136,7 @@ A tag lasts while any owner holds it, and `hold` options apply only when it crea
 
 ### Rules and placement
 
-Rule sources merge in ascending precedence, so a higher precedence wins. `vocabulary.PRECEDENCE` names the shipped precedences, so a configuration places its own source relative to them ([Placement](stdlib.md#placement)). Rule property keys the placement provider does not map pass through to the resolved properties.
+Rule sources merge in ascending precedence, so a higher precedence wins. `vocabulary.PRECEDENCE` names the shipped precedences, so a configuration places its own source relative to them ([Placement](standard-plugins.md#placement)). Rule property keys the placement provider does not map pass through to the resolved properties.
 
 `lunette/placement` is the one component that depends on rules, panels, and tags. `place` returns the placement, its panel and resolved properties, and the effect that ends it. A placement ends when its effect is disposed, its owner unloads, or its panel is removed. `placement:onPlaced` hears every placement, whoever made it. The `panelOptions` hook is where a resolved property reaches a panel. The pose memory child of `desktop/adoption` writes a dropped window's pose to its `lunette.pose` property and registers the source that answers it.
 
@@ -134,9 +146,7 @@ Rule sources merge in ascending precedence, so a higher precedence wins. `vocabu
 
 ### Frame pacing and output scale
 
-How often each window's client draws and which scale each output's clients render at are policy over `window:setFrameRate` and `output:setMode`. Each contract hands out a pure, resource-free chooser, a pacer per window or a chooser per output, and `desktop/pacing` and `desktop/scale` read the scene and apply the answers ([Pacing and scale](stdlib.md#pacing-and-scale)).
-
-A pacer leaves a visible window unthrottled. It runs a hidden window at the `exempt` rate when the window's content type is exempt or at least the `busy` fraction of recent samples drew, and at the `background` rate otherwise. A chooser returns a rung of `lunette.scaleSteps()` from the distance to the nearest panel showing the output's clients, and moves between rungs with hysteresis, because some toolkits re-lay out expensively on each scale change. The ladder is the one the layer pool quantises to ([Rendering](rendering.md#the-layer-pool)). `@lunette-plugins/pacing/pacer` and `@lunette-plugins/scale/chooser` are the rules.
+How often each window's client draws and which scale each output's clients render at are policy over `window:setFrameRate` and `output:setMode`. Each contract hands out a pure, resource-free chooser, a pacer per window or a chooser per output, and `desktop/pacing` and `desktop/scale` read the scene and apply the answers ([Pacing and scale](standard-plugins.md#pacing-and-scale)). The built-in policies are specified in [Pacing policy](../../lua/lunette-plugins/pacing/docs/pacing-policy.md) and [Output scale](../../lua/lunette-plugins/scale/docs/output-scale.md).
 
 ## Native API
 
@@ -226,6 +236,14 @@ The API is bound with `mlua`, which creates the session's Luau state and owns it
 
 ## Decisions
 
+### Key vocabulary comes from the native API
+
+The key names are the native API's, read from `lunette-capture`'s `VirtualKey`, so they cannot drift from what the sinks emit. A hand-written table was rejected for that reason.
+
+### Panel lifecycle uses contract notifications
+
+Panel lifecycle is announced through the panels contract. A consumer that imported the provider's private modules could not work with a replacement, and a module-global registry of per-panel cleanups outlives activations. The release order in [Panels](#panels) preserves owner authority during removal notifications.
+
 ### mlua on Luau
 
 A Lua mistake must raise a catchable error rather than crash the window manager, and mlua's per-call cost is negligible beside a compositor frame. Luau lets the standard library and configurations be statically checked. LuaJIT is not a build mode, because the standard library's annotations do not parse there.
@@ -300,7 +318,7 @@ A plugin-system call whose positional arguments would not say what they are take
 
 ### Configuration types and validation share one descriptor
 
-A runtime schema beside hand-written types was rejected because the two diverge. Preflight rejects invalid settings before acquiring resources but cannot guarantee that an initializer succeeds.
+A runtime schema beside hand-written types was rejected because the two diverge. Descriptors replace inference from defaults because optional values, unions, callbacks, and empty collections need an explicit type. Configuration merges records and replaces everything else. A colour list or a vector is one value, and merging `{ 1 }` into `{ 0.5, 0.5, 1, 1 }` by position would make a colour nobody wrote. Preflight rejects invalid settings before acquiring resources but cannot guarantee that an initializer succeeds.
 
 ### Composition has one start path
 
@@ -308,7 +326,7 @@ A runtime schema beside hand-written types was rejected because the two diverge.
 
 ### A typed patch is made from the definition
 
-`plugin.configure(id, target)` returns a function of the configuration. Inferring from the definition and the literal in one call widens literal options such as `hand = 'right'` to `string` and reports a correct call as an error. The patch carries `target`, and composition raises when the entry with that id is made from another definition, because the target only supplies a type and a mismatch would check the options against the wrong entry. The shipped desktop's settings are a typed table keyed by entry id over the entries' own descriptors; they restate the configurable part of the entry list, which a test keeps in step, and an inserted entry configures itself through its insert's `config`.
+`plugin.configure(id, target)` returns a function of the configuration. Inferring from the definition and the literal in one call widens literal options such as `hand = 'right'` to `string` and reports a correct call as an error. The patch carries `target`, and composition raises when the entry with that id is made from another definition, because the target only supplies a type and a mismatch would check the options against the wrong entry. The shipped desktop's settings are a typed table keyed by entry id over the entries' own descriptors; they restate the configurable part of the entry list, which a test keeps in step, and an inserted entry configures itself through its insert's `config`. A patch type discriminated by `id` was rejected because it needs an arm for inserted entries, which would accept a mistyped option for any shipped entry.
 
 ### Frame dispatch and the surface list are contracts
 
@@ -320,7 +338,7 @@ A configuration-local callback registry was rejected because a plugin could reac
 
 ### A keyboard is laid out from keys
 
-Keys carry `x`, `height`, and spacers, as keyboard-layout-editor's format does, so split keyboards, tall keys, and arrow clusters can be written. A uniform grid was rejected because it expresses none of them. An action is a union discriminated by `kind`, and `custom` lets a hook give a key a meaning the provider lacks.
+The built-in row layout rationale is in [Keyboard behavior](../../lua/lunette-plugins/keyboard/docs/keyboard.md#decisions). An action is a union discriminated by `kind`, and `custom` lets a hook give a key a meaning the provider lacks.
 
 ### The keyboard contract is what consumers call
 
@@ -412,7 +430,7 @@ A drag is read from `seat.drag` every frame rather than announced by events, bec
 
 ### The laser draws the drag icon
 
-The icon follows a seat's pointer, and the laser is what owns the seat and knows where its pointer lands in the scene, so the laser draws it. Drawing it from the panels provider was rejected, because a panel does not know which seat points at it or where the beam ends off every panel. The icon faces the hand rather than lying on the hovered panel, as WayVR's faces the head, so it stays readable over a curved panel and over nothing.
+The drag-icon drawing rationale is in [Aim and drag feedback](../../lua/lunette-plugins/laser/docs/aim-and-drag-feedback.md#decisions).
 
 ### Handles compare by what they name
 

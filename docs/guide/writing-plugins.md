@@ -14,9 +14,9 @@ The shipped `main.luau` is one call:
 require('@lunette-desktop').run()
 ```
 
-`run` takes `settings` and `patches`. [Desktop configuration](desktop-configuration.md) describes the settings. Patches change the desktop's entry list, which `require('@lunette-desktop').compose()` returns. Each entry has an `id`, such as `keyboard`, `laser`, or `desktop/keyboard`. The built-in providers publish services such as panels, pointers, and the keyboard, and the `desktop/` consumers use them. Every entry is a module under `@lunette-plugins`: a provider under its contract's name and any other plugin under its entry id, so `desktop/menu` is `@lunette-plugins/desktop/menu`, and `desktop/keyboard`, which provides `lunette/keyboard-display`, is `@lunette-plugins/keyboard-display`.
+`run` takes `settings` and `patches`. [Desktop configuration](desktop-configuration.md) describes the settings. [Default configuration](../dev/standard-plugins.md#default-configuration) lists the shipped composition. Patches change the desktop's entry list, which `require('@lunette-desktop').compose()` returns. Each entry has an `id`, such as `keyboard`, `laser`, or `desktop/keyboard`. The built-in providers publish services such as panels, pointers, and the keyboard, and the `desktop/` consumers use them. Every entry is a module under `@lunette-plugins`: a provider under its contract's name and any other plugin under its entry id, so `desktop/menu` is `@lunette-plugins/desktop/menu`, and `desktop/keyboard`, which provides `lunette/keyboard-display`, is `@lunette-plugins/keyboard-display`.
 
-Plugin modules live in the configuration directory and are required by relative path, such as `require './hello'`. A relative path resolves against the directory of the requiring file, in a session and in `lunette check` alike. From `myplugin/init.luau`, `require '@self/draw'` names `myplugin/draw.luau`, because `./draw` from an `init.luau` names a sibling of its directory. A relative path cannot leave the configuration directory. [Module roots](../dev/stdlib.md#module-roots) states the rules.
+Plugin modules live in the configuration directory and are required by relative path, such as `require './hello'`. A relative path resolves against the directory of the requiring file, in a session and in `lunette check` alike. From `myplugin/init.luau`, `require '@self/draw'` names `myplugin/draw.luau`, because `./draw` from an `init.luau` names a sibling of its directory. A relative path cannot leave the configuration directory. [Module roots](../dev/build-and-development.md#module-roots) states the rules.
 
 ## A first plugin
 
@@ -157,7 +157,7 @@ Geometric positions, directions, and offsets are native `vector` values made wit
 
 ## Hooking a built-in provider
 
-Behaviour inside a provider changes through a hook: an option whose value is a function that receives the hook's arguments followed by `base`, the default implementation. Calling `base` keeps the default, and not calling it replaces it. The built-in hooks are the keyboard's `onKey` and `drawKey`, interaction's `drive` and `constrain`, the laser's `readInput` and `draw`, placement's `panelOptions`, and a UI control's `draw`. An error a hook raises is reported where the provider was called from.
+Behaviour inside a provider changes through a hook: an option whose value is a function that receives the hook's arguments followed by `base`, the default implementation. Calling `base` keeps the default, and not calling it replaces it. The built-in hooks are the keyboard's `onKey` and `drawKey`, interaction's `drive` and `constrain`, the laser's `readInput` and `draw`, placement's `panelOptions`, and a UI control's `draw`. An error a hook raises is reported where the provider was called from. The [UI rendering page](../../lua/lunette-plugins/ui/docs/rendering.md) specifies the UI draw hook's rendering boundary; this guide retains the shared hook contract.
 
 Only one active plugin can provide a contract. Where several implementations coexist, as with layouts, themes, menu actions, key bindings, rule sources, and surface offers, one provider is a broker and each implementation registers with it. A name registered with a broker has one holder at a time, and registering a taken name raises an error.
 
@@ -174,7 +174,7 @@ require('@lunette-desktop').run {
 }
 ```
 
-A setting merges into the entry's configuration through the definition's schema: declared objects merge field by field, and arrays, maps, unions, and scalar values replace. A misspelt key is not a Luau type error; runtime validation rejects it with an error naming its path. [Contracts and providers](../dev/stdlib.md#contracts-and-providers) lists each built-in provider's options.
+A setting merges into the entry's configuration through the definition's schema: declared objects merge field by field, and arrays, maps, unions, and scalar values replace. A misspelt key is not a Luau type error; runtime validation rejects it with an error naming its path. [Contracts and providers](../dev/standard-plugins.md#contracts-and-providers) lists the built-in providers and their options.
 
 Patches change the entry list. A patch with an entry's `id` and `definition` replaces what the entry is made from, with an optional `config` for the new definition, and `disabled = true` removes the entry. An `insert` patch adds an entry at the end, or `before` or `after` a named entry. A patch naming an unknown id, two patches naming one id, or a setting and a patch naming one id raise an error when the configuration loads. A definition is a plugin definition or a factory that makes one; a factory makes a fresh definition each time the runtime starts.
 
@@ -182,7 +182,7 @@ A composition built without the desktop configures an entry with `plugin.configu
 
 ## Independent audio consumption
 
-`examples/audio-backdrop/meter.luau` is a consumer of `lunette/frame`, `lunette/audio`, and `lunette/audio-analysis`. It imports their neutral contracts and does not import the desktop, backdrop, or analysis implementation. Its `main.luau` inserts it into the complete default desktop, while its local tests run it with only the real frame, audio, and analysis providers over the fake native boundary. The same plugin can run in a composition with no backdrop.
+`examples/audio-backdrop/meter.luau` is a consumer of `lunette/frame`, `lunette/audio`, and `lunette/audio-analysis`. It imports their neutral contracts and does not import the desktop, backdrop, or analysis implementation. The [audio](../../lua/lunette-plugins/audio/README.md) and [audio-analysis](../../lua/lunette-plugins/audio-analysis/README.md) provider pages describe their implementations. Its `main.luau` inserts it into the complete default desktop, while its local tests run it with only the real frame, audio, and analysis providers over the fake native boundary. The same plugin can run in a composition with no backdrop.
 
 A raw reader opens with the caller's owner and a source descriptor:
 
@@ -205,7 +205,7 @@ The definition declares both capabilities in `requires`. Both readers end with t
 
 A raw snapshot contains the source, state, frame publication generation, and immutable blocks. `block:copySamples()` returns a fresh buffer of interleaved little-endian F32 samples. Its byte length is `block.frameCount * block.channels * 4`. `buffer.readf32(samples, index * 4)` reads one sample at a zero-based index. `raw-level.luau` reads at most 256 frames from the newest block to demonstrate this boundary; it does not replace the reusable streaming analysis. The raw block's stream generation and sequence identify discontinuity and duplicate data, and its `gap` and `droppedFrames` report loss.
 
-The analysis open result distinguishes success, invalid options, and exhausted profile capacity. `size` is 512, 1024, or 2048, and `hop` is a quarter or half of that size. The default profile is 2048/512. A feature snapshot has `state`, `frameGeneration`, optional stream `generation`, optional `endFrame`, `gap`, optional `gapReason`, `droppedFrames`, completed `hops`, and optional `latest` steady values. Each steady value has RMS, peak, bass, mid, and treble powers, and an eight-band `spectrum` of powers from low to high. Each hop adds full-band `flux` and `onset`, and `bassOnset`, `midOnset`, and `trebleOnset`, which register events in one band, such as a kick or a hi-hat. State loss, generation changes, sequence or sample-time discontinuities, capacity loss, invalid samples, and reader termination clear `latest` until a fresh complete window. Continuous active publications without a completed hop retain steady values. An empty `hops` list does not replay flux or onset. Snapshot `endFrame` is the optional exclusive cumulative end of the last processed PCM block within its stream generation. It is absent before the first processed block, advances for blocks that complete no hop, and stays unchanged when no new PCM arrives. A hop's `endFrame` is the exclusive end of its completed window; compare it with the snapshot end only when their stream generations match. [Audio](../dev/audio.md#lua-analysis) specifies sample-time semantics, normalisation, and budgets. The contract modules own the exact shapes.
+The analysis open result distinguishes success, invalid options, and exhausted profile capacity. `size` is 512, 1024, or 2048, and `hop` is a quarter or half of that size. The default profile is 2048/512. A feature snapshot has `state`, `frameGeneration`, optional stream `generation`, optional `endFrame`, `gap`, optional `gapReason`, `droppedFrames`, completed `hops`, and optional `latest` steady values. Each steady value has RMS, peak, bass, mid, and treble powers, and an eight-band `spectrum` of powers from low to high. Each hop adds full-band `flux` and `onset`, and `bassOnset`, `midOnset`, and `trebleOnset`, which register events in one band, such as a kick or a hi-hat. State loss, generation changes, sequence or sample-time discontinuities, capacity loss, invalid samples, and reader termination clear `latest` until a fresh complete window. Continuous active publications without a completed hop retain steady values. An empty `hops` list does not replay flux or onset. Snapshot `endFrame` is the optional exclusive cumulative end of the last processed PCM block within its stream generation. It is absent before the first processed block, advances for blocks that complete no hop, and stays unchanged when no new PCM arrives. A hop's `endFrame` is the exclusive end of its completed window; compare it with the snapshot end only when their stream generations match. [Audio](../dev/audio.md#lua-analysis) specifies shared sample-time semantics, normalisation, and budgets. The [audio-analysis provider](../../lua/lunette-plugins/audio-analysis/README.md) and its [analysis details](../../lua/lunette-plugins/audio-analysis/docs/analysis.md) describe provider behavior; the contract modules still own the exact shapes consumed by this plugin.
 
 `dev/plugins/audio-diagnostics` is a repository-only opt-in consumer of the same contracts. It logs source identity, state, format, sequence, loss, generation, band powers, and attribution provenance without a draw handler. It observes every publication and reports accumulated gap, dropped-frame, and generation-change counts at each logging interval, so a later clean publication does not hide transient loss. Raw and analysis loss counters are separate views of the same stream and must not be added together. Its default `enabled = false` opens no reader. A development configuration can insert it through a relative require with `{ enabled = true }`; it is not installed, adds no alias, and is not enabled by the default development desktop. Synthetic signals stay in tests or development code. Live PipeWire and headset acceptance remain [pending](../dev/audio.md#acceptance).
 
@@ -243,7 +243,7 @@ local dusk = descriptors.resolve(standard.presets.dark, {
 catalog:register(context, { name = 'dusk', label = 'Dusk', order = 4, theme = dusk })
 ```
 
-`descriptors.resolve` fills omitted fields from the theme it starts from, here Dark. `order` places the row among Dark at 1, Light at 2, and Arcade at 3. Registering a name that another live registration holds raises an error.
+`descriptors.resolve` fills omitted fields from the theme it starts from, here Dark. `order` places the row among Dark at 1, Light at 2, and Arcade at 3. Registering a name that another live registration holds raises an error. The [theme catalog](../../lua/lunette-plugins/themes/README.md), [standard presets](../../lua/lunette-plugins/theme/standard/README.md), and [Arcade preset](../../lua/lunette-plugins/theme/arcade/README.md) describe the shipped registrations.
 
 `examples/theme/main.luau` inserts the plugin, names Dusk as the selector's `preset`, and disables `theme/arcade`. Arcade is an ordinary plugin of this kind, so disabling its entry removes its row. [Runtime themes](../dev/lua-api.md#runtime-themes) states the contract.
 
@@ -348,7 +348,7 @@ patches = {
 },
 ```
 
-The built-in `arc` takes its options the same way, as `settings['layout/arc'] = { tuning = { radius = 2 } }`. `desktop/arrange` arranges every tag with its one layout, and arranges again when a layout registers, and logs a warning after the first frame if its chosen layout is not registered.
+The built-in `arc` takes its options the same way, as `settings['layout/arc'] = { tuning = { radius = 2 } }`. `desktop/arrange` arranges every tag with its one layout, and arranges again when a layout registers, and logs a warning after the first frame if its chosen layout is not registered. [Standard plugins](../dev/standard-plugins.md#placement) describes how layout selection fits into the shipped composition.
 
 A layout registered with `continuous = true` is applied every frame. `examples/layout/follow.luau` keeps windows on an arc that turns to follow the head, reusing `@lunette-plugins/layout/arc/geometry`. To replace `arc`, disable the `layout/arc` entry and register another layout under that name, or give `layout/arc` another `name`.
 
@@ -429,7 +429,7 @@ web:add(context, panel)
 
 `tags:onChanged(context, { run = function(change) end })` reports tags created and destroyed and changes to their selection and members; `change.kind` names the change and `change.tag` the tag. `web:setSelected(context, true)` returns an effect that selects the tag until it is disposed or the plugin deactivates.
 
-`desktop/workspaces` shows one workspace's windows at a time. The `desktop/workspaces` setting lists the workspaces, and with more than one the consumer registers a menu action for each. [Workspaces](desktop-configuration.md#workspaces) describes the setting. A workspace consumer of another kind listens to `onChanged` and hides panels with `setHidden` in the same way.
+`desktop/workspaces` shows one workspace's windows at a time. The `desktop/workspaces` setting lists the workspaces, and with more than one the consumer registers a menu action for each. [Workspaces](desktop-configuration.md#workspaces) describes the setting. A workspace consumer of another kind listens to `onChanged` and hides panels with `setHidden` in the same way. The [workspace policy](../../lua/lunette-plugins/desktop/workspaces/docs/workspace-policy.md) describes the shipped consumer's selection and placement behavior.
 
 ## Rules
 
@@ -482,7 +482,7 @@ settings = {
 },
 ```
 
-It also provides `lunette/arrangement`, whose `save` and `restore` methods `examples/desktop/save-menu.luau` calls. A file that cannot be read, or that a newer version wrote, is not overwritten; [Default configuration](../dev/stdlib.md#default-configuration) states the rules.
+It also provides `lunette/arrangement`, whose `save` and `restore` methods `examples/desktop/save-menu.luau` calls. A file that cannot be read, or that a newer version wrote, is not overwritten; [persistence behavior](../../lua/lunette-plugins/arrangement/docs/persistence.md) specifies the file rules, and [placement](../dev/standard-plugins.md#placement) describes its role in the default composition.
 
 ## Frame rates and sharpness
 
@@ -495,7 +495,7 @@ settings = {
 },
 ```
 
-A replacement rule is a plugin that provides `lunette/pacing` or `lunette/scale` in the provider's entry. A different policy, such as pacing by gaze, is a consumer in place of `desktop/pacing`. Disabling `desktop/pacing` or `desktop/scale` leaves every client at its own rate or scale. [Frame pacing and output scale](../dev/lua-api.md#frame-pacing-and-output-scale) states the rules.
+A replacement rule is a plugin that provides `lunette/pacing` or `lunette/scale` in the provider's entry. A different policy, such as pacing by gaze, is a consumer in place of `desktop/pacing`. Disabling `desktop/pacing` or `desktop/scale` leaves every client at its own rate or scale. [Pacing policy](../../lua/lunette-plugins/desktop/pacing/docs/pacing-policy.md) and [output-scale policy](../../lua/lunette-plugins/desktop/scale/docs/output-scale-policy.md) specify the shipped consumers. [Frame pacing and output scale](../dev/lua-api.md#frame-pacing-and-output-scale) states the shared contract.
 
 ## Checking a configuration
 

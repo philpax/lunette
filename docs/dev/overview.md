@@ -36,7 +36,7 @@ A window is not a distinct object type. It is a texture, an input sink, and meta
 2. Lua reads a snapshot and issues requests. The compositor runs on its own thread. Window state reaches Lua as a per-frame snapshot, and mutations are messages applied asynchronously. [Architecture](architecture.md#the-snapshot-model) states the model.
 3. Rust holds no long-lived references into the Lua state outside the plugin attachment. All authoritative native state can be republished into a new Lua state, which is what makes reload and restart possible.
 4. Errors do not terminate the session. Event listeners, plugin callbacks, and frame handlers run under protected calls and report through one error boundary. A configuration that fails to load starts the built-in safe mode, which shows the error, spawns a terminal on a panel with a laser, and reloads on F5. [The Lua API](lua-api.md#errors) states the boundaries.
-5. Native mechanism and Lua policy have different roots. `@lunette` is native mechanism. `@lunette-plugin`, `@lunette-contracts`, `@lunette-plugins`, and `@lunette-desktop` are the Lua standard library, and every policy it ships is a plugin that a configuration can replace or omit. [Standard library](stdlib.md) describes them.
+5. Native mechanism and Lua policy have different roots. `@lunette` is native mechanism. `@lunette-plugin`, `@lunette-contracts`, `@lunette-plugins`, and `@lunette-desktop` are the Lua standard library, and every policy it ships is a plugin that a configuration can replace or omit. [Standard plugins](standard-plugins.md) describes the service connections and shipped desktop composition.
 6. Changes go upstream where possible. The LÖVR fork's patches are shaped as upstream pull requests, and capture and injection fixes are offered to WayVR.
 
 ## Path of an input event
@@ -50,6 +50,8 @@ A window is not a distinct object type. It is a texture, an input sink, and meta
 
 ## The documents
 
+The central documents specify native mechanisms, shared contracts, runtime rules, and the standard plugins' service connections and default composition. Each built-in and development plugin has a configuration-facing `README.md` beside its entry module. Longer plugin specifications live under the plugin's `docs/` directory. These local documents are part of the design specification. [Standard plugins](standard-plugins.md) links the built-in providers, consumers, and broker contributors and records how the shipped desktop composes them.
+
 - [Architecture](architecture.md): threads, ownership, the snapshot model, and the plugin runtime.
 - [LÖVR integration](lovr-integration.md): the fork, the patch set, linking, boot, and restart.
 - [Rendering](rendering.md): texture import, composition layers, the layer pool, frame pacing, and rounded geometry.
@@ -57,7 +59,7 @@ A window is not a distinct object type. It is a texture, an input sink, and meta
 - [Host desktop](host-desktop.md): monitor capture, input injection, and the clipboard bridge.
 - [Input](input.md): sinks, seats, keyboards, keyboard routing, pointer input, and XR input.
 - [The Lua API](lua-api.md): the native API, plugin authoring, the contracts, reload, errors, and `lunctl`.
-- [Standard library](stdlib.md): the module roots, the built-in plugins, and the shipped desktop.
+- [Standard plugins](standard-plugins.md): service connections, the built-in plugins, and the shipped desktop composition.
 - [Audio](audio.md): non-routing PCM capture, reusable analysis, and deferred spatial playback routing.
 - [Build and development](build-and-development.md): layout, build, Nix, the development loop, and testing.
 - [Roadmap](roadmap.md): the work beyond v1 and upstream work.

@@ -36,3 +36,5 @@ The non-routing audio implementation has no recorded live PipeWire or headset ac
 ## Deliberately left open
 
 The order of the beyond-v1 items, persistent source preferences, and additional backdrop effects remain open. Spatial playback routing is not implemented by the audio backdrop.
+
+Issues #15, #36, and #39 hold deferred follow-up work.

@@ -1,6 +1,6 @@
 # Runtime manager
 
-`desktop/manager` is the shipped desktop's plugin manager. The wrist menu's Plugins action toggles its panel, and the action shows whether the panel is visible. The panel's titlebar reads Plugins, and its X hides the panel. The panel moves like any other, as [Panel movement](desktop-configuration.md#panel-movement) describes. It is built on the public `lunette/ui` service, so it works with any provider of that contract.
+`desktop/manager` is the shipped desktop's plugin manager. The wrist menu's Plugins action toggles its panel, and the action shows whether the panel is visible. The panel's titlebar reads Plugins, and its X hides the panel. The panel moves like any other, as [Panel movement](desktop-configuration.md#panel-movement) describes. It is built on the public `lunette/ui` service, so it works with any provider of that contract. The [manager plugin page](../../lua/lunette-plugins/desktop/manager/README.md) lists its dependencies, and [manager behavior](../../lua/lunette-plugins/desktop/manager/docs/runtime-manager-behavior.md) specifies refresh, inspection, and recovery behavior.
 
 The `desktop/manager` setting configures it; `lua/lunette-plugins/desktop/manager/config.luau` holds the options and defaults:
 
@@ -16,7 +16,7 @@ require('@lunette-desktop').run {
 }
 ```
 
-`visible` shows the panel at start. `view` opens the entry list, `entries`, or the graph, `graph`. `width` and `height` are in metres, and `pixels` is the logical width; the logical canvas is at least 800x472. While the panel is visible, the manager refreshes its snapshot of the runtime every `refreshInterval` seconds, 0.25 by default. Opening the panel and pressing a control refresh at once, and a hidden panel does not refresh. The panel draws in the scene and is occluded by closer panels.
+`visible` shows the panel at start. `view` opens the entry list, `entries`, or the graph, `graph`. `width` and `height` are in metres, and `pixels` is the logical width; the logical canvas is at least 800x472. While the panel is visible, the manager refreshes its snapshot of the runtime every `refreshInterval` seconds, 0.25 by default. Opening the panel and pressing a control refresh at once, and a hidden panel does not refresh. The panel draws in the scene and is occluded by closer panels. Its schema and defaults are owned by [`config.luau`](../../lua/lunette-plugins/desktop/manager/config.luau).
 
 ## Session styling
 
