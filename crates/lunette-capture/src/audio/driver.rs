@@ -261,7 +261,7 @@ impl GraphDriver {
                 }
             };
             if matches!(state, CaptureState::Active { .. })
-                && let Some((object, _, _)) = graph.monitor
+                && let Some((object, _)) = graph.monitor
                 && let Some(event) = ops.publish_transport(object, capture)
             {
                 events.push(event);
@@ -318,7 +318,7 @@ struct CaptureGraph {
     source: Source,
     epoch: PipeWireGeneration,
     adapter: Option<GraphObjectId>,
-    monitor: Option<(GraphObjectId, NodeIdentity, PipeWireGeneration)>,
+    monitor: Option<(GraphObjectId, NodeIdentity)>,
     links: BTreeMap<AdditiveLink, GraphObjectId>,
     retry_at: Duration,
 }
@@ -341,13 +341,16 @@ impl CaptureGraph {
         }
     }
     fn teardown(&mut self, ops: &mut dyn GraphOps) {
+        self.remove_monitor(ops);
+        if let Some(object) = self.adapter.take() {
+            ops.remove(object);
+        }
+    }
+    fn remove_monitor(&mut self, ops: &mut dyn GraphOps) {
         for object in std::mem::take(&mut self.links).into_values() {
             ops.remove(object);
         }
-        if let Some((object, _, _)) = self.monitor.take() {
-            ops.remove(object);
-        }
-        if let Some(object) = self.adapter.take() {
+        if let Some((object, _)) = self.monitor.take() {
             ops.remove(object);
         }
     }
@@ -389,12 +392,7 @@ impl CaptureGraph {
         let mixer = mixers.first().map(|node| node.identity);
         let plan = plan_graph(self.source, snapshot, mixer.map(|identity| identity.global));
         if !matches!(plan.state, CaptureState::Active { .. }) {
-            for object in std::mem::take(&mut self.links).into_values() {
-                ops.remove(object);
-            }
-            if let Some((object, _, _)) = self.monitor.take() {
-                ops.remove(object);
-            }
+            self.remove_monitor(ops);
             return Ok(plan.state);
         }
         let target = match plan.monitor {
@@ -404,13 +402,9 @@ impl CaptureGraph {
         };
         if self
             .monitor
-            .is_some_and(|(_, identity, _)| Some(identity) != target)
-            && let Some((object, _, _)) = self.monitor.take()
+            .is_some_and(|(_, identity)| Some(identity) != target)
         {
-            for link in std::mem::take(&mut self.links).into_values() {
-                ops.remove(link);
-            }
-            ops.remove(object);
+            self.remove_monitor(ops);
         }
         if self.monitor.is_none()
             && let Some(target) = target
@@ -420,11 +414,7 @@ impl CaptureGraph {
                 .ok_or_else(|| GraphFailure::graph("monitor generation space exhausted"))?;
             let generation = PipeWireGeneration(*epoch);
             self.epoch = generation;
-            self.monitor = Some((
-                ops.create_monitor(capture, target, generation)?,
-                target,
-                generation,
-            ));
+            self.monitor = Some((ops.create_monitor(capture, target, generation)?, target));
         }
         let removed: BTreeSet<_> = self
             .links
@@ -446,7 +436,7 @@ impl CaptureGraph {
             }
         }
         self.retry_at = now;
-        let Some((monitor, _, _)) = self.monitor else {
+        let Some((monitor, _)) = self.monitor else {
             return Ok(CaptureState::Starting);
         };
         for object in self
