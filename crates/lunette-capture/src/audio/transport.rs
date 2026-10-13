@@ -163,8 +163,7 @@ impl AudioProducer {
         let queued_packets = self
             .published_packets
             .saturating_sub(self.consumed.packets.load(Ordering::Acquire));
-        if frames > TRANSPORT_FRAMES
-            || queued_frames + frames as u64 > TRANSPORT_FRAMES as u64
+        if queued_frames + frames as u64 > TRANSPORT_FRAMES as u64
             || queued_packets >= TRANSPORT_PACKETS as u64
         {
             self.drop_packet(frames, false);
@@ -379,21 +378,6 @@ struct PacketMeta {
     frames: usize,
     gap_packets: u64,
     gap_frames: u64,
-}
-
-impl Default for PacketMeta {
-    fn default() -> Self {
-        Self {
-            timing: SampleTiming {
-                generation: PipeWireGeneration(0),
-                sequence: 0,
-                first_frame: 0,
-            },
-            frames: 0,
-            gap_packets: 0,
-            gap_frames: 0,
-        }
-    }
 }
 
 #[derive(Default)]
