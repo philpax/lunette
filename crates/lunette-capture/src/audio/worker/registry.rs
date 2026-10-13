@@ -115,9 +115,13 @@ impl Session {
                                 let listener = proxy
                                     .add_listener_local()
                                     .info(move |info| {
-                                        if let Some(props) = info.props() {
-                                            update_node(&mut state.borrow_mut(), id, props, &owner);
-                                        }
+                                        node_info(
+                                            &mut state.borrow_mut(),
+                                            id,
+                                            info.change_mask(),
+                                            info.props(),
+                                            &owner,
+                                        );
                                     })
                                     .register();
                                 Binding::Node {
@@ -135,9 +139,12 @@ impl Session {
                                 let listener = proxy
                                     .add_listener_local()
                                     .info(move |info| {
-                                        if let Some(props) = info.props() {
-                                            update_client(&mut state.borrow_mut(), id, props);
-                                        }
+                                        client_info(
+                                            &mut state.borrow_mut(),
+                                            id,
+                                            info.change_mask(),
+                                            info.props(),
+                                        );
                                     })
                                     .register();
                                 Binding::Client {
@@ -155,9 +162,12 @@ impl Session {
                                 let listener = proxy
                                     .add_listener_local()
                                     .info(move |info| {
-                                        if let Some(props) = info.props() {
-                                            update_port(&mut state.borrow_mut(), id, props);
-                                        }
+                                        port_info(
+                                            &mut state.borrow_mut(),
+                                            id,
+                                            info.change_mask(),
+                                            info.props(),
+                                        );
                                     })
                                     .register();
                                 Binding::Port {
@@ -232,8 +242,50 @@ fn no_server(error: pw::Error) -> GraphFailure {
 #[path = "registry/tests.rs"]
 mod tests;
 
-// info.props() is authoritative for mutable properties. Object serial and port
-// parent identify their lifetime and can be absent from later info dictionaries.
+// PipeWire sends an info event's property dictionary only when the change mask
+// names properties. A state or parameter change carries an empty dictionary,
+// which describes nothing and must not clear the properties already observed.
+fn node_info(
+    snapshot: &mut RegistrySnapshot,
+    id: u32,
+    mask: pw::node::NodeChangeMask,
+    props: Option<&DictRef>,
+    tag: &str,
+) {
+    if mask.contains(pw::node::NodeChangeMask::PROPS)
+        && let Some(props) = props
+    {
+        update_node(snapshot, id, props, tag);
+    }
+}
+fn client_info(
+    snapshot: &mut RegistrySnapshot,
+    id: u32,
+    mask: pw::client::ClientChangeMask,
+    props: Option<&DictRef>,
+) {
+    if mask.contains(pw::client::ClientChangeMask::PROPS)
+        && let Some(props) = props
+    {
+        update_client(snapshot, id, props);
+    }
+}
+fn port_info(
+    snapshot: &mut RegistrySnapshot,
+    id: u32,
+    mask: pw::port::PortChangeMask,
+    props: Option<&DictRef>,
+) {
+    if mask.contains(pw::port::PortChangeMask::PROPS)
+        && let Some(props) = props
+    {
+        update_port(snapshot, id, props);
+    }
+}
+
+// A property dictionary that an info event marks as changed is authoritative for
+// mutable properties. Object serial and port parent identify their lifetime and
+// can be absent from later info dictionaries.
 fn update_node(snapshot: &mut RegistrySnapshot, id: u32, props: &DictRef, tag: &str) {
     let old = snapshot.nodes.get(&id);
     let Some(serial) = props
