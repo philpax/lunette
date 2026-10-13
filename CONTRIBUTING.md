@@ -129,7 +129,7 @@ end)
 return test
 ```
 
-`crates/lunette/tests/lua/` discovers test files under `lua/` and `dev/` and runs each file as its own test, in a fresh Lua state where the module roots resolve from the working tree, `lovr.math` is LÖVR's own, and the plugin runtime is the real one. `testing.native()` installs the fake native API, `testing.start(entries)` starts plugins in a new runtime, and `testing.boot(entries)` starts a composition driven through LÖVR's callbacks. A session opened during a case closes when the case ends. `@testing/vr-ui` drives desktop pointing through the fake XR boundary, and `@testing/render` records drawing. A file fails when it returns no suite or an empty one, when a case raises, when a case leaves a plugin failure report that it did not take with `testing.takeReports()`, and when closing a session fails. [Build and development](docs/dev/build-and-development.md#testing) describes the runner. Neither the tests nor `lua/testing` are installed.
+`crates/lunette/tests/lua/` runs the Lua integration suites under `lua/` and `dev/`. [Build and development](docs/dev/build-and-development.md#lua-tests) describes the runner. Neither the tests nor `lua/testing` are installed.
 
 ### The module roots
 

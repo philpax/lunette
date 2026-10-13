@@ -4,9 +4,7 @@ v1, the point at which the system is usable for daily work, is implemented. What
 
 ## Non-routing audio
 
-The audio work exposes owner-scoped system-mix and logical-process capture, reusable Lua analysis, a desktop backdrop, and an independent example consumer. [Audio](audio.md) specifies the contracts and the pending live acceptance checks. `examples/audio-backdrop` demonstrates the shipped backdrop and separate raw-PCM and feature consumption. `dev/plugins/audio-diagnostics` is an opt-in inspection plugin. These consumers do not redirect playback, change the default sink, or implement spatial audio.
-
-Manual PipeWire graph acceptance and headset appearance, comfort, stereo presentation, and frame-time comparisons remain pending. Hardware-free tests establish contract, lifecycle, analysis, and raster properties only. The implementation does not establish tested host versions or actual playback preservation on a live host.
+Non-routing audio provides owner-scoped system-mix and logical-process capture, reusable Lua analysis, a desktop backdrop, and an independent example consumer. [Audio](audio.md) specifies the contracts and pending live acceptance checks. `examples/audio-backdrop` demonstrates the backdrop and separate raw-PCM and feature consumption; `dev/plugins/audio-diagnostics` is an opt-in inspection plugin. These consumers do not redirect playback or change the default sink; spatial audio remains beyond v1.
 
 ## Beyond v1
 
