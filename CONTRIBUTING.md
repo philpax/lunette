@@ -1,72 +1,36 @@
 # Contributing to lunette
 
-## What this is
-
-lunette is an XR window manager and Wayland compositor. It runs as an overlay through LÖVR's selected OpenXR or OpenVR backend, spawns Wayland applications inside itself, mirrors the user's monitors, and presents both to Lua as textures and input sinks. The host is a Rust binary that dynamically links LÖVR, the scripting layer is Luau, and the compositor is smithay, vendored from WayVR.
-
-The project is licensed GPL-3.0-only because it uses WayVR's GPL-3.0-only code. Contributions are accepted under that licence.
+lunette is a Rust host with a Luau scripting layer and a Wayland compositor. Contributions are accepted under GPL-3.0-only; patches to MIT-licensed forks retain their upstream licence. [Credits](CREDITS.md) records attribution and redistribution requirements.
 
 <!-- contributing-templates: files=general.md,rust.md @ 57e7c55206a089254c37b212bb3ad43574cde20c -->
 
-## Current status
+## Development
 
-The workspace contains the compositor, capture, native API, Luau checker, standard plugins, and plugin runtime. Non-routing audio capture and shared Lua analysis support independent consumers and the default aurora backdrop. Live PipeWire graph and headset acceptance remain pending. The shipped configuration runs `@lunette-desktop`, which composes the built-in providers and desktop consumers in `@lunette-plugins` as entries that a configuration changes through settings or patches by id. Session controls are VR menu actions and shared UI panels, including a runtime plugin manager and runtime themes. The desktop saves its arrangement when a grab drops a panel and at quit, and arranges unplaced windows with a layout chosen by name. Lua integration tests cover provider outages, placement precedence, monitor hotplug, reopened windows, and ten production source reloads. [The roadmap](docs/dev/roadmap.md) records the work beyond v1.
+[Build and development](docs/dev/build-and-development.md) covers setup, running the working tree, and testing. [Architecture](docs/dev/architecture.md) records the boundaries that changes must preserve. The [Makefile](Makefile) owns build and check commands.
 
-## Repository layout
+Run `make check` at the end of a complete task. Iterate in debug, use clippy for Rust typechecking and linting, and reserve release builds for packaging or benchmarking. Fix generated declarations in their metadata or generator, then run `cargo run -p lunette-generate-definitions`. Never edit generated output or work around an incorrect declaration in calling code.
 
-[docs/dev/build-and-development.md](docs/dev/build-and-development.md) records the layout. In summary:
-
-```
-crates/lunette/                       the lunette and lunctl binaries, Lua injection, frame orchestration
-crates/lunette-compositor/            smithay; vendored fork of WayVR's backend/wayvr
-crates/lunette-lovr/                  cmake build and FFI surface for LÖVR
-crates/lunette-luau/                  the Luau type language, and the closed-set macro
-crates/lunette-capture/               monitor and audio capture, host output enumeration, host-input providers, and the host clipboard client
-crates/lunette-generate-definitions/  generates the Luau definitions, declarations, .luaurc files, and install manifest
-lua/lunette/                          generated declarations for the native API
-lua/lunette-plugin/                   typed plugin facade, composition, schemas, and runtime management
-lua/lunette-contracts/                neutral plugin service contracts
-lua/lunette-plugins/                  every built-in plugin, provider or consumer
-lua/lunette-desktop/                  the shipped desktop's entry list and settings
-lua/testing/                          development-only Lua test scaffolding
-etc/lunette/                          the generated Luau definitions
-etc/xdg/lunette/                      the default configuration
-examples/                             example configurations, checked and tested like the default one
-dev/                                  repository-only development configuration and plugins
-vendor/lovr/                          submodule, LÖVR with lunette's patch branch (recursive)
-vendor/lovr-docs/                     submodule, the API metadata and the Luau generator the definitions come from
-vendor/mlua/                          submodule, mlua with lunette's Luau ABI patches
-docs/dev/                             the design specification
-docs/guide/                           user-facing guides
-```
-
-`lunette-compositor` must not depend on `lunette-lovr`, because logic-headless testing depends on that separation. It does depend on `lunette-luau`, which has no Lua binding of its own: mlua is a feature there, off by default and enabled only by `lunette`.
+Every session action must remain reachable through VR controls without a physical keyboard, mouse, or flatscreen interface. Developer tools and test runners are outside this requirement. Shipped plugins use only the public native API; a missing capability requires an API change, not a private path.
 
 ## Documentation
 
-`docs/dev/` and module-local documentation form the normative design specification. Central documents hold native mechanisms, runtime architecture, and desktop composition. `lua/lunette-plugin/` documents the facade; `lua/lunette-contracts/` documents shared service guarantees. Each shipped or development plugin has a `README.md` beside its entry module, written for configuration authors and consumers: what it does, how to use it, and why consequential behaviour exists. Useful service relationships belong in compact tables. Reference shared specifications, schemas, and examples instead of repeating them. Omit obvious module bookkeeping, API inventories, and default lists that code specifies better. Longer subjects can live under the plugin's `docs/`; a short subject stays in the README. Document internal children and helpers with their parent.
+Each document serves one audience:
 
-`docs/guide/` is for users writing configurations and plugins. It is not normative, follows the specification, and changes with it. It keeps end-to-end workflows and links to plugin documentation for implementation-specific detail. Its examples live under `examples/`, where they are checked and tested. A change that alters behaviour described in the specification or guides updates the relevant document in the same change.
+- lunette users need configuration and session workflows in `docs/guide/desktop-configuration.md` and `docs/guide/runtime-manager.md`.
+- Plugin developers need authoring guides, the `lua/lunette-plugin/` facade documentation, shared guarantees in `lua/lunette-contracts/`, and plugin READMEs.
+- lunette developers need build instructions, architectural constraints, and integration hazards in `docs/dev/` and this file.
 
-A document records decisions, known gaps, and deliberately open questions about its own subject in `Decisions`, `Known gaps`, and `Deliberately left open` sections at its end. A decision states its reasoning and, where an alternative was rejected, what it was and why. A change that reverses a decision updates that section and states why. This keeps settled questions from being reopened by accident, and keeps each decision beside its subject. Facts that belong to no one document, such as licensing, are in [CREDITS.md](CREDITS.md).
+Keep workflows, public guarantees, consequential rationale, and unresolved limitations that affect the reader. Remove implementation walkthroughs, API inventories, default lists, test catalogs, and status narration. The pruning policy does not apply to contributor coding guidelines; retain their rules and rationale. Link to schemas, generated declarations, and checked examples instead of copying them. A short plugin topic stays in its README; internal helpers do not need separate manuals. Decisions belong beside the constraint they explain, not in mandatory trailing sections. Licensing and provenance belong in [CREDITS.md](CREDITS.md) and [PROVENANCE.md](crates/lunette-compositor/PROVENANCE.md).
 
-The documents use a plain technical register: short declarative sentences, active voice, no second person, and no emphasis formatting. New documentation matches it.
+A behaviour change updates the relevant workflow or guarantee in the same change. Code owns signatures, defaults, and algorithms; documentation must not create a second copy. Write short declarative sentences in the present tense, use sentence-case headings, and avoid second person and emphasis formatting. Comments explain non-obvious reasons and end with a period. Module documentation states purpose and responsibilities.
 
-## Vendored code
+## Vendored code and forks
 
-`crates/lunette-compositor` is a hard vendor of WayVR's `backend/wayvr`. It carries WayVR's copyright and licence. The files taken from upstream live in `src/wayvr/` under upstream's names, each carries WayVR's header, and no file outside that directory does. [PROVENANCE.md](crates/lunette-compositor/PROVENANCE.md) records the upstream commit and where each upstream file lands.
+`crates/lunette-compositor/src/wayvr/` preserves upstream names, identifiers, formatting, and attribution so fixes remain comparable with WayVR. It is exempt from house style. Files outside that directory follow the conventions below. [PROVENANCE.md](crates/lunette-compositor/PROVENANCE.md) records the source revision and relocated fragments. `wlx-capture` is an external dependency from the WayVR monorepo; fixes go upstream, and the standalone repository is not the maintained source.
 
-The files under `src/wayvr/` are exempt from the house style and keep upstream's identifiers and formatting, because rewriting them destroys the ability to diff against upstream when a fix is worth taking. `rustfmt.toml` excludes the directory, so an edit there follows upstream's formatting by hand, while lunette's own files beside it are formatted as usual.
+Clone submodules recursively. [LÖVR integration](docs/dev/lovr-integration.md) records the fork constraints. Keep patches narrow and additive, except for the documented internal OpenVR backend. Rebase the LÖVR patch branch onto upstream `dev` rather than merging it.
 
-`wlx-capture` is a git-pinned external dependency, not a vendor, and fixes to it go upstream. Upstream is the `wlx-capture` directory of the WayVR monorepo. The standalone `galister/wlx-capture` repository stopped at 0.5.4, which pulls `ashpd` with an `async-std` executor and a personal fork of pipewire-rs; 0.6.0 removed both and exists only inside the monorepo, with no independent tag. The pin therefore names a WayVR revision, and repointing it at the standalone repository is a regression.
-
-## The forks
-
-`vendor/lovr` is a submodule pointing at `philpax/lovr`, a fork of upstream LÖVR, with lunette's patches on its `lunette` branch. That branch is rebased onto upstream `dev`, not merged, so the patch set stays a readable series. Its `deps/` are nested submodules, so clone recursively.
-
-Patches to LÖVR stay narrow and additive: new accessors, new struct fields, and new build options. An upstream defect fix changes the path it fixes and states the defect and why the fix belongs upstream. The internal OpenVR backend is a larger deliberate exception that preserves LÖVR's session ownership and its existing OpenXR behaviour and defaults. The narrow patches are shaped as upstream pull requests. [docs/dev/lovr-integration.md](docs/dev/lovr-integration.md) lists the patch set and its exceptions, and records which have been proposed upstream.
-
-Three more forks carry patches the same way: `philpax/lovr-docs` on `lunette`, for the API metadata and its Luau generator; `philpax/mlua` on `lunette`, for the Luau ABI the LÖVR fork presents; and `philpax/luau` on `lunette/luau-bump`, which is `vendor/lovr`'s `deps/luau`. A change to any fork is a commit in the submodule, pushed to the fork, with the pointer bumped here in the same change. A pointer to an unpushed commit fails every clone but the one it was made in. The recorded URLs are HTTPS so an anonymous clone resolves. A checkout that pushes repoints `origin` at the fork over SSH and keeps the original as `upstream`, so a rebase onto upstream works from the same checkout. In `deps/luau`, the parent fork, `bjornbytes/luau`, is a third remote named `lovr`.
+A fork change requires a commit pushed to the fork and a pointer update here in the same change. An unpushed pointer breaks other clones. Keep recorded submodule URLs HTTPS for anonymous access; a contributor's push remote may use SSH. Preserve upstream remotes for rebases. [.gitmodules](.gitmodules) owns fork URLs and branches.
 
 ## Lua conventions
 
@@ -135,7 +99,7 @@ return test
 
 ### The module roots
 
-[Build and development](docs/dev/build-and-development.md#module-roots) lists each root's alias, source directory, runtime resolution, and installation. File-backed aliases resolve through LÖVR's virtual filesystem in a session and through `.luaurc` files in the checker and editor. `@lunette` is registered through `package.preload`.
+The root aliases and source directories are inventoried in `crates/lunette/src/aliases.rs`; [Build and development](docs/dev/build-and-development.md#module-roots) explains runtime resolution and installation. File-backed aliases resolve through LÖVR's virtual filesystem in a session and through `.luaurc` files in the checker and editor. `@lunette` is registered through `package.preload`.
 
 A relative require, `./`, `../`, or `@self`, resolves against the requiring file by Luau's require-by-string rules, in the checker and in a session alike. `crates/lunette/src/require` wraps the session's `require` so that LÖVR's loader, which knows only the root of its virtual filesystem, agrees with the checker. [Module roots](docs/dev/build-and-development.md#module-roots) states the rules.
 
@@ -386,3 +350,4 @@ The general code-organisation rules apply. These are the Rust specifics.
 - Installation tests are a narrow exception to the subprocess and filesystem rules. `crates/lunette/tests/fixtures/install.py` runs the actual Makefile with fake Cargo and real ELF fixtures in isolated temporary directories under `target/`. Installation paths, permissions, and dynamic-library resolution are the behaviour under test, so replacing those operations would remove the oracle. These tests use no headset, graphics hardware, runtime, network, or wall-clock sleeps.
 - Never call `Connection::connect_to_env()` in a test. It calls `env::remove_var("WAYLAND_SOCKET")`, which mutates the process environment and is unsound in a multithreaded test binary. Tests use only `Connection::from_socket`.
 - Time is a narrow exception when everything already runs on `tokio::time`: `#[tokio::test(start_paused = true)]` with `tokio::time::advance` gives virtual time without another seam.
+- Control-socket and offscreen graphics tests may also use isolated subprocesses or files; they require no live display, XR runtime, or network.
