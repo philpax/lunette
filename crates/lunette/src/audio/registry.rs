@@ -435,21 +435,21 @@ impl RegistryState {
     }
 
     fn source_state(&self, source: Source) -> Option<CaptureState> {
+        Self::source_state_from_processes(&self.processes, source)
+    }
+
+    fn source_state_from_processes(
+        processes: &HashMap<ProcessId, ProcessEntry>,
+        source: Source,
+    ) -> Option<CaptureState> {
         let Source::Process(process) = source else {
             return None;
         };
-        match self
-            .processes
+        processes
             .get(&process)
             .map(|entry| entry.state.status())
-        {
-            Some(ProcessCaptureStatus::Pending) => Some(CaptureState::Starting),
-            Some(ProcessCaptureStatus::Live) => None,
-            Some(ProcessCaptureStatus::Unavailable { reason, detail }) => {
-                Some(CaptureState::Unavailable { reason, detail })
-            }
-            Some(ProcessCaptureStatus::Ended) | None => Some(CaptureState::Ended),
-        }
+            .unwrap_or(ProcessCaptureStatus::Ended)
+            .capture_override()
     }
 
     fn process_unregistered(&self, source: Source) -> bool {
@@ -617,24 +617,13 @@ impl RegistryState {
             }
         }
         for reader in self.readers.values_mut() {
-            let lifecycle = match reader.source {
-                Source::System => None,
-                Source::Process(process) => self
-                    .processes
-                    .get(&process)
-                    .map(|entry| entry.state.status()),
-            };
+            let lifecycle = Self::source_state_from_processes(&self.processes, reader.source);
             let state = match &reader.state {
                 ReaderState::Terminal(state) => Some(state.clone()),
-                _ => match lifecycle {
-                    Some(ProcessCaptureStatus::Pending) => Some(CaptureState::Starting),
-                    Some(ProcessCaptureStatus::Ended) => Some(CaptureState::Ended),
-                    Some(ProcessCaptureStatus::Unavailable { reason, detail }) => {
-                        Some(CaptureState::Unavailable { reason, detail })
-                    }
-                    _ if self.backend_stopped => Some(error_state(&AudioError::WorkerStopped)),
-                    _ => None,
-                },
+                _ => lifecycle.or_else(|| {
+                    self.backend_stopped
+                        .then(|| error_state(&AudioError::WorkerStopped))
+                }),
             };
             if let Some(state) = state {
                 reader.publication = Arc::new(AudioSnapshot {

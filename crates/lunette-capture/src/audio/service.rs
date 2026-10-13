@@ -108,6 +108,20 @@ pub enum ProcessCaptureStatus {
     Ended,
 }
 
+impl ProcessCaptureStatus {
+    pub fn capture_override(&self) -> Option<CaptureState> {
+        match self {
+            Self::Live => None,
+            Self::Pending => Some(CaptureState::Starting),
+            Self::Unavailable { reason, detail } => Some(CaptureState::Unavailable {
+                reason: *reason,
+                detail: detail.clone(),
+            }),
+            Self::Ended => Some(CaptureState::Ended),
+        }
+    }
+}
+
 pub struct AudioService {
     backend: Box<dyn AudioBackend>,
     limits: SourceLimits,
@@ -151,7 +165,6 @@ impl AudioService {
                     previous_loss: TransportLoss::default(),
                     pending_gap: TransportLoss::default(),
                     suspended: false,
-                    terminal: false,
                     lifecycle: None,
                     publication: Arc::new(AudioPublication {
                         source,
@@ -273,20 +286,12 @@ impl AudioService {
     ) -> Result<(), AudioError> {
         self.backend.set_process_status(process, status.clone())?;
         if let Some(entry) = self.sources.get_mut(&Source::Process(process)) {
-            if entry.terminal {
+            if matches!(entry.state, CaptureState::Ended) {
                 return Ok(());
             }
-            entry.lifecycle = Some(status.clone());
-            let state = match status {
-                ProcessCaptureStatus::Live => None,
-                ProcessCaptureStatus::Pending => Some(CaptureState::Starting),
-                ProcessCaptureStatus::Unavailable { reason, detail } => {
-                    Some(CaptureState::Unavailable { reason, detail })
-                }
-                ProcessCaptureStatus::Ended => Some(CaptureState::Ended),
-            };
+            let state = status.capture_override();
+            entry.lifecycle = Some(status);
             if let Some(state) = state {
-                entry.terminal |= matches!(state, CaptureState::Ended);
                 entry.state = state;
                 entry.suspend_transport();
             }
@@ -310,7 +315,7 @@ impl AudioService {
             AudioBackendEvent::State {
                 generation, state, ..
             } if generation >= entry.generation => {
-                if entry.terminal
+                if matches!(entry.state, CaptureState::Ended)
                     || (matches!(state, CaptureState::Active { .. } | CaptureState::Idle)
                         && entry
                             .lifecycle
@@ -326,7 +331,6 @@ impl AudioService {
                     entry.suspend_transport();
                 }
                 entry.suspended = !matches!(state, CaptureState::Active { .. });
-                entry.terminal |= matches!(state, CaptureState::Ended);
                 entry.generation = generation;
                 entry.state = state;
             }
@@ -335,7 +339,7 @@ impl AudioService {
                 consumer,
                 ..
             } if generation >= entry.generation => {
-                if entry.terminal {
+                if matches!(entry.state, CaptureState::Ended) {
                     return;
                 }
                 entry.retire_transport();
@@ -376,7 +380,6 @@ struct SourceEntry {
     previous_loss: TransportLoss,
     pending_gap: TransportLoss,
     suspended: bool,
-    terminal: bool,
     lifecycle: Option<ProcessCaptureStatus>,
     publication: Arc<AudioPublication>,
 }

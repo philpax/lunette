@@ -153,14 +153,17 @@ impl GraphDriver {
             .filter_map(|(capture, source)| {
                 let state = match source {
                     Source::System => return Some((*capture, *source)),
-                    Source::Process(process) => match self.processes.get(process) {
-                        Some(ProcessCaptureStatus::Live) => return Some((*capture, *source)),
-                        Some(ProcessCaptureStatus::Ended) => CaptureState::Ended,
-                        Some(ProcessCaptureStatus::Unavailable { reason, detail }) => {
-                            unavailable(*reason, detail)
+                    Source::Process(process) => {
+                        match self
+                            .processes
+                            .get(process)
+                            .unwrap_or(&ProcessCaptureStatus::Pending)
+                            .capture_override()
+                        {
+                            Some(state) => state,
+                            None => return Some((*capture, *source)),
                         }
-                        _ => CaptureState::Starting,
-                    },
+                    }
                 };
                 if self.states.get(capture) != Some(&state) {
                     events.push(state_event(
