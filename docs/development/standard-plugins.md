@@ -4,9 +4,9 @@ The [desktop entry list](../../lua/lunette-desktop/init.luau) owns shipped compo
 
 ## Module ownership
 
-The shipped tree has 18 responsibility categories and 46 independent plugin leaves. A category groups related plugins and libraries; it has no activation entry. A leaf publishes its entry and configuration schema where present. Other production modules belong under its `private/` directory unless the ownership catalog declares a supported extension. Same-category imports follow the same public boundary as imports across categories.
+The shipped tree has 18 responsibility categories and 46 independent plugin leaves. A category groups related plugins and libraries; it has no activation entry. A leaf publishes its entry and configuration schema where present. Other production modules belong under its `private/` directory unless the plugin guide documents a supported extension. Same-category imports follow the same public boundary as imports across categories.
 
-Neutral [contract schemas](../../lua/lunette-contracts/schemas/README.md) validate shared values without importing providers. Category libraries provide reusable mechanisms or pure author configuration without runtime activation. [Contributor rules](../../CONTRIBUTING.md#lua-conventions) and the [dependency checker](../../crates/lunette/tests/plugin_dependencies.rs) enforce these distinctions across shipped modules, examples, dev plugins, tests, and installed roots.
+Neutral [contract schemas](../../lua/lunette-contracts/schemas/README.md) validate shared values without importing providers. Category libraries provide reusable mechanisms or pure author configuration without runtime activation. [Contributor rules](../../CONTRIBUTING.md#lua-conventions) apply to all callers. The [dependency check](../../crates/lunette/tests/plugin_dependencies.rs) guards resolved production imports across shipped modules, examples, and dev plugins; runtime suites exercise tests and installed roots.
 
 Entry ids, settings keys, and contract ids remain independent of source paths. The [public import migration](../../lua/lunette-plugins/README.md) records removed paths; no forwarding aliases preserve them. Root aliases, composition order, saved formats, and plugin lifecycle boundaries remain unchanged.
 

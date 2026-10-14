@@ -3,7 +3,6 @@
 // The frontend setup mirrors `CLI/src/Analyze.cpp`.
 
 #include "analyze_navigation.h"
-#include "analyze_source.h"
 #include "Luau/BuiltinDefinitions.h"
 #include "Luau/Config.h"
 #include "Luau/ExperimentalFlags.h"
@@ -33,28 +32,81 @@
 namespace
 {
 
-using LunetteAnalyze::DirectoryConfigResolver;
-
-// The checker uses the CLI flag setup; parser-only observations keep the runtime defaults.
-void enableDefaultFlags()
-{
-    static std::once_flag once;
-    std::call_once(once, [] {
-        for (Luau::FValue<bool>* flag = Luau::FValue<bool>::list; flag; flag = flag->next)
-            if (strncmp(flag->name, "Luau", 4) == 0 && !Luau::isAnalysisFlagExperimental(flag->name))
-                flag->value = true;
-    });
-}
-
 std::optional<std::string> slurp(const std::string& path)
 {
-    return LunetteAnalyze::readSource(path);
+    std::ifstream stream(path, std::ios::binary);
+    if (!stream)
+        return std::nullopt;
+
+    std::ostringstream contents;
+    contents << stream.rdbuf();
+    return contents.str();
 }
 
 std::optional<std::string> readAnnotationSource(const std::string& path)
 {
-    return LunetteAnalyze::readSource(path);
+    std::ifstream stream(path, std::ios::binary);
+    if (!stream)
+        return std::nullopt;
+
+    std::string contents;
+    char buffer[8192];
+    while (stream.read(buffer, sizeof(buffer)))
+        contents.append(buffer, static_cast<size_t>(stream.gcount()));
+    contents.append(buffer, static_cast<size_t>(stream.gcount()));
+    if (stream.bad() || !stream.eof())
+        return std::nullopt;
+    return contents;
 }
+
+std::string directoryOf(const std::string& path)
+{
+    size_t slash = path.find_last_of('/');
+    return slash == std::string::npos ? std::string(".") : path.substr(0, slash);
+}
+
+// Reads the `.luaurc` for a module's directory and every directory above it,
+// for the language mode and lint settings. The navigator handles aliases.
+struct DirectoryConfigResolver : Luau::ConfigResolver
+{
+    Luau::Config defaults;
+    mutable std::unordered_map<std::string, Luau::Config> cache;
+
+    DirectoryConfigResolver()
+    {
+        defaults.mode = Luau::Mode::Strict;
+    }
+
+    const Luau::Config& getConfig(const Luau::ModuleName& name, const Luau::TypeCheckLimits&) const override
+    {
+        return forDirectory(directoryOf(name));
+    }
+
+    const Luau::Config& forDirectory(const std::string& directory) const
+    {
+        auto found = cache.find(directory);
+        if (found != cache.end())
+            return found->second;
+
+        const std::string parent = directoryOf(directory);
+        Luau::Config config = (parent == directory || directory == "." || directory.empty())
+            ? defaults
+            : forDirectory(parent);
+        // A `.luaurc` that omits the mode must not lower the caller's choice.
+        config.mode = defaults.mode;
+
+        if (std::optional<std::string> contents = slurp(directory + "/" + Luau::kConfigName))
+        {
+            // A relative alias resolves against its `.luaurc`'s directory,
+            // not the working directory.
+            Luau::ConfigOptions options;
+            options.aliasOptions = Luau::ConfigOptions::AliasOptions{directory, true};
+            Luau::parseConfig(*contents, config, options);
+        }
+
+        return cache.emplace(directory, std::move(config)).first->second;
+    }
+};
 
 // Resolves a module with Luau's require traversal and a filesystem context that follows symlinks.
 struct PathResolver : Luau::FileResolver
@@ -89,6 +141,22 @@ struct PathResolver : Luau::FileResolver
     }
 };
 
+// Matches luau-analyze's setLuauFlagsDefault, without which the checker
+// accepts a different language.
+//
+// The flags are process-global and checks may run concurrently, so they are
+// set once. A static initializer cannot, because the flags register from other
+// translation units' static initializers in an unspecified order.
+void enableDefaultFlags()
+{
+    static std::once_flag once;
+    std::call_once(once, [] {
+        for (Luau::FValue<bool>* flag = Luau::FValue<bool>::list; flag; flag = flag->next)
+            if (strncmp(flag->name, "Luau", 4) == 0 && !Luau::isAnalysisFlagExperimental(flag->name))
+                flag->value = true;
+    });
+}
+
 std::unique_ptr<char[]> copy(const std::string& text)
 {
     auto owned = std::make_unique<char[]>(text.size() + 1);
@@ -108,6 +176,7 @@ struct Collector
 {
     std::vector<Diagnostic> diagnostics;
     std::vector<std::string> checked;
+    std::set<std::pair<std::string, std::string>> dependencies;
 
     void add(int kind, const std::string& module, const Luau::Location& location, const std::string& message)
     {
@@ -213,6 +282,19 @@ lunette_luau_report* finish(const Collector& collected, const std::string* failu
         report->checked_count = collected.checked.size();
         for (size_t index = 0; index < report->checked_count; ++index)
             report->checked[index] = copy(collected.checked[index]).release();
+    }
+
+    if (!collected.dependencies.empty())
+    {
+        report->dependencies = std::make_unique<lunette_luau_dependency[]>(collected.dependencies.size()).release();
+        report->dependency_count = collected.dependencies.size();
+        size_t index = 0;
+        for (const auto& [source, target] : collected.dependencies)
+        {
+            auto& dependency = report->dependencies[index++];
+            dependency.source = copy(source).release();
+            dependency.target = copy(target).release();
+        }
     }
 
     if (failure != nullptr)
@@ -503,6 +585,10 @@ lunette_luau_report* check_within(const lunette_luau_request* request)
             collected.addChecked(root);
     }
 
+    for (const auto& [source, node] : frontend.sourceNodes)
+        for (const auto& [target, location] : node->requireLocations)
+            collected.dependencies.emplace(source, target);
+
     return finish(collected);
 }
 
@@ -763,6 +849,13 @@ void lunette_luau_report_free(lunette_luau_report* report)
     for (size_t index = 0; index < report->checked_count; ++index)
         delete[] report->checked[index];
     delete[] report->checked;
+
+    for (size_t index = 0; index < report->dependency_count; ++index)
+    {
+        delete[] report->dependencies[index].source;
+        delete[] report->dependencies[index].target;
+    }
+    delete[] report->dependencies;
 
     delete[] report->failure;
     delete report;

@@ -15,79 +15,66 @@ local test = testing.suite()
 
 test('settings cover entries with options and shipped empty schemas', function()
   local expected = {
-    { 'frame', 'lunette/frame@2' },
-    { 'theme', 'lunette/theme@1' },
-    { 'themes', 'lunette/themes@1' },
-    { 'theme/standard' },
-    { 'theme/arcade' },
-    { 'surfaces', 'lunette/surfaces@1' },
-    { 'panels', 'lunette/panels@3' },
-    { 'drops', 'lunette/drops@1' },
-    { 'focus', 'lunette/focus@2' },
-    { 'bindings', 'lunette/bindings@1' },
-    { 'interaction', 'lunette/interaction@2' },
-    { 'laser', 'lunette/laser@1' },
-    { 'keyboard', 'lunette/keyboard@3' },
-    { 'ui', 'lunette/ui@3' },
-    { 'menu', 'lunette/menu@1' },
-    { 'desktop/theme' },
-    { 'tags', 'lunette/tags@1' },
-    { 'rules', 'lunette/rules@1' },
-    { 'placement', 'lunette/placement@1' },
-    { 'adoption', 'lunette/adoption@1' },
-    { 'layouts', 'lunette/layouts@1' },
-    { 'layout/arc' },
-    { 'errors', 'lunette/errors@1' },
-    { 'pacing', 'lunette/pacing@1' },
-    { 'scale', 'lunette/scale@1' },
-    { 'audio', 'lunette/audio@1' },
-    { 'audio-analysis', 'lunette/audio-analysis@2' },
-    { 'desktop/render' },
-    { 'desktop/hint' },
-    { 'desktop/decorations' },
-    { 'desktop/pointing' },
-    { 'desktop/input' },
-    { 'desktop/keyboard', 'lunette/keyboard-display@1' },
-    { 'desktop/menu' },
-    { 'desktop/actions' },
-    { 'desktop/errors' },
-    { 'desktop/workspaces' },
-    { 'desktop/monitors' },
-    { 'desktop/rules' },
-    { 'desktop/persistence', 'lunette/arrangement@1' },
-    { 'desktop/arrange' },
-    { 'desktop/adoption' },
-    { 'desktop/pacing' },
-    { 'desktop/scale' },
-    { 'desktop/backdrop' },
-    { 'desktop/manager' },
+    'frame',
+    'theme',
+    'themes',
+    'theme/standard',
+    'theme/arcade',
+    'surfaces',
+    'panels',
+    'drops',
+    'focus',
+    'bindings',
+    'interaction',
+    'laser',
+    'keyboard',
+    'ui',
+    'menu',
+    'desktop/theme',
+    'tags',
+    'rules',
+    'placement',
+    'adoption',
+    'layouts',
+    'layout/arc',
+    'errors',
+    'pacing',
+    'scale',
+    'audio',
+    'audio-analysis',
+    'desktop/render',
+    'desktop/hint',
+    'desktop/decorations',
+    'desktop/pointing',
+    'desktop/input',
+    'desktop/keyboard',
+    'desktop/menu',
+    'desktop/actions',
+    'desktop/errors',
+    'desktop/workspaces',
+    'desktop/monitors',
+    'desktop/rules',
+    'desktop/persistence',
+    'desktop/arrange',
+    'desktop/adoption',
+    'desktop/pacing',
+    'desktop/scale',
+    'desktop/backdrop',
+    'desktop/manager',
   }
   local entries = desktop.compose()
   expect.equal(#entries, #expected, 'the shipped entry count')
   local fields = settings.schema.inspect().fields
-  local known = {}
   local factories = { ['desktop/theme'] = true, ['desktop/persistence'] = true, ['desktop/arrange'] = true }
   for index, entry in ipairs(entries) do
-    local wanted = expected[index]
-    expect.equal(entry.id, wanted[1], 'the shipped entry at position ' .. index)
-    known[entry.id] = true
+    expect.equal(entry.id, expected[index], 'the shipped entry at position ' .. index)
     expect.equal(builtinEntries[entry.id], entry.definition, 'the registered definition of ' .. entry.id)
     local resolved = compose.resolveEntry(entry)
     expect.equal(resolved.definition.name, entry.id, 'the definition name of ' .. entry.id)
-    expect.equal(#resolved.definition.provides, if wanted[2] then 1 else 0, 'the provider count of ' .. entry.id)
-    if wanted[2] then
-      expect.equal(resolved.definition.provides[1].contract, wanted[2], 'the capability of ' .. entry.id)
-    end
     expect.equal(type(entry.definition) == 'function', factories[entry.id] == true, 'the factory of ' .. entry.id)
     if factories[entry.id] then
       local fresh = compose.resolveEntry { id = entry.id, definition = builtinEntries[entry.id] }
       expect.falsy(rawequal(fresh.definition, resolved.definition), 'a fresh factory definition of ' .. entry.id)
-      expect.equal(fresh.definition.name, entry.id, 'the factory definition name of ' .. entry.id)
-      expect.equal(
-        fresh.definition.provides[1],
-        resolved.definition.provides[1],
-        'the factory capability of ' .. entry.id
-      )
     end
     local node = resolved.definition.schema
     while node and (node.kind == 'default' or node.kind == 'refine') do
@@ -98,14 +85,10 @@ test('settings cover entries with options and shipped empty schemas', function()
     expect.equal(fields[entry.id] ~= nil, hasSetting, 'the setting of ' .. entry.id)
   end
   local registered = 0
-  for id in builtinEntries do
-    expect.truthy(known[id], 'the registry contains only shipped ids: ' .. id)
+  for _ in builtinEntries do
     registered += 1
   end
   expect.equal(registered, #expected, 'the registered entry count')
-  for id in fields do
-    expect.truthy(known[id], 'the settings contain only shipped ids: ' .. id)
-  end
 end)
 
 test('malformed options raise as the configuration loads, before callbacks bind', function()

@@ -13,7 +13,7 @@ use std::{
 };
 
 use lunette::aliases::{install_manifest, installed_luaurc};
-use lunette_lovr::analyze::{self, Kind, Report, Request, RequireOutcome, RequireRequest};
+use lunette_lovr::analyze::{self, Kind, Report, Request};
 use tempfile::TempDir;
 
 #[test]
@@ -93,40 +93,26 @@ fn invalid_lovr_configuration_is_rejected() {
 fn require_navigation() {
     let report = check(vec![fixture("luau_check/navigation/main.luau")]);
     assert!(report.diagnostics.is_empty(), "{:#?}", report.diagnostics);
+    for (source, target) in [
+        ("main.luau", "tools/init.luau"),
+        ("target/module.luau", "dependencies/dependency.luau"),
+        ("tools/init.luau", "tools/helper.luau"),
+    ] {
+        let source = fixture(&format!("luau_check/navigation/{source}"));
+        let target = fixture(&format!("luau_check/navigation/{target}"));
+        assert!(
+            report.dependencies.iter().any(|edge| {
+                edge.source.canonicalize().expect("source path")
+                    == source.canonicalize().expect("fixture source")
+                    && edge.target.canonicalize().expect("target path")
+                        == target.canonicalize().expect("fixture target")
+            }),
+            "missing {source:?} -> {target:?}: {:?}",
+            report.dependencies
+        );
+    }
     assert_rejections("luau_check/navigation/ambiguous.luau");
     assert_rejections("luau_check/navigation/target/invalid.luau");
-}
-
-/// Dependency inspection shares the checker's real Navigator and keeps aliases request-scoped.
-#[test]
-fn require_inspection_agrees_with_checker_navigation() {
-    let source = fixture("luau_check/navigation/main.luau");
-    let report = check(vec![source.clone()]);
-    assert!(report.diagnostics.is_empty(), "{:#?}", report.diagnostics);
-    let request = RequireRequest {
-        source,
-        allowed_roots: vec![repository()],
-        aliases: Vec::new(),
-        preloaded: Vec::new(),
-        configured: Vec::new(),
-    };
-    let observations = analyze::inspect_requires(&request).expect("navigation observations");
-    assert!(!observations.is_empty());
-    assert!(
-        observations
-            .iter()
-            .all(|observation| matches!(observation.outcome, RequireOutcome::Resolved(_))),
-        "{observations:#?}"
-    );
-    let mut ambiguous = request;
-    ambiguous.source = fixture("luau_check/navigation/ambiguous.luau");
-    let observations = analyze::inspect_requires(&ambiguous).expect("ambiguity observations");
-    assert!(
-        observations
-            .iter()
-            .any(|observation| matches!(observation.outcome, RequireOutcome::Unresolved(_))),
-        "{observations:#?}"
-    );
 }
 
 /// A configuration beside the `.luaurc` that `--dump-config` writes checks against an

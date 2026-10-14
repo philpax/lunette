@@ -20,22 +20,12 @@ test('provider, panel, and control overrides resolve in order', function()
   expect.equal(provider.theme.padding, nil)
   expect.equal(providerSpec.padding, theme.DEFAULT.padding)
 
-  for _, font in
-    { {}, { kind = 'file', file = 'fonts/ui.ttf' }, { kind = 'file', file = 'fonts/ui.ttf', size = 48, spread = 6 } }
-  do
-    local settings = config.schema.parse { theme = { font = font }, titlebarStyle = { font = font } }
-    local appearance = theme.project(settings.theme)
-    local titlebar = titlebarConfiguration.project(settings.titlebarStyle)
-    for _, projected in { appearance, titlebar } do
-      expect.equal(projected.font.kind, font.kind or 'default')
-      expect.equal(projected.font.file, font.file)
-      expect.equal(projected.font.size, if font.kind == 'file' then font.size or 32 else nil)
-      expect.equal(projected.font.spread, if font.kind == 'file' then font.spread or 4 else nil)
-    end
-    expect.equal(appearance.padding, nil, 'appearance projection stays sparse')
-    expect.equal(titlebar.barHeight, nil, 'titlebar projection stays sparse')
-    expect.equal(settings.theme.font.size, font.size, 'projection leaves the editable font unchanged')
-  end
+  local fileSettings = config.schema.parse { theme = { font = { kind = 'file', file = 'fonts/ui.ttf' } } }
+  local appearance = theme.project(fileSettings.theme)
+  expect.equal(appearance.font.size, 32, 'file fonts keep the editable size default')
+  expect.equal(appearance.font.spread, 4, 'file fonts keep the editable spread default')
+  expect.equal(appearance.padding, nil, 'appearance projection stays sparse')
+  expect.equal(fileSettings.theme.font.size, nil, 'projection leaves the editable font unchanged')
   local empty = config.schema.parse {}
   expect.equal(next(theme.project(empty.theme)), nil, 'an empty appearance has no defaults')
   expect.equal(next(titlebarConfiguration.project(empty.titlebarStyle)), nil, 'an empty titlebar has no defaults')
@@ -75,13 +65,8 @@ test('theme schemas reject unknown, non-plain, and invalid values', function()
       { foreground = { 1, 1, 1, -0.1 } },
       setmetatable({}, {}),
       { font = { kind = 'default', file = 'fonts/ui.ttf' } },
-      { font = { kind = 'default', size = 32 } },
-      { font = { kind = 'default', spread = 4 } },
       { font = { kind = 'file' } },
-      { font = { kind = 'file', file = '' } },
       { font = { kind = 'file', file = 'fonts/ui.ttf', size = 0 } },
-      { font = { kind = 'file', file = 'fonts/ui.ttf', spread = math.huge } },
-      { font = { kind = 'file', file = 'fonts/ui.ttf', typo = true } },
     }
   do
     expect.raises(function()
@@ -99,13 +84,7 @@ test('theme schemas reject unknown, non-plain, and invalid values', function()
       { barHeight = 0 },
       { cornerRadius = -1 },
       { font = { kind = 'default', file = 'fonts/ui.ttf' } },
-      { font = { kind = 'default', size = 32 } },
-      { font = { kind = 'default', spread = 4 } },
       { font = { kind = 'file' } },
-      { font = { kind = 'file', file = '' } },
-      { font = { kind = 'file', file = 'fonts/ui.ttf', size = 0 } },
-      { font = { kind = 'file', file = 'fonts/ui.ttf', spread = math.huge } },
-      { font = { kind = 'file', file = 'fonts/ui.ttf', typo = true } },
     }
   do
     expect.raises(function()

@@ -1,39 +1,33 @@
 # Shipped plugins
 
-The shipped tree contains 46 independent plugin leaves in 18 responsibility categories. A category groups related plugins and public libraries. It has no activation entry and activates nothing. The [desktop composition](../lunette-desktop/init.luau) selects entries and startup order; a configuration can compose or replace leaves independently.
-
-[Plugin authoring](../../docs/plugins/writing-plugins.md), the [plugin facade](../lunette-plugin/README.md), and [service contracts](../lunette-contracts/README.md) define composition and runtime access. [Desktop configuration](../../docs/users/desktop-configuration.md) defines user workflows.
+The shipped tree contains 46 independent plugin leaves in 18 responsibility categories. Categories group plugins and public libraries without activation entries. The [desktop composition](../lunette-desktop/init.luau) selects entries and startup order; configurations compose or replace leaves independently. [Plugin authoring](../../docs/plugins/writing-plugins.md), the [plugin facade](../lunette-plugin/README.md), and [service contracts](../lunette-contracts/README.md) define composition and runtime access. [Desktop configuration](../../docs/users/desktop-configuration.md) defines user workflows.
 
 ## Categories
 
-| Category | Responsibility |
-| --- | --- |
-| [Audio](audio/README.md) | PCM capture and shared spectral analysis. |
-| [Diagnostics](diagnostics/README.md) | Error reporting, retention, and presentation. |
-| [Environment](environment/README.md) | Background rendering and empty-desktop guidance. |
-| [Graphics](graphics/README.md) | Caller-owned drawing mechanisms. |
-| [Input](input/README.md) | Keyboard routing, virtual keyboards, and controller attachment. |
-| [Interaction](interaction/README.md) | Surface offers, pointer gestures, grabs, and drops. |
-| [Layout](layout/README.md) | Layout registration, arrangement, and persistence. |
-| [Lifecycle](lifecycle/README.md) | Failure-complete cleanup operations. |
-| [Menu](menu/README.md) | Action registration and wrist-menu presentation. |
-| [Pacing](pacing/README.md) | Window-rate recommendations and application. |
-| [Panels](panels/README.md) | Panel creation, rendering, decorations, and monitor mirrors. |
-| [Registration](registration/README.md) | Caller-owned listeners and named values. |
-| [Scale](scale/README.md) | Output-scale recommendations and application. |
-| [Session](session/README.md) | Frame dispatch, session actions, and runtime management. |
-| [Theme](theme/README.md) | Appearance resolution, named themes, and selection. |
-| [UI](ui/README.md) | Flat VR controls and titlebar configuration. |
-| [Window](window/README.md) | Rules, placement, and adoption. |
-| [Workspace](workspace/README.md) | Panel tags and workspace visibility. |
+- [Audio](audio/README.md): PCM capture and shared spectral analysis.
+- [Diagnostics](diagnostics/README.md): Error reporting, retention, and presentation.
+- [Environment](environment/README.md): Background rendering and empty-desktop guidance.
+- [Graphics](graphics/README.md): Caller-owned drawing mechanisms.
+- [Input](input/README.md): Keyboard routing, virtual keyboards, and controller attachment.
+- [Interaction](interaction/README.md): Surface offers, pointer gestures, grabs, and drops.
+- [Layout](layout/README.md): Layout registration, arrangement, and persistence.
+- [Lifecycle](lifecycle/README.md): Failure-complete cleanup operations.
+- [Menu](menu/README.md): Action registration and wrist-menu presentation.
+- [Pacing](pacing/README.md): Window-rate recommendations and application.
+- [Panels](panels/README.md): Panel creation, rendering, decorations, and monitor mirrors.
+- [Registration](registration/README.md): Caller-owned listeners and named values.
+- [Scale](scale/README.md): Output-scale recommendations and application.
+- [Session](session/README.md): Frame dispatch, session actions, and runtime management.
+- [Theme](theme/README.md): Appearance resolution, named themes, and selection.
+- [UI](ui/README.md): Flat VR controls and titlebar configuration.
+- [Window](window/README.md): Rules, placement, and adoption.
+- [Workspace](workspace/README.md): Panel tags and workspace visibility.
 
 ## Public imports
 
-A leaf's entry is public. Its `config` module is public where present. Other imports target only the libraries and deliberate extensions documented by the category guides. All other production modules are private to their owner. Colocation in the same category grants no private access.
+A leaf's entry and its `config` module, where present, are public. Other imports target only the documented category libraries and extensions; remaining production modules are private to their owner. Colocation grants no private access. Entry imports expose definitions or constructors, not live services. Consumers import a [contract](../lunette-contracts/README.md) and use `context:require` for service access. Shared validation belongs in [contract schemas](../lunette-contracts/schemas/README.md), without provider imports or resource acquisition.
 
-An entry import exposes a plugin definition or its constructor, not its live service instance. Consumers import a [contract](../lunette-contracts/README.md) and obtain its service through `context:require`. Shared value validation belongs in [contract schemas](../lunette-contracts/schemas/README.md), without provider imports or resource acquisition.
-
-Category libraries do not register runtime services or activate plugins. Each call receives its data, pass, callbacks, context, or owner from the caller. Resource-producing calls use the supplied context or require caller-owned cleanup. The category guides state these ownership and call-side guarantees. Imports acquire no module-level resources and remain safe across source reload.
+Category libraries activate no plugins and register no services. Calls receive data, passes, callbacks, contexts, or owners from the caller. Resource-producing calls use the supplied context or caller-owned cleanup, under each category's guarantees. Imports acquire no module-level resources and remain safe across source reload.
 
 Entry ids, contract ids, and settings keys remain separate from module paths. The `desktop/pacing` entry uses `@lunette-plugins/pacing/controller`; the `desktop/persistence` entry provides `lunette/arrangement` through `@lunette-plugins/layout/persistence`. The keyboard display keeps the entry id `desktop/keyboard` at `@lunette-plugins/input/keyboard-display`. A path change does not rename a settings patch or a service contract.
 

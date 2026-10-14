@@ -1,6 +1,5 @@
 //! Luau type checker built from the interpreter vendored by the LÖVR fork.
 
-mod requires;
 pub mod surface;
 
 #[cfg(unix)]
@@ -12,10 +11,6 @@ use std::{
     ptr, slice,
 };
 
-pub use requires::{
-    ConfiguredRequire, MemberCallObservation, RequireAlias, RequireObservation, RequireOutcome,
-    RequireRequest, inspect_member_calls, inspect_requires,
-};
 pub use surface::surface;
 
 #[derive(Clone, Debug)]
@@ -39,6 +34,14 @@ pub struct Report {
     pub diagnostics: Vec<Diagnostic>,
     /// Roots the checker read. Missing roots are reported separately from diagnostics.
     pub checked: Vec<PathBuf>,
+    /// Resolved imports from roots and their transitive dependencies.
+    pub dependencies: Vec<Dependency>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Dependency {
+    pub source: PathBuf,
+    pub target: PathBuf,
 }
 
 impl Report {
@@ -246,9 +249,25 @@ unsafe fn collect(
             .collect()
     };
 
+    let dependencies = if report.dependencies.is_null() {
+        Vec::new()
+    } else {
+        // SAFETY: the array and both NUL-terminated paths remain live until OwnedReport drops.
+        unsafe { slice::from_raw_parts(report.dependencies, report.dependency_count) }
+            .iter()
+            .map(|raw| unsafe {
+                Dependency {
+                    source: annotation_path(CStr::from_ptr(raw.source)),
+                    target: annotation_path(CStr::from_ptr(raw.target)),
+                }
+            })
+            .collect()
+    };
+
     Ok(Report {
         diagnostics,
         checked,
+        dependencies,
     })
 }
 
@@ -355,11 +374,19 @@ mod ffi {
     }
 
     #[repr(C)]
+    pub struct lunette_luau_dependency {
+        pub source: *mut c_char,
+        pub target: *mut c_char,
+    }
+
+    #[repr(C)]
     pub struct lunette_luau_report {
         pub diagnostics: *mut lunette_luau_diagnostic,
         pub diagnostic_count: usize,
         pub checked: *mut *mut c_char,
         pub checked_count: usize,
+        pub dependencies: *mut lunette_luau_dependency,
+        pub dependency_count: usize,
         pub failure: *mut c_char,
     }
 

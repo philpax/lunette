@@ -98,7 +98,7 @@ return test
 
 `crates/lunette/tests/lua/` runs the Lua integration suites under `lua/` and `dev/`. [Build and development](docs/development/build-and-development.md#lua-tests) describes the runner. Neither the tests nor `lua/testing` are installed.
 
-`cargo test -p lunette --test plugin_dependencies` checks the ownership inventory, parser-resolved imports, module cycles, and maintained documentation. Workspace tests include this target through `make check-test` and CI. The catalog under `crates/lunette/tests/support/plugin_dependencies/` declares public exports and exact test resolution contexts. Tests may inspect their own owner's internals; cross-owner white-box imports need an exact source-target declaration and rationale. Shipped sources cannot import dev or testing. Loader aliases, nonliteral imports, and global loader mutation are unsupported outside the explicitly declared test runner infrastructure.
+`cargo test -p lunette --test plugin_dependencies` checks resolved production imports against the public module boundaries. It reuses the strict checker's Luau parser and Navigator, including examples and development plugins. Workspace tests include this target through `make check-test` and CI. Tests and runner scaffolding are outside this static dependency check; their imports are exercised by the Lua and graphics suites. The check does not validate dynamic loaders, import cycles, or Markdown. Supported boundaries still apply to all callers.
 
 ### The module roots
 

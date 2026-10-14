@@ -81,14 +81,14 @@ cargo test -p lunette --test lua
 
 ### Plugin dependency checks
 
-The dependency target parses maintained Luau with the vendored parser and resolves imports with the checker Navigator. It checks file ownership, supported exports, import cycles, and documentation navigation and links. The inventory declares exact preload and configuration contexts for runner and graphics sources; unresolved imports are failures. The installed-root Lua trial reuses the boundary policy without requiring Markdown, which packaging does not install.
+The dependency target checks resolved production imports, including examples and development plugins, against public module boundaries. It reads the strict checker's dependency graph, using the vendored Luau parser and Navigator. The Lua and graphics suites exercise test imports; the installed-root trial loads every installed module without development roots.
 
 ```sh
 cargo test -p lunette --test plugin_dependencies
 cargo test -p lunette --test luau_check
 ```
 
-Workspace tests run the dependency target through `make check-test` and CI. It does not replace strict Luau typechecking or execute source to infer dependencies. The checks enforce maintained-source architecture, not a sandbox against arbitrary metaprogramming.
+Workspace tests run the dependency target through `make check-test` and CI. It does not replace strict Luau typechecking. Dynamic loader use, test resolution contexts, import cycles, and Markdown validation are outside its scope; it is not a sandbox.
 
 ### Offscreen graphics tests
 

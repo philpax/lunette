@@ -215,21 +215,10 @@ fn build_analyze_shim(lovr_dir: &Path) {
     let shim = Path::new("src").join("analyze.cpp");
 
     println!("cargo::rerun-if-changed={}", shim.display());
-    for source in [
-        "src/analyze.h",
-        "src/analyze_navigation.h",
-        "src/analyze_source.h",
-        "src/analyze_requires.cpp",
-    ] {
-        println!("cargo::rerun-if-changed={source}");
-    }
+    println!("cargo::rerun-if-changed=src/analyze_navigation.h");
 
     let mut build = cc::Build::new();
-    build
-        .cpp(true)
-        .std("c++17")
-        .file(&shim)
-        .file("src/analyze_requires.cpp");
+    build.cpp(true).std("c++17").file(&shim);
 
     // Fortify requires optimisation, even when Cargo's debug profile requests none.
     if env::var("OPT_LEVEL").as_deref() == Ok("0") {
