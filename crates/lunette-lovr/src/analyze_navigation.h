@@ -11,13 +11,29 @@
 #include <sstream>
 #include <string>
 #include <utility>
+#include <unordered_map>
 
 class CheckerNavigationContext : public Luau::Require::NavigationContext
 {
 public:
-    explicit CheckerNavigationContext(std::string requirer)
+    using AliasOverrides = std::unordered_map<std::string, std::string>;
+
+    explicit CheckerNavigationContext(std::string requirer, const AliasOverrides* aliases = nullptr)
         : requirer(std::move(requirer))
+        , aliases(aliases)
     {
+    }
+
+    NavigateResult toAliasOverride(const std::string& name) override
+    {
+        if (aliases == nullptr)
+            return NavigateResult::NotFound;
+        const auto found = aliases->find(name);
+        if (found == aliases->end())
+            return NavigateResult::NotFound;
+        const auto result = jumpToAlias(found->second);
+        // NotFound means no override to Navigator; a supplied invalid target must not fall back.
+        return result == NavigateResult::NotFound ? NavigateResult::Ambiguous : result;
     }
 
     NavigateResult resetToRequirer() override
@@ -103,6 +119,7 @@ public:
 private:
     using Path = std::filesystem::path;
     const std::string requirer;
+    const AliasOverrides* aliases;
     mutable Path modulePath;
     mutable Path filePath;
 

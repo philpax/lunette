@@ -1,5 +1,6 @@
 //! Luau type checker built from the interpreter vendored by the LÖVR fork.
 
+mod requires;
 pub mod surface;
 
 #[cfg(unix)]
@@ -11,6 +12,10 @@ use std::{
     ptr, slice,
 };
 
+pub use requires::{
+    ConfiguredRequire, MemberCallObservation, RequireAlias, RequireObservation, RequireOutcome,
+    RequireRequest, inspect_member_calls, inspect_requires,
+};
 pub use surface::surface;
 
 #[derive(Clone, Debug)]

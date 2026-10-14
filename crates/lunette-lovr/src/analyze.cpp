@@ -3,6 +3,7 @@
 // The frontend setup mirrors `CLI/src/Analyze.cpp`.
 
 #include "analyze_navigation.h"
+#include "analyze_source.h"
 #include "Luau/BuiltinDefinitions.h"
 #include "Luau/Config.h"
 #include "Luau/ExperimentalFlags.h"
@@ -32,81 +33,18 @@
 namespace
 {
 
+using LunetteAnalyze::DirectoryConfigResolver;
+using LunetteAnalyze::enableDefaultFlags;
+
 std::optional<std::string> slurp(const std::string& path)
 {
-    std::ifstream stream(path, std::ios::binary);
-    if (!stream)
-        return std::nullopt;
-
-    std::ostringstream contents;
-    contents << stream.rdbuf();
-    return contents.str();
+    return LunetteAnalyze::readSource(path);
 }
 
 std::optional<std::string> readAnnotationSource(const std::string& path)
 {
-    std::ifstream stream(path, std::ios::binary);
-    if (!stream)
-        return std::nullopt;
-
-    std::string contents;
-    char buffer[8192];
-    while (stream.read(buffer, sizeof(buffer)))
-        contents.append(buffer, static_cast<size_t>(stream.gcount()));
-    contents.append(buffer, static_cast<size_t>(stream.gcount()));
-    if (stream.bad() || !stream.eof())
-        return std::nullopt;
-    return contents;
+    return LunetteAnalyze::readSource(path);
 }
-
-std::string directoryOf(const std::string& path)
-{
-    size_t slash = path.find_last_of('/');
-    return slash == std::string::npos ? std::string(".") : path.substr(0, slash);
-}
-
-// Reads the `.luaurc` for a module's directory and every directory above it,
-// for the language mode and lint settings. The navigator handles aliases.
-struct DirectoryConfigResolver : Luau::ConfigResolver
-{
-    Luau::Config defaults;
-    mutable std::unordered_map<std::string, Luau::Config> cache;
-
-    DirectoryConfigResolver()
-    {
-        defaults.mode = Luau::Mode::Strict;
-    }
-
-    const Luau::Config& getConfig(const Luau::ModuleName& name, const Luau::TypeCheckLimits&) const override
-    {
-        return forDirectory(directoryOf(name));
-    }
-
-    const Luau::Config& forDirectory(const std::string& directory) const
-    {
-        auto found = cache.find(directory);
-        if (found != cache.end())
-            return found->second;
-
-        const std::string parent = directoryOf(directory);
-        Luau::Config config = (parent == directory || directory == "." || directory.empty())
-            ? defaults
-            : forDirectory(parent);
-        // A `.luaurc` that omits the mode must not lower the caller's choice.
-        config.mode = defaults.mode;
-
-        if (std::optional<std::string> contents = slurp(directory + "/" + Luau::kConfigName))
-        {
-            // A relative alias resolves against its `.luaurc`'s directory,
-            // not the working directory.
-            Luau::ConfigOptions options;
-            options.aliasOptions = Luau::ConfigOptions::AliasOptions{directory, true};
-            Luau::parseConfig(*contents, config, options);
-        }
-
-        return cache.emplace(directory, std::move(config)).first->second;
-    }
-};
 
 // Resolves a module with Luau's require traversal and a filesystem context that follows symlinks.
 struct PathResolver : Luau::FileResolver
@@ -140,22 +78,6 @@ struct PathResolver : Luau::FileResolver
         return std::nullopt;
     }
 };
-
-// Matches luau-analyze's setLuauFlagsDefault, without which the checker
-// accepts a different language.
-//
-// The flags are process-global and checks may run concurrently, so they are
-// set once. A static initializer cannot, because the flags register from other
-// translation units' static initializers in an unspecified order.
-void enableDefaultFlags()
-{
-    static std::once_flag once;
-    std::call_once(once, [] {
-        for (Luau::FValue<bool>* flag = Luau::FValue<bool>::list; flag; flag = flag->next)
-            if (strncmp(flag->name, "Luau", 4) == 0 && !Luau::isAnalysisFlagExperimental(flag->name))
-                flag->value = true;
-    });
-}
 
 std::unique_ptr<char[]> copy(const std::string& text)
 {

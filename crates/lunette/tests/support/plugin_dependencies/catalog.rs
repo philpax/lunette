@@ -699,6 +699,17 @@ pub const CONFIGURATION_SWITCHES: &[ConfigurationSwitch] = &[
 
 pub const TEST_HOST_SOURCES: &[&str] = &["lua/testing/init.luau", "lua/testing/native.luau"];
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LibraryTest {
+    pub source: &'static str,
+    pub module: &'static str,
+}
+
+pub const LIBRARY_TESTS: &[LibraryTest] = &[LibraryTest {
+    source: "lua/lunette-plugins/registration/tests/listeners.luau",
+    module: "registration/listeners",
+}];
+
 #[cfg(test)]
 #[expect(
     clippy::expect_used,
