@@ -40,7 +40,6 @@ local mapped: (analysis.Steady) -> model.Features
 local power: (number, number) -> number
 local mixed: (model.Features, model.Features, number) -> model.Features
 local bandOnset: (analysis.Hop, model.Band) -> number
-local removeOldest: ({ model.Onset }, model.Band) -> ()
 local scatter: (number, number, model.Band) -> number
 local bandDetail: (analysis.Steady, model.Band) -> (number, number)
 local balance: (number, number) -> number
@@ -151,9 +150,8 @@ function responseChild.new(
             state:noAudio()
             return
           end
+          -- A publication has at most 94 hops. The model admits waves against the existing active pools.
           local onsets: { model.Onset } = {}
-          local counts: { [model.Band]: number } = { bass = 0, mid = 0, treble = 0 }
-          local discarded = 0
           local gap: ('publication' | 'capacity')? = nil
           if active and slot and snapshot and slot.publication ~= snapshot.frameGeneration then
             gap = if snapshot.gap then 'publication' else nil
@@ -196,13 +194,6 @@ function responseChild.new(
                       }
                     end
                   elseif strength > 0 then
-                    if counts[band] == model.wavePools[band] then
-                      removeOldest(onsets, band)
-                      discarded += 1
-                      gap = 'capacity'
-                    else
-                      counts[band] += 1
-                    end
                     local pan, frequency = bandDetail(hop, band)
                     onsets[#onsets + 1] = {
                       strength = strength * weight,
@@ -217,7 +208,7 @@ function responseChild.new(
               end
             end
           end
-          state:setFeatures(last, onsets, { gap = gap, discardedHops = discarded })
+          state:setFeatures(last, onsets, { gap = gap })
         end,
       })
     end,
@@ -345,15 +336,6 @@ newestBand = function(onsets: { model.Onset }, band: model.Band): number?
     end
   end
   return nil
-end
-
-removeOldest = function(onsets: { model.Onset }, band: model.Band): ()
-  for index, onset in onsets do
-    if onset.band == band then
-      table.remove(onsets, index)
-      return
-    end
-  end
 end
 
 -- Onsets scatter about the anchor, treble widest. Sample time and band seed the offset, so a replayed publication

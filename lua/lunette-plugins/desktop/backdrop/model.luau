@@ -24,7 +24,7 @@ export type Onset = {
   -- Power-weighted position among this band's spectrum sub-bands, from its lowest to its highest.
   read frequency: number?,
 }
-export type FeatureOptions = { read gap: ('publication' | 'capacity')?, read discardedHops: number? }
+export type FeatureOptions = { read gap: ('publication' | 'capacity')? }
 export type Wave = { age: number, strength: number, position: number, band: Band, lifetime: number, frequency: number }
 type Response = { bass: number, mid: number, treble: number, spectrum: { number }, stereo: { number } }
 export type Frame = {
@@ -79,8 +79,6 @@ local normalized: (Features) -> Response
 local mix: (Response, Response, number) -> Response
 local envelope: (number, number, number, config.Settings) -> number
 local envelopeAmount: (number, number, number, config.Settings) -> number
-local countBand: ({ Wave }, Band) -> number
-local removeOldest: ({ Wave }, Band) -> ()
 
 function model.new(settings: config.Settings): State
   return setmetatable({
@@ -118,53 +116,37 @@ function State.setFeatures(self: State, features: Features, onsets: { Onset }?, 
   end
   self.settling = false
   self.onsetGap = if options then options.gap else nil
-  if options and options.gap then
+  if options and options.gap == 'publication' then
     table.clear(self.waves)
-  end
-  local discarded = if options then options.discardedHops or 0 else 0
-  if finite(discarded) and discarded > 0 then
-    self.discardedHops = math.min(self.discardedHops + math.floor(discarded), 9007199254740991)
   end
   if not onsets then
     return
   end
-  -- Only the newest pool-sized run of each band can survive this publication.
-  local remaining: { [Band]: number } = { bass = 0, mid = 0, treble = 0 }
-  for _, onset in onsets do
-    local band: Band = onset.band or 'mid'
-    remaining[band] += 1
-  end
-  for band, count in remaining do
-    if count > model.wavePools[band] then
-      self.onsetGap = 'capacity'
-      self.discardedHops = math.min(self.discardedHops + count - model.wavePools[band], 9007199254740991)
-      for index = #self.waves, 1, -1 do
-        if self.waves[index].band == band then
-          table.remove(self.waves, index)
-        end
-      end
-    end
+  local counts: { [Band]: number } = { bass = 0, mid = 0, treble = 0 }
+  for _, wave in self.waves do
+    counts[wave.band] += 1
   end
   for _, onset in onsets do
     local band: Band = onset.band or 'mid'
-    remaining[band] -= 1
     local lifetime = model.waveLifetimes[band]
     local strength, givenAge = unit(onset.strength), onset.age or 0
     local age = if finite(givenAge) then math.max(0, givenAge) else lifetime
-    if remaining[band] < model.wavePools[band] and strength > 0 and age < lifetime then
-      if countBand(self.waves, band) == model.wavePools[band] then
-        removeOldest(self.waves, band)
-        self.onsetGap = 'capacity'
+    if strength > 0 and age < lifetime then
+      if counts[band] == model.wavePools[band] then
+        -- A visible wave finishes before its slot is reused; capacity loss does not invalidate audio history.
+        self.onsetGap = self.onsetGap or 'capacity'
         self.discardedHops = math.min(self.discardedHops + 1, 9007199254740991)
+      else
+        counts[band] += 1
+        table.insert(self.waves, {
+          age = age,
+          strength = strength,
+          position = unit(onset.position or 0),
+          band = band,
+          lifetime = lifetime,
+          frequency = unit(onset.frequency or 0.5),
+        })
       end
-      table.insert(self.waves, {
-        age = age,
-        strength = strength,
-        position = unit(onset.position or 0),
-        band = band,
-        lifetime = lifetime,
-        frequency = unit(onset.frequency or 0.5),
-      })
     end
   end
 end
@@ -307,25 +289,6 @@ end
 envelopeAmount = function(current: number, target: number, dt: number, settings: config.Settings): number
   local duration = if target > current then settings.attackDuration else settings.releaseDuration
   return if duration == 0 then 1 else 1 - math.exp(-math.min(dt, 60) / duration)
-end
-
-countBand = function(waves: { Wave }, band: Band): number
-  local count = 0
-  for _, wave in waves do
-    if wave.band == band then
-      count += 1
-    end
-  end
-  return count
-end
-
-removeOldest = function(waves: { Wave }, band: Band): ()
-  for index, wave in waves do
-    if wave.band == band then
-      table.remove(waves, index)
-      return
-    end
-  end
 end
 
 return model

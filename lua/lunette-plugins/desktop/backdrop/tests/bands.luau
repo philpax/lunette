@@ -18,7 +18,7 @@ local function count(waves: { model.Wave }, band: model.Band): number
   return total
 end
 
-test('band overflow retains the newest waves without evicting other bands', function()
+test('band overflow preserves active waves and skips excess new onsets', function()
   for _, band in { 'bass', 'mid', 'treble' } :: { model.Band } do
     for _, batchSize in { 1, 12 } do
       local state = new()
@@ -40,7 +40,7 @@ test('band overflow retains the newest waves without evicting other bands', func
       end
       expect.equal(state.onsetGap, 'capacity', 'overflow is explicit')
       local discarded = 12 - model.wavePools[band]
-      expect.equal(state.discardedHops, discarded, 'each eviction counted')
+      expect.equal(state.discardedHops, discarded, 'each skipped new onset counted')
       local first
       for _, wave in state.waves do
         if wave.band == band then
@@ -48,8 +48,12 @@ test('band overflow retains the newest waves without evicting other bands', func
           break
         end
       end
-      expect.equal(first.position, (13 - model.wavePools[band]) / 12, 'oldest surviving onset')
-      expect.equal(state.waves[#state.waves].position, 1, 'newest onset retained')
+      expect.equal(first.position, 1 / 12, 'the first active onset retains its position')
+      expect.equal(
+        state.waves[#state.waves].position,
+        model.wavePools[band] / 12,
+        'only the first available slots fill'
+      )
       state:setFeatures(ZERO, {})
       expect.equal(#state.waves, 2 + model.wavePools[band], 'empty publication retains waves')
       expect.equal(state.discardedHops, discarded, 'empty publication does not repeat discard')

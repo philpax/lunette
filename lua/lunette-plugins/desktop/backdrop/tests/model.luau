@@ -96,9 +96,16 @@ test('aged onsets and runtime strengths stay finite and make bounded discards ex
   expect.near(frame.waves[1].age, 0.85, 1e-8, 'age includes native sample delay')
   expect.equal(frame.responseStrength, 0.25, 'dynamic strength reaches renderer')
   expect.equal(frame.time, 0, 'motion control changes autonomous clock')
-  state:setFeatures({ bass = 0, mid = 0, treble = 0 }, {}, { gap = 'capacity', discardedHops = 4 })
-  expect.equal(#state.waves, 0, 'explicit gap clears stale impulses')
-  expect.equal(state.discardedHops, 4, 'discard count remains observable')
+  state:setFeatures({ bass = 0, mid = 0, treble = 0 }, {}, { gap = 'capacity' })
+  expect.equal(#state.waves, 1, 'capacity loss preserves active impulses')
+  local overflow: { model.Onset } = {}
+  for index = 1, 12 do
+    overflow[index] = { band = 'mid', strength = 1 }
+  end
+  state:setFeatures({ bass = 0, mid = 0, treble = 0 }, overflow)
+  expect.equal(state.discardedHops, 5, 'the existing mid wave leaves seven slots and five skipped onsets')
+  state:setFeatures({ bass = 0, mid = 0, treble = 0 }, {}, { gap = 'publication' })
+  expect.equal(#state.waves, 0, 'audio history loss clears stale impulses')
 end)
 
 return test
