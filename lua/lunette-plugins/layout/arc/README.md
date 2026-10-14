@@ -4,4 +4,6 @@ Registers a named layout that places panels around a vertical circle facing its 
 
 The [desktop consumer](../arrange/README.md) selects the layout name separately; changing the registered name does not change that selection.
 
+The public [geometry extension](geometry.luau) computes angles and poses for custom layouts without registering this plugin or acquiring panels.
+
 [Options](config.luau) · [Layout examples](../../../../examples/layout/)

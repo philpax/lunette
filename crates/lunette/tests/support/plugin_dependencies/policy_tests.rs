@@ -11,7 +11,7 @@ use lunette_lovr::analyze::{MemberCallObservation, RequireObservation, RequireOu
 use crate::plugin_dependencies::{
     catalog::{
         CONFIGURATION_SWITCHES, CONFIGURED_LOADS, CONTRACT_SCHEMAS, EXTENSION_SUPPORT,
-        LibraryDomain, WHITEBOX_EDGES,
+        LibraryDomain, SOURCE_ROOTS, WHITEBOX_EDGES,
     },
     ownership::{Owner, Ownership, Role, Visibility, ownership, public_plugin_files},
     policy::{
@@ -19,8 +19,8 @@ use crate::plugin_dependencies::{
         configured_load_diagnostics, cycle_diagnostics, hierarchy_diagnostics,
     },
     scan::{
-        canonical_owner_diagnostics, context_use_diagnostics, installed_scan, request,
-        resolution_context,
+        canonical_owner_diagnostics, context_use_diagnostics, installed_scan, repository_scan,
+        request, resolution_context,
     },
 };
 
@@ -298,6 +298,30 @@ fn shipped_modules_cannot_import_development_scaffolding() {
         )
         .is_err()
     );
+}
+
+#[test]
+fn development_configuration_composes_entries_without_exposing_internals() {
+    assert!(permits("dev/main.luau", "dev/plugins/sample/init.luau").is_ok());
+    assert!(permits("dev/main.luau", "dev/plugins/sample/config.luau").is_ok());
+    for target in [
+        "dev/plugins/sample/private/state.luau",
+        "dev/plugins/sample/tests/case.luau",
+        "lua/testing/init.luau",
+    ] {
+        assert!(permits("dev/main.luau", target).is_err(), "{target}");
+    }
+    for source in [
+        "dev/plugins/other/init.luau",
+        "dev/plugins/configuration/init.luau",
+        "examples/desktop/main.luau",
+        "lua/lunette-desktop/init.luau",
+    ] {
+        assert!(
+            permits(source, "dev/plugins/sample/init.luau").is_err(),
+            "{source}"
+        );
+    }
 }
 
 #[test]
@@ -655,6 +679,85 @@ fn canonical_sources_cannot_be_claimed_by_another_owner_or_visibility() {
         )])
         .is_empty()
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn declared_source_root_views_scan_once_and_other_symlinks_keep_their_boundaries()
+-> Result<(), Box<dyn std::error::Error>> {
+    let tree = tempfile::tempdir()?;
+    for root in SOURCE_ROOTS {
+        fs::create_dir_all(tree.path().join(root))?;
+    }
+    let source = PathBuf::from("examples/sample/main.luau");
+    fs::create_dir_all(tree.path().join("examples/sample"))?;
+    fs::write(tree.path().join(&source), "return require '@missing'\n")?;
+    std::os::unix::fs::symlink("../examples", tree.path().join("dev/examples"))?;
+    let report = repository_scan(tree.path())?;
+    assert_eq!(report.sources, BTreeSet::from([source.clone()]));
+    assert_eq!(report.observation_count, 1);
+    assert!(
+        !report.dependencies.iter().any(|error| {
+            error.message.contains("source symlink changes ownership")
+                || error.message.contains("conflicting declarations")
+        }),
+        "{report}"
+    );
+    assert_eq!(
+        report
+            .dependencies
+            .iter()
+            .filter(|error| {
+                error.source == source && error.message.contains("does not resolve")
+            })
+            .count(),
+        1,
+        "the canonical source is still checked: {report}"
+    );
+
+    let target = "lua/lunette-plugins/pacing/service/private/pacer.luau";
+    fs::create_dir_all(
+        tree.path()
+            .join("lua/lunette-plugins/pacing/service/private"),
+    )?;
+    fs::create_dir_all(
+        tree.path()
+            .join("lua/lunette-plugins/pacing/controller/private"),
+    )?;
+    fs::write(tree.path().join(target), "return {}\n")?;
+    for (destination, source) in [
+        (
+            "lua/lunette-plugins/pacing/controller/private/alias.luau",
+            tree.path().join(target),
+        ),
+        (
+            "lua/lunette-plugins/pacing/service/init.luau",
+            tree.path().join(target),
+        ),
+        (
+            "dev/linked-private",
+            tree.path()
+                .join("lua/lunette-plugins/pacing/service/private"),
+        ),
+    ] {
+        std::os::unix::fs::symlink(source, tree.path().join(destination))?;
+    }
+    let report = repository_scan(tree.path())?;
+    for source in [
+        "lua/lunette-plugins/pacing/controller/private/alias.luau",
+        "lua/lunette-plugins/pacing/service/init.luau",
+        "dev/linked-private/pacer.luau",
+    ] {
+        assert!(
+            report.dependencies.iter().any(|error| {
+                error.source == Path::new(source)
+                    && error.message.contains("source symlink changes ownership")
+            }),
+            "{source}: {report}"
+        );
+    }
+    assert_eq!(report.observation_count, 1);
+    Ok(())
 }
 
 #[test]

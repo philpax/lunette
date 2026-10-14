@@ -498,7 +498,7 @@ pub const PRODUCTION_CONTEXT: ResolutionContext = ResolutionContext {
     preloads: &[Preloaded::Native],
 };
 pub const TEST_CONTEXT: ResolutionContext = ResolutionContext {
-    aliases: AliasContext::SourceConfiguration,
+    aliases: AliasContext::DevelopmentRoots,
     preloads: &[Preloaded::Native, Preloaded::TestHost],
 };
 pub const GRAPHICS_CONTEXT: ResolutionContext = ResolutionContext {

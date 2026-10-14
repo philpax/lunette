@@ -165,6 +165,7 @@ fn scan(root: &Path, installed: bool) -> Result<ScanReport, ScanError> {
         collect(
             &root,
             source_root,
+            &roots,
             &mut BTreeSet::new(),
             &mut files,
             &mut discovery,
@@ -392,6 +393,7 @@ fn normalize_target(root: &Path, allowed_roots: &[PathBuf], observation: &mut Re
 fn collect(
     root: &Path,
     path: &Path,
+    declared_roots: &[PathBuf],
     active: &mut BTreeSet<PathBuf>,
     files: &mut BTreeSet<PathBuf>,
     diagnostics: &mut Vec<Diagnostic>,
@@ -416,6 +418,10 @@ fn collect(
         ));
         return Ok(());
     }
+    // A symlink to a declared root is another view, not a second ownership declaration.
+    if canonical != path && declared_roots.contains(&canonical) {
+        return Ok(());
+    }
     if !active.insert(canonical.clone()) {
         diagnostics.push(diagnostic(
             relative(root, path),
@@ -426,7 +432,14 @@ fn collect(
     let entries = read_at(path, || fs::read_dir(path))?;
     for entry in entries {
         let entry = read_at(path, || entry)?;
-        collect(root, &entry.path(), active, files, diagnostics)?;
+        collect(
+            root,
+            &entry.path(),
+            declared_roots,
+            active,
+            files,
+            diagnostics,
+        )?;
     }
     active.remove(&canonical);
     Ok(())

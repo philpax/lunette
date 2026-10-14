@@ -17,6 +17,8 @@ lunette --config-path DIR
 
 `desktop.run` accepts settings keyed by entry id. The [desktop composition](../../lua/lunette-desktop/init.luau) identifies those ids. Each plugin's configuration schema defines accepted values and defaults; its README describes use and controls. Unsupported or misspelt settings fail validation.
 
+Settings keys and patch ids do not change with plugin directories. Configurations that import shipped modules directly use the [public import migration](../../lua/lunette-plugins/README.md); removed paths do not have compatibility aliases.
+
 [`examples/desktop/main.luau`](../../examples/desktop/main.luau) combines settings, workspaces, and local plugins. To run an example, copy its `main.luau` and adjacent modules into the directory created above, keeping the generated `.luaurc` and configuration files.
 
 ## Change the composition

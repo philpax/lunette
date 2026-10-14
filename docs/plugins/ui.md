@@ -18,6 +18,8 @@ Hiding, resizing, or changing a control's bounds cancels held gestures without a
 
 A titlebar's close callback decides whether to hide or destroy the panel; the titlebar does neither automatically. Consumers draw externally attached titlebars themselves. [Joined frames](../../lua/lunette-contracts/panels-and-ui.md#joined-frames) defines attachment lifetime and eligible surfaces.
 
+Plugins exposing editable titlebar settings use public [titlebar configuration](../../lua/lunette-plugins/ui/titlebar-configuration.luau) to project them into stable overrides. The neutral [titlebar schema](../../lua/lunette-contracts/schemas/titlebar-style.luau) validates contract values without creating fonts or importing the UI provider.
+
 ## Text fields
 
 Text fields accept valid single-line UTF-8 and edit whole grapheme clusters. Setting a value does not call `onChange`. Callback errors are reported but do not undo edits. Text shaping, bidirectional editing, and input-method composition are unsupported.

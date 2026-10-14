@@ -15,8 +15,9 @@ use lunette_lovr::analyze::{
 };
 use tempfile::TempDir;
 
-use crate::plugin_dependencies::catalog::{
-    CONFIGURATION_SWITCHES, CONFIGURED_LOADS, Preloaded, TEST_HOST_SOURCES,
+use crate::plugin_dependencies::{
+    catalog::{CONFIGURATION_SWITCHES, CONFIGURED_LOADS, Preloaded, TEST_HOST_SOURCES},
+    scan,
 };
 
 #[test]
@@ -75,6 +76,16 @@ fn parser_rejects_dynamic_escaped_and_overwritten_global_require() {
         ("return _G.require('./target')", "unsupported"),
         ("return _G['require']('./target')", "unsupported"),
         ("_G.require = nil", "unsupported"),
+        ("return _G['require' :: string]('./target')", "unsupported"),
+        ("return (_G :: any).require('./target')", "unsupported"),
+        (
+            "return ((_G :: any)['require' :: string] :: any)('./target')",
+            "unsupported",
+        ),
+        ("local load = _G['require' :: string]", "unsupported"),
+        ("local load = (_G :: any).require", "unsupported"),
+        ("_G['require' :: string] = nil", "unsupported"),
+        ("(_G :: any).require = nil", "unsupported"),
     ] {
         let source = tree.write("main.luau", body);
         let observed = tree.inspect(&source);
@@ -103,10 +114,19 @@ fn parser_rejects_dynamic_escaped_and_overwritten_global_require() {
         "unrepresentable literals are not silently replaced"
     );
     let target = tree.write("target.luau", "return {}\n");
-    let source = tree.write("main.luau", "return (require)('./target')\n");
-    let observed = tree.inspect(&source);
-    assert_eq!(observed.len(), 1, "parenthesized loader: {observed:#?}");
-    assert_eq!(resolved(&observed[0]), &target);
+    for body in [
+        "return (require)('./target')\n",
+        "return (require :: any)('./target' :: string)\n",
+        "return (require :: typeof(require './target'))('./target')\n",
+    ] {
+        let source = tree.write("main.luau", body);
+        let observed = tree.inspect(&source);
+        let expected_count = if body.contains("typeof") { 2 } else { 1 };
+        assert_eq!(observed.len(), expected_count, "{body}: {observed:#?}");
+        for observation in &observed {
+            assert_eq!(resolved(observation), &target);
+        }
+    }
     let source = tree.write(
         "main.luau",
         "local _G = {}; _G.require('./target'); return {}\n",
@@ -288,6 +308,113 @@ fn graphics_fixture_aliases_use_declared_context() {
     );
     request.aliases.clear();
     assert_unresolved(&analyze::inspect_requires(&request).expect("ordinary context is unchanged"));
+}
+
+#[test]
+fn scanner_test_context_matches_runtime_roots_and_exact_configuration_loads() {
+    let tree = Tree::new();
+    let testing = tree.write("lua/testing/init.luau", "return require '@testing/host'\n");
+    let native = tree.write(
+        "lua/testing/native.luau",
+        "return require '@testing/host'\n",
+    );
+    let root = tree.root();
+    let allowed = vec![root.to_path_buf()];
+    tree.write("examples/audio-backdrop/main.luau", "return {}\n");
+    for source in [
+        "examples/audio-backdrop/tests/composition.luau",
+        "examples/audio-backdrop/tests/consumer.luau",
+        "lua/lunette-plugins/environment/backdrop/tests/support/fixture.luau",
+    ] {
+        tree.write(source, "return require '@testing'\n");
+        let observed =
+            analyze::inspect_requires(&scan::request(root, Path::new(source), &allowed, false))
+                .expect("test runtime alias context");
+        assert_eq!(resolved(&observed[0]), &testing, "{source}");
+    }
+    for source in [testing, native] {
+        let request = scan::request(
+            root,
+            source.strip_prefix(root).expect("fixture-relative source"),
+            &allowed,
+            false,
+        );
+        let observed = analyze::inspect_requires(&request).expect("exact host source");
+        assert_eq!(
+            observed[0].outcome,
+            RequireOutcome::Preloaded("@testing/host".into())
+        );
+    }
+    for source in [
+        "examples/audio-backdrop/main.luau",
+        "examples/audio-backdrop/tests/undeclared.luau",
+        "lua/lunette-plugins/environment/backdrop/tests/support/fixture.luau",
+    ] {
+        tree.write(source, "return require '@testing/host'\n");
+        assert_unresolved(
+            &analyze::inspect_requires(&scan::request(root, Path::new(source), &allowed, false))
+                .expect("host access remains exact"),
+        );
+    }
+    let main = tree.write("examples/audio-backdrop/main.luau", "return {}\n");
+    let source = "examples/audio-backdrop/tests/composition.luau";
+    let support = tree.write(
+        "examples/audio-backdrop/tests/support/fixture.luau",
+        "return {}\n",
+    );
+    tree.write(
+        source,
+        "local main = require 'main'\nreturn require './support/fixture'\n",
+    );
+    let request = scan::request(root, Path::new(source), &allowed, false);
+    let observed = analyze::inspect_requires(&request).expect("runtime @main chunk configuration");
+    assert_eq!(resolved(&observed[0]), &main);
+    assert_eq!(resolved(&observed[1]), &support);
+    let configured =
+        "lua/lunette-plugins/environment/backdrop/tests/support/source-reload/main.luau";
+    let lifetimes = tree.write(
+        "lua/lunette-plugins/environment/backdrop/tests/support/lifetimes.luau",
+        "return {}\n",
+    );
+    tree.write(
+        configured,
+        "return require '@lunette-plugins/environment/backdrop/tests/support/lifetimes'\n",
+    );
+    let observed =
+        analyze::inspect_requires(&scan::request(root, Path::new(configured), &allowed, false))
+            .expect("alias from a configuration-root chunk");
+    assert_eq!(resolved(&observed[0]), &lifetimes);
+    tree.write(configured, "return require '../lifetimes'\n");
+    let mut runtime = scan::request(root, Path::new(configured), &allowed, false);
+    runtime.allowed_roots =
+        vec![root.join("lua/lunette-plugins/environment/backdrop/tests/support/source-reload")];
+    assert_unresolved(
+        &analyze::inspect_requires(&runtime).expect("configuration-root relative escape"),
+    );
+    let source = "examples/audio-backdrop/tests/undeclared.luau";
+    tree.write(source, "return require 'main'\n");
+    assert_unresolved(
+        &analyze::inspect_requires(&scan::request(root, Path::new(source), &allowed, false))
+            .expect("undeclared configuration load"),
+    );
+    tree.write(source, "return require '@main'\n");
+    assert_unresolved(
+        &analyze::inspect_requires(&scan::request(root, Path::new(source), &allowed, false))
+            .expect("the runtime chunk name is not an alias"),
+    );
+    tree.write(
+        "examples/audio-backdrop/main.luau",
+        "return require '@testing'\n",
+    );
+    assert_unresolved(
+        &analyze::inspect_requires(&scan::request(
+            root,
+            Path::new("examples/audio-backdrop/main.luau"),
+            &allowed,
+            false,
+        ))
+        .expect("production aliases are unchanged"),
+    );
 }
 
 #[test]

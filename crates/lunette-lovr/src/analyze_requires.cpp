@@ -39,9 +39,16 @@ std::unique_ptr<char[]> copy(const std::string& text)
 
 Luau::AstExpr* ungroup(Luau::AstExpr* expression)
 {
-    while (auto group = expression->as<Luau::AstExprGroup>())
-        expression = group->expr;
-    return expression;
+    // Grouping and type assertions do not change the runtime expression's identity.
+    while (true)
+    {
+        if (auto group = expression->as<Luau::AstExprGroup>())
+            expression = group->expr;
+        else if (auto assertion = expression->as<Luau::AstExprTypeAssertion>())
+            expression = assertion->expr;
+        else
+            return expression;
+    }
 }
 
 bool globalNamed(Luau::AstExpr* expression, const char* name)

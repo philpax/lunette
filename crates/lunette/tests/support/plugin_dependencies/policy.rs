@@ -98,7 +98,15 @@ pub fn check_edge(edge: &Edge<'_>) -> Result<(), String> {
         return Err("test files are owner-local; cross-owner imports must use public exports or an exact configured load".into());
     }
     if development_owner(&target.owner) {
-        if same_owner || (source.visibility == Visibility::Test && target.owner == Owner::Testing) {
+        let development_entry = matches!(&source.owner, Owner::Development(name) if name == "configuration")
+            && !source_path.starts_with("dev/plugins")
+            && matches!(&target.owner, Owner::Development(_))
+            && target_path.starts_with("dev/plugins")
+            && matches!(target.role, Role::Entry | Role::Config);
+        if same_owner
+            || development_entry
+            || (source.visibility == Visibility::Test && target.owner == Owner::Testing)
+        {
             return Ok(());
         }
         return Err("shipped sources cannot import testing or development modules".into());

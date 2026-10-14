@@ -107,7 +107,17 @@ pub fn ownership(path: &Path) -> Result<Ownership, String> {
             ),
             None => Owner::Development("configuration".into()),
         };
-        return Ok(local_owner(owner, relative));
+        let mut owned = local_owner(owner, relative);
+        if let Some(plugin) = relative.strip_prefix("plugins/")
+            && let Some((_, module)) = plugin.split_once('/')
+        {
+            owned.role = match module {
+                "init.luau" => Role::Entry,
+                "config.luau" => Role::Config,
+                _ => owned.role,
+            };
+        }
+        return Ok(owned);
     }
     Err("source has no declared owner".into())
 }
