@@ -20,6 +20,7 @@ local ZERO: model.Features = table.freeze {
   mid = 0,
   treble = 0,
   spectrum = table.freeze(table.create(model.SPECTRUM_BANDS, 0)),
+  stereo = table.freeze(table.create(model.SPECTRUM_BANDS, 0)),
 }
 -- One transient often completes two or three adjacent 512-sample hops; onsets this close are one event.
 local MERGE_FRAMES = 1200
@@ -31,9 +32,8 @@ local SECTOR_HOLD = 0.65
 -- Full width, in turns, of each band's scatter about the anchor.
 local SCATTER = table.freeze { bass = 0.05, mid = 0.08, treble = 0.16 } :: { read [model.Band]: number }
 local BANDS: { model.Band } = table.freeze({ 'bass', 'mid', 'treble' } :: { model.Band })
--- Narrow bands hold less power than the coarse bands, and recorded music falls off steeply above 2 kHz. The
--- fixed calibration brings a typical mastered mix near half scale in every band; it was measured on a
--- system-output capture of commercial music, not derived from a model of the spectrum.
+-- Narrow bands hold less power than coarse bands, and recorded music falls off steeply above 2 kHz.
+-- The relative gains come from a system-output music capture and compensate before the smooth response curve.
 local SPECTRUM_GAINS = table.freeze { 8, 6, 5, 5.5, 6.5, 7, 13, 13 }
 local same: (analysis.Source?, analysis.Source?) -> boolean
 local mapped: (analysis.Steady) -> model.Features
@@ -42,6 +42,9 @@ local mixed: (model.Features, model.Features, number) -> model.Features
 local bandOnset: (analysis.Hop, model.Band) -> number
 local removeOldest: ({ model.Onset }, model.Band) -> ()
 local scatter: (number, number, model.Band) -> number
+local bandDetail: (analysis.Steady, model.Band) -> (number, number)
+local balance: (number, number) -> number
+local validPower: (number) -> number
 local newestBand: ({ model.Onset }, model.Band) -> number?
 
 function responseChild.new(
@@ -189,6 +192,7 @@ function responseChild.new(
                         position = earlier.position,
                         age = earlier.age,
                         band = band,
+                        frequency = earlier.frequency,
                       }
                     end
                   elseif strength > 0 then
@@ -199,11 +203,14 @@ function responseChild.new(
                     else
                       counts[band] += 1
                     end
+                    local pan, frequency = bandDetail(hop, band)
                     onsets[#onsets + 1] = {
                       strength = strength * weight,
-                      position = scatter(anchor or 0.5, hop.endFrame, band),
+                      -- Increasing longitude is viewer-left, so positive right balance subtracts a turn.
+                      position = scatter((anchor or 0.5) - pan * 0.18, hop.endFrame, band),
                       age = age,
                       band = band,
+                      frequency = frequency,
                     }
                   end
                 end
@@ -243,38 +250,86 @@ end
 
 mapped = function(steady: analysis.Steady): model.Features
   local spectrum = table.create(model.SPECTRUM_BANDS, 0)
+  local stereo = table.create(model.SPECTRUM_BANDS, 0)
   for band = 1, model.SPECTRUM_BANDS do
-    spectrum[band] = power(steady.spectrum[band] or 0, SPECTRUM_GAINS[band])
+    spectrum[band] = power(steady.spectrum[band], SPECTRUM_GAINS[band])
+    stereo[band] = spectrum[band] * balance(steady.leftSpectrum[band], steady.rightSpectrum[band])
   end
   return {
     bass = power(steady.bassPower, 4),
     mid = power(steady.midPower, 4),
     treble = power(steady.treblePower, 4),
     spectrum = spectrum,
+    stereo = stereo,
   }
 end
 
--- Fixed full-scale calibration preserves silence and absolute strength; no per-frame peak normalization is used.
+-- Fixed calibration and a smooth shoulder preserve loud differences without making quiet input full scale.
 power = function(value: number, gain: number): number
-  if value ~= value or math.abs(value) == math.huge or value <= 0 then
+  local level = math.sqrt(validPower(value)) * gain
+  return level / (1 + level)
+end
+
+validPower = function(value: number): number
+  return if value == value and value > 0 and value < math.huge then value else 0
+end
+
+balance = function(left: number, right: number): number
+  local l, r = validPower(left), validPower(right)
+  local largest = math.max(l, r)
+  if largest < 1e-12 then
     return 0
   end
-  return math.clamp(math.sqrt(value) * gain, 0, 1)
+  -- Scale first so even an unusually large finite sample cannot overflow the sum.
+  l, r = l / largest, r / largest
+  return (r - l) / (r + l)
+end
+
+bandDetail = function(steady: analysis.Steady, band: model.Band): (number, number)
+  local first = if band == 'bass' then 1 elseif band == 'mid' then 4 else 7
+  local last = if band == 'bass' then 3 elseif band == 'mid' then 6 else 8
+  local scale = 0
+  for index = first, last do
+    scale = math.max(
+      scale,
+      validPower(steady.leftSpectrum[index]),
+      validPower(steady.rightSpectrum[index]),
+      validPower(steady.spectrum[index])
+    )
+  end
+  if scale < 1e-12 then
+    return 0, 0.5
+  end
+  local left, right, total, moment = 0, 0, 0, 0
+  for index = first, last do
+    left += validPower(steady.leftSpectrum[index]) / scale
+    right += validPower(steady.rightSpectrum[index]) / scale
+    local value = validPower(steady.spectrum[index]) / scale
+    total += value
+    moment += value * (index - first) / (last - first)
+  end
+  return balance(left, right), if total > 0 then moment / total else 0.5
 end
 
 mixed = function(a: model.Features, b: model.Features, amount: number): model.Features
   local spectrum = table.create(model.SPECTRUM_BANDS, 0)
+  local stereo = table.create(model.SPECTRUM_BANDS, 0)
   local from, to = a.spectrum, b.spectrum
   for band = 1, model.SPECTRUM_BANDS do
     local start = if from then from[band] else 0
     local finish = if to then to[band] else 0
     spectrum[band] = start + (finish - start) * amount
+    local sideFrom, sideTo = a.stereo, b.stereo
+    local left = if sideFrom then sideFrom[band] else 0
+    local right = if sideTo then sideTo[band] else 0
+    stereo[band] = left + (right - left) * amount
   end
   return {
     bass = a.bass + (b.bass - a.bass) * amount,
     mid = a.mid + (b.mid - a.mid) * amount,
     treble = a.treble + (b.treble - a.treble) * amount,
     spectrum = spectrum,
+    stereo = stereo,
   }
 end
 

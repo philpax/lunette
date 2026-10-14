@@ -44,6 +44,8 @@ export type Hop = {
   read flux: number,
   read onset: number,
   read spectrum: { read [number]: number },
+  read leftSpectrum: { read [number]: number },
+  read rightSpectrum: { read [number]: number },
   read bassOnset: number,
   read midOnset: number,
   read trebleOnset: number,
@@ -93,6 +95,8 @@ function features.new(config: Config?): Analyzer
   local bands: { number } = table.create(size / 2 + 1, 0)
   local spectrumBands: { number } = table.create(size / 2 + 1, 0)
   local spectrum: { number } = table.create(features.SPECTRUM_BANDS, 0)
+  local leftSpectrum: { number } = table.create(features.SPECTRUM_BANDS, 0)
+  local rightSpectrum: { number } = table.create(features.SPECTRUM_BANDS, 0)
   local increases: { number } = table.create(3, 0)
   local previousSums: { number } = table.create(3, 0)
   local bandFlux: { number } = table.create(3, 0)
@@ -164,6 +168,10 @@ function features.new(config: Config?): Analyzer
     local rms = math.sqrt(squares / (size * 2))
     for channel = 1, 2 do
       local carry = if channel == 1 then left else right
+      local channelSpectrum = if channel == 1 then leftSpectrum else rightSpectrum
+      for band = 1, features.SPECTRUM_BANDS do
+        channelSpectrum[band] = 0
+      end
       for index = 1, size do
         local source = (writeIndex + index - 2) % size + 1
         real[index] = carry[source] * window[index]
@@ -175,6 +183,10 @@ function features.new(config: Config?): Analyzer
         local power = (real[index] * real[index] + imag[index] * imag[index]) * normalisation
         if bin ~= 0 and bin ~= size / 2 then
           power *= 2
+        end
+        local spectrumBand = spectrumBands[index]
+        if spectrumBand ~= 0 then
+          channelSpectrum[spectrumBand] += power
         end
         if channel == 1 then
           powers[index] = power / 2
@@ -239,6 +251,8 @@ function features.new(config: Config?): Analyzer
       flux = flux,
       onset = math.clamp((flux - 0.08) / 0.24, 0, 1),
       spectrum = table.freeze(table.clone(spectrum)),
+      leftSpectrum = table.freeze(table.clone(leftSpectrum)),
+      rightSpectrum = table.freeze(table.clone(rightSpectrum)),
       bassOnset = features.bandOnset(bandFlux[1]),
       midOnset = features.bandOnset(bandFlux[2]),
       trebleOnset = features.bandOnset(bandFlux[3]),

@@ -9,7 +9,7 @@ local selection = require './selection'
 local shader = require './shader'
 
 local draw = {}
-export type Renderer = { read render: (Pass, model.Frame, vector) -> () }
+export type Renderer = { read render: (Pass, model.Frame, vector, number?) -> () }
 type Resources = {
   sky: Mesh,
   curtain: Mesh,
@@ -40,7 +40,7 @@ local LAYER_FOCUS = table.freeze {
 function draw.new(context: plugin.Context, settings: config.Settings, diagnostic: () -> selection.Diagnostic): Renderer
   local resources: Resources? = nil
   return table.freeze {
-    render = function(pass: Pass, frame: model.Frame, headPosition: vector): ()
+    render = function(pass: Pass, frame: model.Frame, headPosition: vector, facing: number?): ()
       if frame.visibility <= 0 or not context:active() then
         return
       end
@@ -58,6 +58,7 @@ function draw.new(context: plugin.Context, settings: config.Settings, diagnostic
         pass:setShader(held.skyShader)
         local response = { frame.bass, frame.mid, frame.treble, frame.brightness }
         local waves: { { number } } = {}
+        local details: { { number } } = {}
         for index = 1, model.MAX_WAVES do
           local wave = frame.waves[index]
           waves[index] = if wave
@@ -68,8 +69,10 @@ function draw.new(context: plugin.Context, settings: config.Settings, diagnostic
               BAND_INDEX[wave.band],
             }
             else { 0, 0, 0, 0 }
+          details[index] = { if wave then wave.frequency else 0, 0, 0, 0 }
         end
         local spectrum = frame.spectrum
+        local stereo = frame.stereo
         local view = DIAGNOSTIC[diagnostic()]
         pass:send('backdropSky', { frame.visibility, frame.time, frame.brightness, view })
         pass:send('backdropResponse', response)
@@ -79,6 +82,7 @@ function draw.new(context: plugin.Context, settings: config.Settings, diagnostic
         pass:send('backdropTreble', settings.palette.treble)
         pass:send('backdropMid', settings.palette.mid)
         pass:send('backdropWaves', waves)
+        pass:send('backdropWaveDetail', details)
         pass:draw(held.sky)
         if view ~= 0 then
           return
@@ -89,12 +93,18 @@ function draw.new(context: plugin.Context, settings: config.Settings, diagnostic
           { spectrum[1], spectrum[2], spectrum[3], spectrum[4] },
           { spectrum[5], spectrum[6], spectrum[7], spectrum[8] },
         })
+        pass:send('backdropStereo', {
+          { stereo[1], stereo[2], stereo[3], stereo[4] },
+          { stereo[5], stereo[6], stereo[7], stereo[8] },
+        })
+        pass:send('backdropFacing', { facing or 0.5, 0, 0, 0 })
         pass:send('backdropLow', settings.palette.low)
         pass:send('backdropHigh', settings.palette.high)
         pass:send('backdropBass', settings.palette.bass)
         pass:send('backdropMid', settings.palette.mid)
         pass:send('backdropTreble', settings.palette.treble)
         pass:send('backdropWaves', waves)
+        pass:send('backdropWaveDetail', details)
         for layer = 0, 2 do
           pass:send('backdropScene', { frame.visibility, frame.time, layer, settings.distance })
           pass:send('backdropFocus', LAYER_FOCUS[layer + 1])

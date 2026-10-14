@@ -75,6 +75,61 @@ test('analysis_publications_are_immutable_retained_and_visible_before_scene_upda
   expect.equal(reader:snapshot().endFrame, 1105, 'terminal readers retain the final PCM position')
 end)
 
+test('channel spectra publish on hops and steady values without extra transforms or mutable retained arrays', function()
+  local current = fixture.new()
+  local reader = fixture.open(current.observed, SYSTEM, { size = 512 })
+  expect.equal(
+    require('../').definition.provides[1].contract,
+    'lunette/audio-analysis@2',
+    'the required channel fields use capability version 2'
+  )
+  active(current)
+  local samples = fixture.signal(1024)
+  for frame = 0, 1023 do
+    buffer.writef32(samples, frame * 8 + 4, 0)
+  end
+  current.session.native.pushAudio(SYSTEM, samples, { generation = 1, sequence = 0, startFrame = 0 })
+  current.advance()
+  local retained = reader:snapshot()
+  expect.equal(current.counts.transforms, #retained.hops * 2, 'each hop still transforms only its two channels')
+  local copies = {}
+  for index, record in retained.hops do
+    copies[index] = {}
+    for _, field in { 'spectrum', 'leftSpectrum', 'rightSpectrum' } do
+      expect.equal(#record[field], 8, 'the provider publishes eight bands')
+      expect.truthy(table.isfrozen(record[field]), 'the provider publishes frozen spectra')
+      copies[index][field] = table.clone(record[field])
+      expect.raises(function()
+        record[field][6] = 1
+      end, nil, 'published spectrum elements reject mutation')
+    end
+    for band = 1, 8 do
+      expect.equal(record.rightSpectrum[band], 0, 'the silent right channel remains silent')
+      expect.near(record.spectrum[band], record.leftSpectrum[band] / 2, 1e-12, 'published combined power is averaged')
+    end
+    expect.near(record.leftSpectrum[6], 0.125, 1e-8, 'published left power is not a half contribution')
+  end
+  local latestHop = retained.hops[#retained.hops]
+  for _, field in { 'spectrum', 'leftSpectrum', 'rightSpectrum' } do
+    expect.equal(retained.latest[field], latestHop[field], 'steady values retain the last immutable channel arrays')
+  end
+  expect.equal(retained.latest.onset, nil, 'steady publication still contains no impulse')
+  push(current, 1, 1024, { generation = 1, sequence = 1, startFrame = 1024 })
+  current.advance()
+  expect.equal(reader:snapshot().latest, retained.latest, 'a zero-hop publication retains all steady fields')
+  push(current, 512, 1025, { generation = 1, sequence = 2, startFrame = 1025 })
+  current.advance()
+  expect.truthy(reader:snapshot().latest.rightSpectrum[6] > 0, 'later analysis uses different right-channel power')
+  for index, record in retained.hops do
+    for _, field in { 'spectrum', 'leftSpectrum', 'rightSpectrum' } do
+      for band = 1, 8 do
+        expect.equal(record[field][band], copies[index][field][band], 'retained spectra survive publication reuse')
+      end
+    end
+  end
+  current.session:close()
+end)
+
 test('multiple_hops_and_onsets_use_cumulative_PCM_delivery_time_including_the_partial_tail', function()
   local current = fixture.new()
   local reader = fixture.open(current.observed, SYSTEM, { size = 512 })

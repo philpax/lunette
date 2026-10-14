@@ -391,6 +391,8 @@ steady = function(record: features.Hop): contract.Steady
     midPower = record.midPower,
     treblePower = record.treblePower,
     spectrum = record.spectrum,
+    leftSpectrum = record.leftSpectrum,
+    rightSpectrum = record.rightSpectrum,
   }
 end
 

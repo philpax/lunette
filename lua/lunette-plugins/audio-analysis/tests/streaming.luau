@@ -74,8 +74,15 @@ test('analysis_is_packetization_invariant', function()
           onsets += 1
         end
         for _, actual in { fragmented[index], rendered[index] } do
-          for _, key in { 'generation', 'endFrame', 'bass', 'mid', 'treble', 'rms', 'peak', 'flux', 'onset' } do
+          for _, key in
+            { 'generation', 'endFrame', 'bassPower', 'midPower', 'treblePower', 'rms', 'peak', 'flux', 'onset' }
+          do
             expect.equal(actual[key], wanted[key], 'packetization-invariant ' .. key)
+          end
+          for _, key in { 'spectrum', 'leftSpectrum', 'rightSpectrum' } do
+            for band = 1, 8 do
+              expect.equal(actual[key][band], wanted[key][band], 'packetization-invariant ' .. key .. ' band ' .. band)
+            end
           end
         end
       end

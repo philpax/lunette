@@ -1,7 +1,4 @@
--- Analytic, texture-free sky and three emissive curtains, with premultiplied output.
--- Every curtain carries the spectrum by altitude: bass lights its lower hem, mid its body, and treble its ray
--- tops. Each band also has its own onset action: bass heaves the curtains and flashes the hem, mid sends a
--- whitened flare along the body, and treble shoots and flickers the rays and lights nearby stars.
+-- Analytic, texture-free sky and emissive curtains, with head-relative spectrum light and fixed onset positions.
 local model = require './model'
 
 local shader = {}
@@ -10,17 +7,22 @@ local shader = {}
 local WAVES = [[
   const int WAVES = WAVE_COUNT;
   uniform vec4 backdropWaves[WAVES];
+  uniform vec4 backdropWaveDetail[WAVES];
 
   float ringDistance(float u, float position) {
     return abs(fract(u - position + .5) - .5);
   }
 
-  // A layer's extent around the ring. Quiet, it breaks into separate drifting arcs; as its band grows louder
-  // the gaps close until the curtain encircles the sky.
+  // Loudness widens the drifting arcs but leaves their darkest gaps open even at full energy.
   float ribbon(float phase, float layer, float time, float level) {
     float wander = sin(phase * 2. + layer * 2.1 + time * 52.) * .6 + sin(phase * 3. - layer * 1.3 - time * 38.) * .4;
     float open = clamp(level, 0., 1.);
-    return smoothstep(-.6 - open * .8, .3 - open * .6, wander);
+    return smoothstep(-.48 - open * .08, .32 - open * .1, wander);
+  }
+
+  float onsetFocus(float band, vec3 focus) {
+    float own = band < 1.5 ? focus.x : band < 2.5 ? focus.y : focus.z;
+    return pow(clamp(own / 1.6, 0., 1.), 2.);
   }
 ]]
 
@@ -45,6 +47,22 @@ local function withWaves(source: string): string
     end)
   )
 end
+
+local SPECTRUM = [[
+  uniform vec4 backdropSpectrum[2];
+  uniform vec4 backdropStereo[2];
+  uniform vec4 backdropFacing;
+
+  float spectrum(int index, float u) {
+    int group = index / 4;
+    int lane = index - group * 4;
+    float combined = backdropSpectrum[group][lane];
+    float stereo = backdropStereo[group][lane];
+    // Increasing longitude from forward goes left; a positive channel difference goes right.
+    float side = -sin(TAU * (u - backdropFacing.x));
+    return max(0., combined + stereo * side);
+  }
+]]
 
 shader.skyVertex = [[
   out vec3 skyDirection;
@@ -191,7 +209,7 @@ shader.skyFragment = withWaves [[
     return vec4((clamp(sky * backdropSky.z, 0., .12) + min(field, vec3(.35))) * alpha, alpha);
   }
 ]]
-shader.curtainVertex = withWaves [[
+shader.curtainVertex = withWaves(SPECTRUM .. [[
   uniform vec4 backdropScene;
   uniform vec4 backdropResponse;
   uniform vec4 backdropFocus;
@@ -203,8 +221,14 @@ shader.curtainVertex = withWaves [[
     float time = backdropScene.y * (TAU / 4096.);
     float angle = TAU * u;
     float phase = angle + layer * 1.8;
-    vec3 band = backdropResponse.xyz * backdropFocus.xyz;
-    float energy = dot(backdropResponse.xyz, vec3(1. / 3.));
+    float levels[8];
+    float energy = 0.;
+    for (int i = 0; i < 8; i++) {
+      levels[i] = spectrum(i, u);
+      energy += levels[i] / 8.;
+    }
+    float own = layer < .5 ? max(max(levels[0], levels[1]), levels[2])
+      : layer < 1.5 ? max(max(levels[3], levels[4]), levels[5]) : max(levels[6], levels[7]);
     float fold = sin(phase * 5. + time * 140.) + .45 * sin(phase * 11. - time * 98.);
     float heave = 0.;
     float ripple = 0.;
@@ -213,58 +237,64 @@ shader.curtainVertex = withWaves [[
     for (int i = 0; i < WAVES; i++) {
       vec4 wave = backdropWaves[i];
       float distance = ringDistance(u, wave.z);
+      float detail = clamp(backdropWaveDetail[i].x, 0., 1.);
+      float strength = wave.y * onsetFocus(wave.w, backdropFocus.xyz);
+      float width = mix(.85, 1.25, detail);
       if (wave.w < 1.5) {
-        float front = distance - wave.x * BASS_SPEED;
-        heave += wave.y * exp(-front * front * 120.);
+        float front = distance - wave.x * BASS_SPEED * mix(.9, 1.1, detail);
+        heave += strength * exp(-front * front * 220. * width) * exp(-wave.x * 1.2);
       } else if (wave.w < 2.5) {
-        float front = distance - wave.x * MID_SPEED;
-        ripple += wave.y * exp(-front * front * 900.) * sin(front * 80.);
-        lift += wave.y * exp(-front * front * 250.);
+        float front = distance - wave.x * MID_SPEED * mix(.9, 1.1, detail);
+        ripple += strength * exp(-front * front * 1100. * width) * sin(front * 100.);
+        lift += strength * exp(-front * front * 650. * width) * exp(-wave.x * 1.5);
       } else {
-        surge += wave.y * exp(-distance * distance * 160.);
+        surge += strength * exp(-distance * distance * 420. * width) * exp(-wave.x * 3.) * smoothstep(0., .08, wave.x);
       }
     }
     heave = min(heave, 1.5);
-    float own = layer < .5 ? backdropResponse.x : layer < 1.5 ? backdropResponse.y : backdropResponse.z;
-    // A passing onset restores full height, so an onset in a gap raises a curtain rather than a thread.
-    float reach = max(ribbon(phase, layer, time, own), min(heave + lift + surge, 1.));
-    float fine = band.z * sin(phase * 29. + time * 315.) * pow(1. - v, 3.) * .012;
-    // Each curtain tilts on its own slow cycle, so the curtains cross and weave instead of stacking in parallel.
+    // Onsets can briefly raise an arc in a gap without making sustained energy fill the ring.
+    float reach = max(ribbon(phase, layer, time, own), min(heave + lift + surge, .8));
+    float swell = levels[0] * sin(phase * 2. + time * 42.) * .04;
+    swell += levels[1] * sin(phase * 4. - time * 70.) * .027;
+    float rolls = levels[2] * sin(phase * 7. + time * 98.) * exp(-v * 5.) * .025;
+    float folds = levels[3] * sin(phase * 9. + time * 140.) * .025;
+    folds += levels[4] * sin(phase * 13. - time * 175. + v * 5.) * .022;
+    folds += levels[5] * sin(phase * 19. + time * 210.) * .016;
+    // Fine treble texture stays in the fragment shader so low-quality meshes do not alias its rays.
+    float tips = v * v * (levels[6] * sin(phase * 23. + time * 245.) * .012
+      + levels[7] * sin(phase * 29. - time * 315.) * .008);
     float tilt = sin(angle + layer * 2.4 + time * 32.) * .06;
-    float elevation = .15 + layer * .07 + tilt + sin(phase * 2. + time * 70.) * (.035 + band.x * .03);
-    // Rays rise further as the music grows, toward the zenith at full energy, and a treble onset shoots them up.
-    float height = (.38 + .32 * energy + band.z * .1 + heave * .06 + min(surge, 1.) * .08) * (.5 + .5 * reach);
-    elevation += v * height + fold * (.025 + band.y * .04);
-    elevation += ripple * .022 + fine + v * min(lift, 1.) * .06;
+    float elevation = .15 + layer * .07 + tilt + sin(phase * 2. + time * 70.) * .035 + swell;
+    float height = (.38 + .16 * energy + max(levels[6], levels[7]) * .02
+      + heave * .06 + min(surge, 1.) * .035) * (.5 + .5 * reach);
+    elevation += v * height + fold * .025 + rolls + folds + tips;
+    elevation += ripple * .022 + v * min(lift, 1.) * .06;
     // In plan view each curtain meanders toward and away from the viewer in broad folds, so the curtains overlap
     // in depth and perspective makes the nearer stretches tower over the farther ones.
     float meander = sin(angle * 2. + layer * 2.1 + time * 42.) * .2 + sin(angle * 5. - layer * 1.4 + time * 91.) * .07;
     float radius = backdropScene.w * (1. + meander - layer * .05);
     // Folds swing the curtain several metres toward and away from the viewer as they travel along it.
-    radius += fold * (1.8 + band.y * 1.5) + heave * 1.1;
+    radius += fold * 1.8 + folds * 32. + heave * 1.1;
     vec3 position = vec3(sin(angle) * cos(elevation), sin(elevation), cos(angle) * cos(elevation)) * radius;
     return ClipFromLocal * vec4(position, 1.);
   }
-]]
-shader.curtainFragment = withWaves [[
+]])
+shader.curtainFragment = withWaves(SPECTRUM .. [[
   uniform vec4 backdropScene;
   uniform vec4 backdropResponse;
   uniform vec4 backdropFocus;
-  uniform vec4 backdropSpectrum[2];
   uniform vec3 backdropLow;
   uniform vec3 backdropHigh;
   uniform vec3 backdropBass;
   uniform vec3 backdropMid;
   uniform vec3 backdropTreble;
 
-  // A travelling wavefront as a few concentric ripples under one envelope, centred on the leading ring.
-  float ripple(float front) {
-    return exp(-front * front * 180.) * (.55 + .45 * cos(front * 110.));
+  float zone(float v, float centre, float width) {
+    float distance = (v - centre) / width;
+    return exp(-distance * distance * 2.);
   }
-  float spectrum(int index) {
-    vec4 group = backdropSpectrum[index / 4];
-    int lane = index - (index / 4) * 4;
-    return lane == 0 ? group.x : lane == 1 ? group.y : lane == 2 ? group.z : group.w;
+  float ripple(float front, float width, float frequency) {
+    return exp(-front * front * width) * (.55 + .45 * cos(front * frequency));
   }
   vec4 lovrmain() {
     float u = UV.x;
@@ -273,18 +303,15 @@ shader.curtainFragment = withWaves [[
     float time = backdropScene.y * (6.28318530718 / 4096.);
     float layer = backdropScene.z;
     float phase = u * 6.28318530718 + layer * 1.8;
-    vec3 band = backdropResponse.xyz * backdropFocus.xyz;
-    float own = layer < .5 ? backdropResponse.x : layer < 1.5 ? backdropResponse.y : backdropResponse.z;
-
-    // Every curtain carries the whole spectrum by altitude, as a real one does: bass lights the lower hem, mid
-    // the body, and treble the ray tops. Each coarse band averages its own sub-bands, and the level is squared
-    // so a quiet band leaves its zone near rest and a loud one takes it over.
-    float bass = (spectrum(0) + spectrum(1) + spectrum(2)) / 3.;
-    float mid = (spectrum(3) + spectrum(4) + spectrum(5)) / 3.;
-    float treble = (spectrum(6) + spectrum(7)) / 2.;
-    bass *= bass;
-    mid *= mid;
-    treble *= treble;
+    float levels[8];
+    float drive[8];
+    for (int i = 0; i < 8; i++) {
+      levels[i] = spectrum(i, u);
+      // Retain quiet detail at the mapped half-scale without raising the full-scale lighting budget.
+      drive[i] = levels[i] * (.5 + .5 * levels[i]);
+    }
+    float own = layer < .5 ? max(max(levels[0], levels[1]), levels[2])
+      : layer < 1.5 ? max(max(levels[3], levels[4]), levels[5]) : max(levels[6], levels[7]);
 
     // Rays lean and wander as they rise, so they read as light streaming along field lines rather than as
     // straight bars.
@@ -294,7 +321,7 @@ shader.curtainFragment = withWaves [[
     float r2 = .5 + .5 * sin(q * 89. + time * 175.);
     float r3 = .5 + .5 * sin(q * 157. - time * 245.);
     // Soft, uneven rays. Squares sharpen the sines a little without cutting dark gaps between them.
-    float rays = r1 * r1 * .5 + r2 * r2 * .3 + (.1 + band.z * .25) * r3 * r3;
+    float rays = r1 * r1 * .5 + r2 * r2 * .3 + .1 * r3 * r3;
     // Brightness streams up each ray, so no ray is a uniform pillar and the curtain seems to flow upward.
     float streak = .75 + .25 * sin(v * 7. + r1 * 3. - time * 525.);
     float folds = .6 + .4 * sin(phase * 5. + time * 140.);
@@ -304,21 +331,31 @@ shader.curtainFragment = withWaves [[
     float flash = 0.;
     float crest = 0.;
     float surge = 0.;
+    float flashZone = 0.;
+    float crestZone = 0.;
+    float surgeZone = 0.;
     for (int i = 0; i < WAVES; i++) {
       vec4 wave = backdropWaves[i];
       float distance = ringDistance(u, wave.z);
+      float detail = clamp(backdropWaveDetail[i].x, 0., 1.);
+      float strength = wave.y * onsetFocus(wave.w, backdropFocus.xyz);
+      float width = mix(.85, 1.25, detail);
       if (wave.w < 1.5) {
-        float front = distance - wave.x * BASS_SPEED;
-        // A kick punches at its origin, then ripples outward both ways as narrow rings that fade over the
-        // wave's life. The rings are narrow, so steady kicks never hold the whole curtain in the bass colour.
-        flash += wave.y * exp(-distance * distance * 300.) * exp(-wave.x * 8.);
-        flash += wave.y * ripple(front) * exp(-wave.x * 1.2);
+        float front = distance - wave.x * BASS_SPEED * mix(.9, 1.1, detail);
+        float pulse = strength * exp(-distance * distance * 650. * width) * exp(-wave.x * 8.);
+        pulse += strength * ripple(front, 380. * width, mix(75., 100., detail)) * exp(-wave.x * 1.2);
+        flash += pulse;
+        flashZone += pulse * zone(v, mix(.035, .14, detail) + min(wave.x, .4) * .08, .13);
       } else if (wave.w < 2.5) {
-        float front = distance - wave.x * MID_SPEED;
-        crest += wave.y * ripple(front) * exp(-wave.x * 1.5);
+        float front = distance - wave.x * MID_SPEED * mix(.9, 1.1, detail);
+        float pulse = strength * ripple(front, 950. * width, mix(120., 150., detail)) * exp(-wave.x * 1.5);
+        crest += pulse;
+        crestZone += pulse * zone(v, mix(.26, .48, detail), mix(.16, .11, detail));
       } else {
-        // A treble burst swells in over a few frames rather than popping, which would strobe.
-        surge += wave.y * exp(-distance * distance * 160.) * exp(-wave.x * 3.) * smoothstep(0., .08, wave.x);
+        // The envelope rises smoothly; fine rays shimmer spatially instead of flashing the whole curtain.
+        float pulse = strength * exp(-distance * distance * 420. * width) * exp(-wave.x * 3.) * smoothstep(0., .08, wave.x);
+        surge += pulse;
+        surgeZone += pulse * zone(v, mix(.58, .72, detail), .16);
       }
     }
     flash = min(flash, 1.5);
@@ -326,21 +363,35 @@ shader.curtainFragment = withWaves [[
     surge = min(surge, 1.5);
 
     float hem = smoothstep(0., .03, v);
-    float reachTop = tops + surge * .3;
-    float fade = 1. - smoothstep(reachTop * .25, reachTop, v);
-    // A kick's flash climbs from the hem into the body before it decays.
-    float low = exp(-v * 14. / (1. + flash * 2.5));
+    float reachTop = min(tops + .12 + surge * .18, 1.);
+    float fade = 1. - smoothstep(reachTop * .55, reachTop, v);
     float body = smoothstep(0., .06, v) * exp(-v * 2.2);
     float high = smoothstep(.25, .6, v) * (1. - smoothstep(.7, 1., v));
-    vec3 light = backdropBass * low * (.35 + 2.4 * bass + 3. * flash);
-    vec3 flare = mix(backdropMid, vec3(1.), .25);
-    // At rest the body and tops keep the natural aurora's low and high colours; each band's own colour takes over
-    // its zone as the band grows loud.
-    light += (backdropLow * .75 + backdropMid * 1.8 * mid) * body + flare * body * crest * 2.2;
-    // A treble onset flickers individual rays up the curtain rather than lighting it evenly.
-    light += (backdropHigh * .4 + backdropTreble * (1.6 * treble + surge * 2. * (.4 + r3 * r3))) * high;
-    float extent = max(ribbon(phase, layer, time, own), clamp(flash + crest + surge, 0., 1.));
-    light *= hem * fade * (.4 + .6 * rays) * streak * folds * extent * visibility * backdropResponse.w * .7;
+    vec3 light = backdropBass * exp(-v * 14.) * .35 + backdropLow * .75 * body + backdropHigh * .4 * high;
+    light *= 1. - smoothstep(tops * .25, tops, v);
+    vec3 responseLight = vec3(0.);
+
+    // Separate altitude windows and spatial scales preserve all eight inputs, including adjacent sub-bands.
+    float swell = .72 + .28 * sin(phase * 2. + time * 42.);
+    float roll = .65 + .35 * sin(phase * 4. - time * 70. + v * 8.);
+    float lowFold = .55 + .45 * sin(q * 7. + time * 98. + v * 12.);
+    float ribbons = .5 + .5 * sin(q * 11. - time * 140. + v * 18.);
+    float weave = .45 + .55 * pow(.5 + .5 * sin(q * 17. + time * 175. - v * 13.), 2.);
+    float flare = .25 + .75 * pow(.5 + .5 * sin(q * 29. - time * 210. + v * 6.), 4.);
+    float fine = .35 + .65 * r2 * r2;
+    float glint = .15 + .85 * pow(r3, 4.);
+    responseLight += backdropBass * (drive[0] * zone(v, .015, .07) * swell * 1.6
+      + drive[1] * zone(v, .085, .08) * roll * 1.3 + drive[2] * zone(v, .17, .10) * lowFold * 1.1);
+    responseLight += backdropMid * (drive[3] * zone(v, .27, .13) * ribbons * 1.25
+      + drive[4] * zone(v, .39, .13) * weave * 1.3 + drive[5] * zone(v, .51, .12) * flare * 1.6);
+    responseLight += backdropTreble * (drive[6] * zone(v, .61, .15) * fine * 1.6
+      + drive[7] * zone(v, .72, .16) * glint * 2.);
+    responseLight += backdropBass * min(flashZone, 1.5) * 3.;
+    responseLight += mix(backdropMid, vec3(1.), .2) * min(crestZone, 1.5) * 2.2;
+    responseLight += backdropTreble * min(surgeZone, 1.5) * 2. * (.4 + r3 * r3);
+    light += responseLight * fade;
+    float extent = max(ribbon(phase, layer, time, own), min(flash + crest + surge, .8));
+    light *= hem * (.4 + .6 * rays) * streak * folds * extent * backdropResponse.w * .7;
 
     // The light is emitted rather than painted: alpha stays below the colour so overlapping curtains add up and
     // glow, while still dimming the stars behind them a little.
@@ -349,11 +400,11 @@ shader.curtainFragment = withWaves [[
     // little toward white, so the hottest cores glow instead of clipping into flat colour.
     float over = max(peak - .9, 0.);
     light *= min(1., .9 / max(peak, .0001));
-    light += vec3(min(over, 1.) * .18);
+    light += vec3(min(over, 1.) * .1);
     float alpha = clamp(peak * .2, 0., .2);
-    return vec4(light, alpha);
+    return vec4(light, alpha) * clamp(visibility, 0., 1.);
   }
-]]
+]])
 
 shader.wispVertex = withWaves [[
   uniform vec4 backdropScene;

@@ -18,6 +18,8 @@ type Environment = typeof(fixture.boot(backdrop.create())) & {
     { number }?,
     analysis.State?,
     boolean?,
+    { number }?,
+    { number }?,
     { number }?
   ) -> (),
   update: (number, boolean?) -> (),
@@ -103,9 +105,17 @@ function response.boot(): Environment
     powers: { number }?,
     audioState: analysis.State?,
     gap: boolean?,
-    spectrum: { number }?
+    spectrum: { number }?,
+    leftSpectrum: { number }?,
+    rightSpectrum: { number }?
   ): ()
     local old = snapshots[key(source)]
+    local combined = spectrum or { 0.002, 0.003, 0.005, 0.006, 0.007, 0.007, 0.02, 0.01 }
+    if not spectrum and leftSpectrum and rightSpectrum then
+      for index = 1, 8 do
+        combined[index] = leftSpectrum[index] / 2 + rightSpectrum[index] / 2
+      end
+    end
     local steady: analysis.Steady = {
       generation = generation,
       endFrame = if hops and #hops > 0 then hops[#hops].endFrame else endFrame,
@@ -114,7 +124,9 @@ function response.boot(): Environment
       bassPower = powers and powers[1] or 0.01,
       midPower = powers and powers[2] or 0.02,
       treblePower = powers and powers[3] or 0.03,
-      spectrum = spectrum or { 0.002, 0.003, 0.005, 0.006, 0.007, 0.007, 0.02, 0.01 },
+      spectrum = combined,
+      leftSpectrum = leftSpectrum or table.clone(combined),
+      rightSpectrum = rightSpectrum or table.clone(combined),
     }
     snapshots[key(source)] = {
       source = source,
@@ -154,6 +166,8 @@ function response.hop(
     midPower = 0.02,
     treblePower = 0.03,
     spectrum = { 0.002, 0.003, 0.005, 0.006, 0.007, 0.007, 0.02, 0.01 },
+    leftSpectrum = { 0.002, 0.003, 0.005, 0.006, 0.007, 0.007, 0.02, 0.01 },
+    rightSpectrum = { 0.002, 0.003, 0.005, 0.006, 0.007, 0.007, 0.02, 0.01 },
     flux = 0.2,
     onset = onset,
     bassOnset = if chosen == 'bass' then onset else 0,

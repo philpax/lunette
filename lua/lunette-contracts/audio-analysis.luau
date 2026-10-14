@@ -15,9 +15,11 @@ export type Profile = { read size: number, read hop: number }
 -- bass [30, 250), mid [250, 2000), and treble [2000, 10000) Hz. Sample rate is 48000 Hz.
 -- The periodic Hann spectrum uses abs(FFT)^2/(N*sum(window^2)), doubled except at DC and Nyquist.
 -- RMS and peak use the complete unweighted stereo window. endFrame is exclusive sample time within generation.
--- Spectrum holds eight band powers with upper edges 60, 120, 250, 500, 1000, 2000, 4000, and 10000 Hz above
--- a 30 Hz floor. Bands 1-3 sum to bassPower, 4-6 to midPower, and 7-8 to treblePower. A band that contains
--- no bin centre at the profile's size has zero power.
+-- All spectra hold eight band powers with upper edges 60, 120, 250, 500, 1000, 2000, 4000, and 10000 Hz above
+-- a 30 Hz floor. leftSpectrum and rightSpectrum retain full channel powers; spectrum averages them per band,
+-- so opposite channel phases cannot cancel power. Spectrum bands 1-3 sum to bassPower, 4-6 to midPower, and
+-- 7-8 to treblePower. A band that contains no bin centre at the profile's size has zero power.
+-- Spectrum arrays and their enclosing records are immutable and can be retained across publications.
 export type Steady = {
   read generation: number,
   read endFrame: number,
@@ -27,6 +29,8 @@ export type Steady = {
   read midPower: number,
   read treblePower: number,
   read spectrum: { read [number]: number },
+  read leftSpectrum: { read [number]: number },
+  read rightSpectrum: { read [number]: number },
 }
 
 -- Flux sums positive sqrt-bin-power deltas across the bands and divides by the previous magnitude sum,
@@ -82,6 +86,6 @@ export type Service = {
 }
 
 export type Capability = plugin.Capability<Service>
-analysis.capability = plugin.capability<<Service>> { name = 'lunette/audio-analysis', version = 1 }
+analysis.capability = plugin.capability<<Service>> { name = 'lunette/audio-analysis', version = 2 }
 
 return analysis

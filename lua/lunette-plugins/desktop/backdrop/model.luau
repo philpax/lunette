@@ -12,12 +12,21 @@ export type Features = {
   read mid: number,
   read treble: number,
   read spectrum: { read [number]: number }?,
+  -- Signed per-band energy difference, positive right, bounded by the corresponding spectrum value.
+  read stereo: { read [number]: number }?,
 }
 -- An onset without a band is a mid flare.
-export type Onset = { read strength: number, read position: number?, read age: number?, read band: Band? }
+export type Onset = {
+  read strength: number,
+  read position: number?,
+  read age: number?,
+  read band: Band?,
+  -- Power-weighted position among this band's spectrum sub-bands, from its lowest to its highest.
+  read frequency: number?,
+}
 export type FeatureOptions = { read gap: ('publication' | 'capacity')?, read discardedHops: number? }
-export type Wave = { age: number, strength: number, position: number, band: Band, lifetime: number }
-type Response = { bass: number, mid: number, treble: number, spectrum: { number } }
+export type Wave = { age: number, strength: number, position: number, band: Band, lifetime: number, frequency: number }
+type Response = { bass: number, mid: number, treble: number, spectrum: { number }, stereo: { number } }
 export type Frame = {
   read visibility: number,
   read time: number,
@@ -26,6 +35,7 @@ export type Frame = {
   read treble: number,
   read brightness: number,
   read spectrum: { read [number]: number },
+  read stereo: { read [number]: number },
   read responseStrength: number,
   read onsetGap: ('publication' | 'capacity')?,
   read discardedHops: number,
@@ -68,6 +78,7 @@ local zero: () -> Response
 local normalized: (Features) -> Response
 local mix: (Response, Response, number) -> Response
 local envelope: (number, number, number, config.Settings) -> number
+local envelopeAmount: (number, number, number, config.Settings) -> number
 local countBand: ({ Wave }, Band) -> number
 local removeOldest: ({ Wave }, Band) -> ()
 
@@ -152,6 +163,7 @@ function State.setFeatures(self: State, features: Features, onsets: { Onset }?, 
         position = unit(onset.position or 0),
         band = band,
         lifetime = lifetime,
+        frequency = unit(onset.frequency or 0.5),
       })
     end
   end
@@ -187,14 +199,19 @@ function State.update(self: State, dt: number, mainSessionVisible: boolean): Fra
   elseif elapsed > 0 then
     local current, goal = self.response, self.target
     local spectrum = table.create(model.SPECTRUM_BANDS, 0)
+    local stereo = table.create(model.SPECTRUM_BANDS, 0)
     for band = 1, model.SPECTRUM_BANDS do
-      spectrum[band] = envelope(current.spectrum[band], goal.spectrum[band], elapsed, self.settings)
+      local amount = envelopeAmount(current.spectrum[band], goal.spectrum[band], elapsed, self.settings)
+      spectrum[band] = current.spectrum[band] + (goal.spectrum[band] - current.spectrum[band]) * amount
+      -- A shared interpolation preserves |stereo| <= spectrum, even across a channel reversal.
+      stereo[band] = current.stereo[band] + (goal.stereo[band] - current.stereo[band]) * amount
     end
     self.response = {
       bass = envelope(current.bass, goal.bass, elapsed, self.settings),
       mid = envelope(current.mid, goal.mid, elapsed, self.settings),
       treble = envelope(current.treble, goal.treble, elapsed, self.settings),
       spectrum = spectrum,
+      stereo = stereo,
     }
   end
   for index = #self.waves, 1, -1 do
@@ -206,8 +223,10 @@ function State.update(self: State, dt: number, mainSessionVisible: boolean): Fra
   end
   local response = self.responseStrength
   local spectrum = table.create(model.SPECTRUM_BANDS, 0)
+  local stereo = table.create(model.SPECTRUM_BANDS, 0)
   for band = 1, model.SPECTRUM_BANDS do
     spectrum[band] = self.response.spectrum[band] * response
+    stereo[band] = self.response.stereo[band] * response
   end
   return {
     visibility = self.visibility,
@@ -217,6 +236,7 @@ function State.update(self: State, dt: number, mainSessionVisible: boolean): Fra
     treble = self.response.treble * response,
     brightness = math.clamp(self.settings.brightness * (0.85 + 0.15 * self.response.bass * response), 0, 1),
     spectrum = spectrum,
+    stereo = stereo,
     responseStrength = response,
     onsetGap = self.onsetGap,
     discardedHops = self.discardedHops,
@@ -233,7 +253,13 @@ unit = function(value: number): number
 end
 
 zero = function(): Response
-  return { bass = 0, mid = 0, treble = 0, spectrum = table.create(model.SPECTRUM_BANDS, 0) }
+  return {
+    bass = 0,
+    mid = 0,
+    treble = 0,
+    spectrum = table.create(model.SPECTRUM_BANDS, 0),
+    stereo = table.create(model.SPECTRUM_BANDS, 0),
+  }
 end
 
 normalized = function(features: Features): Response
@@ -242,6 +268,7 @@ normalized = function(features: Features): Response
     mid = unit(features.mid),
     treble = unit(features.treble),
     spectrum = table.create(model.SPECTRUM_BANDS, 0),
+    stereo = table.create(model.SPECTRUM_BANDS, 0),
   }
   local given = features.spectrum
   for band = 1, model.SPECTRUM_BANDS do
@@ -249,27 +276,37 @@ normalized = function(features: Features): Response
     local coarse = COARSE[band]
     local fallback = if coarse == 'bass' then result.bass elseif coarse == 'mid' then result.mid else result.treble
     result.spectrum[band] = if value ~= nil then unit(value) else fallback
+    local sided = if features.stereo then features.stereo[band] else nil
+    result.stereo[band] = if sided ~= nil and finite(sided)
+      then math.clamp(sided, -result.spectrum[band], result.spectrum[band])
+      else 0
   end
   return result
 end
 
 mix = function(a: Response, b: Response, amount: number): Response
   local spectrum = table.create(model.SPECTRUM_BANDS, 0)
+  local stereo = table.create(model.SPECTRUM_BANDS, 0)
   for band = 1, model.SPECTRUM_BANDS do
     spectrum[band] = a.spectrum[band] + (b.spectrum[band] - a.spectrum[band]) * amount
+    stereo[band] = a.stereo[band] + (b.stereo[band] - a.stereo[band]) * amount
   end
   return {
     bass = a.bass + (b.bass - a.bass) * amount,
     mid = a.mid + (b.mid - a.mid) * amount,
     treble = a.treble + (b.treble - a.treble) * amount,
     spectrum = spectrum,
+    stereo = stereo,
   }
 end
 
 envelope = function(current: number, target: number, dt: number, settings: config.Settings): number
+  return current + (target - current) * envelopeAmount(current, target, dt, settings)
+end
+
+envelopeAmount = function(current: number, target: number, dt: number, settings: config.Settings): number
   local duration = if target > current then settings.attackDuration else settings.releaseDuration
-  local amount = if duration == 0 then 1 else 1 - math.exp(-math.min(dt, 60) / duration)
-  return current + (target - current) * amount
+  return if duration == 0 then 1 else 1 - math.exp(-math.min(dt, 60) / duration)
 end
 
 countBand = function(waves: { Wave }, band: Band): number

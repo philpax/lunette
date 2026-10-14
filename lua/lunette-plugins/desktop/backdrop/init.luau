@@ -106,7 +106,7 @@ create = function(given: Options, attach: Attach?): Factory
         phase = 'scene',
         order = -100,
         run = function(pass: Pass): ()
-          renderer.render(pass, current, headPosition)
+          renderer.render(pass, current, headPosition, facing)
         end,
       })
       context:child(responseChild.new(choice, state, settings, function(): boolean
