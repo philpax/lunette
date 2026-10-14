@@ -2,7 +2,7 @@
 
 local plugin = require '@lunette-plugin'
 local themes = require '@lunette-contracts/themes'
-local descriptors = require '@lunette-plugins/theme/descriptors'
+local descriptors = require '@lunette-contracts/schemas/theme'
 local standard = require '@lunette-plugins/theme/standard'
 
 -- A registered theme is complete, so Dusk starts from Dark rather than from the square base.

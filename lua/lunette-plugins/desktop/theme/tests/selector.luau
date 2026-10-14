@@ -6,9 +6,9 @@ local menuContract = require '@lunette-contracts/menu'
 local themeContract = require '@lunette-contracts/theme'
 local themesContract = require '@lunette-contracts/themes'
 local base = require '@lunette-plugins/theme/base'
-local descriptors = require '@lunette-plugins/theme/descriptors'
-local presets = require '@lunette-plugins/theme/standard/presets'
-local arcade = require '@lunette-plugins/theme/arcade/preset'
+local descriptors = require '@lunette-contracts/schemas/theme'
+local presets = require('@lunette-plugins/theme/standard').presets
+local arcade = require('@lunette-plugins/theme/arcade').preset
 
 type Config = typeof(require('@lunette-plugins/desktop/theme/config').schema.input {})
 type Environment = {

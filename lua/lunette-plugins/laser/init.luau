@@ -9,12 +9,12 @@ local input = require '@lunette-plugins/laser/input'
 local draw = require '@lunette-plugins/laser/draw'
 local aim = require '@lunette-plugins/laser/aim'
 local triggerLock = require '@lunette-plugins/laser/trigger-lock'
-local passState = require '@lunette-plugins/pass-state'
+local passState = require '@lunette-plugins/graphics/pass-state'
 local inspection = require '@lunette-contracts/inspection'
 local theme = require '@lunette-contracts/theme'
 local style = require '@lunette-plugins/laser/style'
 local dragIcon = require '@lunette-plugins/laser/drag-icon'
-local clientPixels = require '@lunette-plugins/client-pixels'
+local clientPixels = require '@lunette-plugins/graphics/client-pixels'
 
 export type Service = contracts.Service
 export type Owner = contracts.Owner

@@ -2,7 +2,7 @@
 local lunette = require '@lunette'
 local contracts = require '@lunette-contracts/interaction'
 local vocabulary = require '@lunette-contracts/vocabulary'
-local cleanup = require '@lunette-plugins/cleanup'
+local cleanup = require '@lunette-plugins/lifecycle/cleanup'
 
 local input = {}
 

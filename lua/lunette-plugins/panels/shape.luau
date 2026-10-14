@@ -3,7 +3,7 @@
 -- along the arc. A curve of zero or less is flat.
 
 local quad = require '@lunette-contracts/quad'
-local geometry = require '@lunette-plugins/theme/rounded-geometry'
+local geometry = require '@lunette-plugins/graphics/rounded-geometry'
 
 local shape = {}
 

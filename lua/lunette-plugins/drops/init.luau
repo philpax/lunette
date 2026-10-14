@@ -1,7 +1,7 @@
 -- Publishes owner-scoped notifications when a surface grab ends.
 local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/drops'
-local listeners = require '@lunette-plugins/listeners'
+local listeners = require '@lunette-plugins/registration/listeners'
 local inspection = require '@lunette-contracts/inspection'
 
 local function create(context: plugin.Context): contract.Service

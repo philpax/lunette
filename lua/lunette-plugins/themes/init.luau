@@ -3,9 +3,9 @@
 local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/themes'
 local inspection = require '@lunette-contracts/inspection'
-local descriptors = require '@lunette-plugins/theme/descriptors'
-local listeners = require '@lunette-plugins/listeners'
-local registry = require '@lunette-plugins/registry'
+local descriptors = require '@lunette-contracts/schemas/theme'
+local listeners = require '@lunette-plugins/registration/listeners'
+local registry = require '@lunette-plugins/registration/registry'
 
 type Raw = { [unknown]: unknown }
 

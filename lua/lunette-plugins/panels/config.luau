@@ -1,8 +1,9 @@
 local schema = require '@lunette-plugin/schema'
-local descriptors = require '@lunette-plugins/theme/descriptors'
+local descriptors = require '@lunette-contracts/schemas/theme'
+local configuration = require '@lunette-plugins/theme/configuration'
 
 local STYLE = schema.object {
-  font = schema.optional(descriptors.editableFont),
+  font = schema.optional(configuration.editableFont),
   windowRadius = schema.optional(schema.number { minimum = 0 }),
   monitorRadius = schema.optional(schema.number { minimum = 0 }),
   borderThickness = schema.optional(schema.number()),

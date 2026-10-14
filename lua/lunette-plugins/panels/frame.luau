@@ -2,7 +2,7 @@
 
 local plugin = require '@lunette-plugin'
 local vocabulary = require '@lunette-contracts/vocabulary'
-local frameStyle = require '@lunette-plugins/theme/frame-style'
+local frameStyle = require '@lunette-contracts/schemas/frame-style'
 
 local frame = {}
 

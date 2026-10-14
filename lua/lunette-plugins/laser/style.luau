@@ -2,7 +2,7 @@
 local schema = require '@lunette-plugin/schema'
 local contracts = require '@lunette-contracts/laser'
 local theme = require '@lunette-contracts/theme'
-local descriptors = require '@lunette-plugins/theme/descriptors'
+local descriptors = require '@lunette-contracts/schemas/theme'
 
 local style = {}
 

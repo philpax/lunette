@@ -1,7 +1,7 @@
 -- The keyboard uses evdev key positions, so seat keymaps provide its legends.
 
 local keyboard = require '@lunette-plugins/keyboard'
-local drawing = require '@lunette-plugins/keyboard/draw'
+local drawing = require '@lunette-plugins/keyboard/legend'
 local keys = require '@lunette-contracts/keys'
 
 local codes = keys.CODES

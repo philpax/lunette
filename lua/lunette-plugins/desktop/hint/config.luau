@@ -1,5 +1,6 @@
 local schema = require '@lunette-plugin/schema'
-local descriptors = require '@lunette-plugins/theme/descriptors'
+local descriptors = require '@lunette-contracts/schemas/theme'
+local configuration = require '@lunette-plugins/theme/configuration'
 
 local positive = schema.number { positive = true }
 local descriptor = schema.object {
@@ -7,7 +8,7 @@ local descriptor = schema.object {
   position = schema.default(schema.vector())(vector.pack(0, 1.5, -1.5)),
   textHeight = schema.optional(positive),
   foreground = schema.optional(descriptors.color),
-  font = schema.optional(descriptors.editableFont),
+  font = schema.optional(configuration.editableFont),
 }
 
 export type Config = schema.Input<typeof(descriptor)>

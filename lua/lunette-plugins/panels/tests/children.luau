@@ -2,7 +2,7 @@ local testing = require '@testing'
 local expect = testing.expect
 
 local children = require '@lunette-plugins/panels/children'
-local geometry = require '@lunette-plugins/theme/rounded-geometry'
+local geometry = require '@lunette-plugins/graphics/rounded-geometry'
 
 local test = testing.suite()
 

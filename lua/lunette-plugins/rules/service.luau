@@ -3,6 +3,7 @@
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local contracts = require '@lunette-contracts/rules'
+local checks = require '@lunette-contracts/schemas/rules'
 local policy = require '@lunette-plugins/rules/policy'
 local inspection = require '@lunette-contracts/inspection'
 local config = require '@lunette-plugins/rules/config'
@@ -103,7 +104,7 @@ local function build(context: plugin.Context, settings: Settings): Service
     end,
     setRules = function(_self: Service, owner: Owner, set: contracts.RuleSet): plugin.Effect
       plugin.rejectUnknownFields('rules setRules', set, RULE_SET_KEYS, 2)
-      policy.checkRules(set.rules)
+      checks.checkRules(set.rules)
       return service:addSource(owner, {
         name = set.name or 'lunette.rules',
         precedence = set.precedence or settings.precedence,
@@ -119,7 +120,7 @@ local function build(context: plugin.Context, settings: Settings): Service
           if type(answered) ~= 'table' then
             error("rules: the source '" .. source.name .. "' answered a " .. type(answered) .. ', not a table')
           end
-          policy.layer(collected, policy.checkProperties(answered))
+          policy.layer(collected, checks.checkProperties(answered))
         end
       end
       return policy.evaluate(collected, window)

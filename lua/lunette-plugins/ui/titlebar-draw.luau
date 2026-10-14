@@ -1,7 +1,7 @@
 -- Draws the header face and safe title above the target-owned joined outline.
-local rounded = require '@lunette-plugins/theme/rounded-geometry'
-local drawing = require '@lunette-plugins/theme/drawing'
-local passState = require '@lunette-plugins/pass-state'
+local rounded = require '@lunette-plugins/graphics/rounded-geometry'
+local drawing = require '@lunette-plugins/graphics/rounded-drawing'
+local passState = require '@lunette-plugins/graphics/pass-state'
 local draw = require './draw'
 local titlebarStyle = require './titlebar-style'
 local textFit = require './text-fit'

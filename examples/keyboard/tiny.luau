@@ -6,7 +6,7 @@ local quad = require '@lunette-contracts/quad'
 local vocabulary = require '@lunette-contracts/vocabulary'
 local keys = require '@lunette-contracts/keys'
 local inspection = require '@lunette-contracts/inspection'
-local protected = require '@lunette-plugins/protected'
+local protected = require '@lunette-plugins/diagnostics/protected-call'
 
 export type Config = {}
 export type Settings = {}

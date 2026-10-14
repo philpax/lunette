@@ -1,7 +1,7 @@
 -- Retained source-local contours are shared by native content drawing and picking.
 
 local appearance = require '@lunette-plugins/panels/appearance'
-local geometry = require '@lunette-plugins/theme/rounded-geometry'
+local geometry = require '@lunette-plugins/graphics/rounded-geometry'
 local frame = require '@lunette-plugins/panels/frame'
 
 local silhouette = {}

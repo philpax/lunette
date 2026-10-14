@@ -5,12 +5,12 @@ local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local contracts = require '@lunette-contracts/panels'
 local panel = require '@lunette-plugins/panels/panel'
-local listeners = require '@lunette-plugins/listeners'
+local listeners = require '@lunette-plugins/registration/listeners'
 local inspection = require '@lunette-contracts/inspection'
 local theme = require '@lunette-contracts/theme'
 local appearance = require '@lunette-plugins/panels/appearance'
 local frame = require '@lunette-plugins/panels/frame'
-local clientPixels = require '@lunette-plugins/client-pixels'
+local clientPixels = require '@lunette-plugins/graphics/client-pixels'
 
 export type Service = contracts.Service
 export type Owner = contracts.Owner

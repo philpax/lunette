@@ -2,7 +2,8 @@
 local schema = require '@lunette-plugin/schema'
 local ui = require '@lunette-contracts/ui'
 local globalTheme = require '@lunette-contracts/theme'
-local descriptors = require '@lunette-plugins/theme/descriptors'
+local descriptors = require '@lunette-contracts/schemas/theme'
+local themeConfiguration = require '@lunette-plugins/theme/configuration'
 export type Bounds = ui.Bounds
 export type Kind = ui.Kind
 export type ItemDescription = ui.ItemDescription
@@ -60,7 +61,7 @@ local function fields<F>(font: F): Fields<F>
   }
 end
 local overrides = schema.object(fields(descriptors.font))
-local editable = schema.object(fields(descriptors.editableFont))
+local editable = schema.object(fields(themeConfiguration.editableFont))
 export type Spec = schema.Output<typeof(overrides)>
 
 local BASE = {
@@ -95,7 +96,7 @@ end
 function theme.project(value: unknown): ui.ThemeOverrides
   local parsed = editable.parse(value, 'ui theme configuration')
   local result = table.clone(parsed) :: { [string]: unknown }
-  result.font = if parsed.font then descriptors.projectFont(parsed.font) else nil
+  result.font = if parsed.font then themeConfiguration.projectFont(parsed.font) else nil
   return overrides.parse(result, 'ui theme overrides')
 end
 

@@ -1,11 +1,11 @@
 local schema = require '@lunette-plugin/schema'
 local rules = require '@lunette-contracts/rules'
-local policy = require '@lunette-plugins/rules/policy'
+local checks = require '@lunette-contracts/schemas/rules'
 
 local rule: schema.Schema<rules.Rule, rules.Rule> = schema.custom<<rules.Rule>> {
   runtimeType = 'table',
   validate = function(value: unknown): rules.Rule
-    return policy.checkRule(value, 'a rule')
+    return checks.checkRule(value, 'a rule')
   end,
 }
 -- The rule contract is recursive; typed boundaries avoid repeated type-function expansion.

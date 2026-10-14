@@ -5,7 +5,7 @@ local frame = require '@lunette-contracts/frame'
 local panels = require '@lunette-contracts/panels'
 local surfaces = require '@lunette-contracts/surfaces'
 local picking = require '@lunette-plugins/interaction/picking'
-local passState = require '@lunette-plugins/pass-state'
+local passState = require '@lunette-plugins/graphics/pass-state'
 local selection = require './selection'
 
 local attention = {}

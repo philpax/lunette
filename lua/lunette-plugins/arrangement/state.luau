@@ -9,7 +9,7 @@ local rulesContract = require '@lunette-contracts/rules'
 local tagsContract = require '@lunette-contracts/tags'
 local vocabulary = require '@lunette-contracts/vocabulary'
 local format = require '@lunette-plugins/arrangement/format'
-local logging = require '@lunette-plugins/desktop/logging'
+local logging = require '@lunette-plugins/diagnostics/desktop-logging'
 local slots = require '@lunette-plugins/arrangement/slots'
 local capture = require '@lunette-plugins/arrangement/capture'
 

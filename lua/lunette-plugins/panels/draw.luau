@@ -5,8 +5,8 @@ local appearance = require '@lunette-plugins/panels/appearance'
 local shape = require '@lunette-plugins/panels/shape'
 local silhouette = require '@lunette-plugins/panels/silhouette'
 local frame = require '@lunette-plugins/panels/frame'
-local geometry = require '@lunette-plugins/theme/rounded-geometry'
-local passState = require '@lunette-plugins/pass-state'
+local geometry = require '@lunette-plugins/graphics/rounded-geometry'
+local passState = require '@lunette-plugins/graphics/pass-state'
 local children = require '@lunette-plugins/panels/children'
 
 local draw = {}

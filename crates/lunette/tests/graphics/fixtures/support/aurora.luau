@@ -5,7 +5,7 @@ local plugin = require '@lunette-plugin'
 local frame = require '@lunette-contracts/frame'
 local backdrop = require '@lunette-plugins/desktop/backdrop'
 local model = require '@lunette-plugins/desktop/backdrop/model'
-local cleanup = require '@lunette-plugins/cleanup'
+local cleanup = require '@lunette-plugins/lifecycle/cleanup'
 local render = require './render'
 
 local aurora = {}

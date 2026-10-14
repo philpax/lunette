@@ -1,7 +1,7 @@
 -- Listener delivery uses a registration snapshot at dispatch start. Each callback requires a live owner.
 
 local plugin = require '@lunette-plugin'
-local protected = require '@lunette-plugins/protected'
+local protected = require '@lunette-plugins/diagnostics/protected-call'
 local inspection = require '@lunette-contracts/inspection'
 
 local listeners = {}

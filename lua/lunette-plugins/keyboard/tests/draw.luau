@@ -1,6 +1,8 @@
 local testing = require '@testing'
 local render = require '@testing/render'
 local keyboard = require '@lunette-plugins/keyboard'
+local hooks = require '@lunette-plugins/keyboard/hooks'
+local legend = require '@lunette-plugins/keyboard/legend'
 local contract = require '@lunette-contracts/keyboard'
 local expect = testing.expect
 local test = testing.suite()
@@ -40,16 +42,17 @@ end
 
 test('keyboard paints untextured faces and depth-tested legends, and restores the pass after a hook error', function()
   local raising = false
-  local board, recorder = fixture(
-    function(pass: Pass, key: keyboard.RenderedKey, state: keyboard.KeyState, base: keyboard.Paint)
-      if raising then
-        pass:translate(1, 2, 3)
-        error 'keyboard failure'
-      end
-      expect.equal(pass:getFont(), state.style.font, 'the hook receives the theme face')
-      base(pass, key, state)
+  local rendered: hooks.RenderedKey?
+  local keyState: hooks.KeyState?
+  local board, recorder = fixture(function(pass: Pass, key: hooks.RenderedKey, state: hooks.KeyState, base: hooks.Paint)
+    if raising then
+      pass:translate(1, 2, 3)
+      error 'keyboard failure'
     end
-  )
+    expect.equal(pass:getFont(), state.style.font, 'the hook receives the theme face')
+    rendered, keyState = key, state
+    base(pass, key, state)
+  end)
   local caller = recorder:checkpoint()
   board:draw(recorder.pass)
   local faces, legends = 0, 0
@@ -73,6 +76,30 @@ test('keyboard paints untextured faces and depth-tested legends, and restores th
   local acquired = #recorder.meshAcquisitions
   board:draw(recorder.pass)
   expect.equal(#recorder.meshAcquisitions, acquired, 'unchanged drawing reuses the board meshes')
+
+  local key, state = rendered, keyState
+  expect.truthy(key and state, 'the public hook receives a rendered key and its resolved state')
+  local font = recorder:newFont('fixture-font.ttf', 32, 4)
+  local first = #recorder.calls + 1
+  legend.legend(recorder.pass, key, state)
+  recorder:assertRestored(caller)
+  legend.legend(recorder.pass, key, state, font)
+  local texts = 0
+  for index = first, #recorder.calls do
+    local call = recorder.calls[index]
+    if call.draw then
+      expect.equal(call[1], 'text', 'the extension does not draw a face or plate')
+      expect.equal(call.state.setDepthTest[1], 'gequal', 'the extension preserves scene depth testing')
+      expect.equal(call.state.setDepthWrite[1], false, 'the extension does not write transparent glyph bounds')
+      texts += 1
+      expect.equal(call.state.setFont[1], if texts == 1 then state.style.font else font, 'the selected legend font')
+    end
+  end
+  expect.equal(texts, 2, 'the extension draws one legend per call')
+  expect.equal(#recorder.meshAcquisitions, acquired, 'the extension acquires no meshes')
+  recorder:assertRestored(caller)
+  font:release()
+
   raising = true
   expect.raises(function()
     board:draw(recorder.pass)

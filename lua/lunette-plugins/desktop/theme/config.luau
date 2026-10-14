@@ -1,5 +1,5 @@
 local schema = require '@lunette-plugin/schema'
-local descriptors = require '@lunette-plugins/theme/descriptors'
+local descriptors = require '@lunette-plugins/theme/configuration'
 
 -- The preset names a catalog theme; the set is open, so a name is checked against the catalog at runtime.
 local descriptor = schema.object {

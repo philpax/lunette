@@ -3,7 +3,7 @@ local expect = testing.expect
 
 local quad = require '@lunette-contracts/quad'
 local shape = require '@lunette-plugins/panels/shape'
-local geometry = require '@lunette-plugins/theme/rounded-geometry'
+local geometry = require '@lunette-plugins/graphics/rounded-geometry'
 
 local test = testing.suite()
 

@@ -6,7 +6,7 @@ local panels = require '@lunette-contracts/panels'
 local ui = require '@lunette-contracts/ui'
 local config = require '@lunette-plugins/desktop/decorations/config'
 local controls = require '@lunette-plugins/desktop/decorations/controls'
-local titlebarStyle = require '@lunette-plugins/ui/titlebar-style'
+local titlebarStyle = require '@lunette-plugins/ui/titlebar-configuration'
 
 export type Config = config.Config
 export type Settings = config.Settings

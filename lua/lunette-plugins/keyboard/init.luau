@@ -4,20 +4,21 @@ local plugin = require '@lunette-plugin'
 local focus = require '@lunette-contracts/focus'
 local keyboard = require '@lunette-contracts/keyboard'
 local theme = require '@lunette-contracts/theme'
-local board = require '@lunette-plugins/keyboard/board'
+local hooks = require '@self/hooks'
 local build = require '@lunette-plugins/keyboard/service'
 
 export type Settings = config.Settings
 export type Key = keyboard.Key
 export type KeyRow = keyboard.KeyRow
-export type Board = board.Board
-export type RenderedKey = board.RenderedKey
-export type KeyState = board.KeyState
-export type OnKey = board.OnKey
-export type DrawKey = board.DrawKey
-export type Pointer = board.Pointer
-export type Press = board.Press
-export type Paint = board.Paint
+export type Board = hooks.Board
+export type RenderedKey = hooks.RenderedKey
+export type Style = hooks.Style
+export type KeyState = hooks.KeyState
+export type OnKey = hooks.OnKey
+export type DrawKey = hooks.DrawKey
+export type Pointer = hooks.Pointer
+export type Press = hooks.Press
+export type Paint = hooks.Paint
 
 export type Config = config.Config
 

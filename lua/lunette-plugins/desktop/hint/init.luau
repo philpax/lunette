@@ -3,8 +3,8 @@ local plugin = require '@lunette-plugin'
 local frame = require '@lunette-contracts/frame'
 local panels = require '@lunette-contracts/panels'
 local theme = require '@lunette-contracts/theme'
-local passState = require '@lunette-plugins/pass-state'
-local descriptors = require '@lunette-plugins/theme/descriptors'
+local passState = require '@lunette-plugins/graphics/pass-state'
+local descriptors = require '@lunette-plugins/theme/configuration'
 
 local config = require '@lunette-plugins/desktop/hint/config'
 

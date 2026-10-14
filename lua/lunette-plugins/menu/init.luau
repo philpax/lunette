@@ -3,8 +3,8 @@
 local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/menu'
 local inspection = require '@lunette-contracts/inspection'
-local protected = require '@lunette-plugins/protected'
-local listeners = require '@lunette-plugins/listeners'
+local protected = require '@lunette-plugins/diagnostics/protected-call'
+local listeners = require '@lunette-plugins/registration/listeners'
 local snapshot = require '@lunette-plugins/menu/snapshot'
 
 export type Config = {}

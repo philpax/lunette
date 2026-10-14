@@ -3,7 +3,7 @@ local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local menu = require '@lunette-contracts/menu'
 local display = require '@lunette-contracts/keyboard-display'
-local logging = require '@lunette-plugins/desktop/logging'
+local logging = require '@lunette-plugins/diagnostics/desktop-logging'
 
 export type Config = {}
 export type Settings = {}

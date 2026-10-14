@@ -6,8 +6,9 @@ local frame = require '@lunette-contracts/frame'
 local menu = require '@lunette-contracts/menu'
 local theme = require '@lunette-contracts/theme'
 local themes = require '@lunette-contracts/themes'
-local descriptors = require '@lunette-plugins/theme/descriptors'
-local logging = require '@lunette-plugins/desktop/logging'
+local descriptors = require '@lunette-contracts/schemas/theme'
+local configuration = require '@lunette-plugins/theme/configuration'
+local logging = require '@lunette-plugins/diagnostics/desktop-logging'
 local config = require '@lunette-plugins/desktop/theme/config'
 
 export type Config = config.Config
@@ -37,7 +38,7 @@ local function define(): plugin.Definition<Config>
       local menuService: menu.Service = context:require(menu.capability)
       local themeService: theme.Service = context:require(theme.capability)
       local catalog: themes.Service = context:require(themes.capability)
-      local overrides = descriptors.projectOverrides(settings.overrides, 'desktop/theme overrides')
+      local overrides = configuration.projectOverrides(settings.overrides, 'desktop/theme overrides')
       local wanted = if chosen ~= nil and configuredPreset == settings.preset then chosen else settings.preset
       local registration: theme.Registration? = nil
       local applied: themes.Entry? = nil

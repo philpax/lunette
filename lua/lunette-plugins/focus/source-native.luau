@@ -1,7 +1,7 @@
 -- Native mutations retain their original sink and seat until every inverse has been attempted.
 local lunette = require '@lunette'
 local contract = require '@lunette-contracts/focus'
-local protected = require '@lunette-plugins/protected'
+local protected = require '@lunette-plugins/diagnostics/protected-call'
 
 local native = {}
 

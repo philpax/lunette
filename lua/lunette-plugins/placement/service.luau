@@ -7,7 +7,7 @@ local contract = require '@lunette-contracts/placement'
 local rulesContract = require '@lunette-contracts/rules'
 local tagsContract = require '@lunette-contracts/tags'
 local vocabulary = require '@lunette-contracts/vocabulary'
-local listeners = require '@lunette-plugins/listeners'
+local listeners = require '@lunette-plugins/registration/listeners'
 local inspection = require '@lunette-contracts/inspection'
 local config = require '@lunette-plugins/placement/config'
 

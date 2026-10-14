@@ -5,7 +5,7 @@
 -- and the panel's shape are unchanged.
 
 local lunette = require '@lunette'
-local geometry = require '@lunette-plugins/theme/rounded-geometry'
+local geometry = require '@lunette-plugins/graphics/rounded-geometry'
 local shape = require '@lunette-plugins/panels/shape'
 
 local children = {}

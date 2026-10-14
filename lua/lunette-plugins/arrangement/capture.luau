@@ -5,7 +5,7 @@ local panelsContract = require '@lunette-contracts/panels'
 local rulesContract = require '@lunette-contracts/rules'
 local tagsContract = require '@lunette-contracts/tags'
 local vocabulary = require '@lunette-contracts/vocabulary'
-local logging = require '@lunette-plugins/desktop/logging'
+local logging = require '@lunette-plugins/diagnostics/desktop-logging'
 local format = require '@lunette-plugins/arrangement/format'
 local slots = require '@lunette-plugins/arrangement/slots'
 

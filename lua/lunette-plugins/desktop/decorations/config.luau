@@ -1,6 +1,6 @@
 -- Native panels use the shared UI titlebar style, with an optional desktop override.
 local schema = require '@lunette-plugin/schema'
-local titlebarStyle = require '@lunette-plugins/ui/titlebar-style'
+local titlebarStyle = require '@lunette-plugins/ui/titlebar-configuration'
 
 local descriptor = schema.object {
   style = schema.optional(titlebarStyle.editable),

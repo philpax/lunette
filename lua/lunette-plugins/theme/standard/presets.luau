@@ -2,7 +2,7 @@
 
 local theme = require '@lunette-contracts/theme'
 local base = require '@lunette-plugins/theme/base'
-local descriptors = require '@lunette-plugins/theme/descriptors'
+local descriptors = require '@lunette-contracts/schemas/theme'
 
 local dark: theme.Theme = descriptors.resolve(base, {
   radii = {

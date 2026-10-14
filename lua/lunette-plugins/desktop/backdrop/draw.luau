@@ -1,7 +1,7 @@
 -- Lazily owns the backdrop's GPU resources and restores every touched pass state on errors.
 local plugin = require '@lunette-plugin'
-local passState = require '@lunette-plugins/pass-state'
-local cleanup = require '@lunette-plugins/cleanup'
+local passState = require '@lunette-plugins/graphics/pass-state'
+local cleanup = require '@lunette-plugins/lifecycle/cleanup'
 local config = require './config'
 local geometry = require './geometry'
 local model = require './model'

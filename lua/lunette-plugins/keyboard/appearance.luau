@@ -2,27 +2,13 @@
 
 local schema = require '@lunette-plugin/schema'
 local theme = require '@lunette-contracts/theme'
-local descriptors = require '@lunette-plugins/theme/descriptors'
+local descriptors = require '@lunette-contracts/schemas/theme'
+local configuration = require '@lunette-plugins/theme/configuration'
+local hooks = require './hooks'
 
 local appearance = {}
 
--- A style resolved for drawing at the keyboard's current scale.
-export type Style = {
-  read font: Font,
-  read backingRadius: number,
-  read keyRadius: number,
-  read keyUnit: number,
-  read gap: number,
-  read plateDepth: number,
-  read legendDepth: number,
-  read margin: number,
-  read plateColor: { read [number]: number },
-  read keyColor: { read [number]: number },
-  read heldColor: { read [number]: number },
-  read hoverColor: { read [number]: number },
-  read legendColor: { read [number]: number },
-  read legendHeight: number,
-}
+export type Style = hooks.Style
 
 local positive = schema.number { positive = true }
 local nonnegative = schema.number { minimum = 0 }
@@ -63,7 +49,7 @@ local function style<F>(font: F): schema.Schema<schema.ObjectInput<StyleShape<F>
 end
 
 local options = style(descriptors.font)
-local editableStyle = style(descriptors.editableFont)
+local editableStyle = style(configuration.editableFont)
 export type EditableStyleConfig = schema.Input<typeof(editableStyle)>
 export type EditableStyle = schema.Output<typeof(editableStyle)>
 -- A sparse style whose omitted fields fall through to the theme.
@@ -90,7 +76,7 @@ local BASE: Options = options.parse {
 
 function appearance.project(value: EditableStyle): Options
   local projected: { [string]: unknown } = table.clone(value) :: any
-  projected.font = if value.font then descriptors.projectFont(value.font, 'keyboard style.font') else nil
+  projected.font = if value.font then configuration.projectFont(value.font, 'keyboard style.font') else nil
   return options.parse(projected)
 end
 

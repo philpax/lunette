@@ -6,6 +6,8 @@ local ui = require '@lunette-contracts/ui'
 local drops = require '@lunette-contracts/drops'
 local surfaces = require '@lunette-contracts/surfaces'
 local vrUi = require '@testing/vr-ui'
+local config = require '../config'
+local titlebarConfiguration = require '@lunette-plugins/ui/titlebar-configuration'
 local test = testing.suite()
 
 type WindowPanel = {
@@ -88,6 +90,23 @@ local function selection(env: Environment): testing.InspectionDetails
 end
 
 test('a window titlebar requests close, reports a refusal, and is withdrawn while the window is hidden', function()
+  expect.equal(config.schema.parse({}).style, nil, 'decorations inherit the toolkit style without an override')
+  local color = { 0.1, 0.2, 0.3, 1 }
+  local settings = config.schema.parse { style = { titleColor = color } }
+  local projected = titlebarConfiguration.project(settings.style)
+  color[1] = 0.9
+  expect.equal(projected.titleColor[1], 0.1, 'projection detaches colors')
+  expect.equal(projected.font, nil, 'a sparse style inherits its font')
+  expect.equal(projected.barHeight, nil, 'a sparse style inherits its geometry')
+  local fileSettings = config.schema.parse { style = { font = { kind = 'file', file = 'fonts/titlebar.ttf' } } }
+  local fileStyle = titlebarConfiguration.project(fileSettings.style)
+  expect.equal(fileStyle.font.kind, 'file')
+  expect.equal(fileStyle.font.file, 'fonts/titlebar.ttf')
+  expect.equal(fileStyle.font.size, 32, 'file fonts keep the editable size default')
+  expect.equal(fileStyle.font.spread, 4, 'file fonts keep the editable spread default')
+  expect.equal(fileSettings.style.font.size, nil, 'projection leaves the editable settings sparse')
+  expect.equal(fileStyle.titleColor, nil, 'a font override does not fill the palette')
+
   local env = boot()
   click(env, WINDOW, 'close/window/7')
   expect.equal(env.closeRequests, 1, 'the close button sends one close request')

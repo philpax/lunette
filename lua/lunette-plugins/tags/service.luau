@@ -2,7 +2,7 @@
 
 local plugin = require '@lunette-plugin'
 local tags = require '@lunette-contracts/tags'
-local listeners = require '@lunette-plugins/listeners'
+local listeners = require '@lunette-plugins/registration/listeners'
 local overrides = require '@lunette-plugins/tags/overrides'
 local inspection = require '@lunette-contracts/inspection'
 

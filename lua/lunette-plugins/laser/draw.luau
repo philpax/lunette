@@ -1,6 +1,6 @@
 local contracts = require '@lunette-contracts/laser'
 local config = require '@lunette-plugins/laser/config'
-local passState = require '@lunette-plugins/pass-state'
+local passState = require '@lunette-plugins/graphics/pass-state'
 local dragIcon = require '@lunette-plugins/laser/drag-icon'
 
 local draw = {}

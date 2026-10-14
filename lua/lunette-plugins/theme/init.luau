@@ -3,9 +3,9 @@
 local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/theme'
 local inspection = require '@lunette-contracts/inspection'
-local descriptors = require '@lunette-plugins/theme/descriptors'
+local descriptors = require '@lunette-contracts/schemas/theme'
 local base = require '@lunette-plugins/theme/base'
-local listeners = require '@lunette-plugins/listeners'
+local listeners = require '@lunette-plugins/registration/listeners'
 
 export type Service = contract.Service
 

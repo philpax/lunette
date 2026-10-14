@@ -3,8 +3,8 @@ local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/bindings'
 local frame = require '@lunette-contracts/frame'
-local protected = require '@lunette-plugins/protected'
-local registry = require '@lunette-plugins/registry'
+local protected = require '@lunette-plugins/diagnostics/protected-call'
+local registry = require '@lunette-plugins/registration/registry'
 local inspection = require '@lunette-contracts/inspection'
 
 local BINDING_KEYS: { string } = { 'chord', 'run' }

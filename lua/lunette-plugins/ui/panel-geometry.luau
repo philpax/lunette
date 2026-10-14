@@ -3,12 +3,12 @@ local plugin = require '@lunette-plugin'
 local ui = require '@lunette-contracts/ui'
 local vocabulary = require '@lunette-contracts/vocabulary'
 local records = require './panel-state'
-local rounded = require '@lunette-plugins/theme/rounded-geometry'
-local frameStyle = require '@lunette-plugins/theme/frame-style'
-local drawing = require '@lunette-plugins/theme/drawing'
+local rounded = require '@lunette-plugins/graphics/rounded-geometry'
+local frameStyle = require '@lunette-contracts/schemas/frame-style'
+local drawing = require '@lunette-plugins/graphics/rounded-drawing'
 local geometry = require './geometry'
-local passState = require '@lunette-plugins/pass-state'
-local cleanup = require '@lunette-plugins/cleanup'
+local passState = require '@lunette-plugins/graphics/pass-state'
+local cleanup = require '@lunette-plugins/lifecycle/cleanup'
 
 local panelGeometry = {}
 

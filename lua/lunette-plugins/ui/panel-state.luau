@@ -7,8 +7,8 @@ local globalTheme = require '@lunette-contracts/theme'
 local owners = require '@lunette-plugins/ui/control-owners'
 local draw = require './draw'
 local measurement = require './measurement-cache'
-local rounded = require '@lunette-plugins/theme/rounded-geometry'
-local drawing = require '@lunette-plugins/theme/drawing'
+local rounded = require '@lunette-plugins/graphics/rounded-geometry'
+local drawing = require '@lunette-plugins/graphics/rounded-drawing'
 local vocabulary = require '@lunette-contracts/vocabulary'
 
 export type Contour = { read bounds: ui.Bounds, read profile: rounded.Profile }

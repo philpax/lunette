@@ -1,8 +1,7 @@
 -- Sparse world-space titlebar styles inherit the current public runtime theme.
-local schema = require '@lunette-plugin/schema'
 local ui = require '@lunette-contracts/ui'
 local theme = require '@lunette-contracts/theme'
-local descriptors = require '@lunette-plugins/theme/descriptors'
+local titlebarStyle = require '@lunette-contracts/schemas/titlebar-style'
 local styles = {}
 
 -- A titlebar style resolved for drawing.
@@ -20,44 +19,8 @@ export type Style = {
   read titleHeight: number,
   read titleColor: ui.Color,
 }
-local positive = schema.number { positive = true }
-local nonnegative = schema.number { minimum = 0 }
-type Fields<F> = {
-  font: schema.Schema<schema.Input<F>?, schema.Output<F>?>,
-  cornerRadius: schema.Schema<number?, number?>,
-  barHeight: schema.Schema<number?, number?>,
-  margin: schema.Schema<number?, number?>,
-  barColor: schema.Schema<schema.Input<typeof(descriptors.color)>?, schema.Output<typeof(descriptors.color)>?>,
-  barHighlightColor: schema.Schema<schema.Input<typeof(descriptors.color)>?, schema.Output<typeof(descriptors.color)>?>,
-  borderThickness: schema.Schema<number?, number?>,
-  borderDepth: schema.Schema<number?, number?>,
-  borderColor: schema.Schema<schema.Input<typeof(descriptors.color)>?, schema.Output<typeof(descriptors.color)>?>,
-  borderHighlightColor: schema.Schema<
-    schema.Input<typeof(descriptors.color)>?,
-    schema.Output<typeof(descriptors.color)>?
-  >,
-  titleHeight: schema.Schema<number?, number?>,
-  titleColor: schema.Schema<schema.Input<typeof(descriptors.color)>?, schema.Output<typeof(descriptors.color)>?>,
-}
-local function fields<F>(font: F): Fields<F>
-  return {
-    font = schema.optional(font),
-    cornerRadius = schema.optional(nonnegative),
-    barHeight = schema.optional(positive),
-    margin = schema.optional(nonnegative),
-    barColor = schema.optional(descriptors.color),
-    barHighlightColor = schema.optional(descriptors.color),
-    borderThickness = schema.optional(nonnegative),
-    borderDepth = schema.optional(nonnegative),
-    borderColor = schema.optional(descriptors.color),
-    borderHighlightColor = schema.optional(descriptors.color),
-    titleHeight = schema.optional(positive),
-    titleColor = schema.optional(descriptors.color),
-  }
-end
-local overrides = schema.object(fields(descriptors.font))
+local overrides = titlebarStyle.schema
 styles.schema = overrides
-styles.editable = schema.object(fields(descriptors.editableFont))
 styles.DEFAULT = overrides.parse {
   font = { kind = 'default' },
   cornerRadius = 0,
@@ -72,13 +35,6 @@ styles.DEFAULT = overrides.parse {
   titleHeight = 0.025,
   titleColor = { 1, 1, 1, 1 },
 }
-
-function styles.project(value: unknown): ui.TitlebarStyleOverrides
-  local parsed = styles.editable.parse(value, 'ui titlebar configuration')
-  local result = table.clone(parsed) :: { [string]: unknown }
-  result.font = if parsed.font then descriptors.projectFont(parsed.font) else nil
-  return overrides.parse(result, 'ui titlebar style')
-end
 
 function styles.inherit(base: ui.TitlebarStyleOverrides, layer: ui.TitlebarStyleOverrides?): ui.TitlebarStyleOverrides
   local result = table.clone(base) :: { [string]: unknown }

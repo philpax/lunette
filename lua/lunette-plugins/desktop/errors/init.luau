@@ -4,8 +4,8 @@ local errors = require '@lunette-contracts/errors'
 local frame = require '@lunette-contracts/frame'
 local theme = require '@lunette-contracts/theme'
 local errorLines = require '@lunette-plugins/desktop/errors/lines'
-local passState = require '@lunette-plugins/pass-state'
-local descriptors = require '@lunette-plugins/theme/descriptors'
+local passState = require '@lunette-plugins/graphics/pass-state'
+local descriptors = require '@lunette-plugins/theme/configuration'
 
 local config = require '@lunette-plugins/desktop/errors/config'
 

@@ -2,8 +2,8 @@
 
 local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/layouts'
-local listeners = require '@lunette-plugins/listeners'
-local registry = require '@lunette-plugins/registry'
+local listeners = require '@lunette-plugins/registration/listeners'
+local registry = require '@lunette-plugins/registration/registry'
 local inspection = require '@lunette-contracts/inspection'
 
 type Registration = {

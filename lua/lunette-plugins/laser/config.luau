@@ -7,7 +7,7 @@ local triggerLock = require './trigger-lock'
 local style = require './style'
 local input = require './input'
 local dragIcon = require './drag-icon'
-local clientPixels = require '@lunette-plugins/client-pixels'
+local clientPixels = require '@lunette-plugins/graphics/client-pixels'
 
 -- The record a draw hook receives: the contract's laser and the provider state its drawing reads.
 export type Beam = {

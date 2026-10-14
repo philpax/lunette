@@ -2,7 +2,7 @@
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/focus'
-local protected = require '@lunette-plugins/protected'
+local protected = require '@lunette-plugins/diagnostics/protected-call'
 local native = require './source-native'
 local physical = require './physical'
 local validation = require './validation'

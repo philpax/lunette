@@ -8,7 +8,7 @@ local frame = require '@lunette-contracts/frame'
 local panels = require '@lunette-contracts/panels'
 local rules = require '@lunette-contracts/rules'
 local tags = require '@lunette-contracts/tags'
-local logging = require '@lunette-plugins/desktop/logging'
+local logging = require '@lunette-plugins/diagnostics/desktop-logging'
 local state = require '@lunette-plugins/arrangement/state'
 local config = require '@lunette-plugins/arrangement/config'
 

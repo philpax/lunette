@@ -1,25 +1,14 @@
 -- Computes keyboard geometry and key legends.
 local lunette = require '@lunette'
 local keyboard = require '@lunette-contracts/keyboard'
+local hooks = require './hooks'
 
 local layout = {}
 
 export type Key = keyboard.Key
 export type KeyRow = keyboard.KeyRow
 export type Action = keyboard.Action
-
--- Key coordinates use metres from the rows' top-left corner, with `y` increasing downward.
-export type RenderedKey = {
-  read source: Key,
-  read code: number?,
-  read action: Action?,
-  read modifier: lunette.ModifierName?,
-  read legend: string,
-  read x: number,
-  read y: number,
-  read width: number,
-  read height: number,
-}
+export type RenderedKey = hooks.RenderedKey
 
 export type Placement = {
   read keyUnit: number,

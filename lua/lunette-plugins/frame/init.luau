@@ -1,7 +1,7 @@
 -- LÖVR callbacks dispatch to the active frame provider and do nothing during provider outages.
 local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/frame'
-local protected = require '@lunette-plugins/protected'
+local protected = require '@lunette-plugins/diagnostics/protected-call'
 local inspection = require '@lunette-contracts/inspection'
 local translation = require '@lunette-plugins/frame/translation'
 

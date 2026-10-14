@@ -7,7 +7,7 @@ local geometry = require './graph-geometry'
 local draw = require './draw'
 local view = require './view'
 local vocabulary = require '@lunette-contracts/vocabulary'
-local passState = require '@lunette-plugins/pass-state'
+local passState = require '@lunette-plugins/graphics/pass-state'
 
 local widgets = {}
 

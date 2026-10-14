@@ -2,8 +2,8 @@
 
 local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/surfaces'
-local protected = require '@lunette-plugins/protected'
-local registry = require '@lunette-plugins/registry'
+local protected = require '@lunette-plugins/diagnostics/protected-call'
+local registry = require '@lunette-plugins/registration/registry'
 local inspection = require '@lunette-contracts/inspection'
 
 local OFFER_KEYS: { string } = { 'name', 'list' }

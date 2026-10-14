@@ -1,6 +1,6 @@
 local schema = require '@lunette-plugin/schema'
 local theme = require './theme'
-local titlebarStyle = require './titlebar-style'
+local titlebarStyle = require './titlebar-configuration'
 
 local SCHEMA = schema.object {
   theme = schema.default(theme.editable) {},

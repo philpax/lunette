@@ -1,7 +1,7 @@
 local lunette = require '@lunette'
 local schema = require '@lunette-plugin/schema'
 local keys = require '@lunette-contracts/keys'
-local board = require '@lunette-plugins/keyboard/board'
+local board = require './hooks'
 local rows = require '@lunette-plugins/keyboard/rows'
 local appearance = require '@lunette-plugins/keyboard/appearance'
 local validation = require '@lunette-plugins/keyboard/validation'

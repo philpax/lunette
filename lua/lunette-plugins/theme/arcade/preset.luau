@@ -1,7 +1,7 @@
 -- Arcade replaces every theme group: a saturated palette, the bundled Space Mono face, and larger metrics and radii.
 
 local theme = require '@lunette-contracts/theme'
-local descriptors = require '@lunette-plugins/theme/descriptors'
+local descriptors = require '@lunette-contracts/schemas/theme'
 
 local arcade: theme.Theme = descriptors.theme.parse {
   colors = {

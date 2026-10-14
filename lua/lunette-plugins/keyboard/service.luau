@@ -3,10 +3,10 @@ local plugin = require '@lunette-plugin'
 local focus = require '@lunette-contracts/focus'
 local keyboard = require '@lunette-contracts/keyboard'
 local theme = require '@lunette-contracts/theme'
-local board = require './board'
+local board = require './hooks'
 local create = require './instance'
 local inspection = require '@lunette-contracts/inspection'
-local protected = require '@lunette-plugins/protected'
+local protected = require '@lunette-plugins/diagnostics/protected-call'
 local config = require './config'
 
 export type Settings = config.Settings

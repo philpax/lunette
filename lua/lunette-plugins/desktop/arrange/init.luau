@@ -8,7 +8,7 @@ local panels = require '@lunette-contracts/panels'
 local placement = require '@lunette-contracts/placement'
 local tags = require '@lunette-contracts/tags'
 local vocabulary = require '@lunette-contracts/vocabulary'
-local logging = require '@lunette-plugins/desktop/logging'
+local logging = require '@lunette-plugins/diagnostics/desktop-logging'
 
 local config = require '@lunette-plugins/desktop/arrange/config'
 

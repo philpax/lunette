@@ -4,7 +4,7 @@ local ui = require '@lunette-contracts/ui'
 local geometry = require './geometry'
 local measurement = require './measurement-cache'
 local textFit = require './text-fit'
-local rounded = require '@lunette-plugins/theme/rounded-geometry'
+local rounded = require '@lunette-plugins/graphics/rounded-geometry'
 local textFieldGeometry = {}
 
 export type Layout = {

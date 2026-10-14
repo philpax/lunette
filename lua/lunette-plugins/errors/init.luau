@@ -4,7 +4,7 @@ local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/errors'
 local limiter = require '@lunette-plugins/errors/limiter'
-local listeners = require '@lunette-plugins/listeners'
+local listeners = require '@lunette-plugins/registration/listeners'
 local inspection = require '@lunette-contracts/inspection'
 local config = require '@lunette-plugins/errors/config'
 

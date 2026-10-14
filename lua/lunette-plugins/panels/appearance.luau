@@ -1,7 +1,7 @@
 -- Resolves panel paint; the public style names the font by specification.
 
 local theme = require '@lunette-contracts/theme'
-local descriptors = require '@lunette-plugins/theme/descriptors'
+local descriptors = require '@lunette-plugins/theme/configuration'
 local config = require './config'
 
 local appearance = {}

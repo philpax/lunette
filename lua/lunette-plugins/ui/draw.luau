@@ -4,11 +4,11 @@
 local ui = require '@lunette-contracts/ui'
 local geometry = require './geometry'
 local textFieldGeometry = require './text-field-geometry'
-local passState = require '@lunette-plugins/pass-state'
+local passState = require '@lunette-plugins/graphics/pass-state'
 local textFit = require './text-fit'
 local measurement = require './measurement-cache'
-local rounded = require '@lunette-plugins/theme/rounded-geometry'
-local drawing = require '@lunette-plugins/theme/drawing'
+local rounded = require '@lunette-plugins/graphics/rounded-geometry'
+local drawing = require '@lunette-plugins/graphics/rounded-drawing'
 export type Shape = {
   read bounds: ui.Bounds,
   read profile: rounded.Profile,
