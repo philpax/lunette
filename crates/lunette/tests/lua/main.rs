@@ -8,6 +8,14 @@ extern crate lunette_lovr;
 mod discover;
 mod installed;
 mod meta;
+// The custom Lua harness uses the installed scan, not the support's Rust tests or Markdown checks.
+#[expect(
+    dead_code,
+    unused_imports,
+    reason = "shared support includes Rust tests and documentation checks unused by the custom Lua harness"
+)]
+#[path = "../support/plugin_dependencies/mod.rs"]
+mod plugin_dependencies;
 mod run;
 mod state;
 

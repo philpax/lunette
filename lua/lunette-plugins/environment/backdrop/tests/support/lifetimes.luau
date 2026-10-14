@@ -5,6 +5,7 @@ local management = require '@lunette-plugin/management'
 local frames = require '@lunette-plugins/session/frame'
 local backdrop = require '../../'
 local testing = require '@testing'
+local builtinEntries = require '@testing/builtin-entries'
 local frame = require '@lunette-contracts/frame'
 local menu = require '@lunette-contracts/menu'
 local ui = require '@lunette-contracts/ui'
@@ -56,7 +57,7 @@ function lifetimes.entries(factory: backdrop.Factory?): { plugin.Entry }
       'desktop/pointing',
     }
   do
-    entries[#entries + 1] = { id = id, definition = require('@lunette-plugins/' .. id).definition }
+    entries[#entries + 1] = { id = id, definition = builtinEntries[id] }
   end
   entries[#entries + 1] = { id = 'desktop/backdrop', definition = (factory or backdrop.create()).definition }
   return plugin.compose(entries)

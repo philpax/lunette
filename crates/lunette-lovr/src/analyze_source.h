@@ -1,13 +1,10 @@
-// Shared source reading, configuration, and language flags for analyzer passes.
+// Shared source reading and configuration for analyzer passes.
 #pragma once
 
 #include "Luau/Config.h"
 #include "Luau/ConfigResolver.h"
-#include "Luau/ExperimentalFlags.h"
 
-#include <cstring>
 #include <fstream>
-#include <mutex>
 #include <optional>
 #include <sstream>
 #include <stdexcept>
@@ -78,16 +75,5 @@ struct DirectoryConfigResolver : Luau::ConfigResolver
         return cache.emplace(directory, std::move(config)).first->second;
     }
 };
-
-// All passes share one initialization because Luau flags are process-global.
-inline void enableDefaultFlags()
-{
-    static std::once_flag once;
-    std::call_once(once, [] {
-        for (Luau::FValue<bool>* flag = Luau::FValue<bool>::list; flag; flag = flag->next)
-            if (strncmp(flag->name, "Luau", 4) == 0 && !Luau::isAnalysisFlagExperimental(flag->name))
-                flag->value = true;
-    });
-}
 
 } // namespace LunetteAnalyze

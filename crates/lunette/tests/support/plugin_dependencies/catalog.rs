@@ -711,10 +711,6 @@ pub const LIBRARY_TESTS: &[LibraryTest] = &[LibraryTest {
 }];
 
 #[cfg(test)]
-#[expect(
-    clippy::expect_used,
-    reason = "a test fails at the first broken inventory declaration"
-)]
 mod tests {
     use std::collections::BTreeSet;
 
@@ -732,7 +728,9 @@ mod tests {
         assert_eq!(leaves.len(), PLUGINS.len());
         assert_eq!(previous.len(), PLUGINS.len());
         for plugin in PLUGINS {
-            let (category, leaf) = plugin.leaf.split_once('/').expect("a category and leaf");
+            let Some((category, leaf)) = plugin.leaf.split_once('/') else {
+                panic!("plugin leaf has no category: {}", plugin.leaf);
+            };
             assert!(categories.contains(category), "{}", plugin.leaf);
             assert!(!leaf.contains('/'), "{}", plugin.leaf);
         }
@@ -740,7 +738,13 @@ mod tests {
         assert_eq!(libraries.len(), LIBRARIES.len());
         for library in LIBRARIES {
             assert!(!leaves.contains(library.module));
-            assert!(categories.contains(library.module.split('/').next().expect("a category")));
+            assert!(
+                library
+                    .module
+                    .split('/')
+                    .next()
+                    .is_some_and(|category| categories.contains(category))
+            );
         }
         let edges: BTreeSet<_> = WHITEBOX_EDGES
             .iter()

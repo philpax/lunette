@@ -34,7 +34,17 @@ namespace
 {
 
 using LunetteAnalyze::DirectoryConfigResolver;
-using LunetteAnalyze::enableDefaultFlags;
+
+// The checker uses the CLI flag setup; parser-only observations keep the runtime defaults.
+void enableDefaultFlags()
+{
+    static std::once_flag once;
+    std::call_once(once, [] {
+        for (Luau::FValue<bool>* flag = Luau::FValue<bool>::list; flag; flag = flag->next)
+            if (strncmp(flag->name, "Luau", 4) == 0 && !Luau::isAnalysisFlagExperimental(flag->name))
+                flag->value = true;
+    });
+}
 
 std::optional<std::string> slurp(const std::string& path)
 {

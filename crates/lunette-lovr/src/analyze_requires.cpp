@@ -372,7 +372,7 @@ lunette_require_report* finish(std::vector<Observation>& observations)
 
 lunette_require_report* inspect(const std::string& source, Resolution* resolution, const char* memberName)
 {
-    LunetteAnalyze::enableDefaultFlags();
+    // The compiler and VM share parser flags; observation must not change runtime behavior.
     auto contents = LunetteAnalyze::readSource(source);
     if (!contents)
         return failure("the source file could not be read: " + source);
@@ -446,7 +446,6 @@ lunette_require_report* lunette_luau_inspect_requires(const lunette_require_requ
     return guarded([&] {
         if (!request || !request->source)
             throw std::runtime_error("no source file was given");
-        LunetteAnalyze::enableDefaultFlags();
         Resolution resolution(*request);
         return inspect(resolution.source, &resolution, nullptr);
     });

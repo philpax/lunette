@@ -8,6 +8,8 @@ mod documentation_tests;
 mod parser_tests;
 #[path = "support/plugin_dependencies/mod.rs"]
 mod plugin_dependencies;
+#[path = "support/plugin_dependencies/policy_tests.rs"]
+mod policy_tests;
 
 #[test]
 fn repository_hierarchy_matches_catalog() -> Result<(), Box<dyn std::error::Error>> {

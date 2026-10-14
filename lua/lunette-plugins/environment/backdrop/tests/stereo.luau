@@ -4,7 +4,11 @@ local support = require './support/response'
 local config = require '../config'
 local model = require '../private/rendering/model'
 local analysis = require '@lunette-contracts/audio-analysis'
-local features = require '@lunette-plugins/audio/analysis/private/features'
+local plugin = require '@lunette-plugin'
+local frame = require '@lunette-plugins/session/frame'
+local capture = require '@lunette-plugins/audio/capture'
+local audioAnalysis = require '@lunette-plugins/audio/analysis'
+local backdrop = require '../'
 
 local test = testing.suite()
 local SYSTEM = { kind = 'system' }
@@ -139,36 +143,61 @@ test('centred onsets and extreme finite powers preserve valid detail', function(
 end)
 
 test('stereo PCM with separate low and high tones reaches distinct visual targets', function()
-  local env = support.boot()
-  env.update(1.2, false)
+  local state
+  local factory = backdrop.create({}, function(_context: plugin.Context, current: model.State)
+    state = current
+  end)
+  local session = testing.boot {
+    { id = 'frame', definition = frame.definition },
+    { id = 'audio', definition = capture.definition },
+    { id = 'audio-analysis', definition = audioAnalysis.definition },
+    { id = 'desktop/backdrop', definition = factory.definition },
+  }
+  local native = session.native
+  native.events.mainSessionVisible = false
+  native.advanceFrame()
+  session:update(1.2)
+  assert(state, 'backdrop model initialized')
+  local observed = session:observe(analysis.capability)
+  local result = observed.service:open(observed.context, SYSTEM)
+  expect.equal(result.kind, 'success', result.detail)
+  local reader = result.reader
   local size = 2048
-  local analyser = features.new { size = size }
-  analyser:feed(buffer.create(size * 8), { generation = 1, sequence = 1, startFrame = 0, frameCount = size })
-  analyser:beginFrame()
+  expect.equal(reader.profile.size, size, 'the observer shares the backdrop analysis profile')
+  native.setAudioState(SYSTEM, { kind = 'active', provenance = 'pipewire-client' })
+  native.pushAudio(SYSTEM, buffer.create(size * 8), { generation = 1, sequence = 1, startFrame = 0 })
+  native.advanceFrame()
+  session:update(0)
+  expect.equal(reader:snapshot().endFrame, size, 'the silent PCM block establishes the analysis baseline')
+  expect.equal(#reader:snapshot().hops, 1, 'the silent baseline publishes one complete window')
   local samples = buffer.create(size * 8)
   for frame = 0, size - 1 do
     buffer.writef32(samples, frame * 8, 0.2 * math.sin(2 * math.pi * 4 * frame / size))
     buffer.writef32(samples, frame * 8 + 4, 0.2 * math.sin(2 * math.pi * 256 * frame / size))
   end
-  local batch = analyser:feed(samples, { generation = 1, sequence = 2, startFrame = size, frameCount = size })
-  local latest = batch.hops[#batch.hops]
-  env.publish(
-    SYSTEM,
-    1,
-    size * 2,
-    batch.hops,
-    { latest.bassPower, latest.midPower, latest.treblePower },
-    nil,
-    nil,
-    latest.spectrum,
-    latest.leftSpectrum,
-    latest.rightSpectrum
-  )
-  env.update(0, false)
-  expect.truthy(env.model.target.stereo[2] < -0.1, '93.75 Hz tone drives left low-band activity')
-  expect.truthy(env.model.target.stereo[8] > 0.1, '6 kHz tone drives right high-band activity')
+  native.pushAudio(SYSTEM, samples, { generation = 1, sequence = 2, startFrame = size })
+  native.advanceFrame()
+  session:update(0)
+  local snapshot = reader:snapshot()
+  expect.equal(snapshot.state.kind, 'active', 'native PCM reaches the active analysis publication')
+  expect.equal(snapshot.generation, 1, 'the analysis publication retains the PCM generation')
+  expect.equal(snapshot.endFrame, size * 2, 'the analysis publication advances through both PCM blocks')
+  expect.truthy(#snapshot.hops > 0, 'the real analysis provider publishes completed tone windows')
+  local bassOnset, trebleOnset = 0, 0
+  for _, hop in snapshot.hops do
+    bassOnset = math.max(bassOnset, hop.bassOnset)
+    trebleOnset = math.max(trebleOnset, hop.trebleOnset)
+  end
+  expect.truthy(bassOnset > 0, 'the real analysis provider publishes the low transient')
+  expect.truthy(trebleOnset > 0, 'the real analysis provider publishes the high transient')
+  local latest = snapshot.latest
+  expect.truthy(latest, 'the real analysis provider publishes steady tone powers')
+  expect.truthy(latest.leftSpectrum[2] > latest.rightSpectrum[2], 'published low-band power is left-sided')
+  expect.truthy(latest.rightSpectrum[8] > latest.leftSpectrum[8], 'published high-band power is right-sided')
+  expect.truthy(state.target.stereo[2] < -0.1, '93.75 Hz tone drives left low-band activity')
+  expect.truthy(state.target.stereo[8] > 0.1, '6 kHz tone drives right high-band activity')
   local bass, treble
-  for _, wave in env.model.waves do
+  for _, wave in state.waves do
     if wave.band == 'bass' then
       bass = wave
     elseif wave.band == 'treble' then
@@ -177,7 +206,18 @@ test('stereo PCM with separate low and high tones reaches distinct visual target
   end
   expect.truthy(bass and offset(bass.position) > 0.09, 'a real low transient starts on the left')
   expect.truthy(treble and offset(treble.position) < -0.09, 'a real high transient starts on the right')
-  env.session:close()
+  native.advanceFrame()
+  session:update(0.1)
+  session:draw()
+  local stereo
+  for _, call in native.events.render.calls do
+    if call[1] == 'send' and call[2] == 'backdropStereo' then
+      stereo = call[3]
+    end
+  end
+  expect.truthy(stereo, 'the PCM response reaches the stereo shader uniform')
+  expect.truthy(stereo[1][2] < 0 and stereo[2][4] > 0, 'PCM channel differences reach distinct shader bands')
+  session:close()
 end)
 
 return test

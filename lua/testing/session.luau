@@ -6,6 +6,7 @@ local compose = require '@lunette-plugin/compose'
 local frame = require '@lunette-plugins/session/frame'
 local drops = require '@lunette-contracts/drops'
 local native = require '@testing/native'
+local builtinEntries = require '@testing/builtin-entries'
 local suite = require '@testing/suite'
 
 local session = {}
@@ -126,7 +127,11 @@ entryOf = function(entry: Entry): compose.Entry
   if type(entry) ~= 'string' then
     return entry
   end
-  return { id = entry, definition = require('@lunette-plugins/' .. entry).definition }
+  local definition = builtinEntries[entry]
+  if definition == nil then
+    error('testing session: unknown built-in entry id ' .. entry, 0)
+  end
+  return { id = entry, definition = definition }
 end
 
 startSession = function(entries: { Entry }, fake: native.Fake?): Session
