@@ -7,7 +7,7 @@ local adapter = require '@lunette-plugin/adapter'
 local desktop = require '@lunette-desktop'
 local settings = require '@lunette-desktop/settings'
 local compose = require '@lunette-plugin/compose'
-local laserModule = require '@lunette-plugins/laser'
+local laserModule = require '@lunette-plugins/input/laser'
 local frameContract = require '@lunette-contracts/frame'
 
 local test = testing.suite()

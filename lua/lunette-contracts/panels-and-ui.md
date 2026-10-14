@@ -6,13 +6,13 @@ Consumers and replacement providers preserve these resource, input, and appearan
 
 Follow `onAdded` and `onRemoved`, not private registries. Removal listeners run before owner authority ends; panels removed during unload are not announced from that owner's inverse. A hidden panel remains registered but is neither drawn nor picked and releases its layer. Window close requests client closure; monitor close dismisses capture and removes the panel.
 
-One supplied dimension follows source aspect; supplying both fixes the rectangle. Drawing and picking share rounded and curved geometry, but granted layers stay rectangular at rounded corners. [Panels](../lunette-plugins/panels/README.md) describes the built-in renderer.
+One supplied dimension follows source aspect; supplying both fixes the rectangle. Drawing and picking share rounded and curved geometry, but granted layers stay rectangular at rounded corners. [Panels](../lunette-plugins/panels/service/README.md) describes the built-in renderer.
 
 ## Joined frames
 
 The optional [frame attachment](vocabulary.luau) validates the whole style before changing state and allows one live attachment per target. Disposal is idempotent; updates after disposal or target death raise. Ineligible targets keep a dormant attachment: native panels join only when visible, flat, and scene-rendered; UI panels join while visible.
 
-Targets draw the joined outline even without panel chrome. Hiding, destroying, or unloading a titlebar releases its attachment. Retained titlebars synchronize after source and decoration updates but before picking. See the [panel renderer](../lunette-plugins/panels/README.md).
+Targets draw the joined outline even without panel chrome. Hiding, destroying, or unloading a titlebar releases its attachment. Retained titlebars synchronize after source and decoration updates but before picking. See the [panel renderer](../lunette-plugins/panels/service/README.md).
 
 ## Keyboards
 
@@ -24,7 +24,7 @@ Input, drawing, and inspection share top-left, y-down logical coordinates. Bound
 
 A held control refuses other pointers. Release activates only the pressed control and only inside; cancellation never activates. Hiding, disabling, destroying, resizing, or changing bounds or items cancels capture; pose changes do not. Hover does not take focus. Text fields accept single-line UTF-8 and edit grapheme clusters; setting text does not invoke change callbacks.
 
-Panels and controls end with their creation owners or provider. Widget errors report against the control owner; draw errors reach the frame boundary. Hooks restore pass state but cannot change hit bounds. The [UI provider](../lunette-plugins/ui/README.md) owns rendering choices. Arbitrary pass misuse, text shaping, bidirectional editing, and IME composition are unsupported.
+Panels and controls end with their creation owners or provider. Widget errors report against the control owner; draw errors reach the frame boundary. Hooks restore pass state but cannot change hit bounds. The [UI provider](../lunette-plugins/ui/toolkit/README.md) owns rendering choices. Arbitrary pass misuse, text shaping, bidirectional editing, and IME composition are unsupported.
 
 ## Themes
 

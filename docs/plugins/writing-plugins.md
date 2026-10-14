@@ -34,11 +34,11 @@ A hook receives its normal arguments followed by `base`. Calling `base` retains 
 
 ## Extend the keyboard
 
-The [split keyboard](../../examples/keyboard/split.luau) changes layout through the existing provider. The [tiny keyboard](../../examples/keyboard/tiny.luau) replaces it and implements the [keyboard contract](../../lua/lunette-contracts/keyboard.luau). Keyboards register resources on the requesting owner's lifetime and are offered and drawn by their consumer. See the [keyboard plugin](../../lua/lunette-plugins/keyboard/README.md).
+The [split keyboard](../../examples/keyboard/split.luau) changes layout through the existing provider. The [tiny keyboard](../../examples/keyboard/tiny.luau) replaces it and implements the [keyboard contract](../../lua/lunette-contracts/keyboard.luau). Keyboards register resources on the requesting owner's lifetime and are offered and drawn by their consumer. See the [keyboard plugin](../../lua/lunette-plugins/input/keyboard/README.md).
 
 ## Add a theme
 
-[`examples/theme`](../../examples/theme) registers a complete theme with the catalog and selects it in the desktop configuration. Registration ends with its owner. The [theme contract](../../lua/lunette-contracts/theme.luau) defines values; the [theme selector](../../lua/lunette-plugins/desktop/theme/README.md) describes runtime selection.
+[`examples/theme`](../../examples/theme) registers a complete theme with the catalog and selects it in the desktop configuration. Registration ends with its owner. The [theme contract](../../lua/lunette-contracts/theme.luau) defines values; the [theme selector](../../lua/lunette-plugins/theme/selector/README.md) describes runtime selection.
 
 ## Add a layout
 
@@ -46,7 +46,7 @@ The [split keyboard](../../examples/keyboard/split.luau) changes layout through 
 
 ## Change pointer behavior
 
-[`examples/desktop/upright.luau`](../../examples/desktop/upright.luau) extends the interaction provider's movement constraint. See the [interaction](../../lua/lunette-plugins/interaction/README.md) and [laser](../../lua/lunette-plugins/laser/README.md) plugins for hooks and pointer configuration.
+[`examples/desktop/upright.luau`](../../examples/desktop/upright.luau) extends the interaction provider's movement constraint. See the [interaction](../../lua/lunette-plugins/interaction/pointers/README.md) and [laser](../../lua/lunette-plugins/input/laser/README.md) plugins for hooks and pointer configuration.
 
 A replacement provider that carries surfaces must preserve [capture cancellation](../../lua/lunette-contracts/docs/input.md#surface-pointer-delivery) and [drop notifications](../../lua/lunette-contracts/docs/input.md#drops). The desktop uses drops to save placement.
 

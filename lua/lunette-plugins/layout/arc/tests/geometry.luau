@@ -1,7 +1,7 @@
 -- Covers the arc's spacing in `@lunette-plugins/layout/arc/geometry`.
 local testing = require '@testing'
 local expect = testing.expect
-local geometry = require '@lunette-plugins/layout/arc/geometry'
+local geometry = require '../geometry'
 
 local test = testing.suite()
 

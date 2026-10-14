@@ -216,9 +216,9 @@ mod tests {
                 "@lunette-contracts/pacing",
             ),
             (
-                "@@lunette-plugins/keyboard/init.luau",
-                "@self/draw",
-                "@lunette-plugins/keyboard/draw",
+                "@@lunette-plugins/input/keyboard/init.luau",
+                "@self/private/draw",
+                "@lunette-plugins/input/keyboard/private/draw",
             ),
             // Empty components in a chunk name are skipped.
             ("@//split.luau", "./other", "other"),

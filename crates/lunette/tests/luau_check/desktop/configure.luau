@@ -1,8 +1,8 @@
 -- Correct patches and settings check cleanly; each rejected one reports its own line.
 local plugin = require '@lunette-plugin'
 local desktop = require '@lunette-desktop'
-local keyboard = require '@lunette-plugins/keyboard-display'
-local persistence = require '@lunette-plugins/arrangement'
+local keyboard = require '@lunette-plugins/input/keyboard-display'
+local persistence = require '@lunette-plugins/layout/persistence'
 
 local accepted = {
   plugin.configure('custom-keyboard-id', keyboard.definition) { placement = { distance = 0.45 } },

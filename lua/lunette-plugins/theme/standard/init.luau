@@ -2,7 +2,7 @@
 
 local plugin = require '@lunette-plugin'
 local themes = require '@lunette-contracts/themes'
-local presets = require '@lunette-plugins/theme/standard/presets'
+local presets = require '@self/private/presets'
 
 export type Config = {}
 export type Settings = {}

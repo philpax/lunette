@@ -36,7 +36,7 @@ Vibration uses the callback supplied by the pointer's creator and returns false 
 
 Update phases run `input`, `scene`, `pointing`, and `overlay`; drawing adds `feedback` last. Pointing therefore uses current scene poses, and feedback draws after UI. Within a phase, ascending order precedes registration order. Key and text dispatch runs `binding` before `delivery`; true consumes the event. Quit handlers cannot veto quit.
 
-Each handler and surface offer has a protected call. Raising key or text handlers consume nothing; invalid or raising offers contribute no surfaces. The [frame provider](../../lunette-plugins/frame/README.md) owns callback installation.
+Each handler and surface offer has a protected call. Raising key or text handlers consume nothing; invalid or raising offers contribute no surfaces. The [frame provider](../../lunette-plugins/session/frame/README.md) owns callback installation.
 
 ## Drops
 

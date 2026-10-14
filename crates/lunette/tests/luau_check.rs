@@ -150,7 +150,7 @@ fn installed_configuration_checks() {
         "local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local keyboard = require '@lunette-contracts/keyboard'
-local laser = require '@lunette-plugins/laser'
+local laser = require '@lunette-plugins/input/laser'
 local desktop = require '@lunette-desktop'
 return { lunette, plugin, keyboard, laser, desktop }
 ",

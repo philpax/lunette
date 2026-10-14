@@ -27,24 +27,24 @@ Patches target an existing entry by id or insert a local plugin's `definition`. 
 
 The wrist menu exposes session actions, including configuration reload, the [runtime manager](runtime-manager.md), themes, and workspaces. These actions need no key chords. Reload applies source edits without closing applications.
 
-Focusing a UI text field shows the shared keyboard. Hiding it ends focus and keeps the text. The [keyboard plugin](../../lua/lunette-plugins/keyboard/README.md) describes placement and replacement.
+Focusing a UI text field shows the shared keyboard. Hiding it ends focus and keeps the text. The [keyboard plugin](../../lua/lunette-plugins/input/keyboard/README.md) describes placement and replacement.
 
 ## Windows, monitors, and workspaces
 
-Grip carries a movable panel, the thumbstick changes its distance, and a second grip resizes it. Releasing grip saves placement. The [interaction provider](../../lua/lunette-plugins/interaction/README.md) describes movement constraints.
+Grip carries a movable panel, the thumbstick changes its distance, and a second grip resizes it. Releasing grip saves placement. The [interaction provider](../../lua/lunette-plugins/interaction/pointers/README.md) describes movement constraints.
 
-Monitor capture may ask for screen-sharing permission. Monitor titlebars can restart or stop a mirror and, with portal capture, choose monitors again. A window's close button asks its application to close. See the [monitor controls](../../lua/lunette-plugins/desktop/monitors/README.md).
+Monitor capture may ask for screen-sharing permission. Monitor titlebars can restart or stop a mirror and, with portal capture, choose monitors again. A window's close button asks its application to close. See the [monitor controls](../../lua/lunette-plugins/panels/monitors/README.md).
 
-Workspaces show one configured tag at a time. The wrist menu offers configured workspace names. The [workspace plugin](../../lua/lunette-plugins/desktop/workspaces/README.md) describes selection and placement; the desktop example configures it.
+Workspaces show one configured tag at a time. The wrist menu offers configured workspace names. The [workspace plugin](../../lua/lunette-plugins/workspace/controller/README.md) describes selection and placement; the desktop example configures it.
 
 ## Themes and appearance
 
-The Appearance menu changes the theme for the current session. That choice is not saved; the `desktop/theme` settings select the starting theme. See the [theme selector](../../lua/lunette-plugins/desktop/theme/README.md), or [add a theme plugin](../plugins/writing-plugins.md#add-a-theme).
+The Appearance menu changes the theme for the current session. That choice is not saved; the `desktop/theme` settings select the starting theme. See the [theme selector](../../lua/lunette-plugins/theme/selector/README.md), or [add a theme plugin](../plugins/writing-plugins.md#add-a-theme).
 
 ## Audio backdrop
 
-The [backdrop plugin](../../lua/lunette-plugins/desktop/backdrop/README.md) can react to the system output mix and remains available without audio services. Audio capture does not change playback routing or volume. Its schema owns the options; [`examples/audio-backdrop`](../../examples/audio-backdrop) demonstrates independent audio consumers.
+The [backdrop plugin](../../lua/lunette-plugins/environment/backdrop/README.md) can react to the system output mix and remains available without audio services. Audio capture does not change playback routing or volume. Its schema owns the options; [`examples/audio-backdrop`](../../examples/audio-backdrop) demonstrates independent audio consumers.
 
 ## Pointer and panel appearance
 
-The [laser provider](../../lua/lunette-plugins/laser/README.md) configures pointer behavior. The [panels provider](../../lua/lunette-plugins/panels/README.md) configures window rendering. Their schemas define the options.
+The [laser provider](../../lua/lunette-plugins/input/laser/README.md) configures pointer behavior. The [panels provider](../../lua/lunette-plugins/panels/service/README.md) configures window rendering. Their schemas define the options.

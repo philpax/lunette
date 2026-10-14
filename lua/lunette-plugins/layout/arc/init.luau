@@ -2,8 +2,8 @@
 
 local plugin = require '@lunette-plugin'
 local layouts = require '@lunette-contracts/layouts'
-local geometry = require '@lunette-plugins/layout/arc/geometry'
-local config = require '@lunette-plugins/layout/arc/config'
+local geometry = require '@self/geometry'
+local config = require '@self/config'
 
 local arc = {}
 

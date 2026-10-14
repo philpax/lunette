@@ -3,7 +3,7 @@
 local testing = require '@testing'
 local expect = testing.expect
 local layoutsContract = require '@lunette-contracts/layouts'
-local arc = require '@lunette-plugins/layout/arc'
+local arc = require '../'
 
 local test = testing.suite()
 

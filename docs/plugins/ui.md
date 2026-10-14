@@ -1,6 +1,6 @@
 # UI panels
 
-Plugin consumers use `lunette/ui` for local VR controls without importing a provider implementation. The [UI contract](../../lua/lunette-contracts/ui.luau) owns types; the [UI provider](../../lua/lunette-plugins/ui/README.md) describes its implementation. Larger interfaces can remain Wayland applications.
+Plugin consumers use `lunette/ui` for local VR controls without importing a provider implementation. The [UI contract](../../lua/lunette-contracts/ui.luau) owns types; the [UI provider](../../lua/lunette-plugins/ui/toolkit/README.md) describes its implementation. Larger interfaces can remain Wayland applications.
 
 ## An example form
 
@@ -30,7 +30,7 @@ With `desktop/keyboard` present, field focus shows the shared keyboard without a
 
 Appearance inherits from the current theme through provider, panel, and control overrides. Omitted fields follow later changes; zero is explicit. Theme changes retain values and focus. Geometry or font changes cancel affected gestures; colors alone do not.
 
-A draw hook receives the visual snapshot and `base`; calling `base` keeps default drawing, and omitting it replaces drawing without changing hit bounds. The [UI guarantees](../../lua/lunette-contracts/panels-and-ui.md#ui-geometry) cover pass state; the [UI provider](../../lua/lunette-plugins/ui/README.md) records rendering limits.
+A draw hook receives the visual snapshot and `base`; calling `base` keeps default drawing, and omitting it replaces drawing without changing hit bounds. The [UI guarantees](../../lua/lunette-contracts/panels-and-ui.md#ui-geometry) cover pass state; the [UI provider](../../lua/lunette-plugins/ui/toolkit/README.md) records rendering limits.
 
 ## Ownership and replacement
 

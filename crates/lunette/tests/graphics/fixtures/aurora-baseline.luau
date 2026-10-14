@@ -3,7 +3,7 @@
 local testing = require '@testing'
 local aurora = require './support/aurora'
 local pixels = require './support/pixels'
-local model = require '@lunette-plugins/desktop/backdrop/model'
+local model = require '@lunette-plugins/environment/backdrop/private/rendering/model'
 local test = testing.suite()
 
 local function snapshot(features: model.Features, onset: model.Onset?): pixels.ImageData

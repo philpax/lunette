@@ -3,7 +3,7 @@
 local plugin = require '@lunette-plugin'
 local adapter = require '@lunette-plugin/adapter'
 local compose = require '@lunette-plugin/compose'
-local frame = require '@lunette-plugins/frame'
+local frame = require '@lunette-plugins/session/frame'
 local drops = require '@lunette-contracts/drops'
 local native = require '@testing/native'
 local suite = require '@testing/suite'
