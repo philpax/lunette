@@ -30,7 +30,7 @@ fn main() {
         );
     }
 
-    // These two entries cover the packaged cases. Cargo passes each string
+    // These entries cover the packaged cases. Cargo passes each string
     // to `rustc -C link-arg` with no shell involved, so the literal `$ORIGIN`
     // reaches the dynamic linker intact.
     //

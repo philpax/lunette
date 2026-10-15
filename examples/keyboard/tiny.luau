@@ -1,4 +1,4 @@
--- The provider implements the keyboard contract with three keys.
+-- The provider implements the keyboard contract.
 local plugin = require '@lunette-plugin'
 local keyboard = require '@lunette-contracts/keyboard'
 local focusContract = require '@lunette-contracts/focus'

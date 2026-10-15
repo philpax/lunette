@@ -76,7 +76,7 @@ The checker runs in strict mode. `etc/lunette/definitions.luau` declares the LÖ
 
 Test files and `lua/testing` are not checked. A test builds the windows, seats, and sources it needs as the smallest table each case requires, and the fake native API installs functions onto the `@lunette` table, while the handle types are exact. Checking tests would mean building a whole handle per case or casting each one, and both make the tests worse. A case that needs a real shape gets it from the module under test.
 
-The check catches the two defect classes static analysis exists for: a local referenced before its declaration (`Unknown global`), and an accidental global (`GlobalUsedAsLocal`).
+The check catches a local referenced before its declaration (`Unknown global`) and an accidental global (`GlobalUsedAsLocal`).
 
 ### Lua tests
 

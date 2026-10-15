@@ -17,7 +17,7 @@
 //! fourccs, so each maps to the alpha-carrying format with the same component
 //! order, and the value a client leaves in the padding byte arrives as alpha.
 //! [`Alpha::Opaque`] records the distinction. WayVR's `fourcc_to_vk`
-//! (`graphics/dmabuf.rs`) maps the same six fourccs without recording the
+//! (`graphics/dmabuf.rs`) maps the same fourccs without recording the
 //! distinction, so its X-format content renders with arbitrary transparency.
 
 use ash::vk;
@@ -49,7 +49,7 @@ pub struct FormatMapping {
 
 /// The formats lunette imports, in the order they are advertised.
 ///
-/// WayVR imports the same six fourccs. Multi-plane YUV is not imported,
+/// WayVR imports the same fourccs. Multi-plane YUV is not imported,
 /// because importing it needs a per-plane binding path the design does not
 /// have.
 pub const SUPPORTED: [FormatMapping; 6] = [

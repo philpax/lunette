@@ -1,6 +1,6 @@
 # Shipped plugins
 
-The shipped tree contains 46 independent plugin leaves in 18 responsibility categories. Categories group plugins and public libraries without activation entries. The [desktop composition](../lunette-desktop/init.luau) selects entries and startup order; configurations compose or replace leaves independently. [Plugin authoring](../../docs/plugins/writing-plugins.md), the [plugin facade](../lunette-plugin/README.md), and [service contracts](../lunette-contracts/README.md) define composition and runtime access. [Desktop configuration](../../docs/users/desktop-configuration.md) defines user workflows.
+The shipped tree contains independent plugin leaves in responsibility categories. Categories group plugins and public libraries without activation entries. The [desktop composition](../lunette-desktop/init.luau) selects entries and startup order; configurations compose or replace leaves independently. [Plugin authoring](../../docs/plugins/writing-plugins.md), the [plugin facade](../lunette-plugin/README.md), and [service contracts](../lunette-contracts/README.md) define composition and runtime access. [Desktop configuration](../../docs/users/desktop-configuration.md) defines user workflows.
 
 ## Categories
 
