@@ -38,12 +38,21 @@ typedef struct
 
 typedef struct
 {
+    char* source;
+    char* target;
+} lunette_luau_dependency;
+
+typedef struct
+{
     lunette_luau_diagnostic* diagnostics;
     size_t diagnostic_count;
     // The roots that produced a source module or parsed successfully, which
     // distinguishes checked roots from skipped roots.
     char** checked;
     size_t checked_count;
+    // Resolved imports from roots and their transitive dependencies.
+    lunette_luau_dependency* dependencies;
+    size_t dependency_count;
     // Why no check ran, or null. Diagnostics may still be present.
     char* failure;
 } lunette_luau_report;

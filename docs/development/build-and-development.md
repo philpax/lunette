@@ -24,6 +24,8 @@ The flake provides a development shell, not a package output. It prefetches Jolt
 
 Relative requires follow Luau's file-relative rules. A directory's `init.luau` names the directory module: `./` starts beside that directory, while `@self` starts inside it. The session wrapper resolves names into `package.loaded`, so source reload clears the same cache. Replacing it with Luau's separate require cache would break that agreement.
 
+The [plugin categories](../../lua/lunette-plugins/README.md) organise ownership inside the existing shipped-plugin root. They add no aliases or activation entries. Public imports target leaf entries, their configuration schemas, or declared extensions and libraries. The same boundary applies to relative imports. Entry ids in settings and patches remain unchanged when source paths move. Configurations that import moved modules use the migration mapping in the plugin guide; obsolete paths have no compatibility modules.
+
 Declaration changes belong in native registration or LÖVR metadata/generation. Regenerate and check rather than edit outputs:
 
 ```sh
@@ -76,6 +78,17 @@ The Lua integration target runs files directly under module-local `tests/` direc
 ```sh
 cargo test -p lunette --test lua
 ```
+
+### Plugin dependency checks
+
+The dependency target checks resolved production imports, including examples and development plugins, against public module boundaries. It reads the strict checker's dependency graph, using the vendored Luau parser and Navigator. The Lua and graphics suites exercise test imports; the installed-root trial loads every installed module without development roots.
+
+```sh
+cargo test -p lunette --test plugin_dependencies
+cargo test -p lunette --test luau_check
+```
+
+Workspace tests run the dependency target through `make check-test` and CI. It does not replace strict Luau typechecking. Dynamic loader use, test resolution contexts, import cycles, and Markdown validation are outside its scope; it is not a sandbox.
 
 ### Offscreen graphics tests
 

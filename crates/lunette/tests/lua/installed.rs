@@ -8,6 +8,7 @@ use std::{
 
 use libtest_mimic::Trial;
 use lunette::aliases::{DEVELOPMENT_ALIASES, INSTALLED_ALIASES, Resolution, install_manifest};
+use mlua::Function;
 use tempfile::TempDir;
 
 use crate::state::{self, Roots};
@@ -60,7 +61,34 @@ fn load(roots: &Roots) -> Result<(), Box<dyn std::error::Error>> {
 /// misses fails whichever module reaches for it.
 fn require_every_module(installation: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let lua = state::new(&Roots::of_repository(installation.to_path_buf()))?;
-    let require = lua.globals().get::<mlua::Function>("require")?;
+    let acquisitions = lua
+        .load(
+            r#"
+            assert(next(package.loaded) == nil, 'installed roots: imports are not cold')
+            local attempts = 0
+            local function reject()
+                attempts += 1
+                error('installed roots: import-time acquisition')
+            end
+            local native = package.preload['@lunette']()
+            package.preload['@testing/host'] = nil
+            for _, name in ipairs {
+                'spawn', 'openAudio', 'selectMonitors', 'claimLayer', 'newSeat', 'newOutput',
+                'onError', 'onWindowOpened', 'onWindowClosed', 'onMonitorAdded', 'onProcessExited', 'onProcessOutput',
+            } do
+                native[name] = reject
+            end
+            native.plugin.runtime = reject
+            lovr.graphics = { newMesh = reject, newShader = reject, newFont = reject, getDefaultFont = reject }
+            lovr.filesystem = { getSaveDirectory = reject, read = reject, write = reject }
+            assert(next(package.loaded) == nil, 'installed roots: instrumentation loads a module')
+            return function()
+                return attempts
+            end
+            "#,
+        )
+        .eval::<Function>()?;
+    let require = lua.globals().get::<Function>("require")?;
     for alias in INSTALLED_ALIASES
         .iter()
         .filter(|alias| alias.resolution == Resolution::Mounted)
@@ -84,6 +112,9 @@ fn require_every_module(installation: &Path) -> Result<(), Box<dyn std::error::E
                 .call::<mlua::Value>(name.as_str())
                 .map_err(|error| format!("installed roots: {name}: {error}"))?;
         }
+    }
+    if acquisitions.call::<u32>(())? != 0 {
+        return Err("installed roots: modules attempted import-time acquisitions".into());
     }
     Ok(())
 }

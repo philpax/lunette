@@ -4,9 +4,9 @@ local testing = require '@testing'
 local aurora = require './support/aurora'
 local pixels = require './support/pixels'
 local render = require './support/render'
-local shader = require '@lunette-plugins/desktop/backdrop/shader'
-local model = require '@lunette-plugins/desktop/backdrop/model'
-local config = require '@lunette-plugins/desktop/backdrop/config'
+local shader = require '@lunette-plugins/environment/backdrop/private/rendering/shader'
+local model = require '@lunette-plugins/environment/backdrop/private/rendering/model'
+local config = require '@lunette-plugins/environment/backdrop/config'
 local test = testing.suite()
 
 local ZERO: model.Features = { bass = 0, mid = 0, treble = 0, spectrum = { 0, 0, 0, 0, 0, 0, 0, 0 } }

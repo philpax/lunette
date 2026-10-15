@@ -2,6 +2,14 @@
 
 Plugins declare the services they require or provide and acquire resources during activation. The runtime starts consumers while their providers are available and ends their resources on unload. The [facade](../../lua/lunette-plugin/README.md) defines this lifecycle; [service contracts](../../lua/lunette-contracts/README.md) define behavior shared by replacement providers.
 
+## Module responsibilities and imports
+
+The native `@lunette` API supplies mechanisms. The plugin facade owns activation and effects, contracts define shared service behavior, and plugins implement policy. The desktop root composes plugins. A consumer imports a contract and obtains its service through `context:require`, rather than importing the provider's implementation.
+
+Shipped plugins live under [responsibility categories](../../lua/lunette-plugins/README.md), including providers and desktop consumers. Module paths do not determine capability names or composition entry ids: `@lunette-plugins/input/keyboard-display` has the entry id `desktop/keyboard`. Each leaf has an independent entry. Categories have no activation module.
+
+Supported author imports are a plugin's entry, its declared config module, its deliberate extensions, and exact public libraries. A neighbouring source file is not implicitly public. Private sources linked as implementation references do not become supported imports. The plugin guides define this boundary, and the [production dependency check](../../crates/lunette/tests/plugin_dependencies.rs) guards resolved source imports.
+
 ## Start a configuration
 
 Start with the [copy/check workflow](../users/desktop-configuration.md#copy-and-check-a-configuration). Local plugin modules live beside `main.luau`; relative requires resolve from the requiring file in both a session and `lunette check`. The examples below are checked repository sources, not fragments to complete.
@@ -22,7 +30,15 @@ Only one active plugin provides a capability. A service that needs several contr
 
 [`examples/first-plugin/uptime.luau`](../../examples/first-plugin/uptime.luau) derives optional `Config` and resolved `Settings` from one schema, consumes two services, and subscribes to a native event. [Configuration schemas](configuration-schema.md) covers merging and validation. Three-dimensional positions, directions, and offsets use native vectors.
 
+Shared values use [neutral contract schemas](../../lua/lunette-contracts/schemas/README.md), without importing providers or acquiring resources. Editable appearance settings use [theme configuration](../../lua/lunette-plugins/theme/configuration.luau) or [titlebar configuration](../../lua/lunette-plugins/ui/titlebar-configuration.luau) to project caller settings into stable contract values.
+
 Keep mutable state and acquisition inside `init` or `build`. Register subscriptions with `context:on`, and native resources with context effects or owner-scoped service methods. Module bodies must be safe to require again during source reload; the host has no teardown registry for resources acquired outside plugins. [Ownership and lifecycle](../../lua/lunette-plugin/ownership.md) states acquisition, partial-failure, and cleanup rules.
+
+## Shared rendering and registration
+
+Public [graphics libraries](../../lua/lunette-plugins/graphics/README.md) handle pass-state restoration, client pixels, and rounded drawing. Custom renderers still own their native resources and preserve the [rendering limits](native-api.md#windows-and-textures). Importing a drawing library does not start a provider.
+
+Providers with several contributors can use the [registration libraries](../../lua/lunette-plugins/registration/README.md) for owner-scoped listeners or named values. [Lifecycle cleanup](../../lua/lunette-plugins/lifecycle/cleanup.luau) runs every release step even when one raises. These libraries do not replace context-owned acquisition or the service's contract guarantees.
 
 ## Configure or replace an entry
 
@@ -34,19 +50,21 @@ A hook receives its normal arguments followed by `base`. Calling `base` retains 
 
 ## Extend the keyboard
 
-The [split keyboard](../../examples/keyboard/split.luau) changes layout through the existing provider. The [tiny keyboard](../../examples/keyboard/tiny.luau) replaces it and implements the [keyboard contract](../../lua/lunette-contracts/keyboard.luau). Keyboards register resources on the requesting owner's lifetime and are offered and drawn by their consumer. See the [keyboard plugin](../../lua/lunette-plugins/keyboard/README.md).
+The [split keyboard](../../examples/keyboard/split.luau) changes layout through the existing provider. The public [hook types](../../lua/lunette-plugins/input/keyboard/hooks.luau) and [legend renderer](../../lua/lunette-plugins/input/keyboard/legend.luau) support custom key handling and drawing without access to private rendering code. The [tiny keyboard](../../examples/keyboard/tiny.luau) replaces the provider and implements the [keyboard contract](../../lua/lunette-contracts/keyboard.luau). Keyboards register resources on the requesting owner's lifetime and are offered and drawn by their consumer. See the [keyboard plugin](../../lua/lunette-plugins/input/keyboard/README.md).
 
 ## Add a theme
 
-[`examples/theme`](../../examples/theme) registers a complete theme with the catalog and selects it in the desktop configuration. Registration ends with its owner. The [theme contract](../../lua/lunette-contracts/theme.luau) defines values; the [theme selector](../../lua/lunette-plugins/desktop/theme/README.md) describes runtime selection.
+[`examples/theme`](../../examples/theme) registers a complete theme with the catalog and selects it in the desktop configuration. Registration ends with its owner. The [theme contract](../../lua/lunette-contracts/theme.luau) defines values; the [theme selector](../../lua/lunette-plugins/theme/selector/README.md) describes runtime selection.
+
+The [standard entry](../../lua/lunette-plugins/theme/standard/init.luau) exposes presets for derived themes. The square [base theme](../../lua/lunette-plugins/theme/base.luau) applies when no selection is live. Editable overrides use theme configuration; validation and resolution of stable values use the neutral theme schema.
 
 ## Add a layout
 
-[`examples/layout`](../../examples/layout) registers a named layout and selects it through `desktop/arrange`. Layouts arrange caller-supplied panels without owning them. The [follow layout](../../examples/layout/follow.luau) shows repeated application.
+[`examples/layout`](../../examples/layout) registers a named layout and selects it through `desktop/arrange`. Layouts arrange caller-supplied panels without owning them. The [follow layout](../../examples/layout/follow.luau) shows repeated application. The public [arc geometry extension](../../lua/lunette-plugins/layout/arc/geometry.luau) computes angles and poses without registering a layout or acquiring panels.
 
 ## Change pointer behavior
 
-[`examples/desktop/upright.luau`](../../examples/desktop/upright.luau) extends the interaction provider's movement constraint. See the [interaction](../../lua/lunette-plugins/interaction/README.md) and [laser](../../lua/lunette-plugins/laser/README.md) plugins for hooks and pointer configuration.
+[`examples/desktop/upright.luau`](../../examples/desktop/upright.luau) extends the interaction provider's movement constraint. A custom drive hook can use public [picking and scrolling arithmetic](../../lua/lunette-plugins/interaction/picking.luau) while preserving the service's input guarantees. See the [interaction](../../lua/lunette-plugins/interaction/pointers/README.md) and [laser](../../lua/lunette-plugins/input/laser/README.md) plugins for hooks and pointer configuration.
 
 A replacement provider that carries surfaces must preserve [capture cancellation](../../lua/lunette-contracts/docs/input.md#surface-pointer-delivery) and [drop notifications](../../lua/lunette-contracts/docs/input.md#drops). The desktop uses drops to save placement.
 

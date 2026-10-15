@@ -1,7 +1,7 @@
 -- The session-global guard prevents another spawn after a source reload.
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
-local logging = require '@lunette-plugins/desktop/logging'
+local logging = require '@lunette-plugins/diagnostics/desktop-logging'
 
 local schema = require '@lunette-plugin/schema'
 

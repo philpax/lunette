@@ -1,5 +1,5 @@
 -- The constraint preserves position and yaw while removing tilt and roll.
-local interaction = require '@lunette-plugins/interaction'
+local interaction = require '@lunette-plugins/interaction/pointers'
 local vocabulary = require '@lunette-contracts/vocabulary'
 
 return function(target: vocabulary.Surface, pose: Mat4, base: interaction.ConstrainBase): Mat4

@@ -1,7 +1,7 @@
 -- The square base theme applies while no theme selection is live.
 
 local theme = require '@lunette-contracts/theme'
-local descriptors = require './descriptors'
+local descriptors = require '@lunette-contracts/schemas/theme'
 
 local base: theme.Theme = descriptors.theme.parse {
   colors = {

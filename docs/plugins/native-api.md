@@ -14,7 +14,7 @@ Acquire resources inside plugin activation and register their inverses through [
 
 Window handles preserve identity while the window lives. Per-window properties survive source reload and Lua restart, but not window closure; longer-lived data needs persistent storage.
 
-Never cache `window:getTexture()` across frames: client buffers rotate. `window:stabilize()` provides a persistent texture. Direct renderers must apply the source crop and draw child surfaces separately. Window input coordinates use client size, which can differ from texture size. The [panels provider](../../lua/lunette-plugins/panels/README.md) handles these details for consumers.
+Never cache `window:getTexture()` across frames: client buffers rotate. `window:stabilize()` provides a persistent texture. Direct renderers must apply the source crop and draw child surfaces separately. Window input coordinates use client size, which can differ from texture size. The [panels provider](../../lua/lunette-plugins/panels/service/README.md) handles these details for consumers.
 
 ## Processes and outputs
 
@@ -30,7 +30,7 @@ Retained PCM blocks remain valid after later frames and reader closure. Copying 
 
 ## Monitors
 
-Capture may require portal screen-sharing permission and has no texture before the first frame. Consumers must handle refusal, capture loss, and monitor removal. The [monitor plugin](../../lua/lunette-plugins/desktop/monitors/README.md) describes restart and reselection controls.
+Capture may require portal screen-sharing permission and has no texture before the first frame. Consumers must handle refusal, capture loss, and monitor removal. The [monitor plugin](../../lua/lunette-plugins/panels/monitors/README.md) describes restart and reselection controls.
 
 ## Pointing and typing
 
@@ -40,7 +40,7 @@ Do not mix `sink:typeText` and held-key delivery on the same seat. Use the [focu
 
 ## Composition layers
 
-A layer claim can be granted, revoked, and granted again. Read its grant and layer each frame; neither may be cached. Release the claim when its content stops being shown. The [panels provider](../../lua/lunette-plugins/panels/README.md) owns claims for its panels. Disabling scene rendering also suppresses `lovr.draw`.
+A layer claim can be granted, revoked, and granted again. Read its grant and layer each frame; neither may be cached. Release the claim when its content stops being shown. The [panels provider](../../lua/lunette-plugins/panels/service/README.md) owns claims for its panels. Disabling scene rendering also suppresses `lovr.draw`.
 
 ## Reloading
 

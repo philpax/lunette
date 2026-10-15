@@ -47,8 +47,9 @@ These conventions apply to the Lua tree under `lua/`, the example configurations
 - Use native `vector` values for three-dimensional positions, directions, and offsets. Construct them with `vector.pack`, keep `vector` fields in Config and Settings, and validate them with `schema.vector()`, which requires finite components. Vectors are immutable, so the caller keeps the value that a method such as `normalize` returns. Pass vectors to `Mat4:translate` directly, or unpack them at a scalar API boundary. Colours, two-dimensional coordinates, numeric lists, and full pose matrices keep their own representations.
 - The standard plugins use only the public `lunette` API. A missing capability is a defect in the API, not grounds for a private path.
 - Keep module responsibilities distinct. `lunette` is native mechanism, and policy is Lua, written as providers and consumers. Do not add policy to the native API or expect native mechanism from a provider. The plugin facade, contracts, plugins, and shipped desktop have separate roots, and the desktop root only composes plugins.
-- A shipped plugin lives in `lunette-plugins` whatever its role: a provider under the contract it provides, and any other plugin under its entry id. `desktop/pacing` is `@lunette-plugins/desktop/pacing`, and `desktop/persistence`, which provides `lunette/arrangement`, is `@lunette-plugins/arrangement`.
-- A helper lives beside what it describes, in a contract's vocabulary or a provider's pure module, not in a root of helpers.
+- Shipped plugins live in responsibility categories under `lunette-plugins`. Each independently configurable plugin owns a leaf directory with its entry, public configuration schema where present, and `private/` implementation. Categories have READMEs and no activation entry. Entry ids and contract ids do not determine module paths: `desktop/pacing` uses `@lunette-plugins/pacing/controller`, and `desktop/persistence` uses `@lunette-plugins/layout/persistence`.
+- A plugin can import its own private modules. Across owners, imports target entries, configuration schemas, or explicitly documented extensions and category libraries. Colocation in the same category grants no private access. Runtime service access uses contracts and `context:require`; importing a definition does not publish its service instance.
+- Shared vocabulary and value validation live in neutral contracts and `lunette-contracts/schemas`. Pure author configuration and reusable mechanisms have explicit category-library owners. They do not import plugin implementations or desktop composition, and they do not become runtime plugins. The [plugin boundary guide](lua/lunette-plugins/README.md) records supported imports and the migration from removed paths.
 - Development-only plugins live under `dev/plugins/`, and `dev/main.luau` inserts them through relative requires. They are checked and tested but not installed, and they add no shipped desktop settings or runtime aliases. `make run` selects the development configuration and the source module roots from the repository root.
 - The lunette API is available only in the main Lua state. Do not use it from `lovr.thread` or `lovr.task` states.
 - Keep a plugin's optional `Config` separate from the resolved `Settings` its implementation receives. Use `plugin.provider` or `plugin.consumer` for configured definitions, and read services explicitly through `context:require`.
@@ -75,11 +76,11 @@ The checker runs in strict mode. `etc/lunette/definitions.luau` declares the LÖ
 
 Test files and `lua/testing` are not checked. A test builds the windows, seats, and sources it needs as the smallest table each case requires, and the fake native API installs functions onto the `@lunette` table, while the handle types are exact. Checking tests would mean building a whole handle per case or casting each one, and both make the tests worse. A case that needs a real shape gets it from the module under test.
 
-The check catches the two defect classes static analysis exists for: a local referenced before its declaration (`Unknown global`), and an accidental global (`GlobalUsedAsLocal`).
+The check catches a local referenced before its declaration (`Unknown global`) and an accidental global (`GlobalUsedAsLocal`).
 
 ### Lua tests
 
-A module's tests live in a `tests` directory beside it, never among its sources: `lua/lunette-plugins/pacing/tests/pacer.luau` covers `lua/lunette-plugins/pacing/pacer.luau`. Every `.luau` file directly inside a `tests` directory is a test file. Helpers shared by test files go in `tests/support/` and are required relatively, as `require './support/fixture'`. Any other file under a `tests` directory fails discovery, so a test file placed one directory too deep is reported rather than silently skipped. Scaffolding used by tests in more than one place goes in `lua/testing`, the development-only `@testing` root, and nowhere else.
+A module's tests live in a `tests` directory beside it, never among its sources: `lua/lunette-plugins/pacing/service/tests/pacer.luau` covers `lua/lunette-plugins/pacing/service/private/pacer.luau`. Every `.luau` file directly inside a `tests` directory is a test file. Helpers shared by test files go in `tests/support/` and are required relatively, as `require './support/fixture'`. Any other file under a `tests` directory fails discovery, so a test file placed one directory too deep is reported rather than silently skipped. Scaffolding used by tests in more than one place goes in `lua/testing`, the development-only `@testing` root, and nowhere else.
 
 A test file returns a suite of named cases:
 
@@ -96,6 +97,8 @@ return test
 ```
 
 `crates/lunette/tests/lua/` runs the Lua integration suites under `lua/` and `dev/`. [Build and development](docs/development/build-and-development.md#lua-tests) describes the runner. Neither the tests nor `lua/testing` are installed.
+
+`cargo test -p lunette --test plugin_dependencies` checks resolved production imports against the public module boundaries. It reuses the strict checker's Luau parser and Navigator, including examples and development plugins. Workspace tests include this target through `make check-test` and CI. Tests and runner scaffolding are outside this static dependency check; their imports are exercised by the Lua and graphics suites. The check does not validate dynamic loaders, import cycles, or Markdown. Supported boundaries still apply to all callers.
 
 ### The module roots
 

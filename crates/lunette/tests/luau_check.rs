@@ -93,6 +93,24 @@ fn invalid_lovr_configuration_is_rejected() {
 fn require_navigation() {
     let report = check(vec![fixture("luau_check/navigation/main.luau")]);
     assert!(report.diagnostics.is_empty(), "{:#?}", report.diagnostics);
+    for (source, target) in [
+        ("main.luau", "tools/init.luau"),
+        ("target/module.luau", "dependencies/dependency.luau"),
+        ("tools/init.luau", "tools/helper.luau"),
+    ] {
+        let source = fixture(&format!("luau_check/navigation/{source}"));
+        let target = fixture(&format!("luau_check/navigation/{target}"));
+        assert!(
+            report.dependencies.iter().any(|edge| {
+                edge.source.canonicalize().expect("source path")
+                    == source.canonicalize().expect("fixture source")
+                    && edge.target.canonicalize().expect("target path")
+                        == target.canonicalize().expect("fixture target")
+            }),
+            "missing {source:?} -> {target:?}: {:?}",
+            report.dependencies
+        );
+    }
     assert_rejections("luau_check/navigation/ambiguous.luau");
     assert_rejections("luau_check/navigation/target/invalid.luau");
 }
@@ -118,7 +136,7 @@ fn installed_configuration_checks() {
         "local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local keyboard = require '@lunette-contracts/keyboard'
-local laser = require '@lunette-plugins/laser'
+local laser = require '@lunette-plugins/input/laser'
 local desktop = require '@lunette-desktop'
 return { lunette, plugin, keyboard, laser, desktop }
 ",

@@ -24,7 +24,7 @@ Defect fixes cover Luau loader registration, configuration without a main file, 
 
 Pipelines belong to the shader specialization that creates them. Clones share GPU shader backing but retain separate caches. Release removes CPU cache entries and defers native destruction until submitted work completes. The upstream address-keyed global cache can select stale pipelines after address reuse and accumulate entries across released lifetimes. This is an upstream defect, not lunette policy.
 
-Native lifetime tests and real offscreen rendering check retirement and reacquisition. They do not establish headset presentation. [Backdrop rendering](../../../lua/lunette-plugins/desktop/backdrop/README.md) owns its remaining visual acceptance.
+Native lifetime tests and real offscreen rendering check retirement and reacquisition. They do not establish headset presentation. [Backdrop rendering](../../../lua/lunette-plugins/environment/backdrop/README.md) owns its remaining visual acceptance.
 
 ## Backend selection
 

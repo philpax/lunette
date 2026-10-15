@@ -1,5 +1,5 @@
 local testing = require '@testing'
-local diagnostics = require '../init'
+local diagnostics = require '../'
 local readout = require '../readout'
 local history = require '../history'
 local audio = require '@lunette-contracts/audio'

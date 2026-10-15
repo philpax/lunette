@@ -211,7 +211,7 @@ impl HostSinks for NoHostSinks {
 
 /// The host's name for a button the Lua surface named.
 ///
-/// The two enumerations carry the same five buttons.
+/// The enumerations carry the same buttons.
 #[must_use]
 pub const fn host_button(button: PointerButton) -> HostButton {
     match button {

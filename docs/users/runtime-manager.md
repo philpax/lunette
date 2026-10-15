@@ -20,4 +20,4 @@ A cleanup failure quarantines the entry. Restarting the session releases its ret
 
 Manager changes last only for the session. It writes no configuration or source files and installs no packages. Configuration reload starts from the entry list in `main.luau`; lasting changes belong in the [desktop configuration](desktop-configuration.md).
 
-The [manager plugin](../../lua/lunette-plugins/desktop/manager/README.md) and its [schema](../../lua/lunette-plugins/desktop/manager/config.luau) describe startup settings. Plugin developers starting another composition use [the managed start path](../../lua/lunette-plugin/configuration-and-composition.md#start-and-manage-a-session).
+The [manager plugin](../../lua/lunette-plugins/session/plugin-manager/README.md) and its [schema](../../lua/lunette-plugins/session/plugin-manager/config.luau) describe startup settings. Plugin developers starting another composition use [the managed start path](../../lua/lunette-plugin/configuration-and-composition.md#start-and-manage-a-session).

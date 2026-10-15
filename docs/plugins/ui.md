@@ -1,6 +1,6 @@
 # UI panels
 
-Plugin consumers use `lunette/ui` for local VR controls without importing a provider implementation. The [UI contract](../../lua/lunette-contracts/ui.luau) owns types; the [UI provider](../../lua/lunette-plugins/ui/README.md) describes its implementation. Larger interfaces can remain Wayland applications.
+Plugin consumers use `lunette/ui` for local VR controls without importing a provider implementation. The [UI contract](../../lua/lunette-contracts/ui.luau) owns types; the [UI provider](../../lua/lunette-plugins/ui/toolkit/README.md) describes its implementation. Larger interfaces can remain Wayland applications.
 
 ## An example form
 
@@ -18,6 +18,8 @@ Hiding, resizing, or changing a control's bounds cancels held gestures without a
 
 A titlebar's close callback decides whether to hide or destroy the panel; the titlebar does neither automatically. Consumers draw externally attached titlebars themselves. [Joined frames](../../lua/lunette-contracts/panels-and-ui.md#joined-frames) defines attachment lifetime and eligible surfaces.
 
+Plugins exposing editable titlebar settings use public [titlebar configuration](../../lua/lunette-plugins/ui/titlebar-configuration.luau) to project them into stable overrides. The neutral [titlebar schema](../../lua/lunette-contracts/schemas/titlebar-style.luau) validates contract values without creating fonts or importing the UI provider.
+
 ## Text fields
 
 Text fields accept valid single-line UTF-8 and edit whole grapheme clusters. Setting a value does not call `onChange`. Callback errors are reported but do not undo edits. Text shaping, bidirectional editing, and input-method composition are unsupported.
@@ -30,7 +32,7 @@ With `desktop/keyboard` present, field focus shows the shared keyboard without a
 
 Appearance inherits from the current theme through provider, panel, and control overrides. Omitted fields follow later changes; zero is explicit. Theme changes retain values and focus. Geometry or font changes cancel affected gestures; colors alone do not.
 
-A draw hook receives the visual snapshot and `base`; calling `base` keeps default drawing, and omitting it replaces drawing without changing hit bounds. The [UI guarantees](../../lua/lunette-contracts/panels-and-ui.md#ui-geometry) cover pass state; the [UI provider](../../lua/lunette-plugins/ui/README.md) records rendering limits.
+A draw hook receives the visual snapshot and `base`; calling `base` keeps default drawing, and omitting it replaces drawing without changing hit bounds. The [UI guarantees](../../lua/lunette-contracts/panels-and-ui.md#ui-geometry) cover pass state; the [UI provider](../../lua/lunette-plugins/ui/toolkit/README.md) records rendering limits.
 
 ## Ownership and replacement
 

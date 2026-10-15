@@ -4,8 +4,8 @@ local testing = require '@testing'
 local aurora = require './support/aurora'
 local pixels = require './support/pixels'
 local render = require './support/render'
-local drawing = require '@lunette-plugins/theme/drawing'
-local geometry = require '@lunette-plugins/theme/rounded-geometry'
+local drawing = require '@lunette-plugins/graphics/rounded-drawing'
+local geometry = require '@lunette-plugins/graphics/rounded-geometry'
 local test = testing.suite()
 local expect = testing.expect
 

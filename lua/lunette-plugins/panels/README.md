@@ -1,7 +1,5 @@
 # Panels
 
-Creates window and monitor panels. The [desktop renderer](../desktop/render/README.md) draws them and offers pointer surfaces. Custom source renderers are responsible for their own window child surfaces.
+Panels separates source-backed creation, rendering, titlebars, and monitor selection. [Service](service/README.md) creates window and monitor panels; [renderer](renderer/README.md) updates and draws them, optionally offering pointer surfaces. A created panel needs consumers to draw or receive pointer input. [Decorations](decorations/README.md) adds VR grab and close controls independently of client titlebars. [Monitors](monitors/README.md) mirrors selected host monitors without moving existing mirrors as new ones appear.
 
-Popups clip to the window panel and cannot receive pointer input outside it. Windows with visible child surfaces render in the scene instead of a composition layer. Granted layers remain rectangular and cannot be seen from behind; scene-rendered panels remain visible from behind.
-
-[Options](config.luau) · [Panel contract](../../lunette-contracts/panels-and-ui.md) · [Shared rendering limits](../../../docs/development/native/rendering.md)
+The [panels contract](../../lunette-contracts/panels.luau) defines access, and [panel and UI guarantees](../../lunette-contracts/panels-and-ui.md) define clipping and rendering limits. Consumers use the [surfaces](../../lunette-contracts/surfaces.luau), [UI](../../lunette-contracts/ui.luau), and [tags](../../lunette-contracts/tags.luau) contracts. [Monitor and titlebar workflows](../../../docs/users/desktop-configuration.md#windows-monitors-and-workspaces) define session controls. [Shipped plugins](../README.md) defines public imports.

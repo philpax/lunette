@@ -1,21 +1,82 @@
 -- Composition configures entries by id, checks options during load, and supports provider replacement and plugin insertion.
 local testing = require '@testing'
 local vrUi = require '@testing/vr-ui'
+local builtinEntries = require '@testing/builtin-entries'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
 local adapter = require '@lunette-plugin/adapter'
 local desktop = require '@lunette-desktop'
 local settings = require '@lunette-desktop/settings'
 local compose = require '@lunette-plugin/compose'
-local laserModule = require '@lunette-plugins/laser'
+local laserModule = require '@lunette-plugins/input/laser'
 local frameContract = require '@lunette-contracts/frame'
 
 local test = testing.suite()
 
 test('settings cover entries with options and shipped empty schemas', function()
+  local expected = {
+    'frame',
+    'theme',
+    'themes',
+    'theme/standard',
+    'theme/arcade',
+    'surfaces',
+    'panels',
+    'drops',
+    'focus',
+    'bindings',
+    'interaction',
+    'laser',
+    'keyboard',
+    'ui',
+    'menu',
+    'desktop/theme',
+    'tags',
+    'rules',
+    'placement',
+    'adoption',
+    'layouts',
+    'layout/arc',
+    'errors',
+    'pacing',
+    'scale',
+    'audio',
+    'audio-analysis',
+    'desktop/render',
+    'desktop/hint',
+    'desktop/decorations',
+    'desktop/pointing',
+    'desktop/input',
+    'desktop/keyboard',
+    'desktop/menu',
+    'desktop/actions',
+    'desktop/errors',
+    'desktop/workspaces',
+    'desktop/monitors',
+    'desktop/rules',
+    'desktop/persistence',
+    'desktop/arrange',
+    'desktop/adoption',
+    'desktop/pacing',
+    'desktop/scale',
+    'desktop/backdrop',
+    'desktop/manager',
+  }
+  local entries = desktop.compose()
+  expect.equal(#entries, #expected, 'the shipped entry count')
   local fields = settings.schema.inspect().fields
-  for _, entry in ipairs(desktop.compose()) do
-    local node = compose.resolveEntry(entry).definition.schema
+  local factories = { ['desktop/theme'] = true, ['desktop/persistence'] = true, ['desktop/arrange'] = true }
+  for index, entry in ipairs(entries) do
+    expect.equal(entry.id, expected[index], 'the shipped entry at position ' .. index)
+    expect.equal(builtinEntries[entry.id], entry.definition, 'the registered definition of ' .. entry.id)
+    local resolved = compose.resolveEntry(entry)
+    expect.equal(resolved.definition.name, entry.id, 'the definition name of ' .. entry.id)
+    expect.equal(type(entry.definition) == 'function', factories[entry.id] == true, 'the factory of ' .. entry.id)
+    if factories[entry.id] then
+      local fresh = compose.resolveEntry { id = entry.id, definition = builtinEntries[entry.id] }
+      expect.falsy(rawequal(fresh.definition, resolved.definition), 'a fresh factory definition of ' .. entry.id)
+    end
+    local node = resolved.definition.schema
     while node and (node.kind == 'default' or node.kind == 'refine') do
       node = node.child
     end
@@ -23,6 +84,11 @@ test('settings cover entries with options and shipped empty schemas', function()
     local hasSetting = hasOptions == true or entry.id == 'audio' or entry.id == 'audio-analysis'
     expect.equal(fields[entry.id] ~= nil, hasSetting, 'the setting of ' .. entry.id)
   end
+  local registered = 0
+  for _ in builtinEntries do
+    registered += 1
+  end
+  expect.equal(registered, #expected, 'the registered entry count')
 end)
 
 test('malformed options raise as the configuration loads, before callbacks bind', function()
@@ -43,6 +109,15 @@ test('malformed options raise as the configuration loads, before callbacks bind'
 end)
 
 test('a patch replaces a built-in definition, and an inserted plugin draws', function()
+  expect.raises(function()
+    testing.start { 'environment/backdrop' }
+  end, 'testing session: unknown built%-in entry id environment/backdrop')
+  local builtinSession = testing.boot { 'frame', 'theme', 'surfaces', 'panels', 'desktop/render' }
+  expect.equal(builtinSession.instances['desktop/render']:state(), 'active', 'a string id with a different module path')
+  builtinSession:update()
+  builtinSession:draw()
+  builtinSession:close()
+
   local drawn = 0
   local replacement = laserModule.define { name = 'replacement-laser', style = { length = 2.5 } }
   local overlay = adapter.define {

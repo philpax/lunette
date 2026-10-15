@@ -176,6 +176,7 @@ struct Collector
 {
     std::vector<Diagnostic> diagnostics;
     std::vector<std::string> checked;
+    std::set<std::pair<std::string, std::string>> dependencies;
 
     void add(int kind, const std::string& module, const Luau::Location& location, const std::string& message)
     {
@@ -281,6 +282,19 @@ lunette_luau_report* finish(const Collector& collected, const std::string* failu
         report->checked_count = collected.checked.size();
         for (size_t index = 0; index < report->checked_count; ++index)
             report->checked[index] = copy(collected.checked[index]).release();
+    }
+
+    if (!collected.dependencies.empty())
+    {
+        report->dependencies = std::make_unique<lunette_luau_dependency[]>(collected.dependencies.size()).release();
+        report->dependency_count = collected.dependencies.size();
+        size_t index = 0;
+        for (const auto& [source, target] : collected.dependencies)
+        {
+            auto& dependency = report->dependencies[index++];
+            dependency.source = copy(source).release();
+            dependency.target = copy(target).release();
+        }
     }
 
     if (failure != nullptr)
@@ -571,6 +585,10 @@ lunette_luau_report* check_within(const lunette_luau_request* request)
             collected.addChecked(root);
     }
 
+    for (const auto& [source, node] : frontend.sourceNodes)
+        for (const auto& [target, location] : node->requireLocations)
+            collected.dependencies.emplace(source, target);
+
     return finish(collected);
 }
 
@@ -831,6 +849,13 @@ void lunette_luau_report_free(lunette_luau_report* report)
     for (size_t index = 0; index < report->checked_count; ++index)
         delete[] report->checked[index];
     delete[] report->checked;
+
+    for (size_t index = 0; index < report->dependency_count; ++index)
+    {
+        delete[] report->dependencies[index].source;
+        delete[] report->dependencies[index].target;
+    }
+    delete[] report->dependencies;
 
     delete[] report->failure;
     delete report;

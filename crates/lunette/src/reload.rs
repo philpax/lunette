@@ -402,8 +402,8 @@ mod tests {
         run(
             &lua,
             "package.loaded['lovr.headset'] = { name = 'headset' }
-             package.loaded['@lunette-plugins/arrangement'] = { n = 1 }
-             package.loaded['@lunette-plugins/arrangement/format'] = { n = 1 }
+             package.loaded['@lunette-plugins/layout/persistence'] = { n = 1 }
+             package.loaded['@lunette-plugins/layout/persistence/private/format'] = { n = 1 }
              package.loaded.mylayout = { n = 1 }
              package.loaded['@lunette'] = { n = 1 }",
         );
@@ -423,8 +423,8 @@ mod tests {
             );
         }
         for name in [
-            "@lunette-plugins/arrangement",
-            "@lunette-plugins/arrangement/format",
+            "@lunette-plugins/layout/persistence",
+            "@lunette-plugins/layout/persistence/private/format",
             "mylayout",
             "@lunette",
         ] {

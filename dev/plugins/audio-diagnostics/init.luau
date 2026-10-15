@@ -4,7 +4,7 @@ local schema = require '@lunette-plugin/schema'
 local frame = require '@lunette-contracts/frame'
 local audio = require '@lunette-contracts/audio'
 local analysis = require '@lunette-contracts/audio-analysis'
-local logging = require '@lunette-plugins/desktop/logging'
+local logging = require '@lunette-plugins/diagnostics/desktop-logging'
 local readout = require '@self/readout'
 local history = require '@self/history'
 

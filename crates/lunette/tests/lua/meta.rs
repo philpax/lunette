@@ -27,16 +27,22 @@ pub fn trials(roots: &Roots) -> Vec<Trial> {
 
 fn classification() -> Result<(), Failed> {
     let cases = [
-        ("lunette-plugins/pacing/tests/pacer.luau", Kind::Test),
         (
-            "lunette-plugins/arrangement/tests/support/fixture.luau",
+            "lunette-plugins/pacing/service/tests/pacer.luau",
+            Kind::Test,
+        ),
+        (
+            "lunette-plugins/layout/persistence/tests/support/fixture.luau",
             Kind::Support,
         ),
         (
-            "lunette-plugins/arrangement/tests/nested/case.luau",
+            "lunette-plugins/layout/persistence/tests/nested/case.luau",
             Kind::Stray,
         ),
-        ("lunette-plugins/arrangement/tests/notes.txt", Kind::Stray),
+        (
+            "lunette-plugins/layout/persistence/tests/notes.txt",
+            Kind::Stray,
+        ),
     ];
     for (path, wanted) in cases {
         let found = discover::classify(Path::new(path));
