@@ -117,20 +117,54 @@ Each spike answers a question that would change the design if the answer were ne
 4. Layout binding. A tree over taffy's low-level API accepts batched changes and returns flat layout arrays with composed positions, including for descendants of moved nodes whose layout was cached, with native text measurement. A scripted layout written in Lua sizes itself from its children through a context that re-enters the computation through mlua's scoped userdata, and places absolutely positioned descendants as their containing block. The spike measures the cost of a commit that changes one text node in a 1,000-node tree, the cost of a scripted layout under taffy's repeated sizing passes, and the nesting depth that Luau's call limits allow.
 5. Hand tracking. `getHandPose` and `getSkeleton` drive a poke point, a pinch ray, and a grab sphere in a headset session, with the fingertip proxy. The spike confirms that they, and controller haptics, work in an XR_EXTX_overlay session on the maintainer's runtime, which #24 verifies first; records how the hand source switches between controller and hand modes, with and without XR_EXT_hand_tracking_data_source; and sets the pinch thresholds and the near-touch gaps against measured jitter. It needs a headset and a runtime that supports hand tracking, so it runs on the maintainer's setup. The interactor model can be built against fake XR before it runs.
 
-## Phases
+## Stages
 
-1. Interaction. Sources with modes, interactors with open shapes including the grab sphere and the optional controller poke, the interaction pass, surface queries with hit records and shapes, arbitration, the `pick` registrations and proximity query, manipulation sessions, the event vocabulary including context actions, modifiers, and world-space data, capture and its cancellation reasons, near-touch rules, pinch thresholds, drag sessions, the trigger lock and filter generalised from the laser to every ray, the focus contract revision, and the input mode service. The laser and hand-pointer plugins become interactor providers, and window panels keep working through the ray path. Tracked hands and the mouse cursor ray are added here. This phase comes first because the toolkit is its main consumer, and designing it separately would mean designing it twice.
-2. Native layout and text. The layout tree, scripted layout callbacks, the text module, the glyph and image atlases, SVG rasterisation, instance packing, the clipboard's native selection API, and their Rust tests.
-3. Host. The element format and mount points, panels, presentations, portals and dialogs, the node tree and spatial model, composite expansion, the kind, kind override, and visual registries, default appearance, the toolkit shader and drawing API with bound parameters, draw order and group opacity, hit testing, routing and gesture claims, focus and traversal with the engage mode, animation channels, feedback and the fingertip proxy, and inspection.
-4. Authoring library. Elements, components, the hook set, context, stores, scheduling, error handling, and the outlet adapter, with component tests.
-5. Standard components. The standard kinds entry and the components plugin, with the full kind set listed in [Requirements](requirements.md#capabilities). Each kind has kind tests and an offscreen rendering test of its default visual.
-6. Migration of consumers, in the order below, and the recovery plugin.
-7. Removal of the `lunette/ui` contract, its provider, and its tests, once no consumer requires it.
+The work proceeds in stages. Each stage ends at a checkpoint that the hardware-free checks verify, so most of the work can proceed and be verified without a headset or a window. The first release is the end of stage 9, which meets #54's done-when.
 
-Two vertical slices run through phases 2 to 5 before any phase is complete:
+### Verification without hardware
+
+Three layers of checks need no headset and no window:
+
+- Lua tests run the real host, kinds, authoring library, and native layout and text binding in the Lua test runner, with bundled fonts and a stepped clock. Layout calculations, text measurement, routing, gesture resolution, focus traversal, and inspection are verified there.
+- Offscreen graphics tests in `make check-graphics` render panels through real LÖVR with the lavapipe software Vulkan driver and read back pixels. They verify the toolkit shader. A snapshot harness in the same suite renders a panel, such as a page of the widget gallery, to a PNG file at a chosen pose and scale, so a contributor or an agent can look at the result and compare it against a reference.
+- Interaction tests drive fake XR sessions, including fake hand poses, through `@testing/vr-ui`.
+
+The desktop simulator runs the real session without an XR runtime, with the mouse as the interactor, for checking by hand on a desktop. Tracked hands are implemented against fake XR and verified in a headset when one with hand tracking is available.
+
+### The widget gallery
+
+A development plugin, `dev/plugins/ui-gallery`, shows every standard kind and composite on pages grouped by family: display, actions, choices, values, collections, structure, and overlays. Each page shows the kind's states, such as hovered, pressed, focused, disabled with a reason, and invalid, and a page of combined layouts shows how the kinds fit together. Controls on the gallery switch the theme, density, presentation, curvature, reduced motion, text scale, and default appearance. The development configuration loads it, it is not shipped, and the snapshot harness renders each page, so the gallery is also the visual regression fixture.
+
+### Stages to the first release
+
+0. Harness. The snapshot harness, the gallery's skeleton, and the test helpers that later stages use. Checkpoint: a blank gallery page renders to a PNG offscreen.
+1. Native layout and text. The layout tree over taffy's low-level API, scripted layout callbacks, the text module with cosmic-text, the glyph atlas with msdfgen, and their Rust and Lua tests. This stage absorbs spikes 3 and 4. Checkpoint: Lua tests lay out and measure nested flex, grid, and text through the real binding.
+2. Shader and drawing. The toolkit shader, the drawing API, instance packing, clipping, curvature with content mapped through chords, draw order, and group opacity. This stage absorbs spike 1. Checkpoint: pixel tests for each rendering rule, and snapshot PNGs of boxes and text on flat and curved surfaces.
+3. Interaction pass for rays. The interaction service's single pass, hit records, gesture claims, capture and cancellation reasons, and the event vocabulary, with the controller laser and the mouse as interactor providers. Window panels keep working through the ray path. Checkpoint: interaction tests with fake controllers and the existing window panel tests pass.
+4. Host core and authoring. The element format, mount points, panels and the standard presentations, the node tree and spatial model for `flow` and `scripted` placement, composite expansion, kind and visual registries, routing, focus and traversal, inspection, and the React-like library. Checkpoint: component tests mount trees, route events, and traverse focus.
+5. First kinds and the backdrop slice. The standard kinds entry with text, box containers, button, toggle, slider with detents, segmented control, and list rows, the components plugin, the backdrop controls migrated, and the gallery's first pages. Checkpoint: the backdrop controls work in the desktop simulator and in their VR tests, and gallery snapshots render.
+6. The rest of the widget set. Every remaining kind in [Requirements](requirements.md#capabilities), portals, dialogs, notifications, virtualisation, motion and feedback, the clipboard, and default appearance, each added to the gallery. Checkpoint: kind tests and gallery snapshots for every kind.
+7. Tracked hands, speculatively. Poke, pinch, and grab-sphere interactors, near touch, the fingertip proxy, and pinch thresholds, implemented against fake XR with the documented starting values. Checkpoint: interaction tests with fake hands. Spike 5 and tuning happen later, in a headset.
+8. Consumers. The UI example, the wrist menu on `lunette/menu` version 2, titlebars and decorations, the errors overlay and hint, the recovery plugin, the virtual keyboard on `lunette/focus` version 3, and the plugin manager port, with the manager slice built early in this stage. Checkpoint: every consumer's VR tests address nodes by id.
+9. Removal. The `lunette/ui` contract, its provider, and its tests are removed. Checkpoint: #54's done-when, with tracked hands verified under fake XR.
+
+### After the first release
+
+These parts of the design are specified but not needed for the first release, and follow it:
+
+- The `posed` and `attach` placements, meshes, registered shapes beyond the flat plane and the cylinder, and orientation constraints.
+- Manipulation sessions beyond panel grab, node-level `manipulate` claims, and the policy that #47 defines.
+- Drag sessions across panels and the bridge to Wayland drags.
+- The Markdown composite, the image atlas, and SVG icons beyond what the wrist menu needs.
+- Headset tuning of the hand interactors, the near-touch gaps, and the fingertip proxy, and a full hand mesh.
+- The redesigns in #43 and #20.
+
+### Vertical slices
+
+Two vertical slices run through stages 1 to 5 before the host contract is frozen:
 
 - The backdrop controls, built through a minimal host, a few kinds, the authoring library, the shader, and taffy, with controller and mouse input. They are the smallest real consumer that exercises layout, text, a toggle, a slider with detents, a list, a disabled reason, and a store.
-- A plugin manager slice: the graph canvas as a kind with items, and a dense virtualised list of settings rows with a form editor. It exercises transforms, gesture claims, items, virtualised items as components, a scripted layout, and focus traversal at the manager's scale before the host contract is frozen, rather than at the end of the migration.
+- A plugin manager slice, at the start of stage 8 or earlier: the graph canvas as a kind with items, and a dense virtualised list of settings rows with a form editor. It exercises transforms, gesture claims, items, virtualised items as components, a scripted layout, and focus traversal at the manager's scale.
 
 ## Migration order
 
