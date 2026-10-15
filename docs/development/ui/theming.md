@@ -42,8 +42,8 @@ Components and kinds refer to tokens by name. A theme change that changes a size
 | Guidance | Ray and mouse | Touch |
 |---|---|---|
 | Microsoft Mixed Reality | At least 1 degree, stated at 2 m, which is 35 mm there | 2 degrees at 45 cm, which is about 16 mm |
-| Meta Horizon OS hand interaction | A minimum collider size of 2.5 to 3 degrees, 44 to 52 mm at 1 m | Same angular range |
-| Android XR | 48 dp minimum and 56 dp recommended, about 42 and 49 mm at 1 m | Same |
+| Meta Horizon OS hand interaction | Roughly 2.5 to 3 degrees, 44 to 52 mm at 1 m | Same angular range |
+| Android XR | 56 dp recommended, about 49 mm at 1 m, around a 48 dp visual affordance | Same |
 | Apple visionOS | 60 points including padding. Points have no fixed physical size, so the figure is not converted | Same |
 
 The default control heights are 36 mm for the compact density and 48 mm for the comfortable density.
@@ -65,7 +65,7 @@ The default type scale at scale 1:
 | `headline` | 22 mm | Large headings |
 | `code` | 11 mm, monospace | Identifiers, paths, and diagnostic text |
 
-The sizes are authored for a presentation's nominal viewing distance of 1 metre. Body text at 12 mm subtends about 0.7 degrees there. Microsoft gives 0.6 to 0.75 degrees as comfortable at 2 metres and 0.65 to 0.8 degrees at 45 centimetres, so body text is comfortable across that range. No role is smaller than 9 mm, about 0.5 degrees at 1 metre, which is at or above Microsoft's minimum legible size at both distances, 0.35 to 0.4 degrees at 2 metres and 0.4 to 0.5 degrees at 45 centimetres, and keeps distance field glyphs clear of their small-size artefacts. The minimum is angular: 0.5 degrees at the presentation's nominal viewing distance, after the accessibility text scale and the presentation scale. The host clamps every resolved text size to it when it resolves styles, and world panels keep their angular size as they move, so text stays legible at any distance.
+The sizes are authored for a presentation's nominal viewing distance of 1 metre. Body text at 12 mm subtends about 0.7 degrees there. Microsoft gives 0.6 to 0.75 degrees as comfortable at 2 metres and 0.65 to 0.8 degrees at 45 centimetres, so body text is comfortable across that range. No role is smaller than 9 mm, about 0.5 degrees at 1 metre, which is at or above Microsoft's minimum legible size at both distances, 0.35 to 0.4 degrees at 2 metres and 0.4 to 0.5 degrees at 45 centimetres, and keeps distance field glyphs clear of their small-size artefacts. The minimum is angular: 0.5 degrees at the presentation's nominal viewing distance, after the accessibility text scale and the presentation scale. The host clamps every resolved text size to it when it resolves styles. A world panel moved far beyond its nominal distance keeps its physical size by default, so its text shrinks in the field of view; a presentation that keeps its angular size avoids that, as [Presentations](presentations.md#pose-policies) describes.
 
 Light and thin weights are avoided at small sizes, because thin strokes vibrate in a headset. A theme uses at most two families: a UI family and a monospace family.
 
@@ -86,10 +86,10 @@ Elevation separates elements in depth. The default values at scale 1:
 | `base` | 0 mm | Panel body and flat content |
 | `raised` | 3 mm above the parent | Buttons, toggles, and other controls |
 | `card` | 6 mm above the parent | Grouped content within a panel |
-| `popover` | 24 mm above the opener | Dropdown menus, context menus, and tooltips |
+| `popover` | 28 mm above the opener | Dropdown menus, context menus, and tooltips |
 | `dialog` | 48 mm in front of its parent panel where it is shown over it | Modal dialogs |
 
-The minimum separation between distinct elevations is 0.5 mm, and a node's own content draws 0.1 mm above its surface. Press travel is 2.5 mm, so a pressed raised control moves down to the minimum separation above the panel surface without becoming coplanar with it, and touch activation at 2 mm happens before the travel runs out. Hover lift is 1 mm. The popover and dialog values follow Android XR's elevations of 32 dp and 56 dp. The control values follow StereoKit, whose controls have 10 mm of depth and activate at half of it, reduced because a desktop-density panel has many more controls than a StereoKit window.
+The minimum separation between distinct elevations is 0.5 mm, and a node's own content draws 0.25 mm above its surface. Press travel is 2.5 mm, so a pressed raised control moves down to the minimum separation above the panel surface without becoming coplanar with it, and touch activation at 2 mm happens before the travel runs out. Hover lift is 1 mm. The popover and dialog values follow Android XR's elevations of 32 dp and 56 dp, about 28 mm and 49 mm. The control values follow StereoKit, whose controls have 10 mm of depth and activate at half of it, reduced because a desktop-density panel has many more controls than a StereoKit window.
 
 Elevation is a stereo depth cue and replaces drop shadows, which read weakly in a headset. Content inside a scroll box is raised at most to `raised`, as [Rendering](rendering.md#depth) explains.
 

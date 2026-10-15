@@ -55,7 +55,7 @@ The example shows the properties the model is chosen for. Conditional content is
 
 ## Mounting
 
-`ui.mount(panel, element, options)` binds the panel's root mount point, renders the element, and commits the result before it returns, so the panel's content size and its inspection records are available at once. A mount requested during a commit or an event dispatch, such as from an effect or a callback, is queued to the end of the current step, and its handle reports when it is committed. `options.components` provides the standard constructors to every component in the tree through `ui.useComponents()`, so components can be declared at module level and do not thread services through props. `ui.mount` returns a mount handle whose `unmount` method removes the tree before the panel ends. A panel holds at most one mounted tree.
+`ui.mount(panel, element, options)` binds the panel's root mount point and schedules the element's first render. The render is committed at the next commit, never inside the call, so mounting behaves the same during activation, during an event dispatch, and from an effect. The mount handle's `committed` callback runs after the first commit, for a consumer that needs the panel's content size or inspection records at once.
 
 ## Elements and children
 
@@ -65,7 +65,7 @@ The children type is a read-only indexer, `ui.Children = { read [number]: ui.Chi
 
 `key` identifies an element among its siblings. Elements in an array returned by `ui.map` require keys, and the library raises when one is missing or duplicated. Other children are keyed by position when they have no key, and because `nil` holds its position, a positional key is stable while the component's structure is. A key also forms the element's id for inspection and tests, as [Testing](testing.md#ids-and-inspection) describes, so anything a test or a caller addresses has an explicit key.
 
-Each kind's constructor is typed. Its props type is `schema.Props` of the kind's props schema, which makes every field read-only, so a component can pass a narrower table, and adds the children indexer. Token-valued props accept a token name or a number, and the checker rejects a wrong value type. The checker does not reject a misspelt prop name, because Luau allows extra fields when it matches table types. The host therefore rejects unknown props on every commit, so a misspelt `onchange` raises rather than being dropped.
+Each kind's constructor is typed. Its props type is `Props` of the kind's props schema, from `ui-host.luau`, which makes every field read-only, so a component can pass a narrower table, and adds `key`, `ref`, and the children indexer. Token-valued props accept a token name or a number. The checker rejects a wrong value type and a misspelt prop name, because the children indexer only accepts numeric keys. The host also rejects unknown props on every commit, so an element built without the types is checked too.
 
 ## Components
 

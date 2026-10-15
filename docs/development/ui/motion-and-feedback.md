@@ -10,7 +10,7 @@ The host advances animations by the frame service's predicted display time, not 
 
 A node has animation channels:
 
-- `transform`: translation, rotation, and scale, as [Spatial model](spatial-model.md#node-poses) defines. Hit testing follows it.
+- `transform`: the user transform's translation, rotation, and scale, as [Spatial model](spatial-model.md#composition) defines. Hit testing follows it. Layout transitions animate the separate layout transform, which only the host writes.
 - `size`: an animated size that the box shader draws, with fixed corner radii and border widths, so a growing box keeps its shape. Children keep their own sizes.
 - `opacity`, multiplied through descendants, as [Rendering](rendering.md#opacity) describes.
 - `elevation`: an offset added to the node's elevation. Hover lift and press travel use it.
@@ -51,7 +51,7 @@ An owner that unloads and a panel that is destroyed remove nodes immediately, wi
 
 ## Layout transitions
 
-A node with `layoutTransition` animates from its previous rectangle to its new one after each relayout. Its position animates through the `transform` channel and its size through the `size` channel, so text and corners are never stretched. A container that grows reveals its children through its animated clip. Layout itself stays exact. While a transition runs, the node is hit at both its drawn and its final rectangle, so a press lands on the node whichever the user aims at.
+A node with `layoutTransition` animates from its previous rectangle to its new one after each relayout. Its position animates through its layout transform and its size through the `size` channel, so text and corners are never stretched, and a transition never fights a user transform such as a drag. A container that grows reveals its children through its animated clip. Layout itself stays exact. Hit testing during a transition follows the rule in [Spatial model](spatial-model.md#hit-volumes).
 
 Reordered rows slide to their new places, an expanding section grows, and a content-sized panel animates its size change rather than jumping, which matters in VR, where a panel edge that jumps several centimetres at arm's length is conspicuous.
 
@@ -64,7 +64,7 @@ A scroll box owns its physics state:
 - Optional snap points, such as page boundaries or item starts, catch the content as it settles.
 - Thumbstick scrolling is smoothed, so the content does not move in steps.
 
-The resting offset is clamped to the content, and the transient offset is not, so overscroll is possible.
+The resting offset is clamped to the content, and the transient offset is not, so overscroll is possible. Scroll physics advances before picking, as [Architecture](architecture.md#data-flow) describes, so a list is hit where it is drawn during a fling.
 
 ## Feedback
 
@@ -85,14 +85,25 @@ The dispatcher:
 
 - Plays haptic patterns as sequences of pulses on the source's controller, because LÖVR's `vibrate` plays a single pulse, and scales continuous events with their progress.
 - Plays sounds at the node's position through the audio service, so they are spatialised.
-- Rate-limits ambient events per source. Confirmation events are never dropped: a new one cuts off the previous one's pattern and plays, so every keystroke on the virtual keyboard is acknowledged.
+- Rate-limits ambient events per source.
+- Never drops the first confirmation event in a burst, so every keystroke on the virtual keyboard is acknowledged. Identical confirmation events from one source in one frame coalesce into one, and `detent` has a minimum interval, so sweeping a slider across many detents gives distinct ticks rather than a continuous buzz. A new confirmation cuts off the previous one's haptic pattern.
+- Gives every confirmation event its visual cue, even when its haptic or sound coalesced.
 - Resolves feedback per modality. A bare hand has no actuator, so its tokens give visual cues for every event and sounds for contact and confirmation events only, not for hover.
 - Gives every confirmation event a visual cue, and, with the accessibility setting for visual alternatives, gives every sound a visual equivalent.
 - Honours the accessibility settings for haptics and sound.
 
+## Fingertip proxy
+
+lunette runs as an overlay session and cannot occlude the user's real hand against its panels, so the hand disappears behind a panel before it touches it. lunette therefore draws a fingertip proxy for each poke point as part of the standard interaction response:
+
+- A small marker at the fingertip, which the near-touch clamp holds at the visual surface from first contact until the unclamp depth, as [Input](input.md#near-touch) describes.
+- A contact shadow and a proximity ring on the surface beneath the fingertip, bound to the panel's interactor values, which grow and sharpen as the fingertip approaches and show contact on targets that have no press travel.
+
+A full hand mesh is an open question, to be assessed with hand tracking on real hardware.
+
 ## Cursors and rays
 
-The cursor for a ray is a ring at the hit point with a constant angular size. It draws a small fixed distance along the hit normal and after the panel's opaque content, so it never fights the depth of the face it sits on. The select ring is smaller than the hover ring, in the proportion that Meta's raycasting specification uses, and it shrinks as selection progresses. The ring sizes and proportions are theme tokens. A kind can set a cursor hint, such as text, grab, or snap to the node's bounds, which the interaction service uses to shape the cursor. The ray's visual follows arbitration, so a ray that near-beats-far has disabled is hidden.
+The cursor for a ray is a ring at the hit point with a constant angular size. Hits are taken at the face as drawn, including hover lift and press travel, and the cursor draws a small fixed distance along the hit normal from that face, after the panel's opaque content, so it never hides under a lifted face or fights the depth of the face it sits on. The select ring is smaller than the hover ring, in the proportion that Meta's raycasting specification uses, and it shrinks as selection progresses. The ring sizes and proportions are theme tokens. A kind can set a cursor hint, such as text, grab, or snap to the node's bounds, which the interaction service uses to shape the cursor. The ray's visual follows arbitration, so a ray that near-beats-far has disabled is hidden.
 
 ## Reduced motion
 

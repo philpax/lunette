@@ -6,26 +6,28 @@ A presentation places, scales, and summons a panel, and selects the interaction 
 
 A presentation is a registered value, not a closed set of names. A registration declares:
 
-- A name, unique among live presentations, so configuration can refer to it.
+- A name, namespaced like kind names, such as `lunette/wrist` or `example/palm-menu`, and unique among live presentations, so configuration can refer to it.
 - A pose source: an anchor, as [Spatial model](spatial-model.md#anchors) defines, or a function or store that returns a pose each frame, with constraints such as a distance band, lazy following with a threshold, or billboarding.
-- A visibility rule, such as hiding a wrist panel when its hand is not tracked, or showing a hand menu only while the palm faces the user.
+- A visibility rule, such as hiding a wrist panel when its hand is not tracked, or showing a hand menu while the palm faces the user. A visibility rule has a grace period at least as long as the tracking grace period, so a finger that briefly occludes the wrist from the headset's cameras while poking the wrist menu does not hide it.
 - A scale, which multiplies the panel's authored size, and a nominal viewing distance, which the minimum text size is measured at. [Theming](theming.md#units) explains how scale relates to viewing distance.
 - A density, which selects token variants for target sizes, as [Density](#density) describes.
 - The interactors it accepts, and whether points can touch it.
 - Whether showing the panel takes session focus.
 - Whether the user can grab, move, resize, and curve the panel.
 
-`host:registerPresentation(context, registration)` registers a presentation and returns it. The standard presentations register through the same call and are available as `host.presentations`:
+`host:registerPresentation(context, registration)` registers a presentation and returns it. Configuration names presentations, and a name that is not registered is reported when a panel uses it, rather than failing activation. When a panel's presentation ends, because its owner unloads or fails, the panel moves to `lunette/summoned` and the host reports it, so the wrist menu does not vanish with a faulty third-party presentation. The standard presentations register through the same call and are available as `host.presentations`, under the `lunette/` names:
 
 | Presentation | Pose source | Typical interactors | Examples |
 |---|---|---|---|
-| `world` | A world pose, moved by the user. Moving the panel further away scales it up, so it keeps its angular size | Rays and mouse; touch when within reach | Plugin manager, backdrop controls, UI example |
-| `wrist` | The forearm of the configured hand, hidden when it is not tracked | Touch from the other hand; rays | Wrist menu |
+| `world` | A world pose, moved by the user | Rays and mouse; touch when within reach | Plugin manager, backdrop controls, UI example |
+| `wrist` | The forearm of the configured hand, hidden when it is not tracked. A palm-up variant shows an affordance when the palm faces the user, and a pinch on it confirms | Touch from the other hand; rays | Wrist menu |
 | `summoned` | In front of the head when shown, then fixed in the world until dismissed | Rays, mouse, and keyboard | Wrist menu in mouse and keyboard mode, quick launcher |
 | `attached` | Relative to another panel, sharing its surface shape | Inherited from the parent panel | Titlebars, window decorations, toolbars, orbiters |
 | `anchored` | Relative to a node in another panel, positioned as described in [Portals and overlays](#portals-and-overlays) | Inherited from the opener's panel | Dropdown menus, tooltips, context menus |
 | `follow` | Lazily following the head within a band at the edge of the view, without taking focus | Rays and mouse | Toasts |
 | `dialog` | In front of the head when shown, like `summoned`, keeping its logical parent | Rays, mouse, keyboard, and touch when within reach | Dialogs and confirmations |
+
+A world panel keeps its physical size by default as the user moves it, because #47 and #8 treat moving and scaling as separate operations. A presentation can opt into keeping its angular size instead, in which case its scale is the larger of 1 and its distance divided by its nominal viewing distance, so a panel brought within reach never shrinks below its authored size.
 
 A third-party plugin registers its own presentations, such as a palm-up hand menu, a near menu that tags along, or a dock on a curved shelf, and they compose with the rest of the toolkit in the same way.
 
@@ -57,7 +59,7 @@ An overlay is positioned in the manner of Wayland's `xdg_positioner`:
 - An offset.
 - Constraint adjustment: when the overlay would leave its constraint region, it flips to the opposite side, slides along the edge, or shrinks and scrolls, in that order of preference.
 
-The constraint region is the comfortable field of view and reach for world and summoned panels, and the parent panel's bounds for overlays that must stay within it, such as a tooltip on a dense panel.
+The constraint region is the comfortable field of view and reach for world and summoned panels; the space beside the wrist, away from the hand, for wrist panels; and the parent panel's bounds for overlays that must stay within it, such as a tooltip on a dense panel. With the accessibility handedness setting, overlays prefer the side away from the pointing hand.
 
 An overlay inherits its parent panel's surface shape: the same axis and centre, at the overlay's elevation. Its elevation is relative to the opener node: popovers, menus, and tooltips at the `popover` value above the opener. On a presentation that accepts touch, an overlay opens beside its opener at the `card` value instead, because an overlay raised towards the user would rise into the hover zone of the finger that opened it. Tooltips do not answer hit queries, so they never block what is behind them.
 
@@ -65,7 +67,7 @@ The host offers an overlay's surface to the interaction service in the commit th
 
 ### Capture handoff
 
-A press on an opener, such as a dropdown button, can open its overlay while the press is still held. The host then transfers the interactor's capture from the opener to the overlay, so the user can drag onto an item and release to choose it, as with desktop menus. Releasing over the opener without moving leaves the overlay open for a separate click. The interaction service's rule that a pressed surface keeps its capture until release has this one exception, which the portal requests. A capture handed to an overlay is exempt from the gesture claims of the opener's ancestors, so a press-drag-release menu inside a scroll box does not scroll the box.
+A press on an opener, such as a dropdown button, can open its overlay while the press is still held. The host then transfers the interactor's capture from the opener to the overlay, so the user can drag onto an item and release to choose it, as with desktop menus. Releasing over the opener without moving leaves the overlay open for a separate click. The interaction service's rule that a pressed surface keeps its capture until release has this one exception, which the portal requests. Gesture claims follow the physical path within the hit panel, so a press-drag-release menu inside a scroll box does not scroll the box. Handoff applies to ray interactors only. A touch press opens the overlay on release, because a fingertip pressed into the opener is behind the overlay and would reach its items from behind.
 
 ### Dismissal
 
@@ -80,13 +82,13 @@ A capture inside a dismissed overlay ends with `cancel` and the reason `hidden`.
 
 ### Focus
 
-An overlay shares its opener's session focus target, so it does not register its own. Opening an overlay through traversal or the keyboard moves focus into it, and closing it returns focus to the opener. Opening it through a pointer leaves focus where it was. A search field with a suggestions overlay keeps focus in the field, while arrows move the active item in the overlay.
+An overlay other than a dialog shares its opener's session focus target, so it does not register its own. Opening an overlay through traversal or the keyboard moves focus into it, and closing it returns focus to the opener. Opening it through a pointer leaves focus where it was. A search field with a suggestions overlay keeps focus in the field, while arrows move the active item in the overlay.
 
 ### Modality
 
-A dialog is a portal with the `dialog` presentation. It keeps its logical parent for context and events, but its placement does not depend on its opener, so it is not dismissed when its opener is hidden: a confirmation opened from the wrist menu stays when the wrist turns away.
+A dialog is opened by handle, `host:openDialog(owner, element, { parent, modality })`, rather than by rendering it inside its opener's subtree. It keeps a logical parent for context and events, but its lifetime belongs to its owner and its handle, so it survives the context menu item, the virtualised row, or the wrist panel it was opened from: a "Remove plugin?" confirmation stays when the context menu that offered it closes, and a confirmation opened from the wrist menu stays when the wrist turns away. A dialog has the `dialog` presentation and registers its own session focus target, so it keeps keyboard input and traversal while its opener is hidden. Closing it returns focus to the target that held it before.
 
-A dialog is modal. While it is open, interactors cannot press nodes in its parent panel, and traversal stays inside the dialog. A dialog can instead be session-modal, which blocks every other unprotected toolkit panel; the confirmation of session-level actions uses it. Window panels and protected panels stay interactive under a session-modal dialog. Session modality and the `dialog` elevation are available only to portals opened by the standard dialog kind.
+A dialog is modal. While it is open, interactors cannot press nodes in its parent panel, and traversal stays inside the dialog. A dialog can instead be session-modal, which blocks every other toolkit panel; the confirmation of session-level actions uses it. Window panels, the default-appearance chord, and the recovery plugin stay usable under a session-modal dialog, and a session-modal dialog can always be dismissed.
 
 ### Ids
 
@@ -94,9 +96,9 @@ A node inside a portal has an id under its logical parent's path, as [Testing](t
 
 ## Notifications
 
-The notifications service, `lunette/notifications`, reports transient events to the user, such as a launch that failed or a mirror that became available. A plugin posts a notification with a severity, a title, an optional body, optional actions such as Retry, an optional timeout, and whether it persists until acknowledged. The service returns a handle to update or withdraw it. Notifications belong to the posting owner and are withdrawn when it unloads.
+The notifications service, `lunette/notifications`, reports transient events to the user, such as a launch that failed or a mirror that became available. A plugin posts a notification with a severity, a title, an optional body, optional actions such as Retry, an optional progress that is determinate or indeterminate, an optional cancel action, an optional timeout, and whether it persists until acknowledged. The service returns a handle to update or withdraw it, so a launch shows "Launching" with progress and Cancel, then becomes a failure with Retry or disappears. Notifications belong to the posting owner and are withdrawn when it unloads. A plugin with no panel of its own asks the user a question through `notifications:prompt`, which the service presents as a dialog with the plugin's name, and which resolves to the user's choice.
 
-The service shows notifications as toasts on the `follow` presentation, stacked and rate-limited, and keeps a history panel that the wrist menu opens. Toasts never take focus, and they accept rays only on themselves. A toast's timeout pauses while it is hovered and is multiplied by the accessibility timing setting. Every toast's actions are also available from the history panel, which takes focus normally, so they are reachable through focus traversal. The errors overlay remains a diagnostic surface for plugin errors. It is not the place for events that the user is expected to act on.
+The service shows notifications as toasts on the `follow` presentation, stacked, with excess notifications queued rather than dropped, and keeps a history panel that the wrist menu opens. Toasts never take focus, and they accept rays only on themselves. A toast's timeout pauses while it is hovered and is multiplied by the accessibility timing setting. Every toast's actions are also available from the history panel, which takes focus normally, so they are reachable through focus traversal. The errors overlay remains a diagnostic surface for plugin errors. It is not the place for events that the user is expected to act on.
 
 ## World panels and arrangement
 
@@ -106,9 +108,9 @@ World panels take part in the session's panel management. They are surfaces that
 
 The input mode service publishes the active input modes as a store: controllers, tracked hands, and mouse and keyboard, and any mode that a plugin's source registers, such as a head pointer or switch access. More than one mode can be active, such as tracked hands with a mouse. The service derives modes from tracking state and recent input, with hysteresis, so a single movement of the mouse during a poke does not switch modes.
 
-A consumer chooses presentations per mode. The default desktop configuration mounts the wrist menu's component on the `wrist` presentation while a hand or controller is tracked, and shows the same tree on the `summoned` presentation in mouse and keyboard mode. A controller binding and a palm-up gesture on either hand also summon it. When only one hand or one controller is present, the summon places the menu on the `summoned` presentation, operated by that hand's ray, rather than on a wrist that the same hand would have to touch. The choice of presentation is desktop policy, so a configuration can change it.
+A consumer chooses presentations per mode. The default desktop configuration mounts the wrist menu's component on the `wrist` presentation while a hand or controller is tracked, and shows the same tree on the `summoned` presentation in mouse and keyboard mode. A controller binding and a palm-up gesture on either hand also summon it. In one-handed mode, which the accessibility settings set, or which the session enters after the other hand has been absent for several seconds, the summon places the menu on the `summoned` presentation, operated by that hand's ray, rather than on a wrist that the same hand would have to touch. The choice of presentation is desktop policy, so a configuration can change it.
 
-A panel moves between presentations with its tree mounted, so component state, scroll positions, caret positions, and partly typed text survive. A panel does not change presentation or density while an interactor holds a capture in it; the change waits until the capture ends. A panel that its presentation hides releases session focus, so a hidden wrist panel never keeps the keyboard.
+A panel moves between presentations with its tree mounted, so component state, scroll positions, caret positions, and partly typed text survive. A panel does not change presentation or density while an interactor holds a capture in it; the change waits until the capture ends. A panel that its presentation hides releases session focus, and the host restores the focus target that held it before, as [Input](input.md#focus) describes, so a hidden wrist panel never keeps the keyboard.
 
 ## Adapting content
 

@@ -41,12 +41,14 @@ The documents use these terms consistently.
 - An interactor is one input mechanism of a source: a controller ray, a fingertip poke point, a pinch ray, a grab sphere, or a mouse cursor ray.
 - A semantic event is a modality-independent event that the host delivers to nodes, such as hover, press, activate, drag, scroll, and focus changes.
 - A gesture claim is a node's declaration that it consumes a kind of drag or scroll, used to decide which node a gesture belongs to.
+- Default appearance is a session-wide switch that renders every panel with the standard kinds, visuals, and base theme, ignoring overrides, as a way back from an extension that breaks the interface.
 - A token is a named theme value, such as a spacing step, a type style, a colour role, an elevation level, or a motion role.
 
 ## Decisions in brief
 
 - Plugin authors write React-like function components. A reconciler turns their output into host elements. Transient interaction state lives in nodes and never causes a component to render. [Authoring](authoring.md) records the comparison with signals and immediate mode.
 - The host owns the element format, the node tree, composite expansion, layout, drawing, hit testing, routing, focus, portals, and inspection. Element kinds, visuals, and authoring frameworks are layers above it, and the standard widgets register through the same public path as third-party widgets. [Extension](extension.md) describes each layer.
+- No part of the interface is closed to extension. Recovery from a broken extension is default appearance, reachable by a controller chord, and a recovery plugin that works without the toolkit, rather than restrictions on what can be overridden.
 - Every node is positioned in the coordinates of its surface root and either bends onto the surface or keeps a rigid frame of its own. Flat and cylindrical sheets are the common case of that model, not its limit. [Spatial model](spatial-model.md) defines it.
 - Layout uses the `taffy` crate's low-level API through a batched native binding, so custom layouts written in Lua take part in intrinsic sizing. Text is shaped, wrapped, and measured natively, and glyphs are drawn from a distance field atlas that the text module owns. [Layout and text](layout-and-text.md) describes both.
 - Panels draw directly in the scene with real depth, in tree order. One toolkit shader clips, rounds, maps onto the surface shape, offsets by elevation, and evaluates parameters bound to animation and to nearby interactors. Panels do not render to offscreen textures and do not claim composition layers. [Rendering](rendering.md) records the reasons.

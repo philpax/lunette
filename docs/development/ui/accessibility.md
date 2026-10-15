@@ -11,13 +11,14 @@ The accessibility service, `lunette/accessibility`, publishes the session's sett
 | Reduced motion | Every motion role uses its substitute, as [Motion and feedback](motion-and-feedback.md#reduced-motion) describes, including following, scroll inertia, and overscroll |
 | Text scale | Multiplies every typography role's size. Fixed-size panels scroll or wrap their content rather than clipping it |
 | High contrast | Selects the theme's high-contrast token variant |
+| One-handed mode | Places summoned content on the `summoned` presentation, operated by the present hand's ray, rather than on a wrist |
 | Handedness | Selects the hand for the wrist presentation, the default hand for one-handed bindings and traversal, and the side overlays open towards, away from the pointing hand |
 | Timing | Multiplies hold, long-press, tooltip, and toast durations |
 | Haptics and sounds | Turn haptic and sound feedback off independently |
 | Visual alternatives | Show the visual equivalent of every sound |
 | Body profile | Eye height, seated or standing, and reach, which presentations use to place panels |
 
-The settings are edited in a settings panel that the wrist menu and the plugin manager open, so they are reachable in VR. A text scale change relayouts every panel, and the minimum text size applies to the scaled size at the presentation's nominal viewing distance.
+The settings are edited in a settings panel that the wrist menu and the plugin manager open, so they are reachable in VR. The accessibility service persists the settings itself, in a versioned settings file that it reads at startup and writes on change, preserving fields it does not recognise, so a setting changed in VR survives a restart without editing the configuration. Default appearance keeps every accessibility setting, because the settings are not overrides. A text scale change relayouts every panel, and the minimum text size applies to the scaled size at the presentation's nominal viewing distance.
 
 ## Roles and semantics
 
@@ -31,7 +32,7 @@ A two-handed gesture is never the only path to an action:
 
 - Panel scaling with two hands has a one-handed alternative through the resize frame.
 - A canvas that zooms with two hands also zooms with the thumbstick, the wheel, or zoom controls.
-- The wrist menu opens from a controller binding or a palm-up gesture on either hand, as well as from the other hand's touch. With only one hand present, it opens on the `summoned` presentation, operated by that hand's ray.
+- The wrist menu opens from a controller binding or a palm-up gesture on either hand, as well as from the other hand's touch. In one-handed mode, it opens on the `summoned` presentation, operated by the present hand's ray.
 - Every action reachable by pointing is also reachable through focus traversal on one controller, as [Input](input.md#focus-traversal) lists.
 
 ## Colour and contrast

@@ -78,26 +78,32 @@ The normative documents state each of these decisions with its reason: [README](
 
 Services that the migrated consumers read publish observable stores, so that components update on change rather than by polling. The composition service is the first, because the plugin manager polls it. The backdrop service, the theme service, and the panels service follow as their consumers migrate. The #45 catalog and creation-request contracts publish their state and request progress as stores from the start. The read-only store type lives in the neutral contract vocabulary.
 
-The menu broker contract needs a revision before the wrist menu migrates: an action gains a disabled reason, an icon, and a detail line, and the broker publishes its actions as a store rather than through `onChanged`.
+Contract revisions:
 
-New services that the toolkit depends on:
+- `lunette/menu` version 2, before the wrist menu migrates. An action gains a disabled reason, an icon, a detail line, and a selection kind of none, toggle, or radio, and its label, reason, and icon can change through its state. The broker publishes its actions as a store rather than through `onChanged`, and records each action's contributing plugin.
+- `lunette/focus` version 3. Targets receive held keys with key-up, keys are released on route loss, the focus service repeats held keys from virtual sources only, targets carry an input hint, and text is mapped with a session keymap that does not depend on a `lunette.Seat`. The frame service dispatches key releases.
+- The interaction contract: one interaction pass per frame owned by the interaction service, with `beforePick` and `afterDelivery` hooks; owner-scoped `pick` registrations and the proximity query; the outside-press observer; manipulation sessions; surface shapes in metres on every surface; the extended set of cancellation reasons; and a pinch press state with hysteresis.
+- The frame service: a draw phase after the opaque content of the scene, for faded panels.
+- The plugin runtime's protection rule: providers that a protected entry depends on can be reloaded and reconfigured at runtime, but not disabled. The runtime records the last configuration under which the toolkit's entries activated and stayed healthy.
 
-- The accessibility settings service, `lunette/accessibility`, with its settings panel and event stream.
+New services and plugins:
+
+- The standard kinds entry, `ui/standard`, providing `lunette/ui-standard-kinds`.
+- The accessibility settings service, `lunette/accessibility`, with its settings panel, its own persisted settings file, and its event stream.
 - The input mode service, `lunette/input-modes`.
-- The notifications service, `lunette/notifications`, with a history panel.
-- The clipboard service, `lunette/clipboard`, which is platform-neutral, with a Wayland backend that bridges to the Wayland selection. #27 verifies that bridge.
-- The recovery plugin, `diagnostics/recovery`, which does not depend on the toolkit.
-
-Contract additions that the toolkit depends on:
-
-- The interaction service's `beforePick` and `afterDelivery` hooks, the owner-scoped `pick` registrations, the proximity query, and the outside-press observer.
-- A hook at the frame service's input batch boundary, before key, text, and binding handlers run.
+- The notifications service, `lunette/notifications`, with progress, prompts, and a history panel.
+- The clipboard service, `lunette/clipboard`, which is platform-neutral, with a Wayland backend. #27 verifies the underlying bridge.
+- The recovery plugin, `diagnostics/recovery`, which does not depend on the toolkit and is a protected entry in `lua/lunette-desktop/init.luau`.
 
 Native additions:
 
-- The layout tree over taffy's low-level API, the text module, the glyph atlas, and instance packing.
-- A link directive for `libmsdfgen` in `crates/lunette-lovr/build.rs`, and an entry for it in the install manifest.
+- The layout tree over taffy's low-level API, the text module, the glyph atlas, the image atlas, and instance packing, with their release in the restart ordering before the Lua state closes.
+- Native read and offer of the compositor's selection for the clipboard service's Wayland backend. The same compositor-originated data source is the open question for bridging drag sessions to Wayland drags.
+- A request to restart the session into the compiled-in safe mode.
+- A link directive for `libmsdfgen` in `crates/lunette-lovr/build.rs`. The library is already installed with LÖVR.
 - resvg for SVG rasterisation, and a Markdown parser such as pulldown-cmark for the Markdown composite. Both are new dependencies, pinned exactly.
+- A maximum for panel curvature in the panels service, which today validates only that the curve is not negative.
+- The `getHandPose` declaration's metadata, which must state the zero result for an unavailable pose.
 
 #64 enables Luau optimisation level 2 and native code generation. The toolkit does not depend on it. With layout in Rust, the toolkit's Lua hot paths are the reconciler, visual runs, hit testing, gesture resolution, and layout callbacks, and #64's measurements inform how much of that work needs attention.
 
@@ -105,67 +111,68 @@ Native additions:
 
 Each spike answers a question that would change the design if the answer were negative. Spikes are throwaway code on the feature branch. Their results are recorded in the design document the question belongs to, and their code is deleted or rewritten before it merges.
 
-1. Toolkit shader. A LÖVR custom shader draws instanced boxes and glyph quads from per-instance data, with clipping by a rounded rectangle with a depth range, elevation, the flat and cylinder shapes selected by shape id, and bound parameters read from a per-node buffer and a per-panel interactor uniform. The spike confirms that text drawn at the content offset never fights its box at 1 to 3 metres, at oblique angles, and on a cylinder with `curve = 4`, with glyphs subdivided like boxes; that alpha to coverage gives clean edges with the session's 4x multisampling; that a two-pass group opacity fade looks correct in stereo; and that the result passes an offscreen pixel test. `Pass:mesh` with an instance count, `InstanceIndex`, and buffers bound with `Pass:send` exist, so no fork patch is expected. `Pass:mesh` takes no first-instance argument, which is why each primitive class has its own buffer.
-2. Draw cost. A synthetic tree of about 1,000 nodes, the size of the plugin manager's settings pages with headroom, draws and scrolls every frame in a session, with instance data packed in Rust. The spike records CPU frame time, upload size, and draw calls in four cases: several panels idle with hands tracked, a ray sweeping across panels, a scroll every frame, and a slider drag that re-renders a component every frame. A cost that does not fit the frame budget changes the batching or hit-testing design before any kind is written.
-3. Text. cosmic-text shapes and wraps text, skrifa supplies outlines by glyph id, and msdfgen, linked directly as `libmsdfgen`, rasterises them into a paged atlas that LÖVR samples. The spike compares the result with LÖVR's own text at small sizes, compares msdfgen with a Rust distance field crate, measures the font database's startup cost, and checks the per-frame glyph budget with a burst of new glyphs. A negative result reopens the fork-patch alternative in [Layout and text](layout-and-text.md#glyph-rendering).
-4. Layout binding. A tree over taffy's low-level API, with rounding disabled, accepts batched changes and returns flat layout arrays with composed positions, with native text measurement. A custom layout written in Lua sizes itself from its children through a context that re-enters the computation through mlua's scoped userdata. The spike measures the cost of a commit that changes one text node in a 1,000-node tree, and the cost of a custom layout under taffy's repeated sizing passes.
-5. Hand tracking. `getHandPose` and `getSkeleton` drive a poke point, a pinch ray, and a grab sphere in a headset session. The spike confirms that they, and controller haptics, work in an XR_EXTX_overlay session on the maintainer's runtime, settles the `controllerskeleton` setting, records how the hand source switches between controller and hand modes, and sets the pinch thresholds. It needs a headset and a runtime that supports hand tracking, so it runs on the maintainer's setup. The interactor model can be built against fake XR before it runs.
+1. Toolkit shader. A LÖVR custom shader draws instanced boxes and glyph quads from per-instance data, with clipping by a rounded rectangle with a depth range, elevation, the flat and cylinder shapes selected by shape id, content mapped through its box's chords, and bound parameters read from a per-node buffer and a per-panel interactor uniform. The spike confirms that text at the 0.25 mm content offset never fights its box at 1 to 3 metres, at oblique angles, on the D24 fallback, and on a cylinder at the maximum curvature; that a hovered raised button keeps its label inside a scroll box; that alpha to coverage gives clean edges with the session's 4x multisampling; that a two-pass group opacity fade with text looks correct in stereo; that clipping rigid content through a shape's inverse works; and that the result passes an offscreen pixel test.
+2. Draw cost. A synthetic tree of about 1,000 nodes, the size of the plugin manager's settings pages with headroom, draws and scrolls every frame in a session, with instance data packed in Rust. The spike records CPU frame time, upload size, and draw calls in four cases: several panels idle with hands tracked, a ray sweeping across panels, a fling through a virtualised list, and a slider drag that re-renders a component every frame. A cost that does not fit the frame budget changes the batching or hit-testing design before any kind is written.
+3. Text. cosmic-text shapes and wraps text, skrifa supplies outlines by glyph id, and msdfgen, linked directly as `libmsdfgen`, rasterises them into a paged atlas that LÖVR samples. The spike compares the result with LÖVR's own text at small sizes, compares msdfgen with a Rust distance field crate, measures the font database's startup cost, checks the per-frame glyph budget with a burst of new glyphs, and checks that the atlas survives a restart of the Lua state without validation errors.
+4. Layout binding. A tree over taffy's low-level API accepts batched changes and returns flat layout arrays with composed positions, including for descendants of moved nodes whose layout was cached, with native text measurement. A scripted layout written in Lua sizes itself from its children through a context that re-enters the computation through mlua's scoped userdata, and places absolutely positioned descendants as their containing block. The spike measures the cost of a commit that changes one text node in a 1,000-node tree, the cost of a scripted layout under taffy's repeated sizing passes, and the nesting depth that Luau's call limits allow.
+5. Hand tracking. `getHandPose` and `getSkeleton` drive a poke point, a pinch ray, and a grab sphere in a headset session, with the fingertip proxy. The spike confirms that they, and controller haptics, work in an XR_EXTX_overlay session on the maintainer's runtime, which #24 verifies first; records how the hand source switches between controller and hand modes, with and without XR_EXT_hand_tracking_data_source; and sets the pinch thresholds and the near-touch gaps against measured jitter. It needs a headset and a runtime that supports hand tracking, so it runs on the maintainer's setup. The interactor model can be built against fake XR before it runs.
 
 ## Phases
 
-1. Interaction. Sources with modes, interactors with open shapes including the grab sphere, surface queries with hit records, arbitration, the `pick` registrations and proximity query, the ordering hooks, the event vocabulary including context actions, modifiers, and world-space data, capture and its cancellation reasons, near-touch rules, pinch thresholds, drag sessions, the trigger lock and filter generalised from the laser to every ray, and the input mode service, in the interaction contracts. The laser and hand-pointer plugins move onto interactors, and window panels keep working through the ray path. Tracked hands and the mouse cursor ray are added here. This phase comes first because the toolkit is its main consumer, and designing it separately would mean designing it twice.
-2. Native layout and text. The layout tree, custom layout callbacks, the text module, the glyph atlas, SVG rasterisation, instance packing, and their Rust tests.
-3. Host. The element format and mount points, panels, presentations, portals, the node tree and spatial model, composite expansion, the kind, kind override, and visual registries, protected panels, the toolkit shader and drawing API with bound parameters, draw order and group opacity, hit testing, routing and gesture claims, focus and traversal, animation channels, feedback, and inspection.
+1. Interaction. Sources with modes, interactors with open shapes including the grab sphere and the optional controller poke, the interaction pass, surface queries with hit records and shapes, arbitration, the `pick` registrations and proximity query, manipulation sessions, the event vocabulary including context actions, modifiers, and world-space data, capture and its cancellation reasons, near-touch rules, pinch thresholds, drag sessions, the trigger lock and filter generalised from the laser to every ray, the focus contract revision, and the input mode service. The laser and hand-pointer plugins become interactor providers, and window panels keep working through the ray path. Tracked hands and the mouse cursor ray are added here. This phase comes first because the toolkit is its main consumer, and designing it separately would mean designing it twice.
+2. Native layout and text. The layout tree, scripted layout callbacks, the text module, the glyph and image atlases, SVG rasterisation, instance packing, the clipboard's native selection API, and their Rust tests.
+3. Host. The element format and mount points, panels, presentations, portals and dialogs, the node tree and spatial model, composite expansion, the kind, kind override, and visual registries, default appearance, the toolkit shader and drawing API with bound parameters, draw order and group opacity, hit testing, routing and gesture claims, focus and traversal with the engage mode, animation channels, feedback and the fingertip proxy, and inspection.
 4. Authoring library. Elements, components, the hook set, context, stores, scheduling, error handling, and the outlet adapter, with component tests.
-5. Standard components. The full kind set listed in [Requirements](requirements.md#capabilities). Each kind has kind tests and an offscreen rendering test of its default visual.
+5. Standard components. The standard kinds entry and the components plugin, with the full kind set listed in [Requirements](requirements.md#capabilities). Each kind has kind tests and an offscreen rendering test of its default visual.
 6. Migration of consumers, in the order below, and the recovery plugin.
 7. Removal of the `lunette/ui` contract, its provider, and its tests, once no consumer requires it.
 
 Two vertical slices run through phases 2 to 5 before any phase is complete:
 
 - The backdrop controls, built through a minimal host, a few kinds, the authoring library, the shader, and taffy, with controller and mouse input. They are the smallest real consumer that exercises layout, text, a toggle, a slider with detents, a list, a disabled reason, and a store.
-- A plugin manager slice: the graph canvas as a kind with items, and a dense virtualised list of settings rows with a form editor. It exercises transforms, gesture claims, items, virtualised items as components, a custom layout, and focus traversal at the manager's scale before the host contract is frozen, rather than at the end of the migration.
+- A plugin manager slice: the graph canvas as a kind with items, and a dense virtualised list of settings rows with a form editor. It exercises transforms, gesture claims, items, virtualised items as components, a scripted layout, and focus traversal at the manager's scale before the host contract is frozen, rather than at the end of the migration.
 
 ## Migration order
 
 1. Backdrop controls, as the first vertical slice. Response and Motion become sliders with detents at the existing preset values, which needs #60's statement about dropdowns updated first. The preset picker that #60 adds goes into the same panel once #60 lands.
 2. The UI example and its guide, [`docs/plugins/ui.md`](../../plugins/ui.md), which become the reference for plugin authors.
-3. Wrist menu, with the wrist and summoned presentations and their one-handed summon bindings, rendering the revised broker's data and catalog data. The redesign in #20 builds on this.
+3. Wrist menu, with the wrist and summoned presentations, their one-handed summon bindings, and a default-appearance entry, rendering the revised broker's data and catalog data. The redesign in #20 builds on this.
 4. Titlebars, window decorations, and the window title that `draw.chrome` draws, as attached presentations that share their panels' surface shapes. Grab handles, resize and scale frames, and curvature handles become toolkit kinds, which #8, #47, and #48 build on.
-5. Errors overlay and empty-desktop hint, as toolkit panels, and the recovery plugin. The errors overlay gains dismissal, history, and deduplication, and becomes a protected panel.
-6. Virtual keyboard, as a toolkit panel with non-focusing keys that act on press and send key-up on release, input-hint layouts, and a paste key. Its key legends stop depending on the compositor seat as part of #63.
-7. Plugin manager, ported from the slice above with its current design: the same views, tabs, and actions, built from toolkit components, as a protected panel. Its reconciler, grid layout, text wrapping, line clipping, and polling are deleted rather than ported. The redesign in #43 follows the migration on the toolkit and does not block #54.
+5. Errors overlay and empty-desktop hint, as toolkit panels, and the recovery plugin. The errors overlay gains dismissal, history, and deduplication.
+6. Virtual keyboard, as a toolkit panel with non-focusing keys that act on press and send key-up on release, input-hint layouts, and a paste key, on the revised focus contract. Its key legends stop depending on the compositor seat as part of #63.
+7. Plugin manager, ported from the slice above with its current design: the same views, tabs, and actions, built from toolkit components, with an entry for default appearance and a view of which plugins override what. Its reconciler, grid layout, text wrapping, line clipping, and polling are deleted rather than ported. The redesign in #43 follows the migration on the toolkit and does not block #54.
 
-Each migration replaces the consumer's VR tests with tests that address nodes by id, and updates the consumer's README and any guide that describes it. The `@testing/vr-ui` helpers move from panel, control, and item ids to node ids. `aim` takes an interactor and a node id, and `poke`, `grab`, `clickNode`, `tab`, `navigate`, `activate`, `context`, and `dismiss` are added, with `getHandPose` answers in the fake XR session for `poke` and `grab`. The earlier toolkit's test that asserts no `setScissor` call is replaced by an offscreen pixel test of the clip.
+Each migration replaces the consumer's VR tests with tests that address nodes by id, and updates the consumer's README and any guide that describes it. The `@testing/vr-ui` helpers move from panel, control, and item ids to node ids. `aim` takes an interactor and a node id, and `poke`, `grab`, `clickNode`, `tab`, `navigate`, `activate`, `context`, `dismiss`, `nextPanel`, and `defaultAppearance` are added, with `getHandPose` answers in the fake XR session for `poke` and `grab`. The earlier toolkit's test that asserts no `setScissor` call is replaced by an offscreen pixel test of the clip.
 
 ## Documentation changes
 
-When the toolkit merges, the guarantees that replacement providers and consumers rely on move into contract documentation beside the new contracts, in the way [`panels-and-ui.md`](../../../lua/lunette-contracts/panels-and-ui.md) records the earlier toolkit's guarantees. The plugin author guide in [`docs/plugins/ui.md`](../../plugins/ui.md) is rewritten around components, kinds, visuals, and outlets, with a checked minimal example. The host and the standard components each get a README beside their implementation. The user guide for the runtime manager documents protected panels, the recovery plugin, and the accessibility settings.
+When the toolkit merges, the guarantees that replacement providers and consumers rely on move into contract documentation beside the new contracts, in the way [`panels-and-ui.md`](../../../lua/lunette-contracts/panels-and-ui.md) records the earlier toolkit's guarantees. The plugin author guide in [`docs/plugins/ui.md`](../../plugins/ui.md) is rewritten around components, kinds, visuals, and outlets, with a checked minimal example. The host, the standard kinds, and the components each get a README beside their implementation. The user guide for the runtime manager documents default appearance and its chord, the recovery plugin, the last known good configuration, which entries are protected and what protection refuses, and the accessibility settings.
 
 ## Done when
 
-Every in-tree panel is built from toolkit components with no absolute control rectangles and no consumer-drawn text: the backdrop controls, the plugin manager, the wrist menu, titlebars, decorations, window titles, the errors overlay, the hint, the virtual keyboard, and the UI example. Each has VR tests that address nodes by id. Controller rays operate every panel in the headset. Tracked hands operate every panel in the headset where the runtime supports hand tracking in the overlay session, and under fake XR otherwise. The mouse ray interactor operates every panel under fake input, and mouse operation in a live session depends on host mouse capture from #49 and is verified there. Every action is reachable without a physical keyboard or mouse, through pointing and through focus traversal on one controller. The spike results are recorded in the design documents, and the migration record is deleted.
+Every in-tree panel is built from toolkit components with no absolute control rectangles and no consumer-drawn text: the backdrop controls, the plugin manager, the wrist menu, titlebars, decorations, window titles, the errors overlay, the hint, the virtual keyboard, and the UI example. The recovery plugin, which draws without the toolkit by design, is exempt. Each panel has VR tests that address nodes by id. Controller rays operate every panel in the headset. Tracked hands operate every panel in the headset where the runtime supports hand tracking in the overlay session, and under fake XR otherwise, and the record of the migration says which applied. The mouse ray interactor operates every panel under fake input, and mouse operation in a live session depends on host mouse capture from #49 and is verified there. Every action is reachable without a physical keyboard or mouse, through pointing and through focus traversal on one controller, and default appearance restores a usable interface with a deliberately broken override active. The spike results are recorded in the design documents, and the migration record is deleted.
 
 ## Issue updates
 
 These issues need their text updated to match the design:
 
-- #54: its paths are stale (`docs/dev/stdlib.md`, `docs/guide/ui.md`, `desktop/manager/`), its open implementation choice is decided, and its done-when should match the one above, including the conditions for tracked hands and the mouse and the separation from #43.
+- #54: its paths are stale (`docs/dev/stdlib.md`, `docs/guide/ui.md`, `desktop/manager/`), its open implementation choice is decided (taffy's low-level API, cosmic-text, a distance field atlas, scene rendering without offscreen textures or layers), its done-when should match the one above, including the conditions for tracked hands and the mouse and the separation from #43, the keyboard is migrated rather than evaluated, and the recovery plugin and default appearance are added.
 - #60 keeps Response and Motion as dropdowns. They become sliders with detents at the same levels, with None at 0, in the backdrop controls panel that the first vertical slice rebuilds; the preset picker joins that panel.
 - #64 names layout in #54 as a motivation. Layout is native, and the Lua hot paths are the ones listed in [Prerequisites](#prerequisites).
-- #48 assumes UI panels may use cylinder layers. UI panels never use layers, curvature persistence is a requirement with a format version bump, and the control is a curvature handle kind.
-- #49 should note that the toolkit fixes the mouse as a head-through-cursor ray, moves panels in depth with the wheel and a modifier, and needs source-loss cancellation and the context action.
+- #48: UI panels never use layers, and lunette's window layers are quads, so its cylinder-layer verification needs restating; curvature persistence is a requirement with a format version bump; the control is a curvature handle kind; and curvature has a maximum.
+- #49 should note that the toolkit's mouse ray starts at the head while the projection model stays with #49, that panels move in depth with the wheel and a modifier, that manipulation sessions take key routing for its chords, and that the toolkit needs source-loss cancellation and the context action.
 - #43 should state that the manager is first ported unchanged and then redesigned on the toolkit, and list the form-editor widgets the redesign can use.
-- #20 builds on migration step 3, uses notifications and their history, and needs the menu contract revision.
+- #20 builds on migration step 3, uses notifications with progress and prompts and their history, needs the `lunette/menu` version 2 revision with selection kinds, and has its permission prompts deferred.
 - #45 should require catalog and request state to be published as stores.
-- #47 should record the precedence the toolkit fixes: panel grab lowest, grip anywhere, near grab for hands, and push and pull with the thumbstick.
-- #8 should note that the content resize frame is the gesture surface and follows the client's committed size.
-- #6 should note that keys send down and up and receivers repeat.
-- #59 should note that reloading the host or the components plugin remounts every UI tree.
-- #21 and #29 should add the glyph atlas, the toolkit shader, and the layout trees to their checks.
-- #28 should add non-US layouts and `typeText` into toolkit fields, and #30 should note that the chrome title moves with migration step 4 and that UI-facing items are repeated after the migration.
-- #63 should name the clipboard service's backends, the keymap path for toolkit fields, and the key legends.
-- #27 should note that toolkit copy and paste depend on the clipboard bridge it verifies.
+- #47 should record what the toolkit fixes, gesture precedence and manipulation sessions with node-level claims, and what remains its own: whether translation and rotation are coupled, reach amplification, and moving targets in depth with bare hands. It should also note that world panels keep their physical size by default.
+- #8 should note that the content resize frame is the gesture surface and follows the client's committed size, and that keeping the panel's size in metres or its pixel density remains its decision.
+- #6 should note that keys send down and up on the `lunette/focus` version 3 revision, and that receivers repeat.
+- #59 should note that the host, the standard kinds, and the components plugin can be reloaded at runtime but not disabled, that reloading them remounts every UI tree, and that a consumer's reload remounts only its own trees.
+- #21 should add the glyph atlas, the instance buffers, and the toolkit shader to its checks, and expect them to be released before the Lua state closes. #29 should replace its "one laser per hand" check with one interactor set per source, no duplicate mount points, and a stable atlas page count over ten reloads.
+- #28 should add non-US layouts and `typeText` into toolkit fields. #30 should note that the chrome title moves with migration step 4, add the recovery plugin and default appearance to its checks, and note that its UI-facing items are repeated after the migration.
+- #63 should name the clipboard service's backends, the focus contract's session keymap that replaces `keymapSeat`, and the key legends.
+- #27 should note that toolkit copy and paste depend on the native selection API and the bridge it verifies, and that attached chrome can overlap a client popup that overhangs its window.
+- #24 should note that spike 5, hand poses, the skeleton, and haptics in the overlay session, depends on it.
 - #62 should note that its window selector is a toolkit consumer.
 
 ## Related issues
@@ -174,19 +181,19 @@ These issues need their text updated to match the design:
 - #43 redesigns the plugin manager on the toolkit, after the port.
 - #20 redesigns the wrist interface on the toolkit.
 - #45 defines the catalog, creation-request, and active-instance contracts that the wrist menu and launcher render.
-- #47 redesigns object manipulation, which shares the gesture precedence between node capture, scrolling, and panel grab.
+- #47 redesigns object manipulation, which owns the manipulation policy behind the toolkit's manipulation sessions.
 - #8 resizes a window's contents, which uses the content resize frame.
 - #48 adds persisted curvature to every panel.
 - #49 adds mouse and keyboard interaction for the workspace.
 - #60 adds backdrop presets and changes the backdrop controls panel.
-- #59 adds per-plugin source reloads. A reload of the host or the components plugin unloads and remounts every UI consumer, and a reload of one consumer remounts only its own trees.
+- #59 adds per-plugin source reloads, under the narrowed protection rule.
 - #62 adds host window capture, whose window selector is a toolkit consumer.
 - #63 adds Windows support, which needs text entry, a clipboard, and key legends that do not depend on Wayland.
 - #27 verifies the clipboard bridge that the clipboard service uses.
 - #24 verifies the overlay session that hand tracking and haptics depend on.
-- #39 packages plugins, which is where third-party kind namespaces meet plugin identity.
+- #39 packages plugins, which is where third-party kind and presentation namespaces meet plugin identity.
 - #6 adds navigation keys to the virtual keyboard.
-- #21 and #29 verify restart and reload behaviour, which must cover the toolkit shader, the glyph atlas, and the per-panel layout trees.
+- #21 and #29 verify restart and reload behaviour, which must cover the toolkit shader, the atlases, the instance buffers, and the per-panel layout trees.
 - #28 and #30 repeat their UI-facing headset checks after the rebuild.
 - #42 revises the VR interface text after the rebuild, following the copy rules in [Accessibility](accessibility.md#localisation).
 - #64 enables Luau optimisation and native code generation.

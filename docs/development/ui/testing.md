@@ -7,7 +7,7 @@ Every node has an id formed from its panel's name and the keys on its path from 
 The host's `inspect()` follows the inspection contract in [`lua/lunette-contracts/inspection.luau`](../../../lua/lunette-contracts/inspection.luau). It returns a registration for every panel and for every node and item, with:
 
 - the id, the kind, the role, and the semantics;
-- the owner of the node, and of each override and contribution that applies to it, and whether its panel is protected;
+- the owner of the node, and of each override and contribution that applies to it, and whether default appearance is on;
 - local bounds, clip, elevation, and the world pose of the centre;
 - the enabled state and the disabled reason;
 - focus, hover, and capture state;
@@ -53,7 +53,8 @@ Interaction tests drive physical input through the fake native XR session in [`l
 - `poke(hand, id)` moves a tracked fingertip from in front of the node through the hover, activation, and release depths. The fake session answers `getHandPose` for it.
 - `grab(hand, id)` pinches near a grab handle or frame with the grab sphere and moves it.
 - `clickNode(id)` aims and presses with a controller across frames.
-- `tab`, `navigate`, `activate`, `context`, and `dismiss` drive focus traversal.
+- `tab`, `navigate`, `activate`, `context`, `dismiss`, and `nextPanel` drive focus traversal, including the engage mode of value controls.
+- `defaultAppearance(on)` switches default appearance, so a test can check that a panel stays usable with a broken override.
 
 Every consumer panel has interaction tests that address its nodes by id.
 

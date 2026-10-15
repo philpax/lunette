@@ -10,10 +10,10 @@ The toolkit provides:
 - A standard widget set:
   - Display: text, selectable text, Markdown, icon, image including SVG, live texture tile, badge, separator, progress indicator, spinner, and scroll indicator with a draggable thumb.
   - Actions: button, hold-to-confirm button, and grab handle.
-  - Choices: toggle, checkbox, radio group, segmented control, dropdown, and slider with optional detents.
+  - Choices: toggle, checkbox, radio group, segmented control, filter chips, dropdown, slider with optional detents, and range slider.
   - Values: stepper, number field, vector field, colour field, text field, text area, password field, and search field with suggestions, each with a validation state, an inline error, and an input hint for the virtual keyboard.
   - Collections: list rows with secondary text and icons, table rows with a shared column model, tree rows, and virtualised lists and grids whose items are components.
-  - Structure: tabs, collapsible section, navigation stack with back, and resize, scale, and curvature handles.
+  - Structure: tabs, collapsible section, navigation stack with back, split pane with a draggable divider, toolbar with overflow into a menu, and resize, scale, and curvature handles.
   - Overlays: tooltip, popover, context menu, dialog, and toast.
 - Portals and overlays for dropdown menus, context menus, tooltips, popovers, dialogs, and toasts, with anchoring, dismissal, capture handoff, and modality. A closed dropdown occupies one row.
 - State binding through components and observable stores. A component updates when the values it reads change, and the host updates only the nodes that changed.
@@ -37,12 +37,13 @@ Shipped plugins use only public contracts, including the standard widgets. A thi
 
 Every module is safe to require twice, and every resource belongs to a plugin context or a caller's owner, as the plugin runtime requires.
 
-The session stays operable in VR when the toolkit fails. The compiled-in safe mode loads no plugin roots and does not depend on the toolkit. A failure of the toolkit's own plugins after startup is reported by a recovery plugin that does not depend on them and offers reload and safe-mode controls, as [Architecture](architecture.md#errors) describes. Protected panels, such as the plugin manager, stay usable whatever overrides, themes, or replacement components are active.
+The session stays operable in VR when an extension or the toolkit fails, without restricting what can be extended. A session-wide default appearance reverts every override, theme, replacement widget set, and pick hook while it is on, and a held controller chord reaches it. A failure of the toolkit's own plugins after startup is reported by a recovery plugin that does not depend on them and offers default appearance, reload, the last known good configuration, and safe mode, as [Architecture](architecture.md#the-recovery-plugin) describes. The compiled-in safe mode loads no plugin roots and does not depend on the toolkit.
 
 ## Out of scope
 
 - Composition layers for UI panels. [Rendering](rendering.md#composition-layers) records the reasons.
 - Embedding an external UI engine that renders to a texture, such as an HTML renderer or a Rust GUI library. Its elements would sit outside the plugin and owner model.
 - A visual editor or a markup language for layouts. Components are Lua.
+- Permission prompts from the host system, such as the desktop portal's screen-capture dialog that #62 and #20 meet. They appear on the flat desktop, and an in-session path is deferred until a consumer needs it.
 
 Bidirectional text editing and input-method composition are not provided by the first implementation. Shaping provides bidirectional display, and layout mirrors for right-to-left text, but caret movement through mixed-direction text and preedit remain open in [Layout and text](layout-and-text.md#open-questions). Until they exist, a user of a right-to-left script cannot edit mixed-direction text in a toolkit field, which is a gap in the session requirement for those users.
