@@ -31,8 +31,9 @@ The UI tokens are part of the global theme contract, [`lua/lunette-contracts/the
 | Radii | `control`, `card`, `panel`, `full` |
 | Elevation | `base`, `raised`, `card`, `popover`, `dialog`, the minimum separation, and the press travel and hover lift distances |
 | Density | `compact` and `comfortable` variants of control heights and minimum target sizes |
-| Motion | Specs for the roles enter, exit, emphasis, layout, spatial, and gesture, each a spring or a tween with a reduced-motion substitute, and the scroll friction and overscroll constants |
-| Feedback | A haptic pattern, a sound, and a visual cue for each named feedback event |
+| Motion | Specs for the roles enter, exit, emphasis, layout, spatial, gesture, continuous, and feedback, each a spring, a tween, or a loop with a reduced-motion substitute, and the scroll friction and overscroll constants |
+| Feedback | A haptic pattern, a sound, and a visual cue for each named feedback event and modality |
+| Cursor | The hover and select ring sizes, their proportion, and the cursor's offset along the hit normal |
 
 Components and kinds refer to tokens by name. A theme change that changes a size relayouts the affected nodes, and one that changes only colours redraws them without relayout. A dense panel such as the plugin manager requests the compact density rather than overriding individual sizes, and its presentation decides whether it gets it, as [Presentations](presentations.md#density) describes.
 
@@ -42,8 +43,8 @@ Components and kinds refer to tokens by name. A theme change that changes a size
 |---|---|---|
 | Microsoft Mixed Reality | At least 1 degree, stated at 2 m, which is 35 mm there | 2 degrees at 45 cm, which is about 16 mm |
 | Meta Horizon OS hand interaction | A minimum collider size of 2.5 to 3 degrees, 44 to 52 mm at 1 m | Same angular range |
-| Android XR | A 48 dp visual affordance in a 56 dp target, about 42 and 49 mm at 1 m | Same |
-| Apple visionOS | 60 points including padding. Apple publishes no conversion from points to physical size, so the figure is not converted | Same |
+| Android XR | 48 dp minimum and 56 dp recommended, about 42 and 49 mm at 1 m | Same |
+| Apple visionOS | 60 points including padding. Points have no fixed physical size, so the figure is not converted | Same |
 
 The default control heights are 36 mm for the compact density and 48 mm for the comfortable density.
 
@@ -64,7 +65,7 @@ The default type scale at scale 1:
 | `headline` | 22 mm | Large headings |
 | `code` | 11 mm, monospace | Identifiers, paths, and diagnostic text |
 
-Body text at 12 mm subtends about 0.7 degrees at 1 metre. Microsoft gives 0.6 to 0.75 degrees as comfortable at 2 metres and 0.65 to 0.8 degrees at 45 centimetres, so body text is comfortable across that range. No role is smaller than 9 mm, about 0.5 degrees at 1 metre, which is at or above Microsoft's minimum legible size at both distances, 0.35 to 0.4 degrees at 2 metres and 0.4 to 0.5 degrees at 45 centimetres, and keeps distance field glyphs clear of their small-size artefacts. The minimum applies after the accessibility text scale and the presentation scale.
+The sizes are authored for a presentation's nominal viewing distance of 1 metre. Body text at 12 mm subtends about 0.7 degrees there. Microsoft gives 0.6 to 0.75 degrees as comfortable at 2 metres and 0.65 to 0.8 degrees at 45 centimetres, so body text is comfortable across that range. No role is smaller than 9 mm, about 0.5 degrees at 1 metre, which is at or above Microsoft's minimum legible size at both distances, 0.35 to 0.4 degrees at 2 metres and 0.4 to 0.5 degrees at 45 centimetres, and keeps distance field glyphs clear of their small-size artefacts. The minimum is angular: 0.5 degrees at the presentation's nominal viewing distance, after the accessibility text scale and the presentation scale. The host clamps every resolved text size to it when it resolves styles, and world panels keep their angular size as they move, so text stays legible at any distance.
 
 Light and thin weights are avoided at small sizes, because thin strokes vibrate in a headset. A theme uses at most two families: a UI family and a monospace family.
 
@@ -86,9 +87,9 @@ Elevation separates elements in depth. The default values at scale 1:
 | `raised` | 3 mm above the parent | Buttons, toggles, and other controls |
 | `card` | 6 mm above the parent | Grouped content within a panel |
 | `popover` | 24 mm above the opener | Dropdown menus, context menus, and tooltips |
-| `dialog` | 48 mm above the parent panel | Modal dialogs |
+| `dialog` | 48 mm in front of its parent panel where it is shown over it | Modal dialogs |
 
-The minimum separation between distinct elevations is 0.5 mm. Press travel is 3 mm and stops at the minimum separation above the parent, so a pressed raised control moves down almost to the panel surface without becoming coplanar with it. Hover lift is 1 mm. The popover and dialog values follow Android XR's elevations of 32 dp and 56 dp. The control values follow StereoKit, whose controls have 10 mm of depth and activate at half of it, reduced because a desktop-density panel has many more controls than a StereoKit window.
+The minimum separation between distinct elevations is 0.5 mm, and a node's own content draws 0.1 mm above its surface. Press travel is 2.5 mm, so a pressed raised control moves down to the minimum separation above the panel surface without becoming coplanar with it, and touch activation at 2 mm happens before the travel runs out. Hover lift is 1 mm. The popover and dialog values follow Android XR's elevations of 32 dp and 56 dp. The control values follow StereoKit, whose controls have 10 mm of depth and activate at half of it, reduced because a desktop-density panel has many more controls than a StereoKit window.
 
 Elevation is a stereo depth cue and replaces drop shadows, which read weakly in a headset. Content inside a scroll box is raised at most to `raised`, as [Rendering](rendering.md#depth) explains.
 

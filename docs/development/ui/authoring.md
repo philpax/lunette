@@ -55,17 +55,17 @@ The example shows the properties the model is chosen for. Conditional content is
 
 ## Mounting
 
-`ui.mount(panel, element, options)` renders the element and commits the result before it returns, so the panel's content size and its inspection records are available at once. `options.components` provides the standard constructors to every component in the tree through `ui.useComponents()`, so components can be declared at module level and do not thread services through props. `ui.mount` returns a mount handle whose `unmount` method removes the tree before the panel ends. A panel holds at most one mounted tree.
+`ui.mount(panel, element, options)` binds the panel's root mount point, renders the element, and commits the result before it returns, so the panel's content size and its inspection records are available at once. A mount requested during a commit or an event dispatch, such as from an effect or a callback, is queued to the end of the current step, and its handle reports when it is committed. `options.components` provides the standard constructors to every component in the tree through `ui.useComponents()`, so components can be declared at module level and do not thread services through props. `ui.mount` returns a mount handle whose `unmount` method removes the tree before the panel ends. A panel holds at most one mounted tree.
 
 ## Elements and children
 
-An element constructor takes one table. Named fields are props. Array entries are children. Children can be elements, arrays of elements, `nil`, or `false`. The library skips `nil` and `false`, and flattens arrays, so `ui.map` and conditional expressions compose without wrapper elements. The library iterates numeric keys up to the largest one, and does not rely on `#`, because a `nil` child leaves a hole in the array.
+An element constructor takes one table. Named fields are props. Array entries are children. Children can be elements, arrays of elements, `nil`, or `false`. A `nil` or `false` child renders nothing but keeps its position, and an array is flattened in place as its own key scope, so `ui.map` and conditional expressions compose without wrapper elements, and an error message that appears above a field does not shift the field's position. The library iterates numeric keys up to the largest one, and does not rely on `#`, because a `nil` child leaves a hole in the array.
 
 The children type is a read-only indexer, `ui.Children = { read [number]: ui.Child }`, so that an array of elements returned by `ui.map` satisfies it. A read-write array type is compared invariantly and would reject that array.
 
-`key` identifies an element among its siblings. Elements in an array returned by `ui.map` require keys, and the library raises when one is missing or duplicated. Other children are keyed by position when they have no key. A key also forms the element's id for inspection and tests, as [Testing](testing.md#ids-and-inspection) describes. A positional key changes when a conditional sibling before it appears or disappears, so anything a test or a caller addresses has an explicit key.
+`key` identifies an element among its siblings. Elements in an array returned by `ui.map` require keys, and the library raises when one is missing or duplicated. Other children are keyed by position when they have no key, and because `nil` holds its position, a positional key is stable while the component's structure is. A key also forms the element's id for inspection and tests, as [Testing](testing.md#ids-and-inspection) describes, so anything a test or a caller addresses has an explicit key.
 
-Each kind's constructor is typed. `c.Slider` accepts `SliderProps`, and the checker rejects a wrong value type or an unknown token name. Props are declared as `read` fields so that a component can pass a narrower table. The checker does not reject a misspelt prop name, because Luau allows extra fields when it matches table types. The host therefore rejects unknown props on every commit, so a misspelt `onchange` raises rather than being dropped.
+Each kind's constructor is typed. Its props type is `schema.Props` of the kind's props schema, which makes every field read-only, so a component can pass a narrower table, and adds the children indexer. Token-valued props accept a token name or a number, and the checker rejects a wrong value type. The checker does not reject a misspelt prop name, because Luau allows extra fields when it matches table types. The host therefore rejects unknown props on every commit, so a misspelt `onchange` raises rather than being dropped.
 
 ## Components
 
@@ -91,12 +91,12 @@ Shallow comparison ignores function-valued props. A function prop is compared on
 - `ui.useStore(store)` reads an observable store and re-renders the component when the store changes.
 - `ui.useContext(context)` reads a value that an ancestor provides through `ui.provide(context, value, children)`. `ui.useComponents()` is the context for the standard constructors.
 - `ui.useEffect(effect, dependencies)` runs `effect` after commit when a dependency changes. The cleanup that `effect` returns runs before the next run and on unmount. `effect` receives the subtree's effective owner, so a resource acquired through a service belongs to an owner as the plugin runtime requires, and the cleanup releases it when the component unmounts.
-- `ui.useLayoutEffect(effect, dependencies)` runs after layout and before draw in the same commit. It reads node poses and bounds through refs, and a state change it makes renders and commits once more in the same frame. Wires between ports, drop indicators, and toolbars that overflow into a menu use it, so they do not lag a frame behind layout.
+- `ui.useLayoutEffect(effect, dependencies)` runs after layout and pose computation and before draw, in the same frame. It reads node poses and bounds through refs, and a state change it makes renders and commits once more in the same frame. Wires between ports, drop indicators, and toolbars that overflow into a menu use it, so they do not lag a frame behind layout.
 - `ui.useMemo(compute, dependencies)` caches a derived value.
 - `ui.useRef(initial)` returns a stable mutable table. Passed as the `ref` prop of an element, it receives the node handle.
 - `ui.usePresentation()` returns the panel's presentation and its density, as [Presentations](presentations.md#adapting-content) describes.
 
-The node handle provides `pose()`, `bounds()`, `focus()`, `scrollIntoView()`, and `animate(channel, target, spec)`. It is the same node interface that kinds receive, restricted to reading and to these requests.
+The node handle provides `pose()`, `bounds()`, `focus()`, `scrollIntoView()`, `scrollTo(offset)`, `scrollBy(delta)`, `setTransform(transform)`, and `animate(channel, target, role)`. It is the same node interface that kinds receive, restricted to reading and to these requests.
 
 Hooks are identified by call order within a component, as in React. A hook called conditionally, or a different number of hooks between renders, makes the library raise with the component's name. Luau cannot check call order statically, so this is a runtime check. A render that raises rolls the component's hook state back to its previous successful render.
 
@@ -108,7 +108,7 @@ Stores are a requirement on services as well as on the toolkit. A service whose 
 
 ## Scheduling
 
-State changes schedule renders. Renders run in the host's commit steps, before picking and after input delivery, as [Architecture](architecture.md#data-flow) describes. Several changes in one frame cause one render of each affected component per commit step. A render never runs during another component's render or during drawing.
+State changes schedule renders on the component's mount point. Renders run in the host's commit steps, before keyboard input, before picking, and after input delivery, as [Architecture](architecture.md#data-flow) describes. Several changes in one frame cause one render of each affected component per commit step. A render never runs during another component's render or during drawing.
 
 A store changed by a service outside the frame loop, such as a compositor event, schedules renders for the next commit step in the same way.
 

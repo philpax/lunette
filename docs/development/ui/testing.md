@@ -2,12 +2,12 @@
 
 ## Ids and inspection
 
-Every node has an id formed from its panel's name and the keys on its path from the root, such as `Plugins/sidebar/configure/rows/title`. Panel names are unique within the host, and the host rejects a second live panel with the same name. Keys come from components, as [Authoring](authoring.md#elements-and-children) describes. An unkeyed child contributes a positional segment such as `#2`, which changes when a sibling before it appears or disappears, so anything a test addresses has an explicit key. A node inside a portal has its id under its logical parent's path, and an item inside a node is addressed as the node's id followed by `@` and the item id.
+Every node has an id formed from its panel's name and the keys on its path from the root, such as `desktop/manager:Plugins/sidebar/configure/rows/title`. A panel's name is prefixed with its owner's entry id, and the host rejects a second live panel with the same full name. Keys come from components, as [Authoring](authoring.md#elements-and-children) describes. An unkeyed child contributes a positional segment such as `#2`, which is stable while the component's structure is, but anything a test addresses has an explicit key. A node inside a portal has its id under its logical parent's path, and an item inside a node is addressed as the node's id followed by `@` and the item id.
 
 The host's `inspect()` follows the inspection contract in [`lua/lunette-contracts/inspection.luau`](../../../lua/lunette-contracts/inspection.luau). It returns a registration for every panel and for every node and item, with:
 
 - the id, the kind, the role, and the semantics;
-- the owner of the node, and of each override and contribution that applies to it;
+- the owner of the node, and of each override and contribution that applies to it, and whether its panel is protected;
 - local bounds, clip, elevation, and the world pose of the centre;
 - the enabled state and the disabled reason;
 - focus, hover, and capture state;
@@ -50,15 +50,16 @@ Interaction tests drive physical input through the fake native XR session in [`l
 
 - `discover(id)` finds a node through inspection.
 - `aim(interactor, id)` points a ray at the centre of the node's visible area, using the node's world pose, so it handles curvature, elevation, and transforms without a flat-panel formula.
-- `poke(hand, id)` moves a tracked fingertip from in front of the node through the hover, activation, and release depths. The fake session provides the hand-interaction poke pose for it.
+- `poke(hand, id)` moves a tracked fingertip from in front of the node through the hover, activation, and release depths. The fake session answers `getHandPose` for it.
+- `grab(hand, id)` pinches near a grab handle or frame with the grab sphere and moves it.
 - `clickNode(id)` aims and presses with a controller across frames.
-- `tab`, `arrow`, `activateFocused`, and `dismiss` drive focus traversal.
+- `tab`, `navigate`, `activate`, `context`, and `dismiss` drive focus traversal.
 
 Every consumer panel has interaction tests that address its nodes by id.
 
 ### Rendering tests
 
-Offscreen graphics tests in `make check-graphics` render panels through real LÖVR with the software Vulkan driver and read back pixels. They cover the toolkit shader: clipping at rounded corners and nested clips, clip depth ranges, surface shapes, elevation, paint order between overlapping siblings, coplanar content without depth fighting, glyph rendering from the atlas, and the absence of mirrored text. A test ties a rendered pixel to the hit mapping, by checking that the pixel at a node's inspected world pose belongs to that node.
+Offscreen graphics tests in `make check-graphics` render panels through real LÖVR with the software Vulkan driver and read back pixels. They cover the toolkit shader: clipping at rounded corners and nested clips, clip depth ranges, surface shapes, bent and rigid nodes, elevation, content drawn over its own box without depth fighting, bound parameters, group opacity fades, glyph rendering from the atlas, SVG rasterisation, and the absence of mirrored text. A test ties a rendered pixel to the hit mapping, by checking that the pixel at a node's inspected world pose belongs to that node.
 
 ### Theme tests
 
@@ -66,7 +67,7 @@ Each shipped theme is checked for the contrast rules in [Accessibility](accessib
 
 ### Native tests
 
-The layout and text binding has Rust tests in `crates/lunette/src/lua/tests/`, following the existing `textBoundaries` tests. They cover the batched change format, incremental relayout, rounding being disabled, composed positions in the result arrays, measure and arrange callbacks that raise or re-enter, text measurement at constrained widths, fallback, and the glyph budget.
+The layout and text binding has Rust tests in `crates/lunette/src/lua/tests/`, following the existing `textBoundaries` tests. They cover the batched change format, incremental relayout, rounding being disabled, composed positions in the result arrays, custom layout and measure callbacks that size from children, raise, or re-enter, text measurement at constrained widths, line limits, span geometry, fallback, the glyph budget, atlas eviction, and atlas recreation after the graphics module is replaced.
 
 ## The native binding in tests
 
