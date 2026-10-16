@@ -6,6 +6,7 @@ local lunette = require '@lunette'
 local schema = require '@lunette-plugin/schema'
 local uiHost = require '@lunette-contracts/ui-host'
 local shapes = require './props'
+local scrolling = require './scrolling'
 
 local virtual = {}
 
@@ -14,8 +15,6 @@ local optional = schema.optional
 
 -- Rows beyond each edge of the visible part that stay materialised, so a fast scroll does not show gaps.
 local OVERSCAN = 4
--- Scroll arrives in logical pixels; a pixel moves the content a millimetre, as in the scroll box.
-local SCROLL_METRES = 0.001
 
 -- The range of rows to materialise for a scroll offset, as first and last indices from one.
 function virtual.range(count: number, rowHeight: number, height: number, offset: number): (number, number)
@@ -35,12 +34,13 @@ function virtual.register(service: uiHost.Service, owner: any): { [string]: uiHo
     props = schema.object { top = schema.number(), height = schema.number() },
     layout = {
       kind = 'container',
-      style = function(props: uiHost.Props): lunette.LayoutStyle
+      style = function(props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
+        -- Rows keep clear of the scrollbar's gutter, which absolute insets would otherwise cover.
         return {
           position = 'absolute',
           top = props.top,
           left = 0,
-          right = 0,
+          right = scrolling.gutter(theme),
           height = props.height,
           flexDirection = 'column',
           alignItems = 'stretch',
@@ -60,9 +60,38 @@ function virtual.register(service: uiHost.Service, owner: any): { [string]: uiHo
     },
   })
 
-  local function clamp(node: uiHost.Node, offset: number): number
-    local count, rowHeight = node.props.count or 0, node.state.rowHeight or 0
-    return math.clamp(offset, 0, math.max(count * rowHeight - node.bounds.height, 0))
+  -- The height of every row, materialised or not.
+  -- The list's scrollbar. A composite kind cannot draw, so the bar is a leaf over the list's right edge that draws
+  -- the list's scroll state. It sits at the scroll offset, which the host subtracts again, so it stays in view; it
+  -- takes no input, so presses on it reach the list, which handles the bar from its own geometry.
+  service:registerKind(owner, {
+    name = 'lunette/virtual-scrollbar',
+    props = schema.object {
+      offset = schema.number(),
+      extent = schema.number(),
+      active = optional(schema.boolean()),
+    },
+    layout = {
+      kind = 'leaf',
+      style = function(props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
+        return {
+          position = 'absolute',
+          top = props.offset,
+          right = 0,
+          width = scrolling.gutter(theme),
+          height = '100%',
+        }
+      end,
+    },
+    visuals = { 'lunette/virtual-scrollbar' },
+  })
+  service:registerVisual(owner, 'lunette/virtual-scrollbar', function(node: uiHost.Node, draw: uiHost.Draw)
+    local props = node.props
+    scrolling.drawBar(draw, node.theme, node.bounds, props.offset, props.extent, props.active == true)
+  end)
+
+  local function extent(node: uiHost.Node): number
+    return (node.props.count or 0) * (node.state.rowHeight or 0)
   end
 
   -- VirtualList props: count, renderItem (index to an element with a key), rowHeight (metres or a size token),
@@ -97,17 +126,13 @@ function virtual.register(service: uiHost.Service, owner: any): { [string]: uiHo
       end,
     },
     clip = true,
-    state = { scrollY = 0, rowHeight = false },
+    state = { scrollY = 0, rowHeight = false, thumbDrag = false },
     claims = { drag = 'y' },
     interactive = function(): boolean
       return true
     end,
     event = function(node: uiHost.Node, event: uiHost.Event, base: (uiHost.Node, uiHost.Event) -> ())
-      if event.kind == 'scroll' then
-        node:setState { scrollY = clamp(node, node.state.scrollY + (event :: any).dy * SCROLL_METRES) }
-      elseif event.kind == 'drag' then
-        node:setState { scrollY = clamp(node, node.state.scrollY - (event :: any).dy) }
-      elseif event.kind ~= 'hover-enter' and event.kind ~= 'hover-leave' then
+      if not scrolling.event(node, event, extent(node)) then
         base(node, event)
       end
     end,
@@ -140,6 +165,12 @@ function virtual.register(service: uiHost.Service, owner: any): { [string]: uiHo
       end
       return {
         element('lunette/virtual-spacer', { key = 'extent', height = count * rowHeight }),
+        element('lunette/virtual-scrollbar', {
+          key = 'scrollbar',
+          offset = state.scrollY or 0,
+          extent = count * rowHeight,
+          active = state.thumbDrag == true,
+        }),
         rows,
       }
     end,

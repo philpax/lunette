@@ -5,12 +5,11 @@ local uiHost = require '@lunette-contracts/ui-host'
 local schema = require '@lunette-plugin/schema'
 local tokens = require './tokens'
 local shapes = require './props'
+local scrolling = require './scrolling'
 
 local optional = schema.optional
 
 local structure = {}
-
-local SCROLL_METRES = 0.001
 
 local element = uiHost.element
 
@@ -283,10 +282,6 @@ end
 
 -- A scroll box clips its content and scrolls it vertically by the scroll axis or by dragging empty space.
 function structure.registerScrollBox(service: uiHost.Service, owner: any): uiHost.Constructor
-  local function clamp(node: uiHost.Node, offset: number): number
-    local _, contentHeight = node:contentSize()
-    return math.clamp(offset, 0, math.max(contentHeight - node.bounds.height, 0))
-  end
   local constructor = service:registerKind(owner, {
     name = 'lunette/scroll-box',
     props = schema.object {
@@ -311,55 +306,29 @@ function structure.registerScrollBox(service: uiHost.Service, owner: any): uiHos
           minHeight = 0,
           overflow = 'scroll',
           padding = if props.bleed
-            then { left = theme.spacing.lg, right = math.max(theme.spacing.lg, theme.sizes.scrollbar * 3) }
-            else { right = theme.sizes.scrollbar * 3 },
+            then { left = theme.spacing.lg, right = math.max(theme.spacing.lg, scrolling.gutter(theme)) }
+            else { right = scrolling.gutter(theme) },
           margin = if props.bleed then { left = -theme.spacing.lg, right = -theme.spacing.lg } else nil,
         }
       end,
     },
     clip = true,
-    state = { scrollY = 0 },
+    state = { scrollY = 0, thumbDrag = false },
     claims = { drag = 'y' },
     interactive = function(): boolean
       return true
     end,
     visuals = { 'lunette/scroll-box' },
     event = function(node: uiHost.Node, event: uiHost.Event, base: (uiHost.Node, uiHost.Event) -> ())
-      if event.kind == 'scroll' then
-        -- The interaction service reports scroll in logical pixels, positive downward, as the previous toolkit read
-        -- it; a pixel moves the content a millimetre.
-        local step = (event :: any).dy * SCROLL_METRES
-        node:setState { scrollY = clamp(node, node.state.scrollY + step) }
-      elseif event.kind == 'drag' then
-        node:setState { scrollY = clamp(node, node.state.scrollY - (event :: any).dy) }
-      elseif event.kind ~= 'hover-enter' and event.kind ~= 'hover-leave' then
+      local _, extent = node:contentSize()
+      if not scrolling.event(node, event, extent) then
         base(node, event)
       end
     end,
   })
   service:registerVisual(owner, 'lunette/scroll-box', function(node: uiHost.Node, draw: uiHost.Draw)
-    local theme = node.theme
-    local bounds = node.bounds
-    local _, contentHeight = node:contentSize()
-    if contentHeight <= bounds.height + 1e-6 then
-      return
-    end
-    local width = theme.sizes.scrollbar
-    local track = { x = bounds.width - width, y = 0, width = width, height = bounds.height }
-    draw:box(track, { fill = theme.colors.rail })
-    local visible = bounds.height / contentHeight
-    local thumbHeight = math.max(bounds.height * visible, theme.sizes.control)
-    local travel = bounds.height - thumbHeight
-    local progress = math.clamp(node.state.scrollY / math.max(contentHeight - bounds.height, 1e-6), 0, 1)
-    -- The thumb stands off the page and widens while the pointer is over the box.
-    local active = node.state.hovered or node.state.dragging
-    local thumbWidth = if active then width * 2 else width
-    draw:box({ x = bounds.width - thumbWidth, y = travel * progress, width = thumbWidth, height = thumbHeight }, {
-      fill = if active then theme.colors.accent else theme.colors.muted,
-      radius = theme.radii.control,
-      offset = if active then theme.elevation.raised else theme.elevation.minimumSeparation,
-      side = theme.colors.side,
-    })
+    local _, extent = node:contentSize()
+    scrolling.draw(node, draw, extent)
   end)
   return constructor
 end

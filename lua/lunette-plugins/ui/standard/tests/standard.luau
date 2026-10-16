@@ -8,6 +8,11 @@ local function boot(): fixture.State
 end
 
 -- Presses at one point of a node, drags to another, and releases, as fractions of the node's box.
+-- The width a scroll box keeps clear for its bar.
+local function scrollingGutter(state: fixture.State): number
+  return state.service:theme().sizes.scrollbar * 3
+end
+
 local function drag(state: fixture.State, path: string, from: { number }, to: { number }): ()
   local node = assert(state.panel:find(path), `no node at {path}`)
   local bounds = node:panelBounds()
@@ -712,6 +717,38 @@ test('a tap on a slider track moves the value to the tap', function()
   state.fixture:click(geometry, bounds.x + bounds.width * 0.8, bounds.y + bounds.height / 2)
   assert(committed, 'the tap committed a value')
   expect.truthy(committed > 0.7 and committed < 0.9, `the value follows the tap: {committed}`)
+  state.fixture:close()
+end)
+
+test('a scroll box scrolls by its thumb, its track, and its content', function()
+  local state = boot()
+  local c = assert(state.components)
+  fixture.show(
+    state,
+    c.Panel {
+      c.Body {
+        key = 'body',
+        c.ScrollBox {
+          key = 'box',
+          height = 0.1,
+          c.Column { key = 'tall', height = 0.4 },
+        },
+      },
+    }
+  )
+  state.fixture:step()
+  local box = assert(state.panel:find 'body/box')
+  local limit = 0.4 - box.bounds.height
+  local edge = 1 - 0.2 * scrollingGutter(state) / box.bounds.width
+  -- The thumb starts at the top; dragging it to the bottom of the track scrolls to the end.
+  drag(state, 'body/box', { edge, 0.05 }, { edge, 1.2 })
+  expect.near(box.state.scrollY, limit, 1e-3, 'the thumb drag reaches the end')
+  -- Dragging the content down moves it with the pointer, back towards the start.
+  drag(state, 'body/box', { 0.3, 0.2 }, { 0.3, 0.7 })
+  expect.near(box.state.scrollY, limit - box.bounds.height * 0.5, 0.01, 'the content follows the pointer')
+  -- A click on the track above the thumb brings the thumb there.
+  drag(state, 'body/box', { edge, 0.02 }, { edge, 0.02 })
+  expect.near(box.state.scrollY, 0, 1e-3, 'the track click jumps to the top')
   state.fixture:close()
 end)
 
