@@ -49,6 +49,7 @@ fn small() -> AtlasConfig {
         range_pixels: 2,
         page_size: 64,
         max_pages: 4,
+        evict_after: 3,
     }
 }
 
@@ -330,6 +331,61 @@ fn a_full_atlas_refuses_new_glyphs_and_keeps_the_ones_it_holds() {
     )
     .expect("a held glyph stays available");
     assert!(kept.is_some());
+}
+
+#[test]
+fn a_full_atlas_clears_its_longest_undrawn_page_but_never_one_drawn_recently() {
+    let mut atlas = Atlas::new(AtlasConfig {
+        max_pages: 2,
+        ..small()
+    });
+    let mut generator = Fill::default();
+    let big = || Some(square(0.0, 0.0, 2.0));
+    // Four glyphs fill each page.
+    for glyph in 0..8 {
+        add(&mut atlas, FACE, glyph, big, &mut generator).expect("the pages have room");
+    }
+    let first_page = atlas.known(FACE, 0).flatten().expect("placed").page;
+    let second_page = atlas.known(FACE, 4).flatten().expect("placed").page;
+    assert_ne!(first_page, second_page);
+    // Both pages are drawn every frame, so neither can be cleared.
+    for _ in 0..5 {
+        atlas.advance();
+        atlas.touch(first_page);
+        atlas.touch(second_page);
+    }
+    let refused = add(&mut atlas, FACE, 8, big, &mut generator);
+    assert!(
+        matches!(refused, Err(AtlasError::Full { .. })),
+        "{refused:?}"
+    );
+    // The second page stops being drawn; once it has gone undrawn long enough, it is cleared.
+    let epoch = atlas.epoch();
+    for _ in 0..3 {
+        atlas.advance();
+        atlas.touch(first_page);
+    }
+    let placed = add(&mut atlas, FACE, 8, big, &mut generator)
+        .expect("the idle page is cleared")
+        .expect("the glyph has an outline");
+    assert_eq!(
+        placed.page, second_page,
+        "the new glyph takes the cleared page"
+    );
+    assert_eq!(
+        atlas.epoch(),
+        epoch + 1,
+        "clearing a page advances the epoch"
+    );
+    assert_eq!(
+        atlas.known(FACE, 4),
+        None,
+        "a glyph on the cleared page is forgotten"
+    );
+    assert!(
+        atlas.known(FACE, 0).is_some(),
+        "a glyph on the drawn page stays"
+    );
 }
 
 #[test]

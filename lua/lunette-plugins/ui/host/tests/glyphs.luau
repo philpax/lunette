@@ -62,4 +62,22 @@ test('a glyph still generating is asked for again until it is placed', function(
   expect.equal(#reports, 0, 'waiting is not a failure')
 end)
 
+test('a cleared atlas page makes placed glyphs be asked for again', function()
+  local placement = { page = 1, u0 = 0, v0 = 0, u1 = 0.1, v1 = 0.1, left = 0, top = 0.7, width = 0.5, height = 0.8 }
+  local held, calls = resources { [1] = placement }
+  local atlas = held.atlas :: any
+  atlas.epoch = 0
+  atlas.update = function() end
+  held.epoch = 0
+  local lookup = renderer.glyphs(held)
+  lookup(0, 1)
+  renderer.beginFrame(held)
+  lookup(0, 1)
+  expect.equal(#calls, 1, 'a placed glyph is remembered across frames')
+  atlas.epoch = 1
+  renderer.beginFrame(held)
+  lookup(0, 1)
+  expect.equal(#calls, 2, 'after a page is cleared, the glyph is asked for again')
+end)
+
 return test

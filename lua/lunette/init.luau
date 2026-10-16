@@ -338,9 +338,10 @@ export type LayoutTree = {
 -- multi-channel distance fields to sample with linear filtering and no
 -- colour-space conversion. Fields are generated on worker threads, and `update`
 -- places the finished ones, so a glyph is drawable some frames after it is
--- first asked for. The atlas holds a fixed number of pages and evicts nothing;
--- a glyph with no room is a failure. The atlas is not a handle: it never goes
--- dead.
+-- first asked for. The atlas holds a fixed number of pages; when they are full
+-- it clears the page that has gone longest undrawn, if no frame has touched it
+-- for a while, and a glyph with no room otherwise is a failure. The atlas is
+-- not a handle: it never goes dead.
 export type GlyphAtlas = {
   -- The width and height of each page in pixels.
   read pageSize: number,
@@ -352,15 +353,20 @@ export type GlyphAtlas = {
   read pages: number,
   -- The number of glyphs whose fields are being generated.
   read pending: number,
+  -- Advances whenever a full atlas clears a page that has gone undrawn, after
+  -- which every placement answered before must be asked for again.
+  read epoch: number,
   -- The placement of a glyph from a layout glyph's face and id. A glyph not yet
   -- in the atlas starts generating and answers nil and true, and is asked for
   -- again on a later frame. Answers nil for a glyph with no outline, such as a
   -- space, and nil with a message, once, for a glyph that could not be
   -- generated, which a later call tries again.
   read glyph: (self: GlyphAtlas, face: number, id: number) -> (GlyphPlacement?, string?, boolean),
-  -- Places the fields the workers have finished. The host calls it once a
-  -- frame, before it asks for glyphs.
+  -- Starts a frame and places the fields the workers have finished. The host
+  -- calls it once a frame, before it asks for glyphs.
   read update: (self: GlyphAtlas) -> (),
+  -- Records that this frame draws a page, so a full atlas does not clear it.
+  read touch: (self: GlyphAtlas, page: number) -> (),
   -- A page's revision, which advances whenever a glyph is written to it, or nil
   -- for a page that does not exist.
   read revision: (self: GlyphAtlas, page: number) -> number?,

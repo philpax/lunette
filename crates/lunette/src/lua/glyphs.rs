@@ -119,7 +119,7 @@ impl UserData for GlyphAtlas {
 impl Described for GlyphAtlas {
     const HANDLE: HandleSpec = HandleSpec {
         name: "GlyphAtlas",
-        doc: "The distance field glyph atlas that every panel in this Lua state draws shaped glyphs from. Pages are square, numbered from 1, and hold RGBA8 multi-channel distance fields to sample with linear filtering and no colour-space conversion. Fields are generated on worker threads, and `update` places the finished ones, so a glyph is drawable some frames after it is first asked for. The atlas holds a fixed number of pages and evicts nothing; a glyph with no room is a failure. The atlas is not a handle: it never goes dead.",
+        doc: "The distance field glyph atlas that every panel in this Lua state draws shaped glyphs from. Pages are square, numbered from 1, and hold RGBA8 multi-channel distance fields to sample with linear filtering and no colour-space conversion. Fields are generated on worker threads, and `update` places the finished ones, so a glyph is drawable some frames after it is first asked for. The atlas holds a fixed number of pages; when they are full it clears the page that has gone longest undrawn, if no frame has touched it for a while, and a glyph with no room otherwise is a failure. The atlas is not a handle: it never goes dead.",
     };
     const KIND: Option<crate::control::wire::HandleKind> = None;
 
@@ -135,14 +135,24 @@ impl Described for GlyphAtlas {
             field pages(_lua, this) -> usize { Ok(borrow(this)?.atlas.pages().len()) }
             /// The number of glyphs whose fields are being generated.
             field pending(_lua, this) -> usize { Ok(borrow(this)?.pending.len()) }
+            /// Advances whenever a full atlas clears a page that has gone undrawn, after which every placement answered before must be asked for again.
+            field epoch(_lua, this) -> u64 { Ok(borrow(this)?.atlas.epoch()) }
             /// The placement of a glyph from a layout glyph's face and id. A glyph not yet in the atlas starts generating and answers nil and true, and is asked for again on a later frame. Answers nil for a glyph with no outline, such as a space, and nil with a message, once, for a glyph that could not be generated, which a later call tries again.
             method glyph(_lua, this, face: u32, id: u32) -> (Option<GlyphPlacement>, Option<String>, bool) {
                 let id = u16::try_from(id).map_err(|_| mlua::Error::runtime(format!("glyph atlas: {id} is not a glyph id")))?;
                 glyph(this, face, id)
             }
-            /// Places the fields the workers have finished. The host calls it once a frame, before it asks for glyphs.
+            /// Starts a frame and places the fields the workers have finished. The host calls it once a frame, before it asks for glyphs.
             method update(_lua, this) -> () {
                 update(this)
+            }
+            /// Records that this frame draws a page, so a full atlas does not clear it.
+            method touch(_lua, this, page: usize) -> () {
+                let Some(index) = page.checked_sub(1).and_then(|index| u32::try_from(index).ok()) else {
+                    return Ok(());
+                };
+                borrow_mut(this)?.atlas.touch(index);
+                Ok(())
             }
             /// A page's revision, which advances whenever a glyph is written to it, or nil for a page that does not exist.
             method revision(_lua, this, page: usize) -> Option<u64> {
@@ -221,6 +231,7 @@ fn glyph(
 fn update(this: &GlyphAtlas) -> mlua::Result<()> {
     let mut state = borrow_mut(this)?;
     let state = &mut *state;
+    state.atlas.advance();
     for (job, field) in state.workers.finished() {
         let key = job.key();
         state.pending.remove(&key);

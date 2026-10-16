@@ -32,6 +32,8 @@ export type Resources = {
   placements: { [number]: { [number]: pack.Glyph | false } },
   -- Reports a glyph that could not be generated, once per glyph.
   report: (string) -> (),
+  -- The atlas epoch the placements were answered in.
+  epoch: number,
 }
 
 export type Template = { vertices: { { number } }, indices: { number } }
@@ -158,6 +160,7 @@ function renderer.acquire(report: (string) -> ()): (Resources, () -> ())
       pages = pages,
       placements = {},
       report = report,
+      epoch = 0,
     }
   end)
   if not ok then
@@ -196,9 +199,15 @@ function renderer.glyphs(resources: Resources): pack.Glyphs
   end
 end
 
--- Starts a frame's drawing, placing the glyphs the atlas's workers have finished since the last frame.
+-- Starts a frame's drawing, placing the glyphs the atlas's workers have finished since the last frame. A page the
+-- atlas cleared leaves the remembered placements stale, so they are asked for again.
 function renderer.beginFrame(resources: Resources): ()
-  resources.atlas:update()
+  local atlas = resources.atlas
+  atlas:update()
+  if atlas.epoch ~= resources.epoch then
+    resources.epoch = atlas.epoch
+    table.clear(resources.placements)
+  end
 end
 
 -- The texture of an atlas page, uploaded again when the page has gained glyphs.
@@ -325,6 +334,7 @@ local function drawGlyphs(
   local stride = shader.GLYPH_SLOTS * 4
   local batch = resources.glyphBatch
   for index, total in packed.glyphCounts do
+    atlas:touch(index)
     local texture = page(resources, index)
     local data = packed.glyphs[index]
     if texture and data and total > 0 then

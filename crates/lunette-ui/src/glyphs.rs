@@ -10,8 +10,10 @@
 //! Adding a glyph is split in two so that the field, which takes milliseconds, can be generated
 //! away from the atlas: [`Atlas::prepare`] reads the outline and answers a [`Job`], and
 //! [`Atlas::complete`] places the job's field. The atlas holds at most
-//! [`AtlasConfig::max_pages`] pages and does not evict, so a glyph that needs a page past the
-//! limit is an error.
+//! [`AtlasConfig::max_pages`] pages. When they are full, it clears the page that has gone longest
+//! undrawn, if no frame has drawn it for [`AtlasConfig::evict_after`] frames, and advances its
+//! epoch so callers drop the placements they hold. With every page drawn recently, a new glyph is
+//! an error.
 
 use std::{collections::HashMap, fmt};
 
@@ -30,6 +32,8 @@ pub struct AtlasConfig {
     /// The most pages the atlas holds. Each page is `page_size` squared RGBA8 pixels in memory,
     /// and again on the GPU.
     pub max_pages: u32,
+    /// Frames a page must go undrawn before a full atlas may clear it for new glyphs.
+    pub evict_after: u64,
 }
 
 impl Default for AtlasConfig {
@@ -41,6 +45,8 @@ impl Default for AtlasConfig {
             // Eight 4 MiB pages hold several thousand glyphs at 48 pixels per em, which covers the
             // interface's Latin text many times over and leaves room for CJK.
             max_pages: 8,
+            // Two seconds at 60 Hz: long enough that text still on screen is never cleared.
+            evict_after: 120,
         }
     }
 }
@@ -148,6 +154,8 @@ pub struct Page {
     /// Advances whenever a glyph is written to the page, so the host knows to upload it again.
     pub revision: u64,
     shelves: Vec<Shelf>,
+    /// The frame that last drew the page.
+    last_drawn: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -180,7 +188,7 @@ pub enum AtlasError {
         expected: usize,
         actual: usize,
     },
-    /// Every page is in use and none has room for the glyph's cell.
+    /// Every page has been drawn recently and none has room for the glyph's cell.
     Full {
         face: FaceHandle,
         glyph: u16,
@@ -222,7 +230,7 @@ impl fmt::Display for AtlasError {
             ),
             AtlasError::Full { face, glyph, pages } => write!(
                 f,
-                "glyph atlas: glyph {glyph} of face {}: all {pages} pages are full",
+                "glyph atlas: glyph {glyph} of face {}: all {pages} pages are full and drawn recently",
                 face.get()
             ),
         }
@@ -250,6 +258,8 @@ pub struct Atlas {
     pages: Vec<Page>,
     /// Every glyph asked for. A glyph with no outline, such as a space, maps to nil.
     glyphs: HashMap<(FaceHandle, u16), Option<Placement>>,
+    frame: u64,
+    epoch: u64,
 }
 
 impl Atlas {
@@ -258,7 +268,28 @@ impl Atlas {
             config,
             pages: Vec::new(),
             glyphs: HashMap::new(),
+            frame: 0,
+            epoch: 0,
         }
+    }
+
+    /// Starts a frame, which the pages drawn in it then [`Atlas::touch`].
+    pub fn advance(&mut self) {
+        self.frame += 1;
+    }
+
+    /// Records that the current frame draws a page, so it is not cleared while it is in use.
+    pub fn touch(&mut self, page: u32) {
+        let frame = self.frame;
+        if let Some(found) = self.pages.get_mut(page as usize) {
+            found.last_drawn = frame;
+        }
+    }
+
+    /// Advances whenever a page is cleared, after which every placement answered before may name
+    /// another glyph's cell.
+    pub fn epoch(&self) -> u64 {
+        self.epoch
     }
 
     pub fn config(&self) -> AtlasConfig {
@@ -419,10 +450,37 @@ impl Atlas {
                 .pages
                 .iter()
                 .any(|page| slot(page, size, width, height).is_some())
+            || self.evictable().is_some()
+    }
+
+    /// The page that has gone longest undrawn, if it has gone undrawn long enough to clear.
+    fn evictable(&self) -> Option<usize> {
+        self.pages
+            .iter()
+            .enumerate()
+            .filter(|(_, page)| {
+                self.frame.saturating_sub(page.last_drawn) >= self.config.evict_after
+            })
+            .min_by_key(|(_, page)| page.last_drawn)
+            .map(|(index, _)| index)
+    }
+
+    /// Clears a page and forgets the glyphs on it, so they are generated again when next asked for.
+    fn evict(&mut self, index: usize) {
+        let page = &mut self.pages[index];
+        page.pixels.fill(0);
+        page.shelves.clear();
+        page.revision += 1;
+        page.last_drawn = self.frame;
+        let cleared = index as u32;
+        self.glyphs
+            .retain(|_, placement| placement.is_none_or(|placement| placement.page != cleared));
+        self.epoch += 1;
     }
 
     /// Finds room for a cell on a shelf of an existing page, opening a shelf or a page if needed,
-    /// or nil when every page is in use and none has room.
+    /// then clearing the longest undrawn page, or nil when every page has been drawn recently and
+    /// none has room.
     fn allocate(&mut self, width: u32, height: u32) -> Option<(usize, u32, u32)> {
         let size = self.config.page_size;
         for (index, page) in self.pages.iter_mut().enumerate() {
@@ -432,13 +490,19 @@ impl Atlas {
             }
         }
         if self.pages.len() as u64 >= u64::from(self.config.max_pages) {
-            return None;
+            let index = self.evictable()?;
+            self.evict(index);
+            let page = &mut self.pages[index];
+            let found = slot(page, size, width, height)?;
+            let (x, y) = take(page, found, width, height);
+            return Some((index, x, y));
         }
         let mut page = Page {
             size,
             pixels: vec![0; size as usize * size as usize * 4],
             revision: 0,
             shelves: Vec::new(),
+            last_drawn: self.frame,
         };
         let found = slot(&page, size, width, height)?;
         let (x, y) = take(&mut page, found, width, height);
