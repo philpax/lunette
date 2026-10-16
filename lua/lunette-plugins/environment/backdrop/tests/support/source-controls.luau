@@ -5,7 +5,6 @@ local attention = require '../../private/selection/attention'
 local controls = require '../../private/controls/controls'
 local menu = require '@lunette-contracts/menu'
 local panels = require '@lunette-contracts/panels'
-local ui = require '@lunette-contracts/ui'
 local uiHost = require '@lunette-contracts/ui-host'
 local recorded = require './panels'
 local hostFixture = require '@testing/ui-host'
@@ -30,7 +29,6 @@ export type Environment = {
   choice: selection.State,
   panels: panels.Service,
   owner: plugin.Owner,
-  ui: ui.Service,
   host: uiHost.Service,
   recorder: recorded.Recorder,
   -- The wrapped host entry's panels, through which the wrist menu is driven.
@@ -75,7 +73,6 @@ function fixture.boot(options: Options?): Environment
     'keyboard',
     'desktop/pointing',
     'panels',
-    'ui',
     menuPanels.entry,
     'ui-standard',
     'menu',
@@ -97,7 +94,6 @@ function fixture.boot(options: Options?): Environment
     choice = choice,
     panels = observed.service,
     owner = observed.context,
-    ui = running.session:observe(ui.capability).service,
     host = running.session:observe(uiHost.capability).service,
     menuPanels = menuPanels,
     recorder = recorder,

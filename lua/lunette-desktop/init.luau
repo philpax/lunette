@@ -15,7 +15,6 @@ local bindings = require '@lunette-plugins/input/bindings'
 local interaction = require '@lunette-plugins/interaction/pointers'
 local laser = require '@lunette-plugins/input/laser'
 local keyboard = require '@lunette-plugins/input/keyboard'
-local ui = require '@lunette-plugins/ui/toolkit'
 local uiHost = require '@lunette-plugins/ui/host'
 local uiStandard = require '@lunette-plugins/ui/standard'
 local notifications = require '@lunette-plugins/ui/notifications'
@@ -82,7 +81,6 @@ local DEFAULT: { plugin.Entry } = plugin.compose {
   { id = 'interaction', definition = interaction.definition },
   { id = 'laser', definition = laser.definition },
   { id = 'keyboard', definition = keyboard.definition },
-  { id = 'ui', definition = ui.definition },
   { id = 'ui-host', definition = uiHost.definition },
   { id = 'ui-standard', definition = uiStandard.definition },
   { id = 'notifications', definition = notifications.definition },

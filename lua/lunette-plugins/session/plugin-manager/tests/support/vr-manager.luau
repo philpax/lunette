@@ -6,7 +6,6 @@ local management = require '@lunette-plugin/management'
 local frameProvider = require '@lunette-plugins/session/frame'
 local desktop = require '@lunette-desktop'
 local keyboardProvider = require '@lunette-plugins/input/keyboard'
-local ui = require '@lunette-contracts/ui'
 local uiHost = require '@lunette-contracts/ui-host'
 local uiComponents = require '@lunette-contracts/ui-components'
 local composition = require '@lunette-contracts/composition'
@@ -22,7 +21,6 @@ local uiPanels = require '@testing/ui-panels'
 local wristMenu = require '@testing/wrist-menu'
 
 type Services = {
-  ui: ui.Service,
   host: uiHost.Service,
   focus: focus.Service,
   display: display.Service,
@@ -90,7 +88,6 @@ function fixture.boot(additions: { testing.ComposeEntry }): Environment
   local observer = adapter.define {
     name = 'manager-vr-observer',
     requires = {
-      ui.capability,
       uiHost.capability,
       focus.capability,
       display.capability,
@@ -98,7 +95,6 @@ function fixture.boot(additions: { testing.ComposeEntry }): Environment
       composition.capability,
     },
     init = function(context: adapter.Context): ()
-      services.ui = context:require(ui.capability)
       services.host = context:require(uiHost.capability)
       services.focus = context:require(focus.capability)
       services.display = context:require(display.capability)

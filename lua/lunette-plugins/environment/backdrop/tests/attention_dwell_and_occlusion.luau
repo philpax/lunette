@@ -41,14 +41,12 @@ test('attention_dwell_and_occlusion', function()
 
   fixture.aimHead(env, 0)
   env.running:step(0.4)
-  local uiOwner = env.running.session:observe(require('@lunette-contracts/ui').capability).context
-  local uiBlock = env.ui:newPanel(uiOwner, {
+  local uiOwner = env.running.session:observe(require('@lunette-contracts/ui-host').capability).context
+  local uiBlock = env.host:newPanel(uiOwner, {
     name = 'testing/occluder',
     pose = lovr.math.newMat4():translate(0, 1.5, -1),
     width = 1,
     height = 0.5,
-    logicalWidth = 100,
-    logicalHeight = 50,
   })
   env.running:step(1)
   expect.equal(env.choice.attended, second, 'an offered UI surface occludes the window')

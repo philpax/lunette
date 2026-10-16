@@ -1,5 +1,4 @@
--- Pure single-line edits that keep one-based UTF-8 offsets at native extended grapheme boundaries. Ported from the
--- previous toolkit, which is removed once its consumers move to the new one.
+-- Pure single-line edits that keep one-based UTF-8 offsets at native extended grapheme boundaries.
 local lunette = require '@lunette'
 
 local edit = {}

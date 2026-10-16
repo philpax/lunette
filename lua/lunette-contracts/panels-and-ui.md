@@ -18,13 +18,13 @@ Targets draw the joined outline even without panel chrome. Hiding, destroying, o
 
 The caller places, offers, and draws its keyboard; the service does not draw globally or expose a second programmatic key-delivery path. Theme changes apply before the next input or draw, and visibility notifications follow actual changes. Drawing and hooks restore pass state even on error; legends do not write depth.
 
-## UI geometry
+## UI host
 
-Input, drawing, and inspection share top-left, y-down logical coordinates. Bounds are half-open and clipped to the panel. Higher `z` wins overlap, then later registration. Control ids are unique per creation owner across the provider's panels. Inspection identifies owner activations and reports geometry without granting panel authority.
+Panel coordinates are metres from the panel's top-left corner, with x right and y down; elevation is metres towards the viewer. Input, drawing, and inspection share these coordinates and the panel's curve. A node is hit only inside its bounds and inside every clipping ancestor. A raised node wins over a lower one, then the later sibling.
 
-A held control refuses other pointers. Release activates only the pressed control and only inside; cancellation never activates. Hiding, disabling, destroying, resizing, or changing bounds or items cancels capture; pose changes do not. Hover does not take focus. Text fields accept single-line UTF-8 and edit grapheme clusters; setting text does not invoke change callbacks.
+A press captures the pressed node for that pointer. Release activates only the captured node and only inside it, and cancellation never activates. Relayout keeps a capture, a pointer cancel from the interaction service cancels it, and removing the captured node ends it without an event. Hover does not take focus. Text fields edit single-line UTF-8 at extended grapheme boundaries; a value set through props does not call `onChange`.
 
-Panels and controls end with their creation owners or provider. Widget errors report against the control owner; draw errors reach the frame boundary. Hooks restore pass state but cannot change hit bounds. The [UI provider](../lunette-plugins/ui/toolkit/README.md) owns rendering choices. Arbitrary pass misuse, text shaping, bidirectional editing, and IME composition are unsupported.
+Panels, kinds, visuals, and nodes end with their creation owners or the host. Errors from kind handlers, visuals, and component callbacks are reported through the protected-call boundary and do not stop the frame. Node ids are stable key paths within a panel, and `inspect` and `inspectNodes` report geometry and semantics without granting authority over another owner's panels. The [UI host](../lunette-plugins/ui/host/README.md) records rendering limits. Bidirectional text and input-method composition are unsupported.
 
 ## Themes
 

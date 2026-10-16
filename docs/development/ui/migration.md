@@ -4,7 +4,7 @@ The design in the other UI documents replaces the earlier `lunette/ui` toolkit, 
 
 ## The earlier toolkit
 
-The `lunette/ui` contract is [`lua/lunette-contracts/ui.luau`](../../../lua/lunette-contracts/ui.luau), at version 3. Its provider is [`lua/lunette-plugins/ui/toolkit/`](../../../lua/lunette-plugins/ui/toolkit/README.md), about 4,350 lines of Lua across 27 modules.
+The `lunette/ui` contract was `lua/lunette-contracts/ui.luau`, at version 3. Its provider was `lua/lunette-plugins/ui/toolkit/`, about 4,350 lines of Lua across 27 modules. Both are removed.
 
 A panel is a flat quad in the scene. A consumer registers each control with an absolute rectangle in the panel's top-left, y-down logical pixels. The control kinds are `button`, `text-field`, `choice`, `list`, and `region`, which is a caller-drawn control. A panel is a flat list of rectangles ordered by `z` and registration order, with no containers, measurement, or parent and child relationship.
 

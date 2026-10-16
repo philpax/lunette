@@ -28,7 +28,6 @@ test('settings cover entries with options and shipped empty schemas', function()
     'interaction',
     'laser',
     'keyboard',
-    'ui',
     'ui-host',
     'ui-standard',
     'notifications',

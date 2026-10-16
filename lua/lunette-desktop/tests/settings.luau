@@ -66,7 +66,6 @@ test('desktop_backdrop_composition_and_settings', function()
     'interaction',
     'laser',
     'keyboard',
-    'ui',
     'ui-host',
     'ui-standard',
     'notifications',

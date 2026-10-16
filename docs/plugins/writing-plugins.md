@@ -30,7 +30,7 @@ Only one active plugin provides a capability. A service that needs several contr
 
 [`examples/first-plugin/uptime.luau`](../../examples/first-plugin/uptime.luau) derives optional `Config` and resolved `Settings` from one schema, consumes two services, and subscribes to a native event. [Configuration schemas](configuration-schema.md) covers merging and validation. Three-dimensional positions, directions, and offsets use native vectors.
 
-Shared values use [neutral contract schemas](../../lua/lunette-contracts/schemas/README.md), without importing providers or acquiring resources. Editable appearance settings use [theme configuration](../../lua/lunette-plugins/theme/configuration.luau) or [titlebar configuration](../../lua/lunette-plugins/ui/titlebar-configuration.luau) to project caller settings into stable contract values.
+Shared values use [neutral contract schemas](../../lua/lunette-contracts/schemas/README.md), without importing providers or acquiring resources. Editable appearance settings use [theme configuration](../../lua/lunette-plugins/theme/configuration.luau) to project caller settings into stable contract values.
 
 Keep mutable state and acquisition inside `init` or `build`. Register subscriptions with `context:on`, and native resources with context effects or owner-scoped service methods. Module bodies must be safe to require again during source reload; the host has no teardown registry for resources acquired outside plugins. [Ownership and lifecycle](../../lua/lunette-plugin/ownership.md) states acquisition, partial-failure, and cleanup rules.
 

@@ -22,7 +22,6 @@ local surfaces = require '@lunette-contracts/surfaces'
 local tags = require '@lunette-contracts/tags'
 local theme = require '@lunette-contracts/theme'
 local themes = require '@lunette-contracts/themes'
-local ui = require '@lunette-contracts/ui'
 local uiHost = require '@lunette-contracts/ui-host'
 
 local brokers = {}
@@ -74,7 +73,6 @@ function brokers.watch(context: plugin.Context): { Reader }
   add('menu', menu.capability)
   add('theme', theme.capability)
   add('themes', themes.capability)
-  add('ui', ui.capability)
   add('ui-host', uiHost.capability)
   return readers
 end

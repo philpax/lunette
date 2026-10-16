@@ -15,7 +15,6 @@ local entries: { [string]: compose.Source } = {
   interaction = require('@lunette-plugins/interaction/pointers').definition,
   laser = require('@lunette-plugins/input/laser').definition,
   keyboard = require('@lunette-plugins/input/keyboard').definition,
-  ui = require('@lunette-plugins/ui/toolkit').definition,
   ['ui-host'] = require('@lunette-plugins/ui/host').definition,
   ['ui-standard'] = require('@lunette-plugins/ui/standard').definition,
   notifications = require('@lunette-plugins/ui/notifications').definition,

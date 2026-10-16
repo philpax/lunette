@@ -109,7 +109,6 @@ fn allowed(leaves: &BTreeSet<PathBuf>, source: &Path, target: &Path) -> bool {
                         | "lua/lunette-plugins/interaction/picking.luau"
                         | "lua/lunette-plugins/theme/base.luau"
                         | "lua/lunette-plugins/theme/configuration.luau"
-                        | "lua/lunette-plugins/ui/titlebar-configuration.luau"
                 )
             );
     };

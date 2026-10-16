@@ -4,7 +4,6 @@ local schema = require '@lunette-plugin/schema'
 local interaction = require '@lunette-plugins/interaction/pointers/config'
 local laser = require '@lunette-plugins/input/laser/config'
 local keyboard = require '@lunette-plugins/input/keyboard/config'
-local ui = require '@lunette-plugins/ui/toolkit/config'
 local uiHost = require '@lunette-plugins/ui/host/config'
 local notifications = require '@lunette-plugins/ui/notifications/config'
 local accessibility = require '@lunette-plugins/ui/accessibility/config'
@@ -39,7 +38,6 @@ local shape: {
   read interaction: schema.Schema<interaction.Config?, interaction.Settings?>,
   read laser: schema.Schema<laser.Config?, laser.Settings?>,
   read keyboard: schema.Schema<keyboard.Config?, keyboard.Settings?>,
-  read ui: schema.Schema<ui.Config?, ui.Settings?>,
   read ['ui-host']: schema.Schema<uiHost.Config?, uiHost.Settings?>,
   read notifications: schema.Schema<notifications.Config?, notifications.Settings?>,
   read accessibility: schema.Schema<accessibility.Config?, accessibility.Settings?>,
@@ -72,7 +70,6 @@ local shape: {
     interaction = optional<<interaction.Config, interaction.Settings>>(interaction.schema),
     laser = optional<<laser.Config, laser.Settings>>(laser.schema),
     keyboard = optional<<keyboard.Config, keyboard.Settings>>(keyboard.schema),
-    ui = optional<<ui.Config, ui.Settings>>(ui.schema),
     ['ui-host'] = optional<<uiHost.Config, uiHost.Settings>>(uiHost.schema),
     notifications = optional<<notifications.Config, notifications.Settings>>(notifications.schema),
     accessibility = optional<<accessibility.Config, accessibility.Settings>>(accessibility.schema),
