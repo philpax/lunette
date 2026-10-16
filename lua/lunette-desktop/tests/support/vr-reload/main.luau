@@ -1,14 +1,16 @@
--- Exposes live public services to the controller fixture across production source reloads.
+-- Exposes live public services and the UI panels to the controller fixture across production source reloads.
 local desktop = require '@lunette-desktop'
-local plugin = require '@lunette-plugin'
 local adapter = require '@lunette-plugin/adapter'
-local ui = require '@lunette-contracts/ui'
+local uiHost = require '@lunette-contracts/ui-host'
+local uiPanels = require '@testing/ui-panels'
+
+local panels = uiPanels.new()
 
 local observer = adapter.define {
   name = 'vr-reload-observer',
-  requires = { ui.capability },
+  requires = { uiHost.capability },
   init = function(context: adapter.Context)
-    _G.vrReloadControls = { ui = context:require(ui.capability) }
+    _G.vrReloadControls = { host = context:require(uiHost.capability), panels = panels }
     context:effect(function(): () -> ()
       return function()
         _G.vrReloadControls = nil
@@ -18,5 +20,8 @@ local observer = adapter.define {
 }
 
 desktop.run {
-  patches = { { insert = { id = 'vr-reload-observer', definition = observer } } },
+  patches = {
+    { id = 'ui-host', definition = panels.definition },
+    { insert = { id = 'vr-reload-observer', definition = observer } },
+  },
 }

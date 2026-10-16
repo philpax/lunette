@@ -2,6 +2,8 @@ local testing = require '@testing'
 local expect = testing.expect
 local desktop = require '@lunette-desktop'
 local vrUi = require '@testing/vr-ui'
+local uiPanels = require '@testing/ui-panels'
+local wristMenu = require '@testing/wrist-menu'
 local ui = require '@lunette-contracts/ui'
 local menu = require '@lunette-contracts/menu'
 local display = require '@lunette-contracts/keyboard-display'
@@ -12,6 +14,7 @@ type Native = testing.Native
 type Board = desktop.Keyboard
 type Environment = {
   fixture: vrUi.Fixture,
+  recorder: uiPanels.Recorder,
   session: Session,
   native: Native,
   ui: ui.Service,
@@ -30,11 +33,16 @@ end
 
 local function boot(): Environment
   testing.host.useConfiguration 'examples/ui'
-  local patches = { { insert = { id = name, definition = require('form').definition } } }
+  local recorder = uiPanels.new()
+  local patches = {
+    { id = 'ui-host', definition = recorder.definition },
+    { insert = { id = name, definition = require('form').definition } },
+  }
   local fixture = vrUi.boot(desktop.compose { patches = patches })
   local session = fixture.session
   local env = {
     fixture = fixture,
+    recorder = recorder,
     session = session,
     native = fixture.native,
     ui = session:observe(ui.capability).service,
@@ -59,9 +67,7 @@ local function click(env: Environment, id: string, itemId: string?, hand: vrUi.H
 end
 
 local function open(env: Environment)
-  env.fixture:clickControl(env.ui, 'desktop/menu', 'open')
-  env.fixture:clickControl(env.ui, 'desktop/menu', 'actions', 'right', actionId)
-  env.fixture:clickControl(env.ui, 'desktop/menu/titlebar', 'close')
+  wristMenu.run(env.fixture, env.recorder, actionId)
 end
 
 local function key(env: Environment, code: number)

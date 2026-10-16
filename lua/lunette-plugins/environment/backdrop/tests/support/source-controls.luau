@@ -10,6 +10,8 @@ local uiHost = require '@lunette-contracts/ui-host'
 local recorded = require './panels'
 local hostFixture = require '@testing/ui-host'
 local vrUi = require '@testing/vr-ui'
+local uiPanels = require '@testing/ui-panels'
+local wristMenu = require '@testing/wrist-menu'
 local lunette = require '@lunette'
 
 local fixture = {}
@@ -31,6 +33,8 @@ export type Environment = {
   ui: ui.Service,
   host: uiHost.Service,
   recorder: recorded.Recorder,
+  -- The wrapped host entry's panels, through which the wrist menu is driven.
+  menuPanels: uiPanels.Recorder,
   menu: menu.Service,
   enabled: () -> boolean,
   processBoundary: ProcessBoundary?,
@@ -43,6 +47,7 @@ function fixture.boot(options: Options?): Environment
   local processBoundary = if options.freshProcesses then freshProcesses(native) else nil
   local choice = selection.new(options.settings)
   local enabled = true
+  local recorder = uiPanels.new()
   local parent = plugin.consumer {
     name = 'testing/backdrop-source',
     init = function(context: plugin.Context): ()
@@ -58,6 +63,7 @@ function fixture.boot(options: Options?): Environment
     end,
   }
   local recorder = recorded.recorder()
+  local menuPanels = uiPanels.new()
   local entries = {
     'frame',
     'surfaces',
@@ -70,7 +76,7 @@ function fixture.boot(options: Options?): Environment
     'desktop/pointing',
     'panels',
     'ui',
-    'ui-host',
+    menuPanels.entry,
     'ui-standard',
     'menu',
     'desktop/menu',
@@ -93,6 +99,7 @@ function fixture.boot(options: Options?): Environment
     owner = observed.context,
     ui = running.session:observe(ui.capability).service,
     host = running.session:observe(uiHost.capability).service,
+    menuPanels = menuPanels,
     recorder = recorder,
     menu = running.session:observe(menu.capability).service,
     processBoundary = processBoundary,
@@ -129,8 +136,8 @@ end
 function fixture.open(env: Environment): ()
   env.running:tracked('left', true)
   env.running:step(0)
-  env.running:clickControl(env.ui, 'desktop/menu', 'open')
-  env.running:clickControl(env.ui, 'desktop/menu', 'actions', 'right', 'desktop/backdrop/open')
+  wristMenu.open(env.running, env.menuPanels)
+  env.menuPanels:click(env.running, wristMenu.PANEL, wristMenu.row 'desktop/backdrop/open')
   env.running:tracked('left', false)
   -- The panel renders what the action changed at the next commit.
   env.running:step(0)

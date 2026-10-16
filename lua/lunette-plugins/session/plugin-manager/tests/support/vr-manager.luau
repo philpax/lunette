@@ -10,6 +10,8 @@ local focus = require '@lunette-contracts/focus'
 local display = require '@lunette-contracts/keyboard-display'
 local surfaces = require '@lunette-contracts/surfaces'
 local vrUi = require '@testing/vr-ui'
+local uiPanels = require '@testing/ui-panels'
+local wristMenu = require '@testing/wrist-menu'
 
 type Services = { ui: ui.Service, focus: focus.Service, display: display.Service, surfaces: surfaces.Service }
 export type Environment = {
@@ -53,7 +55,9 @@ function fixture.boot(additions: { testing.ComposeEntry }): Environment
       { label = 'All', action = { kind = 'chord', code = codes.a, modifiers = { 'control' } } },
     },
   }
+  local recorder = uiPanels.new()
   local patches: { testing.Patch } = {
+    { id = 'ui-host', definition = recorder.definition },
     { id = 'laser', config = { aim = { enabled = false }, triggerLock = { enabled = false } } },
     { id = 'keyboard', definition = keyboardProvider.define { rows = rows, layers = {} } },
     { insert = { id = 'manager-vr-observer', definition = observer } },
@@ -71,9 +75,7 @@ function fixture.boot(additions: { testing.ComposeEntry }): Environment
   controls:step()
   local env: Environment = { native = native, services = services, controls = controls, running = running }
   function env.open(self: Environment)
-    self.controls:clickControl(self.services.ui, 'desktop/menu', 'open')
-    self.controls:clickControl(self.services.ui, 'desktop/menu', 'actions', 'right', 'desktop/manager/open')
-    self.controls:clickControl(self.services.ui, 'desktop/menu/titlebar', 'close')
+    wristMenu.run(self.controls, recorder, 'desktop/manager/open')
   end
   function env.click(self: Environment, id: string, itemId: string?)
     local panel = if id == 'close' then 'desktop/manager/titlebar' else 'desktop/manager'

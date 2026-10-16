@@ -67,6 +67,9 @@ for failureAt = 1, 2 do
   test('the attention badge restores the pass when plane ' .. failureAt .. ' raises', function()
     local env = fixture.boot { settings = { sourceMode = 'attention' } }
     fixture.window(env, 70 + failureAt, env.native.newProcess(70 + failureAt))
+    -- The untracked wrist hides the wrist menu, whose text the fake renderer cannot draw, so the frame reports only
+    -- the injected failure.
+    env.running:tracked('left', false)
     env.running:step(0.4)
     local pass = env.native.events.pass
     local recorder = env.native.events.render

@@ -1,16 +1,16 @@
--- Renders owner-scoped menu actions on a tracked wrist through the neutral UI service.
+-- Renders owner-scoped menu actions on a tracked wrist through the UI host and the standard kinds.
 local plugin = require '@lunette-plugin'
-local ui = require '@lunette-contracts/ui'
+local uiHost = require '@lunette-contracts/ui-host'
+local uiComponents = require '@lunette-contracts/ui-components'
 local menu = require '@lunette-contracts/menu'
 local frame = require '@lunette-contracts/frame'
+local ui = require '@lunette-plugins/ui/react'
 local config = require '@self/config'
 local rows = require '@self/private/rows'
+local view = require '@self/private/view'
 
 export type Config = config.Config
 export type Settings = config.Settings
-
--- The closed menu is one square button in its own logical space.
-local COMPACT = 100
 
 local function wristPose(device: Device, offset: vector): Mat4
   local x, y, z, angle, ax, ay, az = lovr.headset.getPose(device)
@@ -21,103 +21,69 @@ end
 return plugin.consumer<<Config, Settings>> {
   name = 'desktop/menu',
   schema = config.schema,
-  requires = { ui.capability, frame.capability, menu.capability },
+  requires = { uiHost.capability, uiComponents.capability, frame.capability, menu.capability },
   init = function(context: plugin.Context, settings: Settings): ()
-    local uiService: ui.Service = context:require(ui.capability)
+    local host = context:require(uiHost.capability)
+    local components = context:require(uiComponents.capability)
     local menuService: menu.Service = context:require(menu.capability)
     local frameService: frame.Service = context:require(frame.capability)
     local expanded = settings.expanded
-    local panel = uiService:newPanel(context, {
+    -- The panel takes its content's size, so it is the closed button or the open list, centred on the wrist pose.
+    local panel = host:newPanel(context, {
       name = 'desktop/menu',
-      width = settings.size,
-      height = settings.size,
-      logicalWidth = COMPACT,
-      logicalHeight = COMPACT,
-      visible = false,
+      size = 'content',
+      width = math.max(settings.size, expanded.width),
+      height = math.max(settings.size, expanded.height),
       grabbable = false,
-      theme = {
-        hapticStrength = settings.haptic.strength,
-        hapticDuration = settings.haptic.duration,
-        rowHeight = expanded.rowHeight,
-      },
     })
+    panel:setVisible(false)
     local device: Device = if settings.hand == 'left' then 'hand/left' else 'hand/right'
-    local opened, tracked = false, false
-    local button: ui.Button? = nil
-    local list: ui.List? = nil
-    local snapshot: rows.Snapshot = {}
+    local tracked = false
+    local opened = ui.store(false)
+    local snapshot = ui.store({} :: rows.Snapshot)
     local function live(): boolean
       return context:active() and not panel.dead
     end
-    local function rebuild(value: boolean): ()
+    local function setOpened(value: boolean): ()
       if not live() then
         return
       end
-      opened = value
-      if button and not button.dead then
-        button:destroy()
+      if value then
+        snapshot:set(menuService:list())
       end
-      if list and not list.dead then
-        list:destroy()
-      end
-      button, list = nil, nil
-      snapshot = {}
-      if opened then
-        panel:setSize(expanded.width, expanded.height, expanded.logicalWidth, expanded.logicalHeight)
-      else
-        panel:setSize(settings.size, settings.size, COMPACT, COMPACT)
-      end
-      panel:setTitlebar(if opened
-        then {
-          title = 'Menu',
-          draggable = false,
-          onClose = function(): ()
-            if live() and tracked then
-              rebuild(false)
-            end
-          end,
-        }
-        else nil)
-      if not opened then
-        button = panel:button {
-          id = 'open',
-          label = 'Menu',
-          bounds = { x = 0, y = 0, width = COMPACT, height = COMPACT },
-          onActivate = function(): ()
-            if live() and tracked then
-              rebuild(true)
-            end
-          end,
-        }
-      else
-        snapshot = menuService:list()
-        list = panel:list {
-          id = 'actions',
-          label = 'Actions',
-          bounds = { x = 8, y = 8, width = expanded.logicalWidth - 16, height = expanded.logicalHeight - 16 },
-          items = rows.items(snapshot),
-          onChange = function(id: string): ()
-            local current = list
-            if not live() or not tracked or not opened or not current or current.dead then
-              return
-            end
-            local descriptor = rows.find(snapshot, id)
-            current:setSelected(nil)
-            if descriptor and descriptor.enabled then
-              -- Failed results are already reported by the broker; unavailable registrations are inert.
-              menuService:invoke(descriptor.id, descriptor.token)
-            end
-          end,
-        }
-      end
+      opened:set(value)
     end
-    rebuild(false)
+    ui.mount(
+      panel,
+      view.Menu {
+        opened = opened,
+        snapshot = snapshot,
+        size = settings.size,
+        width = expanded.width,
+        height = expanded.height,
+        open = function(): ()
+          if tracked then
+            setOpened(true)
+          end
+        end,
+        close = function(): ()
+          if tracked then
+            setOpened(false)
+          end
+        end,
+        invoke = function(descriptor: menu.Descriptor): ()
+          if live() and tracked and opened:get() then
+            -- Failed results are already reported by the broker; unavailable registrations are inert.
+            menuService:invoke(descriptor.id, descriptor.token)
+          end
+        end,
+      },
+      { components = components, owner = context }
+    )
     menuService:onChanged(context, {
       run = function(): ()
-        local current = list
-        if live() and opened and current and not current.dead then
-          snapshot = menuService:list()
-          current:setItems(rows.items(snapshot))
+        if live() and opened:get() then
+          snapshot:set(menuService:list())
         end
       end,
     })
@@ -128,13 +94,10 @@ return plugin.consumer<<Config, Settings>> {
         if not live() then
           return
         end
-        local nextTracked = lovr.headset.isTracked(device)
-        if not nextTracked then
+        if not lovr.headset.isTracked(device) then
           if tracked then
             panel:setVisible(false)
-            if opened then
-              rebuild(false)
-            end
+            setOpened(false)
           end
           tracked = false
           return
@@ -144,15 +107,6 @@ return plugin.consumer<<Config, Settings>> {
           panel:setVisible(true)
         end
         tracked = true
-      end,
-    })
-    frameService:onDraw(context, {
-      phase = 'scene',
-      order = 1,
-      run = function(pass: Pass): ()
-        if live() and tracked then
-          panel:draw(pass)
-        end
       end,
     })
   end,
