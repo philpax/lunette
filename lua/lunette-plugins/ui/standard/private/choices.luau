@@ -53,10 +53,11 @@ function choices.chevron(draw: uiHost.Draw, bounds: uiHost.Rect, color: uiHost.C
   local stroke = size * 0.14
   local cx, cy = bounds.x + bounds.width / 2, bounds.y + bounds.height / 2
   local reach = size * 0.22
-  local lift = if open then reach * 0.5 else -reach * 0.5
+  -- Closed, the chevron points down: its arms rise from the centre to the ends. Open, it points up.
+  local lift = if open then -reach * 0.5 else reach * 0.5
   for _, side in { -1, 1 } do
     local length = math.sqrt(2) * reach + stroke
-    local angle = if open then -side * math.pi / 4 else side * math.pi / 4
+    local angle = if open then side * math.pi / 4 else -side * math.pi / 4
     draw:box({ x = cx + side * reach / 2 - length / 2, y = cy - lift - stroke / 2, width = length, height = stroke }, {
       fill = color,
       radius = stroke / 2,
