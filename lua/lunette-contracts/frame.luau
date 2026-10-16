@@ -85,6 +85,13 @@ export type MouseHandler = {
   read run: (HostMouseEvent) -> (),
 }
 
+-- Simulate handlers run in registration order from `lovr.simulate`, which LÖVR calls each frame before the update
+-- while the headset has no session, to drive the head and hands from the desktop window. While no simulate handler is
+-- registered, LÖVR's own simulator runs.
+export type SimulateHandler = {
+  read run: (number) -> (),
+}
+
 export type QuitHandler = {
   read run: () -> (),
 }
@@ -102,6 +109,7 @@ export type Service = {
   read onKey: (Service, Owner, KeyHandler) -> plugin.Effect,
   read onText: (Service, Owner, TextHandler) -> plugin.Effect,
   read onMouse: (Service, Owner, MouseHandler) -> plugin.Effect,
+  read onSimulate: (Service, Owner, SimulateHandler) -> plugin.Effect,
   read onQuit: (Service, Owner, QuitHandler) -> plugin.Effect,
 }
 

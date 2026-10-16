@@ -156,6 +156,31 @@ test('mouse handlers receive movement, buttons, and wheel in registration order 
   env.session:close()
 end)
 
+test('simulate handlers replace the LÖVR simulator and give it back when they end', function()
+  local fallbacks: { number } = {}
+  lovr.simulate = function(dt: number)
+    fallbacks[#fallbacks + 1] = dt
+  end
+  local env = start()
+  local trace: { number } = {}
+  lovr.simulate(0.5)
+  expect.equal(table.concat(fallbacks, ' '), '0.5', 'with no handler, LÖVR simulates')
+  local simulator = consumer(env, 'frame-simulate', function(context: plugin.Context, service: frameContract.Service)
+    service:onSimulate(context, {
+      run = function(dt: number)
+        trace[#trace + 1] = dt
+      end,
+    })
+  end)
+  lovr.simulate(0.25)
+  expect.equal(table.concat(trace, ' '), '0.25', 'the handler simulates')
+  expect.equal(#fallbacks, 1, 'and LÖVR does not')
+  simulator:disable()
+  lovr.simulate(0.125)
+  expect.equal(table.concat(fallbacks, ' '), '0.5 0.125', 'LÖVR simulates again once the handler ends')
+  env.session:close()
+end)
+
 test('batch observers run first, and a consumed binding key or blockText blocks text until the next update', function()
   local env = start()
   local trace: { string } = {}

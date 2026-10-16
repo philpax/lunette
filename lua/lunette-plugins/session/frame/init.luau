@@ -18,6 +18,8 @@ type Dispatcher = {
   key: (KeyCode, number, boolean, translation.LovrModifiers?) -> (),
   text: (string, number) -> (),
   mouse: (contract.HostMouseEvent) -> (),
+  -- Answers whether any handler took the simulation.
+  simulate: (number) -> boolean,
   quit: () -> (),
 }
 
@@ -127,6 +129,7 @@ local function create(context: plugin.Context): (contract.Service, Dispatcher)
   local keys: { Entry<(contract.HostKeyEvent) -> boolean?> } = {}
   local texts: { Entry<(contract.HostTextEvent) -> boolean?> } = {}
   local mice: { Entry<(contract.HostMouseEvent) -> ()> } = {}
+  local simulations: { Entry<(number) -> ()> } = {}
   local quits: { Entry<() -> ()> } = {}
 
   local function register<T>(
@@ -263,6 +266,15 @@ local function create(context: plugin.Context): (contract.Service, Dispatcher)
         return nil
       end)
     end,
+    simulate = function(dt: number): boolean
+      local ran = false
+      dispatch('lovr.simulate', simulations, function(run: (number) -> ()): boolean?
+        ran = true
+        run(dt)
+        return nil
+      end)
+      return ran
+    end,
     quit = function(): ()
       dispatch('lovr.quit', quits, function(run: () -> ()): boolean?
         run()
@@ -298,6 +310,7 @@ local function create(context: plugin.Context): (contract.Service, Dispatcher)
       describe(result, 'frame.onKey', keys, contract.INPUT_PHASES)
       describe(result, 'frame.onText', texts, contract.INPUT_PHASES)
       describe(result, 'frame.onMouse', mice, {}, 'mouse')
+      describe(result, 'frame.onSimulate', simulations, {}, 'simulate')
       describe(result, 'frame.onQuit', quits, {})
       return inspection.snapshot(result, { active = context:active() })
     end,
@@ -334,6 +347,14 @@ local function create(context: plugin.Context): (contract.Service, Dispatcher)
     onMouse = function(_self: contract.Service, owner: contract.Owner, handler: contract.MouseHandler): plugin.Effect
       local rank, order = validate('onMouse', handler, UNPHASED)
       return (register(mice, owner, rank, order, handler.run))
+    end,
+    onSimulate = function(
+      _self: contract.Service,
+      owner: contract.Owner,
+      handler: contract.SimulateHandler
+    ): plugin.Effect
+      local rank, order = validate('onSimulate', handler, UNPHASED)
+      return (register(simulations, owner, rank, order, handler.run))
     end,
     onQuit = function(_self: contract.Service, owner: contract.Owner, handler: contract.QuitHandler): plugin.Effect
       local rank, order = validate('onQuit', handler, UNPHASED)
@@ -440,6 +461,18 @@ function frame.install(hooks: Hooks): ()
     local current = bound
     if current then
       current.mouse { kind = 'wheel', dx = dx, dy = dy }
+    end
+  end
+
+  -- LÖVR's simulator stays the fallback for a session with no simulate handler, or during a provider outage.
+  local fallback = lovr.simulate
+  function lovr.simulate(dt: number)
+    local current = bound
+    if current and current.simulate(dt) then
+      return
+    end
+    if fallback then
+      fallback(dt)
     end
   end
 
