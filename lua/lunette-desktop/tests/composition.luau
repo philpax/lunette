@@ -55,6 +55,7 @@ test('settings cover entries with options and shipped empty schemas', function()
     'desktop/menu',
     'desktop/actions',
     'desktop/errors',
+    'diagnostics/recovery',
     'desktop/workspaces',
     'desktop/monitors',
     'desktop/rules',

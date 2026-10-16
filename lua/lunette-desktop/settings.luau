@@ -24,6 +24,7 @@ local desktopMousePointer = require '@lunette-plugins/input/mouse-pointer/config
 local desktopKeyboard = require '@lunette-plugins/input/keyboard-display/config'
 local desktopMenu = require '@lunette-plugins/menu/wrist-menu/config'
 local desktopErrors = require '@lunette-plugins/diagnostics/error-display/config'
+local recovery = require '@lunette-plugins/diagnostics/recovery/config'
 local desktopWorkspaces = require '@lunette-plugins/workspace/controller/config'
 local desktopMonitors = require '@lunette-plugins/panels/monitors/config'
 local desktopRules = require '@lunette-plugins/window/configured-rules/config'
@@ -59,6 +60,7 @@ local shape: {
   read ['desktop/keyboard']: schema.Schema<desktopKeyboard.Config?, desktopKeyboard.Settings?>,
   read ['desktop/menu']: schema.Schema<desktopMenu.Config?, desktopMenu.Settings?>,
   read ['desktop/errors']: schema.Schema<desktopErrors.Config?, desktopErrors.Settings?>,
+  read ['diagnostics/recovery']: schema.Schema<recovery.Config?, recovery.Settings?>,
   read ['desktop/workspaces']: schema.Schema<desktopWorkspaces.Config?, desktopWorkspaces.Settings?>,
   read ['desktop/monitors']: schema.Schema<desktopMonitors.Config?, desktopMonitors.Settings?>,
   read ['desktop/rules']: schema.Schema<desktopRules.Config?, desktopRules.Settings?>,
@@ -96,6 +98,7 @@ local shape: {
     ['desktop/keyboard'] = optional<<desktopKeyboard.Config, desktopKeyboard.Settings>>(desktopKeyboard.schema),
     ['desktop/menu'] = optional<<desktopMenu.Config, desktopMenu.Settings>>(desktopMenu.schema),
     ['desktop/errors'] = optional<<desktopErrors.Config, desktopErrors.Settings>>(desktopErrors.schema),
+    ['diagnostics/recovery'] = optional<<recovery.Config, recovery.Settings>>(recovery.schema),
     ['desktop/workspaces'] = optional<<desktopWorkspaces.Config, desktopWorkspaces.Settings>>(desktopWorkspaces.schema),
     ['desktop/monitors'] = optional<<desktopMonitors.Config, desktopMonitors.Settings>>(desktopMonitors.schema),
     ['desktop/rules'] = optional<<desktopRules.Config, desktopRules.Settings>>(desktopRules.schema),

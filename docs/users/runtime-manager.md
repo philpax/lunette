@@ -14,7 +14,19 @@ Configure edits a draft from the selected entry's schema. Apply validates the wh
 
 Applying a valid draft restarts the entry. Replacement is not transactional: if activation fails, the old activation has already ended. Recover retries the last configuration that was active. Reload retries the current configuration. Disable withdraws an entry, and Enable starts it again. Disable, Reload, and Remove first ask for confirmation in a dialog that lists the plugins the action also unloads. Catalog can load a removed entry with its retained definition and configuration.
 
-A cleanup failure quarantines the entry. Restarting the session releases its retained native resources. Protected entries cannot be disabled or removed; the shipped desktop protects the manager and the providers and owners needed for menu, keyboard, pointing, and reload controls.
+A cleanup failure quarantines the entry. Restarting the session releases its retained native resources.
+
+## Protected entries
+
+Protected entries cannot be disabled, reloaded, reconfigured, or removed, and neither can the providers they depend on. The shipped desktop protects the manager, the wrist menu, the keyboard, pointing, the session actions, and the recovery plugin, so the controls needed to undo a mistake stay available. Entries the protected ones do not depend on can be changed freely; the recovery plugin covers a change that breaks the interface.
+
+## Recovery
+
+The [recovery plugin](../../lua/lunette-plugins/diagnostics/recovery/README.md) shows a panel in front of the headset when the UI host or the standard components stop running, or when the UI host reports errors on many consecutive frames. It draws without the UI toolkit, so it keeps working when the toolkit does not. Its panel lists the recent errors, and controller rays operate its four actions: default appearance, which toggles the switch back to the standard widgets and theme; Reload configuration; Restore the last known good configuration; and Restart into safe mode. The panel hides once the toolkit runs again.
+
+The last known good configuration is the composition as it stood once the UI toolkit had run for a while without errors and without further changes. The recovery plugin records it for the session, replacing it after each later change that stays healthy, and nothing is written to disk. Restoring it puts back the recorded configuration and enabled state of every entry that is not protected, disables entries the record does not name, and restores removed ones from the catalog.
+
+Restart into safe mode restarts the session into the compiled-in safe mode, which loads no plugins, starts a terminal, and shows the first window on a plain panel. Holding both triggers for two seconds, or pressing the reload key, loads the configuration again from safe mode.
 
 ## Session changes
 

@@ -74,10 +74,11 @@ test('the shipped configuration starts on load and survives ten production reloa
     expect.equal(#events.logs, 0, 'reload ' .. reload .. ' failed: ' .. tostring(events.logs[1] and events.logs[1][1]))
     expect.equal(#events.spawned, startupProcesses, 'reload ' .. reload .. ' spawns nothing')
     expect.truthy(events.closed == 0 and live(events.windows) == 2, 'reload ' .. reload .. ' closes no window')
-    for _, name in ipairs { 'onWindowOpened', 'onMonitorAdded', 'onError' } do
+    -- The error stream and the recovery plugin each subscribe to native errors.
+    for name, count in { onWindowOpened = 1, onMonitorAdded = 1, onError = 2 } do
       expect.equal(
         native.subscriptionCount(name),
-        1,
+        count,
         'reload ' .. reload .. ' leaves the expected ' .. name .. ' subscriptions'
       )
     end

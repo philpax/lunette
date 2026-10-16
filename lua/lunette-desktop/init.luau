@@ -44,6 +44,7 @@ local keyboardDisplay = require '@lunette-plugins/input/keyboard-display'
 local wristMenu = require '@lunette-plugins/menu/wrist-menu'
 local actions = require '@lunette-plugins/session/menu-actions'
 local errors = require '@lunette-plugins/diagnostics/error-display'
+local recovery = require '@lunette-plugins/diagnostics/recovery'
 local workspaces = require '@lunette-plugins/workspace/controller'
 local defaultRules = require '@lunette-plugins/window/configured-rules'
 local arrangement = require '@lunette-plugins/layout/persistence'
@@ -109,6 +110,7 @@ local DEFAULT: { plugin.Entry } = plugin.compose {
   { id = 'desktop/menu', definition = wristMenu.definition },
   { id = 'desktop/actions', definition = actions.definition },
   { id = 'desktop/errors', definition = errors.definition },
+  { id = 'diagnostics/recovery', definition = recovery.definition },
   { id = 'desktop/workspaces', definition = workspaces.definition },
   { id = 'desktop/monitors', definition = monitors.definition },
   { id = 'desktop/rules', definition = defaultRules.definition },
@@ -167,6 +169,7 @@ function desktop.run(options: Options?): ()
       or entry.id == 'desktop/keyboard'
       or entry.id == 'desktop/pointing'
       or entry.id == 'desktop/actions'
+      or entry.id == 'diagnostics/recovery'
     then
       protected[#protected + 1] = entry.id
     end

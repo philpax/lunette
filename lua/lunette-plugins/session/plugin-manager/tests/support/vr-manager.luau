@@ -126,7 +126,14 @@ function fixture.boot(additions: { testing.ComposeEntry }): Environment
     stop = function(): () end,
   }
   local running = management.start(desktop.compose { patches = patches }, {
-    protected = { MANAGER, 'desktop/menu', 'desktop/actions', 'desktop/keyboard', 'desktop/pointing' },
+    protected = {
+      MANAGER,
+      'desktop/menu',
+      'desktop/actions',
+      'desktop/keyboard',
+      'desktop/pointing',
+      'diagnostics/recovery',
+    },
   })
   local controls = vrUi.attach(native)
   controls:pose('left', lovr.math.newMat4():translate(0, 1.2, -0.5))

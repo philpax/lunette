@@ -43,6 +43,7 @@ local entries: { [string]: compose.Source } = {
   ['desktop/menu'] = require('@lunette-plugins/menu/wrist-menu').definition,
   ['desktop/actions'] = require('@lunette-plugins/session/menu-actions').definition,
   ['desktop/errors'] = require('@lunette-plugins/diagnostics/error-display').definition,
+  ['diagnostics/recovery'] = require('@lunette-plugins/diagnostics/recovery').definition,
   ['desktop/workspaces'] = require('@lunette-plugins/workspace/controller').definition,
   ['desktop/monitors'] = require('@lunette-plugins/panels/monitors').definition,
   ['desktop/rules'] = require('@lunette-plugins/window/configured-rules').definition,

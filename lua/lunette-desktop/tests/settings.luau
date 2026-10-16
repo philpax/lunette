@@ -93,6 +93,7 @@ test('desktop_backdrop_composition_and_settings', function()
     'desktop/menu',
     'desktop/actions',
     'desktop/errors',
+    'diagnostics/recovery',
     'desktop/workspaces',
     'desktop/monitors',
     'desktop/rules',
