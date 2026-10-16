@@ -293,6 +293,9 @@ function structure.registerScrollBox(service: uiHost.Service, owner: any): uiHos
       height = optional(shapes.length),
       maxHeight = optional(shapes.length),
       grow = optional(schema.number()),
+      -- The box reaches through the panel body's side padding and pads its content back in, so section bands inside
+      -- it reach the panel's edges as they do outside a scroll box, rather than being clipped at the content edge.
+      bleed = optional(schema.boolean()),
     },
     role = 'scrollbar',
     layout = {
@@ -307,7 +310,10 @@ function structure.registerScrollBox(service: uiHost.Service, owner: any): uiHos
           shrink = 1,
           minHeight = 0,
           overflow = 'scroll',
-          padding = { right = theme.sizes.scrollbar * 3 },
+          padding = if props.bleed
+            then { left = theme.spacing.lg, right = math.max(theme.spacing.lg, theme.sizes.scrollbar * 3) }
+            else { right = theme.sizes.scrollbar * 3 },
+          margin = if props.bleed then { left = -theme.spacing.lg, right = -theme.spacing.lg } else nil,
         }
       end,
     },

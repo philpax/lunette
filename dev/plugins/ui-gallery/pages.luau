@@ -511,7 +511,7 @@ pages.Gallery = ui.component('Gallery', function(props: Props): ui.Child
   local tabs = {}
   for _, entry in pages.PAGES do
     local Page = PAGE_COMPONENTS[entry.id]
-    tabs[#tabs + 1] = c.ScrollBox { key = entry.id, grow = 1, Page {} }
+    tabs[#tabs + 1] = c.ScrollBox { key = entry.id, grow = 1, bleed = true, Page {} }
   end
   -- The host owns default appearance, which the chord also switches, so the gallery reads it on every render and
   -- keeps only a counter that renders again after the button changes it.
