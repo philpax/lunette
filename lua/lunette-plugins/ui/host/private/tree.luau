@@ -98,6 +98,16 @@ type Resolved = {
 
 local DEFAULT_STYLE: lunette.LayoutStyle = { flexDirection = 'column', alignItems = 'stretch' }
 
+-- Validates the node's props against its kind's schema, reporting what does not fit.
+local function validate(env: Environment, node: records.Node): ()
+  local descriptor = node.kind.registration.props
+  if descriptor then
+    env.protect(`ui: {node.kind.name} props`, function(): ()
+      descriptor.parse(node.props, node.kind.name)
+    end)
+  end
+end
+
 local function resolve(env: Environment, node: records.Node): Resolved
   local registration = node.kind.registration
   local layout = registration.layout
@@ -289,6 +299,7 @@ createNode = function(
   }
   node.handle = handles.new(node, env)
   panel.nodes[id] = node
+  validate(env, node)
   local resolved = resolve(env, node)
   node.style = resolved.style
   node.elevation = resolved.elevation
@@ -316,9 +327,13 @@ updateNode = function(panel: records.Panel, env: Environment, node: records.Node
   if element == node.element and not node.dirty then
     return
   end
+  local changedProps = element.props ~= node.props
   node.element = element
   node.props = element.props
   node.dirty = false
+  if changedProps then
+    validate(env, node)
+  end
   node.primitives = nil
   if element.ref ~= node.ref then
     if node.ref then

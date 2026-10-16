@@ -318,4 +318,35 @@ test('a dialog floats in front of its parent and blocks presses on it until it c
   state.fixture:close()
 end)
 
+test('a kind with a props schema reports unknown and invalid props', function()
+  local schema = require '@lunette-plugin/schema'
+  local state = fixture.boot {
+    setup = function(service: uiHost.Service, owner: any)
+      fixture.registerKinds(service, owner, {})
+      service:registerKind(owner, {
+        name = 'test/strict',
+        props = schema.object { width = schema.number { positive = true } },
+        layout = {
+          kind = 'leaf',
+          style = function(props: uiHost.Props): lunette.LayoutStyle
+            return { width = props.width or 0.01, height = 0.01 }
+          end,
+        },
+      })
+    end,
+  }
+  local reported = state.fixture.native.events.reported
+  fixture.show(state, element('test/column', { element('test/strict', { key = 'strict', width = 0.02 }) }))
+  expect.equal(#reported, 0, 'valid props pass')
+  fixture.show(state, element('test/column', { element('test/strict', { key = 'strict', widht = 0.02 }) }))
+  expect.equal(#reported, 1, 'a misspelt prop is reported')
+  expect.truthy(string.find(reported[1].message, 'widht', 1, true), reported[1].message)
+  table.clear(reported)
+  fixture.show(state, element('test/column', { element('test/strict', { key = 'strict', width = -1 }) }))
+  expect.equal(#reported, 1, 'an invalid value is reported')
+  table.clear(reported)
+  expect.truthy(state.panel:find 'strict', 'the node still renders')
+  state.fixture:close()
+end)
+
 return test

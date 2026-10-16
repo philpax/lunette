@@ -318,6 +318,9 @@ export type KindRegistration = {
   read focus: ('text' | 'pointer' | 'none')?,
   -- A value control that traversal engages before directions adjust its value.
   read engage: boolean?,
+  -- An object schema for the kind's props. The host validates each element's props against it when they change and
+  -- reports unknown or invalid props against the kind's owner; the node still renders with the props it was given.
+  read props: { read parse: (unknown, string?) -> any }?,
   -- The node's role from the closed set, and its accessible name, value, range, and states.
   read role: Role?,
   read semantics: ((props: Props, state: { read [string]: any }) -> Semantics)?,
