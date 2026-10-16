@@ -68,6 +68,7 @@ function fields.register(service: uiHost.Service, owner: any): { [string]: uiHos
         return {
           flexDirection = 'row',
           alignItems = 'center',
+          gap = theme.spacing.sm,
           minHeight = theme.sizes.control,
           padding = { left = theme.spacing.md, right = theme.spacing.md },
           grow = props.grow,
@@ -145,8 +146,9 @@ function fields.register(service: uiHost.Service, owner: any): { [string]: uiHos
     end
   end)
 
-  -- TextField props: value, placeholder, onChange, onSubmit, onCancel, invalid, mono, grow, and disabledReason. The
-  -- field edits a draft while focused and reports each change; Enter submits and Escape leaves the field.
+  -- TextField props: value, placeholder, onChange, onSubmit, onCancel, invalid, mono, prefix, unit, grow, and
+  -- disabledReason. The field edits a draft while focused and reports each change; Enter submits and Escape leaves the
+  -- field. A prefix, such as a vector component's axis, and a unit sit inside the field in muted monospace.
   constructors.TextField = service:registerKind(owner, {
     name = 'lunette/text-field',
     props = shapes.disableable {
@@ -157,6 +159,8 @@ function fields.register(service: uiHost.Service, owner: any): { [string]: uiHos
       onCancel = optional(schema.callback(function(_value: string) end)),
       invalid = optional(schema.boolean()),
       mono = optional(schema.boolean()),
+      prefix = optional(schema.string()),
+      unit = optional(schema.string()),
       grow = optional(schema.number()),
       alignSelf = optional(shapes.align),
     },
@@ -260,6 +264,9 @@ function fields.register(service: uiHost.Service, owner: any): { [string]: uiHos
         hovered = state.hovered,
         invalid = props.invalid,
         grow = props.grow,
+        if props.prefix
+          then element('lunette/text', { key = 'prefix', text = props.prefix, style = 'readout', color = 'muted' })
+          else nil,
         element('lunette/field-text', {
           key = 'text',
           value = shown.value,
@@ -269,6 +276,9 @@ function fields.register(service: uiHost.Service, owner: any): { [string]: uiHos
           focused = state.focused,
           mono = props.mono,
         }),
+        if props.unit
+          then element('lunette/text', { key = 'unit', text = props.unit, style = 'readout', color = 'muted' })
+          else nil,
       })
     end,
   })

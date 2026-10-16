@@ -216,8 +216,52 @@ local Values = ui.component('Values', function(): ui.Child
   local c = ui.useComponents()
   local response, setResponse = ui.useState(0.75)
   local volume, setVolume = ui.useState(-12)
+  local name, setName = ui.useState 'Living room desk'
+  local width, setWidth = ui.useState '1.9'
+  local position, setPosition = ui.useState { x = '0.40', y = '1.25', z = '-0.80' }
+  local metres = tonumber(width)
+  local widthValid = metres ~= nil and metres >= 0.2 and metres <= 1.5
+  local function axis(key: string): ui.Child
+    return c.TextField {
+      key = key,
+      prefix = key,
+      mono = true,
+      grow = 1,
+      value = (position :: any)[key],
+      onChange = function(text: string)
+        local next = table.clone(position) :: any
+        next[key] = text
+        setPosition(next)
+      end,
+    }
+  end
   return c.Column {
     gap = 'md',
+    c.Section {
+      key = 'fields',
+      title = 'Fields',
+      c.Text { key = 'name-label', text = 'Display name', style = 'label' },
+      c.TextField { key = 'name', value = name, onChange = setName },
+      c.Text { key = 'width-label', text = 'Panel width', style = 'label' },
+      c.TextField {
+        key = 'width',
+        value = width,
+        mono = true,
+        unit = 'm',
+        invalid = not widthValid,
+        onChange = setWidth,
+      },
+      if widthValid
+        then nil
+        else c.Text {
+          key = 'width-error',
+          text = 'Use a width between 0.2 and 1.5 m.',
+          style = 'caption',
+          color = 'danger',
+        },
+      c.Text { key = 'position-label', text = 'Position', style = 'label' },
+      c.Row { key = 'position', gap = 'sm', axis 'x', axis 'y', axis 'z' },
+    },
     c.Section {
       key = 'sliders',
       title = 'Sliders',

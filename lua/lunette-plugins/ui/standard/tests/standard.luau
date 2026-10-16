@@ -521,6 +521,47 @@ test('pressing a text field takes the keyboard, and typing edits and submits it'
   state.fixture:close()
 end)
 
+test('a text field shows its prefix and unit, and a press places the caret in the text beside them', function()
+  local state = boot()
+  local c = assert(state.components)
+  local changes: { string } = {}
+  fixture.show(
+    state,
+    c.Panel {
+      c.Body {
+        key = 'body',
+        c.TextField {
+          key = 'x',
+          value = '12345',
+          prefix = 'x',
+          unit = 'm',
+          mono = true,
+          onChange = function(value: string)
+            table.insert(changes, value)
+          end,
+        },
+      },
+    }
+  )
+  expect.equal(assert(state.panel:find 'body/x/face/prefix').props.text, 'x')
+  expect.equal(assert(state.panel:find 'body/x/face/unit').props.text, 'm')
+  local _, source = keyboard(state)
+  local text = assert(state.panel:find 'body/x/face/text')
+  local bounds = text.bounds
+  state.fixture:click({
+    pose = text:pose(),
+    width = bounds.width,
+    height = bounds.height,
+    logicalWidth = 1,
+    logicalHeight = 1,
+    visible = true,
+  }, 0.002 / bounds.width, 0.5)
+  state.fixture:step()
+  expect.equal(source:text('9').kind, 'consumed')
+  expect.equal(changes[#changes], '912345', 'the press before the first digit puts the caret there')
+  state.fixture:close()
+end)
+
 test('a focused text field keeps its caret through echoes and takes a reset from outside', function()
   local state = boot()
   local c = assert(state.components)
