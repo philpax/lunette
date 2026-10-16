@@ -122,7 +122,7 @@ local function respond(node: records.Node): ()
   local target = 0
   if response and response.travel and node.host.pressed then
     target = math.max(-tokens.pressTravel, tokens.minimumSeparation - node.elevation)
-  elseif response and response.lift and node.host.hovered then
+  elseif response and response.lift and node.host.hovers > 0 then
     target = tokens.hoverLift
   end
   node.liftTarget = target
@@ -137,14 +137,18 @@ local function setHovered(env: records.Environment, state: PointerState, node: r
   end
   state.hovered = node
   if previous and not previous.dead then
-    previous.host.hovered = false
+    previous.host.hovers = math.max(previous.host.hovers - 1, 0)
     respond(previous)
-    input.dispatch(env, previous, { kind = 'hover-leave' })
+    if previous.host.hovers == 0 then
+      input.dispatch(env, previous, { kind = 'hover-leave' })
+    end
   end
   if node then
-    node.host.hovered = true
+    node.host.hovers += 1
     respond(node)
-    input.dispatch(env, node, { kind = 'hover-enter' })
+    if node.host.hovers == 1 then
+      input.dispatch(env, node, { kind = 'hover-enter' })
+    end
   end
 end
 
@@ -227,6 +231,16 @@ function input.pointer(
     return
   end
   if x == nil or y == nil then
+    -- A captured release can arrive without coordinates when the ray no longer meets the panel's plane. It ends the
+    -- capture outside the node, at the last position the capture saw.
+    local capture = state.capture
+    if event.kind == 'release' and capture and event.button == 'left' then
+      state.capture = nil
+      if not capture.node.dead then
+        release(env, capture, capture.lastX, capture.lastY, false)
+      end
+      setHovered(env, state, nil)
+    end
     return
   end
   local target = input.target(panel, env, x, y)
@@ -236,7 +250,8 @@ function input.pointer(
       setHovered(env, state, target)
     end
   elseif event.kind == 'press' then
-    if event.button ~= 'left' or state.capture or not target then
+    -- A node takes one capture at a time, so a second pointer cannot press it while it is held.
+    if event.button ~= 'left' or state.capture or not target or target.host.pressed then
       return
     end
     state.capture = { node = target, startX = x, startY = y, lastX = x, lastY = y, dragging = false }

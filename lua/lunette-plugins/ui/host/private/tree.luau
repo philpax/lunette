@@ -23,7 +23,7 @@ local removeNode: (records.Panel, Environment, records.Node) -> ()
 -- Reconciles the panel's root against an element, or removes the content for nil.
 function tree.submit(panel: records.Panel, env: Environment, element: uiHost.Element?): ()
   local root = panel.root
-  if root and (element == nil or root.kind.name ~= element.kind or root.key ~= element.key) then
+  if root and (element == nil or root.kind ~= env.kind(element.kind) or root.key ~= element.key) then
     removeNode(panel, env, root)
     panel.root = nil
     root = nil
@@ -48,8 +48,12 @@ function tree.refresh(panel: records.Panel, env: Environment): ()
       visit(child)
     end
   end
-  if panel.root then
-    visit(panel.root)
+  local root = panel.root
+  if root and root.kind ~= env.kind(root.element.kind) then
+    -- The root's kind was registered again or removed, so the root is made again from its element.
+    tree.submit(panel, env, root.element)
+  elseif root then
+    visit(root)
   end
 end
 
@@ -135,9 +139,10 @@ local function resolve(env: Environment, node: records.Node): Resolved
   return resolved
 end
 
-local function expansion(env: Environment, node: records.Node): ({ read [number]: uiHost.Element }, { string })
+-- A failed expansion gives nil, and the composite keeps its children until it expands again.
+local function expansion(env: Environment, node: records.Node): ({ read [number]: uiHost.Element }?, { string })
   local expand = assert(node.kind.registration.expand)
-  local elements: { uiHost.Element }, slots: { string } = {}, {}
+  local elements: { uiHost.Element }?, slots: { string } = nil, {}
   env.protect(`ui: {node.kind.name} expand`, function(): ()
     local produced = expand(node.props, node.element.children, node.state, handles.actions(node))
     elements, slots = uiHost.children(produced :: any)
@@ -145,7 +150,7 @@ local function expansion(env: Environment, node: records.Node): ({ read [number]
   return elements, slots
 end
 
-local function childElements(env: Environment, node: records.Node): ({ read [number]: uiHost.Element }, { string })
+local function childElements(env: Environment, node: records.Node): ({ read [number]: uiHost.Element }?, { string })
   if node.kind.composite then
     return expansion(env, node)
   end
@@ -162,6 +167,9 @@ local function reconcileChildren(panel: records.Panel, env: Environment, node: r
     return
   end
   local elements, slots = childElements(env, node)
+  if elements == nil then
+    return
+  end
   local previous: { [string]: records.Node } = {}
   for _, child in node.children do
     previous[child.slot] = child
@@ -178,7 +186,8 @@ local function reconcileChildren(panel: records.Panel, env: Environment, node: r
     end
     seen[slot] = true
     local existing = previous[slot]
-    if existing and existing.kind.name == element.kind then
+    -- The registration is compared, not the name, so a kind registered again replaces the nodes made from the old one.
+    if existing and existing.kind == env.kind(element.kind) then
       previous[slot] = nil
       updateNode(panel, env, existing, element)
       children[#children + 1] = existing
@@ -249,7 +258,7 @@ createNode = function(
     element = element,
     props = element.props,
     state = state,
-    host = { hovered = false, pressed = false, dragging = false },
+    host = { hovers = 0, pressed = false, dragging = false },
     parent = parent,
     children = {},
     panel = panel,

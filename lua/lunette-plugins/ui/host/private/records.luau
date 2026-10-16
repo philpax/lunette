@@ -51,7 +51,8 @@ export type Node = {
   -- The kind's declared state.
   state: { [string]: any },
   -- Hover, press, and drag state, which the host owns.
-  host: { hovered: boolean, pressed: boolean, dragging: boolean },
+  -- `hovers` counts the pointers hovering the node; one pointer at a time captures it.
+  host: { hovers: number, pressed: boolean, dragging: boolean },
   parent: Node?,
   children: { Node },
   panel: Panel,

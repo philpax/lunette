@@ -1,4 +1,5 @@
 local testing = require '@testing'
+local lunette = require '@lunette'
 local uiHost = require '@lunette-contracts/ui-host'
 local fixture = require '@testing/ui-host'
 local expect = testing.expect
@@ -147,6 +148,141 @@ test('a tracked fingertip pushed into a node presses and activates it', function
   end
   headset.getSkeleton = nil
   expect.equal(activations, 1, `one activation: {table.concat(log, ' ')}`)
+  state.fixture:close()
+end)
+
+local function pressable(log: { string }): (fixture.State, number, number)
+  local state = fixture.boot {
+    setup = function(service: uiHost.Service, owner: any)
+      fixture.registerKinds(service, owner, log)
+    end,
+  }
+  fixture.show(
+    state,
+    element('test/column', {
+      padding = 0.01,
+      element('test/button', {
+        key = 'go',
+        onActivate = function()
+          table.insert(log, 'activated')
+        end,
+        element('test/leaf', { width = 0.04, height = 0.02 }),
+      }),
+    })
+  )
+  local bounds = assert(state.panel:find 'go'):panelBounds()
+  return state, bounds.x + bounds.width / 2, bounds.y + bounds.height / 2
+end
+
+local function deliver(surface: any, pointer: any, kind: string, x: number?, y: number?): ()
+  surface:onPointer {
+    kind = kind,
+    pointer = pointer,
+    x = x,
+    y = y,
+    button = 'left',
+    captured = kind == 'release',
+    inside = x ~= nil,
+  }
+end
+
+test('a captured release without coordinates ends the capture outside the node', function()
+  local log: { string } = {}
+  local state, x, y = pressable(log)
+  local surface = fixture.surface(state)
+  local pointer = fixture.pointer()
+  deliver(surface, pointer, 'enter', x, y)
+  deliver(surface, pointer, 'press', x, y)
+  deliver(surface, pointer, 'release', nil, nil)
+  local node = assert(state.panel:find 'go')
+  expect.falsy(node.state.pressed, 'the node is no longer pressed')
+  expect.falsy(table.find(log, 'activated'), 'a release outside does not activate')
+  deliver(surface, pointer, 'enter', x, y)
+  deliver(surface, pointer, 'press', x, y)
+  deliver(surface, pointer, 'release', x, y)
+  expect.truthy(table.find(log, 'activated'), 'the pointer can press again')
+  state.fixture:close()
+end)
+
+test('two pointers share hover, and only one captures a node', function()
+  local log: { string } = {}
+  local state, x, y = pressable(log)
+  local surface = fixture.surface(state)
+  local first, second = fixture.pointer(), fixture.pointer()
+  deliver(surface, first, 'enter', x, y)
+  deliver(surface, second, 'enter', x, y)
+  deliver(surface, second, 'leave')
+  local node = assert(state.panel:find 'go')
+  expect.truthy(node.state.hovered, 'the first pointer still hovers')
+  deliver(surface, first, 'press', x, y)
+  deliver(surface, second, 'enter', x, y)
+  deliver(surface, second, 'press', x, y)
+  deliver(surface, second, 'release', x, y)
+  deliver(surface, first, 'release', x, y)
+  local activations = 0
+  for _, entry in log do
+    if entry == 'activated' then
+      activations += 1
+    end
+  end
+  expect.equal(activations, 1, 'one activation')
+  state.fixture:close()
+end)
+
+test('nodes of a kind that registers late are made again with the registration', function()
+  local state = fixture.boot {
+    setup = function(service: uiHost.Service, owner: any)
+      fixture.registerKinds(service, owner, {})
+    end,
+  }
+  local tree = element('test/column', { element('test/late', { key = 'late' }) })
+  fixture.show(state, tree)
+  expect.equal(assert(state.panel:find 'late').kind, 'lunette/missing')
+  local reported = state.fixture.native.events.reported
+  expect.truthy(string.find(reported[#reported].message, 'test/late is not registered', 1, true))
+  table.clear(reported)
+  state.service:registerKind(state.owner, {
+    name = 'test/late',
+    layout = {
+      kind = 'leaf',
+      style = function(): lunette.LayoutStyle
+        return { width = 0.01, height = 0.01 }
+      end,
+    },
+  })
+  state.fixture:step()
+  expect.equal(assert(state.panel:find 'late').kind, 'test/late', 'the unchanged element now has its kind')
+  state.fixture:close()
+end)
+
+test('a composite whose expansion fails keeps its children', function()
+  local fail = false
+  local state = fixture.boot {
+    setup = function(service: uiHost.Service, owner: any)
+      fixture.registerKinds(service, owner, {})
+      service:registerKind(owner, {
+        name = 'test/fragile',
+        expand = function(props: uiHost.Props): uiHost.Child
+          if fail then
+            error 'deliberate expansion failure'
+          end
+          return element('test/text', { key = 'kept', text = props.text })
+        end,
+      })
+    end,
+  }
+  fixture.show(state, element('test/column', { element('test/fragile', { key = 'fragile', text = 'one' }) }))
+  local kept = assert(state.panel:find 'fragile/kept')
+  fail = true
+  fixture.show(state, element('test/column', { element('test/fragile', { key = 'fragile', text = 'two' }) }))
+  local reported = state.fixture.native.events.reported
+  expect.truthy(string.find(reported[#reported].message, 'deliberate expansion failure', 1, true))
+  table.clear(reported)
+  expect.equal(state.panel:find 'fragile/kept', kept, 'the child survives the failure')
+  fail = false
+  fixture.show(state, element('test/column', { element('test/fragile', { key = 'fragile', text = 'three' }) }))
+  expect.equal(state.panel:find 'fragile/kept', kept)
+  expect.equal(kept.props.text, 'three')
   state.fixture:close()
 end)
 

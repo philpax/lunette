@@ -177,6 +177,27 @@ function fixture.geometry(state: State): vrUi.Geometry
   }
 end
 
+-- The panel's surface as the interaction service sees it, for tests that deliver pointer events directly.
+function fixture.surface(state: State): any
+  local surfaces = require '@lunette-contracts/surfaces'
+  local observed = assert(state.fixture.session):observe(surfaces.capability)
+  for _, surface in assert(observed.service):all() do
+    if surface.width == (state.panel:size()) then
+      return surface
+    end
+  end
+  error 'the panel offers no surface'
+end
+
+-- A stand-in pointer for direct surface events. It has no actuator.
+function fixture.pointer(): any
+  return {
+    vibrate = function(): boolean
+      return false
+    end,
+  }
+end
+
 -- Clicks the centre of the node at the key path.
 function fixture.click(state: State, path: string): ()
   local node = assert(state.panel:find(path), `no node at {path}`)

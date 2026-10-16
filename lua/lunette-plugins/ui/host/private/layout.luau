@@ -105,8 +105,14 @@ function layout.place(panel: records.Panel): ()
     node.z = surface + node.elevation + node.lift
     local childScrollX, childScrollY = scrollX, scrollY
     if node.kind.registration.clip then
-      childScrollX += node.state.scrollX or 0
-      childScrollY += node.state.scrollY or 0
+      -- The offset is clamped to the content, so content that shrinks does not leave the box scrolled past its end.
+      local contentWidth, contentHeight = 0, 0
+      for _, child in node.children do
+        contentWidth = math.max(contentWidth, child.u + child.width - node.u)
+        contentHeight = math.max(contentHeight, child.v + child.height - node.v)
+      end
+      childScrollX += math.clamp(node.state.scrollX or 0, 0, math.max(contentWidth - node.width, 0))
+      childScrollY += math.clamp(node.state.scrollY or 0, 0, math.max(contentHeight - node.height, 0))
     end
     for _, child in node.children do
       visit(child, childScrollX, childScrollY, node.z)

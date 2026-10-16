@@ -110,11 +110,16 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
     end
   end)
 
-  local function retheme(): ()
-    current = themes.resolve(mode, accent)
+  -- Marks every node of every panel for restyling, re-expansion, and redrawing at the next commit.
+  local function invalidateAll(): ()
     for _, entry in live do
       tree.invalidate(entry.record)
     end
+  end
+
+  local function retheme(): ()
+    current = themes.resolve(mode, accent)
+    invalidateAll()
   end
 
   frameService:onUpdate(context, {
@@ -197,7 +202,13 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
       context:checkOwner(owner)
       registry.validate(registration)
       context:acquire(owner, function(): () -> ()
-        return registry.addKind(kinds, owner, registration)
+        local remove = registry.addKind(kinds, owner, registration)
+        reportedMissing[registration.name] = nil
+        invalidateAll()
+        return function(): ()
+          remove()
+          invalidateAll()
+        end
       end)
       local name = registration.name
       return function(props: { [any]: any }?): uiHost.Element
@@ -213,11 +224,10 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
       context:checkOwner(owner)
       return context:acquire(owner, function(): () -> ()
         local remove = registry.addVisual(kinds, owner, name, visual)
+        invalidateAll()
         return function(): ()
           remove()
-          for _, entry in live do
-            tree.invalidate(entry.record)
-          end
+          invalidateAll()
         end
       end)
     end,

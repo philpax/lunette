@@ -110,7 +110,7 @@ end
 
 function handles.refreshState(node: records.Node, handle: any): ()
   local state = table.clone(node.state)
-  state.hovered = node.host.hovered
+  state.hovered = node.host.hovers > 0
   state.pressed = node.host.pressed
   state.dragging = node.host.dragging
   handle.state = table.freeze(state)

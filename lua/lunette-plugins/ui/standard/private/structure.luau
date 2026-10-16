@@ -293,7 +293,7 @@ function structure.registerScrollBox(service: uiHost.Service, owner: any): uiHos
     local visible = bounds.height / contentHeight
     local thumbHeight = math.max(bounds.height * visible, theme.sizes.control)
     local travel = bounds.height - thumbHeight
-    local progress = node.state.scrollY / math.max(contentHeight - bounds.height, 1e-6)
+    local progress = math.clamp(node.state.scrollY / math.max(contentHeight - bounds.height, 1e-6), 0, 1)
     -- The thumb stands off the page and widens while the pointer is over the box.
     local active = node.state.hovered or node.state.dragging
     local thumbWidth = if active then width * 2 else width

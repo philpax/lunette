@@ -192,4 +192,77 @@ test('a scroll box scrolls its content by dragging', function()
   state.fixture:close()
 end)
 
+test('a cancelled slider drag returns to the value prop', function()
+  local state = boot()
+  local c = assert(state.components)
+  local changes: { number } = {}
+  fixture.show(
+    state,
+    c.Panel {
+      c.Body {
+        key = 'body',
+        c.Slider {
+          key = 'level',
+          label = 'Level',
+          value = 0.2,
+          onChange = function(value: number)
+            table.insert(changes, value)
+          end,
+        },
+      },
+    }
+  )
+  local track = assert(state.panel:find 'body/level/track'):panelBounds()
+  local surface = fixture.surface(state)
+  local pointer = fixture.pointer()
+  local y = track.y + track.height / 2
+  local function deliver(kind: string, x: number?): ()
+    surface:onPointer {
+      kind = kind,
+      pointer = pointer,
+      x = x,
+      y = if x then y else nil,
+      button = 'left',
+      captured = false,
+      inside = true,
+      reason = 'tracking-loss',
+    }
+  end
+  deliver('enter', track.x + track.width * 0.2)
+  deliver('press', track.x + track.width * 0.2)
+  deliver('move', track.x + track.width * 0.8)
+  state.fixture:step()
+  local previewed = tonumber(assert(state.panel:find 'body/level/heading/value').props.text) :: number
+  expect.truthy(previewed > 0.7, `the drag previews a higher value: {previewed}`)
+  deliver 'cancel'
+  state.fixture:step()
+  expect.equal(assert(state.panel:find 'body/level/heading/value').props.text, '0.20', 'the cancel returns')
+  expect.equal(changes[#changes], 0.2, 'the consumer hears the return')
+  state.fixture:close()
+end)
+
+test('a scroll box scrolled past content that shrank shows the content from its top', function()
+  local state = boot()
+  local c = assert(state.components)
+  local function show(count: number): ()
+    local rows = {}
+    for index = 1, count do
+      rows[index] = c.Text { key = `row-{index}`, text = `Row {index}` }
+    end
+    fixture.show(
+      state,
+      c.Panel { c.Body { key = 'body', c.ScrollBox { key = 'box', height = 0.1, c.Column { key = 'rows', rows } } } }
+    )
+  end
+  show(30)
+  local box = assert(state.panel:find 'body/box')
+  box:setState { scrollY = 10 }
+  state.fixture:step()
+  show(3)
+  state.fixture:step()
+  local first = assert(state.panel:find 'body/box/rows/row-1'):panelBounds()
+  expect.near(first.y, box:panelBounds().y, 1e-6, 'the first row is at the top of the box')
+  state.fixture:close()
+end)
+
 return test

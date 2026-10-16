@@ -79,6 +79,8 @@ function values.register(service: uiHost.Service, owner: any): { [string]: uiHos
         local step = node.props.step or ((node.props.max or 1) - (node.props.min or 0)) / 20
         local value = math.clamp(node.props.value + (event :: any).dx * step, node.props.min or 0, node.props.max or 1)
         node:emit('onFinish', value)
+      elseif kind == 'cancel' then
+        node:emit 'onCancel'
       elseif
         kind ~= 'hover-enter'
         and kind ~= 'hover-leave'
@@ -190,6 +192,14 @@ function values.register(service: uiHost.Service, owner: any): { [string]: uiHos
             act.setState { preview = false, pending = value, pendingFrom = props.value }
             act.emit('onChange', value)
             act.emit('onCommit', value)
+          end,
+          -- A cancelled drag returns to the value prop and reports it, so a consumer that followed the preview
+          -- returns too.
+          onCancel = function()
+            if state.preview ~= false then
+              act.setState { preview = false }
+              act.emit('onChange', props.value)
+            end
           end,
         }),
       }
