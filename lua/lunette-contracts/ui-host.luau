@@ -179,6 +179,12 @@ export type Node = {
   read textLines: (Node) -> { lunette.LayoutLine }?,
   -- The extent of the node's children from its origin, before scrolling.
   read contentSize: (Node) -> (number, number),
+  -- Scrolls every scrolling ancestor by the least that brings the node into view. Focus moved by traversal does this.
+  read scrollIntoView: (Node) -> (),
+  -- Sets or moves the vertical offset of a node that scrolls, held within its content; a node that does not scroll
+  -- raises.
+  read scrollTo: (Node, number) -> (),
+  read scrollBy: (Node, number) -> (),
 }
 
 export type BoxSpec = {

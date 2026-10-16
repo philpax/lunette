@@ -54,6 +54,10 @@ function focus.set(panel: records.Panel, node: records.Node?, visible: boolean):
   if node then
     node.host.focused, node.host.focusVisible = true, visible
     refresh(node)
+    -- Focus that traversal or a program moved is brought into view; a pointer already shows where it pressed.
+    if visible then
+      handles.scrollIntoView(node, node.handle.theme.spacing.sm)
+    end
   end
 end
 

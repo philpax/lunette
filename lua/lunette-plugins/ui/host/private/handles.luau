@@ -20,7 +20,7 @@ type Fields = {
 }
 
 -- Kind state updates merge into the node's state and mark it for re-expansion or restyling at the next commit.
-local function setState(node: records.Node, update: any): ()
+function handles.setState(node: records.Node, update: any): ()
   if node.dead then
     return
   end
@@ -38,6 +38,51 @@ local function setState(node: records.Node, update: any): ()
     node.primitives = nil
     node.panel.dirty = true
     handles.refreshState(node, node.handle)
+  end
+end
+
+-- Programmatic scrolling. A scrolling node is one that clips and declares a scrollY state, which the host subtracts
+-- from its children's positions; a node that only clips, such as an outlet with a maximum height, does not scroll.
+function handles.scrolls(node: records.Node): boolean
+  return node.kind.registration.clip == true and type(node.state.scrollY) == 'number'
+end
+
+-- How far a scrolling node's content scrolls: its children's extent less its own height.
+local function limit(node: records.Node): number
+  local height = 0
+  for _, child in node.children do
+    height = math.max(height, child.v + child.height - node.v)
+  end
+  return math.max(height - node.height, 0)
+end
+
+-- Sets a scrolling node's offset, held within its content.
+function handles.scrollTo(node: records.Node, offset: number): ()
+  assert(handles.scrolls(node), `ui: {node.kind.name} does not scroll`)
+  assert(type(offset) == 'number' and offset == offset, 'ui: a scroll offset is a number')
+  handles.setState(node, { scrollY = math.clamp(offset, 0, limit(node)) })
+end
+
+-- Scrolls each scrolling ancestor, innermost first, by the least that brings the node, with a margin around it,
+-- inside the ancestor's box. Positions are layout positions, which ignore scrolling, so each ancestor's new offset
+-- moves the node for the ancestors outside it.
+function handles.scrollIntoView(node: records.Node, margin: number): ()
+  local top, bottom = node.v - margin, node.v + node.height + margin
+  local ancestor = node.parent
+  while ancestor and ancestor.panel == node.panel do
+    if handles.scrolls(ancestor) then
+      local offset = ancestor.state.scrollY :: number
+      local start, finish = ancestor.v + offset, ancestor.v + offset + ancestor.height
+      if top < start then
+        offset = top - ancestor.v
+      elseif bottom > finish then
+        offset = math.min(bottom - ancestor.v - ancestor.height, top - ancestor.v)
+      end
+      offset = math.clamp(offset, 0, limit(ancestor))
+      handles.setState(ancestor, { scrollY = offset })
+      top, bottom = top - offset, bottom - offset
+    end
+    ancestor = ancestor.parent
   end
 end
 
@@ -77,7 +122,7 @@ function handles.new(node: records.Node, env: records.Environment): uiHost.Node
     emit(node, env, name, ...)
   end
   handle.setState = function(_self: uiHost.Node, update: any): ()
-    setState(node, update)
+    handles.setState(node, update)
   end
   handle.panelBounds = function(_self: uiHost.Node): uiHost.Rect
     return { x = node.x, y = node.y, width = node.width, height = node.height }
@@ -97,6 +142,16 @@ function handles.new(node: records.Node, env: records.Environment): uiHost.Node
   handle.channel = function(_self: uiHost.Node, name: string): number
     local channel = node.channels[name]
     return if channel then channel.value elseif name == 'opacity' then 1 else 0
+  end
+  handle.scrollTo = function(_self: uiHost.Node, offset: number): ()
+    handles.scrollTo(node, offset)
+  end
+  handle.scrollBy = function(_self: uiHost.Node, delta: number): ()
+    assert(type(delta) == 'number' and delta == delta, 'ui: a scroll distance is a number')
+    handles.scrollTo(node, (node.state.scrollY or 0) + delta)
+  end
+  handle.scrollIntoView = function(_self: uiHost.Node): ()
+    handles.scrollIntoView(node, env.theme().spacing.sm)
   end
   handle.focus = function(_self: uiHost.Node): boolean
     return env.focusNode(node, true)
@@ -183,7 +238,7 @@ end
 function handles.actions(node: records.Node): uiHost.Actions
   return {
     setState = function(update: any): ()
-      setState(node, update)
+      handles.setState(node, update)
     end,
     emit = function(name: string, ...: any): ()
       node.handle:emit(name, ...)

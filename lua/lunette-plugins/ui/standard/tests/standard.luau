@@ -655,6 +655,42 @@ test('traversal moves focus through controls and activates the focused one', fun
   state.fixture:close()
 end)
 
+test('traversal walks past the rows a scroll view has materialised, scrolling them into existence', function()
+  local state = boot()
+  local c = assert(state.components)
+  fixture.show(
+    state,
+    c.Panel {
+      c.Body {
+        key = 'body',
+        c.ScrollView {
+          key = 'items',
+          height = 0.12,
+          count = 500,
+          rowHeight = 0.04,
+          renderItem = function(index: number): any
+            return c.Button { key = 'button', label = `Item {index}`, onActivate = function() end }
+          end,
+        },
+      },
+    }
+  )
+  local host = state.service
+  expect.truthy(host:nextPanel(), 'traversal enters the panel')
+  state.fixture:step()
+  -- The view first materialises a few rows past its edge; walking further needs the rows that scrolling creates.
+  for _ = 1, 60 do
+    expect.truthy(host:navigate 'next', 'each step finds another row')
+    state.fixture:step()
+  end
+  local row = assert(state.panel:find 'body/items/row-61/button/face', 'the sixty-first row exists')
+  expect.truthy(row.state.focused, 'and holds focus')
+  local view = assert(state.panel:find 'body/items')
+  local box, area = row:panelBounds(), view:panelBounds()
+  expect.truthy(box.y >= area.y - 1e-6 and box.y + box.height <= area.y + area.height + 1e-6, 'within the view')
+  state.fixture:close()
+end)
+
 test('an engaged slider takes directions from a controller, and an idle one passes them on', function()
   local state = boot()
   local c = assert(state.components)
@@ -822,6 +858,41 @@ test('a slider can settle just beside a detent, drawn towards it but not onto it
   local released = commits[1]
   expect.truthy(released > 0.5 and released < 0.54, `the value is drawn towards Medium but stays beside it: {released}`)
   expect.equal(changes[#changes - 1], released, 'the release keeps the value shown while dragging')
+  state.fixture:close()
+end)
+
+test('focus brought to a control below the fold scrolls it into view', function()
+  local state = boot()
+  local c = assert(state.components)
+  local buttons = {}
+  for index = 1, 20 do
+    buttons[index] = c.Button { key = `b{index}`, label = `Button {index}`, onActivate = function() end }
+  end
+  fixture.show(
+    state,
+    c.Panel { c.Body { key = 'body', c.ScrollView { key = 'view', height = 0.1, c.Column { key = 'list', buttons } } } }
+  )
+  state.fixture:step()
+  local view = assert(state.panel:find 'body/view')
+  local function inView(path: string): boolean
+    local node = assert(state.panel:find(path))
+    local box, area = node:panelBounds(), view:panelBounds()
+    return box.y >= area.y - 1e-6 and box.y + box.height <= area.y + area.height + 1e-6
+  end
+  expect.falsy(inView 'body/view/list/b18', 'the eighteenth button starts below the fold')
+  expect.truthy(assert(state.panel:find 'body/view/list/b18/face'):focus(), 'the button face takes focus')
+  state.fixture:step()
+  expect.truthy(inView 'body/view/list/b18', 'focusing it scrolled it into view')
+  expect.truthy(view.state.scrollY > 0)
+  assert(state.panel:find 'body/view/list/b2'):scrollIntoView()
+  state.fixture:step()
+  expect.truthy(inView 'body/view/list/b2', 'scrollIntoView brings an earlier button back')
+  view:scrollTo(1e6)
+  state.fixture:step()
+  expect.truthy(inView 'body/view/list/b20', 'scrollTo holds the offset within the content')
+  expect.truthy(not pcall(function()
+    assert(state.panel:find 'body/view/list/b1'):scrollTo(0)
+  end), 'a node that does not scroll refuses an offset')
   state.fixture:close()
 end)
 
