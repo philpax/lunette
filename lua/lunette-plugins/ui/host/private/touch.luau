@@ -6,6 +6,7 @@ local vocabulary = require '@lunette-contracts/vocabulary'
 local records = require './records'
 local input = require './input'
 local poke = require './poke'
+local shape = require './shape'
 
 local touch = {}
 
@@ -76,8 +77,7 @@ function touch.candidates(panels: { records.Panel }, env: records.Environment, p
   for _, panel in panels do
     if panel.visible and not panel.dead and panel.width > 0 then
       local inverse = lovr.math.mat4(panel.pose):invert()
-      local lx, ly, lz = inverse:mul(point.x, point.y, point.z)
-      local x, y = lx + panel.width / 2, panel.height / 2 - ly
+      local x, y, lz = shape.toPanel(panel, inverse:mul(point.x, point.y, point.z))
       if x >= 0 and y >= 0 and x <= panel.width and y <= panel.height and lz > -BEHIND then
         local node = input.target(panel, env, x, y) or input.deepest(panel, x, y)
         local surface = if node then node.z - node.lift else 0

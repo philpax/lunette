@@ -366,6 +366,8 @@ export type PanelOptions = {
   -- 'world' stays where it is put; 'follow' lazily follows the head, as toasts do; 'dialog' floats in front of its
   -- parent panel, or in front of the head without one, and is modal.
   read presentation: ('world' | 'follow' | 'dialog' | 'attach')?,
+  -- Bends the panel as a vertical cylinder of radius 1 / curve, centred on the viewer's side; zero is flat.
+  read curve: number?,
   -- An attached panel sits above the top edge of a surface, such as a window panel, takes its width, and moves it
   -- when grabbed; `gap` is metres between the two.
   read target: vocabulary.Surface?,
@@ -383,6 +385,7 @@ export type Panel = {
   read setPose: (Panel, Mat4) -> (),
   read size: (Panel) -> (number, number),
   read setVisible: (Panel, boolean) -> (),
+  read setCurve: (Panel, number) -> (),
   -- Sets the gap above an attached panel's target.
   read setGap: (Panel, number) -> (),
   read destroy: (Panel) -> (),

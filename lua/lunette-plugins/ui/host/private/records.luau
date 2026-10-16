@@ -145,6 +145,8 @@ export type Panel = {
   focused: Node?,
   session: any?,
   presentation: 'world' | 'follow' | 'dialog' | 'attach',
+  -- The panel bends as a vertical cylinder of radius 1 / curve; zero is flat.
+  curve: number,
   -- The surface an attached panel sits above, and the gap between them.
   target: vocabulary.Surface?,
   gap: number,

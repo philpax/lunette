@@ -3,6 +3,7 @@
 local lunette = require '@lunette'
 local uiHost = require '@lunette-contracts/ui-host'
 local records = require './records'
+local shape = require './shape'
 
 local handles = {}
 
@@ -82,10 +83,7 @@ function handles.new(node: records.Node, env: records.Environment): uiHost.Node
     return { x = node.x, y = node.y, width = node.width, height = node.height }
   end
   handle.pose = function(_self: uiHost.Node): Mat4
-    local panel = node.panel
-    local x = node.x + node.width / 2 - panel.width / 2
-    local y = panel.height / 2 - (node.y + node.height / 2)
-    return lovr.math.mat4(panel.pose):translate(x, y, node.z)
+    return shape.frame(node.panel, node.x + node.width / 2, node.y + node.height / 2, node.z)
   end
   handle.focus = function(_self: uiHost.Node): boolean
     return env.focusNode(node, true)

@@ -9,7 +9,7 @@ local shader = require './shader'
 local pack = {}
 
 -- Successive primitives of one node step towards the viewer, so coplanar fills and borders do not depth-fight.
-local PRIMITIVE_STEP = 0.00005
+local PRIMITIVE_STEP = 0.00001
 local UNCLIPPED = table.freeze { -1e6, -1e6, 1e6, 1e6 }
 local TRANSPARENT = table.freeze { 0, 0, 0, 0 }
 

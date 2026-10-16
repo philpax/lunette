@@ -8,7 +8,24 @@ local shader = {}
 shader.SLOTS = 7
 shader.BATCH = 128
 
-local COMMON = [[
+-- A curved panel is a vertical cylinder of radius 1 / curve whose centre lies on the viewer's side; panel x is the
+-- arc length from the panel's centre line, and elevation is along the cylinder's inward normal.
+local BEND = [[
+  uniform vec4 panelCurve;
+
+  vec3 bend(float x, float y, float z) {
+    float curve = panelCurve.x;
+    if (curve <= 0.) {
+      return vec3(x, y, z);
+    }
+    float radius = 1. / curve;
+    float angle = x * curve;
+    return vec3((radius - z) * sin(angle), y, radius - (radius - z) * cos(angle));
+  }
+]]
+
+local COMMON = BEND
+  .. [[
   uniform vec4 panelSize;
   uniform vec4 edgeLight;
   uniform vec4 edgeDark;
@@ -42,7 +59,8 @@ shader.boxVertex = substitute [[
     vec4 shape = boxes[base + 1];
     vec2 extent = rect.zw * .5;
     float r = min(shape.z, min(extent.x, extent.y));
-    vec2 p = VertexPosition.xy * (extent - r) + VertexUV * r;
+    // The grid template for curved panels spans the box in UV and is shaped by the fragment stage.
+    vec2 p = panelCurve.y > .5 ? VertexUV * extent : VertexPosition.xy * (extent - r) + VertexUV * r;
     float z = shape.x - (1. - VertexPosition.z) * shape.y;
     // Rotation turns the box about its centre in the panel plane; the fragment stage shapes it unrotated.
     float angle = boxes[base + 6].y;
@@ -52,8 +70,8 @@ shader.boxVertex = substitute [[
     boxPanel = panel;
     boxSide = 1. - abs(VertexNormal.z);
     boxIndex = InstanceIndex;
-    vec4 local = vec4(panel.x - panelSize.x * .5, panelSize.y * .5 - panel.y, z, 1.);
-    return ClipFromLocal * local;
+    vec3 local = bend(panel.x - panelSize.x * .5, panelSize.y * .5 - panel.y, z);
+    return ClipFromLocal * vec4(local, 1.);
   }
 ]]
 
@@ -80,6 +98,10 @@ shader.boxFragment = substitute [[
       float r = min(shape.z, min(extent.x, extent.y));
       float d = roundedBox(boxLocal, extent, r);
       float aa = max(fwidth(d), 1e-6);
+      // The grid template is rectangular, so the rounded corners are cut here.
+      if (panelCurve.y > .5 && d > aa * .5) {
+        discard;
+      }
       color = boxes[base + 2];
       if (shape.w > 0.) {
         vec4 border = boxes[base + 3];
@@ -106,8 +128,10 @@ shader.boxFragment = substitute [[
 ]]
 
 -- Text keeps LÖVR's own glyph vertices and transform; the fragment stage clips in panel coordinates.
-shader.textVertex = [[
+shader.textVertex = BEND
+  .. [[
   uniform mat4 panelInverse;
+  uniform mat4 panelPose;
   uniform vec4 panelSize;
   out vec2 textPanel;
 
@@ -115,7 +139,12 @@ shader.textVertex = [[
     vec4 world = Transform * VertexPosition;
     vec4 local = panelInverse * world;
     textPanel = vec2(local.x + panelSize.x * .5, panelSize.y * .5 - local.y);
-    return DefaultPosition;
+    if (panelCurve.x <= 0.) {
+      return DefaultPosition;
+    }
+    // Glyphs are placed flat in panel space and bent onto the cylinder here.
+    vec3 bent = bend(local.x, local.y, local.z);
+    return ViewProjection * (panelPose * vec4(bent, 1.));
   }
 ]]
 

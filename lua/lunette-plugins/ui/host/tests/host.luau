@@ -349,4 +349,33 @@ test('a kind with a props schema reports unknown and invalid props', function()
   state.fixture:close()
 end)
 
+test('a node near the edge of a curved panel is clicked where it is drawn', function()
+  local log: { string } = {}
+  local state = fixture.boot {
+    width = 0.8,
+    height = 0.2,
+    setup = function(service: uiHost.Service, owner: any)
+      fixture.registerKinds(service, owner, log)
+    end,
+  }
+  state.panel:setCurve(1.5)
+  fixture.show(
+    state,
+    element('test/column', {
+      padding = 0.01,
+      alignItems = 'end',
+      element('test/button', {
+        key = 'edge',
+        onActivate = function()
+          table.insert(log, 'activated')
+        end,
+        element('test/leaf', { width = 0.05, height = 0.03 }),
+      }),
+    })
+  )
+  fixture.click(state, 'edge')
+  expect.truthy(table.find(log, 'activated'), 'the click lands on the bent node')
+  state.fixture:close()
+end)
+
 return test

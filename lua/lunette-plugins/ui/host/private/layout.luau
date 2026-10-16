@@ -106,12 +106,19 @@ function layout.commit(panel: records.Panel, env: records.Environment): boolean
   return changed
 end
 
+-- Each nesting level stands this far in front of its parent, so a child's fill never shares its parent's depth. The
+-- primitives of one node step by less, so a node's whole drawing stays below its children's.
+local NEST_STEP = 0.0001
+
 -- Positions every node in panel coordinates for this frame: layout less ancestor scroll, and surface height from
--- elevation and the animated lift.
+-- elevation, the animated lift, and the nesting step.
 function layout.place(panel: records.Panel): ()
   local function visit(node: records.Node, scrollX: number, scrollY: number, surface: number): ()
     node.x, node.y = node.u - scrollX, node.v - scrollY
-    node.z = surface + node.elevation + node.lift
+    node.z = surface
+      + node.elevation
+      + node.lift
+      + (if node.parent and node.parent.panel == panel then NEST_STEP else 0)
     local childScrollX, childScrollY = scrollX, scrollY
     if node.kind.registration.clip then
       -- The offset is clamped to the content, so content that shrinks does not leave the box scrolled past its end.

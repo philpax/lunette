@@ -14,6 +14,8 @@ local CORNER_SEGMENTS = 6
 
 export type Resources = {
   mesh: Mesh,
+  -- A flat grid across the box, which the vertex stage can bend; boxes on curved panels use it.
+  grid: Mesh,
   boxShader: Shader,
   textShader: Shader,
   imageShader: Shader,
@@ -68,6 +70,31 @@ function renderer.template(segments: number): Template
   return { vertices = vertices, indices = indices }
 end
 
+-- Columns of the grid template. Thirty-two keeps the chord error under a millimetre across a metre-wide box on a
+-- cylinder of one metre radius.
+local GRID_COLUMNS = 32
+
+-- A grid of the top face only, with UV running from -1 to 1 across the box.
+function renderer.grid(columns: number): Template
+  local vertices: { { number } } = {}
+  local indices: { number } = {}
+  for column = 0, columns do
+    local u = column / columns * 2 - 1
+    vertices[#vertices + 1] = { 0, 0, 1, 0, 0, 1, u, -1 }
+    vertices[#vertices + 1] = { 0, 0, 1, 0, 0, 1, u, 1 }
+  end
+  for column = 0, columns - 1 do
+    local top, bottom = column * 2 + 1, column * 2 + 2
+    table.insert(indices, top)
+    table.insert(indices, bottom)
+    table.insert(indices, top + 2)
+    table.insert(indices, top + 2)
+    table.insert(indices, bottom)
+    table.insert(indices, bottom + 2)
+  end
+  return { vertices = vertices, indices = indices }
+end
+
 -- Creates the GPU resources. The returned function releases them.
 function renderer.acquire(): (Resources, () -> ())
   local made: { { release: (any) -> () } } = {}
@@ -86,8 +113,12 @@ function renderer.acquire(): (Resources, () -> ())
     local template = renderer.template(CORNER_SEGMENTS)
     local mesh = keep(lovr.graphics.newMesh(template.vertices, { storage = 'gpu' }))
     mesh:setIndices(template.indices)
+    local gridTemplate = renderer.grid(GRID_COLUMNS)
+    local grid = keep(lovr.graphics.newMesh(gridTemplate.vertices, { storage = 'gpu' }))
+    grid:setIndices(gridTemplate.indices)
     return {
       mesh = mesh,
+      grid = grid,
       boxShader = keep(lovr.graphics.newShader(shader.boxVertex, shader.boxFragment, { label = 'ui/boxes' })),
       textShader = keep(lovr.graphics.newShader(shader.textVertex, shader.textFragment, { label = 'ui/text' })),
       imageShader = keep(lovr.graphics.newShader(shader.textVertex, shader.imageFragment, { label = 'ui/images' })),
@@ -119,6 +150,9 @@ local function drawBoxes(
   end
   pass:setShader(resources.boxShader)
   pass:send('panelSize', { panel.width, panel.height, 0, 0 })
+  local curved = panel.curve > 0
+  pass:send('panelCurve', { panel.curve, if curved then 1 else 0, 0, 0 })
+  local mesh = if curved then resources.grid else resources.mesh
   local light, dark = theme.colors.edgeLight, theme.colors.edgeDark
   pass:send('edgeLight', { light[1], light[2], light[3], light[4] })
   pass:send('edgeDark', { dark[1], dark[2], dark[3], dark[4] })
@@ -130,7 +164,7 @@ local function drawBoxes(
     local count = math.min(shader.BATCH, packed.count - first)
     table.move(packed.boxes, first * stride + 1, (first + count) * stride, 1, batch)
     pass:send('Boxes', { batch })
-    pass:draw(resources.mesh, transform, count)
+    pass:draw(mesh, transform, count)
     first += count
   end
 end
@@ -143,6 +177,8 @@ local function drawImages(resources: Resources, pass: Pass, panel: records.Panel
   pass:setDepthWrite(false)
   local pose = centre(panel)
   pass:send('panelInverse', lovr.math.mat4(pose):invert())
+  pass:send('panelPose', pose)
+  pass:send('panelCurve', { panel.curve, 0, 0, 0 })
   pass:send('panelSize', { panel.width, panel.height, 0, 0 })
   local halfWidth, halfHeight = panel.width / 2, panel.height / 2
   for _, run in packed.images do
@@ -171,6 +207,8 @@ local function drawTexts(
   pass:setDepthWrite(false)
   local pose = centre(panel)
   pass:send('panelInverse', lovr.math.mat4(pose):invert())
+  pass:send('panelPose', pose)
+  pass:send('panelCurve', { panel.curve, 0, 0, 0 })
   pass:send('panelSize', { panel.width, panel.height, 0, 0 })
   local halfWidth, halfHeight = panel.width / 2, panel.height / 2
   for _, run in packed.texts do

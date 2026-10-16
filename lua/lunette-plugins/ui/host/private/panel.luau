@@ -4,11 +4,11 @@
 local plugin = require '@lunette-plugin'
 local uiHost = require '@lunette-contracts/ui-host'
 local vocabulary = require '@lunette-contracts/vocabulary'
-local quad = require '@lunette-contracts/quad'
 local records = require './records'
 local tree = require './tree'
 local layout = require './layout'
 local input = require './input'
+local shape = require './shape'
 
 local panel = {}
 
@@ -49,6 +49,9 @@ function panel.new(
     `ui: '{tostring(presentation)}' is not a presentation`
   )
   record.presentation = presentation
+  local curve = options.curve or 0
+  assert(type(curve) == 'number' and curve >= 0 and curve < 10, 'ui: a curve is from 0 to 10 per metre')
+  record.curve = curve
   record.grabbable = (presentation == 'world' or presentation == 'attach') and options.grabbable ~= false
   if presentation == 'attach' then
     local target = options.target
@@ -109,6 +112,10 @@ function panel.new(
     size = function(_self: uiHost.Panel): (number, number)
       return record.width, record.height
     end,
+    setCurve = function(_self: uiHost.Panel, curve: number): ()
+      assert(type(curve) == 'number' and curve >= 0 and curve < 10, 'ui: a curve is from 0 to 10 per metre')
+      record.curve = curve
+    end,
     setGap = function(_self: uiHost.Panel, gap: number): ()
       assert(type(gap) == 'number' and gap >= 0 and gap < math.huge, 'ui: a gap is a non-negative length')
       record.gap = gap
@@ -150,26 +157,19 @@ function panel.surface(provider: Provider, record: records.Panel, setPose: ((Mat
       if record.dead or not record.visible or record.width <= 0 or record.height <= 0 then
         return nil, nil, nil
       end
-      return quad.hit({
-        pose = record.pose,
-        width = record.width,
-        height = record.height,
-        pixelWidth = record.width,
-        pixelHeight = record.height,
-        backFace = backFace,
-      }, origin, direction)
+      local localOrigin, localDirection = shape.localRay(record, origin, direction)
+      -- A flat panel answers rays from behind only when asked, as window panels do.
+      if record.curve <= 0 and localDirection.z >= 0 and not backFace then
+        return nil, nil, nil
+      end
+      return shape.ray(record, localOrigin, localDirection, true)
     end,
     project = function(_self: vocabulary.Surface, origin: vector, direction: vector): (number?, number?, number?)
       if record.width <= 0 or record.height <= 0 then
         return nil, nil, nil
       end
-      return quad.project({
-        pose = record.pose,
-        width = record.width,
-        height = record.height,
-        pixelWidth = record.width,
-        pixelHeight = record.height,
-      }, origin, direction)
+      local localOrigin, localDirection = shape.localRay(record, origin, direction)
+      return shape.ray(record, localOrigin, localDirection, false)
     end,
     onPointer = function(self: vocabulary.Surface, event: vocabulary.PointerEvent): ()
       if record.dead then
@@ -239,6 +239,7 @@ function panel.record(
     focused = nil,
     session = nil,
     presentation = 'world',
+    curve = 0,
     target = nil,
     gap = 0,
     rootSize = nil,

@@ -6,6 +6,7 @@ local uiHost = require '@lunette-contracts/ui-host'
 local records = require './records'
 local tree = require './tree'
 local panel = require './panel'
+local shape = require './shape'
 
 local overlay = {}
 
@@ -78,10 +79,9 @@ function overlay.place(provider: panel.Provider, record: records.Panel): ()
   if left + width > opener.width and width <= opener.width then
     left = opener.width - width
   end
+  -- On a curved opener the overlay stays flat, tangent to the curve at its centre.
   local elevation = anchor.z + theme.elevation.raised
-  local x = left + width / 2 - opener.width / 2
-  local y = opener.height / 2 - (top + height / 2)
-  record.pose:set(opener.pose):translate(x, y, elevation)
+  record.pose:set(shape.frame(opener, left + width / 2, top + height / 2, elevation))
   record.visible = opener.visible
   record.sync()
 end

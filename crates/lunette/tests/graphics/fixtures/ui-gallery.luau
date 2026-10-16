@@ -41,4 +41,27 @@ for _, mode in { 'dark', 'light' } do
   end
 end
 
+test('a gallery page renders bent on a curved panel', function()
+  local scene = render.boot(
+    { require('@lunette-plugins/ui/standard').definition },
+    { uiComponents.capability },
+    function(context: any)
+      local host = context:require(uiHost.capability)
+      local panel =
+        host:newPanel(context, { name = 'curved', width = 0.56, height = 0.5, curve = 1.6, pose = lovr.math.newMat4() })
+      ui.mount(panel, pages.Gallery { host = host, page = 'choices' }, {
+        components = context:require(uiComponents.capability),
+        owner = context,
+      })
+    end
+  )
+  scene.fixture:step()
+  render.snapshot('gallery-curved-front', render.render(scene, 900, 800, vector.pack(0, 0, 0.62), vector.pack(0, 0, 0)))
+  render.snapshot(
+    'gallery-curved-angled',
+    render.render(scene, 900, 800, vector.pack(0.35, 0.12, 0.5), vector.pack(0, 0, 0))
+  )
+  scene.fixture:close()
+end)
+
 return test
