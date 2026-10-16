@@ -336,7 +336,11 @@ export type LayoutTree = {
 -- The distance field glyph atlas that every panel in this Lua state draws
 -- shaped glyphs from. Pages are square, numbered from 1, and hold RGBA8
 -- multi-channel distance fields to sample with linear filtering and no
--- colour-space conversion. The atlas is not a handle: it never goes dead.
+-- colour-space conversion. Fields are generated on worker threads, and `update`
+-- places the finished ones, so a glyph is drawable some frames after it is
+-- first asked for. The atlas holds a fixed number of pages and evicts nothing;
+-- a glyph with no room is a failure. The atlas is not a handle: it never goes
+-- dead.
 export type GlyphAtlas = {
   -- The width and height of each page in pixels.
   read pageSize: number,
@@ -346,11 +350,17 @@ export type GlyphAtlas = {
   read range: number,
   -- The number of pages.
   read pages: number,
-  -- The placement of a glyph from a layout glyph's face and id, generating it
-  -- on first use. Answers nil for a glyph with no outline, such as a space, and
-  -- nil with a message for a glyph that could not be generated, which is tried
-  -- again on the next call.
-  read glyph: (self: GlyphAtlas, face: number, id: number) -> (GlyphPlacement?, string?),
+  -- The number of glyphs whose fields are being generated.
+  read pending: number,
+  -- The placement of a glyph from a layout glyph's face and id. A glyph not yet
+  -- in the atlas starts generating and answers nil and true, and is asked for
+  -- again on a later frame. Answers nil for a glyph with no outline, such as a
+  -- space, and nil with a message, once, for a glyph that could not be
+  -- generated, which a later call tries again.
+  read glyph: (self: GlyphAtlas, face: number, id: number) -> (GlyphPlacement?, string?, boolean),
+  -- Places the fields the workers have finished. The host calls it once a
+  -- frame, before it asks for glyphs.
+  read update: (self: GlyphAtlas) -> (),
   -- A page's revision, which advances whenever a glyph is written to it, or nil
   -- for a page that does not exist.
   read revision: (self: GlyphAtlas, page: number) -> number?,

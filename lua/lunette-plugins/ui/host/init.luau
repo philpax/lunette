@@ -302,6 +302,7 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
         end)
       end
       local held = assert(resources)
+      renderer.beginFrame(held)
       for _, entry in live do
         local record = entry.record
         if record.visible and record.root and record.width > 0 and record.height > 0 then

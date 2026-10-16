@@ -68,7 +68,7 @@ Each shipped theme is checked for the contrast rules in [Accessibility](accessib
 
 ### Native tests
 
-The layout and text binding has Rust tests in `crates/lunette/src/lua/tests/`, following the existing `textBoundaries` tests. They cover the batched change format, incremental relayout, rounding being disabled, composed positions in the result arrays, custom layout and measure callbacks that size from children, raise, or re-enter, text measurement at constrained widths, line limits, span geometry, fallback, the glyph budget, atlas eviction, and atlas recreation after the graphics module is replaced.
+The layout and text binding has Rust tests in `crates/lunette/src/lua/tests/`, following the existing `textBoundaries` tests. They cover the batched change format, incremental relayout, rounding being disabled, composed positions in the result arrays, custom layout and measure callbacks that size from children, raise, or re-enter, text measurement at constrained widths, line limits, span geometry, fallback, background glyph generation, the atlas's page limit, atlas eviction, and atlas recreation after the graphics module is replaced.
 
 ## The native binding in tests
 

@@ -168,7 +168,8 @@ function renderer.acquire(report: (string) -> ()): (Resources, () -> ())
 end
 
 -- Answers a function that finds a glyph's placement in the atlas, remembering each answer, so a glyph crosses into
--- the native atlas once. A glyph the atlas could not generate is remembered as drawing nothing for as long as the
+-- the native atlas once it is placed. A glyph whose field is still being generated draws nothing and is asked for
+-- again on a later frame. A glyph the atlas could not generate is remembered as drawing nothing for as long as the
 -- resources live, rather than tried and reported again every frame.
 function renderer.glyphs(resources: Resources): pack.Glyphs
   local placements = resources.placements
@@ -181,7 +182,10 @@ function renderer.glyphs(resources: Resources): pack.Glyphs
     end
     local placement = known[id]
     if placement == nil then
-      local found, failure = atlas:glyph(face, id)
+      local found, failure, pending = atlas:glyph(face, id)
+      if pending then
+        return nil
+      end
       if failure then
         resources.report(failure)
       end
@@ -190,6 +194,11 @@ function renderer.glyphs(resources: Resources): pack.Glyphs
     end
     return placement or nil
   end
+end
+
+-- Starts a frame's drawing, placing the glyphs the atlas's workers have finished since the last frame.
+function renderer.beginFrame(resources: Resources): ()
+  resources.atlas:update()
 end
 
 -- The texture of an atlas page, uploaded again when the page has gained glyphs.

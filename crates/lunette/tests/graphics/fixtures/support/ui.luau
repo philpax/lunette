@@ -1,6 +1,7 @@
 -- Boots the UI host in a test session and renders its panels through real LÖVR graphics.
 -- The session installs recording fakes for LÖVR's graphics; the real modules are put back once it has booted.
 
+local lunette = require '@lunette'
 local host = require '@testing/host'
 local vrUi = require '@testing/vr-ui'
 local adapter = require '@lunette-plugin/adapter'
@@ -62,7 +63,22 @@ function ui.boot(definitions: { any }, requires: { any }, setup: (adapter.Contex
   return scene
 end
 
--- Renders the scene from a camera at `eye` looking at `target`, and returns the image.
+-- The longest the glyph atlas's workers may take to generate a scene's glyphs.
+local GLYPH_DEADLINE = 30
+
+local function drawTo(scene: Scene, texture: Texture, depth: Texture, eye: vector, target: vector): ()
+  local width, height = texture:getDimensions()
+  local pass = lovr.graphics.newPass { texture = texture, depth = depth, samples = 1 }
+  pass:setClear(0.02, 0.02, 0.03, 1)
+  local view = lovr.math.mat4():target(eye, target, vector.pack(0, 1, 0))
+  pass:setViewPose(1, view)
+  pass:setProjection(1, lovr.math.mat4():perspective(math.rad(40), width / height, 0.01, 0))
+  lovr.draw(pass)
+  lovr.graphics.submit(pass)
+end
+
+-- Renders the scene from a camera at `eye` looking at `target`, and returns the image. Glyphs are generated in the
+-- background, so frames are drawn until a frame asks for none that the atlas has not placed.
 function ui.render(scene: Scene, width: number, height: number, eye: vector, target: vector): Image
   scene.fixture:step()
   local texture = lovr.graphics.newTexture(width, height, {
@@ -73,13 +89,13 @@ function ui.render(scene: Scene, width: number, height: number, eye: vector, tar
     usage = { 'render', 'transfer' },
   })
   local depth = lovr.graphics.newTexture(width, height, { format = 'd32f', usage = 'render', samples = 1 })
-  local pass = lovr.graphics.newPass { texture = texture, depth = depth, samples = 1 }
-  pass:setClear(0.02, 0.02, 0.03, 1)
-  local view = lovr.math.mat4():target(eye, target, vector.pack(0, 1, 0))
-  pass:setViewPose(1, view)
-  pass:setProjection(1, lovr.math.mat4():perspective(math.rad(40), width / height, 0.01, 0))
-  lovr.draw(pass)
-  lovr.graphics.submit(pass)
+  local atlas = lunette.glyphAtlas()
+  local deadline = os.clock() + GLYPH_DEADLINE
+  drawTo(scene, texture, depth, eye, target)
+  while atlas.pending > 0 do
+    assert(os.clock() < deadline, 'the glyph atlas did not finish generating the scene')
+    drawTo(scene, texture, depth, eye, target)
+  end
   local readback = texture:newReadback()
   lovr.graphics.submit {}
   readback:wait()

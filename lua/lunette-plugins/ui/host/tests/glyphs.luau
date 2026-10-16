@@ -8,13 +8,16 @@ local function resources(answers: { [number]: any }): (any, { number }, { string
   local calls: { number } = {}
   local reports: { string } = {}
   local atlas = {
-    glyph = function(_self: any, face: number, id: number): (any, string?)
+    glyph = function(_self: any, face: number, id: number): (any, string?, boolean)
       table.insert(calls, face * 1000 + id)
       local answer = answers[id]
-      if type(answer) == 'string' then
-        return nil, answer
+      if answer == 'pending' then
+        return nil, nil, true
       end
-      return answer, nil
+      if type(answer) == 'string' then
+        return nil, answer, false
+      end
+      return answer, nil, false
     end,
   }
   return {
@@ -42,6 +45,21 @@ test('a glyph crosses into the atlas once, and a failure is reported once', func
   expect.equal(reports[1], 'glyph atlas: too large')
   expect.equal(lookup(1, 1), placement, 'another face is a separate glyph')
   expect.equal(#calls, 4)
+end)
+
+test('a glyph still generating is asked for again until it is placed', function()
+  local placement = { page = 1, u0 = 0, v0 = 0, u1 = 0.1, v1 = 0.1, left = 0, top = 0.7, width = 0.5, height = 0.8 }
+  local answers: { [number]: any } = { [1] = 'pending' }
+  local held, calls, reports = resources(answers)
+  local lookup = renderer.glyphs(held)
+  expect.equal(lookup(0, 1), nil, 'a pending glyph draws nothing')
+  expect.equal(lookup(0, 1), nil, 'and still draws nothing')
+  expect.equal(#calls, 2, 'a pending glyph is asked for each time')
+  answers[1] = placement
+  expect.equal(lookup(0, 1), placement, 'the placed glyph')
+  expect.equal(lookup(0, 1), placement)
+  expect.equal(#calls, 3, 'a placed glyph is remembered')
+  expect.equal(#reports, 0, 'waiting is not a failure')
 end)
 
 return test

@@ -6,6 +6,12 @@
 //! implementation calls msdfgen, and tests substitute their own. Pages are RGBA8, top row first,
 //! and a glyph keeps its page and position for the atlas's lifetime, so instance data that refers
 //! to it stays valid as the atlas grows.
+//!
+//! Adding a glyph is split in two so that the field, which takes milliseconds, can be generated
+//! away from the atlas: [`Atlas::prepare`] reads the outline and answers a [`Job`], and
+//! [`Atlas::complete`] places the job's field. The atlas holds at most
+//! [`AtlasConfig::max_pages`] pages and does not evict, so a glyph that needs a page past the
+//! limit is an error.
 
 use std::{collections::HashMap, fmt};
 
@@ -21,6 +27,9 @@ pub struct AtlasConfig {
     pub range_pixels: u32,
     /// The width and height of each page.
     pub page_size: u32,
+    /// The most pages the atlas holds. Each page is `page_size` squared RGBA8 pixels in memory,
+    /// and again on the GPU.
+    pub max_pages: u32,
 }
 
 impl Default for AtlasConfig {
@@ -29,6 +38,9 @@ impl Default for AtlasConfig {
             em_pixels: 48,
             range_pixels: 6,
             page_size: 1024,
+            // Eight 4 MiB pages hold several thousand glyphs at 48 pixels per em, which covers the
+            // interface's Latin text many times over and leaves room for CJK.
+            max_pages: 8,
         }
     }
 }
@@ -168,6 +180,12 @@ pub enum AtlasError {
         expected: usize,
         actual: usize,
     },
+    /// Every page is in use and none has room for the glyph's cell.
+    Full {
+        face: FaceHandle,
+        glyph: u16,
+        pages: u32,
+    },
 }
 
 impl fmt::Display for AtlasError {
@@ -200,6 +218,11 @@ impl fmt::Display for AtlasError {
             } => write!(
                 f,
                 "glyph atlas: glyph {glyph} of face {}: the field has {actual} values rather than {expected}",
+                face.get()
+            ),
+            AtlasError::Full { face, glyph, pages } => write!(
+                f,
+                "glyph atlas: glyph {glyph} of face {}: all {pages} pages are full",
                 face.get()
             ),
         }
@@ -250,41 +273,37 @@ impl Atlas {
         self.glyphs.is_empty()
     }
 
-    /// The glyph's placement, generating it on first use from the outline that `outline` reads.
-    /// A glyph with no outline answers nil, and is remembered so its outline is read once.
+    /// The placement of a glyph asked for before: `Some(None)` for a glyph with no outline, and
+    /// `None` for a glyph the atlas does not hold.
+    pub fn known(&self, face: FaceHandle, glyph: u16) -> Option<Option<Placement>> {
+        self.glyphs.get(&(face, glyph)).copied()
+    }
+
+    /// Starts adding a glyph. A known glyph answers its placement, and a glyph with no outline
+    /// answers nil and is remembered, so its outline is read once. Any other glyph answers a job
+    /// whose field [`Atlas::complete`] places.
     ///
     /// # Errors
     ///
-    /// A glyph larger than a page, or a generator failure, is an error, and the glyph is not
-    /// remembered, so a later call tries again.
-    pub fn glyph(
+    /// A glyph larger than a page, or one with no room when every page is in use, is an error,
+    /// and the glyph is not remembered, so a later call tries again.
+    pub fn prepare(
         &mut self,
         face: FaceHandle,
         glyph: u16,
         outline: impl FnOnce() -> Option<Outline>,
-        generator: &mut dyn FieldGenerator,
-    ) -> Result<Option<Placement>, AtlasError> {
-        if let Some(known) = self.glyphs.get(&(face, glyph)) {
-            return Ok(*known);
+    ) -> Result<Prepared, AtlasError> {
+        if let Some(known) = self.known(face, glyph) {
+            return Ok(Prepared::Known(known));
         }
-        let placement = match outline() {
-            Some(outline) => self.add(face, glyph, &outline, generator)?,
-            None => None,
+        let Some((outline, bounds)) = outline().and_then(|outline| {
+            let bounds = outline.bounds()?;
+            Some((outline, bounds))
+        }) else {
+            self.glyphs.insert((face, glyph), None);
+            return Ok(Prepared::Known(None));
         };
-        self.glyphs.insert((face, glyph), placement);
-        Ok(placement)
-    }
-
-    fn add(
-        &mut self,
-        face: FaceHandle,
-        glyph: u16,
-        outline: &Outline,
-        generator: &mut dyn FieldGenerator,
-    ) -> Result<Option<Placement>, AtlasError> {
-        let Some([left, bottom, right, top]) = outline.bounds() else {
-            return Ok(None);
-        };
+        let [left, bottom, right, top] = bounds;
         let em = self.config.em_pixels as f32;
         let padding = self.config.range_pixels.div_ceil(2) + 1;
         let x0 = (left * em).floor() as i64;
@@ -302,6 +321,9 @@ impl Atlas {
                 height,
             });
         }
+        if !self.has_room(width, height) {
+            return Err(self.full(face, glyph));
+        }
         let request = FieldRequest {
             width,
             height,
@@ -312,13 +334,41 @@ impl Atlas {
                 -(y1 as f64 + padding as f64) / f64::from(em),
             ],
         };
-        let field = generator
-            .generate(outline, &request)
-            .map_err(|source| AtlasError::Field {
-                face,
-                glyph,
-                source,
-            })?;
+        Ok(Prepared::Job(Job {
+            face,
+            glyph,
+            outline,
+            request,
+            quad: [
+                (x0 as f32 - padding as f32) / em,
+                (y1 as f32 + padding as f32) / em,
+                width as f32 / em,
+                height as f32 / em,
+            ],
+        }))
+    }
+
+    /// Places a job's generated field. A glyph completed twice keeps its first placement.
+    ///
+    /// # Errors
+    ///
+    /// A generator failure, a field of the wrong size, or no room left is an error, and the glyph
+    /// is not remembered, so a later [`Atlas::prepare`] tries again.
+    pub fn complete(
+        &mut self,
+        job: &Job,
+        field: Result<Vec<f32>, FieldError>,
+    ) -> Result<Option<Placement>, AtlasError> {
+        let (face, glyph) = (job.face, job.glyph);
+        if let Some(known) = self.known(face, glyph) {
+            return Ok(known);
+        }
+        let field = field.map_err(|source| AtlasError::Field {
+            face,
+            glyph,
+            source,
+        })?;
+        let FieldRequest { width, height, .. } = job.request;
         let expected = width as usize * height as usize * 3;
         if field.len() != expected {
             return Err(AtlasError::FieldSize {
@@ -328,12 +378,12 @@ impl Atlas {
                 actual: field.len(),
             });
         }
-        let (page, x, y) = self.allocate(width, height);
-        let target = &mut self.pages[page];
-        write_field(target, x, y, width, height, &field);
-        let scale = 1.0 / size as f32;
-        let padding = padding as f32;
-        Ok(Some(Placement {
+        let Some((page, x, y)) = self.allocate(width, height) else {
+            return Err(self.full(face, glyph));
+        };
+        write_field(&mut self.pages[page], x, y, width, height, &field);
+        let scale = 1.0 / self.config.page_size as f32;
+        let placement = Placement {
             page: page as u32,
             uv: [
                 x as f32 * scale,
@@ -341,22 +391,42 @@ impl Atlas {
                 (x + width) as f32 * scale,
                 (y + height) as f32 * scale,
             ],
-            quad: [
-                (x0 as f32 - padding) / em,
-                (y1 as f32 + padding) / em,
-                width as f32 / em,
-                height as f32 / em,
-            ],
-        }))
+            quad: job.quad,
+        };
+        self.glyphs.insert((face, glyph), Some(placement));
+        Ok(Some(placement))
     }
 
-    /// Finds room for a cell on a shelf of an existing page, opening a shelf or a page if needed.
-    fn allocate(&mut self, width: u32, height: u32) -> (usize, u32, u32) {
+    fn full(&self, face: FaceHandle, glyph: u16) -> AtlasError {
+        AtlasError::Full {
+            face,
+            glyph,
+            pages: self.config.max_pages,
+        }
+    }
+
+    /// Whether a cell fits on an existing page or on a page the atlas can still open.
+    fn has_room(&self, width: u32, height: u32) -> bool {
+        let size = self.config.page_size;
+        (self.pages.len() as u64) < u64::from(self.config.max_pages)
+            || self
+                .pages
+                .iter()
+                .any(|page| slot(page, size, width, height).is_some())
+    }
+
+    /// Finds room for a cell on a shelf of an existing page, opening a shelf or a page if needed,
+    /// or nil when every page is in use and none has room.
+    fn allocate(&mut self, width: u32, height: u32) -> Option<(usize, u32, u32)> {
         let size = self.config.page_size;
         for (index, page) in self.pages.iter_mut().enumerate() {
-            if let Some((x, y)) = place(page, size, width, height) {
-                return (index, x, y);
+            if let Some(found) = slot(page, size, width, height) {
+                let (x, y) = take(page, found, width, height);
+                return Some((index, x, y));
             }
+        }
+        if self.pages.len() as u64 >= u64::from(self.config.max_pages) {
+            return None;
         }
         let mut page = Page {
             size,
@@ -364,36 +434,90 @@ impl Atlas {
             revision: 0,
             shelves: Vec::new(),
         };
-        // A new page holds any cell no larger than itself, which `add` has checked.
-        let (x, y) = place(&mut page, size, width, height).unwrap_or((0, 0));
+        let found = slot(&page, size, width, height)?;
+        let (x, y) = take(&mut page, found, width, height);
         self.pages.push(page);
-        (self.pages.len() - 1, x, y)
+        Some((self.pages.len() - 1, x, y))
     }
 }
 
-/// Places a cell on the page's shelves: the first shelf tall enough with room left, or a new
-/// shelf below the last.
-fn place(page: &mut Page, size: u32, width: u32, height: u32) -> Option<(u32, u32)> {
-    for shelf in &mut page.shelves {
-        if height <= shelf.height && shelf.used + width <= size {
-            let x = shelf.used;
-            shelf.used += width;
-            return Some((x, shelf.top));
-        }
+/// A glyph whose field is still to be generated: its outline, the field to draw, and its quad.
+/// A job owns its data, so it can be generated on another thread.
+#[derive(Clone, Debug)]
+pub struct Job {
+    face: FaceHandle,
+    glyph: u16,
+    outline: Outline,
+    request: FieldRequest,
+    quad: [f32; 4],
+}
+
+impl Job {
+    /// The face and glyph id the job adds.
+    pub fn key(&self) -> (FaceHandle, u16) {
+        (self.face, self.glyph)
+    }
+
+    /// Generates the job's field.
+    ///
+    /// # Errors
+    ///
+    /// The generator's failure.
+    pub fn generate(&self, generator: &mut dyn FieldGenerator) -> Result<Vec<f32>, FieldError> {
+        generator.generate(&self.outline, &self.request)
+    }
+}
+
+/// What [`Atlas::prepare`] answers.
+#[derive(Debug)]
+pub enum Prepared {
+    /// The glyph's placement, or nil for a glyph with no outline.
+    Known(Option<Placement>),
+    /// The glyph's field is to be generated.
+    Job(Job),
+}
+
+/// Where a cell goes on a page: on an existing shelf, or on a new shelf at a height.
+#[derive(Clone, Copy, Debug)]
+enum Slot {
+    Shelf(usize),
+    New(u32),
+}
+
+/// Finds a place for a cell on the page's shelves: the first shelf tall enough with room left, or
+/// a new shelf below the last.
+fn slot(page: &Page, size: u32, width: u32, height: u32) -> Option<Slot> {
+    if let Some(index) = page
+        .shelves
+        .iter()
+        .position(|shelf| height <= shelf.height && shelf.used + width <= size)
+    {
+        return Some(Slot::Shelf(index));
     }
     let top = page
         .shelves
         .last()
         .map_or(0, |shelf| shelf.top + shelf.height);
-    if top + height > size {
-        return None;
+    (top + height <= size).then_some(Slot::New(top))
+}
+
+fn take(page: &mut Page, slot: Slot, width: u32, height: u32) -> (u32, u32) {
+    match slot {
+        Slot::Shelf(index) => {
+            let shelf = &mut page.shelves[index];
+            let x = shelf.used;
+            shelf.used += width;
+            (x, shelf.top)
+        }
+        Slot::New(top) => {
+            page.shelves.push(Shelf {
+                top,
+                height,
+                used: width,
+            });
+            (0, top)
+        }
     }
-    page.shelves.push(Shelf {
-        top,
-        height,
-        used: width,
-    });
-    Some((0, top))
 }
 
 fn write_field(page: &mut Page, x: u32, y: u32, width: u32, height: u32, field: &[f32]) {

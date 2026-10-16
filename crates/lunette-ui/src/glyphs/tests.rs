@@ -48,6 +48,24 @@ fn small() -> AtlasConfig {
         em_pixels: 10,
         range_pixels: 2,
         page_size: 64,
+        max_pages: 4,
+    }
+}
+
+/// Adds a glyph in one step, as the host does across threads.
+fn add(
+    atlas: &mut Atlas,
+    face: FaceHandle,
+    glyph: u16,
+    outline: impl FnOnce() -> Option<Outline>,
+    generator: &mut dyn FieldGenerator,
+) -> Result<Option<Placement>, AtlasError> {
+    match atlas.prepare(face, glyph, outline)? {
+        Prepared::Known(known) => Ok(known),
+        Prepared::Job(job) => {
+            let field = job.generate(generator);
+            atlas.complete(&job, field)
+        }
     }
 }
 
@@ -59,17 +77,17 @@ fn a_glyph_without_an_outline_is_remembered_as_empty() {
     let mut generator = Fill::default();
     let mut reads = 0;
     for _ in 0..2 {
-        let placement = atlas
-            .glyph(
-                FACE,
-                3,
-                || {
-                    reads += 1;
-                    None
-                },
-                &mut generator,
-            )
-            .expect("an empty glyph is not an error");
+        let placement = add(
+            &mut atlas,
+            FACE,
+            3,
+            || {
+                reads += 1;
+                None
+            },
+            &mut generator,
+        )
+        .expect("an empty glyph is not an error");
         assert_eq!(placement, None);
     }
     assert_eq!(reads, 1, "the outline is read once");
@@ -80,10 +98,15 @@ fn a_glyph_without_an_outline_is_remembered_as_empty() {
 fn a_glyph_maps_its_outline_into_its_padded_cell() {
     let mut atlas = Atlas::new(small());
     let mut generator = Fill::default();
-    let placement = atlas
-        .glyph(FACE, 1, || Some(square(0.1, -0.2, 0.5)), &mut generator)
-        .expect("the glyph fits")
-        .expect("the glyph has an outline");
+    let placement = add(
+        &mut atlas,
+        FACE,
+        1,
+        || Some(square(0.1, -0.2, 0.5)),
+        &mut generator,
+    )
+    .expect("the glyph fits")
+    .expect("the glyph has an outline");
     let request = generator.requests[0];
     assert!(
         (request.range - 0.2).abs() < 1e-9,
@@ -148,10 +171,15 @@ fn glyphs_fill_shelves_and_then_new_pages_without_overlapping() {
     let mut placements = Vec::new();
     for glyph in 0..40 {
         let size = 0.3 + f32::from(glyph % 4) * 0.1;
-        let placement = atlas
-            .glyph(FACE, glyph, || Some(square(0.0, 0.0, size)), &mut generator)
-            .expect("the glyph fits")
-            .expect("the glyph has an outline");
+        let placement = add(
+            &mut atlas,
+            FACE,
+            glyph,
+            || Some(square(0.0, 0.0, size)),
+            &mut generator,
+        )
+        .expect("the glyph fits")
+        .expect("the glyph has an outline");
         placements.push(placement);
     }
     assert!(
@@ -169,14 +197,14 @@ fn glyphs_fill_shelves_and_then_new_pages_without_overlapping() {
             assert!(apart, "{a:?} overlaps {b:?}");
         }
     }
-    let again = atlas
-        .glyph(
-            FACE,
-            5,
-            || panic!("a known glyph reads no outline"),
-            &mut generator,
-        )
-        .expect("a known glyph is not an error");
+    let again = add(
+        &mut atlas,
+        FACE,
+        5,
+        || panic!("a known glyph reads no outline"),
+        &mut generator,
+    )
+    .expect("a known glyph is not an error");
     assert_eq!(again, Some(placements[5]), "a glyph keeps its placement");
 }
 
@@ -184,13 +212,25 @@ fn glyphs_fill_shelves_and_then_new_pages_without_overlapping() {
 fn failures_are_errors_and_are_not_remembered() {
     let mut atlas = Atlas::new(small());
     let mut generator = Fill::default();
-    let large = atlas.glyph(FACE, 1, || Some(square(0.0, 0.0, 8.0)), &mut generator);
+    let large = add(
+        &mut atlas,
+        FACE,
+        1,
+        || Some(square(0.0, 0.0, 8.0)),
+        &mut generator,
+    );
     assert!(
         matches!(large, Err(AtlasError::TooLarge { .. })),
         "{large:?}"
     );
     generator.fail = true;
-    let failed = atlas.glyph(FACE, 2, || Some(square(0.0, 0.0, 0.5)), &mut generator);
+    let failed = add(
+        &mut atlas,
+        FACE,
+        2,
+        || Some(square(0.0, 0.0, 0.5)),
+        &mut generator,
+    );
     let error = failed.expect_err("a failing generator is an error");
     assert!(
         error
@@ -200,21 +240,151 @@ fn failures_are_errors_and_are_not_remembered() {
     );
     generator.fail = false;
     generator.short = true;
-    let short = atlas.glyph(FACE, 2, || Some(square(0.0, 0.0, 0.5)), &mut generator);
+    let short = add(
+        &mut atlas,
+        FACE,
+        2,
+        || Some(square(0.0, 0.0, 0.5)),
+        &mut generator,
+    );
     assert!(
         matches!(short, Err(AtlasError::FieldSize { .. })),
         "{short:?}"
     );
     generator.short = false;
-    let recovered = atlas
-        .glyph(FACE, 2, || Some(square(0.0, 0.0, 0.5)), &mut generator)
-        .expect("the glyph is tried again");
+    let recovered = add(
+        &mut atlas,
+        FACE,
+        2,
+        || Some(square(0.0, 0.0, 0.5)),
+        &mut generator,
+    )
+    .expect("the glyph is tried again");
     assert!(recovered.is_some());
     assert_eq!(
         atlas.len(),
         1,
         "only the glyph that succeeded is remembered"
     );
+}
+
+#[test]
+fn a_full_atlas_refuses_new_glyphs_and_keeps_the_ones_it_holds() {
+    let mut atlas = Atlas::new(AtlasConfig {
+        max_pages: 1,
+        ..small()
+    });
+    let mut generator = Fill::default();
+    // A 2 em square needs a 24 pixel cell, so a 64 pixel page holds four.
+    for glyph in 0..4 {
+        add(
+            &mut atlas,
+            FACE,
+            glyph,
+            || Some(square(0.0, 0.0, 2.0)),
+            &mut generator,
+        )
+        .expect("the page has room")
+        .expect("the glyph has an outline");
+    }
+    let refused = add(
+        &mut atlas,
+        FACE,
+        4,
+        || Some(square(0.0, 0.0, 2.0)),
+        &mut generator,
+    );
+    assert!(
+        matches!(refused, Err(AtlasError::Full { pages: 1, .. })),
+        "{refused:?}"
+    );
+    assert_eq!(
+        generator.requests.len(),
+        4,
+        "a glyph with no room is refused before its field is generated"
+    );
+    assert_eq!(atlas.pages().len(), 1, "no page opens past the limit");
+    let small_glyph = add(
+        &mut atlas,
+        FACE,
+        5,
+        || Some(square(0.0, 0.0, 0.5)),
+        &mut generator,
+    )
+    .expect("a smaller glyph fits beside the others");
+    assert!(small_glyph.is_some());
+    let kept = add(
+        &mut atlas,
+        FACE,
+        0,
+        || panic!("a known glyph reads no outline"),
+        &mut generator,
+    )
+    .expect("a held glyph stays available");
+    assert!(kept.is_some());
+}
+
+#[test]
+fn a_job_that_finds_the_atlas_full_when_it_completes_is_refused() {
+    let mut atlas = Atlas::new(AtlasConfig {
+        max_pages: 1,
+        ..small()
+    });
+    let mut generator = Fill::default();
+    let jobs: Vec<Job> = (0..5)
+        .map(|glyph| {
+            match atlas
+                .prepare(FACE, glyph, || Some(square(0.0, 0.0, 2.0)))
+                .expect("the empty atlas has room")
+            {
+                Prepared::Job(job) => job,
+                Prepared::Known(known) => panic!("a new glyph is a job, not {known:?}"),
+            }
+        })
+        .collect();
+    let results: Vec<_> = jobs
+        .iter()
+        .map(|job| {
+            let field = job.generate(&mut generator);
+            atlas.complete(job, field)
+        })
+        .collect();
+    assert!(
+        results[..4]
+            .iter()
+            .all(|result| matches!(result, Ok(Some(_))))
+    );
+    assert!(
+        matches!(results[4], Err(AtlasError::Full { .. })),
+        "{:?}",
+        results[4]
+    );
+    assert_eq!(
+        atlas.known(FACE, 4),
+        None,
+        "a refused glyph is not remembered"
+    );
+}
+
+#[test]
+fn a_glyph_completed_twice_keeps_its_first_placement() {
+    let mut atlas = Atlas::new(small());
+    let mut generator = Fill::default();
+    let job = match atlas
+        .prepare(FACE, 1, || Some(square(0.0, 0.0, 0.5)))
+        .expect("the glyph fits")
+    {
+        Prepared::Job(job) => job,
+        Prepared::Known(known) => panic!("a new glyph is a job, not {known:?}"),
+    };
+    let first = atlas
+        .complete(&job, job.generate(&mut generator))
+        .expect("the field is placed");
+    let second = atlas
+        .complete(&job, job.generate(&mut generator))
+        .expect("a second completion is not an error");
+    assert_eq!(first, second);
+    assert_eq!(atlas.pages()[0].revision, 1, "the page is written once");
 }
 
 #[test]
