@@ -123,6 +123,12 @@ export type Panel = {
   sync: () -> (),
   -- Set for a panel that the host made for a portal.
   overlay: Overlay?,
+  presentation: 'world' | 'follow' | 'dialog',
+  -- A dialog's parent panel, and what it blocks.
+  parent: Panel?,
+  modality: ('panel' | 'session')?,
+  -- The follow presentation's current target, which it moves to only when the head turns far enough away.
+  followTarget: Mat4?,
 }
 
 -- An overlay panel's relation to the portal node that opened it, in another panel.
@@ -146,6 +152,8 @@ export type Environment = {
   read unportal: (Node) -> (),
   -- Reports a press on a panel, at the node under it, so overlays outside the press's chain are dismissed.
   read pressed: (Panel, Node?) -> (),
+  -- Whether an open modal dialog blocks presses on the panel.
+  read blocked: (Panel) -> boolean,
 }
 
 return {}

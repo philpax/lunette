@@ -3,6 +3,7 @@
 
 local uiHost = require '@lunette-contracts/ui-host'
 local protected = require '@lunette-plugins/diagnostics/protected-call'
+local vocabulary = require '@lunette-contracts/vocabulary'
 local instances = require '@self/private/instances'
 
 local ui = {}
@@ -13,11 +14,7 @@ export type Children = { read [number]: Child }
 export type Context<T> = { default: T, id: number }
 export type Ref<T> = { current: T }
 
--- An observable value. `subscribe` returns a function that ends the subscription.
-export type Store<T> = {
-  read get: (Store<T>) -> T,
-  read subscribe: (Store<T>, (T) -> ()) -> () -> (),
-}
+export type Store<T> = vocabulary.Store<T>
 
 export type WritableStore<T> = Store<T> & {
   read set: (WritableStore<T>, T) -> (),

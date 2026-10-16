@@ -5,6 +5,13 @@ local plugin = require '@lunette-plugin'
 
 local vocabulary = {}
 
+-- An observable value. Services publish state as stores so that consumers, such as UI components, need not poll.
+-- `subscribe` returns a function that ends the subscription.
+export type Store<T> = {
+  read get: (Store<T>) -> T,
+  read subscribe: (Store<T>, (T) -> ()) -> () -> (),
+}
+
 -- `window.contentType` uses the values reported by `wp_content_type_v1`.
 export type ContentType = 'none' | 'photo' | 'video' | 'game'
 

@@ -286,4 +286,36 @@ test('a composite whose expansion fails keeps its children', function()
   state.fixture:close()
 end)
 
+test('a dialog floats in front of its parent and blocks presses on it until it closes', function()
+  local log: { string } = {}
+  local state, x, y = pressable(log)
+  local dialog = state.service:newPanel(state.owner, {
+    name = 'confirm',
+    presentation = 'dialog',
+    parent = state.panel,
+  })
+  dialog.root:bind {
+    render = function()
+      dialog.root:submit(element('test/leaf', { width = 0.05, height = 0.03 }))
+    end,
+  }
+  state.fixture:step()
+  local parentPose, dialogPose = state.panel:pose(), dialog:pose()
+  local _, _, parentZ = parentPose:getPosition()
+  local _, _, dialogZ = dialogPose:getPosition()
+  expect.near(dialogZ - parentZ, state.service:theme().elevation.dialog, 1e-6, 'the dialog stands in front')
+  local surface = fixture.surface(state)
+  local pointer = fixture.pointer()
+  deliver(surface, pointer, 'enter', x, y)
+  deliver(surface, pointer, 'press', x, y)
+  deliver(surface, pointer, 'release', x, y)
+  expect.falsy(table.find(log, 'activated'), 'the parent takes no press while the dialog is open')
+  dialog:destroy()
+  state.fixture:step()
+  deliver(surface, pointer, 'press', x, y)
+  deliver(surface, pointer, 'release', x, y)
+  expect.truthy(table.find(log, 'activated'), 'the parent takes presses again')
+  state.fixture:close()
+end)
+
 return test

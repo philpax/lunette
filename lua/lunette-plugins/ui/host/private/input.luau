@@ -250,6 +250,9 @@ function input.pointer(
       setHovered(env, state, target)
     end
   elseif event.kind == 'press' then
+    if env.blocked(panel) then
+      return
+    end
     if event.button == 'left' then
       env.pressed(panel, input.deepest(panel, x, y))
     end

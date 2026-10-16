@@ -17,6 +17,8 @@ export type Provider = {
   read router: input.Router,
   read offer: (records.Panel, vocabulary.Surface) -> (),
   read release: (records.Panel) -> (),
+  -- The record behind a panel handle this host made.
+  read resolve: (uiHost.Panel) -> records.Panel,
 }
 
 local function positive(value: number?, label: string): ()
@@ -41,7 +43,19 @@ function panel.new(
     assert(options.width and options.height, 'ui: a fixed panel has a width and a height')
   end
   local record = panel.record(options.name, owner, sizing, options.width, options.height, options.pose)
-  record.grabbable = options.grabbable ~= false
+  local presentation = options.presentation or 'world'
+  assert(
+    presentation == 'world' or presentation == 'follow' or presentation == 'dialog',
+    `ui: '{tostring(presentation)}' is not a presentation`
+  )
+  record.presentation = presentation
+  record.grabbable = presentation == 'world' and options.grabbable ~= false
+  if presentation == 'dialog' then
+    local modality = options.modality or 'panel'
+    assert(modality == 'panel' or modality == 'session', `ui: '{tostring(modality)}' is not a modality`)
+    record.modality = modality
+    record.parent = if options.parent then provider.resolve(options.parent) else nil
+  end
   local env = provider.env
 
   local mount: uiHost.Mount = {
@@ -195,6 +209,10 @@ function panel.record(
     revision = 0,
     sync = function(): () end,
     overlay = nil,
+    presentation = 'world',
+    parent = nil,
+    modality = nil,
+    followTarget = nil,
   }
   record.tree = layout.newTree(record)
   return record

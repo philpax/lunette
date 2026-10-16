@@ -272,6 +272,12 @@ export type PanelOptions = {
   read size: ('fixed' | 'content')?,
   read pose: Mat4?,
   read grabbable: boolean?,
+  -- 'world' stays where it is put; 'follow' lazily follows the head, as toasts do; 'dialog' floats in front of its
+  -- parent panel, or in front of the head without one, and is modal.
+  read presentation: ('world' | 'follow' | 'dialog')?,
+  read parent: Panel?,
+  -- A dialog blocks presses on its parent panel, or on every other toolkit panel when it is session-modal.
+  read modality: ('panel' | 'session')?,
 }
 
 export type Panel = {

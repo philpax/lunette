@@ -16,6 +16,7 @@ local layout = require '@self/private/layout'
 local input = require '@self/private/input'
 local touch = require '@self/private/touch'
 local overlay = require '@self/private/overlay'
+local presentation = require '@self/private/presentation'
 local panels = require '@self/private/panel'
 local fonts = require '@self/private/rendering/fonts'
 local pack = require '@self/private/rendering/pack'
@@ -41,6 +42,7 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
   local router = input.new()
   local touching = touch.new()
   local live: { Live } = {}
+  local recordsOf: { [uiHost.Panel]: records.Panel } = setmetatable({}, { __mode = 'k' }) :: any
   local reportedMissing: { [string]: boolean } = {}
   local resources: renderer.Resources? = nil
   local releaseResources: (() -> ())? = nil
@@ -75,6 +77,13 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
       overlay.close(provider, node)
     end,
     -- A press outside an overlay's chain asks the portal to close through its onDismiss callback.
+    blocked = function(target: records.Panel): boolean
+      local panels: { records.Panel } = {}
+      for _, entry in live do
+        panels[#panels + 1] = entry.record
+      end
+      return presentation.blocked(target, panels)
+    end,
     pressed = function(pressedPanel: records.Panel, node: records.Node?): ()
       for _, entry in table.clone(live) do
         local relation = entry.record.overlay
@@ -90,6 +99,9 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
     router = router,
     offer = function(record: records.Panel, surface: vocabulary.Surface): ()
       table.insert(live, { record = record, surface = surface })
+    end,
+    resolve = function(handle: uiHost.Panel): records.Panel
+      return assert(recordsOf[handle], 'ui: the panel was not made by this host')
     end,
     release = function(record: records.Panel): ()
       for index, entry in live do
@@ -145,9 +157,11 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
     order = -100,
     run = function(dt: number): ()
       -- Overlays opened during this loop are appended to the list and committed after their openers.
+      local head = presentation.head()
       local index = 1
       while index <= #live do
         local entry = live[index]
+        presentation.place(entry.record, head, dt, current)
         panels.commit(provider, entry.record)
         overlay.place(provider, entry.record)
         input.animate(entry.record, dt, current.motion.crisp)
@@ -209,7 +223,8 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
       for _, entry in live do
         assert(entry.record.name ~= options.name, `ui: the panel name '{options.name}' is in use`)
       end
-      local _, handle = panels.new(provider, owner, options)
+      local record, handle = panels.new(provider, owner, options)
+      recordsOf[handle] = record
       context:acquire(owner, function(): () -> ()
         return function(): ()
           handle:destroy()
