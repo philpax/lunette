@@ -15,7 +15,10 @@ export type Entry = {
   read schema: schema.Metadata?,
   read state: lunette.PluginState,
   read enabled: boolean,
+  -- A protected entry cannot be changed at all. A required entry, such as a provider that a protected entry depends
+  -- on, can be reloaded and reconfigured but not disabled or removed.
   read protected: boolean,
+  read required: boolean,
   read diagnostic: string?,
 }
 

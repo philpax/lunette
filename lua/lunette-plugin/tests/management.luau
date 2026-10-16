@@ -249,14 +249,23 @@ test('protection covers the providers a protected entry depends on and the owner
   local service = running.service
   expect.equal(service:ownerId(owner), entry(service, 'parent').instanceId, 'the owner of a context')
   expect.equal(service:ownerId {}, nil, 'a forged context')
+  expect.equal(entry(service, 'manager').protected, true, 'the named entry is protected')
   for _, id in { 'root', 'parent', 'manager' } do
-    expect.equal(entry(service, id).protected, true, id .. ' is protected')
+    expect.equal(entry(service, id).required, true, id .. ' is required')
     for _, action in { 'disable', 'remove' } do
       expect.raises(function()
         service[action](service, id)
-      end, 'cannot be changed')
+      end, if id == 'manager' then 'cannot be changed' else 'cannot be disabled or removed')
     end
   end
+  for _, id in { 'root', 'parent' } do
+    expect.equal(entry(service, id).protected, false, id .. ' is not protected itself')
+    service:reload(id)
+    expect.equal(entry(service, id).state, 'active', id .. ' reloads because only its removal is refused')
+  end
+  expect.raises(function()
+    service:reload 'manager'
+  end, 'cannot be changed')
   running.runtime:close()
 end)
 

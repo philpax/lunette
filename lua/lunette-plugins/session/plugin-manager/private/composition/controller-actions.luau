@@ -33,6 +33,7 @@ export type TextActions = { read confirm: () -> (), read cancel: () -> (), read 
 
 local NO_ENTRY = 'Select a plugin entry first.'
 local PROTECTED = 'The entry is protected.'
+local REQUIRED = 'A protected entry depends on this entry.'
 
 function actions.cancelEdit(state: State): ()
   state.edit, state.text = nil, ''
@@ -88,6 +89,7 @@ function actions.build(
   end
   local id = if entry then entry.id else ''
   local protected = entry ~= nil and entry.protected and PROTECTED
+  local required = protected or (entry ~= nil and entry.required and REQUIRED)
   button(
     'enable',
     'Enable',
@@ -99,7 +101,7 @@ function actions.build(
   button(
     'disable',
     'Disable',
-    first(entry == nil and NO_ENTRY, protected, entry ~= nil and not entry.enabled and 'The entry is disabled.'),
+    first(entry == nil and NO_ENTRY, required, entry ~= nil and not entry.enabled and 'The entry is disabled.'),
     function()
       state.service:disable(id)
     end
@@ -121,7 +123,7 @@ function actions.build(
       actions.cancelEdit(state)
     end
   )
-  button('remove', 'Remove', first(entry == nil and NO_ENTRY, protected), function()
+  button('remove', 'Remove', first(entry == nil and NO_ENTRY, required), function()
     state.service:remove(id)
   end)
   button(

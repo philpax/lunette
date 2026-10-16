@@ -57,7 +57,7 @@ local Entries = ui.component('PluginEntries', function(): ui.Child
       items[#items + 1] = {
         id = entry.id,
         title = entry.id,
-        detail = entry.state .. (if entry.protected then ', protected' else ''),
+        detail = entry.state .. (if entry.protected then ', protected' elseif entry.required then ', required' else ''),
         trailing = if entry.enabled then nil else 'disabled',
       }
     end

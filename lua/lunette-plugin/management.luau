@@ -168,10 +168,16 @@ function management.start(entries: { compose.Entry }, options: Options?): Runnin
     return protected
   end
 
-  local function mutable(id: string): Record
+  -- A protected entry refuses every change. A provider that a protected entry depends on is required: it can be
+  -- reloaded and reconfigured, because default appearance and recovery undo a change that breaks the interface,
+  -- but it cannot be disabled or removed.
+  local function mutable(id: string, structural: boolean): Record
     local record = recordFor(id)
-    if protectedIds[id] or protectedInstances(runtime:snapshot())[record.instance:id()] then
-      fail('entry ' .. id .. ' is required for management or recovery and cannot be changed')
+    if protectedIds[id] then
+      fail('entry ' .. id .. ' is protected for management or recovery and cannot be changed')
+    end
+    if structural and protectedInstances(runtime:snapshot())[record.instance:id()] then
+      fail('entry ' .. id .. ' is required by a protected entry and cannot be disabled or removed')
     end
     if record.removing then
       fail('entry ' .. id .. ' is being removed')
@@ -263,7 +269,8 @@ function management.start(entries: { compose.Entry }, options: Options?): Runnin
             schema = record.definition.schema,
             state = node.state,
             enabled = node.enabled,
-            protected = protectedIds[id] == true or protected[node.id] == true,
+            protected = protectedIds[id] == true,
+            required = protectedIds[id] == true or protected[node.id] == true,
             diagnostic = node.diagnostic,
           }
         end
@@ -281,19 +288,19 @@ function management.start(entries: { compose.Entry }, options: Options?): Runnin
     end,
     disable = function(_self: contract.Service, id: string): ()
       change(function(): ()
-        mutable(id).instance:disable()
+        mutable(id, true).instance:disable()
         runtime:drain()
       end)
     end,
     reload = function(_self: contract.Service, id: string): ()
       change(function(): ()
-        local record = mutable(id)
+        local record = mutable(id, false)
         replace(record, preflight(record.definition, record.config), false)
       end)
     end,
     configure = function(_self: contract.Service, id: string, config: unknown): ()
       change(function(): ()
-        local record = mutable(id)
+        local record = mutable(id, false)
         if not record.definition.schema or not record.definition.resolve then
           fail('entry ' .. id .. ' has no configuration schema; its source defines its configuration')
         end
@@ -302,7 +309,7 @@ function management.start(entries: { compose.Entry }, options: Options?): Runnin
     end,
     recover = function(_self: contract.Service, id: string): ()
       change(function(): ()
-        local record = mutable(id)
+        local record = mutable(id, false)
         if not record.hasPrevious then
           fail('entry ' .. id .. ' has no previous configuration')
         end
@@ -325,7 +332,7 @@ function management.start(entries: { compose.Entry }, options: Options?): Runnin
     end,
     remove = function(_self: contract.Service, id: string): ()
       change(function(): ()
-        local record = mutable(id)
+        local record = mutable(id, true)
         record.instance:dispose()
         record.removing = true
         runtime:drain()

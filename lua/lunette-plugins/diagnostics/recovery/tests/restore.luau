@@ -4,8 +4,20 @@ local restore = require '../private/restore'
 local layout = require '../private/layout'
 local test = testing.suite()
 
-local function entry(id: string, config: unknown, enabled: boolean, protected: boolean?): restore.Entry
-  return { id = id, config = config, enabled = enabled, protected = protected == true }
+local function entry(
+  id: string,
+  config: unknown,
+  enabled: boolean,
+  protected: boolean?,
+  required: boolean?
+): restore.Entry
+  return {
+    id = id,
+    config = config,
+    enabled = enabled,
+    protected = protected == true,
+    required = protected == true or required == true,
+  }
 end
 
 local function describe(operations: { restore.Operation }): string
@@ -56,6 +68,12 @@ test('protected entries are never changed', function()
   local good = restore.capture { entry('manager', { v = 1 }, true) }
   local current = { entry('manager', { v = 2 }, false, true), entry('menu', {}, true, true) }
   expect.equal(#restore.plan(current, good), 0, 'protected entries are left alone')
+end)
+
+test('required entries are reconfigured but never disabled', function()
+  local good = restore.capture { entry('host', { mode = 'dark' }, true) }
+  local current = { entry('host', { mode = 'light' }, true, false, true), entry('extra', {}, true, false, true) }
+  expect.equal(describe(restore.plan(current, good)), 'configure host', 'the required host is reconfigured only')
 end)
 
 test('a restored entry the record names as disabled is disabled after its restore', function()

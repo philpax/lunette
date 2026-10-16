@@ -8,7 +8,9 @@ export type Entry = {
   read id: string,
   read config: unknown,
   read enabled: boolean,
+  -- Protected entries keep their configuration; required entries, which protected ones depend on, stay enabled.
   read protected: boolean,
+  read required: boolean,
 }
 
 export type Recorded = composition.GoodEntry
@@ -88,7 +90,7 @@ function restore.plan(current: { read [number]: Entry }, good: { read [number]: 
   local enables: { Operation } = {}
   for _, entry in current do
     local wanted = recorded[entry.id]
-    if not entry.protected and entry.enabled and (wanted == nil or not wanted.enabled) then
+    if not entry.required and entry.enabled and (wanted == nil or not wanted.enabled) then
       disables[#disables + 1] = operation { kind = 'disable', id = entry.id }
     end
   end
