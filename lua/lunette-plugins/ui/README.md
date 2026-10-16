@@ -1,6 +1,6 @@
 # UI
 
-UI provides flat VR controls and titlebars. [Toolkit](toolkit/README.md) creates panels, controls, and titlebars with focus and pointer integration. Consumers draw in a supplied scene pass; larger interfaces remain Wayland clients.
+UI provides flat VR controls and titlebars. [Toolkit](toolkit/README.md) creates panels, controls, and titlebars with focus and pointer integration. Its successors are separate plugins: the [UI host](host/README.md) provides panels, kinds, layout, routing, and drawing, the [standard kinds](standard/README.md) provide the controls in the default theme, and the [React-like library](react/README.md), `@lunette-plugins/ui/react`, renders components onto host panels. The shipped desktop does not compose the new providers yet; the development configuration does. Consumers draw in a supplied scene pass; larger interfaces remain Wayland clients.
 
 The [UI contract](../../lunette-contracts/ui.luau) defines services; [panel and UI guarantees](../../lunette-contracts/panels-and-ui.md) define clipping and draw-order limits. [Focus](../../lunette-contracts/focus.luau) and [surfaces](../../lunette-contracts/surfaces.luau) define input integration. [UI authoring](../../../docs/plugins/ui.md) records composition examples.
 

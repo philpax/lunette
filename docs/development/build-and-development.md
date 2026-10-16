@@ -105,6 +105,8 @@ On Debian or Ubuntu, `mesa-vulkan-drivers` supplies lavapipe. `VK_DRIVER_FILES` 
 
 Readbacks need submission and polling. A headset image read in update precedes that frame's draw and can be empty. Capture submitted output rather than treating an early read as presentation evidence.
 
+The UI fixtures write PNG snapshots of the host's rendering and of every widget gallery page, in both theme modes, to `target/tmp/ui-snapshots/`. The snapshots are for review; the fixtures assert only that each page draws without a reported error and that sampled pixels have the expected colours.
+
 ### Native headset tests
 
 `make check-headset` injects runtime and GPU operations. It validates native failure handling and ownership without SteamVR or hardware. It cannot establish bindings or visual correctness.
