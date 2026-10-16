@@ -1,6 +1,7 @@
 -- The React-like authoring library: function components with hooks, rendered into host elements on a panel's
 -- mount point. It is a library: it registers no services, and everything it holds belongs to the mounted panel.
 
+local plugin = require '@lunette-plugin'
 local uiHost = require '@lunette-contracts/ui-host'
 local protected = require '@lunette-plugins/diagnostics/protected-call'
 local vocabulary = require '@lunette-contracts/vocabulary'
@@ -73,26 +74,36 @@ function ui.component<P>(name: string, render: (props: P) -> any): (props: any?)
   end
 end
 
--- Mounts an element on a panel's root mount point. The first render happens at the panel's next commit.
-function ui.mount(panel: uiHost.Panel, element: Child, options: MountOptions?): MountHandle
-  local mount = panel.root
-  local given: MountOptions = options or { components = nil, owner = nil }
+export type ContributeOptions = {
+  read components: any?,
+  -- The outlet version the component is built against: the outlet's declared version when omitted.
+  read version: uiHost.Version?,
+}
+
+-- Binds a mount point to a root that renders `element`, a function of the props the mount point was last given,
+-- answering the function that unmounts the root. The root renders again when `props` answers a different table.
+local function bindRoot(
+  mount: uiHost.Mount,
+  element: (props: any) -> Child,
+  props: () -> any,
+  options: MountOptions,
+  report: (string, () -> ()) -> ()
+): () -> ()
   local root: instances.Root = {
     schedule = function(): ()
       mount:schedule()
     end,
-    report = function(label: string, run: () -> ()): ()
-      protected.call(label, run)
-    end,
-    owner = given.owner,
+    report = report,
+    owner = options.owner,
     effects = {},
     rendering = nil,
     hookIndex = 0,
   }
+  local given = props()
   local top = instances.new(root, {
     name = 'root',
     render = function(): any
-      return ui.provide(componentsContext, given.components, element)
+      return ui.provide(componentsContext, options.components, element(given))
     end,
   }, {}, nil, nil)
   local unmounted = false
@@ -102,6 +113,11 @@ function ui.mount(panel: uiHost.Panel, element: Child, options: MountOptions?): 
         mount:submit(nil)
         return
       end
+      local current = props()
+      if current ~= given then
+        given = current
+        top.dirty, top.stale = true, true
+      end
       local previous = instances.current
       instances.current = root
       local ok, output = pcall(instances.resolve, top)
@@ -109,30 +125,79 @@ function ui.mount(panel: uiHost.Panel, element: Child, options: MountOptions?): 
       if not ok then
         error(output, 0)
       end
-      assert(#output <= 1, `ui: the mounted element resolved to {#output} elements; a panel takes one`)
+      assert(#output <= 1, `ui: the mounted element resolved to {#output} elements; a mount point takes one`)
       mount:submit(output[1])
       local effects = root.effects
       root.effects = {}
       for _, effect in effects do
-        protected.call('ui: effect', effect)
+        report('ui: effect', effect)
       end
     end,
     unmount = function(): ()
       instances.unmount(top)
     end,
   }
+  return function(): ()
+    if not unmounted then
+      unmounted = true
+      instances.unmount(top)
+      mount:schedule()
+    end
+  end
+end
+
+-- Mounts an element on a panel's root mount point. The first render happens at the panel's next commit.
+function ui.mount(panel: uiHost.Panel, element: Child, options: MountOptions?): MountHandle
+  local mount = panel.root
+  local unmount = bindRoot(
+    mount,
+    function(): Child
+      return element
+    end,
+    function(): any
+      return nil
+    end,
+    options or { components = nil, owner = nil },
+    function(label: string, run: () -> ()): ()
+      protected.call(label, run)
+    end
+  )
   return {
     committed = function(_self: MountHandle): boolean
       return mount:committed()
     end,
     unmount = function(_self: MountHandle): ()
-      if not unmounted then
-        unmounted = true
-        instances.unmount(top)
-        mount:schedule()
-      end
+      unmount()
     end,
   }
+end
+
+-- Contributes a component to an outlet for the context's lifetime. The host renders it once for each placement of
+-- the outlet, with that placement's props as the component's props and with separate state and effects, and reports
+-- its errors against the context's plugin. The context requires the host's capability.
+function ui.contribute(
+  context: plugin.Context,
+  outlet: uiHost.Outlet<any>,
+  component: (props: any?) -> Child,
+  options: ContributeOptions?
+): plugin.Effect
+  assert(type(component) == 'function', 'ui: a contribution renders a component')
+  local given: ContributeOptions = options or {}
+  local contributor = plugin.ownerLabel(context)
+  local function report(label: string, run: () -> ()): ()
+    protected.call(`{label} in a contribution from {contributor}`, run)
+  end
+  local host = context:require(uiHost.capability)
+  return host:contribute(context, outlet, {
+    version = given.version,
+    bind = function(mount: uiHost.OutletMount): ()
+      bindRoot(mount, function(props: any): Child
+        return component(props)
+      end, function(): any
+        return mount:props()
+      end, { components = given.components, owner = context }, report)
+    end,
+  })
 end
 
 function ui.createContext<T>(default: T): Context<T>
