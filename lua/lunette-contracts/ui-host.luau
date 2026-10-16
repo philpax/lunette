@@ -70,6 +70,8 @@ export type Colors = {
   -- The accent for text on the surface, guarded to the contrast text needs rather than that of marks.
   read accentText: Color,
   read danger: Color,
+  -- Ink on a danger fill, such as a destructive action's button.
+  read dangerInk: Color,
   read success: Color,
   read warning: Color,
   read hover: Color,

@@ -67,15 +67,15 @@ test('Remove asks for confirmation in a dialog, and Cancel keeps the entry', fun
     env:open()
     selectEntry(env, 'vr-removable')
     env:click 'main/sidebar/lifecycle/remove'
-    local dialog = env:node('face/title', 'desktop/manager/confirm')
+    local dialog = env:node('face/header/title', 'desktop/manager/confirm')
     expect.equal(dialog.props.text, 'Remove vr-removable?', 'the dialog names the action and the entry')
     env:click 'main/sidebar/lifecycle/remove'
     expect.truthy(env:entry 'vr-removable', 'the dialog blocks presses on the manager')
-    env:click('face/actions/cancel', 'desktop/manager/confirm')
+    env:click('face/content/actions/cancel', 'desktop/manager/confirm')
     expect.truthy(env.panels['desktop/manager/confirm'].dead, 'Cancel closes the dialog')
     expect.truthy(env:entry 'vr-removable', 'Cancel keeps the entry')
     env:click 'main/sidebar/lifecycle/remove'
-    env:click('face/actions/confirm', 'desktop/manager/confirm')
+    env:click('face/content/actions/confirm', 'desktop/manager/confirm')
     expect.equal(env:entry 'vr-removable', nil, 'confirming removes the entry')
     env:click 'main/sidebar/tabs/track/catalog'
     local catalogRow = 'main/sidebar/catalog/catalog-box/catalog-list/' .. uiHost.keyOf 'vr-removable'

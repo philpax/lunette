@@ -34,7 +34,7 @@ props.justify = schema.enum {
 }
 props.textAlign = schema.enum { 'start', 'center', 'end' }
 
-props.variant = schema.enum { 'default', 'primary', 'quiet', 'band', 'selected' }
+props.variant = schema.enum { 'default', 'primary', 'quiet', 'band', 'selected', 'danger' }
 
 props.activate = schema.callback(function() end)
 props.hover = schema.callback(function(_hovered: boolean) end)

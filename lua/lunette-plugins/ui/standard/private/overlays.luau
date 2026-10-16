@@ -27,8 +27,6 @@ function overlays.register(service: uiHost.Service, owner: any): { [string]: uiH
         return {
           flexDirection = 'column',
           alignItems = 'stretch',
-          gap = theme.spacing.md,
-          padding = theme.spacing.lg,
           minWidth = props.minWidth or 0.26,
           maxWidth = props.maxWidth or 0.42,
         }
@@ -44,8 +42,8 @@ function overlays.register(service: uiHost.Service, owner: any): { [string]: uiH
       side = theme.colors.side,
       depth = theme.elevation.panelDepth,
       edges = true,
-      border = theme.sizes.headerRule,
-      borderColor = theme.colors.headerRule,
+      border = theme.sizes.edge * 2,
+      borderColor = theme.colors.line,
     })
   end)
 
@@ -78,20 +76,31 @@ function overlays.register(service: uiHost.Service, owner: any): { [string]: uiH
           disabledReason = action.disabledReason,
         })
       end
+      -- The title sits in a header band, as a panel's does, so a dialog reads as a panel of its own.
       return element('lunette/dialog-face', {
         key = 'face',
         minWidth = props.minWidth,
         maxWidth = props.maxWidth,
-        if props.title then element('lunette/text', { key = 'title', text = props.title, style = 'heading' }) else nil,
-        element('lunette/column', { key = 'body', gap = 'sm', children }),
-        if #buttons > 0
-          then element('lunette/row', {
-            key = 'actions',
-            gap = 'sm',
-            justify = 'end',
-            buttons,
+        if props.title
+          then element('lunette/header-band', {
+            key = 'header',
+            element('lunette/text', { key = 'title', text = props.title, style = 'title', color = 'bandInk' }),
           })
           else nil,
+        element('lunette/column', {
+          key = 'content',
+          gap = 'md',
+          padding = 'lg',
+          element('lunette/column', { key = 'body', gap = 'sm', children }),
+          if #buttons > 0
+            then element('lunette/row', {
+              key = 'actions',
+              gap = 'sm',
+              justify = 'end',
+              buttons,
+            })
+            else nil,
+        }),
       })
     end,
   })

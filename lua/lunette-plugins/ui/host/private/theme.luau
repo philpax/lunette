@@ -178,6 +178,7 @@ local HIGH_CONTRAST: { [Mode]: { [string]: string } } = {
     bandInk = '#ffffff',
     section = '#1b2333',
     sectionInk = '#ffffff',
+    danger = '#ffb3ab',
   },
   light = {
     surface = '#e6e9ee',
@@ -191,6 +192,7 @@ local HIGH_CONTRAST: { [Mode]: { [string]: string } } = {
     bandInk = '#ffffff',
     section = '#26304a',
     sectionInk = '#ffffff',
+    danger = '#7d1414',
   },
 }
 
@@ -241,6 +243,7 @@ function theme.resolve(mode: Mode, accent: uiHost.Color, options: Options?): uiH
     accentInk = theme.inkOn(guarded, sunken, raised),
     accentText = theme.guardAccent(guarded, surface, INK_CONTRAST),
     danger = named 'danger',
+    dangerInk = theme.inkOn(named 'danger', sunken, raised),
     success = named 'success',
     warning = named 'warning',
     hover = theme.mix(raised, ink, 0.06),

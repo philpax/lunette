@@ -15,6 +15,7 @@ local TEXT_PAIRS: { { string } } = {
   { 'headerMuted', 'header' },
   { 'sectionInk', 'section' },
   { 'accentInk', 'accent' },
+  { 'dangerInk', 'danger' },
   { 'accentText', 'surface' },
 }
 

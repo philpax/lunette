@@ -78,9 +78,9 @@ app.Confirm = ui.component('PluginConfirm', function(props: ConfirmProps): ui.Ch
     title = confirmation.title,
     actions = {
       { id = 'cancel', label = 'Cancel', variant = 'quiet', onActivate = props.onCancel },
-      { id = 'confirm', label = confirmation.confirm, variant = 'primary', onActivate = props.onConfirm },
+      { id = 'confirm', label = confirmation.confirm, variant = 'danger', onActivate = props.onConfirm },
     },
-    c.Text { key = 'body', text = confirmation.body },
+    c.Text { key = 'body', text = confirmation.body, color = 'muted' },
   }
 end)
 

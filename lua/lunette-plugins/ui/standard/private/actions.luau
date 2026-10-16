@@ -40,7 +40,7 @@ local function pressable(node: uiHost.Node, event: uiHost.Event, base: (uiHost.N
   end
 end
 
-export type Variant = 'default' | 'primary' | 'quiet' | 'band' | 'selected'
+export type Variant = 'default' | 'primary' | 'quiet' | 'band' | 'selected' | 'danger'
 
 -- The face colour, side colour, and ink of a button variant in its current state.
 function actions.face(
@@ -56,6 +56,8 @@ function actions.face(
   local hovered = state.hovered or state.pressed
   if variant == 'primary' or variant == 'selected' then
     return if hovered then lighten(colors.accent, 0.12) else colors.accent, colors.side, colors.accentInk
+  elseif variant == 'danger' then
+    return if hovered then lighten(colors.danger, 0.12) else colors.danger, colors.side, colors.dangerInk
   elseif variant == 'quiet' then
     return if hovered then colors.hover else nil, nil, colors.ink
   elseif variant == 'band' then
@@ -65,7 +67,7 @@ function actions.face(
 end
 
 local function raisedVariant(variant: Variant): boolean
-  return variant == 'default' or variant == 'primary' or variant == 'selected'
+  return variant == 'default' or variant == 'primary' or variant == 'selected' or variant == 'danger'
 end
 
 function actions.register(service: uiHost.Service, owner: any): { [string]: uiHost.Constructor }
@@ -157,7 +159,7 @@ function actions.register(service: uiHost.Service, owner: any): { [string]: uiHo
     draw:box(nil, { fill = theme.colors.band, radius = theme.radii.control, side = theme.colors.side, edges = true })
   end)
 
-  -- Button props: label, variant ('default', 'primary', 'quiet', 'band'), onActivate, disabledReason, and grow.
+  -- Button props: label, variant ('default', 'primary', 'quiet', 'band', 'danger'), onActivate, disabledReason, and grow.
   constructors.Button = service:registerKind(owner, {
     name = 'lunette/button',
     props = shapes.disableable {
@@ -194,6 +196,7 @@ function actions.register(service: uiHost.Service, owner: any): { [string]: uiHo
       local ink = if not enabled
         then 'muted'
         elseif variant == 'primary' or variant == 'selected' then 'accentInk'
+        elseif variant == 'danger' then 'dangerInk'
         elseif variant == 'band' then 'bandInk'
         else 'ink'
       return {

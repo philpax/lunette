@@ -332,9 +332,13 @@ local Confirm = ui.component('Confirm', function(props: { close: () -> () }): ui
     title = 'Remove the plugin?',
     actions = {
       { id = 'cancel', label = 'Cancel', variant = 'quiet', onActivate = props.close },
-      { id = 'remove', label = 'Remove', variant = 'primary', onActivate = props.close },
+      { id = 'remove', label = 'Remove', variant = 'danger', onActivate = props.close },
     },
-    c.Text { key = 'body', text = 'Its settings are kept, and it can be added again from the catalogue.' },
+    c.Text {
+      key = 'body',
+      text = 'Its settings are kept, and it can be added again from the catalogue.',
+      color = 'muted',
+    },
   }
 end)
 
