@@ -199,6 +199,9 @@ type SurfaceFields = {
   read triggerGrabbable: boolean?,
   -- A composite surface can direct its grab to an owning surface offered alongside it.
   read grabTarget: ((Surface) -> Surface?)?,
+  -- Picking prefers a hit on a surface with a higher priority over a nearer hit, and treats nil as 0. Recovery
+  -- surfaces use it so that a broken surface in front of them cannot cover them.
+  read pickPriority: number?,
   read pose: Mat4?,
   read width: number?,
   read height: number?,
@@ -218,6 +221,7 @@ type MovableFields = {
   read grabbable: boolean?,
   read triggerGrabbable: boolean?,
   read grabTarget: ((Surface) -> Surface?)?,
+  read pickPriority: number?,
   read pose: Mat4?,
   read width: number?,
   read height: number?,
