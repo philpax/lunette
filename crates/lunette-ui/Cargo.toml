@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 cosmic-text = { workspace = true }
+resvg = { workspace = true }
 taffy = { workspace = true }
 
 [dev-dependencies]

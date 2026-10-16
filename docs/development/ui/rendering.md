@@ -61,6 +61,8 @@ Every primitive goes through the toolkit shader, or through a material that incl
 
 An image source is a texture handle with an explicit owner, a store of one, or an SVG document. A store lets an image change without a render, which a live window or monitor tile needs. A window's texture rotates as the client cycles its buffers, so a live tile reads `window:stabilize()`, never a cached `window:getTexture()`, and the host checks the handle's `dead` field every frame. Images from files are decoded by the native API off the main thread into a shared image atlas, with an owner-scoped handle that becomes ready when the decode finishes, because the lunette API is not available on `lovr.thread`. A grid of thumbnails therefore draws in a few draws rather than one per image. SVG documents, such as application icons from icon themes, are rasterised natively with resvg at the size they are drawn, and rasterised again when their drawn size changes by more than a threshold.
 
+`lunette.rasterizeSvg` fits a document into a canvas of the requested pixel size, centred with its aspect ratio preserved, and returns straight-alpha RGBA8 pixels, the layout LÖVR images use. It reads nothing but the document: hrefs to files are not followed, so an icon cannot make the main thread read the filesystem. Text elements are not drawn, because resvg is built without text shaping; an icon that spells its glyphs as text loses them.
+
 A mesh is drawn in its own unbatched draw, depth-tested and clipped like any other primitive. Meshes are rare in a panel, so the cost of the extra draws is bounded.
 
 ### Bound parameters

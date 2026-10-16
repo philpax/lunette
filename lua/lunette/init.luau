@@ -805,6 +805,14 @@ export type Lunette = {
   -- and answers how many faces it held. Read the file with
   -- `lovr.filesystem.read`.
   read loadLayoutFont: (data: string) -> number,
+  -- Rasterises an SVG or svgz document into a canvas of `width` by `height`
+  -- pixels, each a whole number from 1 to 4096, scaled to fit with its aspect
+  -- ratio preserved and centred. Answers the pixels as tightly packed rows of
+  -- straight-alpha RGBA8, top row first, which `lovr.data.newBlob` wraps for
+  -- `lovr.data.newImage`, and the width and height of the canvas. Hrefs to
+  -- files are not followed and text elements are not drawn. A document that
+  -- does not parse raises an error.
+  read rasterizeSvg: (svg: string, width: number, height: number) -> (string, number, number),
   -- The ladder a layer's requested size is quantised up, ascending. A panel
   -- whose scale Lua raises requests a size the free list already holds.
   read scaleSteps: () -> { number },

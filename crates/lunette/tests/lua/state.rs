@@ -17,6 +17,7 @@ use lunette::{
     lua::{
         keys::{KeyCodes, locking_modifier_names, modifier_names},
         layout::{LayoutFonts, load_layout_font, new_layout_tree},
+        svg::rasterize_svg,
         text_boundaries,
     },
     mirrors::NoMonitors,
@@ -179,6 +180,12 @@ fn native(lua: &Lua) -> mlua::Result<Table> {
     native.set(
         "loadLayoutFont",
         lua.create_function(|lua, data: mlua::LuaString| load_layout_font(lua, &data))?,
+    )?;
+    native.set(
+        "rasterizeSvg",
+        lua.create_function(|lua, (svg, width, height): (mlua::LuaString, f64, f64)| {
+            rasterize_svg(lua, &svg, width, height)
+        })?,
     )?;
     native.set(
         "scaleSteps",

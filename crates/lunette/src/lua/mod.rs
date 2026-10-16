@@ -16,6 +16,7 @@ mod process;
 mod seat;
 mod sink;
 mod subscribers;
+pub mod svg;
 #[cfg(test)]
 mod tests;
 mod text;
@@ -628,6 +629,11 @@ module! {
 
     /// Adds the faces in a font file's bytes to the fonts layout trees shape with, and answers how many faces it held. Read the file with `lovr.filesystem.read`.
     fn loadLayoutFont(lua, _session, data: mlua::LuaString) -> usize { layout::load_layout_font(lua, &data) }
+
+    /// Rasterises an SVG or svgz document into a canvas of `width` by `height` pixels, each a whole number from 1 to 4096, scaled to fit with its aspect ratio preserved and centred. Answers the pixels as tightly packed rows of straight-alpha RGBA8, top row first, which `lovr.data.newBlob` wraps for `lovr.data.newImage`, and the width and height of the canvas. Hrefs to files are not followed and text elements are not drawn. A document that does not parse raises an error.
+    fn rasterizeSvg(lua, _session, svg: mlua::LuaString, width: f64, height: f64) -> (mlua::LuaString, u32, u32) {
+        svg::rasterize_svg(lua, &svg, width, height)
+    }
 
     /// The ladder a layer's requested size is quantised up, ascending. A panel whose scale Lua raises requests a size the free list already holds.
     fn scaleSteps(_lua, _session) -> Vec<f64> { Ok(scale::ladder()) }
