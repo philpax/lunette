@@ -202,11 +202,12 @@ function panel.surface(provider: Provider, record: records.Panel, setPose: ((Mat
       if record.dead then
         return
       end
-      -- The trigger grabs an attached panel's target from empty space, and presses nodes elsewhere, so a titlebar
-      -- moves its window and still takes clicks on its buttons. The interaction service reads the field when the
-      -- press arrives, after the moves that led to it.
-      if record.target and event.x and event.y then
-        (self :: any).triggerGrabbable = input.target(record, env, event.x, event.y) == nil
+      -- The trigger grabs an attached panel's target from its empty space, and a grabbable panel from the empty space
+      -- of a handle such as its header, and presses nodes elsewhere, so a titlebar moves its panel and still takes
+      -- clicks on its buttons. The interaction service reads the field when the press arrives, after the moves that
+      -- led to it.
+      if event.x and event.y then
+        (self :: any).triggerGrabbable = input.grabs(record, env, event.x, event.y)
       end
       input.pointer(provider.router, record, env, event)
     end,

@@ -74,6 +74,7 @@ A registration declares:
 - `focus`, the focus policy: `text`, `pointer`, or `none`, as [Input](input.md#focus) defines. A `text` kind also declares its input hint. `engage` marks a value control that uses the engage mode under controller traversal.
 - `captures`, how many captures the kind accepts at once. More than one enables the `transform` gesture.
 - `claims`, the gestures the kind consumes, as a table or as a function evaluated when the gesture resolves. [Input](input.md#gesture-claims) defines claims. `holdDuration` sets the kind's hold duration.
+- `handle`, which makes the node a grab handle for its panel. A trigger press on a handle, where no hit target lies, grabs a grabbable panel, so the header band moves its panel as a window's titlebar does.
 - `response`, the standard interaction response that the host applies: hover lift, press travel, the state layer, the fingertip proxy's contact cue, and the feedback events for hover, press, and activation. Third-party kinds get the same feel as the standard kinds by declaring it, and a behaviour handler can adjust it through `base`.
 - `motion`, the default `enter` and `exit` specs, and `cursor`, the cursor hint, as [Motion and feedback](motion-and-feedback.md) describes.
 - `transform`, whether a holder of the node's handle may set its user transform. The kind itself always may.

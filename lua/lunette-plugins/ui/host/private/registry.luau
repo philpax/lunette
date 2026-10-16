@@ -32,6 +32,7 @@ local REGISTRATION_FIELDS: { [string]: boolean } = {
   interactive = true,
   claims = true,
   clip = true,
+  handle = true,
   state = true,
   expand = true,
   focus = true,

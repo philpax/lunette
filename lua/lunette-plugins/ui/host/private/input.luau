@@ -82,6 +82,28 @@ function input.target(panel: records.Panel, env: records.Environment, x: number,
   return nil
 end
 
+-- Whether a trigger press at the point grabs the panel: no hit target lies under it, and the panel is attached to a
+-- surface, or the point lies on a handle node such as a header.
+function input.grabs(panel: records.Panel, env: records.Environment, x: number, y: number): boolean
+  if input.target(panel, env, x, y) then
+    return false
+  end
+  if panel.target then
+    return true
+  end
+  if not panel.grabbable then
+    return false
+  end
+  local node = input.deepest(panel, x, y)
+  while node do
+    if node.kind.registration.handle then
+      return true
+    end
+    node = node.parent
+  end
+  return false
+end
+
 -- Events carry positions in the receiving node's coordinates. A handler that calls `base` passes the event to the
 -- node's parent, except hover changes, which belong to their target alone.
 -- Delivers an event, answering whether a handler consumed it. A handler that calls `base` passes the event on, and

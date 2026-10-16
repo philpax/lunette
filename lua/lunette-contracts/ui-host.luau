@@ -357,6 +357,9 @@ export type KindRegistration = {
   read claims: { read drag: ('x' | 'y' | 'both')? }?,
   -- Children are clipped to the node's bounds.
   read clip: boolean?,
+  -- A trigger press on the node where no hit target lies grabs its panel, as a titlebar does. It applies to a panel
+  -- that is grabbable.
+  read handle: boolean?,
   read state: { read [string]: any }?,
   -- A composite kind expands into other elements instead of drawing. An override's expansion receives the
   -- expansion beneath it as `base`.
