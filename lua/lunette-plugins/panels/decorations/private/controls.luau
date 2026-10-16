@@ -1,30 +1,35 @@
--- Supplies native close and monitor recovery actions to the shared titlebar.
+-- The titlebar's content for a native panel: its title, its actions, and its close request.
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local panels = require '@lunette-contracts/panels'
-local ui = require '@lunette-contracts/ui'
 
 local controls = {}
 
-function controls.options(
-  context: plugin.Context,
-  panel: panels.Panel,
-  style: ui.TitlebarStyleOverrides?,
-  refusal: string?,
-  select: () -> ()
-): ui.TitlebarOptions
-  local identity = panel.kind .. '/' .. panel.source.id
-  local actions: { ui.TitlebarAction } = {}
+export type Action = {
+  read id: string,
+  read label: string,
+  read enabled: boolean,
+  read run: () -> (),
+}
+
+export type Options = {
+  read title: string,
+  read actions: { Action },
+  read close: () -> (),
+}
+
+function controls.options(context: plugin.Context, panel: panels.Panel, refusal: string?, select: () -> ()): Options
+  local actions: { Action } = {}
   local named = if panel.kind == 'window'
     then (panel.source :: lunette.Window).title
     else (panel.source :: lunette.Monitor).name
   local title = panel.title or named or ''
   if panel.kind == 'monitor' then
     local monitor: lunette.Monitor = panel.source :: lunette.Monitor
-    actions[#actions + 1] = {
-      id = 'restart/' .. identity,
+    table.insert(actions, {
+      id = 'restart',
       label = 'Restart mirror',
-      width = 3,
+      enabled = true,
       run = function(): ()
         if context:active() and not panel.dead and not monitor.dead then
           monitor:dismiss()
@@ -33,7 +38,7 @@ function controls.options(
           end
         end
       end,
-    }
+    })
     if not monitor.directCapture then
       local state = lunette.monitorSelection()
       local label = if state.state == 'pending'
@@ -43,25 +48,17 @@ function controls.options(
       if message and state.state ~= 'pending' then
         label ..= ': ' .. message
       end
-      actions[#actions + 1] = {
-        id = 'select/' .. identity,
-        label = label,
-        width = 4,
-        enabled = state.state ~= 'pending',
-        run = select,
-      }
+      table.insert(actions, { id = 'select', label = label, enabled = state.state ~= 'pending', run = select })
     end
   end
   return {
     title = title,
-    style = style,
-    closeId = 'close/' .. identity,
-    onClose = function(): ()
+    actions = actions,
+    close = function(): ()
       if context:active() and not panel.dead and not panel.source.dead and not panel:close(context) then
         error('panel close: request was refused for ' .. tostring(panel.source.id), 0)
       end
     end,
-    actions = actions,
   }
 end
 

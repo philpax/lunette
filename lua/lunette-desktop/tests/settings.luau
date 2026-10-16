@@ -41,7 +41,7 @@ local CONFIGS = {
   ['layout/arc'] = { tuning = { radius = 2 } },
   ['desktop/theme'] = { preset = 'light' },
   ['desktop/menu'] = { hand = 'right', size = 0.14 },
-  ['desktop/decorations'] = { style = { barColor = { 0.3, 0.12, 0.2, 0.95 } } },
+  ['desktop/decorations'] = { height = 0.045 },
   ['desktop/arrange'] = { layout = 'grid' },
   ['desktop/persistence'] = { file = 'desktop.state' },
   ['desktop/keyboard'] = { placement = { distance = 0.45 } },

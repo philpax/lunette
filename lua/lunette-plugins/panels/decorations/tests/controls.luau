@@ -2,12 +2,12 @@ local testing = require '@testing'
 local expect = testing.expect
 local lunette = require '@lunette'
 local panels = require '@lunette-contracts/panels'
-local ui = require '@lunette-contracts/ui'
+local uiHost = require '@lunette-contracts/ui-host'
 local drops = require '@lunette-contracts/drops'
 local surfaces = require '@lunette-contracts/surfaces'
 local vrUi = require '@testing/vr-ui'
+local fixture = require '@testing/ui-host'
 local config = require '../config'
-local titlebarConfiguration = require '@lunette-plugins/ui/titlebar-configuration'
 local test = testing.suite()
 
 type WindowPanel = {
@@ -22,7 +22,7 @@ type Environment = {
   running: vrUi.Fixture,
   registry: testing.Observed<panels.Service>,
   monitor: testing.Monitor,
-  widgets: ui.Service,
+  host: uiHost.Service,
   closeRequests: number,
   panel: WindowPanel,
   mirror: panels.Panel,
@@ -46,7 +46,8 @@ local function boot(): Environment
     'keyboard',
     'desktop/pointing',
     'panels',
-    'ui',
+    'ui-host',
+    'ui-standard',
     'desktop/render',
     'desktop/decorations',
     'desktop/monitors',
@@ -56,9 +57,9 @@ local function boot(): Environment
     running = running,
     registry = registry,
     monitor = monitor,
-    widgets = running.session:observe(ui.capability).service,
+    host = assert(running.session:observe(uiHost.capability).service),
     closeRequests = 0,
-  }
+  } :: any
   local window = native.newWindow(7)
   function window.close(self: testing.Window): boolean
     env.closeRequests += 1
@@ -72,58 +73,47 @@ local function boot(): Environment
   env.mirror = assert(registry.service:forSource(monitor))
   env.mirror:setPose(lovr.math.newMat4():translate(3, 1, -2))
   running:step()
+  running:step()
   return env
 end
 
-local function click(env: Environment, name: string, id: string)
-  env.running:clickControl(env.widgets, name, id)
+-- A titlebar node by its key under the header band, such as 'close'.
+local function node(env: Environment, titlebar: string, key: string): uiHost.Node
+  return assert(env.host:find(`{titlebar}:header/band/{key}`), `no titlebar node {key} on {titlebar}`)
 end
 
--- Reads the control directly, since discovery finds only enabled controls and a pending selection is disabled.
-local function selection(env: Environment): testing.InspectionDetails
-  for _, registration in env.widgets:inspect().registrations do
-    if registration.kind == 'control' and registration.name == 'select/monitor/screen-a' then
-      return registration.details
-    end
-  end
-  error('the monitor has no selection control', 0)
+local function click(env: Environment, titlebar: string, key: string)
+  env.running:click(fixture.nodeGeometry(node(env, titlebar, `{key}/face`)), 0.5, 0.5)
 end
+
+local function label(env: Environment, titlebar: string, key: string): string
+  return node(env, titlebar, `{key}/face/label`).props.text
+end
+
+test('decorations take their appearance from the theme, with an optional height', function()
+  expect.equal(config.schema.parse({}).height, nil, 'the theme sets the height by default')
+  expect.equal(config.schema.parse({ height = 0.05 }).height, 0.05)
+end)
 
 test('a window titlebar requests close, reports a refusal, and is withdrawn while the window is hidden', function()
-  expect.equal(config.schema.parse({}).style, nil, 'decorations inherit the toolkit style without an override')
-  local color = { 0.1, 0.2, 0.3, 1 }
-  local settings = config.schema.parse { style = { titleColor = color } }
-  local projected = titlebarConfiguration.project(settings.style)
-  color[1] = 0.9
-  expect.equal(projected.titleColor[1], 0.1, 'projection detaches colors')
-  expect.equal(projected.font, nil, 'a sparse style inherits its font')
-  expect.equal(projected.barHeight, nil, 'a sparse style inherits its geometry')
-  local fileSettings = config.schema.parse { style = { font = { kind = 'file', file = 'fonts/titlebar.ttf' } } }
-  local fileStyle = titlebarConfiguration.project(fileSettings.style)
-  expect.equal(fileStyle.font.kind, 'file')
-  expect.equal(fileStyle.font.file, 'fonts/titlebar.ttf')
-  expect.equal(fileStyle.font.size, 32, 'file fonts keep the editable size default')
-  expect.equal(fileStyle.font.spread, 4, 'file fonts keep the editable spread default')
-  expect.equal(fileSettings.style.font.size, nil, 'projection leaves the editable settings sparse')
-  expect.equal(fileStyle.titleColor, nil, 'a font override does not fill the palette')
-
   local env = boot()
-  click(env, WINDOW, 'close/window/7')
+  click(env, WINDOW, 'close')
   expect.equal(env.closeRequests, 1, 'the close button sends one close request')
   expect.falsy(env.panel.dead, 'the panel waits for the client to unmap')
   function env.panel.source.close(self: testing.Window): boolean
     return false
   end
-  click(env, WINDOW, 'close/window/7')
+  click(env, WINDOW, 'close')
   local reports = env.running.native.events.reported
   expect.equal(#reports, 1, 'a refused close is reported')
   expect.truthy(reports[1].message:find('panel close: request was refused', 1, true), reports[1].message)
   table.clear(reports)
+  local before = #env.running.session:observe(surfaces.capability).service:all()
   local hiding = env.panel:setHidden(env.registry.context, true)
   env.running:step()
-  for _, surface in env.running.session:observe(surfaces.capability).service:all() do
-    expect.truthy(surface.source ~= env.panel.source, 'a hidden window offers no titlebar')
-  end
+  env.running:step()
+  local after = #env.running.session:observe(surfaces.capability).service:all()
+  expect.truthy(after <= before - 2, 'a hidden window offers neither itself nor its titlebar')
   hiding:dispose()
 end)
 
@@ -158,11 +148,11 @@ end)
 
 test('a monitor titlebar restarts the mirror, selects monitors, and closes the mirror only', function()
   local env = boot()
-  click(env, MONITOR, 'restart/monitor/screen-a')
+  click(env, MONITOR, 'restart')
   expect.equal(env.running.native.events.mirrored, 2, 'restart mirrors again')
-  click(env, MONITOR, 'select/monitor/screen-a')
+  click(env, MONITOR, 'select')
   expect.equal(env.running.native.events.monitorSelections, 1, 'select requests a monitor selection')
-  click(env, MONITOR, 'close/monitor/screen-a')
+  click(env, MONITOR, 'close')
   expect.truthy(env.mirror.dead, 'closing removes the mirror panel')
   expect.falsy(env.monitor.dead, 'closing does not unplug the host monitor')
 end)
@@ -174,20 +164,22 @@ test('monitor selection shows a refused, pending, and failed request, and retrie
   lunette.selectMonitors = function(): (boolean, string)
     return false, 'portal unavailable'
   end
-  local ok, message = pcall(click, env, MONITOR, 'select/monitor/screen-a')
+  local ok, message = pcall(click, env, MONITOR, 'select')
   lunette.selectMonitors = selectMonitors
   assert(ok, message)
-  expect.equal(selection(env).label, 'Select monitors: portal unavailable', 'a refused request')
-  click(env, MONITOR, 'select/monitor/screen-a')
+  env.running:step()
+  expect.equal(label(env, MONITOR, 'select'), 'Select monitors: portal unavailable', 'a refused request')
+  click(env, MONITOR, 'select')
   expect.equal(native.events.monitorSelections, 1, 'one request')
-  local pending = selection(env)
-  expect.equal(pending.label, 'Waiting for permission', 'a pending request')
-  expect.equal(pending.enabled, false, 'a pending request cannot be repeated')
+  env.running:step()
+  expect.equal(label(env, MONITOR, 'select'), 'Waiting for permission', 'a pending request')
+  expect.truthy(node(env, MONITOR, 'select/face').props.disabledReason, 'a pending request cannot be repeated')
   native.events.monitorSelection = { state = 'failed', message = 'selection cancelled' }
   env.running:step()
-  expect.equal(selection(env).label, 'Retry selection: selection cancelled', 'a failed request')
+  env.running:step()
+  expect.equal(label(env, MONITOR, 'select'), 'Retry selection: selection cancelled', 'a failed request')
   expect.equal(native.events.monitorSelections, 1, 'a failure does not retry by itself')
-  click(env, MONITOR, 'select/monitor/screen-a')
+  click(env, MONITOR, 'select')
   expect.equal(native.events.monitorSelections, 2, 'a retry starts a fresh request')
 end)
 
