@@ -8,7 +8,9 @@ System mode reads the default output mix without changing routing or volume. App
 
 Active beat responses finish before their animation slots are reused. A full frequency-band pool skips new visual beats without interrupting active responses in any band. Audio discontinuities reset invalid response history.
 
-The Appearance panel pauses automatic selection while open. Runtime choices reset on source reload and process selections do not persist across sessions. Unavailable audio fades toward zero.
+The Backdrop action in the Appearance menu group opens and closes the control panel, a component mounted on a [UI host](../../ui/host/README.md) panel with the [standard kinds](../../ui/standard/README.md). The controls need both providers and the menu; without them the environment still renders. The panel switches the backdrop and its audio reactivity, selects the audio source, pins the attended application or any listed application, sets response and motion on sliders with named intensity detents, and selects a diagnostic view. The pin button states why it is unavailable. The panel reads the backdrop's choices and the application list through stores, which sample native process, window, and audio state while the panel is open and change only when what the panel shows differs.
+
+The panel pauses automatic selection while open. Runtime choices reset on source reload and process selections do not persist across sessions. Unavailable audio fades toward zero.
 
 [Options](config.luau) · [Example](../../../../examples/audio-backdrop/main.luau) · [Audio limits and pending live acceptance](../../../../docs/development/native/audio.md)
 

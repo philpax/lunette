@@ -6,6 +6,9 @@ local controls = require '../../private/controls/controls'
 local menu = require '@lunette-contracts/menu'
 local panels = require '@lunette-contracts/panels'
 local ui = require '@lunette-contracts/ui'
+local uiHost = require '@lunette-contracts/ui-host'
+local recorded = require './panels'
+local hostFixture = require '@testing/ui-host'
 local vrUi = require '@testing/vr-ui'
 local lunette = require '@lunette'
 
@@ -26,6 +29,8 @@ export type Environment = {
   panels: panels.Service,
   owner: plugin.Owner,
   ui: ui.Service,
+  host: uiHost.Service,
+  recorder: recorded.Recorder,
   menu: menu.Service,
   enabled: () -> boolean,
   processBoundary: ProcessBoundary?,
@@ -52,6 +57,7 @@ function fixture.boot(options: Options?): Environment
       })
     end,
   }
+  local recorder = recorded.recorder()
   local entries = {
     'frame',
     'surfaces',
@@ -64,6 +70,8 @@ function fixture.boot(options: Options?): Environment
     'desktop/pointing',
     'panels',
     'ui',
+    'ui-host',
+    'ui-standard',
     'menu',
     'desktop/menu',
     'desktop/render',
@@ -84,6 +92,8 @@ function fixture.boot(options: Options?): Environment
     panels = observed.service,
     owner = observed.context,
     ui = running.session:observe(ui.capability).service,
+    host = running.session:observe(uiHost.capability).service,
+    recorder = recorder,
     menu = running.session:observe(menu.capability).service,
     processBoundary = processBoundary,
     enabled = function(): boolean
@@ -114,16 +124,65 @@ function fixture.window(
   return panel, window
 end
 
+-- Opens the panel through the wrist menu, then lowers the menu by losing the left hand's tracking, so the open menu
+-- does not cover the panel's lower controls.
 function fixture.open(env: Environment): ()
+  env.running:tracked('left', true)
+  env.running:step(0)
   env.running:clickControl(env.ui, 'desktop/menu', 'open')
   env.running:clickControl(env.ui, 'desktop/menu', 'actions', 'right', 'desktop/backdrop/open')
+  env.running:tracked('left', false)
+  -- The panel renders what the action changed at the next commit.
+  env.running:step(0)
 end
 
-function fixture.choice(env: Environment, id: string, item: string): ()
-  local description, control = env.running:discover(env.ui, 'desktop/backdrop/controls', id)
-  local bounds = control.bounds
-  env.running:click(description, bounds.x + bounds.width / 2, bounds.y + 16)
-  env.running:clickControl(env.ui, 'desktop/backdrop/controls', id, 'right', item)
+-- The control panel's node at a key path, such as 'body/enabled'.
+function fixture.node(env: Environment, path: string): uiHost.Node
+  return recorded.node(env.recorder, controls.PANEL, path)
+end
+
+function fixture.click(env: Environment, path: string): ()
+  recorded.click(env.running, env.recorder, controls.PANEL, path)
+end
+
+function fixture.visible(env: Environment): boolean
+  return recorded.visible(env.host, controls.PANEL)
+end
+
+-- Opens the diagnostic view menu and chooses an option.
+function fixture.diagnostic(env: Environment, id: string): ()
+  fixture.click(env, 'body/diagnostics/content/view/trigger')
+  env.running:step(0)
+  fixture.click(env, 'body/diagnostics/content/view/menu/' .. id)
+end
+
+local ROWS = 'body/applications/content/scroll/rows/'
+
+-- The application row with a token, if it is shown.
+function fixture.row(env: Environment, token: string): uiHost.Node?
+  return recorded.panel(env.recorder, controls.PANEL):find(ROWS .. token)
+end
+
+-- The tokens of the shown rows, in token order, searching the serials up to `limit`.
+function fixture.rows(env: Environment, limit: number?): { string }
+  local tokens: { string } = {}
+  for serial = 1, limit or 400 do
+    local token = 'application-' .. tostring(serial)
+    if fixture.row(env, token) then
+      tokens[#tokens + 1] = token
+    end
+  end
+  return tokens
+end
+
+-- The geometry centred on a row, for pressing and holding it across frames.
+function fixture.rowGeometry(env: Environment, token: string): vrUi.Geometry
+  return hostFixture.nodeGeometry(assert(fixture.row(env, token), `no row {token}`))
+end
+
+-- Drags a slider's thumb to near `value`, so the release snaps to a nearby detent.
+function fixture.slide(env: Environment, path: string, value: number): ()
+  recorded.slide(env.running, env.recorder, controls.PANEL, path, value)
 end
 
 function fixture.aimHead(env: Environment, x: number?): ()

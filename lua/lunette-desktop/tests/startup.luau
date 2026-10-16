@@ -76,7 +76,7 @@ test('the shipped configuration starts on load and survives ten production reloa
     for _, name in ipairs { 'onWindowOpened', 'onMonitorAdded', 'onError' } do
       expect.equal(
         native.subscriptionCount(name),
-        if name == 'onWindowOpened' then 2 else 1,
+        1,
         'reload ' .. reload .. ' leaves the expected ' .. name .. ' subscriptions'
       )
     end
