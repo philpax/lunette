@@ -41,6 +41,7 @@ pages.PAGES = {
   { id = 'collections', label = 'Collections' },
   { id = 'structure', label = 'Structure' },
   { id = 'overlays', label = 'Overlays' },
+  { id = 'markdown', label = 'Markdown' },
 }
 
 -- A crescent, drawn in white so a tint colours it.
@@ -447,6 +448,37 @@ local Overlays = ui.component('Overlays', function(): ui.Child
   }
 end)
 
+local MARKDOWN = table.concat({
+  '## Markdown view',
+  '',
+  'A paragraph with *emphasis*, **strong text**, `inline code`, and [a link](https://lunette.example/docs).',
+  '',
+  '- Bullet lists nest',
+  '  1. with ordered items',
+  '  2. under them',
+  '',
+  '> A quotation sits beside a rule.',
+  '',
+  '```luau',
+  "local panel = host:newPanel(context, { name = 'example' })",
+  '```',
+  '',
+  '| Kind | Role |',
+  '|:-----|-----:|',
+  '| Text | body |',
+  '| Code | mono |',
+}, '\n')
+
+local Markdown = ui.component('Markdown', function(): ui.Child
+  local c = ui.useComponents()
+  local link, setLink = ui.useState(nil :: string?)
+  return c.Column {
+    gap = 'md',
+    c.Markdown { key = 'document', source = MARKDOWN, onLink = setLink },
+    c.Text { key = 'link', text = `Last link: {link or 'none'}`, style = 'caption', color = 'muted' },
+  }
+end)
+
 local PAGE_COMPONENTS = {
   display = Display,
   actions = Actions,
@@ -455,6 +487,7 @@ local PAGE_COMPONENTS = {
   collections = Collections,
   structure = Structure,
   overlays = Overlays,
+  markdown = Markdown,
 }
 
 -- The whole gallery: a header with the theme controls, page tabs, and the page in a scroll box.
