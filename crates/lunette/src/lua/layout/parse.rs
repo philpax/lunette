@@ -263,6 +263,7 @@ fn text_style(table: Option<&Table>, context: &str) -> mlua::Result<TextStyle> {
             "size",
             "lineHeight",
             "weight",
+            "letterSpacing",
             "align",
             "wrap",
             "maxLines",
@@ -279,6 +280,9 @@ fn text_style(table: Option<&Table>, context: &str) -> mlua::Result<TextStyle> {
     }
     if let Some(weight) = table.get::<Option<u16>>("weight")? {
         style.weight = weight;
+    }
+    if let Some(spacing) = table.get::<Option<f32>>("letterSpacing")? {
+        style.letter_spacing = spacing;
     }
     if let Some(align) = table.get::<Option<String>>("align")? {
         style.alignment = match align.as_str() {

@@ -46,6 +46,8 @@ export type Typography = {
   read size: number,
   read weight: number,
   read lineHeight: number,
+  -- Extra space after each glyph, as a multiple of the size; nil sets text as the font spaces it.
+  read letterSpacing: number?,
 }
 
 export type Colors = {
@@ -125,8 +127,10 @@ export type TypeScale = {
   read title: Typography,
   read value: Typography,
   read mono: Typography,
-  -- Small monospace text for readouts beside values: units, detent names, identifiers, and details.
+  -- Small monospace text for readouts beside values: units, identifiers, and details.
   read readout: Typography,
+  -- Small spaced monospace capitals engraved beside a control, such as a slider's detent names.
+  read engraved: Typography,
 }
 
 -- The resolved tokens a kind lays out and draws with. Lengths are metres.

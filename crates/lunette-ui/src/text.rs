@@ -192,6 +192,8 @@ pub struct TextStyle {
     pub line_height: f32,
     /// The weight, from 100 to 900.
     pub weight: u16,
+    /// Extra space after each glyph, as a multiple of the font size; zero sets text as the font spaces it.
+    pub letter_spacing: f32,
     pub alignment: Alignment,
     pub wrapping: Wrapping,
     /// The most lines shown; later lines are replaced by an ellipsis on the last one.
@@ -205,6 +207,7 @@ impl Default for TextStyle {
             size: 0.012,
             line_height: 1.3,
             weight: 400,
+            letter_spacing: 0.0,
             alignment: Alignment::Start,
             wrapping: Wrapping::Word,
             max_lines: None,
@@ -221,6 +224,8 @@ pub enum TextStyleError {
     LineHeight(f32),
     /// The weight is outside 1 to 1000.
     Weight(u16),
+    /// The letter spacing is not a finite number.
+    LetterSpacing(f32),
     /// The maximum line count is zero.
     MaxLines,
 }
@@ -237,6 +242,12 @@ impl fmt::Display for TextStyleError {
             }
             Self::Weight(weight) => {
                 write!(f, "text style: the weight {weight} is outside 1 to 1000")
+            }
+            Self::LetterSpacing(spacing) => {
+                write!(
+                    f,
+                    "text style: the letter spacing {spacing} is not a finite number"
+                )
             }
             Self::MaxLines => write!(f, "text style: the maximum line count is zero"),
         }
@@ -260,6 +271,9 @@ impl TextStyle {
         }
         if !(1..=1000).contains(&self.weight) {
             return Err(TextStyleError::Weight(self.weight));
+        }
+        if !self.letter_spacing.is_finite() {
+            return Err(TextStyleError::LetterSpacing(self.letter_spacing));
         }
         if self.max_lines == Some(0) {
             return Err(TextStyleError::MaxLines);
@@ -369,7 +383,10 @@ impl TextBlock {
             Some(name) => Family::Name(name),
             None => Family::SansSerif,
         };
-        let attrs = Attrs::new().family(family).weight(Weight(style.weight));
+        let attrs = Attrs::new()
+            .family(family)
+            .weight(Weight(style.weight))
+            .letter_spacing(style.letter_spacing);
         let align = match style.alignment {
             Alignment::Start => None,
             Alignment::Center => Some(Align::Center),

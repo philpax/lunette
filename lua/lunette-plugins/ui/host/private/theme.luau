@@ -141,8 +141,20 @@ local SIZES: uiHost.Sizes = table.freeze {
 }
 local MOTION = table.freeze { crisp = 0.12 }
 
-local function typography(family: string, size: number, weight: number, lineHeight: number): uiHost.Typography
-  return table.freeze { family = family, size = size, weight = weight, lineHeight = lineHeight }
+local function typography(
+  family: string,
+  size: number,
+  weight: number,
+  lineHeight: number,
+  letterSpacing: number?
+): uiHost.Typography
+  return table.freeze {
+    family = family,
+    size = size,
+    weight = weight,
+    lineHeight = lineHeight,
+    letterSpacing = letterSpacing,
+  }
 end
 
 local SANS = 'IBM Plex Sans'
@@ -151,12 +163,13 @@ local TYPE: uiHost.TypeScale = table.freeze {
   body = typography(SANS, 0.012, 400, 1.35),
   label = typography(SANS, 0.012, 500, 1.3),
   caption = typography(SANS, 0.0095, 400, 1.3),
-  section = typography(SANS, 0.0095, 600, 1.3),
+  section = typography(SANS, 0.0095, 600, 1.3, 0.1),
   heading = typography(SANS, 0.014, 600, 1.3),
   title = typography(SANS, 0.017, 600, 1.25),
   value = typography(MONO, 0.013, 400, 1.3),
   mono = typography(MONO, 0.011, 400, 1.35),
   readout = typography(MONO, 0.0095, 400, 1.3),
+  engraved = typography(MONO, 0.0085, 400, 1.3, 0.12),
 }
 
 export type Options = {
@@ -203,7 +216,7 @@ local function scaled(scale: number): uiHost.TypeScale
   end
   local result: { [string]: uiHost.Typography } = {}
   for name, role in TYPE :: any do
-    result[name] = typography(role.family, role.size * scale, role.weight, role.lineHeight)
+    result[name] = typography(role.family, role.size * scale, role.weight, role.lineHeight, role.letterSpacing)
   end
   return table.freeze(result) :: any
 end

@@ -143,6 +143,13 @@ fn invalid_styles_are_refused() {
         ),
         (
             TextStyle {
+                letter_spacing: f32::INFINITY,
+                ..style()
+            },
+            TextStyleError::LetterSpacing(f32::INFINITY),
+        ),
+        (
+            TextStyle {
                 max_lines: Some(0),
                 ..style()
             },
@@ -151,6 +158,35 @@ fn invalid_styles_are_refused() {
     ] {
         assert_eq!(TextBlock::new(&mut fonts, "x", style).err(), Some(expected));
     }
+}
+
+#[test]
+fn letter_spacing_adds_a_multiple_of_the_size_after_each_glyph() {
+    let mut fonts = fonts();
+    let spaced = TextStyle {
+        letter_spacing: 0.1,
+        ..style()
+    };
+    let per_glyph = 0.1 * spaced.size;
+    let mut plain = TextBlock::new(&mut fonts, "ABCD", style()).expect("the style is valid");
+    let mut wide = TextBlock::new(&mut fonts, "ABCD", spaced).expect("the style is valid");
+    let (plain_width, _) = plain.measure(&mut fonts, None);
+    let (wide_width, _) = wide.measure(&mut fonts, None);
+    let added = wide_width - plain_width;
+    assert!(
+        added > per_glyph * 3.0 - 1e-5 && added < per_glyph * 4.0 + 1e-5,
+        "four glyphs add three or four spacings: {added}"
+    );
+    let step = |block: &mut TextBlock, fonts: &mut Fonts| {
+        let lines = block.lines(fonts, None);
+        lines[0].glyphs[1].x - lines[0].glyphs[0].x
+    };
+    let plain_step = step(&mut plain, &mut fonts);
+    let wide_step = step(&mut wide, &mut fonts);
+    assert!(
+        close(wide_step - plain_step, per_glyph),
+        "neighbouring glyphs stand one spacing further apart: {plain_step} {wide_step}"
+    );
 }
 
 #[test]

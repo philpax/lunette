@@ -598,12 +598,13 @@ alias!(
 alias!(
     LayoutTextStyleAlias,
     "LayoutTextStyle",
-    "How a text node is shaped. Sizes are metres; the line height is a multiple of the size.",
+    "How a text node is shaped. Sizes are metres; the line height and the letter spacing, which is added after each glyph, are multiples of the size.",
     record(&[
         ("family", Type::STRING.optional()),
         ("size", optional_number()),
         ("lineHeight", optional_number()),
         ("weight", optional_number()),
+        ("letterSpacing", optional_number()),
         (
             "align",
             Type::literals(&["start", "center", "end"]).optional()

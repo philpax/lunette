@@ -55,6 +55,7 @@ function tokens.textStyle(theme: uiHost.Theme, role: string?, options: TextOptio
     size = style.size,
     weight = style.weight,
     lineHeight = style.lineHeight,
+    letterSpacing = style.letterSpacing,
     align = given.align,
     wrap = given.wrap,
     maxLines = given.maxLines,
