@@ -53,7 +53,12 @@ local function kinds(service: uiHost.Service, owner: any): ()
       end,
       textStyle = function(props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutTextStyle
         local style = theme.type.title
-        return { family = style.family, size = style.size, weight = style.weight, lineHeight = style.lineHeight }
+        return {
+          family = style.family,
+          size = props.size or style.size,
+          weight = style.weight,
+          lineHeight = style.lineHeight,
+        }
       end,
     },
     visuals = { 'test/text' },
@@ -97,6 +102,41 @@ test('a panel face, a raised key, and its label render in front of each other', 
   close(image, 200, 130, theme.colors.surface, 'the panel face')
   local angled = ui.render(scene, 320, 200, vector.pack(0.18, -0.06, 0.24), vector.pack(0, 0, 0))
   ui.snapshot('host-angled', angled)
+  scene.fixture:close()
+end)
+
+test('text draws in the colour it was given, as a box does', function()
+  -- A colour well below mid-grey shows whether the glyph shader converts it as the box shader does: drawn as linear,
+  -- it comes out far lighter.
+  local ink = { 0.2, 0.3, 0.45, 1 }
+  local scene = ui.boot({}, {}, function(context: any)
+    local service = context:require(uiHost.capability)
+    kinds(service, context)
+    local panel = service:newPanel(context, { name = 'ink', width = 0.2, height = 0.12, pose = lovr.math.newMat4() })
+    panel.root:bind {
+      render = function()
+        panel.root:submit(element('test/panel', {
+          element('test/text', { key = 'stem', text = 'I', size = 0.08, color = ink }),
+        }))
+      end,
+    }
+  end)
+  local image = ui.render(scene, 320, 200, vector.pack(0, 0, 0.32), vector.pack(0, 0, 0))
+  local surface = scene.service:theme().colors.surface
+  -- The pixel that differs most from the panel face lies inside the stem.
+  local farthest, found = -1, { 0, 0, 0 }
+  for y = 0, 199 do
+    for x = 0, 319 do
+      local r, g, b = channels(image, x, y)
+      local distance = math.abs(r - surface[1]) + math.abs(g - surface[2]) + math.abs(b - surface[3])
+      if distance > farthest then
+        farthest, found = distance, { r, g, b }
+      end
+    end
+  end
+  for index = 1, 3 do
+    testing.expect.near(found[index], ink[index], 8 / 255, `the stem's channel {index}`)
+  end
   scene.fixture:close()
 end)
 

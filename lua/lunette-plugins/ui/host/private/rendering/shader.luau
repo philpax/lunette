@@ -239,7 +239,8 @@ shader.glyphFragment = [[
     if (alpha <= 0.) {
       discard;
     }
-    return vec4(glyphColor.rgb, glyphColor.a * alpha);
+    // Instance colours are sRGB, as box colours are, and the pass blends in linear space.
+    return vec4(gammaToLinear(glyphColor.rgb), glyphColor.a * alpha);
   }
 ]]
 
