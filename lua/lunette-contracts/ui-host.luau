@@ -427,7 +427,11 @@ export type Service = {
   read activate: (Service) -> boolean,
   read dismiss: (Service) -> boolean,
   read nextPanel: (Service) -> boolean,
+  -- Panels and their sizes, as the plugin manager and other brokers' inspection show them.
   read inspect: (Service) -> inspection.Snapshot,
+  -- Every node with a role, with its id, semantics, box, and states, for tests and assistive plugins. It is separate
+  -- from inspect, because a panel that shows inspection would otherwise show its own growing node list.
+  read inspectNodes: (Service) -> inspection.Snapshot,
   -- The live node with an id of a panel's name and a key path, such as 'Widget gallery:pages/display', for tests and
   -- inspection.
   read find: (Service, string) -> Node?,

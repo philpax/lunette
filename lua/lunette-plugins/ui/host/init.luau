@@ -381,33 +381,8 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
       end
       return nil
     end,
-    findByRole = function(_self: uiHost.Service, role: uiHost.Role, name: string): uiHost.Node?
-      for _, node in semantics.nodes(livePanels()) do
-        if semantics.role(node) == role and semantics.of(env, node).name == name then
-          return node.handle
-        end
-      end
-      return nil
-    end,
-    inspect = function(_self: uiHost.Service): inspection.Snapshot
+    inspectNodes = function(_self: uiHost.Service): inspection.Snapshot
       local result: { inspection.Registration } = {}
-      for _, entry in live do
-        local record = entry.record
-        local count = 0
-        for _ in record.nodes do
-          count += 1
-        end
-        table.insert(
-          result,
-          inspection.registration('panel', 'ui-host.newPanel', record.owner, record.name, not record.dead, {
-            width = record.width,
-            height = record.height,
-            nodes = count,
-            visible = record.visible,
-            presentation = record.presentation,
-          })
-        )
-      end
       -- Every node with a role is reported with its semantics, state, and box, so tests and assistive plugins can
       -- find it by id or by role and name.
       for _, node in semantics.nodes(livePanels()) do
@@ -448,6 +423,35 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
             not node.dead,
             details
           )
+        )
+      end
+      return inspection.snapshot(result, nil, { 'kind semantics run under a protected call; visuals do not run' })
+    end,
+    findByRole = function(_self: uiHost.Service, role: uiHost.Role, name: string): uiHost.Node?
+      for _, node in semantics.nodes(livePanels()) do
+        if semantics.role(node) == role and semantics.of(env, node).name == name then
+          return node.handle
+        end
+      end
+      return nil
+    end,
+    inspect = function(_self: uiHost.Service): inspection.Snapshot
+      local result: { inspection.Registration } = {}
+      for _, entry in live do
+        local record = entry.record
+        local count = 0
+        for _ in record.nodes do
+          count += 1
+        end
+        table.insert(
+          result,
+          inspection.registration('panel', 'ui-host.newPanel', record.owner, record.name, not record.dead, {
+            width = record.width,
+            height = record.height,
+            nodes = count,
+            visible = record.visible,
+            presentation = record.presentation,
+          })
         )
       end
       return inspection.snapshot(result, { mode = mode }, { 'kind and visual callbacks are not run' })

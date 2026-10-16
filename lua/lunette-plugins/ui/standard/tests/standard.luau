@@ -453,7 +453,7 @@ test('controls are found by role and name, and inspection reports their semantic
   expect.equal(applied, 1)
   expect.equal(state.service:findByRole('button', 'Missing'), nil)
   local byId: { [string]: any } = {}
-  for _, registration in state.service:inspect().registrations do
+  for _, registration in state.service:inspectNodes().registrations do
     if registration.kind == 'control' then
       byId[registration.name or ''] = registration.details
     end
