@@ -421,27 +421,26 @@ fn length_fixed(
     }
 }
 
+/// A single length for every edge, or a table of edges. An edge the table leaves out is `zero`.
 fn edges<T: Copy>(
     table: &Table,
     field: &str,
     context: &str,
+    zero: T,
     parse: impl Fn(Value, &str, &str) -> mlua::Result<Option<T>>,
 ) -> mlua::Result<Option<Rect<T>>> {
     match table.get::<Value>(field)? {
         Value::Nil => Ok(None),
         Value::Table(sides) => {
             reject_unknown(&sides, context, &["top", "right", "bottom", "left"])?;
-            let side =
-                |name: &str| -> mlua::Result<Option<T>> { parse(sides.get(name)?, field, context) };
-            let required = |name: &str| -> mlua::Result<T> {
-                side(name)?
-                    .ok_or_else(|| error(context, format!("{field}: the {name} edge is missing")))
+            let side = |name: &str| -> mlua::Result<T> {
+                Ok(parse(sides.get(name)?, field, context)?.unwrap_or(zero))
             };
             Ok(Some(Rect {
-                top: required("top")?,
-                right: required("right")?,
-                bottom: required("bottom")?,
-                left: required("left")?,
+                top: side("top")?,
+                right: side("right")?,
+                bottom: side("bottom")?,
+                left: side("left")?,
             }))
         }
         value => Ok(parse(value, field, context)?.map(|all| Rect {
@@ -655,13 +654,31 @@ pub fn style(table: Option<&Table>, context: &str) -> mlua::Result<Style> {
     if let Some(gap) = number(table, "columnGap", context)? {
         style.gap.width = LengthPercentage::length(gap);
     }
-    if let Some(padding) = edges(table, "padding", context, length_fixed)? {
+    if let Some(padding) = edges(
+        table,
+        "padding",
+        context,
+        LengthPercentage::length(0.0),
+        length_fixed,
+    )? {
         style.padding = padding;
     }
-    if let Some(border) = edges(table, "border", context, length_fixed)? {
+    if let Some(border) = edges(
+        table,
+        "border",
+        context,
+        LengthPercentage::length(0.0),
+        length_fixed,
+    )? {
         style.border = border;
     }
-    if let Some(margin) = edges(table, "margin", context, length_auto)? {
+    if let Some(margin) = edges(
+        table,
+        "margin",
+        context,
+        LengthPercentageAuto::length(0.0),
+        length_auto,
+    )? {
         style.margin = margin;
     }
     if let Some(width) = dimension(table, "width", context)? {

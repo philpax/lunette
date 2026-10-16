@@ -17,17 +17,19 @@ const METRES_PER_UNIT: f32 = 0.001;
 /// The fonts text is shaped with.
 pub struct Fonts {
     system: FontSystem,
+    /// The files given so far, so a file given again, as on a source reload, adds no faces.
+    files: Vec<Arc<Vec<u8>>>,
 }
 
 impl Fonts {
     /// Fonts from the given font files only. Measurements depend on nothing but these files, so
     /// tests get the same results on every machine.
     pub fn bundled(files: impl IntoIterator<Item = Vec<u8>>) -> Self {
-        let mut db = fontdb::Database::new();
+        let mut fonts = Self::from_database(fontdb::Database::new());
         for data in files {
-            db.load_font_source(fontdb::Source::Binary(Arc::new(data)));
+            fonts.add(data);
         }
-        Self::from_database(db)
+        fonts
     }
 
     /// The given font files and the system's fonts. Enumerating system fonts takes far longer
@@ -35,10 +37,11 @@ impl Fonts {
     pub fn with_system(files: impl IntoIterator<Item = Vec<u8>>) -> Self {
         let mut db = fontdb::Database::new();
         db.load_system_fonts();
+        let mut fonts = Self::from_database(db);
         for data in files {
-            db.load_font_source(fontdb::Source::Binary(Arc::new(data)));
+            fonts.add(data);
         }
-        Self::from_database(db)
+        fonts
     }
 
     fn from_database(db: fontdb::Database) -> Self {
@@ -48,14 +51,26 @@ impl Fonts {
                 db,
                 PlatformFallback,
             ),
+            files: Vec::new(),
         }
     }
 
-    /// Adds the faces in one font file, answering how many it held. A file that is not a font
-    /// holds none.
+    /// Adds the faces in one font file, answering how many it added. A file that is not a font
+    /// holds none, and a file with the same bytes as one given before adds none.
     pub fn add(&mut self, data: Vec<u8>) -> usize {
+        if self
+            .files
+            .iter()
+            .any(|file| file.as_slice() == data.as_slice())
+        {
+            return 0;
+        }
+        let data = Arc::new(data);
+        self.files.push(data.clone());
         let before = self.system.db().len();
-        self.system.db_mut().load_font_data(data);
+        self.system
+            .db_mut()
+            .load_font_source(fontdb::Source::Binary(data));
         self.system.db().len() - before
     }
 

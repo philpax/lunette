@@ -213,3 +213,60 @@ fn a_context_is_valid_only_during_its_call() {
         "{error}"
     );
 }
+
+#[test]
+fn edges_left_out_of_a_table_are_zero() {
+    let lua = layout_lua();
+    run(
+        &lua,
+        r"
+        local tree = lunette.newLayoutTree()
+        tree:apply {
+          { op = 'create', id = 1, kind = 'box', style = { padding = { left = 0.01 }, margin = { top = 0.002 } } },
+          { op = 'create', id = 2, kind = 'leaf', leaf = { kind = 'fixed', width = 0.01, height = 0.01 } },
+          { op = 'children', id = 1, children = { 2 } },
+        }
+        local flat = tree:compute(1)
+        local placed = {}
+        for index = 1, #flat, 7 do
+          placed[flat[index]] = { u = flat[index + 1], v = flat[index + 2], height = flat[index + 4] }
+        end
+        assert(math.abs(placed[2].u - 0.01) < 1e-6, 'the left edge applies')
+        assert(math.abs(placed[1].height - 0.01) < 1e-6, 'the top and bottom padding are zero')
+        ",
+    );
+}
+
+#[test]
+fn an_absolute_child_is_placed_against_its_nearest_positioned_ancestor() {
+    let lua = layout_lua();
+    run(
+        &lua,
+        r"
+        local tree = lunette.newLayoutTree()
+        tree:apply {
+          { op = 'create', id = 1, kind = 'box', style = { flexDirection = 'column', padding = 0.01, width = 0.2, height = 0.2 } },
+          { op = 'create', id = 2, kind = 'box', style = { flexDirection = 'column' } },
+          { op = 'create', id = 3, kind = 'leaf', leaf = { kind = 'fixed', width = 0.05, height = 0.03 } },
+          { op = 'create', id = 4, kind = 'box', style = { position = 'absolute', top = '100%', left = 0, right = 0, height = 0.02 } },
+          { op = 'children', id = 2, children = { 3, 4 } },
+          { op = 'children', id = 1, children = { 2 } },
+        }
+        -- Computing reports only the placements that changed, so they accumulate here.
+        local placed = {}
+        local function placements()
+          local flat = tree:compute(1)
+          for index = 1, #flat, 7 do
+            placed[flat[index]] = { v = flat[index + 2], width = flat[index + 3] }
+          end
+          return placed
+        end
+        placements()
+        assert(math.abs(placed[4].v - 0.21) < 1e-6, 'a static parent passes the menu to the root: ' .. placed[4].v)
+        tree:apply { { op = 'style', id = 2, style = { flexDirection = 'column', position = 'relative' } } }
+        placements()
+        assert(math.abs(placed[4].v - (0.01 + 0.03)) < 1e-6, 'the menu sits below its positioned parent: ' .. placed[4].v)
+        assert(math.abs(placed[4].width - 0.18) < 1e-6, 'the menu spans its positioned parent')
+        ",
+    );
+}

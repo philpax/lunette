@@ -32,6 +32,16 @@ fn bundled_fonts_contain_only_the_given_faces() {
 }
 
 #[test]
+fn a_file_given_again_adds_no_faces() {
+    let mut fonts = fonts();
+    let data =
+        include_bytes!("../../../../lua/lunette-plugins/theme/arcade/fonts/SpaceMono-Regular.ttf")
+            .to_vec();
+    assert_eq!(fonts.add(data), 0);
+    assert_eq!(fonts.add(b"not a font".to_vec()), 0);
+}
+
+#[test]
 fn empty_text_keeps_one_line() {
     let mut fonts = fonts();
     let mut block = TextBlock::new(&mut fonts, "", style()).expect("valid style");
