@@ -369,6 +369,8 @@ export type PanelOptions = {
   read size: ('fixed' | 'content')?,
   read pose: Mat4?,
   read grabbable: boolean?,
+  -- A panel created hidden shows when setVisible is called.
+  read visible: boolean?,
   -- 'world' stays where it is put; 'follow' lazily follows the head, as toasts do; 'dialog' floats in front of its
   -- parent panel, or in front of the head without one, and is modal.
   read presentation: ('world' | 'follow' | 'dialog' | 'attach')?,
@@ -392,6 +394,8 @@ export type Panel = {
   read size: (Panel) -> (number, number),
   read setVisible: (Panel, boolean) -> (),
   read setCurve: (Panel, number) -> (),
+  -- Sets a fixed panel's size, or a content-sized panel's maximum, in metres.
+  read setSize: (Panel, number?, number?) -> (),
   -- Sets the gap above an attached panel's target.
   read setGap: (Panel, number) -> (),
   read destroy: (Panel) -> (),

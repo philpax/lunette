@@ -93,8 +93,9 @@ function values.register(service: uiHost.Service, owner: any): { [string]: uiHos
       elseif kind == 'release' then
         node:emit('onFinish', snap(node.props, valueAt(node, (event :: any).x)))
       elseif kind == 'scroll' then
-        local step = node.props.step or ((node.props.max or 1) - (node.props.min or 0)) / 20
-        local value = math.clamp(node.props.value + (event :: any).dx * step, node.props.min or 0, node.props.max or 1)
+        -- Scroll arrives in logical pixels; a thousand of them sweep the whole range.
+        local low, high = node.props.min or 0, node.props.max or 1
+        local value = math.clamp(node.props.value + (event :: any).dx * (high - low) / 1000, low, high)
         node:emit('onFinish', value)
       elseif kind == 'cancel' then
         node:emit 'onCancel'

@@ -391,6 +391,7 @@ function choices.register(service: uiHost.Service, owner: any): { [string]: uiHo
       value = optional(schema.string()),
       onChange = optional(schema.callback(function(_value: string) end)),
       alignSelf = optional(shapes.align),
+      label = optional(schema.string()),
     },
     role = 'radiogroup',
     semantics = function(props: uiHost.Props, state: { read [string]: any }): uiHost.Semantics
@@ -421,7 +422,16 @@ function choices.register(service: uiHost.Service, owner: any): { [string]: uiHo
           }),
         })
       end
-      return { element('lunette/segment-track', { key = 'track', alignSelf = props.alignSelf, segments }) }
+      local track = element('lunette/segment-track', { key = 'track', alignSelf = props.alignSelf, segments })
+      if props.label == nil then
+        return track
+      end
+      return element('lunette/column', {
+        key = 'labelled',
+        gap = 'xs',
+        element('lunette/text', { key = 'label', text = props.label, style = 'caption', color = 'muted' }),
+        track,
+      })
     end,
   })
 

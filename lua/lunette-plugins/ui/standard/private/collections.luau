@@ -105,10 +105,11 @@ function collections.register(service: uiHost.Service, owner: any): { [string]: 
       trailingColor = optional(shapes.color),
       selected = optional(schema.boolean()),
       onActivate = optional(shapes.activate),
+      disabledReason = optional(schema.string()),
     },
     role = 'listitem',
     semantics = function(props: uiHost.Props, state: { read [string]: any }): uiHost.Semantics
-      return { name = props.title, selected = props.selected == true }
+      return { name = props.title, selected = props.selected == true, disabled = props.disabledReason ~= nil }
     end,
     expand = function(
       props: uiHost.Props,
@@ -121,7 +122,8 @@ function collections.register(service: uiHost.Service, owner: any): { [string]: 
         element('lunette/row-face', {
           key = 'face',
           selected = selected,
-          onActivate = if props.onActivate
+          -- A disabled row takes no activation and shows why in place of its detail.
+          onActivate = if props.onActivate and props.disabledReason == nil
             then function()
               act.emit 'onActivate'
             end
@@ -137,10 +139,10 @@ function collections.register(service: uiHost.Service, owner: any): { [string]: 
               color = if selected then 'accentInk' else 'ink',
               maxLines = 1,
             }),
-            if props.detail
+            if props.detail or props.disabledReason
               then element('lunette/text', {
                 key = 'detail',
-                text = props.detail,
+                text = props.disabledReason or props.detail,
                 style = 'caption',
                 color = if selected then 'accentInk' else 'muted',
                 maxLines = 1,
@@ -195,6 +197,7 @@ function collections.register(service: uiHost.Service, owner: any): { [string]: 
           title = item.title,
           detail = item.detail,
           trailing = item.trailing,
+          disabledReason = item.disabledReason,
           selected = item.id == props.value,
           onActivate = function()
             act.emit('onChange', item.id)

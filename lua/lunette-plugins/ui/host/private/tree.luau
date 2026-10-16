@@ -385,6 +385,10 @@ removeNode = function(panel: records.Panel, env: Environment, node: records.Node
   if node.overlay then
     env.unportal(node)
   end
+  -- A removed node gives up its panel's focus, so its props are not kept alive and the keyboard does not stay up.
+  if panel.focused == node then
+    env.blurNode(node)
+  end
   for _, child in node.children do
     removeNode(panel, env, child)
   end

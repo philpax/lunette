@@ -468,4 +468,33 @@ test('controls are found by role and name, and inspection reports their semantic
   state.fixture:close()
 end)
 
+test('a tap on a slider track moves the value to the tap', function()
+  local state = boot()
+  local c = assert(state.components)
+  local committed: number? = nil
+  fixture.show(
+    state,
+    c.Panel {
+      c.Body {
+        key = 'body',
+        c.Slider {
+          key = 'level',
+          label = 'Level',
+          value = 0.1,
+          onCommit = function(value: number)
+            committed = value
+          end,
+        },
+      },
+    }
+  )
+  local track = assert(state.panel:find 'body/level/track')
+  local bounds = track:panelBounds()
+  local geometry = fixture.geometry(state)
+  state.fixture:click(geometry, bounds.x + bounds.width * 0.8, bounds.y + bounds.height / 2)
+  assert(committed, 'the tap committed a value')
+  expect.truthy(committed > 0.7 and committed < 0.9, `the value follows the tap: {committed}`)
+  state.fixture:close()
+end)
+
 return test

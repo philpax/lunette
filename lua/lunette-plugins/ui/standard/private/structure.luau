@@ -10,6 +10,8 @@ local optional = schema.optional
 
 local structure = {}
 
+local SCROLL_METRES = 0.001
+
 local element = uiHost.element
 
 -- The header band is square at the bottom and follows the panel's rounded corners at the top: a rounded box with a
@@ -36,6 +38,8 @@ function structure.register(service: uiHost.Service, owner: any): { [string]: ui
           grow = 1,
           width = style.width,
           height = style.height,
+          minWidth = style.minWidth,
+          maxWidth = style.maxWidth,
           gap = style.gap,
           padding = style.padding,
         }
@@ -67,6 +71,9 @@ function structure.register(service: uiHost.Service, owner: any): { [string]: ui
           gap = tokens.space(theme, props.gap, theme.spacing.md),
           padding = tokens.space(theme, props.padding, theme.spacing.lg),
           grow = style.grow,
+          -- A body can shrink below its content, so a scroll box inside it scrolls rather than growing the panel.
+          shrink = 1,
+          minHeight = 0,
         }
       end,
     },
@@ -293,6 +300,8 @@ function structure.registerScrollBox(service: uiHost.Service, owner: any): uiHos
           height = props.height,
           maxHeight = props.maxHeight,
           grow = props.grow,
+          shrink = 1,
+          minHeight = 0,
           overflow = 'scroll',
           padding = { right = theme.sizes.scrollbar * 3 },
         }
@@ -307,8 +316,10 @@ function structure.registerScrollBox(service: uiHost.Service, owner: any): uiHos
     visuals = { 'lunette/scroll-box' },
     event = function(node: uiHost.Node, event: uiHost.Event, base: (uiHost.Node, uiHost.Event) -> ())
       if event.kind == 'scroll' then
-        local step = (event :: any).dy * 0.02
-        node:setState { scrollY = clamp(node, node.state.scrollY - step) }
+        -- The interaction service reports scroll in logical pixels, positive downward, as the previous toolkit read
+        -- it; a pixel moves the content a millimetre.
+        local step = (event :: any).dy * SCROLL_METRES
+        node:setState { scrollY = clamp(node, node.state.scrollY + step) }
       elseif event.kind == 'drag' then
         node:setState { scrollY = clamp(node, node.state.scrollY - (event :: any).dy) }
       elseif event.kind ~= 'hover-enter' and event.kind ~= 'hover-leave' then

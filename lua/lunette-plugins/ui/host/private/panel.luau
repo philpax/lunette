@@ -1,6 +1,7 @@
 -- A panel: a native layout tree, a root mount point, a surface for pointing, and the commit that brings the three
 -- together each frame.
 
+local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local uiHost = require '@lunette-contracts/ui-host'
 local vocabulary = require '@lunette-contracts/vocabulary'
@@ -49,6 +50,7 @@ function panel.new(
     `ui: '{tostring(presentation)}' is not a presentation`
   )
   record.presentation = presentation
+  record.visible = options.visible ~= false
   local curve = options.curve or 0
   assert(type(curve) == 'number' and curve >= 0 and curve < 10, 'ui: a curve is from 0 to 10 per metre')
   record.curve = curve
@@ -116,6 +118,19 @@ function panel.new(
     size = function(_self: uiHost.Panel): (number, number)
       return record.width, record.height
     end,
+    setSize = function(_self: uiHost.Panel, width: number?, height: number?): ()
+      positive(width, 'width')
+      positive(height, 'height')
+      if record.sizing == 'fixed' then
+        record.width, record.height = width or record.width, height or record.height
+      else
+        record.maxWidth, record.maxHeight = width, height
+        -- The host root's maximum is part of its style, so it is restyled at the next commit.
+        record.rootSize = nil
+        local change: lunette.LayoutChange = { op = 'style', id = layout.ROOT, style = layout.rootStyle(record) }
+        table.insert(record.changes, change)
+      end
+    end,
     setCurve = function(_self: uiHost.Panel, curve: number): ()
       assert(type(curve) == 'number' and curve >= 0 and curve < 10, 'ui: a curve is from 0 to 10 per metre')
       record.curve = curve
@@ -126,6 +141,10 @@ function panel.new(
     end,
     setVisible = function(_self: uiHost.Panel, visible: boolean): ()
       record.visible = visible == true
+      -- A hidden panel gives up its focus, so the keyboard does not stay up for a field nobody can see.
+      if not record.visible and record.focused then
+        env.blurNode(record.focused)
+      end
       record.sync()
     end,
     destroy = function(_self: uiHost.Panel): ()

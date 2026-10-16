@@ -80,6 +80,7 @@ props.listItem = schema.object {
   title = schema.optional(schema.string()),
   detail = schema.optional(schema.string()),
   trailing = schema.optional(schema.string()),
+  disabledReason = schema.optional(schema.string()),
 }
 
 props.column = schema.object {

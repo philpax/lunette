@@ -10,7 +10,7 @@ local vrUi = require '@testing/vr-ui'
 local uiPanels = {}
 
 -- The thumbstick deflection that reveal scrolls with.
-local SCROLL = 0.3
+local SCROLL = 0.6
 
 export type Recorder = {
   -- The replacement for the host's definition, under the entry id `ui-host`.
