@@ -177,6 +177,30 @@ pub const INSTALL_ARTIFACTS: &[InstallArtifact] = &[
         destination: "lua/lunette-plugins/theme/arcade/fonts/OFL.txt",
     },
     InstallArtifact {
+        source: "lua/lunette-plugins/ui/standard/fonts/IBMPlexSans-Regular.ttf",
+        destination: "lua/lunette-plugins/ui/standard/fonts/IBMPlexSans-Regular.ttf",
+    },
+    InstallArtifact {
+        source: "lua/lunette-plugins/ui/standard/fonts/IBMPlexSans-Medium.ttf",
+        destination: "lua/lunette-plugins/ui/standard/fonts/IBMPlexSans-Medium.ttf",
+    },
+    InstallArtifact {
+        source: "lua/lunette-plugins/ui/standard/fonts/IBMPlexSans-SemiBold.ttf",
+        destination: "lua/lunette-plugins/ui/standard/fonts/IBMPlexSans-SemiBold.ttf",
+    },
+    InstallArtifact {
+        source: "lua/lunette-plugins/ui/standard/fonts/Iosevka-Regular.ttf",
+        destination: "lua/lunette-plugins/ui/standard/fonts/Iosevka-Regular.ttf",
+    },
+    InstallArtifact {
+        source: "lua/lunette-plugins/ui/standard/fonts/OFL-IBMPlex.txt",
+        destination: "lua/lunette-plugins/ui/standard/fonts/OFL-IBMPlex.txt",
+    },
+    InstallArtifact {
+        source: "lua/lunette-plugins/ui/standard/fonts/OFL-Iosevka.md",
+        destination: "lua/lunette-plugins/ui/standard/fonts/OFL-Iosevka.md",
+    },
+    InstallArtifact {
         source: "vendor/lovr/deps/openvr/LICENSE",
         destination: "licenses/OpenVR.txt",
     },

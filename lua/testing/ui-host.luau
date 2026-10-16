@@ -1,6 +1,7 @@
 -- Boots the UI host with pointing through the fake XR boundary and a test consumer that owns one panel.
 local adapter = require '@lunette-plugin/adapter'
 local uiHost = require '@lunette-contracts/ui-host'
+local uiComponents = require '@lunette-contracts/ui-components'
 local vrUi = require '@testing/vr-ui'
 
 local fixture = {}
@@ -10,6 +11,8 @@ export type State = {
   service: uiHost.Service,
   owner: adapter.Context,
   panel: uiHost.Panel,
+  -- The standard kinds' constructors, when the standard kinds were loaded.
+  components: uiComponents.Service?,
   -- The element the panel's root mount point submits on its next render.
   element: uiHost.Element?,
 }
@@ -19,6 +22,8 @@ export type Options = {
   height: number?,
   size: ('fixed' | 'content')?,
   setup: ((uiHost.Service, adapter.Context) -> ())?,
+  -- Loads the standard kinds, whose bundled fonts the fake filesystem reads from the repository.
+  standard: boolean?,
 }
 
 function fixture.boot(options: Options?): State
@@ -39,13 +44,22 @@ function fixture.boot(options: Options?): State
     { id = 'ui-host', definition = require('@lunette-plugins/ui/host').definition },
   }
   local state: State = { fixture = running } :: any
-  running.session:use(
+  local session = assert(running.session)
+  local requires: { any } = { uiHost.capability }
+  if options.standard then
+    session:use(require('@lunette-plugins/ui/standard').definition, {})
+    table.insert(requires, uiComponents.capability)
+  end
+  session:use(
     adapter.define {
       name = 'testing/ui-host-consumer',
-      requires = { uiHost.capability },
+      requires = requires,
       init = function(context: adapter.Context)
         state.owner = context
         state.service = context:require(uiHost.capability)
+        if options.standard then
+          state.components = context:require(uiComponents.capability)
+        end
         if options.setup then
           options.setup(state.service, context)
         end

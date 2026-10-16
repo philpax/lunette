@@ -937,7 +937,12 @@ installLovr = function(events: Events)
     end,
   }
   lovr.filesystem = {
-    read = function(): string?
+    -- Alias paths name files in the mounted module roots, as LÖVR's filesystem serves them; any other path is the
+    -- save file.
+    read = function(path: string?): string?
+      if type(path) == 'string' and string.sub(path, 1, 1) == '@' then
+        return host.readFile(path)
+      end
       events.reads += 1
       return events.saved
     end,
