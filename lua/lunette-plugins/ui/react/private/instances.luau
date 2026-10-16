@@ -36,6 +36,8 @@ export type Instance = {
   -- The host elements the instance resolved to.
   output: { uiHost.Element },
   children: { [string]: Instance },
+  -- Stable functions that forward to the latest function props, by prop name.
+  forwards: { [string]: (...any) -> ...any },
   contexts: { [number]: any },
   dirty: boolean,
   stale: boolean,
@@ -78,6 +80,7 @@ function instances.new(
     rendered = nil,
     output = {},
     children = {},
+    forwards = {},
     contexts = {},
     dirty = true,
     stale = true,
@@ -145,24 +148,65 @@ function instances.unmount(instance: Instance): ()
   end
 end
 
+-- The props a render sees. A function prop is a stable function that calls the latest prop, so a child that is not
+-- rendered again, because its props compared equal, still calls its parent's newest callback.
+local function view(instance: Instance): { [string]: any }
+  local given: { [string]: any } = {}
+  for name, value in instance.props do
+    if type(value) == 'function' then
+      local forward = instance.forwards[name]
+      if not forward then
+        forward = function(...: any): ...any
+          local latest = instance.props[name]
+          if type(latest) == 'function' then
+            return (latest :: (...any) -> ...any)(...)
+          end
+          return nil
+        end
+        instance.forwards[name] = forward
+      end
+      given[name] = forward
+    else
+      given[name] = value
+    end
+  end
+  return given
+end
+
 local function render(instance: Instance): ()
   local root = instance.root
   local previousRendering, previousIndex = root.rendering, root.hookIndex
   root.rendering, root.hookIndex = instance, 0
   local hookCount = #instance.hooks
-  local saved = table.clone(instance.hooks)
-  for index, hook in saved do
+  -- Hook tables are restored in place on failure: setters and queued effects hold the tables themselves.
+  local saved: { Hook } = {}
+  for index, hook in instance.hooks do
     saved[index] = table.clone(hook)
   end
-  local ok, result = pcall(instance.definition.render, instance.props)
+  local effectCount = #root.effects
+  local ok, result = pcall(instance.definition.render, view(instance))
   local used = root.hookIndex
   root.rendering, root.hookIndex = previousRendering, previousIndex
   if ok and instance.rendered ~= nil and used ~= hookCount then
     ok, result = false, `{instance.definition.name} called {used} hooks, but {hookCount} on its previous render`
   end
   if not ok then
-    -- A failed render keeps the previous successful render's hooks and output.
-    instance.hooks = saved
+    -- A failed render keeps the previous successful render's hook values and output, and its effects do not run.
+    for index = #instance.hooks, 1, -1 do
+      local hook = instance.hooks[index]
+      local before = saved[index]
+      if before then
+        table.clear(hook)
+        for name, value in before do
+          hook[name] = value
+        end
+      else
+        instance.hooks[index] = nil
+      end
+    end
+    for index = #root.effects, effectCount + 1, -1 do
+      root.effects[index] = nil
+    end
     root.report(`ui: {instance.definition.name} render`, function(): ()
       error(result, 0)
     end)
@@ -256,9 +300,9 @@ local function resolveNode(
     if existing then
       child = existing
       if not shallowEqual(child.props, component.props) then
-        child.props = component.props
         child.dirty = true
       end
+      child.props = component.props
     else
       child = instances.new(owner.root, component.component, component.props, owner, component.key)
       owner.children[childPath] = child
