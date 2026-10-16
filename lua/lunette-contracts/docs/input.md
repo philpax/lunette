@@ -36,7 +36,7 @@ A pointer's captures move to another surface only through `transfer`, which deli
 
 ## Frame dispatch
 
-Update phases run `input`, `scene`, `pointing`, and `overlay`; drawing adds `feedback` last. Pointing therefore uses current scene poses, and feedback draws after UI. Within a phase, ascending order precedes registration order. Key and text dispatch runs `binding` before `delivery`; true consumes the event. Quit handlers cannot veto quit.
+Update phases run `input`, `scene`, `pointing`, and `overlay`; drawing adds `feedback` last. Pointing therefore uses current scene poses, and feedback draws after UI. Within a phase, ascending order precedes registration order. Key and text dispatch runs `binding` before `delivery`; true consumes the event. Mouse movement, button, and wheel events reach mouse handlers in registration order and cannot be consumed. Quit handlers cannot veto quit.
 
 Each handler and surface offer has a protected call. Raising key or text handlers consume nothing; invalid or raising offers contribute no surfaces. The [frame provider](../../lunette-plugins/session/frame/README.md) owns callback installation.
 

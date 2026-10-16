@@ -114,6 +114,48 @@ test('a binding consumes a key or text before delivery, and handlers end with th
   env.session:close()
 end)
 
+test('mouse handlers receive movement, buttons, and wheel in registration order and end with their owner', function()
+  local env = start()
+  local trace: { string } = {}
+  local mice = consumer(env, 'frame-mouse', function(context: plugin.Context, service: frameContract.Service)
+    service:onMouse(context, {
+      run = function(event: frameContract.HostMouseEvent)
+        if event.kind == 'move' then
+          trace[#trace + 1] = `move:{event.x},{event.y},{event.dx},{event.dy}`
+        elseif event.kind == 'press' or event.kind == 'release' then
+          trace[#trace + 1] = `{event.kind}:{event.button}`
+          if event.button == 2 then
+            error 'mouse failure'
+          end
+        else
+          trace[#trace + 1] = `wheel:{event.dx},{event.dy}`
+        end
+      end,
+    })
+    service:onMouse(context, {
+      run = function(event: frameContract.HostMouseEvent)
+        trace[#trace + 1] = 'second:' .. event.kind
+        expect.truthy(table.isfrozen(event), 'the event is frozen')
+      end,
+    })
+  end)
+  lovr.mousemoved(10, 20, 3, -4)
+  lovr.mousepressed(10, 20, 2)
+  lovr.mousereleased(10, 20, 1)
+  lovr.wheelmoved(0, 1)
+  expect.equal(
+    table.concat(trace, ' '),
+    'move:10,20,3,-4 second:move press:2 second:press release:1 second:release wheel:0,1 second:wheel',
+    'a raising handler does not stop the next'
+  )
+  expect.equal(#env.native.events.reported, 1, 'the raising handler is reported')
+  mice:disable()
+  table.clear(trace)
+  lovr.mousemoved(0, 0, 1, 1)
+  expect.equal(#trace, 0, 'mouse handlers end with their owner')
+  env.session:close()
+end)
+
 test('batch observers run first, and a consumed binding key or blockText blocks text until the next update', function()
   local env = start()
   local trace: { string } = {}

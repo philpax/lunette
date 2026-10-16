@@ -17,6 +17,7 @@ type Dispatcher = {
   draw: (Pass) -> (),
   key: (KeyCode, number, boolean, translation.LovrModifiers?) -> (),
   text: (string, number) -> (),
+  mouse: (contract.HostMouseEvent) -> (),
   quit: () -> (),
 }
 
@@ -55,6 +56,14 @@ local DRAW: Spec = {
 }
 local INPUT: Spec = {
   phases = { ranks = INPUT_RANKS, names = table.concat(contract.INPUT_PHASES, ', '), default = 'binding' },
+}
+
+-- Each mouse event is reported under the name of the LÖVR callback that delivered it.
+local MOUSE_LABELS: { [string]: string } = {
+  move = 'lovr.mousemoved',
+  press = 'lovr.mousepressed',
+  release = 'lovr.mousereleased',
+  wheel = 'lovr.wheelmoved',
 }
 
 local PHASED_KEYS: { string } = { 'phase', 'order', 'run' }
@@ -117,6 +126,7 @@ local function create(context: plugin.Context): (contract.Service, Dispatcher)
   local draws: { Entry<(Pass) -> ()> } = {}
   local keys: { Entry<(contract.HostKeyEvent) -> boolean?> } = {}
   local texts: { Entry<(contract.HostTextEvent) -> boolean?> } = {}
+  local mice: { Entry<(contract.HostMouseEvent) -> ()> } = {}
   local quits: { Entry<() -> ()> } = {}
 
   local function register<T>(
@@ -246,6 +256,13 @@ local function create(context: plugin.Context): (contract.Service, Dispatcher)
         return run(event)
       end)
     end,
+    mouse = function(event: contract.HostMouseEvent): ()
+      local frozen = table.freeze(event)
+      dispatch(MOUSE_LABELS[event.kind], mice, function(run: (contract.HostMouseEvent) -> ()): boolean?
+        run(frozen)
+        return nil
+      end)
+    end,
     quit = function(): ()
       dispatch('lovr.quit', quits, function(run: () -> ()): boolean?
         run()
@@ -280,6 +297,7 @@ local function create(context: plugin.Context): (contract.Service, Dispatcher)
       describe(result, 'frame.onDraw', draws, contract.DRAW_PHASES)
       describe(result, 'frame.onKey', keys, contract.INPUT_PHASES)
       describe(result, 'frame.onText', texts, contract.INPUT_PHASES)
+      describe(result, 'frame.onMouse', mice, {}, 'mouse')
       describe(result, 'frame.onQuit', quits, {})
       return inspection.snapshot(result, { active = context:active() })
     end,
@@ -312,6 +330,10 @@ local function create(context: plugin.Context): (contract.Service, Dispatcher)
     onText = function(_self: contract.Service, owner: contract.Owner, handler: contract.TextHandler): plugin.Effect
       local rank, order = validate('onText', handler, INPUT)
       return (register(texts, owner, rank, order, handler.run))
+    end,
+    onMouse = function(_self: contract.Service, owner: contract.Owner, handler: contract.MouseHandler): plugin.Effect
+      local rank, order = validate('onMouse', handler, UNPHASED)
+      return (register(mice, owner, rank, order, handler.run))
     end,
     onQuit = function(_self: contract.Service, owner: contract.Owner, handler: contract.QuitHandler): plugin.Effect
       local rank, order = validate('onQuit', handler, UNPHASED)
@@ -390,6 +412,34 @@ function frame.install(hooks: Hooks): ()
     local current = bound
     if current then
       current.text(text, code)
+    end
+  end
+
+  function lovr.mousemoved(x: number, y: number, dx: number, dy: number)
+    local current = bound
+    if current then
+      current.mouse { kind = 'move', x = x, y = y, dx = dx, dy = dy }
+    end
+  end
+
+  function lovr.mousepressed(x: number, y: number, button: number)
+    local current = bound
+    if current then
+      current.mouse { kind = 'press', x = x, y = y, button = button }
+    end
+  end
+
+  function lovr.mousereleased(x: number, y: number, button: number)
+    local current = bound
+    if current then
+      current.mouse { kind = 'release', x = x, y = y, button = button }
+    end
+  end
+
+  function lovr.wheelmoved(dx: number, dy: number)
+    local current = bound
+    if current then
+      current.mouse { kind = 'wheel', dx = dx, dy = dy }
     end
   end
 
