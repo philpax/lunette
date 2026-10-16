@@ -13,8 +13,9 @@ local values = {}
 
 local element = uiHost.element
 
--- A value within this fraction of the range from a detent snaps to it, while dragging and on release.
-local SNAP = 0.04
+-- A detent attracts values within this fraction of the range of it, and rounds those within the core to itself.
+local ATTRACTION = 0.05
+local CORE = 0.0125
 -- The handle's width as a fraction of the theme's thumb size: a narrow upright key.
 local HANDLE_WIDTH = 0.57
 
@@ -40,11 +41,25 @@ local function valueAt(node: uiHost.Node, x: number): number
   return math.clamp(value, low, high)
 end
 
-local function snap(props: uiHost.Props, value: number): number
+-- Draws a value towards a detent near it. Within the core the value rounds to the detent; across the rest of the
+-- attraction it eases away, slowly near the detent and at the pointer's own rate at the edge, so the mapping is
+-- continuous and increasing and every value around a detent stays reachable.
+local function attract(props: uiHost.Props, value: number): number
   local range = (props.max or 1) - (props.min or 0)
+  local reach, core = range * ATTRACTION, range * CORE
   for _, detent in props.detents or {} do
-    if math.abs(detent.value - value) <= range * SNAP then
+    local offset = value - detent.value
+    local distance = math.abs(offset)
+    if distance <= core then
       return detent.value
+    elseif distance < reach then
+      -- A cubic that leaves the core flat and meets the edge at the pointer's rate: h(1) = 1 and h'(1) is the band's
+      -- share of the reach, so the slope against the pointer is 1 there.
+      local t = (distance - core) / (reach - core)
+      local share = (reach - core) / reach
+      local a = 3 - share
+      local eased = a * t * t + (1 - a) * t * t * t
+      return detent.value + math.sign(offset) * reach * eased
     end
   end
   return value
@@ -116,10 +131,10 @@ function values.register(service: uiHost.Service, owner: any): { [string]: uiHos
     event = function(node: uiHost.Node, event: uiHost.Event, base: (uiHost.Node, uiHost.Event) -> ())
       local kind = event.kind
       if kind == 'press' or kind == 'drag' then
-        -- A detent holds the value while the pointer is near it, and the value moves freely between detents.
-        node:emit('onPreview', snap(node.props, valueAt(node, (event :: any).x)))
+        -- A detent draws the value towards it while the pointer is near, and the value moves freely between detents.
+        node:emit('onPreview', attract(node.props, valueAt(node, (event :: any).x)))
       elseif kind == 'release' then
-        node:emit('onFinish', snap(node.props, valueAt(node, (event :: any).x)))
+        node:emit('onFinish', attract(node.props, valueAt(node, (event :: any).x)))
       elseif kind == 'scroll' then
         -- Scroll arrives in logical pixels; a thousand of them sweep the whole range.
         local low, high = node.props.min or 0, node.props.max or 1

@@ -720,6 +720,37 @@ test('a tap on a slider track moves the value to the tap', function()
   state.fixture:close()
 end)
 
+test('a slider can settle just beside a detent, drawn towards it but not onto it', function()
+  local state = boot()
+  local c = assert(state.components)
+  local changes, commits = {}, {}
+  fixture.show(
+    state,
+    c.Panel {
+      c.Body {
+        key = 'body',
+        c.Slider {
+          key = 'response',
+          label = 'Response',
+          value = 0,
+          detents = { { value = 0, label = 'None' }, { value = 0.5, label = 'Medium' }, { value = 1, label = 'Full' } },
+          onChange = function(value: number)
+            table.insert(changes, value)
+          end,
+          onCommit = function(value: number)
+            table.insert(commits, value)
+          end,
+        },
+      },
+    }
+  )
+  drag(state, 'body/response/track', { 0.3, 0.5 }, { 0.54, 0.5 })
+  local released = commits[1]
+  expect.truthy(released > 0.5 and released < 0.54, `the value is drawn towards Medium but stays beside it: {released}`)
+  expect.equal(changes[#changes - 1], released, 'the release keeps the value shown while dragging')
+  state.fixture:close()
+end)
+
 test('a scroll box scrolls by its thumb, its track, and its content', function()
   local state = boot()
   local c = assert(state.components)
