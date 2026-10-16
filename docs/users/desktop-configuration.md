@@ -56,3 +56,5 @@ Default appearance renders every toolkit panel with the standard controls and th
 ## Pointer and panel appearance
 
 The [laser provider](../../lua/lunette-plugins/input/laser/README.md) configures pointer behavior. The [panels provider](../../lua/lunette-plugins/panels/service/README.md) configures window rendering. Their schemas define the options.
+
+While the lunette desktop window has mouse input, the mouse aims a ray from the head through a cursor in the scene, and its buttons and wheel click and scroll whatever the cursor is over. The cursor appears after the mouse first moves and turns with the head. The `desktop/mouse-pointer` settings set the sensitivity, the cone the cursor stays within, the wheel's scroll and push scales, and the cursor's size, distance, and colours; the [mouse pointer's options](../../lua/lunette-plugins/input/mouse-pointer/config.luau) define them. The mouse is not captured from the host, so it reaches the scene only through the desktop window.

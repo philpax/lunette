@@ -87,6 +87,7 @@ test('desktop_backdrop_composition_and_settings', function()
     'desktop/hint',
     'desktop/decorations',
     'desktop/pointing',
+    'desktop/mouse-pointer',
     'desktop/input',
     'desktop/keyboard',
     'desktop/menu',

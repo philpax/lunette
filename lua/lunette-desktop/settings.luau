@@ -20,6 +20,7 @@ local audioAnalysis = require '@lunette-plugins/audio/analysis/config'
 local desktopBackdrop = require '@lunette-plugins/environment/backdrop/config'
 local desktopHint = require '@lunette-plugins/environment/empty-desktop-hint/config'
 local desktopDecorations = require '@lunette-plugins/panels/decorations/config'
+local desktopMousePointer = require '@lunette-plugins/input/mouse-pointer/config'
 local desktopKeyboard = require '@lunette-plugins/input/keyboard-display/config'
 local desktopMenu = require '@lunette-plugins/menu/wrist-menu/config'
 local desktopErrors = require '@lunette-plugins/diagnostics/error-display/config'
@@ -54,6 +55,7 @@ local shape: {
   read ['desktop/backdrop']: schema.Schema<desktopBackdrop.Config?, desktopBackdrop.Settings?>,
   read ['desktop/hint']: schema.Schema<desktopHint.Config?, desktopHint.Settings?>,
   read ['desktop/decorations']: schema.Schema<desktopDecorations.Config?, desktopDecorations.Settings?>,
+  read ['desktop/mouse-pointer']: schema.Schema<desktopMousePointer.Config?, desktopMousePointer.Settings?>,
   read ['desktop/keyboard']: schema.Schema<desktopKeyboard.Config?, desktopKeyboard.Settings?>,
   read ['desktop/menu']: schema.Schema<desktopMenu.Config?, desktopMenu.Settings?>,
   read ['desktop/errors']: schema.Schema<desktopErrors.Config?, desktopErrors.Settings?>,
@@ -87,6 +89,9 @@ local shape: {
     ['desktop/hint'] = optional<<desktopHint.Config, desktopHint.Settings>>(desktopHint.schema),
     ['desktop/decorations'] = optional<<desktopDecorations.Config, desktopDecorations.Settings>>(
       desktopDecorations.schema
+    ),
+    ['desktop/mouse-pointer'] = optional<<desktopMousePointer.Config, desktopMousePointer.Settings>>(
+      desktopMousePointer.schema
     ),
     ['desktop/keyboard'] = optional<<desktopKeyboard.Config, desktopKeyboard.Settings>>(desktopKeyboard.schema),
     ['desktop/menu'] = optional<<desktopMenu.Config, desktopMenu.Settings>>(desktopMenu.schema),

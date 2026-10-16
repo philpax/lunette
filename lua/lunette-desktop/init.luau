@@ -38,6 +38,7 @@ local monitors = require '@lunette-plugins/panels/monitors'
 local hint = require '@lunette-plugins/environment/empty-desktop-hint'
 local decorations = require '@lunette-plugins/panels/decorations'
 local pointing = require '@lunette-plugins/input/hand-pointers'
+local mousePointer = require '@lunette-plugins/input/mouse-pointer'
 local input = require '@lunette-plugins/input/physical-routing'
 local keyboardDisplay = require '@lunette-plugins/input/keyboard-display'
 local wristMenu = require '@lunette-plugins/menu/wrist-menu'
@@ -102,6 +103,7 @@ local DEFAULT: { plugin.Entry } = plugin.compose {
   { id = 'desktop/hint', definition = hint.definition },
   { id = 'desktop/decorations', definition = decorations.definition },
   { id = 'desktop/pointing', definition = pointing.definition },
+  { id = 'desktop/mouse-pointer', definition = mousePointer.definition },
   { id = 'desktop/input', definition = input.definition },
   { id = 'desktop/keyboard', definition = keyboardDisplay.definition },
   { id = 'desktop/menu', definition = wristMenu.definition },
