@@ -15,6 +15,7 @@ local TEXT_PAIRS: { { string } } = {
   { 'headerMuted', 'header' },
   { 'sectionInk', 'section' },
   { 'accentInk', 'accent' },
+  { 'accentText', 'surface' },
 }
 
 local function contrastOf(resolved: uiHost.Theme, foreground: string, background: string): number
@@ -45,6 +46,8 @@ test('any accent is guarded to 3:1 against the surface and gets readable ink', f
       local resolved = theme.resolve(mode, accent)
       local surface = contrastOf(resolved, 'accent', 'surface')
       expect.truthy(surface >= 3, `{mode}: the accent reaches {string.format('%.2f', surface)}:1 against the surface`)
+      local text = contrastOf(resolved, 'accentText', 'surface')
+      expect.truthy(text >= 4.5, `{mode}: accent text reaches {string.format('%.2f', text)}:1 on the surface`)
       local ink = contrastOf(resolved, 'accentInk', 'accent')
       expect.truthy(ink >= 4.5, `{mode}: ink on the accent reaches {string.format('%.2f', ink)}:1`)
     end

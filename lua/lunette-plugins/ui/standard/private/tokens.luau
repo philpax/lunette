@@ -26,6 +26,10 @@ function tokens.ink(theme: uiHost.Theme, value: any, fallback: uiHost.Color?): u
   if type(value) == 'table' then
     return value
   end
+  -- Accent text takes the accent guarded for text, so it stays readable on the surface in both modes.
+  if value == 'accent' then
+    return theme.colors.accentText
+  end
   local found = (theme.colors :: any)[value]
   assert(type(found) == 'table', `ui: '{tostring(value)}' is not a colour role`)
   return found

@@ -86,11 +86,11 @@ local WHITE = table.freeze { 1, 1, 1, 1 }
 local BLACK = table.freeze { 0, 0, 0, 1 }
 
 -- Moves the accent away from the surface's lightness until it reaches the contrast guard.
-function theme.guardAccent(accent: uiHost.Color, surface: uiHost.Color): uiHost.Color
+function theme.guardAccent(accent: uiHost.Color, surface: uiHost.Color, required: number?): uiHost.Color
   local target = if theme.luminance(surface) < 0.18 then WHITE else BLACK
   local guarded = accent
   for step = 1, 20 do
-    if theme.contrast(guarded, surface) >= ACCENT_CONTRAST then
+    if theme.contrast(guarded, surface) >= (required or ACCENT_CONTRAST) then
       break
     end
     guarded = theme.mix(accent, target, step / 20)
@@ -184,6 +184,7 @@ function theme.resolve(mode: Mode, accent: uiHost.Color): uiHost.Theme
     sectionInk = named 'sectionInk',
     accent = guarded,
     accentInk = theme.inkOn(guarded, sunken, raised),
+    accentText = theme.guardAccent(guarded, surface, INK_CONTRAST),
     danger = named 'danger',
     success = named 'success',
     warning = named 'warning',

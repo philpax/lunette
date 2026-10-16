@@ -60,6 +60,8 @@ export type Colors = {
   read sectionInk: Color,
   read accent: Color,
   read accentInk: Color,
+  -- The accent for text on the surface, guarded to the contrast text needs rather than that of marks.
+  read accentText: Color,
   read danger: Color,
   read success: Color,
   read warning: Color,
