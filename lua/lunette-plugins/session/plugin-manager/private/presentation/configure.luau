@@ -3,6 +3,8 @@
 local ui = require '@lunette-plugins/ui/react'
 local uiHost = require '@lunette-contracts/ui-host'
 local uiComponents = require '@lunette-contracts/ui-components'
+local composition = require '@lunette-contracts/composition'
+local pluginManager = require '@lunette-contracts/plugin-manager'
 local controller = require '../composition/controller'
 local editor = require '../composition/editor'
 local model = require './model'
@@ -146,10 +148,27 @@ local function valueEditor(c: uiComponents.Service, m: model.Model): ui.Child
   return nil
 end
 
+-- The metres a plugin's settings page may take below the options before it is clipped.
+local SETTINGS_HEIGHT = 0.2
+
+-- The settings pages that plugins contribute for the selected entry, in the manager's attributed outlet.
+local function settingsPages(c: uiComponents.Service, entry: composition.Entry?): ui.Child
+  local id = if entry then entry.id else ''
+  local name = if entry then entry.name else ''
+  local props = ui.useMemo(function(): pluginManager.SettingsProps
+    return { entry = id, name = name }
+  end, { id, name })
+  if not entry then
+    return nil
+  end
+  return c.Outlet { key = 'settings', outlet = pluginManager.settings, props = props, maxHeight = SETTINGS_HEIGHT }
+end
+
 configure.Configure = ui.component('PluginConfigure', function(): ui.Child
   local c = ui.useComponents()
   local m = model.use()
   local state = m.state
+  local pages = settingsPages(c, controller.selected(state))
   local items = {}
   for _, row in state.editorRows do
     items[#items + 1] = {
@@ -195,6 +214,7 @@ configure.Configure = ui.component('PluginConfigure', function(): ui.Child
       },
     },
     valueEditor(c, m),
+    pages,
   }
 end)
 

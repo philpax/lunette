@@ -4,7 +4,9 @@ local uiHost = require '@lunette-contracts/ui-host'
 local uiComponents = require '@lunette-contracts/ui-components'
 local notifications = require '@lunette-contracts/notifications'
 local ui = require '@lunette-plugins/ui/react'
+local pluginManager = require '@lunette-contracts/plugin-manager'
 local pages = require '@self/pages'
+local settings = require '@self/settings'
 
 return plugin.consumer<<{}, {}>> {
   name = 'dev/ui-gallery',
@@ -29,5 +31,7 @@ return plugin.consumer<<{}, {}>> {
       },
       { components = components, owner = context }
     )
+    -- The plugin manager shows the gallery's settings page when it selects the gallery.
+    ui.contribute(context, pluginManager.settings, settings.page(host), { components = components })
   end,
 }

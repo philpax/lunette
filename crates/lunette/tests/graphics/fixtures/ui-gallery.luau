@@ -10,6 +10,9 @@ local host = require '@testing/host'
 -- The gallery's pages live in the development configuration, which bare module names resolve against.
 host.useConfiguration 'dev'
 local pages = (require :: any) 'plugins/ui-gallery/pages'
+local settings = (require :: any) 'plugins/ui-gallery/settings'
+local pluginManager = require '@lunette-contracts/plugin-manager'
+local adapter = require '@lunette-plugin/adapter'
 local test = testing.suite()
 
 for _, mode in { 'dark', 'light' } do
@@ -61,6 +64,49 @@ test('a gallery page renders bent on a curved panel', function()
     'gallery-curved-angled',
     render.render(scene, 900, 800, vector.pack(0.35, 0.12, 0.5), vector.pack(0, 0, 0))
   )
+  scene.fixture:close()
+end)
+
+test('the gallery settings page renders in an attributed outlet frame', function()
+  -- The contribution comes from a plugin named as the gallery, so the frame names it.
+  local gallery = adapter.define {
+    name = 'dev/ui-gallery',
+    requires = { uiHost.capability, uiComponents.capability },
+    init = function(context: adapter.Context)
+      local host = context:require(uiHost.capability)
+      ui.contribute(context, pluginManager.settings, settings.page(host), {
+        components = context:require(uiComponents.capability),
+      })
+    end,
+  }
+  local scene = render.boot(
+    { require('@lunette-plugins/ui/standard').definition, gallery },
+    { uiComponents.capability },
+    function(context: any)
+      local host = context:require(uiHost.capability)
+      local c = context:require(uiComponents.capability)
+      local panel =
+        host:newPanel(context, { name = 'settings', width = 0.36, height = 0.2, pose = lovr.math.newMat4() })
+      panel.root:bind {
+        render = function()
+          panel.root:submit(c.Panel {
+            c.Body {
+              key = 'body',
+              c.Text { key = 'title', text = 'Configure', style = 'section' },
+              c.Outlet {
+                key = 'settings',
+                outlet = pluginManager.settings,
+                props = { entry = 'dev/ui-gallery', name = 'dev/ui-gallery' },
+                maxHeight = 0.12,
+              },
+            },
+          })
+        end,
+      }
+    end
+  )
+  scene.fixture:step()
+  render.snapshot('outlet-attributed', render.render(scene, 640, 360, vector.pack(0, 0, 0.42), vector.pack(0, 0, 0)))
   scene.fixture:close()
 end)
 

@@ -28,6 +28,12 @@ Text fields accept single-line UTF-8 and edit whole grapheme clusters. A value s
 
 `lunette/notifications` posts toasts that fade on a follow panel and keeps a history. `lunette/accessibility` holds the text scale, high contrast, reduced motion, and haptics settings, which the host applies to every panel. Menu actions keep opening and closing a panel reachable through VR controls; the [broker contract](../../lua/lunette-contracts/policy-services.md#brokers) defines their lifetime.
 
+## Outlets
+
+An outlet is a named, typed point in another plugin's panel where a plugin contributes its own interface. A contract module declares it with `uiHost.outlet`, giving a name, a version, a props schema, and whether it is attributed; the owner places it with `c.Outlet`. A plugin contributes a component with `ui.contribute(context, outlet, component, { components = components })`, and the component receives the placement's props. The [host contract](../../lua/lunette-contracts/ui-host.luau) states the version, ordering, and attribution rules. The plugin manager's settings outlet, in [`@lunette-contracts/plugin-manager`](../../lua/lunette-contracts/plugin-manager.luau), shows a plugin's settings page in its Configure tab; the [widget gallery](../../dev/plugins/ui-gallery/settings.luau) contributes one.
+
+Each placement renders the component separately, with its own state and effects. A component that shows content only for some props still calls its hooks on every render, so it returns nil after them rather than before. A contribution ends with its owner, and its errors are reported against it.
+
 ## Ownership and replacement
 
 Panels, kinds, and visuals end when their owner or the host unloads. Inspection returns geometry and semantics without granting control of another plugin's panels. [Ownership and lifecycle](../../lua/lunette-plugin/ownership.md) defines caller-owned acquisition and service revocation.

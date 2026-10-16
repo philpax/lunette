@@ -10,7 +10,7 @@ Graph shows ownership and bound-provider relationships. Pointing at a plugin or 
 
 ## Configuration and recovery
 
-Configure edits a draft from the selected entry's schema. Apply validates the whole draft; rejection keeps the draft and its error without disturbing the live entry. Callback and custom values remain read-only. Reset restores a schema default.
+Configure edits a draft from the selected entry's schema. Apply validates the whole draft; rejection keeps the draft and its error without disturbing the live entry. Callback and custom values remain read-only. Reset restores a schema default. Below the options, Configure shows any settings page the selected plugin contributes, in a frame that names the plugin.
 
 Applying a valid draft restarts the entry. Replacement is not transactional: if activation fails, the old activation has already ended. Recover retries the last configuration that was active. Reload retries the current configuration. Disable withdraws an entry, and Enable starts it again. Disable, Reload, and Remove first ask for confirmation in a dialog that lists the plugins the action also unloads. Catalog can load a removed entry with its retained definition and configuration.
 
