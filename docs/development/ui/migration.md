@@ -101,7 +101,7 @@ Native additions:
 - Native read and offer of the compositor's selection for the clipboard service's Wayland backend. The same compositor-originated data source is the open question for bridging drag sessions to Wayland drags.
 - A request to restart the session into the compiled-in safe mode.
 - A link directive for `libmsdfgen` in `crates/lunette-lovr/build.rs`. The library is already installed with LÖVR.
-- resvg for SVG rasterisation, and a Markdown parser such as pulldown-cmark for the Markdown composite. Both are new dependencies, pinned exactly.
+- resvg for SVG rasterisation, a new dependency pinned exactly. The Markdown composite parses in Lua, so it needs no native parser.
 - The IBM Plex Sans and Iosevka fonts, bundled with their licences and recorded in CREDITS.md.
 
 The theme contract grows to carry the default theme in [Theming](theming.md#the-default-theme): surface roles including sides and header bands, the accent with its guard, elevation, and motion. The standard Dark and Light themes become the lunette theme's two modes, and Arcade stays a separate theme on the new contract.

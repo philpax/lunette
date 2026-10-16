@@ -141,7 +141,7 @@ A text node has a style from the typography scale: a role such as body, caption,
 
 A span can carry a link target. A text node publishes its link spans as items whose shape is the set of rectangles that `tree:textLayout` returns for the span's line fragments, so links are hovered, pressed, focused through traversal, and addressed in tests like any other item. Activating a link calls the node's `onLink` with the span's target.
 
-The standard `Markdown` composite renders Markdown into text nodes, lists, code blocks, and links. A native parser produces a flat description of the document's blocks and spans, and the composite turns it into elements. The plugin manager shows plugin READMEs through it.
+The standard `Markdown` composite renders Markdown into text nodes, lists, code blocks, and links. A Lua parser in the standard kinds produces a tree of the document's blocks and spans, and the composite turns it into elements. It covers CommonMark's common blocks and inline spans and GitHub tables; its module comment lists what it leaves as literal text. The plugin manager shows plugin READMEs through it.
 
 ### Glyph rendering
 
