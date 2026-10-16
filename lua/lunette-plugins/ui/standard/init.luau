@@ -11,6 +11,7 @@ local values = require '@self/private/values'
 local collections = require '@self/private/collections'
 local overlays = require '@self/private/overlays'
 local fields = require '@self/private/fields'
+local markdown = require '@self/private/markdown'
 
 local FONTS: { uiHost.FontRegistration } = {
   { family = 'IBM Plex Sans', weight = 400, file = '@lunette-plugins/ui/standard/fonts/IBMPlexSans-Regular.ttf' },
@@ -25,7 +26,7 @@ local function build(context: plugin.Context): uiComponents.Service
     host:registerFont(context, font)
   end
   local constructors: { [string]: uiHost.Constructor } = {}
-  for _, family in { display, structure, actions, choices, values, collections, overlays, fields } do
+  for _, family in { display, structure, actions, choices, values, collections, overlays, fields, markdown } do
     for name, constructor in family.register(host, context) do
       assert(constructors[name] == nil, `ui standard: {name} is registered twice`)
       constructors[name] = constructor

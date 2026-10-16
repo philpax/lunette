@@ -39,6 +39,8 @@ export type Service = {
   read Text: Constructor,
   read Progress: Constructor,
   read Image: Constructor,
+  -- Markdown: source, and onLink, which receives a link's target.
+  read Markdown: Constructor,
   -- Actions.
   read Button: Constructor,
   read Chip: Constructor,

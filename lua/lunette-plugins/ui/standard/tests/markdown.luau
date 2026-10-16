@@ -1,4 +1,5 @@
 local testing = require '@testing'
+local fixture = require '@testing/ui-host'
 local parse = require '../private/markdown/parse'
 local expect = testing.expect
 local test = testing.suite()
@@ -320,6 +321,94 @@ test('parsing arbitrary bytes does not raise and keeps every letter', function()
     local _, found = string.gsub(text, '[ab]', '')
     expect.equal(found, wanted, `the letters of {string.format('%q', source)}`)
   end
+end)
+
+-- Kinds.
+
+local function boot(): fixture.State
+  return fixture.boot { standard = true, width = 0.4, height = 0.4 }
+end
+
+local SOURCE = table.concat({
+  '# Title',
+  '',
+  'Read [the docs](https://example.org/docs) for **more**.',
+  '',
+  '- first',
+  '- second',
+  '',
+  '```lua',
+  'local x = 1',
+  '```',
+  '',
+  '> quoted',
+  '',
+  '---',
+  '',
+  '| Key | Value |',
+  '|-----|------:|',
+  '| a   | 1     |',
+}, '\n')
+
+local function show(state: fixture.State, onLink: ((string) -> ())?): ()
+  local c = assert(state.components)
+  fixture.show(state, c.Panel { c.Body { key = 'body', c.Markdown { key = 'doc', source = SOURCE, onLink = onLink } } })
+end
+
+test('a Markdown view expands into the standard kinds', function()
+  local state = boot()
+  show(state)
+  local function find(path: string): any
+    return assert(state.panel:find(`body/doc/{path}`), `no node at {path}`)
+  end
+  expect.equal(find('1').kind, 'lunette/text')
+  expect.equal(find('1').props.style, 'title')
+  expect.equal(find('2').kind, 'lunette/markdown-flow')
+  expect.equal(find('2/2').props.color, 'accent', 'a link word')
+  expect.equal(find('2/5/1').props.style, 'label', 'the strong piece of a word')
+  expect.equal(find('2/5/2').props.text, '.', 'the plain piece of the same word')
+  expect.equal(find('3/1/marker').props.text, '•')
+  expect.equal(find('3/2/content/1').props.text, 'second')
+  expect.equal(find('4').kind, 'lunette/markdown-code')
+  expect.equal(find('4/text').props.text, 'local x = 1')
+  expect.equal(find('5').kind, 'lunette/markdown-quote')
+  expect.equal(find('5/1').props.color, 'muted')
+  expect.equal(find('6').kind, 'lunette/separator')
+  expect.equal(find('7/header/1/content').props.text, 'Key')
+  expect.equal(find('7/rows/1/2/content').props.align, 'end')
+  state.fixture:close()
+end)
+
+test('activating a link calls onLink with its target', function()
+  local state = boot()
+  local targets: { string } = {}
+  show(state, function(target: string)
+    table.insert(targets, target)
+  end)
+  fixture.click(state, 'body/doc/2/3')
+  expect.equal(#targets, 1)
+  expect.equal(targets[1], 'https://example.org/docs')
+  state.fixture:close()
+end)
+
+test('a code span is one node however many words it holds', function()
+  local state = boot()
+  local c = assert(state.components)
+  fixture.show(state, c.Panel { c.Body { key = 'body', c.Markdown { key = 'doc', source = 'Run `make check` now' } } })
+  local span = assert(state.panel:find 'body/doc/1/2')
+  expect.equal(span.props.text, 'make check')
+  expect.equal(span.props.style, 'mono')
+  expect.equal(assert(state.panel:find 'body/doc/1/3').props.text, 'now')
+  state.fixture:close()
+end)
+
+test('re-rendering the same source keeps every node', function()
+  local state = boot()
+  show(state)
+  local before = assert(state.panel:find 'body/doc/2/2').id
+  show(state)
+  expect.equal(assert(state.panel:find 'body/doc/2/2').id, before)
+  state.fixture:close()
 end)
 
 return test
