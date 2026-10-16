@@ -325,7 +325,6 @@ function controller.graphCancel(state: State): ()
   view.cancel(state.view)
 end
 
--- Zooms about the canvas centre, because scroll input carries no position.
 -- Zooms about a point in the canvas, or about its centre when no point is given.
 function controller.graphZoom(state: State, factor: number, point: graph.Point?): ()
   if factor > 0 and factor < math.huge then

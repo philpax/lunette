@@ -513,7 +513,10 @@ pages.Gallery = ui.component('Gallery', function(props: Props): ui.Child
     local Page = PAGE_COMPONENTS[entry.id]
     tabs[#tabs + 1] = c.ScrollBox { key = entry.id, grow = 1, Page {} }
   end
-  local look, setLook = ui.useState(props.host:defaultAppearance())
+  -- The host owns default appearance, which the chord also switches, so the gallery reads it on every render and
+  -- keeps only a counter that renders again after the button changes it.
+  local look = props.host:defaultAppearance()
+  local flips, setFlips = ui.useState(0)
   return ui.provide(
     Services,
     props :: Props?,
@@ -529,7 +532,7 @@ pages.Gallery = ui.component('Gallery', function(props: Props): ui.Child
           variant = if look then 'selected' else 'band',
           onActivate = function()
             props.host:setDefaultAppearance(not look)
-            setLook(not look)
+            setFlips(flips + 1)
           end,
         },
       },

@@ -168,7 +168,8 @@ function renderer.acquire(report: (string) -> ()): (Resources, () -> ())
 end
 
 -- Answers a function that finds a glyph's placement in the atlas, remembering each answer, so a glyph crosses into
--- the native atlas once.
+-- the native atlas once. A glyph the atlas could not generate is remembered as drawing nothing for as long as the
+-- resources live, rather than tried and reported again every frame.
 function renderer.glyphs(resources: Resources): pack.Glyphs
   local placements = resources.placements
   local atlas = resources.atlas

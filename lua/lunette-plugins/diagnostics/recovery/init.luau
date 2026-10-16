@@ -229,7 +229,13 @@ local function init(context: plugin.Context, settings: Settings): ()
       state = result.state
       reason = result.reason
       if result.markGood then
-        compositionService:markGood()
+        -- A mark refused while the runtime drains is tried again on a later frame of the same healthy stretch.
+        local marked = pcall(compositionService.markGood, compositionService)
+        if not marked then
+          local retry = table.clone(state) :: any
+          retry.marked = false
+          state = table.freeze(retry)
+        end
       end
       if result.visible then
         panel:show(content())
