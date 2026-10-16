@@ -46,7 +46,17 @@ end
 
 -- Advances one panel's presentation by a frame.
 function presentation.place(record: records.Panel, head: Head?, dt: number, theme: uiHost.Theme): ()
-  if record.presentation == 'dialog' then
+  if record.presentation == 'attach' then
+    local target = record.target
+    if not target or target.dead or not target.pose then
+      record.visible = false
+      record.sync()
+      return
+    end
+    record.width = target.width or record.width
+    local above = (target.height or 0) / 2 + record.gap + record.height / 2
+    record.pose:set(target.pose):translate(0, above, theme.elevation.contentOffset)
+  elseif record.presentation == 'dialog' then
     local parent = record.parent
     if parent and not parent.dead then
       record.pose:set(parent.pose):translate(0, 0, theme.elevation.dialog)

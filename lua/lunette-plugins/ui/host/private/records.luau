@@ -3,6 +3,7 @@
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local uiHost = require '@lunette-contracts/ui-host'
+local vocabulary = require '@lunette-contracts/vocabulary'
 
 export type Kind = {
   name: string,
@@ -143,7 +144,12 @@ export type Panel = {
   -- The panel's focused node, and its registration with the session's keyboard focus.
   focused: Node?,
   session: any?,
-  presentation: 'world' | 'follow' | 'dialog',
+  presentation: 'world' | 'follow' | 'dialog' | 'attach',
+  -- The surface an attached panel sits above, and the gap between them.
+  target: vocabulary.Surface?,
+  gap: number,
+  -- The fixed size last given to the native host root, to restyle it when the size changes.
+  rootSize: { number }?,
   -- A dialog's parent panel, and what it blocks.
   parent: Panel?,
   modality: ('panel' | 'session')?,

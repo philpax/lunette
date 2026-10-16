@@ -336,6 +336,15 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
     nextPanel = function(_self: uiHost.Service): boolean
       return traversal.nextPanel(traverse)
     end,
+    find = function(_self: uiHost.Service, id: string): uiHost.Node?
+      for _, entry in live do
+        local name = entry.record.name
+        if string.sub(id, 1, #name + 1) == name .. ':' then
+          return panels.find(entry.record, string.sub(id, #name + 2))
+        end
+      end
+      return nil
+    end,
     inspect = function(_self: uiHost.Service): inspection.Snapshot
       local result: { inspection.Registration } = {}
       for _, entry in live do

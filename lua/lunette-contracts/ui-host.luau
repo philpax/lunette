@@ -5,6 +5,7 @@
 local plugin = require '@lunette-plugin'
 local lunette = require '@lunette'
 local inspection = require '@lunette-contracts/inspection'
+local vocabulary = require '@lunette-contracts/vocabulary'
 
 local uiHost = {}
 
@@ -320,7 +321,11 @@ export type PanelOptions = {
   read grabbable: boolean?,
   -- 'world' stays where it is put; 'follow' lazily follows the head, as toasts do; 'dialog' floats in front of its
   -- parent panel, or in front of the head without one, and is modal.
-  read presentation: ('world' | 'follow' | 'dialog')?,
+  read presentation: ('world' | 'follow' | 'dialog' | 'attach')?,
+  -- An attached panel sits above the top edge of a surface, such as a window panel, takes its width, and moves it
+  -- when grabbed; `gap` is metres between the two.
+  read target: vocabulary.Surface?,
+  read gap: number?,
   read parent: Panel?,
   -- A dialog blocks presses on its parent panel, or on every other toolkit panel when it is session-modal.
   read modality: ('panel' | 'session')?,
@@ -334,6 +339,8 @@ export type Panel = {
   read setPose: (Panel, Mat4) -> (),
   read size: (Panel) -> (number, number),
   read setVisible: (Panel, boolean) -> (),
+  -- Sets the gap above an attached panel's target.
+  read setGap: (Panel, number) -> (),
   read destroy: (Panel) -> (),
   -- The live node with this key path, such as 'controls/enabled', for tests and inspection.
   read find: (Panel, string) -> Node?,
@@ -361,6 +368,9 @@ export type Service = {
   read dismiss: (Service) -> boolean,
   read nextPanel: (Service) -> boolean,
   read inspect: (Service) -> inspection.Snapshot,
+  -- The live node with an id of a panel's name and a key path, such as 'Widget gallery:pages/display', for tests and
+  -- inspection.
+  read find: (Service, string) -> Node?,
 }
 
 export type Capability = plugin.Capability<Service>

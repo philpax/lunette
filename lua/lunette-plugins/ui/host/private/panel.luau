@@ -45,11 +45,20 @@ function panel.new(
   local record = panel.record(options.name, owner, sizing, options.width, options.height, options.pose)
   local presentation = options.presentation or 'world'
   assert(
-    presentation == 'world' or presentation == 'follow' or presentation == 'dialog',
+    presentation == 'world' or presentation == 'follow' or presentation == 'dialog' or presentation == 'attach',
     `ui: '{tostring(presentation)}' is not a presentation`
   )
   record.presentation = presentation
-  record.grabbable = presentation == 'world' and options.grabbable ~= false
+  record.grabbable = (presentation == 'world' or presentation == 'attach') and options.grabbable ~= false
+  if presentation == 'attach' then
+    local target = options.target
+    assert(target ~= nil and target.width and target.height, 'ui: an attached panel names a target surface')
+    assert(options.height, 'ui: an attached panel has a height')
+    record.target = target
+    record.gap = options.gap or 0
+    record.sizing = 'fixed'
+    record.width = target.width or 0
+  end
   if presentation == 'dialog' then
     local modality = options.modality or 'panel'
     assert(modality == 'panel' or modality == 'session', `ui: '{tostring(modality)}' is not a modality`)
@@ -99,6 +108,10 @@ function panel.new(
     end,
     size = function(_self: uiHost.Panel): (number, number)
       return record.width, record.height
+    end,
+    setGap = function(_self: uiHost.Panel, gap: number): ()
+      assert(type(gap) == 'number' and gap >= 0 and gap < math.huge, 'ui: a gap is a non-negative length')
+      record.gap = gap
     end,
     setVisible = function(_self: uiHost.Panel, visible: boolean): ()
       record.visible = visible == true
@@ -158,14 +171,28 @@ function panel.surface(provider: Provider, record: records.Panel, setPose: ((Mat
         pixelHeight = record.height,
       }, origin, direction)
     end,
-    onPointer = function(_self: vocabulary.Surface, event: vocabulary.PointerEvent): ()
-      if not record.dead then
-        input.pointer(provider.router, record, env, event)
+    onPointer = function(self: vocabulary.Surface, event: vocabulary.PointerEvent): ()
+      if record.dead then
+        return
       end
+      -- The trigger grabs an attached panel's target from empty space, and presses nodes elsewhere, so a titlebar
+      -- moves its window and still takes clicks on its buttons. The interaction service reads the field when the
+      -- press arrives, after the moves that led to it.
+      if record.target and event.x and event.y then
+        (self :: any).triggerGrabbable = input.target(record, env, event.x, event.y) == nil
+      end
+      input.pointer(provider.router, record, env, event)
     end,
     setPose = if setPose
       then function(_self: vocabulary.Surface, pose: Mat4): ()
         setPose(pose)
+      end
+      else nil,
+    -- Grabbing an attached panel grabs the surface it is attached to.
+    grabTarget = if record.target
+      then function(_self: vocabulary.Surface): vocabulary.Surface?
+        local target = record.target
+        return if target and not target.dead then target else nil
       end
       else nil,
   }
@@ -212,6 +239,9 @@ function panel.record(
     focused = nil,
     session = nil,
     presentation = 'world',
+    target = nil,
+    gap = 0,
+    rootSize = nil,
     parent = nil,
     modality = nil,
     followTarget = nil,

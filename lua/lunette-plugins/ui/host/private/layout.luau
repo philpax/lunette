@@ -62,6 +62,15 @@ function layout.commit(panel: records.Panel, env: records.Environment): boolean
     changes[#changes + 1] = change
     panel.rootChild = if root then root.id else nil
   end
+  -- A fixed panel whose size changed, such as one attached to a window that was resized, restyles its host root.
+  if panel.sizing == 'fixed' then
+    local size = panel.rootSize
+    if size == nil or size[1] ~= panel.width or size[2] ~= panel.height then
+      panel.rootSize = { panel.width, panel.height }
+      local change: lunette.LayoutChange = { op = 'style', id = layout.ROOT, style = layout.rootStyle(panel) }
+      changes[#changes + 1] = change
+    end
+  end
   if #changes > 0 then
     apply(panel, env, changes)
   end
