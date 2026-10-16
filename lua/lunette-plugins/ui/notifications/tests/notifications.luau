@@ -82,4 +82,43 @@ test('the toast panel takes the size of its toasts', function()
   state.fixture:close()
 end)
 
+test('the accessibility timing lengthens toasts, and each notification is announced', function()
+  local accessibility = require '@lunette-contracts/accessibility'
+  local state = fixture.boot {
+    standard = true,
+    width = 0.2,
+    height = 0.1,
+    plugins = {
+      require('@lunette-plugins/ui/accessibility').definition,
+      require('@lunette-plugins/ui/notifications').define { timeout = 1, visible = 2 },
+    },
+  }
+  local session = assert(state.fixture.session)
+  local observed = session:observe(notifications.capability)
+  local service, owner = assert(observed.service), assert(observed.context)
+  local assist = session:observe(accessibility.capability)
+  local heard: { accessibility.Announcement } = {}
+  assert(assist.service):onAnnouncement(assert(assist.context), {
+    run = function(announcement: accessibility.Announcement)
+      table.insert(heard, announcement)
+    end,
+  })
+  assert(assist.service):update { timing = 2 }
+  service:notify(owner, { title = 'saved', body = 'The layout is saved.' })
+  service:notify(owner, { title = 'failed', level = 'error' })
+  expect.equal(#heard, 2, 'both notifications are announced')
+  expect.equal(heard[1].text, 'saved. The layout is saved.', 'the announcement reads the title and body')
+  expect.equal(heard[1].politeness, 'polite')
+  expect.equal(heard[2].politeness, 'assertive', 'an error interrupts')
+  for _ = 1, 70 do
+    state.fixture:step(0.016)
+  end
+  expect.equal(titles(service), 'saved,failed', 'the doubled timing keeps the toasts past one second')
+  for _ = 1, 70 do
+    state.fixture:step(0.016)
+  end
+  expect.equal(titles(service), '', 'the toasts leave after two seconds')
+  state.fixture:close()
+end)
+
 return test

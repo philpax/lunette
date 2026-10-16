@@ -6,6 +6,7 @@ local uiHost = require '@lunette-contracts/ui-host'
 local uiComponents = require '@lunette-contracts/ui-components'
 local frame = require '@lunette-contracts/frame'
 local notifications = require '@lunette-contracts/notifications'
+local accessibility = require '@lunette-contracts/accessibility'
 local inspection = require '@lunette-contracts/inspection'
 local protected = require '@lunette-plugins/diagnostics/protected-call'
 local ui = require '@lunette-plugins/ui/react'
@@ -72,6 +73,24 @@ local function build(context: plugin.Context, settings: Settings): notifications
   local queue: { Toast } = {}
   local nextId = 1
   local clock = 0
+
+  -- The accessibility service, while one is loaded: its timing lengthens every toast, and each notification is
+  -- announced for assistive plugins. A child consumer keeps a missing provider from disabling notifications.
+  local assist: accessibility.Service? = nil
+  local announcer: plugin.Owner? = nil
+  context:child(plugin.consumer<<{}, {}>>({
+    name = 'notifications/accessibility',
+    requires = { accessibility.capability },
+    init = function(child: plugin.Context, _settings: {}): ()
+      local service = child:require(accessibility.capability)
+      child:effect(function(): () -> ()
+        assist, announcer = service, child
+        return function(): ()
+          assist, announcer = nil, nil
+        end
+      end)
+    end,
+  }).definition)
 
   local function publish(): ()
     visible:set(table.clone(shown))
@@ -161,12 +180,22 @@ local function build(context: plugin.Context, settings: Settings): notifications
       }
       toast = {
         entry = entry,
-        remaining = if timeout > 0 then timeout * settings.timing else nil,
+        remaining = if timeout > 0
+          then timeout * settings.timing * (if assist then assist.settings:get().timing else 1)
+          else nil,
         hovered = false,
         handle = handle :: notifications.Handle,
       }
       table.insert(queue, toast)
       fill()
+      local service, poster = assist, announcer
+      if service and poster then
+        local body = notification.body
+        service:announce(poster, {
+          text = if body then `{notification.title}. {body}` else notification.title,
+          politeness = if notification.level == 'error' then 'assertive' else 'polite',
+        })
+      end
       -- A notification's toast ends with its owner, so its actions never run after the owner has gone.
       context:acquire(owner, function(): () -> ()
         return function(): ()
