@@ -126,7 +126,7 @@ The host keeps a hit index per panel. Commit rebuilds it for changed nodes, and 
 
 ## Clip volumes
 
-A clip is a rounded rectangle in its clipping ancestor's coordinates, extended along the normal by a depth range. A clipping node declares its depth range. The default depth range of a scroll box covers the `raised` elevation plus hover lift and the content offset, so a hovered button in a list keeps its face and its label. The panel's default depth range extends to the `dialog` elevation. Content inside a clip draws and hits only inside the volume. A volume rather than a rectangle allows a recessed well, a model that protrudes a declared distance from a panel, and raised controls inside a scroll box, each with a defined limit.
+A clip is a rounded rectangle in its clipping ancestor's coordinates, extended along the normal by a depth range. A clipping node declares its depth range. The default depth range of a scroll box covers the `raised` elevation plus hover lift and the content offset, so a hovered button in a list keeps its face and its label. The panel's default depth range extends to the `dialog` elevation. Content inside a clip draws and hits only inside the volume. A volume rather than a rectangle allows a model that protrudes a declared distance from a panel and raised controls inside a scroll box, each with a defined limit. Content never sits behind its panel's face, which would hide it, so a clip's depth range starts at the panel surface.
 
 ## Directional focus traversal
 

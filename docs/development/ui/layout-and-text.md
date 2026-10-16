@@ -163,7 +163,7 @@ Multi-channel signed distance fields keep glyphs sharp across the range of dista
 
 ### Fonts
 
-The toolkit ships a default UI family with wide script coverage and a symbol fallback, and an icon font. Icons are glyphs in the same text path, so they wrap, align, scale, and colour with text. System fonts are available through the fallback chain. Licences and attribution are recorded in [CREDITS.md](../../../CREDITS.md) when the fonts are added.
+The toolkit ships IBM Plex Sans as the UI family and Iosevka as the monospace family, both under the SIL Open Font License, with a fallback for scripts and symbols they lack, and an icon font. Icons are glyphs in the same text path, so they wrap, align, scale, and colour with text. System fonts are available through the fallback chain. Licences and attribution are recorded in [CREDITS.md](../../../CREDITS.md) when the fonts are added.
 
 Colour emoji have no distance field representation. A colour font with outlines, such as a COLR font, renders its outlines in a single colour. A bitmap-only colour font, such as a CBDT font, has no outlines, so its glyphs fall through to the next face in the fallback chain, or to the missing-glyph box. A bitmap glyph path is an open question.
 
@@ -182,4 +182,4 @@ Text fields accept paste through the keyboard's paste key, Ctrl-V, and the field
 - Whether the distance field atlas uses one em size for all text, or a small set of sizes for caption and title text.
 - A bitmap glyph path for colour emoji.
 - Hyphenation for long compound words in narrow columns.
-- The default UI family. It needs broad coverage, legible shapes at small angular sizes, and a licence compatible with GPL-3.0-only redistribution.
+- Fallback faces for the scripts that IBM Plex Sans lacks, with legible shapes at small angular sizes and a licence compatible with GPL-3.0-only redistribution.

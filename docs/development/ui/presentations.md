@@ -61,7 +61,7 @@ An overlay is positioned in the manner of Wayland's `xdg_positioner`:
 
 The constraint region is the comfortable field of view and reach for world and summoned panels; the space beside the wrist, away from the hand, for wrist panels; and the parent panel's bounds for overlays that must stay within it, such as a tooltip on a dense panel. With the accessibility handedness setting, overlays prefer the side away from the pointing hand.
 
-An overlay inherits its parent panel's surface shape: the same axis and centre, at the overlay's elevation. Its elevation is relative to the opener node: popovers, menus, and tooltips at the `popover` value above the opener. On a presentation that accepts touch, an overlay opens beside its opener at the `card` value instead, because an overlay raised towards the user would rise into the hover zone of the finger that opened it. Tooltips do not answer hit queries, so they never block what is behind them.
+An overlay inherits its parent panel's surface shape: the same axis and centre, at the overlay's elevation. Its elevation is relative to the opener node: popovers, menus, and tooltips stand one `raised` step above the opener. On a presentation that accepts touch, an overlay opens beside its opener rather than over it, so it does not cover the control under the finger that opened it. Tooltips do not answer hit queries, so they never block what is behind them.
 
 The host offers an overlay's surface to the interaction service in the commit that creates it, so a capture can transfer to it in the same frame.
 

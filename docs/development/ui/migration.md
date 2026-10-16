@@ -102,6 +102,9 @@ Native additions:
 - A request to restart the session into the compiled-in safe mode.
 - A link directive for `libmsdfgen` in `crates/lunette-lovr/build.rs`. The library is already installed with LÖVR.
 - resvg for SVG rasterisation, and a Markdown parser such as pulldown-cmark for the Markdown composite. Both are new dependencies, pinned exactly.
+- The IBM Plex Sans and Iosevka fonts, bundled with their licences and recorded in CREDITS.md.
+
+The theme contract grows to carry the default theme in [Theming](theming.md#the-default-theme): surface roles including sides and header bands, the accent with its guard, elevation, and motion. The standard Dark and Light themes become the lunette theme's two modes, and Arcade stays a separate theme on the new contract.
 - A maximum for panel curvature in the panels service, which today validates only that the curve is not negative.
 - The `getHandPose` declaration's metadata, which must state the zero result for an unavailable pose.
 
