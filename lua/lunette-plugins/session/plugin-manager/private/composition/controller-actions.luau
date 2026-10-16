@@ -1,30 +1,27 @@
--- Builds current manager actions without owning input devices or retaining UI handles.
+-- Builds the current manager actions, each with its enablement and the reason it is disabled, without owning input
+-- devices or UI handles.
 
 local composition = require '@lunette-contracts/composition'
-local graph = require '../inspection/graph'
 local view = require '../inspection/view'
 local editor = require './editor'
-local toolbarLayout = require '../presentation/toolbar-layout'
 local actions = {}
 
+export type Tab = 'inspect' | 'configure' | 'catalog'
 export type Edit = { operation: 'set' | 'add', path: editor.Path }
 export type Action = { read run: () -> (), read editor: boolean }
 export type Button = {
   read id: string,
   read label: string,
-  read bounds: graph.Box,
   read enabled: boolean,
+  read reason: string?,
 }
 export type State = {
   view: view.State,
   service: composition.Service,
-  width: number,
-  height: number,
   presentation: 'entries' | 'graph',
-  tab: 'inspect' | 'configure' | 'catalog',
+  tab: Tab,
   catalog: { read [number]: composition.KnownEntry },
   catalogSelection: string?,
-  scroll: number,
   draft: editor.Model?,
   row: number?,
   edit: Edit?,
@@ -33,6 +30,9 @@ export type State = {
   editorRows: { read [number]: editor.Row },
 }
 export type TextActions = { read confirm: () -> (), read cancel: () -> (), read clear: () -> () }
+
+local NO_ENTRY = 'Select a plugin entry first.'
+local PROTECTED = 'The entry is protected.'
 
 function actions.cancelEdit(state: State): ()
   state.edit, state.text = nil, ''
@@ -47,69 +47,107 @@ function actions.change(state: State, nextModel: editor.Model?, problem: editor.
   end
 end
 
+-- The reason an entry action is unavailable, checked in order, or nil when it is available.
+local function first(...: string | false): string?
+  for index = 1, select('#', ...) do
+    local reason = select(index, ...)
+    if reason then
+      return reason
+    end
+  end
+  return nil
+end
+
 function actions.build(
   state: State,
-  layout: toolbarLayout.Layout,
   entry: composition.Entry?,
   textActions: TextActions
 ): ({ Button }, { [string]: Action })
   local buttons: { Button } = {}
   local bindings: { [string]: Action } = {}
-  local function button(id: string, label: string, enabled: boolean, run: () -> (), editorAction: boolean?): ()
-    local placement = layout.buttons[id]
-    if not placement then
-      return
-    end
-    buttons[#buttons + 1] = { id = id, label = label, bounds = placement.bounds, enabled = enabled }
+  local function button(id: string, label: string, reason: string?, run: () -> (), editorAction: boolean?): ()
+    buttons[#buttons + 1] = { id = id, label = label, enabled = reason == nil, reason = reason }
     bindings[id] = { run = run, editor = editorAction == true }
   end
-  button('entries-view', if state.presentation == 'entries' then 'Entries [shown]' else 'Entries', true, function()
+  button('entries-view', 'Entries', nil, function()
     state.presentation = 'entries'
   end, true)
-  button('graph-view', if state.presentation == 'graph' then 'Graph [shown]' else 'Graph', true, function()
+  button('graph-view', 'Graph', nil, function()
     state.presentation = 'graph'
   end, true)
-  for _, tab in { 'inspect', 'configure', 'catalog' } :: { 'inspect' | 'configure' | 'catalog' } do
-    local enabled = tab ~= 'configure' or (entry ~= nil and entry.schema ~= nil)
-    button(tab, tab:sub(1, 1):upper() .. tab:sub(2), enabled, function()
+  for _, tab in { 'inspect', 'configure', 'catalog' } :: { Tab } do
+    local reason = if tab ~= 'configure'
+      then nil
+      else first(entry == nil and NO_ENTRY, entry ~= nil and entry.schema == nil and 'The entry has no schema.')
+    button(tab, tab:sub(1, 1):upper() .. tab:sub(2), reason, function()
       if state.tab ~= tab then
         actions.cancelEdit(state)
       end
-      state.tab, state.scroll = tab, 0
+      state.tab = tab
     end)
   end
   local id = if entry then entry.id else ''
-  local mutable = entry ~= nil and not entry.protected
-  button('enable', 'Enable', entry ~= nil and not entry.enabled, function()
-    state.service:enable(id)
-  end)
-  button('disable', 'Disable', mutable and entry ~= nil and entry.enabled, function()
-    state.service:disable(id)
-  end)
-  button('reload', 'Reload', mutable, function()
+  local protected = entry ~= nil and entry.protected and PROTECTED
+  button(
+    'enable',
+    'Enable',
+    first(entry == nil and NO_ENTRY, entry ~= nil and entry.enabled and 'The entry is enabled.'),
+    function()
+      state.service:enable(id)
+    end
+  )
+  button(
+    'disable',
+    'Disable',
+    first(entry == nil and NO_ENTRY, protected, entry ~= nil and not entry.enabled and 'The entry is disabled.'),
+    function()
+      state.service:disable(id)
+    end
+  )
+  button('reload', 'Reload', first(entry == nil and NO_ENTRY, protected), function()
     state.service:reload(id)
   end)
-  button('recover', 'Recover', mutable and entry ~= nil and entry.previousConfig ~= nil, function()
-    state.service:recover(id)
-    state.draft = nil
-    actions.cancelEdit(state)
-  end)
-  button('remove', 'Remove', mutable, function()
-    state.service:remove(id)
-  end)
-  button('apply', 'Apply', mutable and entry ~= nil and entry.schema ~= nil and state.draft ~= nil, function()
-    local model = state.draft
-    if model then
-      state.service:configure(id, editor.draft(model))
+  button(
+    'recover',
+    'Recover',
+    first(
+      entry == nil and NO_ENTRY,
+      protected,
+      entry ~= nil and entry.previousConfig == nil and 'No previous configuration is recorded.'
+    ),
+    function()
+      state.service:recover(id)
       state.draft = nil
       actions.cancelEdit(state)
     end
+  )
+  button('remove', 'Remove', first(entry == nil and NO_ENTRY, protected), function()
+    state.service:remove(id)
   end)
+  button(
+    'apply',
+    'Apply',
+    first(
+      entry == nil and NO_ENTRY,
+      protected,
+      entry ~= nil and entry.schema == nil and 'The entry has no schema.',
+      state.draft == nil and 'Open Configure to edit a draft.'
+    ),
+    function()
+      local model = state.draft
+      if model then
+        state.service:configure(id, editor.draft(model))
+        state.draft = nil
+        actions.cancelEdit(state)
+      end
+    end
+  )
   local row = if state.tab == 'configure' and state.row then state.editorRows[state.row] else nil
+  local noRow = row == nil and 'Select an option first.'
   button(
     'optional',
     if row and row.value ~= nil then 'Unset' else 'Set',
-    row ~= nil and row.optional and row.canReset,
+    first(noRow, row ~= nil and not (row.optional and row.canReset) and 'The option is not optional.'),
     function()
       if state.draft and row then
         actions.cancelEdit(state)
@@ -118,90 +156,106 @@ function actions.build(
     end,
     true
   )
-  button('reset', 'Reset', row ~= nil and row.canReset, function()
-    if state.draft and row then
-      actions.cancelEdit(state)
-      actions.change(state, editor.reset(state.draft, row.path))
-    end
-  end, true)
+  button(
+    'reset',
+    'Reset',
+    first(noRow, row ~= nil and not row.canReset and (row.reason or 'The option has no default.')),
+    function()
+      if state.draft and row then
+        actions.cancelEdit(state)
+        actions.change(state, editor.reset(state.draft, row.path))
+      end
+    end,
+    true
+  )
   local loadable = false
   for _, known in state.catalog do
     if known.id == state.catalogSelection and not known.installed then
       loadable = true
     end
   end
-  button('load', 'Load', state.tab == 'catalog' and loadable, function()
+  button('load', 'Load', if loadable then nil else 'Select a removed entry first.', function()
     local selected = state.catalogSelection
     if selected then
       state.service:restore(selected)
     end
   end)
-  button('add', 'Add', row ~= nil and row.canAdd, function()
-    if state.draft and row then
-      actions.cancelEdit(state)
-      if row.control == 'map' then
-        state.edit = { operation = 'add', path = row.path }
-      else
-        actions.change(state, editor.add(state.draft, row.path))
+  button(
+    'add',
+    'Add',
+    first(noRow, row ~= nil and not row.canAdd and 'The option is not a collection that can grow.'),
+    function()
+      if state.draft and row then
+        actions.cancelEdit(state)
+        if row.control == 'map' then
+          state.edit = { operation = 'add', path = row.path }
+        else
+          actions.change(state, editor.add(state.draft, row.path))
+        end
       end
-    end
-  end, true)
-  button('remove-value', 'Remove value', row ~= nil and row.canRemove, function()
-    if state.draft and row then
-      actions.cancelEdit(state)
-      actions.change(state, editor.remove(state.draft, row.path))
-    end
-  end, true)
-  button('transitive', 'Transitive', true, function()
+    end,
+    true
+  )
+  button(
+    'remove-value',
+    'Remove value',
+    first(noRow, row ~= nil and not row.canRemove and 'The option is not a removable collection entry.'),
+    function()
+      if state.draft and row then
+        actions.cancelEdit(state)
+        actions.change(state, editor.remove(state.draft, row.path))
+      end
+    end,
+    true
+  )
+  button('transitive', 'Transitive', nil, function()
     state.view.transitive = not state.view.transitive
   end, true)
-  for _, mode in { 'providers', 'consumers', 'all', 'impact' } do
+  for _, mode in { 'providers', 'consumers', 'all', 'impact' } :: { view.Mode } do
     local actionId = if mode == 'impact' then 'affected' else mode
     local label = if mode == 'impact' then 'Affected' else mode:sub(1, 1):upper() .. mode:sub(2)
-    button(actionId, label, true, function()
-      state.view.mode = mode :: view.Mode
+    button(actionId, label, nil, function()
+      state.view.mode = mode
     end, true)
   end
-  button('zoom-in', 'Zoom in', true, function()
-    view.zoom(state.view, { x = state.view.viewport.x / 2, y = state.view.viewport.y / 2 }, 1.2)
+  local function centre(): { x: number, y: number }
+    return { x = state.view.viewport.x / 2, y = state.view.viewport.y / 2 }
+  end
+  button('zoom-in', 'Zoom in', nil, function()
+    view.zoom(state.view, centre(), 1.2)
   end, true)
-  button('zoom-out', 'Zoom out', true, function()
-    view.zoom(state.view, { x = state.view.viewport.x / 2, y = state.view.viewport.y / 2 }, 1 / 1.2)
+  button('zoom-out', 'Zoom out', nil, function()
+    view.zoom(state.view, centre(), 1 / 1.2)
   end, true)
   local selection = state.view.selection
-  button('focus', 'Focus', selection ~= nil and selection.kind == 'node', function()
-    view.focus(state.view)
-  end, true)
-  button('fit', 'Fit', true, function()
-    view.endSearch(state.view)
-    local bounds = toolbarLayout.compute(
-      state.width,
-      state.height,
-      state.edit ~= nil,
-      false,
-      nil,
-      state.presentation,
-      state.tab
-    ).graphBounds
-    state.view.viewport = { x = bounds.width, y = bounds.height }
+  button(
+    'focus',
+    'Focus',
+    if selection ~= nil and selection.kind == 'node' then nil else 'Select a plugin first.',
+    function()
+      view.focus(state.view)
+    end,
+    true
+  )
+  button('fit', 'Fit', nil, function()
     view.reset(state.view)
   end, true)
-  button('search', 'Search', true, function()
+  button('search', 'Search', nil, function()
     view.search(state.view)
   end, true)
-  button('clear-filter', 'Clear filter', true, function()
+  button('clear-filter', 'Clear filter', nil, function()
     view.setSearch(state.view, '')
     view.endSearch(state.view)
     state.view.mode = 'all'
   end, true)
-  button('clear-selection', 'Clear selection', selection ~= nil, function()
+  button('clear-selection', 'Clear selection', if selection ~= nil then nil else 'Nothing is selected.', function()
     view.select(state.view, nil)
     state.view.mode = 'all'
   end, true)
   if state.edit then
-    button('confirm', 'Confirm', true, textActions.confirm, true)
-    button('cancel', 'Cancel', true, textActions.cancel, true)
-    button('clear', 'Clear', true, textActions.clear, true)
+    button('confirm', 'Confirm', nil, textActions.confirm, true)
+    button('cancel', 'Cancel', nil, textActions.cancel, true)
+    button('clear', 'Clear', nil, textActions.clear, true)
   end
   return buttons, bindings
 end

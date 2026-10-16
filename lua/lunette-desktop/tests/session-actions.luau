@@ -77,7 +77,7 @@ test('wrist menu actions are VR accessible', function()
   expect.equal(reloads, 1, 'a pointer invokes public reload once')
   local beforeManager = #services.surfaces:all()
   invoke 'desktop/manager/open'
-  expect.equal(#services.surfaces:all(), beforeManager + 3, 'Plugins opens the manager and titlebar surfaces')
+  expect.equal(#services.surfaces:all(), beforeManager + 1, 'Plugins opens the manager panel surface')
   wristMenu.close(fixture, panels)
   expect.truthy(panels:node(wristMenu.PANEL, 'open'), 'Close returns the menu to its wrist button')
   local shutdown = testing.host.shutdown()

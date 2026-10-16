@@ -9,7 +9,7 @@ local test = testing.suite()
 
 type Settings = { count: number, callback: () -> () }
 
-local function invoke(state: controller.State, id: string)
+local function invoke(state: controller.State, id: string): ()
   controller.update(state)
   for _, button in state.buttons do
     if button.id == id then
@@ -21,7 +21,7 @@ local function invoke(state: controller.State, id: string)
   error('missing action ' .. id)
 end
 
-local function row(state: controller.State, label: string)
+local function row(state: controller.State, label: string): ()
   controller.update(state)
   for index, current in state.editorRows do
     if current.label == label or current.label == string.format('%q', label) then
@@ -57,8 +57,9 @@ local function fixture(options: management.Options?): (management.Running, contr
     end,
   }).definition
   local running = management.start({ { id = 'editable', definition = definition } }, options)
-  local state = controller.new(running.service, {}, 1280, 800)
+  local state = controller.new(running.service, {})
   invoke(state, 'graph-view')
+  controller.resize(state, 640, 480)
   state.view.selection = { kind = 'node', id = assert(entry(running)).instanceId }
   controller.update(state)
   return running, state, function(): Settings?
@@ -131,24 +132,45 @@ test('protected entries cannot be disabled, reloaded, or removed', function()
   running.runtime:close()
 end)
 
-test('graph input in panel coordinates selects on click and pans on drag', function()
+test('graph input in canvas pixels selects on click and pans on drag', function()
   local running, state = fixture()
   local selected = state.view.selection.id
-  state.view.selection = nil
-  local bounds = state.layout.graphBounds
+  controller.select(state, nil)
   local box = state.view.layout[selected]
-  local center = graph.screen(state.view.camera, { x = box.x + box.width / 2, y = box.y + box.height / 2 })
-  local point = { x = center.x + bounds.x, y = center.y + bounds.y }
+  local point = graph.screen(state.view.camera, { x = box.x + box.width / 2, y = box.y + box.height / 2 })
   controller.graphPress(state, point)
-  controller.graphRelease(state, point)
+  controller.graphRelease(state, point, true)
   expect.equal(state.view.selection.id, selected, 'a click selects the node under the pointer')
   local camera = state.view.camera
   controller.graphPress(state, point)
   controller.graphMove(state, { x = point.x + 30, y = point.y + 30 })
-  controller.graphRelease(state, { x = point.x + 30, y = point.y + 30 })
+  controller.graphRelease(state, { x = point.x + 30, y = point.y + 30 }, true)
   expect.truthy(state.view.camera.x ~= camera.x, 'a drag pans')
-  controller.graphPress(state, { x = bounds.x + 1, y = bounds.y - 1 })
-  expect.equal(state.view.dragging, nil, 'toolbar input is not a graph gesture')
+  controller.select(state, nil)
+  controller.graphPress(state, point)
+  controller.graphRelease(state, point, false)
+  expect.equal(state.view.selection, nil, 'a release outside the canvas selects nothing')
+  running.runtime:close()
+end)
+
+test('actions that unload plugins ask for confirmation and name what they unload', function()
+  local running, state = fixture()
+  expect.equal(controller.confirmation(state, 'enable'), nil, 'Enable runs directly')
+  local confirmation = assert(controller.confirmation(state, 'remove'))
+  expect.equal(confirmation.entry, 'editable')
+  expect.equal(confirmation.title, 'Remove editable?')
+  expect.truthy(confirmation.body:find('Catalog', 1, true), 'the body says how to undo it')
+  running.runtime:close()
+end)
+
+test('disabled actions carry the reason they are disabled', function()
+  local running, state = fixture { protected = { 'editable' } }
+  controller.update(state)
+  expect.equal(assert(controller.button(state, 'remove')).reason, 'The entry is protected.')
+  expect.equal(assert(controller.button(state, 'enable')).reason, 'The entry is enabled.')
+  expect.equal(controller.confirmation(state, 'remove'), nil, 'a disabled action asks nothing')
+  controller.select(state, nil)
+  expect.equal(assert(controller.button(state, 'reload')).reason, 'Select a plugin entry first.')
   running.runtime:close()
 end)
 
