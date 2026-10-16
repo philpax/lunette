@@ -72,13 +72,4 @@ function model.options(value: Model, ids: { string }): { uiComponents.Option }
   return result
 end
 
--- Restarts a text field's edit from its value prop. A focused field otherwise keeps showing its own draft when the
--- prop changes, so the manager clears the draft that the standard field keeps in its state.
-function model.resetField(ref: ui.Ref<any>): ()
-  local node = ref.current
-  if node and not node.dead then
-    node:setState { draft = false }
-  end
-end
-
 return model

@@ -112,6 +112,8 @@ local CONTAINER = {
   height = schema.optional(props.length),
   minWidth = schema.optional(props.length),
   maxWidth = schema.optional(props.length),
+  minHeight = schema.optional(props.length),
+  maxHeight = schema.optional(props.length),
   alignSelf = schema.optional(props.align),
 }
 

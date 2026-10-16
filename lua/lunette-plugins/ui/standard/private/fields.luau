@@ -174,12 +174,15 @@ function fields.register(service: uiHost.Service, owner: any): { [string]: uiHos
     interactive = function(props: uiHost.Props): boolean
       return tokens.enabled(props)
     end,
-    state = { draft = false },
+    -- `seen` is the value prop the draft last agreed with, so a change from outside the field can be told from the
+    -- consumer echoing the field's own edits.
+    state = { draft = false, seen = false },
     event = function(node: uiHost.Node, event: uiHost.Event, base: (uiHost.Node, uiHost.Event) -> ())
       local props = node.props
+      local fresh = not node.state.draft
       local draft: edit.State = node.state.draft or edit.new(tostring(props.value or ''))
       local function apply(next: edit.State, report: boolean): ()
-        node:setState { draft = next }
+        node:setState { draft = next, seen = if fresh then tostring(props.value or '') else node.state.seen }
         if report and next.value ~= draft.value then
           node:emit('onChange', next.value)
         end
@@ -235,11 +238,21 @@ function fields.register(service: uiHost.Service, owner: any): { [string]: uiHos
       props: uiHost.Props,
       _children: { read [number]: uiHost.Element },
       state: { read [string]: any },
-      _actions: uiHost.Actions
+      actions: uiHost.Actions
     ): uiHost.Child
       local value = tostring(props.value or '')
       local draft = state.draft
-      -- A draft from an earlier value is dropped when the value prop changes from outside the field.
+      -- A value prop that changes to something other than the draft is a reset from outside the field, which
+      -- replaces the draft even while the field is focused. A change to the draft's own value is the consumer
+      -- echoing an edit, and the draft keeps its caret.
+      if draft and value ~= state.seen then
+        if value ~= draft.value then
+          actions.setState { draft = false, seen = value }
+          draft = nil
+        else
+          actions.setState { seen = value }
+        end
+      end
       local shown = if draft and state.focused then draft else edit.new(value)
       return element('lunette/field-face', {
         key = 'face',

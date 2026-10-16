@@ -459,6 +459,69 @@ test('pressing a text field takes the keyboard, and typing edits and submits it'
   state.fixture:close()
 end)
 
+test('a focused text field keeps its caret through echoes and takes a reset from outside', function()
+  local state = boot()
+  local c = assert(state.components)
+  local value = ''
+  local function render(): ()
+    fixture.show(
+      state,
+      c.Panel {
+        c.Body {
+          key = 'body',
+          c.TextField {
+            key = 'name',
+            value = value,
+            onChange = function(changed: string)
+              value = changed
+            end,
+          },
+        },
+      }
+    )
+  end
+  render()
+  local _, source = keyboard(state)
+  fixture.click(state, 'body/name')
+  state.fixture:step()
+  local codes = require('@lunette-contracts/keys').CODES
+  source:text 'abc'
+  source:key { code = codes.left }
+  render()
+  local text = assert(state.panel:find 'body/name/face/text')
+  expect.equal(text.props.value, 'abc', 'the echoed value shows')
+  expect.equal(text.props.caret, 3, 'the caret stays where the edit left it')
+  value = ''
+  render()
+  text = assert(state.panel:find 'body/name/face/text')
+  expect.equal(text.props.value, '', 'a reset from outside replaces the draft while focused')
+  source:text 'z'
+  expect.equal(value, 'z', 'typing continues from the reset value')
+  state.fixture:close()
+end)
+
+test('rows and columns take a minimum and maximum height', function()
+  local state = boot()
+  local c = assert(state.components)
+  fixture.show(
+    state,
+    c.Panel {
+      c.Body {
+        key = 'body',
+        c.Row { key = 'tall', minHeight = 0.08, c.Text { key = 'text', text = 'Short' } },
+        c.Column {
+          key = 'capped',
+          maxHeight = 0.02,
+          c.Spacer { key = 'filler', height = 0.05, grow = 0 },
+        },
+      },
+    }
+  )
+  expect.near(assert(state.panel:find 'body/tall').bounds.height, 0.08, 1e-6, 'the row reaches its minimum')
+  expect.near(assert(state.panel:find 'body/capped').bounds.height, 0.02, 1e-6, 'the column stops at its maximum')
+  state.fixture:close()
+end)
+
 test('traversal moves focus through controls and activates the focused one', function()
   local state = boot()
   local c = assert(state.components)

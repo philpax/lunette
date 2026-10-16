@@ -76,6 +76,8 @@ function tokens.container(theme: uiHost.Theme, props: uiHost.Props, direction: '
     height = props.height,
     minWidth = props.minWidth,
     maxWidth = props.maxWidth,
+    minHeight = props.minHeight,
+    maxHeight = props.maxHeight,
     alignSelf = props.alignSelf,
   }
 end

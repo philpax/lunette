@@ -52,7 +52,6 @@ local TextEdit = ui.component('PluginTextEdit', function(): ui.Child
   ui.useEffect(function(): (() -> ())?
     local node = field.current
     if node and not node.dead then
-      model.resetField(field)
       m.focusField(node)
     end
     return m.releaseField
@@ -93,7 +92,6 @@ local TextEdit = ui.component('PluginTextEdit', function(): ui.Child
         grow = 1,
         onActivate = function(): ()
           m.invoke 'clear'
-          model.resetField(field)
         end,
       },
     },
