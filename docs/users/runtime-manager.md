@@ -22,6 +22,8 @@ Protected entries cannot be disabled, reloaded, reconfigured, or removed, and ne
 
 ## Recovery
 
+The manager's header has a Default look button. It switches default appearance, which renders every toolkit panel with the standard controls and theme while a plugin's restyling is undone, so the manager stays usable for disabling the plugin responsible. Holding both thumbstick clicks does the same from anywhere.
+
 The [recovery plugin](../../lua/lunette-plugins/diagnostics/recovery/README.md) shows a panel in front of the headset when the UI host or the standard components stop running, or when the UI host reports errors on many consecutive frames. It draws without the UI toolkit, so it keeps working when the toolkit does not. Its panel lists the recent errors, and controller rays operate its four actions: default appearance, which toggles the switch back to the standard widgets and theme; Reload configuration; Restore the last known good configuration; and Restart into safe mode. The panel hides once the toolkit runs again.
 
 The last known good configuration is the composition as it stood once the UI toolkit had run for a while without errors and without further changes. The recovery plugin records it for the session, replacing it after each later change that stays healthy, and nothing is written to disk. Restoring it puts back the recorded configuration and enabled state of every entry that is not protected, disables entries the record does not name, and restores removed ones from the catalog.
