@@ -63,7 +63,7 @@ local Entries = ui.component('PluginEntries', function(): ui.Child
     end
   end
   local selected = controller.selected(state)
-  return c.ScrollBox {
+  return c.ScrollView {
     key = 'entries-box',
     grow = 1,
     if #items == 0

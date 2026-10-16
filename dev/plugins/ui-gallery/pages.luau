@@ -320,8 +320,21 @@ local Structure = ui.component('Structure', function(): ui.Child
     },
     c.Section {
       key = 'scroll',
-      title = 'Scroll box',
-      c.ScrollBox { key = 'box', height = 0.14, c.List { key = 'rows', rows } },
+      title = 'Scroll view',
+      c.ScrollView { key = 'box', height = 0.14, c.List { key = 'rows', rows } },
+    },
+    c.Section {
+      key = 'items',
+      title = 'Ten thousand items',
+      c.ScrollView {
+        key = 'many',
+        height = 0.14,
+        count = 10000,
+        rowHeight = 0.038,
+        renderItem = function(index: number): ui.Child
+          return c.ListRow { key = 'row', title = `Item {index}`, trailing = `#{index}` }
+        end,
+      },
     },
   }
 end)
@@ -517,7 +530,7 @@ pages.Gallery = ui.component('Gallery', function(props: Props): ui.Child
   local tabs = {}
   for _, entry in pages.PAGES do
     local Page = PAGE_COMPONENTS[entry.id]
-    tabs[#tabs + 1] = c.ScrollBox { key = entry.id, grow = 1, bleed = true, Page {} }
+    tabs[#tabs + 1] = c.ScrollView { key = entry.id, grow = 1, bleed = true, Page {} }
   end
   -- The host owns default appearance, which the chord also switches, so the gallery reads it on every render and
   -- keeps only a counter that renders again after the button changes it.

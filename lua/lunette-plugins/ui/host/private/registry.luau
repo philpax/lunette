@@ -199,12 +199,15 @@ function registry.validate(registration: uiHost.KindRegistration): ()
   end
   local name = registration.name
   assert(type(name) == 'string' and name ~= '', 'ui: a kind has a name')
+  -- A composite measures nothing of its own: it lays out as a container of what it expands into, and only a
+  -- container composite draws, behind its expansion, as a scroll view draws its scrollbar.
   assert(
-    not (
-        registration.expand
-        and (registration.visuals or (registration.layout and registration.layout.kind ~= 'container'))
-      ),
-    `ui: the composite kind {name} expands into elements instead of drawing or measuring`
+    not (registration.expand and registration.layout and registration.layout.kind ~= 'container'),
+    `ui: the composite kind {name} expands into elements instead of measuring`
+  )
+  assert(
+    not (registration.expand and registration.visuals and not registration.layout),
+    `ui: the composite kind {name} draws only with a container layout`
   )
   if registration.layout then
     local kind = registration.layout.kind

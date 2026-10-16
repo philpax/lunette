@@ -13,7 +13,7 @@ local function details(c: uiComponents.Service, lines: { string }): ui.Child
   for index, line in lines do
     texts[index] = c.Text { key = `line-{index}`, text = line, style = 'caption' }
   end
-  return c.ScrollBox { key = 'details', grow = 1, c.Column { key = 'lines', gap = 'xs', texts } }
+  return c.ScrollView { key = 'details', grow = 1, c.Column { key = 'lines', gap = 'xs', texts } }
 end
 
 local function catalog(c: uiComponents.Service, m: model.Model): ui.Child
@@ -37,7 +37,7 @@ local function catalog(c: uiComponents.Service, m: model.Model): ui.Child
     gap = 'sm',
     c.Row { key = 'catalog-actions', gap = 'sm', model.button(c, m, 'load', { variant = 'primary' }) },
     captions,
-    c.ScrollBox {
+    c.ScrollView {
       key = 'catalog-box',
       grow = 1,
       c.List {

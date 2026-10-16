@@ -1,11 +1,10 @@
--- Structure kinds: the panel face, header and section bands, layout containers, cards, rules, and scrolling.
+-- Structure kinds: the panel face, header and section bands, layout containers, cards, and rules.
 
 local lunette = require '@lunette'
 local uiHost = require '@lunette-contracts/ui-host'
 local schema = require '@lunette-plugin/schema'
 local tokens = require './tokens'
 local shapes = require './props'
-local scrolling = require './scrolling'
 
 local optional = schema.optional
 
@@ -272,65 +271,11 @@ function structure.register(service: uiHost.Service, owner: any): { [string]: ui
     },
   })
 
-  constructors.ScrollBox = structure.registerScrollBox(service, owner)
   -- The outlet kind belongs to the host, so its constructor names the kind without registering it.
   constructors.Outlet = function(props: { [any]: any }?): uiHost.Element
     return element('lunette/outlet', props)
   end
   return constructors
-end
-
--- A scroll box clips its content and scrolls it vertically by the scroll axis or by dragging empty space.
-function structure.registerScrollBox(service: uiHost.Service, owner: any): uiHost.Constructor
-  local constructor = service:registerKind(owner, {
-    name = 'lunette/scroll-box',
-    props = schema.object {
-      height = optional(shapes.length),
-      maxHeight = optional(shapes.length),
-      grow = optional(schema.number()),
-      -- The box reaches through the panel body's side padding and pads its content back in, so section bands inside
-      -- it reach the panel's edges as they do outside a scroll box, rather than being clipped at the content edge.
-      bleed = optional(schema.boolean()),
-    },
-    role = 'scrollbar',
-    layout = {
-      kind = 'container',
-      style = function(props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
-        -- Block layout keeps the children at their own heights rather than shrinking them to the box.
-        return {
-          display = 'block',
-          height = props.height,
-          maxHeight = props.maxHeight,
-          grow = props.grow,
-          shrink = 1,
-          minHeight = 0,
-          overflow = 'scroll',
-          padding = if props.bleed
-            then { left = theme.spacing.lg, right = math.max(theme.spacing.lg, scrolling.gutter(theme)) }
-            else { right = scrolling.gutter(theme) },
-          margin = if props.bleed then { left = -theme.spacing.lg, right = -theme.spacing.lg } else nil,
-        }
-      end,
-    },
-    clip = true,
-    state = { scrollY = 0, thumbDrag = false },
-    claims = { drag = 'y' },
-    interactive = function(): boolean
-      return true
-    end,
-    visuals = { 'lunette/scroll-box' },
-    event = function(node: uiHost.Node, event: uiHost.Event, base: (uiHost.Node, uiHost.Event) -> ())
-      local _, extent = node:contentSize()
-      if not scrolling.event(node, event, extent) then
-        base(node, event)
-      end
-    end,
-  })
-  service:registerVisual(owner, 'lunette/scroll-box', function(node: uiHost.Node, draw: uiHost.Draw)
-    local _, extent = node:contentSize()
-    scrolling.draw(node, draw, extent)
-  end)
-  return constructor
 end
 
 return structure

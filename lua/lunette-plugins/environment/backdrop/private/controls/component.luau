@@ -115,7 +115,7 @@ component.BackdropControls = ui.component('BackdropControls', function(props: Pr
         if #applications == 0
           then c.Text { key = 'empty', text = 'No applications are running.', style = 'caption', color = 'muted' }
           else nil,
-        c.ScrollBox {
+        c.ScrollView {
           key = 'scroll',
           maxHeight = LIST_HEIGHT,
           c.List {

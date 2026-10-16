@@ -33,7 +33,9 @@ export type Service = {
   read Card: Constructor,
   read Separator: Constructor,
   read Spacer: Constructor,
-  read ScrollBox: Constructor,
+  -- A region that scrolls vertically: its children, or `count` items from `renderItem(index)` of `rowHeight` metres,
+  -- materialised only near the visible part. `bleed` reaches through the panel body's side padding.
+  read ScrollView: Constructor,
   read Tabs: Constructor,
   -- A placement of an outlet: `outlet`, a declaration from `uiHost.outlet`, `props`, which every contribution receives,
   -- and `maxHeight`, the metres an attributed outlet gives each contribution before clipping it.
@@ -59,8 +61,6 @@ export type Service = {
   read List: Constructor,
   read ListRow: Constructor,
   read Table: Constructor,
-  -- A list that materialises only the rows near its visible part.
-  read VirtualList: Constructor,
   -- Text input.
   read TextField: Constructor,
   -- Overlays: the content of dialog and follow panels.

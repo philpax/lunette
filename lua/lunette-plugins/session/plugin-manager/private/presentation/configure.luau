@@ -194,7 +194,7 @@ configure.Configure = ui.component('PluginConfigure', function(): ui.Child
       model.button(c, m, 'add'),
       model.button(c, m, 'remove-value'),
     },
-    c.ScrollBox {
+    c.ScrollView {
       key = 'rows-box',
       grow = 1,
       c.List {

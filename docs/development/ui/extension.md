@@ -94,7 +94,7 @@ A kind whose content is not made of nodes, such as a graph canvas with nodes and
 
 ## Composite kinds
 
-A composite kind is built from other kinds. It registers an `expand` function instead of visuals and layout:
+A composite kind is built from other kinds. It registers an `expand` function instead of measuring content of its own. A composite may declare a container layout, laying out what it expands into, and a container composite may also draw behind its expansion, as the scroll view draws its scrollbar:
 
 ```luau
 host:registerKind(context, {

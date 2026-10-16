@@ -192,7 +192,7 @@ test('a scroll box scrolls its content by dragging', function()
   end
   fixture.show(
     state,
-    c.Panel { c.Body { key = 'body', c.ScrollBox { key = 'box', height = 0.1, c.Column { key = 'rows', rows } } } }
+    c.Panel { c.Body { key = 'body', c.ScrollView { key = 'box', height = 0.1, c.Column { key = 'rows', rows } } } }
   )
   local first = assert(state.panel:find 'body/box/rows/row-1')
   local before = first:panelBounds().y
@@ -262,7 +262,7 @@ test('a scroll box scrolled past content that shrank shows the content from its 
     end
     fixture.show(
       state,
-      c.Panel { c.Body { key = 'body', c.ScrollBox { key = 'box', height = 0.1, c.Column { key = 'rows', rows } } } }
+      c.Panel { c.Body { key = 'body', c.ScrollView { key = 'box', height = 0.1, c.Column { key = 'rows', rows } } } }
     )
   end
   show(30)
@@ -728,7 +728,7 @@ test('a scroll box scrolls by its thumb, its track, and its content', function()
     c.Panel {
       c.Body {
         key = 'body',
-        c.ScrollBox {
+        c.ScrollView {
           key = 'box',
           height = 0.1,
           c.Column { key = 'tall', height = 0.4 },
@@ -761,7 +761,7 @@ test('a virtual list of thousands keeps only the rows near its visible part, and
     c.Panel {
       c.Body {
         key = 'body',
-        c.VirtualList {
+        c.ScrollView {
           key = 'many',
           count = 5000,
           rowHeight = 0.03,

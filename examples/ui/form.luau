@@ -129,7 +129,7 @@ local Form = ui.component('ExampleForm', function(props: FormProps): ui.Child
         c.Section {
           key = 'destinations',
           title = 'Destinations',
-          c.ScrollBox {
+          c.ScrollView {
             height = 0.16,
             c.List { key = 'list', items = DESTINATIONS, value = destination, onChange = setDestination },
           },

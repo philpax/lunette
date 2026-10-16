@@ -133,7 +133,7 @@ test('a list longer than the menu scrolls to reach its last action', function()
   click(env, 'open')
   local last = assert(env.panels:node(PANEL, wristMenu.row 'action-20'))
   local box = assert(env.panels:node(PANEL, 'actions')).parent
-  while box and box.kind ~= 'lunette/scroll-box' do
+  while box and box.kind ~= 'lunette/scroll-view' do
     box = box.parent
   end
   local scroller = assert(box, 'the list scrolls')

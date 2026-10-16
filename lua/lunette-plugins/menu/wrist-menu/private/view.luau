@@ -40,7 +40,7 @@ view.Menu = ui.component('WristMenu', function(props: Props): ui.Child
     },
     -- The scroll box sits directly in the panel, so it shrinks to the space below the header rather than growing
     -- the panel to fit every row.
-    c.ScrollBox {
+    c.ScrollView {
       grow = 1,
       c.Column {
         padding = 'md',
