@@ -120,10 +120,6 @@ function actions.register(service: uiHost.Service, owner: any): { [string]: uiHo
       kind = 'container',
       style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
         return {
-          position = 'absolute',
-          top = '100%',
-          left = 0,
-          margin = { top = theme.spacing.xs },
           padding = {
             left = theme.spacing.sm,
             right = theme.spacing.sm,
@@ -148,13 +144,11 @@ function actions.register(service: uiHost.Service, owner: any): { [string]: uiHo
     layout = {
       kind = 'container',
       style = function(props: uiHost.Props): lunette.LayoutStyle
-        -- The disabled reason's tooltip is placed against the button, so the button is positioned.
         return {
           flexDirection = 'column',
           alignItems = 'stretch',
           grow = props.grow,
           alignSelf = props.alignSelf,
-          position = 'relative',
         }
       end,
     },
@@ -193,9 +187,13 @@ function actions.register(service: uiHost.Service, owner: any): { [string]: uiHo
           children,
         }),
         if state.showReason and props.disabledReason
-          then element('lunette/tooltip', {
+          -- The reason is an overlay that answers no hit queries, so it never blocks what is behind it.
+          then element('lunette/portal', {
             key = 'reason',
-            element('lunette/text', { text = props.disabledReason, style = 'caption', color = 'bandInk' }),
+            hit = false,
+            element('lunette/tooltip', {
+              element('lunette/text', { text = props.disabledReason, style = 'caption', color = 'bandInk' }),
+            }),
           })
           else nil,
       }

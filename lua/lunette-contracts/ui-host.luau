@@ -147,6 +147,8 @@ export type Node = {
   read setState: (Node, { [string]: any } | ({ read [string]: any }) -> { [string]: any }) -> (),
   -- The node's box in panel coordinates.
   read panelBounds: (Node) -> Rect,
+  -- The world pose of the centre of the node's surface, facing out of its panel.
+  read pose: (Node) -> Mat4,
   -- Shaped lines of a text node, in node coordinates.
   read textLines: (Node) -> { lunette.LayoutLine }?,
   -- The extent of the node's children from its origin, before scrolling.

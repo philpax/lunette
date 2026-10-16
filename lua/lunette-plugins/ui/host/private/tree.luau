@@ -20,8 +20,9 @@ local createNode: (records.Panel, Environment, records.Node?, uiHost.Element, st
 local updateNode: (records.Panel, Environment, records.Node, uiHost.Element) -> ()
 local removeNode: (records.Panel, Environment, records.Node) -> ()
 
--- Reconciles the panel's root against an element, or removes the content for nil.
-function tree.submit(panel: records.Panel, env: Environment, element: uiHost.Element?): ()
+-- Reconciles the panel's root against an element, or removes the content for nil. An overlay's root has the portal
+-- node as its logical parent, so events bubble out of the overlay into the panel that opened it.
+function tree.submit(panel: records.Panel, env: Environment, element: uiHost.Element?, parent: records.Node?): ()
   local root = panel.root
   if root and (element == nil or root.kind ~= env.kind(element.kind) or root.key ~= element.key) then
     removeNode(panel, env, root)
@@ -34,7 +35,7 @@ function tree.submit(panel: records.Panel, env: Environment, element: uiHost.Ele
   if root then
     updateNode(panel, env, root, element)
   else
-    panel.root = createNode(panel, env, nil, element, element.key or '#root')
+    panel.root = createNode(panel, env, parent, element, element.key or '#root')
   end
 end
 
@@ -51,7 +52,7 @@ function tree.refresh(panel: records.Panel, env: Environment): ()
   local root = panel.root
   if root and root.kind ~= env.kind(root.element.kind) then
     -- The root's kind was registered again or removed, so the root is made again from its element.
-    tree.submit(panel, env, root.element)
+    tree.submit(panel, env, root.element, root.parent)
   elseif root then
     visit(root)
   end
@@ -164,6 +165,10 @@ end
 
 local function reconcileChildren(panel: records.Panel, env: Environment, node: records.Node): ()
   if node.text ~= nil then
+    return
+  end
+  if node.kind.portal then
+    env.portal(panel, node)
     return
   end
   local elements, slots = childElements(env, node)
@@ -329,6 +334,9 @@ updateNode = function(panel: records.Panel, env: Environment, node: records.Node
 end
 
 removeNode = function(panel: records.Panel, env: Environment, node: records.Node): ()
+  if node.overlay then
+    env.unportal(node)
+  end
   for _, child in node.children do
     removeNode(panel, env, child)
   end

@@ -265,4 +265,47 @@ test('a scroll box scrolled past content that shrank shows the content from its 
   state.fixture:close()
 end)
 
+test('a dropdown menu closes on a press outside it and opens past the panel edge', function()
+  local state = fixture.boot { standard = true, width = 0.3, height = 0.09 }
+  local c = assert(state.components)
+  local options = {}
+  for index = 1, 6 do
+    options[index] = { id = `option-{index}`, label = `Option {index}` }
+  end
+  local presses = 0
+  fixture.show(
+    state,
+    c.Panel {
+      c.Body {
+        key = 'body',
+        c.Row {
+          key = 'row',
+          gap = 'sm',
+          c.Dropdown { key = 'choice', value = 'option-1', options = options, grow = 1 },
+          c.Button {
+            key = 'other',
+            label = 'Other',
+            onActivate = function()
+              presses += 1
+            end,
+          },
+        },
+      },
+    }
+  )
+  fixture.click(state, 'body/row/choice/trigger')
+  state.fixture:step()
+  local last = assert(state.panel:find 'body/row/choice/menu/option-6', 'the menu is open')
+  local _, height = state.panel:size()
+  local panelPose = state.panel:pose()
+  local _, panelY = panelPose:getPosition()
+  local _, itemY = last:pose():getPosition()
+  expect.truthy(math.abs(itemY - panelY) > height / 2, 'the menu reaches past the panel')
+  fixture.click(state, 'body/row/other')
+  state.fixture:step()
+  expect.equal(presses, 1, 'the press outside reaches its target')
+  expect.equal(state.panel:find 'body/row/choice/menu', nil, 'the menu closed')
+  state.fixture:close()
+end)
+
 return test

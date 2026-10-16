@@ -383,11 +383,6 @@ function choices.registerDropdown(service: uiHost.Service, owner: any): uiHost.C
       kind = 'container',
       style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
         return {
-          position = 'absolute',
-          top = '100%',
-          left = 0,
-          right = 0,
-          margin = { top = theme.spacing.xs },
           flexDirection = 'column',
           alignItems = 'stretch',
           padding = theme.spacing.xs,
@@ -441,13 +436,11 @@ function choices.registerDropdown(service: uiHost.Service, owner: any): uiHost.C
     layout = {
       kind = 'container',
       style = function(props: uiHost.Props): lunette.LayoutStyle
-        -- The menu is placed against the dropdown, so the dropdown is positioned.
         return {
           flexDirection = 'column',
           alignItems = 'stretch',
           alignSelf = props.alignSelf,
           grow = props.grow,
-          position = 'relative',
         }
       end,
     },
@@ -499,7 +492,17 @@ function choices.registerDropdown(service: uiHost.Service, owner: any): uiHost.C
           }),
           element('lunette/chevron', { key = 'chevron', open = state.open }),
         }),
-        if state.open then element('lunette/menu', { key = 'menu', items }) else nil,
+        -- The menu is an overlay: it extends past the dropdown's panel and closes on a press outside it.
+        if state.open
+          then element('lunette/portal', {
+            key = 'menu',
+            matchWidth = true,
+            onDismiss = function()
+              act.setState { open = false }
+            end,
+            element('lunette/menu', { items }),
+          })
+          else nil,
       }
     end,
   })

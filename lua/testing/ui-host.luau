@@ -198,11 +198,15 @@ function fixture.pointer(): any
   }
 end
 
+-- A geometry centred on a node, for aiming at it wherever its panel is, including an overlay.
+function fixture.nodeGeometry(node: uiHost.Node): any
+  return { pose = node:pose(), width = 1, height = 1, logicalWidth = 1, logicalHeight = 1, visible = true }
+end
+
 -- Clicks the centre of the node at the key path.
 function fixture.click(state: State, path: string): ()
   local node = assert(state.panel:find(path), `no node at {path}`)
-  local bounds = node:panelBounds()
-  state.fixture:click(fixture.geometry(state), bounds.x + bounds.width / 2, bounds.y + bounds.height / 2)
+  state.fixture:click(fixture.nodeGeometry(node), 0.5, 0.5)
 end
 
 return fixture

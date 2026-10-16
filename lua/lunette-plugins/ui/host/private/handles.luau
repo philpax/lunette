@@ -81,6 +81,12 @@ function handles.new(node: records.Node, env: records.Environment): uiHost.Node
   handle.panelBounds = function(_self: uiHost.Node): uiHost.Rect
     return { x = node.x, y = node.y, width = node.width, height = node.height }
   end
+  handle.pose = function(_self: uiHost.Node): Mat4
+    local panel = node.panel
+    local x = node.x + node.width / 2 - panel.width / 2
+    local y = panel.height / 2 - (node.y + node.height / 2)
+    return lovr.math.mat4(panel.pose):translate(x, y, node.z)
+  end
   handle.textLines = function(_self: uiHost.Node): { lunette.LayoutLine }?
     if node.dead or node.text == nil then
       return nil

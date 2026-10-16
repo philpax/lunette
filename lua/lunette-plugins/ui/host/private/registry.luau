@@ -35,6 +35,7 @@ function registry.new(hostOwner: plugin.Owner): Registry
     name = 'lunette/missing',
     owner = hostOwner,
     composite = false,
+    portal = false,
     registration = {
       name = 'lunette/missing',
       layout = {
@@ -46,8 +47,39 @@ function registry.new(hostOwner: plugin.Owner): Registry
       visuals = { MISSING_VISUAL },
     },
   }
+  -- A portal takes no space in its panel; its overlay root lays out the portal's children in the overlay panel.
+  local portal: records.Kind = {
+    name = 'lunette/portal',
+    owner = hostOwner,
+    composite = false,
+    portal = true,
+    registration = {
+      name = 'lunette/portal',
+      layout = {
+        kind = 'leaf',
+        style = function(): any
+          return { position = 'absolute', width = 0, height = 0 }
+        end,
+      },
+    },
+  }
+  local overlayRoot: records.Kind = {
+    name = 'lunette/overlay-root',
+    owner = hostOwner,
+    composite = false,
+    portal = false,
+    registration = {
+      name = 'lunette/overlay-root',
+      layout = {
+        kind = 'container',
+        style = function(props: uiHost.Props): any
+          return { flexDirection = 'column', alignItems = 'stretch', minWidth = props.minWidth }
+        end,
+      },
+    },
+  }
   return {
-    kinds = {},
+    kinds = { ['lunette/portal'] = portal, ['lunette/overlay-root'] = overlayRoot },
     visuals = {
       [MISSING_VISUAL] = {
         {
@@ -96,6 +128,7 @@ function registry.addKind(target: Registry, owner: plugin.Owner, registration: u
     owner = owner,
     registration = registration,
     composite = registration.expand ~= nil,
+    portal = false,
   }
   target.kinds[name] = kind
   return function(): ()

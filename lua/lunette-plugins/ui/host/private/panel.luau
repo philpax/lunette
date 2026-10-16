@@ -40,30 +40,8 @@ function panel.new(
   if sizing == 'fixed' then
     assert(options.width and options.height, 'ui: a fixed panel has a width and a height')
   end
-  local record: records.Panel = {
-    name = options.name,
-    owner = owner,
-    tree = nil :: any,
-    root = nil,
-    rootChild = nil,
-    mount = { adapter = nil, scheduled = false, committed = false, rendering = false, submitted = false, element = nil },
-    nodes = {},
-    nextId = layout.ROOT + 1,
-    changes = {},
-    dirty = false,
-    sizing = sizing,
-    maxWidth = if sizing == 'content' then options.width else nil,
-    maxHeight = if sizing == 'content' then options.height else nil,
-    width = options.width or 0,
-    height = options.height or 0,
-    pose = lovr.math.newMat4(options.pose or lovr.math.mat4()),
-    visible = true,
-    dead = false,
-    grabbable = options.grabbable ~= false,
-    revision = 0,
-    sync = function(): () end,
-  }
-  record.tree = layout.newTree(record)
+  local record = panel.record(options.name, owner, sizing, options.width, options.height, options.pose)
+  record.grabbable = options.grabbable ~= false
   local env = provider.env
 
   local mount: uiHost.Mount = {
@@ -88,14 +66,48 @@ function panel.new(
     end,
   }
 
-  local surface: vocabulary.Surface
   local handle: uiHost.Panel
-  local surfaceFields: any
-  local function sync(): ()
-    surfaceFields.width, surfaceFields.height = record.width, record.height
-    surfaceFields.dead = record.dead or not record.visible
-  end
-  surface = {
+  local surface = panel.surface(provider, record, function(pose: Mat4): ()
+    handle:setPose(pose)
+  end)
+  handle = {
+    name = record.name,
+    dead = false,
+    root = mount,
+    pose = function(_self: uiHost.Panel): Mat4
+      return lovr.math.mat4(record.pose)
+    end,
+    setPose = function(_self: uiHost.Panel, pose: Mat4): ()
+      if not record.dead then
+        record.pose:set(pose)
+        record.revision += 1
+      end
+    end,
+    size = function(_self: uiHost.Panel): (number, number)
+      return record.width, record.height
+    end,
+    setVisible = function(_self: uiHost.Panel, visible: boolean): ()
+      record.visible = visible == true
+      record.sync()
+    end,
+    destroy = function(_self: uiHost.Panel): ()
+      panel.destroy(provider, record);
+      (handle :: any).dead = true
+      record.sync()
+    end,
+    find = function(_self: uiHost.Panel, path: string): uiHost.Node?
+      return panel.find(record, path)
+    end,
+  }
+  provider.offer(record, surface)
+  return record, handle, surface
+end
+
+-- The surface through which the interaction service points at a panel. It keeps the record's sync function, which
+-- publishes the size and liveness to the surface after each commit.
+function panel.surface(provider: Provider, record: records.Panel, setPose: ((Mat4) -> ())?): vocabulary.Surface
+  local env = provider.env
+  local surface: vocabulary.Surface = {
     kind = nil,
     dead = false,
     grabbable = record.grabbable,
@@ -137,44 +149,55 @@ function panel.new(
         input.pointer(provider.router, record, env, event)
       end
     end,
-    setPose = function(_self: vocabulary.Surface, pose: Mat4): ()
-      handle:setPose(pose)
-    end,
-  }
-  surfaceFields = surface :: any
-
-  handle = {
-    name = record.name,
-    dead = false,
-    root = mount,
-    pose = function(_self: uiHost.Panel): Mat4
-      return lovr.math.mat4(record.pose)
-    end,
-    setPose = function(_self: uiHost.Panel, pose: Mat4): ()
-      if not record.dead then
-        record.pose:set(pose)
-        record.revision += 1
+    setPose = if setPose
+      then function(_self: vocabulary.Surface, pose: Mat4): ()
+        setPose(pose)
       end
-    end,
-    size = function(_self: uiHost.Panel): (number, number)
-      return record.width, record.height
-    end,
-    setVisible = function(_self: uiHost.Panel, visible: boolean): ()
-      record.visible = visible == true
-      sync()
-    end,
-    destroy = function(_self: uiHost.Panel): ()
-      panel.destroy(provider, record);
-      (handle :: any).dead = true
-      sync()
-    end,
-    find = function(_self: uiHost.Panel, path: string): uiHost.Node?
-      return panel.find(record, path)
-    end,
+      else nil,
   }
-  record.sync = sync
-  provider.offer(record, surface)
-  return record, handle, surface
+  local fields = surface :: any
+  record.sync = function(): ()
+    fields.width, fields.height = record.width, record.height
+    fields.dead = record.dead or not record.visible
+  end
+  return surface
+end
+
+-- A panel record with no content. A content-sized panel takes the width and height as its maximum.
+function panel.record(
+  name: string,
+  owner: plugin.Owner,
+  sizing: 'fixed' | 'content',
+  width: number?,
+  height: number?,
+  pose: Mat4?
+): records.Panel
+  local record: records.Panel = {
+    name = name,
+    owner = owner,
+    tree = nil :: any,
+    root = nil,
+    rootChild = nil,
+    mount = { adapter = nil, scheduled = false, committed = false, rendering = false, submitted = false, element = nil },
+    nodes = {},
+    nextId = layout.ROOT + 1,
+    changes = {},
+    dirty = false,
+    sizing = sizing,
+    maxWidth = if sizing == 'content' then width else nil,
+    maxHeight = if sizing == 'content' then height else nil,
+    width = width or 0,
+    height = height or 0,
+    pose = lovr.math.newMat4(pose or lovr.math.mat4()),
+    visible = true,
+    dead = false,
+    grabbable = false,
+    revision = 0,
+    sync = function(): () end,
+    overlay = nil,
+  }
+  record.tree = layout.newTree(record)
+  return record
 end
 
 -- Renders the mount point when it has scheduled work, re-expands and restyles dirty nodes, and recomputes layout.
@@ -229,14 +252,22 @@ function panel.find(record: records.Panel, path: string): uiHost.Node?
   if not node then
     return nil
   end
+  -- A portal's children are its overlay's root, which is searched through like an unkeyed wrapper.
+  local function childrenOf(parent: records.Node): { records.Node }
+    local opened = parent.overlay
+    if opened and opened.root then
+      return { opened.root }
+    end
+    return parent.children
+  end
   local function child(parent: records.Node, slot: string): records.Node?
-    for _, candidate in parent.children do
+    for _, candidate in childrenOf(parent) do
       if candidate.slot == slot or candidate.key == slot then
         return candidate
       end
     end
     -- Composite expansions and unkeyed wrappers are searched through, so a path names only keyed nodes.
-    for _, candidate in parent.children do
+    for _, candidate in childrenOf(parent) do
       if candidate.key == nil then
         local found = child(candidate, slot)
         if found then

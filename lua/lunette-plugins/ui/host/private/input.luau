@@ -250,6 +250,9 @@ function input.pointer(
       setHovered(env, state, target)
     end
   elseif event.kind == 'press' then
+    if event.button == 'left' then
+      env.pressed(panel, input.deepest(panel, x, y))
+    end
     -- A node takes one capture at a time, so a second pointer cannot press it while it is held.
     if event.button ~= 'left' or state.capture or not target or target.host.pressed then
       return

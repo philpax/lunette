@@ -9,6 +9,8 @@ export type Kind = {
   owner: plugin.Owner,
   registration: uiHost.KindRegistration,
   composite: boolean,
+  -- The host's portal kind renders its children into an overlay panel instead of its own.
+  portal: boolean,
 }
 
 -- A drawn primitive in node coordinates, recorded by a visual and replayed every frame.
@@ -79,6 +81,8 @@ export type Node = {
   dirty: boolean,
   handle: uiHost.Node,
   ref: uiHost.Ref?,
+  -- The panel a portal node renders its children into.
+  overlay: Panel?,
   dead: boolean,
 }
 
@@ -117,6 +121,16 @@ export type Panel = {
   revision: number,
   -- Publishes the size and liveness to the panel's surface.
   sync: () -> (),
+  -- Set for a panel that the host made for a portal.
+  overlay: Overlay?,
+}
+
+-- An overlay panel's relation to the portal node that opened it, in another panel.
+export type Overlay = {
+  portal: Node,
+  opener: Panel,
+  -- Whether the overlay answers hit queries; tooltips do not.
+  hit: boolean,
 }
 
 export type Environment = {
@@ -127,6 +141,11 @@ export type Environment = {
   read removed: (Panel, Node) -> (),
   -- Delivers an event to a node's handler, which bubbles it to the node's ancestors by default.
   read dispatch: (Node, uiHost.Event) -> (),
+  -- Opens or updates the overlay of a portal node with its children, and closes it.
+  read portal: (Panel, Node) -> (),
+  read unportal: (Node) -> (),
+  -- Reports a press on a panel, at the node under it, so overlays outside the press's chain are dismissed.
+  read pressed: (Panel, Node?) -> (),
 }
 
 return {}
