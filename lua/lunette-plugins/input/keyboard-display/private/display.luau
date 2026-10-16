@@ -5,9 +5,11 @@ local focus = require '@lunette-contracts/focus'
 local keyboard = require '@lunette-contracts/keyboard'
 local frame = require '@lunette-contracts/frame'
 local surfaces = require '@lunette-contracts/surfaces'
-local ui = require '@lunette-contracts/ui'
+local uiHost = require '@lunette-contracts/ui-host'
+local uiComponents = require '@lunette-contracts/ui-components'
 local listeners = require '@lunette-plugins/registration/listeners'
 local place = require './placement'
+local titlebar = require './titlebar'
 local config = require '../config'
 local vocabulary = require '@lunette-contracts/vocabulary'
 local inspection = require '@lunette-contracts/inspection'
@@ -17,9 +19,10 @@ return function(context: plugin.Context, settings: config.Settings): contract.Se
   local routes: focus.Service = context:require(focus.capability)
   local offers: surfaces.Service = context:require(surfaces.capability)
   local clock: frame.Service = context:require(frame.capability)
-  local widgets = context:require(ui.capability)
+  local host = context:require(uiHost.capability)
+  local components = context:require(uiComponents.capability)
   local board: keyboard.Keyboard? = nil
-  local bar: ui.Titlebar? = nil
+  local bar: titlebar.Titlebar? = nil
   local stopped, visible, manual = false, false, false
   -- The local target whose focus requested automatic visibility.
   local auto: focus.TargetHandle? = nil
@@ -52,9 +55,6 @@ return function(context: plugin.Context, settings: config.Settings): contract.Se
   end
   local function boardChanged(change: keyboard.VisibilityChange): ()
     visible = change.visible
-    if bar then
-      bar:sync()
-    end
     if change.reason == 'user-hide' then
       clearIntent()
       blur(currentTarget)
@@ -88,17 +88,9 @@ return function(context: plugin.Context, settings: config.Settings): contract.Se
     created = target
     target:setVisible(false)
     board = target
-    bar = widgets:newTitlebar(context, {
-      name = 'desktop/keyboard/titlebar',
-      target = target,
-      title = 'Keyboard',
-      onClose = function(): ()
-        hide()
-      end,
-      visible = function(): boolean
-        return live() and visible and not target.dead
-      end,
-    })
+    bar = titlebar.new(context, host, components, target, function(): ()
+      hide()
+    end)
     return target
   end
   local function setVisible(show: boolean): boolean
@@ -170,15 +162,23 @@ return function(context: plugin.Context, settings: config.Settings): contract.Se
       return if live() and visible and target and not target.dead then { target } else {}
     end,
   })
+  -- The bar follows the board after pointing has moved either of them this frame.
+  clock:onUpdate(context, {
+    phase = 'scene',
+    order = 1,
+    run = function(_dt: number): ()
+      local target = board
+      if bar then
+        bar:sync(live() and visible and target ~= nil and not target.dead)
+      end
+    end,
+  })
   clock:onDraw(context, {
     phase = 'scene',
     order = 1,
     run = function(pass: Pass): ()
       local target = board
       if live() and visible and target and not target.dead then
-        if bar then
-          bar:draw(pass)
-        end
         target:draw(pass)
       end
     end,
