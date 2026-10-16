@@ -137,6 +137,12 @@ local function init(context: plugin.Context, settings: Settings): ()
         if button then
           buttons.press(held, button)
         end
+        -- A primary click on empty space ends the keyboard focus the mouse gave, as on a desktop, so keys stop going
+        -- to the window that was clicked last.
+        local current = mouse
+        if button == 'left' and current and not current.pointer.dead and current.pointer.hovered == nil then
+          current.pointer:focus(nil)
+        end
       elseif event.kind == 'release' then
         local button = buttons.fromNumber(event.button)
         if button then
