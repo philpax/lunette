@@ -26,7 +26,7 @@ Text fields accept single-line UTF-8 and edit whole grapheme clusters. A value s
 
 ## Notifications and accessibility
 
-`lunette/notifications` posts toasts that fade on a follow panel and keeps a history. `lunette/accessibility` holds the text scale, high contrast, reduced motion, and haptics settings, which the host applies to every panel. Menu actions keep opening and closing a panel reachable through VR controls; the [broker contract](../../lua/lunette-contracts/policy-services.md#brokers) defines their lifetime.
+`lunette/notifications` posts toasts that fade beside the panel a notification names as its anchor, or on a follow panel, and keeps a history. `lunette/accessibility` holds the text scale, high contrast, reduced motion, and haptics settings, which the host applies to every panel. Menu actions keep opening and closing a panel reachable through VR controls; the [broker contract](../../lua/lunette-contracts/policy-services.md#brokers) defines their lifetime.
 
 ## Outlets
 

@@ -409,6 +409,7 @@ local Overlays = ui.component('Overlays', function(): ui.Child
                 title = 'Screenshot saved',
                 body = '~/Pictures/lunette-2026-10-16.png',
                 actions = { { id = 'open', label = 'Open', run = function() end } },
+                anchor = services.panel,
               })
             end
           end,
@@ -421,7 +422,7 @@ local Overlays = ui.component('Overlays', function(): ui.Child
             if notifier and services then
               notifier:notify(
                 services.owner,
-                { title = 'Capture failed', body = 'The portal refused.', level = 'error' }
+                { title = 'Capture failed', body = 'The portal refused.', level = 'error', anchor = services.panel }
               )
             end
           end,

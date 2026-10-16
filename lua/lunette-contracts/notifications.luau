@@ -2,6 +2,7 @@
 
 local plugin = require '@lunette-plugin'
 local vocabulary = require '@lunette-contracts/vocabulary'
+local uiHost = require '@lunette-contracts/ui-host'
 local inspection = require '@lunette-contracts/inspection'
 
 local notifications = {}
@@ -23,6 +24,9 @@ export type Notification = {
   -- provider's default, and 0 keeps it until it is dismissed.
   read timeout: number?,
   read actions: { read [number]: Action }?,
+  -- The panel the notification concerns. Its toast sits beside that panel and moves with it while the panel lives,
+  -- rather than ahead of the head.
+  read anchor: uiHost.Panel?,
 }
 
 -- A notification in the history. Its actions remain available there after its toast has gone.

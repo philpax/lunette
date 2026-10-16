@@ -1,5 +1,5 @@
--- Shows notifications as toasts on a panel that follows the head, queues those beyond the visible limit, and keeps a
--- history of every notification and its actions.
+-- Shows notifications as toasts, beside the panel each concerns or else on a panel that follows the head, queues those
+-- beyond the visible limit, and keeps a history of every notification and its actions.
 
 local plugin = require '@lunette-plugin'
 local uiHost = require '@lunette-contracts/ui-host'
@@ -22,6 +22,15 @@ type Toast = {
   hovered: boolean,
   handle: notifications.Handle,
 }
+
+-- A panel of toasts: the head-following one, or one beside an anchor panel.
+type Group = {
+  panel: uiHost.Panel,
+  toasts: ui.WritableStore<{ Toast }>,
+}
+
+-- Metres between an anchor panel's edge and its toasts.
+local ANCHOR_GAP = 0.02
 
 type ToastsProps = { toasts: ui.Store<{ Toast }>, dismiss: (Toast) -> (), hover: (Toast, boolean) -> () }
 
@@ -92,8 +101,81 @@ local function build(context: plugin.Context, settings: Settings): notifications
     end,
   }).definition)
 
+  local remove: (Toast) -> ()
+  local groups: { [uiHost.Panel]: Group } = {}
+  local panels = 0
+
+  local function mountGroup(panel: uiHost.Panel, toasts: ui.Store<{ Toast }>): ()
+    ui.mount(
+      panel,
+      Toasts {
+        toasts = toasts,
+        dismiss = function(toast: Toast)
+          remove(toast)
+        end,
+        hover = function(toast: Toast, hovered: boolean)
+          toast.hovered = hovered
+        end,
+      },
+      { components = components, owner = context }
+    )
+  end
+
+  -- An anchored panel sits beside its anchor's right edge, top-aligned and slightly in front of it.
+  local function place(anchor: uiHost.Panel, group: Group): ()
+    local anchorWidth, anchorHeight = anchor:size()
+    local width, height = group.panel:size()
+    group.panel:setPose(
+      lovr.math
+        .mat4(anchor:pose())
+        :translate(anchorWidth / 2 + ANCHOR_GAP + width / 2, (anchorHeight - height) / 2, ANCHOR_GAP / 2)
+    )
+  end
+
+  -- The live anchor a toast shows beside, or nil for the head-following panel.
+  local function anchorOf(toast: Toast): uiHost.Panel?
+    local anchor = toast.entry.notification.anchor
+    return if anchor and not anchor.dead then anchor else nil
+  end
+
+  -- Splits the shown toasts between the head-following panel and a panel beside each anchor, making and ending the
+  -- anchored panels as their toasts come and go.
   local function publish(): ()
-    visible:set(table.clone(shown))
+    local following: { Toast } = {}
+    local anchored: { [uiHost.Panel]: { Toast } } = {}
+    for _, toast in shown do
+      local anchor = anchorOf(toast)
+      if anchor then
+        local list = anchored[anchor] or {}
+        anchored[anchor] = list
+        table.insert(list, toast)
+      else
+        table.insert(following, toast)
+      end
+    end
+    visible:set(following)
+    for anchor, group in groups do
+      if not anchored[anchor] then
+        groups[anchor] = nil
+        group.panel:destroy()
+      end
+    end
+    for anchor, list in anchored do
+      local group = groups[anchor]
+      if not group then
+        panels += 1
+        local panel = host:newPanel(context, {
+          name = `notifications {panels}`,
+          size = 'content',
+          grabbable = false,
+        })
+        group = { panel = panel, toasts = ui.store({} :: { Toast }) }
+        groups[anchor] = group
+        place(anchor, group)
+        mountGroup(panel, group.toasts)
+      end
+      group.toasts:set(list)
+    end
   end
   local function fill(): ()
     while #shown < settings.visible and #queue > 0 do
@@ -101,7 +183,7 @@ local function build(context: plugin.Context, settings: Settings): notifications
     end
     publish()
   end
-  local function remove(toast: Toast): ()
+  function remove(toast: Toast): ()
     local index = table.find(shown, toast)
     if index then
       table.remove(shown, index)
@@ -116,23 +198,25 @@ local function build(context: plugin.Context, settings: Settings): notifications
   end
 
   local panel = host:newPanel(context, { name = 'notifications', presentation = 'follow', grabbable = false })
-  ui.mount(
-    panel,
-    Toasts {
-      toasts = visible,
-      dismiss = remove,
-      hover = function(toast: Toast, hovered: boolean)
-        toast.hovered = hovered
-      end,
-    },
-    { components = components, owner = context }
-  )
+  mountGroup(panel, visible)
 
   frameService:onUpdate(context, {
     phase = 'scene',
     order = -200,
     run = function(dt: number): ()
       clock += dt
+      -- Anchored toasts follow their anchor, and return to the head-following panel when the anchor ends.
+      local orphaned = false
+      for anchor, group in groups do
+        if anchor.dead then
+          orphaned = true
+        else
+          place(anchor, group)
+        end
+      end
+      if orphaned then
+        publish()
+      end
       local expired: { Toast } = {}
       for _, toast in shown do
         local remaining = toast.remaining
