@@ -5,6 +5,7 @@ local uiHost = require '@lunette-contracts/ui-host'
 local frame = require '@lunette-contracts/frame'
 local surfaces = require '@lunette-contracts/surfaces'
 local focusContract = require '@lunette-contracts/focus'
+local interaction = require '@lunette-contracts/interaction'
 local keys = require '@lunette-contracts/keys'
 local vocabulary = require '@lunette-contracts/vocabulary'
 local inspection = require '@lunette-contracts/inspection'
@@ -41,6 +42,7 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
   local frameService = context:require(frame.capability)
   local surfaceService = context:require(surfaces.capability)
   local focusService = context:require(focusContract.capability)
+  local interactionService = context:require(interaction.capability)
   local traverse: traversal.Traversal
   local mode: themes.Mode = settings.mode
   local accent: uiHost.Color = settings.accent or themes.DEFAULT_ACCENT
@@ -122,6 +124,14 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
     resolve = function(handle: uiHost.Panel): records.Panel
       return assert(recordsOf[handle], 'ui: the panel was not made by this host')
     end,
+    surfaceOf = function(record: records.Panel): vocabulary.Surface?
+      for _, entry in live do
+        if entry.record == record then
+          return entry.surface
+        end
+      end
+      return nil
+    end,
     release = function(record: records.Panel): ()
       traversal.release(record)
       for index, entry in live do
@@ -140,6 +150,24 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
     end
     return list
   end)
+
+  -- A press on a window, another plugin's surface, or nothing dismisses every overlay; presses on host panels are
+  -- judged against each overlay's chain as they are routed.
+  interactionService:onPress(context, {
+    run = function(target: vocabulary.Surface?): ()
+      for _, entry in live do
+        if entry.surface == target then
+          return
+        end
+      end
+      for _, entry in table.clone(live) do
+        local relation = entry.record.overlay
+        if relation and not entry.record.dead and not entry.record.closing then
+          relation.portal.handle:emit 'onDismiss'
+        end
+      end
+    end,
+  })
 
   surfaceService:offer(context, {
     name = 'ui-host',
@@ -244,7 +272,9 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
         for _, entry in live do
           panels[#panels + 1] = entry.record
         end
-        touch.update(touching, panels, env, router, dt)
+        touch.update(touching, panels, env, router, dt, function(hand: 'left' | 'right', near: boolean): ()
+          interactionService:reportNear(context, hand, near)
+        end)
       end,
     })
   end
@@ -521,6 +551,6 @@ return plugin.provider<<Config, Settings, uiHost.Service>> {
   name = 'ui-host',
   schema = config.schema,
   capability = uiHost.capability,
-  requires = { frame.capability, surfaces.capability, focusContract.capability },
+  requires = { frame.capability, surfaces.capability, focusContract.capability, interaction.capability },
   build = build,
 }

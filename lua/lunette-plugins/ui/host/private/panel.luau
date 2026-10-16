@@ -20,6 +20,8 @@ export type Provider = {
   read release: (records.Panel) -> (),
   -- The record behind a panel handle this host made.
   read resolve: (uiHost.Panel) -> records.Panel,
+  -- The surface a live panel offers.
+  read surfaceOf: (records.Panel) -> vocabulary.Surface?,
 }
 
 local function positive(value: number?, label: string): ()

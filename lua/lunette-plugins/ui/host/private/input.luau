@@ -23,6 +23,8 @@ type Capture = {
 type PointerState = {
   hovered: records.Node?,
   capture: Capture?,
+  -- The overlay panel that took this pointer's press from its opener; a release over one of its nodes activates it.
+  handoff: records.Panel?,
 }
 
 export type Router = {
@@ -157,6 +159,18 @@ local function setHovered(env: records.Environment, state: PointerState, node: r
   end
 end
 
+-- Whether a node is the ancestor or the node itself.
+local function within(node: records.Node, ancestor: records.Node): boolean
+  local current: records.Node? = node
+  while current do
+    if current == ancestor then
+      return true
+    end
+    current = current.parent
+  end
+  return false
+end
+
 local function release(env: records.Environment, capture: Capture, x: number, y: number, inside: boolean): ()
   local node = capture.node
   node.host.pressed = false
@@ -204,6 +218,34 @@ local function move(env: records.Environment, state: PointerState, x: number, y:
   capture.lastX, capture.lastY = x, y
 end
 
+-- Moves the ray presses held inside a portal's owner onto its new overlay. Fingertip pointers cannot transfer, so a
+-- touch press stays on the opener.
+function input.handoff(
+  router: Router,
+  env: records.Environment,
+  portal: records.Node,
+  target: records.Panel,
+  from: vocabulary.Surface,
+  to: vocabulary.Surface
+): ()
+  local owner = portal.parent
+  for pointer, state in router.pointers do
+    local capture = state.capture
+    local movable = (pointer :: any).transfer ~= nil
+    if capture and owner and not capture.node.dead and movable and within(capture.node, owner) then
+      if pointer:transfer(from, to) then
+        local node = capture.node
+        state.capture = nil
+        state.handoff = target
+        node.host.pressed = false
+        node.host.dragging = false
+        respond(node)
+        setHovered(env, state, nil)
+      end
+    end
+  end
+end
+
 function input.pointer(
   router: Router,
   panel: records.Panel,
@@ -226,6 +268,7 @@ function input.pointer(
   if event.kind == 'cancel' then
     local capture = state.capture
     state.capture = nil
+    state.handoff = nil
     if capture and not capture.node.dead then
       capture.node.host.pressed = false
       capture.node.host.dragging = false
@@ -273,9 +316,18 @@ function input.pointer(
     if env.haptics() then
       event.pointer:vibrate(PRESS_HAPTIC)
     end
-    input.dispatch(env, target, { kind = 'press', x = x, y = y }, x, y)
+    local source = if (event :: any).touch then 'touch' else 'ray'
+    input.dispatch(env, target, { kind = 'press', x = x, y = y, source = source }, x, y)
   elseif event.kind == 'release' then
     local capture = state.capture
+    local handed = state.handoff
+    if event.button == 'left' and not capture and handed then
+      state.handoff = nil
+      if handed == panel and target and not target.dead then
+        input.dispatch(env, target, { kind = 'activate' })
+      end
+      return
+    end
     if event.button ~= 'left' or not capture then
       return
     end
@@ -296,7 +348,7 @@ function input.pointer(
   elseif event.kind == 'scroll' then
     local over = input.deepest(panel, x, y)
     if over then
-      input.dispatch(env, over, { kind = 'scroll', dx = event.dx, dy = event.dy })
+      input.dispatch(env, over, { kind = 'scroll', dx = event.dx, dy = event.dy, x = x, y = y }, x, y)
     end
   end
 end

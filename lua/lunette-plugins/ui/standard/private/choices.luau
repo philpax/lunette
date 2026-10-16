@@ -547,7 +547,9 @@ function choices.registerDropdown(service: uiHost.Service, owner: any): uiHost.C
         }
       end,
     },
-    state = { open = false },
+    -- A ray press opens the menu at once, so the press can drag onto an item and release there; `pressOpened` keeps
+    -- that press's own activation from closing the menu again.
+    state = { open = false, pressOpened = false },
     expand = function(
       props: uiHost.Props,
       _children: { read [number]: uiHost.Element },
@@ -568,7 +570,7 @@ function choices.registerDropdown(service: uiHost.Service, owner: any): uiHost.C
             current = option.id == props.value,
             disabledReason = option.disabledReason,
             onActivate = function()
-              act.setState { open = false }
+              act.setState { open = false, pressOpened = false }
               act.emit('onChange', option.id)
             end,
             element('lunette/spacer', { key = 'mark', grow = 0, width = 0.012 }),
@@ -580,8 +582,19 @@ function choices.registerDropdown(service: uiHost.Service, owner: any): uiHost.C
         element('lunette/button-face', {
           key = 'trigger',
           variant = 'default',
+          onPress = function(source: string)
+            if source ~= 'ray' then
+              return
+            end
+            act.setState(function(current: { read [string]: any }): { [string]: any }
+              return if current.open then { pressOpened = false } else { open = true, pressOpened = true }
+            end)
+          end,
           onActivate = function()
             act.setState(function(current: { read [string]: any }): { [string]: any }
+              if current.pressOpened then
+                return { pressOpened = false }
+              end
               return { open = not current.open }
             end)
           end,
@@ -600,8 +613,9 @@ function choices.registerDropdown(service: uiHost.Service, owner: any): uiHost.C
           then element('lunette/portal', {
             key = 'menu',
             matchWidth = true,
+            handoff = true,
             onDismiss = function()
-              act.setState { open = false }
+              act.setState { open = false, pressOpened = false }
             end,
             element('lunette/menu', { items }),
           })

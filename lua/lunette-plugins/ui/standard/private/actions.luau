@@ -27,6 +27,10 @@ local function pressable(node: uiHost.Node, event: uiHost.Event, base: (uiHost.N
     if tokens.enabled(node.props) then
       node:emit 'onActivate'
     end
+  elseif event.kind == 'press' then
+    if tokens.enabled(node.props) then
+      node:emit('onPress', event.source or 'ray')
+    end
   elseif event.kind == 'hover-enter' then
     node:emit('onHover', true)
   elseif event.kind == 'hover-leave' then
@@ -73,6 +77,8 @@ function actions.register(service: uiHost.Service, owner: any): { [string]: uiHo
       variant = optional(shapes.variant),
       grow = optional(schema.number()),
       onActivate = optional(shapes.activate),
+      -- Receives the press's source, 'ray' or 'touch', when the press starts rather than when it activates.
+      onPress = optional(schema.callback(function(_source: string) end)),
       onHover = optional(schema.callback(function(_hovered: boolean) end)),
     },
     focus = 'pointer',

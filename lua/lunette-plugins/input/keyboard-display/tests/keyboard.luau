@@ -15,6 +15,8 @@ local function start(config: Config?): Environment
     'theme',
     'surfaces',
     'focus',
+    'drops',
+    'interaction',
     'ui-host',
     'ui-standard',
     'keyboard',

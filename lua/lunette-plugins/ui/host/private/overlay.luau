@@ -6,6 +6,7 @@ local uiHost = require '@lunette-contracts/ui-host'
 local records = require './records'
 local tree = require './tree'
 local panel = require './panel'
+local input = require './input'
 local shape = require './shape'
 
 local overlay = {}
@@ -27,7 +28,14 @@ function overlay.render(provider: panel.Provider, portal: records.Node): records
     created.fade = { value = 0, target = 1, velocity = 0 }
     portal.overlay = created
     record = created
-    provider.offer(created, panel.surface(provider, created, nil))
+    local surface = panel.surface(provider, created, nil)
+    provider.offer(created, surface)
+    -- A portal that asks for handoff takes over a ray press held on its opener, so the press can drag onto the
+    -- overlay and release on an item.
+    local openerSurface = provider.surfaceOf(opener)
+    if portal.props.handoff and openerSurface then
+      input.handoff(provider.router, provider.env, portal, created, openerSurface, surface)
+    end
   end
   local current = assert(record)
   local anchor = overlay.anchor(portal)

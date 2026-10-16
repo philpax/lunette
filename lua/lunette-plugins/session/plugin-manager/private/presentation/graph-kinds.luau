@@ -53,7 +53,8 @@ local function absolute(props: uiHost.Props, extra: lunette.LayoutStyle): lunett
 end
 
 function graphKinds.register(host: uiHost.Service, owner: plugin.Owner): Constructors
-  -- Canvas props: lines, and onPress, onDrag, onRelease, onCancel, and onScroll, which receive canvas metres.
+  -- Canvas props: lines, and onPress, onDrag, onRelease, onCancel, and onScroll, which receive canvas metres; onScroll
+  -- receives the scroll amount before the position.
   local canvas = host:registerKind(owner, {
     name = 'plugin-manager/graph-canvas',
     layout = {
@@ -78,7 +79,7 @@ function graphKinds.register(host: uiHost.Service, owner: plugin.Owner): Constru
       elseif event.kind == 'cancel' then
         node:emit 'onCancel'
       elseif event.kind == 'scroll' then
-        node:emit('onScroll', event.dy)
+        node:emit('onScroll', event.dy, event.x, event.y)
       elseif
         event.kind ~= 'hover-enter'
         and event.kind ~= 'hover-leave'

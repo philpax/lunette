@@ -88,12 +88,15 @@ function touch.candidates(panels: { records.Panel }, env: records.Environment, p
   return list
 end
 
+-- Advances both hands. `near` receives each hand's arbitration state: a fingertip hovering a panel is near, so the
+-- interaction service stands the same hand's ray down.
 function touch.update(
   state: Touch,
   panels: { records.Panel },
   env: records.Environment,
   router: input.Router,
-  dt: number
+  dt: number,
+  near: ('left' | 'right', boolean) -> ()
 ): ()
   for name, hand in state.hands do
     local point = fingertip(name :: any)
@@ -122,11 +125,13 @@ function touch.update(
           captured = false,
           inside = true,
           button = 'left',
+          touch = true,
           reason = if event.kind == 'cancel' then 'tracking-loss' else nil,
         }
         input.pointer(router, panel, env, delivered)
       end
     end
+    near(name :: any, hand.panel ~= nil)
   end
 end
 

@@ -308,6 +308,104 @@ test('a dropdown menu closes on a press outside it and opens past the panel edge
   state.fixture:close()
 end)
 
+test('a dropdown menu closes on a press at nothing', function()
+  local state = fixture.boot { standard = true, width = 0.3, height = 0.09 }
+  local c = assert(state.components)
+  local options = { { id = 'one', label = 'One' }, { id = 'two', label = 'Two' } }
+  fixture.show(
+    state,
+    c.Panel { c.Body { key = 'body', c.Dropdown { key = 'choice', value = 'one', options = options } } }
+  )
+  fixture.click(state, 'body/choice/trigger')
+  state.fixture:step()
+  expect.truthy(state.panel:find 'body/choice/menu/two', 'the menu is open')
+  -- The ray points away from every panel, so the press lands on nothing.
+  state.fixture:pose('right', lovr.math.newMat4():translate(10, 10, 0))
+  state.fixture:step()
+  state.fixture:button('right', 'trigger', true)
+  state.fixture:step()
+  state.fixture:button('right', 'trigger', false)
+  state.fixture:step()
+  state.fixture:step()
+  expect.equal(state.panel:find 'body/choice/menu', nil, 'the menu closed')
+  state.fixture:close()
+end)
+
+test('a ray press on a dropdown drags onto an item and chooses it on release', function()
+  local state = fixture.boot { standard = true, width = 0.3, height = 0.09 }
+  local c = assert(state.components)
+  local chosen: { string } = {}
+  local options = { { id = 'one', label = 'One' }, { id = 'two', label = 'Two' }, { id = 'three', label = 'Three' } }
+  fixture.show(
+    state,
+    c.Panel {
+      c.Body {
+        key = 'body',
+        c.Dropdown {
+          key = 'choice',
+          value = 'one',
+          options = options,
+          onChange = function(id: string)
+            table.insert(chosen, id)
+          end,
+        },
+      },
+    }
+  )
+  local trigger = assert(state.panel:find 'body/choice/trigger')
+  local controls = state.fixture
+  controls:aim(fixture.nodeGeometry(trigger), 0.5, 0.5)
+  controls:step()
+  controls:button('right', 'trigger', true)
+  controls:step()
+  controls:step()
+  local item = assert(state.panel:find 'body/choice/menu/three', 'the press opened the menu')
+  controls:aim(fixture.nodeGeometry(item), 0.5, 0.5)
+  controls:step()
+  controls:step()
+  controls:button('right', 'trigger', false)
+  controls:step()
+  controls:step()
+  expect.equal(chosen[1], 'three', 'releasing over the item chooses it')
+  expect.equal(state.panel:find 'body/choice/menu', nil, 'the menu closed')
+  state.fixture:close()
+end)
+
+test('releasing a dropdown press over its opener leaves the menu open for a separate click', function()
+  local state = fixture.boot { standard = true, width = 0.3, height = 0.09 }
+  local c = assert(state.components)
+  local chosen: { string } = {}
+  local options = { { id = 'one', label = 'One' }, { id = 'two', label = 'Two' } }
+  fixture.show(
+    state,
+    c.Panel {
+      c.Body {
+        key = 'body',
+        c.Dropdown {
+          key = 'choice',
+          value = 'one',
+          options = options,
+          onChange = function(id: string)
+            table.insert(chosen, id)
+          end,
+        },
+      },
+    }
+  )
+  fixture.click(state, 'body/choice/trigger')
+  state.fixture:step()
+  expect.truthy(state.panel:find 'body/choice/menu/two', 'the menu stays open after the click')
+  fixture.click(state, 'body/choice/menu/two')
+  state.fixture:step()
+  expect.equal(chosen[1], 'two', 'a separate click chooses the item')
+  fixture.click(state, 'body/choice/trigger')
+  state.fixture:step()
+  fixture.click(state, 'body/choice/trigger')
+  state.fixture:step()
+  expect.equal(state.panel:find 'body/choice/menu', nil, 'a second click on the opener closes the menu')
+  state.fixture:close()
+end)
+
 -- A virtual keyboard source, as the VR keyboard is, through the session's focus service.
 local function keyboard(state: fixture.State): any
   local focusContract = require '@lunette-contracts/focus'

@@ -378,4 +378,51 @@ test('a node near the edge of a curved panel is clicked where it is drawn', func
   state.fixture:close()
 end)
 
+test('a scroll reaches the node under the pointer with its position in that node', function()
+  local received: { any } = {}
+  local state = fixture.boot {
+    setup = function(service: uiHost.Service, owner: any)
+      fixture.registerKinds(service, owner, {})
+      service:registerKind(owner, {
+        name = 'test/canvas',
+        layout = {
+          kind = 'leaf',
+          style = function(): any
+            return { width = 0.1, height = 0.05 }
+          end,
+        },
+        interactive = function(): boolean
+          return true
+        end,
+        event = function(_node: uiHost.Node, event: uiHost.Event, base: (uiHost.Node, uiHost.Event) -> ())
+          if event.kind == 'scroll' then
+            table.insert(received, event)
+          else
+            base(_node, event)
+          end
+        end,
+      })
+    end,
+  }
+  fixture.show(state, element('test/column', { padding = 0.01, element('test/canvas', { key = 'canvas' }) }))
+  local surface = fixture.surface(state)
+  local pointer = fixture.pointer()
+  surface:onPointer { kind = 'move', pointer = pointer, x = 0.03, y = 0.02, inside = true, captured = false }
+  surface:onPointer {
+    kind = 'scroll',
+    pointer = pointer,
+    x = 0.03,
+    y = 0.02,
+    dx = 0,
+    dy = 2,
+    inside = true,
+    captured = false,
+  }
+  expect.equal(#received, 1, 'the canvas receives the scroll')
+  near(received[1].dy, 2, 'the scroll amount')
+  near(received[1].x, 0.02, 'x is relative to the canvas')
+  near(received[1].y, 0.01, 'y is relative to the canvas')
+  state.fixture:close()
+end)
+
 return test

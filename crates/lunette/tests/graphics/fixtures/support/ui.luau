@@ -29,6 +29,8 @@ function ui.boot(definitions: { any }, requires: { any }, setup: (adapter.Contex
     'frame',
     'surfaces',
     'focus',
+    'drops',
+    'interaction',
     { id = 'ui-host', definition = require('@lunette-plugins/ui/host').definition },
   }
   lovr.graphics, lovr.data = graphics, data

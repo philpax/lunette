@@ -99,6 +99,16 @@ local function live(state: ProviderState): { MutableLaser }
   return found
 end
 
+-- Whether any button of the frame is down, so a ray mid-gesture does not stand down.
+local function held(frame: Input): boolean
+  for _, down in frame.buttons do
+    if down then
+      return true
+    end
+  end
+  return false
+end
+
 local function makeLaser(
   state: ProviderState,
   settings: Settings,
@@ -143,6 +153,10 @@ local function makeLaser(
     local previousRaw: triggerLock.RawAim? = nil
     local lockState: triggerLock.State = triggerLock.ready()
     local withdrawn = false
+    -- Near beats far: while this hand's fingertip is reported near a surface, an idle ray stands down and hides. A ray
+    -- that holds a button or a grab keeps going until it is idle.
+    local standing = false
+    local wasHeld = false
     local target: MutableLaser
     target = {
       owner = owner,
@@ -200,15 +214,23 @@ local function makeLaser(
         previousRaw = { origin = sampled.origin, direction = sampled.direction }
         target.input = frame
         withdrawn = false
+        -- A release frame still delivers to the surface, so a ray stands down only after a whole idle frame.
+        local near, holding = interactionService:isNear(self.hand), held(frame)
+        if not near then
+          standing = false
+        elseif not standing and self.pointer.grabbed == nil and not holding and not wasHeld then
+          standing = true
+        end
+        wasHeld = holding
         local before = self.pointer.hovered
-        self.pointer:update(frame, surfaces)
+        self.pointer:update(frame, if standing then {} else surfaces)
         dragIcon.observe(target.icon, self.pointer.hovered)
         if self.pointer.hovered ~= before then
           self:vibrate()
         end
       end,
       draw = function(self: Beam, pass: Pass)
-        if self.dead or not state.active then
+        if self.dead or not state.active or standing then
           return
         end
         state.refreshStyle()

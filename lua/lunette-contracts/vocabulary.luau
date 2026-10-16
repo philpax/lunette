@@ -161,6 +161,9 @@ export type Pointer = {
   read withdraw: (Pointer) -> (),
   -- Cancels only this surface's active gestures. Held buttons require an observed release before another press.
   read cancel: (Pointer, Surface, CancelReason) -> (),
+  -- Moves this pointer's captures from one surface to another without a release or a cancel, so a press on a menu's
+  -- opener can drag onto the menu and release there. Answers whether any capture moved.
+  read transfer: (Pointer, Surface, Surface) -> boolean,
   read destroy: (Pointer) -> boolean,
   read hover: (Pointer, Surface?) -> (),
   read setButton: (Pointer, ButtonState) -> (),

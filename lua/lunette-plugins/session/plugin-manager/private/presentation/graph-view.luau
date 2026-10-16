@@ -159,9 +159,9 @@ graphView.Graph = ui.component('PluginGraph', function(): ui.Child
           controller.graphCancel(state)
         end)
       end,
-      onScroll = function(dy: number): ()
+      onScroll = function(dy: number, x: number, y: number): ()
         m.change(function(): ()
-          controller.graphZoom(state, math.exp(dy * SCROLL_ZOOM))
+          controller.graphZoom(state, math.exp(dy * SCROLL_ZOOM), point(x, y))
         end)
       end,
       children,

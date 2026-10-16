@@ -27,6 +27,12 @@ export type Element = {
   read slots: { read [number]: string }?,
 }
 
+-- The host's portal kind, 'lunette/portal', renders its children into an overlay panel raised above the portal's
+-- parent, which it uses as the anchor. Its props are `placement` ('below' or 'above', flipping when the overlay does
+-- not fit), `matchWidth` to take at least the anchor's width, `hit` (false for an overlay that takes no input),
+-- `onDismiss`, which runs on a press outside the overlay and its opener, and `handoff`, which moves a ray press held
+-- inside the parent onto the new overlay so the press can be released on an item there.
+
 -- A child of an element constructor: nil and false hold their position, and arrays flatten in place.
 export type Child = Element | { read [number]: Child } | false | nil
 
@@ -226,14 +232,16 @@ export type Visual = (node: Node, draw: Draw, base: (Node, Draw) -> ()) -> ()
 export type Event =
   { read kind: 'hover-enter' }
   | { read kind: 'hover-leave' }
-  | { read kind: 'press', read x: number, read y: number }
+  -- Source tells a ray press from a fingertip, since an opener acts on a ray press but on a touch release.
+  | { read kind: 'press', read x: number, read y: number, read source: ('ray' | 'touch')? }
   | { read kind: 'release', read x: number, read y: number, read inside: boolean }
   | { read kind: 'activate' }
   | { read kind: 'cancel', read reason: string }
   | { read kind: 'drag-start', read x: number, read y: number }
   | { read kind: 'drag', read x: number, read y: number, read dx: number, read dy: number }
   | { read kind: 'drag-end', read x: number, read y: number }
-  | { read kind: 'scroll', read dx: number, read dy: number }
+  -- A scroll carries the pointer's position in the receiving node, so a canvas can zoom about it.
+  | { read kind: 'scroll', read dx: number, read dy: number, read x: number, read y: number }
   | { read kind: 'change', read key: string?, read value: any }
   -- Keys and committed text reach the panel's focused node and bubble to its ancestors. Source is 'controller' for
   -- traversal from a controller, which value controls handle only while engaged.

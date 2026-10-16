@@ -44,6 +44,8 @@ export type Host = {
   read live: () -> boolean,
   read focus: (lunette.Sink) -> (),
   read hoveredByAnother: (Surface) -> boolean,
+  -- Tells press observers that a button went down, on the surface it pressed or on nothing.
+  read pressed: (Surface?) -> (),
 }
 export type Sample = { held: { [Button]: boolean }, down: { [Button]: boolean } }
 
@@ -404,6 +406,10 @@ local function press(
 ): ()
   state.pressed[button] = true
   local generation = state.generation
+  host.pressed(if sink then nil else surface)
+  if not host.live() or state.generation ~= generation then
+    return
+  end
   if sink then
     if not sink.dead and seatLive(state) then
       state.pressedSink[button] = { sink = sink, surface = surface }
@@ -435,6 +441,21 @@ local function press(
       handler(surface, table.freeze(event))
     end
   end
+end
+
+-- Moves the captures held on one surface to another. The new capture has no position until the next motion.
+function input.transfer(state: State, from: Surface, to: Surface): boolean
+  if to.dead or not to.onPointer then
+    return false
+  end
+  local moved = false
+  for button, capture in state.captures do
+    if capture.surface == from then
+      state.captures[button] = { surface = to, onPointer = to.onPointer, x = nil, y = nil, inside = false }
+      moved = true
+    end
+  end
+  return moved
 end
 
 function input.releases(state: State, pointer: Pointer, sample: Sample): { Inverse }

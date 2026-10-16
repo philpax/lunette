@@ -24,6 +24,8 @@ local function start(): Environment
     'theme',
     'surfaces',
     'focus',
+    'drops',
+    'interaction',
     'keyboard',
     'ui-host',
     'ui-standard',
