@@ -75,8 +75,9 @@ export type LayoutFailure = { read id: number, read message: string }
 
 -- One positioned glyph, in metres from the text node's left edge, with the
 -- inclusive byte range of the text it draws. The face is a handle that the
--- glyph atlas takes.
-export type LayoutGlyph = { read face: number, read id: number, read x: number, read advance: number, read size: number, read byteStart: number, read byteEnd: number }
+-- glyph atlas takes. The offsets place the glyph relative to its origin, y
+-- down, as shaping positions a combining mark.
+export type LayoutGlyph = { read face: number, read id: number, read x: number, read xOffset: number, read yOffset: number, read advance: number, read size: number, read byteStart: number, read byteEnd: number }
 
 -- One shaped line, in metres from the text node's top-left corner.
 export type LayoutLine = { read top: number, read height: number, read width: number, read baseline: number, read glyphs: { read [number]: LayoutGlyph } }

@@ -151,7 +151,15 @@ function pack.run(
           for _, shaped in line.glyphs do
             local placement = glyphs(shaped.face, shaped.id)
             if placement then
-              glyph(placement, left + shaped.x, baseline, shaped.size, z, tint, at.clip)
+              glyph(
+                placement,
+                left + shaped.x + shaped.xOffset,
+                baseline + shaped.yOffset,
+                shaped.size,
+                z,
+                tint,
+                at.clip
+              )
             end
           end
         end

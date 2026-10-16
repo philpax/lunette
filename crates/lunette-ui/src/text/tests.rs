@@ -152,3 +152,25 @@ fn invalid_styles_are_refused() {
         assert_eq!(TextBlock::new(&mut fonts, "x", style).err(), Some(expected));
     }
 }
+
+#[test]
+fn a_combining_mark_is_placed_over_its_base() {
+    let mut fonts = Fonts::bundled([include_bytes!(
+        "../../../../lua/lunette-plugins/ui/standard/fonts/IBMPlexSans-Regular.ttf"
+    )
+    .to_vec()]);
+    let style = TextStyle {
+        family: Some("IBM Plex Sans".to_owned()),
+        ..TextStyle::default()
+    };
+    let mut block = TextBlock::new(&mut fonts, "q\u{302}", style).expect("the style is valid");
+    let lines = block.lines(&mut fonts, None);
+    let glyphs = &lines[0].glyphs;
+    assert_eq!(glyphs.len(), 2, "a base and a mark: {glyphs:?}");
+    let (base, mark) = (&glyphs[0], &glyphs[1]);
+    let drawn = mark.x + mark.offset_x;
+    assert!(
+        drawn < base.x + base.advance,
+        "the mark is drawn over the base, not after it: {glyphs:?}"
+    );
+}

@@ -411,6 +411,8 @@ impl IntoLua for LayoutLine {
             entry.set("face", glyph.handle.get())?;
             entry.set("id", glyph.id)?;
             entry.set("x", glyph.x)?;
+            entry.set("xOffset", glyph.offset_x)?;
+            entry.set("yOffset", glyph.offset_y)?;
             entry.set("advance", glyph.advance)?;
             entry.set("size", glyph.size)?;
             entry.set("byteStart", glyph.start + 1)?;
@@ -773,11 +775,13 @@ alias!(
 alias!(
     LayoutGlyphAlias,
     "LayoutGlyph",
-    "One positioned glyph, in metres from the text node's left edge, with the inclusive byte range of the text it draws. The face is a handle that the glyph atlas takes.",
+    "One positioned glyph, in metres from the text node's left edge, with the inclusive byte range of the text it draws. The face is a handle that the glyph atlas takes. The offsets place the glyph relative to its origin, y down, as shaping positions a combining mark.",
     record(&[
         ("face", number()),
         ("id", number()),
         ("x", number()),
+        ("xOffset", number()),
+        ("yOffset", number()),
         ("advance", number()),
         ("size", number()),
         ("byteStart", number()),

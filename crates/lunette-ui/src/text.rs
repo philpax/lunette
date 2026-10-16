@@ -295,6 +295,10 @@ pub struct Glyph {
     pub id: u16,
     /// The glyph's origin on the baseline, in metres from the node's left edge.
     pub x: f32,
+    /// Shaping's placement of the glyph relative to its origin, in metres, with y down, as a
+    /// combining mark has.
+    pub offset_x: f32,
+    pub offset_y: f32,
     pub advance: f32,
     pub size: f32,
     /// The byte range of the text this glyph draws.
@@ -419,6 +423,8 @@ impl TextBlock {
                         handle: handle(glyph.font_id),
                         id: glyph.glyph_id,
                         x: glyph.x * unit,
+                        offset_x: glyph.font_size * glyph.x_offset * unit,
+                        offset_y: (glyph.y - glyph.font_size * glyph.y_offset) * unit,
                         advance: glyph.w * unit,
                         size: glyph.font_size * unit,
                         start: glyph.start,
