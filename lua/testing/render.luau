@@ -7,13 +7,15 @@ local render = {}
 
 export type FontSpec =
   { read kind: 'default' }
-  | { read kind: 'file', read file: string, read size: number, read spread: number }
+  | { read kind: 'file', read file: string, read size: number, read spread: number? }
 export type Font = {
   spec: FontSpec,
   released: boolean,
   release: (Font) -> (),
   getHeight: (Font) -> number,
   getLineSpacing: (Font) -> number,
+  getAscent: (Font) -> number,
+  setPixelDensity: (Font, number?) -> (),
   getWidth: (Font, string) -> number,
   getLines: (Font, string, number?) -> { string },
 }
@@ -115,7 +117,7 @@ export type Recorder = {
 local Recorder = {}
 Recorder.__index = Recorder
 
-type FileFontSpec = { read kind: 'file', read file: string, read size: number, read spread: number }
+type FileFontSpec = { read kind: 'file', read file: string, read size: number, read spread: number? }
 local newFont: (FileFontSpec?, Recorder?) -> Font
 local newPass: (Recorder) -> Pass
 local copyState: (State) -> State
@@ -180,6 +182,16 @@ function Recorder.newMesh(
     self.meshFailure = nil
     error(message, 0)
   end
+  -- `newMesh(vertices, flags)` passes vertices in the default format where a format would otherwise be.
+  local initial: { { number } }? = nil
+  if type(formatOrCount) == 'table' then
+    local first = (formatOrCount :: { any })[1]
+    if type(first) == 'table' and type(first[1]) == 'number' then
+      initial = formatOrCount :: any
+      flags = verticesOrCount :: MeshFlags?
+      formatOrCount, verticesOrCount = #formatOrCount, nil
+    end
+  end
   local custom = type(formatOrCount) == 'table'
   if not custom and type(verticesOrCount) == 'table' then
     flags = verticesOrCount
@@ -214,7 +226,7 @@ function Recorder.newMesh(
     flags = if flags then table.freeze(table.clone(flags)) else nil,
     attributeCount = attributeCount,
     positionOffset = positionOffset,
-    vertices = {},
+    vertices = if initial then table.clone(initial) else {},
     indices = {},
     released = false,
   }
@@ -349,7 +361,7 @@ end
 
 newFont = function(spec: FileFontSpec?, recorder: Recorder?): Font
   local font = { spec = spec or table.freeze { kind = 'default' }, released = false }
-  local advance = if spec then 0.7 + spec.size / 1000 + spec.spread / 10000 else 0.5
+  local advance = if spec then 0.7 + spec.size / 1000 + (spec.spread or 0) / 10000 else 0.5
   local height = if spec then 1.2 else 1
   local function live(method: string, text: string?)
     assert(not font.released, 'render recorder: released font used for ' .. method)
@@ -369,6 +381,13 @@ newFont = function(spec: FileFontSpec?, recorder: Recorder?): Font
   function font.getLineSpacing(self: Font): number
     live 'getLineSpacing'
     return if spec then 1.1 else 1
+  end
+  function font.getAscent(self: Font): number
+    live 'getAscent'
+    return height * 0.8
+  end
+  function font.setPixelDensity(self: Font, _density: number?)
+    live 'setPixelDensity'
   end
   function font.getWidth(self: Font, text: string): number
     live('getWidth', text)

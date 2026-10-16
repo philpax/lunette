@@ -848,6 +848,12 @@ installLovr = function(events: Events)
       return font
     end,
   }
+  -- A blob carries its contents to a constructor such as `newFont`, which the fake does not parse.
+  lovr.data = {
+    newBlob = function(contents: string, name: string?): { read contents: string, read name: string? }
+      return table.freeze { contents = contents, name = name }
+    end,
+  } :: any
   lovr.timer = {
     getTime = function(): number
       return events.time
