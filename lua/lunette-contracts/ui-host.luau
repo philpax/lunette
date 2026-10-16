@@ -388,8 +388,8 @@ export type PanelOptions = {
   read presentation: ('world' | 'follow' | 'dialog' | 'attach')?,
   -- Bends the panel as a vertical cylinder of radius 1 / curve, centred on the viewer's side; zero is flat.
   read curve: number?,
-  -- An attached panel sits above the top edge of a surface, such as a window panel, takes its width, and moves it
-  -- when grabbed; `gap` is metres between the two.
+  -- An attached panel sits above the top edge of a surface, such as a window panel, is at least as wide as it,
+  -- growing to fit content that needs more, and moves it when grabbed; `gap` is metres between the two.
   read target: vocabulary.Surface?,
   read gap: number?,
   read parent: Panel?,

@@ -53,7 +53,7 @@ function presentation.place(record: records.Panel, head: Head?, dt: number, them
       record.sync()
       return
     end
-    record.width = target.width or record.width
+    record.minWidth = target.width or record.minWidth
     local above = (target.height or 0) / 2 + record.gap + record.height / 2
     record.pose:set(target.pose):translate(0, above, theme.elevation.contentOffset)
   elseif record.presentation == 'dialog' then

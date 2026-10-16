@@ -127,7 +127,7 @@ test('controller clicks on fields share one keyboard that types, and its Hide ke
   running:close()
 end)
 
-test('the titlebar sits above the keyboard, moves it, and closes it', function()
+test('the titlebar sits above the keyboard and closes it', function()
   local env = boot()
   local running = env.running
   env.panels:click(running, FIELDS, 'body/first')
@@ -136,20 +136,12 @@ test('the titlebar sits above the keyboard, moves it, and closes it', function()
   local bar = assert(env.panels:panel(TITLEBAR), 'the shown keyboard has a titlebar')
   expect.truthy(env.panels:node(TITLEBAR, 'header'), 'the titlebar names the keyboard')
   local width, height = bar:size()
-  expect.truthy(width >= current.width - 1e-5, 'the titlebar spans the keyboard')
+  expect.truthy(width >= current.width - 1e-5, 'the titlebar spans the keyboard, and grows past a narrow one to fit')
   local above = lovr.math.newMat4(current.pose):invert() * bar:pose()
   local x, y, z = above:getPosition()
   expect.near(x, 0, 1e-5, 'the titlebar is centred on the keyboard')
   expect.truthy(y > current.height / 2 + height / 2 - 1e-5, 'the titlebar sits above the keyboard')
-  expect.near(z, 0, 1e-5, 'the titlebar lies in the keyboard plane')
-
-  -- A grab moves the titlebar's surface; the keyboard follows it on the next frame.
-  local moved = lovr.math.newMat4(bar:pose()):translate(0.3, 0.1, 0)
-  bar:setPose(moved)
-  running:step()
-  local expected = lovr.math.newMat4(moved):translate(0, -y, 0)
-  local delta = position(current.pose) - position(expected)
-  expect.truthy(vector.magnitude(delta) < 1e-4, 'moving the titlebar moves the keyboard')
+  expect.truthy(math.abs(z) < 0.001, 'the titlebar lies in the keyboard plane')
 
   env.panels:click(running, TITLEBAR, 'header/band/close')
   expect.falsy(env.display:isVisible(), 'Close hides the keyboard')
@@ -161,6 +153,37 @@ test('the titlebar sits above the keyboard, moves it, and closes it', function()
       expect.falsy(registration.details.visible, 'the titlebar hides with the keyboard')
     end
   end
+  running:close()
+end)
+
+test('a trigger drag on the titlebar carries the keyboard', function()
+  local env = boot()
+  local running = env.running
+  env.panels:click(running, FIELDS, 'body/first')
+  local current = board(env.surfaces)
+  running:step()
+  local bar = assert(env.panels:panel(TITLEBAR), 'the shown keyboard has a titlebar')
+  local width = bar:size()
+  -- The drag starts on the bar's empty space, left of its title.
+  local px, py, pz = position(current.pose).x, position(current.pose).y, position(current.pose).z
+  local origin = lovr.math.newMat4(bar:pose()):translate(-width / 2 + 0.005, 0, 0.5)
+  running:pose('right', origin)
+  running:tracked('right', true)
+  running:step()
+  running:button('right', 'trigger', true)
+  running:step()
+  local destination = lovr.math.newMat4(origin):translate(0.3, 0.1, -0.1)
+  running:pose('right', destination)
+  running:step()
+  running:button('right', 'trigger', false)
+  running:step()
+  -- The keyboard follows the controller's displacement in the world.
+  local delta = position(destination) - position(origin)
+  local moved = position(current.pose)
+  expect.near(moved.x, px + delta.x, 1e-4, 'the keyboard moves in x')
+  expect.near(moved.y, py + delta.y, 1e-4, 'the keyboard moves in y')
+  expect.near(moved.z, pz + delta.z, 1e-4, 'the keyboard moves in z')
+
   running:close()
 end)
 

@@ -13,6 +13,10 @@ local PLACEMENT_STRIDE = 7
 
 -- The host root's style: the content root fills a fixed panel and sizes a content-sized one.
 function layout.rootStyle(panel: records.Panel): lunette.LayoutStyle
+  -- An attached panel is at least as wide as its target and grows to fit content that needs more.
+  if panel.presentation == 'attach' then
+    return { flexDirection = 'column', alignItems = 'stretch', minWidth = panel.minWidth, height = panel.height }
+  end
   if panel.sizing == 'fixed' then
     return { flexDirection = 'column', alignItems = 'stretch', width = panel.width, height = panel.height }
   end
@@ -64,9 +68,10 @@ function layout.commit(panel: records.Panel, env: records.Environment): boolean
   end
   -- A fixed panel whose size changed, such as one attached to a window that was resized, restyles its host root.
   if panel.sizing == 'fixed' then
+    local rootWidth = if panel.presentation == 'attach' then panel.minWidth or 0 else panel.width
     local size = panel.rootSize
-    if size == nil or size[1] ~= panel.width or size[2] ~= panel.height then
-      panel.rootSize = { panel.width, panel.height }
+    if size == nil or size[1] ~= rootWidth or size[2] ~= panel.height then
+      panel.rootSize = { rootWidth, panel.height }
       local change: lunette.LayoutChange = { op = 'style', id = layout.ROOT, style = layout.rootStyle(panel) }
       changes[#changes + 1] = change
     end
@@ -87,7 +92,8 @@ function layout.commit(panel: records.Panel, env: records.Environment): boolean
     local id = flat[index]
     local u, v, w, h = flat[index + 1], flat[index + 2], flat[index + 3], flat[index + 4]
     if id == layout.ROOT then
-      if panel.sizing == 'content' and (w ~= panel.width or h ~= panel.height) then
+      local measured = panel.sizing == 'content' or panel.presentation == 'attach'
+      if measured and (w ~= panel.width or h ~= panel.height) then
         panel.width, panel.height = w, h
         panel.revision += 1
       end

@@ -64,6 +64,7 @@ function panel.new(
     record.target = target
     record.gap = options.gap or 0
     record.sizing = 'fixed'
+    record.minWidth = target.width or 0
     record.width = target.width or 0
   end
   -- Panels that the host shows and hides fade in.

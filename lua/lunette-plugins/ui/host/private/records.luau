@@ -131,6 +131,8 @@ export type Panel = {
   dirty: boolean,
   sizing: 'fixed' | 'content',
   maxWidth: number?,
+  -- An attached panel's least width: its target's width.
+  minWidth: number?,
   maxHeight: number?,
   width: number,
   height: number,
