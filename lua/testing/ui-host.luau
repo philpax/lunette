@@ -68,6 +68,77 @@ function fixture.boot(options: Options?): State
   return state
 end
 
+-- A column, a fixed-size leaf, a text label, a pressable box, and a composite counter.
+function fixture.registerKinds(service: uiHost.Service, owner: any, log: { string }): ()
+  service:registerKind(owner, {
+    name = 'test/column',
+    layout = {
+      kind = 'container',
+      style = function(props)
+        return { flexDirection = 'column', padding = props.padding or 0, gap = props.gap or 0 }
+      end,
+    },
+  })
+  service:registerKind(owner, {
+    name = 'test/leaf',
+    layout = {
+      kind = 'leaf',
+      style = function(props)
+        return { width = props.width, height = props.height }
+      end,
+    },
+  })
+  service:registerKind(owner, {
+    name = 'test/text',
+    layout = {
+      kind = 'text',
+      text = function(props)
+        return props.text
+      end,
+      textStyle = function(_props, theme)
+        local body = theme.type.body
+        return { family = body.family, size = body.size, weight = body.weight }
+      end,
+    },
+  })
+  service:registerKind(owner, {
+    name = 'test/button',
+    layout = {
+      kind = 'container',
+      style = function()
+        return { padding = 0.004 }
+      end,
+    },
+    response = { lift = true, travel = true },
+    elevation = 'raised',
+    event = function(node, event, base)
+      table.insert(log, `{node.key or '?'}:{event.kind}`)
+      if event.kind == 'activate' then
+        node:emit 'onActivate'
+      elseif event.kind ~= 'hover-enter' and event.kind ~= 'hover-leave' then
+        base(node, event)
+      end
+    end,
+  })
+  service:registerKind(owner, {
+    name = 'test/counter',
+    state = { count = 0 },
+    expand = function(_props, _children, state, actions)
+      return {
+        uiHost.element('test/button', {
+          key = 'increment',
+          onActivate = function()
+            actions.setState(function(current)
+              return { count = current.count + 1 }
+            end)
+          end,
+          uiHost.element('test/text', { key = 'label', text = `count {state.count}` }),
+        }),
+      }
+    end,
+  })
+end
+
 -- Submits an element at the next commit and runs a frame.
 function fixture.show(state: State, element: uiHost.Element?): ()
   state.element = element

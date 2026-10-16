@@ -1,81 +1,10 @@
 local testing = require '@testing'
 local uiHost = require '@lunette-contracts/ui-host'
-local fixture = require './support/host'
+local fixture = require '@testing/ui-host'
 local expect = testing.expect
 local test = testing.suite()
 
 local element = uiHost.element
-
--- A column, a fixed-size leaf, a text label, a pressable box, and a composite counter.
-local function register(service: uiHost.Service, owner: any, log: { string }): ()
-  service:registerKind(owner, {
-    name = 'test/column',
-    layout = {
-      kind = 'container',
-      style = function(props)
-        return { flexDirection = 'column', padding = props.padding or 0, gap = props.gap or 0 }
-      end,
-    },
-  })
-  service:registerKind(owner, {
-    name = 'test/leaf',
-    layout = {
-      kind = 'leaf',
-      style = function(props)
-        return { width = props.width, height = props.height }
-      end,
-    },
-  })
-  service:registerKind(owner, {
-    name = 'test/text',
-    layout = {
-      kind = 'text',
-      text = function(props)
-        return props.text
-      end,
-      textStyle = function(_props, theme)
-        local body = theme.type.body
-        return { family = body.family, size = body.size, weight = body.weight }
-      end,
-    },
-  })
-  service:registerKind(owner, {
-    name = 'test/button',
-    layout = {
-      kind = 'container',
-      style = function()
-        return { padding = 0.004 }
-      end,
-    },
-    response = { lift = true, travel = true },
-    elevation = 'raised',
-    event = function(node, event, base)
-      table.insert(log, `{node.key or '?'}:{event.kind}`)
-      if event.kind == 'activate' then
-        node:emit 'onActivate'
-      elseif event.kind ~= 'hover-enter' and event.kind ~= 'hover-leave' then
-        base(node, event)
-      end
-    end,
-  })
-  service:registerKind(owner, {
-    name = 'test/counter',
-    state = { count = 0 },
-    expand = function(_props, _children, state, actions)
-      return {
-        element('test/button', {
-          key = 'increment',
-          onActivate = function()
-            actions.setState(function(current)
-              return { count = current.count + 1 }
-            end)
-          end,
-          element('test/text', { key = 'label', text = `count {state.count}` }),
-        }),
-      }
-    end,
-  })
-end
 
 local function near(actual: number, expected: number, label: string): ()
   expect.near(actual, expected, 1e-6, label)
@@ -85,7 +14,7 @@ test('a content-sized panel takes the size of its laid-out content', function()
   local log = {}
   local state = fixture.boot {
     setup = function(service, owner)
-      register(service, owner, log)
+      fixture.registerKinds(service, owner, log)
     end,
   }
   fixture.show(
@@ -110,7 +39,7 @@ end)
 test('a nil child keeps the positions of the children after it', function()
   local state = fixture.boot {
     setup = function(service, owner)
-      register(service, owner, {})
+      fixture.registerKinds(service, owner, {})
     end,
   }
   local function tree(withFirst: boolean)
@@ -133,7 +62,7 @@ test('a click hovers, presses, and activates the node under the ray', function()
   local activations = 0
   local state = fixture.boot {
     setup = function(service, owner)
-      register(service, owner, log)
+      fixture.registerKinds(service, owner, log)
     end,
   }
   fixture.show(
@@ -159,7 +88,7 @@ end)
 test('a composite re-expands when its state changes', function()
   local state = fixture.boot {
     setup = function(service, owner)
-      register(service, owner, {})
+      fixture.registerKinds(service, owner, {})
     end,
   }
   fixture.show(state, element('test/column', { padding = 0.01, element('test/counter', { key = 'counter' }) }))
