@@ -472,6 +472,8 @@ export type Panel = {
   read setCurve: (Panel, number) -> (),
   -- Sets a fixed panel's size, or a content-sized panel's maximum, in metres.
   read setSize: (Panel, number?, number?) -> (),
+  -- Whether the grip and a header's trigger drag move a world or attached panel.
+  read setGrabbable: (Panel, boolean) -> (),
   -- Sets the gap above an attached panel's target.
   read setGap: (Panel, number) -> (),
   read destroy: (Panel) -> (),

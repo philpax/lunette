@@ -139,6 +139,10 @@ function panel.new(
       assert(type(curve) == 'number' and curve >= 0 and curve < 10, 'ui: a curve is from 0 to 10 per metre')
       record.curve = curve
     end,
+    setGrabbable = function(_self: uiHost.Panel, grabbable: boolean): ()
+      record.grabbable = (record.presentation == 'world' or record.presentation == 'attach') and grabbable == true
+      record.sync()
+    end,
     setGap = function(_self: uiHost.Panel, gap: number): ()
       assert(type(gap) == 'number' and gap >= 0 and gap < math.huge, 'ui: a gap is a non-negative length')
       record.gap = gap
@@ -227,6 +231,7 @@ function panel.surface(provider: Provider, record: records.Panel, setPose: ((Mat
   local fields = surface :: any
   record.sync = function(): ()
     fields.width, fields.height = record.width, record.height
+    fields.grabbable = record.grabbable
     fields.dead = record.dead or record.closing or not record.visible
   end
   return surface

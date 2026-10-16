@@ -5,6 +5,7 @@ local uiHost = require '@lunette-contracts/ui-host'
 local vrUi = require '@testing/vr-ui'
 local uiPanels = require '@testing/ui-panels'
 local wristMenu = require '@testing/wrist-menu'
+local hostFixture = require '@testing/ui-host'
 local expect = testing.expect
 local test = testing.suite()
 
@@ -164,6 +165,79 @@ test('losing the wrist hides the menu and closes the list', function()
   expect.truthy(shown(env), 'the tracked wrist shows it again')
   expect.near((size(env)), 0.115, 1e-6, 'the list does not reopen')
   expect.truthy(env.panels:node(PANEL, 'open'), 'the wrist button is shown')
+  env.running:close()
+end)
+
+-- The menu panel's position in the world.
+local function position(env: Environment): vector
+  return vector.pack(assert(env.panels:panel(PANEL)):pose():getPosition())
+end
+
+-- Drags the open menu by the empty part of its header with the pointing hand's trigger, `dx` metres to the right.
+local function dragHeader(env: Environment, dx: number): ()
+  local running = env.running
+  local function spacer(): any
+    return hostFixture.nodeGeometry(assert(env.panels:node(PANEL, 'header/band/spacer')))
+  end
+  -- Aims twice, because the opened menu lays out again on the wrist after the first frame.
+  running:aim(spacer(), 0.5, 0.5, env.pointer)
+  running:step()
+  local geometry = spacer()
+  running:aim(geometry, 0.5, 0.5, env.pointer)
+  running:step()
+  running:button(env.pointer, 'trigger', true)
+  running:step()
+  for step = 1, 4 do
+    running:aim(geometry, 0.5 + dx * step / 4, 0.5, env.pointer)
+    running:step()
+  end
+  running:button(env.pointer, 'trigger', false)
+  running:step()
+end
+
+test('dragging the open menu by its header tears it off the wrist until it is closed', function()
+  local env = boot()
+  local action = register(env, 'session/draft', { label = 'Draft' })
+  local wrist = position(env)
+  click(env, 'open')
+  dragHeader(env, 0.2)
+  local torn = position(env)
+  -- The wrist turns the menu, so the drag along its width moves it by that distance in the world.
+  expect.near(vector.magnitude(torn - wrist), 0.2, 0.01, 'the menu follows the drag')
+  env.running:pose(env.hand, lovr.math.newMat4():translate(0.4, 1.1, -0.4))
+  env.running:step()
+  expect.near(vector.magnitude(position(env) - torn), 0, 1e-6, 'the torn-off menu stays where it was left')
+  env.running:tracked(env.hand, false)
+  env.running:step()
+  expect.truthy(shown(env), 'the torn-off menu stays shown without the wrist')
+  click(env, wristMenu.row 'session/draft')
+  expect.equal(action.calls, 1, 'the torn-off menu still runs actions')
+  env.running:tracked(env.hand, true)
+  env.running:step()
+  click(env, 'header/band/close')
+  env.running:step()
+  expect.near((size(env)), 0.115, 1e-6, 'closing returns to the wrist button')
+  expect.truthy(vector.magnitude(position(env) - torn) > 0.1, 'and the button is back on the wrist')
+  env.running:close()
+end)
+
+test('the closed wrist button cannot be grabbed off the wrist', function()
+  local env = boot()
+  local wrist = position(env)
+  local running = env.running
+  local geometry = hostFixture.nodeGeometry(assert(env.panels:node(PANEL, 'open')))
+  running:aim(geometry, 0.5, 0.5, env.pointer)
+  running:step()
+  geometry = hostFixture.nodeGeometry(assert(env.panels:node(PANEL, 'open')))
+  running:aim(geometry, 0.5, 0.5, env.pointer)
+  running:step()
+  running:button(env.pointer, 'grip', true)
+  running:step()
+  running:aim(geometry, 0.7, 0.5, env.pointer)
+  running:step()
+  expect.near(vector.magnitude(position(env) - wrist), 0, 1e-6, 'the held button stays on the wrist')
+  running:button(env.pointer, 'grip', false)
+  running:step()
   env.running:close()
 end)
 
