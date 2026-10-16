@@ -125,6 +125,8 @@ export type TypeScale = {
   read title: Typography,
   read value: Typography,
   read mono: Typography,
+  -- Small monospace text for readouts beside values: units, detent names, identifiers, and details.
+  read readout: Typography,
 }
 
 -- The resolved tokens a kind lays out and draws with. Lengths are metres.

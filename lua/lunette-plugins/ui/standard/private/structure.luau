@@ -134,7 +134,7 @@ function structure.register(service: uiHost.Service, owner: any): { [string]: ui
           if props.detail
             then element(
               'lunette/text',
-              { key = 'detail', text = props.detail, style = 'caption', color = 'headerMuted' }
+              { key = 'detail', text = props.detail, style = 'readout', color = 'headerMuted' }
             )
             else nil,
           element('lunette/spacer', { key = 'spacer' }),

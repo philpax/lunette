@@ -143,7 +143,8 @@ function collections.register(service: uiHost.Service, owner: any): { [string]: 
               then element('lunette/text', {
                 key = 'detail',
                 text = props.disabledReason or props.detail,
-                style = 'caption',
+                -- A detail is an identifier and reads as one; a disabled reason is a sentence.
+                style = if props.disabledReason then 'caption' else 'readout',
                 color = if selected then 'accentInk' else 'muted',
                 maxLines = 1,
               })

@@ -156,6 +156,7 @@ local TYPE: uiHost.TypeScale = table.freeze {
   title = typography(SANS, 0.017, 600, 1.25),
   value = typography(MONO, 0.013, 400, 1.3),
   mono = typography(MONO, 0.011, 400, 1.35),
+  readout = typography(MONO, 0.0095, 400, 1.3),
 }
 
 export type Options = {

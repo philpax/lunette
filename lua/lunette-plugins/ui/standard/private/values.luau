@@ -77,7 +77,7 @@ local function detentLabels(props: uiHost.Props, current: any): uiHost.Element?
     labels[index] = element('lunette/text', {
       key = `detent-{index}`,
       text = string.upper(detent.label),
-      style = 'caption',
+      style = 'readout',
       color = if current and detent.value == current.value then 'accent' else 'muted',
       wrap = false,
     })
@@ -258,12 +258,12 @@ function values.register(service: uiHost.Service, owner: any): { [string]: uiHos
           element('lunette/text', { key = 'label', text = props.label or '', style = 'body', grow = 1 }),
           element('lunette/text', { key = 'value', text = readout, style = 'value', wrap = false }),
           if props.unit
-            then element('lunette/text', { key = 'unit', text = props.unit, style = 'caption', color = 'muted' })
+            then element('lunette/text', { key = 'unit', text = props.unit, style = 'readout', color = 'muted' })
             else nil,
           if detent
             then element(
               'lunette/text',
-              { key = 'detent', text = string.upper(detent.label), style = 'caption', color = 'accent' }
+              { key = 'detent', text = string.upper(detent.label), style = 'readout', color = 'accent' }
             )
             else nil,
         }),
