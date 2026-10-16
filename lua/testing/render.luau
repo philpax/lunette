@@ -107,6 +107,8 @@ export type Recorder = {
   newFont: (Recorder, string, number, number) -> Font,
   newMesh: (Recorder, number | VertexFormat, ({ { number } } | number | MeshFlags)?, MeshFlags?) -> Mesh,
   newShader: (Recorder, string, string) -> Shader,
+  newTexture: (Recorder, any, any?) -> Texture,
+  textureAcquisitions: { Texture },
   assertMeshesReleased: (Recorder) -> (),
   assertResourcesReleased: (Recorder) -> (),
   within: <R...>(Recorder, Box, (Pass) -> R...) -> R...,
@@ -155,6 +157,7 @@ function render.new(calls: ({ Call } | () -> { Call })?): Recorder
     fontMeasurements = {},
     meshAcquisitions = {},
     shaderAcquisitions = {},
+    textureAcquisitions = {},
     meshReleases = {},
     shaderReleases = {},
     _state = {},
@@ -281,6 +284,31 @@ function Recorder.newShader(self: Recorder, vertex: string, fragment: string): S
   return shader
 end
 
+-- A texture records the images uploaded to it, so a test can tell how often its pixels changed.
+export type Texture = {
+  released: boolean,
+  uploads: number,
+  setPixels: (Texture, any) -> (),
+  release: (Texture) -> (),
+}
+
+function Recorder.newTexture(self: Recorder, _source: any, _options: any?): Texture
+  local texture: Texture = {
+    released = false,
+    uploads = 1,
+    setPixels = function(texture: Texture, _image: any): ()
+      assert(not texture.released, 'render recorder: pixels set on a released texture')
+      texture.uploads += 1
+    end,
+    release = function(texture: Texture): ()
+      assert(not texture.released, 'render recorder: texture released twice')
+      texture.released = true
+    end,
+  }
+  self.textureAcquisitions[#self.textureAcquisitions + 1] = texture
+  return texture
+end
+
 function Recorder.assertMeshesReleased(self: Recorder)
   for _, mesh in self.meshAcquisitions do
     assert(mesh.released, 'render recorder: leaked mesh')
@@ -291,6 +319,9 @@ function Recorder.assertResourcesReleased(self: Recorder)
   self:assertMeshesReleased()
   for _, shader in self.shaderAcquisitions do
     assert(shader.released, 'render recorder: leaked shader')
+  end
+  for _, texture in self.textureAcquisitions do
+    assert(texture.released, 'render recorder: leaked texture')
   end
 end
 

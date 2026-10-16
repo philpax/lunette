@@ -844,6 +844,9 @@ installLovr = function(events: Events)
     newShader = function(vertex: string, fragment: string): render.Shader
       return recorder:newShader(vertex, fragment)
     end,
+    newTexture = function(source: any, options: any?): render.Texture
+      return recorder:newTexture(source, options)
+    end,
     getDefaultFont = function(): render.Font
       return font
     end,
@@ -852,6 +855,9 @@ installLovr = function(events: Events)
   lovr.data = {
     newBlob = function(contents: string, name: string?): { read contents: string, read name: string? }
       return table.freeze { contents = contents, name = name }
+    end,
+    newImage = function(width: number, height: number, format: string, blob: any): any
+      return table.freeze { width = width, height = height, format = format, blob = blob }
     end,
   } :: any
   lovr.timer = {

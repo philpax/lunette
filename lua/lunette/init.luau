@@ -74,11 +74,17 @@ export type LayoutScripts = { read measure: ((id: number, input: LayoutInput) ->
 export type LayoutFailure = { read id: number, read message: string }
 
 -- One positioned glyph, in metres from the text node's left edge, with the
--- inclusive byte range of the text it draws.
-export type LayoutGlyph = { read id: number, read x: number, read advance: number, read size: number, read byteStart: number, read byteEnd: number }
+-- inclusive byte range of the text it draws. The face is a handle that the
+-- glyph atlas takes.
+export type LayoutGlyph = { read face: number, read id: number, read x: number, read advance: number, read size: number, read byteStart: number, read byteEnd: number }
 
 -- One shaped line, in metres from the text node's top-left corner.
 export type LayoutLine = { read top: number, read height: number, read width: number, read baseline: number, read glyphs: { read [number]: LayoutGlyph } }
+
+-- Where a glyph is in the atlas: its page, its texture rectangle from (u0, v0)
+-- at the top left to (u1, v1), and its quad in ems from the glyph's origin on
+-- the baseline, with its top edge above the baseline.
+export type GlyphPlacement = { read page: number, read u0: number, read v0: number, read u1: number, read v1: number, read left: number, read top: number, read width: number, read height: number }
 
 -- Somewhere pixel input can be delivered. `domain` names the pipeline its
 -- events travel: `window` or `host`.
@@ -324,6 +330,33 @@ export type LayoutTree = {
   -- The shaped lines of a text node at its laid-out width, or nil for a node
   -- that is not text.
   read textLayout: (self: LayoutTree, id: number) -> { LayoutLine }?,
+}
+
+-- The distance field glyph atlas that every panel in this Lua state draws
+-- shaped glyphs from. Pages are square, numbered from 1, and hold RGBA8
+-- multi-channel distance fields to sample with linear filtering and no
+-- colour-space conversion. The atlas is not a handle: it never goes dead.
+export type GlyphAtlas = {
+  -- The width and height of each page in pixels.
+  read pageSize: number,
+  -- Pixels per em at which glyphs are generated.
+  read emPixels: number,
+  -- The distance field's range in pixels, for the shader's edge width.
+  read range: number,
+  -- The number of pages.
+  read pages: number,
+  -- The placement of a glyph from a layout glyph's face and id, generating it
+  -- on first use. Answers nil for a glyph with no outline, such as a space, and
+  -- nil with a message for a glyph that could not be generated, which is tried
+  -- again on the next call.
+  read glyph: (self: GlyphAtlas, face: number, id: number) -> (GlyphPlacement?, string?),
+  -- A page's revision, which advances whenever a glyph is written to it, or nil
+  -- for a page that does not exist.
+  read revision: (self: GlyphAtlas, page: number) -> number?,
+  -- A page's pixels as tightly packed RGBA8 rows, top row first, which
+  -- `lovr.data.newBlob` wraps for `lovr.data.newImage`, or nil for a page that
+  -- does not exist.
+  read pixels: (self: GlyphAtlas, page: number) -> string?,
 }
 
 -- A key and the modifiers to hold with it. Together they produce one keysym.
@@ -805,6 +838,9 @@ export type Lunette = {
   -- and answers how many faces it held. Read the file with
   -- `lovr.filesystem.read`.
   read loadLayoutFont: (data: string) -> number,
+  -- The distance field glyph atlas shared by every layout tree's fonts in this
+  -- Lua state, created on first use.
+  read glyphAtlas: () -> GlyphAtlas,
   -- Rasterises an SVG or svgz document into a canvas of `width` by `height`
   -- pixels, each a whole number from 1 to 4096, scaled to fit with its aspect
   -- ratio preserved and centred. Answers the pixels as tightly packed rows of

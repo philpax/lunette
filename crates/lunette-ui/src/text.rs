@@ -3,13 +3,20 @@
 //! cosmic-text works in abstract units. Text here is shaped in millimetres, so font sizes and
 //! positions stay in the range its layout code expects, and converted to metres at the edge.
 
-use std::{fmt, sync::Arc};
+use std::{collections::HashMap, fmt, sync::Arc};
 
 pub use cosmic_text::fontdb::ID as FaceId;
 use cosmic_text::{
     Align, Attrs, Buffer, Ellipsize, EllipsizeHeightLimit, Family, FontSystem, Metrics,
     PlatformFallback, Shaping, Weight, Wrap, fontdb,
+    skrifa::{
+        FontRef, GlyphId, MetadataProvider,
+        instance::{LocationRef, Size},
+        outline::{DrawSettings, OutlinePen},
+    },
 };
+
+use crate::glyphs::{Outline, Point, Segment};
 
 /// Metres per shaping unit.
 const METRES_PER_UNIT: f32 = 0.001;
@@ -19,6 +26,24 @@ pub struct Fonts {
     system: FontSystem,
     /// The files given so far, so a file given again, as on a source reload, adds no faces.
     files: Vec<Arc<Vec<u8>>>,
+    /// The faces that shaped glyphs came from, in the order they were first seen, so a face can
+    /// cross into Lua as a small integer.
+    handles: Vec<FaceId>,
+    handle_of: HashMap<FaceId, FaceHandle>,
+}
+
+/// A face as a small integer that stays the same for the fonts' lifetime.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct FaceHandle(u32);
+
+impl FaceHandle {
+    pub const fn new(value: u32) -> Self {
+        Self(value)
+    }
+
+    pub const fn get(self) -> u32 {
+        self.0
+    }
 }
 
 impl Fonts {
@@ -52,7 +77,46 @@ impl Fonts {
                 PlatformFallback,
             ),
             files: Vec::new(),
+            handles: Vec::new(),
+            handle_of: HashMap::new(),
         }
+    }
+
+    /// The handle of a face, assigned on first use.
+    pub fn handle(&mut self, face: FaceId) -> FaceHandle {
+        if let Some(handle) = self.handle_of.get(&face) {
+            return *handle;
+        }
+        let handle = FaceHandle(self.handles.len() as u32);
+        self.handles.push(face);
+        self.handle_of.insert(face, handle);
+        handle
+    }
+
+    /// A glyph's outline in em units with y up, or nil for a glyph with no outline, such as a
+    /// space, or a face or glyph that does not exist. Variable faces draw their default instance.
+    pub fn outline(&self, face: FaceHandle, glyph: u16) -> Option<Outline> {
+        let id = *self.handles.get(face.0 as usize)?;
+        self.system
+            .db()
+            .with_face_data(id, |data, index| {
+                let font = FontRef::from_index(data, index).ok()?;
+                let outline = font.outline_glyphs().get(GlyphId::new(u32::from(glyph)))?;
+                let mut pen = Pen::default();
+                outline
+                    .draw(
+                        DrawSettings::unhinted(Size::new(1.0), LocationRef::default()),
+                        &mut pen,
+                    )
+                    .ok()?;
+                pen.finish();
+                if pen.outline.contours.is_empty() {
+                    None
+                } else {
+                    Some(pen.outline)
+                }
+            })
+            .flatten()
     }
 
     /// Adds the faces in one font file, answering how many it added. A file that is not a font
@@ -225,6 +289,8 @@ pub struct Line {
 pub struct Glyph {
     /// The font face the glyph comes from.
     pub face: FaceId,
+    /// The same face as a handle, for the glyph atlas.
+    pub handle: FaceHandle,
     /// The glyph's id in its face. Shaping produces glyph ids, not codepoints.
     pub id: u16,
     /// The glyph's origin on the baseline, in metres from the node's left edge.
@@ -337,6 +403,7 @@ impl TextBlock {
     pub fn lines(&mut self, fonts: &mut Fonts, width: Option<f32>) -> Vec<Line> {
         self.lay_out(fonts, width);
         let unit = METRES_PER_UNIT;
+        let mut handle = |face: FaceId| fonts.handle(face);
         self.buffer
             .layout_runs()
             .map(|run| Line {
@@ -349,6 +416,7 @@ impl TextBlock {
                     .iter()
                     .map(|glyph| Glyph {
                         face: glyph.font_id,
+                        handle: handle(glyph.font_id),
                         id: glyph.glyph_id,
                         x: glyph.x * unit,
                         advance: glyph.w * unit,
@@ -377,6 +445,58 @@ impl TextBlock {
             bottom = self.style.metrics().line_height;
         }
         (widest * METRES_PER_UNIT, bottom * METRES_PER_UNIT)
+    }
+}
+
+/// Collects an outline from skrifa's drawing commands, closing each contour.
+#[derive(Default)]
+struct Pen {
+    outline: Outline,
+    contour: Vec<Segment>,
+    start: Point,
+    current: Point,
+}
+
+impl Pen {
+    fn finish(&mut self) {
+        if self.current != self.start && !self.contour.is_empty() {
+            self.contour.push(Segment::Line(self.current, self.start));
+        }
+        if !self.contour.is_empty() {
+            self.outline
+                .contours
+                .push(std::mem::take(&mut self.contour));
+        }
+        self.current = self.start;
+    }
+}
+
+impl OutlinePen for Pen {
+    fn move_to(&mut self, x: f32, y: f32) {
+        self.finish();
+        self.start = [x, y];
+        self.current = [x, y];
+    }
+
+    fn line_to(&mut self, x: f32, y: f32) {
+        self.contour.push(Segment::Line(self.current, [x, y]));
+        self.current = [x, y];
+    }
+
+    fn quad_to(&mut self, cx0: f32, cy0: f32, x: f32, y: f32) {
+        self.contour
+            .push(Segment::Quadratic(self.current, [cx0, cy0], [x, y]));
+        self.current = [x, y];
+    }
+
+    fn curve_to(&mut self, cx0: f32, cy0: f32, cx1: f32, cy1: f32, x: f32, y: f32) {
+        self.contour
+            .push(Segment::Cubic(self.current, [cx0, cy0], [cx1, cy1], [x, y]));
+        self.current = [x, y];
+    }
+
+    fn close(&mut self) {
+        self.finish();
     }
 }
 

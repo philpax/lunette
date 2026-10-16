@@ -1,9 +1,10 @@
--- Draws packed panels: one instanced draw per batch of boxes through the toolkit shader, then text by line.
+-- Draws packed panels: one instanced draw per batch of boxes through the toolkit shader, then images, then one
+-- instanced draw per batch of glyphs on each page of the native glyph atlas.
 
+local lunette = require '@lunette'
 local uiHost = require '@lunette-contracts/ui-host'
 local records = require '../records'
 local shader = require './shader'
-local fonts = require './fonts'
 local pack = require './pack'
 local images = require './images'
 
@@ -17,10 +18,20 @@ export type Resources = {
   -- A flat grid across the box, which the vertex stage can bend; boxes on curved panels use it.
   grid: Mesh,
   boxShader: Shader,
-  textShader: Shader,
+  glyphShader: Shader,
   imageShader: Shader,
+  -- A unit quad from 0 to 1, y down, that each glyph instance scales.
+  quad: Mesh,
   batch: { number },
+  glyphBatch: { number },
   images: images.Cache,
+  atlas: lunette.GlyphAtlas,
+  -- A texture per atlas page and the page revision it holds.
+  pages: { [number]: { texture: Texture, revision: number } },
+  -- Placements by face and glyph id; false marks a glyph that draws nothing.
+  placements: { [number]: { [number]: pack.Glyph | false } },
+  -- Reports a glyph that could not be generated, once per glyph.
+  report: (string) -> (),
 }
 
 export type Template = { vertices: { { number } }, indices: { number } }
@@ -95,16 +106,33 @@ function renderer.grid(columns: number): Template
   return { vertices = vertices, indices = indices }
 end
 
--- Creates the GPU resources. The returned function releases them.
-function renderer.acquire(): (Resources, () -> ())
+local function quad(keep: <T>(T) -> T): Mesh
+  local mesh = keep(lovr.graphics.newMesh({
+    { 0, 0, 0, 0, 0, 1, 0, 0 },
+    { 1, 0, 0, 0, 0, 1, 1, 0 },
+    { 1, 1, 0, 0, 0, 1, 1, 1 },
+    { 0, 1, 0, 0, 0, 1, 0, 1 },
+  }, { storage = 'gpu' }))
+  mesh:setIndices { 1, 2, 3, 1, 3, 4 }
+  return mesh
+end
+
+-- Creates the GPU resources. The returned function releases them. `report` receives a glyph the atlas could not
+-- generate.
+function renderer.acquire(report: (string) -> ()): (Resources, () -> ())
   local made: { { release: (any) -> () } } = {}
   local cache = images.new()
+  local pages: { [number]: { texture: Texture, revision: number } } = {}
   local function keep<T>(value: T): T
     table.insert(made, value :: any)
     return value
   end
   local function release(): ()
     images.release(cache)
+    for _, page in pages do
+      page.texture:release()
+    end
+    table.clear(pages)
     for index = #made, 1, -1 do
       made[index]:release()
     end
@@ -120,10 +148,16 @@ function renderer.acquire(): (Resources, () -> ())
       mesh = mesh,
       grid = grid,
       boxShader = keep(lovr.graphics.newShader(shader.boxVertex, shader.boxFragment, { label = 'ui/boxes' })),
-      textShader = keep(lovr.graphics.newShader(shader.textVertex, shader.textFragment, { label = 'ui/text' })),
+      glyphShader = keep(lovr.graphics.newShader(shader.glyphVertex, shader.glyphFragment, { label = 'ui/glyphs' })),
       imageShader = keep(lovr.graphics.newShader(shader.textVertex, shader.imageFragment, { label = 'ui/images' })),
+      quad = quad(keep),
       images = cache,
       batch = table.create(shader.SLOTS * shader.BATCH * 4, 0),
+      glyphBatch = table.create(shader.GLYPH_SLOTS * shader.GLYPH_BATCH * 4, 0),
+      atlas = lunette.glyphAtlas(),
+      pages = pages,
+      placements = {},
+      report = report,
     }
   end)
   if not ok then
@@ -131,6 +165,63 @@ function renderer.acquire(): (Resources, () -> ())
     error(result, 0)
   end
   return result, release
+end
+
+-- Answers a function that finds a glyph's placement in the atlas, remembering each answer, so a glyph crosses into
+-- the native atlas once.
+function renderer.glyphs(resources: Resources): pack.Glyphs
+  local placements = resources.placements
+  local atlas = resources.atlas
+  return function(face: number, id: number): pack.Glyph?
+    local known = placements[face]
+    if not known then
+      known = {}
+      placements[face] = known
+    end
+    local placement = known[id]
+    if placement == nil then
+      local found, failure = atlas:glyph(face, id)
+      if failure then
+        resources.report(failure)
+      end
+      placement = found or false
+      known[id] = placement
+    end
+    return placement or nil
+  end
+end
+
+-- The texture of an atlas page, uploaded again when the page has gained glyphs.
+local function page(resources: Resources, index: number): Texture?
+  local atlas = resources.atlas
+  local revision = atlas:revision(index)
+  if revision == nil then
+    return nil
+  end
+  local held = resources.pages[index]
+  if held and held.revision == revision then
+    return held.texture
+  end
+  local pixels = atlas:pixels(index)
+  if pixels == nil then
+    return nil
+  end
+  local size = atlas.pageSize
+  local image = lovr.data.newImage(size, size, 'rgba8', lovr.data.newBlob(pixels, 'ui glyph atlas'))
+  if held then
+    held.texture:setPixels(image)
+    held.revision = revision
+    return held.texture
+  end
+  -- The distance field is data, not colour, so it is sampled without sRGB conversion.
+  local texture = lovr.graphics.newTexture(image, {
+    mipmaps = false,
+    linear = true,
+    usage = { 'sample', 'transfer' },
+    label = `ui glyph atlas page {index}`,
+  })
+  resources.pages[index] = { texture = texture, revision = revision }
+  return texture
 end
 
 -- The local transform of a panel's centre, from its pose.
@@ -193,42 +284,36 @@ local function drawImages(resources: Resources, pass: Pass, panel: records.Panel
   pass:setMaterial(nil)
 end
 
-local function drawTexts(
-  resources: Resources,
-  pass: Pass,
-  panel: records.Panel,
-  packed: pack.Packed,
-  registry: fonts.Registry
-): ()
-  if #packed.texts == 0 then
+local function drawGlyphs(resources: Resources, pass: Pass, panel: records.Panel, packed: pack.Packed): ()
+  if next(packed.glyphCounts) == nil then
     return
   end
-  pass:setShader(resources.textShader)
+  pass:setShader(resources.glyphShader)
   pass:setDepthWrite(false)
-  local pose = centre(panel)
-  pass:send('panelInverse', lovr.math.mat4(pose):invert())
-  pass:send('panelPose', pose)
+  pass:send('panelPose', centre(panel))
   pass:send('panelCurve', { panel.curve, 0, 0, 0 })
   pass:send('panelSize', { panel.width, panel.height, 0, 0 })
-  local halfWidth, halfHeight = panel.width / 2, panel.height / 2
-  for _, run in packed.texts do
-    local face = fonts.match(registry, run.family, run.weight)
-    local font = if face then fonts.font(face) else lovr.graphics.getDefaultFont()
-    pass:setFont(font)
-    local measured = font:getWidth(run.text)
-    local stretch = if measured > 0 and run.width > 0 then run.width / (measured * run.size) else 1
-    if stretch < 0.85 or stretch > 1.15 then
-      stretch = 1
+  local atlas = resources.atlas
+  local range = atlas.range / atlas.pageSize
+  pass:send('glyphRange', { range, range, 0, 0 })
+  local stride = shader.GLYPH_SLOTS * 4
+  local batch = resources.glyphBatch
+  for index, total in packed.glyphCounts do
+    local texture = page(resources, index)
+    local data = packed.glyphs[index]
+    if texture and data and total > 0 then
+      pass:setMaterial(texture)
+      local first = 0
+      while first < total do
+        local count = math.min(shader.GLYPH_BATCH, total - first)
+        table.move(data, first * stride + 1, (first + count) * stride, 1, batch)
+        pass:send('Glyphs', { batch })
+        pass:draw(resources.quad, lovr.math.mat4(), count)
+        first += count
+      end
     end
-    local ascent = font:getAscent() * run.size
-    pass:setColor(run.color[1], run.color[2], run.color[3], run.color[4] or 1)
-    pass:send('textClip', run.clip)
-    local transform = lovr.math
-      .mat4(pose)
-      :translate(run.x - halfWidth, halfHeight - run.baseline + ascent, run.z)
-      :scale(run.size * stretch, run.size, run.size)
-    pass:text(run.text, transform, 0, 'left', 'top')
   end
+  pass:setMaterial(nil)
 end
 
 -- Ends a frame's drawing, releasing image textures that have gone unused.
@@ -241,8 +326,7 @@ function renderer.draw(
   pass: Pass,
   panel: records.Panel,
   packed: pack.Packed,
-  theme: uiHost.Theme,
-  registry: fonts.Registry
+  theme: uiHost.Theme
 ): ()
   pass:push 'state'
   local ok, failure = pcall(function(): ()
@@ -251,7 +335,7 @@ function renderer.draw(
     pass:setColor(1, 1, 1, 1)
     drawBoxes(resources, pass, panel, packed, theme)
     drawImages(resources, pass, panel, packed)
-    drawTexts(resources, pass, panel, packed, registry)
+    drawGlyphs(resources, pass, panel, packed)
   end)
   pass:pop 'state'
   if not ok then

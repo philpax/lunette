@@ -172,6 +172,77 @@ shader.textFragment = [[
   }
 ]]
 
+-- Five vec4 slots per glyph: the quad's panel rectangle, its atlas rectangle, its colour, its clip, and its
+-- elevation. 200 glyphs fill 16000 bytes, inside the 16384-byte uniform range that Vulkan guarantees.
+shader.GLYPH_SLOTS = 5
+shader.GLYPH_BATCH = 200
+
+-- Instanced glyph quads from the native glyph atlas. Template vertices span 0 to 1 in x and y, y down.
+shader.glyphVertex = BEND
+  .. (
+    string.gsub(
+      [[
+  uniform mat4 panelPose;
+  uniform vec4 panelSize;
+
+  uniform Glyphs {
+    vec4 glyphs[GLYPH_VECTORS];
+  };
+
+  out vec2 glyphPanel;
+  out vec2 glyphUV;
+  out vec4 glyphColor;
+  flat out vec4 glyphClip;
+
+  vec4 lovrmain() {
+    int base = InstanceIndex * 5;
+    vec4 rect = glyphs[base];
+    vec4 uv = glyphs[base + 1];
+    glyphColor = glyphs[base + 2];
+    glyphClip = glyphs[base + 3];
+    float z = glyphs[base + 4].x;
+    vec2 corner = VertexPosition.xy;
+    vec2 panel = rect.xy + corner * rect.zw;
+    glyphPanel = panel;
+    glyphUV = mix(uv.xy, uv.zw, corner);
+    vec3 bent = bend(panel.x - panelSize.x * .5, panelSize.y * .5 - panel.y, z);
+    return ViewProjection * (panelPose * vec4(bent, 1.));
+  }
+]],
+      'GLYPH_VECTORS',
+      tostring(shader.GLYPH_SLOTS * shader.GLYPH_BATCH)
+    )
+  )
+
+-- The field's range in texture coordinates sets the edge width from screen-space derivatives on each axis, so
+-- edges stay antialiased at any distance and at grazing angles.
+shader.glyphFragment = [[
+  uniform vec4 glyphRange;
+  in vec2 glyphPanel;
+  in vec2 glyphUV;
+  in vec4 glyphColor;
+  flat in vec4 glyphClip;
+
+  float median(float r, float g, float b) {
+    return max(min(r, g), min(max(r, g), b));
+  }
+
+  vec4 lovrmain() {
+    if (glyphPanel.x < glyphClip.x || glyphPanel.y < glyphClip.y || glyphPanel.x > glyphClip.z || glyphPanel.y > glyphClip.w) {
+      discard;
+    }
+    vec3 msdf = getPixel(ColorTexture, glyphUV).rgb;
+    float sdf = median(msdf.r, msdf.g, msdf.b);
+    vec2 screenTexSize = vec2(1.) / fwidth(glyphUV);
+    float range = max(.5 * dot(glyphRange.xy, screenTexSize), 1.);
+    float alpha = clamp(range * (sdf - .5) + .5, 0., 1.);
+    if (alpha <= 0.) {
+      discard;
+    }
+    return vec4(glyphColor.rgb, glyphColor.a * alpha);
+  }
+]]
+
 -- Images sample their texture, multiplied by the draw colour, and clip like text.
 shader.imageFragment = [[
   uniform vec4 textClip;

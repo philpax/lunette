@@ -287,7 +287,12 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
         return
       end
       if not resources then
-        resources, releaseResources = renderer.acquire()
+        -- A glyph the atlas cannot generate draws nothing and is reported once.
+        resources, releaseResources = renderer.acquire(function(failure: string): ()
+          protected.call('ui: glyph atlas', function(): ()
+            error(failure, 0)
+          end)
+        end)
       end
       local held = assert(resources)
       for _, entry in live do
@@ -297,14 +302,14 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
             layout.place(record)
             local packed = pack.run(record, env, function(name: string): { uiHost.Visual }
               return registry.visuals(kinds, name)
-            end, entry.packed)
+            end, renderer.glyphs(held), entry.packed)
             entry.packed = packed
             for _, marker in touching.markers do
               if marker.panel == record then
                 pack.marker(packed, marker.x, marker.y, marker.surface, marker.depth, current)
               end
             end
-            renderer.draw(held, pass, record, assert(entry.packed), current, faces)
+            renderer.draw(held, pass, record, assert(entry.packed), current)
           end)
         end
       end

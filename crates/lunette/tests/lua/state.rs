@@ -15,6 +15,7 @@ use lunette::{
     aliases::{DEVELOPMENT_ALIASES, Resolution},
     callback_error::{TracedError, report_traced},
     lua::{
+        glyphs::glyph_atlas,
         keys::{KeyCodes, locking_modifier_names, modifier_names},
         layout::{LayoutFonts, load_layout_font, new_layout_tree},
         svg::rasterize_svg,
@@ -186,6 +187,10 @@ fn native(lua: &Lua) -> mlua::Result<Table> {
         lua.create_function(|lua, (svg, width, height): (mlua::LuaString, f64, f64)| {
             rasterize_svg(lua, &svg, width, height)
         })?,
+    )?;
+    native.set(
+        "glyphAtlas",
+        lua.create_function(|lua, ()| Ok(glyph_atlas(lua)))?,
     )?;
     native.set(
         "scaleSteps",

@@ -9,6 +9,7 @@ use std::{
 };
 
 pub mod analyze;
+pub mod msdf;
 
 pub mod raw {
     //! The bindgen output, with four items declared by hand instead.

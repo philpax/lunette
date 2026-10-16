@@ -20,6 +20,10 @@ Host monitor capture uses `wlx-capture` as a git-pinned dependency. Its maintain
 
 lunette dynamically links its LÖVR fork for XR, rendering, audio, and Lua. Patches under `vendor/lovr` remain MIT so they can be contributed upstream. [LÖVR integration](docs/development/native/lovr-integration.md) records the integration constraints.
 
+## msdfgen
+
+msdfgen is copyright 2016-2023 Viktor Chlumsky and licensed under the MIT licence, carried in `vendor/lovr/deps/msdfgen` with its licence in `LICENSE.txt`. LÖVR builds it as `libmsdfgen.so`, and lunette links the same library directly to generate the UI toolkit's distance field glyphs. Installation copies it beside `liblovr.so`.
+
 ## Space Mono
 
 Space Mono is copyright 2016 The Space Mono Project Authors (<https://github.com/googlefonts/spacemono>) and licensed under the SIL Open Font License, Version 1.1. The bundled font and licence are unmodified copies from `google/fonts` revision `8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5`: [SpaceMono-Regular.ttf](https://raw.githubusercontent.com/google/fonts/8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5/ofl/spacemono/SpaceMono-Regular.ttf) and [OFL.txt](https://raw.githubusercontent.com/google/fonts/8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5/ofl/spacemono/OFL.txt).

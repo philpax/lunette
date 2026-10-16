@@ -11,6 +11,7 @@ use crate::{
         declarations::{
             AliasSpec, Aliased, Handle, NullTexture, Record, Recorded, Textured, collect,
         },
+        glyphs::{GlyphAtlas, GlyphPlacement},
         keys::{KeyName, ModifierName},
         layout::{self, LayoutTree},
         module_functions,
@@ -51,6 +52,7 @@ pub fn render() -> String {
     for alias in layout::aliases() {
         render_alias(&mut out, &alias, &handles);
     }
+    render_alias(&mut out, &GlyphPlacement::ALIAS, &handles);
 
     for item in &items {
         match item {
@@ -86,6 +88,7 @@ fn surface() -> Vec<Item> {
         Item::Handle(collect::<AudioCapture<NullTexture>>()),
         Item::Handle(collect::<AudioBlock>()),
         Item::Handle(collect::<LayoutTree>()),
+        Item::Handle(collect::<GlyphAtlas>()),
         Item::Record(Stroke::RECORD),
         Item::Record(NewSeat::RECORD),
         Item::Handle(collect::<Drag<NullTexture>>()),

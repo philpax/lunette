@@ -1,6 +1,7 @@
--- Packs a panel's recorded primitives into box instance data and text runs for one frame. Positions come from this
+-- Packs a panel's recorded primitives into box and glyph instance data for one frame. Positions come from this
 -- frame's layout and animation, so a hover lift or a scroll needs no visual to run again.
 
+local lunette = require '@lunette'
 local uiHost = require '@lunette-contracts/ui-host'
 local records = require '../records'
 local record = require './record'
@@ -13,18 +14,9 @@ local PRIMITIVE_STEP = 0.00001
 local UNCLIPPED = table.freeze { -1e6, -1e6, 1e6, 1e6 }
 local TRANSPARENT = table.freeze { 0, 0, 0, 0 }
 
-export type TextRun = {
-  text: string,
-  family: string,
-  weight: number,
-  size: number,
-  x: number,
-  baseline: number,
-  width: number,
-  z: number,
-  color: uiHost.Color,
-  clip: { number },
-}
+-- A glyph's place in the atlas, as `GlyphAtlas:glyph` answers it, or nil for a glyph that draws nothing.
+export type Glyph = lunette.GlyphPlacement
+export type Glyphs = (face: number, id: number) -> Glyph?
 
 export type ImageRun = {
   source: uiHost.ImageSource,
@@ -40,7 +32,9 @@ export type ImageRun = {
 export type Packed = {
   boxes: { number },
   count: number,
-  texts: { TextRun },
+  -- Glyph instance data per atlas page, and the number of glyphs on each.
+  glyphs: { [number]: { number } },
+  glyphCounts: { [number]: number },
   images: { ImageRun },
 }
 
@@ -55,19 +49,6 @@ end
 
 local function color(target: { number }, at: number, value: uiHost.Color): ()
   target[at], target[at + 1], target[at + 2], target[at + 3] = value[1], value[2], value[3], value[4] or 1
-end
-
-local function lineText(source: string, line: any): string
-  local glyphs = line.glyphs
-  if #glyphs == 0 then
-    return ''
-  end
-  local first, last = math.huge, 0
-  for _, glyph in glyphs do
-    first = math.min(first, glyph.byteStart)
-    last = math.max(last, glyph.byteEnd)
-  end
-  return string.sub(source, first, last)
 end
 
 -- Records stale visuals and packs every visible primitive in tree order.
@@ -89,12 +70,44 @@ local function faded(value: uiHost.Color, opacity: number): uiHost.Color
 end
 
 -- Records stale visuals and packs every visible primitive in tree order, then the ghosts of exiting nodes.
-function pack.run(panel: records.Panel, env: records.Environment, visuals: record.Visuals, into: Packed?): Packed
-  local packed: Packed = into or { boxes = {}, count = 0, texts = {}, images = {} }
+function pack.run(
+  panel: records.Panel,
+  env: records.Environment,
+  visuals: record.Visuals,
+  glyphs: Glyphs,
+  into: Packed?
+): Packed
+  local packed: Packed = into or { boxes = {}, count = 0, glyphs = {}, glyphCounts = {}, images = {} }
   local boxes = packed.boxes
   local count = 0
-  table.clear(packed.texts)
+  table.clear(packed.glyphCounts)
   table.clear(packed.images)
+  local function glyph(
+    placement: Glyph,
+    x: number,
+    baseline: number,
+    size: number,
+    z: number,
+    tint: uiHost.Color,
+    clip: { number }
+  ): ()
+    local page = placement.page
+    local data = packed.glyphs[page]
+    if not data then
+      data = {}
+      packed.glyphs[page] = data
+    end
+    local index = packed.glyphCounts[page] or 0
+    packed.glyphCounts[page] = index + 1
+    local slot = index * shader.GLYPH_SLOTS * 4
+    data[slot + 1], data[slot + 2] = x + placement.left * size, baseline - placement.top * size
+    data[slot + 3], data[slot + 4] = placement.width * size, placement.height * size
+    data[slot + 5], data[slot + 6], data[slot + 7], data[slot + 8] =
+      placement.u0, placement.v0, placement.u1, placement.v1
+    color(data, slot + 9, tint)
+    data[slot + 13], data[slot + 14], data[slot + 15], data[slot + 16] = clip[1], clip[2], clip[3], clip[4]
+    data[slot + 17], data[slot + 18], data[slot + 19], data[slot + 20] = z, 0, 0, 0
+  end
   local tokens = env.theme()
   local contentOffset = tokens.elevation.contentOffset
   local edgeWidth = tokens.sizes.edge
@@ -130,22 +143,16 @@ function pack.run(panel: records.Panel, env: records.Environment, visuals: recor
           clip = at.clip,
         }
       else
+        local tint = faded(primitive.color, opacity)
+        local z = at.z + contentOffset + primitive.offset + step
+        local left = at.x + primitive.x
         for _, line in primitive.lines do
-          local text = lineText(primitive.source, line)
-          if text ~= '' then
-            local first, last = assert(line.glyphs[1]), assert(line.glyphs[#line.glyphs])
-            packed.texts[#packed.texts + 1] = {
-              text = text,
-              family = primitive.family,
-              weight = primitive.weight,
-              size = first.size,
-              x = at.x + primitive.x + first.x,
-              baseline = at.y + primitive.y + line.baseline,
-              width = last.x + last.advance - first.x,
-              z = at.z + contentOffset + primitive.offset + step,
-              color = faded(primitive.color, opacity),
-              clip = at.clip,
-            }
+          local baseline = at.y + primitive.y + line.baseline
+          for _, shaped in line.glyphs do
+            local placement = glyphs(shaped.face, shaped.id)
+            if placement then
+              glyph(placement, left + shaped.x, baseline, shaped.size, z, tint, at.clip)
+            end
           end
         end
       end

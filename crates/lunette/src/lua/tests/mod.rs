@@ -12,6 +12,7 @@ mod audio;
 mod children;
 mod drags;
 mod events;
+mod glyphs;
 mod layers;
 mod layout;
 mod lunctl;

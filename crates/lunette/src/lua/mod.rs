@@ -8,6 +8,7 @@ mod audio;
 mod claim;
 pub mod declarations;
 mod drag;
+pub mod glyphs;
 pub mod keys;
 pub mod layout;
 mod monitor;
@@ -629,6 +630,9 @@ module! {
 
     /// Adds the faces in a font file's bytes to the fonts layout trees shape with, and answers how many faces it held. Read the file with `lovr.filesystem.read`.
     fn loadLayoutFont(lua, _session, data: mlua::LuaString) -> usize { layout::load_layout_font(lua, &data) }
+
+    /// The distance field glyph atlas shared by every layout tree's fonts in this Lua state, created on first use.
+    fn glyphAtlas(lua, _session) -> glyphs::GlyphAtlas { Ok(glyphs::glyph_atlas(lua)) }
 
     /// Rasterises an SVG or svgz document into a canvas of `width` by `height` pixels, each a whole number from 1 to 4096, scaled to fit with its aspect ratio preserved and centred. Answers the pixels as tightly packed rows of straight-alpha RGBA8, top row first, which `lovr.data.newBlob` wraps for `lovr.data.newImage`, and the width and height of the canvas. Hrefs to files are not followed and text elements are not drawn. A document that does not parse raises an error.
     fn rasterizeSvg(lua, _session, svg: mlua::LuaString, width: f64, height: f64) -> (mlua::LuaString, u32, u32) {

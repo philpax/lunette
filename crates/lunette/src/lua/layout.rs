@@ -44,7 +44,7 @@ pub fn load_layout_font(lua: &Lua, data: &mlua::LuaString) -> mlua::Result<usize
     Ok(fonts.add(data.as_bytes().to_vec()))
 }
 
-fn shared_fonts(lua: &Lua) -> SharedFonts {
+pub(crate) fn shared_fonts(lua: &Lua) -> SharedFonts {
     if let Some(fonts) = lua.app_data_ref::<LayoutFonts>() {
         return fonts.0.clone();
     }
@@ -408,6 +408,7 @@ impl IntoLua for LayoutLine {
         let glyphs = lua.create_table_with_capacity(line.glyphs.len(), 0)?;
         for (index, glyph) in line.glyphs.into_iter().enumerate() {
             let entry = lua.create_table()?;
+            entry.set("face", glyph.handle.get())?;
             entry.set("id", glyph.id)?;
             entry.set("x", glyph.x)?;
             entry.set("advance", glyph.advance)?;
@@ -772,8 +773,9 @@ alias!(
 alias!(
     LayoutGlyphAlias,
     "LayoutGlyph",
-    "One positioned glyph, in metres from the text node's left edge, with the inclusive byte range of the text it draws.",
+    "One positioned glyph, in metres from the text node's left edge, with the inclusive byte range of the text it draws. The face is a handle that the glyph atlas takes.",
     record(&[
+        ("face", number()),
         ("id", number()),
         ("x", number()),
         ("advance", number()),
