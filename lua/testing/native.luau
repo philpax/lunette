@@ -249,6 +249,8 @@ export type Events = {
   reported: { { message: string, traceback: string, logged: string } },
   reads: number,
   writes: number,
+  -- Save files other than the arrangement, by path.
+  files: { [string]: string },
   enumerations: number,
   closed: number,
   writeMode: 'ok' | 'refuse',
@@ -325,6 +327,7 @@ function native.new(): Fake
     reported = {},
     reads = 0,
     writes = 0,
+    files = {},
     enumerations = 0,
     closed = 0,
     writeMode = 'ok',
@@ -937,11 +940,15 @@ installLovr = function(events: Events)
     end,
   }
   lovr.filesystem = {
-    -- Alias paths name files in the mounted module roots, as LÖVR's filesystem serves them; any other path is the
-    -- save file.
+    -- Alias paths name files in the mounted module roots, as LÖVR's filesystem serves them. A `.state` file is the
+    -- arrangement stream that tests count and replace; other save files, such as accessibility settings, are kept
+    -- per path in `events.files`.
     read = function(path: string?): string?
       if type(path) == 'string' and string.sub(path, 1, 1) == '@' then
         return host.readFile(path)
+      end
+      if type(path) == 'string' and string.sub(path, -6) ~= '.state' then
+        return events.files[path]
       end
       events.reads += 1
       return events.saved
@@ -949,7 +956,11 @@ installLovr = function(events: Events)
     getSaveDirectory = function(): string
       return '/fixture'
     end,
-    write = function(_: string, text: string): boolean
+    write = function(path: string, text: string): boolean
+      if string.sub(path, -6) ~= '.state' then
+        events.files[path] = text
+        return true
+      end
       events.writes += 1
       if events.writeMode == 'refuse' then
         return false

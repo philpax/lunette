@@ -7,6 +7,7 @@ local keyboard = require '@lunette-plugins/input/keyboard/config'
 local ui = require '@lunette-plugins/ui/toolkit/config'
 local uiHost = require '@lunette-plugins/ui/host/config'
 local notifications = require '@lunette-plugins/ui/notifications/config'
+local accessibility = require '@lunette-plugins/ui/accessibility/config'
 local desktopTheme = require '@lunette-plugins/theme/selector/config'
 local panels = require '@lunette-plugins/panels/service/config'
 local rules = require '@lunette-plugins/window/rule-resolver/config'
@@ -41,6 +42,7 @@ local shape: {
   read ui: schema.Schema<ui.Config?, ui.Settings?>,
   read ['ui-host']: schema.Schema<uiHost.Config?, uiHost.Settings?>,
   read notifications: schema.Schema<notifications.Config?, notifications.Settings?>,
+  read accessibility: schema.Schema<accessibility.Config?, accessibility.Settings?>,
   read ['desktop/theme']: schema.Schema<desktopTheme.Config?, desktopTheme.Settings?>,
   read panels: schema.Schema<panels.Config?, panels.Settings?>,
   read rules: schema.Schema<rules.Config?, rules.Settings?>,
@@ -73,6 +75,7 @@ local shape: {
     ui = optional<<ui.Config, ui.Settings>>(ui.schema),
     ['ui-host'] = optional<<uiHost.Config, uiHost.Settings>>(uiHost.schema),
     notifications = optional<<notifications.Config, notifications.Settings>>(notifications.schema),
+    accessibility = optional<<accessibility.Config, accessibility.Settings>>(accessibility.schema),
     ['desktop/theme'] = optional<<desktopTheme.Config, desktopTheme.Settings>>(desktopTheme.schema),
     panels = optional<<panels.Config, panels.Settings>>(panels.schema),
     rules = optional<<rules.Config, rules.Settings>>(rules.schema),

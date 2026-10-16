@@ -19,6 +19,8 @@ local ui = require '@lunette-plugins/ui/toolkit'
 local uiHost = require '@lunette-plugins/ui/host'
 local uiStandard = require '@lunette-plugins/ui/standard'
 local notifications = require '@lunette-plugins/ui/notifications'
+local accessibilityProvider = require '@lunette-plugins/ui/accessibility'
+local accessibilitySettings = require '@lunette-plugins/ui/accessibility-settings'
 local menu = require '@lunette-plugins/menu/action-registry'
 local tags = require '@lunette-plugins/workspace/tags'
 local rules = require '@lunette-plugins/window/rule-resolver'
@@ -84,6 +86,7 @@ local DEFAULT: { plugin.Entry } = plugin.compose {
   { id = 'ui-host', definition = uiHost.definition },
   { id = 'ui-standard', definition = uiStandard.definition },
   { id = 'notifications', definition = notifications.definition },
+  { id = 'accessibility', definition = accessibilityProvider.definition },
   { id = 'menu', definition = menu.definition },
   { id = 'desktop/theme', definition = themeSelector.definition },
   { id = 'tags', definition = tags.definition },
@@ -116,6 +119,7 @@ local DEFAULT: { plugin.Entry } = plugin.compose {
   { id = 'desktop/scale', definition = scale.definition },
   { id = 'desktop/backdrop', definition = backdrop.definition },
   { id = 'desktop/manager', definition = manager.definition },
+  { id = 'desktop/accessibility', definition = accessibilitySettings.definition },
 }
 
 -- Each setting becomes one configuration patch after the given ones, so one composition rejects a setting and a patch

@@ -32,6 +32,7 @@ test('settings cover entries with options and shipped empty schemas', function()
     'ui-host',
     'ui-standard',
     'notifications',
+    'accessibility',
     'menu',
     'desktop/theme',
     'tags',
@@ -64,6 +65,7 @@ test('settings cover entries with options and shipped empty schemas', function()
     'desktop/scale',
     'desktop/backdrop',
     'desktop/manager',
+    'desktop/accessibility',
   }
   local entries = desktop.compose()
   expect.equal(#entries, #expected, 'the shipped entry count')

@@ -70,6 +70,7 @@ test('desktop_backdrop_composition_and_settings', function()
     'ui-host',
     'ui-standard',
     'notifications',
+    'accessibility',
     'menu',
     'desktop/theme',
     'tags',
@@ -102,6 +103,7 @@ test('desktop_backdrop_composition_and_settings', function()
     'desktop/scale',
     'desktop/backdrop',
     'desktop/manager',
+    'desktop/accessibility',
   }
   local entries = desktop.compose()
   expect.equal(#entries, #expected, 'the default entry count')
