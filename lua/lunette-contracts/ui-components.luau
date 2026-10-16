@@ -56,6 +56,8 @@ export type Service = {
   read List: Constructor,
   read ListRow: Constructor,
   read Table: Constructor,
+  -- A list that materialises only the rows near its visible part.
+  read VirtualList: Constructor,
   -- Text input.
   read TextField: Constructor,
   -- Overlays: the content of dialog and follow panels.

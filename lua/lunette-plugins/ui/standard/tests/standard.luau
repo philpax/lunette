@@ -497,4 +497,50 @@ test('a tap on a slider track moves the value to the tap', function()
   state.fixture:close()
 end)
 
+test('a virtual list of thousands keeps only the rows near its visible part, and scrolls to any of them', function()
+  local state = boot()
+  local c = assert(state.components)
+  local chosen: number? = nil
+  fixture.show(
+    state,
+    c.Panel {
+      c.Body {
+        key = 'body',
+        c.VirtualList {
+          key = 'many',
+          count = 5000,
+          rowHeight = 0.03,
+          height = 0.15,
+          renderItem = function(index: number): any
+            return c.ListRow {
+              key = 'row',
+              title = `Entry {index}`,
+              onActivate = function()
+                chosen = index
+              end,
+            }
+          end,
+        },
+      },
+    }
+  )
+  state.fixture:step()
+  local list = assert(state.panel:find 'body/many')
+  local materialised = 0
+  for index = 1, 40 do
+    if state.panel:find(`body/many/row-{index}`) then
+      materialised += 1
+    end
+  end
+  expect.truthy(materialised > 0 and materialised < 20, `a few rows exist: {materialised}`)
+  expect.equal(state.panel:find 'body/many/row-4000', nil, 'distant rows do not exist')
+  list:setState { scrollY = 0.03 * 3999 }
+  state.fixture:step()
+  state.fixture:step()
+  local far = assert(state.panel:find 'body/many/row-4000/row', 'scrolling materialises the row')
+  state.fixture:click(fixture.nodeGeometry(far), 0.5, 0.5)
+  expect.equal(chosen, 4000)
+  state.fixture:close()
+end)
+
 return test
