@@ -152,7 +152,7 @@ function ui.provide<T>(context: Context<T>, value: T, children: Child): Child
       name = 'Provider',
       context = context :: any,
       render = function(props: any): any
-        local hook = instances.hook('provider', function()
+        local hook = instances.hook('provider', function(): instances.Hook
           return { value = props.value, subscribers = setmetatable({}, { __mode = 'k' }) }
         end)
         if hook.value ~= props.value then
@@ -177,7 +177,7 @@ function ui.provide<T>(context: Context<T>, value: T, children: Child): Child
 end
 
 function ui.useContext<T>(context: Context<T>): T
-  local _, instance = instances.hook('context', function()
+  local _, instance = instances.hook('context', function(): instances.Hook
     return {}
   end)
   local current = instance.parent
@@ -200,7 +200,7 @@ function ui.useComponents(): any
 end
 
 function ui.useState<T>(initial: T | () -> T): (T, (T | (T) -> T) -> ())
-  local hook, instance = instances.hook('state', function()
+  local hook, instance = instances.hook('state', function(): instances.Hook
     local value = if type(initial) == 'function' then (initial :: () -> T)() else initial
     return { value = value }
   end)
@@ -232,7 +232,7 @@ local function changed(previous: { any }?, dependencies: { any }?): boolean
 end
 
 function ui.useMemo<T>(compute: () -> T, dependencies: { any }?): T
-  local hook = instances.hook('memo', function()
+  local hook = instances.hook('memo', function(): instances.Hook
     return { primed = false }
   end)
   if not hook.primed or changed(hook.dependencies, dependencies) then
@@ -244,7 +244,7 @@ function ui.useMemo<T>(compute: () -> T, dependencies: { any }?): T
 end
 
 function ui.useRef<T>(initial: T): Ref<T>
-  local hook = instances.hook('ref', function()
+  local hook = instances.hook('ref', function(): instances.Hook
     return { ref = { current = initial } }
   end)
   return hook.ref
@@ -253,7 +253,7 @@ end
 -- Runs the effect after the render pass is submitted when a dependency changes. The cleanup it returns runs before
 -- the next run and on unmount. The effect receives the mount's owner.
 function ui.useEffect(effect: (owner: any) -> (() -> ())?, dependencies: { any }?): ()
-  local hook, instance = instances.hook('effect', function()
+  local hook, instance = instances.hook('effect', function(): instances.Hook
     return { primed = false }
   end)
   if hook.primed and not changed(hook.dependencies, dependencies) then
@@ -279,7 +279,7 @@ ui.useLayoutEffect = ui.useEffect
 
 -- Reads a store and re-renders the component when it changes.
 function ui.useStore<T>(store: Store<T>): T
-  local hook, instance = instances.hook('store', function()
+  local hook, instance = instances.hook('store', function(): instances.Hook
     return {}
   end)
   if hook.store ~= store then

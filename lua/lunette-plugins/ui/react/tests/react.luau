@@ -7,9 +7,9 @@ local test = testing.suite()
 
 local element = uiHost.element
 
-local function boot()
+local function boot(): fixture.State
   local state = fixture.boot {
-    setup = function(service, owner)
+    setup = function(service: uiHost.Service, owner: any)
       fixture.registerKinds(service, owner, {})
     end,
   }
@@ -23,14 +23,14 @@ end
 
 test('state set from an event re-renders the component', function()
   local state = boot()
-  local Counter = ui.component('Counter', function()
+  local Counter = ui.component('Counter', function(): any
     local count, setCount = ui.useState(0)
     return element('test/column', {
       padding = 0.01,
       element('test/button', {
         key = 'go',
         onActivate = function()
-          setCount(function(current)
+          setCount(function(current: number): number
             return current + 1
           end)
         end,
@@ -50,12 +50,12 @@ end)
 test('a child with unchanged props is not rendered again', function()
   local state = boot()
   local renders = { parent = 0, child = 0 }
-  local Child = ui.component('Child', function(props: { text: string })
+  local Child = ui.component('Child', function(props: { text: string }): any
     renders.child += 1
     return element('test/text', { key = 'child', text = props.text })
   end)
   local bump: ((number) -> ())? = nil
-  local Parent = ui.component('Parent', function()
+  local Parent = ui.component('Parent', function(): any
     renders.parent += 1
     local tick, setTick = ui.useState(0)
     bump = setTick
@@ -78,8 +78,8 @@ end)
 test('effects run after the render pass and clean up on unmount', function()
   local state = boot()
   local log: { string } = {}
-  local Effectful = ui.component('Effectful', function(props: { value: number })
-    ui.useEffect(function()
+  local Effectful = ui.component('Effectful', function(props: { value: number }): any
+    ui.useEffect(function(): (() -> ())?
       table.insert(log, `run {props.value}`)
       return function()
         table.insert(log, `clean {props.value}`)
@@ -88,7 +88,7 @@ test('effects run after the render pass and clean up on unmount', function()
     return element('test/leaf', { width = 0.01, height = 0.01 })
   end)
   local value = ui.store(1)
-  local Root = ui.component('Root', function()
+  local Root = ui.component('Root', function(): any
     return Effectful { value = ui.useStore(value) }
   end)
   local handle = ui.mount(state.panel, Root {})
@@ -107,11 +107,11 @@ end)
 test('a context change reaches a child whose props did not change', function()
   local state = boot()
   local Theme = ui.createContext 'plain'
-  local Reader = ui.component('Reader', function()
+  local Reader = ui.component('Reader', function(): any
     return element('test/text', { key = 'reader', text = ui.useContext(Theme) })
   end)
   local flavour = ui.store 'plain'
-  local Root = ui.component('Root', function()
+  local Root = ui.component('Root', function(): any
     return element('test/column', { ui.provide(Theme, ui.useStore(flavour), Reader {}) })
   end)
   ui.mount(state.panel, Root {})
@@ -125,12 +125,12 @@ end)
 
 test('mapped children require unique keys', function()
   expect.raises(function()
-    ui.map({ 1, 2 }, function(value)
+    ui.map({ 1, 2 }, function(value: number): any
       return element('test/leaf', { key = 'same' })
     end)
   end, 'share the key')
   expect.raises(function()
-    ui.map({ 1 }, function()
+    ui.map({ 1 }, function(): any
       return element('test/leaf', {})
     end)
   end, 'has no key')

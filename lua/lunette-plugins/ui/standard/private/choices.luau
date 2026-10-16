@@ -1,5 +1,6 @@
 -- Choice kinds: toggles, checkboxes, radio groups, segmented controls, and dropdowns.
 
+local lunette = require '@lunette'
 local uiHost = require '@lunette-contracts/ui-host'
 local tokens = require './tokens'
 
@@ -72,7 +73,7 @@ function choices.register(service: uiHost.Service, owner: any): { [string]: uiHo
     name = 'lunette/choice-row',
     layout = {
       kind = 'container',
-      style = function(_props, theme)
+      style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
         return {
           flexDirection = 'row',
           alignItems = 'center',
@@ -83,13 +84,13 @@ function choices.register(service: uiHost.Service, owner: any): { [string]: uiHo
         }
       end,
     },
-    interactive = function(props)
+    interactive = function(props: uiHost.Props): boolean
       return tokens.enabled(props)
     end,
     visuals = { 'lunette/choice-row' },
     event = activateOnly,
   })
-  service:registerVisual(owner, 'lunette/choice-row', function(node, draw)
+  service:registerVisual(owner, 'lunette/choice-row', function(node: uiHost.Node, draw: uiHost.Draw)
     if node.state.hovered then
       draw:box(nil, { fill = node.theme.colors.hover, radius = node.theme.radii.control })
     end
@@ -99,13 +100,13 @@ function choices.register(service: uiHost.Service, owner: any): { [string]: uiHo
     name = 'lunette/switch',
     layout = {
       kind = 'leaf',
-      style = function(_props, theme)
+      style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
         return { width = theme.sizes.toggleWidth, height = theme.sizes.toggleHeight, shrink = 0 }
       end,
     },
     visuals = { 'lunette/switch' },
   })
-  service:registerVisual(owner, 'lunette/switch', function(node, draw)
+  service:registerVisual(owner, 'lunette/switch', function(node: uiHost.Node, draw: uiHost.Draw)
     local theme = node.theme
     local bounds = node.bounds
     local on = node.props.value == true
@@ -153,7 +154,12 @@ function choices.register(service: uiHost.Service, owner: any): { [string]: uiHo
   -- Toggle props: label, detail, value, onChange, and disabledReason.
   constructors.Toggle = service:registerKind(owner, {
     name = 'lunette/toggle',
-    expand = function(props, _children, _state, act)
+    expand = function(
+      props: uiHost.Props,
+      _children: { read [number]: uiHost.Element },
+      _state: { read [string]: any },
+      act: uiHost.Actions
+    ): uiHost.Child
       return {
         element('lunette/choice-row', {
           key = 'row',
@@ -172,13 +178,13 @@ function choices.register(service: uiHost.Service, owner: any): { [string]: uiHo
     name = 'lunette/check',
     layout = {
       kind = 'leaf',
-      style = function(_props, theme)
+      style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
         return { width = theme.sizes.check, height = theme.sizes.check, shrink = 0 }
       end,
     },
     visuals = { 'lunette/check' },
   })
-  service:registerVisual(owner, 'lunette/check', function(node, draw)
+  service:registerVisual(owner, 'lunette/check', function(node: uiHost.Node, draw: uiHost.Draw)
     local theme = node.theme
     local bounds = node.bounds
     local on = node.props.value == true
@@ -207,7 +213,12 @@ function choices.register(service: uiHost.Service, owner: any): { [string]: uiHo
   -- Checkbox props: label, detail, value, onChange, and disabledReason.
   constructors.Checkbox = service:registerKind(owner, {
     name = 'lunette/checkbox',
-    expand = function(props, _children, _state, act)
+    expand = function(
+      props: uiHost.Props,
+      _children: { read [number]: uiHost.Element },
+      _state: { read [string]: any },
+      act: uiHost.Actions
+    ): uiHost.Child
       return {
         element('lunette/choice-row', {
           key = 'row',
@@ -227,11 +238,16 @@ function choices.register(service: uiHost.Service, owner: any): { [string]: uiHo
     name = 'lunette/radio-group',
     layout = {
       kind = 'container',
-      style = function(_props, theme)
+      style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
         return { flexDirection = 'column', alignItems = 'stretch', gap = theme.spacing.xs }
       end,
     },
-    expand = function(props, _children, _state, act)
+    expand = function(
+      props: uiHost.Props,
+      _children: { read [number]: uiHost.Element },
+      _state: { read [string]: any },
+      act: uiHost.Actions
+    ): uiHost.Child
       local rows = {}
       for _, option in props.options or {} do
         rows[#rows + 1] = element('lunette/choice-row', {
@@ -252,7 +268,7 @@ function choices.register(service: uiHost.Service, owner: any): { [string]: uiHo
     name = 'lunette/segment',
     layout = {
       kind = 'container',
-      style = function(_props, theme)
+      style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
         return {
           flexDirection = 'row',
           alignItems = 'center',
@@ -263,18 +279,18 @@ function choices.register(service: uiHost.Service, owner: any): { [string]: uiHo
         }
       end,
     },
-    elevation = function(props, theme)
+    elevation = function(props: uiHost.Props, theme: uiHost.Theme): number
       return if props.selected then theme.elevation.raised else 0
     end,
     response = { lift = true, travel = true },
-    interactive = function(props)
+    interactive = function(props: uiHost.Props): boolean
       return tokens.enabled(props)
     end,
     visuals = { 'lunette/segment' },
     event = activateOnly,
   })
   -- A selected segment or tab is a raised face with a square accent underline.
-  service:registerVisual(owner, 'lunette/segment', function(node, draw)
+  service:registerVisual(owner, 'lunette/segment', function(node: uiHost.Node, draw: uiHost.Draw)
     local theme = node.theme
     local bounds = node.bounds
     if node.props.selected then
@@ -295,7 +311,7 @@ function choices.register(service: uiHost.Service, owner: any): { [string]: uiHo
     name = 'lunette/segment-track',
     layout = {
       kind = 'container',
-      style = function(props, theme)
+      style = function(props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
         return {
           flexDirection = 'row',
           gap = theme.spacing.xs,
@@ -306,14 +322,19 @@ function choices.register(service: uiHost.Service, owner: any): { [string]: uiHo
     },
     visuals = { 'lunette/segment-track' },
   })
-  service:registerVisual(owner, 'lunette/segment-track', function(node, draw)
+  service:registerVisual(owner, 'lunette/segment-track', function(node: uiHost.Node, draw: uiHost.Draw)
     draw:box(nil, { fill = node.theme.colors.sunken, radius = node.theme.radii.control })
   end)
 
   -- Segmented props: options, value, and onChange.
   constructors.Segmented = service:registerKind(owner, {
     name = 'lunette/segmented',
-    expand = function(props, _children, _state, act)
+    expand = function(
+      props: uiHost.Props,
+      _children: { read [number]: uiHost.Element },
+      _state: { read [string]: any },
+      act: uiHost.Actions
+    ): uiHost.Child
       local segments = {}
       for _, option in props.options or {} do
         local selected = option.id == props.value
@@ -346,13 +367,13 @@ function choices.registerDropdown(service: uiHost.Service, owner: any): uiHost.C
     name = 'lunette/chevron',
     layout = {
       kind = 'leaf',
-      style = function(_props, theme)
+      style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
         return { width = theme.spacing.lg, height = theme.spacing.lg, shrink = 0 }
       end,
     },
     visuals = { 'lunette/chevron' },
   })
-  service:registerVisual(owner, 'lunette/chevron', function(node, draw)
+  service:registerVisual(owner, 'lunette/chevron', function(node: uiHost.Node, draw: uiHost.Draw)
     choices.chevron(draw, node.bounds, node.theme.colors.muted, node.props.open == true)
   end)
 
@@ -360,7 +381,7 @@ function choices.registerDropdown(service: uiHost.Service, owner: any): uiHost.C
     name = 'lunette/menu',
     layout = {
       kind = 'container',
-      style = function(_props, theme)
+      style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
         return {
           position = 'absolute',
           top = '100%',
@@ -377,7 +398,7 @@ function choices.registerDropdown(service: uiHost.Service, owner: any): uiHost.C
     elevation = 'popover',
     visuals = { 'lunette/menu' },
   })
-  service:registerVisual(owner, 'lunette/menu', function(node, draw)
+  service:registerVisual(owner, 'lunette/menu', function(node: uiHost.Node, draw: uiHost.Draw)
     local theme = node.theme
     draw:box(nil, { fill = theme.colors.raised, radius = theme.radii.control, side = theme.colors.side, edges = true })
   end)
@@ -386,7 +407,7 @@ function choices.registerDropdown(service: uiHost.Service, owner: any): uiHost.C
     name = 'lunette/menu-item',
     layout = {
       kind = 'container',
-      style = function(_props, theme)
+      style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
         return {
           flexDirection = 'row',
           alignItems = 'center',
@@ -396,13 +417,13 @@ function choices.registerDropdown(service: uiHost.Service, owner: any): uiHost.C
         }
       end,
     },
-    interactive = function(props)
+    interactive = function(props: uiHost.Props): boolean
       return tokens.enabled(props)
     end,
     visuals = { 'lunette/menu-item' },
     event = activateOnly,
   })
-  service:registerVisual(owner, 'lunette/menu-item', function(node, draw)
+  service:registerVisual(owner, 'lunette/menu-item', function(node: uiHost.Node, draw: uiHost.Draw)
     local theme = node.theme
     if node.state.hovered then
       draw:box(nil, { fill = theme.colors.hover, radius = theme.radii.control })
@@ -419,7 +440,7 @@ function choices.registerDropdown(service: uiHost.Service, owner: any): uiHost.C
     name = 'lunette/dropdown',
     layout = {
       kind = 'container',
-      style = function(props)
+      style = function(props: uiHost.Props): lunette.LayoutStyle
         -- The menu is placed against the dropdown, so the dropdown is positioned.
         return {
           flexDirection = 'column',
@@ -431,7 +452,12 @@ function choices.registerDropdown(service: uiHost.Service, owner: any): uiHost.C
       end,
     },
     state = { open = false },
-    expand = function(props, _children, state, act)
+    expand = function(
+      props: uiHost.Props,
+      _children: { read [number]: uiHost.Element },
+      state: { read [string]: any },
+      act: uiHost.Actions
+    ): uiHost.Child
       local selected = nil
       for _, option in props.options or {} do
         if option.id == props.value then
@@ -459,7 +485,7 @@ function choices.registerDropdown(service: uiHost.Service, owner: any): uiHost.C
           key = 'trigger',
           variant = 'default',
           onActivate = function()
-            act.setState(function(current)
+            act.setState(function(current: { read [string]: any }): { [string]: any }
               return { open = not current.open }
             end)
           end,

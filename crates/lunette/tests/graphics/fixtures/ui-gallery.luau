@@ -18,7 +18,7 @@ for _, mode in { 'dark', 'light' } do
       local scene = render.boot(
         { require('@lunette-plugins/ui/standard').definition },
         { uiComponents.capability },
-        function(context)
+        function(context: any)
           local host = context:require(uiHost.capability)
           host:setMode(mode :: any)
           local panel = host:newPanel(context, {

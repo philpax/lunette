@@ -88,7 +88,7 @@ function fixture.registerKinds(service: uiHost.Service, owner: any, log: { strin
     name = 'test/column',
     layout = {
       kind = 'container',
-      style = function(props)
+      style = function(props: uiHost.Props): lunette.LayoutStyle
         return { flexDirection = 'column', padding = props.padding or 0, gap = props.gap or 0 }
       end,
     },
@@ -97,7 +97,7 @@ function fixture.registerKinds(service: uiHost.Service, owner: any, log: { strin
     name = 'test/leaf',
     layout = {
       kind = 'leaf',
-      style = function(props)
+      style = function(props: uiHost.Props): lunette.LayoutStyle
         return { width = props.width, height = props.height }
       end,
     },
@@ -106,10 +106,10 @@ function fixture.registerKinds(service: uiHost.Service, owner: any, log: { strin
     name = 'test/text',
     layout = {
       kind = 'text',
-      text = function(props)
+      text = function(props: uiHost.Props): string
         return props.text
       end,
-      textStyle = function(_props, theme)
+      textStyle = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutTextStyle
         local body = theme.type.body
         return { family = body.family, size = body.size, weight = body.weight }
       end,
@@ -119,13 +119,13 @@ function fixture.registerKinds(service: uiHost.Service, owner: any, log: { strin
     name = 'test/button',
     layout = {
       kind = 'container',
-      style = function()
+      style = function(): lunette.LayoutStyle
         return { padding = 0.004 }
       end,
     },
     response = { lift = true, travel = true },
     elevation = 'raised',
-    event = function(node, event, base)
+    event = function(node: uiHost.Node, event: uiHost.Event, base: (uiHost.Node, uiHost.Event) -> ())
       table.insert(log, `{node.key or '?'}:{event.kind}`)
       if event.kind == 'activate' then
         node:emit 'onActivate'
@@ -137,12 +137,17 @@ function fixture.registerKinds(service: uiHost.Service, owner: any, log: { strin
   service:registerKind(owner, {
     name = 'test/counter',
     state = { count = 0 },
-    expand = function(_props, _children, state, actions)
+    expand = function(
+      _props: uiHost.Props,
+      _children: { read [number]: uiHost.Element },
+      state: { read [string]: any },
+      actions: uiHost.Actions
+    ): uiHost.Child
       return {
         uiHost.element('test/button', {
           key = 'increment',
           onActivate = function()
-            actions.setState(function(current)
+            actions.setState(function(current: { read [string]: any }): { [string]: any }
               return { count = current.count + 1 }
             end)
           end,

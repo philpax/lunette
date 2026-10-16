@@ -34,7 +34,7 @@ pages.PAGES = {
   { id = 'structure', label = 'Structure' },
 }
 
-local Display = ui.component('Display', function()
+local Display = ui.component('Display', function(): ui.Child
   local c = ui.useComponents()
   return c.Column {
     gap = 'md',
@@ -67,11 +67,11 @@ local Display = ui.component('Display', function()
   }
 end)
 
-local Actions = ui.component('Actions', function()
+local Actions = ui.component('Actions', function(): ui.Child
   local c = ui.useComponents()
   local count, setCount = ui.useState(0)
   local filters, setFilters = ui.useState { windows = true, monitors = false, audio = true }
-  local function filter(id: string, label: string)
+  local function filter(id: string, label: string): ui.Child
     return c.Chip {
       key = id,
       label = label,
@@ -117,7 +117,7 @@ local Actions = ui.component('Actions', function()
   }
 end)
 
-local Choices = ui.component('Choices', function()
+local Choices = ui.component('Choices', function(): ui.Child
   local c = ui.useComponents()
   local enabled, setEnabled = ui.useState(true)
   local follow, setFollow = ui.useState(false)
@@ -182,7 +182,7 @@ local Choices = ui.component('Choices', function()
   }
 end)
 
-local Values = ui.component('Values', function()
+local Values = ui.component('Values', function(): ui.Child
   local c = ui.useComponents()
   local response, setResponse = ui.useState(0.75)
   local volume, setVolume = ui.useState(-12)
@@ -226,7 +226,7 @@ local APPLICATIONS = {
   { id = 'mpv', title = 'mpv', detail = 'mpv · #5012', trailing = 'Paused' },
 }
 
-local Collections = ui.component('Collections', function()
+local Collections = ui.component('Collections', function(): ui.Child
   local c = ui.useComponents()
   local application, setApplication = ui.useState 'firefox'
   local plugin, setPlugin = ui.useState 'desktop/backdrop'
@@ -259,7 +259,7 @@ local Collections = ui.component('Collections', function()
   }
 end)
 
-local Structure = ui.component('Structure', function()
+local Structure = ui.component('Structure', function(): ui.Child
   local c = ui.useComponents()
   local rows = {}
   for index = 1, 14 do
@@ -306,7 +306,7 @@ local PAGE_COMPONENTS = {
 }
 
 -- The whole gallery: a header with the theme controls, page tabs, and the page in a scroll box.
-pages.Gallery = ui.component('Gallery', function(props: Props)
+pages.Gallery = ui.component('Gallery', function(props: Props): ui.Child
   local c = ui.useComponents()
   local page, setPage = ui.useState(props.page or 'display')
   local mode, setMode = ui.useState(props.host:theme().mode)

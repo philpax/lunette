@@ -1,6 +1,7 @@
 -- Renders host panels through the toolkit shader and checks faces, sides, depth order, and text.
 
 local testing = require '@testing'
+local lunette = require '@lunette'
 local uiHost = require '@lunette-contracts/ui-host'
 local ui = require './support/ui'
 local test = testing.suite()
@@ -12,13 +13,13 @@ local function kinds(service: uiHost.Service, owner: any): ()
     name = 'test/panel',
     layout = {
       kind = 'container',
-      style = function(props)
+      style = function(props: uiHost.Props): lunette.LayoutStyle
         return { flexDirection = 'column', padding = 0.01, gap = 0.006, grow = 1 }
       end,
     },
     visuals = { 'test/panel' },
   })
-  service:registerVisual(owner, 'test/panel', function(node, draw)
+  service:registerVisual(owner, 'test/panel', function(node: uiHost.Node, draw: uiHost.Draw)
     local theme = node.theme
     draw:box(nil, {
       fill = theme.colors.surface,
@@ -32,14 +33,14 @@ local function kinds(service: uiHost.Service, owner: any): ()
     name = 'test/key',
     layout = {
       kind = 'container',
-      style = function()
+      style = function(): lunette.LayoutStyle
         return { padding = 0.006, alignSelf = 'start' }
       end,
     },
     elevation = 'raised',
     visuals = { 'test/key' },
   })
-  service:registerVisual(owner, 'test/key', function(node, draw)
+  service:registerVisual(owner, 'test/key', function(node: uiHost.Node, draw: uiHost.Draw)
     local theme = node.theme
     draw:box(nil, { fill = theme.colors.accent, radius = theme.radii.control, side = theme.colors.side, edges = true })
   end)
@@ -47,17 +48,17 @@ local function kinds(service: uiHost.Service, owner: any): ()
     name = 'test/text',
     layout = {
       kind = 'text',
-      text = function(props)
+      text = function(props: uiHost.Props): string
         return props.text
       end,
-      textStyle = function(props, theme)
+      textStyle = function(props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutTextStyle
         local style = theme.type.title
         return { family = style.family, size = style.size, weight = style.weight, lineHeight = style.lineHeight }
       end,
     },
     visuals = { 'test/text' },
   })
-  service:registerVisual(owner, 'test/text', function(node, draw)
+  service:registerVisual(owner, 'test/text', function(node: uiHost.Node, draw: uiHost.Draw)
     draw:text { color = node.props.color or node.theme.colors.ink }
   end)
 end
@@ -75,7 +76,7 @@ local function close(image: Image, x: number, y: number, expected: { number }, l
 end
 
 test('a panel face, a raised key, and its label render in front of each other', function()
-  local scene = ui.boot({}, {}, function(context)
+  local scene = ui.boot({}, {}, function(context: any)
     local service = context:require(uiHost.capability)
     kinds(service, context)
     local panel = service:newPanel(context, { name = 'basics', width = 0.2, height = 0.12, pose = lovr.math.newMat4() })

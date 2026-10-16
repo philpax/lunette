@@ -1,5 +1,6 @@
 -- Value kinds: the slider, a continuous value with optional named detents.
 
+local lunette = require '@lunette'
 local uiHost = require '@lunette-contracts/ui-host'
 local tokens = require './tokens'
 
@@ -59,16 +60,16 @@ function values.register(service: uiHost.Service, owner: any): { [string]: uiHos
     name = 'lunette/slider-track',
     layout = {
       kind = 'leaf',
-      style = function(_props, theme)
+      style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
         return { height = theme.sizes.thumb + theme.spacing.sm, alignSelf = 'stretch' }
       end,
     },
     claims = { drag = 'x' },
-    interactive = function(props)
+    interactive = function(props: uiHost.Props): boolean
       return tokens.enabled(props)
     end,
     visuals = { 'lunette/slider-track' },
-    event = function(node, event, base)
+    event = function(node: uiHost.Node, event: uiHost.Event, base: (uiHost.Node, uiHost.Event) -> ())
       local kind = event.kind
       if kind == 'press' or kind == 'drag' then
         node:emit('onPreview', valueAt(node, (event :: any).x))
@@ -89,7 +90,7 @@ function values.register(service: uiHost.Service, owner: any): { [string]: uiHos
       end
     end,
   })
-  service:registerVisual(owner, 'lunette/slider-track', function(node, draw)
+  service:registerVisual(owner, 'lunette/slider-track', function(node: uiHost.Node, draw: uiHost.Draw)
     local theme = node.theme
     local props = node.props
     local bounds = node.bounds
@@ -137,12 +138,17 @@ function values.register(service: uiHost.Service, owner: any): { [string]: uiHos
     name = 'lunette/slider',
     layout = {
       kind = 'container',
-      style = function(_props, theme)
+      style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
         return { flexDirection = 'column', alignItems = 'stretch', gap = theme.spacing.xs }
       end,
     },
     state = { preview = false, pending = false, pendingFrom = false },
-    expand = function(props, _children, state, act)
+    expand = function(
+      props: uiHost.Props,
+      _children: { read [number]: uiHost.Element },
+      state: { read [string]: any },
+      act: uiHost.Actions
+    ): uiHost.Child
       local shown = props.value or 0
       if state.preview ~= false then
         shown = state.preview

@@ -1,5 +1,6 @@
 -- Action kinds: buttons in their variants, filter chips, and the tooltip that shows a disabled control's reason.
 
+local lunette = require '@lunette'
 local uiHost = require '@lunette-contracts/ui-host'
 local tokens = require './tokens'
 
@@ -66,7 +67,7 @@ function actions.register(service: uiHost.Service, owner: any): { [string]: uiHo
     name = 'lunette/button-face',
     layout = {
       kind = 'container',
-      style = function(props, theme)
+      style = function(props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
         return {
           flexDirection = 'row',
           alignItems = 'center',
@@ -84,20 +85,20 @@ function actions.register(service: uiHost.Service, owner: any): { [string]: uiHo
         }
       end,
     },
-    elevation = function(props, theme)
+    elevation = function(props: uiHost.Props, theme: uiHost.Theme): number
       if not tokens.enabled(props) or not raisedVariant(props.variant or 'default') then
         return 0
       end
       return if props.variant == 'selected' then theme.elevation.selected else theme.elevation.raised
     end,
     response = { lift = true, travel = true },
-    interactive = function()
+    interactive = function(): boolean
       return true
     end,
     visuals = { 'lunette/button-face' },
     event = pressable,
   })
-  service:registerVisual(owner, 'lunette/button-face', function(node, draw)
+  service:registerVisual(owner, 'lunette/button-face', function(node: uiHost.Node, draw: uiHost.Draw)
     local theme = node.theme
     local enabled = tokens.enabled(node.props)
     local fill, side = actions.face(theme, node.props.variant or 'default', enabled, node.state)
@@ -117,7 +118,7 @@ function actions.register(service: uiHost.Service, owner: any): { [string]: uiHo
     name = 'lunette/tooltip',
     layout = {
       kind = 'container',
-      style = function(_props, theme)
+      style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
         return {
           position = 'absolute',
           top = '100%',
@@ -136,7 +137,7 @@ function actions.register(service: uiHost.Service, owner: any): { [string]: uiHo
     elevation = 'popover',
     visuals = { 'lunette/tooltip' },
   })
-  service:registerVisual(owner, 'lunette/tooltip', function(node, draw)
+  service:registerVisual(owner, 'lunette/tooltip', function(node: uiHost.Node, draw: uiHost.Draw)
     local theme = node.theme
     draw:box(nil, { fill = theme.colors.band, radius = theme.radii.control, side = theme.colors.side, edges = true })
   end)
@@ -146,7 +147,7 @@ function actions.register(service: uiHost.Service, owner: any): { [string]: uiHo
     name = 'lunette/button',
     layout = {
       kind = 'container',
-      style = function(props)
+      style = function(props: uiHost.Props): lunette.LayoutStyle
         -- The disabled reason's tooltip is placed against the button, so the button is positioned.
         return {
           flexDirection = 'column',
@@ -158,7 +159,12 @@ function actions.register(service: uiHost.Service, owner: any): { [string]: uiHo
       end,
     },
     state = { showReason = false },
-    expand = function(props, children, state, act)
+    expand = function(
+      props: uiHost.Props,
+      children: { read [number]: uiHost.Element },
+      state: { read [string]: any },
+      act: uiHost.Actions
+    ): uiHost.Child
       local enabled = tokens.enabled(props)
       local variant = props.variant or 'default'
       local ink = if not enabled
@@ -199,7 +205,12 @@ function actions.register(service: uiHost.Service, owner: any): { [string]: uiHo
   -- Chip props: label, selected, and onChange, which receives the new selection.
   constructors.Chip = service:registerKind(owner, {
     name = 'lunette/chip',
-    expand = function(props, _children, _state, act)
+    expand = function(
+      props: uiHost.Props,
+      _children: { read [number]: uiHost.Element },
+      _state: { read [string]: any },
+      act: uiHost.Actions
+    ): uiHost.Child
       local selected = props.selected == true
       return {
         element('lunette/button-face', {

@@ -3,7 +3,7 @@ local fixture = require '@testing/ui-host'
 local expect = testing.expect
 local test = testing.suite()
 
-local function boot()
+local function boot(): fixture.State
   return fixture.boot { standard = true, width = 0.4, height = 0.4 }
 end
 
@@ -43,7 +43,7 @@ test('a toggle reports the flipped value', function()
           key = 'backdrop',
           label = 'Backdrop',
           value = false,
-          onChange = function(value)
+          onChange = function(value: boolean)
             table.insert(reported, value)
           end,
         },
@@ -97,10 +97,10 @@ test('a slider drag reports values and snaps the release to a detent', function(
           label = 'Response',
           value = 0,
           detents = { { value = 0, label = 'None' }, { value = 0.5, label = 'Medium' }, { value = 1, label = 'Full' } },
-          onChange = function(value)
+          onChange = function(value: number)
             table.insert(changes, value)
           end,
-          onCommit = function(value)
+          onCommit = function(value: number)
             table.insert(commits, value)
           end,
         },
@@ -130,7 +130,7 @@ test('a dropdown opens and reports the chosen option', function()
           key = 'layout',
           value = 'arc',
           options = { { id = 'arc', label = 'Arc' }, { id = 'grid', label = 'Grid' } },
-          onChange = function(id)
+          onChange = function(id: string)
             chosen = id
           end,
         },
@@ -160,7 +160,7 @@ test('list rows report their ids, including ids with separators', function()
         c.List {
           key = 'plugins',
           items = { { id = 'desktop/backdrop', title = 'Backdrop' }, { id = 'desktop/keyboard', title = 'Keyboard' } },
-          onChange = function(id)
+          onChange = function(id: string)
             chosen = id
           end,
         },

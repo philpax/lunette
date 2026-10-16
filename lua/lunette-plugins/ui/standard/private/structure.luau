@@ -1,5 +1,6 @@
 -- Structure kinds: the panel face, header and section bands, layout containers, cards, rules, and scrolling.
 
+local lunette = require '@lunette'
 local uiHost = require '@lunette-contracts/ui-host'
 local tokens = require './tokens'
 
@@ -22,7 +23,7 @@ function structure.register(service: uiHost.Service, owner: any): { [string]: ui
     name = 'lunette/panel',
     layout = {
       kind = 'container',
-      style = function(props, theme)
+      style = function(props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
         local style = tokens.container(theme, props, 'column')
         return {
           flexDirection = 'column',
@@ -37,7 +38,7 @@ function structure.register(service: uiHost.Service, owner: any): { [string]: ui
     },
     visuals = { 'lunette/panel' },
   })
-  service:registerVisual(owner, 'lunette/panel', function(node, draw)
+  service:registerVisual(owner, 'lunette/panel', function(node: uiHost.Node, draw: uiHost.Draw)
     local theme = node.theme
     draw:box(nil, {
       fill = theme.colors.surface,
@@ -52,7 +53,7 @@ function structure.register(service: uiHost.Service, owner: any): { [string]: ui
     name = 'lunette/body',
     layout = {
       kind = 'container',
-      style = function(props, theme)
+      style = function(props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
         local style = tokens.container(theme, props, 'column')
         return {
           flexDirection = 'column',
@@ -69,7 +70,7 @@ function structure.register(service: uiHost.Service, owner: any): { [string]: ui
     name = 'lunette/header-band',
     layout = {
       kind = 'container',
-      style = function(_props, theme)
+      style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
         return {
           flexDirection = 'row',
           alignItems = 'center',
@@ -81,7 +82,7 @@ function structure.register(service: uiHost.Service, owner: any): { [string]: ui
     },
     visuals = { 'lunette/header-band' },
   })
-  service:registerVisual(owner, 'lunette/header-band', function(node, draw)
+  service:registerVisual(owner, 'lunette/header-band', function(node: uiHost.Node, draw: uiHost.Draw)
     local theme = node.theme
     local bounds = node.bounds
     topRounded(draw, bounds, theme.radii.panel, theme.colors.header)
@@ -94,7 +95,7 @@ function structure.register(service: uiHost.Service, owner: any): { [string]: ui
 
   constructors.Header = service:registerKind(owner, {
     name = 'lunette/header',
-    expand = function(props, children)
+    expand = function(props: uiHost.Props, children: { read [number]: uiHost.Element }): uiHost.Child
       return {
         element('lunette/header-band', {
           key = 'band',
@@ -124,7 +125,7 @@ function structure.register(service: uiHost.Service, owner: any): { [string]: ui
     name = 'lunette/section-band',
     layout = {
       kind = 'container',
-      style = function(_props, theme)
+      style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
         local bleed = theme.spacing.lg
         return {
           flexDirection = 'row',
@@ -137,7 +138,7 @@ function structure.register(service: uiHost.Service, owner: any): { [string]: ui
     },
     visuals = { 'lunette/section-band' },
   })
-  service:registerVisual(owner, 'lunette/section-band', function(node, draw)
+  service:registerVisual(owner, 'lunette/section-band', function(node: uiHost.Node, draw: uiHost.Draw)
     draw:box(nil, { fill = node.theme.colors.section })
   end)
 
@@ -146,11 +147,11 @@ function structure.register(service: uiHost.Service, owner: any): { [string]: ui
     name = 'lunette/section',
     layout = {
       kind = 'container',
-      style = function(_props, theme)
+      style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
         return { flexDirection = 'column', alignItems = 'stretch', gap = theme.spacing.md }
       end,
     },
-    expand = function(props, children)
+    expand = function(props: uiHost.Props, children: { read [number]: uiHost.Element }): uiHost.Child
       return {
         element('lunette/section-band', {
           key = 'band',
@@ -170,7 +171,7 @@ function structure.register(service: uiHost.Service, owner: any): { [string]: ui
     name = 'lunette/column',
     layout = {
       kind = 'container',
-      style = function(props, theme)
+      style = function(props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
         return tokens.container(theme, props, 'column')
       end,
     },
@@ -180,7 +181,7 @@ function structure.register(service: uiHost.Service, owner: any): { [string]: ui
     name = 'lunette/row',
     layout = {
       kind = 'container',
-      style = function(props, theme)
+      style = function(props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
         local style = tokens.container(theme, props, 'row')
         return table.freeze(style)
       end,
@@ -191,7 +192,7 @@ function structure.register(service: uiHost.Service, owner: any): { [string]: ui
     name = 'lunette/card',
     layout = {
       kind = 'container',
-      style = function(props, theme)
+      style = function(props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
         local style = tokens.container(theme, props, 'column')
         return {
           flexDirection = 'column',
@@ -206,7 +207,7 @@ function structure.register(service: uiHost.Service, owner: any): { [string]: ui
     elevation = 'raised',
     visuals = { 'lunette/card' },
   })
-  service:registerVisual(owner, 'lunette/card', function(node, draw)
+  service:registerVisual(owner, 'lunette/card', function(node: uiHost.Node, draw: uiHost.Draw)
     local theme = node.theme
     draw:box(nil, { fill = theme.colors.raised, radius = theme.radii.control, side = theme.colors.side, edges = true })
   end)
@@ -215,13 +216,13 @@ function structure.register(service: uiHost.Service, owner: any): { [string]: ui
     name = 'lunette/separator',
     layout = {
       kind = 'leaf',
-      style = function(_props, theme)
+      style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
         return { height = theme.sizes.rule * 2, alignSelf = 'stretch' }
       end,
     },
     visuals = { 'lunette/separator' },
   })
-  service:registerVisual(owner, 'lunette/separator', function(node, draw)
+  service:registerVisual(owner, 'lunette/separator', function(node: uiHost.Node, draw: uiHost.Draw)
     draw:box(nil, { fill = node.theme.colors.line })
   end)
 
@@ -229,7 +230,7 @@ function structure.register(service: uiHost.Service, owner: any): { [string]: ui
     name = 'lunette/spacer',
     layout = {
       kind = 'leaf',
-      style = function(props)
+      style = function(props: uiHost.Props): lunette.LayoutStyle
         return { grow = props.grow or 1, width = props.width, height = props.height }
       end,
     },
@@ -249,7 +250,7 @@ function structure.registerScrollBox(service: uiHost.Service, owner: any): uiHos
     name = 'lunette/scroll-box',
     layout = {
       kind = 'container',
-      style = function(props, theme)
+      style = function(props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
         -- Block layout keeps the children at their own heights rather than shrinking them to the box.
         return {
           display = 'block',
@@ -264,11 +265,11 @@ function structure.registerScrollBox(service: uiHost.Service, owner: any): uiHos
     clip = true,
     state = { scrollY = 0 },
     claims = { drag = 'y' },
-    interactive = function()
+    interactive = function(): boolean
       return true
     end,
     visuals = { 'lunette/scroll-box' },
-    event = function(node, event, base)
+    event = function(node: uiHost.Node, event: uiHost.Event, base: (uiHost.Node, uiHost.Event) -> ())
       if event.kind == 'scroll' then
         local step = (event :: any).dy * 0.02
         node:setState { scrollY = clamp(node, node.state.scrollY - step) }
@@ -279,7 +280,7 @@ function structure.registerScrollBox(service: uiHost.Service, owner: any): uiHos
       end
     end,
   })
-  service:registerVisual(owner, 'lunette/scroll-box', function(node, draw)
+  service:registerVisual(owner, 'lunette/scroll-box', function(node: uiHost.Node, draw: uiHost.Draw)
     local theme = node.theme
     local bounds = node.bounds
     local _, contentHeight = node:contentSize()

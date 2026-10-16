@@ -1,6 +1,7 @@
 -- Collection kinds: lists of rows, tables, and tabs. A selected row takes a solid accent fill with the accent's ink
 -- and stands taller than the rows around it.
 
+local lunette = require '@lunette'
 local uiHost = require '@lunette-contracts/ui-host'
 local tokens = require './tokens'
 
@@ -52,7 +53,7 @@ function collections.register(service: uiHost.Service, owner: any): { [string]: 
     name = 'lunette/row-face',
     layout = {
       kind = 'container',
-      style = function(props, theme)
+      style = function(props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
         return {
           flexDirection = 'row',
           alignItems = 'center',
@@ -67,17 +68,17 @@ function collections.register(service: uiHost.Service, owner: any): { [string]: 
         }
       end,
     },
-    elevation = function(props, theme)
+    elevation = function(props: uiHost.Props, theme: uiHost.Theme): number
       return if props.selected then theme.elevation.selected else theme.elevation.raised * 0.5
     end,
     response = { lift = true, travel = true },
-    interactive = function(props)
+    interactive = function(props: uiHost.Props): boolean
       return props.onActivate ~= nil and tokens.enabled(props)
     end,
     visuals = { 'lunette/row-face' },
     event = activateOnly,
   })
-  service:registerVisual(owner, 'lunette/row-face', function(node, draw)
+  service:registerVisual(owner, 'lunette/row-face', function(node: uiHost.Node, draw: uiHost.Draw)
     local theme = node.theme
     local colors = theme.colors
     local fill = if node.props.selected then colors.accent elseif node.state.hovered then colors.hover else colors.raised
@@ -87,7 +88,12 @@ function collections.register(service: uiHost.Service, owner: any): { [string]: 
   -- ListRow props: title, detail, trailing, selected, and onActivate.
   constructors.ListRow = service:registerKind(owner, {
     name = 'lunette/list-row',
-    expand = function(props, children, _state, act)
+    expand = function(
+      props: uiHost.Props,
+      children: { read [number]: uiHost.Element },
+      _state: { read [string]: any },
+      act: uiHost.Actions
+    ): uiHost.Child
       local selected = props.selected == true
       return {
         element('lunette/row-face', {
@@ -139,7 +145,7 @@ function collections.register(service: uiHost.Service, owner: any): { [string]: 
     name = 'lunette/list',
     layout = {
       kind = 'container',
-      style = function(props, theme)
+      style = function(props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
         return {
           flexDirection = 'column',
           alignItems = 'stretch',
@@ -147,7 +153,12 @@ function collections.register(service: uiHost.Service, owner: any): { [string]: 
         }
       end,
     },
-    expand = function(props, children, _state, act)
+    expand = function(
+      props: uiHost.Props,
+      children: { read [number]: uiHost.Element },
+      _state: { read [string]: any },
+      act: uiHost.Actions
+    ): uiHost.Child
       local rows = {}
       for _, item in props.items or {} do
         rows[#rows + 1] = element('lunette/list-row', {
@@ -169,7 +180,7 @@ function collections.register(service: uiHost.Service, owner: any): { [string]: 
     name = 'lunette/table-header',
     layout = {
       kind = 'container',
-      style = function(_props, theme)
+      style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
         return {
           flexDirection = 'row',
           alignItems = 'center',
@@ -181,7 +192,7 @@ function collections.register(service: uiHost.Service, owner: any): { [string]: 
     },
     visuals = { 'lunette/table-header' },
   })
-  service:registerVisual(owner, 'lunette/table-header', function(node, draw)
+  service:registerVisual(owner, 'lunette/table-header', function(node: uiHost.Node, draw: uiHost.Draw)
     draw:box(nil, { fill = node.theme.colors.section, radius = node.theme.radii.control })
   end)
 
@@ -190,11 +201,16 @@ function collections.register(service: uiHost.Service, owner: any): { [string]: 
     name = 'lunette/table',
     layout = {
       kind = 'container',
-      style = function(_props, theme)
+      style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
         return { flexDirection = 'column', alignItems = 'stretch', gap = theme.spacing.xs }
       end,
     },
-    expand = function(props, _children, _state, act)
+    expand = function(
+      props: uiHost.Props,
+      _children: { read [number]: uiHost.Element },
+      _state: { read [string]: any },
+      act: uiHost.Actions
+    ): uiHost.Child
       local columns = props.columns or {}
       local labels: { string } = {}
       for index, column in columns do
@@ -225,11 +241,16 @@ function collections.register(service: uiHost.Service, owner: any): { [string]: 
     name = 'lunette/tabs',
     layout = {
       kind = 'container',
-      style = function(props, theme)
+      style = function(props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
         return { flexDirection = 'column', alignItems = 'stretch', gap = theme.spacing.md, grow = props.grow }
       end,
     },
-    expand = function(props, children, _state, act)
+    expand = function(
+      props: uiHost.Props,
+      children: { read [number]: uiHost.Element },
+      _state: { read [string]: any },
+      act: uiHost.Actions
+    ): uiHost.Child
       local strip = {}
       for _, tab in props.tabs or {} do
         local selected = tab.id == props.value

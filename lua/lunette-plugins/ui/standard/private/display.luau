@@ -1,5 +1,6 @@
 -- Display kinds: text in a type role and colour role, and progress bars.
 
+local lunette = require '@lunette'
 local uiHost = require '@lunette-contracts/ui-host'
 local tokens = require './tokens'
 
@@ -13,13 +14,13 @@ function display.register(service: uiHost.Service, owner: any): { [string]: uiHo
     name = 'lunette/text',
     layout = {
       kind = 'text',
-      text = function(props)
+      text = function(props: uiHost.Props): string
         return tostring(props.text or '')
       end,
-      style = function(props)
+      style = function(props: uiHost.Props): lunette.LayoutStyle
         return { grow = props.grow, shrink = props.shrink, basis = props.basis, alignSelf = props.alignSelf }
       end,
-      textStyle = function(props, theme)
+      textStyle = function(props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutTextStyle
         return tokens.textStyle(theme, props.style, {
           align = props.align,
           wrap = if props.wrap == false then 'none' else nil,
@@ -29,7 +30,7 @@ function display.register(service: uiHost.Service, owner: any): { [string]: uiHo
     },
     visuals = { 'lunette/text' },
   })
-  service:registerVisual(owner, 'lunette/text', function(node, draw)
+  service:registerVisual(owner, 'lunette/text', function(node: uiHost.Node, draw: uiHost.Draw)
     draw:text { color = tokens.ink(node.theme, node.props.color) }
   end)
 
@@ -38,13 +39,13 @@ function display.register(service: uiHost.Service, owner: any): { [string]: uiHo
     name = 'lunette/progress',
     layout = {
       kind = 'leaf',
-      style = function(props, theme)
+      style = function(props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
         return { height = theme.sizes.rail * 1.5, alignSelf = 'stretch', grow = props.grow, width = props.width }
       end,
     },
     visuals = { 'lunette/progress' },
   })
-  service:registerVisual(owner, 'lunette/progress', function(node, draw)
+  service:registerVisual(owner, 'lunette/progress', function(node: uiHost.Node, draw: uiHost.Draw)
     local theme = node.theme
     local bounds = node.bounds
     local value = math.clamp(tonumber(node.props.value) or 0, 0, 1)
