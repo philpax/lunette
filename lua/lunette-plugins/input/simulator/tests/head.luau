@@ -54,21 +54,25 @@ test('a pose round-trips through yaw and pitch for directions all around the hea
   end
 end)
 
-test('a drag right turns right, a drag down looks down, and pitch stops at straight up and down', function()
+test('a drag keeps the scene under the cursor, and pitch stops at straight up and down', function()
+  local view: head.View = { left = 0.7, right = 0.7, up = 0.6, down = 0.6 }
   local state = head.fromPose(ORIGIN, vector.pack(0, 0, -1))
-  local right = head.look(state, 100, 0, 0.002)
-  local x = vector.unpack(head.rotate(right, vector.pack(0, 0, -1)))
-  expect.truthy(x > 0, 'a drag right faces +X')
-  expect.near(right.yaw, -0.2, 1e-9, 'by the sensitivity')
-  local down = head.look(state, 0, 100, 0.002)
-  local _, y = vector.unpack(head.rotate(down, vector.pack(0, 0, -1)))
-  expect.truthy(y < 0, 'a drag down faces down')
-  expect.near(head.look(state, 0, -1e6, 0.002).pitch, math.pi / 2, 1e-9, 'straight up')
-  expect.near(head.look(state, 0, 1e6, 0.002).pitch, -math.pi / 2, 1e-9, 'straight down')
+  -- Dragging from the centre to the right edge pulls the edge's direction to the centre: the head turns left by the
+  -- view's left half-angle, so what was at the centre is now at the right edge.
+  local yaw, pitch = head.drag(500, 300, 1000, 300, 1000, 600, view, 1)
+  expect.near(yaw, 0.7, 1e-9, 'the turn is the angle the cursor crossed')
+  expect.near(pitch, 0, 1e-9, 'a level drag does not pitch')
+  local turned = head.turn(state, yaw, pitch)
+  local x = vector.unpack(head.rotate(turned, vector.pack(0, 0, -1)))
+  expect.truthy(x < 0, 'a drag right turns the view left')
+  local _, down = head.drag(500, 300, 500, 600, 1000, 600, view, 0.5)
+  expect.near(down, 0.3, 1e-9, 'a drag down looks up, scaled')
+  expect.near(head.turn(state, 0, 10).pitch, math.pi / 2, 1e-9, 'straight up')
+  expect.near(head.turn(state, 0, -10).pitch, -math.pi / 2, 1e-9, 'straight down')
 end)
 
 test('keys move along the view at the selected speed, and opposite keys cancel', function()
-  local state = head.look(head.fromPose(ORIGIN, vector.pack(0, 0, -1)), 0, -200, 0.002)
+  local state = head.turn(head.fromPose(ORIGIN, vector.pack(0, 0, -1)), 0, 0.4)
   expect.equal(head.move(state, NONE, SPEEDS, 1), state, 'no keys, no move')
   expect.equal(head.move(state, with { forward = true, backward = true }, SPEEDS, 1), state, 'opposites cancel')
   local moved = head.move(state, with { forward = true }, SPEEDS, 0.5)

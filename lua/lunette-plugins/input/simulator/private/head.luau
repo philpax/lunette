@@ -39,13 +39,45 @@ function head.fromPose(position: vector, forward: vector): State
   }
 end
 
--- Turns the head by a drag in window pixels, where y grows downward: a drag right turns right and a drag down looks
--- down. Pitch stops at straight up and straight down.
-function head.look(state: State, dx: number, dy: number, sensitivity: number): State
+-- The view's half-angles in radians, as `lovr.headset.getViewAngles` reports them: each is positive away from the
+-- view's centre.
+export type View = {
+  read left: number,
+  read right: number,
+  read up: number,
+  read down: number,
+}
+
+-- The angles right of and above the view's centre at which a window point appears, with y growing downward.
+local function angles(x: number, y: number, width: number, height: number, view: View): (number, number)
+  local tx = -math.tan(view.left) + x / width * (math.tan(view.right) + math.tan(view.left))
+  local ty = math.tan(view.up) - y / height * (math.tan(view.up) + math.tan(view.down))
+  return math.atan(tx), math.atan(ty)
+end
+
+-- The turn that keeps the scene under a cursor dragged from (x0, y0) to (x1, y1) in window pixels, scaled by
+-- `scale`: a drag right turns the view left, as if the scene were held and pulled. Answers the yaw and pitch to add.
+function head.drag(
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+  width: number,
+  height: number,
+  view: View,
+  scale: number
+): (number, number)
+  local yaw0, pitch0 = angles(x0, y0, width, height, view)
+  local yaw1, pitch1 = angles(x1, y1, width, height, view)
+  return (yaw1 - yaw0) * scale, (pitch0 - pitch1) * scale
+end
+
+-- Turns the head by angles in radians. Pitch stops at straight up and straight down.
+function head.turn(state: State, yaw: number, pitch: number): State
   return table.freeze {
     position = state.position,
-    yaw = state.yaw - dx * sensitivity,
-    pitch = math.clamp(state.pitch - dy * sensitivity, -LIMIT, LIMIT),
+    yaw = state.yaw + yaw,
+    pitch = math.clamp(state.pitch + pitch, -LIMIT, LIMIT),
   }
 end
 

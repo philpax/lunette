@@ -1,7 +1,9 @@
 -- Drives the simulated head from the desktop window while the headset has no session, in place of LÖVR's simulator.
--- Dragging with the look button turns the head, and the movement keys move it while the button is held, so the
--- primary button stays free for the mouse pointer and typing does not move the head. See README.md.
+-- Dragging with the look button pulls the scene around the head, and the movement keys move it while nothing has
+-- keyboard focus or while the button is held, so the primary button stays free for the mouse pointer and typing into
+-- a focused window does not move the head. See README.md.
 local plugin = require '@lunette-plugin'
+local focus = require '@lunette-contracts/focus'
 local frame = require '@lunette-contracts/frame'
 local config = require '@self/config'
 local head = require '@self/private/head'
@@ -11,9 +13,17 @@ export type Settings = config.Settings
 
 local BUTTONS: { [string]: number } = { secondary = 2, middle = 3 }
 
-local function simulating(): boolean
+-- The view the simulator window shows, or nil while a headset session runs.
+local function simulatorView(): head.View?
   local headset = lovr.headset
-  return headset ~= nil and not headset.isActive()
+  if not headset or headset.isActive() then
+    return nil
+  end
+  local left, right, up, down = headset.getViewAngles(1)
+  if not left or not right or not up or not down then
+    return nil
+  end
+  return { left = left, right = right, up = up, down = down }
 end
 
 local function keys(): head.Keys
@@ -32,34 +42,27 @@ end
 
 local function init(context: plugin.Context, settings: Settings): ()
   local frameService: frame.Service = context:require(frame.capability)
+  local focusService: focus.Service = context:require(focus.capability)
   local button = BUTTONS[settings.lookButton]
   -- The target the drags set, and the view shown on its way there.
   local target: head.State? = nil
   local shownYaw, shownPitch = 0, 0
   local looking = false
 
-  local function setLooking(on: boolean): ()
-    if looking == on then
-      return
-    end
-    looking = on
-    -- Relative mode hides the cursor and lets a drag turn past the window's edge.
-    lovr.system.setMouseMode(if on then 'relative' else 'normal')
-  end
-  context:effect(function(): () -> ()
-    return function(): ()
-      setLooking(false)
-    end
-  end)
-
   frameService:onMouse(context, {
     run = function(event: frame.HostMouseEvent): ()
-      if event.kind == 'press' and event.button == button and simulating() then
-        setLooking(true)
+      if event.kind == 'press' and event.button == button then
+        looking = simulatorView() ~= nil
       elseif event.kind == 'release' and event.button == button then
-        setLooking(false)
+        looking = false
       elseif event.kind == 'move' and looking and target then
-        target = head.look(target, event.dx, event.dy, settings.lookSensitivity)
+        local view = simulatorView()
+        local width, height = lovr.system.getWindowDimensions()
+        if view and width > 0 and height > 0 then
+          local yaw, pitch =
+            head.drag(event.x - event.dx, event.y - event.dy, event.x, event.y, width, height, view, settings.lookScale)
+          target = head.turn(target, yaw, pitch)
+        end
       end
     end,
   })
@@ -74,7 +77,7 @@ local function init(context: plugin.Context, settings: Settings): ()
         current = head.fromPose(vector.pack(headset.getPosition 'head'), vector.pack(headset.getDirection 'head'))
         shownYaw, shownPitch = current.yaw, current.pitch
       end
-      if looking then
+      if looking or focusService:focused() == nil then
         current = head.move(current, keys(), settings, dt)
       end
       target = current
@@ -89,7 +92,7 @@ end
 
 return plugin.consumer<<Config, Settings>> {
   name = 'desktop/simulator',
-  requires = { frame.capability },
+  requires = { frame.capability, focus.capability },
   schema = config.schema,
   init = init,
 }
