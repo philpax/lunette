@@ -238,6 +238,11 @@ impl std::error::Error for AtlasError {
     }
 }
 
+/// Empty pixels kept around every cell. Cells otherwise touch, and linear sampling at a quad's
+/// border blends in the neighbouring cell's channels, whose median can cross the outline and draw
+/// stray marks beside a glyph. Empty pixels are fully outside in every channel.
+const GUTTER: u32 = 1;
+
 /// Glyphs generated so far, and the pages that hold them.
 #[derive(Debug)]
 pub struct Atlas {
@@ -313,7 +318,7 @@ impl Atlas {
         let width = u32::try_from(x1 - x0).unwrap_or(0) + 2 * padding;
         let height = u32::try_from(y1 - y0).unwrap_or(0) + 2 * padding;
         let size = self.config.page_size;
-        if width > size || height > size {
+        if width + 2 * GUTTER > size || height + 2 * GUTTER > size {
             return Err(AtlasError::TooLarge {
                 face,
                 glyph,
@@ -321,7 +326,7 @@ impl Atlas {
                 height,
             });
         }
-        if !self.has_room(width, height) {
+        if !self.has_room(width + 2 * GUTTER, height + 2 * GUTTER) {
             return Err(self.full(face, glyph));
         }
         let request = FieldRequest {
@@ -378,9 +383,10 @@ impl Atlas {
                 actual: field.len(),
             });
         }
-        let Some((page, x, y)) = self.allocate(width, height) else {
+        let Some((page, x, y)) = self.allocate(width + 2 * GUTTER, height + 2 * GUTTER) else {
             return Err(self.full(face, glyph));
         };
+        let (x, y) = (x + GUTTER, y + GUTTER);
         write_field(&mut self.pages[page], x, y, width, height, &field);
         let scale = 1.0 / self.config.page_size as f32;
         let placement = Placement {

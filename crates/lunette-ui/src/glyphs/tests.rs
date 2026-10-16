@@ -153,15 +153,22 @@ fn a_glyph_maps_its_outline_into_its_padded_cell() {
         placement.quad
     );
     assert!(close(placement.quad[2], 0.9) && close(placement.quad[3], 0.9));
-    assert_eq!(placement.uv, [0.0, 0.0, 9.0 / 64.0, 9.0 / 64.0]);
+    // The cell sits inside a one-pixel gutter.
+    assert_eq!(
+        placement.uv,
+        [1.0 / 64.0, 1.0 / 64.0, 10.0 / 64.0, 10.0 / 64.0]
+    );
     let page = &atlas.pages()[0];
     assert_eq!(page.revision, 1);
     let at = |x: usize, y: usize| page.pixels[(y * 64 + x) * 4];
-    assert_eq!(
-        (at(0, 0), at(8, 8), at(9, 0), at(0, 9)),
-        (255, 255, 0, 0),
-        "only the cell is written"
-    );
+    assert_eq!((at(1, 1), at(9, 9)), (255, 255), "the cell is written");
+    for i in 0..=10 {
+        assert_eq!(
+            (at(i, 0), at(0, i), at(i, 10), at(10, i)),
+            (0, 0, 0, 0),
+            "the gutter around the cell stays empty at {i}"
+        );
+    }
 }
 
 #[test]
@@ -275,7 +282,8 @@ fn a_full_atlas_refuses_new_glyphs_and_keeps_the_ones_it_holds() {
         ..small()
     });
     let mut generator = Fill::default();
-    // A 2 em square needs a 24 pixel cell, so a 64 pixel page holds four.
+    // A 2 em square needs a 24 pixel cell and a 26 pixel slot with its gutter, so a 64 pixel page holds
+    // four.
     for glyph in 0..4 {
         add(
             &mut atlas,
