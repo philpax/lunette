@@ -35,6 +35,9 @@ export type Service = {
   read Spacer: Constructor,
   read ScrollBox: Constructor,
   read Tabs: Constructor,
+  -- A placement of an outlet: `outlet`, a declaration from `uiHost.outlet`, `props`, which every contribution receives,
+  -- and `maxHeight`, the metres an attributed outlet gives each contribution before clipping it.
+  read Outlet: Constructor,
   -- Display.
   read Text: Constructor,
   read Progress: Constructor,

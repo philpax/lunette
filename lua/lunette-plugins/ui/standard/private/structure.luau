@@ -274,6 +274,10 @@ function structure.register(service: uiHost.Service, owner: any): { [string]: ui
   })
 
   constructors.ScrollBox = structure.registerScrollBox(service, owner)
+  -- The outlet kind belongs to the host, so its constructor names the kind without registering it.
+  constructors.Outlet = function(props: { [any]: any }?): uiHost.Element
+    return element('lunette/outlet', props)
+  end
   return constructors
 end
 
