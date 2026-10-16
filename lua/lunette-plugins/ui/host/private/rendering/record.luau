@@ -51,6 +51,21 @@ local function newDraw(node: records.Node, primitives: { records.Primitive }): u
       offset = spec.offset or 0,
     }
   end
+  function draw.line(_self: uiHost.Draw, x1: number, y1: number, x2: number, y2: number, spec: uiHost.LineSpec): ()
+    local width = spec.width
+    local length = math.sqrt((x2 - x1) ^ 2 + (y2 - y1) ^ 2) + width
+    draw.box(draw :: any, {
+      x = (x1 + x2) / 2 - length / 2,
+      y = (y1 + y2) / 2 - width / 2,
+      width = length,
+      height = width,
+    }, {
+      fill = spec.color,
+      radius = width / 2,
+      rotation = math.atan2(y2 - y1, x2 - x1),
+      offset = spec.offset,
+    })
+  end
   function draw.image(_self: uiHost.Draw, rect: uiHost.Rect?, spec: uiHost.ImageSpec): ()
     local area = rect or node.handle.bounds
     primitives[#primitives + 1] = {

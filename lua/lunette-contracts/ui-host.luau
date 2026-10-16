@@ -203,6 +203,14 @@ export type Draw = {
   read text: (Draw, TextSpec) -> (),
   -- An image filling a box in node coordinates; nil draws over the node's bounds.
   read image: (Draw, Rect?, ImageSpec) -> (),
+  -- A straight line with round ends between two points in node coordinates, such as a graph's edge.
+  read line: (Draw, number, number, number, number, LineSpec) -> (),
+}
+
+export type LineSpec = {
+  read width: number,
+  read color: Color,
+  read offset: number?,
 }
 
 export type Visual = (node: Node, draw: Draw, base: (Node, Draw) -> ()) -> ()
