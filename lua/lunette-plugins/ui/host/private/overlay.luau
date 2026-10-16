@@ -1,6 +1,7 @@
 -- Overlay panels: the panels that portals render into, positioned against the opener node in the opener's panel.
--- An overlay opens below its anchor, flips above it when the opener's panel has no room below, and stands one
--- popover step above the anchor's surface.
+-- An overlay opens below its anchor, or above or beside it when its portal asks, and stands one popover step above the
+-- anchor's surface. It is a panel of its own, so it reaches past the opener's edge rather than flipping to stay inside
+-- it.
 
 local uiHost = require '@lunette-contracts/ui-host'
 local records = require './records'
@@ -80,13 +81,8 @@ function overlay.place(provider: panel.Provider, record: records.Panel): ()
   local theme = anchor.handle.theme
   local width, height = record.width, record.height
   local left = anchor.x
-  local below = anchor.y + anchor.height + GAP
-  local above = anchor.y - GAP - height
   local placement = relation.portal.props.placement or 'below'
-  local top = below
-  if placement == 'above' or (below + height > opener.height and above >= 0) then
-    top = above
-  end
+  local top = if placement == 'above' then anchor.y - GAP - height else anchor.y + anchor.height + GAP
   if placement == 'right' then
     left, top = anchor.x + anchor.width + GAP, anchor.y
   end

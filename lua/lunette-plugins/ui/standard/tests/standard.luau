@@ -308,6 +308,33 @@ test('a dropdown menu closes on a press outside it and opens past the panel edge
   state.fixture:close()
 end)
 
+test('a dropdown at the bottom of a panel still opens its menu downward, past the panel edge', function()
+  local state = fixture.boot { standard = true, width = 0.3, height = 0.24 }
+  local c = assert(state.components)
+  local options = {}
+  for index = 1, 4 do
+    options[index] = { id = `option-{index}`, label = `Option {index}` }
+  end
+  fixture.show(
+    state,
+    c.Panel {
+      c.Body {
+        key = 'body',
+        c.Column { key = 'filler', height = 0.16 },
+        c.Dropdown { key = 'choice', value = 'option-1', options = options },
+      },
+    }
+  )
+  fixture.click(state, 'body/choice/trigger')
+  state.fixture:step()
+  local first = assert(state.panel:find 'body/choice/menu/option-1', 'the menu is open')
+  local trigger = assert(state.panel:find 'body/choice/trigger')
+  local _, firstY = first:pose():getPosition()
+  local _, triggerY = trigger:pose():getPosition()
+  expect.truthy(firstY < triggerY, 'the menu opens below its trigger, though there is room above')
+  state.fixture:close()
+end)
+
 test('a dropdown menu closes on a press at nothing', function()
   local state = fixture.boot { standard = true, width = 0.3, height = 0.09 }
   local c = assert(state.components)
