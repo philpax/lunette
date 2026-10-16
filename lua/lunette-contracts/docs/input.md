@@ -32,7 +32,7 @@ Tracking loss, pointer or surface withdrawal, provider replacement, hidden panel
 
 Vibration uses the callback supplied by the pointer's creator and returns false when none exists. Providers must not infer controller ownership.
 
-A pointer's captures move to another surface only through `transfer`, which delivers no release or cancel; the receiving surface sees the press's later motion and its release. Press observers run when any button goes down, before the pressed surface receives the press, with the pressed surface or nil for a press on nothing or on a native sink. A hand reported near stands its idle ray down: the ray delivers no hover and draws nothing until no owner reports the hand, and a ray that holds a button or a grab keeps working until it is idle for a frame. Near reports and press observers end with their owners.
+A pointer's captures move to another surface only through `transfer`, which delivers no release or cancel; the receiving surface sees the press's later motion and its release. Press observers run when any button goes down, before the pressed surface receives the press, with the pressed surface or nil for a press on nothing or on a native sink. A hand reported near stands its idle ray down: the ray delivers no hover, presses nothing, and draws nothing until no owner reports the hand, and a ray that holds a button or a grab keeps working until it is idle for a frame. Near reports and press observers end with their owners.
 
 ## Frame dispatch
 

@@ -352,4 +352,42 @@ test('near reports end with their owner', function()
   env.session:close()
 end)
 
+test('a ray that stands down presses nothing', function()
+  local env = start()
+  local interaction = env.session:observe(interactionContract.capability)
+  local pressed = 0
+  local held = table.clone(frame(0, 0, -1)) :: any
+  held.buttons = { left = true }
+  local inputs = { left = frame(0, 0, -1), right = nil }
+  env.service:attach(env.owner, {
+    readInput = function(hand: laserContract.Hand): laserContract.Input?
+      return inputs[hand]
+    end,
+  })
+  local observed = 0
+  interaction.service:onPress(interaction.context, {
+    run = function()
+      observed += 1
+    end,
+  })
+  local surface = {
+    dead = false,
+    raycast = function(): (number, number, number)
+      return 1, 2, 3
+    end,
+    onPointer = function(_: laserContract.Surface, event: PointerEvent)
+      if event.kind == 'press' then
+        pressed += 1
+      end
+    end,
+  }
+  interaction.service:reportNear(interaction.context, 'left', true)
+  env.service:update { surface }
+  inputs.left = held
+  env.service:update { surface }
+  expect.equal(pressed, 0, 'the surface sees no press')
+  expect.equal(observed, 0, 'no press on nothing reaches the observers')
+  env.session:close()
+end)
+
 return test

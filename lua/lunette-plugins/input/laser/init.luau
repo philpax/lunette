@@ -223,7 +223,16 @@ local function makeLaser(
         end
         wasHeld = holding
         local before = self.pointer.hovered
-        self.pointer:update(frame, if standing then {} else surfaces)
+        -- A ray that stands down hovers nothing and presses nothing, so a trigger pulled while the fingertip is
+        -- near does not reach any surface or count as a press on nothing.
+        local delivered = frame
+        if standing then
+          local idle = table.clone(frame) :: any
+          idle.buttons = {}
+          idle.trigger = if frame.trigger then 0 else nil
+          delivered = idle
+        end
+        self.pointer:update(delivered, if standing then {} else surfaces)
         dragIcon.observe(target.icon, self.pointer.hovered)
         if self.pointer.hovered ~= before then
           self:vibrate()

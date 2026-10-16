@@ -371,6 +371,30 @@ test('a ray press on a dropdown drags onto an item and chooses it on release', f
   state.fixture:close()
 end)
 
+test('a handed-off press closes the menu when tracking is lost', function()
+  local state = fixture.boot { standard = true, width = 0.3, height = 0.09 }
+  local c = assert(state.components)
+  local options = { { id = 'one', label = 'One' }, { id = 'two', label = 'Two' } }
+  fixture.show(
+    state,
+    c.Panel { c.Body { key = 'body', c.Dropdown { key = 'choice', value = 'one', options = options } } }
+  )
+  local trigger = assert(state.panel:find 'body/choice/trigger')
+  local controls = state.fixture
+  controls:aim(fixture.nodeGeometry(trigger), 0.5, 0.5)
+  controls:step()
+  controls:button('right', 'trigger', true)
+  controls:step()
+  controls:step()
+  expect.truthy(state.panel:find 'body/choice/menu/two', 'the press opened the menu')
+  controls:tracked('right', false)
+  for _ = 1, 3 do
+    controls:step(0.1)
+  end
+  expect.equal(state.panel:find 'body/choice/menu', nil, 'losing the press closes the menu')
+  state.fixture:close()
+end)
+
 test('releasing a dropdown press over its opener leaves the menu open for a separate click', function()
   local state = fixture.boot { standard = true, width = 0.3, height = 0.09 }
   local c = assert(state.components)

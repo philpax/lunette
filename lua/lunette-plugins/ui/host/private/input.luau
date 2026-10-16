@@ -267,8 +267,14 @@ function input.pointer(
   end
   if event.kind == 'cancel' then
     local capture = state.capture
+    local handed = state.handoff
     state.capture = nil
     state.handoff = nil
+    -- A press-drag-release menu depends on the press, so losing it, as on tracking loss, closes the menu.
+    local relation = handed and handed.overlay
+    if handed and relation and not handed.dead and not handed.closing then
+      relation.portal.handle:emit 'onDismiss'
+    end
     if capture and not capture.node.dead then
       capture.node.host.pressed = false
       capture.node.host.dragging = false
@@ -282,6 +288,10 @@ function input.pointer(
     -- A captured release can arrive without coordinates when the ray no longer meets the panel's plane. It ends the
     -- capture outside the node, at the last position the capture saw.
     local capture = state.capture
+    if event.kind == 'release' and event.button == 'left' then
+      -- A handed-off press released off the overlay's plane chooses nothing.
+      state.handoff = nil
+    end
     if event.kind == 'release' and capture and event.button == 'left' then
       state.capture = nil
       if not capture.node.dead then
@@ -294,10 +304,17 @@ function input.pointer(
   local target = input.target(panel, env, x, y)
   if event.kind == 'enter' or event.kind == 'move' then
     move(env, state, x, y)
-    if not state.capture then
+    -- While a press is handed off, only the overlay that holds it sets hover, so the opener under the ray does not
+    -- flicker between hovered and not.
+    local handed = state.handoff
+    if not state.capture and (handed == nil or handed == panel) then
       setHovered(env, state, target)
     end
   elseif event.kind == 'press' then
+    -- A new press supersedes any handoff left from an earlier one.
+    if event.button == 'left' then
+      state.handoff = nil
+    end
     if env.blocked(panel) then
       return
     end
