@@ -15,10 +15,10 @@ use taffy::{
 use super::*;
 
 fn tree() -> Tree {
-    Tree::new(Fonts::bundled([include_bytes!(
-        "../../../../lua/lunette-plugins/theme/arcade/fonts/SpaceMono-Regular.ttf"
-    )
-    .to_vec()]))
+    Tree::new(std::rc::Rc::new(RefCell::new(Fonts::bundled([
+        include_bytes!("../../../../lua/lunette-plugins/theme/arcade/fonts/SpaceMono-Regular.ttf")
+            .to_vec(),
+    ]))))
 }
 
 fn row(gap: f32) -> Box<Style> {

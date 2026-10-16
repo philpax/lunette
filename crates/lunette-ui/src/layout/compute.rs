@@ -153,8 +153,17 @@ impl Computation<'_> {
 
     fn text_leaf(&mut self, host: NodeId, inputs: LayoutInput) -> LayoutOutput {
         let style = self.tree.nodes[&host].style.clone();
-        let Tree { nodes, fonts } = &mut *self.tree;
-        let Some(node) = nodes.get_mut(&host) else {
+        let fonts = std::rc::Rc::clone(&self.tree.fonts);
+        let Ok(mut fonts) = fonts.try_borrow_mut() else {
+            // Another tree's computation holds the fonts, which only a callback that computes a
+            // second tree from inside the first can cause.
+            self.fail(
+                host,
+                ScriptError("the fonts are in use by another computation in progress".to_owned()),
+            );
+            return LayoutOutput::HIDDEN;
+        };
+        let Some(node) = self.tree.nodes.get_mut(&host) else {
             return LayoutOutput::HIDDEN;
         };
         let Content::Text(block) = &mut node.content else {
@@ -170,7 +179,7 @@ impl Computation<'_> {
                     AvailableSpace::MinContent => Some(0.0),
                     AvailableSpace::MaxContent => None,
                 });
-                let (measured_width, measured_height) = block.measure(fonts, width);
+                let (measured_width, measured_height) = block.measure(&mut fonts, width);
                 TaffySize {
                     width: known.width.unwrap_or(measured_width),
                     height: known.height.unwrap_or(measured_height),

@@ -33,6 +33,9 @@ clap = { workspace = true }
 # The Luau type language and the `closed_set!` macro.
 # The `mlua` feature adds the impls for mlua's own types. This crate is their sole consumer.
 lunette-luau = { workspace = true, features = ["mlua"] }
+lunette-ui = { path = "../lunette-ui" }
+# The binding builds taffy styles from Lua tables.
+taffy = { workspace = true }
 mlua = { workspace = true, features = ["luau"] }
 # `mlua-sys` is a direct dependency for its `external` feature.
 # mlua's own feature table does not re-export that feature.

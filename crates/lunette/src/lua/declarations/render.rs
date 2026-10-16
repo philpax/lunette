@@ -12,6 +12,7 @@ use crate::{
             AliasSpec, Aliased, Handle, NullTexture, Record, Recorded, Textured, collect,
         },
         keys::{KeyName, ModifierName},
+        layout::{self, LayoutTree},
         module_functions,
         monitor::MonitorSelection,
         output::{NewOutput, SetMode},
@@ -45,6 +46,9 @@ pub fn render() -> String {
         AudioState::ALIAS,
         AudioSnapshot::<NullTexture>::ALIAS,
     ] {
+        render_alias(&mut out, &alias, &handles);
+    }
+    for alias in layout::aliases() {
         render_alias(&mut out, &alias, &handles);
     }
 
@@ -81,6 +85,7 @@ fn surface() -> Vec<Item> {
         Item::Handle(collect::<Process<NullTexture>>()),
         Item::Handle(collect::<AudioCapture<NullTexture>>()),
         Item::Handle(collect::<AudioBlock>()),
+        Item::Handle(collect::<LayoutTree>()),
         Item::Record(Stroke::RECORD),
         Item::Record(NewSeat::RECORD),
         Item::Handle(collect::<Drag<NullTexture>>()),

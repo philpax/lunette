@@ -13,6 +13,7 @@ mod children;
 mod drags;
 mod events;
 mod layers;
+mod layout;
 mod lunctl;
 mod monitors;
 mod outputs;

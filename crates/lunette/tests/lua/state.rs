@@ -16,6 +16,7 @@ use lunette::{
     callback_error::{TracedError, report_traced},
     lua::{
         keys::{KeyCodes, locking_modifier_names, modifier_names},
+        layout::{LayoutFonts, new_layout_tree},
         text_boundaries,
     },
     mirrors::NoMonitors,
@@ -25,6 +26,7 @@ use lunette::{
     },
     reload, require, scale,
 };
+use lunette_ui::text::Fonts;
 use mlua::{Function, Lua, Table, Value, ffi::lua_State};
 use tracing_subscriber::fmt::MakeWriter;
 
@@ -95,6 +97,17 @@ pub fn install(lua: &Lua, roots: &Roots) -> mlua::Result<()> {
         .set("require", lua.create_function(require_module)?)?;
     require::install(lua)?;
 
+    // Layout tests measure text with a bundled face only, so results match on every machine.
+    let font = fs::read(
+        roots
+            .lua
+            .join("lunette-plugins/theme/arcade/fonts/SpaceMono-Regular.ttf"),
+    )
+    .map_err(|error| mlua::Error::runtime(format!("the test font could not be read: {error}")))?;
+    lua.set_app_data(LayoutFonts(Rc::new(std::cell::RefCell::new(
+        Fonts::bundled([font]),
+    ))));
+
     let native = native(lua)?;
     preload.set(
         "@lunette",
@@ -152,6 +165,10 @@ fn native(lua: &Lua) -> mlua::Result<Table> {
     native.set(
         "textBoundaries",
         lua.create_function(|_, text| text_boundaries(text))?,
+    )?;
+    native.set(
+        "newLayoutTree",
+        lua.create_function(|lua, ()| new_layout_tree(lua))?,
     )?;
     native.set(
         "scaleSteps",

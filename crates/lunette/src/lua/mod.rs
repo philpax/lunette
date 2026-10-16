@@ -9,6 +9,7 @@ mod claim;
 pub mod declarations;
 mod drag;
 pub mod keys;
+pub mod layout;
 mod monitor;
 mod output;
 mod process;
@@ -621,6 +622,9 @@ module! {
     fn textBoundaries(_lua, _session, text: mlua::LuaString) -> Vec<usize> {
         text_boundaries(text)
     }
+
+    /// A new, empty UI layout tree. Trees in one Lua state share their fonts, whose database is built the first time a tree is created.
+    fn newLayoutTree(lua, _session) -> layout::LayoutTree { layout::new_layout_tree(lua) }
 
     /// The ladder a layer's requested size is quantised up, ascending. A panel whose scale Lua raises requests a size the free list already holds.
     fn scaleSteps(_lua, _session) -> Vec<f64> { Ok(scale::ladder()) }

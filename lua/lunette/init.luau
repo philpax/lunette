@@ -36,6 +36,50 @@ export type AudioState = { read kind: 'starting' } | { read kind: 'active', read
 -- later frames.
 export type AudioSnapshot = { read source: AudioSource, read state: AudioState, read frameGeneration: number, read blocks: { read [number]: AudioBlock } }
 
+-- One length for every edge, or a length for each of the top, right, bottom,
+-- and left edges.
+export type LayoutEdges = number | string | { read top: (number | string)?, read right: (number | string)?, read bottom: (number | string)?, read left: (number | string)? }
+
+-- A node's layout style. Lengths are metres, percentages such as '50%', or
+-- 'auto'. Edges take one length or a table of top, right, bottom, and left.
+export type LayoutStyle = { read display: ('flex' | 'grid' | 'block' | 'none')?, read direction: ('ltr' | 'rtl')?, read flexDirection: ('row' | 'column' | 'row-reverse' | 'column-reverse')?, read wrap: ('nowrap' | 'wrap' | 'wrap-reverse')?, read grow: number?, read shrink: number?, read basis: (number | string)?, read alignItems: ('start' | 'end' | 'center' | 'stretch' | 'baseline' | 'flex-start' | 'flex-end')?, read alignSelf: ('start' | 'end' | 'center' | 'stretch' | 'baseline' | 'flex-start' | 'flex-end')?, read justifyItems: ('start' | 'end' | 'center' | 'stretch' | 'baseline' | 'flex-start' | 'flex-end')?, read justifySelf: ('start' | 'end' | 'center' | 'stretch' | 'baseline' | 'flex-start' | 'flex-end')?, read alignContent: ('start' | 'end' | 'center' | 'stretch' | 'space-between' | 'space-around' | 'space-evenly' | 'flex-start' | 'flex-end')?, read justifyContent: ('start' | 'end' | 'center' | 'stretch' | 'space-between' | 'space-around' | 'space-evenly' | 'flex-start' | 'flex-end')?, read gap: number?, read rowGap: number?, read columnGap: number?, read padding: LayoutEdges?, read margin: LayoutEdges?, read border: LayoutEdges?, read width: (number | string)?, read height: (number | string)?, read minWidth: (number | string)?, read minHeight: (number | string)?, read maxWidth: (number | string)?, read maxHeight: (number | string)?, read aspectRatio: number?, read position: ('relative' | 'absolute')?, read top: (number | string)?, read right: (number | string)?, read bottom: (number | string)?, read left: (number | string)?, read overflow: ('visible' | 'clip' | 'scroll')?, read gridTemplateColumns: { read [number]: number | string }?, read gridTemplateRows: { read [number]: number | string }?, read gridColumn: { read start: number?, read span: number? }?, read gridRow: { read start: number?, read span: number? }? }
+
+-- How a text node is shaped. Sizes are metres; the line height is a multiple of
+-- the size.
+export type LayoutTextStyle = { read family: string?, read size: number?, read lineHeight: number?, read weight: number?, read align: ('start' | 'center' | 'end')?, read wrap: ('none' | 'word' | 'word-or-glyph')?, read maxLines: number? }
+
+-- How a leaf sizes itself without a callback.
+export type LayoutLeaf = { read kind: 'fixed', read width: number, read height: number } | { read kind: 'aspect', read ratio: number, read width: number } | { read kind: 'fill' }
+
+-- One change in a commit.
+export type LayoutChange = { read op: 'create', read id: number, read kind: 'box' | 'text' | 'leaf' | 'measured' | 'scripted', read style: LayoutStyle?, read text: string?, read textStyle: LayoutTextStyle?, read leaf: LayoutLeaf? } | { read op: 'style', read id: number, read style: LayoutStyle } | { read op: 'children', read id: number, read children: { read [number]: number } } | { read op: 'text', read id: number, read text: string, read textStyle: LayoutTextStyle? } | { read op: 'remove', read id: number }
+
+-- The space offered along one axis: a length in metres, or a sizing mode.
+export type LayoutAvailable = number | 'min-content' | 'max-content'
+
+-- What a measure or layout callback is asked. `perform` is true in the final
+-- pass, the only one in which a layout places its children.
+export type LayoutInput = { read knownWidth: number?, read knownHeight: number?, read availableWidth: LayoutAvailable, read availableHeight: LayoutAvailable, read perform: boolean }
+
+-- What a layout callback does with its container's children. It is valid only
+-- during the call.
+export type LayoutContext = { read children: () -> { number }, read measure: (child: number, width: LayoutAvailable?, height: LayoutAvailable?) -> (number, number), read place: (child: number, u: number, v: number, options: { read width: number?, read height: number?, read rotation: number?, read scale: number? }?) -> () }
+
+-- The host's callbacks for measured leaves and scripted containers. Both answer
+-- a width and a height in metres. They cannot yield, and they read only their
+-- arguments.
+export type LayoutScripts = { read measure: ((id: number, input: LayoutInput) -> (number, number))?, read layout: ((id: number, input: LayoutInput, context: LayoutContext) -> (number, number))? }
+
+-- A callback that failed. Its node keeps its previous size.
+export type LayoutFailure = { read id: number, read message: string }
+
+-- One positioned glyph, in metres from the text node's left edge, with the
+-- inclusive byte range of the text it draws.
+export type LayoutGlyph = { read id: number, read x: number, read advance: number, read size: number, read byteStart: number, read byteEnd: number }
+
+-- One shaped line, in metres from the text node's top-left corner.
+export type LayoutLine = { read top: number, read height: number, read width: number, read baseline: number, read glyphs: { read [number]: LayoutGlyph } }
+
 -- Somewhere pixel input can be delivered. `domain` names the pipeline its
 -- events travel: `window` or `host`.
 export type Sink = {
@@ -262,6 +306,24 @@ export type AudioBlock = {
   -- Returns a fresh mutable buffer with each interleaved F32 sample encoded
   -- little-endian.
   read copySamples: (self: AudioBlock) -> buffer,
+}
+
+-- A UI layout tree, laid out in metres. The host assigns node ids. A tree is
+-- not a handle: it lives until it is collected, and it never goes dead.
+export type LayoutTree = {
+  -- The number of nodes.
+  read size: number,
+  -- Applies one commit's changes in order. The batch is checked first, so a
+  -- rejected batch changes nothing.
+  read apply: (self: LayoutTree, changes: { read [number]: LayoutChange }) -> (),
+  -- Lays out the tree under `root` in the space offered, unbounded along an
+  -- axis given as nil. Answers the nodes whose placement changed, as
+  -- consecutive id, u, v, width, height, rotation, and scale values, and the
+  -- callbacks that failed.
+  read compute: (self: LayoutTree, root: number, width: number?, height: number?, scripts: LayoutScripts?) -> ({ number }, { LayoutFailure }),
+  -- The shaped lines of a text node at its laid-out width, or nil for a node
+  -- that is not text.
+  read textLayout: (self: LayoutTree, id: number) -> { LayoutLine }?,
 }
 
 -- A key and the modifiers to hold with it. Together they produce one keysym.
@@ -736,6 +798,9 @@ export type Lunette = {
   -- clusters, including the terminal offset `#text + 1`. Empty text returns `{
   -- 1 }`. The text must be valid UTF-8; invalid byte strings raise an error.
   read textBoundaries: (text: string) -> { number },
+  -- A new, empty UI layout tree. Trees in one Lua state share their fonts,
+  -- whose database is built the first time a tree is created.
+  read newLayoutTree: () -> LayoutTree,
   -- The ladder a layer's requested size is quantised up, ascending. A panel
   -- whose scale Lua raises requests a size the free list already holds.
   read scaleSteps: () -> { number },

@@ -13,11 +13,15 @@
 
 mod compute;
 
-use std::{collections::HashMap, fmt};
+use std::{cell::RefCell, collections::HashMap, fmt, rc::Rc};
 
 pub use taffy::style::{AvailableSpace, Style};
 
 use crate::text::{Fonts, TextBlock, TextStyle, TextStyleError};
+
+/// Fonts shared by every tree in a Lua state. Building the font database is slow, so it happens
+/// once.
+pub type SharedFonts = Rc<RefCell<Fonts>>;
 
 /// A node id that the host assigns.
 pub type NodeId = u32;
@@ -101,6 +105,8 @@ pub enum ApplyError {
     TextStyle { index: usize, error: TextStyleError },
     /// A descriptor has a size that is negative or not finite.
     Descriptor { index: usize, id: NodeId },
+    /// The fonts are in use by a computation that is still running.
+    FontsBusy { index: usize },
 }
 
 impl fmt::Display for ApplyError {
@@ -122,6 +128,12 @@ impl fmt::Display for ApplyError {
                 write!(f, "layout: change {index}: node {id} is not a text node")
             }
             Self::TextStyle { index, error } => write!(f, "layout: change {index}: {error}"),
+            Self::FontsBusy { index } => {
+                write!(
+                    f,
+                    "layout: change {index}: the fonts are in use by a computation in progress"
+                )
+            }
             Self::Descriptor { index, id } => {
                 write!(
                     f,
@@ -383,7 +395,7 @@ impl Node {
 /// A tree of nodes laid out together.
 pub struct Tree {
     nodes: HashMap<NodeId, Node>,
-    fonts: Fonts,
+    fonts: SharedFonts,
 }
 
 impl fmt::Debug for Tree {
@@ -396,7 +408,7 @@ impl fmt::Debug for Tree {
 
 impl Tree {
     /// An empty tree that shapes text with `fonts`.
-    pub fn new(fonts: Fonts) -> Self {
+    pub fn new(fonts: SharedFonts) -> Self {
         Self {
             nodes: HashMap::new(),
             fonts,
@@ -461,9 +473,9 @@ impl Tree {
     /// The shaped lines of a text node, at its laid-out width.
     pub fn text_lines(&mut self, id: NodeId) -> Option<Vec<crate::text::Line>> {
         let width = self.nodes.get(&id)?.layout.size.width;
-        let Self { nodes, fonts } = self;
-        match &mut nodes.get_mut(&id)?.content {
-            Content::Text(block) => Some(block.lines(fonts, Some(width))),
+        let mut fonts = self.fonts.try_borrow_mut().ok()?;
+        match &mut self.nodes.get_mut(&id)?.content {
+            Content::Text(block) => Some(block.lines(&mut fonts, Some(width))),
             _ => None,
         }
     }
@@ -628,10 +640,16 @@ impl Tree {
             Change::Create { id, content, style } => {
                 let content = match content {
                     ContentSpec::Box => Content::Box,
-                    ContentSpec::Text { text, style } => Content::Text(
-                        TextBlock::new(&mut self.fonts, &text, style)
-                            .map_err(|error| ApplyError::TextStyle { index, error })?,
-                    ),
+                    ContentSpec::Text { text, style } => {
+                        let mut fonts = self
+                            .fonts
+                            .try_borrow_mut()
+                            .map_err(|_| ApplyError::FontsBusy { index })?;
+                        Content::Text(
+                            TextBlock::new(&mut fonts, &text, style)
+                                .map_err(|error| ApplyError::TextStyle { index, error })?,
+                        )
+                    }
                     ContentSpec::Leaf(descriptor) => Content::Leaf(descriptor),
                     ContentSpec::Measured => Content::Measured,
                     ContentSpec::Scripted => Content::Scripted,
@@ -645,14 +663,17 @@ impl Tree {
                 self.mark_dirty(id);
             }
             Change::SetText { id, text, style } => {
-                let Self { nodes, fonts } = self;
                 if let Some(Node {
                     content: Content::Text(block),
                     ..
-                }) = nodes.get_mut(&id)
+                }) = self.nodes.get_mut(&id)
                 {
+                    let mut fonts = self
+                        .fonts
+                        .try_borrow_mut()
+                        .map_err(|_| ApplyError::FontsBusy { index })?;
                     block
-                        .set(fonts, &text, style)
+                        .set(&mut fonts, &text, style)
                         .map_err(|error| ApplyError::TextStyle { index, error })?;
                 }
                 self.mark_dirty(id);
