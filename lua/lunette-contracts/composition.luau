@@ -27,6 +27,19 @@ export type KnownEntry = {
   read schema: schema.Metadata?,
 }
 
+-- One entry of a recorded good composition: its configuration, and whether it was enabled.
+export type GoodEntry = {
+  read id: string,
+  read config: unknown,
+  read enabled: boolean,
+}
+
+-- The composition as it stood when a health policy last marked it good, in entry order. The runtime keeps the latest
+-- mark in memory for the session; the policy that decides when a composition is healthy belongs to its caller.
+export type GoodConfiguration = {
+  read entries: { read [number]: GoodEntry },
+}
+
 export type Service = {
   read entries: (Service) -> { Entry },
   read catalog: (Service) -> { read [number]: KnownEntry },
@@ -39,8 +52,10 @@ export type Service = {
   read restore: (Service, string) -> (),
   read remove: (Service, string) -> (),
   read ownerId: (Service, plugin.Owner) -> string?,
+  read markGood: (Service) -> (),
+  read lastGood: (Service) -> GoodConfiguration?,
 }
 
-composition.capability = plugin.capability<<Service>> { name = 'lunette/composition', version = 1 }
+composition.capability = plugin.capability<<Service>> { name = 'lunette/composition', version = 2 }
 
 return composition

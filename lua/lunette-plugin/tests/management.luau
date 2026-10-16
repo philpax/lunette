@@ -299,4 +299,31 @@ test('a provider outage keeps the factory definition and composed configuration 
   running.runtime:close()
 end)
 
+test('markGood records each entry configuration and enabled state until the next mark', function()
+  local definition = configured(function() end)
+  local running = management.start {
+    { id = 'settings', definition = definition, config = { value = 1 } },
+    { id = 'other', definition = definition, config = { value = 5 } },
+  }
+  local service = running.service
+  expect.equal(service:lastGood(), nil, 'nothing is marked at start')
+  service:markGood()
+  service:configure('settings', { value = 2 })
+  service:disable 'other'
+  local good = assert(service:lastGood())
+  expect.equal(#good.entries, 2, 'every entry except composition')
+  local settings = assert(find(good.entries, 'settings'))
+  expect.equal((settings.config :: Settings).value, 1, 'the configuration at the mark')
+  expect.equal(settings.enabled, true, 'enabled at the mark')
+  expect.equal(assert(find(good.entries, 'other')).enabled, true, 'a later disable does not change the mark')
+  expect.raises(function()
+    (good.entries :: any)[1] = nil
+  end, 'readonly')
+  service:markGood()
+  local marked = assert(service:lastGood())
+  expect.equal((assert(find(marked.entries, 'settings')).config :: Settings).value, 2, 'a new mark replaces it')
+  expect.equal(assert(find(marked.entries, 'other')).enabled, false, 'with the current enabled state')
+  running.runtime:close()
+end)
+
 return test

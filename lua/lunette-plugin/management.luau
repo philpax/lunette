@@ -1,4 +1,5 @@
--- Owns session entries and previous-good configuration over one nontransactional plugin runtime.
+-- Owns session entries, previous-good configuration, and the last composition marked good over one nontransactional
+-- plugin runtime.
 
 local adapter = require '@lunette-plugin/adapter'
 local compose = require '@lunette-plugin/compose'
@@ -83,6 +84,7 @@ function management.start(entries: { compose.Entry }, options: Options?): Runnin
   local sources: { [string]: Prepared } = {}
   local catalogOrder: { string } = {}
   local changing = true
+  local good: contract.GoodConfiguration? = nil
 
   local function forget(id: string): ()
     local record = records[id]
@@ -335,6 +337,34 @@ function management.start(entries: { compose.Entry }, options: Options?): Runnin
     end,
     ownerId = function(_self: contract.Service, owner: adapter.Owner): string?
       return runtime:ownerId(owner)
+    end,
+    markGood = function(_self: contract.Service): ()
+      local snapshot = observe()
+      if changing or snapshot.draining then
+        fail 'a composition cannot be marked good while the runtime is draining'
+      end
+      if snapshot.closed or snapshot.closing then
+        fail 'the runtime is closed'
+      end
+      local enabled: { [string]: boolean } = {}
+      for _, instance in snapshot.instances do
+        enabled[instance.id] = instance.enabled
+      end
+      local recorded: { contract.GoodEntry } = {}
+      for _, id in order do
+        local record = records[id]
+        if id ~= 'composition' and not record.removing then
+          recorded[#recorded + 1] = table.freeze {
+            id = id,
+            config = record.config,
+            enabled = enabled[record.instance:id()] == true,
+          }
+        end
+      end
+      good = table.freeze { entries = table.freeze(recorded) }
+    end,
+    lastGood = function(_self: contract.Service): contract.GoodConfiguration?
+      return good
     end,
   }
 
