@@ -323,23 +323,4 @@ function input.removed(router: Router, node: records.Node): ()
   end
 end
 
--- Advances hover lift and press travel towards their targets, answering whether any node moved.
-function input.animate(panel: records.Panel, dt: number, duration: number): boolean
-  local moving = false
-  -- A critically damped approach settles within the motion duration; four time constants leave under 2%.
-  local blend = 1 - math.exp(-dt * 4 / duration)
-  for _, node in panel.nodes do
-    local delta = node.liftTarget - node.lift
-    if delta ~= 0 then
-      if math.abs(delta) < 0.00001 then
-        node.lift = node.liftTarget
-      else
-        node.lift += delta * blend
-      end
-      moving = true
-    end
-  end
-  return moving
-end
-
 return input

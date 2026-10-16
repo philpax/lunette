@@ -85,6 +85,19 @@ function handles.new(node: records.Node, env: records.Environment): uiHost.Node
   handle.pose = function(_self: uiHost.Node): Mat4
     return shape.frame(node.panel, node.x + node.width / 2, node.y + node.height / 2, node.z)
   end
+  handle.animate = function(_self: uiHost.Node, name: string, target: number): ()
+    assert(type(target) == 'number' and target == target, 'ui: a channel target is a number')
+    local channel = node.channels[name]
+    if not channel then
+      channel = { value = if name == 'opacity' then 1 else 0, target = target, velocity = 0 }
+      node.channels[name] = channel
+    end
+    channel.target = target
+  end
+  handle.channel = function(_self: uiHost.Node, name: string): number
+    local channel = node.channels[name]
+    return if channel then channel.value elseif name == 'opacity' then 1 else 0
+  end
   handle.focus = function(_self: uiHost.Node): boolean
     return env.focusNode(node, true)
   end

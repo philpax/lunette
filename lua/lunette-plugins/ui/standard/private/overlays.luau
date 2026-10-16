@@ -84,6 +84,7 @@ function overlays.register(service: uiHost.Service, owner: any): { [string]: uiH
 
   service:registerKind(owner, {
     name = 'lunette/toast-face',
+    motion = { enter = 'fade', exit = 'fade' },
     layout = {
       kind = 'container',
       style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle

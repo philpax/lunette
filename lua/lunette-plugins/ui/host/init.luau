@@ -20,6 +20,7 @@ local touch = require '@self/private/touch'
 local overlay = require '@self/private/overlay'
 local presentation = require '@self/private/presentation'
 local traversal = require '@self/private/traversal'
+local motion = require '@self/private/motion'
 local semantics = require '@self/private/semantics'
 local panels = require '@self/private/panel'
 local fonts = require '@self/private/rendering/fonts'
@@ -191,15 +192,23 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
     run = function(dt: number): ()
       -- Overlays opened during this loop are appended to the list and committed after their openers.
       local head = presentation.head()
+      local faded: { records.Panel } = {}
       local index = 1
       while index <= #live do
         local entry = live[index]
         presentation.place(entry.record, head, dt, current)
         panels.commit(provider, entry.record)
         overlay.place(provider, entry.record)
-        -- Reduced motion snaps hover lift and press travel to their targets.
-        input.animate(entry.record, dt, if access.reducedMotion then 1e-6 else current.motion.crisp)
+        -- Reduced motion snaps every channel to its target.
+        local record = entry.record
+        motion.panel(record, dt, if access.reducedMotion then 0 else current.motion.crisp)
+        if record.closing and (record.fade == nil or record.fade.value <= 0.02) then
+          table.insert(faded, record)
+        end
         index += 1
+      end
+      for _, record in faded do
+        panels.destroy(provider, record)
       end
       if settings.controllerTraversal then
         traversal.controllers(traverse, input.pointing(router))

@@ -117,6 +117,7 @@ function actions.register(service: uiHost.Service, owner: any): { [string]: uiHo
 
   service:registerKind(owner, {
     name = 'lunette/tooltip',
+    motion = { enter = 'fade', exit = 'fade' },
     layout = {
       kind = 'container',
       style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle

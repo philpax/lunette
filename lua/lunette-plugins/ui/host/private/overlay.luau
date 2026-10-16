@@ -24,6 +24,7 @@ function overlay.render(provider: panel.Provider, portal: records.Node): records
   if not record then
     local created = panel.record(`{opener.name}/{portal.slot}`, opener.owner, 'content', nil, nil, opener.pose)
     created.overlay = { portal = portal, opener = opener, hit = portal.props.hit ~= false }
+    created.fade = { value = 0, target = 1, velocity = 0 }
     portal.overlay = created
     record = created
     provider.offer(created, panel.surface(provider, created, nil))
@@ -40,18 +41,24 @@ function overlay.render(provider: panel.Provider, portal: records.Node): records
   return current
 end
 
-function overlay.close(provider: panel.Provider, portal: records.Node): ()
+-- Closes the portal's overlay: it takes no more hits and fades out, and the host destroys it once it has faded.
+function overlay.close(_provider: panel.Provider, portal: records.Node): ()
   local record = portal.overlay
   if record then
     portal.overlay = nil
-    panel.destroy(provider, record)
+    record.closing = true
+    local fade = record.fade
+    if fade then
+      fade.target = 0
+    end
+    record.sync()
   end
 end
 
 -- Poses the overlay against its anchor, after the opener's and the overlay's layout for this frame.
 function overlay.place(provider: panel.Provider, record: records.Panel): ()
   local relation = record.overlay
-  if not relation then
+  if not relation or record.closing then
     return
   end
   local opener = relation.opener

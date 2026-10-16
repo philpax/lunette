@@ -402,6 +402,7 @@ function choices.registerDropdown(service: uiHost.Service, owner: any): uiHost.C
 
   service:registerKind(owner, {
     name = 'lunette/menu',
+    motion = { enter = 'fade', exit = 'fade' },
     layout = {
       kind = 'container',
       style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle

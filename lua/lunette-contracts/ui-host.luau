@@ -155,6 +155,10 @@ export type Node = {
   -- Focuses the node, taking session focus for a text node, and answers whether the node is focusable.
   read focus: (Node) -> boolean,
   read blur: (Node) -> (),
+  -- Animates a channel, such as 'opacity' or 'progress', to a target with the theme's motion. Visuals read channel
+  -- values through `channel`.
+  read animate: (Node, string, number) -> (),
+  read channel: (Node, string) -> number,
   -- The live keyed descendant at a path such as 'face/label', searching through unkeyed nodes.
   read descendant: (Node, string) -> Node?,
   -- Shaped lines of a text node, in node coordinates.
@@ -318,6 +322,8 @@ export type KindRegistration = {
   read focus: ('text' | 'pointer' | 'none')?,
   -- A value control that traversal engages before directions adjust its value.
   read engage: boolean?,
+  -- Transitions when a node appears and when it is removed. An exiting node fades out at its last position.
+  read motion: { read enter: ('fade' | 'none')?, read exit: ('fade' | 'none')? }?,
   -- An object schema for the kind's props. The host validates each element's props against it when they change and
   -- reports unknown or invalid props against the kind's owner; the node still renders with the props it was given.
   read props: { read parse: (unknown, string?) -> any }?,

@@ -292,6 +292,7 @@ createNode = function(
     liftTarget = 0,
     z = 0,
     primitives = nil,
+    channels = {},
     dirty = false,
     handle = nil :: any,
     ref = element.ref,
@@ -300,6 +301,10 @@ createNode = function(
   node.handle = handles.new(node, env)
   panel.nodes[id] = node
   validate(env, node)
+  local transitions = registration.motion
+  if transitions and transitions.enter == 'fade' then
+    node.channels.opacity = { value = 0, target = 1, velocity = 0 }
+  end
   local resolved = resolve(env, node)
   node.style = resolved.style
   node.elevation = resolved.elevation
@@ -349,7 +354,34 @@ updateNode = function(panel: records.Panel, env: Environment, node: records.Node
   reconcileChildren(panel, env, node)
 end
 
+-- The drawing of a subtree at its last positions, for a node that fades out after its removal.
+local function ghost(node: records.Node): records.Ghost
+  local nodes: { records.GhostNode } = {}
+  local function visit(current: records.Node): ()
+    if current.primitives then
+      table.insert(nodes, {
+        primitives = current.primitives,
+        x = current.x,
+        y = current.y,
+        z = current.z,
+        parentSurface = current.z - current.elevation - current.lift,
+        clip = nil,
+      })
+    end
+    for _, child in current.children do
+      visit(child)
+    end
+  end
+  visit(node)
+  local opacity = node.channels.opacity
+  return { opacity = { value = if opacity then opacity.value else 1, target = 0, velocity = 0 }, nodes = nodes }
+end
+
 removeNode = function(panel: records.Panel, env: Environment, node: records.Node): ()
+  local transitions = node.kind.registration.motion
+  if transitions and transitions.exit == 'fade' and not panel.dead and not (node.parent and node.parent.dead) then
+    table.insert(panel.ghosts, ghost(node))
+  end
   if node.overlay then
     env.unportal(node)
   end

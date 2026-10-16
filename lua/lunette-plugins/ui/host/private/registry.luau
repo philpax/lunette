@@ -31,6 +31,7 @@ local REGISTRATION_FIELDS: { [string]: boolean } = {
   role = true,
   semantics = true,
   props = true,
+  motion = true,
 }
 
 local MISSING_VISUAL = 'lunette/missing'

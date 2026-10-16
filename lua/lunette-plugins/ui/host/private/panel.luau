@@ -62,6 +62,10 @@ function panel.new(
     record.sizing = 'fixed'
     record.width = target.width or 0
   end
+  -- Panels that the host shows and hides fade in.
+  if presentation == 'dialog' or presentation == 'follow' then
+    record.fade = { value = 0, target = 1, velocity = 0 }
+  end
   if presentation == 'dialog' then
     local modality = options.modality or 'panel'
     assert(modality == 'panel' or modality == 'session', `ui: '{tostring(modality)}' is not a modality`)
@@ -154,7 +158,7 @@ function panel.surface(provider: Provider, record: records.Panel, setPose: ((Mat
       direction: vector,
       backFace: boolean?
     ): (number?, number?, number?)
-      if record.dead or not record.visible or record.width <= 0 or record.height <= 0 then
+      if record.dead or record.closing or not record.visible or record.width <= 0 or record.height <= 0 then
         return nil, nil, nil
       end
       local localOrigin, localDirection = shape.localRay(record, origin, direction)
@@ -199,7 +203,7 @@ function panel.surface(provider: Provider, record: records.Panel, setPose: ((Mat
   local fields = surface :: any
   record.sync = function(): ()
     fields.width, fields.height = record.width, record.height
-    fields.dead = record.dead or not record.visible
+    fields.dead = record.dead or record.closing or not record.visible
   end
   return surface
 end
@@ -238,6 +242,9 @@ function panel.record(
     overlay = nil,
     focused = nil,
     session = nil,
+    fade = nil,
+    ghosts = {},
+    closing = false,
     presentation = 'world',
     curve = 0,
     target = nil,

@@ -95,6 +95,8 @@ export type Node = {
   -- The surface height of the node in panel coordinates: its parent's surface plus elevation and lift.
   z: number,
   primitives: { Primitive }?,
+  -- Animation channels by name: opacity, elevation, progress, and others visuals read.
+  channels: { [string]: Channel },
   -- Set when the node must re-expand, restyle, or redraw at the next commit.
   dirty: boolean,
   handle: uiHost.Node,
@@ -155,9 +157,28 @@ export type Panel = {
   -- A dialog's parent panel, and what it blocks.
   parent: Panel?,
   modality: ('panel' | 'session')?,
+  -- The panel's own fade, for panels that fade in and out, and the ghosts of exiting nodes.
+  fade: Channel?,
+  ghosts: { Ghost },
+  -- Set while a panel fades out before it is destroyed; it takes no hits.
+  closing: boolean,
   -- The follow presentation's current target, which it moves to only when the head turns far enough away.
   followTarget: Mat4?,
 }
+
+export type Channel = { value: number, target: number, velocity: number }
+
+-- The drawing an exiting node leaves while it fades: its subtree's primitives at their last positions.
+export type GhostNode = {
+  primitives: { Primitive },
+  x: number,
+  y: number,
+  z: number,
+  parentSurface: number,
+  clip: { number }?,
+}
+
+export type Ghost = { opacity: Channel, nodes: { GhostNode } }
 
 -- An overlay panel's relation to the portal node that opened it, in another panel.
 export type Overlay = {
