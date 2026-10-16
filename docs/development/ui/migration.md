@@ -189,6 +189,21 @@ When the toolkit merges, the guarantees that replacement providers and consumers
 
 Every in-tree panel is built from toolkit components with no absolute control rectangles and no consumer-drawn text: the backdrop controls, the plugin manager, the wrist menu, titlebars, decorations, window titles, the errors overlay, the hint, the virtual keyboard, and the UI example. The recovery plugin, which draws without the toolkit by design, is exempt. Each panel has VR tests that address nodes by id. Controller rays operate every panel in the headset. Tracked hands operate every panel in the headset where the runtime supports hand tracking in the overlay session, and under fake XR otherwise, and the record of the migration says which applied. The mouse ray interactor operates every panel under fake input, and mouse operation in a live session depends on host mouse capture from #49 and is verified there. Every action is reachable without a physical keyboard or mouse, through pointing and through focus traversal on one controller, and default appearance restores a usable interface with a deliberately broken override active. The spike results are recorded in the design documents, and the migration record is deleted.
 
+## Progress
+
+Stages 0 to 9 are implemented on `feature/ui-toolkit` and verified without hardware, through the Lua suites, fake XR, and offscreen snapshots. No part has been checked in a headset. Every consumer listed above is built on the toolkit, and the earlier toolkit is removed. Beyond the first release, the attach presentation, outlets, the recovery plugin, default appearance, and a mouse ray from the head without host capture are implemented.
+
+These parts of the design remain open:
+
+- Pick hooks and the proximity query, and default appearance reached from `lunctl`.
+- Grab-sphere interactors, gesture claims that transfer a capture between nodes, drag sessions, and manipulation sessions beyond panel grab. Arbitration covers only a fingertip standing its hand's ray down.
+- Carrying host-owned node state, such as focus, scroll offset, and caret, across a change of a kind's current registration; nodes are remade instead.
+- The glyph atlas's per-frame generation budget, reference counting and eviction, the reserved share for interface fonts, and variable-face instances.
+- Native instance packing; Lua packs instance data and sends it per batch.
+- The panels service's optional chrome title, which still draws with `pass:text` when `chrome` is on; window titles otherwise come from the decorations titlebar.
+- Host mouse capture and release, which belong to #49.
+- The theme tokens that only the earlier errors overlay and hint used, which remain in the theme contract.
+
 ## Issue updates
 
 These issues need their text updated to match the design:
