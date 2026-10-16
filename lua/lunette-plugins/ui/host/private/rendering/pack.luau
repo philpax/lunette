@@ -84,7 +84,7 @@ function pack.run(panel: records.Panel, env: records.Environment, visuals: recor
         color(boxes, at + 17, primitive.side or primitive.fill)
         boxes[at + 21], boxes[at + 22], boxes[at + 23], boxes[at + 24] = clip[1], clip[2], clip[3], clip[4]
         boxes[at + 25], boxes[at + 26], boxes[at + 27], boxes[at + 28] =
-          if primitive.edges then edgeWidth else 0, 0, 0, 0
+          if primitive.edges then edgeWidth else 0, primitive.rotation, 0, 0
         count += 1
       else
         for _, line in primitive.lines do

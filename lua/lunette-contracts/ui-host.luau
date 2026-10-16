@@ -166,6 +166,8 @@ export type BoxSpec = {
   read side: Color?,
   -- Draws the theme's light top edge and dark bottom edge on the face.
   read edges: boolean?,
+  -- Radians about the box's centre in the panel plane, clockwise as drawn.
+  read rotation: number?,
 }
 
 export type TextSpec = {
@@ -241,7 +243,7 @@ export type KindRegistration = {
     children: { read [number]: Element },
     state: { read [string]: any },
     actions: Actions
-  ) -> { Child })?,
+  ) -> Child)?,
 }
 
 -- An element constructor takes one table: named fields are props, array entries are children.
@@ -363,6 +365,16 @@ function uiHost.element(kind: string, props: { [any]: any }?): Element
     children = table.freeze(children),
     slots = table.freeze(slots),
   }
+end
+
+-- A key for an arbitrary identifier, such as a plugin id: the separator characters and '%' are percent-encoded,
+-- so distinct identifiers give distinct keys.
+function uiHost.keyOf(identifier: string): string
+  return (
+    string.gsub(identifier, '[%%/:@#]', function(character: string): string
+      return string.format('%%%02X', string.byte(character))
+    end)
+  )
 end
 
 -- Flattens constructor children into a list of elements and their slots.

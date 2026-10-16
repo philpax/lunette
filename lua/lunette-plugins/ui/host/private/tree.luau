@@ -91,11 +91,14 @@ type Resolved = {
   elevation: number,
 }
 
+local DEFAULT_STYLE: lunette.LayoutStyle = { flexDirection = 'column', alignItems = 'stretch' }
+
 local function resolve(env: Environment, node: records.Node): Resolved
   local registration = node.kind.registration
   local layout = registration.layout
   local tokens = env.theme()
-  local resolved: Resolved = { native = 'box', style = {}, elevation = 0 }
+  -- A kind without a layout, such as most composites, stacks its children and stretches them across its width.
+  local resolved: Resolved = { native = 'box', style = DEFAULT_STYLE, elevation = 0 }
   local label = `ui: {node.kind.name} layout`
   env.protect(label, function(): ()
     if layout == nil then

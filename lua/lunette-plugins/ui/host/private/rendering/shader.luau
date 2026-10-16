@@ -44,7 +44,10 @@ shader.boxVertex = substitute [[
     float r = min(shape.z, min(extent.x, extent.y));
     vec2 p = VertexPosition.xy * (extent - r) + VertexUV * r;
     float z = shape.x - (1. - VertexPosition.z) * shape.y;
-    vec2 panel = rect.xy + extent + p;
+    // Rotation turns the box about its centre in the panel plane; the fragment stage shapes it unrotated.
+    float angle = boxes[base + 6].y;
+    vec2 turned = vec2(cos(angle) * p.x - sin(angle) * p.y, sin(angle) * p.x + cos(angle) * p.y);
+    vec2 panel = rect.xy + extent + turned;
     boxLocal = p;
     boxPanel = panel;
     boxSide = 1. - abs(VertexNormal.z);

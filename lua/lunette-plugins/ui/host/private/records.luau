@@ -27,6 +27,7 @@ export type Primitive =
     borderColor: uiHost.Color,
     side: uiHost.Color?,
     edges: boolean,
+    rotation: number,
   }
   | {
     kind: 'text',

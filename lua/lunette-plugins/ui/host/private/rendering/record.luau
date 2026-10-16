@@ -29,6 +29,7 @@ local function newDraw(node: records.Node, primitives: { records.Primitive }): u
       borderColor = spec.borderColor or TRANSPARENT,
       side = spec.side,
       edges = spec.edges == true,
+      rotation = spec.rotation or 0,
     }
   end
   function draw.text(_self: uiHost.Draw, spec: uiHost.TextSpec): ()
