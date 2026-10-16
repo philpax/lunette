@@ -20,6 +20,17 @@ local Manager = ui.component('PluginManager', function(): ui.Child
       key = 'header',
       title = 'Plugins',
       detail = if entry then entry.id else nil,
+      -- Default appearance is reachable here, beside the plugins that might have broken the interface.
+      c.Button {
+        key = 'appearance',
+        label = if m.defaultAppearance() then 'Default look: on' else 'Default look',
+        variant = 'band',
+        onActivate = function(): ()
+          m.change(function(): ()
+            m.setDefaultAppearance(not m.defaultAppearance())
+          end)
+        end,
+      },
       c.Button { key = 'close', label = 'Close', variant = 'band', onActivate = m.close },
     },
     c.Row {

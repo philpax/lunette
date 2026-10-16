@@ -135,4 +135,16 @@ test('Search filters with the VR keyboard and returns the keyboard when it is su
   end)
 end)
 
+test('the header switches default appearance on and off', function()
+  session({}, function(env: fixture.Environment): ()
+    env:open()
+    expect.falsy(env.services.host:defaultAppearance(), 'the session starts in its configured appearance')
+    env:click 'header/band/appearance'
+    expect.truthy(env.services.host:defaultAppearance(), 'the header switches default appearance on')
+    expect.equal(env:node('header/band/appearance/face/label').props.text, 'Default look: on', 'the button shows it')
+    env:click 'header/band/appearance'
+    expect.falsy(env.services.host:defaultAppearance(), 'and off again')
+  end)
+end)
+
 return test

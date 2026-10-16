@@ -187,6 +187,12 @@ function shell.start(context: plugin.Context, settings: config.Settings, service
       end
     end,
     releaseField = releaseField,
+    defaultAppearance = function(): boolean
+      return services.host:defaultAppearance()
+    end,
+    setDefaultAppearance = function(on: boolean): ()
+      services.host:setDefaultAppearance(on)
+    end,
   }
   panel:setVisible(visible)
   ui.mount(panel, app.Root(value), { components = services.components, owner = context })

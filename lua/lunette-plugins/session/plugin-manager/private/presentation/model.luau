@@ -25,6 +25,9 @@ export type Model = {
   read focusField: (uiHost.Node) -> (),
   -- Returns the keyboard focus a text field took when its edit ends.
   read releaseField: () -> (),
+  -- The host's default appearance, which undoes every plugin's restyling while it is on.
+  read defaultAppearance: () -> boolean,
+  read setDefaultAppearance: (boolean) -> (),
 }
 
 local Context = ui.createContext(nil :: Model?)
