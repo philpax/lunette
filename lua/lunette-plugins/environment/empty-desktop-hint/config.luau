@@ -1,14 +1,12 @@
 local schema = require '@lunette-plugin/schema'
 local descriptors = require '@lunette-contracts/schemas/theme'
-local configuration = require '@lunette-plugins/theme/configuration'
 
-local positive = schema.number { positive = true }
 local descriptor = schema.object {
   text = schema.default(schema.string()) 'lunette: no windows yet',
-  position = schema.default(schema.vector())(vector.pack(0, 1.5, -1.5)),
-  textHeight = schema.optional(positive),
+  -- The centre of the hint's panel, which faces along +z.
+  position = schema.default(schema.vector())(vector.pack(0, 1.5, -1.1)),
+  -- The text colour; the toolkit's ink when omitted.
   foreground = schema.optional(descriptors.color),
-  font = schema.optional(configuration.editableFont),
 }
 
 export type Config = schema.Input<typeof(descriptor)>
