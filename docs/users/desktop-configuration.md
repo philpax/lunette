@@ -47,6 +47,10 @@ The Appearance menu changes the theme for the current session. That choice is no
 
 The [backdrop plugin](../../lua/lunette-plugins/environment/backdrop/README.md) can react to the system output mix and remains available without audio services. Audio capture does not change playback routing or volume. Its schema owns the options; [`examples/audio-backdrop`](../../examples/audio-backdrop) demonstrates independent audio consumers.
 
+## Toolkit panels and notifications
+
+The `ui-host` settings choose the toolkit's light or dark mode and its accent colour, whose contrast the theme guards, and turn touch with tracked fingertips and controller traversal on or off; the [host's options](../../lua/lunette-plugins/ui/host/config.luau) define them. The `notifications` settings set how long a toast stays, a multiplier for every timeout for users who need more time to read, and how many toasts show at once; the [notifications options](../../lua/lunette-plugins/ui/notifications/config.luau) define them.
+
 ## Pointer and panel appearance
 
 The [laser provider](../../lua/lunette-plugins/input/laser/README.md) configures pointer behavior. The [panels provider](../../lua/lunette-plugins/panels/service/README.md) configures window rendering. Their schemas define the options.
