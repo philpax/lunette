@@ -20,16 +20,13 @@ local function kinds(service: uiHost.Service, owner: any): ()
   })
   service:registerVisual(owner, 'test/panel', function(node, draw)
     local theme = node.theme
-    draw:box(
-      nil,
-      {
-        fill = theme.colors.surface,
-        radius = theme.radii.panel,
-        side = theme.colors.side,
-        depth = theme.elevation.panelDepth,
-        edges = true,
-      }
-    )
+    draw:box(nil, {
+      fill = theme.colors.surface,
+      radius = theme.radii.panel,
+      side = theme.colors.side,
+      depth = theme.elevation.panelDepth,
+      edges = true,
+    })
   end)
   service:registerKind(owner, {
     name = 'test/key',

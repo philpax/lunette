@@ -21,17 +21,18 @@ local FONTS = {
   { family = 'Iosevka', weight = 400, file = '@lunette-plugins/ui/standard/fonts/Iosevka-Regular.ttf' },
 }
 
--- Entries are extra session entries, such as the standard kinds; setup runs inside a consumer plugin.
-function ui.boot(entries: { any }, requires: { any }, setup: (adapter.Context) -> ()): Scene
+-- Definitions are extra plugins, such as the standard kinds, used once the real graphics and file reading are back;
+-- setup runs inside a consumer plugin.
+function ui.boot(definitions: { any }, requires: { any }, setup: (adapter.Context) -> ()): Scene
   local graphics, data = lovr.graphics, lovr.data
-  local all: { any } =
-    { 'frame', 'surfaces', { id = 'ui-host', definition = require('@lunette-plugins/ui/host').definition } }
-  for _, entry in entries do
-    table.insert(all, entry)
-  end
-  local fixture = vrUi.boot(all)
+  local fixture =
+    vrUi.boot { 'frame', 'surfaces', { id = 'ui-host', definition = require('@lunette-plugins/ui/host').definition } }
   lovr.graphics, lovr.data = graphics, data
   lovr.filesystem = { read = host.readFile } :: any
+  local session = assert(fixture.session)
+  for _, definition in definitions do
+    session:use(definition, {})
+  end
   local scene: Scene = { fixture = fixture } :: any
   local needed = { uiHost.capability }
   for _, capability in requires do
