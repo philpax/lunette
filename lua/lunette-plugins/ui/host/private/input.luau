@@ -82,38 +82,44 @@ end
 
 -- Events carry positions in the receiving node's coordinates. A handler that calls `base` passes the event to the
 -- node's parent, except hover changes, which belong to their target alone.
+-- Delivers an event, answering whether a handler consumed it. A handler that calls `base` passes the event on, and
+-- a node without a handler passes it on too.
 function input.dispatch(
   env: records.Environment,
   node: records.Node,
   event: uiHost.Event,
   panelX: number?,
   panelY: number?
-): ()
+): boolean
   if node.dead then
-    return
+    return false
   end
   local delivered: any = event
   if panelX and panelY and (event :: any).x ~= nil then
     delivered = table.clone(event :: any)
     delivered.x, delivered.y = panelX - node.x, panelY - node.y
   end
-  local function base(_handle: uiHost.Node, passed: uiHost.Event): ()
-    if passed.kind == 'hover-enter' or passed.kind == 'hover-leave' then
+  local passed = false
+  local consumed = false
+  local function base(_handle: uiHost.Node, forwarded: uiHost.Event): ()
+    passed = true
+    if forwarded.kind == 'hover-enter' or forwarded.kind == 'hover-leave' then
       return
     end
     local parent = node.parent
     if parent then
-      input.dispatch(env, parent, passed, panelX, panelY)
+      consumed = input.dispatch(env, parent, forwarded, panelX, panelY)
     end
   end
   local handler = node.kind.registration.event
   if handler == nil then
     base(node.handle, delivered)
-    return
+    return consumed
   end
-  env.protect(`ui: {node.kind.name} event {event.kind}`, function(): ()
+  local ok = env.protect(`ui: {node.kind.name} event {event.kind}`, function(): ()
     handler(node.handle, delivered, base)
   end)
+  return ok and (consumed or not passed)
 end
 
 local function respond(node: records.Node): ()
@@ -126,8 +132,7 @@ local function respond(node: records.Node): ()
     target = tokens.hoverLift
   end
   node.liftTarget = target
-  node.primitives = nil
-  handles.refreshState(node, node.handle)
+  handles.hostChanged(node)
 end
 
 local function setHovered(env: records.Environment, state: PointerState, node: records.Node?): ()
@@ -264,6 +269,7 @@ function input.pointer(
     setHovered(env, state, target)
     target.host.pressed = true
     respond(target)
+    env.focusNode(target, false)
     event.pointer:vibrate(PRESS_HAPTIC)
     input.dispatch(env, target, { kind = 'press', x = x, y = y }, x, y)
   elseif event.kind == 'release' then
@@ -291,6 +297,16 @@ function input.pointer(
       input.dispatch(env, over, { kind = 'scroll', dx = event.dx, dy = event.dy })
     end
   end
+end
+
+-- Whether any pointer hovers or holds a node of a host panel.
+function input.pointing(router: Router): boolean
+  for _, state in router.pointers do
+    if state.hovered or state.capture then
+      return true
+    end
+  end
+  return false
 end
 
 -- Forgets a removed node: a capture on it ends without a release, and hover moves off it.

@@ -87,6 +87,35 @@ function handles.new(node: records.Node, env: records.Environment): uiHost.Node
     local y = panel.height / 2 - (node.y + node.height / 2)
     return lovr.math.mat4(panel.pose):translate(x, y, node.z)
   end
+  handle.focus = function(_self: uiHost.Node): boolean
+    return env.focusNode(node, true)
+  end
+  handle.blur = function(_self: uiHost.Node): ()
+    env.blurNode(node)
+  end
+  handle.descendant = function(_self: uiHost.Node, path: string): uiHost.Node?
+    local current: records.Node? = node
+    for segment in string.gmatch(path, '[^/]+') do
+      local function search(parent: records.Node): records.Node?
+        for _, candidate in parent.children do
+          if candidate.key == segment then
+            return candidate
+          end
+        end
+        for _, candidate in parent.children do
+          if candidate.key == nil then
+            local found = search(candidate)
+            if found then
+              return found
+            end
+          end
+        end
+        return nil
+      end
+      current = if current then search(current) else nil
+    end
+    return if current and not current.dead then current.handle else nil
+  end
   handle.textLines = function(_self: uiHost.Node): { lunette.LayoutLine }?
     if node.dead or node.text == nil then
       return nil
@@ -114,11 +143,24 @@ function handles.refresh(node: records.Node, env: records.Environment): ()
   handles.refreshState(node, fields)
 end
 
+-- Marks a node whose host state changed for redrawing, and a composite for expanding again.
+function handles.hostChanged(node: records.Node): ()
+  node.primitives = nil
+  if node.kind.composite then
+    node.dirty = true
+    node.panel.dirty = true
+  end
+  handles.refreshState(node, node.handle)
+end
+
 function handles.refreshState(node: records.Node, handle: any): ()
   local state = table.clone(node.state)
   state.hovered = node.host.hovers > 0
   state.pressed = node.host.pressed
   state.dragging = node.host.dragging
+  state.focused = node.host.focused
+  state.focusVisible = node.host.focusVisible
+  state.engaged = node.host.engaged
   handle.state = table.freeze(state)
 end
 

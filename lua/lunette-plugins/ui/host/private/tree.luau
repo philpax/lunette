@@ -145,7 +145,8 @@ local function expansion(env: Environment, node: records.Node): ({ read [number]
   local expand = assert(node.kind.registration.expand)
   local elements: { uiHost.Element }?, slots: { string } = nil, {}
   env.protect(`ui: {node.kind.name} expand`, function(): ()
-    local produced = expand(node.props, node.element.children, node.state, handles.actions(node))
+    -- The handle's state includes host state, such as focus and hover, so a composite can show it.
+    local produced = expand(node.props, node.element.children, node.handle.state, handles.actions(node))
     elements, slots = uiHost.children(produced :: any)
   end)
   return elements, slots
@@ -263,7 +264,7 @@ createNode = function(
     element = element,
     props = element.props,
     state = state,
-    host = { hovers = 0, pressed = false, dragging = false },
+    host = { hovers = 0, pressed = false, dragging = false, focused = false, focusVisible = false, engaged = false },
     parent = parent,
     children = {},
     panel = panel,

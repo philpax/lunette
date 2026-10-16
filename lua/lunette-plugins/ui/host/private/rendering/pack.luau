@@ -11,6 +11,7 @@ local pack = {}
 -- Successive primitives of one node step towards the viewer, so coplanar fills and borders do not depth-fight.
 local PRIMITIVE_STEP = 0.00005
 local UNCLIPPED = table.freeze { -1e6, -1e6, 1e6, 1e6 }
+local TRANSPARENT = table.freeze { 0, 0, 0, 0 }
 
 export type TextRun = {
   text: string,
@@ -106,6 +107,23 @@ function pack.run(panel: records.Panel, env: records.Environment, visuals: recor
           end
         end
       end
+    end
+    -- A node focused by traversal shows a ring in the accent colour just outside its box. Focus from a pointer press
+    -- shows none, in the manner of the web's focus-visible.
+    if node.host.focusVisible then
+      local margin = tokens.sizes.headerRule * 1.5
+      local ring = tokens.sizes.headerRule
+      local at = count * shader.SLOTS * 4
+      boxes[at + 1], boxes[at + 2] = node.x - margin, node.y - margin
+      boxes[at + 3], boxes[at + 4] = node.width + margin * 2, node.height + margin * 2
+      boxes[at + 5], boxes[at + 6] = node.z + contentOffset * 2 + #primitives * PRIMITIVE_STEP, 0
+      boxes[at + 7], boxes[at + 8] = tokens.radii.control + margin, ring
+      color(boxes, at + 9, TRANSPARENT)
+      color(boxes, at + 13, tokens.colors.accent)
+      color(boxes, at + 17, TRANSPARENT)
+      boxes[at + 21], boxes[at + 22], boxes[at + 23], boxes[at + 24] = clip[1], clip[2], clip[3], clip[4]
+      boxes[at + 25], boxes[at + 26], boxes[at + 27], boxes[at + 28] = 0, 0, 0, 0
+      count += 1
     end
     local childClip = if node.kind.registration.clip then intersect(clip, node) else clip
     for _, child in node.children do

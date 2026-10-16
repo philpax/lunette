@@ -149,6 +149,11 @@ export type Node = {
   read panelBounds: (Node) -> Rect,
   -- The world pose of the centre of the node's surface, facing out of its panel.
   read pose: (Node) -> Mat4,
+  -- Focuses the node, taking session focus for a text node, and answers whether the node is focusable.
+  read focus: (Node) -> boolean,
+  read blur: (Node) -> (),
+  -- The live keyed descendant at a path such as 'face/label', searching through unkeyed nodes.
+  read descendant: (Node, string) -> Node?,
   -- Shaped lines of a text node, in node coordinates.
   read textLines: (Node) -> { lunette.LayoutLine }?,
   -- The extent of the node's children from its origin, before scrolling.
@@ -199,6 +204,16 @@ export type Event =
   | { read kind: 'drag-end', read x: number, read y: number }
   | { read kind: 'scroll', read dx: number, read dy: number }
   | { read kind: 'change', read key: string?, read value: any }
+  -- Keys and committed text reach the panel's focused node and bubble to its ancestors. Source is 'controller' for
+  -- traversal from a controller, which value controls handle only while engaged.
+  | {
+    read kind: 'key',
+    read code: number,
+    read modifiers: { read [number]: string },
+    read isRepeat: boolean,
+    read source: ('physical' | 'virtual' | 'controller')?,
+  }
+  | { read kind: 'text', read text: string }
 
 export type EventHandler = (node: Node, event: Event, base: (Node, Event) -> ()) -> ()
 
@@ -233,6 +248,11 @@ export type KindRegistration = {
   read elevation: (string | number | (props: Props, theme: Theme) -> number)?,
   -- The host lifts the node on hover and presses it in on press.
   read response: { read lift: boolean?, read travel: boolean? }?,
+  -- 'text' takes session focus when pressed, so typing goes to the node; 'pointer' becomes the panel's focused node
+  -- when pressed; 'none', the default, never takes focus.
+  read focus: ('text' | 'pointer' | 'none')?,
+  -- A value control that traversal engages before directions adjust its value.
+  read engage: boolean?,
   -- Whether the node is a hit target, and the drags it claims.
   read interactive: ((props: Props) -> boolean)?,
   read claims: { read drag: ('x' | 'y' | 'both')? }?,
@@ -308,6 +328,12 @@ export type Service = {
   read theme: (Service) -> Theme,
   read setMode: (Service, 'dark' | 'light') -> (),
   read setAccent: (Service, Color) -> (),
+  -- Traversal of the panel that holds session focus, for bindings and switch access: a direction, activation,
+  -- dismissal, and moving session focus to the next panel. Each answers whether it did anything.
+  read navigate: (Service, 'up' | 'down' | 'left' | 'right' | 'next' | 'previous') -> boolean,
+  read activate: (Service) -> boolean,
+  read dismiss: (Service) -> boolean,
+  read nextPanel: (Service) -> boolean,
   read inspect: (Service) -> inspection.Snapshot,
 }
 

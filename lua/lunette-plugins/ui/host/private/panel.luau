@@ -209,6 +209,8 @@ function panel.record(
     revision = 0,
     sync = function(): () end,
     overlay = nil,
+    focused = nil,
+    session = nil,
     presentation = 'world',
     parent = nil,
     modality = nil,

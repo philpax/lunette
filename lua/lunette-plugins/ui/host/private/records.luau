@@ -54,7 +54,14 @@ export type Node = {
   state: { [string]: any },
   -- Hover, press, and drag state, which the host owns.
   -- `hovers` counts the pointers hovering the node; one pointer at a time captures it.
-  host: { hovers: number, pressed: boolean, dragging: boolean },
+  host: {
+    hovers: number,
+    pressed: boolean,
+    dragging: boolean,
+    focused: boolean,
+    focusVisible: boolean,
+    engaged: boolean,
+  },
   parent: Node?,
   children: { Node },
   panel: Panel,
@@ -123,6 +130,9 @@ export type Panel = {
   sync: () -> (),
   -- Set for a panel that the host made for a portal.
   overlay: Overlay?,
+  -- The panel's focused node, and its registration with the session's keyboard focus.
+  focused: Node?,
+  session: any?,
   presentation: 'world' | 'follow' | 'dialog',
   -- A dialog's parent panel, and what it blocks.
   parent: Panel?,
@@ -146,7 +156,7 @@ export type Environment = {
   read protect: (label: string, run: () -> ()) -> boolean,
   read removed: (Panel, Node) -> (),
   -- Delivers an event to a node's handler, which bubbles it to the node's ancestors by default.
-  read dispatch: (Node, uiHost.Event) -> (),
+  read dispatch: (Node, uiHost.Event) -> boolean,
   -- Opens or updates the overlay of a portal node with its children, and closes it.
   read portal: (Panel, Node) -> (),
   read unportal: (Node) -> (),
@@ -154,6 +164,9 @@ export type Environment = {
   read pressed: (Panel, Node?) -> (),
   -- Whether an open modal dialog blocks presses on the panel.
   read blocked: (Panel) -> boolean,
+  -- Focuses a node, taking session focus when its policy is text, and answers whether it took focus.
+  read focusNode: (Node, boolean) -> boolean,
+  read blurNode: (Node) -> (),
 }
 
 return {}

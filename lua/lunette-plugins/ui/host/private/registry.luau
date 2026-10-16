@@ -26,6 +26,8 @@ local REGISTRATION_FIELDS: { [string]: boolean } = {
   clip = true,
   state = true,
   expand = true,
+  focus = true,
+  engage = true,
 }
 
 local MISSING_VISUAL = 'lunette/missing'

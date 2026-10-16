@@ -8,6 +8,8 @@ local SCHEMA = schema.object {
   accent = schema.optional(color),
   -- Tracked bare fingertips press nodes by touch.
   touch = schema.default(schema.boolean())(true),
+  -- A controller's thumbstick and face buttons traverse the panel that holds session focus.
+  controllerTraversal = schema.default(schema.boolean())(true),
 }
 
 export type Config = schema.Input<typeof(SCHEMA)>

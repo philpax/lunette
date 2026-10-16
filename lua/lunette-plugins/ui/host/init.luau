@@ -4,6 +4,8 @@ local plugin = require '@lunette-plugin'
 local uiHost = require '@lunette-contracts/ui-host'
 local frame = require '@lunette-contracts/frame'
 local surfaces = require '@lunette-contracts/surfaces'
+local focusContract = require '@lunette-contracts/focus'
+local keys = require '@lunette-contracts/keys'
 local vocabulary = require '@lunette-contracts/vocabulary'
 local inspection = require '@lunette-contracts/inspection'
 local protected = require '@lunette-plugins/diagnostics/protected-call'
@@ -17,6 +19,7 @@ local input = require '@self/private/input'
 local touch = require '@self/private/touch'
 local overlay = require '@self/private/overlay'
 local presentation = require '@self/private/presentation'
+local traversal = require '@self/private/traversal'
 local panels = require '@self/private/panel'
 local fonts = require '@self/private/rendering/fonts'
 local pack = require '@self/private/rendering/pack'
@@ -34,6 +37,8 @@ type Live = {
 local function build(context: plugin.Context, settings: Settings): uiHost.Service
   local frameService = context:require(frame.capability)
   local surfaceService = context:require(surfaces.capability)
+  local focusService = context:require(focusContract.capability)
+  local traverse: traversal.Traversal
   local mode: themes.Mode = settings.mode
   local accent: uiHost.Color = settings.accent or themes.DEFAULT_ACCENT
   local current = themes.resolve(mode, accent)
@@ -67,8 +72,8 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
     removed = function(_panel: records.Panel, node: records.Node): ()
       input.removed(router, node)
     end,
-    dispatch = function(node: records.Node, event: uiHost.Event): ()
-      input.dispatch(env, node, event)
+    dispatch = function(node: records.Node, event: uiHost.Event): boolean
+      return input.dispatch(env, node, event)
     end,
     portal = function(_panel: records.Panel, node: records.Node): ()
       overlay.render(provider, node)
@@ -83,6 +88,12 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
         panels[#panels + 1] = entry.record
       end
       return presentation.blocked(target, panels)
+    end,
+    focusNode = function(node: records.Node, visible: boolean): boolean
+      return traversal.focusNode(traverse, node, visible)
+    end,
+    blurNode = function(node: records.Node): ()
+      traversal.blurNode(traverse, node)
     end,
     pressed = function(pressedPanel: records.Panel, node: records.Node?): ()
       for _, entry in table.clone(live) do
@@ -104,6 +115,7 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
       return assert(recordsOf[handle], 'ui: the panel was not made by this host')
     end,
     release = function(record: records.Panel): ()
+      traversal.release(record)
       for index, entry in live do
         if entry.record == record then
           table.remove(live, index)
@@ -112,6 +124,14 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
       end
     end,
   }
+
+  traverse = traversal.new(context, focusService, env, function(): { records.Panel }
+    local list: { records.Panel } = {}
+    for _, entry in live do
+      list[#list + 1] = entry.record
+    end
+    return list
+  end)
 
   surfaceService:offer(context, {
     name = 'ui-host',
@@ -166,6 +186,9 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
         overlay.place(provider, entry.record)
         input.animate(entry.record, dt, current.motion.crisp)
         index += 1
+      end
+      if settings.controllerTraversal then
+        traversal.controllers(traverse, input.pointing(router))
       end
     end,
   })
@@ -294,6 +317,24 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
       accent = table.freeze { given[1], given[2], given[3], given[4] or 1 }
       retheme()
     end,
+    navigate = function(_self: uiHost.Service, direction: string): boolean
+      local codes = keys.CODES
+      if direction == 'next' or direction == 'previous' then
+        return traversal.key(traverse, codes.tab, 'controller', if direction == 'previous' then { 'shift' } else {})
+      end
+      local code = (codes :: any)[direction]
+      assert(type(code) == 'number', `ui: '{tostring(direction)}' is not a direction`)
+      return traversal.key(traverse, code, 'controller')
+    end,
+    activate = function(_self: uiHost.Service): boolean
+      return traversal.key(traverse, keys.CODES.enter, 'controller')
+    end,
+    dismiss = function(_self: uiHost.Service): boolean
+      return traversal.key(traverse, keys.CODES.escape, 'controller')
+    end,
+    nextPanel = function(_self: uiHost.Service): boolean
+      return traversal.nextPanel(traverse)
+    end,
     inspect = function(_self: uiHost.Service): inspection.Snapshot
       local result: { inspection.Registration } = {}
       for _, entry in live do
@@ -322,6 +363,6 @@ return plugin.provider<<Config, Settings, uiHost.Service>> {
   name = 'ui-host',
   schema = config.schema,
   capability = uiHost.capability,
-  requires = { frame.capability, surfaces.capability },
+  requires = { frame.capability, surfaces.capability, focusContract.capability },
   build = build,
 }
