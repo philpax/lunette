@@ -13,7 +13,7 @@ local values = {}
 
 local element = uiHost.element
 
--- A released value within this fraction of the range from a detent snaps to it.
+-- A value within this fraction of the range from a detent snaps to it, while dragging and on release.
 local SNAP = 0.04
 -- The handle's width as a fraction of the theme's thumb size: a narrow upright key.
 local HANDLE_WIDTH = 0.57
@@ -116,7 +116,8 @@ function values.register(service: uiHost.Service, owner: any): { [string]: uiHos
     event = function(node: uiHost.Node, event: uiHost.Event, base: (uiHost.Node, uiHost.Event) -> ())
       local kind = event.kind
       if kind == 'press' or kind == 'drag' then
-        node:emit('onPreview', valueAt(node, (event :: any).x))
+        -- A detent holds the value while the pointer is near it, and the value moves freely between detents.
+        node:emit('onPreview', snap(node.props, valueAt(node, (event :: any).x)))
       elseif kind == 'release' then
         node:emit('onFinish', snap(node.props, valueAt(node, (event :: any).x)))
       elseif kind == 'scroll' then

@@ -83,7 +83,7 @@ test('a disabled button does not activate and shows its reason on hover', functi
   state.fixture:close()
 end)
 
-test('a slider drag reports values and snaps the release to a detent', function()
+test('a slider drag moves continuously, holds to a detent near it, and snaps the release', function()
   local state = boot()
   local c = assert(state.components)
   local changes, commits = {}, {}
@@ -109,6 +109,12 @@ test('a slider drag reports values and snaps the release to a detent', function(
   )
   drag(state, 'body/response/track', { 0.05, 0.5 }, { 0.51, 0.5 })
   expect.truthy(#changes > 2, 'each drag step reports a value')
+  local between = false
+  for _, change in changes do
+    between = between or (change > 0.1 and change < 0.4)
+  end
+  expect.truthy(between, 'the value moves continuously between detents')
+  expect.equal(changes[#changes - 1], 0.5, 'the drag holds to the Medium detent near it before the release')
   expect.equal(#commits, 1)
   expect.equal(commits[1], 0.5, 'the release snaps to the Medium detent')
   state.fixture:step()
