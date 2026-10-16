@@ -13,7 +13,7 @@ end
 test('a content-sized panel takes the size of its laid-out content', function()
   local log = {}
   local state = fixture.boot {
-    setup = function(service, owner)
+    setup = function(service: uiHost.Service, owner: any)
       fixture.registerKinds(service, owner, log)
     end,
   }
@@ -38,11 +38,11 @@ end)
 
 test('a nil child keeps the positions of the children after it', function()
   local state = fixture.boot {
-    setup = function(service, owner)
+    setup = function(service: uiHost.Service, owner: any)
       fixture.registerKinds(service, owner, {})
     end,
   }
-  local function tree(withFirst: boolean)
+  local function tree(withFirst: boolean): uiHost.Element
     return element('test/column', {
       if withFirst then element('test/leaf', { width = 0.01, height = 0.01 }) else nil,
       element('test/leaf', { width = 0.02, height = 0.02 }),
@@ -61,7 +61,7 @@ test('a click hovers, presses, and activates the node under the ray', function()
   local log = {}
   local activations = 0
   local state = fixture.boot {
-    setup = function(service, owner)
+    setup = function(service: uiHost.Service, owner: any)
       fixture.registerKinds(service, owner, log)
     end,
   }
@@ -87,7 +87,7 @@ end)
 
 test('a composite re-expands when its state changes', function()
   local state = fixture.boot {
-    setup = function(service, owner)
+    setup = function(service: uiHost.Service, owner: any)
       fixture.registerKinds(service, owner, {})
     end,
   }
@@ -99,6 +99,54 @@ test('a composite re-expands when its state changes', function()
   local after = assert(state.panel:find 'counter/increment/label')
   expect.equal(after, label, 'the label node is kept')
   expect.equal(after.props.text, 'count 1')
+  state.fixture:close()
+end)
+
+test('a tracked fingertip pushed into a node presses and activates it', function()
+  local log: { string } = {}
+  local activations = 0
+  local state = fixture.boot {
+    setup = function(service: uiHost.Service, owner: any)
+      fixture.registerKinds(service, owner, log)
+    end,
+  }
+  fixture.show(
+    state,
+    element('test/column', {
+      padding = 0.01,
+      element('test/button', {
+        key = 'go',
+        onActivate = function()
+          activations += 1
+        end,
+        element('test/leaf', { width = 0.04, height = 0.02 }),
+      }),
+    })
+  )
+  local node = assert(state.panel:find 'go')
+  local bounds = node:panelBounds()
+  local width, height = state.panel:size()
+  local pose = state.panel:pose()
+  local raised = 0.003
+  -- The skeleton stands in for a tracked bare hand: only the index fingertip, joint 11, is read.
+  local tip = { 0, 0, 0, 0.005, 1, 0, 0, 0 }
+  local skeleton = {}
+  for joint = 1, 26 do
+    skeleton[joint] = if joint == 11 then tip else { 0, 0, 0, 0.005, 1, 0, 0, 0 }
+  end
+  local headset = lovr.headset :: any
+  headset.getSkeleton = function(device: string): { { number } }?
+    return if device == 'hand/right' then skeleton else nil
+  end
+  state.fixture:tracked('right', true)
+  for _, depth in { 0.06, 0.02, 0.008, -0.003, -0.005, 0.004 } do
+    local x, y, z =
+      pose:mul(bounds.x + bounds.width / 2 - width / 2, height / 2 - bounds.y - bounds.height / 2, raised + depth)
+    tip[1], tip[2], tip[3] = x, y, z
+    state.fixture:step()
+  end
+  headset.getSkeleton = nil
+  expect.equal(activations, 1, `one activation: {table.concat(log, ' ')}`)
   state.fixture:close()
 end)
 

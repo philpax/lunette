@@ -6,6 +6,8 @@ local SCHEMA = schema.object {
   mode = schema.default(schema.enum<<'dark' | 'light'>> { 'dark', 'light' }) 'dark',
   -- sRGB components; the theme guards the accent's contrast against the surface.
   accent = schema.optional(color),
+  -- Tracked bare fingertips press nodes by touch.
+  touch = schema.default(schema.boolean())(true),
 }
 
 export type Config = schema.Input<typeof(SCHEMA)>

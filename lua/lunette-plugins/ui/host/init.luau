@@ -14,6 +14,7 @@ local themes = require '@self/private/theme'
 local tree = require '@self/private/tree'
 local layout = require '@self/private/layout'
 local input = require '@self/private/input'
+local touch = require '@self/private/touch'
 local panels = require '@self/private/panel'
 local fonts = require '@self/private/rendering/fonts'
 local pack = require '@self/private/rendering/pack'
@@ -37,6 +38,7 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
   local kinds = registry.new(context)
   local faces = fonts.new()
   local router = input.new()
+  local touching = touch.new()
   local live: { Live } = {}
   local reportedMissing: { [string]: boolean } = {}
   local resources: renderer.Resources? = nil
@@ -126,6 +128,20 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
     end,
   })
 
+  if settings.touch then
+    frameService:onUpdate(context, {
+      phase = 'pointing',
+      order = 100,
+      run = function(dt: number): ()
+        local panels: { records.Panel } = {}
+        for _, entry in live do
+          panels[#panels + 1] = entry.record
+        end
+        touch.update(touching, panels, env, router, dt)
+      end,
+    })
+  end
+
   frameService:onDraw(context, {
     phase = 'scene',
     order = 50,
@@ -142,9 +158,15 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
         if record.visible and record.root and record.width > 0 and record.height > 0 then
           protected.call(`ui: panel '{record.name}' draw`, function(): ()
             layout.place(record)
-            entry.packed = pack.run(record, env, function(name: string): { uiHost.Visual }
+            local packed = pack.run(record, env, function(name: string): { uiHost.Visual }
               return registry.visuals(kinds, name)
             end, entry.packed)
+            entry.packed = packed
+            for _, marker in touching.markers do
+              if marker.panel == record then
+                pack.marker(packed, marker.x, marker.y, marker.surface, marker.depth, current)
+              end
+            end
             renderer.draw(held, pass, record, assert(entry.packed), current, faces)
           end)
         end

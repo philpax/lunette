@@ -120,4 +120,30 @@ function pack.run(panel: records.Panel, env: records.Environment, visuals: recor
   return packed
 end
 
+-- The fingertip proxy is held at the surface it touches until the fingertip is this far through.
+local UNCLAMP_DEPTH = 0.02
+
+-- Adds a fingertip proxy: a disc on the surface beneath the fingertip, which grows as the fingertip approaches and
+-- takes the accent colour in contact.
+function pack.marker(packed: Packed, x: number, y: number, surface: number, depth: number, theme: uiHost.Theme): ()
+  if depth < -UNCLAMP_DEPTH then
+    return
+  end
+  local contact = depth <= 0
+  local size = if contact then 0.006 else 0.004 + math.clamp(1 - depth / 0.03, 0, 1) * 0.002
+  local color = if contact then theme.colors.accent else theme.colors.ink
+  local top = surface + math.max(depth, 0) + theme.elevation.contentOffset * 2
+  local at = packed.count * shader.SLOTS * 4
+  local boxes = packed.boxes
+  boxes[at + 1], boxes[at + 2], boxes[at + 3], boxes[at + 4] = x - size / 2, y - size / 2, size, size
+  boxes[at + 5], boxes[at + 6], boxes[at + 7], boxes[at + 8] = top, 0, size / 2, size * 0.18
+  boxes[at + 9], boxes[at + 10], boxes[at + 11], boxes[at + 12] = color[1], color[2], color[3], 0.35
+  boxes[at + 13], boxes[at + 14], boxes[at + 15], boxes[at + 16] = color[1], color[2], color[3], 1
+  boxes[at + 17], boxes[at + 18], boxes[at + 19], boxes[at + 20] = color[1], color[2], color[3], 1
+  boxes[at + 21], boxes[at + 22], boxes[at + 23], boxes[at + 24] =
+    UNCLIPPED[1], UNCLIPPED[2], UNCLIPPED[3], UNCLIPPED[4]
+  boxes[at + 25], boxes[at + 26], boxes[at + 27], boxes[at + 28] = 0, 0, 0, 0
+  packed.count += 1
+end
+
 return pack
