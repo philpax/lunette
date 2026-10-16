@@ -226,6 +226,25 @@ fn host(lua: &Lua) -> mlua::Result<Table> {
     )?;
     host.set("collect", lua.create_function(|lua, ()| lua.gc_collect())?)?;
     host.set(
+        "readFile",
+        lua.create_function(|lua, path: String| {
+            let sources = lua
+                .app_data_ref::<Sources>()
+                .ok_or_else(|| mlua::Error::runtime("the module sources are missing"))?;
+            let resolved = resolve_alias_path(&sources.roots, &path)?;
+            let data = fs::read(&resolved).map_err(|error| {
+                mlua::Error::runtime(format!("{}: {error}", resolved.display()))
+            })?;
+            lua.create_string(data)
+        })?,
+    )?;
+    host.set(
+        "writeSnapshot",
+        lua.create_function(|_, (name, data): (String, mlua::LuaString)| {
+            write_snapshot(&name, &data.as_bytes())
+        })?,
+    )?;
+    host.set(
         "useConfiguration",
         lua.create_function(|lua, directory: String| {
             let path = lua
@@ -238,6 +257,40 @@ fn host(lua: &Lua) -> mlua::Result<Table> {
         })?,
     )?;
     Ok(host)
+}
+
+/// Resolves an alias path such as `@lunette-plugins/ui/standard/fonts/a.ttf` under the `lua/`
+/// directory, for fixtures that stand in for `lovr.filesystem`.
+fn resolve_alias_path(roots: &Roots, path: &str) -> mlua::Result<PathBuf> {
+    let relative = path
+        .strip_prefix('@')
+        .ok_or_else(|| mlua::Error::runtime(format!("readFile: '{path}' is not an alias path")))?;
+    if relative
+        .split('/')
+        .any(|segment| segment == ".." || segment.is_empty())
+    {
+        return Err(mlua::Error::runtime(format!(
+            "readFile: '{path}' leaves the module roots"
+        )));
+    }
+    Ok(roots.lua.join(relative))
+}
+
+/// Writes a rendered image for review to the integration tests' temporary directory.
+fn write_snapshot(name: &str, data: &[u8]) -> mlua::Result<()> {
+    if name.is_empty()
+        || !name
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+    {
+        return Err(mlua::Error::runtime(format!(
+            "writeSnapshot: '{name}' is not a lowercase hyphenated name"
+        )));
+    }
+    let directory = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("ui-snapshots");
+    fs::create_dir_all(&directory)
+        .and_then(|()| fs::write(directory.join(format!("{name}.png")), data))
+        .map_err(|error| mlua::Error::runtime(format!("writeSnapshot: {name}: {error}")))
 }
 
 /// Reports `traced` through the session's error boundary, `report_traced`, to
