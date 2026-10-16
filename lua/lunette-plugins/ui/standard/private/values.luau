@@ -15,6 +15,8 @@ local element = uiHost.element
 
 -- A released value within this fraction of the range from a detent snaps to it.
 local SNAP = 0.04
+-- The handle's width as a fraction of the theme's thumb size: a narrow upright key.
+local HANDLE_WIDTH = 0.57
 
 local function fraction(props: uiHost.Props, value: number): number
   local low, high = props.min or 0, props.max or 1
@@ -27,7 +29,7 @@ end
 -- The value under a position on the rail, which spans the track's width less the thumb.
 local function valueAt(node: uiHost.Node, x: number): number
   local props = node.props
-  local thumb = node.theme.sizes.thumb * 0.7
+  local thumb = node.theme.sizes.thumb * HANDLE_WIDTH
   local span = math.max(node.bounds.width - thumb, 1e-6)
   local t = math.clamp((x - thumb / 2) / span, 0, 1)
   local low, high = props.min or 0, props.max or 1
@@ -56,6 +58,31 @@ local function detentAt(props: uiHost.Props, value: number): any
     end
   end
   return nil
+end
+
+-- The detents' names under the track, engraved at even spacing as the ticks are, with the current one in the accent.
+-- A slider whose detents are not evenly spread has no row, since spaced names would not sit under their ticks.
+local function detentLabels(props: uiHost.Props, current: any): uiHost.Element?
+  local detents = props.detents
+  if not detents or #detents < 2 then
+    return nil
+  end
+  local low, high = props.min or 0, props.max or 1
+  local spacing = (high - low) / (#detents - 1)
+  local labels: { uiHost.Element } = {}
+  for index, detent in detents do
+    if math.abs(detent.value - (low + (index - 1) * spacing)) > spacing * 1e-3 then
+      return nil
+    end
+    labels[index] = element('lunette/text', {
+      key = `detent-{index}`,
+      text = string.upper(detent.label),
+      style = 'caption',
+      color = if current and detent.value == current.value then 'accent' else 'muted',
+      wrap = false,
+    })
+  end
+  return element('lunette/row', { key = 'detents', justify = 'space-between', labels })
 end
 
 function values.register(service: uiHost.Service, owner: any): { [string]: uiHost.Constructor }
@@ -131,7 +158,8 @@ function values.register(service: uiHost.Service, owner: any): { [string]: uiHos
     local theme = node.theme
     local props = node.props
     local bounds = node.bounds
-    local thumbWidth = theme.sizes.thumb * 0.7
+    -- The handle is ringed and marked down its centre in the accent.
+    local thumbWidth = theme.sizes.thumb * HANDLE_WIDTH
     local span = bounds.width - thumbWidth
     local rail = theme.sizes.rail
     local railY = bounds.height / 2 - rail / 2
@@ -156,16 +184,27 @@ function values.register(service: uiHost.Service, owner: any): { [string]: uiHos
       )
     end
     local active = node.state.hovered or node.state.dragging
-    draw:box(
-      { x = span * t, y = (bounds.height - theme.sizes.thumb) / 2, width = thumbWidth, height = theme.sizes.thumb },
-      {
-        fill = if active then theme.colors.hover else theme.colors.raised,
-        radius = theme.radii.control,
-        side = theme.colors.side,
-        offset = if node.state.dragging then theme.elevation.raised else theme.elevation.thumb,
-        edges = true,
-      }
-    )
+    local mark = if enabled then theme.colors.accent else theme.colors.muted
+    local handle =
+      { x = span * t, y = (bounds.height - theme.sizes.thumb) / 2, width = thumbWidth, height = theme.sizes.thumb }
+    local lift = if node.state.dragging then theme.elevation.raised else theme.elevation.thumb
+    draw:box(handle, {
+      fill = if active then theme.colors.hover else theme.colors.raised,
+      border = theme.sizes.edge * 2,
+      borderColor = mark,
+      radius = theme.radii.control,
+      side = theme.colors.side,
+      offset = lift,
+      edges = true,
+    })
+    local line = theme.sizes.rule * 2
+    local inset = thumbWidth * 0.45
+    draw:box({
+      x = handle.x + (thumbWidth - line) / 2,
+      y = handle.y + inset,
+      width = line,
+      height = handle.height - 2 * inset,
+    }, { fill = mark, offset = lift + theme.elevation.contentOffset })
   end)
 
   -- Slider props: label, value, min, max, step, detents, unit, onChange, and onCommit. While a drag is in progress,
@@ -253,6 +292,7 @@ function values.register(service: uiHost.Service, owner: any): { [string]: uiHos
             end
           end,
         }),
+        detentLabels(props, detent),
       }
     end,
   })
