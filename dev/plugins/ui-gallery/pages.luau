@@ -353,7 +353,8 @@ local Overlays = ui.component('Overlays', function(): ui.Child
     local dialog = services.host:newPanel(services.owner, {
       name = `gallery dialog {count}`,
       presentation = 'dialog',
-      parent = if modality == 'panel' then services.panel else nil,
+      -- Both open in front of the gallery; a session dialog also blocks every other panel.
+      parent = services.panel,
       modality = modality,
     })
     setCount(count + 1)

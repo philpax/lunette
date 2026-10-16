@@ -244,12 +244,14 @@ local function drawBoxes(
   pass: Pass,
   panel: records.Panel,
   packed: pack.Packed,
-  theme: uiHost.Theme
+  theme: uiHost.Theme,
+  scrim: { number }
 ): ()
   if packed.count == 0 then
     return
   end
   pass:setShader(resources.boxShader)
+  pass:send('panelScrim', scrim)
   pass:send('panelSize', { panel.width, panel.height, 0, 0 })
   local curved = panel.curve > 0
   pass:send('panelCurve', { panel.curve, if curved then 1 else 0, 0, 0 })
@@ -270,11 +272,18 @@ local function drawBoxes(
   end
 end
 
-local function drawImages(resources: Resources, pass: Pass, panel: records.Panel, packed: pack.Packed): ()
+local function drawImages(
+  resources: Resources,
+  pass: Pass,
+  panel: records.Panel,
+  packed: pack.Packed,
+  scrim: { number }
+): ()
   if #packed.images == 0 then
     return
   end
   pass:setShader(resources.imageShader)
+  pass:send('panelScrim', scrim)
   pass:setDepthWrite(false)
   local pose = centre(panel)
   pass:send('panelInverse', lovr.math.mat4(pose):invert())
@@ -294,11 +303,18 @@ local function drawImages(resources: Resources, pass: Pass, panel: records.Panel
   pass:setMaterial(nil)
 end
 
-local function drawGlyphs(resources: Resources, pass: Pass, panel: records.Panel, packed: pack.Packed): ()
+local function drawGlyphs(
+  resources: Resources,
+  pass: Pass,
+  panel: records.Panel,
+  packed: pack.Packed,
+  scrim: { number }
+): ()
   if next(packed.glyphCounts) == nil then
     return
   end
   pass:setShader(resources.glyphShader)
+  pass:send('panelScrim', scrim)
   pass:setDepthWrite(false)
   pass:send('panelPose', centre(panel))
   pass:send('panelCurve', { panel.curve, 0, 0, 0 })
@@ -331,21 +347,29 @@ function renderer.endFrame(resources: Resources): ()
   images.collect(resources.images)
 end
 
+-- How far a panel that a dialog blocks moves towards black, so it is plain that it takes no presses.
+local BLOCKED_SCRIM = 0.45
+local CLEAR = table.freeze { 0, 0, 0, 0 }
+local BLOCKED = table.freeze { 0, 0, 0, BLOCKED_SCRIM }
+
+-- Draws a packed panel. A blocked panel is drawn under a scrim.
 function renderer.draw(
   resources: Resources,
   pass: Pass,
   panel: records.Panel,
   packed: pack.Packed,
-  theme: uiHost.Theme
+  theme: uiHost.Theme,
+  blocked: boolean?
 ): ()
+  local scrim = if blocked then BLOCKED else CLEAR
   pass:push 'state'
   local ok, failure = pcall(function(): ()
     pass:setCullMode 'none'
     pass:setBlendMode('alpha', 'alphamultiply')
     pass:setColor(1, 1, 1, 1)
-    drawBoxes(resources, pass, panel, packed, theme)
-    drawImages(resources, pass, panel, packed)
-    drawGlyphs(resources, pass, panel, packed)
+    drawBoxes(resources, pass, panel, packed, theme, scrim)
+    drawImages(resources, pass, panel, packed, scrim)
+    drawGlyphs(resources, pass, panel, packed, scrim)
   end)
   pass:pop 'state'
   if not ok then

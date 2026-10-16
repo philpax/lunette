@@ -87,8 +87,21 @@ function fixture.boot(options: Options?): State
   return state
 end
 
--- A column, a fixed-size leaf, a text label, a pressable box, and a composite counter.
+-- A column, a fixed-size leaf, a swatch that draws a box, a text label, a pressable box, and a composite counter.
 function fixture.registerKinds(service: uiHost.Service, owner: any, log: { string }): ()
+  service:registerKind(owner, {
+    name = 'test/swatch',
+    layout = {
+      kind = 'leaf',
+      style = function(): lunette.LayoutStyle
+        return { width = 0.02, height = 0.02 }
+      end,
+    },
+    visuals = { 'test/swatch' },
+  })
+  service:registerVisual(owner, 'test/swatch', function(node: uiHost.Node, draw: uiHost.Draw)
+    draw:box(nil, { fill = node.theme.colors.raised })
+  end)
   service:registerKind(owner, {
     name = 'test/column',
     layout = {

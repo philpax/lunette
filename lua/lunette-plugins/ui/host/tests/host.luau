@@ -286,6 +286,48 @@ test('a composite whose expansion fails keeps its children', function()
   state.fixture:close()
 end)
 
+-- The scrim amounts that a draw of every panel sends, lowest first.
+local function scrims(state: fixture.State): { number }
+  table.clear(state.fixture.native.events.draw)
+  state.fixture:draw()
+  local amounts: { number } = {}
+  for _, call in state.fixture.native.events.draw do
+    if call[1] == 'send' and call[2] == 'panelScrim' then
+      local value = call[3] :: any
+      table.insert(amounts, value[4])
+    end
+  end
+  table.sort(amounts)
+  return amounts
+end
+
+test('a panel that a dialog blocks draws under a scrim until the dialog closes', function()
+  local state = fixture.boot {
+    setup = function(service: uiHost.Service, owner: any)
+      fixture.registerKinds(service, owner, {})
+    end,
+  }
+  fixture.show(state, element('test/swatch', {}))
+  expect.equal(scrims(state)[1], 0, 'an unblocked panel draws clear')
+  local dialog =
+    state.service:newPanel(state.owner, { name = 'confirm', presentation = 'dialog', parent = state.panel })
+  dialog.root:bind {
+    render = function()
+      dialog.root:submit(element('test/swatch', {}))
+    end,
+  }
+  state.fixture:step()
+  local open = scrims(state)
+  expect.equal(#open, 2, 'both panels draw')
+  expect.equal(open[1], 0, 'the dialog draws clear')
+  expect.truthy(open[2] > 0, 'its parent draws under a scrim')
+  dialog:destroy()
+  state.fixture:step()
+  local closed = scrims(state)
+  expect.equal(closed[#closed], 0, 'the parent draws clear once the dialog closes')
+  state.fixture:close()
+end)
+
 test('a dialog floats in front of its parent and blocks presses on it until it closes', function()
   local log: { string } = {}
   local state, x, y = pressable(log)

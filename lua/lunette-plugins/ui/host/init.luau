@@ -303,6 +303,10 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
       end
       local held = assert(resources)
       renderer.beginFrame(held)
+      local drawn: { records.Panel } = {}
+      for _, entry in live do
+        drawn[#drawn + 1] = entry.record
+      end
       for _, entry in live do
         local record = entry.record
         if record.visible and record.root and record.width > 0 and record.height > 0 then
@@ -317,7 +321,7 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
                 pack.marker(packed, marker.x, marker.y, marker.surface, marker.depth, current)
               end
             end
-            renderer.draw(held, pass, record, assert(entry.packed), current)
+            renderer.draw(held, pass, record, assert(entry.packed), current, presentation.blocked(record, drawn))
           end)
         end
       end

@@ -29,6 +29,8 @@ local COMMON = BEND
   uniform vec4 panelSize;
   uniform vec4 edgeLight;
   uniform vec4 edgeDark;
+  // A scrim over a panel that a dialog blocks: an sRGB colour and how far every colour moves towards it.
+  uniform vec4 panelScrim;
 
   uniform Boxes {
     vec4 boxes[BOX_VECTORS];
@@ -123,6 +125,7 @@ shader.boxFragment = substitute [[
     if (color.a <= 0.) {
       discard;
     }
+    color.rgb = mix(color.rgb, panelScrim.rgb, panelScrim.a);
     return vec4(gammaToLinear(color.rgb), color.a);
   }
 ]]
@@ -218,6 +221,7 @@ shader.glyphVertex = BEND
 -- edges stay antialiased at any distance and at grazing angles.
 shader.glyphFragment = [[
   uniform vec4 glyphRange;
+  uniform vec4 panelScrim;
   in vec2 glyphPanel;
   in vec2 glyphUV;
   in vec4 glyphColor;
@@ -240,13 +244,15 @@ shader.glyphFragment = [[
       discard;
     }
     // Instance colours are sRGB, as box colours are, and the pass blends in linear space.
-    return vec4(gammaToLinear(glyphColor.rgb), glyphColor.a * alpha);
+    vec3 tinted = mix(glyphColor.rgb, panelScrim.rgb, panelScrim.a);
+    return vec4(gammaToLinear(tinted), glyphColor.a * alpha);
   }
 ]]
 
 -- Images sample their texture, multiplied by the draw colour, and clip like text.
 shader.imageFragment = [[
   uniform vec4 textClip;
+  uniform vec4 panelScrim;
   in vec2 textPanel;
 
   vec4 lovrmain() {
@@ -257,6 +263,8 @@ shader.imageFragment = [[
     if (color.a <= 0.) {
       discard;
     }
+    // The draw colour and texture are linear here, so the scrim's sRGB colour is converted first.
+    color.rgb = mix(color.rgb, gammaToLinear(panelScrim.rgb), panelScrim.a);
     return color;
   }
 ]]
