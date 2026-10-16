@@ -84,23 +84,15 @@ local Form = ui.component('ExampleForm', function(props: FormProps): ui.Child
   local status = `Presses: {presses}; name: {name}; mode: {mode}; destination: {destination}; taps: {taps}; `
     .. `cancelled: {cancelled};`
   return c.Panel {
-    c.Header {
-      key = 'header',
-      title = 'Example form',
-      c.Button {
-        key = 'close',
-        label = 'Close',
-        variant = 'band',
-        onActivate = function()
-          -- Hiding the panel does not end its field's focus, so Close ends it first, which hides the keyboard.
-          local node = field.current
-          if node and not node.dead then
-            node:blur()
-          end
-          props.close()
-        end,
-      },
-    },
+    title = 'Example form',
+    -- Hiding the panel does not end its field's focus, so closing ends it first, which hides the keyboard.
+    onClose = function()
+      local node = field.current
+      if node and not node.dead then
+        node:blur()
+      end
+      props.close()
+    end,
     c.Body {
       key = 'body',
       c.Row {

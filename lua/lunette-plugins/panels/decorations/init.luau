@@ -30,12 +30,9 @@ local Titlebar = ui.component('Titlebar', function(props: TitlebarProps): ui.Chi
     }
   end
   return c.Panel {
-    c.Header {
-      key = 'header',
-      title = options.title,
-      buttons,
-      c.Button { key = 'close', label = '×', variant = 'band', onActivate = options.close },
-    },
+    title = options.title,
+    onClose = options.close,
+    c.HeaderActions { buttons },
   }
 end)
 

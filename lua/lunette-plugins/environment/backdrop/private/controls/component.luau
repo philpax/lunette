@@ -66,11 +66,8 @@ component.BackdropControls = ui.component('BackdropControls', function(props: Pr
   local actions = props.actions
   return c.Panel {
     width = component.WIDTH,
-    c.Header {
-      key = 'header',
-      title = 'Backdrop',
-      c.Button { key = 'close', label = 'Close', variant = 'band', onActivate = actions.close },
-    },
+    title = 'Backdrop',
+    onClose = actions.close,
     c.Body {
       key = 'body',
       c.Toggle {

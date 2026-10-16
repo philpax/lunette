@@ -23,9 +23,17 @@ end
 function structure.register(service: uiHost.Service, owner: any): { [string]: uiHost.Constructor }
   local constructors: { [string]: uiHost.Constructor } = {}
 
+  -- Panel props: the container props, and the chrome. A title gives the panel its header band, which shows the
+  -- detail beside the title, a back button for onBack, a close button for onClose, and the children of any
+  -- HeaderActions child. The band's empty space is a handle, so a trigger drag on it moves a grabbable panel.
   constructors.Panel = service:registerKind(owner, {
     name = 'lunette/panel',
-    props = shapes.container(),
+    props = shapes.container {
+      title = optional(schema.string()),
+      detail = optional(schema.string()),
+      onBack = optional(shapes.activate),
+      onClose = optional(shapes.activate),
+    },
     layout = {
       kind = 'container',
       style = function(props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
@@ -44,6 +52,31 @@ function structure.register(service: uiHost.Service, owner: any): { [string]: ui
       end,
     },
     visuals = { 'lunette/panel' },
+    expand = function(props: uiHost.Props, children: { read [number]: uiHost.Element }): uiHost.Child
+      if props.title == nil then
+        return children
+      end
+      local actions: { uiHost.Element } = {}
+      local content: { uiHost.Element } = {}
+      for _, child in children do
+        if child.kind == 'lunette/header-actions' then
+          actions[#actions + 1] = child
+        else
+          content[#content + 1] = child
+        end
+      end
+      return {
+        element('lunette/header', {
+          key = 'header',
+          title = props.title,
+          detail = props.detail,
+          onBack = props.onBack,
+          onClose = props.onClose,
+          actions,
+        }),
+        content,
+      }
+    end,
   })
   service:registerVisual(owner, 'lunette/panel', function(node: uiHost.Node, draw: uiHost.Draw)
     local theme = node.theme
@@ -93,6 +126,7 @@ function structure.register(service: uiHost.Service, owner: any): { [string]: ui
       end,
     },
     visuals = { 'lunette/header-band' },
+    handle = true,
   })
   service:registerVisual(owner, 'lunette/header-band', function(node: uiHost.Node, draw: uiHost.Draw)
     local theme = node.theme
@@ -105,12 +139,25 @@ function structure.register(service: uiHost.Service, owner: any): { [string]: ui
     )
   end)
 
-  constructors.Header = service:registerKind(owner, {
+  -- The actions a titled panel shows in its header band, before its close button.
+  constructors.HeaderActions = service:registerKind(owner, {
+    name = 'lunette/header-actions',
+    props = schema.object {},
+    layout = {
+      kind = 'container',
+      style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
+        return { flexDirection = 'row', alignItems = 'center', gap = theme.spacing.sm }
+      end,
+    },
+  })
+
+  service:registerKind(owner, {
     name = 'lunette/header',
     props = schema.object {
       title = optional(schema.string()),
       detail = optional(schema.string()),
       onBack = optional(shapes.activate),
+      onClose = optional(shapes.activate),
     },
     role = 'heading',
     semantics = function(props: uiHost.Props, state: { read [string]: any }): uiHost.Semantics
@@ -137,6 +184,14 @@ function structure.register(service: uiHost.Service, owner: any): { [string]: ui
             else nil,
           element('lunette/spacer', { key = 'spacer' }),
           children,
+          if props.onClose
+            then element('lunette/button', {
+              key = 'close',
+              label = '×',
+              variant = 'band',
+              onActivate = props.onClose,
+            })
+            else nil,
         }),
       }
     end,

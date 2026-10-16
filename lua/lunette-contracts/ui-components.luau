@@ -24,8 +24,10 @@ export type TableRow = { read id: string, read cells: { read [number]: string } 
 
 export type Service = {
   -- Structure.
+  -- A panel face. Given a title, it shows the standard header band with detail, onBack, onClose, and the children of
+  -- a HeaderActions child, and a trigger drag on the band's empty space moves the panel.
   read Panel: Constructor,
-  read Header: Constructor,
+  read HeaderActions: Constructor,
   read Body: Constructor,
   read Section: Constructor,
   read Column: Constructor,

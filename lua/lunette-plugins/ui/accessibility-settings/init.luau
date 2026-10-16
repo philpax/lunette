@@ -36,11 +36,8 @@ local SettingsPanel = ui.component('AccessibilitySettings', function(props: Prop
   end
   return c.Panel {
     width = 0.42,
-    c.Header {
-      key = 'header',
-      title = 'Accessibility',
-      c.Button { key = 'close', label = '×', variant = 'band', onActivate = props.close },
-    },
+    title = 'Accessibility',
+    onClose = props.close,
     c.Body {
       key = 'body',
       c.Section {

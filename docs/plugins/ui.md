@@ -4,13 +4,13 @@ Plugins build in-session interfaces on the UI host, `lunette/ui-host`, without i
 
 ## An example form
 
-[`examples/ui/main.luau`](../../examples/ui/main.luau) inserts a complete form into the desktop. Its [form plugin](../../examples/ui/form.luau) requires the host, the standard kinds, and the menu, creates an owner-scoped panel, and mounts a component that keeps the form's values in hooks. It also registers a kind of its own, a pad that counts taps. A wrist-menu action shows the panel, the text field uses the shared keyboard, and Close ends the field's focus before hiding the panel.
+[`examples/ui/main.luau`](../../examples/ui/main.luau) inserts a complete form into the desktop. Its [form plugin](../../examples/ui/form.luau) requires the host, the standard kinds, and the menu, creates an owner-scoped panel, and mounts a component that keeps the form's values in hooks. It also registers a kind of its own, a pad that counts taps. A wrist-menu action shows the panel, the text field uses the shared keyboard, and the close button ends the field's focus before hiding the panel.
 
 Run it with the [copy/check workflow](../users/desktop-configuration.md#copy-and-check-a-configuration), copying the example modules beside `main.luau`.
 
 ## Panels and presentations
 
-`newPanel` takes a name, a size in metres, and a presentation. A world panel stays where it is placed, a follow panel trails the head, a dialog sits in front of a parent and can block it, and an attached panel sits above a target surface, as window titlebars do. A panel can be curved. Panels end with the owner that created them; check `dead` before using a retained handle.
+`newPanel` takes a name, a size in metres, and a presentation. A world panel stays where it is placed, a follow panel trails the head, a dialog sits in front of a parent and can block it, and an attached panel sits above a target surface, as window titlebars do. A panel can be curved. Panels end with the owner that created them; check `dead` before using a retained handle. A panel's chrome comes from the standard `Panel` component: given a `title`, it shows the header band with an optional `detail`, a back button for `onBack`, a close button for `onClose`, and the buttons of a `HeaderActions` child. The grip grabs a world panel anywhere, and the trigger grabs it from the empty part of its header band, so every titled panel moves the same way, with a mouse as well.
 
 ## Kinds and visuals
 

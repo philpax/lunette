@@ -576,29 +576,12 @@ pages.Gallery = ui.component('Gallery', function(props: Props): ui.Child
     local Page = PAGE_COMPONENTS[entry.id]
     tabs[#tabs + 1] = c.ScrollView { key = entry.id, grow = 1, bleed = true, Page {} }
   end
-  -- The host owns default appearance, which the chord also switches, so the gallery reads it on every render and
-  -- keeps only a counter that renders again after the button changes it.
-  local look = props.host:defaultAppearance()
-  local flips, setFlips = ui.useState(0)
   return ui.provide(
     Services,
     props :: Props?,
     c.Panel {
-      c.Header {
-        key = 'header',
-        title = 'Widget gallery',
-        detail = 'lunette theme',
-        -- Default appearance shows the gallery as the standard kinds and base theme draw it.
-        c.Button {
-          key = 'appearance',
-          label = 'Default look',
-          variant = if look then 'selected' else 'band',
-          onActivate = function()
-            props.host:setDefaultAppearance(not look)
-            setFlips(flips + 1)
-          end,
-        },
-      },
+      title = 'Widget gallery',
+      detail = 'lunette theme',
       c.Body {
         key = 'body',
         grow = 1,

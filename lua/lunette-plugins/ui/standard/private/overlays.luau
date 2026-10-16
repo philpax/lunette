@@ -81,12 +81,7 @@ function overlays.register(service: uiHost.Service, owner: any): { [string]: uiH
         key = 'face',
         minWidth = props.minWidth,
         maxWidth = props.maxWidth,
-        if props.title
-          then element('lunette/header-band', {
-            key = 'header',
-            element('lunette/text', { key = 'title', text = props.title, style = 'title', color = 'bandInk' }),
-          })
-          else nil,
+        if props.title then element('lunette/header', { key = 'header', title = props.title }) else nil,
         element('lunette/column', {
           key = 'content',
           gap = 'md',

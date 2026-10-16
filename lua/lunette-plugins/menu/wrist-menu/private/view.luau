@@ -33,11 +33,8 @@ view.Menu = ui.component('WristMenu', function(props: Props): ui.Child
   return c.Panel {
     width = props.width,
     height = props.height,
-    c.Header {
-      key = 'header',
-      title = 'Menu',
-      c.Button { key = 'close', label = 'Close', variant = 'band', onActivate = props.close },
-    },
+    title = 'Menu',
+    onClose = props.close,
     -- The scroll box sits directly in the panel, so it shrinks to the space below the header rather than growing
     -- the panel to fit every row.
     c.ScrollView {

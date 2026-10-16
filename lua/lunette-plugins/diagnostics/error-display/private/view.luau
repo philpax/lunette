@@ -68,10 +68,9 @@ view.Overlay = ui.component('ErrorOverlay', function(props: Props): ui.Child
   local page = history.page(list, state.page, props.pageSize)
   return c.Panel {
     width = props.width,
-    c.Header {
-      key = 'header',
-      title = if browsing then 'Error history' else 'Errors',
-      detail = if browsing then plural(page.total, 'report') else `{page.total} new`,
+    title = if browsing then 'Error history' else 'Errors',
+    detail = if browsing then plural(page.total, 'report') else `{page.total} new`,
+    c.HeaderActions {
       c.Button {
         key = 'mode',
         label = if browsing then 'New' else 'History',

@@ -102,7 +102,7 @@ The service shows notifications as toasts, stacked, with excess notifications qu
 
 ## World panels and arrangement
 
-World panels take part in the session's panel management. They are surfaces that the user grabs and moves, layouts arrange them, tags select them, and the arrangement service saves and restores their pose and size. #48 adds curvature to the arrangement format, with a format version bump and a decision for old writers, after which curvature persists for every panel type.
+World panels take part in the session's panel management. They are surfaces that the user grabs and moves, layouts arrange them, tags select them, and the arrangement service saves and restores their pose and size. The grip grabs a world panel anywhere on it, and the trigger grabs it from the empty part of its header, so a mouse moves it too. #48 adds curvature to the arrangement format, with a format version bump and a decision for old writers, after which curvature persists for every panel type.
 
 ## Input modes
 

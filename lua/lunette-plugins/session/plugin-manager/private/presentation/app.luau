@@ -16,10 +16,10 @@ local Manager = ui.component('PluginManager', function(): ui.Child
   local entry = controller.selected(state)
   local status = controller.status(state)
   return c.Panel {
-    c.Header {
-      key = 'header',
-      title = 'Plugins',
-      detail = if entry then entry.id else nil,
+    title = 'Plugins',
+    detail = if entry then entry.id else nil,
+    onClose = m.close,
+    c.HeaderActions {
       -- Default appearance is reachable here, beside the plugins that might have broken the interface.
       c.Button {
         key = 'appearance',
@@ -31,7 +31,6 @@ local Manager = ui.component('PluginManager', function(): ui.Child
           end)
         end,
       },
-      c.Button { key = 'close', label = 'Close', variant = 'band', onActivate = m.close },
     },
     c.Row {
       key = 'main',

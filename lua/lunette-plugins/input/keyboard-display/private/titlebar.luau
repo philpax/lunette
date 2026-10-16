@@ -24,11 +24,8 @@ type Props = {
 local Bar = ui.component('KeyboardTitlebar', function(props: Props): ui.Child
   local c = ui.useComponents()
   return c.Panel {
-    c.Header {
-      key = 'header',
-      title = 'Keyboard',
-      c.Button { key = 'close', label = 'Close', variant = 'band', onActivate = props.close },
-    },
+    title = 'Keyboard',
+    onClose = props.close,
   }
 end)
 
