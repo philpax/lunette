@@ -47,6 +47,12 @@ local function intersect(clip: { number }, node: records.Node): { number }
   }
 end
 
+-- Whether a node lies wholly outside a clip, such as a row scrolled out of view. Its content lies within it, so its
+-- subtree draws nothing and is neither recorded nor packed.
+local function outside(clip: { number }, node: records.Node): boolean
+  return node.x >= clip[3] or node.y >= clip[4] or node.x + node.width <= clip[1] or node.y + node.height <= clip[2]
+end
+
 local function color(target: { number }, at: number, value: uiHost.Color): ()
   target[at], target[at + 1], target[at + 2], target[at + 3] = value[1], value[2], value[3], value[4] or 1
 end
@@ -168,6 +174,9 @@ function pack.run(
   end
   local panelOpacity = if panel.fade then math.clamp(panel.fade.value, 0, 1) else 1
   local function visit(node: records.Node, clip: { number }, inherited: number): ()
+    if outside(clip, node) then
+      return
+    end
     local primitives = node.primitives or record.run(node, env, visuals)
     node.primitives = primitives
     local channel = node.channels.opacity

@@ -301,6 +301,40 @@ local function scrims(state: fixture.State): { number }
   return amounts
 end
 
+test('nodes scrolled wholly outside a clip are not packed', function()
+  local state = fixture.boot {
+    setup = function(service: uiHost.Service, owner: any)
+      fixture.registerKinds(service, owner, {})
+      service:registerKind(owner, {
+        name = 'test/window',
+        layout = {
+          kind = 'container',
+          style = function(): lunette.LayoutStyle
+            return { display = 'block', height = 0.05, overflow = 'scroll' }
+          end,
+        },
+        clip = true,
+      })
+    end,
+  }
+  local swatches = {}
+  for index = 1, 40 do
+    swatches[index] = element('test/swatch', { key = `swatch-{index}` })
+  end
+  fixture.show(state, element('test/window', { key = 'window', swatches }))
+  table.clear(state.fixture.native.events.draw)
+  state.fixture:draw()
+  local instances = 0
+  for _, call in state.fixture.native.events.draw do
+    if call[1] == 'draw' then
+      instances += call[4] :: number
+    end
+  end
+  -- Each swatch is 0.02 tall, so about three of the forty meet the 0.05 window.
+  expect.truthy(instances > 0 and instances <= 4, `only the swatches in view are drawn: {instances}`)
+  state.fixture:close()
+end)
+
 test('a panel that a dialog blocks draws under a scrim until the dialog closes', function()
   local state = fixture.boot {
     setup = function(service: uiHost.Service, owner: any)
