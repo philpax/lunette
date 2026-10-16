@@ -336,14 +336,18 @@ export type KindRegistration = {
   -- Children are clipped to the node's bounds.
   read clip: boolean?,
   read state: { read [string]: any }?,
-  -- A composite kind expands into other elements instead of drawing.
-  read expand: ((
-    props: Props,
-    children: { read [number]: Element },
-    state: { read [string]: any },
-    actions: Actions
-  ) -> Child)?,
+  -- A composite kind expands into other elements instead of drawing. An override's expansion receives the
+  -- expansion beneath it as `base`.
+  read expand: Expand?,
 }
+
+export type Expand = (
+  props: Props,
+  children: { read [number]: Element },
+  state: { read [string]: any },
+  actions: Actions,
+  base: Expand?
+) -> Child
 
 -- An element constructor takes one table: named fields are props, array entries are children.
 export type Constructor = (props: { [any]: any }?) -> Element
@@ -415,6 +419,15 @@ export type Service = {
   read registerKind: (Service, Owner, KindRegistration) -> Constructor,
   read registerVisual: (Service, Owner, string, Visual) -> plugin.Effect,
   read registerFont: (Service, Owner, FontRegistration) -> plugin.Effect,
+  -- Replaces a registered kind under its name for the owner's lifetime. The newest live override is current, fields
+  -- it omits keep the previous registration's, and its `event` and `expand` reach the previous ones as `base`. Nodes
+  -- of the kind are made again when the current registration changes.
+  read overrideKind: (Service, Owner, string, KindRegistration) -> plugin.Effect,
+  -- Default appearance renders every panel with the base registration of every kind, the base visual of every
+  -- visual name, and the base theme, while the accessibility settings still apply. A held chord of both thumbstick
+  -- clicks toggles it as well.
+  read setDefaultAppearance: (Service, boolean) -> (),
+  read defaultAppearance: (Service) -> boolean,
   read theme: (Service) -> Theme,
   read setMode: (Service, 'dark' | 'light') -> (),
   read setAccent: (Service, Color) -> (),

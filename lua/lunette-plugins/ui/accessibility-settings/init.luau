@@ -1,9 +1,11 @@
 -- Adds an Accessibility action to the wrist menu, which opens a panel in front of the user for editing the session's
--- accessibility settings, so they are reachable in VR.
+-- accessibility settings, so they are reachable in VR, and a Default appearance action that switches the host's
+-- default appearance.
 
 local plugin = require '@lunette-plugin'
 local accessibility = require '@lunette-contracts/accessibility'
 local menu = require '@lunette-contracts/menu'
+local frame = require '@lunette-contracts/frame'
 local uiHost = require '@lunette-contracts/ui-host'
 local uiComponents = require '@lunette-contracts/ui-components'
 local ui = require '@lunette-plugins/ui/react'
@@ -96,7 +98,13 @@ end)
 
 return plugin.consumer<<{}, {}>> {
   name = 'desktop/accessibility',
-  requires = { accessibility.capability, menu.capability, uiHost.capability, uiComponents.capability },
+  requires = {
+    accessibility.capability,
+    menu.capability,
+    frame.capability,
+    uiHost.capability,
+    uiComponents.capability,
+  },
   init = function(context: plugin.Context): ()
     local service = context:require(accessibility.capability)
     local host = context:require(uiHost.capability)
@@ -108,7 +116,29 @@ return plugin.consumer<<{}, {}>> {
         open = nil
       end
     end
-    context:require(menu.capability):register(context, {
+    local actions = context:require(menu.capability)
+    -- The chord also switches default appearance, so the action's selection follows the host each frame.
+    local shown = host:defaultAppearance()
+    local appearance = actions:register(context, {
+      id = 'desktop/default-appearance',
+      label = 'Default appearance',
+      group = 'session',
+      selected = shown,
+      run = function(): ()
+        host:setDefaultAppearance(not host:defaultAppearance())
+      end,
+    })
+    context:require(frame.capability):onUpdate(context, {
+      phase = 'scene',
+      run = function(): ()
+        local on = host:defaultAppearance()
+        if on ~= shown then
+          shown = on
+          appearance:update { selected = on }
+        end
+      end,
+    })
+    actions:register(context, {
       id = 'desktop/accessibility',
       label = 'Accessibility',
       group = 'session',

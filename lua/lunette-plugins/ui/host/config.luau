@@ -10,6 +10,8 @@ local SCHEMA = schema.object {
   touch = schema.default(schema.boolean())(true),
   -- A controller's thumbstick and face buttons traverse the panel that holds session focus.
   controllerTraversal = schema.default(schema.boolean())(true),
+  -- Holding both thumbstick clicks toggles default appearance.
+  appearanceChord = schema.default(schema.boolean())(true),
 }
 
 export type Config = schema.Input<typeof(SCHEMA)>

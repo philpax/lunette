@@ -7,11 +7,18 @@ local records = require './records'
 local registry = {}
 
 export type Registry = {
-  kinds: { [string]: records.Kind },
+  -- Kind registrations per name, the base first; the newest override is current.
+  kinds: { [string]: { records.Kind } },
+  -- While on, every kind resolves to its base registration and every visual name to its base visual.
+  defaultAppearance: boolean,
+  -- Kind overrides per name, oldest first, from which the stack above each base registration is built.
+  overrides: { [string]: { { owner: plugin.Owner, registration: uiHost.KindRegistration } } },
   -- Visual registrations per name, oldest first; the newest is current and receives the older ones as `base`.
   visuals: { [string]: { { owner: plugin.Owner, visual: uiHost.Visual } } },
   missing: records.Kind,
 }
+
+export type Override = { read name: string, read owner: plugin.Owner, read kind: 'kind' | 'visual' }
 
 local REGISTRATION_FIELDS: { [string]: boolean } = {
   name = true,
@@ -35,6 +42,62 @@ local REGISTRATION_FIELDS: { [string]: boolean } = {
 }
 
 local MISSING_VISUAL = 'lunette/missing'
+
+local function record(owner: plugin.Owner, registration: uiHost.KindRegistration): records.Kind
+  return {
+    name = registration.name,
+    owner = owner,
+    registration = registration,
+    composite = registration.expand ~= nil,
+    portal = false,
+  }
+end
+
+-- Lays an override over the registration beneath it.
+local function layer(previous: uiHost.KindRegistration, override: uiHost.KindRegistration): uiHost.KindRegistration
+  local merged = table.clone(previous) :: { [string]: any }
+  for field, value in override :: any do
+    merged[field] = value
+  end
+  local event, beneath = override.event, previous.event
+  if event then
+    merged.event = function(node: uiHost.Node, given: uiHost.Event, hostBase: (uiHost.Node, uiHost.Event) -> ()): ()
+      event(node, given, function(baseNode: uiHost.Node, baseEvent: uiHost.Event): ()
+        if beneath then
+          beneath(baseNode, baseEvent, hostBase)
+        else
+          hostBase(baseNode, baseEvent)
+        end
+      end)
+    end
+  end
+  local expand, expandBeneath = override.expand, previous.expand
+  if expand and expandBeneath then
+    merged.expand = function(props: uiHost.Props, children: any, state: any, actions: uiHost.Actions): uiHost.Child
+      return expand(props, children, state, actions, expandBeneath)
+    end
+  end
+  return merged :: any
+end
+
+-- Rebuilds a kind's stack from its base registration and its live overrides, so each node made after the change
+-- uses the newest one.
+local function restack(target: Registry, name: string): ()
+  local stack = target.kinds[name]
+  if not stack then
+    return
+  end
+  local rebuilt = { stack[1] }
+  local registration = stack[1].registration
+  for _, entry in target.overrides[name] or {} do
+    registration = layer(registration, entry.registration)
+    table.insert(rebuilt, record(entry.owner, registration))
+  end
+  table.clear(stack)
+  for index, kind in rebuilt do
+    stack[index] = kind
+  end
+end
 
 function registry.new(hostOwner: plugin.Owner): Registry
   local missing: records.Kind = {
@@ -85,7 +148,9 @@ function registry.new(hostOwner: plugin.Owner): Registry
     },
   }
   return {
-    kinds = { ['lunette/portal'] = portal, ['lunette/overlay-root'] = overlayRoot },
+    kinds = { ['lunette/portal'] = { portal }, ['lunette/overlay-root'] = { overlayRoot } },
+    defaultAppearance = false,
+    overrides = {},
     visuals = {
       [MISSING_VISUAL] = {
         {
@@ -129,23 +194,71 @@ function registry.addKind(target: Registry, owner: plugin.Owner, registration: u
   registry.validate(registration)
   local name = registration.name
   assert(target.kinds[name] == nil, `ui: the kind {name} is already registered`)
-  local kind: records.Kind = {
-    name = name,
-    owner = owner,
-    registration = registration,
-    composite = registration.expand ~= nil,
-    portal = false,
-  }
-  target.kinds[name] = kind
+  local kind = record(owner, registration)
+  local stack = { kind }
+  target.kinds[name] = stack
+  -- Overrides outlive a base that unloads, and stack again on a base registered under the same name.
+  restack(target, name)
   return function(): ()
-    if target.kinds[name] == kind then
+    if target.kinds[name] == stack then
       target.kinds[name] = nil
     end
   end
 end
 
+-- Stacks an override on a registered kind for the owner's lifetime. Fields the override omits keep the previous
+-- registration's, and its `event` and `expand` reach the previous ones as `base`. The returned function removes it
+-- and rebuilds the overrides above it on the registrations that remain.
+function registry.overrideKind(
+  target: Registry,
+  owner: plugin.Owner,
+  name: string,
+  registration: uiHost.KindRegistration
+): () -> ()
+  registry.validate(registration)
+  assert(registration.name == name, `ui: an override of {name} keeps the kind's name`)
+  local stack = target.kinds[name]
+  assert(stack, `ui: the kind {name} is not registered, so it cannot be overridden`)
+  local entry = { owner = owner, registration = registration }
+  local overrides = target.overrides[name] or {}
+  target.overrides[name] = overrides
+  table.insert(overrides, entry)
+  restack(target, name)
+  return function(): ()
+    local list = target.overrides[name]
+    local index = list and table.find(list, entry)
+    if list and index then
+      table.remove(list, index)
+      restack(target, name)
+    end
+  end
+end
+
+-- Kinds and visuals that overrides replace, with the owners of each override, for inspection.
+function registry.overridden(target: Registry): { Override }
+  local list: { Override } = {}
+  local function add(entry: Override): ()
+    list[#list + 1] = entry
+  end
+  for name, overrides in target.overrides do
+    for _, entry in overrides do
+      add { name = name, owner = entry.owner, kind = 'kind' }
+    end
+  end
+  for name, stack in target.visuals do
+    for index = 2, #stack do
+      add { name = name, owner = stack[index].owner, kind = 'visual' }
+    end
+  end
+  return list
+end
+
 function registry.kind(target: Registry, name: string): records.Kind
-  return target.kinds[name] or target.missing
+  local stack = target.kinds[name]
+  if not stack then
+    return target.missing
+  end
+  return if target.defaultAppearance then stack[1] else stack[#stack]
 end
 
 function registry.addVisual(target: Registry, owner: plugin.Owner, name: string, visual: uiHost.Visual): () -> ()
@@ -175,6 +288,9 @@ function registry.visuals(target: Registry, name: string): { uiHost.Visual }
   if stack then
     for index, entry in stack do
       list[index] = entry.visual
+      if target.defaultAppearance then
+        break
+      end
     end
   end
   return list

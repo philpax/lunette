@@ -84,4 +84,35 @@ test('the wrist menu action opens the settings panel, whose toggles change the s
   state.fixture:close()
 end)
 
+test('the default appearance action switches the host, and its selection follows the host', function()
+  local menu = require '@lunette-contracts/menu'
+  local state = fixture.boot {
+    standard = true,
+    plugins = {
+      require('@lunette-plugins/menu/action-registry').definition,
+      require('@lunette-plugins/ui/accessibility').definition,
+      require('@lunette-plugins/ui/accessibility-settings').definition,
+    },
+  }
+  local session = assert(state.fixture.session)
+  local menus = assert(session:observe(menu.capability).service)
+  local function selected(): boolean?
+    for _, entry in menus:list() do
+      if entry.id == 'desktop/default-appearance' then
+        return entry.selected
+      end
+    end
+    return nil
+  end
+  expect.equal(selected(), false, 'the action starts unselected')
+  expect.equal(menus:invoke('desktop/default-appearance').kind, 'invoked')
+  expect.truthy(state.service:defaultAppearance(), 'the action switches default appearance on')
+  state.fixture:step()
+  expect.equal(selected(), true, 'the action shows default appearance as on')
+  state.service:setDefaultAppearance(false)
+  state.fixture:step()
+  expect.equal(selected(), false, 'a change from elsewhere, such as the chord, reaches the action')
+  state.fixture:close()
+end)
+
 return test

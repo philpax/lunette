@@ -27,6 +27,7 @@ export type Kind =
   | 'laser'
   | 'pointer'
   | 'theme'
+  | 'override'
 
 export type Details = { read [string]: string | number | boolean }
 

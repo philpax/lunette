@@ -20,6 +20,7 @@ local touch = require '@self/private/touch'
 local overlay = require '@self/private/overlay'
 local presentation = require '@self/private/presentation'
 local traversal = require '@self/private/traversal'
+local chord = require '@self/private/chord'
 local motion = require '@self/private/motion'
 local semantics = require '@self/private/semantics'
 local panels = require '@self/private/panel'
@@ -52,6 +53,7 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
   local access: uiHost.AccessibilityOptions = {}
   local recordsOf: { [uiHost.Panel]: records.Panel } = setmetatable({}, { __mode = 'k' }) :: any
   local reportedMissing: { [string]: boolean } = {}
+  local held = chord.new()
   local resources: renderer.Resources? = nil
   local releaseResources: (() -> ())? = nil
 
@@ -181,9 +183,20 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
     end
   end
 
+  -- Default appearance resolves the base theme; the accessibility settings apply in either appearance.
   local function retheme(): ()
-    current = themes.resolve(mode, accent, { textScale = access.textScale, highContrast = access.highContrast })
+    local options = { textScale = access.textScale, highContrast = access.highContrast }
+    current = if kinds.defaultAppearance
+      then themes.resolve('dark', themes.DEFAULT_ACCENT, options)
+      else themes.resolve(mode, accent, options)
     invalidateAll()
+  end
+
+  local function setDefaultAppearance(on: boolean): ()
+    if kinds.defaultAppearance ~= on then
+      kinds.defaultAppearance = on
+      retheme()
+    end
   end
 
   frameService:onUpdate(context, {
@@ -212,6 +225,12 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
       end
       if settings.controllerTraversal then
         traversal.controllers(traverse, input.pointing(router))
+      end
+      if settings.appearanceChord then
+        local left, right = chord.read()
+        if chord.step(held, left, right, dt) then
+          setDefaultAppearance(not kinds.defaultAppearance)
+        end
       end
     end,
   })
@@ -315,6 +334,30 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
           invalidateAll()
         end
       end)
+    end,
+    overrideKind = function(
+      _self: uiHost.Service,
+      owner: plugin.Owner,
+      name: string,
+      registration: uiHost.KindRegistration
+    ): plugin.Effect
+      context:checkOwner(owner)
+      registry.validate(registration)
+      return context:acquire(owner, function(): () -> ()
+        local remove = registry.overrideKind(kinds, owner, name, registration)
+        invalidateAll()
+        return function(): ()
+          remove()
+          invalidateAll()
+        end
+      end)
+    end,
+    setDefaultAppearance = function(_self: uiHost.Service, on: boolean): ()
+      assert(type(on) == 'boolean', 'ui: default appearance is on or off')
+      setDefaultAppearance(on)
+    end,
+    defaultAppearance = function(_self: uiHost.Service): boolean
+      return kinds.defaultAppearance
     end,
     registerFont = function(_self: uiHost.Service, owner: plugin.Owner, font: uiHost.FontRegistration): plugin.Effect
       context:checkOwner(owner)
@@ -454,7 +497,21 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
           })
         )
       end
-      return inspection.snapshot(result, { mode = mode }, { 'kind and visual callbacks are not run' })
+      -- Overrides are listed with their owners, so the manager shows which plugin changed which kind or visual.
+      for _, override in registry.overridden(kinds) do
+        table.insert(
+          result,
+          inspection.registration('override', 'ui-host.override', override.owner, override.name, true, {
+            replaces = override.kind,
+            active = not kinds.defaultAppearance,
+          })
+        )
+      end
+      return inspection.snapshot(
+        result,
+        { mode = mode, defaultAppearance = kinds.defaultAppearance },
+        { 'kind and visual callbacks are not run' }
+      )
     end,
   }
   return service

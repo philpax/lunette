@@ -51,6 +51,8 @@ The [backdrop plugin](../../lua/lunette-plugins/environment/backdrop/README.md) 
 
 The `ui-host` settings choose the toolkit's light or dark mode and its accent colour, whose contrast the theme guards, and turn touch with tracked fingertips and controller traversal on or off; the [host's options](../../lua/lunette-plugins/ui/host/config.luau) define them. The `notifications` settings set how long a toast stays, a multiplier for every timeout for users who need more time to read, and how many toasts show at once; the [notifications options](../../lua/lunette-plugins/ui/notifications/config.luau) define them.
 
+Default appearance renders every toolkit panel with the standard controls and the base theme, ignoring any plugin that restyles or replaces them, while the accessibility settings still apply. It is the way back from a plugin that makes the interface unusable. Holding both thumbstick clicks for a moment switches it on or off, and the wrist menu's Default appearance action does the same. With default appearance on, the plugin manager is usable again to disable or reconfigure the plugin responsible. The `ui-host` setting `appearanceChord` turns the chord off.
+
 ## Pointer and panel appearance
 
 The [laser provider](../../lua/lunette-plugins/input/laser/README.md) configures pointer behavior. The [panels provider](../../lua/lunette-plugins/panels/service/README.md) configures window rendering. Their schemas define the options.
