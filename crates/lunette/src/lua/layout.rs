@@ -30,14 +30,27 @@ pub struct LayoutFonts(pub SharedFonts);
 
 /// Creates a tree, building the font database on first use if the host has not supplied one.
 pub fn new_layout_tree(lua: &Lua) -> mlua::Result<LayoutTree> {
-    let fonts = if let Some(fonts) = lua.app_data_ref::<LayoutFonts>() {
-        fonts.0.clone()
-    } else {
-        let fonts = Rc::new(RefCell::new(Fonts::with_system(std::iter::empty())));
-        lua.set_app_data(LayoutFonts(fonts.clone()));
-        fonts
-    };
-    Ok(LayoutTree(RefCell::new(Tree::new(fonts))))
+    Ok(LayoutTree(RefCell::new(Tree::new(shared_fonts(lua)))))
+}
+
+/// Adds the faces in a font file to the fonts every tree in this Lua state shapes with.
+pub fn load_layout_font(lua: &Lua, data: &mlua::LuaString) -> mlua::Result<usize> {
+    let fonts = shared_fonts(lua);
+    let mut fonts = fonts.try_borrow_mut().map_err(|_| {
+        mlua::Error::runtime(
+            "layout: loadLayoutFont: the fonts are in use by a computation in progress",
+        )
+    })?;
+    Ok(fonts.add(data.as_bytes().to_vec()))
+}
+
+fn shared_fonts(lua: &Lua) -> SharedFonts {
+    if let Some(fonts) = lua.app_data_ref::<LayoutFonts>() {
+        return fonts.0.clone();
+    }
+    let fonts = Rc::new(RefCell::new(Fonts::with_system(std::iter::empty())));
+    lua.set_app_data(LayoutFonts(fonts.clone()));
+    fonts
 }
 
 /// A UI layout tree.

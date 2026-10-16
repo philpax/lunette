@@ -801,6 +801,10 @@ export type Lunette = {
   -- A new, empty UI layout tree. Trees in one Lua state share their fonts,
   -- whose database is built the first time a tree is created.
   read newLayoutTree: () -> LayoutTree,
+  -- Adds the faces in a font file's bytes to the fonts layout trees shape with,
+  -- and answers how many faces it held. Read the file with
+  -- `lovr.filesystem.read`.
+  read loadLayoutFont: (data: string) -> number,
   -- The ladder a layer's requested size is quantised up, ascending. A panel
   -- whose scale Lua raises requests a size the free list already holds.
   read scaleSteps: () -> { number },

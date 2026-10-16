@@ -626,6 +626,9 @@ module! {
     /// A new, empty UI layout tree. Trees in one Lua state share their fonts, whose database is built the first time a tree is created.
     fn newLayoutTree(lua, _session) -> layout::LayoutTree { layout::new_layout_tree(lua) }
 
+    /// Adds the faces in a font file's bytes to the fonts layout trees shape with, and answers how many faces it held. Read the file with `lovr.filesystem.read`.
+    fn loadLayoutFont(lua, _session, data: mlua::LuaString) -> usize { layout::load_layout_font(lua, &data) }
+
     /// The ladder a layer's requested size is quantised up, ascending. A panel whose scale Lua raises requests a size the free list already holds.
     fn scaleSteps(_lua, _session) -> Vec<f64> { Ok(scale::ladder()) }
 

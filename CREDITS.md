@@ -26,6 +26,14 @@ Space Mono is copyright 2016 The Space Mono Project Authors (<https://github.com
 
 Copies live under `lua/lunette-plugins/theme/arcade/fonts/`. Distributions preserve `OFL.txt` with the font.
 
+## IBM Plex Sans
+
+IBM Plex Sans is copyright 2017 IBM Corp., with Reserved Font Name "Plex", and licensed under the SIL Open Font License, Version 1.1. The UI toolkit's standard kinds bundle the Regular, Medium, and SemiBold weights unmodified, as Google Fonts serves them, in `lua/lunette-plugins/ui/standard/fonts/`, with the licence from [IBM/plex](https://github.com/IBM/plex/blob/master/LICENSE.txt) as `OFL-IBMPlex.txt`.
+
+## Iosevka
+
+Iosevka is copyright 2015-2026 Renzhi Li (Belleve Invis) and licensed under the SIL Open Font License, Version 1.1, with no Reserved Font Name. The UI toolkit's standard kinds bundle the Regular weight from the `@fontsource/iosevka` 5.2.5 package, converted from WOFF2 to TrueType and subset to Latin, Greek, Cyrillic, punctuation, arrows, mathematical operators, box drawing, and geometric shapes, in `lua/lunette-plugins/ui/standard/fonts/`, with the licence from [be5invis/Iosevka](https://github.com/be5invis/Iosevka/blob/main/LICENSE.md) as `OFL-Iosevka.md`.
+
 ## OpenVR SDK
 
 Valve's OpenVR SDK is carried in `vendor/lovr/deps/openvr` under Valve's three-clause BSD licence. The optional Linux Vulkan backend compiles its loader from source. Binary distributions that include the loader must reproduce its copyright, redistribution conditions, and disclaimer from `vendor/lovr/deps/openvr/LICENSE`; installation copies them to `$PREFIX/share/lunette/licenses/OpenVR.txt`. SteamVR is a separate runtime and is not redistributed.

@@ -51,6 +51,14 @@ impl Fonts {
         }
     }
 
+    /// Adds the faces in one font file, answering how many it held. A file that is not a font
+    /// holds none.
+    pub fn add(&mut self, data: Vec<u8>) -> usize {
+        let before = self.system.db().len();
+        self.system.db_mut().load_font_data(data);
+        self.system.db().len() - before
+    }
+
     /// The family names available, sorted and without duplicates.
     pub fn families(&self) -> Vec<String> {
         let mut names: Vec<String> = self

@@ -16,7 +16,7 @@ use lunette::{
     callback_error::{TracedError, report_traced},
     lua::{
         keys::{KeyCodes, locking_modifier_names, modifier_names},
-        layout::{LayoutFonts, new_layout_tree},
+        layout::{LayoutFonts, load_layout_font, new_layout_tree},
         text_boundaries,
     },
     mirrors::NoMonitors,
@@ -97,15 +97,21 @@ pub fn install(lua: &Lua, roots: &Roots) -> mlua::Result<()> {
         .set("require", lua.create_function(require_module)?)?;
     require::install(lua)?;
 
-    // Layout tests measure text with a bundled face only, so results match on every machine.
-    let font = fs::read(
-        roots
-            .lua
-            .join("lunette-plugins/theme/arcade/fonts/SpaceMono-Regular.ttf"),
-    )
-    .map_err(|error| mlua::Error::runtime(format!("the test font could not be read: {error}")))?;
+    // Layout tests measure text with bundled faces only, so results match on every machine.
+    let mut fonts = Vec::new();
+    for path in [
+        "lunette-plugins/theme/arcade/fonts/SpaceMono-Regular.ttf",
+        "lunette-plugins/ui/standard/fonts/IBMPlexSans-Regular.ttf",
+        "lunette-plugins/ui/standard/fonts/IBMPlexSans-Medium.ttf",
+        "lunette-plugins/ui/standard/fonts/IBMPlexSans-SemiBold.ttf",
+        "lunette-plugins/ui/standard/fonts/Iosevka-Regular.ttf",
+    ] {
+        fonts.push(fs::read(roots.lua.join(path)).map_err(|error| {
+            mlua::Error::runtime(format!("the test font {path} could not be read: {error}"))
+        })?);
+    }
     lua.set_app_data(LayoutFonts(Rc::new(std::cell::RefCell::new(
-        Fonts::bundled([font]),
+        Fonts::bundled(fonts),
     ))));
 
     let native = native(lua)?;
@@ -169,6 +175,10 @@ fn native(lua: &Lua) -> mlua::Result<Table> {
     native.set(
         "newLayoutTree",
         lua.create_function(|lua, ()| new_layout_tree(lua))?,
+    )?;
+    native.set(
+        "loadLayoutFont",
+        lua.create_function(|lua, data: mlua::LuaString| load_layout_font(lua, &data))?,
     )?;
     native.set(
         "scaleSteps",
