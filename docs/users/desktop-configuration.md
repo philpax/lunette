@@ -19,6 +19,8 @@ lunette --config-path DIR
 
 Settings keys and patch ids do not change with plugin directories. Configurations that import shipped modules directly use the [public import migration](../../lua/lunette-plugins/README.md); removed paths do not have compatibility aliases.
 
+The UI toolkit removed settings that a configuration may still set, and these now fail validation. The `ui` entry and its settings are gone; the UI host's settings are under `ui-host`. The errors overlay, `desktop/errors`, no longer takes `textHeight`, `columns`, `background`, `foreground`, or `font`, and the empty-desktop hint, `desktop/hint`, no longer takes `textHeight` or `font`, because the toolkit's theme sets their text and colours. Removing those keys from a configuration restores it.
+
 [`examples/desktop/main.luau`](../../examples/desktop/main.luau) combines settings, workspaces, and local plugins. To run an example, copy its `main.luau` and adjacent modules into the directory created above, keeping the generated `.luaurc` and configuration files.
 
 ## Change the composition

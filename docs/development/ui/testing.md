@@ -72,4 +72,4 @@ The layout and text binding has Rust tests in `crates/lunette/src/lua/tests/`, f
 
 ## The native binding in tests
 
-The layout and text binding is not pure: system fonts make measurements depend on the machine, and the glyph atlas is a GPU texture. The Lua test runner therefore registers the real layout and shaping implementation with only the bundled fonts and without system font discovery, so measurements are the same on every machine. Glyph atlas generation needs graphics, so it runs in the graphics tests.
+The layout and text binding is not pure: system fonts make measurements depend on the machine. The Lua test runner therefore registers the real layout and shaping implementation with only the bundled fonts and without system font discovery, so measurements are the same on every machine. The glyph atlas generates its distance fields on the CPU, so the Lua and Rust tests generate real glyphs; only uploading its pages to LÖVR textures needs graphics, which the graphics tests exercise whenever a panel draws text.
