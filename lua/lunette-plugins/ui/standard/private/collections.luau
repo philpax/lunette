@@ -307,6 +307,7 @@ function collections.register(service: uiHost.Service, owner: any): { [string]: 
         local selected = tab.id == props.value
         strip[#strip + 1] = element('lunette/segment', {
           key = uiHost.keyOf(tab.id),
+          tab = true,
           selected = selected,
           onActivate = function()
             act.emit('onChange', tab.id)

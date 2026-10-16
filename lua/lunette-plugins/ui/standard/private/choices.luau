@@ -348,6 +348,8 @@ function choices.register(service: uiHost.Service, owner: any): { [string]: uiHo
     props = shapes.disableable {
       selected = optional(schema.boolean()),
       onActivate = optional(shapes.activate),
+      -- A tab stands up from its strip as a key even while unselected, where a segment lies in its track.
+      tab = optional(schema.boolean()),
     },
     role = 'tab',
     semantics = function(props: uiHost.Props, state: { read [string]: any }): uiHost.Semantics
@@ -368,6 +370,9 @@ function choices.register(service: uiHost.Service, owner: any): { [string]: uiHo
       end,
     },
     elevation = function(props: uiHost.Props, theme: uiHost.Theme): number
+      if props.tab then
+        return if props.selected then theme.elevation.selected else theme.elevation.raised * 0.5
+      end
       return if props.selected then theme.elevation.raised else 0
     end,
     response = { lift = true, travel = true },
@@ -377,11 +382,26 @@ function choices.register(service: uiHost.Service, owner: any): { [string]: uiHo
     visuals = { 'lunette/segment' },
     event = activateOnly,
   })
-  -- A selected segment or tab is a raised face with a square accent underline.
+  -- A selected segment or tab is a raised face with a square accent underline. An unselected tab is a lower key whose
+  -- face lies between the raised and surface colours.
   service:registerVisual(owner, 'lunette/segment', function(node: uiHost.Node, draw: uiHost.Draw)
     local theme = node.theme
     local bounds = node.bounds
-    if node.props.selected then
+    if node.props.tab and not node.props.selected then
+      local raised, surface = theme.colors.raised, theme.colors.surface
+      local face = {
+        surface[1] + (raised[1] - surface[1]) * 0.55,
+        surface[2] + (raised[2] - surface[2]) * 0.55,
+        surface[3] + (raised[3] - surface[3]) * 0.55,
+        1,
+      }
+      draw:box(nil, {
+        fill = if node.state.hovered then theme.colors.hover else face,
+        radius = theme.radii.control,
+        side = theme.colors.side,
+        edges = true,
+      })
+    elseif node.props.selected then
       draw:box(nil, {
         fill = if node.state.hovered then theme.colors.hover else theme.colors.raised,
         radius = theme.radii.control,
