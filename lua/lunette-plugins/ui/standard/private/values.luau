@@ -268,18 +268,20 @@ function values.register(service: uiHost.Service, owner: any): { [string]: uiHos
       return {
         element('lunette/row', {
           key = 'heading',
-          align = 'baseline',
+          align = 'center',
           gap = 'sm',
           element('lunette/text', { key = 'label', text = props.label or '', style = 'body', grow = 1 }),
-          element('lunette/text', { key = 'value', text = readout, style = 'value', wrap = false }),
-          if props.unit
-            then element('lunette/text', { key = 'unit', text = props.unit, style = 'readout', color = 'muted' })
-            else nil,
+          -- The detent's name comes before the value, so the value and its unit keep their place at the end of the
+          -- row whether or not the value sits on a detent.
           if detent
             then element(
               'lunette/text',
               { key = 'detent', text = string.upper(detent.label), style = 'readout', color = 'accent' }
             )
+            else nil,
+          element('lunette/text', { key = 'value', text = readout, style = 'value', wrap = false }),
+          if props.unit
+            then element('lunette/text', { key = 'unit', text = props.unit, style = 'readout', color = 'muted' })
             else nil,
         }),
         element('lunette/slider-track', {

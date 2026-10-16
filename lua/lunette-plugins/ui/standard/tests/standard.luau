@@ -720,6 +720,39 @@ test('a tap on a slider track moves the value to the tap', function()
   state.fixture:close()
 end)
 
+test('a slider value keeps its place whether or not it sits on a detent, with the label centred on it', function()
+  local state = boot()
+  local c = assert(state.components)
+  local function valueEnd(value: number): number
+    fixture.show(
+      state,
+      c.Panel {
+        c.Body {
+          key = 'body',
+          c.Slider {
+            key = 'response',
+            label = 'Response',
+            value = value,
+            unit = 'dB',
+            detents = { { value = 0, label = 'None' }, { value = 0.5, label = 'Medium' } },
+          },
+        },
+      }
+    )
+    state.fixture:step()
+    local bounds = assert(state.panel:find 'body/response/heading/value'):panelBounds()
+    return bounds.x + bounds.width
+  end
+  local between = valueEnd(0.3)
+  local onDetent = valueEnd(0.5)
+  expect.truthy(state.panel:find 'body/response/heading/detent', 'the detent is named')
+  expect.near(onDetent, between, 1e-6, 'the value ends in the same place')
+  local label = assert(state.panel:find 'body/response/heading/label'):panelBounds()
+  local value = assert(state.panel:find 'body/response/heading/value'):panelBounds()
+  expect.near(label.y + label.height / 2, value.y + value.height / 2, 1e-6, 'the label is centred on the value')
+  state.fixture:close()
+end)
+
 test('a slider can settle just beside a detent, drawn towards it but not onto it', function()
   local state = boot()
   local c = assert(state.components)
