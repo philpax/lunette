@@ -144,7 +144,7 @@ The dark mode uses cool blue-grey surfaces lifted off black; the light mode uses
 | Sunken face | #111622 | #b9c0cc |
 | Side | #0c111b | #98a1b0 |
 | Ink | #e2e8f2 | #232c40 |
-| Muted ink | #94a0b6 | #505b70 |
+| Muted ink | #94a0b6 | #4b566a |
 | Line | #2c364c | #a0a9b8 |
 | Header band | #212a3c | #46526b |
 | Header ink | #e8edf5 | #f4f7fb |
