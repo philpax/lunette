@@ -178,7 +178,9 @@ function desktop.run(options: Options?): ()
   frame.install {
     start = function(): ()
       if not running then
-        running = management.start(entries, { protected = protected })
+        -- The UI toolkit's providers can be reconfigured, because default appearance and the recovery plugin undo
+        -- a configuration that breaks the interface. Other providers the protected entries need stay fixed.
+        running = management.start(entries, { protected = protected, reconfigurable = { 'ui-host', 'ui-standard' } })
       end
     end,
     stop = function(): ()

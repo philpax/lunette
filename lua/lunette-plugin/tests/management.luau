@@ -245,7 +245,7 @@ test('protection covers the providers a protected entry depends on and the owner
     { id = 'root', definition = root },
     { id = 'parent', definition = parent },
     { id = 'manager', definition = viewer },
-  }, { protected = { 'manager' } })
+  }, { protected = { 'manager' }, reconfigurable = { 'root', 'parent' } })
   local service = running.service
   expect.equal(service:ownerId(owner), entry(service, 'parent').instanceId, 'the owner of a context')
   expect.equal(service:ownerId {}, nil, 'a forged context')
@@ -265,6 +265,34 @@ test('protection covers the providers a protected entry depends on and the owner
   end
   expect.raises(function()
     service:reload 'manager'
+  end, 'cannot be changed')
+  running.runtime:close()
+end)
+
+test('a required provider not named reconfigurable cannot be reloaded either', function()
+  local capability: plugin.Capability<{}> = plugin.capability { name = 'local/managed-fixed-provider', version = 1 }
+  local provider = adapter.define {
+    name = 'managed-fixed-provider',
+    provides = { capability },
+    init = function(_context: adapter.Context, _config: {}, publisher: adapter.Publisher)
+      publisher:provide(capability, {})
+    end,
+  }
+  local viewer = adapter.define {
+    name = 'managed-fixed-viewer',
+    requires = { capability },
+    init = function(context: adapter.Context)
+      context:require(capability)
+    end,
+  }
+  local running = management.start({
+    { id = 'provider', definition = provider },
+    { id = 'manager', definition = viewer },
+  }, { protected = { 'manager' } })
+  local service = running.service
+  expect.equal(entry(service, 'provider').protected, true, 'the provider is protected through its dependent')
+  expect.raises(function()
+    service:reload 'provider'
   end, 'cannot be changed')
   running.runtime:close()
 end)

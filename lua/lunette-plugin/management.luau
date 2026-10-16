@@ -9,7 +9,11 @@ local fields = require '@lunette-plugin/fields'
 local management = {}
 
 export type Entry = contract.Entry
-export type Options = { read protected: { string }? }
+-- Protected entries refuse every change, and so do the providers they depend on, except the providers named in
+-- `reconfigurable`, which can be reloaded and reconfigured but still not disabled or removed. A provider belongs in
+-- `reconfigurable` only when a broken configuration of it is recoverable in VR, as the UI toolkit's are through
+-- default appearance and the recovery plugin.
+export type Options = { read protected: { string }?, read reconfigurable: { string }? }
 export type Running = {
   read runtime: adapter.Runtime,
   read service: contract.Service,
@@ -52,18 +56,22 @@ end
 function management.start(entries: { compose.Entry }, options: Options?): Running
   local checked = compose.apply(entries)
   local protectedIds: { [string]: boolean } = { composition = true }
-  if options ~= nil then
-    fields.rejectUnknownFields('composition', options, { 'protected' }, 0)
-    local ids: unknown = options.protected
+  local reconfigurableIds: { [string]: boolean } = {}
+  local function list(name: string, ids: unknown, into: { [string]: boolean }): ()
     if ids ~= nil and type(ids) ~= 'table' then
-      fail 'protected is a list of entry ids'
+      fail(name .. ' is a list of entry ids')
     end
     for _, id in (ids or {}) :: { unknown } do
       if type(id) ~= 'string' then
-        fail('protected names an entry id, not a ' .. type(id))
+        fail(name .. ' names an entry id, not a ' .. type(id))
       end
-      protectedIds[id :: string] = true
+      into[id :: string] = true
     end
+  end
+  if options ~= nil then
+    fields.rejectUnknownFields('composition', options, { 'protected', 'reconfigurable' }, 0)
+    list('protected', options.protected, protectedIds)
+    list('reconfigurable', options.reconfigurable, reconfigurableIds)
   end
   local known: { [string]: boolean } = { composition = true }
   for _, entry in checked do
@@ -168,16 +176,19 @@ function management.start(entries: { compose.Entry }, options: Options?): Runnin
     return protected
   end
 
-  -- A protected entry refuses every change. A provider that a protected entry depends on is required: it can be
-  -- reloaded and reconfigured, because default appearance and recovery undo a change that breaks the interface,
-  -- but it cannot be disabled or removed.
+  -- A protected entry refuses every change. A provider that a protected entry depends on is required: it cannot be
+  -- disabled or removed, and it can be reloaded and reconfigured only when it is named reconfigurable.
   local function mutable(id: string, structural: boolean): Record
     local record = recordFor(id)
     if protectedIds[id] then
       fail('entry ' .. id .. ' is protected for management or recovery and cannot be changed')
     end
-    if structural and protectedInstances(runtime:snapshot())[record.instance:id()] then
-      fail('entry ' .. id .. ' is required by a protected entry and cannot be disabled or removed')
+    if protectedInstances(runtime:snapshot())[record.instance:id()] then
+      if structural then
+        fail('entry ' .. id .. ' is required by a protected entry and cannot be disabled or removed')
+      elseif not reconfigurableIds[id] then
+        fail('entry ' .. id .. ' is required by a protected entry and cannot be changed')
+      end
     end
     if record.removing then
       fail('entry ' .. id .. ' is being removed')
@@ -269,7 +280,7 @@ function management.start(entries: { compose.Entry }, options: Options?): Runnin
             schema = record.definition.schema,
             state = node.state,
             enabled = node.enabled,
-            protected = protectedIds[id] == true,
+            protected = protectedIds[id] == true or (protected[node.id] == true and not reconfigurableIds[id]),
             required = protectedIds[id] == true or protected[node.id] == true,
             diagnostic = node.diagnostic,
           }

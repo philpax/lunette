@@ -18,7 +18,7 @@ A cleanup failure quarantines the entry. Restarting the session releases its ret
 
 ## Protected entries
 
-Protected entries cannot be disabled, reloaded, reconfigured, or removed. The providers they depend on, such as the UI host and the standard components, are required: they can be reloaded and reconfigured, but not disabled or removed. Default appearance and the recovery plugin undo a reconfiguration that breaks the interface. The shipped desktop protects the manager, the wrist menu, the keyboard, pointing, the session actions, and the recovery plugin, so the controls needed to undo a mistake stay available. Entries the protected ones do not depend on can be changed freely; the recovery plugin covers a change that breaks the interface.
+Protected entries cannot be disabled, reloaded, reconfigured, or removed. The providers they depend on are required and cannot be disabled or removed. The UI host and the standard components can still be reloaded and reconfigured, because default appearance and the recovery plugin undo a configuration of them that breaks the interface; the other required providers, such as the interaction service, cannot be changed at runtime. The shipped desktop protects the manager, the wrist menu, the keyboard, pointing, the session actions, and the recovery plugin, so the controls needed to undo a mistake stay available. Entries the protected ones do not depend on can be changed freely; the recovery plugin covers a change that breaks the interface.
 
 ## Recovery
 
