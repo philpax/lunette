@@ -2,13 +2,21 @@
 
 local ui = require '@lunette-plugins/ui/react'
 local uiHost = require '@lunette-contracts/ui-host'
+local notifications = require '@lunette-contracts/notifications'
 
 local pages = {}
 
 export type Props = {
   host: uiHost.Service,
   page: string?,
+  -- The overlays page opens dialogs over this panel, as this owner, and shows toasts when notifications are given.
+  panel: uiHost.Panel?,
+  owner: any?,
+  components: any?,
+  notifications: notifications.Service?,
 }
+
+local Services = ui.createContext(nil :: Props?)
 
 local INTENSITY = {
   { value = 0, label = 'None' },
@@ -32,6 +40,7 @@ pages.PAGES = {
   { id = 'values', label = 'Values' },
   { id = 'collections', label = 'Collections' },
   { id = 'structure', label = 'Structure' },
+  { id = 'overlays', label = 'Overlays' },
 }
 
 local Display = ui.component('Display', function(): ui.Child
@@ -296,6 +305,128 @@ local Structure = ui.component('Structure', function(): ui.Child
   }
 end)
 
+local Confirm = ui.component('Confirm', function(props: { close: () -> () }): ui.Child
+  local c = ui.useComponents()
+  return c.Dialog {
+    title = 'Remove the plugin?',
+    actions = {
+      { id = 'cancel', label = 'Cancel', variant = 'quiet', onActivate = props.close },
+      { id = 'remove', label = 'Remove', variant = 'primary', onActivate = props.close },
+    },
+    c.Text { key = 'body', text = 'Its settings are kept, and it can be added again from the catalogue.' },
+  }
+end)
+
+local Overlays = ui.component('Overlays', function(): ui.Child
+  local c = ui.useComponents()
+  local services = ui.useContext(Services)
+  local count, setCount = ui.useState(0)
+  local function openDialog(modality: 'panel' | 'session'): ()
+    if not services or not services.owner then
+      return
+    end
+    local dialog = services.host:newPanel(services.owner, {
+      name = `gallery dialog {count}`,
+      presentation = 'dialog',
+      parent = if modality == 'panel' then services.panel else nil,
+      modality = modality,
+    })
+    setCount(count + 1)
+    ui.mount(
+      dialog,
+      Confirm {
+        close = function()
+          dialog:destroy()
+        end,
+      },
+      { components = services.components, owner = services.owner }
+    )
+  end
+  local notifier = services and services.notifications
+  return c.Column {
+    gap = 'md',
+    c.Section {
+      key = 'dialogs',
+      title = 'Dialogs',
+      c.Row {
+        key = 'buttons',
+        gap = 'sm',
+        c.Button {
+          key = 'panel',
+          label = 'Open a dialog',
+          onActivate = function()
+            openDialog 'panel'
+          end,
+        },
+        c.Button {
+          key = 'session',
+          label = 'Session dialog',
+          onActivate = function()
+            openDialog 'session'
+          end,
+        },
+      },
+    },
+    c.Section {
+      key = 'toasts',
+      title = 'Toasts',
+      c.Row {
+        key = 'buttons',
+        gap = 'sm',
+        c.Button {
+          key = 'info',
+          label = 'Show a toast',
+          disabledReason = if notifier then nil else 'No notifications provider is loaded.',
+          onActivate = function()
+            if notifier and services then
+              notifier:notify(services.owner, {
+                title = 'Screenshot saved',
+                body = '~/Pictures/lunette-2026-10-16.png',
+                actions = { { id = 'open', label = 'Open', run = function() end } },
+              })
+            end
+          end,
+        },
+        c.Button {
+          key = 'error',
+          label = 'Show an error',
+          disabledReason = if notifier then nil else 'No notifications provider is loaded.',
+          onActivate = function()
+            if notifier and services then
+              notifier:notify(
+                services.owner,
+                { title = 'Capture failed', body = 'The portal refused.', level = 'error' }
+              )
+            end
+          end,
+        },
+      },
+    },
+    c.Section {
+      key = 'menus',
+      title = 'Menus',
+      c.Text {
+        key = 'hint',
+        text = 'Menus open as overlays and reach past the panel.',
+        style = 'caption',
+        color = 'muted',
+      },
+      c.Dropdown {
+        key = 'long',
+        value = 'option-1',
+        options = {
+          { id = 'option-1', label = 'First option' },
+          { id = 'option-2', label = 'Second option' },
+          { id = 'option-3', label = 'Third option' },
+          { id = 'option-4', label = 'Fourth option' },
+          { id = 'option-5', label = 'Fifth option' },
+          { id = 'option-6', label = 'Sixth option' },
+        },
+      },
+    },
+  }
+end)
+
 local PAGE_COMPONENTS = {
   display = Display,
   actions = Actions,
@@ -303,6 +434,7 @@ local PAGE_COMPONENTS = {
   values = Values,
   collections = Collections,
   structure = Structure,
+  overlays = Overlays,
 }
 
 -- The whole gallery: a header with the theme controls, page tabs, and the page in a scroll box.
@@ -328,34 +460,38 @@ pages.Gallery = ui.component('Gallery', function(props: Props): ui.Child
     local Page = PAGE_COMPONENTS[entry.id]
     tabs[#tabs + 1] = c.ScrollBox { key = entry.id, grow = 1, Page {} }
   end
-  return c.Panel {
-    c.Header {
-      key = 'header',
-      title = 'Widget gallery',
-      detail = 'lunette theme',
-    },
-    c.Body {
-      key = 'body',
-      grow = 1,
-      c.Row {
-        key = 'theme',
-        gap = 'sm',
-        align = 'center',
-        c.Segmented {
-          key = 'mode',
-          value = mode,
-          options = { { id = 'dark', label = 'Dark' }, { id = 'light', label = 'Light' } },
-          onChange = function(next: 'dark' | 'light')
-            setMode(next)
-            props.host:setMode(next)
-          end,
-        },
-        c.Spacer { key = 'gap' },
-        swatches,
+  return ui.provide(
+    Services,
+    props :: Props?,
+    c.Panel {
+      c.Header {
+        key = 'header',
+        title = 'Widget gallery',
+        detail = 'lunette theme',
       },
-      c.Tabs { key = 'pages', tabs = pages.PAGES, value = page, onChange = setPage, grow = 1, tabs },
-    },
-  }
+      c.Body {
+        key = 'body',
+        grow = 1,
+        c.Row {
+          key = 'theme',
+          gap = 'sm',
+          align = 'center',
+          c.Segmented {
+            key = 'mode',
+            value = mode,
+            options = { { id = 'dark', label = 'Dark' }, { id = 'light', label = 'Light' } },
+            onChange = function(next: 'dark' | 'light')
+              setMode(next)
+              props.host:setMode(next)
+            end,
+          },
+          c.Spacer { key = 'gap' },
+          swatches,
+        },
+        c.Tabs { key = 'pages', tabs = pages.PAGES, value = page, onChange = setPage, grow = 1, tabs },
+      },
+    }
+  )
 end)
 
 return pages
