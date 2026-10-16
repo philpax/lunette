@@ -7,12 +7,12 @@ local function boot(): fixture.State
   return fixture.boot { standard = true, width = 0.4, height = 0.4 }
 end
 
--- Presses at one point of a node, drags to another, and releases, as fractions of the node's box.
--- The width a scroll box keeps clear for its bar.
+-- The width a scroll view keeps clear for its bar.
 local function scrollingGutter(state: fixture.State): number
   return state.service:theme().sizes.scrollbar * 3
 end
 
+-- Presses at one point of a node, drags to another, and releases, as fractions of the node's box.
 local function drag(state: fixture.State, path: string, from: { number }, to: { number }): ()
   local node = assert(state.panel:find(path), `no node at {path}`)
   local bounds = node:panelBounds()
@@ -559,6 +559,47 @@ test('a text field shows its prefix and unit, and a press places the caret in th
   state.fixture:step()
   expect.equal(source:text('9').kind, 'consumed')
   expect.equal(changes[#changes], '912345', 'the press before the first digit puts the caret there')
+  state.fixture:close()
+end)
+
+test('nodes remade by a changed registration keep their scroll offset, draft, and focus', function()
+  local state = boot()
+  local c = assert(state.components)
+  local host = state.service
+  for _, name in { 'lunette/scroll-view', 'lunette/text-field' } do
+    host:overrideKind(state.owner, name, { name = name })
+  end
+  local rows = {}
+  for index = 1, 20 do
+    rows[index] = c.Text { key = `t{index}`, text = `Line {index}` }
+  end
+  fixture.show(
+    state,
+    c.Panel {
+      c.Body {
+        key = 'body',
+        c.TextField { key = 'name', value = '' },
+        c.ScrollView { key = 'view', height = 0.06, c.Column { key = 'lines', rows } },
+      },
+    }
+  )
+  state.fixture:step()
+  local view = assert(state.panel:find 'body/view')
+  view:scrollTo(0.05)
+  local focusService, source = keyboard(state)
+  fixture.click(state, 'body/name')
+  state.fixture:step()
+  source:text 'draft'
+  state.fixture:step()
+  host:setDefaultAppearance(true)
+  state.fixture:step()
+  local remadeView = assert(state.panel:find 'body/view')
+  expect.truthy(remadeView ~= view, 'the scroll view was made anew')
+  expect.near(remadeView.state.scrollY, 0.05, 1e-6, 'and kept its offset')
+  local field = assert(state.panel:find 'body/name')
+  expect.truthy(field.state.focused, 'the field kept focus')
+  expect.equal(assert(state.panel:find 'body/name/face/text').props.value, 'draft', 'and its draft')
+  expect.truthy(focusService:focused(), 'the keyboard stayed with the panel')
   state.fixture:close()
 end)
 

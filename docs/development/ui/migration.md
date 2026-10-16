@@ -197,7 +197,7 @@ These parts of the design remain open:
 
 - Pick hooks and the proximity query, and default appearance reached from `lunctl`.
 - Grab-sphere interactors, gesture claims that transfer a capture between nodes, drag sessions, and manipulation sessions beyond panel grab. Arbitration covers only a fingertip standing its hand's ray down.
-- Carrying host-owned node state, such as focus, scroll offset, and caret, across a change of a kind's current registration; nodes are remade instead.
+- Carrying transforms and captures in progress across a change of a kind's current registration.
 - The glyph atlas's reference counting and eviction, the reserved share for interface fonts, and variable-face instances. A full atlas refuses new glyphs.
 - Native instance packing; Lua packs instance data and sends it per batch.
 - The panels service's optional chrome title, which still draws with `pass:text` when `chrome` is on; window titles otherwise come from the decorations titlebar.

@@ -7,6 +7,7 @@ local uiHost = require '@lunette-contracts/ui-host'
 local records = require './records'
 local handles = require './handles'
 local theme = require './theme'
+local focus = require './focus'
 
 local tree = {}
 
@@ -20,10 +21,87 @@ local createNode: (records.Panel, Environment, records.Node?, uiHost.Element, st
 local updateNode: (records.Panel, Environment, records.Node, uiHost.Element) -> ()
 local removeNode: (records.Panel, Environment, records.Node) -> ()
 
+-- What a node remade by a changed registration keeps: the kind's declared state, and focus. Nodes match by their
+-- path of slots below the replaced node and by kind name.
+type Saved = {
+  kind: string,
+  state: { [string]: any },
+  focused: boolean,
+  focusVisible: boolean,
+}
+
+local function save(panel: records.Panel, node: records.Node): { [string]: Saved }
+  local saved: { [string]: Saved } = {}
+  local function visit(current: records.Node, path: string): ()
+    local declared = current.kind.registration.state
+    local state: { [string]: any } = {}
+    if declared then
+      for name in declared :: { [string]: any } do
+        state[name] = current.state[name]
+      end
+    end
+    saved[path] = {
+      kind = current.kind.name,
+      state = state,
+      focused = panel.focused == current,
+      focusVisible = current.host.focusVisible == true,
+    }
+    for _, child in current.children do
+      visit(child, `{path}/{child.slot}`)
+    end
+  end
+  visit(node, '')
+  return saved
+end
+
+-- Restores what `save` kept onto a remade subtree, wherever a node has the same path and kind name, taking only the
+-- state fields the new registration also declares. Focus moves before the old subtree is removed, so removing it does
+-- not give up the panel's session focus.
+local function restore(panel: records.Panel, node: records.Node, saved: { [string]: Saved }): ()
+  local function visit(current: records.Node, path: string): ()
+    local kept = saved[path]
+    if kept and kept.kind == current.kind.name then
+      local declared = current.kind.registration.state
+      local fields: { [string]: any } = {}
+      if declared then
+        for name in declared :: { [string]: any } do
+          if kept.state[name] ~= nil then
+            fields[name] = kept.state[name]
+          end
+        end
+      end
+      if next(fields) ~= nil then
+        handles.setState(current, fields)
+      end
+      if kept.focused then
+        focus.set(panel, current, kept.focusVisible)
+      end
+    end
+    for _, child in current.children do
+      visit(child, `{path}/{child.slot}`)
+    end
+  end
+  visit(node, '')
+end
+
 -- Reconciles the panel's root against an element, or removes the content for nil. An overlay's root has the portal
 -- node as its logical parent, so events bubble out of the overlay into the panel that opened it.
 function tree.submit(panel: records.Panel, env: Environment, element: uiHost.Element?, parent: records.Node?): ()
   local root = panel.root
+  if
+    root
+    and element
+    and root.kind.name == element.kind
+    and root.kind ~= env.kind(element.kind)
+    and root.key == element.key
+  then
+    -- The root's kind was registered again or overridden: the root is made anew and keeps its state and focus.
+    local saved = save(panel, root)
+    panel.root = createNode(panel, env, parent, element, element.key or '#root')
+    restore(panel, panel.root :: records.Node, saved)
+    removeNode(panel, env, root)
+    return
+  end
   if root and (element == nil or root.kind ~= env.kind(element.kind) or root.key ~= element.key) then
     removeNode(panel, env, root)
     panel.root = nil
@@ -210,6 +288,13 @@ local function reconcileChildren(panel: records.Panel, env: Environment, node: r
       previous[slot] = nil
       updateNode(panel, env, existing, element)
       children[#children + 1] = existing
+    elseif existing and existing.kind.name == element.kind then
+      -- The same kind under a changed registration: the node is made anew and keeps its state and focus, and the old
+      -- node is removed with the other stale children.
+      local saved = save(panel, existing)
+      local made = createNode(panel, env, node, element, slot)
+      restore(panel, made, saved)
+      children[#children + 1] = made
     else
       children[#children + 1] = createNode(panel, env, node, element, slot)
     end
