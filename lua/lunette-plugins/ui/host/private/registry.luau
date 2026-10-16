@@ -82,21 +82,33 @@ end
 
 -- Rebuilds a kind's stack from its base registration and its live overrides, so each node made after the change
 -- uses the newest one.
-local function restack(target: Registry, name: string): ()
+-- An override whose layered result is not a valid registration, such as one that gives a drawing kind an
+-- expansion, is skipped; its owner and the reason are answered so the caller can report them.
+export type Skipped = { read owner: plugin.Owner, read message: string }
+
+local function restack(target: Registry, name: string): { Skipped }
+  local skipped: { Skipped } = {}
   local stack = target.kinds[name]
   if not stack then
-    return
+    return skipped
   end
   local rebuilt = { stack[1] }
   local registration = stack[1].registration
   for _, entry in target.overrides[name] or {} do
-    registration = layer(registration, entry.registration)
-    table.insert(rebuilt, record(entry.owner, registration))
+    local layered = layer(registration, entry.registration)
+    local ok, failure = pcall(registry.validate, layered)
+    if ok then
+      registration = layered
+      table.insert(rebuilt, record(entry.owner, registration))
+    else
+      table.insert(skipped, { owner = entry.owner, message = tostring(failure) })
+    end
   end
   table.clear(stack)
   for index, kind in rebuilt do
     stack[index] = kind
   end
+  return skipped
 end
 
 function registry.new(hostOwner: plugin.Owner): Registry
@@ -189,8 +201,13 @@ function registry.validate(registration: uiHost.KindRegistration): ()
   end
 end
 
--- Adds a kind for the owner's lifetime. The returned function removes it.
-function registry.addKind(target: Registry, owner: plugin.Owner, registration: uiHost.KindRegistration): () -> ()
+-- Adds a kind for the owner's lifetime. The returned function removes it; the overrides waiting for the kind are
+-- applied, and any that cannot be are answered.
+function registry.addKind(
+  target: Registry,
+  owner: plugin.Owner,
+  registration: uiHost.KindRegistration
+): (() -> (), { Skipped })
   registry.validate(registration)
   local name = registration.name
   assert(target.kinds[name] == nil, `ui: the kind {name} is already registered`)
@@ -198,12 +215,12 @@ function registry.addKind(target: Registry, owner: plugin.Owner, registration: u
   local stack = { kind }
   target.kinds[name] = stack
   -- Overrides outlive a base that unloads, and stack again on a base registered under the same name.
-  restack(target, name)
+  local skipped = restack(target, name)
   return function(): ()
     if target.kinds[name] == stack then
       target.kinds[name] = nil
     end
-  end
+  end, skipped
 end
 
 -- Stacks an override on a registered kind for the owner's lifetime. Fields the override omits keep the previous
@@ -217,8 +234,11 @@ function registry.overrideKind(
 ): () -> ()
   registry.validate(registration)
   assert(registration.name == name, `ui: an override of {name} keeps the kind's name`)
+  -- An override can arrive before the kind it replaces, and applies once the kind is registered.
   local stack = target.kinds[name]
-  assert(stack, `ui: the kind {name} is not registered, so it cannot be overridden`)
+  if stack then
+    registry.validate(layer(stack[#stack].registration, registration))
+  end
   local entry = { owner = owner, registration = registration }
   local overrides = target.overrides[name] or {}
   target.overrides[name] = overrides
@@ -285,13 +305,25 @@ end
 function registry.visuals(target: Registry, name: string): { uiHost.Visual }
   local stack = target.visuals[name]
   local list: { uiHost.Visual } = {}
-  if stack then
-    for index, entry in stack do
-      list[index] = entry.visual
-      if target.defaultAppearance then
-        break
+  if not stack then
+    return list
+  end
+  if target.defaultAppearance then
+    -- The base visual is the one an owner of base kind registrations gave, wherever it sits in the stack, so a
+    -- restyle that registered first does not become the default after the standard kinds reload.
+    local bases: { [plugin.Owner]: boolean } = {}
+    for _, kinds in target.kinds do
+      bases[kinds[1].owner] = true
+    end
+    for _, entry in stack do
+      if bases[entry.owner] then
+        return { entry.visual }
       end
     end
+    return { stack[1].visual }
+  end
+  for index, entry in stack do
+    list[index] = entry.visual
   end
   return list
 end

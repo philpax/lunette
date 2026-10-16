@@ -341,7 +341,12 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
       context:checkOwner(owner)
       registry.validate(registration)
       context:acquire(owner, function(): () -> ()
-        local remove = registry.addKind(kinds, owner, registration)
+        local remove, skipped = registry.addKind(kinds, owner, registration)
+        for _, failure in skipped do
+          protected.call(`ui: override of {registration.name}`, function(): ()
+            error(failure.message, 0)
+          end)
+        end
         reportedMissing[registration.name] = nil
         invalidateAll()
         return function(): ()
