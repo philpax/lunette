@@ -180,6 +180,8 @@ export type Environment = {
   read pressed: (Panel, Node?) -> (),
   -- Whether an open modal dialog blocks presses on the panel.
   read blocked: (Panel) -> boolean,
+  -- Whether presses give haptic feedback.
+  read haptics: () -> boolean,
   -- Focuses a node, taking session focus when its policy is text, and answers whether it took focus.
   read focusNode: (Node, boolean) -> boolean,
   read blurNode: (Node) -> (),

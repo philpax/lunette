@@ -158,6 +158,10 @@ function values.register(service: uiHost.Service, owner: any): { [string]: uiHos
   -- release the slider keeps showing the released value until the value prop changes.
   constructors.Slider = service:registerKind(owner, {
     name = 'lunette/slider',
+    role = 'slider',
+    semantics = function(props: uiHost.Props, state: { read [string]: any }): uiHost.Semantics
+      return { name = props.label, value = props.value, min = props.min or 0, max = props.max or 1 }
+    end,
     layout = {
       kind = 'container',
       style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle

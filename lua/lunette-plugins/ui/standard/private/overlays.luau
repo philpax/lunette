@@ -44,6 +44,10 @@ function overlays.register(service: uiHost.Service, owner: any): { [string]: uiH
   -- Dialog props: title, actions ({ id, label, variant, onActivate }), and children for the body.
   constructors.Dialog = service:registerKind(owner, {
     name = 'lunette/dialog',
+    role = 'dialog',
+    semantics = function(props: uiHost.Props, state: { read [string]: any }): uiHost.Semantics
+      return { name = props.title }
+    end,
     expand = function(
       props: uiHost.Props,
       children: { read [number]: uiHost.Element },
@@ -122,6 +126,10 @@ function overlays.register(service: uiHost.Service, owner: any): { [string]: uiH
   -- Toast props: title, body, level ('info', 'warning', 'error'), actions, onHover, and onDismiss.
   constructors.Toast = service:registerKind(owner, {
     name = 'lunette/toast',
+    role = 'alert',
+    semantics = function(props: uiHost.Props, state: { read [string]: any }): uiHost.Semantics
+      return { name = props.title }
+    end,
     expand = function(
       props: uiHost.Props,
       _children: { read [number]: uiHost.Element },

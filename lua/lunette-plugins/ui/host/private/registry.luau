@@ -28,6 +28,8 @@ local REGISTRATION_FIELDS: { [string]: boolean } = {
   expand = true,
   focus = true,
   engage = true,
+  role = true,
+  semantics = true,
 }
 
 local MISSING_VISUAL = 'lunette/missing'

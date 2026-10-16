@@ -156,6 +156,10 @@ function choices.register(service: uiHost.Service, owner: any): { [string]: uiHo
   -- Toggle props: label, detail, value, onChange, and disabledReason.
   constructors.Toggle = service:registerKind(owner, {
     name = 'lunette/toggle',
+    role = 'switch',
+    semantics = function(props: uiHost.Props, state: { read [string]: any }): uiHost.Semantics
+      return { name = props.label, checked = props.value == true, disabled = props.disabledReason ~= nil }
+    end,
     expand = function(
       props: uiHost.Props,
       _children: { read [number]: uiHost.Element },
@@ -215,6 +219,10 @@ function choices.register(service: uiHost.Service, owner: any): { [string]: uiHo
   -- Checkbox props: label, detail, value, onChange, and disabledReason.
   constructors.Checkbox = service:registerKind(owner, {
     name = 'lunette/checkbox',
+    role = 'checkbox',
+    semantics = function(props: uiHost.Props, state: { read [string]: any }): uiHost.Semantics
+      return { name = props.label, checked = props.value == true, disabled = props.disabledReason ~= nil }
+    end,
     expand = function(
       props: uiHost.Props,
       _children: { read [number]: uiHost.Element },
@@ -238,6 +246,10 @@ function choices.register(service: uiHost.Service, owner: any): { [string]: uiHo
   -- RadioGroup props: options, value, and onChange, which receives the chosen option's id.
   constructors.RadioGroup = service:registerKind(owner, {
     name = 'lunette/radio-group',
+    role = 'radiogroup',
+    semantics = function(props: uiHost.Props, state: { read [string]: any }): uiHost.Semantics
+      return { value = props.value }
+    end,
     layout = {
       kind = 'container',
       style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
@@ -268,6 +280,10 @@ function choices.register(service: uiHost.Service, owner: any): { [string]: uiHo
 
   service:registerKind(owner, {
     name = 'lunette/segment',
+    role = 'tab',
+    semantics = function(props: uiHost.Props, state: { read [string]: any }): uiHost.Semantics
+      return { selected = props.selected == true }
+    end,
     focus = 'pointer',
     layout = {
       kind = 'container',
@@ -332,6 +348,10 @@ function choices.register(service: uiHost.Service, owner: any): { [string]: uiHo
   -- Segmented props: options, value, and onChange.
   constructors.Segmented = service:registerKind(owner, {
     name = 'lunette/segmented',
+    role = 'radiogroup',
+    semantics = function(props: uiHost.Props, state: { read [string]: any }): uiHost.Semantics
+      return { value = props.value }
+    end,
     expand = function(
       props: uiHost.Props,
       _children: { read [number]: uiHost.Element },
@@ -403,6 +423,10 @@ function choices.registerDropdown(service: uiHost.Service, owner: any): uiHost.C
 
   service:registerKind(owner, {
     name = 'lunette/menu-item',
+    role = 'menuitem',
+    semantics = function(props: uiHost.Props, state: { read [string]: any }): uiHost.Semantics
+      return { checked = props.current == true }
+    end,
     focus = 'pointer',
     layout = {
       kind = 'container',
@@ -437,6 +461,10 @@ function choices.registerDropdown(service: uiHost.Service, owner: any): uiHost.C
   -- Dropdown props: options, value, onChange, and placeholder. The menu opens below the trigger.
   return service:registerKind(owner, {
     name = 'lunette/dropdown',
+    role = 'combobox',
+    semantics = function(props: uiHost.Props, state: { read [string]: any }): uiHost.Semantics
+      return { value = props.value, expanded = state.open == true }
+    end,
     layout = {
       kind = 'container',
       style = function(props: uiHost.Props): lunette.LayoutStyle

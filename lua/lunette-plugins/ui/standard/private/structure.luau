@@ -95,6 +95,10 @@ function structure.register(service: uiHost.Service, owner: any): { [string]: ui
 
   constructors.Header = service:registerKind(owner, {
     name = 'lunette/header',
+    role = 'heading',
+    semantics = function(props: uiHost.Props, state: { read [string]: any }): uiHost.Semantics
+      return { name = props.title }
+    end,
     expand = function(props: uiHost.Props, children: { read [number]: uiHost.Element }): uiHost.Child
       return {
         element('lunette/header-band', {
@@ -248,6 +252,7 @@ function structure.registerScrollBox(service: uiHost.Service, owner: any): uiHos
   end
   local constructor = service:registerKind(owner, {
     name = 'lunette/scroll-box',
+    role = 'scrollbar',
     layout = {
       kind = 'container',
       style = function(props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle

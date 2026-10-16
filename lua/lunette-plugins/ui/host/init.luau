@@ -20,6 +20,7 @@ local touch = require '@self/private/touch'
 local overlay = require '@self/private/overlay'
 local presentation = require '@self/private/presentation'
 local traversal = require '@self/private/traversal'
+local semantics = require '@self/private/semantics'
 local panels = require '@self/private/panel'
 local fonts = require '@self/private/rendering/fonts'
 local pack = require '@self/private/rendering/pack'
@@ -47,6 +48,7 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
   local router = input.new()
   local touching = touch.new()
   local live: { Live } = {}
+  local access: uiHost.AccessibilityOptions = {}
   local recordsOf: { [uiHost.Panel]: records.Panel } = setmetatable({}, { __mode = 'k' }) :: any
   local reportedMissing: { [string]: boolean } = {}
   local resources: renderer.Resources? = nil
@@ -82,6 +84,9 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
       overlay.close(provider, node)
     end,
     -- A press outside an overlay's chain asks the portal to close through its onDismiss callback.
+    haptics = function(): boolean
+      return access.haptics ~= false
+    end,
     blocked = function(target: records.Panel): boolean
       local panels: { records.Panel } = {}
       for _, entry in live do
@@ -161,6 +166,14 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
   end)
 
   -- Marks every node of every panel for restyling, re-expansion, and redrawing at the next commit.
+  local function livePanels(): { records.Panel }
+    local list: { records.Panel } = {}
+    for _, entry in live do
+      list[#list + 1] = entry.record
+    end
+    return list
+  end
+
   local function invalidateAll(): ()
     for _, entry in live do
       tree.invalidate(entry.record)
@@ -168,7 +181,7 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
   end
 
   local function retheme(): ()
-    current = themes.resolve(mode, accent)
+    current = themes.resolve(mode, accent, { textScale = access.textScale, highContrast = access.highContrast })
     invalidateAll()
   end
 
@@ -184,7 +197,8 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
         presentation.place(entry.record, head, dt, current)
         panels.commit(provider, entry.record)
         overlay.place(provider, entry.record)
-        input.animate(entry.record, dt, current.motion.crisp)
+        -- Reduced motion snaps hover lift and press travel to their targets.
+        input.animate(entry.record, dt, if access.reducedMotion then 1e-6 else current.motion.crisp)
         index += 1
       end
       if settings.controllerTraversal then
@@ -313,6 +327,19 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
         retheme()
       end
     end,
+    setAccessibility = function(_self: uiHost.Service, options: uiHost.AccessibilityOptions): ()
+      assert(type(options) == 'table', 'ui: accessibility options are a table')
+      local scale = options.textScale
+      assert(
+        scale == nil or (type(scale) == 'number' and scale >= 0.5 and scale <= 2),
+        'ui: a text scale is from 0.5 to 2'
+      )
+      local changed = access.textScale ~= options.textScale or access.highContrast ~= options.highContrast
+      access = table.freeze(table.clone(options))
+      if changed then
+        retheme()
+      end
+    end,
     setAccent = function(_self: uiHost.Service, given: uiHost.Color): ()
       assert(type(given) == 'table' and #given >= 3, 'ui: an accent is a colour')
       accent = table.freeze { given[1], given[2], given[3], given[4] or 1 }
@@ -345,6 +372,14 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
       end
       return nil
     end,
+    findByRole = function(_self: uiHost.Service, role: uiHost.Role, name: string): uiHost.Node?
+      for _, node in semantics.nodes(livePanels()) do
+        if semantics.role(node) == role and semantics.of(env, node).name == name then
+          return node.handle
+        end
+      end
+      return nil
+    end,
     inspect = function(_self: uiHost.Service): inspection.Snapshot
       local result: { inspection.Registration } = {}
       for _, entry in live do
@@ -360,7 +395,50 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
             height = record.height,
             nodes = count,
             visible = record.visible,
+            presentation = record.presentation,
           })
+        )
+      end
+      -- Every node with a role is reported with its semantics, state, and box, so tests and assistive plugins can
+      -- find it by id or by role and name.
+      for _, node in semantics.nodes(livePanels()) do
+        local described = semantics.of(env, node)
+        local details: { [string]: string | number | boolean } = {
+          kind = node.kind.name,
+          role = semantics.role(node) or 'group',
+          x = node.x,
+          y = node.y,
+          width = node.width,
+          height = node.height,
+          focused = node.host.focused,
+          hovered = node.host.hovers > 0,
+          enabled = not described.disabled and node.props.disabledReason == nil,
+        }
+        if described.name then
+          details.label = described.name
+        end
+        if described.value ~= nil then
+          details.value = described.value
+        end
+        for _, flag in { 'checked', 'selected', 'expanded' } do
+          local value = (described :: any)[flag]
+          if value ~= nil then
+            details[flag] = value
+          end
+        end
+        if type(node.props.disabledReason) == 'string' then
+          details.disabledReason = node.props.disabledReason
+        end
+        table.insert(
+          result,
+          inspection.registration(
+            'control',
+            'ui-host.node',
+            node.panel.owner,
+            semantics.id(node),
+            not node.dead,
+            details
+          )
         )
       end
       return inspection.snapshot(result, { mode = mode }, { 'kind and visual callbacks are not run' })

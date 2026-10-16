@@ -12,6 +12,7 @@ function display.register(service: uiHost.Service, owner: any): { [string]: uiHo
   -- Text props: text, style (a type role), color (a colour role or a colour), align, wrap, maxLines, and grow.
   constructors.Text = service:registerKind(owner, {
     name = 'lunette/text',
+    role = 'text',
     layout = {
       kind = 'text',
       text = function(props: uiHost.Props): string
@@ -37,6 +38,10 @@ function display.register(service: uiHost.Service, owner: any): { [string]: uiHo
   -- Progress bars are square-cut: a sunken rail and an accent fill for the value from 0 to 1.
   constructors.Progress = service:registerKind(owner, {
     name = 'lunette/progress',
+    role = 'progressbar',
+    semantics = function(props: uiHost.Props, state: { read [string]: any }): uiHost.Semantics
+      return { value = props.value, min = 0, max = 1 }
+    end,
     layout = {
       kind = 'leaf',
       style = function(props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
@@ -58,6 +63,10 @@ function display.register(service: uiHost.Service, owner: any): { [string]: uiHo
   -- Image props: source (a host image source), tint (a colour role or colour), width, height, and aspect.
   constructors.Image = service:registerKind(owner, {
     name = 'lunette/image',
+    role = 'image',
+    semantics = function(props: uiHost.Props, state: { read [string]: any }): uiHost.Semantics
+      return { name = props.label }
+    end,
     layout = {
       kind = 'leaf',
       style = function(props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle

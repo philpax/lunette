@@ -131,6 +131,10 @@ function fields.register(service: uiHost.Service, owner: any): { [string]: uiHos
   -- field edits a draft while focused and reports each change; Enter submits and Escape leaves the field.
   constructors.TextField = service:registerKind(owner, {
     name = 'lunette/text-field',
+    role = 'textbox',
+    semantics = function(props: uiHost.Props, state: { read [string]: any }): uiHost.Semantics
+      return { value = props.value, disabled = props.disabledReason ~= nil }
+    end,
     layout = {
       kind = 'container',
       style = function(props: uiHost.Props): lunette.LayoutStyle

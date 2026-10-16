@@ -142,6 +142,10 @@ function actions.register(service: uiHost.Service, owner: any): { [string]: uiHo
   -- Button props: label, variant ('default', 'primary', 'quiet', 'band'), onActivate, disabledReason, and grow.
   constructors.Button = service:registerKind(owner, {
     name = 'lunette/button',
+    role = 'button',
+    semantics = function(props: uiHost.Props, state: { read [string]: any }): uiHost.Semantics
+      return { name = props.label, disabled = props.disabledReason ~= nil }
+    end,
     layout = {
       kind = 'container',
       style = function(props: uiHost.Props): lunette.LayoutStyle
@@ -204,6 +208,10 @@ function actions.register(service: uiHost.Service, owner: any): { [string]: uiHo
   -- Chip props: label, selected, and onChange, which receives the new selection.
   constructors.Chip = service:registerKind(owner, {
     name = 'lunette/chip',
+    role = 'checkbox',
+    semantics = function(props: uiHost.Props, state: { read [string]: any }): uiHost.Semantics
+      return { name = props.label, checked = props.selected == true }
+    end,
     expand = function(
       props: uiHost.Props,
       _children: { read [number]: uiHost.Element },

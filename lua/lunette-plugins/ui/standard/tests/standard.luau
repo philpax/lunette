@@ -427,4 +427,45 @@ test('an engaged slider takes directions from a controller, and an idle one pass
   state.fixture:close()
 end)
 
+test('controls are found by role and name, and inspection reports their semantics', function()
+  local state = boot()
+  local c = assert(state.components)
+  local applied = 0
+  fixture.show(
+    state,
+    c.Panel {
+      c.Body {
+        key = 'body',
+        c.Toggle { key = 'backdrop', label = 'Backdrop', value = true, onChange = function() end },
+        c.Button {
+          key = 'apply',
+          label = 'Apply',
+          onActivate = function()
+            applied += 1
+          end,
+        },
+        c.Button { key = 'pin', label = 'Pin', disabledReason = 'Pinning needs the Attention source.' },
+      },
+    }
+  )
+  local apply = assert(state.service:findByRole('button', 'Apply'), 'the button is found by role and name')
+  state.fixture:click(fixture.nodeGeometry(apply), 0.5, 0.5)
+  expect.equal(applied, 1)
+  expect.equal(state.service:findByRole('button', 'Missing'), nil)
+  local byId: { [string]: any } = {}
+  for _, registration in state.service:inspect().registrations do
+    if registration.kind == 'control' then
+      byId[registration.name or ''] = registration.details
+    end
+  end
+  local toggle = assert(byId['host-test:body/backdrop'], 'the toggle is reported by id')
+  expect.equal(toggle.role, 'switch')
+  expect.equal(toggle.checked, true)
+  expect.equal(toggle.label, 'Backdrop')
+  local pin = assert(byId['host-test:body/pin'])
+  expect.equal(pin.enabled, false)
+  expect.equal(pin.disabledReason, 'Pinning needs the Attention source.')
+  state.fixture:close()
+end)
+
 return test

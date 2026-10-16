@@ -89,6 +89,10 @@ function collections.register(service: uiHost.Service, owner: any): { [string]: 
   -- ListRow props: title, detail, trailing, selected, and onActivate.
   constructors.ListRow = service:registerKind(owner, {
     name = 'lunette/list-row',
+    role = 'listitem',
+    semantics = function(props: uiHost.Props, state: { read [string]: any }): uiHost.Semantics
+      return { name = props.title, selected = props.selected == true }
+    end,
     expand = function(
       props: uiHost.Props,
       children: { read [number]: uiHost.Element },
@@ -144,6 +148,7 @@ function collections.register(service: uiHost.Service, owner: any): { [string]: 
   -- List props: items ({ id, title, detail, trailing }), value, and onChange; or ListRow children.
   constructors.List = service:registerKind(owner, {
     name = 'lunette/list',
+    role = 'list',
     layout = {
       kind = 'container',
       style = function(props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
@@ -200,6 +205,7 @@ function collections.register(service: uiHost.Service, owner: any): { [string]: 
   -- Table props: columns ({ id, label }), rows ({ id, cells }), value, and onChange.
   constructors.Table = service:registerKind(owner, {
     name = 'lunette/table',
+    role = 'table',
     layout = {
       kind = 'container',
       style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
@@ -240,6 +246,10 @@ function collections.register(service: uiHost.Service, owner: any): { [string]: 
   -- Tabs props: tabs (options), value, and onChange. The child whose key is the value is shown.
   constructors.Tabs = service:registerKind(owner, {
     name = 'lunette/tabs',
+    role = 'tablist',
+    semantics = function(props: uiHost.Props, state: { read [string]: any }): uiHost.Semantics
+      return { value = props.value }
+    end,
     layout = {
       kind = 'container',
       style = function(props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle

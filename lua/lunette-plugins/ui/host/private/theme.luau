@@ -158,8 +158,63 @@ local TYPE: uiHost.TypeScale = table.freeze {
   mono = typography(MONO, 0.011, 400, 1.35),
 }
 
-function theme.resolve(mode: Mode, accent: uiHost.Color): uiHost.Theme
-  local palette = assert(PALETTES[mode], `ui theme: '{mode}' is not a mode`)
+export type Options = {
+  -- Multiplies every typography role's size.
+  read textScale: number?,
+  -- Pushes ink, lines, and edges to the extremes of the mode.
+  read highContrast: boolean?,
+}
+
+local HIGH_CONTRAST: { [Mode]: { [string]: string } } = {
+  dark = {
+    surface = '#0b0e15',
+    raised = '#161c29',
+    sunken = '#05070b',
+    side = '#000000',
+    ink = '#ffffff',
+    muted = '#d4dae4',
+    line = '#8a95aa',
+    band = '#1b2333',
+    bandInk = '#ffffff',
+    section = '#1b2333',
+    sectionInk = '#ffffff',
+  },
+  light = {
+    surface = '#e6e9ee',
+    raised = '#ffffff',
+    sunken = '#d0d5dd',
+    side = '#7c8596',
+    ink = '#000000',
+    muted = '#2a3346',
+    line = '#4f596d',
+    band = '#26304a',
+    bandInk = '#ffffff',
+    section = '#26304a',
+    sectionInk = '#ffffff',
+  },
+}
+
+local function scaled(scale: number): uiHost.TypeScale
+  if scale == 1 then
+    return TYPE
+  end
+  local result: { [string]: uiHost.Typography } = {}
+  for name, role in TYPE :: any do
+    result[name] = typography(role.family, role.size * scale, role.weight, role.lineHeight)
+  end
+  return table.freeze(result) :: any
+end
+
+function theme.resolve(mode: Mode, accent: uiHost.Color, options: Options?): uiHost.Theme
+  local given: Options = options or {}
+  local base = assert(PALETTES[mode], `ui theme: '{mode}' is not a mode`)
+  local palette = base
+  if given.highContrast then
+    palette = table.clone(base)
+    for name, value in HIGH_CONTRAST[mode] do
+      palette[name] = value
+    end
+  end
   local function named(name: string): uiHost.Color
     return theme.hex(assert(palette[name], `ui theme: the palette has no {name}`))
   end
@@ -179,7 +234,7 @@ function theme.resolve(mode: Mode, accent: uiHost.Color): uiHost.Theme
     bandInk = bandInk,
     header = header,
     headerRule = theme.mix(band, guarded, 0.55),
-    headerMuted = theme.mix(header, bandInk, 0.8),
+    headerMuted = theme.mix(header, bandInk, if given.highContrast then 0.95 else 0.8),
     section = theme.mix(named 'section', guarded, if mode == 'dark' then 0.09 else 0.1),
     sectionInk = named 'sectionInk',
     accent = guarded,
@@ -199,7 +254,7 @@ function theme.resolve(mode: Mode, accent: uiHost.Color): uiHost.Theme
     colors = colors,
     spacing = SPACING,
     radii = RADII,
-    type = TYPE,
+    type = scaled(given.textScale or 1),
     elevation = ELEVATION,
     sizes = SIZES,
     motion = MOTION,

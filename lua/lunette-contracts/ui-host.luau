@@ -265,6 +265,44 @@ export type Actions = {
   read emit: (string, ...any) -> (),
 }
 
+export type Role =
+  'button'
+  | 'checkbox'
+  | 'switch'
+  | 'radio'
+  | 'radiogroup'
+  | 'slider'
+  | 'textbox'
+  | 'combobox'
+  | 'menu'
+  | 'menuitem'
+  | 'list'
+  | 'listitem'
+  | 'table'
+  | 'row'
+  | 'tab'
+  | 'tablist'
+  | 'link'
+  | 'heading'
+  | 'text'
+  | 'image'
+  | 'progressbar'
+  | 'dialog'
+  | 'alert'
+  | 'group'
+  | 'scrollbar'
+
+export type Semantics = {
+  read name: string?,
+  read value: (string | number)?,
+  read min: number?,
+  read max: number?,
+  read checked: boolean?,
+  read selected: boolean?,
+  read expanded: boolean?,
+  read disabled: boolean?,
+}
+
 export type KindRegistration = {
   read name: string,
   read version: { read major: number, read minor: number }?,
@@ -280,6 +318,9 @@ export type KindRegistration = {
   read focus: ('text' | 'pointer' | 'none')?,
   -- A value control that traversal engages before directions adjust its value.
   read engage: boolean?,
+  -- The node's role from the closed set, and its accessible name, value, range, and states.
+  read role: Role?,
+  read semantics: ((props: Props, state: { read [string]: any }) -> Semantics)?,
   -- Whether the node is a hit target, and the drags it claims.
   read interactive: ((props: Props) -> boolean)?,
   read claims: { read drag: ('x' | 'y' | 'both')? }?,
@@ -361,6 +402,9 @@ export type Service = {
   read theme: (Service) -> Theme,
   read setMode: (Service, 'dark' | 'light') -> (),
   read setAccent: (Service, Color) -> (),
+  -- The accessibility settings the host applies: text scale and high contrast reach the theme, reduced motion snaps
+  -- hover lift and press travel, and haptics off silences press feedback.
+  read setAccessibility: (Service, AccessibilityOptions) -> (),
   -- Traversal of the panel that holds session focus, for bindings and switch access: a direction, activation,
   -- dismissal, and moving session focus to the next panel. Each answers whether it did anything.
   read navigate: (Service, 'up' | 'down' | 'left' | 'right' | 'next' | 'previous') -> boolean,
@@ -371,6 +415,16 @@ export type Service = {
   -- The live node with an id of a panel's name and a key path, such as 'Widget gallery:pages/display', for tests and
   -- inspection.
   read find: (Service, string) -> Node?,
+  -- The first live node with a role and an accessible name, searching every panel, as a user who sees the panel
+  -- would describe it.
+  read findByRole: (Service, Role, string) -> Node?,
+}
+
+export type AccessibilityOptions = {
+  read textScale: number?,
+  read highContrast: boolean?,
+  read reducedMotion: boolean?,
+  read haptics: boolean?,
 }
 
 export type Capability = plugin.Capability<Service>

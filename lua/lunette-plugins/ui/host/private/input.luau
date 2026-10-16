@@ -270,7 +270,9 @@ function input.pointer(
     target.host.pressed = true
     respond(target)
     env.focusNode(target, false)
-    event.pointer:vibrate(PRESS_HAPTIC)
+    if env.haptics() then
+      event.pointer:vibrate(PRESS_HAPTIC)
+    end
     input.dispatch(env, target, { kind = 'press', x = x, y = y }, x, y)
   elseif event.kind == 'release' then
     local capture = state.capture
