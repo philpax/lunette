@@ -43,10 +43,30 @@ pages.PAGES = {
   { id = 'overlays', label = 'Overlays' },
 }
 
+-- A crescent, drawn in white so a tint colours it.
+local MOON = [[<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+<path fill="#ffffff" d="M14.5 2.5a9.5 9.5 0 1 0 7 15.9A8 8 0 0 1 14.5 2.5z"/></svg>]]
+local GRID = [[<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#ffffff">
+<rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/>
+<rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="13" y="13" width="8" height="8" rx="1.5"/></svg>]]
+
 local Display = ui.component('Display', function(): ui.Child
   local c = ui.useComponents()
   return c.Column {
     gap = 'md',
+    c.Section {
+      key = 'icons',
+      title = 'Icons',
+      c.Row {
+        key = 'icons',
+        gap = 'md',
+        align = 'center',
+        c.Image { key = 'moon', source = { kind = 'svg', data = MOON }, tint = 'ink', width = 0.016 },
+        c.Image { key = 'grid', source = { kind = 'svg', data = GRID }, tint = 'accent', width = 0.016 },
+        c.Image { key = 'large', source = { kind = 'svg', data = MOON }, tint = 'accent', width = 0.03 },
+        c.Text { key = 'caption', text = 'SVG rasterised at its drawn size', style = 'caption', color = 'muted' },
+      },
+    },
     c.Section {
       key = 'type',
       title = 'Type',

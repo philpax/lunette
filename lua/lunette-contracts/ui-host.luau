@@ -182,11 +182,27 @@ export type TextSpec = {
   read offset: number?,
 }
 
+-- An image to draw: an SVG document, rasterised at the size it is drawn; an image file LÖVR can read; or a texture
+-- the caller owns and keeps alive while it is drawn.
+export type ImageSource =
+  { read kind: 'svg', read data: string }
+  | { read kind: 'file', read path: string }
+  | { read kind: 'texture', read texture: Texture }
+
+export type ImageSpec = {
+  read source: ImageSource,
+  -- Multiplies the image's colours, such as the ink colour for a monochrome icon.
+  read tint: Color?,
+  read offset: number?,
+}
+
 export type Draw = {
   -- A box in node coordinates; nil draws the node's bounds.
   read box: (Draw, Rect?, BoxSpec) -> (),
   -- The node's own shaped text, for a text kind.
   read text: (Draw, TextSpec) -> (),
+  -- An image filling a box in node coordinates; nil draws over the node's bounds.
+  read image: (Draw, Rect?, ImageSpec) -> (),
 }
 
 export type Visual = (node: Node, draw: Draw, base: (Node, Draw) -> ()) -> ()

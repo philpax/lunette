@@ -55,6 +55,33 @@ function display.register(service: uiHost.Service, owner: any): { [string]: uiHo
     end
   end)
 
+  -- Image props: source (a host image source), tint (a colour role or colour), width, height, and aspect.
+  constructors.Image = service:registerKind(owner, {
+    name = 'lunette/image',
+    layout = {
+      kind = 'leaf',
+      style = function(props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
+        return {
+          width = props.width or theme.sizes.check,
+          height = props.height,
+          aspectRatio = props.aspect or (if props.height then nil else 1),
+          shrink = 0,
+          alignSelf = props.alignSelf,
+        }
+      end,
+    },
+    visuals = { 'lunette/image' },
+  })
+  service:registerVisual(owner, 'lunette/image', function(node: uiHost.Node, draw: uiHost.Draw)
+    local source = node.props.source
+    if source then
+      draw:image(nil, {
+        source = source,
+        tint = if node.props.tint then tokens.ink(node.theme, node.props.tint) else nil,
+      })
+    end
+  end)
+
   return constructors
 end
 

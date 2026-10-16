@@ -236,6 +236,7 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
           end)
         end
       end
+      renderer.endFrame(held)
     end,
   })
 

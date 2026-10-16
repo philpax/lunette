@@ -5,6 +5,7 @@ local records = require '../records'
 local shader = require './shader'
 local fonts = require './fonts'
 local pack = require './pack'
+local images = require './images'
 
 local renderer = {}
 
@@ -15,7 +16,9 @@ export type Resources = {
   mesh: Mesh,
   boxShader: Shader,
   textShader: Shader,
+  imageShader: Shader,
   batch: { number },
+  images: images.Cache,
 }
 
 export type Template = { vertices: { { number } }, indices: { number } }
@@ -68,11 +71,13 @@ end
 -- Creates the GPU resources. The returned function releases them.
 function renderer.acquire(): (Resources, () -> ())
   local made: { { release: (any) -> () } } = {}
+  local cache = images.new()
   local function keep<T>(value: T): T
     table.insert(made, value :: any)
     return value
   end
   local function release(): ()
+    images.release(cache)
     for index = #made, 1, -1 do
       made[index]:release()
     end
@@ -85,6 +90,8 @@ function renderer.acquire(): (Resources, () -> ())
       mesh = mesh,
       boxShader = keep(lovr.graphics.newShader(shader.boxVertex, shader.boxFragment, { label = 'ui/boxes' })),
       textShader = keep(lovr.graphics.newShader(shader.textVertex, shader.textFragment, { label = 'ui/text' })),
+      imageShader = keep(lovr.graphics.newShader(shader.textVertex, shader.imageFragment, { label = 'ui/images' })),
+      images = cache,
       batch = table.create(shader.SLOTS * shader.BATCH * 4, 0),
     }
   end)
@@ -128,6 +135,28 @@ local function drawBoxes(
   end
 end
 
+local function drawImages(resources: Resources, pass: Pass, panel: records.Panel, packed: pack.Packed): ()
+  if #packed.images == 0 then
+    return
+  end
+  pass:setShader(resources.imageShader)
+  pass:setDepthWrite(false)
+  local pose = centre(panel)
+  pass:send('panelInverse', lovr.math.mat4(pose):invert())
+  pass:send('panelSize', { panel.width, panel.height, 0, 0 })
+  local halfWidth, halfHeight = panel.width / 2, panel.height / 2
+  for _, run in packed.images do
+    local texture = images.texture(resources.images, run.source, run.width, run.height)
+    pass:setMaterial(texture)
+    pass:setColor(run.tint[1], run.tint[2], run.tint[3], run.tint[4] or 1)
+    pass:send('textClip', run.clip)
+    local x = run.x + run.width / 2 - halfWidth
+    local y = halfHeight - (run.y + run.height / 2)
+    pass:plane(lovr.math.mat4(pose):translate(x, y, run.z):scale(run.width, run.height, 1))
+  end
+  pass:setMaterial(nil)
+end
+
 local function drawTexts(
   resources: Resources,
   pass: Pass,
@@ -164,6 +193,11 @@ local function drawTexts(
   end
 end
 
+-- Ends a frame's drawing, releasing image textures that have gone unused.
+function renderer.endFrame(resources: Resources): ()
+  images.collect(resources.images)
+end
+
 function renderer.draw(
   resources: Resources,
   pass: Pass,
@@ -178,6 +212,7 @@ function renderer.draw(
     pass:setBlendMode('alpha', 'alphamultiply')
     pass:setColor(1, 1, 1, 1)
     drawBoxes(resources, pass, panel, packed, theme)
+    drawImages(resources, pass, panel, packed)
     drawTexts(resources, pass, panel, packed, registry)
   end)
   pass:pop 'state'

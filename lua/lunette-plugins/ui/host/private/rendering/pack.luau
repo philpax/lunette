@@ -26,10 +26,22 @@ export type TextRun = {
   clip: { number },
 }
 
+export type ImageRun = {
+  source: uiHost.ImageSource,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  z: number,
+  tint: uiHost.Color,
+  clip: { number },
+}
+
 export type Packed = {
   boxes: { number },
   count: number,
   texts: { TextRun },
+  images: { ImageRun },
 }
 
 local function intersect(clip: { number }, node: records.Node): { number }
@@ -60,10 +72,11 @@ end
 
 -- Records stale visuals and packs every visible primitive in tree order.
 function pack.run(panel: records.Panel, env: records.Environment, visuals: record.Visuals, into: Packed?): Packed
-  local packed: Packed = into or { boxes = {}, count = 0, texts = {} }
+  local packed: Packed = into or { boxes = {}, count = 0, texts = {}, images = {} }
   local boxes = packed.boxes
   local count = 0
   table.clear(packed.texts)
+  table.clear(packed.images)
   local tokens = env.theme()
   local contentOffset = tokens.elevation.contentOffset
   local edgeWidth = tokens.sizes.edge
@@ -87,6 +100,17 @@ function pack.run(panel: records.Panel, env: records.Environment, visuals: recor
         boxes[at + 25], boxes[at + 26], boxes[at + 27], boxes[at + 28] =
           if primitive.edges then edgeWidth else 0, primitive.rotation, 0, 0
         count += 1
+      elseif primitive.kind == 'image' then
+        packed.images[#packed.images + 1] = {
+          source = primitive.source,
+          x = node.x + primitive.x,
+          y = node.y + primitive.y,
+          width = primitive.width,
+          height = primitive.height,
+          z = node.z + contentOffset + primitive.offset + step,
+          tint = primitive.tint,
+          clip = clip,
+        }
       else
         for _, line in primitive.lines do
           local text = lineText(primitive.source, line)

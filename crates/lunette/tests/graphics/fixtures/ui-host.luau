@@ -100,4 +100,47 @@ test('a panel face, a raised key, and its label render in front of each other', 
   scene.fixture:close()
 end)
 
+test('an SVG image is rasterised and drawn over its node', function()
+  local svg =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10" fill="#ff0000"/></svg>'
+  local scene = ui.boot({}, {}, function(context: any)
+    local service = context:require(uiHost.capability)
+    kinds(service, context)
+    service:registerKind(context, {
+      name = 'test/picture',
+      layout = {
+        kind = 'leaf',
+        style = function(): lunette.LayoutStyle
+          return { width = 0.06, height = 0.06 }
+        end,
+      },
+      visuals = { 'test/picture' },
+    })
+    service:registerVisual(context, 'test/picture', function(_node: uiHost.Node, draw: uiHost.Draw)
+      draw:image(nil, { source = { kind = 'svg', data = svg } })
+    end)
+    local panel =
+      service:newPanel(context, { name = 'pictures', width = 0.2, height = 0.12, pose = lovr.math.newMat4() })
+    panel.root:bind {
+      render = function()
+        panel.root:submit(element('test/panel', { element('test/picture', { key = 'picture' }) }))
+      end,
+    }
+  end)
+  local image = ui.render(scene, 320, 200, vector.pack(0, 0, 0.32), vector.pack(0, 0, 0))
+  ui.snapshot('host-image', image)
+  -- The picture sits in the panel's padding at the top left; its centre is solid red.
+  local found = false
+  for x = 60, 160, 4 do
+    for y = 30, 120, 4 do
+      local r, g, b = image:getPixel(x, y)
+      if r > 0.9 and g < 0.1 and b < 0.1 then
+        found = true
+      end
+    end
+  end
+  testing.expect.truthy(found, 'red pixels from the rasterised SVG')
+  scene.fixture:close()
+end)
+
 return test

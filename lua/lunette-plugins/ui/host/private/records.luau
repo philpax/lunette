@@ -42,6 +42,16 @@ export type Primitive =
     color: uiHost.Color,
     offset: number,
   }
+  | {
+    kind: 'image',
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    source: uiHost.ImageSource,
+    tint: uiHost.Color,
+    offset: number,
+  }
 
 export type Node = {
   id: number,

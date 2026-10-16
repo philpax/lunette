@@ -25,8 +25,12 @@ local FONTS = {
 -- setup runs inside a consumer plugin.
 function ui.boot(definitions: { any }, requires: { any }, setup: (adapter.Context) -> ()): Scene
   local graphics, data = lovr.graphics, lovr.data
-  local fixture =
-    vrUi.boot { 'frame', 'surfaces', { id = 'ui-host', definition = require('@lunette-plugins/ui/host').definition } }
+  local fixture = vrUi.boot {
+    'frame',
+    'surfaces',
+    'focus',
+    { id = 'ui-host', definition = require('@lunette-plugins/ui/host').definition },
+  }
   lovr.graphics, lovr.data = graphics, data
   lovr.filesystem = { read = host.readFile } :: any
   local session = assert(fixture.session)

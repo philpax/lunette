@@ -143,4 +143,21 @@ shader.textFragment = [[
   }
 ]]
 
+-- Images sample their texture, multiplied by the draw colour, and clip like text.
+shader.imageFragment = [[
+  uniform vec4 textClip;
+  in vec2 textPanel;
+
+  vec4 lovrmain() {
+    if (textPanel.x < textClip.x || textPanel.y < textClip.y || textPanel.x > textClip.z || textPanel.y > textClip.w) {
+      discard;
+    }
+    vec4 color = Color * getPixel(ColorTexture, UV);
+    if (color.a <= 0.) {
+      discard;
+    }
+    return color;
+  }
+]]
+
 return shader

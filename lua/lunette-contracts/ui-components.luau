@@ -38,6 +38,7 @@ export type Service = {
   -- Display.
   read Text: Constructor,
   read Progress: Constructor,
+  read Image: Constructor,
   -- Actions.
   read Button: Constructor,
   read Chip: Constructor,

@@ -10,6 +10,7 @@ local record = {}
 export type Visuals = (name: string) -> { uiHost.Visual }
 
 local TRANSPARENT = table.freeze { 0, 0, 0, 0 }
+local WHITE = table.freeze { 1, 1, 1, 1 }
 
 local function newDraw(node: records.Node, primitives: { records.Primitive }): uiHost.Draw
   local draw = {}
@@ -47,6 +48,19 @@ local function newDraw(node: records.Node, primitives: { records.Primitive }): u
       x = 0,
       y = 0,
       color = spec.color or node.handle.theme.colors.ink,
+      offset = spec.offset or 0,
+    }
+  end
+  function draw.image(_self: uiHost.Draw, rect: uiHost.Rect?, spec: uiHost.ImageSpec): ()
+    local area = rect or node.handle.bounds
+    primitives[#primitives + 1] = {
+      kind = 'image',
+      x = area.x,
+      y = area.y,
+      width = area.width,
+      height = area.height,
+      source = spec.source,
+      tint = spec.tint or WHITE,
       offset = spec.offset or 0,
     }
   end
