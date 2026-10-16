@@ -3,9 +3,13 @@
 
 local lunette = require '@lunette'
 local uiHost = require '@lunette-contracts/ui-host'
+local schema = require '@lunette-plugin/schema'
 local tokens = require './tokens'
 local parse = require '@self/parse'
 local render = require '@self/render'
+local shapes = require './props'
+
+local optional = schema.optional
 
 local markdown = {}
 
@@ -27,6 +31,13 @@ local function registerInline(service: uiHost.Service, owner: any): ()
   -- One word or piece of a word in one style: text, style (a type role), color, code, and onActivate for a link.
   service:registerKind(owner, {
     name = 'lunette/markdown-span',
+    props = schema.object {
+      text = optional(shapes.text),
+      style = optional(schema.string()),
+      color = optional(shapes.color),
+      code = optional(schema.boolean()),
+      onActivate = optional(shapes.activate),
+    },
     layout = {
       kind = 'text',
       text = function(props: uiHost.Props): string
@@ -66,6 +77,10 @@ local function registerInline(service: uiHost.Service, owner: any): ()
   -- A line of words that wraps between them: style (the body's type role, which sets the word gap) and align.
   service:registerKind(owner, {
     name = 'lunette/markdown-flow',
+    props = schema.object {
+      style = optional(schema.string()),
+      align = optional(shapes.textAlign),
+    },
     layout = {
       kind = 'container',
       style = function(props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
@@ -87,6 +102,7 @@ end
 local function registerBlocks(service: uiHost.Service, owner: any): ()
   service:registerKind(owner, {
     name = 'lunette/markdown-quote',
+    props = schema.object {},
     layout = {
       kind = 'container',
       style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
@@ -109,6 +125,7 @@ local function registerBlocks(service: uiHost.Service, owner: any): ()
   -- Code keeps its line breaks and is clipped to the block rather than overflowing the panel.
   service:registerKind(owner, {
     name = 'lunette/markdown-code',
+    props = schema.object {},
     layout = {
       kind = 'container',
       style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
@@ -131,6 +148,7 @@ local function registerBlocks(service: uiHost.Service, owner: any): ()
   -- A body row of a table, laid out as the table header is, so the columns line up.
   service:registerKind(owner, {
     name = 'lunette/markdown-table-row',
+    props = schema.object {},
     layout = {
       kind = 'container',
       style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
@@ -160,6 +178,7 @@ local function registerBlocks(service: uiHost.Service, owner: any): ()
   -- Every cell takes an equal share of its row.
   service:registerKind(owner, {
     name = 'lunette/markdown-cell',
+    props = schema.object {},
     layout = {
       kind = 'container',
       style = function(): lunette.LayoutStyle
@@ -177,6 +196,12 @@ function markdown.register(service: uiHost.Service, owner: any): { [string]: uiH
   -- Markdown props: source (a Markdown string), onLink (receives a link's target), and gap.
   constructors.Markdown = service:registerKind(owner, {
     name = 'lunette/markdown',
+    props = schema.object {
+      source = optional(schema.string()),
+      onLink = optional(schema.callback(function(_target: string) end)),
+      gap = optional(shapes.space),
+      grow = optional(schema.number()),
+    },
     layout = {
       kind = 'container',
       style = function(props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle

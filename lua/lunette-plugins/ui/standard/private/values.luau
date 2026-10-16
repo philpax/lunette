@@ -2,8 +2,12 @@
 
 local lunette = require '@lunette'
 local uiHost = require '@lunette-contracts/ui-host'
+local schema = require '@lunette-plugin/schema'
 local keys = require '@lunette-contracts/keys'
 local tokens = require './tokens'
+local shapes = require './props'
+
+local optional = schema.optional
 
 local values = {}
 
@@ -59,6 +63,16 @@ function values.register(service: uiHost.Service, owner: any): { [string]: uiHos
 
   service:registerKind(owner, {
     name = 'lunette/slider-track',
+    props = shapes.disableable {
+      value = optional(schema.number()),
+      min = optional(schema.number()),
+      max = optional(schema.number()),
+      step = optional(schema.number()),
+      detents = optional(schema.array(shapes.detent)),
+      onPreview = optional(schema.callback(function(_value: number) end)),
+      onFinish = optional(schema.callback(function(_value: number) end)),
+      onCancel = optional(shapes.activate),
+    },
     focus = 'pointer',
     engage = true,
     layout = {
@@ -158,6 +172,18 @@ function values.register(service: uiHost.Service, owner: any): { [string]: uiHos
   -- release the slider keeps showing the released value until the value prop changes.
   constructors.Slider = service:registerKind(owner, {
     name = 'lunette/slider',
+    props = shapes.disableable {
+      label = optional(schema.string()),
+      value = optional(schema.number()),
+      min = optional(schema.number()),
+      max = optional(schema.number()),
+      step = optional(schema.number()),
+      detents = optional(schema.array(shapes.detent)),
+      unit = optional(schema.string()),
+      format = optional(schema.string()),
+      onChange = optional(schema.callback(function(_value: number) end)),
+      onCommit = optional(schema.callback(function(_value: number) end)),
+    },
     role = 'slider',
     semantics = function(props: uiHost.Props, state: { read [string]: any }): uiHost.Semantics
       return { name = props.label, value = props.value, min = props.min or 0, max = props.max or 1 }

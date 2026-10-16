@@ -3,6 +3,10 @@
 
 local lunette = require '@lunette'
 local uiHost = require '@lunette-contracts/ui-host'
+local schema = require '@lunette-plugin/schema'
+local shapes = require './props'
+
+local optional = schema.optional
 
 local overlays = {}
 
@@ -13,6 +17,10 @@ function overlays.register(service: uiHost.Service, owner: any): { [string]: uiH
 
   service:registerKind(owner, {
     name = 'lunette/dialog-face',
+    props = schema.object {
+      minWidth = optional(shapes.length),
+      maxWidth = optional(shapes.length),
+    },
     layout = {
       kind = 'container',
       style = function(props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
@@ -44,6 +52,12 @@ function overlays.register(service: uiHost.Service, owner: any): { [string]: uiH
   -- Dialog props: title, actions ({ id, label, variant, onActivate }), and children for the body.
   constructors.Dialog = service:registerKind(owner, {
     name = 'lunette/dialog',
+    props = schema.object {
+      title = optional(schema.string()),
+      actions = optional(schema.array(shapes.dialogAction)),
+      minWidth = optional(shapes.length),
+      maxWidth = optional(shapes.length),
+    },
     role = 'dialog',
     semantics = function(props: uiHost.Props, state: { read [string]: any }): uiHost.Semantics
       return { name = props.title }
@@ -85,6 +99,10 @@ function overlays.register(service: uiHost.Service, owner: any): { [string]: uiH
   service:registerKind(owner, {
     name = 'lunette/toast-face',
     motion = { enter = 'fade', exit = 'fade' },
+    props = schema.object {
+      level = optional(shapes.level),
+      onHover = optional(schema.callback(function(_hovered: boolean) end)),
+    },
     layout = {
       kind = 'container',
       style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
@@ -127,6 +145,14 @@ function overlays.register(service: uiHost.Service, owner: any): { [string]: uiH
   -- Toast props: title, body, level ('info', 'warning', 'error'), actions, onHover, and onDismiss.
   constructors.Toast = service:registerKind(owner, {
     name = 'lunette/toast',
+    props = schema.object {
+      title = optional(schema.string()),
+      body = optional(schema.string()),
+      level = optional(shapes.level),
+      actions = optional(schema.array(shapes.toastAction)),
+      onHover = optional(schema.callback(function(_hovered: boolean) end)),
+      onDismiss = optional(shapes.activate),
+    },
     role = 'alert',
     semantics = function(props: uiHost.Props, state: { read [string]: any }): uiHost.Semantics
       return { name = props.title }

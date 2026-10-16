@@ -3,8 +3,12 @@
 
 local lunette = require '@lunette'
 local uiHost = require '@lunette-contracts/ui-host'
+local schema = require '@lunette-plugin/schema'
 local keys = require '@lunette-contracts/keys'
 local tokens = require './tokens'
+local shapes = require './props'
+
+local optional = schema.optional
 local edit = require './text-edit'
 
 local fields = {}
@@ -52,6 +56,12 @@ function fields.register(service: uiHost.Service, owner: any): { [string]: uiHos
 
   service:registerKind(owner, {
     name = 'lunette/field-face',
+    props = schema.object {
+      focused = optional(schema.boolean()),
+      hovered = optional(schema.boolean()),
+      invalid = optional(schema.boolean()),
+      grow = optional(schema.number()),
+    },
     layout = {
       kind = 'container',
       style = function(props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
@@ -87,6 +97,14 @@ function fields.register(service: uiHost.Service, owner: any): { [string]: uiHos
 
   service:registerKind(owner, {
     name = 'lunette/field-text',
+    props = schema.object {
+      value = optional(schema.string()),
+      placeholder = optional(schema.string()),
+      caret = optional(schema.number()),
+      anchor = optional(schema.number()),
+      focused = optional(schema.boolean()),
+      mono = optional(schema.boolean()),
+    },
     layout = {
       kind = 'text',
       text = function(props: uiHost.Props): string
@@ -131,6 +149,17 @@ function fields.register(service: uiHost.Service, owner: any): { [string]: uiHos
   -- field edits a draft while focused and reports each change; Enter submits and Escape leaves the field.
   constructors.TextField = service:registerKind(owner, {
     name = 'lunette/text-field',
+    props = shapes.disableable {
+      value = optional(schema.string()),
+      placeholder = optional(schema.string()),
+      onChange = optional(schema.callback(function(_value: string) end)),
+      onSubmit = optional(schema.callback(function(_value: string) end)),
+      onCancel = optional(schema.callback(function(_value: string) end)),
+      invalid = optional(schema.boolean()),
+      mono = optional(schema.boolean()),
+      grow = optional(schema.number()),
+      alignSelf = optional(shapes.align),
+    },
     role = 'textbox',
     semantics = function(props: uiHost.Props, state: { read [string]: any }): uiHost.Semantics
       return { value = props.value, disabled = props.disabledReason ~= nil }

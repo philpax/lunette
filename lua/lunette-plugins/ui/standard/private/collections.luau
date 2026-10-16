@@ -3,7 +3,11 @@
 
 local lunette = require '@lunette'
 local uiHost = require '@lunette-contracts/ui-host'
+local schema = require '@lunette-plugin/schema'
 local tokens = require './tokens'
+local shapes = require './props'
+
+local optional = schema.optional
 
 local collections = {}
 
@@ -51,6 +55,11 @@ function collections.register(service: uiHost.Service, owner: any): { [string]: 
 
   service:registerKind(owner, {
     name = 'lunette/row-face',
+    props = shapes.disableable {
+      compact = optional(schema.boolean()),
+      selected = optional(schema.boolean()),
+      onActivate = optional(shapes.activate),
+    },
     focus = 'pointer',
     layout = {
       kind = 'container',
@@ -89,6 +98,14 @@ function collections.register(service: uiHost.Service, owner: any): { [string]: 
   -- ListRow props: title, detail, trailing, selected, and onActivate.
   constructors.ListRow = service:registerKind(owner, {
     name = 'lunette/list-row',
+    props = schema.object {
+      title = optional(schema.string()),
+      detail = optional(schema.string()),
+      trailing = optional(schema.string()),
+      trailingColor = optional(shapes.color),
+      selected = optional(schema.boolean()),
+      onActivate = optional(shapes.activate),
+    },
     role = 'listitem',
     semantics = function(props: uiHost.Props, state: { read [string]: any }): uiHost.Semantics
       return { name = props.title, selected = props.selected == true }
@@ -148,6 +165,12 @@ function collections.register(service: uiHost.Service, owner: any): { [string]: 
   -- List props: items ({ id, title, detail, trailing }), value, and onChange; or ListRow children.
   constructors.List = service:registerKind(owner, {
     name = 'lunette/list',
+    props = schema.object {
+      items = optional(schema.array(shapes.listItem)),
+      value = optional(schema.string()),
+      onChange = optional(schema.callback(function(_value: string) end)),
+      gap = optional(shapes.space),
+    },
     role = 'list',
     layout = {
       kind = 'container',
@@ -184,6 +207,7 @@ function collections.register(service: uiHost.Service, owner: any): { [string]: 
 
   service:registerKind(owner, {
     name = 'lunette/table-header',
+    props = schema.object {},
     layout = {
       kind = 'container',
       style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
@@ -205,6 +229,12 @@ function collections.register(service: uiHost.Service, owner: any): { [string]: 
   -- Table props: columns ({ id, label }), rows ({ id, cells }), value, and onChange.
   constructors.Table = service:registerKind(owner, {
     name = 'lunette/table',
+    props = schema.object {
+      columns = optional(schema.array(shapes.column)),
+      rows = optional(schema.array(shapes.tableRow)),
+      value = optional(schema.string()),
+      onChange = optional(schema.callback(function(_value: string) end)),
+    },
     role = 'table',
     layout = {
       kind = 'container',
@@ -246,6 +276,12 @@ function collections.register(service: uiHost.Service, owner: any): { [string]: 
   -- Tabs props: tabs (options), value, and onChange. The child whose key is the value is shown.
   constructors.Tabs = service:registerKind(owner, {
     name = 'lunette/tabs',
+    props = schema.object {
+      tabs = optional(schema.array(shapes.tab)),
+      value = optional(schema.string()),
+      onChange = optional(schema.callback(function(_value: string) end)),
+      grow = optional(schema.number()),
+    },
     role = 'tablist',
     semantics = function(props: uiHost.Props, state: { read [string]: any }): uiHost.Semantics
       return { value = props.value }

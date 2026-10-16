@@ -2,7 +2,11 @@
 
 local lunette = require '@lunette'
 local uiHost = require '@lunette-contracts/ui-host'
+local schema = require '@lunette-plugin/schema'
 local tokens = require './tokens'
+local shapes = require './props'
+
+local optional = schema.optional
 
 local actions = {}
 
@@ -65,6 +69,12 @@ function actions.register(service: uiHost.Service, owner: any): { [string]: uiHo
 
   service:registerKind(owner, {
     name = 'lunette/button-face',
+    props = shapes.disableable {
+      variant = optional(shapes.variant),
+      grow = optional(schema.number()),
+      onActivate = optional(shapes.activate),
+      onHover = optional(schema.callback(function(_hovered: boolean) end)),
+    },
     focus = 'pointer',
     layout = {
       kind = 'container',
@@ -118,6 +128,7 @@ function actions.register(service: uiHost.Service, owner: any): { [string]: uiHo
   service:registerKind(owner, {
     name = 'lunette/tooltip',
     motion = { enter = 'fade', exit = 'fade' },
+    props = schema.object {},
     layout = {
       kind = 'container',
       style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
@@ -143,6 +154,13 @@ function actions.register(service: uiHost.Service, owner: any): { [string]: uiHo
   -- Button props: label, variant ('default', 'primary', 'quiet', 'band'), onActivate, disabledReason, and grow.
   constructors.Button = service:registerKind(owner, {
     name = 'lunette/button',
+    props = shapes.disableable {
+      label = optional(schema.string()),
+      variant = optional(shapes.variant),
+      onActivate = optional(shapes.activate),
+      grow = optional(schema.number()),
+      alignSelf = optional(shapes.align),
+    },
     role = 'button',
     semantics = function(props: uiHost.Props, state: { read [string]: any }): uiHost.Semantics
       return { name = props.label, disabled = props.disabledReason ~= nil }
@@ -209,6 +227,11 @@ function actions.register(service: uiHost.Service, owner: any): { [string]: uiHo
   -- Chip props: label, selected, and onChange, which receives the new selection.
   constructors.Chip = service:registerKind(owner, {
     name = 'lunette/chip',
+    props = shapes.disableable {
+      label = optional(schema.string()),
+      selected = optional(schema.boolean()),
+      onChange = optional(schema.callback(function(_value: boolean) end)),
+    },
     role = 'checkbox',
     semantics = function(props: uiHost.Props, state: { read [string]: any }): uiHost.Semantics
       return { name = props.label, checked = props.selected == true }

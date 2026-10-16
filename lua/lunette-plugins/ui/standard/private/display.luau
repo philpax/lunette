@@ -2,7 +2,11 @@
 
 local lunette = require '@lunette'
 local uiHost = require '@lunette-contracts/ui-host'
+local schema = require '@lunette-plugin/schema'
 local tokens = require './tokens'
+local shapes = require './props'
+
+local optional = schema.optional
 
 local display = {}
 
@@ -12,6 +16,18 @@ function display.register(service: uiHost.Service, owner: any): { [string]: uiHo
   -- Text props: text, style (a type role), color (a colour role or a colour), align, wrap, maxLines, and grow.
   constructors.Text = service:registerKind(owner, {
     name = 'lunette/text',
+    props = schema.object {
+      text = optional(shapes.text),
+      style = optional(schema.string()),
+      color = optional(shapes.color),
+      align = optional(shapes.textAlign),
+      wrap = optional(schema.boolean()),
+      maxLines = optional(schema.number()),
+      grow = optional(schema.number()),
+      shrink = optional(schema.number()),
+      basis = optional(shapes.length),
+      alignSelf = optional(shapes.align),
+    },
     role = 'text',
     layout = {
       kind = 'text',
@@ -38,6 +54,11 @@ function display.register(service: uiHost.Service, owner: any): { [string]: uiHo
   -- Progress bars are square-cut: a sunken rail and an accent fill for the value from 0 to 1.
   constructors.Progress = service:registerKind(owner, {
     name = 'lunette/progress',
+    props = schema.object {
+      value = optional(schema.number()),
+      grow = optional(schema.number()),
+      width = optional(shapes.length),
+    },
     role = 'progressbar',
     semantics = function(props: uiHost.Props, state: { read [string]: any }): uiHost.Semantics
       return { value = props.value, min = 0, max = 1 }
@@ -63,6 +84,15 @@ function display.register(service: uiHost.Service, owner: any): { [string]: uiHo
   -- Image props: source (a host image source), tint (a colour role or colour), width, height, and aspect.
   constructors.Image = service:registerKind(owner, {
     name = 'lunette/image',
+    props = schema.object {
+      source = optional(shapes.image),
+      tint = optional(shapes.color),
+      width = optional(shapes.length),
+      height = optional(shapes.length),
+      aspect = optional(schema.number()),
+      label = optional(schema.string()),
+      alignSelf = optional(shapes.align),
+    },
     role = 'image',
     semantics = function(props: uiHost.Props, state: { read [string]: any }): uiHost.Semantics
       return { name = props.label }

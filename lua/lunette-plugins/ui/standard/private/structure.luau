@@ -2,7 +2,11 @@
 
 local lunette = require '@lunette'
 local uiHost = require '@lunette-contracts/ui-host'
+local schema = require '@lunette-plugin/schema'
 local tokens = require './tokens'
+local shapes = require './props'
+
+local optional = schema.optional
 
 local structure = {}
 
@@ -21,6 +25,7 @@ function structure.register(service: uiHost.Service, owner: any): { [string]: ui
 
   constructors.Panel = service:registerKind(owner, {
     name = 'lunette/panel',
+    props = shapes.container(),
     layout = {
       kind = 'container',
       style = function(props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
@@ -51,6 +56,7 @@ function structure.register(service: uiHost.Service, owner: any): { [string]: ui
 
   constructors.Body = service:registerKind(owner, {
     name = 'lunette/body',
+    props = shapes.container(),
     layout = {
       kind = 'container',
       style = function(props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
@@ -68,6 +74,7 @@ function structure.register(service: uiHost.Service, owner: any): { [string]: ui
 
   service:registerKind(owner, {
     name = 'lunette/header-band',
+    props = schema.object {},
     layout = {
       kind = 'container',
       style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
@@ -95,6 +102,11 @@ function structure.register(service: uiHost.Service, owner: any): { [string]: ui
 
   constructors.Header = service:registerKind(owner, {
     name = 'lunette/header',
+    props = schema.object {
+      title = optional(schema.string()),
+      detail = optional(schema.string()),
+      onBack = optional(shapes.activate),
+    },
     role = 'heading',
     semantics = function(props: uiHost.Props, state: { read [string]: any }): uiHost.Semantics
       return { name = props.title }
@@ -127,6 +139,7 @@ function structure.register(service: uiHost.Service, owner: any): { [string]: ui
 
   service:registerKind(owner, {
     name = 'lunette/section-band',
+    props = schema.object {},
     layout = {
       kind = 'container',
       style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
@@ -149,6 +162,10 @@ function structure.register(service: uiHost.Service, owner: any): { [string]: ui
   -- Section headers fill their row: the band bleeds through the body's padding to the panel's edges.
   constructors.Section = service:registerKind(owner, {
     name = 'lunette/section',
+    props = schema.object {
+      title = optional(schema.string()),
+      gap = optional(shapes.space),
+    },
     layout = {
       kind = 'container',
       style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
@@ -173,6 +190,7 @@ function structure.register(service: uiHost.Service, owner: any): { [string]: ui
 
   constructors.Column = service:registerKind(owner, {
     name = 'lunette/column',
+    props = shapes.container(),
     layout = {
       kind = 'container',
       style = function(props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
@@ -183,6 +201,7 @@ function structure.register(service: uiHost.Service, owner: any): { [string]: ui
 
   constructors.Row = service:registerKind(owner, {
     name = 'lunette/row',
+    props = shapes.container(),
     layout = {
       kind = 'container',
       style = function(props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
@@ -194,6 +213,7 @@ function structure.register(service: uiHost.Service, owner: any): { [string]: ui
 
   constructors.Card = service:registerKind(owner, {
     name = 'lunette/card',
+    props = shapes.container(),
     layout = {
       kind = 'container',
       style = function(props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
@@ -218,6 +238,7 @@ function structure.register(service: uiHost.Service, owner: any): { [string]: ui
 
   constructors.Separator = service:registerKind(owner, {
     name = 'lunette/separator',
+    props = schema.object {},
     layout = {
       kind = 'leaf',
       style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
@@ -232,6 +253,11 @@ function structure.register(service: uiHost.Service, owner: any): { [string]: ui
 
   constructors.Spacer = service:registerKind(owner, {
     name = 'lunette/spacer',
+    props = schema.object {
+      grow = optional(schema.number()),
+      width = optional(shapes.length),
+      height = optional(shapes.length),
+    },
     layout = {
       kind = 'leaf',
       style = function(props: uiHost.Props): lunette.LayoutStyle
@@ -252,6 +278,11 @@ function structure.registerScrollBox(service: uiHost.Service, owner: any): uiHos
   end
   local constructor = service:registerKind(owner, {
     name = 'lunette/scroll-box',
+    props = schema.object {
+      height = optional(shapes.length),
+      maxHeight = optional(shapes.length),
+      grow = optional(schema.number()),
+    },
     role = 'scrollbar',
     layout = {
       kind = 'container',
