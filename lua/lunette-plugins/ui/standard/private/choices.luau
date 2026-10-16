@@ -73,26 +73,37 @@ end
 function choices.register(service: uiHost.Service, owner: any): { [string]: uiHost.Constructor }
   local constructors: { [string]: uiHost.Constructor } = {}
 
-  -- A row that the whole of activates, with a quiet hover fill.
+  -- A row that the whole of activates, with a quiet hover fill. A keyed row is a raised key of its own, as each option
+  -- of a single choice is, and stands taller while selected.
   service:registerKind(owner, {
     name = 'lunette/choice-row',
     props = shapes.disableable {
       onActivate = optional(shapes.activate),
+      keyed = optional(schema.boolean()),
+      selected = optional(schema.boolean()),
     },
     focus = 'pointer',
     layout = {
       kind = 'container',
-      style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
+      style = function(props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
+        local inset = if props.keyed then theme.spacing.md else theme.spacing.sm
         return {
           flexDirection = 'row',
           alignItems = 'center',
           gap = theme.spacing.md,
-          minHeight = theme.sizes.row,
-          padding = { left = theme.spacing.sm, right = theme.spacing.sm },
-          margin = { left = -theme.spacing.sm, right = -theme.spacing.sm },
+          minHeight = if props.keyed then theme.sizes.control else theme.sizes.row,
+          padding = { left = inset, right = inset },
+          margin = if props.keyed then nil else { left = -inset, right = -inset },
         }
       end,
     },
+    elevation = function(props: uiHost.Props, theme: uiHost.Theme): number
+      if not props.keyed then
+        return 0
+      end
+      return if props.selected then theme.elevation.selected else theme.elevation.raised * 0.8
+    end,
+    response = { lift = true, travel = true },
     interactive = function(props: uiHost.Props): boolean
       return tokens.enabled(props)
     end,
@@ -100,8 +111,16 @@ function choices.register(service: uiHost.Service, owner: any): { [string]: uiHo
     event = activateOnly,
   })
   service:registerVisual(owner, 'lunette/choice-row', function(node: uiHost.Node, draw: uiHost.Draw)
-    if node.state.hovered then
-      draw:box(nil, { fill = node.theme.colors.hover, radius = node.theme.radii.control })
+    local theme = node.theme
+    if node.props.keyed then
+      draw:box(nil, {
+        fill = if node.state.hovered then theme.colors.hover else theme.colors.raised,
+        radius = theme.radii.control,
+        side = theme.colors.side,
+        edges = true,
+      })
+    elseif node.state.hovered then
+      draw:box(nil, { fill = theme.colors.hover, radius = theme.radii.control })
     end
   end)
 
@@ -126,13 +145,15 @@ function choices.register(service: uiHost.Service, owner: any): { [string]: uiHo
     draw:box(nil, {
       fill = if on and enabled then theme.colors.accent else theme.colors.rail,
       radius = theme.radii.control,
+      edges = true,
     })
-    -- The thumb stands proud of the track, as a key does.
+    -- The thumb stands proud of the track, as a key does: muted while off, in the accent's ink while on.
     local inset = theme.spacing.xs * 0.75
     local size = bounds.height - inset * 2
     local x = if on then bounds.width - inset - size else inset
+    local thumb = if not enabled then theme.colors.sunken elseif on then theme.colors.accentInk else theme.colors.muted
     draw:box({ x = x, y = inset, width = size, height = size }, {
-      fill = if enabled then theme.colors.raised else theme.colors.sunken,
+      fill = thumb,
       radius = theme.radii.control,
       side = theme.colors.side,
       offset = theme.elevation.raised,
@@ -217,6 +238,17 @@ function choices.register(service: uiHost.Service, owner: any): { [string]: uiHo
     local round = node.props.shape == 'round'
     local selectedLift = if on and round then theme.elevation.selected else theme.elevation.raised * 0.6
     local radius = if round then bounds.width / 2 else theme.radii.control
+    if round and not on then
+      -- An unchosen option's disc is an open ring.
+      draw:box(nil, {
+        fill = theme.colors.raised,
+        border = theme.sizes.rule * 2.5,
+        borderColor = theme.colors.line,
+        radius = radius,
+        offset = theme.elevation.contentOffset,
+      })
+      return
+    end
     draw:box(nil, {
       fill = if on then theme.colors.accent else theme.colors.raised,
       radius = radius,
@@ -284,7 +316,7 @@ function choices.register(service: uiHost.Service, owner: any): { [string]: uiHo
     layout = {
       kind = 'container',
       style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
-        return { flexDirection = 'column', alignItems = 'stretch', gap = theme.spacing.xs }
+        return { flexDirection = 'column', alignItems = 'stretch', gap = theme.spacing.sm }
       end,
     },
     expand = function(
@@ -297,6 +329,8 @@ function choices.register(service: uiHost.Service, owner: any): { [string]: uiHo
       for _, option in props.options or {} do
         rows[#rows + 1] = element('lunette/choice-row', {
           key = uiHost.keyOf(option.id),
+          keyed = true,
+          selected = option.id == props.value,
           disabledReason = option.disabledReason,
           onActivate = function()
             act.emit('onChange', option.id)
