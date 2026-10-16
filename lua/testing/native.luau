@@ -236,6 +236,10 @@ export type Events = {
   audioStreamsClosed: number,
   frameGeneration: number,
   headTracked: boolean,
+  -- False runs the desktop simulator: the headset has no session, and the window shows the head's view.
+  headsetActive: boolean,
+  -- The simulator window's size, cursor mode, and the view's half-angles in radians.
+  window: { width: number, height: number, mouseMode: string, view: { number } },
   eyeTracked: boolean,
   eyeTracking: boolean,
   headPose: Mat4,
@@ -316,6 +320,8 @@ function native.new(): Fake
     audioStreamsClosed = 0,
     frameGeneration = 0,
     headTracked = true,
+    headsetActive = true,
+    window = { width = 800, height = 600, mouseMode = 'normal', view = { 0.8, 0.8, 0.65, 0.65 } },
     eyeTracked = false,
     eyeTracking = false,
     headPose = lovr.math.newMat4():translate(0, 1.5, 0),
@@ -874,8 +880,22 @@ installLovr = function(events: Events)
     end,
   }
   lovr.system = {
-    isKeyDown = function(key: string): boolean
-      return events.held[key] == true
+    isKeyDown = function(...: string): boolean
+      for _, key in { ... } do
+        if events.held[key] == true then
+          return true
+        end
+      end
+      return false
+    end,
+    getWindowDimensions = function(): (number, number)
+      return events.window.width, events.window.height
+    end,
+    getMouseMode = function(): string
+      return events.window.mouseMode
+    end,
+    setMouseMode = function(mode: string): ()
+      events.window.mouseMode = mode
     end,
   }
   -- Hands, head, and gaze have independent tracking so a missing gaze never moves the head.
@@ -899,6 +919,27 @@ installLovr = function(events: Events)
     end,
     isMainSessionVisible = function(): boolean
       return events.mainSessionVisible
+    end,
+    isActive = function(): boolean
+      return events.headsetActive
+    end,
+    getViewAngles = function(_view: number): (number, number, number, number)
+      local view = events.window.view
+      return view[1], view[2], view[3], view[4]
+    end,
+    setPose = function(
+      device: string,
+      x: number,
+      y: number,
+      z: number,
+      angle: number,
+      ax: number,
+      ay: number,
+      az: number
+    )
+      if device == 'head' then
+        events.headPose:set(lovr.math.newMat4():translate(x, y, z):rotate(angle, ax, ay, az))
+      end
     end,
     isTracked = function(device: string): boolean
       local state = controller(device)

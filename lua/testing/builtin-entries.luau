@@ -38,6 +38,7 @@ local entries: { [string]: compose.Source } = {
   ['desktop/decorations'] = require('@lunette-plugins/panels/decorations').definition,
   ['desktop/pointing'] = require('@lunette-plugins/input/hand-pointers').definition,
   ['desktop/mouse-pointer'] = require('@lunette-plugins/input/mouse-pointer').definition,
+  ['desktop/simulator'] = require('@lunette-plugins/input/simulator').definition,
   ['desktop/input'] = require('@lunette-plugins/input/physical-routing').definition,
   ['desktop/keyboard'] = require('@lunette-plugins/input/keyboard-display').definition,
   ['desktop/menu'] = require('@lunette-plugins/menu/wrist-menu').definition,

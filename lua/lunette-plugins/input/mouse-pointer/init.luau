@@ -1,5 +1,6 @@
 -- Drives one interaction pointer from the mouse while LÖVR's desktop window receives mouse input. The ray starts at
--- the head and points through a cursor that mouse movement turns. The pointer and its seat are made at the first
+-- the head and points through a cursor that mouse movement turns, or, in the desktop simulator, through the window's
+-- own cursor. The pointer and its seat are made at the first
 -- movement, so a session without a mouse has no extra seat and draws no cursor.
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
@@ -32,6 +33,20 @@ local required: plugin.Declaration = {
   surfaces.capability,
   theme.capability,
 }
+
+-- The view the desktop simulator shows in its window, or nil while a headset session runs. LÖVR answers the
+-- simulator's view angles from the window.
+local function simulatorView(): cursor.View?
+  local headset = lovr.headset
+  if not headset or headset.isActive() then
+    return nil
+  end
+  local left, right, up, down = headset.getViewAngles(1)
+  if not left or not right or not up or not down then
+    return nil
+  end
+  return { left = left, right = right, up = up, down = down }
+end
 
 local function headPose(): Mat4?
   local headset = lovr.headset
@@ -103,7 +118,17 @@ local function init(context: plugin.Context, settings: Settings): ()
   frameService:onMouse(context, {
     run = function(event: frame.HostMouseEvent)
       if event.kind == 'move' then
-        aim = cursor.move(aim, event.dx, event.dy, settings)
+        -- In the simulator the ray follows the window's own cursor, except while the window holds the mouse in
+        -- relative mode to turn the head, where the cursor has no place and the aim stays put.
+        local view = simulatorView()
+        if not view then
+          aim = cursor.move(aim, event.dx, event.dy, settings)
+        elseif lovr.system.getMouseMode() ~= 'relative' then
+          local width, height = lovr.system.getWindowDimensions()
+          if width > 0 and height > 0 then
+            aim = cursor.fromWindow(event.x, event.y, width, height, view)
+          end
+        end
         if not mouse then
           mouse = makeMouse(context, settings)
         end

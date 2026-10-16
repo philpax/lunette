@@ -104,4 +104,25 @@ test('a press released before the next frame is reported down for one frame', fu
   expect.equal(buttons.sample(state).right, nil, 'a release is up on the next frame')
 end)
 
+test('a window point aims through the same point of the view', function()
+  local view: cursor.View = { left = 0.9, right = 0.7, up = 0.6, down = 0.8 }
+  local centreX = 1000 * math.tan(0.9) / (math.tan(0.9) + math.tan(0.7))
+  local centreY = 500 * math.tan(0.6) / (math.tan(0.6) + math.tan(0.8))
+  local centre = cursor.fromWindow(centreX, centreY, 1000, 500, view)
+  expect.near(centre.yaw, 0, 1e-9, 'the view centre aims forward')
+  expect.near(centre.pitch, 0, 1e-9, 'the view centre aims level')
+  local corners = {
+    { 0, 0, -0.9, 0.6 },
+    { 1000, 0, 0.7, 0.6 },
+    { 0, 500, -0.9, -0.8 },
+    { 1000, 500, 0.7, -0.8 },
+  }
+  for _, corner in corners do
+    local aim = cursor.fromWindow(corner[1], corner[2], 1000, 500, view)
+    local x, y, z = vector.unpack(cursor.direction(aim))
+    expect.near(x / -z, math.tan(corner[3]), 1e-6, `the horizontal tangent at {corner[1]}, {corner[2]}`)
+    expect.near(y / -z, math.tan(corner[4]), 1e-6, `the vertical tangent at {corner[1]}, {corner[2]}`)
+  end
+end)
+
 return test

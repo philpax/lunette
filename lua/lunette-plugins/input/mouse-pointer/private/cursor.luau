@@ -49,6 +49,27 @@ function cursor.move(aim: Aim, dx: number, dy: number, limits: Limits): Aim
   }, limits.cone)
 end
 
+-- The view's half-angles in radians, as `lovr.headset.getViewAngles` reports them: each is positive away from the
+-- view's centre.
+export type View = {
+  read left: number,
+  read right: number,
+  read up: number,
+  read down: number,
+}
+
+-- The aim through a point of the window, which shows the view: x and y are window pixels with y downward. A point
+-- outside the window aims past the view's edge.
+function cursor.fromWindow(x: number, y: number, width: number, height: number, view: View): Aim
+  local u, v = x / width, y / height
+  local tx = -math.tan(view.left) + u * (math.tan(view.right) + math.tan(view.left))
+  local ty = math.tan(view.up) - v * (math.tan(view.up) + math.tan(view.down))
+  return table.freeze {
+    yaw = math.atan(tx),
+    pitch = math.atan2(ty, math.sqrt(1 + tx * tx)),
+  }
+end
+
 -- The ray's pose: the head's position, turned from the head's orientation by the aim, so its -Z axis is the ray.
 function cursor.pose(head: Mat4, aim: Aim): Mat4
   return lovr.math.newMat4(head):rotate(-aim.yaw, 0, 1, 0):rotate(aim.pitch, 1, 0, 0)

@@ -178,4 +178,44 @@ test('the cursor draws at the configured distance when the ray hits nothing, and
   scene.state.fixture:close()
 end)
 
+-- The window pixel where the simulator shows a node, for a head that faces -Z without turning.
+local function windowPoint(scene: Scene, path: string): (number, number)
+  local node = assert(scene.state.panel:find(path), `no node at {path}`)
+  local offset = vector.pack(node:pose():getPosition()) - headPosition(scene)
+  local window = scene.state.fixture.native.events.window
+  local left, right, up, down =
+    math.tan(window.view[1]), math.tan(window.view[2]), math.tan(window.view[3]), math.tan(window.view[4])
+  local tx, ty = offset.x / -offset.z, offset.y / -offset.z
+  return (tx + left) / (left + right) * window.width, (up - ty) / (up + down) * window.height
+end
+
+test('in the simulator the ray follows the window cursor, and a click there activates the button', function()
+  local scene = boot()
+  local events = scene.state.fixture.native.events
+  events.headsetActive = false
+  local x, y = windowPoint(scene, 'go')
+  -- The movement is far from the button, so only the absolute position can aim the ray at it.
+  lovr.mousemoved(x, y, -500, 400)
+  frame(scene)
+  local node = assert(scene.state.panel:find 'go')
+  local nx, ny = node:pose():getPosition()
+  local cursors = spheres(scene)
+  expect.equal(#cursors, 1, 'one cursor')
+  expect.near(cursors[1][2] :: number, nx, 0.002, 'the cursor sits on the button horizontally')
+  expect.near(cursors[1][3] :: number, ny, 0.002, 'the cursor sits on the button vertically')
+  lovr.mousepressed(x, y, 1)
+  frame(scene)
+  lovr.mousereleased(x, y, 1)
+  frame(scene)
+  expect.equal(scene.activations, 1, 'the click activates the button')
+
+  -- While the window holds the mouse in relative mode, a movement keeps the aim.
+  events.window.mouseMode = 'relative'
+  lovr.mousemoved(0, 0, 300, 300)
+  frame(scene)
+  local held = spheres(scene)
+  expect.near(held[1][2] :: number, nx, 0.002, 'the aim stays on the button')
+  scene.state.fixture:close()
+end)
+
 return test

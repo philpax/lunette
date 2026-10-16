@@ -88,6 +88,7 @@ test('desktop_backdrop_composition_and_settings', function()
     'desktop/decorations',
     'desktop/pointing',
     'desktop/mouse-pointer',
+    'desktop/simulator',
     'desktop/input',
     'desktop/keyboard',
     'desktop/menu',

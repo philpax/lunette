@@ -52,7 +52,7 @@ make run ARGS="--config-path etc/xdg/lunette"
 
 `make run` selects the source Lua roots and `dev/` configuration; the second command selects the shipped configuration. Plain `cargo run` uses installed defaults. The shipped desktop launches no application; development launch behavior stays in `dev/`.
 
-The desktop simulator runs real compositor, client, and input paths without an XR runtime. lunette logs its first free socket from `wayland-20`; `WAYLAND_DISPLAY=<logged-name> <app>` connects an adopted client. [Source reload](native/lua-api.md#reload) is the headset iteration path; hard restart replaces graphics.
+The desktop simulator runs real compositor, client, and input paths without an XR runtime. The [simulator plugin](../../lua/lunette-plugins/input/simulator/README.md) describes its mouse and keyboard controls. lunette logs its first free socket from `wayland-20`; `WAYLAND_DISPLAY=<logged-name> <app>` connects an adopted client. [Source reload](native/lua-api.md#reload) is the headset iteration path; hard restart replaces graphics.
 
 Logs use stderr. `lunctl` inspects the running state between frames. Imported-image diagnosis can set `LUNETTE_IMPORT_QUEUE_FAMILY` to `foreign` or `ignored` and `LUNETTE_IMPORT_LAYOUT` to `general` or `undefined`. These override barriers for experiments, not portability guarantees; [validation](native/rendering-validation.md#imported-image-ownership-barriers) records limits.
 

@@ -50,6 +50,7 @@ test('settings cover entries with options and shipped empty schemas', function()
     'desktop/decorations',
     'desktop/pointing',
     'desktop/mouse-pointer',
+    'desktop/simulator',
     'desktop/input',
     'desktop/keyboard',
     'desktop/menu',
