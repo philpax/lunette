@@ -83,6 +83,7 @@ use crate::{
     },
     properties::WindowProperties,
     reload::reload_from_lua,
+    safe_mode::{BootEntry, SafeModeRequest, restart_into_safe_mode},
     scale,
     scene::{Gate, SceneRendering, install_gate},
     texture::{CopyableTexture, FrameGeneration, LovrTexture, MonitorTextures, TextureLedger},
@@ -162,6 +163,8 @@ pub struct Session<T> {
     /// Whether this frame recorded layer copies that nothing has submitted yet.
     /// [`crate::scene`] describes what happens if they are left unsubmitted.
     unflushed_copies: Cell<bool>,
+    /// Whether the next boot runs safe mode. It survives the restart that follows the request.
+    safe_mode: SafeModeRequest,
 }
 
 impl<T> Session<T> {
@@ -216,7 +219,13 @@ impl<T> Session<T> {
             properties: RefCell::new(WindowProperties::new()),
             scene: Cell::new(SceneRendering::default()),
             unflushed_copies: Cell::new(false),
+            safe_mode: SafeModeRequest::default(),
         })
+    }
+
+    /// Answers what the boot that is starting runs, and resets any safe-mode request.
+    pub fn take_boot_entry(&self) -> BootEntry {
+        self.safe_mode.take()
     }
 
     /// Runs `body` against the per-window properties, bounding the borrow as
@@ -650,6 +659,17 @@ module! {
             session.as_ref(),
             &|| session.clear_subscribers(),
         ))
+    }
+
+    /// Requests a hard restart whose next boot runs the compiled-in safe mode instead of the configuration. The restart happens after the frame's callbacks return; reloading from safe mode loads the configuration again. Answers whether the restart was queued, and the error if it was not.
+    fn restartIntoSafeMode(lua, session) -> (bool, Option<String>) {
+        match restart_into_safe_mode(lua, &session.safe_mode) {
+            Ok(()) => Ok((true, None)),
+            Err(error) => {
+                tracing::warn!("{error}");
+                Ok((false, Some(error.to_string())))
+            }
+        }
     }
 }
 

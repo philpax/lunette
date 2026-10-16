@@ -186,7 +186,7 @@ fn run_session(
         //
         // SAFETY: `state` is live until the `luax_close` below, and the
         // reference mlua constructs over it is consumed inside this call.
-        if let Err(error) = safe_mode::install_trigger(&lua_handle) {
+        if let Err(error) = safe_mode::install_trigger(&lua_handle, session.take_boot_entry()) {
             // Not fatal. The session boots without the fallback for a
             // configuration that does not load.
             error!("lua: safe mode could not be armed: {error}");

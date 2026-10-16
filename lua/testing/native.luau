@@ -254,6 +254,8 @@ export type Events = {
   enumerations: number,
   closed: number,
   writeMode: 'ok' | 'refuse',
+  -- How many times the session asked to restart into safe mode.
+  safeModeRestarts: number,
   time: number,
   rates: { { window: number, rate: number? } },
   modes: { { output: number, scale: number? } },
@@ -331,6 +333,7 @@ function native.new(): Fake
     enumerations = 0,
     closed = 0,
     writeMode = 'ok',
+    safeModeRestarts = 0,
     time = 0,
     rates = {},
     modes = {},
@@ -622,6 +625,11 @@ installNative = function(fake: Fake, events: Events, subscribe: Subscribe, clear
   end
   lunette.reload = function(): (boolean, string?)
     return host.reload(clearSubscriptions)
+  end
+  -- Records the request; a test session has no restart to queue.
+  lunette.restartIntoSafeMode = function(): (boolean, string?)
+    events.safeModeRestarts += 1
+    return true, nil
   end
 end
 

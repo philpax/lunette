@@ -856,6 +856,11 @@ export type Lunette = {
   -- configuration in the same Lua state, keeping the compositor, the clients,
   -- and their textures. Answers whether it loaded, and the error if it did not.
   read reload: () -> (boolean, string?),
+  -- Requests a hard restart whose next boot runs the compiled-in safe mode
+  -- instead of the configuration. The restart happens after the frame's
+  -- callbacks return; reloading from safe mode loads the configuration again.
+  -- Answers whether the restart was queued, and the error if it was not.
+  read restartIntoSafeMode: () -> (boolean, string?),
   -- Calls `handler` whenever this event is delivered, and answers the function
   -- that stops it. Every listener is called, in the order they subscribed, and
   -- a soft reload forgets all of them.
