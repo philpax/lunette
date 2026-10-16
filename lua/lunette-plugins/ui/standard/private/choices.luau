@@ -72,6 +72,7 @@ function choices.register(service: uiHost.Service, owner: any): { [string]: uiHo
   -- A row that the whole of activates, with a quiet hover fill.
   service:registerKind(owner, {
     name = 'lunette/choice-row',
+    focus = 'pointer',
     layout = {
       kind = 'container',
       style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
@@ -267,6 +268,7 @@ function choices.register(service: uiHost.Service, owner: any): { [string]: uiHo
 
   service:registerKind(owner, {
     name = 'lunette/segment',
+    focus = 'pointer',
     layout = {
       kind = 'container',
       style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
@@ -401,6 +403,7 @@ function choices.registerDropdown(service: uiHost.Service, owner: any): uiHost.C
 
   service:registerKind(owner, {
     name = 'lunette/menu-item',
+    focus = 'pointer',
     layout = {
       kind = 'container',
       style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle

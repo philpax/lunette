@@ -53,6 +53,8 @@ export type Service = {
   read List: Constructor,
   read ListRow: Constructor,
   read Table: Constructor,
+  -- Text input.
+  read TextField: Constructor,
   -- Overlays: the content of dialog and follow panels.
   read Dialog: Constructor,
   read Toast: Constructor,

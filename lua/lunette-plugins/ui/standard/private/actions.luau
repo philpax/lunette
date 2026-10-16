@@ -65,6 +65,7 @@ function actions.register(service: uiHost.Service, owner: any): { [string]: uiHo
 
   service:registerKind(owner, {
     name = 'lunette/button-face',
+    focus = 'pointer',
     layout = {
       kind = 'container',
       style = function(props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle

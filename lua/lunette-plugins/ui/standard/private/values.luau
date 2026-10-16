@@ -2,6 +2,7 @@
 
 local lunette = require '@lunette'
 local uiHost = require '@lunette-contracts/ui-host'
+local keys = require '@lunette-contracts/keys'
 local tokens = require './tokens'
 
 local values = {}
@@ -58,6 +59,8 @@ function values.register(service: uiHost.Service, owner: any): { [string]: uiHos
 
   service:registerKind(owner, {
     name = 'lunette/slider-track',
+    focus = 'pointer',
+    engage = true,
     layout = {
       kind = 'leaf',
       style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
@@ -81,6 +84,23 @@ function values.register(service: uiHost.Service, owner: any): { [string]: uiHos
         node:emit('onFinish', value)
       elseif kind == 'cancel' then
         node:emit 'onCancel'
+      elseif kind == 'key' then
+        -- Directions adjust the value from a keyboard at once, and from a controller only once traversal engaged the
+        -- slider, so a controller user is never trapped in it.
+        local key = event :: any
+        local codes = keys.CODES
+        local adjusts = node.state.engaged or key.source ~= 'controller'
+        local direction = if key.code == codes.right or key.code == codes.up
+          then 1
+          elseif key.code == codes.left or key.code == codes.down then -1
+          else 0
+        if adjusts and direction ~= 0 then
+          local low, high = node.props.min or 0, node.props.max or 1
+          local step = node.props.step or (high - low) / 20
+          node:emit('onFinish', math.clamp((node.props.value or low) + direction * step, low, high))
+        else
+          base(node, event)
+        end
       elseif
         kind ~= 'hover-enter'
         and kind ~= 'hover-leave'

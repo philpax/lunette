@@ -308,4 +308,123 @@ test('a dropdown menu closes on a press outside it and opens past the panel edge
   state.fixture:close()
 end)
 
+-- A virtual keyboard source, as the VR keyboard is, through the session's focus service.
+local function keyboard(state: fixture.State): any
+  local focusContract = require '@lunette-contracts/focus'
+  local observed = assert(state.fixture.session):observe(focusContract.capability)
+  local service = assert(observed.service)
+  return service, service:newSource(assert(observed.context), { mode = 'virtual' })
+end
+
+test('pressing a text field takes the keyboard, and typing edits and submits it', function()
+  local state = boot()
+  local c = assert(state.components)
+  local changes: { string } = {}
+  local submitted: string? = nil
+  fixture.show(
+    state,
+    c.Panel {
+      c.Body {
+        key = 'body',
+        c.TextField {
+          key = 'name',
+          value = '',
+          placeholder = 'Name',
+          onChange = function(value: string)
+            table.insert(changes, value)
+          end,
+          onSubmit = function(value: string)
+            submitted = value
+          end,
+        },
+      },
+    }
+  )
+  local focusService, source = keyboard(state)
+  fixture.click(state, 'body/name')
+  state.fixture:step()
+  local focused = focusService:focused()
+  expect.truthy(focused, 'the field took session focus')
+  local codes = require('@lunette-contracts/keys').CODES
+  expect.equal(source:text('héllo').kind, 'consumed')
+  expect.equal(changes[#changes], 'héllo')
+  source:key { code = codes.backspace }
+  expect.equal(changes[#changes], 'héll')
+  source:key { code = codes.home }
+  source:text 'a '
+  expect.equal(changes[#changes], 'a héll')
+  state.fixture:step()
+  local text = assert(state.panel:find 'body/name/face/text')
+  expect.equal(text.props.value, 'a héll', 'the field shows its draft')
+  source:key { code = codes.enter }
+  expect.equal(submitted, 'a héll')
+  state.fixture:close()
+end)
+
+test('traversal moves focus through controls and activates the focused one', function()
+  local state = boot()
+  local c = assert(state.components)
+  local activated: { string } = {}
+  local function button(key: string): any
+    return c.Button {
+      key = key,
+      label = key,
+      onActivate = function()
+        table.insert(activated, key)
+      end,
+    }
+  end
+  fixture.show(
+    state,
+    c.Panel { c.Body { key = 'body', c.Row { key = 'row', button 'first', button 'second', button 'third' } } }
+  )
+  local host = state.service
+  expect.truthy(host:nextPanel(), 'traversal enters the panel')
+  state.fixture:step()
+  expect.truthy(host:activate())
+  expect.truthy(host:navigate 'right')
+  expect.truthy(host:navigate 'next')
+  expect.truthy(host:activate())
+  expect.equal(table.concat(activated, ','), 'first,third')
+  local third = assert(state.panel:find 'body/row/third/face')
+  expect.truthy(third.state.focusVisible, 'focus from traversal shows a ring')
+  state.fixture:close()
+end)
+
+test('an engaged slider takes directions from a controller, and an idle one passes them on', function()
+  local state = boot()
+  local c = assert(state.components)
+  local value = 0.5
+  fixture.show(
+    state,
+    c.Panel {
+      c.Body {
+        key = 'body',
+        c.Slider {
+          key = 'level',
+          label = 'Level',
+          value = value,
+          step = 0.1,
+          onCommit = function(next: number)
+            value = next
+          end,
+        },
+        c.Button { key = 'after', label = 'After', onActivate = function() end },
+      },
+    }
+  )
+  local host = state.service
+  expect.truthy(host:nextPanel())
+  state.fixture:step()
+  expect.truthy(host:navigate 'right' == false, 'an idle slider passes the direction on, and nothing lies right')
+  expect.near(value, 0.5, 1e-9, 'the value is unchanged')
+  expect.truthy(host:navigate 'down', 'focus moves to the button below')
+  expect.truthy(host:navigate 'up')
+  expect.truthy(host:activate(), 'activation engages the slider')
+  expect.truthy(host:navigate 'right')
+  expect.near(value, 0.6, 1e-9, 'the engaged slider moved')
+  expect.truthy(host:dismiss(), 'dismissal disengages it')
+  state.fixture:close()
+end)
+
 return test

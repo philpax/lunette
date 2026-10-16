@@ -51,6 +51,7 @@ function collections.register(service: uiHost.Service, owner: any): { [string]: 
 
   service:registerKind(owner, {
     name = 'lunette/row-face',
+    focus = 'pointer',
     layout = {
       kind = 'container',
       style = function(props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
