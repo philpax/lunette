@@ -4,9 +4,9 @@ Plugin consumers use `lunette/ui` for local VR controls without importing a prov
 
 ## An example form
 
-[`examples/ui/main.luau`](../../examples/ui/main.luau) inserts a complete form into the desktop. Its [form plugin](../../examples/ui/form.luau) declares UI, menu, and frame dependencies, creates an owner-scoped panel, keeps values inside activation, and draws the panel from a frame callback. A wrist-menu action opens it, and a text field uses the shared keyboard.
+[`examples/ui/main.luau`](../../examples/ui/main.luau) inserts a complete form into the desktop. Its [form plugin](../../examples/ui/form.luau) is built on the newer toolkit rather than `lunette/ui`: it requires the [UI host](../../lua/lunette-contracts/ui-host.luau), the [standard kinds](../../lua/lunette-contracts/ui-components.luau), and the menu, creates an owner-scoped panel, and mounts a component written with the [React-like library](../../lua/lunette-plugins/ui/react/README.md) that keeps the form's values in hooks. It also registers a kind of its own, a pad that counts taps. A wrist-menu action shows the panel, the text field uses the shared keyboard, and Close ends the field's focus before hiding the panel. The [UI design documents](../development/ui/README.md) describe the newer toolkit.
 
-Run it with the [copy/check workflow](../users/desktop-configuration.md#copy-and-check-a-configuration), copying the example modules beside `main.luau`. New forms follow the same sequence: acquire a panel with the context as owner, register controls and a menu action, then register drawing. The panel's owner releases its controls, surface, captures, and focus on unload.
+Run it with the [copy/check workflow](../users/desktop-configuration.md#copy-and-check-a-configuration), copying the example modules beside `main.luau`.
 
 ## Geometry and input
 

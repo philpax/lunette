@@ -9,6 +9,9 @@ local vrUi = require '@testing/vr-ui'
 
 local uiPanels = {}
 
+-- The thumbstick deflection that reveal scrolls with.
+local SCROLL = 0.3
+
 export type Recorder = {
   -- The replacement for the host's definition, under the entry id `ui-host`.
   read definition: adapter.Definition<any>,
@@ -120,13 +123,14 @@ function uiPanels.new(): Recorder
     end
     local direction = 1
     local previous = outside()
-    for _ = 1, 100 do
+    for _ = 1, 400 do
       if previous == 0 then
         break
       end
       fixture:aim(geometry(scroller), 0.5, 0.5, hand)
-      fixture:axis(hand, 0, if previous > 0 then -direction else direction)
-      fixture:step(0.05)
+      -- A light deflection scrolls a few centimetres a frame, so the node is not carried past the box.
+      fixture:axis(hand, 0, (if previous > 0 then -direction else direction) * SCROLL)
+      fixture:step()
       fixture:axis(hand, 0, 0)
       -- A scroll changes node state while pointing, and the next commit places the nodes where it moved them.
       fixture:step()

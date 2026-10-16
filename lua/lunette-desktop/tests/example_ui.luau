@@ -4,7 +4,7 @@ local desktop = require '@lunette-desktop'
 local vrUi = require '@testing/vr-ui'
 local uiPanels = require '@testing/ui-panels'
 local wristMenu = require '@testing/wrist-menu'
-local ui = require '@lunette-contracts/ui'
+local uiHost = require '@lunette-contracts/ui-host'
 local menu = require '@lunette-contracts/menu'
 local display = require '@lunette-contracts/keyboard-display'
 local surfaces = require '@lunette-contracts/surfaces'
@@ -17,7 +17,7 @@ type Environment = {
   recorder: uiPanels.Recorder,
   session: Session,
   native: Native,
-  ui: ui.Service,
+  host: uiHost.Service,
   menu: menu.Service,
   display: display.Service,
   surfaces: surfaces.Service,
@@ -27,8 +27,14 @@ local test = testing.suite()
 local name = 'example/ui/form'
 local actionId = 'example/ui/open'
 
-local function description(service: ui.Service): vrUi.Description?
-  return vrUi.describe(service, name)
+-- Whether the host reports the form's panel as visible.
+local function visible(env: Environment): boolean
+  for _, registration in env.host:inspect().registrations do
+    if registration.name == name and registration.live then
+      return registration.details.visible == true
+    end
+  end
+  error 'the form has no panel'
 end
 
 local function boot(): Environment
@@ -45,7 +51,7 @@ local function boot(): Environment
     recorder = recorder,
     session = session,
     native = fixture.native,
-    ui = session:observe(ui.capability).service,
+    host = session:observe(uiHost.capability).service,
     menu = session:observe(menu.capability).service,
     display = session:observe(display.capability).service,
     surfaces = session:observe(surfaces.capability).service,
@@ -62,8 +68,8 @@ local function withEnvironment(run: (Environment) -> ())
   env.fixture:close()
 end
 
-local function click(env: Environment, id: string, itemId: string?, hand: vrUi.Hand?)
-  env.fixture:clickControl(env.ui, name, id, hand or 'right', itemId)
+local function click(env: Environment, path: string)
+  env.recorder:click(env.fixture, name, path)
 end
 
 local function open(env: Environment)
@@ -97,14 +103,8 @@ local function key(env: Environment, code: number)
 end
 
 local function status(env: Environment): string
-  env.native.events.draw = {}
-  env.fixture:draw()
-  for _, call in env.native.events.draw do
-    if call[1] == 'text' and type(call[2]) == 'string' and call[2]:find('Presses:', 1, true) then
-      return call[2]
-    end
-  end
-  error 'the custom region does not draw its status'
+  local node = assert(env.recorder:node(name, 'body/status'), 'the form shows its status')
+  return node.props.text
 end
 
 test('the UI configuration boots and draws through the shipped desktop', function()
@@ -120,22 +120,24 @@ end)
 
 test('the form opens from the wrist menu and completes its workflow by controller', function()
   withEnvironment(function(env: Environment)
-    expect.falsy(assert(description(env.ui)).visible, 'the form starts hidden')
+    expect.falsy(visible(env), 'the form starts hidden')
     open(env)
-    expect.truthy(assert(description(env.ui)).visible, 'the wrist action opens the form')
-    click(env, 'press')
+    expect.truthy(visible(env), 'the wrist action opens the form')
+    click(env, 'body/actions/press')
     expect.truthy(status(env):find('Presses: 1', 1, true), 'the button invokes the consumer callback')
-    click(env, 'name')
+    click(env, 'body/name')
     expect.truthy(env.display:isVisible(), 'the field requests the shared keyboard')
     key(env, 16)
+    env.fixture:step()
     expect.truthy(status(env):find('name: q', 1, true), 'a VR key edits the form text')
-    click(env, 'mode')
-    click(env, 'mode', 'studio')
-    expect.truthy(status(env):find('mode: studio', 1, true), 'the choice invokes the consumer callback')
-    click(env, 'preview')
-    expect.truthy(status(env):find('taps: 1', 1, true), 'the custom region receives a pointer gesture')
-    click(env, 'close')
-    expect.falsy(assert(description(env.ui)).visible, 'Close hides the form')
+    click(env, 'body/choices/mode/content/mode/studio')
+    expect.truthy(status(env):find('mode: studio', 1, true), 'the radio group invokes the consumer callback')
+    click(env, 'body/choices/destinations/content/list/destination-12')
+    expect.truthy(status(env):find('destination: destination-12', 1, true), 'a scrolled list row is chosen')
+    click(env, 'body/pad')
+    expect.truthy(status(env):find('taps: 1', 1, true), 'the custom kind receives a pointer gesture')
+    click(env, 'header/band/close')
+    expect.falsy(visible(env), 'Close hides the form')
     expect.falsy(env.display:isVisible(), 'Close ends the keyboard claim')
   end)
 end)
