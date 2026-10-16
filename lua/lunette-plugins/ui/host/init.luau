@@ -25,6 +25,8 @@ local chord = require '@self/private/chord'
 local motion = require '@self/private/motion'
 local semantics = require '@self/private/semantics'
 local panels = require '@self/private/panel'
+local outlets = require '@self/private/outlets'
+local placements = require '@self/private/placements'
 local fonts = require '@self/private/rendering/fonts'
 local pack = require '@self/private/rendering/pack'
 local renderer = require '@self/private/rendering/renderer'
@@ -48,6 +50,7 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
   local accent: uiHost.Color = settings.accent or themes.DEFAULT_ACCENT
   local current = themes.resolve(mode, accent)
   local kinds = registry.new(context)
+  local contributions = outlets.new()
   local faces = fonts.new()
   local router = input.new()
   local touching = touch.new()
@@ -78,6 +81,10 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
     protect = protected.call,
     removed = function(_panel: records.Panel, node: records.Node): ()
       input.removed(router, node)
+      placements.removed(contributions, env, node)
+    end,
+    outlet = function(_panel: records.Panel, node: records.Node): ({ uiHost.Element }, { string })
+      return placements.children(contributions, env, node)
     end,
     dispatch = function(node: records.Node, event: uiHost.Event): boolean
       return input.dispatch(env, node, event)
@@ -392,6 +399,23 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
         end
       end)
     end,
+    contribute = function(
+      _self: uiHost.Service,
+      owner: plugin.Owner,
+      outlet: uiHost.Outlet<any>,
+      contribution: uiHost.Contribution
+    ): plugin.Effect
+      context:checkOwner(owner)
+      local version = outlets.prepare(contributions, outlet, contribution)
+      local bind = contribution.bind
+      return context:acquire(owner, function(): () -> ()
+        local record, remove = outlets.add(contributions, owner, outlet, version, bind)
+        return function(): ()
+          remove()
+          placements.ended(contributions, env, record)
+        end
+      end)
+    end,
     setDefaultAppearance = function(_self: uiHost.Service, on: boolean): ()
       assert(type(on) == 'boolean', 'ui: default appearance is on or off')
       setDefaultAppearance(on)
@@ -501,7 +525,7 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
           inspection.registration(
             'control',
             'ui-host.node',
-            node.panel.owner,
+            placements.ownerOf(node),
             semantics.id(node),
             not node.dead,
             details
@@ -544,6 +568,18 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
           inspection.registration('override', 'ui-host.override', override.owner, override.name, true, {
             replaces = override.kind,
             active = not kinds.defaultAppearance,
+          })
+        )
+      end
+      -- Contributions are listed with their owners and the number of placements each renders in.
+      for _, entry in outlets.inspect(contributions) do
+        local contribution = entry.contribution
+        table.insert(
+          result,
+          inspection.registration('contribution', 'ui-host.contribute', contribution.owner, contribution.outlet, true, {
+            contributor = contribution.contributor,
+            version = `{contribution.version.major}.{contribution.version.minor}`,
+            placements = entry.placements,
           })
         )
       end

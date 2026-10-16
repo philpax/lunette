@@ -12,6 +12,8 @@ export type Kind = {
   composite: boolean,
   -- The host's portal kind renders its children into an overlay panel instead of its own.
   portal: boolean,
+  -- The host's outlet kind renders the contributions to an outlet as its children.
+  outlet: boolean,
 }
 
 -- A drawn primitive in node coordinates, recorded by a visual and replayed every frame.
@@ -103,6 +105,8 @@ export type Node = {
   ref: uiHost.Ref?,
   -- The panel a portal node renders its children into.
   overlay: Panel?,
+  -- The outlet instance an outlet node holds.
+  placement: Placement?,
   dead: boolean,
 }
 
@@ -166,6 +170,52 @@ export type Panel = {
   closing: boolean,
   -- The follow presentation's current target, which it moves to only when the head turns far enough away.
   followTarget: Mat4?,
+  -- The outlet instances placed in the panel, whose contributions render in its commits.
+  placements: { Placement },
+}
+
+-- A live contribution to an outlet, by its owner.
+export type Contribution = {
+  outlet: string,
+  owner: plugin.Owner,
+  -- The definition name of the contributing plugin, which attribution shows and ordering compares.
+  contributor: string,
+  version: uiHost.Version,
+  bind: (uiHost.OutletMount) -> (),
+  -- The order of registration, which keeps two contributions from one plugin in their order.
+  sequence: number,
+  dead: boolean,
+}
+
+-- One contribution's mount point within one placement.
+export type ContributionMount = {
+  contribution: Contribution,
+  handle: uiHost.OutletMount,
+  adapter: uiHost.Adapter?,
+  scheduled: boolean,
+  committed: boolean,
+  rendering: boolean,
+  dead: boolean,
+  -- The element the contribution last submitted, and the wrapper the host built around it.
+  element: uiHost.Element?,
+  wrapped: uiHost.Element?,
+  wrapper: uiHost.Element?,
+  -- The key of the wrapper among the outlet's children.
+  key: string,
+}
+
+-- An outlet instance: an outlet node, the declaration it places, its validated props, and a mount point for each
+-- compatible contribution in order.
+export type Placement = {
+  node: Node,
+  declaration: uiHost.Outlet<any>?,
+  -- Whether the declaration conflicts with a live declaration of the same name and version.
+  conflicting: boolean,
+  raw: unknown,
+  props: uiHost.Props,
+  mounts: { ContributionMount },
+  -- Contributions whose version mismatch has been reported for this placement.
+  reported: { [Contribution]: boolean },
 }
 
 export type Channel = { value: number, target: number, velocity: number }
@@ -210,6 +260,8 @@ export type Environment = {
   -- Focuses a node, taking session focus when its policy is text, and answers whether it took focus.
   read focusNode: (Node, boolean) -> boolean,
   read blurNode: (Node) -> (),
+  -- The children of an outlet node: a wrapper around each contribution's content, with its slots.
+  read outlet: (Panel, Node) -> ({ uiHost.Element }, { string }),
 }
 
 return {}

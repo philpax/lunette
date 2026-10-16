@@ -3,6 +3,7 @@
 local plugin = require '@lunette-plugin'
 local uiHost = require '@lunette-contracts/ui-host'
 local records = require './records'
+local outlets = require './outlet-kinds'
 
 local registry = {}
 
@@ -50,6 +51,7 @@ local function record(owner: plugin.Owner, registration: uiHost.KindRegistration
     registration = registration,
     composite = registration.expand ~= nil,
     portal = false,
+    outlet = false,
   }
 end
 
@@ -117,6 +119,7 @@ function registry.new(hostOwner: plugin.Owner): Registry
     owner = hostOwner,
     composite = false,
     portal = false,
+    outlet = false,
     registration = {
       name = 'lunette/missing',
       layout = {
@@ -134,6 +137,7 @@ function registry.new(hostOwner: plugin.Owner): Registry
     owner = hostOwner,
     composite = false,
     portal = true,
+    outlet = false,
     registration = {
       name = 'lunette/portal',
       layout = {
@@ -149,6 +153,7 @@ function registry.new(hostOwner: plugin.Owner): Registry
     owner = hostOwner,
     composite = false,
     portal = false,
+    outlet = false,
     registration = {
       name = 'lunette/overlay-root',
       layout = {
@@ -159,21 +164,30 @@ function registry.new(hostOwner: plugin.Owner): Registry
       },
     },
   }
-  return {
-    kinds = { ['lunette/portal'] = { portal }, ['lunette/overlay-root'] = { overlayRoot } },
-    defaultAppearance = false,
-    overrides = {},
-    visuals = {
-      [MISSING_VISUAL] = {
-        {
-          owner = hostOwner,
-          visual = function(node: uiHost.Node, draw: uiHost.Draw): ()
-            local colors = node.theme.colors
-            draw:box(nil, { fill = colors.sunken, border = 0.001, borderColor = colors.danger })
-          end,
-        },
+  local kinds: { [string]: { records.Kind } } =
+    { ['lunette/portal'] = { portal }, ['lunette/overlay-root'] = { overlayRoot } }
+  for _, kind in outlets.kinds(hostOwner) do
+    kinds[kind.name] = { kind }
+  end
+  local visuals: { [string]: { { owner: plugin.Owner, visual: uiHost.Visual } } } = {
+    [MISSING_VISUAL] = {
+      {
+        owner = hostOwner,
+        visual = function(node: uiHost.Node, draw: uiHost.Draw): ()
+          local colors = node.theme.colors
+          draw:box(nil, { fill = colors.sunken, border = 0.001, borderColor = colors.danger })
+        end,
       },
     },
+  }
+  for name, visual in outlets.visuals() do
+    visuals[name] = { { owner = hostOwner, visual = visual } }
+  end
+  return {
+    kinds = kinds,
+    defaultAppearance = false,
+    overrides = {},
+    visuals = visuals,
     missing = missing,
   }
 end

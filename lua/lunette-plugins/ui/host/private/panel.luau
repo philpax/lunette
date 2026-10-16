@@ -10,6 +10,7 @@ local tree = require './tree'
 local layout = require './layout'
 local input = require './input'
 local shape = require './shape'
+local placements = require './placements'
 
 local panel = {}
 
@@ -275,12 +276,18 @@ function panel.record(
     parent = nil,
     modality = nil,
     followTarget = nil,
+    placements = {},
   }
   record.tree = layout.newTree(record)
   return record
 end
 
+-- Outlet contributions that place outlets of their own nest; a commit renders this many levels of them, and a deeper
+-- level renders in the next commit.
+local CONTRIBUTION_PASSES = 8
+
 -- Renders the mount point when it has scheduled work, re-expands and restyles dirty nodes, and recomputes layout.
+-- The contributions to the panel's outlets render after the root, so they see the props it placed them with.
 function panel.commit(provider: Provider, record: records.Panel): ()
   if record.dead then
     return
@@ -296,10 +303,17 @@ function panel.commit(provider: Provider, record: records.Panel): ()
     end)
     mount.rendering = false
   end
-  if record.dirty then
-    record.dirty = false
-    tree.refresh(record, env)
+  for _ = 1, CONTRIBUTION_PASSES do
+    placements.render(env, record)
+    if record.dirty then
+      record.dirty = false
+      tree.refresh(record, env)
+    end
+    if not placements.pending(record) then
+      break
+    end
   end
+  placements.committed(record)
   layout.commit(record, env)
   -- Placement here, not only at draw, lets hit testing in the same frame see this commit's layout.
   layout.place(record)

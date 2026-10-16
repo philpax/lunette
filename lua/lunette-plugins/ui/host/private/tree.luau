@@ -166,6 +166,9 @@ local function childElements(env: Environment, node: records.Node): ({ read [num
   if node.kind.composite then
     return expansion(env, node)
   end
+  if node.kind.outlet then
+    return env.outlet(node.panel, node)
+  end
   local element = node.element
   local slots: { string } = {}
   for index, child in element.children do

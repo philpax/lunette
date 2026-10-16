@@ -373,6 +373,53 @@ export type Mount = {
   read committed: (Mount) -> boolean,
 }
 
+-- A kind's or an outlet's interface version. A minor version adds only optional fields, and a major version changes
+-- or removes them.
+export type Version = { read major: number, read minor: number }
+
+-- The object schema of an outlet's props, from `@lunette-plugin/schema`.
+export type OutletSchema = { read parse: (unknown, string?) -> any, read inspect: () -> any }
+
+-- What an outlet's ordering function compares: the definition name of the plugin that contributed.
+export type OutletEntry = { read contributor: string }
+
+-- A named, typed point in a tree where other plugins contribute subtrees. `uiHost.outlet` declares one, and a tree
+-- places it with the host's outlet kind, 'lunette/outlet', whose props are `outlet`, `props`, which the host
+-- validates against the outlet's schema and passes to every contribution, and `maxHeight`, the metres each
+-- contribution may take before it is clipped. Each placement is a separate instance, so every contribution renders
+-- once for each placement, with separate state and effects. Contributions render in the outlet's order: its `order`
+-- function, which answers whether the first entry goes before the second, or the contributors' names, so a reload
+-- does not move them. An attributed outlet draws each contribution in a host-drawn frame that names the contributing
+-- plugin and clips the contribution.
+export type Outlet<S> = {
+  read name: string,
+  read version: Version,
+  read props: S,
+  read attributed: boolean,
+  read order: ((OutletEntry, OutletEntry) -> boolean)?,
+}
+
+export type OutletSpec<S> = {
+  read name: string,
+  read version: Version,
+  read props: S,
+  read attributed: boolean?,
+  read order: ((OutletEntry, OutletEntry) -> boolean)?,
+}
+
+-- One placement's mount point for a contribution: a mount point whose props are the placement's. The host schedules
+-- it when the placement's props change.
+export type OutletMount = Mount & { read props: (Mount) -> Props }
+
+export type Contribution = {
+  -- The outlet version the contribution is built against: the contributed outlet's version when omitted. The host
+  -- accepts it at a placement of the same major version and an equal or higher minor version.
+  read version: Version?,
+  -- Binds the mount point of one placement of the outlet. The host calls it once for each placement, and calls the
+  -- adapter's `unmount` when the placement or the contribution ends.
+  read bind: (OutletMount) -> (),
+}
+
 export type PanelOptions = {
   read name: string,
   -- Fixed sizes in metres; a content-sized panel takes its content's size, up to these when given.
@@ -431,6 +478,10 @@ export type Service = {
   -- it omits keep the previous registration's, and its `event` and `expand` reach the previous ones as `base`. Nodes
   -- of the kind are made again when the current registration changes.
   read overrideKind: (Service, Owner, string, KindRegistration) -> plugin.Effect,
+  -- Contributes to an outlet for the owner's lifetime. It raises when the contribution's version is incompatible with
+  -- the outlet's, or when another live declaration of the outlet's name and version has a different schema. Errors
+  -- the contribution raises are reported against its owner and leave the rest of the tree rendering.
+  read contribute: (Service, Owner, Outlet<any>, Contribution) -> plugin.Effect,
   -- Default appearance renders every panel with the base registration of every kind, the base visual of every
   -- visual name, and the base theme, while the accessibility settings still apply. A held chord of both thumbstick
   -- clicks toggles it as well.
@@ -529,6 +580,44 @@ function uiHost.element(kind: string, props: { [any]: any }?): Element
     props = table.freeze(fields),
     children = table.freeze(children),
     slots = table.freeze(slots),
+  }
+end
+
+local OUTLET_FIELDS: { [string]: boolean } =
+  { name = true, version = true, props = true, attributed = true, order = true }
+
+local function wholeNumber(value: unknown): boolean
+  return type(value) == 'number' and value >= 0 and value == math.floor(value) and value < math.huge
+end
+
+-- Declares an outlet. It is a pure function, so a contract module can declare its outlets and be required twice.
+function uiHost.outlet<S>(spec: OutletSpec<S>): Outlet<S>
+  assert(type(spec) == 'table', 'ui: an outlet declaration is a table')
+  for field in spec :: any do
+    assert(OUTLET_FIELDS[field], `ui: '{tostring(field)}' is not an outlet field`)
+  end
+  local name = spec.name
+  assert(type(name) == 'string' and name ~= '', 'ui: an outlet has a name')
+  local version = spec.version
+  assert(
+    type(version) == 'table' and wholeNumber(version.major) and wholeNumber(version.minor),
+    `ui: the outlet {name} has a version of whole major and minor numbers`
+  )
+  local props = spec.props :: any
+  assert(
+    type(props) == 'table' and type(props.parse) == 'function' and type(props.inspect) == 'function',
+    `ui: the outlet {name} has a props schema`
+  )
+  local attributed = spec.attributed
+  assert(attributed == nil or type(attributed) == 'boolean', `ui: the outlet {name} is attributed or not`)
+  local order = spec.order
+  assert(order == nil or type(order) == 'function', `ui: the outlet {name} orders with a function`)
+  return table.freeze {
+    name = name,
+    version = table.freeze { major = version.major, minor = version.minor },
+    props = spec.props,
+    attributed = attributed == true,
+    order = order,
   }
 end
 
