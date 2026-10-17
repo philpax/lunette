@@ -1,6 +1,6 @@
 -- Renders owner-scoped menu actions on a tracked wrist through the UI host and the standard kinds. Grabbing the open
 -- menu tears it off the wrist: it stays where it is released, as a world panel, until it is closed, when it returns to
--- the wrist.
+-- the wrist. The button and the open menu's header show the local time.
 local plugin = require '@lunette-plugin'
 local uiHost = require '@lunette-contracts/ui-host'
 local uiComponents = require '@lunette-contracts/ui-components'
@@ -13,6 +13,8 @@ local view = require '@self/private/view'
 
 export type Config = config.Config
 export type Settings = config.Settings
+
+local TIME_FORMAT = '%H:%M:%S'
 
 -- Whether a grab moved the panel from the pose the menu last gave it.
 local function moved(panel: uiHost.Panel, placed: { number }): boolean
@@ -58,6 +60,7 @@ return plugin.consumer<<Config, Settings>> {
     local placed: { number }? = nil
     local opened = ui.store(false)
     local snapshot = ui.store({} :: rows.Snapshot)
+    local time = ui.store(os.date(TIME_FORMAT))
     local function live(): boolean
       return context:active() and not panel.dead
     end
@@ -82,6 +85,7 @@ return plugin.consumer<<Config, Settings>> {
       view.Menu {
         opened = opened,
         snapshot = snapshot,
+        time = time,
         size = settings.size,
         width = expanded.width,
         height = expanded.height,
@@ -117,6 +121,10 @@ return plugin.consumer<<Config, Settings>> {
       run = function(_dt: number): ()
         if not live() then
           return
+        end
+        local now = os.date(TIME_FORMAT)
+        if now ~= time:get() then
+          time:set(now)
         end
         if not detached and placed and opened:get() and moved(panel, placed) then
           detached = true

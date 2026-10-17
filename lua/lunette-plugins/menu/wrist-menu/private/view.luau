@@ -1,4 +1,5 @@
--- The wrist menu's content: one button while closed, and a header with the registered actions while open.
+-- The wrist menu's content: one button over the time while closed, and a header with the time and the registered
+-- actions while open.
 local ui = require '@lunette-plugins/ui/react'
 local menu = require '@lunette-contracts/menu'
 local rows = require './rows'
@@ -8,6 +9,8 @@ local view = {}
 export type Props = {
   read opened: ui.Store<boolean>,
   read snapshot: ui.Store<rows.Snapshot>,
+  -- The local time of day, as hh:mm:ss.
+  read time: ui.Store<string>,
   -- The closed button's edge, in metres.
   read size: number,
   read width: number,
@@ -21,12 +24,17 @@ view.Menu = ui.component('WristMenu', function(props: Props): ui.Child
   local c = ui.useComponents()
   local opened = ui.useStore(props.opened)
   local snapshot = ui.useStore(props.snapshot)
+  local time = ui.useStore(props.time)
   if not opened then
     return c.Panel {
       width = props.size,
-      height = props.size,
       padding = 'xs',
-      c.Button { key = 'open', label = 'Menu', grow = 1, onActivate = props.open },
+      gap = 'xs',
+      c.Column {
+        height = props.size,
+        c.Button { key = 'open', label = 'Menu', grow = 1, onActivate = props.open },
+      },
+      c.Text { key = 'time', text = time, style = 'readout', color = 'muted', align = 'center' },
     }
   end
   local list = rows.rows(snapshot)
@@ -34,6 +42,7 @@ view.Menu = ui.component('WristMenu', function(props: Props): ui.Child
     width = props.width,
     height = props.height,
     title = 'Menu',
+    detail = time,
     onClose = props.close,
     -- The scroll box sits directly in the panel, so it shrinks to the space below the header rather than growing
     -- the panel to fit every row.
