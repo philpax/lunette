@@ -6,7 +6,10 @@
 use pretty_assertions::assert_eq;
 
 use super::*;
-use crate::text::{Fonts, TextBlock, TextStyle};
+use crate::{
+    test_fonts,
+    text::{TextBlock, TextStyle},
+};
 
 /// A generator that fills the cell with one value and records each request.
 #[derive(Default)]
@@ -453,12 +456,9 @@ fn a_glyph_completed_twice_keeps_its_first_placement() {
 
 #[test]
 fn a_shaped_glyph_has_a_closed_outline_inside_its_em() {
-    let mut fonts = Fonts::bundled([include_bytes!(
-        "../../../../lua/lunette-plugins/ui/standard/fonts/Iosevka-Regular.ttf"
-    )
-    .to_vec()]);
+    let mut fonts = test_fonts::mono();
     let style = TextStyle {
-        family: Some("Iosevka".to_owned()),
+        family: Some(test_fonts::MONO_FAMILY.to_owned()),
         ..TextStyle::default()
     };
     let mut block = TextBlock::new(&mut fonts, "H ", style).expect("the style is valid");

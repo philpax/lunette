@@ -7,7 +7,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use lunette_ui::text::Fonts;
+use lunette_ui::test_fonts;
 
 use super::*;
 use crate::lua::layout::LayoutFonts;
@@ -16,10 +16,7 @@ use crate::lua::layout::LayoutFonts;
 fn glyph_lua() -> Lua {
     let session = session(Vec::new());
     let lua = lua(&session);
-    lua.set_app_data(LayoutFonts(Rc::new(RefCell::new(Fonts::bundled([
-        include_bytes!("../../../../../lua/lunette-plugins/ui/standard/fonts/Iosevka-Regular.ttf")
-            .to_vec(),
-    ])))));
+    lua.set_app_data(LayoutFonts(Rc::new(RefCell::new(test_fonts::mono()))));
     lua
 }
 

@@ -60,6 +60,8 @@ lunette-capture = { path = "../lunette-capture", features = ["test-fakes"] }
 # `TestCompositor`, for the integration test that runs the host-output enumeration
 # against a real Wayland compositor with no graphics device.
 lunette-compositor = { path = "../lunette-compositor", features = ["test-fakes"] }
+# The standard kinds' bundled faces, so layout and glyph tests measure the same everywhere.
+lunette-ui = { path = "../lunette-ui", features = ["test-fonts"] }
 libtest-mimic.workspace = true
 pretty_assertions.workspace = true
 proptest.workspace = true

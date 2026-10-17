@@ -6,18 +6,16 @@
 use pretty_assertions::assert_eq;
 
 use super::*;
+use crate::test_fonts;
 
-/// A bundled monospace face from the repository, so every advance is the same.
+/// A bundled monospace face, so every advance is the same.
 fn fonts() -> Fonts {
-    Fonts::bundled([include_bytes!(
-        "../../../../lua/lunette-plugins/ui/standard/fonts/Iosevka-Regular.ttf"
-    )
-    .to_vec()])
+    test_fonts::mono()
 }
 
 fn style() -> TextStyle {
     TextStyle {
-        family: Some("Iosevka".to_owned()),
+        family: Some(test_fonts::MONO_FAMILY.to_owned()),
         ..TextStyle::default()
     }
 }
@@ -28,15 +26,13 @@ fn close(a: f32, b: f32) -> bool {
 
 #[test]
 fn bundled_fonts_contain_only_the_given_faces() {
-    assert_eq!(fonts().families(), vec!["Iosevka".to_owned()]);
+    assert_eq!(fonts().families(), vec![test_fonts::MONO_FAMILY.to_owned()]);
 }
 
 #[test]
 fn a_file_given_again_adds_no_faces() {
     let mut fonts = fonts();
-    let data =
-        include_bytes!("../../../../lua/lunette-plugins/ui/standard/fonts/Iosevka-Regular.ttf")
-            .to_vec();
+    let data = test_fonts::MONO.to_vec();
     assert_eq!(fonts.add(data), 0);
     assert_eq!(fonts.add(b"not a font".to_vec()), 0);
 }
@@ -191,12 +187,9 @@ fn letter_spacing_adds_a_multiple_of_the_size_after_each_glyph() {
 
 #[test]
 fn a_combining_mark_is_placed_over_its_base() {
-    let mut fonts = Fonts::bundled([include_bytes!(
-        "../../../../lua/lunette-plugins/ui/standard/fonts/IBMPlexSans-Regular.ttf"
-    )
-    .to_vec()]);
+    let mut fonts = Fonts::bundled([test_fonts::SANS.to_vec()]);
     let style = TextStyle {
-        family: Some("IBM Plex Sans".to_owned()),
+        family: Some(test_fonts::SANS_FAMILY.to_owned()),
         ..TextStyle::default()
     };
     let mut block = TextBlock::new(&mut fonts, "q\u{302}", style).expect("the style is valid");

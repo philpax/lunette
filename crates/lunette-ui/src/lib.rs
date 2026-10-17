@@ -5,9 +5,11 @@
 //! through [`layout::Scripts`] for layouts and measurements that the host implements. [`text`]
 //! shapes, wraps, and measures text with cosmic-text. Layout and text use metres throughout.
 //! [`glyphs`] packs distance field glyphs into a paged atlas. [`svg`] rasterises SVG documents
-//! with resvg, in pixels.
+//! with resvg, in pixels. [`test_fonts`], for tests only, bundles the standard faces.
 
 pub mod glyphs;
 pub mod layout;
 pub mod svg;
+#[cfg(any(test, feature = "test-fonts"))]
+pub mod test_fonts;
 pub mod text;

@@ -13,12 +13,10 @@ use taffy::{
 };
 
 use super::*;
+use crate::test_fonts;
 
 fn tree() -> Tree {
-    Tree::new(std::rc::Rc::new(RefCell::new(Fonts::bundled([
-        include_bytes!("../../../../lua/lunette-plugins/ui/standard/fonts/Iosevka-Regular.ttf")
-            .to_vec(),
-    ]))))
+    Tree::new(std::rc::Rc::new(RefCell::new(test_fonts::mono())))
 }
 
 fn row(gap: f32) -> Box<Style> {

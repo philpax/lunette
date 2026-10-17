@@ -9,6 +9,10 @@ cosmic-text = { workspace = true }
 resvg = { workspace = true }
 taffy = { workspace = true }
 
+[features]
+# Exposes the bundled test fonts to other crates' tests.
+test-fonts = []
+
 [dev-dependencies]
 pretty_assertions = { workspace = true }
 
