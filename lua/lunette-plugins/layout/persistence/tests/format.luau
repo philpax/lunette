@@ -1,4 +1,5 @@
 local testing = require '@testing'
+local lunette = require '@lunette'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
 local adapter = require '@lunette-plugin/adapter'
@@ -39,6 +40,7 @@ end)
 -- Runs `run` with a binding of a state that read `text` as the saved file, and answers the fake native API.
 local function withBinding(text: string?, run: BindingCallback): Native
   local native = testing.native()
+  local saveFile = lunette.saveFile
   native.events.saved = text
   local state = persist.new(persist.FILE)
   local session = testing.start { 'theme', 'panels', 'tags', 'rules' }
@@ -57,6 +59,7 @@ local function withBinding(text: string?, run: BindingCallback): Native
     end,
   })
   session:close()
+  expect.equal(lunette.saveFile, saveFile, 'session cleanup restores the public save function')
   return native
 end
 
@@ -84,6 +87,73 @@ test('a save then a restore puts live windows back in their slots', function()
     expect.near((second.pose:getPosition()), 1, 1e-5, 'the second slot')
   end)
 end)
+
+for _, afterReplacement in { false, true } do
+  local phase = if afterReplacement then 'after replacement' else 'before writing'
+
+  local function failSave(context: plugin.Context): plugin.Effect
+    return context:acquire(context, function()
+      local saveFile = lunette.saveFile
+      lunette.saveFile = function(directory: string, name: string, contents: string): ()
+        if afterReplacement then
+          saveFile(directory, name, contents)
+        end
+        error('injected save failure', 0)
+      end
+      return function()
+        lunette.saveFile = saveFile
+      end
+    end)
+  end
+
+  test(`a save failure {phase} keeps the latest capture for session restore`, function()
+    withBinding(nil, function(binding: Binding, context: plugin.Context, panels: panelsContract.Service, native: Native)
+      local target =
+        panels:fromWindow(context, native.newWindow(1), { pose = lovr.math.newMat4():translate(-1, 1, -2) })
+      expect.equal(binding:save(), true, 'the initial save')
+      local previous = native.events.saved
+      target:setPose(lovr.math.newMat4():translate(3, 1.5, -4))
+      failSave(context)
+      local saved, message = binding:save()
+      expect.equal(saved, false, 'the failed save does not claim persistence')
+      expect.truthy(message and message:find('injected save failure', 1, true), tostring(message))
+      expect.equal(native.events.saved == previous, not afterReplacement, 'the replacement outcome')
+      target:setPose(lovr.math.newMat4())
+      expect.equal(binding:restore(), 1, 'the session capture restores the live panel')
+      expect.near((target.pose:getPosition()), 3, 1e-5, 'restore uses the latest capture despite the failed write')
+    end)
+  end)
+
+  test(`a save failure {phase} keeps absent entries for the next save and restore`, function()
+    withBinding(nil, function(binding: Binding, context: plugin.Context, panels: panelsContract.Service, native: Native)
+      local firstWindow = native.newWindow(1, 'terminal')
+      local first = panels:fromWindow(context, firstWindow, { pose = lovr.math.newMat4():translate(-1, 1, -2) })
+      expect.equal(binding:save(), true, 'the initial save')
+      local previous = native.events.saved
+      first:setPose(lovr.math.newMat4():translate(3, 1.5, -4))
+      local secondWindow = native.newWindow(2, 'browser')
+      local second = panels:fromWindow(context, secondWindow, { pose = lovr.math.newMat4():translate(5, 2, -6) })
+      local failure = failSave(context)
+      local saved, message = binding:save()
+      expect.equal(saved, false, 'the failed save does not claim persistence')
+      expect.truthy(message and message:find('injected save failure', 1, true), tostring(message))
+      expect.equal(native.events.saved == previous, not afterReplacement, 'the replacement outcome')
+      failure:dispose()
+      expect.truthy(first:destroy(context), 'the updated panel disappears')
+      expect.truthy(second:destroy(context), 'the newly captured panel disappears')
+      expect.equal(#panels:all(), 0, 'no live panels remain to recapture')
+      expect.equal(binding:save(), true, 'a later save retries the retained capture')
+      local loaded = format.read(native.events.saved)
+      expect.equal(loaded.kind, 'arrangement', 'the retried file')
+      expect.equal(#loaded.file.entries, 2, 'the retry keeps both absent entries')
+      first = panels:fromWindow(context, firstWindow, { pose = lovr.math.newMat4() })
+      second = panels:fromWindow(context, secondWindow, { pose = lovr.math.newMat4() })
+      expect.equal(binding:restore(), 2, 'both returning panels restore')
+      expect.near((first.pose:getPosition()), 3, 1e-5, 'the updated absent entry keeps its latest pose')
+      expect.near((second.pose:getPosition()), 5, 1e-5, 'the newly captured absent entry keeps its pose')
+    end)
+  end)
+end
 
 test('a malformed entry is refused and named while the rest loads', function()
   local text = 'return { version = 1, entries = {\n'
