@@ -162,14 +162,18 @@ function panel.new(
       record.sync()
     end,
     destroy = function(_self: uiHost.Panel): ()
-      panel.destroy(provider, record);
-      (handle :: any).dead = true
-      record.sync()
+      panel.destroy(provider, record)
     end,
     find = function(_self: uiHost.Panel, path: string): uiHost.Node?
       return panel.find(record, path)
     end,
   }
+  local syncSurface = record.sync
+  record.sync = function(): ()
+    (handle :: any).dead = record.dead
+    syncSurface()
+  end
+  record.sync()
   provider.offer(record, surface)
   return record, handle, surface
 end
@@ -337,6 +341,8 @@ function panel.destroy(provider: Provider, record: records.Panel): ()
   if record.dead then
     return
   end
+  record.dead = true
+  record.sync()
   local mount = record.mount
   if mount.adapter and mount.adapter.unmount then
     local unmount = mount.adapter.unmount
@@ -347,7 +353,7 @@ function panel.destroy(provider: Provider, record: records.Panel): ()
   mount.rendering = true
   tree.submit(record, provider.env, nil)
   mount.rendering = false
-  record.dead = true
+  mount.adapter = nil
   provider.release(record)
 end
 
