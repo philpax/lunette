@@ -3,11 +3,13 @@ local model = require './model'
 
 local shader = {}
 
--- Waves arrive as (age, faded strength, longitude, band), with band 1 bass, 2 mid, and 3 treble.
+-- Waves arrive as (age, faded strength, longitude, band), with band 1 bass, 2 mid, and 3 treble. Live waves fill the
+-- first `backdropWaveCount` slots, so each loop stops there and costs only what is sounding, however large the pools.
 local WAVES = [[
   const int WAVES = WAVE_COUNT;
   uniform vec4 backdropWaves[WAVES];
   uniform vec4 backdropWaveDetail[WAVES];
+  uniform int backdropWaveCount;
 
   float ringDistance(float u, float position) {
     return abs(fract(u - position + .5) - .5);
@@ -160,7 +162,7 @@ shader.skyFragment = withWaves [[
     vec3 sky = mix(backdropHorizon, backdropZenith, up);
     sky *= mix(.18, 1., smoothstep(-.2, .12, height));
     float burst = 0.;
-    for (int i = 0; i < WAVES; i++) {
+    for (int i = 0; i < min(backdropWaveCount, WAVES); i++) {
       vec4 wave = backdropWaves[i];
       if (wave.w > 2.5) {
         float distance = ringDistance(UV.x, wave.z);
@@ -234,7 +236,7 @@ shader.curtainVertex = withWaves(SPECTRUM .. [[
     float ripple = 0.;
     float lift = 0.;
     float surge = 0.;
-    for (int i = 0; i < WAVES; i++) {
+    for (int i = 0; i < min(backdropWaveCount, WAVES); i++) {
       vec4 wave = backdropWaves[i];
       float distance = ringDistance(u, wave.z);
       float detail = clamp(backdropWaveDetail[i].x, 0., 1.);
@@ -334,7 +336,7 @@ shader.curtainFragment = withWaves(SPECTRUM .. [[
     float flashZone = 0.;
     float crestZone = 0.;
     float surgeZone = 0.;
-    for (int i = 0; i < WAVES; i++) {
+    for (int i = 0; i < min(backdropWaveCount, WAVES); i++) {
       vec4 wave = backdropWaves[i];
       float distance = ringDistance(u, wave.z);
       float detail = clamp(backdropWaveDetail[i].x, 0., 1.);

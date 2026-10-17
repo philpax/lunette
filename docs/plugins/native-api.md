@@ -48,7 +48,7 @@ Source reload runs loaded modules again while applications, windows, window prop
 
 ## Errors and safe mode
 
-Raise errors normally. Event listeners, plugin callbacks, and frame-service handlers have protected boundaries. A configuration's directly assigned LÖVR callbacks do not; uncaught update or draw errors end the session. [Errors](../development/native/lua-api.md#errors) states the boundaries. A load failure starts built-in safe mode with error display and recovery controls.
+Raise errors normally. Event listeners, plugin callbacks, and frame-service handlers have protected boundaries. A configuration's directly assigned LÖVR callbacks do not; uncaught update or draw errors end the session. [Errors](../development/native/lua-api.md#errors) states the boundaries. A load failure starts built-in safe mode with error display and recovery controls, and `lunette.restartIntoSafeMode` restarts a running session into it.
 
 ## lunctl
 

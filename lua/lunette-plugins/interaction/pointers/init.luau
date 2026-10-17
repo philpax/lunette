@@ -12,6 +12,7 @@ local cleanup = require '@lunette-plugins/lifecycle/cleanup'
 local nativeFocus = require '@self/private/native-focus'
 local inspection = require '@lunette-contracts/inspection'
 local config = require '@self/config'
+local protected = require '@lunette-plugins/diagnostics/protected-call'
 
 local CLEANUP = 'interaction: pointer cleanup'
 
@@ -95,6 +96,9 @@ local function build(context: plugin.Context, settings: Settings): Service
     end,
   }
 
+  -- Press observers, oldest first; each ends with its owner.
+  local observers: { contracts.PressObserver } = {}
+
   local function host(state: State): input.Host
     return {
       live = function(): boolean
@@ -106,6 +110,16 @@ local function build(context: plugin.Context, settings: Settings): Service
           nativeFocus.give(state, sink, context, focusService, function(): boolean
             return live(state) and state.generation == generation
           end)
+        end
+      end,
+      pressed = function(target: Surface?): ()
+        for _, observer in table.clone(observers) do
+          -- An observer that an earlier one removed does not run.
+          if table.find(observers, observer) then
+            protected.call('interaction: press observer', function(): ()
+              observer.run(target)
+            end)
+          end
         end
       end,
       hoveredByAnother = function(target: Surface): boolean
@@ -394,6 +408,9 @@ local function build(context: plugin.Context, settings: Settings): Service
           cleanup.run(CLEANUP, input.detach(state, self, target, reason))
         end
       end,
+      transfer = function(_self: Pointer, from: Surface, to: Surface): boolean
+        return live(state) and input.transfer(state, from, to)
+      end,
       withdraw = function(self: Pointer)
         if live(state) then
           withdraw(state, self, 'tracking-loss', false)
@@ -478,7 +495,42 @@ local function build(context: plugin.Context, settings: Settings): Service
     end
   end)
 
+  -- Near reports per hand, by owner, so an owner that ends withdraws its reports.
+  local near: { [contracts.Hand]: { [contracts.Owner]: boolean } } = { left = {}, right = {} }
+  local reporting: { [contracts.Owner]: boolean } = {}
+
   return {
+    reportNear = function(_self: Service, owner: contracts.Owner, hand: contracts.Hand, value: boolean): ()
+      context:checkOwner(owner)
+      assert(hand == 'left' or hand == 'right', `interaction: '{tostring(hand)}' is not a hand`)
+      if not reporting[owner] then
+        reporting[owner] = true
+        context:acquire(owner, function(): () -> ()
+          return function(): ()
+            reporting[owner] = nil
+            near.left[owner], near.right[owner] = nil, nil
+          end
+        end)
+      end
+      near[hand][owner] = if value then true else nil
+    end,
+    onPress = function(_self: Service, owner: contracts.Owner, observer: contracts.PressObserver): plugin.Effect
+      context:checkOwner(owner)
+      assert(type(observer) == 'table' and type(observer.run) == 'function', 'interaction: an observer has run')
+      return context:acquire(owner, function(): () -> ()
+        table.insert(observers, observer)
+        return function(): ()
+          local index = table.find(observers, observer)
+          if index then
+            table.remove(observers, index)
+          end
+        end
+      end)
+    end,
+    isNear = function(_self: Service, hand: contracts.Hand): boolean
+      local reports = near[hand]
+      return reports ~= nil and next(reports) ~= nil
+    end,
     inspect = function(_self: Service): inspection.Snapshot
       local result: { inspection.Registration } = {}
       for _, pointer in ipairs(pointers) do
@@ -509,7 +561,7 @@ local function build(context: plugin.Context, settings: Settings): Service
       end
       return inspection.snapshot(
         result,
-        { active = active },
+        { active = active, leftNear = next(near.left) ~= nil, rightNear = next(near.right) ~= nil },
         { 'hovered and grabbed surface identities are not retained as inspection ids' }
       )
     end,

@@ -8,7 +8,8 @@ local backdrop = require '../'
 local audio = require '@lunette-contracts/audio'
 local frame = require '@lunette-contracts/frame'
 local menu = require '@lunette-contracts/menu'
-local ui = require '@lunette-contracts/ui'
+local uiHost = require '@lunette-contracts/ui-host'
+local recorded = require './support/panels'
 local render = require '@testing/render'
 
 type Services = lifetimes.Services
@@ -18,7 +19,7 @@ type Totals = {
   shaders: number,
   frame: number,
   menu: number,
-  ui: number,
+  host: number,
   panels: number,
   surfaces: number,
 }
@@ -29,15 +30,41 @@ local backdropName = 'desktop/backdrop'
 local system = { kind = 'system' }
 local driver
 
-local function popup(ui: ui.Service, control: string): ()
-  local geometry, description = driver:discover(ui, panelName, control)
-  local bounds = description.bounds
-  driver:click(geometry, bounds.x + bounds.width / 2, bounds.y + 16)
+-- What the control panel shows, read from its nodes.
+type Shown = {
+  enabled: boolean,
+  reactive: boolean,
+  mode: string,
+  response: number,
+  motion: number,
+  pinned: string?,
+}
+
+local function node(recorder: recorded.Recorder, path: string): uiHost.Node
+  return recorded.node(recorder, panelName, path)
 end
 
-local function choose(ui: ui.Service, control: string, item: string): ()
-  popup(ui, control)
-  driver:clickControl(ui, panelName, control, 'right', item)
+local function shown(recorder: recorded.Recorder): Shown
+  local pinned: string? = nil
+  for serial = 1, 20 do
+    local token = 'application-' .. tostring(serial)
+    local row = recorded.panel(recorder, panelName):find('body/applications/content/scroll/rows/' .. token)
+    if row and row.props.selected then
+      pinned = token
+    end
+  end
+  return {
+    enabled = node(recorder, 'body/enabled').props.value,
+    reactive = node(recorder, 'body/reactive').props.value,
+    mode = node(recorder, 'body/source/content/mode').props.value,
+    response = node(recorder, 'body/intensity/content/response').props.value,
+    motion = node(recorder, 'body/intensity/content/motion').props.value,
+    pinned = pinned,
+  }
+end
+
+local function click(recorder: recorded.Recorder, path: string): ()
+  recorded.click(driver, recorder, panelName, path)
 end
 
 local function live(list: { any }, released: string?): number
@@ -59,7 +86,11 @@ local function instance(snapshot: lunette.PluginRuntimeSnapshot, name: string): 
   return nil
 end
 
-local function registrations(service: frame.Service | menu.Service | ui.Service, kind: string?, name: string?): number
+local function registrations(
+  service: frame.Service | menu.Service | uiHost.Service,
+  kind: string?,
+  name: string?
+): number
   local count = 0
   for _, entry in service:inspect().registrations do
     if entry.live and (kind == nil or entry.kind == kind) and (name == nil or entry.name == name) then
@@ -67,28 +98,6 @@ local function registrations(service: frame.Service | menu.Service | ui.Service,
     end
   end
   return count
-end
-
-local function selected(ui: ui.Service, control: string): string?
-  if control ~= 'applications' then
-    popup(ui, control)
-  end
-  local chosen
-  for _, entry in ui:inspect().registrations do
-    if
-      entry.live
-      and entry.kind == 'item'
-      and entry.details.panel == panelName
-      and entry.details.control == control
-      and entry.details.selected
-    then
-      chosen = entry.name
-    end
-  end
-  if control ~= 'applications' then
-    popup(ui, control)
-  end
-  return chosen
 end
 
 local function step(native: testing.Native, source: audio.Source?, state: audio.State?, pcm: buffer?): ()
@@ -118,11 +127,16 @@ local function open(services: Services): ()
     'invoked',
     'the public Backdrop action opens controls'
   )
+  -- The panel renders what the action changed at the next commit.
+  driver:step(0)
 end
 
-local function textContains(native: testing.Native, needle: string): boolean
-  for _, call in native.events.draw do
-    if call[1] == 'text' and type(call[2]) == 'string' and string.find(call[2], needle, 1, true) then
+-- Whether the source status or its notice shows the text.
+local function statusContains(recorder: recorded.Recorder, needle: string): boolean
+  local panel = recorded.panel(recorder, panelName)
+  for _, path in { 'body/source/content/status', 'body/source/content/notice' } do
+    local text = panel:find(path)
+    if text and string.find(text.props.text, needle, 1, true) then
       return true
     end
   end
@@ -130,12 +144,13 @@ local function textContains(native: testing.Native, needle: string): boolean
 end
 
 local function defaults(services: Services): ()
-  expect.equal(selected(services.ui, 'enabled'), 'on', 'configuration restores enabled')
-  expect.equal(selected(services.ui, 'reactive'), 'on', 'configuration restores reactivity')
-  expect.equal(selected(services.ui, 'source-mode'), 'system', 'configuration restores the system mix')
-  expect.equal(selected(services.ui, 'response'), '1', 'configuration restores response')
-  expect.equal(selected(services.ui, 'motion'), '1', 'configuration restores motion')
-  expect.equal(selected(services.ui, 'applications'), nil, 'configuration forgets the pinned application')
+  local current = shown(assert(services.recorder))
+  expect.equal(current.enabled, true, 'configuration restores enabled')
+  expect.equal(current.reactive, true, 'configuration restores reactivity')
+  expect.equal(current.mode, 'system', 'configuration restores the system mix')
+  expect.equal(current.response, 1, 'configuration restores response')
+  expect.equal(current.motion, 1, 'configuration restores motion')
+  expect.equal(current.pinned, nil, 'configuration forgets the pinned application')
 end
 
 local function totals(native: testing.Native, services: Services): Totals
@@ -145,8 +160,8 @@ local function totals(native: testing.Native, services: Services): Totals
     shaders = live(native.events.render.shaderAcquisitions, 'released'),
     frame = registrations(services.frame),
     menu = registrations(services.menu),
-    ui = registrations(services.ui),
-    panels = registrations(services.ui, 'panel'),
+    host = registrations(services.host),
+    panels = registrations(services.host, 'panel'),
     surfaces = #services.surfaces:all(),
   }
 end
@@ -221,35 +236,41 @@ local function tenSourceReloads()
           'the child is active'
         )
       end
-      fixture:clickControl(services.ui, panelName, 'applications', 'right', 'application-1')
-      choose(services.ui, 'response', '0.25')
-      choose(services.ui, 'motion', '1')
+      local recorder = assert(services.recorder)
+      click(recorder, 'body/applications/content/scroll/rows/application-1')
+      recorded.slide(fixture, recorder, panelName, 'body/intensity/content/response', 0.25)
       step(native, { kind = 'process', process = process }, nil, pcm)
-      expect.equal(selected(services.ui, 'source-mode'), 'application', 'the VR list pins an application')
-      expect.equal(selected(services.ui, 'applications'), 'application-1', 'the live process handle is selected')
+      driver:step(0)
+      expect.equal(shown(recorder).mode, 'application', 'the VR list pins an application')
+      expect.equal(shown(recorder).pinned, 'application-1', 'the live process handle is selected')
+      expect.equal(shown(recorder).response, 0.25, 'the response slider snaps to the Low detent')
 
       services.composition:disable(backdropName)
       expect.equal(live(native.events.audio), 0, 'plugin disable closes native-owned readers')
-      expect.equal(registrations(services.ui, 'panel', panelName), 0, 'plugin disable removes controls')
+      expect.equal(registrations(services.host, 'panel', panelName), 0, 'plugin disable removes controls')
       services.composition:enable(backdropName)
       step(native, { kind = 'process', process = process }, nil, pcm)
       open(services)
-      expect.equal(selected(services.ui, 'source-mode'), 'application', 'reactivation retains the factory mode')
-      expect.equal(selected(services.ui, 'applications'), 'application-1', 'reactivation retains the factory process')
-      expect.equal(selected(services.ui, 'response'), '0.25', 'reactivation retains response')
-      expect.equal(selected(services.ui, 'motion'), '1', 'reactivation retains motion')
-      choose(services.ui, 'enabled', 'off')
-      choose(services.ui, 'reactive', 'off')
-      local oldUi = services.ui
+      local reactivated = shown(recorder)
+      expect.equal(reactivated.mode, 'application', 'reactivation retains the factory mode')
+      expect.equal(reactivated.pinned, 'application-1', 'reactivation retains the factory process')
+      expect.equal(reactivated.response, 0.25, 'reactivation retains response')
+      expect.equal(reactivated.motion, 1, 'reactivation retains motion')
+      click(recorder, 'body/enabled')
+      click(recorder, 'body/reactive')
+      driver:step(0)
+      expect.equal(shown(recorder).enabled, false, 'the VR toggle disables the backdrop')
+      expect.equal(shown(recorder).reactive, false, 'the VR toggle disables audio reactivity')
+      local oldHost = assert(services.host)
       local meshes = table.clone(native.events.render.meshAcquisitions)
       local shaders = table.clone(native.events.render.shaderAcquisitions)
       local loaded, failure = lunette.reload()
       expect.truthy(loaded, tostring(failure))
       expect.falsy(
         pcall(function()
-          oldUi:inspect()
+          oldHost:inspect()
         end),
-        'source reload withdraws the previous UI service'
+        'source reload withdraws the previous UI host service'
       )
       local current = assert(_G.backdropReloadServices, 'the next source generation loads')
       step(native, system, nil, pcm)
@@ -286,8 +307,10 @@ end
 
 test('provider outages withdraw only dependent backdrop children and recover without duplicate resources', function()
   local factory = backdrop.create()
+  local recorder = recorded.recorder()
   local session = testing.boot(lifetimes.entries(factory))
   local native = session.native
+  driver = vrUi.hands(native)
   local process = native.newProcess(51)
   local source = { kind = 'process', process = process }
   factory.choice:setMode 'attention'
@@ -308,6 +331,8 @@ test('provider outages withdraw only dependent backdrop children and recover wit
   step(native, source, nil, pcm)
   step(native, source, nil, pcm)
   session:draw()
+  -- The backdrop draws before the UI host in the scene phase, so it acquires the first shaders.
+  local backdropShaders = table.move(native.events.render.shaderAcquisitions, 1, 3, 1, {})
   open(services())
   session:draw()
   local baseline = totals(native, services())
@@ -344,7 +369,8 @@ test('provider outages withdraw only dependent backdrop children and recover wit
       readers = baseline.audio,
     },
     { provider = 'menu', unavailable = { controls = true }, readers = baseline.audio },
-    { provider = 'ui', unavailable = { controls = true }, readers = baseline.audio },
+    { provider = 'ui-host', unavailable = { controls = true }, readers = baseline.audio },
+    { provider = 'ui-standard', unavailable = { controls = true }, readers = baseline.audio },
   }
   for _, case in cases do
     local beforeParent, beforeChildren = children(session.runtime:snapshot())
@@ -385,9 +411,9 @@ test('provider outages withdraw only dependent backdrop children and recover wit
       end
       expect.equal(actionCount, if case.unavailable.controls then 0 else 1, 'controls own exactly their menu action')
     end
-    if currentServices.ui then
+    if currentServices.host then
       expect.equal(
-        registrations(currentServices.ui, 'panel', panelName),
+        registrations(currentServices.host, 'panel', panelName),
         if case.unavailable.controls then 0 else 1,
         'controls own exactly their UI panel'
       )
@@ -400,9 +426,9 @@ test('provider outages withdraw only dependent backdrop children and recover wit
       'raw status is independent of analysis'
     )
     expect.equal(session:draw(), false, 'the renderer draws through the provider outage')
-    expect.truthy(live(native.events.render.shaderAcquisitions, 'released') == 3, 'the renderer keeps its shaders')
+    expect.equal(live(backdropShaders, 'released'), 3, 'the renderer keeps its shaders')
     if case.status then
-      expect.truthy(textContains(native, case.status), 'the control panel reports the missing provider')
+      expect.truthy(statusContains(recorder, case.status), 'the control panel reports the missing provider')
     end
     session.instances[case.provider]:enable()
     session.runtime:drain()
@@ -412,7 +438,7 @@ test('provider outages withdraw only dependent backdrop children and recover wit
     expect.equal(factory.choice.attended, process, case.provider .. ' recovery retains the attended process')
     expect.equal(factory.choice.response, 0.25, 'child reactivation retains response choices')
     if case.unavailable.controls then
-      expect.equal(vrUi.describe(recovered.ui, panelName).visible, false, 'recovered controls start closed')
+      expect.equal(recorded.visible(assert(recovered.host), panelName), false, 'recovered controls start closed')
       open(recovered)
     end
     session:draw()

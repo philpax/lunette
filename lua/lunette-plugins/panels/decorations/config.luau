@@ -1,9 +1,9 @@
--- Native panels use the shared UI titlebar style, with an optional desktop override.
+-- Titlebars take their appearance from the toolkit theme; only their height can be set here.
 local schema = require '@lunette-plugin/schema'
-local titlebarStyle = require '@lunette-plugins/ui/titlebar-configuration'
 
 local descriptor = schema.object {
-  style = schema.optional(titlebarStyle.editable),
+  -- Metres; the theme's header height when unset.
+  height = schema.optional(schema.number { positive = true }),
 }
 
 export type Config = schema.Input<typeof(descriptor)>

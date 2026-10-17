@@ -6,7 +6,9 @@
 //! # Requesting one
 //!
 //! A configuration requests a hard restart with LÖVR's own
-//! `lovr.event.restart()`. Nothing in lunette wraps it. LÖVR reads the event
+//! `lovr.event.restart()`. `lunette.restartIntoSafeMode` records a safe-mode
+//! request on the session and then calls the same function, as
+//! [`crate::safe_mode`] describes; nothing else wraps it. LÖVR reads the event
 //! out of the queue once the frame's callbacks have returned and ends the boot
 //! coroutine; [`crate::boot`] then runs the quiesce. No re-entry guard is
 //! needed: a restart requested from `lovr.load`, from inside a reload, or

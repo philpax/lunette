@@ -1,18 +1,17 @@
 local schema = require '@lunette-plugin/schema'
-local descriptors = require '@lunette-contracts/schemas/theme'
-local configuration = require '@lunette-plugins/theme/configuration'
+local color = require '@lunette-contracts/schemas/color'
 
+-- Omitted colours and the window radius follow the toolkit theme.
 local STYLE = schema.object {
-  font = schema.optional(configuration.editableFont),
   windowRadius = schema.optional(schema.number { minimum = 0 }),
-  monitorRadius = schema.optional(schema.number { minimum = 0 }),
-  borderThickness = schema.optional(schema.number()),
+  monitorRadius = schema.default(schema.number { minimum = 0 })(0),
+  borderThickness = schema.default(schema.number())(0.008),
   borderDepth = schema.default(schema.number())(0.001),
-  borderColor = schema.optional(descriptors.color),
-  borderHighlightColor = schema.optional(descriptors.color),
-  titleHeight = schema.optional(schema.number()),
+  borderColor = schema.optional(color),
+  borderHighlightColor = schema.optional(color),
+  titleHeight = schema.default(schema.number())(0.025),
   titleMargin = schema.default(schema.number())(0.02),
-  titleColor = schema.optional(descriptors.color),
+  titleColor = schema.optional(color),
 }
 local SCHEMA = schema.object {
   style = schema.default(STYLE)(STYLE.parse {}),

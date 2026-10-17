@@ -1,25 +1,15 @@
 local schema = require '@lunette-plugin/schema'
 
 local positive = schema.number { positive = true }
-local strength = schema.number { minimum = 0, maximum = 1 }
-local duration = schema.number { minimum = 0 }
 local hand = schema.enum<<'left' | 'right'>> { 'left', 'right' }
-local haptic = schema.object {
-  strength = schema.default(strength)(0.3),
-  duration = schema.default(duration)(0.05),
-}
 local expanded = schema.object {
   width = schema.default(positive)(0.32),
   height = schema.default(positive)(0.4),
-  logicalWidth = schema.default(schema.number { minimum = 120 })(320),
-  logicalHeight = schema.default(schema.number { minimum = 160 })(400),
-  rowHeight = schema.optional(positive),
 }
 local descriptor = schema.object {
   hand = schema.default(hand) 'left',
   size = schema.default(positive)(0.115),
   offset = schema.default(schema.vector())(vector.pack(-0.03, -0.01, 0.125)),
-  haptic = schema.default(haptic)(haptic.parse {}),
   expanded = schema.default(expanded)(expanded.parse {}),
 }
 

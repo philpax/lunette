@@ -36,6 +36,57 @@ export type AudioState = { read kind: 'starting' } | { read kind: 'active', read
 -- later frames.
 export type AudioSnapshot = { read source: AudioSource, read state: AudioState, read frameGeneration: number, read blocks: { read [number]: AudioBlock } }
 
+-- One length for every edge, or a length for each of the top, right, bottom,
+-- and left edges.
+export type LayoutEdges = number | string | { read top: (number | string)?, read right: (number | string)?, read bottom: (number | string)?, read left: (number | string)? }
+
+-- A node's layout style. Lengths are metres, percentages such as '50%', or
+-- 'auto'. Edges take one length or a table of top, right, bottom, and left.
+export type LayoutStyle = { read display: ('flex' | 'grid' | 'block' | 'none')?, read direction: ('ltr' | 'rtl')?, read flexDirection: ('row' | 'column' | 'row-reverse' | 'column-reverse')?, read wrap: ('nowrap' | 'wrap' | 'wrap-reverse')?, read grow: number?, read shrink: number?, read basis: (number | string)?, read alignItems: ('start' | 'end' | 'center' | 'stretch' | 'baseline' | 'flex-start' | 'flex-end')?, read alignSelf: ('start' | 'end' | 'center' | 'stretch' | 'baseline' | 'flex-start' | 'flex-end')?, read justifyItems: ('start' | 'end' | 'center' | 'stretch' | 'baseline' | 'flex-start' | 'flex-end')?, read justifySelf: ('start' | 'end' | 'center' | 'stretch' | 'baseline' | 'flex-start' | 'flex-end')?, read alignContent: ('start' | 'end' | 'center' | 'stretch' | 'space-between' | 'space-around' | 'space-evenly' | 'flex-start' | 'flex-end')?, read justifyContent: ('start' | 'end' | 'center' | 'stretch' | 'space-between' | 'space-around' | 'space-evenly' | 'flex-start' | 'flex-end')?, read gap: number?, read rowGap: number?, read columnGap: number?, read padding: LayoutEdges?, read margin: LayoutEdges?, read border: LayoutEdges?, read width: (number | string)?, read height: (number | string)?, read minWidth: (number | string)?, read minHeight: (number | string)?, read maxWidth: (number | string)?, read maxHeight: (number | string)?, read aspectRatio: number?, read position: ('relative' | 'absolute')?, read top: (number | string)?, read right: (number | string)?, read bottom: (number | string)?, read left: (number | string)?, read overflow: ('visible' | 'clip' | 'scroll')?, read gridTemplateColumns: { read [number]: number | string }?, read gridTemplateRows: { read [number]: number | string }?, read gridColumn: { read start: number?, read span: number? }?, read gridRow: { read start: number?, read span: number? }? }
+
+-- How a text node is shaped. Sizes are metres; the line height and the letter
+-- spacing, which is added after each glyph, are multiples of the size.
+export type LayoutTextStyle = { read family: string?, read size: number?, read lineHeight: number?, read weight: number?, read letterSpacing: number?, read align: ('start' | 'center' | 'end')?, read wrap: ('none' | 'word' | 'word-or-glyph')?, read maxLines: number? }
+
+-- How a leaf sizes itself without a callback.
+export type LayoutLeaf = { read kind: 'fixed', read width: number, read height: number } | { read kind: 'aspect', read ratio: number, read width: number } | { read kind: 'fill' }
+
+-- One change in a commit.
+export type LayoutChange = { read op: 'create', read id: number, read kind: 'box' | 'text' | 'leaf' | 'measured' | 'scripted', read style: LayoutStyle?, read text: string?, read textStyle: LayoutTextStyle?, read leaf: LayoutLeaf? } | { read op: 'style', read id: number, read style: LayoutStyle } | { read op: 'children', read id: number, read children: { read [number]: number } } | { read op: 'text', read id: number, read text: string, read textStyle: LayoutTextStyle? } | { read op: 'remove', read id: number }
+
+-- The space offered along one axis: a length in metres, or a sizing mode.
+export type LayoutAvailable = number | 'min-content' | 'max-content'
+
+-- What a measure or layout callback is asked. `perform` is true in the final
+-- pass, the only one in which a layout places its children.
+export type LayoutInput = { read knownWidth: number?, read knownHeight: number?, read availableWidth: LayoutAvailable, read availableHeight: LayoutAvailable, read perform: boolean }
+
+-- What a layout callback does with its container's children. It is valid only
+-- during the call.
+export type LayoutContext = { read children: () -> { number }, read measure: (child: number, width: LayoutAvailable?, height: LayoutAvailable?) -> (number, number), read place: (child: number, u: number, v: number, options: { read width: number?, read height: number?, read rotation: number?, read scale: number? }?) -> () }
+
+-- The host's callbacks for measured leaves and scripted containers. Both answer
+-- a width and a height in metres. They cannot yield, and they read only their
+-- arguments.
+export type LayoutScripts = { read measure: ((id: number, input: LayoutInput) -> (number, number))?, read layout: ((id: number, input: LayoutInput, context: LayoutContext) -> (number, number))? }
+
+-- A callback that failed. Its node keeps its previous size.
+export type LayoutFailure = { read id: number, read message: string }
+
+-- One positioned glyph, in metres from the text node's left edge, with the
+-- inclusive byte range of the text it draws. The face is a handle that the
+-- glyph atlas takes. The offsets place the glyph relative to its origin, y
+-- down, as shaping positions a combining mark.
+export type LayoutGlyph = { read face: number, read id: number, read x: number, read xOffset: number, read yOffset: number, read advance: number, read size: number, read byteStart: number, read byteEnd: number }
+
+-- One shaped line, in metres from the text node's top-left corner.
+export type LayoutLine = { read top: number, read height: number, read width: number, read baseline: number, read glyphs: { read [number]: LayoutGlyph } }
+
+-- Where a glyph is in the atlas: its page, its texture rectangle from (u0, v0)
+-- at the top left to (u1, v1), and its quad in ems from the glyph's origin on
+-- the baseline, with its top edge above the baseline.
+export type GlyphPlacement = { read page: number, read u0: number, read v0: number, read u1: number, read v1: number, read left: number, read top: number, read width: number, read height: number }
+
 -- Somewhere pixel input can be delivered. `domain` names the pipeline its
 -- events travel: `window` or `host`.
 export type Sink = {
@@ -262,6 +313,67 @@ export type AudioBlock = {
   -- Returns a fresh mutable buffer with each interleaved F32 sample encoded
   -- little-endian.
   read copySamples: (self: AudioBlock) -> buffer,
+}
+
+-- A UI layout tree, laid out in metres. The host assigns node ids. A tree is
+-- not a handle: it lives until it is collected, and it never goes dead.
+export type LayoutTree = {
+  -- The number of nodes.
+  read size: number,
+  -- Applies one commit's changes in order. The batch is checked first, so a
+  -- rejected batch changes nothing.
+  read apply: (self: LayoutTree, changes: { read [number]: LayoutChange }) -> (),
+  -- Lays out the tree under `root` in the space offered, unbounded along an
+  -- axis given as nil. Answers the nodes whose placement changed, as
+  -- consecutive id, u, v, width, height, rotation, and scale values, and the
+  -- callbacks that failed.
+  read compute: (self: LayoutTree, root: number, width: number?, height: number?, scripts: LayoutScripts?) -> ({ number }, { LayoutFailure }),
+  -- The shaped lines of a text node at its laid-out width, or nil for a node
+  -- that is not text.
+  read textLayout: (self: LayoutTree, id: number) -> { LayoutLine }?,
+}
+
+-- The distance field glyph atlas that every panel in this Lua state draws
+-- shaped glyphs from. Pages are square, numbered from 1, and hold RGBA8
+-- multi-channel distance fields to sample with linear filtering and no
+-- colour-space conversion. Fields are generated on worker threads, and `update`
+-- places the finished ones, so a glyph is drawable some frames after it is
+-- first asked for. The atlas holds a fixed number of pages; when they are full
+-- it clears the page that has gone longest undrawn, if no frame has touched it
+-- for a while, and a glyph with no room otherwise is a failure. The atlas is
+-- not a handle: it never goes dead.
+export type GlyphAtlas = {
+  -- The width and height of each page in pixels.
+  read pageSize: number,
+  -- Pixels per em at which glyphs are generated.
+  read emPixels: number,
+  -- The distance field's range in pixels, for the shader's edge width.
+  read range: number,
+  -- The number of pages.
+  read pages: number,
+  -- The number of glyphs whose fields are being generated.
+  read pending: number,
+  -- Advances whenever a full atlas clears a page that has gone undrawn, after
+  -- which every placement answered before must be asked for again.
+  read epoch: number,
+  -- The placement of a glyph from a layout glyph's face and id. A glyph not yet
+  -- in the atlas starts generating and answers nil and true, and is asked for
+  -- again on a later frame. Answers nil for a glyph with no outline, such as a
+  -- space, and nil with a message, once, for a glyph that could not be
+  -- generated, which a later call tries again.
+  read glyph: (self: GlyphAtlas, face: number, id: number) -> (GlyphPlacement?, string?, boolean),
+  -- Starts a frame and places the fields the workers have finished. The host
+  -- calls it once a frame, before it asks for glyphs.
+  read update: (self: GlyphAtlas) -> (),
+  -- Records that this frame draws a page, so a full atlas does not clear it.
+  read touch: (self: GlyphAtlas, page: number) -> (),
+  -- A page's revision, which advances whenever a glyph is written to it, or nil
+  -- for a page that does not exist.
+  read revision: (self: GlyphAtlas, page: number) -> number?,
+  -- A page's pixels as tightly packed RGBA8 rows, top row first, which
+  -- `lovr.data.newBlob` wraps for `lovr.data.newImage`, or nil for a page that
+  -- does not exist.
+  read pixels: (self: GlyphAtlas, page: number) -> string?,
 }
 
 -- A key and the modifiers to hold with it. Together they produce one keysym.
@@ -736,6 +848,31 @@ export type Lunette = {
   -- clusters, including the terminal offset `#text + 1`. Empty text returns `{
   -- 1 }`. The text must be valid UTF-8; invalid byte strings raise an error.
   read textBoundaries: (text: string) -> { number },
+  -- A new, empty UI layout tree. Trees in one Lua state share their fonts,
+  -- whose database is built the first time a tree is created.
+  read newLayoutTree: () -> LayoutTree,
+  -- Adds the faces in a font file's bytes to the fonts layout trees shape with,
+  -- and answers how many faces it held. Read the file with
+  -- `lovr.filesystem.read`.
+  read loadLayoutFont: (data: string) -> number,
+  -- The distance field glyph atlas shared by every layout tree's fonts in this
+  -- Lua state, created on first use.
+  read glyphAtlas: () -> GlyphAtlas,
+  -- Rasterises an SVG or svgz document into a canvas of `width` by `height`
+  -- pixels, each a whole number from 1 to 4096, scaled to fit with its aspect
+  -- ratio preserved and centred. Answers the pixels as tightly packed rows of
+  -- straight-alpha RGBA8, top row first, which `lovr.data.newBlob` wraps for
+  -- `lovr.data.newImage`, and the width and height of the canvas. Hrefs to
+  -- files are not followed and text elements are not drawn. A document that
+  -- does not parse raises an error.
+  read rasterizeSvg: (svg: string, width: number, height: number) -> (string, number, number),
+  -- Writes `contents` to the file `name` inside `directory` atomically: to a
+  -- temporary file beside it, flushed and renamed over the target, so a reader
+  -- sees the old file or the new one. `directory` is an absolute path to an
+  -- existing directory, such as `lovr.filesystem.getSaveDirectory()`, and
+  -- `name` is a file name with no separator. A failed write raises an error and
+  -- leaves any previous file in place.
+  read saveFile: (directory: string, name: string, contents: string) -> (),
   -- The ladder a layer's requested size is quantised up, ascending. A panel
   -- whose scale Lua raises requests a size the free list already holds.
   read scaleSteps: () -> { number },
@@ -743,6 +880,11 @@ export type Lunette = {
   -- configuration in the same Lua state, keeping the compositor, the clients,
   -- and their textures. Answers whether it loaded, and the error if it did not.
   read reload: () -> (boolean, string?),
+  -- Requests a hard restart whose next boot runs the compiled-in safe mode
+  -- instead of the configuration. The restart happens after the frame's
+  -- callbacks return; reloading from safe mode loads the configuration again.
+  -- Answers whether the restart was queued, and the error if it was not.
+  read restartIntoSafeMode: () -> (boolean, string?),
   -- Calls `handler` whenever this event is delivered, and answers the function
   -- that stops it. Every listener is called, in the order they subscribed, and
   -- a soft reload forgets all of them.

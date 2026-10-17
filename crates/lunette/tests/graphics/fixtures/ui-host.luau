@@ -1,0 +1,257 @@
+-- Renders host panels through the toolkit shader and checks faces, sides, depth order, and text.
+
+local testing = require '@testing'
+local lunette = require '@lunette'
+local uiHost = require '@lunette-contracts/ui-host'
+local ui = require './support/ui'
+local test = testing.suite()
+
+local element = uiHost.element
+
+local function kinds(service: uiHost.Service, owner: any): ()
+  service:registerKind(owner, {
+    name = 'test/panel',
+    layout = {
+      kind = 'container',
+      style = function(props: uiHost.Props): lunette.LayoutStyle
+        return { flexDirection = 'column', padding = 0.01, gap = 0.006, grow = 1 }
+      end,
+    },
+    visuals = { 'test/panel' },
+  })
+  service:registerVisual(owner, 'test/panel', function(node: uiHost.Node, draw: uiHost.Draw)
+    local theme = node.theme
+    draw:box(nil, {
+      fill = theme.colors.surface,
+      radius = theme.radii.panel,
+      side = theme.colors.side,
+      depth = theme.elevation.panelDepth,
+      edges = true,
+    })
+  end)
+  service:registerKind(owner, {
+    name = 'test/key',
+    layout = {
+      kind = 'container',
+      style = function(): lunette.LayoutStyle
+        return { padding = 0.006, alignSelf = 'start' }
+      end,
+    },
+    elevation = 'raised',
+    visuals = { 'test/key' },
+  })
+  service:registerVisual(owner, 'test/key', function(node: uiHost.Node, draw: uiHost.Draw)
+    local theme = node.theme
+    draw:box(nil, { fill = theme.colors.accent, radius = theme.radii.control, side = theme.colors.side, edges = true })
+  end)
+  service:registerKind(owner, {
+    name = 'test/text',
+    layout = {
+      kind = 'text',
+      text = function(props: uiHost.Props): string
+        return props.text
+      end,
+      textStyle = function(props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutTextStyle
+        local style = theme.type.title
+        return {
+          family = style.family,
+          size = props.size or style.size,
+          weight = style.weight,
+          lineHeight = style.lineHeight,
+        }
+      end,
+    },
+    visuals = { 'test/text' },
+  })
+  service:registerVisual(owner, 'test/text', function(node: uiHost.Node, draw: uiHost.Draw)
+    draw:text { color = node.props.color or node.theme.colors.ink }
+  end)
+end
+
+local function channels(image: Image, x: number, y: number): (number, number, number)
+  local r, g, b = image:getPixel(x, y)
+  return r, g, b
+end
+
+local function close(image: Image, x: number, y: number, expected: { number }, label: string): ()
+  local r, g, b = channels(image, x, y)
+  for index, value in { r, g, b } do
+    testing.expect.near(value, expected[index], 6 / 255, `{label} channel {index}`)
+  end
+end
+
+test('a panel face, a raised key, and its label render in front of each other', function()
+  local scene = ui.boot({}, {}, function(context: any)
+    local service = context:require(uiHost.capability)
+    kinds(service, context)
+    local panel = service:newPanel(context, { name = 'basics', width = 0.2, height = 0.12, pose = lovr.math.newMat4() })
+    local theme = service:theme()
+    panel.root:bind {
+      render = function()
+        panel.root:submit(element('test/panel', {
+          element('test/text', { key = 'title', text = 'Lunette' }),
+          element('test/key', { key = 'key', element('test/text', { text = 'Run', color = theme.colors.accentInk }) }),
+        }))
+      end,
+    }
+  end)
+  local image = ui.render(scene, 320, 200, vector.pack(0, 0, 0.32), vector.pack(0, 0, 0))
+  ui.snapshot('host-front', image)
+  local theme = scene.service:theme()
+  -- The panel's bottom-right region is plain surface.
+  close(image, 200, 130, theme.colors.surface, 'the panel face')
+  local angled = ui.render(scene, 320, 200, vector.pack(0.18, -0.06, 0.24), vector.pack(0, 0, 0))
+  ui.snapshot('host-angled', angled)
+  scene.fixture:close()
+end)
+
+test('text draws in the colour it was given, as a box does', function()
+  -- A colour well below mid-grey shows whether the glyph shader converts it as the box shader does: drawn as linear,
+  -- it comes out far lighter.
+  local ink = { 0.2, 0.3, 0.45, 1 }
+  local scene = ui.boot({}, {}, function(context: any)
+    local service = context:require(uiHost.capability)
+    kinds(service, context)
+    local panel = service:newPanel(context, { name = 'ink', width = 0.2, height = 0.12, pose = lovr.math.newMat4() })
+    panel.root:bind {
+      render = function()
+        panel.root:submit(element('test/panel', {
+          element('test/text', { key = 'stem', text = 'I', size = 0.08, color = ink }),
+        }))
+      end,
+    }
+  end)
+  local image = ui.render(scene, 320, 200, vector.pack(0, 0, 0.32), vector.pack(0, 0, 0))
+  local surface = scene.service:theme().colors.surface
+  -- The pixel that differs most from the panel face lies inside the stem.
+  local farthest, found = -1, { 0, 0, 0 }
+  for y = 0, 199 do
+    for x = 0, 319 do
+      local r, g, b = channels(image, x, y)
+      local distance = math.abs(r - surface[1]) + math.abs(g - surface[2]) + math.abs(b - surface[3])
+      if distance > farthest then
+        farthest, found = distance, { r, g, b }
+      end
+    end
+  end
+  for index = 1, 3 do
+    testing.expect.near(found[index], ink[index], 8 / 255, `the stem's channel {index}`)
+  end
+  scene.fixture:close()
+end)
+
+test('an SVG image is rasterised and drawn over its node', function()
+  local svg =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10" fill="#ff0000"/></svg>'
+  local scene = ui.boot({}, {}, function(context: any)
+    local service = context:require(uiHost.capability)
+    kinds(service, context)
+    service:registerKind(context, {
+      name = 'test/picture',
+      layout = {
+        kind = 'leaf',
+        style = function(): lunette.LayoutStyle
+          return { width = 0.06, height = 0.06 }
+        end,
+      },
+      visuals = { 'test/picture' },
+    })
+    service:registerVisual(context, 'test/picture', function(_node: uiHost.Node, draw: uiHost.Draw)
+      draw:image(nil, { source = { kind = 'svg', data = svg } })
+    end)
+    local panel =
+      service:newPanel(context, { name = 'pictures', width = 0.2, height = 0.12, pose = lovr.math.newMat4() })
+    panel.root:bind {
+      render = function()
+        panel.root:submit(element('test/panel', { element('test/picture', { key = 'picture' }) }))
+      end,
+    }
+  end)
+  local image = ui.render(scene, 320, 200, vector.pack(0, 0, 0.32), vector.pack(0, 0, 0))
+  ui.snapshot('host-image', image)
+  -- The picture sits in the panel's padding at the top left; its centre is solid red.
+  local found = false
+  for x = 60, 160, 4 do
+    for y = 30, 120, 4 do
+      local r, g, b = image:getPixel(x, y)
+      if r > 0.9 and g < 0.1 and b < 0.1 then
+        found = true
+      end
+    end
+  end
+  testing.expect.truthy(found, 'red pixels from the rasterised SVG')
+  scene.fixture:close()
+end)
+
+test("a volume's own geometry rises out of the panel and the pass state returns afterwards", function()
+  local scene = ui.boot({}, {}, function(context: any)
+    local service = context:require(uiHost.capability)
+    kinds(service, context)
+    service:registerKind(context, {
+      name = 'test/volume',
+      layout = {
+        kind = 'leaf',
+        style = function(): lunette.LayoutStyle
+          return { width = 0.06, height = 0.06 }
+        end,
+      },
+      visuals = { 'test/volume' },
+    })
+    service:registerVisual(context, 'test/volume', function(_node: uiHost.Node, draw: uiHost.Draw)
+      draw:volume(nil, {
+        depth = 0.04,
+        draw = function(pass: Pass, volume: uiHost.Volume): ()
+          -- A shader of the volume's own, which the host must not leave set for the text drawn after it.
+          pass:setShader 'unlit'
+          pass:setColor(0, 1, 0, 1)
+          pass:box(0, 0, volume.depth / 2, volume.width * 0.8, volume.height * 0.8, volume.depth)
+        end,
+      })
+    end)
+    local panel =
+      service:newPanel(context, { name = 'volumes', width = 0.2, height = 0.12, pose = lovr.math.newMat4() })
+    panel.root:bind {
+      render = function()
+        panel.root:submit(element('test/panel', {
+          element('test/volume', { key = 'volume' }),
+          element('test/text', { key = 'title', text = 'Lunette' }),
+        }))
+      end,
+    }
+  end)
+  local function green(image: Image): number
+    local count = 0
+    for y = 0, 199, 2 do
+      for x = 0, 319, 2 do
+        local r, g, b = image:getPixel(x, y)
+        if g > 0.9 and r < 0.1 and b < 0.1 then
+          count += 1
+        end
+      end
+    end
+    return count
+  end
+  local front = ui.render(scene, 320, 200, vector.pack(0, 0, 0.32), vector.pack(0, 0, 0))
+  ui.snapshot('host-volume', front)
+  local seen = green(front)
+  testing.expect.truthy(seen > 20, `the volume draws its box: {seen} samples`)
+  -- From the side, a box that rises out of the panel covers more of the view than its face alone.
+  local side = ui.render(scene, 320, 200, vector.pack(0.25, 0, 0.12), vector.pack(-0.06, 0.02, 0.02))
+  ui.snapshot('host-volume-side', side)
+  testing.expect.truthy(green(side) > 0, 'the box is visible from the side')
+  -- The text after the volume still draws with the toolkit's glyph shader, in its theme ink.
+  local ink = scene.service:theme().colors.ink
+  local inked = false
+  for y = 0, 199 do
+    for x = 0, 319 do
+      local r, g, b = front:getPixel(x, y)
+      if math.abs(r - ink[1]) < 0.03 and math.abs(g - ink[2]) < 0.03 and math.abs(b - ink[3]) < 0.03 then
+        inked = true
+      end
+    end
+  end
+  testing.expect.truthy(inked, 'the title draws in its ink after the volume')
+  scene.fixture:close()
+end)
+
+return test

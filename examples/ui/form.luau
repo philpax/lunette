@@ -1,159 +1,186 @@
--- A third-party form uses the configured UI provider and the desktop's shared keyboard.
+-- A third-party form built with the React-like library on the UI host, using the standard kinds, one kind of its
+-- own, and the desktop's shared keyboard. A wrist-menu action opens it.
 local plugin = require '@lunette-plugin'
-local ui = require '@lunette-contracts/ui'
+local lunette = require '@lunette'
+local uiHost = require '@lunette-contracts/ui-host'
+local uiComponents = require '@lunette-contracts/ui-components'
 local menu = require '@lunette-contracts/menu'
-local frame = require '@lunette-contracts/frame'
-local vocabulary = require '@lunette-contracts/vocabulary'
+local ui = require '@lunette-plugins/ui/react'
 
 export type Config = {}
 export type Settings = {}
 
+type FormProps = {
+  read tapPad: uiHost.Constructor,
+  read close: () -> (),
+}
+
+local MODES = {
+  { id = 'quiet', label = 'Quiet' },
+  { id = 'studio', label = 'Studio' },
+  { id = 'outdoors', label = 'Outdoors' },
+}
+
+local DESTINATIONS = {}
+for index = 1, 24 do
+  DESTINATIONS[index] = { id = `destination-{index}`, title = `Destination {index}` }
+end
+
+-- A pad that counts taps: an activation is a tap, and a press that ends without one, such as when the form is
+-- hidden mid-press, is a cancellation.
+local function registerTapPad(host: uiHost.Service, owner: plugin.Owner): uiHost.Constructor
+  local constructor = host:registerKind(owner, {
+    name = 'example/tap-pad',
+    focus = 'pointer',
+    elevation = 'raised',
+    response = { lift = true, travel = true },
+    interactive = function(): boolean
+      return true
+    end,
+    layout = {
+      kind = 'container',
+      style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
+        return {
+          flexDirection = 'column',
+          alignItems = 'center',
+          justifyContent = 'center',
+          padding = theme.spacing.md,
+          minHeight = theme.sizes.row * 2,
+        }
+      end,
+    },
+    visuals = { 'example/tap-pad' },
+    event = function(node: uiHost.Node, event: uiHost.Event, base: (uiHost.Node, uiHost.Event) -> ())
+      if event.kind == 'activate' then
+        node:emit 'onTap'
+      elseif event.kind == 'cancel' then
+        node:emit 'onCancel'
+      elseif event.kind ~= 'press' and event.kind ~= 'release' then
+        base(node, event)
+      end
+    end,
+  })
+  host:registerVisual(owner, 'example/tap-pad', function(node: uiHost.Node, draw: uiHost.Draw)
+    local theme = node.theme
+    draw:box(nil, {
+      fill = if node.state.hovered then theme.colors.hover else theme.colors.raised,
+      radius = theme.radii.control,
+      side = theme.colors.side,
+      edges = true,
+    })
+  end)
+  return constructor
+end
+
+local Form = ui.component('ExampleForm', function(props: FormProps): ui.Child
+  local c = ui.useComponents()
+  local presses, setPresses = ui.useState(0)
+  local name, setName = ui.useState ''
+  local mode, setMode = ui.useState 'quiet'
+  local destination, setDestination = ui.useState 'destination-1'
+  local taps, setTaps = ui.useState(0)
+  local cancelled, setCancelled = ui.useState(0)
+  local field = ui.useRef(nil :: uiHost.Node?)
+  local status = `Presses: {presses}; name: {name}; mode: {mode}; destination: {destination}; taps: {taps}; `
+    .. `cancelled: {cancelled};`
+  return c.Panel {
+    title = 'Example form',
+    -- Hiding the panel does not end its field's focus, so closing ends it first, which hides the keyboard.
+    onClose = function()
+      local node = field.current
+      if node and not node.dead then
+        node:blur()
+      end
+      props.close()
+    end,
+    c.Body {
+      key = 'body',
+      c.Row {
+        key = 'actions',
+        gap = 'md',
+        align = 'center',
+        c.Button {
+          key = 'press',
+          label = 'Count a press',
+          variant = 'primary',
+          onActivate = function()
+            setPresses(presses + 1)
+          end,
+        },
+        c.Text { key = 'count', text = `{presses} pressed`, color = 'muted' },
+      },
+      c.TextField { key = 'name', ref = field, value = name, placeholder = 'Name', onChange = setName },
+      c.Row {
+        key = 'choices',
+        gap = 'lg',
+        c.Section {
+          key = 'mode',
+          title = 'Mode',
+          c.RadioGroup { key = 'mode', options = MODES, value = mode, onChange = setMode },
+        },
+        c.Section {
+          key = 'destinations',
+          title = 'Destinations',
+          c.ScrollView {
+            height = 0.16,
+            c.List { key = 'list', items = DESTINATIONS, value = destination, onChange = setDestination },
+          },
+        },
+      },
+      props.tapPad {
+        key = 'pad',
+        onTap = function()
+          setTaps(function(count: number): number
+            return count + 1
+          end)
+        end,
+        onCancel = function()
+          setCancelled(function(count: number): number
+            return count + 1
+          end)
+        end,
+        c.Text { key = 'label', text = 'Tap to count', style = 'label' },
+      },
+      c.Text { key = 'status', text = status, style = 'caption', color = 'muted' },
+    },
+  }
+end)
+
 return plugin.consumer<<Config, Settings>> {
   name = 'example/ui/form',
-  requires = { ui.capability, menu.capability, frame.capability },
+  requires = { uiHost.capability, uiComponents.capability, menu.capability },
   init = function(context: plugin.Context, _settings: Settings)
-    local widgets: ui.Service = context:require(ui.capability)
+    local host = context:require(uiHost.capability)
+    local components = context:require(uiComponents.capability)
     local actions: menu.Service = context:require(menu.capability)
-    local frames: frame.Service = context:require(frame.capability)
-    local panel = widgets:newPanel(context, {
+    local panel = host:newPanel(context, {
       name = 'example/ui/form',
       pose = lovr.math.newMat4():translate(vector.pack(0, 1.4, -1.4)),
-      width = 0.9,
-      height = 0.84,
-      logicalWidth = 600,
-      logicalHeight = 560,
-      visible = false,
-      grabbable = true,
-      theme = { fontSize = 18, rowHeight = 32 },
+      width = 0.6,
+      height = 0.62,
     })
-    local presses, taps, cancelled = 0, 0, 0
-    local text, mode, destination = '', 'quiet', 'destination-1'
-    local held: { [vocabulary.Pointer]: boolean } = {}
-
-    panel:button {
-      id = 'press',
-      label = 'Count a press',
-      bounds = { x = 24, y = 28, width = 250, height = 44 },
-      onActivate = function()
-        presses += 1
-      end,
-    }
-    panel:textField {
-      id = 'name',
-      label = 'Name',
-      bounds = { x = 24, y = 96, width = 552, height = 48 },
-      value = text,
-      onChange = function(value: string)
-        text = value
-      end,
-    }
-    panel:choice {
-      id = 'mode',
-      label = 'Mode',
-      bounds = { x = 24, y = 172, width = 250, height = 172 },
-      items = {
-        { id = 'quiet', label = 'Quiet' },
-        { id = 'studio', label = 'Studio' },
-        { id = 'outdoors', label = 'Outdoors' },
-      },
-      selected = mode,
-      onChange = function(value: string)
-        mode = value
-      end,
-    }
-    local destinations: { ui.Item } = {}
-    for index = 1, 24 do
-      destinations[index] = { id = 'destination-' .. tostring(index), label = 'Destination ' .. tostring(index) }
+    panel:setVisible(false)
+    local function setVisible(visible: boolean): ()
+      if context:active() and not panel.dead then
+        panel:setVisible(visible)
+      end
     end
-    panel:list {
-      id = 'destinations',
-      label = 'Destinations: scroll with the thumbstick',
-      bounds = { x = 298, y = 172, width = 278, height = 220 },
-      items = destinations,
-      selected = destination,
-      onChange = function(value: string)
-        destination = value
-      end,
-    }
-    panel:region {
-      id = 'preview',
-      label = 'Live preview: tap to count',
-      bounds = { x = 24, y = 412, width = 552, height = 124 },
-      onPointer = function(event: vocabulary.PointerEvent)
-        if event.kind == 'press' then
-          if event.button == 'left' then
-            held[event.pointer] = true
-          end
-        elseif event.kind == 'cancel' then
-          if event.button == 'left' and held[event.pointer] then
-            held[event.pointer] = nil
-            cancelled += 1
-          end
-        elseif event.kind == 'release' then
-          if event.button == 'left' and held[event.pointer] then
-            held[event.pointer] = nil
-            if event.inside then
-              taps += 1
-            end
-          end
-        end
-      end,
-      draw = function(pass: Pass, visual: ui.Visual, base: ui.Renderer)
-        base(pass, visual)
-        local clip = visual.clip
-        if clip.width <= 16 or clip.height <= 16 then
-          return
-        end
-        local report = 'Presses: '
-          .. tostring(presses)
-          .. '; name: '
-          .. text:gsub('[%z\1-\31\127]', ' ')
-          .. ';\nmode: '
-          .. mode
-          .. '; destination: '
-          .. destination
-          .. ';\ntaps: '
-          .. tostring(taps)
-          .. '; cancelled: '
-          .. tostring(cancelled)
-          .. ';'
-        local font = lovr.graphics.getDefaultFont()
-        pass:setFont(font)
-        local scale = math.min(18 / font:getHeight(), (clip.width - 16) / math.max(font:getWidth(report), 1))
-        scale = math.min(scale, (clip.height - 16) / (3 * font:getHeight()))
-        pass:setColor(0.65, 0.9, 1, 1)
-        -- Logical panel coordinates are y-down, while text glyphs are y-up.
-        pass:text(report, clip.x + 8, clip.y + 8, 0, scale, math.pi, 1, 0, 0, 0, 'left', 'top')
-      end,
-    }
-    panel:button {
-      id = 'close',
-      label = 'Close',
-      bounds = { x = 444, y = 28, width = 132, height = 44 },
-      onActivate = function()
-        if context:active() and not panel.dead then
-          -- Hiding ends field focus and pointer captures without claiming another owner's route.
-          panel:setVisible(false)
-        end
-      end,
-    }
+    ui.mount(
+      panel,
+      Form {
+        tapPad = registerTapPad(host, context),
+        close = function()
+          setVisible(false)
+        end,
+      },
+      { components = components, owner = context }
+    )
     actions:register(context, {
       id = 'example/ui/open',
       label = 'Open example form',
       group = 'Examples',
-      order = 4,
       run = function()
-        if context:active() and not panel.dead then
-          panel:setVisible(true)
-        end
-      end,
-    })
-    frames:onDraw(context, {
-      phase = 'overlay',
-      run = function(pass: Pass)
-        if context:active() and not panel.dead then
-          panel:draw(pass)
-        end
+        setVisible(true)
       end,
     })
   end,

@@ -17,9 +17,6 @@ test('settings cover entries with options and shipped empty schemas', function()
   local expected = {
     'frame',
     'theme',
-    'themes',
-    'theme/standard',
-    'theme/arcade',
     'surfaces',
     'panels',
     'drops',
@@ -28,9 +25,11 @@ test('settings cover entries with options and shipped empty schemas', function()
     'interaction',
     'laser',
     'keyboard',
-    'ui',
+    'ui-host',
+    'ui-standard',
+    'notifications',
+    'accessibility',
     'menu',
-    'desktop/theme',
     'tags',
     'rules',
     'placement',
@@ -46,11 +45,14 @@ test('settings cover entries with options and shipped empty schemas', function()
     'desktop/hint',
     'desktop/decorations',
     'desktop/pointing',
+    'desktop/mouse-pointer',
+    'desktop/simulator',
     'desktop/input',
     'desktop/keyboard',
     'desktop/menu',
     'desktop/actions',
     'desktop/errors',
+    'diagnostics/recovery',
     'desktop/workspaces',
     'desktop/monitors',
     'desktop/rules',
@@ -61,11 +63,12 @@ test('settings cover entries with options and shipped empty schemas', function()
     'desktop/scale',
     'desktop/backdrop',
     'desktop/manager',
+    'desktop/accessibility',
   }
   local entries = desktop.compose()
   expect.equal(#entries, #expected, 'the shipped entry count')
   local fields = settings.schema.inspect().fields
-  local factories = { ['desktop/theme'] = true, ['desktop/persistence'] = true, ['desktop/arrange'] = true }
+  local factories = { ['desktop/persistence'] = true, ['desktop/arrange'] = true }
   for index, entry in ipairs(entries) do
     expect.equal(entry.id, expected[index], 'the shipped entry at position ' .. index)
     expect.equal(builtinEntries[entry.id], entry.definition, 'the registered definition of ' .. entry.id)

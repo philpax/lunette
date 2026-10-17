@@ -99,11 +99,11 @@ test('aged onsets and runtime strengths stay finite and make bounded discards ex
   state:setFeatures({ bass = 0, mid = 0, treble = 0 }, {}, { gap = 'capacity' })
   expect.equal(#state.waves, 1, 'capacity loss preserves active impulses')
   local overflow: { model.Onset } = {}
-  for index = 1, 12 do
+  for index = 1, model.wavePools.mid + 4 do
     overflow[index] = { band = 'mid', strength = 1 }
   end
   state:setFeatures({ bass = 0, mid = 0, treble = 0 }, overflow)
-  expect.equal(state.discardedHops, 5, 'the existing mid wave leaves seven slots and five skipped onsets')
+  expect.equal(state.discardedHops, 5, 'the existing mid wave takes a slot, so five onsets are skipped')
   state:setFeatures({ bass = 0, mid = 0, treble = 0 }, {}, { gap = 'publication' })
   expect.equal(#state.waves, 0, 'audio history loss clears stale impulses')
 end)

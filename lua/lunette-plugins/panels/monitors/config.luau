@@ -10,6 +10,9 @@ local descriptor = schema.object {
   select = schema.default(schema.array(schema.string { minLength = 1 })) {},
   placement = schema.default(placement)(placement.parse {}),
   tags = schema.default(schema.array(schema.string { minLength = 1 })) {},
+  -- Ids of monitors not mirrored. Closing a mirror, or turning it off in the wrist menu's Monitors group, adds its
+  -- monitor, and turning it on removes it, so mirrors return at the next start as they were left.
+  hidden = schema.default(schema.array(schema.string { minLength = 1 })) {},
 }
 
 export type Config = schema.Input<typeof(descriptor)>

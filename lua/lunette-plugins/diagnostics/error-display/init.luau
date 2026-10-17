@@ -1,115 +1,147 @@
--- Displays the latest error report on a floating quad because reports have no texture source.
+-- Presents shared error reports on a UI host panel that appears when a report arrives, collapses repeated reports
+-- into one entry with a count, and keeps a history that the overlay pages through after dismissal.
+--
+-- The panel uses the world presentation at a configured position. A follow panel would share the band below the
+-- head that notification toasts occupy, and follow panels are reached by rays only; a world panel takes focus
+-- normally, so focus traversal reaches dismissal, the history, and paging, and it stays put while a report is read.
+
 local plugin = require '@lunette-plugin'
 local errors = require '@lunette-contracts/errors'
-local frame = require '@lunette-contracts/frame'
-local theme = require '@lunette-contracts/theme'
-local errorLines = require '@self/private/lines'
-local passState = require '@lunette-plugins/graphics/pass-state'
-local descriptors = require '@lunette-plugins/theme/configuration'
+local menu = require '@lunette-contracts/menu'
+local uiHost = require '@lunette-contracts/ui-host'
+local uiComponents = require '@lunette-contracts/ui-components'
+local ui = require '@lunette-plugins/ui/react'
+local history = require '@self/private/history'
+local view = require '@self/private/view'
 
 local config = require '@self/config'
 
 export type Config = config.Config
 export type Settings = config.Settings
 
+local PANEL = 'desktop/errors'
+-- The tallest the content-sized panel grows, in metres.
+local MAX_HEIGHT = 0.8
+
 local required: plugin.Declaration = {
   errors.capability,
-  frame.capability,
-  theme.capability,
+  uiHost.capability,
+  uiComponents.capability,
 }
-
-type Paint = {
-  textHeight: number,
-  background: theme.Color,
-  foreground: theme.Color,
-  font: Font,
-}
-
-local function draw(pass: Pass, lines: { string }, settings: Settings, paint: Paint): ()
-  if #lines == 0 then
-    return
-  end
-  passState.withRestore(pass, function(): ()
-    pass:setShader()
-    pass:setMaterial(nil)
-    pass:setFont(paint.font)
-    local x, y, z = settings.position:unpack()
-    local textHeight = paint.textHeight
-    local height = (#lines + 1) * textHeight * 1.5
-    local background = paint.background
-    pass:setColor(background[1], background[2], background[3], background[4])
-    pass:plane(x, y, z, settings.width, height, 0, 0, 0, 0, 'fill', 1, 1)
-    local foreground = paint.foreground
-    pass:setColor(foreground[1], foreground[2], foreground[3], foreground[4])
-    local top = y + height / 2 - textHeight * 1.5
-    for index, line in ipairs(lines) do
-      pass:text(
-        line,
-        x - settings.width / 2 + textHeight,
-        top - (index - 1) * textHeight * 1.5,
-        z + 0.001,
-        textHeight,
-        0,
-        0,
-        1,
-        0,
-        0,
-        'left',
-        'middle'
-      )
-    end
-  end)
-end
 
 return plugin.consumer<<Config, Settings>> {
   name = 'desktop/errors',
   requires = required,
   schema = config.schema,
   init = function(context: plugin.Context, settings: Settings): ()
-    local frameService: frame.Service = context:require(frame.capability)
     local stream: errors.Service = context:require(errors.capability)
-    local themeService: theme.Service = context:require(theme.capability)
-    local configuredFont: theme.FontSpec? = if settings.font
-      then descriptors.projectFont(settings.font, 'desktop/errors font')
-      else nil
-    local function prepare(snapshot: theme.Snapshot): Paint
-      local style = snapshot.theme
-      local fontSpec = configuredFont or style.typography.font
-      return {
-        textHeight = settings.textHeight or style.typography.errorTextHeight,
-        background = settings.background or style.colors.errorBackground,
-        foreground = settings.foreground or style.colors.foreground,
-        font = themeService:font(fontSpec),
-      }
-    end
-    local paint = prepare(themeService:current())
-    themeService:onChanged(context, {
-      run = function(_event: theme.Snapshot): ()
-        if context:active() then
-          paint = prepare(themeService:current())
-        end
-      end,
+    local host: uiHost.Service = context:require(uiHost.capability)
+    local components: uiComponents.Service = context:require(uiComponents.capability)
+    local record = ui.store(history.new(settings.history))
+    local state = ui.store({ mode = 'new', page = 1 } :: view.State)
+    local panel = host:newPanel(context, {
+      name = PANEL,
+      pose = lovr.math.newMat4():translate(settings.position),
+      width = settings.width,
+      height = MAX_HEIGHT,
+      size = 'content',
+      grabbable = true,
+      visible = false,
     })
+    local shown = false
+    -- The menu action, while a menu provider is loaded.
+    local registration: menu.Registration? = nil
 
-    local shown: errors.Report? = nil
-    shown = stream:latest()
-    stream:onReport(context, {
-      run = function(report: errors.Report): ()
-        shown = report
-      end,
-    })
-    frameService:onDraw(context, {
-      phase = 'overlay',
-      run = function(pass: Pass): ()
-        local report = shown
-        if report then
-          local lines = errorLines.of(
-            { latest = report.text, count = report.sequence },
-            { columns = settings.columns, lines = settings.lines }
-          )
-          draw(pass, lines, settings, paint)
+    local function live(): boolean
+      return context:active() and not panel.dead
+    end
+    local function show(visible: boolean): ()
+      if not live() or shown == visible then
+        return
+      end
+      shown = visible
+      panel:setVisible(visible)
+      if registration then
+        registration:update { selected = visible }
+      end
+    end
+    local actions: view.Actions = table.freeze {
+      dismiss = function(): ()
+        if live() then
+          record:set(history.dismiss(record:get()))
+          state:set { mode = 'new', page = 1 }
+          show(false)
         end
       end,
-    })
+      setMode = function(mode: view.Mode): ()
+        if live() then
+          state:set { mode = mode, page = 1 }
+        end
+      end,
+      setPage = function(page: number): ()
+        if live() then
+          state:set { mode = state:get().mode, page = page }
+        end
+      end,
+    }
+    ui.mount(
+      panel,
+      view.Overlay {
+        history = record,
+        state = state,
+        actions = actions,
+        width = settings.width,
+        lines = settings.lines,
+        pageSize = settings.page,
+      },
+      { components = components, owner = context }
+    )
+
+    -- A new report shows the overlay and brings the newest reports into view, unless the history is being read.
+    local function receive(report: errors.Report): ()
+      if not live() then
+        return
+      end
+      record:set(history.record(record:get(), report))
+      if state:get().mode == 'new' then
+        state:set { mode = 'new', page = 1 }
+      end
+      show(true)
+    end
+    local latest = stream:latest()
+    if latest then
+      receive(latest)
+    end
+    stream:onReport(context, { run = receive })
+
+    -- The history stays reachable after dismissal through the menu. A child keeps a missing menu provider from
+    -- disabling the overlay.
+    context:child(plugin.consumer<<{}, {}>>({
+      name = 'desktop/errors/menu',
+      requires = { menu.capability },
+      init = function(child: plugin.Context, _settings: {}): ()
+        local menus: menu.Service = child:require(menu.capability)
+        local action = menus:register(child, {
+          id = 'desktop/errors/history',
+          label = 'Error history',
+          group = 'Session',
+          selected = shown,
+          run = function(): ()
+            if shown then
+              actions.dismiss()
+            else
+              actions.setMode 'history'
+              show(true)
+            end
+          end,
+        })
+        child:effect(function(): () -> ()
+          registration = action
+          return function(): ()
+            registration = nil
+          end
+        end)
+      end,
+    }).definition)
   end,
 }

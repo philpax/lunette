@@ -78,7 +78,8 @@ local function drawn(native: Native, panel: Drawable): { [string]: number }
 end
 
 test('a window draws in the scene by default, and skips it only while an opted-in layer is granted', function()
-  local native, session, panels, owner, window = start()
+  -- A square window draws a plain quad.
+  local native, session, panels, owner, window = start { style = { windowRadius = 0 } }
   local plain = panels:fromWindow(owner, window)
   expect.equal(#native.events.claims, 0, 'the default claims no layer')
   expect.equal(drawn(native, plain).plane, 1, 'the content plane')
@@ -120,15 +121,15 @@ test('chrome draws a ring and title in theme colours when a panel or the configu
   local native, session, panels, owner, window = start()
   expect.equal(drawn(native, panels:fromWindow(owner, window, { height = 1 })).text, nil, 'no chrome by default')
   local theme = session:observe(require('@lunette-contracts/theme').capability)
-  local selected = theme.service:select(theme.context, { colors = { foreground = { 0.8, 0.7, 0.6, 1 } } })
+  theme.service:setMode 'light'
+  local ink = theme.service:current().colors.ink
   local framed = panels:fromWindow(owner, native.newWindow(2), { height = 1, chrome = true })
   drawn(native, framed)
   local title: typeof(testing.native().events.draw[1])?
   for _, call in native.events.draw do
     title = if call[1] == 'text' then call else title
   end
-  expect.equal(title.state.setColor[1], 0.8, 'the title inherits the foreground')
-  selected:dispose()
+  expect.equal(title.state.setColor[1], ink[1], "the title takes the live theme's ink")
   session:close()
 
   native, session, panels, owner, window = start { chrome = true }
@@ -138,7 +139,7 @@ test('chrome draws a ring and title in theme colours when a panel or the configu
 end)
 
 test('a cropped window samples only its crop in the scene', function()
-  local native, session, panels, owner, window = start()
+  local native, session, panels, owner, window = start { style = { windowRadius = 0 } }
   local panel = panels:fromWindow(owner, window)
   local made = native.events.render.meshAcquisitions
   expect.equal(drawn(native, panel).plane, 1, 'an uncropped window draws a plain quad')

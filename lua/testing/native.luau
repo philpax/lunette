@@ -236,6 +236,10 @@ export type Events = {
   audioStreamsClosed: number,
   frameGeneration: number,
   headTracked: boolean,
+  -- False runs the desktop simulator: the headset has no session, and the window shows the head's view.
+  headsetActive: boolean,
+  -- The simulator window's size, cursor mode, and the view's half-angles in radians.
+  window: { width: number, height: number, mouseMode: string, view: { number } },
   eyeTracked: boolean,
   eyeTracking: boolean,
   headPose: Mat4,
@@ -249,9 +253,15 @@ export type Events = {
   reported: { { message: string, traceback: string, logged: string } },
   reads: number,
   writes: number,
+  -- Save files other than the arrangement, by path.
+  files: { [string]: string },
+  -- Set to a message to make the next `lunette.saveFile` raise it.
+  saveFailure: string?,
   enumerations: number,
   closed: number,
   writeMode: 'ok' | 'refuse',
+  -- How many times the session asked to restart into safe mode.
+  safeModeRestarts: number,
   time: number,
   rates: { { window: number, rate: number? } },
   modes: { { output: number, scale: number? } },
@@ -312,6 +322,8 @@ function native.new(): Fake
     audioStreamsClosed = 0,
     frameGeneration = 0,
     headTracked = true,
+    headsetActive = true,
+    window = { width = 800, height = 600, mouseMode = 'normal', view = { 0.8, 0.8, 0.65, 0.65 } },
     eyeTracked = false,
     eyeTracking = false,
     headPose = lovr.math.newMat4():translate(0, 1.5, 0),
@@ -325,9 +337,11 @@ function native.new(): Fake
     reported = {},
     reads = 0,
     writes = 0,
+    files = {},
     enumerations = 0,
     closed = 0,
     writeMode = 'ok',
+    safeModeRestarts = 0,
     time = 0,
     rates = {},
     modes = {},
@@ -519,6 +533,27 @@ installNative = function(fake: Fake, events: Events, subscribe: Subscribe, clear
   lunette.reportError = function(fields: lunette.ReportErrorOptions)
     fake.raise(fields.context .. ': ' .. fields.message, fields.traceback or '')
   end
+  -- An atomic save into the fake save directory lands where `lovr.filesystem.read` finds it. `events.saveFailure`
+  -- makes the next save raise, as a full disk does.
+  lunette.saveFile = function(directory: string, name: string, contents: string): ()
+    assert(directory == '/fixture', 'saveFile: the fake saves only into the fake save directory')
+    assert(not string.find(name, '[/\\%z]') and name ~= '' and name ~= '.' and name ~= '..', 'saveFile: a file name')
+    local failure = events.saveFailure
+    if failure then
+      events.saveFailure = nil
+      error(failure, 0)
+    end
+    -- An arrangement stream is counted and refused as its tests expect.
+    if string.sub(name, -6) == '.state' then
+      events.writes += 1
+      if events.writeMode == 'refuse' then
+        error('the fixture refuses the write', 0)
+      end
+      events.saved = contents
+      return
+    end
+    events.files[name] = contents
+  end
   lunette.windows = function(): { Window }
     events.enumerations += 1
     -- Initial enumeration follows subscription; later frame-snapshot polling need not retain a window cache.
@@ -619,6 +654,11 @@ installNative = function(fake: Fake, events: Events, subscribe: Subscribe, clear
   end
   lunette.reload = function(): (boolean, string?)
     return host.reload(clearSubscriptions)
+  end
+  -- Records the request; a test session has no restart to queue.
+  lunette.restartIntoSafeMode = function(): (boolean, string?)
+    events.safeModeRestarts += 1
+    return true, nil
   end
 end
 
@@ -841,18 +881,44 @@ installLovr = function(events: Events)
     newShader = function(vertex: string, fragment: string): render.Shader
       return recorder:newShader(vertex, fragment)
     end,
+    newTexture = function(source: any, options: any?): render.Texture
+      return recorder:newTexture(source, options)
+    end,
     getDefaultFont = function(): render.Font
       return font
     end,
   }
+  -- A blob carries its contents to a constructor such as `newFont`, which the fake does not parse.
+  lovr.data = {
+    newBlob = function(contents: string, name: string?): { read contents: string, read name: string? }
+      return table.freeze { contents = contents, name = name }
+    end,
+    newImage = function(width: number, height: number, format: string, blob: any): any
+      return table.freeze { width = width, height = height, format = format, blob = blob }
+    end,
+  } :: any
   lovr.timer = {
     getTime = function(): number
       return events.time
     end,
   }
   lovr.system = {
-    isKeyDown = function(key: string): boolean
-      return events.held[key] == true
+    isKeyDown = function(...: string): boolean
+      for _, key in { ... } do
+        if events.held[key] == true then
+          return true
+        end
+      end
+      return false
+    end,
+    getWindowDimensions = function(): (number, number)
+      return events.window.width, events.window.height
+    end,
+    getMouseMode = function(): string
+      return events.window.mouseMode
+    end,
+    setMouseMode = function(mode: string): ()
+      events.window.mouseMode = mode
     end,
   }
   -- Hands, head, and gaze have independent tracking so a missing gaze never moves the head.
@@ -876,6 +942,27 @@ installLovr = function(events: Events)
     end,
     isMainSessionVisible = function(): boolean
       return events.mainSessionVisible
+    end,
+    isActive = function(): boolean
+      return events.headsetActive
+    end,
+    getViewAngles = function(_view: number): (number, number, number, number)
+      local view = events.window.view
+      return view[1], view[2], view[3], view[4]
+    end,
+    setPose = function(
+      device: string,
+      x: number,
+      y: number,
+      z: number,
+      angle: number,
+      ax: number,
+      ay: number,
+      az: number
+    )
+      if device == 'head' then
+        events.headPose:set(lovr.math.newMat4():translate(x, y, z):rotate(angle, ax, ay, az))
+      end
     end,
     isTracked = function(device: string): boolean
       local state = controller(device)
@@ -937,14 +1024,27 @@ installLovr = function(events: Events)
     end,
   }
   lovr.filesystem = {
-    read = function(): string?
+    -- Alias paths name files in the mounted module roots, as LÖVR's filesystem serves them. A `.state` file is the
+    -- arrangement stream that tests count and replace; other save files, such as accessibility settings, are kept
+    -- per path in `events.files`.
+    read = function(path: string?): string?
+      if type(path) == 'string' and string.sub(path, 1, 1) == '@' then
+        return host.readFile(path)
+      end
+      if type(path) == 'string' and string.sub(path, -6) ~= '.state' then
+        return events.files[path]
+      end
       events.reads += 1
       return events.saved
     end,
     getSaveDirectory = function(): string
       return '/fixture'
     end,
-    write = function(_: string, text: string): boolean
+    write = function(path: string, text: string): boolean
+      if string.sub(path, -6) ~= '.state' then
+        events.files[path] = text
+        return true
+      end
       events.writes += 1
       if events.writeMode == 'refuse' then
         return false

@@ -6,6 +6,7 @@ members = [
     "crates/lunette-lovr",
     "crates/lunette-luau",
     "crates/lunette-generate-definitions",
+    "crates/lunette-ui",
 ]
 resolver = "3"
 
@@ -50,6 +51,15 @@ libc = "=0.2.189"
 # The Lua test runner reports each test file as a test of its own, with the
 # filtering and output of the built-in harness.
 libtest-mimic = "=0.8.2"
+# Shaping, line breaking, fallback, and editing for the UI toolkit's text. The
+# default features pull in fontconfig and system font discovery; lunette-ui
+# enables discovery itself so tests can run with bundled fonts only.
+cosmic-text = { version = "=0.19.0", default-features = false, features = ["std", "swash"] }
+# SVG rasterisation for the UI toolkit's icons. Text, system fonts, and the
+# GIF, WebP, and JPEG decoders are left out: icons draw shapes, and the
+# toolkit decodes raster images itself. svgz is kept because some icon themes
+# ship compressed documents, and tiny-skia's PNG support already links flate2.
+resvg = { version = "=0.48.1", default-features = false, features = ["svgz"] }
 clap = { version = "=4.6.6", features = ["derive"] }
 lunette-luau = { path = "crates/lunette-luau" }
 # LÖVR builds Luau with four-component vectors, including the C push ABI.
@@ -82,6 +92,9 @@ smol_str = "=0.3.6"
 # client to a process. Handrolling one lets the optimiser reintroduce the
 # early exit.
 subtle = "=2.6.1"
+# The UI toolkit's layout engine. 0.x releases change the low-level API that
+# lunette-ui implements, so a bump is a deliberate change to that crate.
+taffy = { version = "=0.15.0", default-features = false, features = ["std", "flexbox", "grid", "block_layout", "content_size"] }
 tempfile = "=3.27.0"
 # The build metadata is left off the requirement for the same reason as on
 # `ash`: Cargo ignores it when matching and warns about every mention of it.

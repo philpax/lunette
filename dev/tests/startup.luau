@@ -23,12 +23,9 @@ test('the development configuration starts on load and survives a source reload'
   local loaded, failure = require('@lunette').reload()
   expect.truthy(loaded, tostring(failure))
   expect.equal(#events.spawned, 1, 'the reload starts no terminal')
-  for _, name in ipairs { 'onWindowOpened', 'onProcessExited', 'onMonitorAdded', 'onError' } do
-    expect.equal(
-      native.subscriptionCount(name),
-      if name == 'onWindowOpened' then 2 else 1,
-      'the reload leaves the expected ' .. name .. ' subscriptions'
-    )
+  -- The error stream and the recovery plugin each subscribe to native errors.
+  for name, count in { onWindowOpened = 1, onProcessExited = 1, onMonitorAdded = 1, onError = 2 } do
+    expect.equal(native.subscriptionCount(name), count, 'the reload leaves the expected ' .. name .. ' subscriptions')
   end
   lovr.update(0.016)
   expect.equal(lovr.draw(events.pass), false, 'the reloaded desktop draws')

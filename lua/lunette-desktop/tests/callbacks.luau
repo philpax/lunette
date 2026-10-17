@@ -5,6 +5,7 @@ local plugin = require '@lunette-plugin'
 local adapter = require '@lunette-plugin/adapter'
 local frameContract = require '@lunette-contracts/frame'
 local surfacesContract = require '@lunette-contracts/surfaces'
+local uiHost = require '@lunette-contracts/ui-host'
 
 local test = testing.suite()
 
@@ -56,6 +57,11 @@ test('a raising handler or offer is reported and the ones after it still run', f
     'theme',
     'frame',
     'surfaces',
+    'drops',
+    'focus',
+    'interaction',
+    'ui-host',
+    'ui-standard',
     'errors',
     { id = 'raising', definition = raising },
     'desktop/errors',
@@ -73,15 +79,18 @@ test('a raising handler or offer is reported and the ones after it still run', f
 
   expect.equal(session:draw(), false, 'a raising draw handler does not veto the draw')
   expect.truthy(reported 'lovr.draw: ' and reported 'fixture draw failure', 'the draw failure is reported')
-  local drawn: { string } = {}
-  for _, call in ipairs(events.draw) do
-    if call[1] == 'text' then
-      drawn[#drawn + 1] = tostring(call[2])
+  session:update()
+  local host = assert(session:observe(uiHost.capability).service)
+  local shown: { string } = {}
+  for index = 1, #events.reported do
+    local message = host:find(`desktop/errors:body/entries/report-{index}/summary/message`)
+    if message then
+      shown[#shown + 1] = tostring(message.props.text)
     end
   end
   expect.truthy(
-    table.concat(drawn, ' '):find('fixture draw failure', 1, true),
-    'the error panel draws after a raising draw handler, and shows its error'
+    table.concat(shown, ' '):find('fixture draw failure', 1, true),
+    'the error panel shows the error of a raising draw handler'
   )
 
   lovr.keypressed('a', 4, false)
@@ -89,7 +98,7 @@ test('a raising handler or offer is reported and the ones after it still run', f
   expect.equal(ran.key, 'a', 'a raising key handler does not consume the key')
 
   local count = #events.reported
-  expect.equal(#broker:all(), 0, 'neither offer lists a surface')
+  expect.equal(#broker:all(), 1, 'neither offer lists a surface, so the error panel is the only one')
   expect.equal(#events.reported, count + 2, 'both offers are reported')
   expect.truthy(events.reported[count + 1].message:find('surfaces: raising: ', 1, true), 'the raising offer')
   expect.truthy(reported 'surfaces: not-a-list: ' and reported 'not a list of surfaces', 'the offer of no list')

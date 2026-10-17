@@ -38,7 +38,7 @@ Native listeners, plugin initializers, and inverses use protected calls. Lua dis
 
 The host does not protect raw LÖVR callbacks. An uncaught callback error reaches `boot.lua` and normally ends the process with status 1. Returning the previous loop from `lovr.errhand` skips the failed frame's remaining work, including submission; it is not complete XR recovery.
 
-Compiled-in safe mode replaces callbacks after initial configuration failure, including mount, syntax, top-level, and load errors. It needs no installed plugin roots, so a broken installation cannot remove recovery. A loaded graphics module whose initialization fails cannot render recovery; the host logs the startup error and exits with status 1 without starting safe mode. Safe mode does not protect arbitrary runtime callbacks or clean up module-owned resources outside plugins.
+Compiled-in safe mode replaces callbacks after initial configuration failure, including mount, syntax, top-level, and load errors. `lunette.restartIntoSafeMode` queues a hard restart whose next boot runs safe mode instead of the configuration's `main` module; the request lives on the native session and covers that one boot. It needs no installed plugin roots, so a broken installation cannot remove recovery. A loaded graphics module whose initialization fails cannot render recovery; the host logs the startup error and exits with status 1 without starting safe mode. Safe mode does not protect arbitrary runtime callbacks or clean up module-owned resources outside plugins.
 
 ## lunctl
 

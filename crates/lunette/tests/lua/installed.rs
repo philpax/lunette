@@ -180,10 +180,7 @@ fn copy_modules(source: &Path, destination: &Path) -> Result<(), Box<dyn std::er
                 copy_modules(&entry.path(), &destination.join(entry.file_name()))?;
             }
         }
-    } else if source
-        .extension()
-        .is_some_and(|extension| extension == "luau")
-    {
+    } else {
         copy_file(source, destination)?;
     }
     Ok(())

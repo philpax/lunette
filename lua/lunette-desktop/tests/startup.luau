@@ -2,6 +2,7 @@
 local testing = require '@testing'
 local expect = testing.expect
 local vrUi = require '@testing/vr-ui'
+local wristMenu = require '@testing/wrist-menu'
 
 local test = testing.suite()
 
@@ -59,24 +60,25 @@ test('the shipped configuration starts on load and survives ten production reloa
   fixture:tracked('left', true)
   for reload = 1, 10 do
     local controls = assert(_G.vrReloadControls, 'the composition observer is active')
-    local currentUi = controls.ui
+    local currentHost, panels = controls.host, controls.panels
     fixture:step()
-    fixture:clickControl(currentUi, 'desktop/menu', 'open')
+    wristMenu.open(fixture, panels)
     events.logs = {}
-    fixture:clickControl(currentUi, 'desktop/menu', 'actions', 'right', 'desktop/reload')
+    panels:click(fixture, wristMenu.PANEL, wristMenu.row 'desktop/reload')
     expect.falsy(
       pcall(function(): typeof(require('@lunette-contracts/inspection').snapshot {})
-        return currentUi:inspect()
+        return currentHost:inspect()
       end),
       'reload withdraws the previous UI generation'
     )
     expect.equal(#events.logs, 0, 'reload ' .. reload .. ' failed: ' .. tostring(events.logs[1] and events.logs[1][1]))
     expect.equal(#events.spawned, startupProcesses, 'reload ' .. reload .. ' spawns nothing')
     expect.truthy(events.closed == 0 and live(events.windows) == 2, 'reload ' .. reload .. ' closes no window')
-    for _, name in ipairs { 'onWindowOpened', 'onMonitorAdded', 'onError' } do
+    -- The error stream and the recovery plugin each subscribe to native errors.
+    for name, count in { onWindowOpened = 1, onMonitorAdded = 1, onError = 2 } do
       expect.equal(
         native.subscriptionCount(name),
-        if name == 'onWindowOpened' then 2 else 1,
+        count,
         'reload ' .. reload .. ' leaves the expected ' .. name .. ' subscriptions'
       )
     end

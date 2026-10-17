@@ -14,7 +14,9 @@ desktop.run {
         { control = 'a', button = 'right' },
       },
     },
-    ['desktop/decorations'] = { style = { barColor = { 0.3, 0.12, 0.2, 0.95 } } },
+    -- Titlebars and every toolkit panel take the accent; the theme keeps it readable.
+    theme = { accent = { 0.9, 0.55, 0.65 } },
+    ['desktop/decorations'] = { height = 0.045 },
     -- A predicate can match any window property.
     ['desktop/rules'] = {
       rules = {

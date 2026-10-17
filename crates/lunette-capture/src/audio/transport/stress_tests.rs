@@ -1,3 +1,5 @@
+use std::time::{Duration, Instant};
+
 use super::*;
 
 fn packet(bytes: &[u8]) -> PcmPacket<'_> {
@@ -107,7 +109,13 @@ fn continuously_replenishing_producer_cannot_extend_any_frozen_prefix() {
             std::thread::yield_now();
         }
     });
-    for _ in 0..500 {
+    // The drains overlap a producer that is running: at least 500 of them, continuing until the producer has pushed
+    // while they run, which a loaded machine can delay past the first 500.
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let mut drains = 0;
+    while drains < 500 || progress.load(Ordering::Acquire) == 0 {
+        assert!(Instant::now() < deadline, "the producer made no progress");
+        drains += 1;
         let cutoff = consumer.snapshot();
         let expected: Vec<_> = cutoff.packets.iter().map(|meta| meta.timing).collect();
         let blocks = consumer.drain(cutoff, PipeWireGeneration(1));
@@ -120,7 +128,6 @@ fn continuously_replenishing_producer_cannot_extend_any_frozen_prefix() {
     }
     stopped.store(false, Ordering::Release);
     worker.join().unwrap_or_else(|_| unreachable!());
-    assert!(progress.load(Ordering::Acquire) > 0);
 }
 
 #[test]

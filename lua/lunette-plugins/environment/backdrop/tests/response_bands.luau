@@ -91,19 +91,20 @@ test('excess onsets are bounded per band within one publication', function()
   env.publish(SYSTEM, 1, 0, {})
   env.update(0, false)
   local hops = {}
-  for index = 1, 12 do
+  local count = model.wavePools.treble + 4
+  for index = 1, count do
     hops[index] = support.hop(1, index * 2048, 1, 'treble')
   end
-  table.insert(hops, support.hop(1, 13 * 2048, 1, 'bass'))
-  env.publish(SYSTEM, 1, 13 * 2048, hops)
+  table.insert(hops, support.hop(1, (count + 1) * 2048, 1, 'bass'))
+  env.publish(SYSTEM, 1, (count + 1) * 2048, hops)
   env.update(0, false)
   expect.equal(#waves(env, 'treble'), model.wavePools.treble, 'treble bounded by its pool')
   expect.equal(#waves(env, 'bass'), 1, 'bass survives a treble overflow')
-  expect.equal(env.model.discardedHops, 12 - model.wavePools.treble, 'treble overflow counted')
+  expect.equal(env.model.discardedHops, count - model.wavePools.treble, 'treble overflow counted')
   expect.equal(env.model.onsetGap, 'capacity', 'overflow is explicit')
-  expect.near(waves(env, 'treble')[1].age, 12 * 2048 / 48000, 1e-8, 'the earliest active onset keeps its sample age')
+  expect.near(waves(env, 'treble')[1].age, count * 2048 / 48000, 1e-8, 'the earliest active onset keeps its sample age')
   env.update(0, false)
-  expect.equal(env.model.discardedHops, 12 - model.wavePools.treble, 'repeated publication does not repeat discard')
+  expect.equal(env.model.discardedHops, count - model.wavePools.treble, 'repeated publication does not repeat discard')
   env.session:close()
 end)
 
@@ -151,6 +152,10 @@ test('the renderer receives the spectrum and band-tagged waves', function()
     end
   end
   expect.truthy(bands[1] and bands[2] and bands[3], 'each band index reaches the shader')
+  expect.equal(env.uniforms.backdropWaveCount, 3, 'the shaders loop over the three live waves only')
+  for index = 1, 3 do
+    expect.truthy(sent[index][2] > 0, 'live waves fill the first slots')
+  end
   for _, colour in { 'backdropBass', 'backdropMid', 'backdropTreble', 'backdropFocus' } do
     expect.truthy(env.uniforms[colour] ~= nil, colour .. ' sent')
   end

@@ -24,13 +24,13 @@ Start with the [copy/check workflow](../users/desktop-configuration.md#copy-and-
 
 The [clock contract](../../examples/first-plugin/clock.luau) and [clock provider](../../examples/first-plugin/clock-provider.luau) show a typed capability and the service returned by a provider's `build`. Providers and consumers must agree on the capability's name and positive version. Supply the service type when declaring the capability; runtime matching does not check service fields.
 
-Only one active plugin provides a capability. A service that needs several contributors uses owner-scoped registration, as the menu, theme catalog, and layout brokers do.
+Only one active plugin provides a capability. A service that needs several contributors uses owner-scoped registration, as the menu and layout brokers do.
 
 ## Configuration and effects
 
 [`examples/first-plugin/uptime.luau`](../../examples/first-plugin/uptime.luau) derives optional `Config` and resolved `Settings` from one schema, consumes two services, and subscribes to a native event. [Configuration schemas](configuration-schema.md) covers merging and validation. Three-dimensional positions, directions, and offsets use native vectors.
 
-Shared values use [neutral contract schemas](../../lua/lunette-contracts/schemas/README.md), without importing providers or acquiring resources. Editable appearance settings use [theme configuration](../../lua/lunette-plugins/theme/configuration.luau) or [titlebar configuration](../../lua/lunette-plugins/ui/titlebar-configuration.luau) to project caller settings into stable contract values.
+Shared values use [neutral contract schemas](../../lua/lunette-contracts/schemas/README.md), without importing providers or acquiring resources.
 
 Keep mutable state and acquisition inside `init` or `build`. Register subscriptions with `context:on`, and native resources with context effects or owner-scoped service methods. Module bodies must be safe to require again during source reload; the host has no teardown registry for resources acquired outside plugins. [Ownership and lifecycle](../../lua/lunette-plugin/ownership.md) states acquisition, partial-failure, and cleanup rules.
 
@@ -52,11 +52,9 @@ A hook receives its normal arguments followed by `base`. Calling `base` retains 
 
 The [split keyboard](../../examples/keyboard/split.luau) changes layout through the existing provider. The public [hook types](../../lua/lunette-plugins/input/keyboard/hooks.luau) and [legend renderer](../../lua/lunette-plugins/input/keyboard/legend.luau) support custom key handling and drawing without access to private rendering code. The [tiny keyboard](../../examples/keyboard/tiny.luau) replaces the provider and implements the [keyboard contract](../../lua/lunette-contracts/keyboard.luau). Keyboards register resources on the requesting owner's lifetime and are offered and drawn by their consumer. See the [keyboard plugin](../../lua/lunette-plugins/input/keyboard/README.md).
 
-## Add a theme
+## Restyle the interface
 
-[`examples/theme`](../../examples/theme) registers a complete theme with the catalog and selects it in the desktop configuration. Registration ends with its owner. The [theme contract](../../lua/lunette-contracts/theme.luau) defines values; the [theme selector](../../lua/lunette-plugins/theme/selector/README.md) describes runtime selection.
-
-The [standard entry](../../lua/lunette-plugins/theme/standard/init.luau) exposes presets for derived themes. The square [base theme](../../lua/lunette-plugins/theme/base.luau) applies when no selection is live. Editable overrides use theme configuration; validation and resolution of stable values use the neutral theme schema.
+The [theme provider](../../lua/lunette-plugins/ui/theme/README.md) owns the session's one theme. Its settings and service choose the light or dark mode and the accent, and the accessibility settings apply high contrast and text scale. A plugin restyles the toolkit by overriding kinds and visuals, as [Extension](../development/ui/extension.md#visuals) describes. Surfaces drawn outside the toolkit, such as the virtual keyboard, the laser, the mouse cursor, and window outlines, read the [theme contract](../../lua/lunette-contracts/theme.luau) and follow its changes through `onChanged`.
 
 ## Add a layout
 

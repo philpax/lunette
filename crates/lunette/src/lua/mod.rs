@@ -8,13 +8,17 @@ mod audio;
 mod claim;
 pub mod declarations;
 mod drag;
+pub mod glyphs;
 pub mod keys;
+pub mod layout;
 mod monitor;
 mod output;
 mod process;
+pub mod save_file;
 mod seat;
 mod sink;
 mod subscribers;
+pub mod svg;
 #[cfg(test)]
 mod tests;
 mod text;
@@ -80,6 +84,7 @@ use crate::{
     },
     properties::WindowProperties,
     reload::reload_from_lua,
+    safe_mode::{BootEntry, SafeModeRequest, restart_into_safe_mode},
     scale,
     scene::{Gate, SceneRendering, install_gate},
     texture::{CopyableTexture, FrameGeneration, LovrTexture, MonitorTextures, TextureLedger},
@@ -159,6 +164,8 @@ pub struct Session<T> {
     /// Whether this frame recorded layer copies that nothing has submitted yet.
     /// [`crate::scene`] describes what happens if they are left unsubmitted.
     unflushed_copies: Cell<bool>,
+    /// Whether the next boot runs safe mode. It survives the restart that follows the request.
+    safe_mode: SafeModeRequest,
 }
 
 impl<T> Session<T> {
@@ -213,7 +220,13 @@ impl<T> Session<T> {
             properties: RefCell::new(WindowProperties::new()),
             scene: Cell::new(SceneRendering::default()),
             unflushed_copies: Cell::new(false),
+            safe_mode: SafeModeRequest::default(),
         })
+    }
+
+    /// Answers what the boot that is starting runs, and resets any safe-mode request.
+    pub fn take_boot_entry(&self) -> BootEntry {
+        self.safe_mode.take()
     }
 
     /// Runs `body` against the per-window properties, bounding the borrow as
@@ -622,6 +635,26 @@ module! {
         text_boundaries(text)
     }
 
+    /// A new, empty UI layout tree. Trees in one Lua state share their fonts, whose database is built the first time a tree is created.
+    fn newLayoutTree(lua, _session) -> layout::LayoutTree { layout::new_layout_tree(lua) }
+
+    /// Adds the faces in a font file's bytes to the fonts layout trees shape with, and answers how many faces it held. Read the file with `lovr.filesystem.read`.
+    fn loadLayoutFont(lua, _session, data: mlua::LuaString) -> usize { layout::load_layout_font(lua, &data) }
+
+    /// The distance field glyph atlas shared by every layout tree's fonts in this Lua state, created on first use.
+    fn glyphAtlas(lua, _session) -> glyphs::GlyphAtlas { Ok(glyphs::glyph_atlas(lua)) }
+
+    /// Rasterises an SVG or svgz document into a canvas of `width` by `height` pixels, each a whole number from 1 to 4096, scaled to fit with its aspect ratio preserved and centred. Answers the pixels as tightly packed rows of straight-alpha RGBA8, top row first, which `lovr.data.newBlob` wraps for `lovr.data.newImage`, and the width and height of the canvas. Hrefs to files are not followed and text elements are not drawn. A document that does not parse raises an error.
+    fn rasterizeSvg(lua, _session, svg: mlua::LuaString, width: f64, height: f64) -> (mlua::LuaString, u32, u32) {
+        svg::rasterize_svg(lua, &svg, width, height)
+    }
+
+    /// Writes `contents` to the file `name` inside `directory` atomically: to a temporary file beside it, flushed and renamed over the target, so a reader sees the old file or the new one. `directory` is an absolute path to an existing directory, such as `lovr.filesystem.getSaveDirectory()`, and `name` is a file name with no separator. A failed write raises an error and leaves any previous file in place.
+    fn saveFile(_lua, _session, directory: String, name: String, contents: mlua::LuaString) -> () {
+        save_file::save(std::path::Path::new(&directory), &name, &contents.as_bytes())
+            .map_err(|error| mlua::Error::runtime(error.to_string()))
+    }
+
     /// The ladder a layer's requested size is quantised up, ascending. A panel whose scale Lua raises requests a size the free list already holds.
     fn scaleSteps(_lua, _session) -> Vec<f64> { Ok(scale::ladder()) }
 
@@ -633,6 +666,17 @@ module! {
             session.as_ref(),
             &|| session.clear_subscribers(),
         ))
+    }
+
+    /// Requests a hard restart whose next boot runs the compiled-in safe mode instead of the configuration. The restart happens after the frame's callbacks return; reloading from safe mode loads the configuration again. Answers whether the restart was queued, and the error if it was not.
+    fn restartIntoSafeMode(lua, session) -> (bool, Option<String>) {
+        match restart_into_safe_mode(lua, &session.safe_mode) {
+            Ok(()) => Ok((true, None)),
+            Err(error) => {
+                tracing::warn!("{error}");
+                Ok((false, Some(error.to_string())))
+            }
+        }
     }
 }
 

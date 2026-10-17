@@ -6,18 +6,19 @@ local lunette = require '@lunette'
 local panelsContract = require '@lunette-contracts/panels'
 local displayContract = require '@lunette-contracts/keyboard-display'
 local menuContract = require '@lunette-contracts/menu'
-local uiContract = require '@lunette-contracts/ui'
 local vrUi = require '@testing/vr-ui'
+local uiPanels = require '@testing/ui-panels'
+local wristMenu = require '@testing/wrist-menu'
 
 local test = testing.suite()
 
 test('keyboard and frame outages remove only what depends on them, and recovery restores it', function()
-  local session = testing.boot(desktop.compose())
+  local recorder = uiPanels.new()
+  local session = testing.boot(desktop.compose { patches = { { id = 'ui-host', definition = recorder.definition } } })
   local native, events, instances = session.native, session.native.events, session.instances
   local panels = session:observe(panelsContract.capability).service
   local display = session:observe(displayContract.capability)
   local menu = session:observe(menuContract.capability).service
-  local ui = session:observe(uiContract.capability).service
   local function action(id: string): menuContract.Descriptor?
     for _, entry in menu:list() do
       if entry.id == id then
@@ -48,8 +49,8 @@ test('keyboard and frame outages remove only what depends on them, and recovery 
     controls:pose('left', lovr.math.newMat4():translate(0, 1.2, -0.5))
     controls:tracked('left', true)
     controls:step()
-    controls:clickControl(ui, 'desktop/menu', 'open')
-    controls:clickControl(ui, 'desktop/menu', 'actions', 'right', 'desktop/reload')
+    wristMenu.open(controls, recorder)
+    recorder:click(controls, wristMenu.PANEL, wristMenu.row 'desktop/reload')
   end)
   lunette.reload = reload
   if not ok then

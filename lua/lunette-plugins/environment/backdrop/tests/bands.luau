@@ -18,9 +18,12 @@ local function count(waves: { model.Wave }, band: model.Band): number
   return total
 end
 
+-- More onsets than any band's pool holds.
+local OVERFLOW = model.wavePools.treble + 4
+
 test('band overflow preserves active waves and skips excess new onsets', function()
   for _, band in { 'bass', 'mid', 'treble' } :: { model.Band } do
-    for _, batchSize in { 1, 12 } do
+    for _, batchSize in { 1, OVERFLOW } do
       local state = new()
       for _, other in { 'bass', 'mid', 'treble' } :: { model.Band } do
         if other ~= band then
@@ -28,8 +31,8 @@ test('band overflow preserves active waves and skips excess new onsets', functio
         end
       end
       local onsets: { model.Onset } = {}
-      for index = 1, 12 do
-        onsets[#onsets + 1] = { strength = 1, band = band, position = index / 12 }
+      for index = 1, OVERFLOW do
+        onsets[#onsets + 1] = { strength = 1, band = band, position = index / OVERFLOW }
         if #onsets == batchSize then
           state:setFeatures(ZERO, onsets)
           table.clear(onsets)
@@ -39,7 +42,7 @@ test('band overflow preserves active waves and skips excess new onsets', functio
         expect.equal(count(state.waves, other), if other == band then model.wavePools[band] else 1, 'independent pool')
       end
       expect.equal(state.onsetGap, 'capacity', 'overflow is explicit')
-      local discarded = 12 - model.wavePools[band]
+      local discarded = OVERFLOW - model.wavePools[band]
       expect.equal(state.discardedHops, discarded, 'each skipped new onset counted')
       local first
       for _, wave in state.waves do
@@ -48,10 +51,10 @@ test('band overflow preserves active waves and skips excess new onsets', functio
           break
         end
       end
-      expect.equal(first.position, 1 / 12, 'the first active onset retains its position')
+      expect.equal(first.position, 1 / OVERFLOW, 'the first active onset retains its position')
       expect.equal(
         state.waves[#state.waves].position,
-        model.wavePools[band] / 12,
+        model.wavePools[band] / OVERFLOW,
         'only the first available slots fill'
       )
       state:setFeatures(ZERO, {})

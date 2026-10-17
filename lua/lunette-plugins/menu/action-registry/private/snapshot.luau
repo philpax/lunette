@@ -9,14 +9,13 @@ export type Metadata = {
   read id: string,
   read label: string,
   read group: string,
-  read order: number,
   read enabled: boolean,
   read selected: boolean,
 }
 
 type Raw = { [unknown]: unknown }
 
-local ACTION_KEYS: { string } = { 'id', 'label', 'group', 'order', 'enabled', 'selected', 'run' }
+local ACTION_KEYS: { string } = { 'id', 'label', 'group', 'enabled', 'selected', 'run' }
 local STATE_KEYS: { string } = { 'enabled', 'selected' }
 
 local function plain(operation: string, field: string, value: unknown): Raw
@@ -52,10 +51,6 @@ function snapshot.action(value: unknown): (Metadata, () -> ())
   if group ~= nil and type(group) ~= 'string' then
     error('menu register: group is a string, not a ' .. type(group), 3)
   end
-  local order = raw.order
-  if order ~= nil and (type(order) ~= 'number' or order ~= order or math.abs(order :: number) == math.huge) then
-    error('menu register: order is a finite number, not ' .. tostring(order), 3)
-  end
   local enabled = flag('register', 'enabled', raw.enabled)
   local selected = flag('register', 'selected', raw.selected)
   local run = raw.run
@@ -66,7 +61,6 @@ function snapshot.action(value: unknown): (Metadata, () -> ())
     id = id,
     label = label :: string,
     group = (group :: string?) or '',
-    order = (order :: number?) or 0,
     enabled = enabled ~= false,
     selected = selected == true,
   },

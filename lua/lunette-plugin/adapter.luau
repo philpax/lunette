@@ -10,6 +10,7 @@ type NativeContext = native.PluginContext
 type NativeDefinition = native.PluginDefinition
 type NativeEffect = native.PluginEffect
 type NativeInstance = native.PluginInstance
+type NativeRuntime = native.PluginRuntime
 
 -- The witness carries the service type selected when the capability is declared.
 export type Capability<T> = {
@@ -47,6 +48,9 @@ export type Context = {
   read resource: <T>(Context, Owner, () -> (T, () -> ())) -> (T, Effect),
   read on: <E>(Context, Subscription<E>) -> Effect,
   read active: (Context) -> boolean,
+  -- Saves changes to the entry's own configuration for later sessions, without restarting it, and answers whether
+  -- the runtime keeps saved settings. It raises when the changes do not fit the entry's schema.
+  read save: (Context, { [string]: unknown }) -> boolean,
 }
 
 export type Publisher = {
@@ -90,6 +94,13 @@ export type Instance<C> = {
   read dispose: (Instance<C>) -> (),
   read requestReload: (Instance<C>, C) -> (),
   read state: (Instance<C>) -> native.PluginState,
+}
+
+-- Receives an entry's saved changes, by the instance id of the context that saved them.
+export type Saver = (instanceId: string, changes: { [string]: unknown }) -> ()
+
+export type RuntimeOptions = {
+  read save: Saver?,
 }
 
 export type Runtime = {
@@ -186,6 +197,8 @@ end
 -- The native context validates that the owner is a live dependent.
 local nativeContexts: { [Context]: NativeContext } = setmetatable({}, { __mode = 'k' }) :: any
 local ownerLabels: { [Owner]: string } = setmetatable({}, { __mode = 'k' })
+-- The savers of runtimes that keep saved settings. A context finds its runtime by asking each which owns it.
+local savers: { [NativeRuntime]: Saver } = setmetatable({}, { __mode = 'k' }) :: any
 
 -- Reads registered metadata without invoking the owner's callbacks.
 function adapter.ownerLabel(owner: Owner): string
@@ -280,6 +293,19 @@ local function wrapContext(nativeContext: NativeContext, required: Declaration):
     end,
     active = function(_self: Context): boolean
       return nativeContext:active()
+    end,
+    save = function(_self: Context, changes: { [string]: unknown }): boolean
+      if type(changes) ~= 'table' then
+        error('plugin save: changes are a table of configuration fields, not a ' .. type(changes), 2)
+      end
+      for nativeRuntime, saver in savers do
+        local id = nativeRuntime:ownerId(nativeContext)
+        if id then
+          saver(id, changes)
+          return true
+        end
+      end
+      return false
     end,
   }
   local context = (freeze(wrapped) :: unknown) :: Context
@@ -498,8 +524,12 @@ function adapter.define<C>(spec: Spec<C>, configuration: Configuration?): Defini
   return definition
 end
 
-function adapter.runtime(): Runtime
+function adapter.runtime(options: RuntimeOptions?): Runtime
   local nativeRuntime = native.plugin.runtime()
+  local save = options and options.save
+  if save then
+    savers[nativeRuntime] = save
+  end
   local runtime = {
     use = function<C>(_self: Runtime, definition: Definition<C>, config: C): Instance<C>
       local instance: NativeInstance = nativeRuntime:use(unwrapDefinition(definition), config)
@@ -513,6 +543,7 @@ function adapter.runtime(): Runtime
       return if context then nativeRuntime:ownerId(context) else nil
     end,
     close = function(_self: Runtime): ()
+      savers[nativeRuntime] = nil
       nativeRuntime:close()
     end,
     drain = function(_self: Runtime): ()

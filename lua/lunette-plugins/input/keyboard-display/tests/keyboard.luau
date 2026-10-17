@@ -15,7 +15,10 @@ local function start(config: Config?): Environment
     'theme',
     'surfaces',
     'focus',
-    'ui',
+    'drops',
+    'interaction',
+    'ui-host',
+    'ui-standard',
     'keyboard',
     { id = 'desktop/keyboard', definition = require('../').definition, config = config },
   }

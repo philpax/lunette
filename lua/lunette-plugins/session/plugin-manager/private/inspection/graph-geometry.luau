@@ -1,5 +1,4 @@
--- Projects graph nodes and routes once for both panel drawing and public inspection.
-local ui = require '@lunette-contracts/ui'
+-- Projects graph nodes, routes, and arrowheads into canvas pixels, clipped to the canvas, for the graph kinds.
 local graph = require './graph'
 local view = require './view'
 
@@ -10,8 +9,18 @@ export type Edge = { read edge: graph.Edge, read points: { read [number]: graph.
 export type Scene = {
   read nodes: { read [number]: Node },
   read edges: { read [number]: Edge },
-  read items: { read [number]: ui.RegionItem },
 }
+export type Role = 'selected' | 'dependency' | 'ownership'
+-- A clipped straight piece of an edge or of its arrowhead, in canvas pixels.
+export type Segment = {
+  read x1: number,
+  read y1: number,
+  read x2: number,
+  read y2: number,
+  read role: Role,
+}
+
+local ARROW_PIXELS = 8
 
 function geometry.intersect(box: graph.Box, clip: graph.Box): graph.Box?
   local x, y = math.max(box.x, clip.x), math.max(box.y, clip.y)
@@ -20,6 +29,7 @@ function geometry.intersect(box: graph.Box, clip: graph.Box): graph.Box?
   return if right > x and bottom > y then { x = x, y = y, width = right - x, height = bottom - y } else nil
 end
 
+-- Liang-Barsky clipping of a segment to a box.
 function geometry.segment(from: graph.Point, to: graph.Point, clip: graph.Box): (graph.Point?, graph.Point?)
   local dx, dy = to.x - from.x, to.y - from.y
   local first, last = 0, 1
@@ -42,56 +52,21 @@ function geometry.segment(from: graph.Point, to: graph.Point, clip: graph.Box): 
   return { x = from.x + first * dx, y = from.y + first * dy }, { x = from.x + last * dx, y = from.y + last * dy }
 end
 
-function geometry.project(state: view.State, bounds: graph.Box, contentClip: graph.Box?): Scene
-  local clip = contentClip or bounds
+-- The visible nodes and edges of the view, with screen positions offset by the canvas origin.
+function geometry.project(state: view.State, bounds: graph.Box): Scene
   local visible = view.visible(state)
   local nodes: { Node } = {}
   local edges: { Edge } = {}
-  local items: { ui.RegionItem } = {}
   for _, edge in state.snapshot.edges do
     if not visible[edge.from] or not visible[edge.to] then
       continue
     end
     local points: { graph.Point } = {}
-    local route: { graph.Point } = {}
     for _, point in graph.route(state.snapshot, state.layout, state.camera, edge) do
       local screen = graph.screen(state.camera, point)
       points[#points + 1] = table.freeze { x = screen.x + bounds.x, y = screen.y + bounds.y }
     end
-    for index = 1, #points - 1 do
-      local first, last = geometry.segment(points[index], points[index + 1], clip)
-      if first and last then
-        local previous = route[#route]
-        if not previous or previous.x ~= first.x or previous.y ~= first.y then
-          route[#route + 1] = table.freeze(first)
-        end
-        route[#route + 1] = table.freeze(last)
-      end
-    end
     edges[#edges + 1] = table.freeze { edge = edge, points = table.freeze(points) }
-    if #route > 1 then
-      local left: number = math.huge
-      local top: number = math.huge
-      local right: number = -math.huge
-      local bottom: number = -math.huge
-      for _, point in route do
-        left = math.min(left, point.x)
-        top = math.min(top, point.y)
-        right = math.max(right, point.x)
-        bottom = math.max(bottom, point.y)
-      end
-      items[#items + 1] = table.freeze {
-        id = 'edge/' .. edge.id,
-        label = edge.label,
-        bounds = table.freeze {
-          x = left,
-          y = top,
-          width = math.max(0.001, right - left),
-          height = math.max(0.001, bottom - top),
-        },
-        route = points,
-      }
-    end
   end
   for _, node in state.snapshot.nodes do
     local box = state.layout[node.id]
@@ -105,17 +80,55 @@ function geometry.project(state: view.State, bounds: graph.Box, contentClip: gra
       width = box.width * state.camera.zoom,
       height = box.height * state.camera.zoom,
     }
-    local clipped = geometry.intersect(pixels, clip)
-    nodes[#nodes + 1] = table.freeze { node = node, bounds = pixels, clipped = clipped }
-    if clipped then
-      items[#items + 1] = table.freeze {
-        id = 'node/' .. node.id,
-        label = node.name,
-        bounds = table.freeze(clipped),
-      }
+    nodes[#nodes + 1] = table.freeze { node = node, bounds = pixels, clipped = geometry.intersect(pixels, bounds) }
+  end
+  return table.freeze { nodes = table.freeze(nodes), edges = table.freeze(edges) }
+end
+
+-- The clipped line pieces of every projected edge, with an arrowhead where the edge meets its target's box.
+function geometry.lines(state: view.State, scene: Scene, clip: graph.Box): { Segment }
+  local result: { Segment } = {}
+  local selection = state.selection
+  local function add(from: graph.Point, to: graph.Point, role: Role): ()
+    local first, last = geometry.segment(from, to, clip)
+    if first and last then
+      result[#result + 1] = table.freeze { x1 = first.x, y1 = first.y, x2 = last.x, y2 = last.y, role = role }
     end
   end
-  return table.freeze { nodes = table.freeze(nodes), edges = table.freeze(edges), items = table.freeze(items) }
+  for _, projected in scene.edges do
+    local edge, points = projected.edge, projected.points
+    local role: Role = if selection
+        and selection.kind == 'edge'
+        and selection.id == edge.id
+      then 'selected'
+      else edge.kind
+    for index = 1, #points - 1 do
+      add(points[index], points[index + 1], role)
+    end
+    if #points < 2 then
+      continue
+    end
+    local from, target = points[#points - 1], points[#points]
+    local dx, dy = target.x - from.x, target.y - from.y
+    local length = math.sqrt(dx * dx + dy * dy)
+    if length == 0 then
+      continue
+    end
+    local ux, uy = dx / length, dy / length
+    local inset = 0
+    local box = state.layout[edge.to]
+    if box and edge.from ~= edge.to then
+      inset = math.min(
+        if ux == 0 then math.huge else box.width * state.camera.zoom / (2 * math.abs(ux)),
+        if uy == 0 then math.huge else box.height * state.camera.zoom / (2 * math.abs(uy))
+      )
+    end
+    local tip: graph.Point = { x = target.x - ux * inset, y = target.y - uy * inset }
+    local size = math.min(ARROW_PIXELS, math.max(0, length - inset))
+    add(tip, { x = tip.x - ux * size - uy * size / 2, y = tip.y - uy * size + ux * size / 2 }, role)
+    add(tip, { x = tip.x - ux * size + uy * size / 2, y = tip.y - uy * size - ux * size / 2 }, role)
+  end
+  return result
 end
 
 return geometry

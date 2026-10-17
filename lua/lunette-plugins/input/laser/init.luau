@@ -99,6 +99,16 @@ local function live(state: ProviderState): { MutableLaser }
   return found
 end
 
+-- Whether any button of the frame is down, so a ray mid-gesture does not stand down.
+local function held(frame: Input): boolean
+  for _, down in frame.buttons do
+    if down then
+      return true
+    end
+  end
+  return false
+end
+
 local function makeLaser(
   state: ProviderState,
   settings: Settings,
@@ -143,6 +153,10 @@ local function makeLaser(
     local previousRaw: triggerLock.RawAim? = nil
     local lockState: triggerLock.State = triggerLock.ready()
     local withdrawn = false
+    -- Near beats far: while this hand's fingertip is reported near a surface, an idle ray stands down and hides. A ray
+    -- that holds a button or a grab keeps going until it is idle.
+    local standing = false
+    local wasHeld = false
     local target: MutableLaser
     target = {
       owner = owner,
@@ -161,7 +175,7 @@ local function makeLaser(
         end)
       end,
       pointer = pointer,
-      style = style.resolve(state.themes:current().theme, settings.style, styleOverrides),
+      style = style.resolve(state.themes:current(), settings.style, styleOverrides),
       styleOverrides = styleOverrides,
       input = frameInput,
       icon = dragIcon.new(),
@@ -200,15 +214,32 @@ local function makeLaser(
         previousRaw = { origin = sampled.origin, direction = sampled.direction }
         target.input = frame
         withdrawn = false
+        -- A release frame still delivers to the surface, so a ray stands down only after a whole idle frame.
+        local near, holding = interactionService:isNear(self.hand), held(frame)
+        if not near then
+          standing = false
+        elseif not standing and self.pointer.grabbed == nil and not holding and not wasHeld then
+          standing = true
+        end
+        wasHeld = holding
         local before = self.pointer.hovered
-        self.pointer:update(frame, surfaces)
+        -- A ray that stands down hovers nothing and presses nothing, so a trigger pulled while the fingertip is
+        -- near does not reach any surface or count as a press on nothing.
+        local delivered = frame
+        if standing then
+          local idle = table.clone(frame) :: any
+          idle.buttons = {}
+          idle.trigger = if frame.trigger then 0 else nil
+          delivered = idle
+        end
+        self.pointer:update(delivered, if standing then {} else surfaces)
         dragIcon.observe(target.icon, self.pointer.hovered)
         if self.pointer.hovered ~= before then
           self:vibrate()
         end
       end,
       draw = function(self: Beam, pass: Pass)
-        if self.dead or not state.active then
+        if self.dead or not state.active or standing then
           return
         end
         state.refreshStyle()
@@ -254,21 +285,22 @@ end
 local function build(context: plugin.Context, settings: Settings): Service
   -- The published service is revoked with this activation, so its methods need no liveness guard. Lasers
   -- outlive the call that made them, so they check the activation themselves.
-  local themes: theme.Service = context:require(theme.capability)
-  local revision = -1
+  local themes = context:require(theme.capability)
+  -- The theme service resolves a new table on each change, so its identity tells a change apart.
+  local applied: theme.Theme? = nil
   local state: ProviderState
   local function refreshStyle(): ()
     if not state.active or not context:active() then
       return
     end
-    local snapshot = themes:current()
-    if revision == snapshot.revision then
+    local current = themes:current()
+    if applied == current then
       return
     end
     for _, target in ipairs(state.lasers) do
-      target.style = style.resolve(snapshot.theme, settings.style, target.styleOverrides)
+      target.style = style.resolve(current, settings.style, target.styleOverrides)
     end
-    revision = snapshot.revision
+    applied = current
   end
   state = {
     active = true,
@@ -349,11 +381,6 @@ local function build(context: plugin.Context, settings: Settings): Service
       end
     end,
   }
-  themes:onChanged(context, {
-    run = function(_snapshot: theme.Snapshot): ()
-      refreshStyle()
-    end,
-  })
   refreshStyle()
   return service
 end

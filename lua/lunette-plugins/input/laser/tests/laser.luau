@@ -256,4 +256,138 @@ test('a hand has one laser, which attach answers to its own owner, and a laser o
   env.session:close()
 end)
 
+test('a hand reported near stands its idle ray down until the report ends', function()
+  local env = start()
+  local interaction = env.session:observe(interactionContract.capability)
+  local service, reporter = interaction.service, interaction.context
+  local inputs = { left = frame(0, 0, -1), right = frame(0, 0, -1) }
+  env.service:attach(env.owner, {
+    readInput = function(hand: laserContract.Hand): laserContract.Input?
+      return inputs[hand]
+    end,
+  })
+  local entered: { [string]: number } = {}
+  local surface = {
+    dead = false,
+    raycast = function(): (number, number, number)
+      return 1, 2, 3
+    end,
+    onPointer = function(_: laserContract.Surface, event: PointerEvent)
+      entered[event.kind] = (entered[event.kind] or 0) + 1
+    end,
+  }
+  service:reportNear(reporter, 'left', true)
+  expect.truthy(service:isNear 'left', 'the left hand is near')
+  expect.falsy(service:isNear 'right', 'the right hand is not')
+  env.service:update { surface }
+  expect.equal(entered.enter, 1, 'only the far hand hovers the surface')
+  table.clear(env.native.events.draw)
+  env.service:draw(env.native.events.pass)
+  expect.equal(#calls(env, 'line'), 1, 'the near hand draws no beam')
+
+  service:reportNear(reporter, 'left', false)
+  env.service:update { surface }
+  expect.equal(entered.enter, 2, 'the ray returns when the hand is no longer near')
+  table.clear(env.native.events.draw)
+  env.service:draw(env.native.events.pass)
+  expect.equal(#calls(env, 'line'), 2, 'both beams draw')
+  env.session:close()
+end)
+
+test('a ray holding a button keeps going when its hand becomes near', function()
+  local env = start()
+  local interaction = env.session:observe(interactionContract.capability)
+  local held = frame(0, 0, -1)
+  held = table.clone(held) :: any
+  (held :: any).buttons = { left = true }
+  local inputs = { left = held, right = nil }
+  env.service:attach(env.owner, {
+    readInput = function(hand: laserContract.Hand): laserContract.Input?
+      return inputs[hand]
+    end,
+  })
+  local kinds: { string } = {}
+  local surface = {
+    dead = false,
+    raycast = function(): (number, number, number)
+      return 1, 2, 3
+    end,
+    onPointer = function(_: laserContract.Surface, event: PointerEvent)
+      table.insert(kinds, event.kind)
+    end,
+  }
+  env.service:update { surface }
+  interaction.service:reportNear(interaction.context, 'left', true)
+  env.service:update { surface }
+  expect.falsy(table.find(kinds, 'leave'), 'the pressing ray does not leave its surface')
+  inputs.left = frame(0, 0, -1)
+  env.service:update { surface }
+  env.service:update { surface }
+  expect.truthy(table.find(kinds, 'release'), 'the press releases normally')
+  expect.truthy(table.find(kinds, 'leave'), 'the idle ray then stands down')
+  env.session:close()
+end)
+
+test('near reports end with their owner', function()
+  local env = start()
+  local interaction = env.session:observe(interactionContract.capability)
+  local session = assert(env.session)
+  local child: any = nil
+  local instance = session:use(
+    require('@lunette-plugin/adapter').define {
+      name = 'testing/near-reporter',
+      requires = { interactionContract.capability },
+      init = function(context: any)
+        child = context
+        context:require(interactionContract.capability):reportNear(context, 'right', true)
+      end,
+    },
+    {}
+  )
+  expect.truthy(child, 'the reporter started')
+  expect.truthy(interaction.service:isNear 'right', 'the report holds')
+  instance:disable()
+  session.runtime:drain()
+  expect.falsy(interaction.service:isNear 'right', 'the report ends with its owner')
+  env.session:close()
+end)
+
+test('a ray that stands down presses nothing', function()
+  local env = start()
+  local interaction = env.session:observe(interactionContract.capability)
+  local pressed = 0
+  local held = table.clone(frame(0, 0, -1)) :: any
+  held.buttons = { left = true }
+  local inputs = { left = frame(0, 0, -1), right = nil }
+  env.service:attach(env.owner, {
+    readInput = function(hand: laserContract.Hand): laserContract.Input?
+      return inputs[hand]
+    end,
+  })
+  local observed = 0
+  interaction.service:onPress(interaction.context, {
+    run = function()
+      observed += 1
+    end,
+  })
+  local surface = {
+    dead = false,
+    raycast = function(): (number, number, number)
+      return 1, 2, 3
+    end,
+    onPointer = function(_: laserContract.Surface, event: PointerEvent)
+      if event.kind == 'press' then
+        pressed += 1
+      end
+    end,
+  }
+  interaction.service:reportNear(interaction.context, 'left', true)
+  env.service:update { surface }
+  inputs.left = held
+  env.service:update { surface }
+  expect.equal(pressed, 0, 'the surface sees no press')
+  expect.equal(observed, 0, 'no press on nothing reaches the observers')
+  env.session:close()
+end)
+
 return test

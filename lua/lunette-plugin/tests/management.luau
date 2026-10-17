@@ -245,18 +245,55 @@ test('protection covers the providers a protected entry depends on and the owner
     { id = 'root', definition = root },
     { id = 'parent', definition = parent },
     { id = 'manager', definition = viewer },
-  }, { protected = { 'manager' } })
+  }, { protected = { 'manager' }, reconfigurable = { 'root', 'parent' } })
   local service = running.service
   expect.equal(service:ownerId(owner), entry(service, 'parent').instanceId, 'the owner of a context')
   expect.equal(service:ownerId {}, nil, 'a forged context')
+  expect.equal(entry(service, 'manager').protected, true, 'the named entry is protected')
   for _, id in { 'root', 'parent', 'manager' } do
-    expect.equal(entry(service, id).protected, true, id .. ' is protected')
+    expect.equal(entry(service, id).required, true, id .. ' is required')
     for _, action in { 'disable', 'remove' } do
       expect.raises(function()
         service[action](service, id)
-      end, 'cannot be changed')
+      end, if id == 'manager' then 'cannot be changed' else 'cannot be disabled or removed')
     end
   end
+  for _, id in { 'root', 'parent' } do
+    expect.equal(entry(service, id).protected, false, id .. ' is not protected itself')
+    service:reload(id)
+    expect.equal(entry(service, id).state, 'active', id .. ' reloads because only its removal is refused')
+  end
+  expect.raises(function()
+    service:reload 'manager'
+  end, 'cannot be changed')
+  running.runtime:close()
+end)
+
+test('a required provider not named reconfigurable cannot be reloaded either', function()
+  local capability: plugin.Capability<{}> = plugin.capability { name = 'local/managed-fixed-provider', version = 1 }
+  local provider = adapter.define {
+    name = 'managed-fixed-provider',
+    provides = { capability },
+    init = function(_context: adapter.Context, _config: {}, publisher: adapter.Publisher)
+      publisher:provide(capability, {})
+    end,
+  }
+  local viewer = adapter.define {
+    name = 'managed-fixed-viewer',
+    requires = { capability },
+    init = function(context: adapter.Context)
+      context:require(capability)
+    end,
+  }
+  local running = management.start({
+    { id = 'provider', definition = provider },
+    { id = 'manager', definition = viewer },
+  }, { protected = { 'manager' } })
+  local service = running.service
+  expect.equal(entry(service, 'provider').protected, true, 'the provider is protected through its dependent')
+  expect.raises(function()
+    service:reload 'provider'
+  end, 'cannot be changed')
   running.runtime:close()
 end)
 
@@ -296,6 +333,33 @@ test('a provider outage keeps the factory definition and composed configuration 
   expect.equal(entry(running.service, 'dependent').state, 'active', 'the dependent after the outage')
   expect.equal(received, 'composed', 'the composed configuration')
   expect.equal(made, started, 'recovery runs no factory')
+  running.runtime:close()
+end)
+
+test('markGood records each entry configuration and enabled state until the next mark', function()
+  local definition = configured(function() end)
+  local running = management.start {
+    { id = 'settings', definition = definition, config = { value = 1 } },
+    { id = 'other', definition = definition, config = { value = 5 } },
+  }
+  local service = running.service
+  expect.equal(service:lastGood(), nil, 'nothing is marked at start')
+  service:markGood()
+  service:configure('settings', { value = 2 })
+  service:disable 'other'
+  local good = assert(service:lastGood())
+  expect.equal(#good.entries, 2, 'every entry except composition')
+  local settings = assert(find(good.entries, 'settings'))
+  expect.equal((settings.config :: Settings).value, 1, 'the configuration at the mark')
+  expect.equal(settings.enabled, true, 'enabled at the mark')
+  expect.equal(assert(find(good.entries, 'other')).enabled, true, 'a later disable does not change the mark')
+  expect.raises(function()
+    (good.entries :: any)[1] = nil
+  end, 'readonly')
+  service:markGood()
+  local marked = assert(service:lastGood())
+  expect.equal((assert(find(marked.entries, 'settings')).config :: Settings).value, 2, 'a new mark replaces it')
+  expect.equal(assert(find(marked.entries, 'other')).enabled, false, 'with the current enabled state')
   running.runtime:close()
 end)
 

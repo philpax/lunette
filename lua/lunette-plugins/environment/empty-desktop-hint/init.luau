@@ -1,72 +1,76 @@
--- Draws the configured hint after panels while no panel exists.
+-- Shows the configured hint on a UI host panel while no window or monitor panel exists. The panel is part of the
+-- scene rather than a window panel, so showing it does not count as a panel being present.
 local plugin = require '@lunette-plugin'
-local frame = require '@lunette-contracts/frame'
 local panels = require '@lunette-contracts/panels'
-local theme = require '@lunette-contracts/theme'
-local passState = require '@lunette-plugins/graphics/pass-state'
-local descriptors = require '@lunette-plugins/theme/configuration'
+local uiHost = require '@lunette-contracts/ui-host'
+local uiComponents = require '@lunette-contracts/ui-components'
+local ui = require '@lunette-plugins/ui/react'
 
 local config = require '@self/config'
 
 export type Config = config.Config
 export type Settings = config.Settings
 
+local PANEL = 'desktop/hint'
+-- The widest the hint grows before its text wraps, in metres.
+local MAX_WIDTH = 0.6
+
 local required: plugin.Declaration = {
-  frame.capability,
   panels.capability,
-  theme.capability,
+  uiHost.capability,
+  uiComponents.capability,
 }
 
-type Paint = {
-  size: number,
-  foreground: theme.Color,
-  font: Font,
-}
+type HintProps = { text: string, color: { number }? }
+
+local Hint = ui.component('EmptyDesktopHint', function(props: HintProps): ui.Child
+  local c = ui.useComponents()
+  return c.Panel {
+    padding = 'lg',
+    c.Text { key = 'text', text = props.text, style = 'title', color = props.color, align = 'center' },
+  }
+end)
 
 return plugin.consumer<<Config, Settings>> {
   name = 'desktop/hint',
   requires = required,
   schema = config.schema,
   init = function(context: plugin.Context, settings: Settings): ()
-    local frameService: frame.Service = context:require(frame.capability)
     local panelService: panels.Service = context:require(panels.capability)
-    local themeService: theme.Service = context:require(theme.capability)
-    local position = settings.position
-    local configuredFont: theme.FontSpec? = if settings.font
-      then descriptors.projectFont(settings.font, 'desktop/hint font')
-      else nil
-    local function prepare(snapshot: theme.Snapshot): Paint
-      local style = snapshot.theme
-      return {
-        size = settings.textHeight or style.typography.hintTextHeight,
-        foreground = settings.foreground or style.colors.foreground,
-        font = themeService:font(configuredFont or style.typography.font),
-      }
+    local host: uiHost.Service = context:require(uiHost.capability)
+    local components: uiComponents.Service = context:require(uiComponents.capability)
+    local panel = host:newPanel(context, {
+      name = PANEL,
+      pose = lovr.math.newMat4():translate(settings.position),
+      width = MAX_WIDTH,
+      height = MAX_WIDTH,
+      size = 'content',
+      grabbable = false,
+      visible = false,
+    })
+    ui.mount(
+      panel,
+      Hint { text = settings.text, color = settings.foreground },
+      { components = components, owner = context }
+    )
+    -- Even a hidden panel suppresses the hint. A removed listener runs after the panel has left the list.
+    local function refresh(): ()
+      if context:active() and not panel.dead then
+        panel:setVisible(#panelService:all() == 0)
+      end
     end
-    local paint = prepare(themeService:current())
-    themeService:onChanged(context, {
-      run = function(_event: theme.Snapshot): ()
-        if context:active() then
-          paint = prepare(themeService:current())
+    panelService:onAdded(context, {
+      run = function(_panel: panels.Panel): ()
+        if context:active() and not panel.dead then
+          panel:setVisible(false)
         end
       end,
     })
-
-    frameService:onDraw(context, {
-      phase = 'scene',
-      order = 1,
-      run = function(pass: Pass): ()
-        if #panelService:all() == 0 then
-          passState.withRestore(pass, function(): ()
-            pass:setShader()
-            pass:setMaterial(nil)
-            pass:setFont(paint.font)
-            local foreground = paint.foreground
-            pass:setColor(foreground[1], foreground[2], foreground[3], foreground[4])
-            pass:text(settings.text, lovr.math.mat4():translate(position):scale(paint.size), 0, 'center', 'middle')
-          end)
-        end
+    panelService:onRemoved(context, {
+      run = function(_panel: panels.Panel): ()
+        refresh()
       end,
     })
+    refresh()
   end,
 }

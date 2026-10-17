@@ -14,7 +14,8 @@ type Beam = {
   read distance: number?,
 }
 
-local loadError: unknown = ...
+-- `requested` is true when the previous session asked for safe mode, rather than a configuration failing to load.
+local loadError: unknown, requested: unknown = ...
 
 local PANEL_X, PANEL_Y, PANEL_Z = 0, 1.5, -1.5
 local PANEL_HEIGHT = 0.9
@@ -29,6 +30,10 @@ local ERROR_LINES = 5
 local BEAM_LENGTH = 1.5
 
 local RELOAD_KEY = 'f5'
+
+-- Seconds both triggers are held together before safe mode reloads, the controller path to the reload key. Long
+-- enough that pressing both while using the terminal does not reload by accident.
+local RELOAD_HOLD = 2
 
 -- The pointer ray follows the runtime's aim pose, which can differ from the controller pose.
 local HANDS: { Hand } = {
@@ -62,6 +67,8 @@ local attempted: lunette.Process? = nil
 -- A release goes to the sink that received the press, even after the pointer leaves it.
 local pressed: { [number]: boolean? } = {}
 local pressedSink: { [number]: lunette.Sink? } = {}
+-- Seconds both triggers have been held, or nil once a hold has reloaded and until both are released.
+local bothHeld: number? = 0
 
 local function firstWindow(): lunette.Window?
   local window = lunette.windows()[1]
@@ -213,18 +220,20 @@ lunette.onProcessExited(function(event: lunette.ProcessExitedEvent)
   end
 end)
 
-function lovr.keypressed(key: KeyCode)
-  if key ~= RELOAD_KEY then
-    return
-  end
-
+local function reload()
   local reloaded, message = lunette.reload()
   if not reloaded then
     print('lunette: the configuration still does not load: ' .. tostring(message))
   end
 end
 
-function lovr.update()
+function lovr.keypressed(key: KeyCode)
+  if key == RELOAD_KEY then
+    reload()
+  end
+end
+
+function lovr.update(dt: number?)
   beams = {}
   if not lovr.headset then
     return
@@ -238,6 +247,17 @@ function lovr.update()
       beams[#beams + 1] = aimed
     end
   end
+
+  if not (pressed[1] and pressed[2]) then
+    bothHeld = 0
+  elseif bothHeld then
+    local held = bothHeld + (dt or 0)
+    bothHeld = held
+    if held >= RELOAD_HOLD then
+      bothHeld = nil
+      reload()
+    end
+  end
 end
 
 function lovr.draw(pass: Pass)
@@ -245,7 +265,13 @@ function lovr.draw(pass: Pass)
 
   local top = PANEL_Y + PANEL_HEIGHT / 2 + NOTE_HEIGHT * (#errorText + 1)
   pass:text(
-    'lunette: safe mode. The configuration did not load. Press ' .. RELOAD_KEY .. ' to try again.',
+    if requested == true
+      then 'lunette: safe mode, as the session requested. Press '
+        .. RELOAD_KEY
+        .. ' or hold both triggers to load the configuration.'
+      else 'lunette: safe mode. The configuration did not load. Press '
+        .. RELOAD_KEY
+        .. ' or hold both triggers to try again.',
     PANEL_X,
     top,
     PANEL_Z,

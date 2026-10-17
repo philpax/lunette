@@ -145,6 +145,7 @@ local function withField(run: (Capture) -> ()): ()
       end
       pass:send('backdropWaves', waves)
       pass:send('backdropWaveDetail', details)
+      pass:send('backdropWaveCount', if onset then 1 else 0)
       pass:fill()
       return pixels.read(render.read(texture, pass))
     end

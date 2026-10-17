@@ -23,7 +23,8 @@ function picking.deadZone(value: number, dead: number): number
   return (value < 0 and -1 or 1) * (math.abs(value) - dead) / (1 - dead)
 end
 
--- The nearest live surface hit within reach. The direction need not be unit length.
+-- The live surface hit within reach with the highest pick priority, and the nearest among those. The direction need
+-- not be unit length.
 function picking.pick(
   surfaces: { read [number]: Surface },
   origin: vector,
@@ -36,12 +37,16 @@ function picking.pick(
   end
   local ray = direction * (1 / length)
   local hit: Surface?, x: number?, y: number?, distance: number?
+  local priority = -math.huge
   for index = 1, #surfaces do
     local candidate = surfaces[index]
     if not candidate.dead then
       local cx, cy, cd = candidate:raycast(origin, ray)
-      if cx and cy and cd and cd <= reach and (not distance or cd < distance) then
-        hit, x, y, distance = candidate, cx, cy, cd
+      if cx and cy and cd and cd <= reach then
+        local rank = candidate.pickPriority or 0
+        if rank > priority or (rank == priority and (not distance or cd < distance)) then
+          hit, x, y, distance, priority = candidate, cx, cy, cd, rank
+        end
       end
     end
   end
