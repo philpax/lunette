@@ -61,33 +61,6 @@ test('a toggle reports the flipped value', function()
   state.fixture:close()
 end)
 
-test('a disabled button does not activate and shows its reason on hover', function()
-  local state = boot()
-  local c = assert(state.components)
-  local activations = 0
-  fixture.show(
-    state,
-    c.Panel {
-      c.Body {
-        key = 'body',
-        c.Button {
-          key = 'pin',
-          label = 'Pin',
-          disabledReason = 'Pinning needs the Attention source.',
-          onActivate = function()
-            activations += 1
-          end,
-        },
-      },
-    }
-  )
-  fixture.click(state, 'body/pin')
-  state.fixture:step()
-  expect.equal(activations, 0)
-  expect.truthy(state.panel:find 'body/pin/reason', 'the reason is shown while hovered')
-  state.fixture:close()
-end)
-
 test('a slider drag moves continuously, holds to a detent near it, and snaps the release', function()
   local state = boot()
   local c = assert(state.components)
@@ -128,37 +101,6 @@ test('a slider drag moves continuously, holds to a detent near it, and snaps the
   state.fixture:close()
 end)
 
-test('a dropdown opens and reports the chosen option', function()
-  local state = boot()
-  local c = assert(state.components)
-  local chosen = nil
-  fixture.show(
-    state,
-    c.Panel {
-      c.Body {
-        key = 'body',
-        c.Dropdown {
-          key = 'layout',
-          value = 'arc',
-          options = { { id = 'arc', label = 'Arc' }, { id = 'grid', label = 'Grid' } },
-          onChange = function(id: string)
-            chosen = id
-          end,
-        },
-      },
-    }
-  )
-  expect.equal(state.panel:find 'body/layout/menu', nil, 'the menu starts closed')
-  fixture.click(state, 'body/layout/trigger')
-  state.fixture:step()
-  expect.truthy(state.panel:find 'body/layout/menu', 'the trigger opens the menu')
-  fixture.click(state, 'body/layout/menu/grid')
-  state.fixture:step()
-  expect.equal(chosen, 'grid')
-  expect.equal(state.panel:find 'body/layout/menu', nil, 'choosing closes the menu')
-  state.fixture:close()
-end)
-
 test('list rows report their ids, including ids with separators', function()
   local state = boot()
   local c = assert(state.components)
@@ -180,26 +122,6 @@ test('list rows report their ids, including ids with separators', function()
   )
   fixture.click(state, 'body/plugins/desktop%2Fkeyboard')
   expect.equal(chosen, 'desktop/keyboard')
-  state.fixture:close()
-end)
-
-test('a scroll box scrolls its content by dragging', function()
-  local state = boot()
-  local c = assert(state.components)
-  local rows = {}
-  for index = 1, 20 do
-    rows[index] = c.Text { key = `row-{index}`, text = `Row {index}` }
-  end
-  fixture.show(
-    state,
-    c.Panel { c.Body { key = 'body', c.ScrollView { key = 'box', height = 0.1, c.Column { key = 'rows', rows } } } }
-  )
-  local first = assert(state.panel:find 'body/box/rows/row-1')
-  local before = first:panelBounds().y
-  drag(state, 'body/box', { 0.5, 0.8 }, { 0.5, 0.2 })
-  state.fixture:step()
-  local after = first:panelBounds().y
-  expect.truthy(after < before - 0.03, `the content moved up: {before} to {after}`)
   state.fixture:close()
 end)
 

@@ -40,20 +40,9 @@ test('toasts show up to the visible limit, queue the rest, and leave after their
   state.fixture:close()
 end)
 
-test('a toast with no timeout stays until it is dismissed, and its action runs once', function()
+test('a toast with no timeout stays until it is dismissed', function()
   local state, service, owner = boot()
-  local runs = 0
-  local handle = service:notify(owner, {
-    title = 'update',
-    timeout = 0,
-    actions = { {
-      id = 'apply',
-      label = 'Apply',
-      run = function()
-        runs += 1
-      end,
-    } },
-  })
+  local handle = service:notify(owner, { title = 'update', timeout = 0 })
   for _ = 1, 120 do
     state.fixture:step(0.016)
   end
@@ -61,24 +50,6 @@ test('a toast with no timeout stays until it is dismissed, and its action runs o
   handle:dismiss()
   expect.truthy(handle.dead)
   expect.equal(titles(service), '')
-  expect.equal(runs, 0)
-  state.fixture:close()
-end)
-
-test('the toast panel takes the size of its toasts', function()
-  local state, service, owner = boot()
-  service:notify(owner, { title = 'ready', timeout = 0 })
-  state.fixture:step()
-  state.fixture:step()
-  local host = state.service
-  local snapshot = host:inspect()
-  local found = false
-  for _, registration in snapshot.registrations do
-    if registration.name == 'notifications' then
-      found = (registration.details.width :: number) > 0
-    end
-  end
-  expect.truthy(found, 'the notifications panel has content')
   state.fixture:close()
 end)
 

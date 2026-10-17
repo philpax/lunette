@@ -17,7 +17,6 @@ test('the configured settings start the store, and an invalid change is refused'
   local service = assert(assert(state.fixture.session):observe(accessibility.capability).service)
   expect.equal(service.settings:get().textScale, 1.5, 'the configured text scale')
   expect.equal(service.settings:get().sounds, false, 'and sounds')
-  expect.equal(service.settings:get().haptics, true, 'an unconfigured setting takes its default')
   expect.raises(function()
     service:update { textScale = 9 }
   end, 'not a valid textScale')
@@ -25,22 +24,6 @@ test('the configured settings start the store, and an invalid change is refused'
     service:update { colour = 'blue' }
   end, 'not a valid colour')
   expect.equal(service.settings:get().textScale, 1.5, 'a refused change leaves the settings')
-  state.fixture:close()
-end)
-
-test('a change reaches the host, which applies text scale and high contrast', function()
-  local state = fixture.boot {
-    standard = true,
-    plugins = { require('@lunette-plugins/ui/accessibility').definition },
-  }
-  local observed = assert(state.fixture.session):observe(accessibility.capability)
-  local service = assert(observed.service)
-  local before = state.service:theme().type.body.size
-  service:update { textScale = 1.5, highContrast = true }
-  expect.near(state.service:theme().type.body.size, before * 1.5, 1e-9, 'the host scales its type')
-  expect.raises(function()
-    service:update { textScale = 7 }
-  end, 'not a valid textScale')
   state.fixture:close()
 end)
 

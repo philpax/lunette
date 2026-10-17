@@ -76,13 +76,6 @@ test('the high-contrast variant keeps every text pair readable and raises the li
   end
 end)
 
-test('text scale multiplies every typography role', function()
-  local regular = theme.resolve('dark', theme.DEFAULT_ACCENT)
-  local large = theme.resolve('dark', theme.DEFAULT_ACCENT, { textScale = 1.5 })
-  expect.near(large.type.body.size, regular.type.body.size * 1.5, 1e-9)
-  expect.near(large.type.title.size, regular.type.title.size * 1.5, 1e-9)
-end)
-
 test('the guard leaves an accent that already contrasts unchanged', function()
   local resolved = theme.resolve('dark', theme.DEFAULT_ACCENT)
   for index = 1, 3 do

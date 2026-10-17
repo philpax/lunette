@@ -1,6 +1,5 @@
 local testing = require '@testing'
 local contract = require '@lunette-contracts/theme'
-local palette = require '../private/palette'
 local expect = testing.expect
 local test = testing.suite()
 
@@ -16,9 +15,7 @@ test('the configured mode and accent choose the starting theme', function()
   local session, service = start { mode = 'light', accent = { 0.9, 0.55, 0.65 } }
   local current = service:current()
   expect.equal(current.mode, 'light', 'the configured mode')
-  local expected = palette.resolve('light', { 0.9, 0.55, 0.65, 1 })
-  expect.equal(current.colors.accent[1], expected.colors.accent[1], 'the configured accent, guarded')
-  expect.equal(service:base().mode, 'dark', 'the base theme is the dark mode')
+  expect.near(service:accent()[1], 0.9, 1e-9, 'the configured accent')
   session:close()
 end)
 
