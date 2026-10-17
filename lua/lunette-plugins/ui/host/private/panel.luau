@@ -58,6 +58,7 @@ function panel.new(
   assert(type(curve) == 'number' and curve >= 0 and curve < 10, 'ui: a curve is from 0 to 10 per metre')
   record.curve = curve
   record.grabbable = (presentation == 'world' or presentation == 'attach') and options.grabbable ~= false
+  record.placeAhead = presentation == 'world' and options.pose == nil
   if presentation == 'attach' then
     local target = options.target
     assert(target ~= nil and target.width and target.height, 'ui: an attached panel names a target surface')
@@ -116,6 +117,7 @@ function panel.new(
     setPose = function(_self: uiHost.Panel, pose: Mat4): ()
       if not record.dead then
         record.pose:set(pose)
+        record.placeAhead = nil
         record.revision += 1
       end
     end,

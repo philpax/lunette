@@ -84,6 +84,84 @@ test('the wrist menu action opens the settings panel, whose toggles change the s
   state.fixture:close()
 end)
 
+test('dragging the text size slider in the panel scales the theme', function()
+  local menu = require '@lunette-contracts/menu'
+  local state = fixture.boot {
+    standard = true,
+    plugins = {
+      require('@lunette-plugins/menu/action-registry').definition,
+      require('@lunette-plugins/ui/accessibility').definition,
+      require('@lunette-plugins/ui/accessibility-settings').definition,
+    },
+  }
+  local session = assert(state.fixture.session)
+  local menus = assert(session:observe(menu.capability).service)
+  local service = assert(session:observe(accessibility.capability).service)
+  local before = state.service:theme().type.body.size
+  expect.equal(menus:invoke('desktop/accessibility').kind, 'invoked')
+  state.fixture:step()
+  state.fixture:step()
+  local track = assert(state.service:find 'Accessibility:body/display/content/textScale/track', 'the panel is open')
+  -- The geometry is a metre wide around the track's centre, so offsets from 0.5 are metres along the track.
+  local geometry = fixture.nodeGeometry(track)
+  local half = track.bounds.width / 2
+  local runner = state.fixture
+  runner:aim(geometry, 0.5 - half * 0.95, 0.5)
+  runner:step()
+  runner:button('right', 'trigger', true)
+  runner:step()
+  for step = 1, 6 do
+    runner:aim(geometry, 0.5 - half * 0.95 + half * 1.9 * step / 6, 0.5)
+    runner:step()
+  end
+  runner:button('right', 'trigger', false)
+  runner:step()
+  runner:step()
+  expect.near(service.settings:get().textScale, 2, 0.05, 'the slider commits the largest size')
+  expect.near(state.service:theme().type.body.size, before * service.settings:get().textScale, 1e-9, 'the theme scales')
+  state.fixture:close()
+end)
+
+test('the settings panel opens ahead of the head and moves with a trigger drag on its header', function()
+  local menu = require '@lunette-contracts/menu'
+  local state = fixture.boot {
+    standard = true,
+    plugins = {
+      require('@lunette-plugins/menu/action-registry').definition,
+      require('@lunette-plugins/ui/accessibility').definition,
+      require('@lunette-plugins/ui/accessibility-settings').definition,
+    },
+  }
+  local session = assert(state.fixture.session)
+  local menus = assert(session:observe(menu.capability).service)
+  state.fixture:pose('head', lovr.math.newMat4():translate(0.5, 1.6, 0))
+  expect.equal(menus:invoke('desktop/accessibility').kind, 'invoked')
+  state.fixture:step()
+  state.fixture:step()
+  local spacer = assert(state.service:find 'Accessibility:header/band/spacer', 'the panel has the standard header')
+  local opened = vector.pack(spacer:pose():getPosition())
+  expect.near(opened.x, 0.5, 0.05, 'the panel opens ahead of the head')
+  expect.truthy(opened.z < -0.4, 'in front of it')
+  local geometry = fixture.nodeGeometry(spacer)
+  local runner = state.fixture
+  runner:aim(geometry, 0.5, 0.5)
+  runner:step()
+  runner:button('right', 'trigger', true)
+  runner:step()
+  for step = 1, 4 do
+    runner:aim(geometry, 0.5 + 0.2 * step / 4, 0.5)
+    runner:step()
+  end
+  runner:button('right', 'trigger', false)
+  runner:step()
+  local moved = vector.pack(assert(state.service:find 'Accessibility:header/band/spacer'):pose():getPosition())
+  expect.near(vector.magnitude(moved - opened), 0.2, 0.02, 'the header drag moves the panel')
+  runner:step()
+  local settled = vector.pack(assert(state.service:find 'Accessibility:header/band/spacer'):pose():getPosition())
+  expect.near(vector.magnitude(settled - moved), 0, 1e-6, 'and it stays where it was left')
+  state.fixture:close()
+end)
+
 test('the default appearance action switches the host, and its selection follows the host', function()
   local menu = require '@lunette-contracts/menu'
   local state = fixture.boot {

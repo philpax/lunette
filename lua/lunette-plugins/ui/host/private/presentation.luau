@@ -1,5 +1,5 @@
--- Places panels whose presentation the host controls: dialogs in front of their parent, or of the head, and follow
--- panels lazily ahead of the head.
+-- Places panels whose presentation the host controls: dialogs in front of their parent, or of the head, follow
+-- panels lazily ahead of the head, and world panels made without a pose ahead of the head when they first show.
 
 local uiHost = require '@lunette-contracts/ui-host'
 local records = require './records'
@@ -56,6 +56,13 @@ function presentation.place(record: records.Panel, head: Head?, dt: number, them
     record.minWidth = target.width or record.minWidth
     local above = (target.height or 0) / 2 + record.gap + record.height / 2
     record.pose:set(target.pose):translate(0, above, theme.elevation.contentOffset)
+  elseif record.presentation == 'world' then
+    -- A world panel made without a pose opens ahead of the head, as a dialog without a parent does, and then stays
+    -- where it opened until it is moved.
+    if record.placeAhead and record.visible and head then
+      record.placeAhead = nil
+      record.pose:set(facing(ahead(head, DIALOG_DISTANCE, 0.05), head.position))
+    end
   elseif record.presentation == 'dialog' then
     local parent = record.parent
     if parent and not parent.dead then

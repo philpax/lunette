@@ -351,6 +351,7 @@ export type PanelOptions = {
   read pose: Mat4?,
   read grabbable: boolean?,
   -- A panel created hidden shows when setVisible is called.
+  -- A world panel without a pose opens ahead of the head and stays there until it is moved.
   read visible: boolean?,
   -- 'world' stays where it is put; 'follow' lazily follows the head, as toasts do; 'dialog' floats in front of its
   -- parent panel, or in front of the head without one, and is modal.

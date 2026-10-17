@@ -144,8 +144,8 @@ return plugin.consumer<<{}, {}>> {
           close()
           return
         end
-        -- The panel opens ahead of the user, as a dialog without a parent does, and stays where it opened.
-        local panel = host:newPanel(context, { name = 'Accessibility', presentation = 'dialog', modality = 'panel' })
+        -- The panel opens ahead of the user and stays where it opened, until it is grabbed and moved.
+        local panel = host:newPanel(context, { name = 'Accessibility' })
         ui.mount(
           panel,
           SettingsPanel { service = service, close = close },
