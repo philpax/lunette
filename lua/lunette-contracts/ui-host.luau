@@ -421,18 +421,10 @@ export type Panel = {
   read find: (Panel, string) -> Node?,
 }
 
-export type FontRegistration = {
-  read family: string,
-  read weight: number?,
-  -- A path that `lovr.filesystem` reads, such as an alias path.
-  read file: string,
-}
-
 export type Service = {
   read newPanel: (Service, Owner, PanelOptions) -> Panel,
   read registerKind: (Service, Owner, KindRegistration) -> Constructor,
   read registerVisual: (Service, Owner, string, Visual) -> plugin.Effect,
-  read registerFont: (Service, Owner, FontRegistration) -> plugin.Effect,
   -- Replaces a registered kind under its name for the owner's lifetime. The newest live override is current, fields
   -- it omits keep the previous registration's, and its `event` and `expand` reach the previous ones as `base`. Nodes
   -- of the kind are made again when the current registration changes.

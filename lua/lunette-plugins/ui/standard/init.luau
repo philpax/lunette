@@ -1,6 +1,7 @@
 -- Registers the standard kinds, their visuals, and the theme's fonts, and publishes their constructors.
 
 local plugin = require '@lunette-plugin'
+local lunette = require '@lunette'
 local uiHost = require '@lunette-contracts/ui-host'
 local uiComponents = require '@lunette-contracts/ui-components'
 local structure = require '@self/private/structure'
@@ -14,17 +15,19 @@ local fields = require '@self/private/fields'
 local scrollView = require '@self/private/scroll-view'
 local markdown = require '@self/private/markdown'
 
-local FONTS: { uiHost.FontRegistration } = {
-  { family = 'IBM Plex Sans', weight = 400, file = '@lunette-plugins/ui/standard/fonts/IBMPlexSans-Regular.ttf' },
-  { family = 'IBM Plex Sans', weight = 500, file = '@lunette-plugins/ui/standard/fonts/IBMPlexSans-Medium.ttf' },
-  { family = 'IBM Plex Sans', weight = 600, file = '@lunette-plugins/ui/standard/fonts/IBMPlexSans-SemiBold.ttf' },
-  { family = 'Iosevka', weight = 400, file = '@lunette-plugins/ui/standard/fonts/Iosevka-Regular.ttf' },
+local FONTS = {
+  '@lunette-plugins/ui/standard/fonts/IBMPlexSans-Regular.ttf',
+  '@lunette-plugins/ui/standard/fonts/IBMPlexSans-Medium.ttf',
+  '@lunette-plugins/ui/standard/fonts/IBMPlexSans-SemiBold.ttf',
+  '@lunette-plugins/ui/standard/fonts/Iosevka-Regular.ttf',
 }
 
 local function build(context: plugin.Context): uiComponents.Service
   local host = context:require(uiHost.capability)
-  for _, font in FONTS do
-    host:registerFont(context, font)
+  for _, file in FONTS do
+    local data = lovr.filesystem.read(file)
+    assert(type(data) == 'string', `ui: the font '{file}' could not be read`)
+    lunette.loadLayoutFont(data)
   end
   local constructors: { [string]: uiHost.Constructor } = {}
   for _, family in { display, structure, actions, choices, values, collections, overlays, fields, markdown, scrollView } do

@@ -27,7 +27,6 @@ local semantics = require '@self/private/semantics'
 local panels = require '@self/private/panel'
 local outlets = require '@self/private/outlets'
 local placements = require '@self/private/placements'
-local fonts = require '@self/private/rendering/fonts'
 local pack = require '@self/private/rendering/pack'
 local renderer = require '@self/private/rendering/renderer'
 
@@ -54,7 +53,6 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
   local current = themeService:current()
   local kinds = registry.new(context)
   local contributions = outlets.new()
-  local faces = fonts.new()
   local router = input.new()
   local touching = touch.new()
   local live: { Live } = {}
@@ -210,7 +208,6 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
         releaseResources()
         releaseResources, resources = nil, nil
       end
-      fonts.release(faces)
     end
   end)
 
@@ -469,16 +466,6 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
     end,
     defaultAppearance = function(_self: uiHost.Service): boolean
       return kinds.defaultAppearance
-    end,
-    registerFont = function(_self: uiHost.Service, owner: plugin.Owner, font: uiHost.FontRegistration): plugin.Effect
-      context:checkOwner(owner)
-      assert(
-        type(font) == 'table' and type(font.family) == 'string' and type(font.file) == 'string',
-        'ui: a font names a family and a file'
-      )
-      return context:acquire(owner, function(): () -> ()
-        return fonts.add(faces, font.family, font.weight or 400, font.file)
-      end)
     end,
     theme = function(_self: uiHost.Service): uiHost.Theme
       return current

@@ -16,10 +16,10 @@ export type Scene = {
 }
 
 local FONTS = {
-  { family = 'IBM Plex Sans', weight = 400, file = '@lunette-plugins/ui/standard/fonts/IBMPlexSans-Regular.ttf' },
-  { family = 'IBM Plex Sans', weight = 500, file = '@lunette-plugins/ui/standard/fonts/IBMPlexSans-Medium.ttf' },
-  { family = 'IBM Plex Sans', weight = 600, file = '@lunette-plugins/ui/standard/fonts/IBMPlexSans-SemiBold.ttf' },
-  { family = 'Iosevka', weight = 400, file = '@lunette-plugins/ui/standard/fonts/Iosevka-Regular.ttf' },
+  '@lunette-plugins/ui/standard/fonts/IBMPlexSans-Regular.ttf',
+  '@lunette-plugins/ui/standard/fonts/IBMPlexSans-Medium.ttf',
+  '@lunette-plugins/ui/standard/fonts/IBMPlexSans-SemiBold.ttf',
+  '@lunette-plugins/ui/standard/fonts/Iosevka-Regular.ttf',
 }
 
 -- Definitions are extra plugins, such as the standard kinds, used once the real graphics and file reading are back;
@@ -60,8 +60,10 @@ function ui.boot(definitions: { any }, requires: { any }, setup: (adapter.Contex
       init = function(context: adapter.Context)
         scene.owner = context
         scene.service = context:require(uiHost.capability)
-        for _, font in FONTS do
-          scene.service:registerFont(context, font)
+        for _, file in FONTS do
+          local bytes = lovr.filesystem.read(file)
+          assert(type(bytes) == 'string', `ui: the font '{file}' could not be read`)
+          lunette.loadLayoutFont(bytes)
         end
         setup(context)
       end,
