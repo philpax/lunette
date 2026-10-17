@@ -594,7 +594,6 @@ pages.Gallery = ui.component('Gallery', function(props: Props): ui.Child
     props :: Props?,
     c.Panel {
       title = 'Widget gallery',
-      detail = 'lunette theme',
       c.Body {
         key = 'body',
         grow = 1,
