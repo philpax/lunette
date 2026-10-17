@@ -4,6 +4,7 @@
 local lunette = require '@lunette'
 local uiHost = require '@lunette-contracts/ui-host'
 local records = require '../records'
+local shape = require '../shape'
 local shader = require './shader'
 local pack = require './pack'
 local images = require './images'
@@ -321,23 +322,10 @@ local function drawVolumes(
   scrim: { number },
   protect: (string, () -> ()) -> boolean
 ): ()
-  local halfWidth, halfHeight = panel.width / 2, panel.height / 2
-  local curve = panel.curve
   for _, run in packed.volumes do
     local primitive = run.primitive
     if primitive.kind == 'volume' then
-      local x = run.x + run.width / 2 - halfWidth
-      local y = halfHeight - (run.y + run.height / 2)
-      local z = run.z
-      local transform = lovr.math.mat4(panel.pose)
-      if curve > 0 then
-        local radius = 1 / curve
-        local angle = x * curve
-        transform:translate((radius - z) * math.sin(angle), y, radius - (radius - z) * math.cos(angle))
-        transform:rotate(-angle, 0, 1, 0)
-      else
-        transform:translate(x, y, z)
-      end
+      local transform = shape.frame(panel, run.x + run.width / 2, run.y + run.height / 2, run.z)
       local volume: uiHost.Volume = table.freeze {
         width = run.width,
         height = run.height,

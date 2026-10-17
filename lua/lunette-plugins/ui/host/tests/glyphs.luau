@@ -1,5 +1,6 @@
 local testing = require '@testing'
 local renderer = require '../private/rendering/renderer'
+local record = require '../private/rendering/record'
 local expect = testing.expect
 local test = testing.suite()
 
@@ -78,6 +79,44 @@ test('a cleared atlas page makes placed glyphs be asked for again', function()
   renderer.beginFrame(held)
   lookup(0, 1)
   expect.equal(#calls, 2, 'after a page is cleared, the glyph is asked for again')
+end)
+
+test('text recording retains shaped lines without source text or font metadata', function()
+  local lines = { { top = 0, height = 0.02, width = 0.01, baseline = 0.015, glyphs = {} } }
+  local ink = { 0.2, 0.3, 0.4, 1 }
+  local primitives = record.run(
+    {
+      kind = { name = 'test/text', registration = { visuals = { 'test/text' } } },
+      handle = {
+        theme = { colors = { ink = ink } },
+        textLines = function()
+          return lines
+        end,
+      },
+    } :: any,
+    {
+      protect = function(_label: string, draw: () -> ()): boolean
+        draw()
+        return true
+      end,
+    } :: any,
+    function()
+      return {
+        function(_node: any, draw: any)
+          draw:text { offset = 0.003 }
+        end,
+      }
+    end
+  )
+  expect.equal(#primitives, 1)
+  local primitive = primitives[1] :: any
+  expect.equal(primitive.kind, 'text')
+  expect.equal(primitive.lines, lines)
+  expect.equal(primitive.color, ink)
+  expect.equal(primitive.offset, 0.003)
+  expect.equal(primitive.source, nil)
+  expect.equal(primitive.family, nil)
+  expect.equal(primitive.weight, nil)
 end)
 
 return test

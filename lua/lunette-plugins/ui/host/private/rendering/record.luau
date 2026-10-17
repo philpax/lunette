@@ -1,7 +1,6 @@
 -- Runs a node's visuals and records the primitives they draw, in node coordinates. The renderer replays the
 -- recording every frame until the node's props, state, size, or theme change.
 
-local lunette = require '@lunette'
 local uiHost = require '@lunette-contracts/ui-host'
 local records = require '../records'
 
@@ -35,16 +34,12 @@ local function newDraw(node: records.Node, primitives: { records.Primitive }): u
   end
   function draw.text(_self: uiHost.Draw, spec: uiHost.TextSpec): ()
     local lines = node.handle:textLines()
-    local style = node.textStyle :: lunette.LayoutTextStyle?
-    if not lines or not style or not node.text then
+    if not lines then
       return
     end
     primitives[#primitives + 1] = {
       kind = 'text',
       lines = lines,
-      source = node.text,
-      family = style.family or '',
-      weight = style.weight or 400,
       x = 0,
       y = 0,
       color = spec.color or node.handle.theme.colors.ink,

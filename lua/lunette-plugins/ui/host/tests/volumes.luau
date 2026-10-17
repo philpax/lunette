@@ -15,7 +15,7 @@ local function register(service: uiHost.Service, owner: any, seen: { Seen }, fai
   service:registerKind(owner, {
     name = 'test/volume',
     layout = {
-      kind = 'leaf',
+      kind = 'container',
       style = function(props: uiHost.Props): lunette.LayoutStyle
         return { width = props.width, height = props.height }
       end,
@@ -110,7 +110,7 @@ test('a volume on a curved panel sits on the curve, turned to its tangent', func
       register(service, owner, seen, { value = false })
       local panel = service:newPanel(owner, {
         name = 'curved',
-        pose = lovr.math.newMat4():translate(0, 1.5, -1),
+        pose = lovr.math.newMat4():translate(0.2, 1.5, -1):rotate(0.3, 0, 1, 0):scale(1.2),
         width = 0.6,
         height = 0.2,
         curve = 2,
@@ -139,10 +139,10 @@ test('a volume on a curved panel sits on the curve, turned to its tangent', func
     1e-6,
     'the base centre lies on the curve'
   )
-  local facing = vector.pack(actual:mul(0, 0, 1, 0))
-  local out = vector.pack(lovr.math.mat4(surface):mul(0, 0, 1, 0))
+  local facing = vector.normalize(vector.pack(actual:mul(0, 0, 1, 0)))
+  local out = vector.normalize(vector.pack(lovr.math.mat4(surface):mul(0, 0, 1, 0)))
   expect.near(vector.dot(facing, out), 1, 1e-6, 'z follows the curve normal')
-  local base = vector.pack(lovr.math.mat4(panel:pose()):mul(0, 0, 1, 0))
+  local base = vector.normalize(vector.pack(lovr.math.mat4(panel:pose()):mul(0, 0, 1, 0)))
   expect.truthy(vector.dot(facing, base) < 0.999, 'the left-hand node is turned from the panel normal')
   state.fixture:close()
 end)

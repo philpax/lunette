@@ -37,9 +37,6 @@ export type Primitive =
   | {
     kind: 'text',
     lines: { lunette.LayoutLine },
-    source: string,
-    family: string,
-    weight: number,
     x: number,
     y: number,
     color: uiHost.Color,
