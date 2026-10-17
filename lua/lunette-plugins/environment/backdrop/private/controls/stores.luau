@@ -44,7 +44,6 @@ export type Stores = {
 }
 
 type RowDetails = { process: lunette.Process, names: { string }, label: string?, state: audio.State? }
-type RowToken = { read token: string, read process: lunette.Process }
 
 local settingsOf: (selection.State, Renderer) -> Settings
 local sameSettings: (Settings, Settings) -> boolean
@@ -55,45 +54,44 @@ function stores.new(choice: selection.State, renderer: Renderer): Stores
   local settings = ui.store(settingsOf(choice, renderer))
   local applications = ui.store({} :: { Application })
   local serial = 0
-  local tokens: { RowToken } = {}
   local function refresh(): ()
     local nextSettings = settingsOf(choice, renderer)
     if not sameSettings(settings:get(), nextSettings) then
       settings:set(nextSettings)
     end
+    local previous = applications:get()
     local list: { Application } = {}
-    local retained: { RowToken } = {}
     for _, row in stores.rows(choice, lunette.processes(), lunette.windows()) do
-      local kept: RowToken? = nil
+      local kept: Application? = nil
       -- Fresh userdata compare by process identity, so the search compares rather than indexing by handle.
-      for _, previous in tokens do
-        if previous.process == row.process then
-          kept = previous
+      for _, published in previous do
+        if published.process == row.process then
+          kept = published
           break
         end
       end
-      if kept == nil then
+      local token: string
+      if kept then
+        token = kept.token
+      else
         serial += 1
-        kept = { token = 'application-' .. tostring(serial), process = row.process }
+        token = 'application-' .. tostring(serial)
       end
-      local entry = assert(kept)
-      retained[#retained + 1] = entry
       list[#list + 1] = {
-        token = entry.token,
-        process = entry.process,
+        token = token,
+        process = if kept then kept.process else row.process,
         title = row.title,
         detail = row.detail,
         trailing = row.trailing,
         selected = choice.mode == 'application' and choice.pinned == row.process,
       }
     end
-    tokens = retained
     if not sameApplications(applications:get(), list) then
       applications:set(list)
     end
   end
   local function process(token: string): lunette.Process?
-    for _, entry in tokens do
+    for _, entry in applications:get() do
       if entry.token == token then
         return entry.process
       end
