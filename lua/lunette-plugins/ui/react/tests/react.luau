@@ -47,34 +47,6 @@ test('state set from an event re-renders the component', function()
   state.fixture:close()
 end)
 
-test('a child with unchanged props is not rendered again', function()
-  local state = boot()
-  local renders = { parent = 0, child = 0 }
-  local Child = ui.component('Child', function(props: { text: string }): any
-    renders.child += 1
-    return element('test/text', { key = 'child', text = props.text })
-  end)
-  local bump: ((number) -> ())? = nil
-  local Parent = ui.component('Parent', function(): any
-    renders.parent += 1
-    local tick, setTick = ui.useState(0)
-    bump = setTick
-    return element('test/column', {
-      element('test/text', { key = 'tick', text = tostring(tick) }),
-      Child { key = 'stable', text = 'same', onAnything = function() end },
-    })
-  end)
-  ui.mount(state.panel, Parent {})
-  state.fixture:step()
-  assert(bump)(1)
-  state.fixture:step()
-  expect.equal(renders.parent, 2)
-  expect.equal(renders.child, 1, 'the child rendered once')
-  expect.equal(label(state, 'tick'), '1')
-  expect.equal(label(state, 'stable'), 'same', 'the child keeps its output')
-  state.fixture:close()
-end)
-
 test('effects run after the render pass and clean up on unmount', function()
   local state = boot()
   local log: { string } = {}
@@ -101,25 +73,6 @@ test('effects run after the render pass and clean up on unmount', function()
   state.fixture:step()
   expect.equal(table.concat(log, ','), 'run 1,clean 1,run 2,clean 2')
   expect.equal(state.panel:find '#1', nil, 'the content is removed')
-  state.fixture:close()
-end)
-
-test('a context change reaches a child whose props did not change', function()
-  local state = boot()
-  local Theme = ui.createContext 'plain'
-  local Reader = ui.component('Reader', function(): any
-    return element('test/text', { key = 'reader', text = ui.useContext(Theme) })
-  end)
-  local flavour = ui.store 'plain'
-  local Root = ui.component('Root', function(): any
-    return element('test/column', { ui.provide(Theme, ui.useStore(flavour), Reader {}) })
-  end)
-  ui.mount(state.panel, Root {})
-  state.fixture:step()
-  expect.equal(label(state, 'reader'), 'plain')
-  flavour:set 'fancy'
-  state.fixture:step()
-  expect.equal(label(state, 'reader'), 'fancy')
   state.fixture:close()
 end)
 

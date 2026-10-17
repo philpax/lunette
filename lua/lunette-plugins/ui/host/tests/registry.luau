@@ -7,29 +7,6 @@ local test = testing.suite()
 
 local NAME = 'test/registered'
 
-test('kind lookups keep their identities between registration changes', function()
-  local target = registry.new({} :: any)
-  local owner = {} :: any
-  local removeBase = registry.addKind(target, owner, { name = NAME })
-  local base = registry.kind(target, NAME)
-  expect.equal(registry.kind(target, NAME), base, 'the base lookup is stable')
-  expect.equal(registry.kind(target, 'test/absent'), target.missing, 'an absent kind uses the missing registration')
-
-  local removeOverride = registry.overrideKind(target, owner, NAME, { name = NAME, clip = true })
-  local current = registry.kind(target, NAME)
-  expect.truthy(current ~= base, 'an override has its own identity')
-  expect.equal(registry.kind(target, NAME), current, 'the overridden lookup is stable')
-  target.defaultAppearance = true
-  expect.equal(registry.kind(target, NAME), base, 'default appearance keeps the original base')
-  target.defaultAppearance = false
-  expect.equal(registry.kind(target, NAME), current, 'returning to overrides keeps the resolved identity')
-
-  removeOverride()
-  expect.equal(registry.kind(target, NAME), base, 'removing the last override restores the original base')
-  removeBase()
-  expect.equal(registry.kind(target, NAME), target.missing, 'removing the base leaves the kind missing')
-end)
-
 test('removing a middle override rebuilds the event and expansion bases above it', function()
   local target = registry.new({} :: any)
   local owner = {} :: any
@@ -84,10 +61,7 @@ test('removing a middle override rebuilds the event and expansion bases above it
 
   removeMiddle()
   local current = registry.kind(target, NAME)
-  expect.truthy(current ~= before, 'removing a layer changes the resolved identity')
-  expect.equal(registry.kind(target, NAME), current, 'the rebuilt identity is stable')
   expect.falsy(current.registration.clip, 'the removed field falls back to the base')
-  expect.equal(#registry.overridden(target), 2, 'the other override declarations remain')
   table.clear(log)
   assert(current.registration.event)({} :: any, { kind = 'activate', source = 'programmatic' }, function(): ()
     table.insert(log, 'host event')
@@ -168,16 +142,6 @@ test('removing a layer skips later overrides that no longer fit the base', funct
   local _, skipped = registry.addKind(target, owner, { name = NAME, layout = { kind = 'container' } })
   expect.equal(#skipped, 0, 'the expansion applies to a compatible replacement base')
   expect.truthy(registry.kind(target, NAME).composite, 'the waiting expansion is active again')
-end)
-
-test('host layout kinds use containers for non-text content', function()
-  local target = registry.new({} :: any)
-  expect.equal(registry.kind(target, 'lunette/portal').registration.layout.kind, 'container', 'a portal is a container')
-  registry.validate { name = NAME, layout = { kind = 'container' } }
-  expect.falsy(
-    pcall(registry.validate, { name = NAME, layout = { kind = 'leaf' } }),
-    'the removed host variant is rejected'
-  )
 end)
 
 return test

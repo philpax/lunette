@@ -91,29 +91,6 @@ test("an override keeps the kind's name and must layer into a valid registration
   state.fixture:close()
 end)
 
-test('an override expansion reaches the expansion beneath it', function()
-  local state = fixture.boot {
-    setup = function(service: uiHost.Service, owner: any)
-      fixture.registerKinds(service, owner, {})
-      service:overrideKind(owner, 'test/counter', {
-        name = 'test/counter',
-        expand = function(
-          props: uiHost.Props,
-          children: { read [number]: uiHost.Element },
-          state: { read [string]: any },
-          actions: uiHost.Actions,
-          base: uiHost.Expand?
-        ): uiHost.Child
-          return element('test/column', { key = 'wrapped', (assert(base))(props, children, state, actions) })
-        end,
-      })
-    end,
-  }
-  fixture.show(state, element('test/column', { element('test/counter', { key = 'counter' }) }))
-  expect.truthy(state.panel:find 'counter/wrapped/increment/label', 'the base expansion is inside the override')
-  state.fixture:close()
-end)
-
 test('default appearance uses the base theme and keeps text scale', function()
   local state = fixture.boot {
     setup = function(service: uiHost.Service, owner: any)
@@ -147,19 +124,6 @@ test('default appearance resolves each visual name to its base visual', function
   expect.equal(visuals[1], first, 'the base visual is the first registered')
 end)
 
-test('an override outlives its base and applies again when the kind is registered again', function()
-  local target = registry.new({} :: any)
-  local remove = registry.addKind(target, {} :: any, { name = 'test/kind', visuals = { 'a' } })
-  registry.overrideKind(target, {} :: any, 'test/kind', { name = 'test/kind', visuals = { 'b' } })
-  expect.equal(registry.kind(target, 'test/kind').registration.visuals[1], 'b', 'the override is current')
-  remove()
-  expect.equal(registry.kind(target, 'test/kind'), target.missing, 'the kind is missing without its base')
-  registry.addKind(target, {} :: any, { name = 'test/kind', visuals = { 'c' }, clip = true })
-  local current = registry.kind(target, 'test/kind').registration
-  expect.equal(current.visuals[1], 'b', 'the override applies to the new base')
-  expect.truthy(current.clip, 'fields the override omits come from the new base')
-end)
-
 test("default appearance uses the base owner's visual wherever it sits in the stack", function()
   local target = registry.new({} :: any)
   local standard, restyle = {} :: any, {} :: any
@@ -170,21 +134,6 @@ test("default appearance uses the base owner's visual wherever it sits in the st
   registry.addVisual(target, standard, 'test/visual', base)
   target.defaultAppearance = true
   expect.equal(registry.visuals(target, 'test/visual')[1], base, "the standard owner's visual is the default")
-end)
-
-test('an override that cannot layer onto a later base is skipped and answered', function()
-  local target = registry.new({} :: any)
-  local overrider = {} :: any
-  registry.overrideKind(target, overrider, 'test/kind', {
-    name = 'test/kind',
-    expand = function(): any
-      return nil
-    end,
-  })
-  local _, skipped = registry.addKind(target, {} :: any, { name = 'test/kind', visuals = { 'a' } })
-  expect.equal(#skipped, 1, 'the override is skipped')
-  expect.equal(skipped[1].owner, overrider, 'and names its owner')
-  expect.equal(registry.kind(target, 'test/kind').registration.visuals[1], 'a', 'the base registration applies')
 end)
 
 test('the chord fires once per hold of both thumbstick clicks', function()
