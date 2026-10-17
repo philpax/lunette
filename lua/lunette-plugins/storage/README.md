@@ -5,6 +5,8 @@ Storage keeps state across sessions. It has no plugin leaves, activation entry, 
 - [Saved settings](saved-settings.luau), `@lunette-plugins/storage/saved-settings`, is the file that keeps the session's saved settings, which the plugin runtime applies and records.
 - [Versioned file](versioned-file.luau), `@lunette-plugins/storage/versioned-file`, reads and writes a versioned file of literal values in LÖVR's save directory. Writes go through `lunette.saveFile`, which replaces the file atomically. A file from a newer version is reported and not overwritten.
 
+A save error before replacement leaves any previous file in place. A directory-flush error after replacement leaves the new file visible, but its survival across a crash or power loss is unconfirmed. A reported save failure therefore does not mean that the previous contents remain on disk.
+
 ## Saved settings
 
 A saved setting is a field of an entry's configuration that the user changed during a session. The desktop passes the saved settings file to the plugin runtime, which applies each entry's saved fields over its configuration from `main.luau` when the session starts, so a saved field takes precedence over `main.luau`. A plugin receives its `Settings` as usual and does not read the file.

@@ -649,7 +649,7 @@ module! {
         svg::rasterize_svg(lua, &svg, width, height)
     }
 
-    /// Writes `contents` to the file `name` inside `directory` atomically: to a temporary file beside it, flushed and renamed over the target, so a reader sees the old file or the new one. `directory` is an absolute path to an existing directory, such as `lovr.filesystem.getSaveDirectory()`, and `name` is a file name with no separator. A failed write raises an error and leaves any previous file in place.
+    /// Writes `contents` to the file `name` inside `directory` atomically: to a temporary file beside it, flushed and renamed over the target, so a reader sees the old file or the new one. `directory` is an absolute path to an existing directory, such as `lovr.filesystem.getSaveDirectory()`, and `name` is a file name with no separator. A failure raises an error. Errors before replacement leave any previous file in place. A directory-flush error after replacement leaves the new file visible, but its survival across a crash or power loss is unconfirmed.
     fn saveFile(_lua, _session, directory: String, name: String, contents: mlua::LuaString) -> () {
         save_file::save(std::path::Path::new(&directory), &name, &contents.as_bytes())
             .map_err(|error| mlua::Error::runtime(error.to_string()))

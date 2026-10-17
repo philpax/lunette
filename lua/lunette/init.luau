@@ -870,8 +870,10 @@ export type Lunette = {
   -- temporary file beside it, flushed and renamed over the target, so a reader
   -- sees the old file or the new one. `directory` is an absolute path to an
   -- existing directory, such as `lovr.filesystem.getSaveDirectory()`, and
-  -- `name` is a file name with no separator. A failed write raises an error and
-  -- leaves any previous file in place.
+  -- `name` is a file name with no separator. A failure raises an error. Errors
+  -- before replacement leave any previous file in place. A directory-flush
+  -- error after replacement leaves the new file visible, but its survival
+  -- across a crash or power loss is unconfirmed.
   read saveFile: (directory: string, name: string, contents: string) -> (),
   -- The ladder a layer's requested size is quantised up, ascending. A panel
   -- whose scale Lua raises requests a size the free list already holds.

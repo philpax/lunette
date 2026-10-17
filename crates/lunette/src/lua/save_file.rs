@@ -3,8 +3,10 @@
 //!
 //! The contents go to a temporary file beside the target, which is flushed and
 //! renamed over the target, so a reader sees the old file or the new one and never a
-//! truncated one. `lovr.filesystem.write` cannot rename, so Lua writes persistent
-//! files through this.
+//! truncated one. Errors before replacement leave the target unchanged. On Unix,
+//! a directory flush error after replacement leaves the new file visible but its
+//! survival across a crash or power loss unconfirmed. `lovr.filesystem.write`
+//! cannot rename, so Lua writes persistent files through this.
 
 use std::{
     fmt,
@@ -21,7 +23,8 @@ pub enum SaveFileError {
     Name(String),
     /// The directory is not an absolute path to an existing directory.
     Directory(PathBuf),
-    /// Writing, flushing, or renaming failed.
+    /// Writing, flushing, or renaming failed. A directory flush failure follows
+    /// replacement, so the target already holds the new contents.
     Io {
         step: &'static str,
         path: PathBuf,
@@ -60,7 +63,18 @@ impl std::error::Error for SaveFileError {
 }
 
 /// Writes `contents` to `name` inside `directory`, replacing any file there at once.
+/// Errors before replacement leave the target unchanged. On Unix, a directory flush
+/// error leaves the replacement visible but its durability unconfirmed.
 pub fn save(directory: &Path, name: &str, contents: &[u8]) -> Result<(), SaveFileError> {
+    save_with_directory_sync(directory, name, contents, sync_directory)
+}
+
+fn save_with_directory_sync(
+    directory: &Path,
+    name: &str,
+    contents: &[u8],
+    sync_directory: impl FnOnce(&Path) -> io::Result<()>,
+) -> Result<(), SaveFileError> {
     if name.is_empty() || name == "." || name == ".." || name.contains(['/', '\\', '\0']) {
         return Err(SaveFileError::Name(name.to_owned()));
     }
@@ -91,23 +105,17 @@ pub fn save(directory: &Path, name: &str, contents: &[u8]) -> Result<(), SaveFil
         let _ = fs::remove_file(&temporary);
         return Err(error);
     }
-    sync_directory(directory)
+    sync_directory(directory).map_err(io("confirm durability after replacing", &target))
 }
 
 /// Flushes the directory, so the rename itself survives a power loss.
 #[cfg(unix)]
-fn sync_directory(directory: &Path) -> Result<(), SaveFileError> {
-    File::open(directory)
-        .and_then(|handle| handle.sync_all())
-        .map_err(|source| SaveFileError::Io {
-            step: "flush",
-            path: directory.to_path_buf(),
-            source,
-        })
+fn sync_directory(directory: &Path) -> io::Result<()> {
+    File::open(directory).and_then(|handle| handle.sync_all())
 }
 
 #[cfg(not(unix))]
-fn sync_directory(_directory: &Path) -> Result<(), SaveFileError> {
+fn sync_directory(_directory: &Path) -> io::Result<()> {
     Ok(())
 }
 
@@ -135,6 +143,47 @@ mod tests {
             .map(|entry| entry.expect("an entry").file_name())
             .collect();
         assert_eq!(names, vec!["settings"]);
+    }
+
+    #[test]
+    fn a_directory_sync_failure_reports_the_replacement_and_uncertain_durability() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        save(directory.path(), "settings", b"previous").expect("the first save");
+        let target = directory.path().join("settings");
+        let error =
+            save_with_directory_sync(directory.path(), "settings", b"replacement", |path| {
+                assert_eq!(path, directory.path());
+                assert_eq!(
+                    fs::read(&target).expect("the file before the directory flush"),
+                    b"replacement",
+                    "the directory flush follows the replacement"
+                );
+                Err(io::Error::other("injected directory sync failure"))
+            })
+            .expect_err("the directory flush fails");
+
+        assert_eq!(
+            fs::read(&target).expect("the replacement after the failed directory flush"),
+            b"replacement"
+        );
+        let names: Vec<_> = fs::read_dir(directory.path())
+            .expect("the directory")
+            .map(|entry| entry.expect("an entry").file_name())
+            .collect();
+        assert_eq!(names, vec!["settings"], "no temporary file remains");
+        assert_eq!(
+            std::error::Error::source(&error)
+                .expect("the underlying directory flush failure")
+                .to_string(),
+            "injected directory sync failure"
+        );
+        let message = error.to_string();
+        assert!(message.contains("after replacing"), "{message}");
+        assert!(
+            message.contains("could not confirm durability"),
+            "{message}"
+        );
+        assert!(message.contains(&target.display().to_string()), "{message}");
     }
 
     #[test]
