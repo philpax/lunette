@@ -20,7 +20,7 @@ The flake provides a development shell, not a package output. It prefetches Jolt
 
 ## Module roots
 
-[Alias descriptors](../../crates/lunette/src/aliases.rs) own runtime roots, generated `.luaurc` files, and install artifacts. `@lunette` is native preload; other installed roots are mounted files. `@testing` and `dev/` are development-only and must not appear in installed modules. Session startup does not run the checker.
+[Alias descriptors](../../crates/lunette/src/aliases.rs) own runtime roots, generated `.luaurc` files, and install artifacts. `@lunette` is native preload; other installed roots are mounted files. Installation copies every file in an installed root except its `tests` directories, so a plugin's assets, such as fonts, install beside its modules without a manifest entry; the explicit install artifacts are files from outside the roots. `@testing` and `dev/` are development-only and must not appear in installed modules. Session startup does not run the checker.
 
 Relative requires follow Luau's file-relative rules. A directory's `init.luau` names the directory module: `./` starts beside that directory, while `@self` starts inside it. The session wrapper resolves names into `package.loaded`, so source reload clears the same cache. Replacing it with Luau's separate require cache would break that agreement.
 

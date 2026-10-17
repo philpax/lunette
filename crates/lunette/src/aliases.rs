@@ -146,8 +146,8 @@ impl ModuleRoots {
     }
 }
 
-/// An explicit file installed below `$PREFIX/share/lunette`, including assets
-/// within module roots.
+/// An explicit file installed below `$PREFIX/share/lunette`, from outside the
+/// module roots.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct InstallArtifact {
     /// A source path in the repository.
@@ -156,9 +156,10 @@ pub struct InstallArtifact {
     pub destination: &'static str,
 }
 
-/// The explicit files an installed Luau runtime needs, including non-Luau assets.
-/// Every installed root's directory is installed from `lua/` to `lua/`; the
-/// manifest derives those directory entries from [`INSTALLED_ALIASES`].
+/// The explicit files an installed Luau runtime needs from outside the module roots.
+/// Every installed root's directory is installed from `lua/` to `lua/`, assets such
+/// as fonts included; the manifest derives those directory entries from
+/// [`INSTALLED_ALIASES`].
 pub const INSTALL_ARTIFACTS: &[InstallArtifact] = &[
     InstallArtifact {
         source: "etc/lunette/definitions.luau",
@@ -169,30 +170,6 @@ pub const INSTALL_ARTIFACTS: &[InstallArtifact] = &[
         destination: "lua/.luaurc",
     },
     InstallArtifact {
-        source: "lua/lunette-plugins/ui/standard/fonts/IBMPlexSans-Regular.ttf",
-        destination: "lua/lunette-plugins/ui/standard/fonts/IBMPlexSans-Regular.ttf",
-    },
-    InstallArtifact {
-        source: "lua/lunette-plugins/ui/standard/fonts/IBMPlexSans-Medium.ttf",
-        destination: "lua/lunette-plugins/ui/standard/fonts/IBMPlexSans-Medium.ttf",
-    },
-    InstallArtifact {
-        source: "lua/lunette-plugins/ui/standard/fonts/IBMPlexSans-SemiBold.ttf",
-        destination: "lua/lunette-plugins/ui/standard/fonts/IBMPlexSans-SemiBold.ttf",
-    },
-    InstallArtifact {
-        source: "lua/lunette-plugins/ui/standard/fonts/Iosevka-Regular.ttf",
-        destination: "lua/lunette-plugins/ui/standard/fonts/Iosevka-Regular.ttf",
-    },
-    InstallArtifact {
-        source: "lua/lunette-plugins/ui/standard/fonts/OFL-IBMPlex.txt",
-        destination: "lua/lunette-plugins/ui/standard/fonts/OFL-IBMPlex.txt",
-    },
-    InstallArtifact {
-        source: "lua/lunette-plugins/ui/standard/fonts/OFL-Iosevka.md",
-        destination: "lua/lunette-plugins/ui/standard/fonts/OFL-Iosevka.md",
-    },
-    InstallArtifact {
         source: "vendor/lovr/deps/openvr/LICENSE",
         destination: "licenses/OpenVR.txt",
     },
@@ -200,8 +177,8 @@ pub const INSTALL_ARTIFACTS: &[InstallArtifact] = &[
 
 /// Lists the install manifest as source and destination paths.
 ///
-/// Module roots include `.luau` files outside `tests` directories. Explicit files
-/// are installed regardless of extension. The testing root is not installed.
+/// Module roots include every file outside `tests` directories, so a plugin's
+/// assets install beside its modules. The testing root is not installed.
 #[must_use]
 pub fn install_manifest() -> Vec<(String, String)> {
     let roots = INSTALLED_ALIASES.iter().map(|alias| {
