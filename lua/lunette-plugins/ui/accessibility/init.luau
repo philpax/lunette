@@ -9,35 +9,15 @@ local protected = require '@lunette-plugins/diagnostics/protected-call'
 local ui = require '@lunette-plugins/ui/react'
 local config = require '@self/config'
 local format = require '@self/private/format'
+local settingsFile = require '@lunette-plugins/storage/settings-file'
 
 export type Config = config.Config
 export type Settings = config.Settings
 
 local function build(context: plugin.Context, options: Settings): accessibility.Service
-  local file: format.File = { settings = table.clone(accessibility.DEFAULTS) :: any, unknown = {} }
-  -- A file from a newer version is never overwritten, so its settings survive this session.
-  local writable = true
-  local text = lovr.filesystem.read(options.file)
-  if type(text) == 'string' then
-    local loaded = format.read(text)
-    if loaded.kind == 'settings' then
-      file = loaded.file
-      if #loaded.skipped > 0 then
-        protected.call('accessibility: settings', function(): ()
-          error(`invalid settings were ignored: {table.concat(loaded.skipped, ', ')}`, 0)
-        end)
-      end
-    elseif loaded.kind == 'fromTheFuture' then
-      writable = false
-      protected.call('accessibility: settings', function(): ()
-        error(`the settings file has version {loaded.found}, newer than this version reads; it is left unchanged`, 0)
-      end)
-    else
-      protected.call('accessibility: settings', function(): ()
-        error(`the settings file could not be read, so defaults apply until a setting changes: {loaded.message}`, 0)
-      end)
-    end
-  end
+  local spec = format.spec(options.file)
+  local opened = settingsFile.open(spec)
+  local file = opened.file
   local store = ui.store(table.freeze(table.clone(file.settings)) :: accessibility.Settings)
   -- The toolkit host applies the settings it understands; they reach it now and after each change.
   local host = context:require(uiHost.capability)
@@ -67,11 +47,7 @@ local function build(context: plugin.Context, options: Settings): accessibility.
       end
       file.settings = next
       store:set(table.freeze(table.clone(next)))
-      if writable and not lovr.filesystem.write(options.file, format.render(file)) then
-        protected.call('accessibility: settings', function(): ()
-          error(`the settings could not be saved to {options.file}`, 0)
-        end)
-      end
+      settingsFile.save(spec, opened)
     end,
     announce = function(
       _self: accessibility.Service,
