@@ -264,6 +264,8 @@ export type Environment = {
   -- Runs a kind's or a consumer's function, reporting an error under the label and answering whether it returned.
   read protect: (label: string, run: () -> ()) -> boolean,
   read removed: (Panel, Node) -> (),
+  -- Moves pointer captures and hover from a node to the node that replaces it under a changed registration.
+  read carried: (from: Node, to: Node) -> (),
   -- Delivers an event to a node's handler, which bubbles it to the node's ancestors by default.
   read dispatch: (Node, uiHost.Event) -> boolean,
   -- Opens or updates the overlay of a portal node with its children, and closes it.

@@ -82,6 +82,9 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
       return current
     end,
     protect = protected.call,
+    carried = function(from: records.Node, to: records.Node): ()
+      input.carried(router, from, to)
+    end,
     removed = function(_panel: records.Panel, node: records.Node): ()
       input.removed(router, node)
       placements.removed(contributions, env, node)

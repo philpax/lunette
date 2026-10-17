@@ -1,4 +1,5 @@
 local testing = require '@testing'
+local lunette = require '@lunette'
 local uiHost = require '@lunette-contracts/ui-host'
 local fixture = require '@testing/ui-host'
 local registry = require '../private/registry'
@@ -194,6 +195,67 @@ test('the chord fires once per hold of both thumbstick clicks', function()
   expect.falsy(chord.step(state, false, true, 0.1), 'releasing resets the chord')
   expect.falsy(chord.step(state, true, true, chord.HOLD * 0.9), 'a new hold starts over')
   expect.truthy(chord.step(state, true, true, chord.HOLD * 0.2), 'and fires when complete')
+end)
+
+test('an override that loads during a drag carries the capture to the remade node, which ends the drag', function()
+  local log: { string } = {}
+  local state = fixture.boot {
+    setup = function(service: uiHost.Service, owner: any)
+      fixture.registerKinds(service, owner, log)
+      service:registerKind(owner, {
+        name = 'test/handle',
+        layout = {
+          kind = 'leaf',
+          style = function(): lunette.LayoutStyle
+            return { width = 0.06, height = 0.02 }
+          end,
+        },
+        claims = { drag = 'x' },
+        interactive = function(): boolean
+          return true
+        end,
+        event = function(node: uiHost.Node, event: uiHost.Event, base: (uiHost.Node, uiHost.Event) -> ())
+          table.insert(log, `{node.id}:{event.kind}`)
+          base(node, event)
+        end,
+      })
+    end,
+  }
+  fixture.show(state, element('test/column', { padding = 0.01, element('test/handle', { key = 'handle' }) }))
+  local before = assert(state.panel:find 'handle')
+  local bounds = before:panelBounds()
+  local x, y = bounds.x + bounds.width / 2, bounds.y + bounds.height / 2
+  local surface = fixture.surface(state)
+  local pointer = fixture.pointer()
+  local function deliver(kind: string, at: number): ()
+    surface:onPointer {
+      kind = kind,
+      pointer = pointer,
+      x = at,
+      y = y,
+      button = 'left',
+      captured = kind ~= 'enter' and kind ~= 'press',
+      inside = true,
+    }
+  end
+  deliver('enter', x)
+  deliver('press', x)
+  deliver('move', x + 0.01)
+  expect.truthy(before.state.dragging, 'the drag began on the original node')
+
+  state.service:overrideKind(state.owner, 'test/handle', { name = 'test/handle' })
+  state.fixture:step()
+  local after = assert(state.panel:find 'handle')
+  expect.truthy(after ~= before and before.dead, 'the override remade the node')
+  expect.truthy(after.state.dragging, 'the remade node is still being dragged')
+  expect.truthy(after.state.pressed, 'and still pressed')
+  table.clear(log)
+  deliver('move', x + 0.02)
+  deliver('release', x + 0.02)
+  expect.equal(log[1], `{after.id}:drag`, 'the next movement drags the remade node')
+  expect.truthy(table.find(log, `{after.id}:drag-end`), 'its release ends the drag there')
+  expect.falsy(after.state.pressed, 'and leaves it unpressed')
+  state.fixture:close()
 end)
 
 return test

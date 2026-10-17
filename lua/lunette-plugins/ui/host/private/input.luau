@@ -414,6 +414,33 @@ function input.pointing(router: Router): boolean
   return false
 end
 
+-- Moves what pointers hold on a node to the node that replaces it under a changed registration: a capture in
+-- progress, with its press point and drag, and hover. The new node continues the gesture, and its release or drag ends
+-- it, so an override that loads mid-drag does not drop the drag.
+function input.carried(router: Router, from: records.Node, to: records.Node): ()
+  local moved = false
+  for _, state in router.pointers do
+    local capture = state.capture
+    if capture and capture.node == from then
+      capture.node = to
+      moved = true
+    end
+    if state.hovered == from then
+      state.hovered = to
+      moved = true
+    end
+  end
+  if not moved then
+    return
+  end
+  to.host.hovers = from.host.hovers
+  to.host.pressed = from.host.pressed
+  to.host.dragging = from.host.dragging
+  from.host.hovers, from.host.pressed, from.host.dragging = 0, false, false
+  respond(to)
+  handles.refreshState(to, to.handle)
+end
+
 -- Forgets a removed node: a capture on it ends without a release, and hover moves off it.
 function input.removed(router: Router, node: records.Node): ()
   for _, state in router.pointers do
