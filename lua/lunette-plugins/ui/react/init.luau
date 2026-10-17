@@ -344,17 +344,28 @@ function ui.useStore<T>(store: Store<T>): T
   local hook, instance = instances.hook('store', function(): instances.Hook
     return {}
   end)
+  local value = store:get()
   if hook.store ~= store then
-    local previous = hook.cleanup
-    if type(previous) == 'function' then
-      (previous :: () -> ())()
-    end
-    hook.store = store
-    hook.cleanup = store:subscribe(function(): ()
-      instances.invalidate(instance)
+    table.insert(instance.root.effects, function(): ()
+      if not instance.mounted then
+        return
+      end
+      local previous = hook.cleanup
+      hook.cleanup, hook.store = nil, nil
+      if type(previous) == 'function' then
+        (previous :: () -> ())()
+      end
+      hook.cleanup = store:subscribe(function(): ()
+        instances.invalidate(instance)
+      end)
+      hook.store = store
+      -- A store can change after the render reads it and before the subscription starts.
+      if store:get() ~= value then
+        instances.invalidate(instance)
+      end
     end)
   end
-  return store:get()
+  return value
 end
 
 -- Maps a list to keyed children. Every child needs a key, and keys are unique.

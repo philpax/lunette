@@ -146,4 +146,36 @@ test('a contributed component that fails is reported against its contributor', f
   state.fixture:close()
 end)
 
+test('a contributed store subscription failure is reported against its contributor', function()
+  local state = boot()
+  local store = {
+    get = function(): number
+      return 1
+    end,
+    subscribe = function(): () -> ()
+      error 'deliberate contribution subscription failure'
+    end,
+  }
+  local Failing = ui.component('FailingStore', function(_props: Props): ui.Child
+    return element('test/text', { text = tostring(ui.useStore(store)) })
+  end)
+  state.fixture.session:use(contributor(Failing))
+  host(state, ui.store { 'one' })
+  state.fixture:step()
+  local reported = assert(state.fixture.native).events.reported
+  local found = false
+  for _, report in reported do
+    if
+      string.find(report.message, 'deliberate contribution subscription failure', 1, true)
+      and string.find(report.message, 'contribution from test/react-contributor', 1, true)
+    then
+      found = true
+    end
+  end
+  table.clear(reported)
+  expect.truthy(found, 'the subscription failure names the contributor')
+  expect.equal(text(state, 'own'), 'own content', 'the outlet owner keeps its content')
+  state.fixture:close()
+end)
+
 return test
