@@ -71,13 +71,22 @@ local function actions(state: Traversal): focus.Actions
 end
 
 -- Registers the panel with the focus service, or registers it again when whether it wants the keyboard changed.
-local function session(state: Traversal, panel: records.Panel, wantsKeyboard: boolean): focusContract.TargetHandle
+local function session(state: Traversal, node: records.Node, wantsKeyboard: boolean): focusContract.TargetHandle?
+  local panel = node.panel
   local current = panel.session
+  if panel.dead or node.dead or panel.focused ~= node then
+    return nil
+  end
   if current and not current.handle.dead and current.wantsKeyboard == wantsKeyboard then
     return current.handle
   end
+  -- Disposal notifies focus listeners synchronously; they can close the panel or acquire replacement focus.
+  panel.session = nil
   if current and not current.handle.dead then
     current.handle:destroy()
+  end
+  if panel.dead or node.dead or panel.focused ~= node or panel.session ~= nil then
+    return nil
   end
   local receiver: focusContract.Receiver = {
     key = function(event: focusContract.KeyEvent): boolean
@@ -103,6 +112,12 @@ local function session(state: Traversal, panel: records.Panel, wantsKeyboard: bo
     keymapSeat = nil,
     wantsKeyboard = wantsKeyboard,
   })
+  if panel.dead or node.dead or panel.focused ~= node or panel.session ~= nil or handle.dead then
+    if not handle.dead then
+      handle:destroy()
+    end
+    return nil
+  end
   panel.session = { handle = handle, wantsKeyboard = wantsKeyboard }
   return handle
 end
@@ -110,11 +125,14 @@ end
 -- Focuses a node. A text node takes session focus so typing reaches it; a pointer node becomes the panel's focused
 -- node without it, and does not take focus from a focused text node in its panel.
 function traversal.focusNode(state: Traversal, node: records.Node, visible: boolean): boolean
-  local policy = focus.policy(state.env, node)
-  if policy == 'none' then
+  local panel = node.panel
+  if panel.dead or node.dead then
     return false
   end
-  local panel = node.panel
+  local policy = focus.policy(state.env, node)
+  if policy == 'none' or panel.dead or node.dead then
+    return false
+  end
   local current = panel.focused
   if
     policy == 'pointer'
@@ -126,10 +144,23 @@ function traversal.focusNode(state: Traversal, node: records.Node, visible: bool
     return false
   end
   focus.set(panel, node, visible)
-  if policy == 'text' then
-    session(state, panel, true):focus()
-  elseif visible then
-    session(state, panel, false):focus()
+  if panel.dead or node.dead or panel.focused ~= node then
+    return false
+  end
+  if policy == 'text' or visible then
+    local handle = session(state, node, policy == 'text')
+    if not handle then
+      return false
+    end
+    local accepted = handle:focus()
+    local currentSession = panel.session
+    return accepted
+      and not panel.dead
+      and not node.dead
+      and panel.focused == node
+      and not handle.dead
+      and currentSession ~= nil
+      and currentSession.handle == handle
   end
   return true
 end
