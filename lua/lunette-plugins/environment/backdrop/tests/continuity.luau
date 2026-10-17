@@ -66,16 +66,17 @@ test('publication overflow preserves moving waves in every band across deliverie
   env.update(0, false)
   local bass, mid = env.model.waves[1], env.model.waves[2]
   local hops = {}
-  for index = 1, 12 do
+  local count = model.wavePools.treble + 4
+  for index = 1, count do
     hops[index] = support.hop(1, 2048 + index * 2048, 1, 'treble')
   end
-  env.publish(SYSTEM, 1, 13 * 2048, hops)
+  env.publish(SYSTEM, 1, (count + 1) * 2048, hops)
   env.update(0.1, false)
   expect.equal(env.model.waves[1], bass, 'treble overflow does not clear a moving bass wave')
   expect.equal(env.model.waves[2], mid, 'treble overflow does not clear a moving mid wave')
   expect.near(bass.age, 0.1, 1e-12, 'a retained wave continues moving')
   local treble = env.model.waves[3]
-  env.publish(SYSTEM, 1, 14 * 2048, { support.hop(1, 14 * 2048, 1, 'treble') })
+  env.publish(SYSTEM, 1, (count + 2) * 2048, { support.hop(1, (count + 2) * 2048, 1, 'treble') })
   env.update(0, false)
   expect.equal(env.model.waves[3], treble, 'the next delivery cannot replace an active same-band wave')
   expect.equal(env.model.discardedHops, 5, 'four overflow onsets and one later onset are counted')
@@ -93,14 +94,15 @@ test('an audio history reset remains explicit even when its new onset batch over
   local state = model.new(config.schema.parse {})
   state:setFeatures(ZERO, { { band = 'mid', strength = 1 } })
   local onsets: { model.Onset } = {}
-  for index = 1, 12 do
+  local total = model.wavePools.bass + 4
+  for index = 1, total do
     onsets[index] = { band = 'bass', strength = 1, position = index / 30 }
   end
   state:setFeatures(ZERO, onsets, { gap = 'publication' })
   expect.equal(count(state, 'mid'), 0, 'the actual reset clears old history')
   expect.equal(count(state, 'bass'), model.wavePools.bass, 'fresh waves fill the available slots')
   expect.equal(state.onsetGap, 'publication', 'the audio reset takes precedence over capacity loss')
-  expect.equal(state.discardedHops, 12 - model.wavePools.bass, 'capacity loss is still counted')
+  expect.equal(state.discardedHops, total - model.wavePools.bass, 'capacity loss is still counted')
 end)
 
 return test

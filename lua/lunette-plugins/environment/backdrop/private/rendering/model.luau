@@ -70,7 +70,7 @@ model.SPECTRUM_BANDS = 8
 -- The coarse band of each spectrum band, matching the analysis edges at 250 and 2000 Hz.
 local COARSE: { Band } = table.freeze({ 'bass', 'bass', 'bass', 'mid', 'mid', 'mid', 'treble', 'treble' } :: { Band })
 model.waveLifetimes = table.freeze { bass = 0.9, mid = 1.2, treble = 0.9 } :: { read [Band]: number }
-model.wavePools = table.freeze { bass = 4, mid = 8, treble = 8 } :: { read [Band]: number }
+model.wavePools = table.freeze { bass = 6, mid = 12, treble = 16 } :: { read [Band]: number }
 model.MAX_WAVES = model.wavePools.bass + model.wavePools.mid + model.wavePools.treble
 local finite: (number) -> boolean
 local unit: (number) -> number

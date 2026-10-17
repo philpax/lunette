@@ -102,6 +102,8 @@ drawScene = function(
   local response = { frame.bass, frame.mid, frame.treble, frame.brightness }
   local waves: { { number } } = {}
   local details: { { number } } = {}
+  -- The model keeps its live waves contiguous from the first slot.
+  local live = math.min(#frame.waves, model.MAX_WAVES)
   for index = 1, model.MAX_WAVES do
     local wave = frame.waves[index]
     waves[index] = if wave
@@ -125,6 +127,7 @@ drawScene = function(
   pass:send('backdropMid', settings.palette.mid)
   pass:send('backdropWaves', waves)
   pass:send('backdropWaveDetail', details)
+  pass:send('backdropWaveCount', live)
   pass:draw(held.sky)
   pass:setCullMode(nil)
   if view ~= 0 then
@@ -148,6 +151,7 @@ drawScene = function(
   pass:send('backdropTreble', settings.palette.treble)
   pass:send('backdropWaves', waves)
   pass:send('backdropWaveDetail', details)
+  pass:send('backdropWaveCount', live)
   for layer = 0, 2 do
     pass:send('backdropScene', { visibility, frame.time, layer, settings.distance })
     pass:send('backdropFocus', LAYER_FOCUS[layer + 1])
