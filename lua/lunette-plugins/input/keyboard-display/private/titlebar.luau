@@ -5,7 +5,6 @@ local uiHost = require '@lunette-contracts/ui-host'
 local uiComponents = require '@lunette-contracts/ui-components'
 local keyboard = require '@lunette-contracts/keyboard'
 local vocabulary = require '@lunette-contracts/vocabulary'
-local ui = require '@lunette-plugins/ui/react'
 
 local titlebar = {}
 
@@ -16,18 +15,6 @@ export type Titlebar = {
 
 -- The gap between the bar and the board, in metres.
 local GAP = 0.01
-
-type Props = {
-  read close: () -> (),
-}
-
-local Bar = ui.component('KeyboardTitlebar', function(props: Props): ui.Child
-  local c = ui.useComponents()
-  return c.Panel {
-    title = 'Keyboard',
-    onClose = props.close,
-  }
-end)
 
 function titlebar.new(
   owner: plugin.Owner,
@@ -44,7 +31,11 @@ function titlebar.new(
     gap = GAP,
     visible = false,
   })
-  ui.mount(panel, Bar { close = close }, { components = components, owner = owner })
+  panel.root:bind {
+    render = function(): ()
+      panel.root:submit(components.Panel { title = 'Keyboard', onClose = close })
+    end,
+  }
   local shown = false
   local result: Titlebar = {
     -- Shows the bar while the board is shown.

@@ -142,12 +142,16 @@ test('the titlebar sits above the keyboard and closes it', function()
   expect.near(x, 0, 1e-5, 'the titlebar is centred on the keyboard')
   expect.truthy(y > current.height / 2 + height / 2 - 1e-5, 'the titlebar sits above the keyboard')
   expect.truthy(math.abs(z) < 0.001, 'the titlebar lies in the keyboard plane')
+  local host = assert(running.session):observe(require('@lunette-contracts/ui-host').capability)
+  local theme = assert(running.session):observe(require('@lunette-contracts/theme').capability)
+  assert(theme.service):setMode 'light'
+  running:step()
+  expect.equal(assert(env.panels:node(TITLEBAR, 'header')).theme.mode, 'light', 'the mounted titlebar restyles')
 
   env.panels:click(running, TITLEBAR, 'header/band/close')
   expect.falsy(env.display:isVisible(), 'Close hides the keyboard')
   expect.equal(env.focus:focused(), nil, 'Close ends editing')
   expect.equal(env.fields.values.first, 'draft', 'Close keeps the field text')
-  local host = assert(running.session):observe(require('@lunette-contracts/ui-host').capability)
   for _, registration in assert(host.service):inspect().registrations do
     if registration.name == TITLEBAR then
       expect.falsy(registration.details.visible, 'the titlebar hides with the keyboard')

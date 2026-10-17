@@ -2,6 +2,8 @@
 -- and the confirmation dialog's content.
 
 local ui = require '@lunette-plugins/ui/react'
+local uiHost = require '@lunette-contracts/ui-host'
+local uiComponents = require '@lunette-contracts/ui-components'
 local controller = require '../composition/controller'
 local model = require './model'
 local browser = require './browser'
@@ -70,8 +72,7 @@ export type ConfirmProps = {
 }
 
 -- A confirmation dialog for an action that unloads plugins.
-app.Confirm = ui.component('PluginConfirm', function(props: ConfirmProps): ui.Child
-  local c = ui.useComponents()
+function app.Confirm(c: uiComponents.Service, props: ConfirmProps): uiHost.Element
   local confirmation = props.confirmation
   return c.Dialog {
     title = confirmation.title,
@@ -81,6 +82,6 @@ app.Confirm = ui.component('PluginConfirm', function(props: ConfirmProps): ui.Ch
     },
     c.Text { key = 'body', text = confirmation.body, color = 'muted' },
   }
-end)
+end
 
 return app

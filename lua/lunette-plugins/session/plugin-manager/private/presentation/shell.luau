@@ -96,25 +96,25 @@ function shell.start(context: plugin.Context, settings: config.Settings, service
       modality = 'panel',
     }
     dialog = opened
-    ui.mount(
-      opened,
-      app.Confirm {
-        confirmation = confirmation,
-        onConfirm = function(): ()
-          closeDialog()
-          controller.update(state)
-          local selected = controller.selected(state)
-          if selected and selected.id == confirmation.entry then
-            run(confirmation.action)
-          else
-            state.message = 'The selection changed, so the action did not run.'
-            render()
-          end
-        end,
-        onCancel = closeDialog,
-      },
-      { components = services.components, owner = context }
-    )
+    opened.root:bind {
+      render = function(): ()
+        opened.root:submit(app.Confirm(services.components, {
+          confirmation = confirmation,
+          onConfirm = function(): ()
+            closeDialog()
+            controller.update(state)
+            local selected = controller.selected(state)
+            if selected and selected.id == confirmation.entry then
+              run(confirmation.action)
+            else
+              state.message = 'The selection changed, so the action did not run.'
+              render()
+            end
+          end,
+          onCancel = closeDialog,
+        }))
+      end,
+    }
   end
   local function releaseField(): ()
     local target = keyboard

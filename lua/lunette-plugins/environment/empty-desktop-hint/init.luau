@@ -4,7 +4,6 @@ local plugin = require '@lunette-plugin'
 local panels = require '@lunette-contracts/panels'
 local uiHost = require '@lunette-contracts/ui-host'
 local uiComponents = require '@lunette-contracts/ui-components'
-local ui = require '@lunette-plugins/ui/react'
 
 local config = require '@self/config'
 
@@ -20,16 +19,6 @@ local required: plugin.Declaration = {
   uiHost.capability,
   uiComponents.capability,
 }
-
-type HintProps = { text: string, color: { number }? }
-
-local Hint = ui.component('EmptyDesktopHint', function(props: HintProps): ui.Child
-  local c = ui.useComponents()
-  return c.Panel {
-    padding = 'lg',
-    c.Text { key = 'text', text = props.text, style = 'title', color = props.color, align = 'center' },
-  }
-end)
 
 return plugin.consumer<<Config, Settings>> {
   name = 'desktop/hint',
@@ -48,11 +37,20 @@ return plugin.consumer<<Config, Settings>> {
       grabbable = false,
       visible = false,
     })
-    ui.mount(
-      panel,
-      Hint { text = settings.text, color = settings.foreground },
-      { components = components, owner = context }
-    )
+    panel.root:bind {
+      render = function(): ()
+        panel.root:submit(components.Panel {
+          padding = 'lg',
+          components.Text {
+            key = 'text',
+            text = settings.text,
+            style = 'title',
+            color = settings.foreground,
+            align = 'center',
+          },
+        })
+      end,
+    }
     -- Even a hidden panel suppresses the hint. A removed listener runs after the panel has left the list.
     local function refresh(): ()
       if context:active() and not panel.dead then
