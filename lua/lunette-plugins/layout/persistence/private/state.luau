@@ -102,7 +102,7 @@ function state.new(file: string): State
           if declined then
             return false, declined
           end
-          local captured = capture.capture(held, panels, tags)
+          local captured = capture.merge(arrangement, capture.capture(held, panels, tags))
           -- The write replaces the file atomically, so a crash during it leaves the previous arrangement readable.
           local written, failure =
             pcall(lunette.saveFile, lovr.filesystem.getSaveDirectory(), file, format.render(captured))

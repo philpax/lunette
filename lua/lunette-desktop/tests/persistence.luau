@@ -48,4 +48,79 @@ test('a dropped window keeps its pose as others close, and the next session rest
   session:close()
 end)
 
+-- Boots the desktop with the saved arrangement and the given monitors present.
+local function boot(saved: string?, monitors: { string }): (testing.Session, testing.Native)
+  local fake = testing.native()
+  fake.events.saved = saved
+  for _, id in monitors do
+    table.insert(fake.events.monitors, fake.newMonitor(id))
+  end
+  return testing.boot(desktop.compose(), { native = fake }), fake
+end
+
+local function mirrorOf(session: testing.Session, native: testing.Native, id: string): panelsContract.Panel
+  local panels = session:observe(panelsContract.capability).service
+  for _, monitor in native.events.monitors do
+    if monitor.id == id then
+      return assert(panels:forSource(monitor), `no mirror of {id}`)
+    end
+  end
+  error(`no monitor {id}`)
+end
+
+test('a moved monitor mirror returns where it was left, present at startup or arriving later', function()
+  local session, native = boot(nil, { 'monitor-a' })
+  local mirror = mirrorOf(session, native, 'monitor-a')
+  mirror:setPose(lovr.math.newMat4():translate(-2, 1.8, -3))
+  session:drop(mirror)
+  local saved = native.events.saved
+  session:close()
+
+  session, native = boot(saved, { 'monitor-a' })
+  expectAt(mirrorOf(session, native, 'monitor-a'), -2, 1.8, -3, 'a monitor present at startup')
+  session:close()
+
+  session, native = boot(saved, {})
+  local late = native.newMonitor 'monitor-a'
+  table.insert(native.events.monitors, late)
+  native.emit('onMonitorAdded', { monitor = late })
+  session:update()
+  expectAt(mirrorOf(session, native, 'monitor-a'), -2, 1.8, -3, 'a monitor that arrives after startup')
+  session:close()
+end)
+
+test('a save while a mirrored monitor or an application is absent keeps its saved place', function()
+  local session, native = boot(nil, { 'monitor-a' })
+  local window = native.newWindow(1)
+  native.events.windows = { window }
+  native.emit('onWindowOpened', { window = window })
+  local panels = session:observe(panelsContract.capability).service
+  local mirror = mirrorOf(session, native, 'monitor-a')
+  mirror:setPose(lovr.math.newMat4():translate(-2, 1.8, -3))
+  local windowPanel = assert(panels:forSource(window))
+  windowPanel:setPose(lovr.math.newMat4():translate(2, 1.4, -2))
+  session:drop(mirror)
+  local saved = native.events.saved
+  session:close()
+
+  -- Neither the monitor nor the application is present, and a drop of another window saves.
+  session, native = boot(saved, {})
+  panels = session:observe(panelsContract.capability).service
+  local other = native.newWindow(2, 'org.fixture.Other')
+  native.events.windows = { other }
+  native.emit('onWindowOpened', { window = other })
+  session:drop(assert(panels:forSource(other)))
+  saved = native.events.saved
+  session:close()
+
+  session, native = boot(saved, { 'monitor-a' })
+  expectAt(mirrorOf(session, native, 'monitor-a'), -2, 1.8, -3, 'the absent monitor keeps its place')
+  panels = session:observe(panelsContract.capability).service
+  local back = native.newWindow(3)
+  native.events.windows = { back }
+  native.emit('onWindowOpened', { window = back })
+  expectAt(assert(panels:forSource(back)), 2, 1.4, -2, 'the closed application keeps its place')
+  session:close()
+end)
+
 return test
