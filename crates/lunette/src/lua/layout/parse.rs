@@ -20,32 +20,53 @@ use taffy::{
     },
 };
 
-pub const DISPLAYS: &[&str] = &["flex", "grid", "block", "none"];
-pub const DIRECTIONS: &[&str] = &["ltr", "rtl"];
-pub const FLEX_DIRECTIONS: &[&str] = &["row", "column", "row-reverse", "column-reverse"];
-pub const WRAPS: &[&str] = &["nowrap", "wrap", "wrap-reverse"];
-pub const ALIGN_ITEMS: &[&str] = &[
-    "start",
-    "end",
-    "center",
-    "stretch",
-    "baseline",
-    "flex-start",
-    "flex-end",
+pub const DISPLAYS: &[(&str, Display)] = &[
+    ("flex", Display::Flex),
+    ("grid", Display::Grid),
+    ("block", Display::Block),
+    ("none", Display::None),
 ];
-pub const ALIGN_CONTENT: &[&str] = &[
-    "start",
-    "end",
-    "center",
-    "stretch",
-    "space-between",
-    "space-around",
-    "space-evenly",
-    "flex-start",
-    "flex-end",
+pub const DIRECTIONS: &[(&str, Direction)] = &[("ltr", Direction::Ltr), ("rtl", Direction::Rtl)];
+pub const FLEX_DIRECTIONS: &[(&str, FlexDirection)] = &[
+    ("row", FlexDirection::Row),
+    ("column", FlexDirection::Column),
+    ("row-reverse", FlexDirection::RowReverse),
+    ("column-reverse", FlexDirection::ColumnReverse),
 ];
-pub const POSITIONS: &[&str] = &["relative", "absolute"];
-pub const OVERFLOWS: &[&str] = &["visible", "clip", "scroll"];
+pub const WRAPS: &[(&str, FlexWrap)] = &[
+    ("nowrap", FlexWrap::NoWrap),
+    ("wrap", FlexWrap::Wrap),
+    ("wrap-reverse", FlexWrap::WrapReverse),
+];
+pub const ALIGN_ITEMS: &[(&str, AlignItems)] = &[
+    ("start", AlignItems::START),
+    ("end", AlignItems::END),
+    ("center", AlignItems::CENTER),
+    ("stretch", AlignItems::STRETCH),
+    ("baseline", AlignItems::BASELINE),
+    ("flex-start", AlignItems::FLEX_START),
+    ("flex-end", AlignItems::FLEX_END),
+];
+pub const ALIGN_CONTENT: &[(&str, AlignContent)] = &[
+    ("start", AlignContent::START),
+    ("end", AlignContent::END),
+    ("center", AlignContent::CENTER),
+    ("stretch", AlignContent::STRETCH),
+    ("space-between", AlignContent::SPACE_BETWEEN),
+    ("space-around", AlignContent::SPACE_AROUND),
+    ("space-evenly", AlignContent::SPACE_EVENLY),
+    ("flex-start", AlignContent::FLEX_START),
+    ("flex-end", AlignContent::FLEX_END),
+];
+pub const POSITIONS: &[(&str, Position)] = &[
+    ("relative", Position::Relative),
+    ("absolute", Position::Absolute),
+];
+pub const OVERFLOWS: &[(&str, Overflow)] = &[
+    ("visible", Overflow::Visible),
+    ("clip", Overflow::Clip),
+    ("scroll", Overflow::Scroll),
+];
 
 const STYLE_FIELDS: &[&str] = &[
     "display",
@@ -318,17 +339,16 @@ fn keyword<T: Copy>(
     table: &Table,
     field: &str,
     context: &str,
-    names: &[&str],
-    values: &[T],
+    options: &[(&str, T)],
 ) -> mlua::Result<Option<T>> {
     let Some(name) = table.get::<Option<String>>(field)? else {
         return Ok(None);
     };
-    names
+    options
         .iter()
-        .position(|candidate| *candidate == name)
-        .map(|index| Some(values[index]))
+        .find_map(|(candidate, value)| (*candidate == name).then_some(Some(*value)))
         .ok_or_else(|| {
+            let names: Vec<_> = options.iter().map(|(name, _)| *name).collect();
             error(
                 context,
                 format!("{field}: '{name}' is not one of {}", names.join(", ")),
@@ -550,45 +570,16 @@ pub fn style(table: Option<&Table>, context: &str) -> mlua::Result<Style> {
         return Ok(style);
     };
     reject_unknown(table, context, STYLE_FIELDS)?;
-    if let Some(display) = keyword(
-        table,
-        "display",
-        context,
-        DISPLAYS,
-        &[Display::Flex, Display::Grid, Display::Block, Display::None],
-    )? {
+    if let Some(display) = keyword(table, "display", context, DISPLAYS)? {
         style.display = display;
     }
-    if let Some(direction) = keyword(
-        table,
-        "direction",
-        context,
-        DIRECTIONS,
-        &[Direction::Ltr, Direction::Rtl],
-    )? {
+    if let Some(direction) = keyword(table, "direction", context, DIRECTIONS)? {
         style.direction = direction;
     }
-    if let Some(flex_direction) = keyword(
-        table,
-        "flexDirection",
-        context,
-        FLEX_DIRECTIONS,
-        &[
-            FlexDirection::Row,
-            FlexDirection::Column,
-            FlexDirection::RowReverse,
-            FlexDirection::ColumnReverse,
-        ],
-    )? {
+    if let Some(flex_direction) = keyword(table, "flexDirection", context, FLEX_DIRECTIONS)? {
         style.flex_direction = flex_direction;
     }
-    if let Some(wrap) = keyword(
-        table,
-        "wrap",
-        context,
-        WRAPS,
-        &[FlexWrap::NoWrap, FlexWrap::Wrap, FlexWrap::WrapReverse],
-    )? {
+    if let Some(wrap) = keyword(table, "wrap", context, WRAPS)? {
         style.flex_wrap = wrap;
     }
     if let Some(grow) = number(table, "grow", context)? {
@@ -600,50 +591,18 @@ pub fn style(table: Option<&Table>, context: &str) -> mlua::Result<Style> {
     if let Some(basis) = dimension(table, "basis", context)? {
         style.flex_basis = basis;
     }
-    let align_items = [
-        AlignItems::START,
-        AlignItems::END,
-        AlignItems::CENTER,
-        AlignItems::STRETCH,
-        AlignItems::BASELINE,
-        AlignItems::FLEX_START,
-        AlignItems::FLEX_END,
-    ];
-    if let Some(value) = keyword(table, "alignItems", context, ALIGN_ITEMS, &align_items)? {
+    if let Some(value) = keyword(table, "alignItems", context, ALIGN_ITEMS)? {
         style.align_items = value;
     }
-    if let Some(value) = keyword(table, "justifyItems", context, ALIGN_ITEMS, &align_items)? {
+    if let Some(value) = keyword(table, "justifyItems", context, ALIGN_ITEMS)? {
         style.justify_items = value;
     }
-    style.align_self = keyword(table, "alignSelf", context, ALIGN_ITEMS, &align_items)?;
-    style.justify_self = keyword(table, "justifySelf", context, ALIGN_ITEMS, &align_items)?;
-    let align_content = [
-        AlignContent::START,
-        AlignContent::END,
-        AlignContent::CENTER,
-        AlignContent::STRETCH,
-        AlignContent::SPACE_BETWEEN,
-        AlignContent::SPACE_AROUND,
-        AlignContent::SPACE_EVENLY,
-        AlignContent::FLEX_START,
-        AlignContent::FLEX_END,
-    ];
-    if let Some(value) = keyword(
-        table,
-        "alignContent",
-        context,
-        ALIGN_CONTENT,
-        &align_content,
-    )? {
+    style.align_self = keyword(table, "alignSelf", context, ALIGN_ITEMS)?;
+    style.justify_self = keyword(table, "justifySelf", context, ALIGN_ITEMS)?;
+    if let Some(value) = keyword(table, "alignContent", context, ALIGN_CONTENT)? {
         style.align_content = value;
     }
-    if let Some(value) = keyword(
-        table,
-        "justifyContent",
-        context,
-        ALIGN_CONTENT,
-        &align_content,
-    )? {
+    if let Some(value) = keyword(table, "justifyContent", context, ALIGN_CONTENT)? {
         style.justify_content = value;
     }
     if let Some(gap) = number(table, "gap", context)? {
@@ -702,13 +661,7 @@ pub fn style(table: Option<&Table>, context: &str) -> mlua::Result<Style> {
         }
     }
     style.aspect_ratio = number(table, "aspectRatio", context)?;
-    if let Some(position) = keyword(
-        table,
-        "position",
-        context,
-        POSITIONS,
-        &[Position::Relative, Position::Absolute],
-    )? {
+    if let Some(position) = keyword(table, "position", context, POSITIONS)? {
         style.position = position;
     }
     for (field, slot) in [
@@ -721,13 +674,7 @@ pub fn style(table: Option<&Table>, context: &str) -> mlua::Result<Style> {
             *slot = value;
         }
     }
-    if let Some(overflow) = keyword(
-        table,
-        "overflow",
-        context,
-        OVERFLOWS,
-        &[Overflow::Visible, Overflow::Clip, Overflow::Scroll],
-    )? {
+    if let Some(overflow) = keyword(table, "overflow", context, OVERFLOWS)? {
         style.overflow = Point {
             x: overflow,
             y: overflow,
@@ -746,4 +693,72 @@ pub fn style(table: Option<&Table>, context: &str) -> mlua::Result<Style> {
         style.grid_row = row;
     }
     Ok(style)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fmt::Debug;
+
+    use mlua::Lua;
+
+    use super::*;
+
+    #[test]
+    fn style_keywords_use_their_paired_native_values() -> mlua::Result<()> {
+        let lua = Lua::new();
+        check_keywords(&lua, "display", DISPLAYS, |style| style.display)?;
+        check_keywords(&lua, "direction", DIRECTIONS, |style| style.direction)?;
+        check_keywords(&lua, "flexDirection", FLEX_DIRECTIONS, |style| {
+            style.flex_direction
+        })?;
+        check_keywords(&lua, "wrap", WRAPS, |style| style.flex_wrap)?;
+        check_keywords(&lua, "alignItems", ALIGN_ITEMS, |style| style.align_items)?;
+        check_keywords(&lua, "justifyItems", ALIGN_ITEMS, |style| {
+            style.justify_items
+        })?;
+        check_keywords(&lua, "alignContent", ALIGN_CONTENT, |style| {
+            style.align_content
+        })?;
+        check_keywords(&lua, "justifyContent", ALIGN_CONTENT, |style| {
+            style.justify_content
+        })?;
+        check_keywords(&lua, "position", POSITIONS, |style| style.position)?;
+        check_keywords(&lua, "overflow", OVERFLOWS, |style| style.overflow.x)?;
+        check_keywords(&lua, "overflow", OVERFLOWS, |style| style.overflow.y)?;
+        let table = lua.create_table()?;
+        for (name, value) in ALIGN_ITEMS {
+            table.set("alignSelf", *name)?;
+            table.set("justifySelf", *name)?;
+            let style = style(Some(&table), "layout test")?;
+            assert_eq!(style.align_self, Some(*value));
+            assert_eq!(style.justify_self, Some(*value));
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn omitted_style_keywords_keep_taffy_defaults() -> mlua::Result<()> {
+        let lua = Lua::new();
+        assert_eq!(style(None, "layout test")?, Style::default());
+        assert_eq!(
+            style(Some(&lua.create_table()?), "layout test")?,
+            Style::default()
+        );
+        Ok(())
+    }
+
+    fn check_keywords<T: Copy + Debug + PartialEq>(
+        lua: &Lua,
+        field: &str,
+        options: &[(&str, T)],
+        read: impl Fn(&Style) -> T,
+    ) -> mlua::Result<()> {
+        let table = lua.create_table()?;
+        for (name, value) in options {
+            table.set(field, *name)?;
+            let style = style(Some(&table), "layout test")?;
+            assert_eq!(read(&style), *value, "{field}: {name}");
+        }
+        Ok(())
+    }
 }

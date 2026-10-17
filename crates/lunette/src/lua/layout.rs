@@ -464,6 +464,15 @@ fn optional_number() -> Type {
     Type::NUMBER.optional()
 }
 
+fn keyword_literals<T>(options: &[(&'static str, T)]) -> Type {
+    Type::Union(
+        options
+            .iter()
+            .map(|(name, _)| Type::Literal(name))
+            .collect(),
+    )
+}
+
 /// A length in metres, a percentage such as `'50%'`, or `'auto'`.
 fn length() -> Type {
     Type::Union(vec![Type::NUMBER, Type::STRING]).optional()
@@ -528,30 +537,36 @@ alias!(
     "LayoutStyle",
     "A node's layout style. Lengths are metres, percentages such as '50%', or 'auto'. Edges take one length or a table of top, right, bottom, and left.",
     record(&[
-        ("display", Type::literals(parse::DISPLAYS).optional()),
-        ("direction", Type::literals(parse::DIRECTIONS).optional()),
+        ("display", keyword_literals(parse::DISPLAYS).optional()),
+        ("direction", keyword_literals(parse::DIRECTIONS).optional()),
         (
             "flexDirection",
-            Type::literals(parse::FLEX_DIRECTIONS).optional()
+            keyword_literals(parse::FLEX_DIRECTIONS).optional()
         ),
-        ("wrap", Type::literals(parse::WRAPS).optional()),
+        ("wrap", keyword_literals(parse::WRAPS).optional()),
         ("grow", optional_number()),
         ("shrink", optional_number()),
         ("basis", length()),
-        ("alignItems", Type::literals(parse::ALIGN_ITEMS).optional()),
-        ("alignSelf", Type::literals(parse::ALIGN_ITEMS).optional()),
+        (
+            "alignItems",
+            keyword_literals(parse::ALIGN_ITEMS).optional()
+        ),
+        ("alignSelf", keyword_literals(parse::ALIGN_ITEMS).optional()),
         (
             "justifyItems",
-            Type::literals(parse::ALIGN_ITEMS).optional()
+            keyword_literals(parse::ALIGN_ITEMS).optional()
         ),
-        ("justifySelf", Type::literals(parse::ALIGN_ITEMS).optional()),
+        (
+            "justifySelf",
+            keyword_literals(parse::ALIGN_ITEMS).optional()
+        ),
         (
             "alignContent",
-            Type::literals(parse::ALIGN_CONTENT).optional()
+            keyword_literals(parse::ALIGN_CONTENT).optional()
         ),
         (
             "justifyContent",
-            Type::literals(parse::ALIGN_CONTENT).optional()
+            keyword_literals(parse::ALIGN_CONTENT).optional()
         ),
         ("gap", optional_number()),
         ("rowGap", optional_number()),
@@ -566,12 +581,12 @@ alias!(
         ("maxWidth", length()),
         ("maxHeight", length()),
         ("aspectRatio", optional_number()),
-        ("position", Type::literals(parse::POSITIONS).optional()),
+        ("position", keyword_literals(parse::POSITIONS).optional()),
         ("top", length()),
         ("right", length()),
         ("bottom", length()),
         ("left", length()),
-        ("overflow", Type::literals(parse::OVERFLOWS).optional()),
+        ("overflow", keyword_literals(parse::OVERFLOWS).optional()),
         (
             "gridTemplateColumns",
             Type::Union(vec![Type::NUMBER, Type::STRING])
