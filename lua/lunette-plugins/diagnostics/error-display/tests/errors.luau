@@ -103,7 +103,7 @@ test('dismissal hides the overlay and clears new reports, and a later report sho
   local env = boot()
   raise(env, 'first failure')
   raise(env, 'second failure')
-  click(env, 'header/band/dismiss')
+  click(env, 'header/band/close')
   expect.falsy(shown(env), 'dismissal hides the overlay')
   raise(env, 'third failure')
   expect.truthy(shown(env), 'a later report shows the overlay again')
@@ -156,15 +156,15 @@ test('dismissal is reachable through focus traversal', function()
   local host = env.host
   expect.truthy(host:nextPanel(), 'traversal enters the overlay')
   env.running:step()
-  local dismiss = assert(node(env, 'header/band/dismiss/face'))
+  local dismiss = assert(node(env, 'header/band/close/face'))
   for _ = 1, 4 do
     if dismiss.state.focused then
       break
     end
     host:navigate 'next'
-    dismiss = assert(node(env, 'header/band/dismiss/face'))
+    dismiss = assert(node(env, 'header/band/close/face'))
   end
-  expect.truthy(dismiss.state.focused, 'traversal reaches Dismiss')
+  expect.truthy(dismiss.state.focused, 'traversal reaches the close button')
   expect.truthy(host:activate())
   env.running:step()
   expect.falsy(shown(env), 'activation dismisses the overlay')
@@ -176,7 +176,7 @@ test('the history keeps a bounded number of reports and opens from the menu afte
   raise(env, 'oldest failure')
   raise(env, 'middle failure')
   raise(env, 'newest failure')
-  click(env, 'header/band/dismiss')
+  click(env, 'header/band/close')
   expect.falsy(shown(env))
   local menus = assert(assert(env.running.session):observe(menu.capability).service)
   local found: menu.Descriptor? = nil
@@ -196,7 +196,7 @@ test('the history keeps a bounded number of reports and opens from the menu afte
     assert(node(env, 'header/band/mode')).props.disabledReason,
     'with nothing new, the history cannot switch to new reports'
   )
-  click(env, 'header/band/dismiss')
+  click(env, 'header/band/close')
   expect.falsy(shown(env), 'dismissal closes the history')
   env.running:close()
 end)

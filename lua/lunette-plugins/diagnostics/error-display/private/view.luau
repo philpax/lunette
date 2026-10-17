@@ -70,6 +70,8 @@ view.Overlay = ui.component('ErrorOverlay', function(props: Props): ui.Child
     width = props.width,
     title = if browsing then 'Error history' else 'Errors',
     detail = if browsing then plural(page.total, 'report') else `{page.total} new`,
+    -- Closing dismisses: it clears the new reports and hides the panel.
+    onClose = actions.dismiss,
     c.HeaderActions {
       c.Button {
         key = 'mode',
@@ -80,7 +82,6 @@ view.Overlay = ui.component('ErrorOverlay', function(props: Props): ui.Child
           actions.setMode(if browsing then 'new' else 'history')
         end,
       },
-      c.Button { key = 'dismiss', label = 'Dismiss', variant = 'band', onActivate = actions.dismiss },
     },
     c.Body {
       key = 'body',
