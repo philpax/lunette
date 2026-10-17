@@ -67,6 +67,7 @@ fn serial_fixtures(roots: &Roots) -> Result<(), String> {
         "shader-specialization",
         "ui-host",
         "ui-gallery",
+        "backdrop-views",
     ] {
         fixture(roots, module)?;
     }

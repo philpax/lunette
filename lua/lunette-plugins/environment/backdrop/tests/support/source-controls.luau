@@ -36,14 +36,35 @@ export type Environment = {
   menu: menu.Service,
   enabled: () -> boolean,
   processBoundary: ProcessBoundary?,
+  -- The views' sources, whose `models` records each draw of the sky model.
+  view: any,
 }
 local freshProcesses: (testing.Native) -> ProcessBoundary
+
+-- Views over a still backdrop. Its model records the radius and opacity of each call in `models`.
+function fixture.view(): any
+  local config = require '../../config'
+  local model = require '../../private/rendering/model'
+  local settings = config.schema.parse {}
+  local models: { { radius: number, opacity: number } } = {}
+  return {
+    observed = { frame = model.new(settings):update(0, true), raw = table.create(model.SPECTRUM_BANDS, 0) },
+    palette = settings.palette,
+    models = models,
+    miniature = function(_pass: Pass, _frame: any, radius: number, _facing: number?, opacity: number): ()
+      table.insert(models, { radius = radius, opacity = opacity })
+    end,
+    sectors = 12,
+    hold = 0.65,
+  }
+end
 
 function fixture.boot(options: Options?): Environment
   options = options or {}
   local native = testing.native()
   local processBoundary = if options.freshProcesses then freshProcesses(native) else nil
   local choice = selection.new(options.settings)
+  local view = fixture.view()
   local enabled = true
   local recorder = uiPanels.new()
   local parent = plugin.consumer {
@@ -57,7 +78,7 @@ function fixture.boot(options: Options?): Environment
         setEnabled = function(value: boolean): ()
           enabled = value
         end,
-      })
+      }, view)
     end,
   }
   local recorder = recorded.recorder()
@@ -99,6 +120,7 @@ function fixture.boot(options: Options?): Environment
     recorder = recorder,
     menu = running.session:observe(menu.capability).service,
     processBoundary = processBoundary,
+    view = view,
     enabled = function(): boolean
       return enabled
     end,

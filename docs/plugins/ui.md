@@ -14,7 +14,7 @@ Run it with the [copy/check workflow](../users/desktop-configuration.md#copy-and
 
 ## Kinds and visuals
 
-An element names a kind. `registerKind` declares a kind's layout, focus policy, role, props schema, and event handler; `registerVisual` draws it through the host's drawing API, which clips to the node and follows the panel's curve. A visual that needs geometry the API does not offer draws a volume: the host calls the plugin's own draw function every frame with the pass placed on the node, and the plugin draws meshes with its own shaders. The host does not clip a volume, so it hides one that a scroll view cuts. A composite kind expands into other elements. The standard kinds are the reference implementation, and the [widget gallery](../../dev/plugins/ui-gallery/README.md) shows each of them.
+An element names a kind. `registerKind` declares a kind's layout, focus policy, role, props schema, and event handler; `registerVisual` draws it through the host's drawing API, which clips to the node and follows the panel's curve. A visual that needs geometry the API does not offer draws a volume: the host calls the plugin's own draw function every frame with the pass placed on the node, and the plugin draws meshes with its own shaders. The host does not clip a volume, so it hides one that a scroll view cuts. The [backdrop's control panel](../../lua/lunette-plugins/environment/backdrop/README.md) draws its views as volumes. A composite kind expands into other elements. The standard kinds are the reference implementation, and the [widget gallery](../../dev/plugins/ui-gallery/README.md) shows each of them.
 
 ## Geometry and input
 

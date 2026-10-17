@@ -29,6 +29,8 @@ local MERGE_FRAMES = 1200
 -- without chasing every small movement.
 local SECTORS = 12
 local SECTOR_HOLD = 0.65
+responseChild.SECTORS = SECTORS
+responseChild.SECTOR_HOLD = SECTOR_HOLD
 -- Full width, in turns, of each band's scatter about the anchor.
 local SCATTER = table.freeze { bass = 0.05, mid = 0.08, treble = 0.16 } :: { read [model.Band]: number }
 local BANDS: { model.Band } = table.freeze({ 'bass', 'mid', 'treble' } :: { model.Band })
@@ -51,7 +53,9 @@ function responseChild.new(
   state: model.State,
   settings: config.Settings,
   needed: () -> boolean,
-  facing: () -> number?
+  facing: () -> number?,
+  -- Receives the onset anchor each frame, and nil when the response stops.
+  anchored: (number?) -> ()
 ): plugin.Definition<{}>
   return plugin.consumer<<{}, {}>>({
     name = 'desktop/backdrop/response',
@@ -101,6 +105,7 @@ function responseChild.new(
         choice.audioAvailable = true
         return function(): ()
           release()
+          anchored(nil)
           choice.audioAvailable, choice.audioState = false, nil
           state:noAudio()
         end
@@ -135,6 +140,7 @@ function responseChild.new(
             previous = nil
           end
           anchor = responseChild.sector(anchor, facing())
+          anchored(anchor)
           local slot = current
           local snapshot = if slot then slot.reader:snapshot() else nil
           choice.audioState = if snapshot then snapshot.state elseif wanted then choice.audioState else nil

@@ -9,15 +9,26 @@ local ui = require '@lunette-plugins/ui/react'
 local selection = require '../selection/selection'
 local stores = require './stores'
 local component = require './component'
+local kinds = require '../visualisation/kinds'
+local scene = require '../visualisation/scene'
+local model = require '../rendering/model'
 
 local controls = {}
 export type Renderer = stores.Renderer
+-- What the panel's views draw from, apart from the history the panel keeps itself.
+export type View = {
+  read observed: scene.Observed,
+  read palette: scene.Palette,
+  read miniature: (Pass, model.Frame, number, number?, number) -> (),
+  read sectors: number,
+  read hold: number,
+}
 
 controls.PANEL = 'desktop/backdrop/controls'
 
 local present: (lunette.Process) -> boolean
 
-function controls.attach(context: plugin.Context, choice: selection.State, renderer: Renderer): ()
+function controls.attach(context: plugin.Context, choice: selection.State, renderer: Renderer, view: View): ()
   local child = plugin.consumer<<{}, {}>> {
     name = 'desktop/backdrop/controls',
     requires = { frame.capability, uiHost.capability, uiComponents.capability, menu.capability },
@@ -27,6 +38,17 @@ function controls.attach(context: plugin.Context, choice: selection.State, rende
       local components: uiComponents.Service = childContext:require(uiComponents.capability)
       local menus: menu.Service = childContext:require(menu.capability)
       local published = stores.new(choice, renderer)
+      local history: { scene.Row } = {}
+      local sampled = 0
+      local views = kinds.register(host, childContext, {
+        observed = view.observed,
+        history = history,
+        palette = view.palette,
+        miniature = view.miniature,
+        sectors = view.sectors,
+        hold = view.hold,
+      })
+      local summary = ui.store(scene.summary(view.observed))
       local registration: menu.Registration? = nil
       local visible, live = false, true
       local panel = host:newPanel(childContext, {
@@ -121,6 +143,8 @@ function controls.attach(context: plugin.Context, choice: selection.State, rende
         component.BackdropControls {
           settings = published.settings,
           applications = published.applications,
+          summary = summary,
+          views = views,
           actions = actions,
         },
         { components = components, owner = childContext }
@@ -148,9 +172,20 @@ function controls.attach(context: plugin.Context, choice: selection.State, rende
       frames:onUpdate(childContext, {
         phase = 'scene',
         order = -200,
-        run = function(): ()
-          if visible then
-            published.refresh()
+        run = function(dt: number): ()
+          if not visible then
+            return
+          end
+          published.refresh()
+          -- The skyline samples its history at a fixed rate, so its depth spans the same time at any frame rate.
+          sampled += if dt == dt and dt > 0 and dt < math.huge then dt else 0
+          if sampled >= scene.ROW_INTERVAL or #history == 0 then
+            sampled = math.clamp(sampled - scene.ROW_INTERVAL, 0, scene.ROW_INTERVAL)
+            scene.push(history, scene.row(view.observed.frame))
+          end
+          local next = scene.summary(view.observed)
+          if not scene.sameSummary(summary:get(), next) then
+            summary:set(next)
           end
         end,
       })

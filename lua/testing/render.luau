@@ -141,7 +141,7 @@ local SETTERS = {
   'setCullMode',
   'setScissor',
 }
-local DRAW_METHODS = { 'plane', 'roundrect', 'text', 'line', 'sphere', 'draw' }
+local DRAW_METHODS = { 'plane', 'roundrect', 'text', 'line', 'sphere', 'box', 'capsule', 'cylinder', 'draw' }
 
 function render.new(calls: ({ Call } | () -> { Call })?): Recorder
   calls = calls or {}

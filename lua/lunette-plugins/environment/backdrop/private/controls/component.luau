@@ -3,6 +3,8 @@ local vocabulary = require '@lunette-contracts/vocabulary'
 local ui = require '@lunette-plugins/ui/react'
 local selection = require '../selection/selection'
 local stores = require './stores'
+local kinds = require '../visualisation/kinds'
+local scene = require '../visualisation/scene'
 
 local component = {}
 
@@ -24,6 +26,8 @@ export type Actions = {
 export type Props = {
   read settings: vocabulary.Store<stores.Settings>,
   read applications: vocabulary.Store<{ stores.Application }>,
+  read summary: vocabulary.Store<scene.Summary>,
+  read views: kinds.Constructors,
   read actions: Actions,
 }
 
@@ -56,6 +60,9 @@ component.WIDTH = 0.44
 -- The applications list scrolls within this height in metres.
 local LIST_HEIGHT = 0.15
 
+-- The sky model's size, which is also the height of the skyline beside it, in metres.
+local VIEW_SIZE = 0.13
+
 local isMode: (string) -> boolean
 local isDiagnostic: (string) -> boolean
 
@@ -63,7 +70,9 @@ component.BackdropControls = ui.component('BackdropControls', function(props: Pr
   local c = ui.useComponents()
   local settings = ui.useStore(props.settings)
   local applications = ui.useStore(props.applications)
+  local summary = ui.useStore(props.summary)
   local actions = props.actions
+  local views = props.views
   return c.Panel {
     width = component.WIDTH,
     title = 'Backdrop',
@@ -131,6 +140,23 @@ component.BackdropControls = ui.component('BackdropControls', function(props: Pr
               }
             end),
           },
+        },
+      },
+      -- The views stay while reactivity is off, so toggling it does not move the controls below them.
+      c.Section {
+        key = 'response',
+        title = 'Response',
+        c.Row {
+          key = 'views',
+          gap = 'sm',
+          views.Model { key = 'model', size = VIEW_SIZE },
+          views.Skyline { key = 'skyline', height = VIEW_SIZE },
+        },
+        c.Text {
+          key = 'onsets',
+          text = if settings.reactive then scene.caption(summary) else 'Audio reactivity is off.',
+          style = 'caption',
+          color = 'muted',
         },
       },
       c.Section {
