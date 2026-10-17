@@ -168,13 +168,24 @@ configure.Configure = ui.component('PluginConfigure', function(): ui.Child
   local c = ui.useComponents()
   local m = model.use()
   local state = m.state
-  local pages = settingsPages(c, controller.selected(state))
+  local entry = controller.selected(state)
+  local pages = settingsPages(c, entry)
+  local saved = entry and entry.saved
+  local base = (if entry and type(entry.baseConfig) == 'table' then entry.baseConfig else {}) :: { [string]: unknown }
   local items = {}
   for _, row in state.editorRows do
+    local field = if #row.path == 1 then row.path[1] else nil
+    -- A saved option says so, with the value main.luau gives it, so a stale saved value is easy to find and forget.
+    local isSaved = type(field) == 'string' and saved ~= nil and saved[field] ~= nil
+    local detail = if row.readOnly then row.reason else row.description
+    if isSaved then
+      local configured = `Saved; main.luau: {controller.valueText(base[field :: string])}`
+      detail = if detail then `{configured}. {detail}` else configured
+    end
     items[#items + 1] = {
       id = configure.rowId(row.path),
-      title = row.label,
-      detail = if row.readOnly then row.reason else row.description,
+      title = if isSaved then `{row.label} *` else row.label,
+      detail = detail,
       trailing = if row.text == '' then '(empty)' else row.text,
     }
   end
@@ -193,6 +204,8 @@ configure.Configure = ui.component('PluginConfigure', function(): ui.Child
       model.button(c, m, 'reset'),
       model.button(c, m, 'add'),
       model.button(c, m, 'remove-value'),
+      model.button(c, m, 'forget-saved'),
+      model.button(c, m, 'forget-entry'),
     },
     c.ScrollView {
       key = 'rows-box',

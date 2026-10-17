@@ -6,7 +6,7 @@ local view = require '../inspection/view'
 local editor = require './editor'
 local actions = {}
 
-export type Tab = 'inspect' | 'configure' | 'catalog'
+export type Tab = 'inspect' | 'configure' | 'catalog' | 'saved'
 export type Edit = { operation: 'set' | 'add', path: editor.Path }
 export type Action = { read run: () -> (), read editor: boolean }
 export type Button = {
@@ -22,6 +22,9 @@ export type State = {
   tab: Tab,
   catalog: { read [number]: composition.KnownEntry },
   catalogSelection: string?,
+  -- Every saved field, and the one selected on the Saved tab.
+  savedSettings: { read [number]: composition.SavedSetting },
+  savedSelection: { read id: string, read field: string }?,
   draft: editor.Model?,
   row: number?,
   edit: Edit?,
@@ -76,7 +79,7 @@ function actions.build(
   button('graph-view', 'Graph', nil, function()
     state.presentation = 'graph'
   end, true)
-  for _, tab in { 'inspect', 'configure', 'catalog' } :: { Tab } do
+  for _, tab in { 'inspect', 'configure', 'catalog', 'saved' } :: { Tab } do
     local reason = if tab ~= 'configure'
       then nil
       else first(entry == nil and NO_ENTRY, entry ~= nil and entry.schema == nil and 'The entry has no schema.')
@@ -169,6 +172,57 @@ function actions.build(
       end
     end,
     true
+  )
+  -- A saved field belongs to the option at the top of its path.
+  local savedField = row and #row.path == 1 and type(row.path[1]) == 'string' and row.path[1] :: string or nil
+  local saved = entry and entry.saved
+  local hasSaved = false
+  for _ in saved or {} do
+    hasSaved = true
+  end
+  button(
+    'forget-saved',
+    'Forget saved',
+    first(noRow, not (savedField and saved and saved[savedField] ~= nil) and 'The option has no saved value.'),
+    function()
+      if savedField then
+        state.service:forgetSaved(id, savedField)
+        state.draft = nil
+        actions.cancelEdit(state)
+      end
+    end
+  )
+  button(
+    'forget-entry',
+    'Forget all saved',
+    first(entry == nil and NO_ENTRY, not hasSaved and 'The entry has no saved settings.'),
+    function()
+      state.service:forgetSaved(id)
+      state.draft = nil
+      actions.cancelEdit(state)
+    end
+  )
+  local chosen = state.savedSelection
+  button('forget-selected', 'Forget', if chosen then nil else 'Select a saved setting first.', function()
+    if chosen then
+      state.service:forgetSaved(chosen.id, chosen.field)
+      state.savedSelection = nil
+    end
+  end)
+  button(
+    'forget-everything',
+    'Forget everything',
+    if #state.savedSettings > 0 then nil else 'No settings are saved.',
+    function()
+      local ids: { [string]: boolean } = {}
+      for _, setting in state.savedSettings do
+        ids[setting.id] = true
+      end
+      for savedId in ids do
+        state.service:forgetSaved(savedId)
+      end
+      state.savedSelection = nil
+    end
   )
   local loadable = false
   for _, known in state.catalog do

@@ -1,4 +1,4 @@
--- The sidebar: the Inspect, Configure, and Catalog tabs, the lifecycle actions, and the selected tab's content.
+-- The sidebar: the Inspect, Configure, Catalog, and Saved tabs, the lifecycle actions, and the selected tab's content.
 
 local ui = require '@lunette-plugins/ui/react'
 local uiComponents = require '@lunette-contracts/ui-components'
@@ -54,6 +54,63 @@ local function catalog(c: uiComponents.Service, m: model.Model): ui.Child
   }
 end
 
+-- Every saved setting, as a registry editor lists keys: by entry and field, with the value and whether it applies.
+local STATUS: { [string]: string } = {
+  applied = 'Applies',
+  invalid = 'Does not fit the entry',
+  suspended = 'Suspended: the entry failed to start with it',
+  unused = 'The entry is not composed',
+}
+
+local function savedPage(c: uiComponents.Service, m: model.Model): ui.Child
+  local state = m.state
+  local items = {}
+  for _, setting in state.savedSettings do
+    local status = STATUS[setting.status] or setting.status
+    items[#items + 1] = {
+      id = `{setting.id}/{setting.field}`,
+      title = `{setting.id} {setting.field}`,
+      detail = if setting.problem then `{status}: {setting.problem}` else status,
+      trailing = controller.valueText(setting.value),
+    }
+  end
+  local chosen = state.savedSelection
+  return c.Column {
+    key = 'saved',
+    grow = 1,
+    height = 0,
+    gap = 'sm',
+    c.Row {
+      key = 'saved-actions',
+      gap = 'sm',
+      model.button(c, m, 'forget-selected', { variant = 'primary' }),
+      model.button(c, m, 'forget-everything', { variant = 'danger' }),
+    },
+    if #items == 0
+      then c.Text { key = 'empty', text = 'No settings are saved.', style = 'caption', color = 'muted' }
+      else nil,
+    c.ScrollView {
+      key = 'saved-box',
+      grow = 1,
+      c.List {
+        key = 'saved-list',
+        items = items,
+        value = if chosen then `{chosen.id}/{chosen.field}` else nil,
+        onChange = function(key: string): ()
+          for _, setting in state.savedSettings do
+            if `{setting.id}/{setting.field}` == key then
+              m.change(function(): ()
+                controller.selectSaved(state, setting.id, setting.field)
+              end)
+              return
+            end
+          end
+        end,
+      },
+    },
+  }
+end
+
 sidebar.Sidebar = ui.component('PluginSidebar', function(): ui.Child
   local c = ui.useComponents()
   local m = model.use()
@@ -61,6 +118,8 @@ sidebar.Sidebar = ui.component('PluginSidebar', function(): ui.Child
   local content: ui.Child
   if state.tab == 'catalog' then
     content = catalog(c, m)
+  elseif state.tab == 'saved' then
+    content = savedPage(c, m)
   elseif state.tab == 'configure' and state.draft then
     content = configure.Configure { key = 'configure' }
   else
@@ -73,7 +132,7 @@ sidebar.Sidebar = ui.component('PluginSidebar', function(): ui.Child
     gap = 'sm',
     c.Segmented {
       key = 'tabs',
-      options = model.options(m, { 'inspect', 'configure', 'catalog' }),
+      options = model.options(m, { 'inspect', 'configure', 'catalog', 'saved' }),
       value = state.tab,
       onChange = m.invoke,
     },

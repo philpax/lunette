@@ -14,6 +14,8 @@ Configure edits a draft from the selected entry's schema. Apply validates the wh
 
 Applying a valid draft restarts the entry. Replacement is not transactional: if activation fails, the old activation has already ended. Recover retries the last configuration that was active. Reload retries the current configuration. Disable withdraws an entry, and Enable starts it again. Disable, Reload, and Remove first ask for confirmation in a dialog that lists the plugins the action also unloads. Catalog can load a removed entry with its retained definition and configuration.
 
+Configure marks each option that has a saved setting with an asterisk and shows the value `main.luau` gives it. Forget saved returns the selected option to `main.luau`, and Forget all saved returns the whole entry. The Saved tab lists every saved setting by entry and option, with whether it applies, does not fit the entry's options, is suspended because the entry failed to start with it, or belongs to an entry the configuration no longer has. Forget removes the selected setting, and Forget everything removes them all.
+
 A cleanup failure quarantines the entry. Restarting the session releases its retained native resources.
 
 ## Protected entries

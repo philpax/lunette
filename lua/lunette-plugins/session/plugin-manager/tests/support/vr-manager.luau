@@ -81,7 +81,8 @@ local function recordingManager(panels: { [string]: uiHost.Panel }): adapter.Def
 end
 
 -- Boots the shipped desktop with a small keyboard layout and the given entries inserted.
-function fixture.boot(additions: { testing.ComposeEntry }): Environment
+-- Boots the desktop with the additions, and with saved settings when given.
+function fixture.boot(additions: { testing.ComposeEntry }, saved: any?): Environment
   local native = testing.native()
   local services: Services = {} :: any
   local panels: { [string]: uiHost.Panel } = {}
@@ -134,6 +135,7 @@ function fixture.boot(additions: { testing.ComposeEntry }): Environment
       'desktop/pointing',
       'diagnostics/recovery',
     },
+    saved = saved,
   })
   local controls = vrUi.attach(native)
   controls:pose('left', lovr.math.newMat4():translate(0, 1.2, -0.5))

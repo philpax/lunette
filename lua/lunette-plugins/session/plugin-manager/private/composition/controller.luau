@@ -52,6 +52,8 @@ function controller.new(service: composition.Service, readers: { brokers.Reader 
     tab = 'inspect',
     catalog = {},
     catalogSelection = nil,
+    savedSettings = {},
+    savedSelection = nil,
     draft = nil,
     draftEntry = nil,
     row = nil,
@@ -270,6 +272,37 @@ function controller.choose(state: State, index: number, choiceIndex: number): ()
   refresh(state)
 end
 
+function controller.selectSaved(state: State, id: string, field: string): ()
+  state.savedSelection = { id = id, field = field }
+  refresh(state)
+end
+
+-- A configuration value as the Configure and Saved tabs show it.
+function controller.valueText(value: unknown): string
+  local kind = type(value)
+  if kind == 'string' then
+    return string.format('%q', value :: string)
+  elseif kind == 'number' then
+    return string.format('%.4g', value :: number)
+  elseif kind == 'vector' then
+    local v = value :: vector
+    return string.format('(%.3g, %.3g, %.3g)', v.x, v.y, v.z)
+  elseif kind == 'table' then
+    local parts: { string } = {}
+    for index, item in value :: { unknown } do
+      if index > 4 then
+        parts[#parts + 1] = '...'
+        break
+      end
+      parts[#parts + 1] = controller.valueText(item)
+    end
+    return '{ ' .. table.concat(parts, ', ') .. ' }'
+  elseif value == nil then
+    return 'not set'
+  end
+  return tostring(value)
+end
+
 function controller.selectCatalog(state: State, id: string): ()
   for index, known in state.catalog do
     if known.id == id then
@@ -341,6 +374,17 @@ refresh = function(state: State): ()
   state.projected = projection.snapshot(state.service:snapshot())
   state.entries = state.service:entries()
   state.catalog = state.service:catalog()
+  state.savedSettings = state.service:savedSettings()
+  local chosen = state.savedSelection
+  if chosen then
+    local present = false
+    for _, setting in state.savedSettings do
+      present = present or (setting.id == chosen.id and setting.field == chosen.field)
+    end
+    if not present then
+      state.savedSelection = nil
+    end
+  end
   view.update(state.view, state.projected.graph)
   local entry = selectedEntry(state)
   if not entry or (state.draftEntry and state.draftEntry ~= entry.id) then
@@ -357,6 +401,11 @@ refresh = function(state: State): ()
   state.editorRows = if draft then editor.rows(draft) else {}
   if state.tab == 'catalog' then
     state.details = { 'Known session entries', 'Select a removed entry, then Load.' }
+  elseif state.tab == 'saved' then
+    state.details = {
+      'Saved settings',
+      'Settings changed in a session, which take precedence over main.luau. Forget returns a setting to main.luau.',
+    }
   elseif state.tab == 'configure' and entry and entry.schema then
     state.details = { entry.id .. ': configuration draft', 'Callbacks and opaque values remain read-only.' }
     if state.message == '' then

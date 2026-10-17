@@ -14,8 +14,8 @@ local ENTRIES = 'main/browser/entries-box/entries/'
 local CONFIGURE = 'main/sidebar/configure/'
 
 -- Runs a test body against a booted desktop and closes the session even when the body fails.
-local function session(additions: { testing.ComposeEntry }, body: (fixture.Environment) -> ()): ()
-  local env = fixture.boot(additions)
+local function session(additions: { testing.ComposeEntry }, body: (fixture.Environment) -> (), saved: any?): ()
+  local env = fixture.boot(additions, saved)
   local ok, problem = pcall(body, env)
   env:close()
   if not ok then
@@ -28,6 +28,51 @@ local function selectEntry(env: fixture.Environment, id: string): ()
   env:reveal('main/browser/entries-box', path)
   env:click(path)
 end
+
+test('a saved option is marked, and Forget saved and the Saved tab return it to main.luau', function()
+  local current: Settings?
+  local definition = plugin.consumer({
+    name = 'vr-saved-editor',
+    schema = schema.object { title = schema.default(schema.string()) 'initial' },
+    init = function(_context: plugin.Context, settings: Settings): ()
+      current = settings
+    end,
+  }).definition
+  local saved = {
+    overrides = { ['vr-saved-editor'] = { title = 'saved' } } :: { [string]: { [string]: unknown } },
+    write = function() end,
+    report = function(message: string)
+      error(message, 0)
+    end,
+    storable = function(): boolean
+      return true
+    end,
+  }
+  session({ { id = 'vr-saved-editor', definition = definition } }, function(env: fixture.Environment): ()
+    expect.equal(assert(current).title, 'saved', 'the saved title applies')
+    env:open()
+    selectEntry(env, 'vr-saved-editor')
+    env:click 'main/sidebar/tabs/track/configure'
+    local row = CONFIGURE .. 'rows-box/rows/' .. uiHost.keyOf 'row/s:title'
+    expect.equal(env:node(row).props.title, '"title" *', 'the saved option is marked')
+    expect.truthy(
+      string.find(env:node(row).props.detail, 'main.luau: not set', 1, true),
+      'with the value main.luau gives it'
+    )
+    env:click(row)
+    env:click(CONFIGURE .. 'draft/forget-saved')
+    expect.equal(assert(current).title, 'initial', 'Forget saved returns the option to main.luau')
+    expect.equal(saved.overrides['vr-saved-editor'], nil, 'and removes it from the saved settings')
+
+    saved.overrides['vr-saved-editor'] = { title = 'again' }
+    env:click 'main/sidebar/tabs/track/saved'
+    local item = 'main/sidebar/saved/saved-box/saved-list/' .. uiHost.keyOf 'vr-saved-editor/title'
+    expect.equal(env:node(item).props.trailing, '"again"', 'the Saved tab lists the saved value')
+    env:click(item)
+    env:click 'main/sidebar/saved/saved-actions/forget-selected'
+    expect.equal(saved.overrides['vr-saved-editor'], nil, 'Forget removes the selected setting')
+  end, saved)
+end)
 
 test('the wrist menu opens the manager, the VR keyboard edits a field, and Apply reconfigures', function()
   local current: Settings?
