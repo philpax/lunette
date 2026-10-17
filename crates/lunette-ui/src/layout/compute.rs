@@ -123,7 +123,7 @@ impl Computation<'_> {
             |known, available| {
                 let input = Input {
                     known: (known.width, known.height),
-                    available: (available.width.into(), available.height.into()),
+                    available: (available.width, available.height),
                     ..input
                 };
                 match scripts.measure(host, &input) {
@@ -248,10 +248,7 @@ fn script_input(inputs: LayoutInput) -> Input {
             inputs.known_dimensions.width,
             inputs.known_dimensions.height,
         ),
-        available: (
-            inputs.available_space.width.into(),
-            inputs.available_space.height.into(),
-        ),
+        available: (inputs.available_space.width, inputs.available_space.height),
         perform: inputs.run_mode == RunMode::PerformLayout,
     }
 }
@@ -331,8 +328,8 @@ impl ScriptContext for Context<'_, '_> {
                 },
                 parent_size: TaffySize::NONE,
                 available_space: TaffySize {
-                    width: available.0.into(),
-                    height: available.1.into(),
+                    width: available.0,
+                    height: available.1,
                 },
                 vertical_margins_are_collapsible: Line::FALSE,
             },

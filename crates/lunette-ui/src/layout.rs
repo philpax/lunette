@@ -154,32 +154,7 @@ impl std::error::Error for ApplyError {
 }
 
 /// The space offered to a node along one axis.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Available {
-    Definite(f32),
-    MinContent,
-    MaxContent,
-}
-
-impl From<AvailableSpace> for Available {
-    fn from(space: AvailableSpace) -> Self {
-        match space {
-            AvailableSpace::Definite(length) => Self::Definite(length),
-            AvailableSpace::MinContent => Self::MinContent,
-            AvailableSpace::MaxContent => Self::MaxContent,
-        }
-    }
-}
-
-impl From<Available> for AvailableSpace {
-    fn from(space: Available) -> Self {
-        match space {
-            Available::Definite(length) => Self::Definite(length),
-            Available::MinContent => Self::MinContent,
-            Available::MaxContent => Self::MaxContent,
-        }
-    }
-}
+pub type Available = AvailableSpace;
 
 /// What taffy asks a measured leaf or a scripted container.
 #[derive(Clone, Copy, Debug, PartialEq)]
