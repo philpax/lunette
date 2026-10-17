@@ -543,6 +543,15 @@ installNative = function(fake: Fake, events: Events, subscribe: Subscribe, clear
       events.saveFailure = nil
       error(failure, 0)
     end
+    -- An arrangement stream is counted and refused as its tests expect.
+    if string.sub(name, -6) == '.state' then
+      events.writes += 1
+      if events.writeMode == 'refuse' then
+        error('the fixture refuses the write', 0)
+      end
+      events.saved = contents
+      return
+    end
     events.files[name] = contents
   end
   lunette.windows = function(): { Window }

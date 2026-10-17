@@ -103,8 +103,11 @@ function state.new(file: string): State
             return false, declined
           end
           local captured = capture.capture(held, panels, tags)
-          if not lovr.filesystem.write(file, format.render(captured)) then
-            return false, path .. ' could not be written'
+          -- The write replaces the file atomically, so a crash during it leaves the previous arrangement readable.
+          local written, failure =
+            pcall(lunette.saveFile, lovr.filesystem.getSaveDirectory(), file, format.render(captured))
+          if not written then
+            return false, `{path} could not be written: {tostring(failure)}`
           end
           arrangement = captured
           return true, nil
