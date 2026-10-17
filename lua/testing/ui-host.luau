@@ -24,7 +24,8 @@ export type Options = {
   setup: ((uiHost.Service, adapter.Context) -> ())?,
   -- Loads the standard kinds, whose bundled fonts the fake filesystem reads from the repository.
   standard: boolean?,
-  -- Further plugin definitions to load after the standard kinds, such as the notifications provider.
+  -- Further plugin definitions to load after the standard kinds, such as the notifications provider, each a
+  -- definition or a table of a definition and its config.
   plugins: { any }?,
 }
 
@@ -52,8 +53,12 @@ function fixture.boot(options: Options?): State
     session:use(require('@lunette-plugins/ui/standard').definition, {})
     table.insert(requires, uiComponents.capability)
   end
-  for _, definition in options.plugins or {} do
-    session:use(definition, {})
+  for _, entry in options.plugins or {} do
+    if entry.definition and entry.config then
+      session:use(entry.definition, entry.config)
+    else
+      session:use(entry, {})
+    end
   end
   session:use(
     adapter.define {

@@ -18,8 +18,9 @@ type Scene = {
   scrolls: { { number } },
 }
 
--- A panel with one button, ahead of the fake head, and the mouse pointer with its default settings.
-local function boot(): Scene
+-- A panel with one button, ahead of the fake head, and the mouse pointer, which drives a headset session only when its
+-- configuration asks.
+local function boot(config: { [string]: any }?): Scene
   local scene: Scene = { log = {}, activations = 0, scrolls = {} } :: any
   scene.state = fixture.boot {
     setup = function(service: uiHost.Service, owner: any)
@@ -42,7 +43,7 @@ local function boot(): Scene
         end,
       })
     end,
-    plugins = { mousePointer.definition },
+    plugins = { { definition = mousePointer.definition, config = config or { headset = true } } },
   }
   fixture.show(
     scene.state,
@@ -175,6 +176,20 @@ test('the cursor draws at the configured distance when the ray hits nothing, and
   scene.state.fixture:tracked('head', false)
   frame(scene)
   expect.equal(#spheres(scene), 0, 'no cursor without head tracking')
+  scene.state.fixture:close()
+end)
+
+test('by default a headset session takes no mouse input, and makes no seat or cursor', function()
+  local scene = boot {}
+  local dx, dy = movementTo(scene, 'go')
+  lovr.mousemoved(400, 300, dx, dy)
+  lovr.mousepressed(400, 300, 1)
+  lovr.mousereleased(400, 300, 1)
+  frame(scene)
+  frame(scene)
+  expect.equal(mouseSeats(scene), 0, 'no mouse seat')
+  expect.equal(#spheres(scene), 0, 'no cursor')
+  expect.equal(scene.activations, 0, 'the click reaches nothing')
   scene.state.fixture:close()
 end)
 

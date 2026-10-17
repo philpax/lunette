@@ -120,11 +120,14 @@ local function init(context: plugin.Context, settings: Settings): ()
 
   frameService:onMouse(context, {
     run = function(event: frame.HostMouseEvent)
+      local view = simulatorView()
+      if not view and not settings.headset then
+        return
+      end
       idle = 0
       if event.kind == 'move' then
         -- In the simulator the ray follows the window's own cursor, except while the window holds the mouse in
         -- relative mode to turn the head, where the cursor has no place and the aim stays put.
-        local view = simulatorView()
         if not view then
           aim = cursor.move(aim, event.dx, event.dy, settings)
         elseif lovr.system.getMouseMode() ~= 'relative' then
@@ -169,7 +172,8 @@ local function init(context: plugin.Context, settings: Settings): ()
         return
       end
       idle += dt
-      local resting = simulatorView() == nil and idle > settings.idleTimeout
+      local view = simulatorView()
+      local resting = view == nil and (not settings.headset or idle > settings.idleTimeout)
       local head = if resting then nil else headPose()
       if not head then
         ray = nil

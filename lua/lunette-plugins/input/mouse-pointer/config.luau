@@ -5,6 +5,9 @@ local positive = schema.number { positive = true }
 local nonnegative = schema.number { minimum = 0 }
 
 local descriptor = schema.object {
+  -- Drives the pointer in a headset session too, where mouse movement turns a cursor ahead of the head. Off by
+  -- default, because the desktop window's mouse input then reaches the scene whenever the window is used.
+  headset = schema.default(schema.boolean())(false),
   -- Radians the cursor turns per pixel of mouse movement.
   sensitivity = schema.default(positive)(0.002),
   -- The largest angle in radians between the cursor and the head's forward direction. It stays below a right angle, so
