@@ -407,6 +407,15 @@ impl TextBlock {
         size
     }
 
+    /// The first line's baseline, in metres from the top, as the most recent measurement laid
+    /// it out. Empty text has no baseline.
+    pub fn first_baseline(&self) -> Option<f32> {
+        self.buffer
+            .layout_runs()
+            .next()
+            .map(|run| run.line_y * METRES_PER_UNIT)
+    }
+
     /// The shaped lines at `width`, for drawing.
     pub fn lines(&mut self, fonts: &mut Fonts, width: Option<f32>) -> Vec<Line> {
         self.lay_out(fonts, width);

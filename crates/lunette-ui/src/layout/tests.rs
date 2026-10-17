@@ -8,7 +8,7 @@ use std::cell::RefCell;
 use pretty_assertions::assert_eq;
 use taffy::{
     geometry::Size as TaffySize,
-    style::{Dimension, Display, FlexDirection, LengthPercentage},
+    style::{AlignItems, Dimension, Display, FlexDirection, LengthPercentage},
     style_helpers::{length, zero},
 };
 
@@ -228,6 +228,48 @@ fn text_wraps_to_the_width_it_is_given() {
     );
     let lines = tree.text_lines(4).expect("a text node");
     assert!(lines.len() > 2);
+}
+
+#[test]
+fn baseline_alignment_puts_texts_of_different_sizes_on_one_baseline() {
+    let mut tree = tree();
+    let text = |id, size| Change::Create {
+        id,
+        content: ContentSpec::Text {
+            text: "Menu 12:34".to_owned(),
+            style: crate::text::TextStyle {
+                family: Some("Iosevka".to_owned()),
+                size,
+                ..Default::default()
+            },
+        },
+        style: Box::default(),
+    };
+    tree.apply(vec![
+        Change::Create {
+            id: 1,
+            content: ContentSpec::Box,
+            style: Box::new(Style {
+                align_items: AlignItems::BASELINE,
+                ..*row(0.004)
+            }),
+        },
+        text(2, 0.014),
+        text(3, 0.0095),
+        Change::SetChildren {
+            id: 1,
+            children: vec![2, 3],
+        },
+    ])
+    .expect("a valid batch");
+    let outcome = tree.compute(1, None, None, &NoScripts).expect("a root");
+    let baseline = |tree: &mut Tree, id| {
+        let lines = tree.text_lines(id).expect("a text node");
+        placement(&outcome, id).v + lines[0].baseline
+    };
+    let large = baseline(&mut tree, 2);
+    let small = baseline(&mut tree, 3);
+    assert!(close(large, small), "{large} against {small}");
 }
 
 #[test]

@@ -175,13 +175,18 @@ function structure.register(service: uiHost.Service, owner: any): { [string]: ui
               onActivate = props.onBack,
             })
             else nil,
-          element('lunette/text', { key = 'title', text = props.title or '', style = 'heading', color = 'bandInk' }),
-          if props.detail
-            then element(
-              'lunette/text',
-              { key = 'detail', text = props.detail, style = 'readout', color = 'headerMuted' }
-            )
-            else nil,
+          -- The detail shares the title's baseline rather than centring its smaller line box beside it.
+          element('lunette/row', {
+            align = 'baseline',
+            gap = 'md',
+            element('lunette/text', { key = 'title', text = props.title or '', style = 'heading', color = 'bandInk' }),
+            if props.detail
+              then element(
+                'lunette/text',
+                { key = 'detail', text = props.detail, style = 'readout', color = 'headerMuted' }
+              )
+              else nil,
+          }),
           element('lunette/spacer', { key = 'spacer' }),
           children,
           if props.onClose

@@ -3,7 +3,7 @@
 use taffy::{
     CacheTree, LayoutBlockContainer, LayoutContainingBlock, LayoutFlexboxContainer,
     LayoutGridContainer, LayoutInput, LayoutOutput, LayoutPartialTree, NodeId as TaffyId,
-    RequestedAxis, RunMode, SizingMode, TraversePartialTree, compute_block_layout,
+    RequestedAxis, ResolveOrZero, RunMode, SizingMode, TraversePartialTree, compute_block_layout,
     compute_cached_layout, compute_flexbox_layout, compute_grid_layout, compute_hidden_layout,
     compute_leaf_layout, compute_oof_layout, compute_root_layout,
     geometry::{Line, Point, Size as TaffySize},
@@ -169,7 +169,7 @@ impl Computation<'_> {
         let Content::Text(block) = &mut node.content else {
             return LayoutOutput::HIDDEN;
         };
-        compute_leaf_layout(
+        let mut output = compute_leaf_layout(
             inputs,
             &style,
             |_, _| 0.0,
@@ -185,7 +185,16 @@ impl Computation<'_> {
                     height: known.height.unwrap_or(measured_height),
                 }
             },
-        )
+        );
+        // A row aligns its baseline items by their first baselines, measured from the top of the
+        // border box; without one, Taffy uses the bottom edge.
+        if let Some(baseline) = block.first_baseline() {
+            let width = inputs.parent_size.width;
+            let padding = style.padding.top.resolve_or_zero(width, |_, _| 0.0);
+            let border = style.border.top.resolve_or_zero(width, |_, _| 0.0);
+            output.baselines.first = Some(baseline + padding + border);
+        }
+        output
     }
 
     fn scripted(&mut self, host: NodeId, inputs: LayoutInput) -> LayoutOutput {
