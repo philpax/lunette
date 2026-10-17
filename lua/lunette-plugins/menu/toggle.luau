@@ -24,6 +24,8 @@ export type Options = {
 export type Toggle = {
   read set: (Toggle, boolean) -> (),
   read open: (Toggle) -> boolean,
+  -- Removes the action, leaving what it shows as it is, such as when the thing it opens is gone.
+  read dispose: (Toggle) -> (),
 }
 
 function toggle.attach(context: plugin.Context, menus: menu.Service, options: Options): Toggle
@@ -69,6 +71,13 @@ function toggle.attach(context: plugin.Context, menus: menu.Service, options: Op
     end,
     open = function(_self: Toggle): boolean
       return open
+    end,
+    dispose = function(_self: Toggle): ()
+      local held = registration
+      registration = nil
+      if held then
+        held:dispose()
+      end
     end,
   }
 end

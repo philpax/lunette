@@ -37,7 +37,7 @@ Focusing a UI text field shows the shared keyboard. Hiding it ends focus and kee
 
 Grip carries a movable panel, the thumbstick changes its distance, and a second grip resizes it. Releasing grip saves placement. The [interaction provider](../../lua/lunette-plugins/interaction/pointers/README.md) describes movement constraints.
 
-Monitor capture may ask for screen-sharing permission. Monitor titlebars can restart or stop a mirror and, with portal capture, choose monitors again. A window's close button asks its application to close. See the [monitor controls](../../lua/lunette-plugins/panels/monitors/README.md).
+Monitor capture may ask for screen-sharing permission. Monitor titlebars can restart or stop a mirror and, with portal capture, choose monitors again. The wrist menu's Monitors group turns each monitor's mirror on and off, and a mirror turned off or closed stays off in later sessions until it is turned on again. A window's close button asks its application to close. See the [monitor controls](../../lua/lunette-plugins/panels/monitors/README.md).
 
 Workspaces show one configured tag at a time. The wrist menu offers configured workspace names. The [workspace plugin](../../lua/lunette-plugins/workspace/controller/README.md) describes selection and placement; the desktop example configures it.
 

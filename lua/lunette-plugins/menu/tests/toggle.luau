@@ -22,6 +22,9 @@ local function fakes(): (any, any, Log)
           log.selected = state.selected
           return true
         end,
+        dispose = function(): ()
+          log.action = nil
+        end,
       }
     end,
   }
@@ -72,6 +75,10 @@ test('a toggle saved open opens at start without saving, and a close from elsewh
   opened:set(false)
   expect.equal(#log.calls, 2, 'closing a closed toggle does nothing')
   expect.equal(#log.saved, 1)
+  opened:dispose()
+  expect.equal(log.action, nil, 'disposing removes the action')
+  opened:set(true)
+  expect.equal(log.calls[3], 'show', 'a disposed toggle still opens what it shows')
 end)
 
 test('a toggle saves through its own function when given one', function()
