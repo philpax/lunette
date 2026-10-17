@@ -77,7 +77,7 @@ local function standIns(host: { appearance: boolean, sets: number }): (adapter.D
   return hostDefinition, componentsDefinition
 end
 
-function fixture.boot(config: { [string]: unknown }?): Environment
+function fixture.boot(config: { [string]: unknown }?, withoutToolkit: boolean?): Environment
   local native = testing.native()
   local host = { appearance = false, sets = 0 }
   local settings: { current: Settings? } = {}
@@ -143,7 +143,9 @@ function fixture.boot(config: { [string]: unknown }?): Environment
       { id = 'observer', definition = observer },
     }
   do
-    entries[#entries + 1] = entry
+    if not withoutToolkit or (entry.id ~= 'ui-host' and entry.id ~= 'ui-standard') then
+      entries[#entries + 1] = entry
+    end
   end
   -- Saved settings in memory, so the recovery panel's saved settings action has something to set aside.
   local saved = {
@@ -212,8 +214,8 @@ function fixture.boot(config: { [string]: unknown }?): Environment
 end
 
 -- Runs a body against a booted composition and closes it even when the body fails.
-function fixture.run(config: { [string]: unknown }?, body: (Environment) -> ()): ()
-  local env = fixture.boot(config)
+function fixture.run(config: { [string]: unknown }?, body: (Environment) -> (), withoutToolkit: boolean?): ()
+  local env = fixture.boot(config, withoutToolkit)
   local ok, problem = pcall(body, env)
   env:close()
   if not ok then

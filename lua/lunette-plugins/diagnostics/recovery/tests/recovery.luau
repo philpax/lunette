@@ -35,6 +35,39 @@ test('the panel shows while the host entry is disabled and hides when it recover
   end)
 end)
 
+test('recovery starts without any toolkit provider and safe mode remains reachable by ray', function()
+  fixture.run(nil, function(env: fixture.Environment): ()
+    expect.equal(env:entry 'ui-host', nil, 'no host is installed')
+    expect.equal(env:entry 'ui-standard', nil, 'no components are installed')
+    expect.equal(assert(env:entry 'diagnostics/recovery').state, 'active', 'recovery still starts')
+    expect.truthy(env:panel(), 'the independent recovery surface is offered')
+    env:draw()
+    env:click 'appearance'
+    expect.equal(env.host.sets, 0, 'the unavailable host is never called')
+    env:click 'safe-mode'
+    expect.equal(env.native.events.safeModeRestarts, 1, 'the VR action works without the toolkit')
+  end, true)
+end)
+
+test('the optional host reconnects after replacement without restarting recovery', function()
+  fixture.run(nil, function(env: fixture.Environment): ()
+    local recovery = assert(env:entry 'diagnostics/recovery').instanceId
+    env.composition:remove 'ui-host'
+    env:step()
+    expect.truthy(env:panel(), 'host removal leaves recovery usable')
+    env:click 'appearance'
+    expect.equal(env.host.sets, 0, 'the removed host is not called')
+    env.composition:restore 'ui-host'
+    expect.equal(assert(env:entry 'ui-host').state, 'active', 'the replacement host starts')
+    env:step()
+    failHost(env, 4)
+    env.native.raise("ui: panel 'test' draw: deliberate failure", '')
+    env:click 'appearance'
+    expect.equal(env.host.sets, 1, 'the new host activation receives the action')
+    expect.equal(assert(env:entry 'diagnostics/recovery').instanceId, recovery, 'recovery keeps its instance')
+  end)
+end)
+
 test('persistent host errors show the panel, and default appearance switches by ray', function()
   fixture.run(nil, function(env: fixture.Environment): ()
     failHost(env, 2)

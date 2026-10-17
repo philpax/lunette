@@ -38,26 +38,11 @@ local SIDEBAR_SHARE, SIDEBAR_MAXIMUM = 0.4, 0.42
 -- Reports a failed action as a notification while a notifications provider is loaded. A child consumer keeps a
 -- missing provider from disabling the manager.
 local function notifier(context: plugin.Context): (string, string) -> ()
-  local current: notifications.Service? = nil
-  local owner: plugin.Owner? = nil
-  local child = plugin.consumer<<{}, {}>> {
-    name = 'desktop/manager/notify',
-    requires = { notifications.capability },
-    init = function(childContext: plugin.Context, _settings: {}): ()
-      local service = childContext:require(notifications.capability)
-      childContext:effect(function(): () -> ()
-        current, owner = service, childContext
-        return function(): ()
-          current, owner = nil, nil
-        end
-      end)
-    end,
-  }
-  context:child(child.definition)
+  local current = plugin.connectOptional(context, 'desktop/manager/notify', notifications.capability)
   return function(title: string, body: string): ()
-    local service, poster = current, owner
-    if service and poster then
-      service:notify(poster, { title = title, body = body, level = 'error' })
+    local connection = current()
+    if connection then
+      connection.service:notify(connection.owner, { title = title, body = body, level = 'error' })
     end
   end
 end

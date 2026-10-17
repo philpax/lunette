@@ -85,21 +85,7 @@ local function build(context: plugin.Context, settings: Settings): notifications
 
   -- The accessibility service, while one is loaded: its timing lengthens every toast, and each notification is
   -- announced for assistive plugins. A child consumer keeps a missing provider from disabling notifications.
-  local assist: accessibility.Service? = nil
-  local announcer: plugin.Owner? = nil
-  context:child(plugin.consumer<<{}, {}>>({
-    name = 'notifications/accessibility',
-    requires = { accessibility.capability },
-    init = function(child: plugin.Context, _settings: {}): ()
-      local service = child:require(accessibility.capability)
-      child:effect(function(): () -> ()
-        assist, announcer = service, child
-        return function(): ()
-          assist, announcer = nil, nil
-        end
-      end)
-    end,
-  }).definition)
+  local assist = plugin.connectOptional(context, 'notifications/accessibility', accessibility.capability)
 
   local remove: (Toast) -> ()
   local groups: { [uiHost.Panel]: Group } = {}
@@ -255,6 +241,7 @@ local function build(context: plugin.Context, settings: Settings): notifications
       table.insert(entries, entry)
       history:set(entries)
       local timeout = notification.timeout or settings.timeout
+      local connection = assist()
       local toast: Toast
       local handle = {
         dead = false,
@@ -265,17 +252,17 @@ local function build(context: plugin.Context, settings: Settings): notifications
       toast = {
         entry = entry,
         remaining = if timeout > 0
-          then timeout * settings.timing * (if assist then assist.settings:get().timing else 1)
+          then timeout * settings.timing * (if connection then connection.service.settings:get().timing else 1)
           else nil,
         hovered = false,
         handle = handle :: notifications.Handle,
       }
       table.insert(queue, toast)
       fill()
-      local service, poster = assist, announcer
-      if service and poster then
+      local announcement = assist()
+      if announcement then
         local body = notification.body
-        service:announce(poster, {
+        announcement.service:announce(announcement.owner, {
           text = if body then `{notification.title}. {body}` else notification.title,
           politeness = if notification.level == 'error' then 'assertive' else 'polite',
         })

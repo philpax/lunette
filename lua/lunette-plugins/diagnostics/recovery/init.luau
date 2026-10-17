@@ -24,28 +24,6 @@ local required: plugin.Declaration = {
   surfaces.capability,
 }
 
--- Reaches the host through an optional child, so that the recovery plugin starts and stays running without it.
-local function hostLink(context: plugin.Context): () -> uiHost.Service?
-  local current: uiHost.Service? = nil
-  local child = plugin.consumer<<{}, {}>> {
-    name = 'diagnostics/recovery/appearance',
-    requires = { uiHost.capability },
-    init = function(childContext: plugin.Context, _settings: {}): ()
-      local service = childContext:require(uiHost.capability)
-      childContext:effect(function(): () -> ()
-        current = service
-        return function(): ()
-          current = nil
-        end
-      end)
-    end,
-  }
-  context:child(child.definition)
-  return function(): uiHost.Service?
-    return current
-  end
-end
-
 local function describe(reason: decision.Reason?, missing: { string }): string
   if reason == 'missing' then
     return 'The UI toolkit is not running: ' .. table.concat(missing, ', ') .. ' has no active provider.'
@@ -58,7 +36,7 @@ local function init(context: plugin.Context, settings: Settings): ()
   local frameService = context:require(frame.capability)
   local surfaceService = context:require(surfaces.capability)
   local stream = context:require(errors.capability)
-  local host = hostLink(context)
+  local host = plugin.connectOptional(context, 'diagnostics/recovery/appearance', uiHost.capability)
 
   local state = decision.initial()
   local reason: decision.Reason? = nil
@@ -95,7 +73,8 @@ local function init(context: plugin.Context, settings: Settings): ()
   }
 
   local function actions(): { layout.Action }
-    local service = host()
+    local connection = host()
+    local service = if connection then connection.service else nil
     local appearance: layout.Action = if service
       then {
         id = 'appearance',
@@ -180,8 +159,9 @@ local function init(context: plugin.Context, settings: Settings): ()
 
   local function activate(id: layout.ActionId): ()
     if id == 'appearance' then
-      local service = host()
-      if service then
+      local connection = host()
+      if connection then
+        local service = connection.service
         local on = not service:defaultAppearance()
         service:setDefaultAppearance(on)
         status = if on then 'Default appearance is on.' else 'Default appearance is off.'

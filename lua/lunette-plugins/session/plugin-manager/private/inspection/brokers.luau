@@ -26,31 +26,18 @@ local brokers = {}
 
 export type Reader = {
   read name: string,
-  inspect: (() -> inspection.Snapshot)?,
+  read connection: () -> plugin.Connection<inspection.Inspectable>?,
 }
 
 function brokers.watch(context: plugin.Context): { Reader }
   local readers: { Reader } = {}
   local function add<T>(name: string, capability: plugin.Capability<T>): ()
-    local reader: Reader = { name = name, inspect = nil }
-    readers[#readers + 1] = reader
-    local child = plugin.consumer<<{}, {}>> {
-      name = 'desktop/manager/inspect/' .. name,
-      requires = { capability },
-      init = function(childContext: plugin.Context, _settings: {}): ()
-        -- Every listed service declares `inspect`; the cast lets one list hold services of different types.
-        local service = (childContext:require(capability) :: any) :: inspection.Inspectable
-        childContext:effect(function(): () -> ()
-          reader.inspect = function(): inspection.Snapshot
-            return service:inspect()
-          end
-          return function(): ()
-            reader.inspect = nil
-          end
-        end)
-      end,
+    local connection = plugin.connectOptional(context, 'desktop/manager/inspect/' .. name, capability)
+    readers[#readers + 1] = {
+      name = name,
+      -- Every listed service declares `inspect`; the cast lets one list hold services of different types.
+      connection = connection :: any,
     }
-    context:child(child.definition)
   end
   add('frame', frame.capability)
   add('surfaces', surfaces.capability)
@@ -76,10 +63,13 @@ end
 function brokers.snapshot(readers: { Reader }): { details.Broker }
   local result: { details.Broker } = {}
   for _, reader in readers do
-    local inspect = reader.inspect
+    local connection = reader.connection()
     local snapshot: inspection.Snapshot
-    if inspect then
-      local ok, value = pcall(inspect)
+    if connection then
+      local service = connection.service
+      local ok, value = pcall(function(): inspection.Snapshot
+        return service:inspect()
+      end)
       snapshot = if ok then value else inspection.snapshot({}, {}, { 'Inspection failed: ' .. tostring(value) })
     else
       snapshot = inspection.snapshot({}, {}, { 'The inspection consumer has no active provider.' })
