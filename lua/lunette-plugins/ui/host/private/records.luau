@@ -125,8 +125,6 @@ export type Mount = {
   committed: boolean,
   -- Set only while the host calls the adapter's render.
   rendering: boolean,
-  submitted: boolean,
-  element: uiHost.Element?,
 }
 
 export type Panel = {
@@ -199,7 +197,6 @@ export type Contribution = {
   bind: (uiHost.OutletMount) -> (),
   -- The order of registration, which keeps two contributions from one plugin in their order.
   sequence: number,
-  dead: boolean,
 }
 
 -- One contribution's mount point within one placement.

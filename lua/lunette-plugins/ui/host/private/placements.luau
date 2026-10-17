@@ -329,10 +329,8 @@ function placements.children(
   return elements, slots
 end
 
--- Renders the contribution mount points of the panel's placements that have scheduled work, answering whether any
--- rendered.
-function placements.render(env: records.Environment, panel: records.Panel): boolean
-  local rendered = false
+-- Renders the contribution mount points of the panel's placements that have scheduled work.
+function placements.render(env: records.Environment, panel: records.Panel): ()
   for _, placement in table.clone(panel.placements) do
     for _, entry in table.clone(placement.mounts) do
       local adapter = entry.adapter
@@ -343,11 +341,9 @@ function placements.render(env: records.Environment, panel: records.Panel): bool
           adapter.render()
         end)
         entry.rendering = false
-        rendered = true
       end
     end
   end
-  return rendered
 end
 
 -- Whether a contribution mount point of the panel has work scheduled.

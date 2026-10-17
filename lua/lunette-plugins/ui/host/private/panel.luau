@@ -96,7 +96,6 @@ function panel.new(
     end,
     submit = function(_self: uiHost.Mount, element: uiHost.Element?): ()
       assert(record.mount.rendering, 'ui: a mount point accepts elements only while the host renders it')
-      record.mount.element = element
       tree.submit(record, env, element)
     end,
     committed = function(_self: uiHost.Mount): boolean
@@ -259,7 +258,7 @@ function panel.record(
     tree = nil :: any,
     root = nil,
     rootChild = nil,
-    mount = { adapter = nil, scheduled = false, committed = false, rendering = false, submitted = false, element = nil },
+    mount = { adapter = nil, scheduled = false, committed = false, rendering = false },
     nodes = {},
     nextId = layout.ROOT + 1,
     changes = {},

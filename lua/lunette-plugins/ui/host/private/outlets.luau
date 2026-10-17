@@ -161,7 +161,6 @@ function outlets.add(
     version = table.freeze { major = version.major, minor = version.minor },
     bind = bind,
     sequence = target.sequence,
-    dead = false,
   }
   local list = target.contributions[outlet.name] or {}
   target.contributions[outlet.name] = list
@@ -175,7 +174,6 @@ function outlets.add(
   end
   return record,
     function(): ()
-      record.dead = true
       local current = target.contributions[outlet.name]
       local index = current and table.find(current, record)
       if current and index then
