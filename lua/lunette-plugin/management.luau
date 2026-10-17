@@ -72,6 +72,20 @@ local function merged(entry: compose.Entry, fields: { [string]: unknown }): Prep
   return prepared(compose.apply({ entry }, { { id = entry.id, config = fields } })[1])
 end
 
+-- The configuration as the entry's schema resolves it, with defaults for the fields it leaves out, or nil for an entry
+-- without a schema or a configuration the schema refuses.
+local function resolvedFields(
+  definition: adapter.Definition<any>,
+  config: { [string]: unknown }
+): { [string]: unknown }?
+  local resolve = definition.resolve
+  if not resolve then
+    return nil
+  end
+  local ok, result = pcall(resolve, config)
+  return if ok and type(result) == 'table' then result :: { [string]: unknown } else nil
+end
+
 -- Structural equality over configuration values: tables compare by their keys and values, everything else by `==`.
 local function equal(left: unknown, right: unknown): boolean
   if left == right then
@@ -337,8 +351,12 @@ function management.start(entries: { compose.Entry }, options: Options?): Runnin
     local override: { [string]: unknown } = {}
     local config = (if type(entry.config) == 'table' then entry.config else {}) :: { [string]: unknown }
     local base = (if type(entry.base) == 'table' then entry.base else {}) :: { [string]: unknown }
+    -- A field the base leaves out takes its schema default, so a value equal to that default is not a difference.
+    local defaults = resolvedFields(entry.definition, base)
     for field, value in config do
-      if not equal(value, base[field]) then
+      local unchanged = equal(value, base[field])
+        or (base[field] == nil and defaults ~= nil and equal(value, defaults[field]))
+      if not unchanged then
         if saved.storable(value) then
           override[field] = value
         else

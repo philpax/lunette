@@ -116,6 +116,8 @@ test("a plugin saves its own changes without restarting, and the entry's schema 
     contexts[1]:save { value = 'many' }
   end, 'value')
   expect.equal(saved.overrides.settings.value, nil, 'a change that fails the schema is not saved')
+  expect.equal(contexts[1]:save { label = 'plain' }, true)
+  expect.equal(saved.overrides.settings, nil, 'a field saved back to its schema default is no longer saved')
   running.runtime:close()
 
   local alone = adapter.runtime()
