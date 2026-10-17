@@ -18,6 +18,9 @@ local ATTRACTION = 0.05
 local CORE = 0.0125
 -- The handle's width as a fraction of the theme's thumb size: a narrow upright key.
 local HANDLE_WIDTH = 0.57
+-- The handle grows by this factor about its centre while the slider is hovered or dragged, as the scroll bar's thumb
+-- widens, so it is easier to keep a ray on.
+local HANDLE_GROWTH = 1.25
 
 local function fraction(props: uiHost.Props, value: number): number
   local low, high = props.min or 0, props.max or 1
@@ -65,6 +68,25 @@ local function attract(props: uiHost.Props, value: number): number
   return value
 end
 
+-- Whether a move of the value from one position to another reaches or passes a notch: a detent, or on a stepped
+-- slider, any other step. Leaving a detent is not a notch, so a drag off one ticks once, where it arrived.
+local function notched(props: uiHost.Props, from: number, to: number): boolean
+  if from == to then
+    return false
+  end
+  if props.step and props.step > 0 then
+    return true
+  end
+  local low, high = math.min(from, to), math.max(from, to)
+  for _, detent in props.detents or {} do
+    local value = detent.value
+    if value ~= from and value >= low and value <= high then
+      return true
+    end
+  end
+  return false
+end
+
 -- The detent at the value, if the value sits on one.
 local function detentAt(props: uiHost.Props, value: number): any
   for _, detent in props.detents or {} do
@@ -102,6 +124,9 @@ end
 
 function values.register(service: uiHost.Service, owner: any): { [string]: uiHost.Constructor }
   local constructors: { [string]: uiHost.Constructor } = {}
+  -- The last value each held track previewed, which a notch is measured from. Several drag events can arrive before
+  -- the track renders the previous one, so its value prop can lag behind.
+  local previewed: { [uiHost.Node]: number } = setmetatable({}, { __mode = 'k' }) :: any
 
   service:registerKind(owner, {
     name = 'lunette/slider-track',
@@ -132,8 +157,15 @@ function values.register(service: uiHost.Service, owner: any): { [string]: uiHos
       local kind = event.kind
       if kind == 'press' or kind == 'drag' then
         -- A detent draws the value towards it while the pointer is near, and the value moves freely between detents.
-        node:emit('onPreview', attract(node.props, valueAt(node, (event :: any).x)))
+        local value = attract(node.props, valueAt(node, (event :: any).x))
+        -- A drag ticks the holding pointer at each notch it reaches; the press has its own pulse.
+        if kind == 'drag' and notched(node.props, previewed[node] or node.props.value or 0, value) then
+          node:feedback 'detent'
+        end
+        previewed[node] = value
+        node:emit('onPreview', value)
       elseif kind == 'release' then
+        previewed[node] = nil
         node:emit('onFinish', attract(node.props, valueAt(node, (event :: any).x)))
       elseif kind == 'scroll' then
         -- Scroll arrives in logical pixels; a thousand of them sweep the whole range.
@@ -141,6 +173,7 @@ function values.register(service: uiHost.Service, owner: any): { [string]: uiHos
         local value = math.clamp(node.props.value + (event :: any).dx * (high - low) / 1000, low, high)
         node:emit('onFinish', value)
       elseif kind == 'cancel' then
+        previewed[node] = nil
         node:emit 'onCancel'
       elseif kind == 'key' then
         -- Directions adjust the value from a keyboard at once, and from a controller only once traversal engaged the
@@ -201,8 +234,14 @@ function values.register(service: uiHost.Service, owner: any): { [string]: uiHos
     end
     local active = node.state.hovered or node.state.dragging
     local mark = if enabled then theme.colors.accent else theme.colors.muted
-    local handle =
-      { x = span * t, y = (bounds.height - theme.sizes.thumb) / 2, width = thumbWidth, height = theme.sizes.thumb }
+    local growth = if active and enabled then HANDLE_GROWTH else 1
+    local handleWidth, handleHeight = thumbWidth * growth, theme.sizes.thumb * growth
+    local handle = {
+      x = span * t + (thumbWidth - handleWidth) / 2,
+      y = (bounds.height - handleHeight) / 2,
+      width = handleWidth,
+      height = handleHeight,
+    }
     local lift = if node.state.dragging then theme.elevation.raised else theme.elevation.thumb
     draw:box(handle, {
       fill = if active then theme.colors.hover else theme.colors.raised,
@@ -214,9 +253,9 @@ function values.register(service: uiHost.Service, owner: any): { [string]: uiHos
       edges = true,
     })
     local line = theme.sizes.rule * 2
-    local inset = thumbWidth * 0.45
+    local inset = handleWidth * 0.45
     draw:box({
-      x = handle.x + (thumbWidth - line) / 2,
+      x = handle.x + (handleWidth - line) / 2,
       y = handle.y + inset,
       width = line,
       height = handle.height - 2 * inset,

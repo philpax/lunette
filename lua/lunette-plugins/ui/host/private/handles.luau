@@ -159,6 +159,12 @@ function handles.new(node: records.Node, env: records.Environment): uiHost.Node
   handle.blur = function(_self: uiHost.Node): ()
     env.blurNode(node)
   end
+  handle.feedback = function(_self: uiHost.Node, event: 'detent'): ()
+    assert(event == 'detent', `ui: '{tostring(event)}' is not a feedback event`)
+    if not node.dead then
+      env.pulse(node, event)
+    end
+  end
   handle.descendant = function(_self: uiHost.Node, path: string): uiHost.Node?
     local current: records.Node? = node
     for segment in string.gmatch(path, '[^/]+') do

@@ -259,6 +259,8 @@ export type Environment = {
   read blocked: (Panel) -> boolean,
   -- Whether presses give haptic feedback.
   read haptics: () -> boolean,
+  -- Pulses each pointer that holds the node, when haptics are on.
+  read pulse: (Node, 'detent') -> (),
   -- Focuses a node, taking session focus when its policy is text, and answers whether it took focus.
   read focusNode: (Node, boolean) -> boolean,
   read blurNode: (Node) -> (),

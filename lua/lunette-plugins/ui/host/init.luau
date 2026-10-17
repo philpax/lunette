@@ -98,6 +98,11 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
     haptics = function(): boolean
       return access.haptics ~= false
     end,
+    pulse = function(node: records.Node, event: 'detent'): ()
+      if access.haptics ~= false then
+        input.pulse(router, node, event)
+      end
+    end,
     blocked = function(target: records.Panel): boolean
       local panels: { records.Panel } = {}
       for _, entry in live do

@@ -10,6 +10,8 @@ local input = {}
 -- Movement past this distance from the press point turns a press on a dragging node into a drag.
 local DRAG_THRESHOLD = 0.003
 local PRESS_HAPTIC = table.freeze { strength = 0.25, duration = 0.012 }
+-- A detent is a lighter, shorter tick than a press, so a sweep across several stays distinct.
+local DETENT_HAPTIC = table.freeze { strength = 0.18, duration = 0.006 }
 
 type Capture = {
   node: records.Node,
@@ -102,6 +104,16 @@ function input.grabs(panel: records.Panel, env: records.Environment, x: number, 
     node = node.parent
   end
   return false
+end
+
+-- Pulses each pointer whose press the node holds.
+function input.pulse(router: Router, node: records.Node, _event: 'detent'): ()
+  for pointer, state in router.pointers do
+    local capture = state.capture
+    if capture and capture.node == node then
+      pointer:vibrate(DETENT_HAPTIC)
+    end
+  end
 end
 
 -- Events carry positions in the receiving node's coordinates. A handler that calls `base` passes the event to the

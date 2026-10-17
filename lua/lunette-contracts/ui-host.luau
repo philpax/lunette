@@ -74,6 +74,9 @@ export type Node = {
   -- Focuses the node, taking session focus for a text node, and answers whether the node is focusable.
   read focus: (Node) -> boolean,
   read blur: (Node) -> (),
+  -- Pulses each pointer that holds the node, as a value control does when its value passes a detent. It does nothing
+  -- while haptics are off or no pointer holds the node.
+  read feedback: (Node, 'detent') -> (),
   -- Animates a channel, such as 'opacity' or 'progress', to a target with the theme's motion. Visuals read channel
   -- values through `channel`.
   read animate: (Node, string, number) -> (),
@@ -348,10 +351,10 @@ export type PanelOptions = {
   read width: number?,
   read height: number?,
   read size: ('fixed' | 'content')?,
+  -- A world panel without a pose opens ahead of the head and stays there until it is moved.
   read pose: Mat4?,
   read grabbable: boolean?,
   -- A panel created hidden shows when setVisible is called.
-  -- A world panel without a pose opens ahead of the head and stays there until it is moved.
   read visible: boolean?,
   -- 'world' stays where it is put; 'follow' lazily follows the head, as toasts do; 'dialog' floats in front of its
   -- parent panel, or in front of the head without one, and is modal.
