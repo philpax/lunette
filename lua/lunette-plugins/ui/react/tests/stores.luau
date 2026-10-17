@@ -17,7 +17,7 @@ end
 
 local function counted<T>(initial: T): any
   local source = ui.store(initial)
-  local counts = { active = 0, subscribed = 0, cleaned = 0 }
+  local counts = { active = 0, subscribed = 0, cleaned = 0, cleanupCalls = 0 }
   local store = {
     get = function(): T
       return source:get()
@@ -31,6 +31,7 @@ local function counted<T>(initial: T): any
       counts.subscribed += 1
       local active = true
       return function(): ()
+        counts.cleanupCalls += 1
         if active then
           active = false
           counts.active -= 1
@@ -319,6 +320,114 @@ test('an earlier effect changing a store cannot leave the rendered snapshot stal
   expect.equal(state.panel:find '', field, 'the update keeps the ref node')
   expect.equal(value.counts.subscribed, 1)
   state.fixture:close()
+end)
+
+test('teardown during subscribe immediately releases the returned subscription', function()
+  for _, destroyPanel in { false, true } do
+    for _, cleanupFails in { false, true } do
+      local state = boot()
+      local value = counted(1)
+      local reads = 0
+      local handle: ui.MountHandle? = nil
+      local store = {
+        get = function(): number
+          reads += 1
+          return value.store:get()
+        end,
+        subscribe = function(_self: any, listener: (number) -> ()): () -> ()
+          local unsubscribe = value.store:subscribe(listener)
+          if destroyPanel then
+            state.panel:destroy()
+          else
+            assert(handle):unmount()
+          end
+          return function(): ()
+            unsubscribe()
+            if cleanupFails then
+              error 'deliberate reentrant subscription cleanup failure'
+            end
+          end
+        end,
+      }
+      local Reader = ui.component('ReentrantSubscribeReader', function(): ui.Child
+        return element('test/text', { text = tostring(ui.useStore(store)) })
+      end)
+      handle = ui.mount(state.panel, Reader {})
+      state.fixture:step()
+      if cleanupFails then
+        takeFailure(state, 'deliberate reentrant subscription cleanup failure')
+      end
+      expect.equal(value.counts.active, 0, 'teardown during subscribe leaves no live listener')
+      expect.equal(value.counts.subscribed, 1)
+      expect.equal(value.counts.cleaned, 1)
+      expect.equal(value.counts.cleanupCalls, 1, 'the returned cleanup runs exactly once')
+      expect.equal(reads, 1, 'the snapshot is not read after teardown')
+      assert(handle):unmount()
+      state.fixture:close()
+      expect.equal(value.counts.cleanupCalls, 1, 'later teardown does not repeat the cleanup')
+    end
+  end
+end)
+
+test('teardown during the previous unsubscribe does not acquire a replacement', function()
+  for _, destroyPanel in { false, true } do
+    for _, cleanupFails in { false, true } do
+      local state = boot()
+      local first, second = counted(1), counted(2)
+      local handle: ui.MountHandle? = nil
+      local reads = 0
+      local firstStore = {
+        get = function(): number
+          return first.store:get()
+        end,
+        subscribe = function(_self: any, listener: (number) -> ()): () -> ()
+          local unsubscribe = first.store:subscribe(listener)
+          return function(): ()
+            unsubscribe()
+            if destroyPanel then
+              state.panel:destroy()
+            else
+              assert(handle):unmount()
+            end
+            if cleanupFails then
+              error 'deliberate reentrant previous cleanup failure'
+            end
+          end
+        end,
+      }
+      local secondStore = {
+        get = function(): number
+          reads += 1
+          return second.store:get()
+        end,
+        subscribe = function(_self: any, listener: (number) -> ()): () -> ()
+          return second.store:subscribe(listener)
+        end,
+      }
+      local choice = ui.store(firstStore)
+      local Reader = ui.component('ReentrantUnsubscribeReader', function(): ui.Child
+        return element('test/text', { text = tostring(ui.useStore(ui.useStore(choice))) })
+      end)
+      handle = ui.mount(state.panel, Reader {})
+      state.fixture:step()
+      expect.equal(first.counts.active, 1)
+      choice:set(secondStore)
+      state.fixture:step()
+      if cleanupFails then
+        takeFailure(state, 'deliberate reentrant previous cleanup failure')
+      end
+      expect.equal(first.counts.active, 0)
+      expect.equal(first.counts.cleaned, 1)
+      expect.equal(first.counts.cleanupCalls, 1, 'the previous cleanup runs exactly once')
+      expect.equal(second.counts.active, 0, 'teardown during unsubscribe leaves no replacement listener')
+      expect.equal(second.counts.subscribed, 0, 'the replacement is never acquired')
+      expect.equal(second.counts.cleanupCalls, 0)
+      expect.equal(reads, 1, 'the replacement snapshot is not read after teardown')
+      assert(handle):unmount()
+      state.fixture:close()
+      expect.equal(first.counts.cleanupCalls, 1, 'later teardown does not repeat the previous cleanup')
+    end
+  end
 end)
 
 return test

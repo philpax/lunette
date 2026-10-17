@@ -332,9 +332,17 @@ function ui.useStore<T>(store: Store<T>): T
       if type(previous) == 'function' then
         (previous :: () -> ())()
       end
-      hook.cleanup = store:subscribe(function(): ()
+      if not instance.mounted then
+        return
+      end
+      local unsubscribe = store:subscribe(function(): ()
         instances.invalidate(instance)
       end)
+      if not instance.mounted then
+        unsubscribe()
+        return
+      end
+      hook.cleanup = unsubscribe
       hook.store = store
       -- A store can change after the render reads it and before the subscription starts.
       if store:get() ~= value then
