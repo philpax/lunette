@@ -16,7 +16,7 @@ ui.mount(panel, Counter { label = 'Pressed' }, { components = components, owner 
 
 Components re-render when their state, a store or context they read, or their shallowly compared props change. Function props compare equal. Hooks are `useState`, `useMemo`, `useRef`, `useEffect`, `useStore`, `useContext`, and `useComponents`; `useLayoutEffect` runs with the other effects in this version. `ui.map` requires a unique key for each child, and `ui.store` creates a writable store.
 
-`ui.useStore` reads during render and subscribes after successful submission. A failed render keeps the previous subscription. A store change between the read and subscription schedules another render, and unmounting releases the subscription.
+`ui.useStore` reads during render and subscribes after successful submission. A failed render keeps the previous subscription. A store change between the read and subscription schedules another render, and unmounting releases the subscription. If acquisition itself unmounts the component, its returned cleanup runs immediately.
 
 `ui.createContext` returns a context whose identity distinguishes it from other contexts with the same default. Provider values belong to each mounted subtree. Contexts have no public numeric identifier.
 

@@ -1,56 +1,43 @@
 # Accessibility
 
-Accessibility in the toolkit is a set of session settings that the host, the theme, and the interaction service consume, a semantic description of every node, an event stream for assistive plugins, and rules that keep every action reachable by more than one means. Kinds get most of it by using tokens, declaring a role, and declaring the standard interaction response.
+Accessibility combines session settings, node semantics, and complete VR workflows. Tokens and standard interaction response help kinds follow shared settings, but they do not prove that a consumer exposes every action without a physical keyboard or mouse.
 
 ## Settings
 
-The accessibility service, `lunette/accessibility`, publishes the session's settings as a store:
+The [accessibility contract](../../../lua/lunette-contracts/accessibility.luau) and [provider schema](../../../lua/lunette-plugins/ui/accessibility/config.luau) own the supported settings. The provider publishes an observable store and persists changes through the plugin's saved settings. It does not own a separate versioned settings file.
 
-| Setting | Effect |
-|---|---|
-| Reduced motion | Every motion role uses its substitute, as [Motion and feedback](motion-and-feedback.md#reduced-motion) describes, including following, scroll inertia, and overscroll |
-| Text scale | Multiplies every typography role's size. Fixed-size panels scroll or wrap their content rather than clipping it |
-| High contrast | Selects the theme's high-contrast token variant |
-| One-handed mode | Places summoned content on the `summoned` presentation, operated by the present hand's ray, rather than on a wrist |
-| Handedness | Selects the hand for the wrist presentation, the default hand for one-handed bindings and traversal, and the side overlays open towards, away from the pointing hand |
-| Timing | Multiplies hold, long-press, tooltip, and toast durations |
-| Haptics and sounds | Turn haptic and sound feedback off independently |
-| Visual alternatives | Show the visual equivalent of every sound |
-| Body profile | Eye height, seated or standing, and reach, which presentations use to place panels |
+The host applies text scale, high contrast, reduced motion, and haptics. Text scale reaches layout through typography, and reduced motion snaps the host's channels. A setting's presence does not imply every proposed body-profile placement, handedness-aware overlay, one-hand presentation switch, timing multiplier, sound, or visual-alternative consumer is implemented.
 
-The settings are edited in a settings panel that the wrist menu and the plugin manager open, so they are reachable in VR. The accessibility service persists the settings itself, in a versioned settings file that it reads at startup and writes on change, preserving fields it does not recognise, so a setting changed in VR survives a restart without editing the configuration. Default appearance keeps every accessibility setting, because the settings are not overrides. A text scale change relayouts every panel, and the minimum text size applies to the scaled size at the presentation's nominal viewing distance.
+Default appearance retains accessibility settings. A theme override must not remove the recovery path to readable base appearance. Fixed-size panels need wrapping or scrolling when text scale changes rather than relying on their original dimensions.
 
 ## Roles and semantics
 
-Every kind declares a role from the closed set in the contract vocabulary and a semantics function that returns its accessible name, value and range, and states such as checked, expanded, selected, and disabled. Composites take the role of their root kind unless they declare one. Items inside a node, such as edges in a graph or links in text, declare roles too.
+Kinds can declare a role and semantics. Node inspection reports role-bearing nodes with their accessible name, value, and state. The accessibility service relays explicit announcements from callers. It does not publish the proposed automatic event stream of every node appearance, value change, and focus move.
 
-Inspection reports roles and semantics, and the accessibility service publishes an event stream of changes: focus moved, a value changed, a node appeared or disappeared, and announcements such as a posted notification, each with a politeness level. Assistive plugins use both: a screen reader speaks the focused node and announcements, switch access steps through focusable nodes, and voice control activates a node by its name. Tests find nodes by role and name as well as by id.
+Assistive consumers can use inspection and public traversal. Those reads do not grant authority over other owners' panels or establish an unrestricted event-dispatch API. A custom canvas does not acquire separately focusable internal items without representing them as nodes or adding a public contract.
 
 ## One-handed use
 
-A two-handed gesture is never the only path to an action:
+A two-handed gesture is never the only acceptable path to a session action. Panel manipulation needs one-handed alternatives, and a zoomable canvas needs controls other than a two-hand gesture. A wrist menu must remain usable without requiring the same hand to touch its own wrist.
 
-- Panel scaling with two hands has a one-handed alternative through the resize frame.
-- A canvas that zooms with two hands also zooms with the thumbstick, the wheel, or zoom controls.
-- The wrist menu opens from a controller binding or a palm-up gesture on either hand, as well as from the other hand's touch. In one-handed mode, it opens on the `summoned` presentation, operated by the present hand's ray.
-- Every action reachable by pointing is also reachable through focus traversal on one controller, as [Input](input.md#focus-traversal) lists.
+These are workflow requirements rather than claims that all proposed resize-frame, context-menu, and drag-and-drop alternatives exist. [#69](https://github.com/philpax/lunette/issues/69) tracks the input mechanisms and manipulation work. Focus traversal already provides a separate channel for controls that implement it, and consumers must verify their complete VR path.
 
 ## Colour and contrast
 
-- Body text has a contrast ratio of at least 4.5 to 1 against its surface, and control boundaries, focus rings, toggle tracks, and state layers over the accent have at least 3 to 1. The ratios hold in every interaction state, including at full hover and press state-layer strength.
-- Surfaces behind text are opaque, or at least as opaque as a theme minimum, because an overlay session composites panels over another application or over passthrough, and contrast against a translucent surface depends on what is behind it.
-- No state is conveyed by colour alone. Status colours come with an icon or a label, and the disabled state comes with its reason.
-- The default accent and status colours remain distinguishable under the common forms of colour blindness.
-- The theme contract includes a high-contrast variant.
+Body text needs a contrast ratio of at least 4.5 to 1 against its surface. Non-text boundaries and focus indicators need at least 3 to 1. These are design requirements, not a claim that a single theme test proves contrast over arbitrary translucent backgrounds and every interaction state.
 
-A test checks every pair of text and surface tokens in each shipped theme against these ratios, in each state, so a theme cannot regress them.
+Text surfaces need sufficient opacity because the underlying application or passthrough changes the background. State must not rely on colour alone. Disabled controls need a reason, and status colours need readable labels or another cue. The theme provides a high-contrast variant and contrast guards for supported colour choices.
+
+Theme verification must use the actual pairs rendered by visuals. Token contrast alone does not establish the contrast of a custom volume, image, gradient, or user-chosen translucent surface.
 
 ## Target assistance
 
-Users with tremor or limited precision benefit from targets that are easier to hit. Owner-scoped `pick` hooks let a plugin implement a bubble cursor, magnetic snapping to targets, or a larger sticky margin, using the proximity query for rays that miss, as [Extension](extension.md#interaction-extension) describes. A dwell interactor selects by holding still, using the same select progress that a trigger produces, and switch access drives the traversal service.
+Ray filtering and trigger locking already reduce some selection errors. Bubble cursors, magnetic target selection, and missed-ray proximity queries need the deferred pick-hook contract in [#70](https://github.com/philpax/lunette/issues/70). They are not available host extension APIs.
+
+Switch access can drive public traversal. A dwell or gaze workflow also needs a supported provider and complete cancellation and feedback rules rather than assuming a general interactor registry.
 
 ## Localisation
 
-Layout mirrors for right-to-left text through an inherited direction, alignment is logical, and text styles carry a language tag, as [Layout and text](layout-and-text.md) describes. Directional focus traversal and slider orientation mirror with the layout. Bidirectional editing and input-method composition remain open, and until they exist a user of a right-to-left script cannot edit mixed-direction text in a toolkit field.
+Native text supports shaping and fallback for display. Bidirectional editing and input-method composition remain unsupported. The host does not guarantee inherited right-to-left mirroring for every layout, slider, and traversal operation. [Layout and text](layout-and-text.md#open-questions) states the editing limitations.
 
-Interface text uses sentence case for labels and titles, and disabled reasons are full sentences that say what makes the control available.
+Interface labels and titles use sentence case. Disabled reasons are full sentences that explain what makes the action available. Localization must preserve the complete VR workflow, including entry of the user's script, rather than relying on shaped display alone.

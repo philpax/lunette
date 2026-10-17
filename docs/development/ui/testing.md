@@ -2,74 +2,46 @@
 
 ## Ids and inspection
 
-Every node has an id formed from its panel's name and the keys on its path from the root, such as `desktop/manager:Plugins/sidebar/configure/rows/title`. A panel's name is prefixed with its owner's entry id, and the host rejects a second live panel with the same full name. Keys come from components, as [Authoring](authoring.md#elements-and-children) describes. An unkeyed child contributes a positional segment such as `#2`, which is stable while the component's structure is, but anything a test addresses has an explicit key. A node inside a portal has its id under its logical parent's path, and an item inside a node is addressed as the node's id followed by `@` and the item id.
+Tests address keyed nodes rather than fixed screen coordinates. The host's node id combines its panel name with the keyed path, and overlays retain their logical opener's path. Unkeyed wrappers can be traversed by the host, but explicit stable keys remain necessary for content a caller or test addresses.
 
-The host's `inspect()` follows the inspection contract in [`lua/lunette-contracts/inspection.luau`](../../../lua/lunette-contracts/inspection.luau). It returns a registration for every panel and for every node and item, with:
+The [host contract](../../../lua/lunette-contracts/ui-host.luau) owns discovery operations. `inspect` reports panels, overrides, and contributions. `inspectNodes` separately reports role-bearing nodes with semantics, layout boxes, and supported state. Keeping node inspection separate avoids a panel recursively displaying its own growing inspection list.
 
-- the id, the kind, the role, and the semantics;
-- the owner of the node, and of each override and contribution that applies to it, and whether default appearance is on;
-- local bounds, clip, elevation, and the world pose of the centre;
-- the enabled state and the disabled reason;
-- focus, hover, and capture state;
-- each animation channel's current value and target, and whether the node is exiting;
-- the index of a virtualised item;
-- the fields that the kind's `inspect` function adds.
-
-Inspection invokes no plugin callbacks and grants no authority.
-
-Nodes outside their clip, such as list rows scrolled out of view, are reported with an empty visible area, so a test can tell an absent node from a hidden one. A virtualised list or grid reports every item with its index, materialised or not, and a test brings an item into view through `scrollIntoView` before it interacts with it.
+Node inspection can call a kind's semantics function under a protected call. It does not draw visuals, and it grants no authority over another owner's panel. It does not promise an item registry, every animation channel, offscreen virtualised items, or a world-pose matrix in each inspection record. A live node handle provides geometry needed for an input test.
 
 ## The test clock
 
-Animations, holds, toast timeouts, and long presses read the host's clock. Tests substitute a clock that advances only when the test steps it, so a test of an exit animation or a hold-to-confirm button is deterministic and does not wait for real time.
+Tests step existing frame fixtures with explicit deltas rather than waiting for wall-clock time. The host does not expose a public clock-injection service. Native glyph generation uses workers, so tests waiting for glyph readiness use bounded conditions rather than assuming a fixed number of frames or sleeping.
 
 ## Test layers
 
+The [build and development guide](../build-and-development.md#lua-tests) owns test commands and fixture conventions. [Offscreen graphics tests](../build-and-development.md#offscreen-graphics-tests) use real LÖVR with a software Vulkan driver and require no live headset.
+
 ### Component tests
 
-Component tests render a component into a headless host and assert on the resulting nodes. They run in the Lua test runner with the real host, the real standard kinds, and the real native layout and text binding, because the project controls all of them. Drawing is not executed. A test drives a node through semantic events: `activate`, `context`, `drag`, `scroll`, `key`, and `text`.
-
-```luau
-test('a disabled pin button explains why', function()
-  local mounted = harness.mount(BackdropControls { backdrop = fakeBackdrop { source = 'mix' } })
-  local pin = mounted:find 'pin'
-  expect.equal(pin.enabled, false, 'pin is disabled')
-  expect.equal(pin.disabledReason, 'Pinning is available with the Attention source.', 'the reason')
-end)
-```
-
-The backdrop service here is a fake, because the test is about the component and the service is another plugin's behaviour. `mounted:findByRole(role, name)` finds a node by its role and accessible name, which is how a test reads when it describes what a user sees.
+Component tests verify rendered node behavior with the existing Lua fixtures. They must respect deferred mounting and scene-update commits. An effect is not a post-layout barrier, and `committed()` is queried rather than registered as a callback. Checked tests beside the [authoring library](../../../lua/lunette-plugins/ui/react/tests/) are the reference rather than an unimplemented generic harness API.
 
 ### Kind tests
 
-Kind tests cover each element kind's behaviour through semantic events, and its layout through the native binding. They include property-based tests where a kind has a property worth stating, such as a slider's value staying within its range for any sequence of drags, a scroll offset settling within the content for any sequence of scrolls and relayouts, and a gesture always having exactly one winner for any nesting of claims.
+Kind tests exercise real registrations through their public host behavior. Important invariants include bounds on controlled values, valid grapheme boundaries after edits, owner cleanup, and the separation between cancellation and activation. A property-based test is useful when it checks an invariant independently of the implementation.
 
 ### Interaction tests
 
-Interaction tests drive physical input through the fake native XR session in [`lua/testing/vr-ui.luau`](../../../lua/testing/vr-ui.luau). The helpers address nodes by id:
+The [VR UI helpers](../../../lua/testing/vr-ui.luau) drive the fake native session and locate controls through inspection and node handles. Tests use the helpers actually exported there, not a copied inventory of proposed aim, poke, grab-sphere, and traversal methods.
 
-- `discover(id)` finds a node through inspection.
-- `aim(interactor, id)` points a ray at the centre of the node's visible area, using the node's world pose, so it handles curvature, elevation, and transforms without a flat-panel formula.
-- `poke(hand, id)` moves a tracked fingertip from in front of the node through the hover, activation, and release depths. The fake session answers `getHandPose` for it.
-- `grab(hand, id)` pinches near a grab handle or frame with the grab sphere and moves it.
-- `clickNode(id)` aims and presses with a controller across frames.
-- `tab`, `navigate`, `activate`, `context`, `dismiss`, and `nextPanel` drive focus traversal, including the engage mode of value controls.
-- `defaultAppearance(on)` switches default appearance, so a test can check that a panel stays usable with a broken override.
-
-Every consumer panel has interaction tests that address its nodes by id.
+A capture test needs to cover release and cancellation, not only initial press. An override during a drag must carry matching capture and release it on the replacement node. Removal of an unmatched node must not activate it. Deferred gesture arbitration and pick assistance in [#69](https://github.com/philpax/lunette/issues/69) and [#70](https://github.com/philpax/lunette/issues/70) are requirements, not existing test coverage.
 
 ### Rendering tests
 
-Offscreen graphics tests in `make check-graphics` render panels through real LÖVR with the software Vulkan driver and read back pixels. They cover the toolkit shader: clipping at rounded corners and nested clips, clip depth ranges, surface shapes, bent and rigid nodes, elevation, content drawn over its own box without depth fighting, bound parameters, group opacity fades, glyph rendering from the atlas, SVG rasterisation, and the absence of mirrored text. A test ties a rendered pixel to the hit mapping, by checking that the pixel at a node's inspected world pose belongs to that node.
+Offscreen rendering verifies pixel behavior that node inspection cannot establish, including text orientation, clipping, depth, fading, and custom-volume state restoration. A test claiming drawing and picking agreement must exercise the real mapping rather than repeating a flat-panel formula in its oracle. Fixed curved meshes and transparent overlap retain the limits in [Rendering](rendering.md).
 
 ### Theme tests
 
-Each shipped theme is checked for the contrast rules in [Accessibility](accessibility.md#colour-and-contrast), for every pair of text and surface tokens and for non-text boundaries.
+Theme checks use the contrast requirements in [Accessibility](accessibility.md#colour-and-contrast). Coverage of token pairs does not prove every custom visual or translucent background. Headset checks remain necessary for legibility, stereo separation, and interaction comfort.
 
 ### Native tests
 
-The layout and text binding has Rust tests in `crates/lunette/src/lua/tests/`, following the existing `textBoundaries` tests. They cover the batched change format, incremental relayout, rounding being disabled, composed positions in the result arrays, custom layout and measure callbacks that size from children, raise, or re-enter, text measurement at constrained widths, line limits, span geometry, fallback, background glyph generation, the atlas's page limit, atlas eviction, and atlas recreation after the graphics module is replaced.
+The [native Lua tests](../../../crates/lunette/src/lua/tests/) and [UI layout tests](../../../crates/lunette-ui/src/layout/) own native behavior. Native scripted callbacks do not imply a host registration path. Native glyph-cache tests must distinguish page-idle eviction and Lua-state lifetime from unimplemented reference counting or cross-state caching.
 
 ## The native binding in tests
 
-The layout and text binding is not pure: system fonts make measurements depend on the machine. The Lua test runner therefore registers the real layout and shaping implementation with only the bundled fonts and without system font discovery, so measurements are the same on every machine. The glyph atlas generates its distance fields on the CPU, so the Lua and Rust tests generate real glyphs; only uploading its pages to LÖVR textures needs graphics, which the graphics tests exercise whenever a panel draws text.
+The test runner can use the real layout and shaping implementation without system-font discovery. This avoids machine-dependent font selection while preserving the native algorithms. Glyph field generation runs on the CPU; texture upload and shader sampling require the graphics fixture. Tests should keep those boundaries explicit rather than substituting a fake for the behavior being checked.

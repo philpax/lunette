@@ -1,56 +1,49 @@
 # UI toolkit design
 
-The UI toolkit builds the session's in-scene interfaces: the plugin manager, the wrist menu, settings panels, titlebars, overlays, notifications, and the virtual keyboard. It is a retained tree of composable elements with layout, shaped and wrapped text, a full widget set, physical depth, animation, and input from controllers, tracked hands, and mouse and keyboard. Plugins build interfaces with it through public contracts, and they extend or replace any of its layers through the plugin runtime.
+The UI toolkit builds retained, in-scene interfaces through public plugin contracts. The host owns panels, nodes, layout synchronisation, input routing, focus, overlays, motion, drawing, and inspection. Native layout and shaping provide text and container geometry; Lua kinds, visuals, and authoring libraries provide policy.
+
+The [host guide](../../../lua/lunette-plugins/ui/host/README.md), [authoring library](../../../lua/lunette-plugins/ui/react/README.md), and [standard kinds guide](../../../lua/lunette-plugins/ui/standard/README.md) own plugin workflows. The [host contract](../../../lua/lunette-contracts/ui-host.luau), [theme contract](../../../lua/lunette-contracts/theme.luau), and [generated native declarations](../../../lua/lunette/init.luau) own signatures and supported fields. Development documents record constraints and integration hazards rather than a second API reference.
 
 ## Reading order
 
-1. [Requirements](requirements.md): what the toolkit provides, the requirements it meets, and what is out of scope.
-2. [Architecture](architecture.md): the layers, the host's responsibilities, the data flow from component to pixel, and the split between Rust and Lua.
-3. [Spatial model](spatial-model.md): node poses, surface shapes, placement, anchors, and hit volumes.
-4. [Authoring](authoring.md): the component model that plugin authors write against.
-5. [Extension](extension.md): the element format, element kinds, visuals, behaviour overrides, outlets, replacement, other frameworks, and trust.
-6. [Layout and text](layout-and-text.md): units, layout, layout callbacks, shaping, and glyph rendering.
-7. [Rendering](rendering.md): drawing in the scene, the toolkit shader, the drawing API, bound parameters, depth and draw order, opacity, and draw cost.
-8. [Input](input.md): sources and interactors, routing, gestures, capture, focus, and the virtual keyboard.
-9. [Presentations](presentations.md): pose policies, portals and overlays, notifications, and input modes.
-10. [Motion and feedback](motion-and-feedback.md): the animation clock, transitions, scroll physics, and haptic, sound, and visual feedback.
-11. [Theming](theming.md): tokens, target sizes, typography, colours, and elevation.
-12. [Accessibility](accessibility.md): session settings, roles, one-hand use, and localisation.
-13. [Testing](testing.md): inspection, addressing by id, and the test layers.
-14. [Research](research.md): the systems that informed the design, what was taken from each, and why.
+1. [Requirements](requirements.md): session constraints, current boundaries, and deferred work.
+2. [Architecture](architecture.md): ownership, native and Lua responsibilities, scheduling, errors, and recovery.
+3. [Spatial model](spatial-model.md): panel coordinates, curvature, depth, hit geometry, and clipping.
+4. [Authoring](authoring.md): component identity, scheduling, effects, stores, and reload.
+5. [Extension](extension.md): registration, overrides, outlets, replacement providers, compatibility, and trust.
+6. [Layout and text](layout-and-text.md): native layout, shaping, glyph resources, and editing limits.
+7. [Rendering](rendering.md): scene depth, drawing boundaries, opacity, and cost.
+8. [Input](input.md): ray and touch routing, capture, traversal, and deferred interaction requirements.
+9. [Presentations](presentations.md): panel placement, overlays, dialogs, and saved poses.
+10. [Motion and feedback](motion-and-feedback.md): retained response and reduced-motion behavior.
+11. [Theming](theming.md): physical units, readability, contrast, and depth rationale.
+12. [Accessibility](accessibility.md): settings, semantics, and complete VR workflows.
+13. [Testing](testing.md): inspection boundaries and verification constraints.
+14. [Research](research.md): source guidance and alternatives behind the constraints.
 
 ## Terms
 
-The documents use these terms consistently.
+- A panel is a host-owned scene interface with a pose, size, curve, surface, and root mount point.
+- A presentation is one of the host's closed panel placement policies. A consumer can also pose a panel explicitly.
+- A component is a function that receives props and returns elements through an authoring library.
+- An element describes a kind, props, children, and identity. The framework expands its own constructs before submitting elements.
+- A node is the retained host object with layout and transient state.
+- A kind supplies a node's layout, behavior, semantics, and visual names. A composite kind expands into other elements.
+- A visual records a node's appearance. A custom volume instead draws each frame under a separate bounds contract.
+- An outlet is a typed contribution point with a separate mount for each contribution at each placement.
+- A portal creates an overlay panel associated with its opener.
+- Default appearance selects base registrations, visuals, and theme while retaining accessibility settings.
+- A token is a named theme value shared by kinds and consumers.
 
-- A panel is a UI host object placed in the scene. It has a pose, a size, a surface shape, and one root of the element tree. A panel is pickable: it registers a surface with the interaction service.
-- A presentation is the policy that places, scales, and summons a panel, and that selects which interactors apply to it. A wrist presentation and a summoned presentation can show the same tree.
-- A component is a Lua function that receives props and returns elements. Components are the unit that authors of the standard authoring library write.
-- An element is an immutable description of a node: an element kind, a key, props, and children. The host defines the element format, and every authoring framework produces it.
-- A node is the retained object that the host keeps for an element. A node holds layout results, its pose, transient interaction state such as hover and press, animation channels, and drawing caches.
-- An element kind is a registered type of node, such as a button, a column, or a third-party knob. A kind defines props, layout behaviour, drawing, event handling, focusability, a role, and inspection output. A composite kind expands into other elements.
-- A visual is a drawing function that a kind uses for its appearance. Visuals are named and can be overridden without changing behaviour.
-- An outlet is a named, typed point in a tree where other plugins contribute subtrees, owned by their own contexts.
-- A portal renders an element into another panel while keeping its logical parent. Overlays are portals.
-- A surface shape maps points on a surface to the scene. Flat and cylindrical panels are surface shapes.
-- A surface root is a node that opens a surface, such as a panel root. Its descendants are positioned in its surface coordinates.
-- A mount point is a node into which one authoring framework renders, such as a panel root, an outlet instance, a portal, or a virtualised item.
-- A source is a physical input device: the left or right hand, which holds a controller or is tracked bare, or the mouse.
-- An interactor is one input mechanism of a source: a controller ray, a fingertip poke point, a pinch ray, a grab sphere, or a mouse cursor ray.
-- A semantic event is a modality-independent event that the host delivers to nodes, such as hover, press, activate, drag, scroll, and focus changes.
-- A gesture claim is a node's declaration that it consumes a kind of drag or scroll, used to decide which node a gesture belongs to.
-- Default appearance is a session-wide switch that renders every panel with the standard kinds, visuals, and base theme, ignoring overrides, as a way back from an extension that breaks the interface.
-- A token is a named theme value, such as a spacing step, a type style, a colour role, an elevation level, or a motion role.
+Gesture claims, grab spheres, proximity selection, maintained arrangements, arbitrary surface roots, and public presentation registration are not implied by these terms. Deferred requirements are linked below.
 
 ## Decisions in brief
 
-- Plugin authors write React-like function components. A reconciler turns their output into host elements. Transient interaction state lives in nodes and never causes a component to render. [Authoring](authoring.md) records the comparison with signals and immediate mode.
-- The host owns the element format, the node tree, composite expansion, layout, drawing, hit testing, routing, focus, portals, and inspection. Element kinds, visuals, and authoring frameworks are layers above it, and the standard widgets register through the same public path as third-party widgets. [Extension](extension.md) describes each layer.
-- No part of the interface is closed to extension. Recovery from a broken extension is default appearance, reachable by a controller chord, and a recovery plugin that works without the toolkit, rather than restrictions on what can be overridden.
-- Every node is positioned in the coordinates of its surface root and either bends onto the surface or keeps a rigid frame of its own. Flat and cylindrical sheets are the common case of that model, not its limit. [Spatial model](spatial-model.md) defines it.
-- Layout uses the `taffy` crate's low-level API through a batched native binding, so custom layouts written in Lua take part in intrinsic sizing. Text is shaped, wrapped, and measured natively, and glyphs are drawn from a distance field atlas that the text module owns. [Layout and text](layout-and-text.md) describes both.
-- Panels draw directly in the scene with real depth, in tree order. One toolkit shader clips, rounds, maps onto the surface shape, offsets by elevation, and evaluates parameters bound to animation and to nearby interactors. Panels do not render to offscreen textures and do not claim composition layers. [Rendering](rendering.md) records the reasons.
-- Sizes are authored in metres. A presentation applies a scale factor so that one tree reads correctly at different viewing distances. Touch parameters stay physical at every scale. [Theming](theming.md) records the reasons for metres over angular units.
-- Controller rays, tracked hands, and mouse and keyboard are supported equally. Nodes receive semantic events and never branch on modality. Keyboard and controller focus traversal is a separate channel that a plugin can drive. [Input](input.md) describes the model.
-- Overlays are separate panels opened through portals, anchored to their opener in the manner of Wayland's `xdg_popup`. [Presentations](presentations.md#portals-and-overlays) defines their capture, dismissal, focus, and modality.
-- In-session interfaces of any size are built with the toolkit rather than as Wayland clients, because they share the session's plugin and owner model, which a Wayland client cannot use.
+- Function components preserve ordinary Luau control flow. Retained nodes keep hover, press, focus, and scroll state separate from component renders. [Authoring](authoring.md#comparison-with-other-models) records the alternatives.
+- The host keeps one tree, input route, draw order, and focus state per panel. Kinds, visuals, and authoring frameworks extend it through the public boundary. [Extension](extension.md) records ownership and recovery constraints.
+- Layout and shaping remain native because their correctness tail exceeds a small widget implementation. Host kinds expose container styles and native text, not the native tree's scripted callback mechanism.
+- Panels draw geometry directly in the scene to preserve stereo depth. Luau packs instances for the host shaders; there is no native per-node draw-buffer or two-pass group-fade guarantee.
+- Sizes use metres because touch is physical. Distant readability still needs angular evaluation and headset testing. The host does not automatically scale every presentation for distance.
+- Overlays are separate panels so they can extend beyond an opener's clip. A curved opener produces a flat tangent overlay, not a concentric one.
+- Every session action requires a complete VR path without a physical keyboard or mouse. Shared gesture claims, grab spheres, and manipulation remain deferred in [#69](https://github.com/philpax/lunette/issues/69), pick hooks and proximity queries in [#70](https://github.com/philpax/lunette/issues/70), and maintained arrangements in [#71](https://github.com/philpax/lunette/issues/71).
+- In-session interfaces use the plugin and owner model rather than an embedded external UI engine whose elements sit outside that model.
