@@ -344,6 +344,7 @@ local function drawVolumes(
         depth = primitive.depth,
         opacity = run.opacity,
         scrim = scrim[4],
+        pose = transform,
       }
       pass:push 'state'
       pass:push 'transform'

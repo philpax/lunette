@@ -96,6 +96,7 @@ test("a volume's pass sits at the centre of its node's surface, lifted by its of
   expect.equal(volume.depth, 0.03)
   expect.equal(volume.opacity, 1)
   expect.equal(volume.scrim, 0)
+  expect.near(vector.magnitude(vector.pack(volume.pose:getPosition()) - expected), 0, 1e-6, 'the pose is the placement')
   expect.equal(#draw(state), 1, 'the volume draws again without its node changing')
   expect.equal(#seen, 2)
   state.fixture:close()

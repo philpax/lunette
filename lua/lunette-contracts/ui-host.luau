@@ -140,6 +140,10 @@ export type Volume = {
   read opacity: number,
   -- How far the content's colours move towards black while a dialog blocks the panel.
   read scrim: number,
+  -- Where the host placed the pass, in the pass's coordinates before the callback, such as the world for the scene
+  -- pass, for the length of the call. Content that keeps its own orientation, such as a model aligned with the world,
+  -- undoes its rotation.
+  read pose: Mat4,
 }
 
 -- Three-dimensional content its owner draws every frame. The host places the pass at the centre of the volume's
