@@ -183,4 +183,75 @@ test('an SVG image is rasterised and drawn over its node', function()
   scene.fixture:close()
 end)
 
+test("a volume's own geometry rises out of the panel and the pass state returns afterwards", function()
+  local scene = ui.boot({}, {}, function(context: any)
+    local service = context:require(uiHost.capability)
+    kinds(service, context)
+    service:registerKind(context, {
+      name = 'test/volume',
+      layout = {
+        kind = 'leaf',
+        style = function(): lunette.LayoutStyle
+          return { width = 0.06, height = 0.06 }
+        end,
+      },
+      visuals = { 'test/volume' },
+    })
+    service:registerVisual(context, 'test/volume', function(_node: uiHost.Node, draw: uiHost.Draw)
+      draw:volume(nil, {
+        depth = 0.04,
+        draw = function(pass: Pass, volume: uiHost.Volume): ()
+          -- A shader of the volume's own, which the host must not leave set for the text drawn after it.
+          pass:setShader 'unlit'
+          pass:setColor(0, 1, 0, 1)
+          pass:box(0, 0, volume.depth / 2, volume.width * 0.8, volume.height * 0.8, volume.depth)
+        end,
+      })
+    end)
+    local panel =
+      service:newPanel(context, { name = 'volumes', width = 0.2, height = 0.12, pose = lovr.math.newMat4() })
+    panel.root:bind {
+      render = function()
+        panel.root:submit(element('test/panel', {
+          element('test/volume', { key = 'volume' }),
+          element('test/text', { key = 'title', text = 'Lunette' }),
+        }))
+      end,
+    }
+  end)
+  local function green(image: Image): number
+    local count = 0
+    for y = 0, 199, 2 do
+      for x = 0, 319, 2 do
+        local r, g, b = image:getPixel(x, y)
+        if g > 0.9 and r < 0.1 and b < 0.1 then
+          count += 1
+        end
+      end
+    end
+    return count
+  end
+  local front = ui.render(scene, 320, 200, vector.pack(0, 0, 0.32), vector.pack(0, 0, 0))
+  ui.snapshot('host-volume', front)
+  local seen = green(front)
+  testing.expect.truthy(seen > 20, `the volume draws its box: {seen} samples`)
+  -- From the side, a box that rises out of the panel covers more of the view than its face alone.
+  local side = ui.render(scene, 320, 200, vector.pack(0.25, 0, 0.12), vector.pack(-0.06, 0.02, 0.02))
+  ui.snapshot('host-volume-side', side)
+  testing.expect.truthy(green(side) > 0, 'the box is visible from the side')
+  -- The text after the volume still draws with the toolkit's glyph shader, in its theme ink.
+  local ink = scene.service:theme().colors.ink
+  local inked = false
+  for y = 0, 199 do
+    for x = 0, 319 do
+      local r, g, b = front:getPixel(x, y)
+      if math.abs(r - ink[1]) < 0.03 and math.abs(g - ink[2]) < 0.03 and math.abs(b - ink[3]) < 0.03 then
+        inked = true
+      end
+    end
+  end
+  testing.expect.truthy(inked, 'the title draws in its ink after the volume')
+  scene.fixture:close()
+end)
+
 return test

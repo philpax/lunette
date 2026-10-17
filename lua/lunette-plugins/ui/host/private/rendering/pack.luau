@@ -29,6 +29,19 @@ export type ImageRun = {
   clip: { number },
 }
 
+-- A volume to call this frame, placed in panel coordinates with its base at z.
+export type VolumeRun = {
+  primitive: records.Primitive,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  z: number,
+  opacity: number,
+  -- The node's kind, for reporting a callback that raises.
+  kind: string,
+}
+
 export type Packed = {
   boxes: { number },
   count: number,
@@ -36,6 +49,7 @@ export type Packed = {
   glyphs: { [number]: { number } },
   glyphCounts: { [number]: number },
   images: { ImageRun },
+  volumes: { VolumeRun },
 }
 
 local function intersect(clip: { number }, node: records.Node): { number }
@@ -83,11 +97,12 @@ function pack.run(
   glyphs: Glyphs,
   into: Packed?
 ): Packed
-  local packed: Packed = into or { boxes = {}, count = 0, glyphs = {}, glyphCounts = {}, images = {} }
+  local packed: Packed = into or { boxes = {}, count = 0, glyphs = {}, glyphCounts = {}, images = {}, volumes = {} }
   local boxes = packed.boxes
   local count = 0
   table.clear(packed.glyphCounts)
   table.clear(packed.images)
+  table.clear(packed.volumes)
   local function glyph(
     placement: Glyph,
     x: number,
@@ -117,7 +132,7 @@ function pack.run(
   local tokens = env.theme()
   local contentOffset = tokens.elevation.contentOffset
   local edgeWidth = tokens.sizes.edge
-  local function emit(primitives: { records.Primitive }, at: Placement): ()
+  local function emit(primitives: { records.Primitive }, at: Placement, kind: string): ()
     local opacity = at.opacity
     for index, primitive in primitives do
       local step = (index - 1) * PRIMITIVE_STEP
@@ -148,6 +163,25 @@ function pack.run(
           tint = faded(primitive.tint, opacity),
           clip = at.clip,
         }
+      elseif primitive.kind == 'volume' then
+        local x, y = at.x + primitive.x, at.y + primitive.y
+        local clip = at.clip
+        local inside = x >= clip[1]
+          and y >= clip[2]
+          and x + primitive.width <= clip[3]
+          and y + primitive.height <= clip[4]
+        if inside and not primitive.failed then
+          packed.volumes[#packed.volumes + 1] = {
+            primitive = primitive,
+            x = x,
+            y = y,
+            width = primitive.width,
+            height = primitive.height,
+            z = at.z + primitive.offset + step,
+            opacity = opacity,
+            kind = kind,
+          }
+        end
       else
         local tint = faded(primitive.color, opacity)
         local z = at.z + contentOffset + primitive.offset + step
@@ -191,7 +225,7 @@ function pack.run(
       parentSurface = node.z - node.elevation - node.lift,
       clip = clip,
       opacity = opacity,
-    })
+    }, node.kind.name)
     -- A node focused by traversal shows a ring in the accent colour just outside its box. Focus from a pointer press
     -- shows none, in the manner of the web's focus-visible.
     if node.host.focusVisible then
@@ -227,7 +261,7 @@ function pack.run(
         parentSurface = entry.parentSurface,
         clip = entry.clip or UNCLIPPED,
         opacity = opacity,
-      })
+      }, 'exiting node')
     end
   end
   -- Entries past this frame's count are left in place and not drawn.

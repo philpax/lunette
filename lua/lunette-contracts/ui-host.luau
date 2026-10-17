@@ -131,6 +131,30 @@ export type ImageSpec = {
   read offset: number?,
 }
 
+-- What a volume's draw callback knows of the volume it fills.
+export type Volume = {
+  read width: number,
+  read height: number,
+  read depth: number,
+  -- The node's opacity, which the content applies itself, such as while the node fades out.
+  read opacity: number,
+  -- How far the content's colours move towards black while a dialog blocks the panel.
+  read scrim: number,
+}
+
+-- Three-dimensional content its owner draws every frame. The host places the pass at the centre of the volume's
+-- base, on the node's surface lifted by `offset`, with x right, y up, and z out of the panel, in metres; on a curved
+-- panel the base is tangent to the curve there. The content stays within the base's width and height and the
+-- volume's depth: the host does not clip it, and it hides the whole volume while any of the base lies outside the
+-- clip of an ancestor, such as a scroll view. The host restores the pass's state and transform after the callback,
+-- and a callback that raises is reported and not called again until the node draws again. The callback balances
+-- its own pushes.
+export type VolumeSpec = {
+  read depth: number,
+  read offset: number?,
+  read draw: (pass: Pass, volume: Volume) -> (),
+}
+
 export type Draw = {
   -- A box in node coordinates; nil draws the node's bounds.
   read box: (Draw, Rect?, BoxSpec) -> (),
@@ -140,6 +164,8 @@ export type Draw = {
   read image: (Draw, Rect?, ImageSpec) -> (),
   -- A straight line with round ends between two points in node coordinates, such as a graph's edge.
   read line: (Draw, number, number, number, number, LineSpec) -> (),
+  -- Three-dimensional content above a box in node coordinates; nil uses the node's bounds.
+  read volume: (Draw, Rect?, VolumeSpec) -> (),
 }
 
 export type LineSpec = {

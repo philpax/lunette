@@ -55,6 +55,18 @@ export type Primitive =
     tint: uiHost.Color,
     offset: number,
   }
+  | {
+    kind: 'volume',
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    offset: number,
+    depth: number,
+    draw: (Pass, uiHost.Volume) -> (),
+    -- Set when the callback raised, so that it is not called again until the visual runs again.
+    failed: boolean,
+  }
 
 export type Node = {
   id: number,

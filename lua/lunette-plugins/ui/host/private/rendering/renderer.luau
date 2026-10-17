@@ -312,6 +312,54 @@ local function drawImages(
   pass:setMaterial(nil)
 end
 
+-- Calls each volume's draw with the pass at the centre of its base. A curved panel's base sits on the cylinder at
+-- the volume's centre, turned to the tangent there, as `bend` in the shaders places a point.
+local function drawVolumes(
+  pass: Pass,
+  panel: records.Panel,
+  packed: pack.Packed,
+  scrim: { number },
+  protect: (string, () -> ()) -> boolean
+): ()
+  local halfWidth, halfHeight = panel.width / 2, panel.height / 2
+  local curve = panel.curve
+  for _, run in packed.volumes do
+    local primitive = run.primitive
+    if primitive.kind == 'volume' then
+      local x = run.x + run.width / 2 - halfWidth
+      local y = halfHeight - (run.y + run.height / 2)
+      local z = run.z
+      local transform = lovr.math.mat4(panel.pose)
+      if curve > 0 then
+        local radius = 1 / curve
+        local angle = x * curve
+        transform:translate((radius - z) * math.sin(angle), y, radius - (radius - z) * math.cos(angle))
+        transform:rotate(-angle, 0, 1, 0)
+      else
+        transform:translate(x, y, z)
+      end
+      local volume: uiHost.Volume = table.freeze {
+        width = run.width,
+        height = run.height,
+        depth = primitive.depth,
+        opacity = run.opacity,
+        scrim = scrim[4],
+      }
+      pass:push 'state'
+      pass:push 'transform'
+      local ok = protect(`ui: volume of {run.kind}`, function(): ()
+        pass:transform(transform)
+        primitive.draw(pass, volume)
+      end)
+      pass:pop 'transform'
+      pass:pop 'state'
+      if not ok then
+        primitive.failed = true
+      end
+    end
+  end
+end
+
 local function drawGlyphs(
   resources: Resources,
   pass: Pass,
@@ -369,7 +417,8 @@ function renderer.draw(
   panel: records.Panel,
   packed: pack.Packed,
   theme: uiHost.Theme,
-  blocked: boolean?
+  blocked: boolean?,
+  protect: (string, () -> ()) -> boolean
 ): ()
   local scrim = if blocked then BLOCKED else CLEAR
   pass:push 'state'
@@ -378,6 +427,7 @@ function renderer.draw(
     pass:setBlendMode('alpha', 'alphamultiply')
     pass:setColor(1, 1, 1, 1)
     drawBoxes(resources, pass, panel, packed, theme, scrim)
+    drawVolumes(pass, panel, packed, scrim, protect)
     drawImages(resources, pass, panel, packed, scrim)
     drawGlyphs(resources, pass, panel, packed, scrim)
   end)

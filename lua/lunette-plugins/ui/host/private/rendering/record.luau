@@ -79,6 +79,25 @@ local function newDraw(node: records.Node, primitives: { records.Primitive }): u
       offset = spec.offset or 0,
     }
   end
+  function draw.volume(_self: uiHost.Draw, rect: uiHost.Rect?, spec: uiHost.VolumeSpec): ()
+    local area = rect or node.handle.bounds
+    assert(type(spec.draw) == 'function', 'ui: a volume takes a draw function')
+    assert(
+      type(spec.depth) == 'number' and spec.depth >= 0 and spec.depth < math.huge,
+      'ui: a volume depth is a finite number of metres, at least zero'
+    )
+    primitives[#primitives + 1] = {
+      kind = 'volume',
+      x = area.x,
+      y = area.y,
+      width = area.width,
+      height = area.height,
+      offset = spec.offset or 0,
+      depth = spec.depth,
+      draw = spec.draw,
+      failed = false,
+    }
+  end
   return (draw :: any) :: uiHost.Draw
 end
 

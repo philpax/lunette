@@ -345,7 +345,15 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
                 pack.marker(packed, marker.x, marker.y, marker.surface, marker.depth, current)
               end
             end
-            renderer.draw(held, pass, record, assert(entry.packed), current, presentation.blocked(record, drawn))
+            renderer.draw(
+              held,
+              pass,
+              record,
+              assert(entry.packed),
+              current,
+              presentation.blocked(record, drawn),
+              protected.call
+            )
           end)
         end
       end
