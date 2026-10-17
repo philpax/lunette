@@ -130,48 +130,18 @@ shader.boxFragment = substitute [[
   }
 ]]
 
--- Text keeps LÖVR's own glyph vertices and transform; the fragment stage clips in panel coordinates.
-shader.textVertex = BEND
+-- Image quads carry panel coordinates directly; the draw transform applies the panel pose and enclosing transforms.
+shader.imageVertex = BEND
   .. [[
-  uniform mat4 panelInverse;
-  uniform mat4 panelPose;
   uniform vec4 panelSize;
-  out vec2 textPanel;
+  uniform vec4 imageRect;
+  uniform vec4 imageElevation;
+  out vec2 imagePanel;
 
   vec4 lovrmain() {
-    vec4 world = Transform * VertexPosition;
-    vec4 local = panelInverse * world;
-    textPanel = vec2(local.x + panelSize.x * .5, panelSize.y * .5 - local.y);
-    if (panelCurve.x <= 0.) {
-      return DefaultPosition;
-    }
-    // Glyphs are placed flat in panel space and bent onto the cylinder here.
-    vec3 bent = bend(local.x, local.y, local.z);
-    return ViewProjection * (panelPose * vec4(bent, 1.));
-  }
-]]
-
-shader.textFragment = [[
-  uniform vec4 textClip;
-  in vec2 textPanel;
-
-  float median(float r, float g, float b) {
-    return max(min(r, g), min(max(r, g), b));
-  }
-
-  vec4 lovrmain() {
-    if (textPanel.x < textClip.x || textPanel.y < textClip.y || textPanel.x > textClip.z || textPanel.y > textClip.w) {
-      discard;
-    }
-    vec3 msdf = getPixel(ColorTexture, UV).rgb;
-    float sdf = median(msdf.r, msdf.g, msdf.b);
-    vec2 screenTexSize = vec2(1.) / fwidth(UV);
-    float range = max(.5 * dot(Material.sdfRange, screenTexSize), 1.);
-    float alpha = clamp(range * (sdf - .5) + .5, 0., 1.);
-    if (alpha <= 0.) {
-      discard;
-    }
-    return vec4(Color.rgb, Color.a * alpha);
+    imagePanel = imageRect.xy + VertexUV * imageRect.zw;
+    vec3 local = bend(imagePanel.x - panelSize.x * .5, panelSize.y * .5 - imagePanel.y, imageElevation.x);
+    return ClipFromLocal * vec4(local, 1.);
   }
 ]]
 
@@ -249,14 +219,14 @@ shader.glyphFragment = [[
   }
 ]]
 
--- Images sample their texture, multiplied by the draw colour, and clip like text.
+-- Images sample their texture, multiplied by the draw colour, and clip in panel coordinates.
 shader.imageFragment = [[
-  uniform vec4 textClip;
+  uniform vec4 imageClip;
   uniform vec4 panelScrim;
-  in vec2 textPanel;
+  in vec2 imagePanel;
 
   vec4 lovrmain() {
-    if (textPanel.x < textClip.x || textPanel.y < textClip.y || textPanel.x > textClip.z || textPanel.y > textClip.w) {
+    if (imagePanel.x < imageClip.x || imagePanel.y < imageClip.y || imagePanel.x > imageClip.z || imagePanel.y > imageClip.w) {
       discard;
     }
     vec4 color = Color * getPixel(ColorTexture, UV);

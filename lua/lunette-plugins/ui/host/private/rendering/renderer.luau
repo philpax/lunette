@@ -152,7 +152,7 @@ function renderer.acquire(report: (string) -> ()): (Resources, () -> ())
       grid = grid,
       boxShader = keep(lovr.graphics.newShader(shader.boxVertex, shader.boxFragment, { label = 'ui/boxes' })),
       glyphShader = keep(lovr.graphics.newShader(shader.glyphVertex, shader.glyphFragment, { label = 'ui/glyphs' })),
-      imageShader = keep(lovr.graphics.newShader(shader.textVertex, shader.imageFragment, { label = 'ui/images' })),
+      imageShader = keep(lovr.graphics.newShader(shader.imageVertex, shader.imageFragment, { label = 'ui/images' })),
       quad = quad(keep),
       images = cache,
       batch = table.create(shader.SLOTS * shader.BATCH * 4, 0),
@@ -296,19 +296,16 @@ local function drawImages(
   pass:send('panelScrim', scrim)
   pass:setDepthWrite(false)
   local pose = centre(panel)
-  pass:send('panelInverse', lovr.math.mat4(pose):invert())
-  pass:send('panelPose', pose)
   pass:send('panelCurve', { panel.curve, 0, 0, 0 })
   pass:send('panelSize', { panel.width, panel.height, 0, 0 })
-  local halfWidth, halfHeight = panel.width / 2, panel.height / 2
   for _, run in packed.images do
     local texture = images.texture(resources.images, run.source, run.width, run.height)
     pass:setMaterial(texture)
     pass:setColor(run.tint[1], run.tint[2], run.tint[3], run.tint[4] or 1)
-    pass:send('textClip', run.clip)
-    local x = run.x + run.width / 2 - halfWidth
-    local y = halfHeight - (run.y + run.height / 2)
-    pass:plane(lovr.math.mat4(pose):translate(x, y, run.z):scale(run.width, run.height, 1))
+    pass:send('imageClip', run.clip)
+    pass:send('imageRect', { run.x, run.y, run.width, run.height })
+    pass:send('imageElevation', { run.z, 0, 0, 0 })
+    pass:plane(pose)
   end
   pass:setMaterial(nil)
 end
