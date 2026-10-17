@@ -114,9 +114,13 @@ local function init(context: plugin.Context, settings: Settings): ()
   local mouse: Mouse? = nil
   local ray: Ray? = nil
   local withdrawn = false
+  -- Seconds since the last mouse input. In a headset session the cursor sits ahead of the head, so after a while
+  -- without input it withdraws rather than hovering whatever the user looks at.
+  local idle = 0
 
   frameService:onMouse(context, {
     run = function(event: frame.HostMouseEvent)
+      idle = 0
       if event.kind == 'move' then
         -- In the simulator the ray follows the window's own cursor, except while the window holds the mouse in
         -- relative mode to turn the head, where the cursor has no place and the aim stays put.
@@ -164,7 +168,9 @@ local function init(context: plugin.Context, settings: Settings): ()
       if not current then
         return
       end
-      local head = headPose()
+      idle += dt
+      local resting = simulatorView() == nil and idle > settings.idleTimeout
+      local head = if resting then nil else headPose()
       if not head then
         ray = nil
         if not withdrawn then
@@ -201,7 +207,7 @@ local function init(context: plugin.Context, settings: Settings): ()
     phase = 'feedback',
     run = function(pass: Pass)
       local current, line = mouse, ray
-      if not current or not line or current.pointer.dead then
+      if not current or not line or current.pointer.dead or withdrawn then
         return
       end
       local pointer = current.pointer

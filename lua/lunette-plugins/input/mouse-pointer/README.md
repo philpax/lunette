@@ -4,7 +4,7 @@ Drives one interaction pointer from the mouse while LÖVR's desktop window recei
 
 The ray has no aim filter and no trigger lock, because a mouse does not move when its button is pressed. The mouse is a separate source, so it hovers and captures independently of the controllers.
 
-The pointer and its own seat are made at the first mouse movement. A session without a mouse therefore has no extra seat and draws no cursor. The cursor is a sphere of constant apparent size at the hit point, or at the configured distance along the ray when the ray hits nothing. It draws in the toolkit theme's muted ink, and in its accent over a surface, unless the options set other colours.
+The pointer and its own seat are made at the first mouse movement. A session without a mouse therefore has no extra seat and draws no cursor. With a headset session, the cursor sits ahead of the head and would hover whatever the user looks at, so it withdraws after `idleTimeout` seconds without mouse input and returns with the next input. The simulator keeps it. The cursor is a sphere of constant apparent size at the hit point, or at the configured distance along the ray when the ray hits nothing. It draws in the session theme's muted ink, and in its accent over a surface, unless the options set other colours.
 
 The pointer reads mouse events only while the desktop window has input. Host mouse capture, which would take the mouse independently of window focus, is not implemented.
 

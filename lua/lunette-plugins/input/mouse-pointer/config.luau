@@ -18,6 +18,9 @@ local descriptor = schema.object {
   distance = schema.default(positive)(1.5),
   -- The cursor's angular radius in radians, so the cursor keeps its apparent size at any distance.
   cursorAngle = schema.default(positive)(0.004),
+  -- Seconds without mouse input after which a headset session withdraws the cursor, so it does not hover whatever
+  -- the user looks at; the next mouse input brings it back. The desktop simulator keeps it.
+  idleTimeout = schema.default(positive)(3),
   -- The colours default to the toolkit theme's muted ink and accent.
   color = schema.optional(color),
   hoverColor = schema.optional(color),
