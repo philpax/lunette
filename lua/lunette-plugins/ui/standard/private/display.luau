@@ -64,7 +64,7 @@ function display.register(service: uiHost.Service, owner: any): { [string]: uiHo
       return { value = props.value, min = 0, max = 1 }
     end,
     layout = {
-      kind = 'leaf',
+      kind = 'container',
       style = function(props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
         return { height = theme.sizes.rail * 1.5, alignSelf = 'stretch', grow = props.grow, width = props.width }
       end,
@@ -98,7 +98,7 @@ function display.register(service: uiHost.Service, owner: any): { [string]: uiHo
       return { name = props.label }
     end,
     layout = {
-      kind = 'leaf',
+      kind = 'container',
       style = function(props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
         return {
           width = props.width or theme.sizes.check,

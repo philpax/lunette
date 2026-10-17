@@ -143,7 +143,7 @@ function values.register(service: uiHost.Service, owner: any): { [string]: uiHos
     focus = 'pointer',
     engage = true,
     layout = {
-      kind = 'leaf',
+      kind = 'container',
       style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
         return { height = theme.sizes.thumb + theme.spacing.sm, alignSelf = 'stretch' }
       end,

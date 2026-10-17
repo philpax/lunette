@@ -76,14 +76,14 @@ test("an override keeps the kind's name and must layer into a valid registration
   end)
   expect.falsy(ok, 'an override that renames the kind is refused')
   ok = pcall(function()
-    state.service:overrideKind(state.owner, 'test/leaf', {
-      name = 'test/leaf',
+    state.service:overrideKind(state.owner, 'test/text', {
+      name = 'test/text',
       expand = function(): uiHost.Child
         return nil
       end,
     })
   end)
-  expect.falsy(ok, 'an override that would make a leaf expand is refused')
+  expect.falsy(ok, 'an override that would make measured text expand is refused')
   ok = pcall(function()
     state.service:overrideKind(state.owner, 'test/absent', { name = 'test/absent' })
   end)
@@ -120,7 +120,8 @@ test('default appearance uses the base theme and keeps text scale', function()
       fixture.registerKinds(service, owner, {})
     end,
   }
-  state.service:setMode 'light'
+  local theme = assert(state.fixture.session):observe(require('@lunette-contracts/theme').capability)
+  assert(theme.context):require(require('@lunette-contracts/theme').capability):setMode 'light'
   state.service:setAccessibility { textScale = 1.5 }
   local scaled = state.service:theme().type.body.size
   state.service:setDefaultAppearance(true)
@@ -205,7 +206,7 @@ test('an override that loads during a drag carries the capture to the remade nod
       service:registerKind(owner, {
         name = 'test/handle',
         layout = {
-          kind = 'leaf',
+          kind = 'container',
           style = function(): lunette.LayoutStyle
             return { width = 0.06, height = 0.02 }
           end,

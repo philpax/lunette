@@ -208,7 +208,7 @@ export type Event =
 
 export type EventHandler = (node: Node, event: Event, base: (Node, Event) -> ()) -> ()
 
--- Container kinds lay out their children with a style; text kinds are measured natively; leaf kinds take a size.
+-- Container kinds size and lay out their children through a style; text kinds are measured natively.
 export type Layout =
   {
     read kind: 'container',
@@ -220,8 +220,6 @@ export type Layout =
     read style: ((props: Props, theme: Theme) -> lunette.LayoutStyle)?,
     read textStyle: (props: Props, theme: Theme) -> lunette.LayoutTextStyle,
   }
-  -- A leaf sizes itself through its style's width, height, and aspect ratio.
-  | { read kind: 'leaf', read style: ((props: Props, theme: Theme) -> lunette.LayoutStyle)? }
 
 -- Actions are plain functions, so a composite's callbacks can close over them.
 export type Actions = {

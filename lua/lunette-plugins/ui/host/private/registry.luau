@@ -140,7 +140,7 @@ function registry.new(hostOwner: plugin.Owner): Registry
     registration = {
       name = 'lunette/portal',
       layout = {
-        kind = 'leaf',
+        kind = 'container',
         style = function(): any
           return { position = 'absolute', width = 0, height = 0 }
         end,
@@ -212,10 +212,7 @@ function registry.validate(registration: uiHost.KindRegistration): ()
   )
   if registration.layout then
     local kind = registration.layout.kind
-    assert(
-      kind == 'container' or kind == 'text' or kind == 'leaf',
-      `ui: {name}: '{tostring(kind)}' is not a layout kind`
-    )
+    assert(kind == 'container' or kind == 'text', `ui: {name}: '{tostring(kind)}' is not a layout kind`)
   end
 end
 

@@ -140,7 +140,7 @@ function scrollView.register(service: uiHost.Service, owner: any): { [string]: u
     name = 'lunette/scroll-extent',
     props = schema.object { height = schema.number() },
     layout = {
-      kind = 'leaf',
+      kind = 'container',
       style = function(props: uiHost.Props): lunette.LayoutStyle
         return { height = props.height, width = '100%' }
       end,

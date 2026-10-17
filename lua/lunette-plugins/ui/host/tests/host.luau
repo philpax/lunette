@@ -244,7 +244,7 @@ test('nodes of a kind that registers late are made again with the registration',
   state.service:registerKind(state.owner, {
     name = 'test/late',
     layout = {
-      kind = 'leaf',
+      kind = 'container',
       style = function(): lunette.LayoutStyle
         return { width = 0.01, height = 0.01 }
       end,
@@ -403,7 +403,7 @@ test('a kind with a props schema reports unknown and invalid props', function()
         name = 'test/strict',
         props = schema.object { width = schema.number { positive = true } },
         layout = {
-          kind = 'leaf',
+          kind = 'container',
           style = function(props: uiHost.Props): lunette.LayoutStyle
             return { width = props.width or 0.01, height = 0.01 }
           end,
@@ -462,7 +462,7 @@ test('a scroll reaches the node under the pointer with its position in that node
       service:registerKind(owner, {
         name = 'test/canvas',
         layout = {
-          kind = 'leaf',
+          kind = 'container',
           style = function(): any
             return { width = 0.1, height = 0.05 }
           end,

@@ -130,7 +130,7 @@ function choices.register(service: uiHost.Service, owner: any): { [string]: uiHo
       value = optional(schema.boolean()),
     },
     layout = {
-      kind = 'leaf',
+      kind = 'container',
       style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
         return { width = theme.sizes.toggleWidth, height = theme.sizes.toggleHeight, shrink = 0 }
       end,
@@ -231,7 +231,7 @@ function choices.register(service: uiHost.Service, owner: any): { [string]: uiHo
       shape = optional(schema.enum { 'round', 'square' }),
     },
     layout = {
-      kind = 'leaf',
+      kind = 'container',
       style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
         return { width = theme.sizes.check, height = theme.sizes.check, shrink = 0 }
       end,
@@ -508,7 +508,7 @@ function choices.registerDropdown(service: uiHost.Service, owner: any): uiHost.C
       open = optional(schema.boolean()),
     },
     layout = {
-      kind = 'leaf',
+      kind = 'container',
       style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
         return { width = theme.spacing.lg, height = theme.spacing.lg, shrink = 0 }
       end,

@@ -50,7 +50,7 @@ function kinds.register(host: uiHost.Service, owner: plugin.Context, sources: So
   local skyline = host:registerKind(owner, {
     name = 'desktop/backdrop/skyline',
     layout = {
-      kind = 'leaf',
+      kind = 'container',
       style = function(props: uiHost.Props): lunette.LayoutStyle
         return { height = props.height, grow = 1, alignSelf = 'stretch' }
       end,
@@ -90,7 +90,7 @@ function kinds.register(host: uiHost.Service, owner: plugin.Context, sources: So
   local skyModel = host:registerKind(owner, {
     name = 'desktop/backdrop/model',
     layout = {
-      kind = 'leaf',
+      kind = 'container',
       style = function(props: uiHost.Props): lunette.LayoutStyle
         return { width = props.size, height = props.size }
       end,

@@ -220,10 +220,6 @@ local function resolve(env: Environment, node: records.Node): Resolved
       if layout.style then
         resolved.style = layout.style(node.props, tokens, node.state)
       end
-    elseif layout.kind == 'leaf' then
-      if layout.style then
-        resolved.style = layout.style(node.props, tokens)
-      end
     end
   end)
   local elevation = registration.elevation

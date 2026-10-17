@@ -97,7 +97,7 @@ function fixture.registerKinds(service: uiHost.Service, owner: any, log: { strin
   service:registerKind(owner, {
     name = 'test/swatch',
     layout = {
-      kind = 'leaf',
+      kind = 'container',
       style = function(): lunette.LayoutStyle
         return { width = 0.02, height = 0.02 }
       end,
@@ -119,7 +119,7 @@ function fixture.registerKinds(service: uiHost.Service, owner: any, log: { strin
   service:registerKind(owner, {
     name = 'test/leaf',
     layout = {
-      kind = 'leaf',
+      kind = 'container',
       style = function(props: uiHost.Props): lunette.LayoutStyle
         return { width = props.width, height = props.height }
       end,

@@ -28,7 +28,7 @@ local function boot(config: { [string]: any }?): Scene
       service:registerKind(owner, {
         name = 'test/scroll-recorder',
         layout = {
-          kind = 'leaf',
+          kind = 'container',
           style = function(): any
             return { width = 0.04, height = 0.02 }
           end,

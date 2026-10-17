@@ -300,7 +300,7 @@ function structure.register(service: uiHost.Service, owner: any): { [string]: ui
     name = 'lunette/separator',
     props = schema.object {},
     layout = {
-      kind = 'leaf',
+      kind = 'container',
       style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
         return { height = theme.sizes.rule * 2, alignSelf = 'stretch' }
       end,
@@ -319,7 +319,7 @@ function structure.register(service: uiHost.Service, owner: any): { [string]: ui
       height = optional(shapes.length),
     },
     layout = {
-      kind = 'leaf',
+      kind = 'container',
       style = function(props: uiHost.Props): lunette.LayoutStyle
         return { grow = props.grow or 1, width = props.width, height = props.height }
       end,
