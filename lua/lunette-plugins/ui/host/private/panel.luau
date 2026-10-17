@@ -212,18 +212,13 @@ function panel.surface(provider: Provider, record: records.Panel, setPose: ((Mat
       local localOrigin, localDirection = shape.localRay(record, origin, direction)
       return shape.ray(record, localOrigin, localDirection, false)
     end,
-    onPointer = function(self: vocabulary.Surface, event: vocabulary.PointerEvent): ()
-      if record.dead then
-        return
+    triggerGrabs = function(_self: vocabulary.Surface, x: number, y: number): boolean
+      return not record.dead and input.grabs(record, env, x, y)
+    end,
+    onPointer = function(_self: vocabulary.Surface, event: vocabulary.PointerEvent): ()
+      if not record.dead then
+        input.surface(provider.router, record, env, event)
       end
-      -- The trigger grabs an attached panel's target from its empty space, and a grabbable panel from the empty space
-      -- of a handle such as its header, and presses nodes elsewhere, so a titlebar moves its panel and still takes
-      -- clicks on its buttons. The interaction service reads the field when the press arrives, after the moves that
-      -- led to it.
-      if event.x and event.y then
-        (self :: any).triggerGrabbable = input.grabs(record, env, event.x, event.y)
-      end
-      input.pointer(provider.router, record, env, event)
     end,
     setPose = if setPose
       then function(_self: vocabulary.Surface, pose: Mat4): ()

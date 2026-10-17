@@ -195,8 +195,8 @@ type SurfaceFields = {
   read attachFrame: ((Surface, plugin.Owner, FrameStyle) -> FrameAttachment)?,
   read dead: boolean,
   read grabbable: boolean?,
-  -- A primary-button edge begins a spatial grab instead of a click on this surface.
-  read triggerGrabbable: boolean?,
+  -- Answers whether a primary-button edge at the current hit begins a spatial grab instead of a click.
+  read triggerGrabs: ((Surface, number, number) -> boolean)?,
   -- A composite surface can direct its grab to an owning surface offered alongside it.
   read grabTarget: ((Surface) -> Surface?)?,
   -- Picking prefers a hit on a surface with a higher priority over a nearer hit, and treats nil as 0. Recovery
@@ -219,7 +219,7 @@ type MovableFields = {
   read attachFrame: ((Surface, plugin.Owner, FrameStyle) -> FrameAttachment)?,
   read dead: boolean,
   read grabbable: boolean?,
-  read triggerGrabbable: boolean?,
+  read triggerGrabs: ((Surface, number, number) -> boolean)?,
   read grabTarget: ((Surface) -> Surface?)?,
   read pickPriority: number?,
   read pose: Mat4?,

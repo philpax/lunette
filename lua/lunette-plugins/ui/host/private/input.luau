@@ -22,7 +22,35 @@ type Capture = {
   dragging: boolean,
 }
 
+export type Pointer = { read source: 'ray', read ray: vocabulary.Pointer } | { read source: 'touch' }
+
+export type Event =
+  {
+    read kind: 'enter' | 'leave' | 'move' | 'press' | 'release',
+    read pointer: Pointer,
+    read x: number?,
+    read y: number?,
+    read motion: ('hover' | 'capture')?,
+  }
+  | {
+    read kind: 'scroll',
+    read pointer: Pointer,
+    read x: number?,
+    read y: number?,
+    read dx: number,
+    read dy: number,
+  }
+  | {
+    read kind: 'cancel',
+    read pointer: Pointer,
+    read x: number?,
+    read y: number?,
+    read reason: vocabulary.CancelReason,
+  }
+
 type PointerState = {
+  pointer: Pointer,
+  generation: number,
   hovered: records.Node?,
   capture: Capture?,
   -- The overlay panel that took this pointer's press from its opener; a release over one of its nodes activates it.
@@ -30,7 +58,7 @@ type PointerState = {
 }
 
 export type Router = {
-  pointers: { [vocabulary.Pointer]: PointerState },
+  pointers: { [vocabulary.Pointer | Pointer]: PointerState },
 }
 
 function input.new(): Router
@@ -73,10 +101,20 @@ local function interactive(env: records.Environment, node: records.Node): boolea
 end
 
 -- The nearest interactive node at or above the deepest node under the point.
-function input.target(panel: records.Panel, env: records.Environment, x: number, y: number): records.Node?
+function input.target(
+  panel: records.Panel,
+  env: records.Environment,
+  x: number,
+  y: number,
+  current: (() -> boolean)?
+): records.Node?
   local node = input.deepest(panel, x, y)
   while node do
-    if interactive(env, node) then
+    local accepts = interactive(env, node)
+    if panel.dead or node.dead or (current and not current()) then
+      return nil
+    end
+    if accepts then
       return node
     end
     node = node.parent
@@ -108,10 +146,11 @@ end
 
 -- Pulses each pointer whose press the node holds.
 function input.pulse(router: Router, node: records.Node, _event: 'detent'): ()
-  for pointer, state in router.pointers do
+  for _, state in router.pointers do
     local capture = state.capture
-    if capture and capture.node == node then
-      pointer:vibrate(DETENT_HAPTIC)
+    local pointer = state.pointer
+    if capture and capture.node == node and pointer.source == 'ray' then
+      pointer.ray:vibrate(DETENT_HAPTIC)
     end
   end
 end
@@ -171,12 +210,33 @@ local function respond(node: records.Node): ()
   handles.hostChanged(node)
 end
 
-local function setHovered(env: records.Environment, state: PointerState, node: records.Node?): ()
+local function key(pointer: Pointer): vocabulary.Pointer | Pointer
+  return if pointer.source == 'ray' then pointer.ray else pointer
+end
+
+-- A callback can route newer input through the same record, or remove it and create another one.
+local function currentState(router: Router, state: PointerState): () -> boolean
+  local generation = state.generation
+  local identity = key(state.pointer)
+  return function(): boolean
+    return router.pointers[identity] == state and state.generation == generation
+  end
+end
+
+local function setHovered(
+  env: records.Environment,
+  state: PointerState,
+  node: records.Node?,
+  current: () -> boolean
+): ()
+  if not current() then
+    return
+  end
   local previous = state.hovered
   if previous == node then
     return
   end
-  state.hovered = node
+  state.hovered = nil
   if previous and not previous.dead then
     previous.host.hovers = math.max(previous.host.hovers - 1, 0)
     respond(previous)
@@ -184,7 +244,11 @@ local function setHovered(env: records.Environment, state: PointerState, node: r
       input.dispatch(env, previous, { kind = 'hover-leave' })
     end
   end
-  if node then
+  if not current() then
+    return
+  end
+  if node and not node.dead then
+    state.hovered = node
     node.host.hovers += 1
     respond(node)
     if node.host.hovers == 1 then
@@ -205,21 +269,31 @@ local function within(node: records.Node, ancestor: records.Node): boolean
   return false
 end
 
-local function release(env: records.Environment, capture: Capture, x: number, y: number, inside: boolean): ()
+local function release(
+  env: records.Environment,
+  capture: Capture,
+  x: number,
+  y: number,
+  inside: boolean,
+  current: () -> boolean
+): ()
   local node = capture.node
   node.host.pressed = false
   node.host.dragging = false
   respond(node)
   if capture.dragging then
     input.dispatch(env, node, { kind = 'drag-end', x = x, y = y }, x, y)
+    if not current() then
+      return
+    end
   end
   input.dispatch(env, node, { kind = 'release', x = x, y = y, inside = inside }, x, y)
-  if inside and not capture.dragging then
+  if current() and inside and not capture.dragging then
     input.dispatch(env, node, { kind = 'activate' })
   end
 end
 
-local function move(env: records.Environment, state: PointerState, x: number, y: number): ()
+local function move(env: records.Environment, state: PointerState, x: number, y: number, current: () -> boolean): ()
   local capture = state.capture
   if not capture then
     return
@@ -243,13 +317,18 @@ local function move(env: records.Environment, state: PointerState, x: number, y:
         capture.startX,
         capture.startY
       )
+      if not current() or state.capture ~= capture or node.dead then
+        return
+      end
     end
   end
   if capture.dragging then
     local dx, dy = x - capture.lastX, y - capture.lastY
     input.dispatch(env, node, { kind = 'drag', x = x, y = y, dx = dx, dy = dy }, x, y)
   end
-  capture.lastX, capture.lastY = x, y
+  if current() and state.capture == capture then
+    capture.lastX, capture.lastY = x, y
+  end
 end
 
 -- Moves the ray presses held inside a portal's owner onto its new overlay. Fingertip pointers cannot transfer, so a
@@ -263,39 +342,46 @@ function input.handoff(
   to: vocabulary.Surface
 ): ()
   local owner = portal.parent
-  for pointer, state in router.pointers do
+  for _, state in router.pointers do
     local capture = state.capture
-    local movable = (pointer :: any).transfer ~= nil
-    if capture and owner and not capture.node.dead and movable and within(capture.node, owner) then
-      if pointer:transfer(from, to) then
+    local pointer = state.pointer
+    if capture and owner and not capture.node.dead and pointer.source == 'ray' and within(capture.node, owner) then
+      local current = currentState(router, state)
+      if pointer.ray:transfer(from, to) and current() and state.capture == capture then
+        state.generation += 1
         local node = capture.node
         state.capture = nil
         state.handoff = target
         node.host.pressed = false
         node.host.dragging = false
         respond(node)
-        setHovered(env, state, nil)
+        setHovered(env, state, nil, currentState(router, state))
       end
     end
   end
 end
 
-function input.pointer(
+local function prune(router: Router, pointer: Pointer, state: PointerState): ()
+  local identity = key(pointer)
+  if router.pointers[identity] == state and not state.hovered and not state.capture and not state.handoff then
+    router.pointers[identity] = nil
+  end
+end
+
+local function route(
   router: Router,
   panel: records.Panel,
   env: records.Environment,
-  event: vocabulary.PointerEvent
+  event: Event,
+  state: PointerState
 ): ()
-  local state = router.pointers[event.pointer]
-  if not state then
-    local created: PointerState = { hovered = nil, capture = nil }
-    router.pointers[event.pointer] = created
-    state = created
-  end
+  local current = currentState(router, state)
   local x, y = event.x, event.y
+  assert(x == nil or (x == x and math.abs(x) < math.huge), 'ui: pointer x is finite')
+  assert(y == nil or (y == y and math.abs(y) < math.huge), 'ui: pointer y is finite')
   if event.kind == 'leave' then
     if not state.capture then
-      setHovered(env, state, nil)
+      setHovered(env, state, nil, current)
     end
     return
   end
@@ -304,82 +390,100 @@ function input.pointer(
     local handed = state.handoff
     state.capture = nil
     state.handoff = nil
+    if capture and not capture.node.dead then
+      capture.node.host.pressed = false
+      capture.node.host.dragging = false
+      respond(capture.node)
+    end
     -- A press-drag-release menu depends on the press, so losing it, as on tracking loss, closes the menu.
     local relation = handed and handed.overlay
     if handed and relation and not handed.dead and not handed.closing then
       relation.portal.handle:emit 'onDismiss'
     end
+    if not current() then
+      return
+    end
     if capture and not capture.node.dead then
-      capture.node.host.pressed = false
-      capture.node.host.dragging = false
-      respond(capture.node)
       input.dispatch(env, capture.node, { kind = 'cancel', reason = event.reason })
     end
-    setHovered(env, state, nil)
+    setHovered(env, state, nil, current)
     return
   end
   if x == nil or y == nil then
     -- A captured release can arrive without coordinates when the ray no longer meets the panel's plane. It ends the
     -- capture outside the node, at the last position the capture saw.
     local capture = state.capture
-    if event.kind == 'release' and event.button == 'left' then
+    if event.kind == 'release' then
       -- A handed-off press released off the overlay's plane chooses nothing.
       state.handoff = nil
     end
-    if event.kind == 'release' and capture and event.button == 'left' then
+    if event.kind == 'release' and capture then
       state.capture = nil
       if not capture.node.dead then
-        release(env, capture, capture.lastX, capture.lastY, false)
+        release(env, capture, capture.lastX, capture.lastY, false, current)
       end
-      setHovered(env, state, nil)
+      setHovered(env, state, nil, current)
     end
     return
   end
-  local target = input.target(panel, env, x, y)
+  local target = if event.kind == 'release' and state.capture then nil else input.target(panel, env, x, y, current)
+  if not current() or panel.dead then
+    return
+  end
   if event.kind == 'enter' or event.kind == 'move' then
-    move(env, state, x, y)
+    if event.motion == 'capture' and state.capture and state.capture.node.panel == panel then
+      move(env, state, x, y, current)
+    end
     -- While a press is handed off, only the overlay that holds it sets hover, so the opener under the ray does not
     -- flicker between hovered and not.
     local handed = state.handoff
     if not state.capture and (handed == nil or handed == panel) then
-      setHovered(env, state, target)
+      setHovered(env, state, target, current)
     end
   elseif event.kind == 'press' then
     -- A new press supersedes any handoff left from an earlier one.
-    if event.button == 'left' then
-      state.handoff = nil
-    end
-    if env.blocked(panel) then
+    state.handoff = nil
+    if env.blocked(panel) or not current() then
       return
     end
-    if event.button == 'left' then
-      env.pressed(panel, input.deepest(panel, x, y))
-    end
+    env.pressed(panel, input.deepest(panel, x, y))
     -- A node takes one capture at a time, so a second pointer cannot press it while it is held.
-    if event.button ~= 'left' or state.capture or not target or target.host.pressed then
+    if not current() or panel.dead or state.capture or not target or target.dead or target.host.pressed then
       return
     end
-    state.capture = { node = target, startX = x, startY = y, lastX = x, lastY = y, dragging = false }
-    setHovered(env, state, target)
+    local capture: Capture = { node = target, startX = x, startY = y, lastX = x, lastY = y, dragging = false }
+    state.capture = capture
+    setHovered(env, state, target, current)
+    if not current() or state.capture ~= capture or target.dead then
+      return
+    end
     target.host.pressed = true
     respond(target)
     env.focusNode(target, false)
-    if env.haptics() then
-      event.pointer:vibrate(PRESS_HAPTIC)
+    if not current() or state.capture ~= capture or target.dead then
+      return
     end
-    local source = if (event :: any).touch then 'touch' else 'ray'
-    input.dispatch(env, target, { kind = 'press', x = x, y = y, source = source }, x, y)
+    local haptics = env.haptics()
+    if not current() then
+      return
+    end
+    if haptics and event.pointer.source == 'ray' then
+      event.pointer.ray:vibrate(PRESS_HAPTIC)
+    end
+    if current() and not target.dead and state.capture == capture then
+      input.dispatch(env, target, { kind = 'press', x = x, y = y, source = event.pointer.source }, x, y)
+    end
   elseif event.kind == 'release' then
     local capture = state.capture
     local handed = state.handoff
-    if event.button == 'left' and not capture and handed then
+    if not capture and handed then
       state.handoff = nil
       if handed == panel and target and not target.dead then
         input.dispatch(env, target, { kind = 'activate' })
       end
       return
     end
-    if event.button ~= 'left' or not capture then
+    if not capture then
       return
     end
     state.capture = nil
@@ -393,14 +497,73 @@ function input.pointer(
         end
         over = over.parent
       end
-      release(env, capture, x, y, inside)
+      release(env, capture, x, y, inside, current)
     end
-    setHovered(env, state, target)
+    if current() and not panel.dead then
+      setHovered(env, state, input.target(panel, env, x, y, current), current)
+    end
   elseif event.kind == 'scroll' then
     local over = input.deepest(panel, x, y)
     if over then
       input.dispatch(env, over, { kind = 'scroll', dx = event.dx, dy = event.dy, x = x, y = y }, x, y)
     end
+  end
+end
+
+function input.pointer(router: Router, panel: records.Panel, env: records.Environment, event: Event): ()
+  local identity = key(event.pointer)
+  local state = router.pointers[identity]
+  if not state then
+    if event.kind == 'leave' or event.kind == 'cancel' or event.kind == 'release' then
+      return
+    end
+    local created: PointerState = { pointer = event.pointer, generation = 0, hovered = nil, capture = nil }
+    router.pointers[identity] = created
+    state = created
+  end
+  state.generation += 1
+  route(router, panel, env, event, state)
+  prune(router, event.pointer, state)
+end
+
+function input.surface(
+  router: Router,
+  panel: records.Panel,
+  env: records.Environment,
+  event: vocabulary.PointerEvent
+): ()
+  local pointer: Pointer = { source = 'ray', ray = event.pointer }
+  if event.kind == 'move' then
+    if event.button == nil or event.button == 'left' then
+      input.pointer(router, panel, env, {
+        kind = 'move',
+        pointer = pointer,
+        x = event.x,
+        y = event.y,
+        motion = if event.button == 'left' then 'capture' else 'hover',
+      })
+    end
+  elseif event.kind == 'press' then
+    if event.button == 'left' then
+      input.pointer(router, panel, env, { kind = 'press', pointer = pointer, x = event.x, y = event.y })
+    end
+  elseif event.kind == 'release' then
+    if event.button == 'left' then
+      input.pointer(router, panel, env, { kind = 'release', pointer = pointer, x = event.x, y = event.y })
+    end
+  elseif event.kind == 'cancel' then
+    if event.button == 'left' then
+      input.pointer(router, panel, env, { kind = 'cancel', pointer = pointer, reason = event.reason })
+    end
+  elseif event.kind == 'scroll' then
+    input.pointer(
+      router,
+      panel,
+      env,
+      { kind = 'scroll', pointer = pointer, x = event.x, y = event.y, dx = event.dx, dy = event.dy }
+    )
+  else
+    input.pointer(router, panel, env, { kind = event.kind, pointer = pointer, x = event.x, y = event.y })
   end
 end
 
@@ -421,13 +584,15 @@ function input.carried(router: Router, from: records.Node, to: records.Node): ()
   local moved = false
   for _, state in router.pointers do
     local capture = state.capture
+    if (capture and capture.node == from) or state.hovered == from then
+      state.generation += 1
+      moved = true
+    end
     if capture and capture.node == from then
       capture.node = to
-      moved = true
     end
     if state.hovered == from then
       state.hovered = to
-      moved = true
     end
   end
   if not moved then
@@ -444,12 +609,16 @@ end
 -- Forgets a removed node: a capture on it ends without a release, and hover moves off it.
 function input.removed(router: Router, node: records.Node): ()
   for _, state in router.pointers do
+    if (state.capture and state.capture.node == node) or state.hovered == node then
+      state.generation += 1
+    end
     if state.capture and state.capture.node == node then
       state.capture = nil
     end
     if state.hovered == node then
       state.hovered = nil
     end
+    prune(router, state.pointer, state)
   end
 end
 

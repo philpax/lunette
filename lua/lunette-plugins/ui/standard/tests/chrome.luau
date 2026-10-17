@@ -98,4 +98,52 @@ test('a panel without a title has no header, and its content does not move it', 
   state.fixture:close()
 end)
 
+test('trigger grabbing uses each pointer current hit without a settled hover frame', function()
+  local state = boot()
+  local c = assert(state.components)
+  local closed = 0
+  fixture.show(
+    state,
+    c.Panel {
+      title = 'Movable',
+      onClose = function()
+        closed += 1
+      end,
+      c.Body {},
+    }
+  )
+  local session = assert(state.fixture.session)
+  local interaction = session:observe(require('@lunette-contracts/interaction').capability)
+  local offers = assert(session:observe(require('@lunette-contracts/surfaces').capability).service)
+  local first = assert(interaction.service):newPointer(assert(interaction.context))
+  local second = assert(interaction.service):newPointer(assert(interaction.context))
+  local function update(pointer, path, down)
+    local node = assert(state.panel:find(path))
+    local box = node:panelBounds()
+    local pose = state.panel:pose()
+    local width, height = state.panel:size()
+    pose:translate(box.x + box.width / 2 - width / 2, height / 2 - box.y - box.height / 2, 1)
+    pointer:update({
+      pose = pose,
+      origin = vector.pack(pose:getPosition()),
+      direction = vector.pack(0, 0, -1),
+      buttons = { left = down },
+      grip = false,
+    }, offers:all())
+  end
+  update(first, 'header/band/spacer', false)
+  update(first, 'header/band/close', true)
+  expect.equal(first.grabbed, nil, 'moving off the header before pressing clicks the button')
+  update(first, 'header/band/close', false)
+  expect.equal(closed, 1, 'the current button receives the click')
+  update(first, 'header/band/close', false)
+  update(second, 'header/band/spacer', false)
+  update(first, 'header/band/close', true)
+  expect.equal(first.grabbed, nil, 'another pointer over the header cannot turn a click into a grab')
+  update(first, 'header/band/close', false)
+  update(second, 'header/band/spacer', true)
+  expect.truthy(second.grabbed, 'the header pointer still grabs at its own hit')
+  state.fixture:close()
+end)
+
 return test

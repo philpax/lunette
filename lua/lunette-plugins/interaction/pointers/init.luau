@@ -254,7 +254,15 @@ local function build(context: plugin.Context, settings: Settings): Service
     end
     local startingGrab = hit and gripped and not state.gripped and hit.grabbable ~= false
     state.gripped = gripped
-    local triggerGrab = hit and hit.triggerGrabbable == true and sample.down.left == true
+    local triggerGrab = false
+    if hit and hit.triggerGrabs and sample.down.left and x ~= nil and y ~= nil then
+      local answer = hit:triggerGrabs(x, y)
+      if not current() or hit.dead then
+        return
+      end
+      assert(type(answer) == 'boolean', 'interaction: surface triggerGrabs answers a boolean')
+      triggerGrab = answer
+    end
     local grabTarget: Surface? = hit
     if (startingGrab or triggerGrab) and hit and hit.grabTarget then
       grabTarget = hit:grabTarget()

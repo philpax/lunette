@@ -2,7 +2,6 @@
 -- a ray's events are delivered. Bare hands have no actuator, so their pointers report no haptics.
 -- This path is implemented against the design without hand-tracking hardware to test it on.
 
-local vocabulary = require '@lunette-contracts/vocabulary'
 local records = require './records'
 local input = require './input'
 local poke = require './poke'
@@ -26,19 +25,14 @@ export type Marker = {
 
 export type Touch = {
   hands: { [string]: poke.Hand },
-  pointers: { [string]: vocabulary.Pointer },
+  pointers: { [string]: input.Pointer },
   markers: { [string]: Marker },
 }
 
 function touch.new(): Touch
-  local pointers: { [string]: vocabulary.Pointer } = {}
+  local pointers: { [string]: input.Pointer } = {}
   for _, hand in { 'left', 'right' } do
-    local pointer = {
-      vibrate = function(): boolean
-        return false
-      end,
-    }
-    pointers[hand] = pointer :: any
+    pointers[hand] = { source = 'touch' }
   end
   return { hands = { left = poke.new(), right = poke.new() }, pointers = pointers, markers = {} }
 end
@@ -117,18 +111,22 @@ function touch.update(
     for _, event in poke.step(hand, candidates, dt) do
       local panel = event.panel :: records.Panel
       if not panel.dead then
-        local delivered: any = {
-          kind = event.kind,
-          pointer = state.pointers[name],
-          x = event.x,
-          y = event.y,
-          captured = false,
-          inside = true,
-          button = 'left',
-          touch = true,
-          reason = if event.kind == 'cancel' then 'tracking-loss' else nil,
-        }
-        input.pointer(router, panel, env, delivered)
+        if event.kind == 'cancel' then
+          input.pointer(
+            router,
+            panel,
+            env,
+            { kind = event.kind, pointer = state.pointers[name], reason = 'tracking-loss' }
+          )
+        else
+          input.pointer(router, panel, env, {
+            kind = event.kind,
+            pointer = state.pointers[name],
+            x = event.x,
+            y = event.y,
+            motion = 'capture',
+          })
+        end
       end
     end
     near(name :: any, hand.panel ~= nil)
