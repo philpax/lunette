@@ -206,7 +206,6 @@ function shell.start(context: plugin.Context, settings: config.Settings, service
     id = 'desktop/manager/open',
     label = 'Plugins',
     group = 'Session',
-    order = 20,
     visible = settings.visible,
     show = function(): ()
       setVisible(true)

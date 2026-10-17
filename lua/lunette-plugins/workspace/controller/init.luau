@@ -34,7 +34,6 @@ local function actions(settings: Settings, held: { tags.Tag }, switch: (number) 
           id = 'desktop/workspace/' .. name,
           label = name,
           group = 'Workspaces',
-          order = index,
           selected = tag.selected,
           run = function(): ()
             if context:active() then

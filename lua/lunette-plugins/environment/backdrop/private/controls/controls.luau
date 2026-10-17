@@ -167,7 +167,6 @@ function controls.attach(context: plugin.Context, choice: selection.State, rende
         id = 'desktop/backdrop/open',
         label = 'Backdrop',
         group = 'Appearance',
-        order = 100,
         visible = view.visible,
         show = function(): ()
           setVisible(true)

@@ -179,7 +179,6 @@ return plugin.consumer<<Config, Settings>> {
       id = 'example/ui/open',
       label = 'Open example form',
       group = 'Examples',
-      order = 4,
       run = function()
         setVisible(true)
       end,

@@ -4,7 +4,7 @@ local expect = testing.expect
 local test = testing.suite()
 
 local function descriptor(id: string, label: string, group: string): any
-  return { id = id, label = label, group = group, order = 0, enabled = true, selected = false, token = {} }
+  return { id = id, label = label, group = group, enabled = true, selected = false, token = {} }
 end
 
 local function titles(list: { rows.Row }): string
@@ -29,6 +29,16 @@ test('actions sit under a heading per group, groups and actions in alphabetical 
     '[Appearance] Backdrop [Monitors] Monitor-a monitor-b [Session] Accessibility Plugins [Other] Loose',
     'the order ignores case'
   )
+end)
+
+test('numbers in labels sort by value', function()
+  local list = rows.rows {
+    descriptor('a', 'Workspace 10', 'Workspaces'),
+    descriptor('b', 'Workspace 2', 'Workspaces'),
+    descriptor('c', 'Workspace 1', 'Workspaces'),
+    descriptor('d', 'Workspace', 'Workspaces'),
+  }
+  expect.equal(titles(list), '[Workspaces] Workspace Workspace 1 Workspace 2 Workspace 10')
 end)
 
 test('headings never share a key with an action, whatever the action id', function()

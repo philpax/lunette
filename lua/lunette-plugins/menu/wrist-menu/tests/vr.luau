@@ -18,7 +18,7 @@ type Environment = {
   owner: adapter.Context,
   menu: menu.Service,
 }
-type ActionOptions = { label: string?, order: number?, selected: boolean?, group: string? }
+type ActionOptions = { label: string?, selected: boolean?, group: string? }
 type Action = { calls: number, registration: menu.Registration }
 
 local PANEL = wristMenu.PANEL
@@ -63,7 +63,6 @@ local function register(env: Environment, id: string, options: ActionOptions): A
     id = id,
     label = options.label or id,
     group = options.group or 'Session',
-    order = options.order or 10,
     selected = options.selected,
     run = function()
       action.calls += 1
@@ -108,7 +107,7 @@ test('the wrist button opens a list of live actions that run when clicked, and C
   click(env, wristMenu.row 'session/draft')
   expect.equal(draft.calls, 2, 'a row runs each time it is clicked')
 
-  local later = register(env, 'later', { order = 20 })
+  local later = register(env, 'later', {})
   draft.registration:update { enabled = false }
   env.running:step()
   expect.truthy(env.panels:node(PANEL, wristMenu.row 'later'), 'a new action appears in the open list')
@@ -130,7 +129,7 @@ test('a list longer than the menu scrolls to reach its last action', function()
   local env = boot()
   local actions: { Action } = {}
   for index = 1, 20 do
-    actions[index] = register(env, `action-{index}`, { order = index })
+    actions[index] = register(env, `action-{index}`, {})
   end
   click(env, 'open')
   local last = assert(env.panels:node(PANEL, wristMenu.row 'action-20'))

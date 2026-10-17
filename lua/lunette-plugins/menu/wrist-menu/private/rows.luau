@@ -79,11 +79,32 @@ function rows.groupKey(group: string): string
   return '%00' .. uiHost.keyOf(group)
 end
 
--- Alphabetical order that ignores case, with the exact text breaking ties.
+-- Alphabetical order that ignores case and reads runs of digits as numbers, so Workspace 2 comes before Workspace 10.
+-- The exact text breaks ties.
 before = function(first: string, second: string): boolean
   local a, b = string.lower(first), string.lower(second)
-  if a ~= b then
-    return a < b
+  local i, j = 1, 1
+  while i <= #a and j <= #b do
+    local digitsA = string.match(a, '^%d+', i)
+    local digitsB = string.match(b, '^%d+', j)
+    if digitsA and digitsB then
+      local numberA, numberB = tonumber(digitsA) :: number, tonumber(digitsB) :: number
+      if numberA ~= numberB then
+        return numberA < numberB
+      end
+      i += #digitsA
+      j += #digitsB
+    else
+      local charA, charB = string.sub(a, i, i), string.sub(b, j, j)
+      if charA ~= charB then
+        return charA < charB
+      end
+      i += 1
+      j += 1
+    end
+  end
+  if (#a - i) ~= (#b - j) then
+    return #a - i < #b - j
   end
   return first < second
 end

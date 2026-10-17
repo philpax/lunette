@@ -16,7 +16,6 @@ return plugin.consumer<<Config, Settings>> {
       id = 'example/save-arrangement',
       label = 'Save arrangement',
       group = 'Examples',
-      order = 2,
       run = function()
         if not context:active() then
           return
@@ -32,7 +31,6 @@ return plugin.consumer<<Config, Settings>> {
       id = 'example/restore-arrangement',
       label = 'Restore arrangement',
       group = 'Examples',
-      order = 3,
       run = function()
         if context:active() then
           saved:restore()

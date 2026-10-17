@@ -125,7 +125,6 @@ return plugin.consumer<<Config, Settings>> {
           id = 'desktop/errors/history',
           label = 'Error history',
           group = 'Session',
-          order = 40,
           selected = shown,
           run = function(): ()
             if shown then

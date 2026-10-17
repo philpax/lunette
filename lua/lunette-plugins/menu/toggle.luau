@@ -11,7 +11,6 @@ export type Options = {
   read id: string,
   read label: string,
   read group: string?,
-  read order: number?,
   -- Whether it opens at start, from the entry's settings.
   read visible: boolean,
   -- Shows it. `requested` is true when the user asked through the menu, and false when it opens at start.
@@ -59,7 +58,6 @@ function toggle.attach(context: plugin.Context, menus: menu.Service, options: Op
     id = options.id,
     label = options.label,
     group = options.group,
-    order = options.order,
     selected = open,
     run = function(): ()
       change(not open, true)
