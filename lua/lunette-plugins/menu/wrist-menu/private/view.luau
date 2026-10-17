@@ -46,11 +46,18 @@ view.Menu = ui.component('WristMenu', function(props: Props): ui.Child
           else c.List {
             key = 'actions',
             ui.map(list, function(row: rows.Row): ui.Child
+              if row.kind == 'group' then
+                return c.Text {
+                  key = row.key,
+                  text = string.upper(row.title),
+                  style = 'section',
+                  color = 'muted',
+                }
+              end
               local descriptor = row.descriptor
               return c.ListRow {
                 key = row.key,
                 title = row.title,
-                detail = row.detail,
                 trailing = row.trailing,
                 selected = descriptor.selected,
                 onActivate = if descriptor.enabled
