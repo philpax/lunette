@@ -58,6 +58,12 @@ end
 local function actions(state: Traversal): focus.Actions
   return {
     dispatch = state.env.dispatch,
+    move = function(node: records.Node): boolean
+      return traversal.focusNode(state, node, true)
+    end,
+    clear = function(node: records.Node): ()
+      traversal.blurNode(state, node)
+    end,
     dismiss = function(panel: records.Panel): boolean
       return dismiss(state, panel)
     end,

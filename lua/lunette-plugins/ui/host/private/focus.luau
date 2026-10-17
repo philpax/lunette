@@ -140,6 +140,8 @@ local DIRECTIONS: { [number]: Direction } = {
 
 export type Actions = {
   read dispatch: (records.Node, uiHost.Event) -> boolean,
+  read move: (records.Node) -> boolean,
+  read clear: (records.Node) -> (),
   -- Closes the innermost open overlay of the panel's chain, answering whether one closed.
   read dismiss: (records.Panel) -> boolean,
 }
@@ -165,19 +167,12 @@ function focus.key(env: records.Environment, actions: Actions, panel: records.Pa
   local codes = keys.CODES
   if code == codes.tab then
     local target = focus.step(env, panel, if has(modifiers, 'shift') then -1 else 1)
-    if target then
-      focus.set(panel, target, true)
-    end
-    return target ~= nil
+    return target ~= nil and actions.move(target)
   end
   local direction = DIRECTIONS[code]
   if direction then
     local target = focus.toward(env, panel, direction)
-    if target then
-      focus.set(panel, target, true)
-      return true
-    end
-    return false
+    return target ~= nil and actions.move(target)
   end
   if (code == codes.enter or code == codes.space or code == codes.keypadEnter) and node and not isRepeat then
     if node.kind.registration.engage then
@@ -198,7 +193,7 @@ function focus.key(env: records.Environment, actions: Actions, panel: records.Pa
       return true
     end
     if node then
-      focus.set(panel, nil, false)
+      actions.clear(node)
       return true
     end
   end
