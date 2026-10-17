@@ -54,6 +54,16 @@ pub fn install_trigger(lua: &Lua) -> mlua::Result<()> {
 /// Returns an error if safe mode does not load or run.
 fn start(lua: &Lua, failure: &mlua::Error) -> mlua::Result<Value> {
     let reported = failure.to_string();
+    let lovr: Table = lua.globals().get("lovr")?;
+    if let Some(graphics) = lovr.get::<Option<Table>>("graphics")? {
+        let is_initialized: Function = graphics.get("isInitialized")?;
+        if !is_initialized.call::<bool>(())? {
+            error!(
+                "lua: startup failed before graphics initialization; safe mode is unavailable: {reported}"
+            );
+            return lua.create_function(|_, ()| Ok(1)).map(Value::Function);
+        }
+    }
     error!("lua: the configuration could not be loaded, so safe mode is running: {reported}");
 
     if let Err(error) = reload::clear_user_callbacks(&lua.globals()) {
@@ -466,6 +476,49 @@ mod tests {
             drawn.contains("f5"),
             "the panel should say how to leave safe mode: {drawn}"
         );
+    }
+
+    #[test]
+    fn failed_graphics_initialization_exits_without_starting_safe_mode() {
+        let lua = booting("error('Failed to initialize GPU: a deliberate defect')");
+        lua.load(
+            "lovr.graphics = { isInitialized = function() return false end }
+             function lovr.run() error('the frame loop must not start') end
+             function lovr.load() error('the failed callback must not run') end",
+        )
+        .exec()
+        .expect("the failed graphics module should install");
+        install_trigger(&lua).expect("the trigger should install");
+
+        let boot: Function = lovr(&lua).get("boot").expect("boot should exist");
+        let frame_loop = boot
+            .call::<Function>(())
+            .expect("startup failure should return an exit loop");
+        assert_eq!(frame_loop.call::<i32>(()).expect("the loop should exit"), 1);
+        assert!(
+            recorder(&lua)
+                .get::<Table>("spawns")
+                .expect("spawns should be recorded")
+                .is_empty(),
+            "safe mode must not spawn a terminal after graphics initialization fails"
+        );
+    }
+
+    #[test]
+    fn initialized_graphics_allows_safe_mode_after_configuration_failure() {
+        let lua = booting("error('main.luau:1: a deliberate defect')");
+        lua.load(
+            "lovr.graphics = {
+               isInitialized = function() return true end,
+               newShader = function() return {} end,
+             }",
+        )
+        .exec()
+        .expect("the initialized graphics module should install");
+        install_trigger(&lua).expect("the trigger should install");
+
+        assert_eq!(boot(&lua), "safe mode's loop");
+        assert!(drawn(&lua).contains("main.luau:1"));
     }
 
     /// Safe mode replaces the configuration; it does not join it. A
