@@ -92,7 +92,7 @@ for _, afterReplacement in { false, true } do
   local phase = if afterReplacement then 'after replacement' else 'before writing'
 
   local function failSave(context: plugin.Context): plugin.Effect
-    return context:acquire(context, function()
+    return context:acquire(context, function(): () -> ()
       local saveFile = lunette.saveFile
       lunette.saveFile = function(directory: string, name: string, contents: string): ()
         if afterReplacement then

@@ -10,20 +10,20 @@ local function boot(): (fixture.State, { any })
   local state = fixture.boot {
     width = 0.3,
     height = 0.2,
-    setup = function(service, owner)
+    setup = function(service: any, owner: any)
       service:registerKind(owner, {
         name = 'test/drag',
         layout = {
           kind = 'container',
-          style = function()
+          style = function(): any
             return { width = 0.2, height = 0.1 }
           end,
         },
         claims = { drag = 'x' },
-        interactive = function()
+        interactive = function(): boolean
           return true
         end,
-        event = function(_node, event)
+        event = function(_node: any, event: any)
           table.insert(events, event)
         end,
       })
@@ -33,7 +33,7 @@ local function boot(): (fixture.State, { any })
   return state, events
 end
 
-local function moves(events): { any }
+local function moves(events: { any }): { any }
   local result = {}
   for _, event in events do
     if event.kind == 'drag' then
@@ -59,7 +59,7 @@ test('a primary capture advances once per sample while hover and another button 
   local observed = assert(controls.session):observe(interaction.capability)
   local pointer = assert(observed.service):newPointer(assert(observed.context))
   local surface = fixture.surface(state)
-  local function update(at, held)
+  local function update(at: number, held: { [string]: boolean })
     local pose = geometry.pose
     local x, y, z = pose:mul(at - geometry.width / 2, geometry.height / 2 - 0.04, 1)
     pointer:update(
@@ -95,7 +95,7 @@ test('hover over another panel never supplies coordinates to the original captur
   local surfaces = require '@lunette-contracts/surfaces'
   local offers = assert(assert(state.fixture.session):observe(surfaces.capability).service)
   local pointer = assert(observed.service):newPointer(assert(observed.context))
-  local function update(x)
+  local function update(x: number)
     pointer:update(
       { origin = vector.pack(x, 1.56, 0), direction = vector.pack(0, 0, -1), buttons = { left = true }, grip = false },
       offers:all()
@@ -131,11 +131,11 @@ test('fully idle pointer records are forgotten without losing reentrant input', 
   }
   local state = { pointer = pointer, generation = 0, hovered = node }
   router.pointers[pointer] = state
-  env.protect = function(_label, run)
+  env.protect = function(_label: string, run: () -> ()): boolean
     run()
     return true
   end
-  node.kind.registration.event = function()
+  node.kind.registration.event = function(): ()
     router.pointers[pointer] = { pointer = pointer, generation = 0, handoff = panel }
   end
   input.pointer(router, panel, env, { kind = 'leave', pointer = pointer })
@@ -145,10 +145,10 @@ test('fully idle pointer records are forgotten without losing reentrant input', 
   expect.equal(next(router.pointers), nil, 'removing the final hovered node forgets its idle pointer')
 end)
 
-local function callbackPointer(hooks)
+local function callbackPointer(hooks: any): (any, any, any, { string }, (number, boolean) -> ())
   local router
   local create = input.new
-  input.new = function()
+  input.new = function(): any
     router = create()
     return router
   end
@@ -156,12 +156,12 @@ local function callbackPointer(hooks)
   local ok, state = pcall(fixture.boot, {
     width = 0.3,
     height = 0.2,
-    setup = function(service, owner)
+    setup = function(service: any, owner: any)
       service:registerKind(owner, {
         name = 'test/row',
         layout = {
           kind = 'container',
-          style = function()
+          style = function(): any
             return { width = 0.2, height = 0.1, flexDirection = 'row' }
           end,
         },
@@ -170,18 +170,18 @@ local function callbackPointer(hooks)
         name = 'test/callback',
         layout = {
           kind = 'container',
-          style = function()
+          style = function(): any
             return { width = 0.1, height = 0.1 }
           end,
         },
         claims = if hooks.drag then { drag = 'x' } else nil,
-        interactive = function(props)
+        interactive = function(props: any): boolean
           if hooks.interactive then
             hooks.interactive(props)
           end
           return true
         end,
-        event = function(node, event)
+        event = function(node: any, event: any)
           table.insert(log, `{node.key}:{event.kind}`)
           if event.kind == 'activate' then
             node:emit 'onActivate'
@@ -206,7 +206,7 @@ local function callbackPointer(hooks)
   local pointer = assert(observed.service):newPointer(assert(observed.context))
   local surface = fixture.surface(state)
   local geometry = fixture.geometry(state)
-  local function update(x, down)
+  local function update(x: number, down: boolean)
     local px, py, pz = geometry.pose:mul(x - geometry.width / 2, geometry.height / 2 - 0.04, 1)
     pointer:update({
       origin = vector.pack(px, py, pz),
@@ -266,7 +266,7 @@ end)
 test('hover-leave clearing cannot highlight the next target on the resumed move', function()
   local pointer
   local state, device, router, log, update = callbackPointer {
-    event = function(node, event)
+    event = function(node: any, event: any)
       if node.key == 'first' and event.kind == 'hover-leave' then
         pointer:hover(nil)
       end
@@ -287,7 +287,7 @@ test('drag-start withdrawal stops drag delivery and leaves no hover or capture',
   local pointer
   local state, device, router, log, update = callbackPointer {
     drag = true,
-    event = function(_node, event)
+    event = function(_node: any, event: any)
       if event.kind == 'drag-start' then
         pointer:withdraw()
       end
@@ -311,7 +311,7 @@ test('nested leave during drag-start supersedes movement while retaining the cap
   local pointer
   local state, device, router, log, update = callbackPointer {
     drag = true,
-    event = function(_node, event)
+    event = function(_node: any, event: any)
       if event.kind == 'drag-start' then
         pointer:hover(nil)
       end

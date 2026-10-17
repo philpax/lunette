@@ -162,7 +162,7 @@ test('trigger grab queries receive the current finite hit and cannot continue af
     target.pose = lovr.math.newMat4()
     target.setPose = function() end
     local queries = 0
-    target.triggerGrabs = function(_self, x, y)
+    target.triggerGrabs = function(_self: any, x: number, y: number): boolean
       queries += 1
       expect.near(x, 0.7, 1e-6, 'the current hit x reaches the query')
       expect.near(y, 0.5, 1e-6, 'the current hit y reaches the query')
@@ -185,7 +185,7 @@ test('trigger grab query results are validated', function()
   local f = fixture()
   local pointer = f:pointer()
   local target = f:surface 'invalid-query'
-  target.triggerGrabs = function()
+  target.triggerGrabs = function(): any
     return 'yes'
   end
   local ok, failure = pcall(function()

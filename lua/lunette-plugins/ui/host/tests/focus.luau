@@ -20,7 +20,7 @@ test('traversal updates keyboard intent on entering and leaving text focus', fun
   local observed = assert(state.fixture.session):observe(require('@lunette-contracts/focus').capability)
   local intent = false
   assert(observed.service):onChanged(assert(observed.context), {
-    run = function(change)
+    run = function(change: any)
       intent = change.wantsKeyboard
     end,
   })
@@ -59,7 +59,7 @@ test('closing a panel during focus target replacement cancels text focus', funct
   local closing = false
   local closed = false
   local listener = service:onChanged(assert(observed.context), {
-    run = function(change)
+    run = function(change: any)
       intent = change.wantsKeyboard
       if closing and change.kind == 'none' then
         closing = false
@@ -109,7 +109,7 @@ for _, replacement in { 'text', 'after' } do
     local intent = false
     local acquired = nil
     local listener = service:onChanged(assert(observed.context), {
-      run = function(change)
+      run = function(change: any)
         intent = change.wantsKeyboard
         if replacing and change.wantsKeyboard then
           replacing = false

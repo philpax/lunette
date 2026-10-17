@@ -5,12 +5,12 @@ local fixture = require '@testing/ui-host'
 local expect = testing.expect
 local test = testing.suite()
 
-local function made()
+local function made(): (any, any, any, any, () -> (number, number))
   local releases, unmounts = 0, 0
   local record
   local provider = {
     env = {
-      protect = function(_label, run)
+      protect = function(_label: string, run: () -> ()): boolean
         run()
         return true
       end,
@@ -32,7 +32,7 @@ local function made()
       panels.destroy(provider, record)
     end,
   }
-  return provider, record, handle, surface, function()
+  return provider, record, handle, surface, function(): (number, number)
     return releases, unmounts
   end
 end

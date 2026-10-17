@@ -117,7 +117,7 @@ test('trigger grabbing uses each pointer current hit without a settled hover fra
   local offers = assert(session:observe(require('@lunette-contracts/surfaces').capability).service)
   local first = assert(interaction.service):newPointer(assert(interaction.context))
   local second = assert(interaction.service):newPointer(assert(interaction.context))
-  local function update(pointer, path, down)
+  local function update(pointer: any, path: string, down: boolean)
     local node = assert(state.panel:find(path))
     local box = node:panelBounds()
     local pose = state.panel:pose()

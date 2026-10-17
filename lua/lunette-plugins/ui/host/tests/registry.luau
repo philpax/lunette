@@ -38,7 +38,7 @@ test('removing a middle override rebuilds the event and expansion bases above it
     name = NAME,
     layout = { kind = 'container' },
     clip = false,
-    event = function(node, event, base): ()
+    event = function(node: uiHost.Node, event: uiHost.Event, base: (uiHost.Node, uiHost.Event) -> ()): ()
       table.insert(log, 'base event')
       base(node, event)
     end,
@@ -51,11 +51,17 @@ test('removing a middle override rebuilds the event and expansion bases above it
     return {
       name = NAME,
       clip = clip,
-      event = function(node, event, base): ()
+      event = function(node: uiHost.Node, event: uiHost.Event, base: (uiHost.Node, uiHost.Event) -> ()): ()
         table.insert(log, `{label} event`)
         base(node, event)
       end,
-      expand = function(props, children, state, actions, base): uiHost.Child
+      expand = function(
+        props: uiHost.Props,
+        children: { read [number]: uiHost.Element },
+        state: { read [string]: any },
+        actions: uiHost.Actions,
+        base: uiHost.Expand?
+      ): uiHost.Child
         table.insert(log, `{label} expand`)
         return assert(base)(props, children, state, actions)
       end,

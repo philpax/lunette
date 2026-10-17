@@ -89,7 +89,7 @@ test('text recording retains shaped lines without source text or font metadata',
       kind = { name = 'test/text', registration = { visuals = { 'test/text' } } },
       handle = {
         theme = { colors = { ink = ink } },
-        textLines = function()
+        textLines = function(): any
           return lines
         end,
       },
@@ -100,7 +100,7 @@ test('text recording retains shaped lines without source text or font metadata',
         return true
       end,
     } :: any,
-    function()
+    function(): { (_node: any, draw: any) -> () }
       return {
         function(_node: any, draw: any)
           draw:text { offset = 0.003 }

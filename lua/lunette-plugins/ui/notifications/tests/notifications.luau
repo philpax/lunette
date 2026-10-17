@@ -131,7 +131,7 @@ test('optional accessibility can appear, disappear, and be replaced while notifi
   local function listen()
     local assist = session:observe(accessibility.capability)
     assert(assist.service):onAnnouncement(assert(assist.context), {
-      run = function(announcement)
+      run = function(announcement: accessibility.Announcement)
         table.insert(heard, announcement.text)
       end,
     })
