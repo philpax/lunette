@@ -255,6 +255,8 @@ export type Events = {
   writes: number,
   -- Save files other than the arrangement, by path.
   files: { [string]: string },
+  -- Set to a message to make the next `lunette.saveFile` raise it.
+  saveFailure: string?,
   enumerations: number,
   closed: number,
   writeMode: 'ok' | 'refuse',
@@ -530,6 +532,18 @@ installNative = function(fake: Fake, events: Events, subscribe: Subscribe, clear
   end
   lunette.reportError = function(fields: lunette.ReportErrorOptions)
     fake.raise(fields.context .. ': ' .. fields.message, fields.traceback or '')
+  end
+  -- An atomic save into the fake save directory lands where `lovr.filesystem.read` finds it. `events.saveFailure`
+  -- makes the next save raise, as a full disk does.
+  lunette.saveFile = function(directory: string, name: string, contents: string): ()
+    assert(directory == '/fixture', 'saveFile: the fake saves only into the fake save directory')
+    assert(not string.find(name, '[/\\%z]') and name ~= '' and name ~= '.' and name ~= '..', 'saveFile: a file name')
+    local failure = events.saveFailure
+    if failure then
+      events.saveFailure = nil
+      error(failure, 0)
+    end
+    events.files[name] = contents
   end
   lunette.windows = function(): { Window }
     events.enumerations += 1

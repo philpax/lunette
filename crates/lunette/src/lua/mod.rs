@@ -14,6 +14,7 @@ pub mod layout;
 mod monitor;
 mod output;
 mod process;
+pub mod save_file;
 mod seat;
 mod sink;
 mod subscribers;
@@ -646,6 +647,12 @@ module! {
     /// Rasterises an SVG or svgz document into a canvas of `width` by `height` pixels, each a whole number from 1 to 4096, scaled to fit with its aspect ratio preserved and centred. Answers the pixels as tightly packed rows of straight-alpha RGBA8, top row first, which `lovr.data.newBlob` wraps for `lovr.data.newImage`, and the width and height of the canvas. Hrefs to files are not followed and text elements are not drawn. A document that does not parse raises an error.
     fn rasterizeSvg(lua, _session, svg: mlua::LuaString, width: f64, height: f64) -> (mlua::LuaString, u32, u32) {
         svg::rasterize_svg(lua, &svg, width, height)
+    }
+
+    /// Writes `contents` to the file `name` inside `directory` atomically: to a temporary file beside it, flushed and renamed over the target, so a reader sees the old file or the new one. `directory` is an absolute path to an existing directory, such as `lovr.filesystem.getSaveDirectory()`, and `name` is a file name with no separator. A failed write raises an error and leaves any previous file in place.
+    fn saveFile(_lua, _session, directory: String, name: String, contents: mlua::LuaString) -> () {
+        save_file::save(std::path::Path::new(&directory), &name, &contents.as_bytes())
+            .map_err(|error| mlua::Error::runtime(error.to_string()))
     }
 
     /// The ladder a layer's requested size is quantised up, ascending. A panel whose scale Lua raises requests a size the free list already holds.

@@ -866,6 +866,13 @@ export type Lunette = {
   -- files are not followed and text elements are not drawn. A document that
   -- does not parse raises an error.
   read rasterizeSvg: (svg: string, width: number, height: number) -> (string, number, number),
+  -- Writes `contents` to the file `name` inside `directory` atomically: to a
+  -- temporary file beside it, flushed and renamed over the target, so a reader
+  -- sees the old file or the new one. `directory` is an absolute path to an
+  -- existing directory, such as `lovr.filesystem.getSaveDirectory()`, and
+  -- `name` is a file name with no separator. A failed write raises an error and
+  -- leaves any previous file in place.
+  read saveFile: (directory: string, name: string, contents: string) -> (),
   -- The ladder a layer's requested size is quantised up, ascending. A panel
   -- whose scale Lua raises requests a size the free list already holds.
   read scaleSteps: () -> { number },
