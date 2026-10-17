@@ -52,28 +52,33 @@ function controls.attach(context: plugin.Context, choice: selection.State, rende
         end
         published.refresh()
       end
-      -- Each request refreshes the stores at once, so the panel shows its result at the next commit.
-      local function apply(change: () -> ()): ()
+      -- Each request refreshes the stores at once, so the panel shows its result at the next commit, and saves the
+      -- configuration fields it changed through the backdrop entry's own context.
+      local function apply(change: () -> (), saved: { [string]: unknown }?): ()
         if live and childContext:active() then
           change()
           published.refresh()
+          if saved then
+            context:save(saved)
+          end
         end
       end
       local actions: component.Actions = table.freeze {
         setEnabled = function(enabled: boolean): ()
           apply(function(): ()
             renderer.setEnabled(enabled)
-          end)
+          end, { enabled = enabled })
         end,
         setReactive = function(reactive: boolean): ()
           apply(function(): ()
             choice:setReactive(reactive)
-          end)
+          end, { reactive = reactive })
         end,
         setMode = function(mode: selection.Mode): ()
+          -- A pinned application is a process, which a later session cannot have, so only the other modes are saved.
           apply(function(): ()
             choice:setMode(mode)
-          end)
+          end, if mode ~= 'application' then { sourceMode = mode } else nil)
         end,
         pinAttended = function(): ()
           apply(function(): ()
@@ -95,17 +100,17 @@ function controls.attach(context: plugin.Context, choice: selection.State, rende
         setResponse = function(value: number): ()
           apply(function(): ()
             choice:setResponse(value)
-          end)
+          end, { response = value })
         end,
         setMotion = function(value: number): ()
           apply(function(): ()
             choice:setMotion(value)
-          end)
+          end, { motion = value })
         end,
         setDiagnostic = function(diagnostic: selection.Diagnostic): ()
           apply(function(): ()
             choice:setDiagnostic(diagnostic)
-          end)
+          end, { diagnostic = diagnostic })
         end,
         close = function(): ()
           setVisible(false)

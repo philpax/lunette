@@ -2,6 +2,7 @@
 
 local plugin = require '@lunette-plugin'
 local frame = require '@lunette-plugins/session/frame'
+local savedSettings = require '@lunette-plugins/storage/saved-settings'
 local surfaces = require '@lunette-plugins/interaction/surfaces'
 local panels = require '@lunette-plugins/panels/service'
 local drops = require '@lunette-plugins/interaction/drops'
@@ -174,7 +175,12 @@ function desktop.run(options: Options?): ()
       if not running then
         -- The UI toolkit's providers can be reconfigured, because default appearance and the recovery plugin undo
         -- a configuration that breaks the interface. Other providers the protected entries need stay fixed.
-        running = management.start(entries, { protected = protected, reconfigurable = { 'ui-host', 'ui-standard' } })
+        -- Settings changed in a session are saved in the save directory and apply over the configuration.
+        running = management.start(entries, {
+          protected = protected,
+          reconfigurable = { 'ui-host', 'ui-standard' },
+          saved = savedSettings.open 'settings.saved',
+        })
       end
     end,
     stop = function(): ()

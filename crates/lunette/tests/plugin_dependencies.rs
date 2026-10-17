@@ -107,7 +107,8 @@ fn allowed(leaves: &BTreeSet<PathBuf>, source: &Path, target: &Path) -> bool {
                         | "lua/lunette-plugins/registration/registry.luau"
                         | "lua/lunette-plugins/lifecycle/cleanup.luau"
                         | "lua/lunette-plugins/interaction/picking.luau"
-                        | "lua/lunette-plugins/storage/settings-file.luau"
+                        | "lua/lunette-plugins/storage/saved-settings.luau"
+                        | "lua/lunette-plugins/storage/versioned-file.luau"
                 )
             );
     };

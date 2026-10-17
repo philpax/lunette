@@ -20,6 +20,22 @@ export type Entry = {
   read protected: boolean,
   read required: boolean,
   read diagnostic: string?,
+  -- The configuration before saved settings, from the session's configuration file.
+  read baseConfig: unknown,
+  -- The entry's saved settings: the configuration fields the user changed, which take precedence over `baseConfig`.
+  read saved: { read [string]: unknown }?,
+}
+
+-- Whether a saved field applies, fails its entry's schema, belongs to an entry that failed to start with its saved
+-- fields, or belongs to an entry that is not composed.
+export type SavedStatus = 'applied' | 'invalid' | 'suspended' | 'unused'
+
+export type SavedSetting = {
+  read id: string,
+  read field: string,
+  read value: unknown,
+  read status: SavedStatus,
+  read problem: string?,
 }
 
 -- The catalog keeps initial order and appends new ids. A removed or replaced entry keeps its position.
@@ -57,8 +73,14 @@ export type Service = {
   read ownerId: (Service, plugin.Owner) -> string?,
   read markGood: (Service) -> (),
   read lastGood: (Service) -> GoodConfiguration?,
+  -- Every saved field, by entry id and then field. Configuring an entry records the fields that differ from its base
+  -- configuration as its saved settings.
+  read savedSettings: (Service) -> { read [number]: SavedSetting },
+  -- Removes one saved field of an entry, or all of them, and returns a composed entry to its base configuration with
+  -- the saved fields that remain.
+  read forgetSaved: (Service, string, string?) -> (),
 }
 
-composition.capability = plugin.capability<<Service>> { name = 'lunette/composition', version = 2 }
+composition.capability = plugin.capability<<Service>> { name = 'lunette/composition', version = 3 }
 
 return composition

@@ -1,44 +1,34 @@
 local testing = require '@testing'
 local accessibility = require '@lunette-contracts/accessibility'
-local format = require '../private/format'
 local fixture = require '@testing/ui-host'
 local expect = testing.expect
 local test = testing.suite()
 
-test('settings round-trip through the file, keeping fields this version does not know', function()
-  local text = [[return {
-  version = 1,
-  settings = {
-    textScale = 1.5,
-    highContrast = true,
-    futureSetting = { level = 3, names = { 'a', 'b' } },
-  },
-}]]
-  local loaded = format.read(text)
-  assert(loaded.kind == 'settings', 'the file loads')
-  expect.equal(loaded.file.settings.textScale, 1.5)
-  expect.equal(loaded.file.settings.reducedMotion, false, 'missing settings take their defaults')
-  local again = format.read(format.render(loaded.file))
-  assert(again.kind == 'settings')
-  expect.equal(again.file.settings.highContrast, true)
-  expect.equal(again.file.unknown.futureSetting.level, 3, 'an unknown field survives a write')
-  expect.equal(again.file.unknown.futureSetting.names[2], 'b')
+test('the configured settings start the store, and an invalid change is refused', function()
+  local state = fixture.boot {
+    standard = true,
+    plugins = {
+      {
+        definition = require('@lunette-plugins/ui/accessibility').definition,
+        config = { textScale = 1.5, sounds = false },
+      },
+    },
+  }
+  local service = assert(assert(state.fixture.session):observe(accessibility.capability).service)
+  expect.equal(service.settings:get().textScale, 1.5, 'the configured text scale')
+  expect.equal(service.settings:get().sounds, false, 'and sounds')
+  expect.equal(service.settings:get().haptics, true, 'an unconfigured setting takes its default')
+  expect.raises(function()
+    service:update { textScale = 9 }
+  end, 'not a valid textScale')
+  expect.raises(function()
+    service:update { colour = 'blue' }
+  end, 'not a valid colour')
+  expect.equal(service.settings:get().textScale, 1.5, 'a refused change leaves the settings')
+  state.fixture:close()
 end)
 
-test('invalid values are skipped and named, and newer or broken files are refused', function()
-  local loaded = format.read 'return { version = 1, settings = { textScale = 9, haptics = "yes", sounds = false } }'
-  assert(loaded.kind == 'settings')
-  expect.equal(table.concat(loaded.skipped, ','), 'haptics,textScale')
-  expect.equal(loaded.file.settings.textScale, 1, 'an out-of-range scale keeps the default')
-  expect.equal(loaded.file.settings.sounds, false)
-  local future = format.read 'return { version = 2, settings = {} }'
-  expect.equal(future.kind, 'fromTheFuture')
-  expect.equal(format.read('return (').kind, 'broken')
-  expect.equal(format.read('error("no")').kind, 'broken')
-  expect.equal(format.read('return os.exit()').kind, 'broken', 'the file runs in an empty environment')
-end)
-
-test('the provider saves changes, and the host applies text scale and high contrast', function()
+test('a change reaches the host, which applies text scale and high contrast', function()
   local state = fixture.boot {
     standard = true,
     plugins = { require('@lunette-plugins/ui/accessibility').definition },
@@ -48,11 +38,6 @@ test('the provider saves changes, and the host applies text scale and high contr
   local before = state.service:theme().type.body.size
   service:update { textScale = 1.5, highContrast = true }
   expect.near(state.service:theme().type.body.size, before * 1.5, 1e-9, 'the host scales its type')
-  local saved = state.fixture.native.events.files['accessibility.settings']
-  assert(saved, 'the settings were saved')
-  local loaded = format.read(saved)
-  assert(loaded.kind == 'settings')
-  expect.equal(loaded.file.settings.highContrast, true)
   expect.raises(function()
     service:update { textScale = 7 }
   end, 'not a valid textScale')

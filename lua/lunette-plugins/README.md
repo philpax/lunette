@@ -18,7 +18,7 @@ The shipped tree contains independent plugin leaves in responsibility categories
 - [Registration](registration/README.md): Caller-owned listeners and named values.
 - [Scale](scale/README.md): Output-scale recommendations and application.
 - [Session](session/README.md): Frame dispatch, session actions, and runtime management.
-- [Storage](storage/README.md): Versioned settings files.
+- [Storage](storage/README.md): Saved settings and versioned files.
 - [UI](ui/README.md): The UI host, standard kinds, components, notifications, and accessibility.
 - [Window](window/README.md): Rules, placement, and adoption.
 - [Workspace](workspace/README.md): Panel tags and workspace visibility.

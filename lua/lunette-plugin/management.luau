@@ -1,5 +1,5 @@
--- Owns session entries, previous-good configuration, and the last composition marked good over one nontransactional
--- plugin runtime.
+-- Owns session entries, previous-good configuration, the last composition marked good, and saved settings over one
+-- nontransactional plugin runtime.
 
 local adapter = require '@lunette-plugin/adapter'
 local compose = require '@lunette-plugin/compose'
@@ -13,7 +13,19 @@ export type Entry = contract.Entry
 -- `reconfigurable`, which can be reloaded and reconfigured but still not disabled or removed. A provider belongs in
 -- `reconfigurable` only when a broken configuration of it is recoverable in VR, as the UI toolkit's are through
 -- default appearance and the recovery plugin.
-export type Options = { read protected: { string }?, read reconfigurable: { string }? }
+--
+-- `saved` keeps saved settings: an override of configuration fields for each entry id. The runtime applies each
+-- entry's valid fields over its configuration at start, records the fields that differ from that configuration when
+-- the entry is configured or saves its own changes, changes `overrides` in place, and then calls `write`.
+export type Options = { read protected: { string }?, read reconfigurable: { string }?, read saved: Saved? }
+export type Saved = {
+  read overrides: { [string]: { [string]: unknown } },
+  read write: () -> (),
+  -- Reports a saved setting that does not apply or cannot be saved.
+  read report: (string) -> (),
+  -- Whether the file can hold a value.
+  read storable: (unknown) -> boolean,
+}
 export type Running = {
   read runtime: adapter.Runtime,
   read service: contract.Service,
@@ -24,6 +36,8 @@ type Record = {
   definition: adapter.Definition<any>,
   instance: adapter.Instance<any>,
   config: unknown,
+  -- The configuration before saved settings, which saved fields are measured against.
+  base: unknown,
   good: unknown,
   hasGood: boolean,
   previous: unknown,
@@ -53,8 +67,36 @@ local function prepared(entry: compose.Entry): Prepared
   return { id = entry.id, definition = resolved.definition, config = preflight(resolved.definition, resolved.config) }
 end
 
+-- The entry with fields merged over its configuration by the entry's schema, ready to start.
+local function merged(entry: compose.Entry, fields: { [string]: unknown }): Prepared
+  return prepared(compose.apply({ entry }, { { id = entry.id, config = fields } })[1])
+end
+
+-- Structural equality over configuration values: tables compare by their keys and values, everything else by `==`.
+local function equal(left: unknown, right: unknown): boolean
+  if left == right then
+    return true
+  end
+  if type(left) ~= 'table' or type(right) ~= 'table' then
+    return false
+  end
+  local a, b = left :: { [unknown]: unknown }, right :: { [unknown]: unknown }
+  for key, value in a do
+    if not equal(value, b[key]) then
+      return false
+    end
+  end
+  for key in b do
+    if a[key] == nil then
+      return false
+    end
+  end
+  return true
+end
+
 function management.start(entries: { compose.Entry }, options: Options?): Running
   local checked = compose.apply(entries)
+  local saved = options and options.saved
   local protectedIds: { [string]: boolean } = { composition = true }
   local reconfigurableIds: { [string]: boolean } = {}
   local function list(name: string, ids: unknown, into: { [string]: boolean }): ()
@@ -69,7 +111,7 @@ function management.start(entries: { compose.Entry }, options: Options?): Runnin
     end
   end
   if options ~= nil then
-    fields.rejectUnknownFields('composition', options, { 'protected', 'reconfigurable' }, 0)
+    fields.rejectUnknownFields('composition', options, { 'protected', 'reconfigurable', 'saved' }, 0)
     list('protected', options.protected, protectedIds)
     list('reconfigurable', options.reconfigurable, reconfigurableIds)
   end
@@ -82,11 +124,58 @@ function management.start(entries: { compose.Entry }, options: Options?): Runnin
       fail('unknown entry ' .. id)
     end
   end
+  -- Saved fields that fail their entry's schema, by entry id, with the reason; they stay in the file unapplied.
+  local invalid: { [string]: { [string]: string } } = {}
+  -- Entries that failed to start with their saved fields, which start with their base configuration instead.
+  local suspended: { [string]: boolean } = {}
+  local bases: { [string]: unknown } = {}
+  -- Applies an entry's saved fields one at a time, so one invalid field leaves the others applied.
+  local function withSaved(entry: compose.Entry, base: Prepared): Prepared
+    local store = saved
+    local override = store and store.overrides[entry.id]
+    if not store or not override or not base.definition.schema then
+      return base
+    end
+    local valid: { [string]: unknown } = {}
+    local applied = false
+    for field, value in override do
+      local single: { [string]: unknown } = {}
+      single[field] = value
+      local ok, problem = pcall(merged, entry, single)
+      if ok then
+        valid[field] = value
+        applied = true
+      else
+        invalid[entry.id] = invalid[entry.id] or {}
+        invalid[entry.id][field] = tostring(problem)
+        store.report(`the saved {entry.id} setting {field} does not apply: {tostring(problem)}`)
+      end
+    end
+    if not applied then
+      return base
+    end
+    local ok, result = pcall(merged, entry, valid)
+    if not ok then
+      suspended[entry.id] = true
+      store.report(`the saved {entry.id} settings do not apply together, so none apply: {tostring(result)}`)
+      return base
+    end
+    return result
+  end
   local initial: { Prepared } = {}
   for _, entry in checked do
-    initial[#initial + 1] = prepared(entry)
+    local base = prepared(entry)
+    bases[entry.id] = base.config
+    initial[#initial + 1] = withSaved(entry, base)
   end
-  local runtime = adapter.runtime()
+  local saveChanges: adapter.Saver
+  local runtime = adapter.runtime(if saved
+    then {
+      save = function(instanceId: string, changes: { [string]: unknown }): ()
+        saveChanges(instanceId, changes)
+      end,
+    }
+    else nil)
   local records: { [string]: Record } = {}
   local order: { string } = {}
   local sources: { [string]: Prepared } = {}
@@ -144,6 +233,11 @@ function management.start(entries: { compose.Entry }, options: Options?): Runnin
       fail('unknown entry ' .. id)
     end
     return record :: Record
+  end
+
+  local function savedFor(id: string): { [string]: unknown }?
+    local store = saved
+    return if store then store.overrides[id] else nil
   end
 
   local function protectedInstances(snapshot: lunette.PluginRuntimeSnapshot): { [string]: boolean }
@@ -219,6 +313,7 @@ function management.start(entries: { compose.Entry }, options: Options?): Runnin
       definition = source.definition,
       instance = instance,
       config = source.config,
+      base = if bases[source.id] ~= nil then bases[source.id] else source.config,
       good = nil,
       hasGood = false,
       previous = nil,
@@ -231,6 +326,48 @@ function management.start(entries: { compose.Entry }, options: Options?): Runnin
       catalogOrder[#catalogOrder + 1] = source.id
     end
     sources[source.id] = table.freeze { id = source.id, definition = source.definition, config = source.config }
+  end
+
+  -- Records the fields of an entry's configuration that differ from its base as the entry's saved settings, keeping
+  -- saved fields that do not apply. A value the file cannot hold is reported and left out.
+  local function recordSaved(id: string, entry: Record): ()
+    if not saved then
+      return
+    end
+    local override: { [string]: unknown } = {}
+    local config = (if type(entry.config) == 'table' then entry.config else {}) :: { [string]: unknown }
+    local base = (if type(entry.base) == 'table' then entry.base else {}) :: { [string]: unknown }
+    for field, value in config do
+      if not equal(value, base[field]) then
+        if saved.storable(value) then
+          override[field] = value
+        else
+          saved.report(`the {id} setting {field} cannot be saved, because the file cannot hold its value`)
+        end
+      end
+    end
+    local kept = saved.overrides[id]
+    for field in invalid[id] or {} do
+      if kept and kept[field] ~= nil and override[field] == nil then
+        override[field] = kept[field]
+      end
+    end
+    saved.overrides[id] = if next(override) then override else nil
+    suspended[id] = nil
+    saved.write()
+  end
+
+  -- An entry's own changes merge into its configuration without a reload, and are recorded like a configure.
+  saveChanges = function(instanceId: string, changes: { [string]: unknown }): ()
+    for id, entry in records do
+      if entry.instance:id() == instanceId then
+        local result = merged({ id = id, definition = entry.definition, config = entry.config :: any }, changes)
+        entry.config = result.config
+        recordSaved(id, entry)
+        return
+      end
+    end
+    fail "only an entry's own context saves its settings"
   end
 
   local function replace(record: Record, config: unknown, recovering: boolean): ()
@@ -281,6 +418,8 @@ function management.start(entries: { compose.Entry }, options: Options?): Runnin
             state = node.state,
             enabled = node.enabled,
             protected = protectedIds[id] == true or (protected[node.id] == true and not reconfigurableIds[id]),
+            baseConfig = record.base,
+            saved = savedFor(id),
             required = protectedIds[id] == true or protected[node.id] == true,
             diagnostic = node.diagnostic,
           }
@@ -316,6 +455,7 @@ function management.start(entries: { compose.Entry }, options: Options?): Runnin
           fail('entry ' .. id .. ' has no configuration schema; its source defines its configuration')
         end
         replace(record, preflight(record.definition, config), false)
+        recordSaved(id, record)
       end)
     end,
     recover = function(_self: contract.Service, id: string): ()
@@ -325,6 +465,7 @@ function management.start(entries: { compose.Entry }, options: Options?): Runnin
           fail('entry ' .. id .. ' has no previous configuration')
         end
         replace(record, preflight(record.definition, record.previous), true)
+        recordSaved(id, record)
       end)
     end,
     restore = function(_self: contract.Service, id: string): ()
@@ -384,6 +525,75 @@ function management.start(entries: { compose.Entry }, options: Options?): Runnin
     lastGood = function(_self: contract.Service): contract.GoodConfiguration?
       return good
     end,
+    savedSettings = function(_self: contract.Service): { read [number]: contract.SavedSetting }
+      local result: { contract.SavedSetting } = {}
+      if not saved then
+        return table.freeze(result)
+      end
+      local ids: { string } = {}
+      for id in saved.overrides do
+        ids[#ids + 1] = id
+      end
+      table.sort(ids)
+      for _, id in ids do
+        local fieldNames: { string } = {}
+        for field in saved.overrides[id] do
+          fieldNames[#fieldNames + 1] = field
+        end
+        table.sort(fieldNames)
+        for _, field in fieldNames do
+          local problem = invalid[id] and invalid[id][field]
+          local status: contract.SavedStatus = if records[id] == nil
+            then 'unused'
+            elseif problem then 'invalid'
+            elseif suspended[id] then 'suspended'
+            else 'applied'
+          result[#result + 1] = table.freeze {
+            id = id,
+            field = field,
+            value = saved.overrides[id][field],
+            status = status,
+            problem = problem,
+          }
+        end
+      end
+      return table.freeze(result)
+    end,
+    forgetSaved = function(_self: contract.Service, id: string, field: string?): ()
+      if not saved or not saved.overrides[id] then
+        return
+      end
+      local override = saved.overrides[id]
+      if field then
+        override[field] = nil
+        if invalid[id] then
+          invalid[id][field] = nil
+        end
+      else
+        table.clear(override)
+        invalid[id] = nil
+      end
+      if not next(override) then
+        saved.overrides[id] = nil
+      end
+      suspended[id] = nil
+      saved.write()
+      local entry = records[id]
+      -- A composed entry returns to its base configuration with the saved fields that remain; a protected one keeps
+      -- running as it is, and the change applies at the next start.
+      if entry and entry.definition.schema and not protectedIds[id] then
+        change(function(): ()
+          local remaining: { [string]: unknown } = {}
+          for name, value in savedFor(id) or {} do
+            if not (invalid[id] and invalid[id][name]) then
+              remaining[name] = value
+            end
+          end
+          local target = merged({ id = id, definition = entry.definition, config = entry.base :: any }, remaining)
+          replace(mutable(id, false), target.config, false)
+        end)
+      end
+    end,
   }
 
   local ok, problem = pcall(function(): ()
@@ -402,6 +612,25 @@ function management.start(entries: { compose.Entry }, options: Options?): Runnin
       records[id].instance:enable()
     end
     runtime:drain()
+    -- An entry that fails to start with saved fields starts again from its base configuration, so a saved setting
+    -- cannot break the entry at every start.
+    local retried = false
+    for _, id in order do
+      local entry = records[id]
+      if entry.config ~= entry.base and entry.instance:state() == 'failed' then
+        suspended[id] = true
+        local store = saved
+        if store then
+          store.report(`{id} failed to start with its saved settings, so it starts without them until they are reset`)
+        end
+        entry.config = entry.base
+        entry.instance:requestReload(entry.base)
+        retried = true
+      end
+    end
+    if retried then
+      runtime:drain()
+    end
   end)
   changing = false
   if not ok then

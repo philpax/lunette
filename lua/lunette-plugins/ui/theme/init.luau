@@ -2,7 +2,6 @@
 local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/theme'
 local listeners = require '@lunette-plugins/registration/listeners'
-local settingsFile = require '@lunette-plugins/storage/settings-file'
 local config = require '@self/config'
 local palette = require '@self/private/palette'
 
@@ -13,48 +12,13 @@ local function freeze(color: contract.Color): contract.Color
   return table.freeze { color[1], color[2], color[3], color[4] or 1 }
 end
 
-local CHECKS: { [string]: settingsFile.Check } = {
-  mode = function(value: any): boolean
-    return value == 'dark' or value == 'light'
-  end,
-  accent = function(value: any): boolean
-    if type(value) ~= 'table' or #value < 3 or #value > 4 then
-      return false
-    end
-    for _, component in value do
-      if type(component) ~= 'number' or not (component >= 0 and component <= 1) then
-        return false
-      end
-    end
-    return true
-  end,
-}
-
 local function build(context: plugin.Context, settings: Settings): contract.Service
-  -- The configured mode and accent are the defaults; choices saved in a session replace them.
-  local spec: settingsFile.Spec = {
-    path = settings.file,
-    label = 'theme: settings',
-    version = 1,
-    checks = CHECKS,
-    defaults = {
-      mode = settings.mode,
-      accent = if settings.accent then table.clone(settings.accent) else table.clone(palette.DEFAULT_ACCENT),
-    },
-  }
-  local opened = settingsFile.open(spec)
-  local mode: contract.Mode = opened.file.settings.mode
-  local accent = freeze(opened.file.settings.accent)
+  local mode: contract.Mode = settings.mode
+  local accent = if settings.accent then freeze(settings.accent) else palette.DEFAULT_ACCENT
   local options: contract.Options = {}
   local current = palette.resolve(mode, accent, options)
   local base = palette.resolve('dark', palette.DEFAULT_ACCENT, options)
   local changed = listeners.new<<(contract.Theme) -> ()>>(context)
-
-  local function save(): ()
-    opened.file.settings.mode = mode
-    opened.file.settings.accent = { accent[1], accent[2], accent[3], accent[4] }
-    settingsFile.save(spec, opened)
-  end
 
   local function resolve(): ()
     current = palette.resolve(mode, accent, options)
@@ -82,7 +46,7 @@ local function build(context: plugin.Context, settings: Settings): contract.Serv
       assert(given == 'dark' or given == 'light', `theme: '{tostring(given)}' is not a mode`)
       if given ~= mode then
         mode = given
-        save()
+        context:save { mode = given }
         resolve()
       end
     end,
@@ -90,9 +54,12 @@ local function build(context: plugin.Context, settings: Settings): contract.Serv
       return accent
     end,
     setAccent = function(_self: contract.Service, given: contract.Color): ()
-      assert(CHECKS.accent(given), 'theme: an accent is three or four components from 0 to 1')
+      assert(type(given) == 'table' and #given >= 3 and #given <= 4, 'theme: an accent is three or four components')
+      for _, component in given do
+        assert(type(component) == 'number' and component >= 0 and component <= 1, 'theme: a component is from 0 to 1')
+      end
       accent = freeze(given)
-      save()
+      context:save { accent = { accent[1], accent[2], accent[3], accent[4] } }
       resolve()
     end,
     setOptions = function(_self: contract.Service, given: contract.Options): ()

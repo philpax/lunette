@@ -1,5 +1,5 @@
--- Provides the session's accessibility settings as a store, saved to a versioned file on every change, and relays
--- announcements to assistive plugins.
+-- Provides the session's accessibility settings as a store, saved as the entry's saved settings on every change, and
+-- relays announcements to assistive plugins.
 
 local plugin = require '@lunette-plugin'
 local accessibility = require '@lunette-contracts/accessibility'
@@ -8,17 +8,13 @@ local inspection = require '@lunette-contracts/inspection'
 local protected = require '@lunette-plugins/diagnostics/protected-call'
 local ui = require '@lunette-plugins/ui/react'
 local config = require '@self/config'
-local format = require '@self/private/format'
-local settingsFile = require '@lunette-plugins/storage/settings-file'
 
 export type Config = config.Config
 export type Settings = config.Settings
 
 local function build(context: plugin.Context, options: Settings): accessibility.Service
-  local spec = format.spec(options.file)
-  local opened = settingsFile.open(spec)
-  local file = opened.file
-  local store = ui.store(table.freeze(table.clone(file.settings)) :: accessibility.Settings)
+  local current = table.clone(options) :: { [string]: any }
+  local store = ui.store(table.freeze(table.clone(current)) :: accessibility.Settings)
   -- The toolkit host applies the settings it understands; they reach it now and after each change.
   local host = context:require(uiHost.capability)
   local function apply(settings: accessibility.Settings): ()
@@ -40,14 +36,15 @@ local function build(context: plugin.Context, options: Settings): accessibility.
     settings = store :: any,
     update = function(_self: accessibility.Service, changes: { [string]: any }): ()
       assert(type(changes) == 'table', 'accessibility: changes are a table of settings')
-      local next = table.clone(file.settings) :: any
+      local next = table.clone(current)
       for name, value in changes do
-        assert(format.valid(name, value), `accessibility: {tostring(value)} is not a valid {tostring(name)}`)
+        local valid = type(name) == 'string' and pcall(config.schema.parse, { [name] = value }, 'accessibility')
+        assert(valid, `accessibility: {tostring(value)} is not a valid {tostring(name)}`)
         next[name] = value
       end
-      file.settings = next
+      current = next
       store:set(table.freeze(table.clone(next)))
-      settingsFile.save(spec, opened)
+      context:save(changes)
     end,
     announce = function(
       _self: accessibility.Service,
