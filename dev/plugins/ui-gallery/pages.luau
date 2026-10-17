@@ -14,6 +14,8 @@ export type Props = {
   owner: any?,
   components: any?,
   notifications: notifications.Service?,
+  -- Closes the panel from its header; without it the header has no close button.
+  onClose: (() -> ())?,
 }
 
 local Services = ui.createContext(nil :: Props?)
@@ -594,6 +596,7 @@ pages.Gallery = ui.component('Gallery', function(props: Props): ui.Child
     props :: Props?,
     c.Panel {
       title = 'Widget gallery',
+      onClose = props.onClose,
       c.Body {
         key = 'body',
         grow = 1,
