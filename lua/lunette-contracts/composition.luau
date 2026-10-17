@@ -79,6 +79,10 @@ export type Service = {
   -- Removes one saved field of an entry, or all of them, and returns a composed entry to its base configuration with
   -- the saved fields that remain.
   read forgetSaved: (Service, string, string?) -> (),
+  -- Returns every entry that runs with saved fields to its base configuration for the rest of the session, marking
+  -- the fields suspended without removing them, and answers how many entries it returned. Protected entries and the
+  -- providers they need keep running as they are.
+  read suspendSaved: (Service) -> number,
 }
 
 composition.capability = plugin.capability<<Service>> { name = 'lunette/composition', version = 3 }

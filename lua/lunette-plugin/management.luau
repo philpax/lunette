@@ -559,6 +559,22 @@ function management.start(entries: { compose.Entry }, options: Options?): Runnin
       end
       return table.freeze(result)
     end,
+    suspendSaved = function(_self: contract.Service): number
+      local returned = 0
+      for _, id in table.clone(order) do
+        local entry = records[id]
+        if entry and entry.config ~= entry.base and savedFor(id) and entry.definition.schema then
+          local ok = pcall(change, function(): ()
+            replace(mutable(id, false), entry.base, false)
+          end)
+          if ok then
+            suspended[id] = true
+            returned += 1
+          end
+        end
+      end
+      return returned
+    end,
     forgetSaved = function(_self: contract.Service, id: string, field: string?): ()
       if not saved or not saved.overrides[id] then
         return

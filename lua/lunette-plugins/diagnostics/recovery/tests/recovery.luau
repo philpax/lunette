@@ -146,4 +146,17 @@ test('restore applies the last known good configuration by ray', function()
   end)
 end)
 
+test('saved settings are set aside by ray until the next start, and stay saved', function()
+  fixture.run(nil, function(env: fixture.Environment): ()
+    env.composition:configure('settings', { value = 9 })
+    expect.equal(env.saved.overrides.settings.value, 9, 'the change is a saved setting')
+    env.composition:disable 'ui-host'
+    env:step()
+    env:click 'without-saved'
+    expect.equal(assert(env.settings.current).value, 1, 'the entry runs with its configuration again')
+    expect.equal(env.saved.overrides.settings.value, 9, 'the saved setting stays for the Saved tab to forget')
+    expect.equal(env.composition:savedSettings()[1].status, 'suspended', 'and is shown as set aside')
+  end)
+end)
+
 return test

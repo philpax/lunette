@@ -116,10 +116,21 @@ local function init(context: plugin.Context, settings: Settings): ()
         enabled = false,
         note = 'No configuration has stayed healthy long enough to be recorded.',
       }
+    local applying = false
+    for _, setting in compositionService:savedSettings() do
+      applying = applying or setting.status == 'applied'
+    end
+    local withoutSaved: layout.Action = {
+      id = 'without-saved',
+      label = 'Set saved settings aside',
+      enabled = applying,
+      note = if applying then nil else 'No saved settings apply.',
+    }
     return {
       appearance,
       { id = 'reload', label = 'Reload configuration', enabled = true },
       restorable,
+      withoutSaved,
       { id = 'safe-mode', label = 'Restart into safe mode', enabled = true },
     }
   end
@@ -183,6 +194,11 @@ local function init(context: plugin.Context, settings: Settings): ()
       end
     elseif id == 'restore' then
       applyGood()
+    elseif id == 'without-saved' then
+      -- The saved settings stay in the file, so the runtime manager's Saved tab can forget the one at fault.
+      local returned = compositionService:suspendSaved()
+      status =
+        `Set saved settings aside for {returned} entr{if returned == 1 then 'y' else 'ies'} until the next start.`
     elseif id == 'safe-mode' then
       local requested, message = lunette.restartIntoSafeMode()
       status = if requested then 'Restarting into safe mode.' else 'Safe mode is unavailable: ' .. tostring(message)

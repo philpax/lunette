@@ -3,7 +3,7 @@
 
 local layout = {}
 
-export type ActionId = 'appearance' | 'reload' | 'restore' | 'safe-mode'
+export type ActionId = 'appearance' | 'reload' | 'restore' | 'without-saved' | 'safe-mode'
 
 export type Action = {
   read id: ActionId,
@@ -61,7 +61,7 @@ local GAP = 16
 local BUTTON = 76
 local BUTTON_GAP = 14
 -- Every panel lists the same actions, so the height does not depend on the content.
-local ACTIONS = 4
+local ACTIONS = 5
 
 -- The first line of `text`, cut to `columns` characters with an ellipsis. Invalid UTF-8 is cut by bytes.
 function layout.clip(text: string, columns: number): string

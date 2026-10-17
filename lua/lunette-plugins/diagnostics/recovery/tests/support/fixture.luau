@@ -21,6 +21,7 @@ local fixture = {}
 export type Settings = { value: number }
 
 export type Environment = {
+  saved: { overrides: { [string]: { [string]: unknown } } },
   native: testing.Native,
   controls: vrUi.Fixture,
   running: management.Running,
@@ -39,7 +40,7 @@ export type Environment = {
   close: (Environment) -> (),
 }
 
-local ORDER: { layout.ActionId } = { 'appearance', 'reload', 'restore', 'safe-mode' }
+local ORDER: { layout.ActionId } = { 'appearance', 'reload', 'restore', 'without-saved', 'safe-mode' }
 
 -- The recovery settings the fixture boots with: short thresholds so cases run in a few frames.
 fixture.CONFIG = {
@@ -144,7 +145,19 @@ function fixture.boot(config: { [string]: unknown }?): Environment
   do
     entries[#entries + 1] = entry
   end
-  env.running = management.start(entries, { protected = { 'diagnostics/recovery' } })
+  -- Saved settings in memory, so the recovery panel's saved settings action has something to set aside.
+  local saved = {
+    overrides = {} :: { [string]: { [string]: unknown } },
+    write = function() end,
+    report = function(message: string)
+      error(message, 0)
+    end,
+    storable = function(): boolean
+      return true
+    end,
+  }
+  env.saved = saved
+  env.running = management.start(entries, { protected = { 'diagnostics/recovery' }, saved = saved })
   env.controls = vrUi.attach(native)
   env.controls:pose('left', lovr.math.newMat4():translate(-5, 1.5, 0))
   env.controls:tracked('left', true)
