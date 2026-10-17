@@ -142,23 +142,6 @@ component.BackdropControls = ui.component('BackdropControls', function(props: Pr
           },
         },
       },
-      -- The views stay while reactivity is off, so toggling it does not move the controls below them.
-      c.Section {
-        key = 'response',
-        title = 'Response',
-        c.Row {
-          key = 'views',
-          gap = 'sm',
-          views.Model { key = 'model', size = VIEW_SIZE },
-          views.Skyline { key = 'skyline', height = VIEW_SIZE },
-        },
-        c.Text {
-          key = 'onsets',
-          text = if settings.reactive then scene.caption(summary) else 'Audio reactivity is off.',
-          style = 'caption',
-          color = 'muted',
-        },
-      },
       c.Section {
         key = 'intensity',
         title = 'Intensity',
@@ -193,6 +176,23 @@ component.BackdropControls = ui.component('BackdropControls', function(props: Pr
               actions.setDiagnostic(diagnostic :: selection.Diagnostic)
             end
           end,
+        },
+      },
+      -- The views stay while reactivity is off, so toggling it does not resize the panel.
+      c.Section {
+        key = 'response',
+        title = 'Response',
+        c.Row {
+          key = 'views',
+          gap = 'sm',
+          views.Model { key = 'model', size = VIEW_SIZE },
+          views.Skyline { key = 'skyline', height = VIEW_SIZE },
+        },
+        c.Text {
+          key = 'onsets',
+          text = if settings.reactive then scene.caption(summary) else 'Audio reactivity is off.',
+          style = 'caption',
+          color = 'muted',
         },
       },
     },

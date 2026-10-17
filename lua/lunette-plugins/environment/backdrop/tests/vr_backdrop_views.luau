@@ -31,11 +31,7 @@ test('the open control panel draws the sky model and the skyline as volumes ever
   expect.truthy(count(env, 'capsule') >= 12, 'the model marks each sector edge')
   env.running:draw()
   expect.equal(#env.view.models, 2, 'the model draws again without the panel changing')
-  expect.equal(
-    fixture.node(env, 'body/response/content/onsets').props.text,
-    'Silent.',
-    'the caption reports silence'
-  )
+  expect.equal(fixture.node(env, 'body/response/content/onsets').props.text, 'Silent.', 'the caption reports silence')
   fixture.click(env, 'body/reactive')
   env.running:step(0)
   expect.equal(fixture.node(env, 'body/response/content/onsets').props.text, 'Audio reactivity is off.')

@@ -27,6 +27,8 @@ export type Sources = {
 local SKYLINE_DEPTH = 0.05
 -- How far the curtains reach past the sky's distance as they meander and fold, so the model fits its volume.
 local CURTAIN_REACH = 1.4
+-- Radians the model tips toward the viewer about the panel's horizontal axis.
+local MODEL_TILT = math.pi / 4
 -- A light from above and to the left of the viewer shades the faces of the columns and markers.
 local VERTEX = [[
   vec4 lovrmain() {
@@ -107,8 +109,10 @@ function kinds.register(host: uiHost.Service, owner: plugin.Context, sources: So
         local observed = sources.observed
         local markers = scene.markers(observed, sources.palette, sources.sectors, sources.hold, accent)
         -- The model sits in the middle of the volume and turns with the world rather than the panel, so each of its
-        -- directions is the direction in the sky it shows.
+        -- directions is the direction in the sky it shows. It tips its top toward the viewer, so the ground and its
+        -- marks face the panel's reader.
         pass:translate(0, 0, volume.depth / 2)
+        pass:rotate(MODEL_TILT, 1, 0, 0)
         local angle, ax, ay, az = volume.pose:getOrientation()
         pass:rotate(-angle, ax, ay, az)
         pass:setShader(shader())
