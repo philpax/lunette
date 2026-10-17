@@ -8,11 +8,11 @@ local outlets = require './outlet-kinds'
 local registry = {}
 
 export type Registry = {
-  -- Kind registrations per name, the base first; the newest override is current.
-  kinds: { [string]: { records.Kind } },
+  -- The base registration and the current result of its live overrides, per name.
+  kinds: { [string]: { base: records.Kind, current: records.Kind } },
   -- While on, every kind resolves to its base registration and every visual name to its base visual.
   defaultAppearance: boolean,
-  -- Kind overrides per name, oldest first, from which the stack above each base registration is built.
+  -- Kind overrides per name, oldest first, from which the current registration is built.
   overrides: { [string]: { { owner: plugin.Owner, registration: uiHost.KindRegistration } } },
   -- Visual registrations per name, oldest first; the newest is current and receives the older ones as `base`.
   visuals: { [string]: { { owner: plugin.Owner, visual: uiHost.Visual } } },
@@ -83,34 +83,32 @@ local function layer(previous: uiHost.KindRegistration, override: uiHost.KindReg
   return merged :: any
 end
 
--- Rebuilds a kind's stack from its base registration and its live overrides, so each node made after the change
--- uses the newest one.
+-- Rebuilds a kind's current registration from its base and its live overrides.
 -- An override whose layered result is not a valid registration, such as one that gives a drawing kind an
 -- expansion, is skipped; its owner and the reason are answered so the caller can report them.
 export type Skipped = { read owner: plugin.Owner, read message: string }
 
 local function restack(target: Registry, name: string): { Skipped }
   local skipped: { Skipped } = {}
-  local stack = target.kinds[name]
-  if not stack then
+  local kinds = target.kinds[name]
+  if not kinds then
     return skipped
   end
-  local rebuilt = { stack[1] }
-  local registration = stack[1].registration
+  local registration = kinds.base.registration
+  local owner = kinds.base.owner
+  local overridden = false
   for _, entry in target.overrides[name] or {} do
     local layered = layer(registration, entry.registration)
     local ok, failure = pcall(registry.validate, layered)
     if ok then
       registration = layered
-      table.insert(rebuilt, record(entry.owner, registration))
+      owner = entry.owner
+      overridden = true
     else
       table.insert(skipped, { owner = entry.owner, message = tostring(failure) })
     end
   end
-  table.clear(stack)
-  for index, kind in rebuilt do
-    stack[index] = kind
-  end
+  kinds.current = if overridden then record(owner, registration) else kinds.base
   return skipped
 end
 
@@ -165,10 +163,12 @@ function registry.new(hostOwner: plugin.Owner): Registry
       },
     },
   }
-  local kinds: { [string]: { records.Kind } } =
-    { ['lunette/portal'] = { portal }, ['lunette/overlay-root'] = { overlayRoot } }
+  local kinds: { [string]: { base: records.Kind, current: records.Kind } } = {
+    ['lunette/portal'] = { base = portal, current = portal },
+    ['lunette/overlay-root'] = { base = overlayRoot, current = overlayRoot },
+  }
   for _, kind in outlets.kinds(hostOwner) do
-    kinds[kind.name] = { kind }
+    kinds[kind.name] = { base = kind, current = kind }
   end
   local visuals: { [string]: { { owner: plugin.Owner, visual: uiHost.Visual } } } = {
     [MISSING_VISUAL] = {
@@ -230,12 +230,12 @@ function registry.addKind(
   local name = registration.name
   assert(target.kinds[name] == nil, `ui: the kind {name} is already registered`)
   local kind = record(owner, registration)
-  local stack = { kind }
-  target.kinds[name] = stack
+  local kinds = { base = kind, current = kind }
+  target.kinds[name] = kinds
   -- Overrides outlive a base that unloads, and stack again on a base registered under the same name.
   local skipped = restack(target, name)
   return function(): ()
-    if target.kinds[name] == stack then
+    if target.kinds[name] == kinds then
       target.kinds[name] = nil
     end
   end, skipped
@@ -253,9 +253,9 @@ function registry.overrideKind(
   registry.validate(registration)
   assert(registration.name == name, `ui: an override of {name} keeps the kind's name`)
   -- An override can arrive before the kind it replaces, and applies once the kind is registered.
-  local stack = target.kinds[name]
-  if stack then
-    registry.validate(layer(stack[#stack].registration, registration))
+  local kinds = target.kinds[name]
+  if kinds then
+    registry.validate(layer(kinds.current.registration, registration))
   end
   local entry = { owner = owner, registration = registration }
   local overrides = target.overrides[name] or {}
@@ -292,11 +292,11 @@ function registry.overridden(target: Registry): { Override }
 end
 
 function registry.kind(target: Registry, name: string): records.Kind
-  local stack = target.kinds[name]
-  if not stack then
+  local kinds = target.kinds[name]
+  if not kinds then
     return target.missing
   end
-  return if target.defaultAppearance then stack[1] else stack[#stack]
+  return if target.defaultAppearance then kinds.base else kinds.current
 end
 
 function registry.addVisual(target: Registry, owner: plugin.Owner, name: string, visual: uiHost.Visual): () -> ()
@@ -331,7 +331,7 @@ function registry.visuals(target: Registry, name: string): { uiHost.Visual }
     -- restyle that registered first does not become the default after the standard kinds reload.
     local bases: { [plugin.Owner]: boolean } = {}
     for _, kinds in target.kinds do
-      bases[kinds[1].owner] = true
+      bases[kinds.base.owner] = true
     end
     for _, entry in stack do
       if bases[entry.owner] then
