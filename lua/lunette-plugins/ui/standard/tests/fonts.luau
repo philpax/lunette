@@ -46,12 +46,14 @@ test('an unreadable bundled font reports its file through the provider failure',
   local session = assert(state.fixture.session)
   local instance = session:use(standard.definition, {})
   lovr.filesystem.read = read
-  expect.truthy(string.find(
-    assert(testing.diagnostic(session.runtime, instance)),
-    `ui: the font '{missing}' could not be read`,
-    1,
-    true
-  ))
+  expect.truthy(
+    string.find(
+      assert(testing.diagnostic(session.runtime, instance)),
+      `ui: the font '{missing}' could not be read`,
+      1,
+      true
+    )
+  )
   expect.equal(#testing.takeReports(), 1, 'the provider reports the read failure once')
   state.fixture:close()
 end)

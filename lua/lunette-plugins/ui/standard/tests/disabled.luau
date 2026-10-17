@@ -51,16 +51,23 @@ for _, control in CONTROLS do
         if disabled then
           props[disabling] = if disabling == 'disabled' then true else 'Unavailable.'
         end
-        fixture.show(state, c.Panel {
-          c.Body {
-            key = 'body',
-            c.Button { key = 'before', label = 'Before', onActivate = function() end },
-            c[control.name](props),
-            c.Button { key = 'after', label = 'After', onActivate = function()
-              after += 1
-            end },
-          },
-        })
+        fixture.show(
+          state,
+          c.Panel {
+            c.Body {
+              key = 'body',
+              c.Button { key = 'before', label = 'Before', onActivate = function() end },
+              c[control.name](props),
+              c.Button {
+                key = 'after',
+                label = 'After',
+                onActivate = function()
+                  after += 1
+                end,
+              },
+            },
+          }
+        )
       end
       show(true)
       local path = 'body/control' .. (if control.target == '' then '' else '/' .. control.target)
