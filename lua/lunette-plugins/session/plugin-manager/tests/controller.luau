@@ -11,14 +11,9 @@ type Settings = { count: number, callback: () -> () }
 
 local function invoke(state: controller.State, id: string): ()
   controller.update(state)
-  for _, button in state.buttons do
-    if button.id == id then
-      expect.truthy(button.enabled, id .. ' enabled')
-      controller.invoke(state, id)
-      return
-    end
-  end
-  error('missing action ' .. id)
+  local action = assert(controller.button(state, id), 'missing action ' .. id)
+  expect.equal(action.reason, nil, id .. ' enabled')
+  controller.invoke(state, id)
 end
 
 local function row(state: controller.State, label: string): ()
@@ -122,10 +117,10 @@ end)
 test('protected entries cannot be disabled, reloaded, or removed', function()
   local running, state = fixture { protected = { 'editable' } }
   controller.update(state)
-  for _, button in state.buttons do
-    if button.id == 'disable' or button.id == 'reload' or button.id == 'remove' then
-      expect.falsy(button.enabled, button.id .. ' is disabled')
-    end
+  for _, id in { 'disable', 'reload', 'remove' } do
+    local action = assert(controller.button(state, id), 'missing action ' .. id)
+    expect.equal(action.reason, 'The entry is protected.', id .. ' is disabled')
+    expect.falsy(controller.invoke(state, id), id .. ' cannot run')
   end
   expect.falsy(controller.invoke(state, 'remove'))
   expect.truthy(entry(running), 'the entry remains')
@@ -160,6 +155,26 @@ test('actions that unload plugins ask for confirmation and name what they unload
   expect.equal(confirmation.entry, 'editable')
   expect.equal(confirmation.title, 'Remove editable?')
   expect.truthy(confirmation.body:find('Catalog', 1, true), 'the body says how to undo it')
+  running.runtime:close()
+end)
+
+test('text actions share their display and execution record and leave no binding after the edit', function()
+  local running, state = fixture()
+  expect.equal(controller.button(state, 'confirm'), nil, 'Confirm is absent outside an edit')
+  expect.falsy(controller.invoke(state, 'missing'), 'an unknown action cannot run')
+  invoke(state, 'configure')
+  row(state, 'count')
+  for _, id in { 'confirm', 'cancel', 'clear' } do
+    local action = assert(controller.button(state, id), id .. ' is available during an edit')
+    expect.equal(action.reason, nil, id .. ' is enabled')
+    expect.truthy(action.editor, id .. ' preserves editor status handling')
+    expect.equal(type(action.run), 'function', id .. ' carries its execution')
+  end
+  controller.setText(state, '3')
+  expect.truthy(controller.invoke(state, 'confirm'), 'the named Confirm action edits the draft')
+  expect.equal(state.edit, nil, 'Confirm ends the edit')
+  expect.equal(controller.button(state, 'confirm'), nil, 'refresh removes the conditional record')
+  expect.falsy(controller.invoke(state, 'confirm'), 'the old action id has no stale binding')
   running.runtime:close()
 end)
 

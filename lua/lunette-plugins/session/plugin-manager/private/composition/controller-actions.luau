@@ -8,12 +8,11 @@ local actions = {}
 
 export type Tab = 'inspect' | 'configure' | 'catalog' | 'saved'
 export type Edit = { operation: 'set' | 'add', path: editor.Path }
-export type Action = { read run: () -> (), read editor: boolean }
-export type Button = {
-  read id: string,
+export type Action = {
   read label: string,
-  read enabled: boolean,
   read reason: string?,
+  read run: () -> (),
+  read editor: boolean,
 }
 export type State = {
   view: view.State,
@@ -62,16 +61,10 @@ local function first(...: string | false): string?
   return nil
 end
 
-function actions.build(
-  state: State,
-  entry: composition.Entry?,
-  textActions: TextActions
-): ({ Button }, { [string]: Action })
-  local buttons: { Button } = {}
+function actions.build(state: State, entry: composition.Entry?, textActions: TextActions): { [string]: Action }
   local bindings: { [string]: Action } = {}
   local function button(id: string, label: string, reason: string?, run: () -> (), editorAction: boolean?): ()
-    buttons[#buttons + 1] = { id = id, label = label, enabled = reason == nil, reason = reason }
-    bindings[id] = { run = run, editor = editorAction == true }
+    bindings[id] = { label = label, reason = reason, run = run, editor = editorAction == true }
   end
   button('entries-view', 'Entries', nil, function()
     state.presentation = 'entries'
@@ -313,7 +306,7 @@ function actions.build(
     button('cancel', 'Cancel', nil, textActions.cancel, true)
     button('clear', 'Clear', nil, textActions.clear, true)
   end
-  return buttons, bindings
+  return bindings
 end
 
 return actions

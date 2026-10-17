@@ -82,7 +82,7 @@ function shell.start(context: plugin.Context, settings: config.Settings, service
   local function run(id: string): ()
     local button = controller.button(state, id)
     local ok = controller.invoke(state, id)
-    if not ok and button and button.enabled then
+    if not ok and button and button.reason == nil then
       notify(`{button.label} failed`, state.message)
     end
     render()

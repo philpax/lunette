@@ -13,7 +13,7 @@ local controller = {}
 
 export type Path = editor.Path
 export type Tab = controllerActions.Tab
-export type Button = controllerActions.Button
+export type Action = controllerActions.Action
 type Registration = typeof(require('@lunette-contracts/inspection').snapshot({}).registrations[1])
 
 export type State = controllerActions.State & {
@@ -21,8 +21,7 @@ export type State = controllerActions.State & {
   entries: { composition.Entry },
   readers: { brokers.Reader },
   draftEntry: string?,
-  buttons: { Button },
-  actions: { [string]: controllerActions.Action },
+  actions: { [string]: Action },
   details: { string },
   -- Whether the camera has been fitted to a measured canvas.
   fitted: boolean,
@@ -60,7 +59,6 @@ function controller.new(service: composition.Service, readers: { brokers.Reader 
     edit = nil,
     text = '',
     message = '',
-    buttons = {},
     actions = {},
     editorRows = {},
     details = {},
@@ -74,13 +72,8 @@ function controller.update(state: State): ()
   refresh(state)
 end
 
-function controller.button(state: State, id: string): Button?
-  for _, button in state.buttons do
-    if button.id == id then
-      return button
-    end
-  end
-  return nil
+function controller.button(state: State, id: string): Action?
+  return state.actions[id]
 end
 
 function controller.selected(state: State): composition.Entry?
@@ -99,11 +92,10 @@ end
 
 function controller.invoke(state: State, id: string): boolean
   refresh(state)
-  local button = controller.button(state, id)
-  if not button or not button.enabled then
+  local action = controller.button(state, id)
+  if not action or action.reason ~= nil then
     return false
   end
-  local action = state.actions[id]
   local ok, problem = pcall(action.run)
   if not ok then
     state.message = tostring(problem)
@@ -127,7 +119,7 @@ function controller.confirmation(state: State, id: string): Confirmation?
   local verb = VERBS[id]
   local entry = selectedEntry(state)
   local button = controller.button(state, id)
-  if not verb or not entry or not button or not button.enabled then
+  if not verb or not entry or not button or button.reason ~= nil then
     return nil
   end
   local affected = graph.impact(state.projected.graph, entry.instanceId)
@@ -422,7 +414,7 @@ refresh = function(state: State): ()
       end
     )
   end
-  state.buttons, state.actions = controllerActions.build(state, entry, {
+  state.actions = controllerActions.build(state, entry, {
     confirm = function(): ()
       controller.confirmText(state)
     end,
