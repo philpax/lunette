@@ -558,7 +558,20 @@ pages.Gallery = ui.component('Gallery', function(props: Props): ui.Child
   local c = ui.useComponents()
   local page, setPage = ui.useState(props.page or 'display')
   local mode, setMode = ui.useState(props.host:theme().mode)
-  local accent, setAccent = ui.useState 'ice'
+  -- The chip of the accent the theme holds, which may be one saved in an earlier session.
+  local accent, setAccent = ui.useState(function(): string?
+    local chosen = props.host:accent()
+    for _, choice in ACCENTS do
+      local same = true
+      for index = 1, 3 do
+        same = same and math.abs(choice.color[index] - chosen[index]) < 1e-6
+      end
+      if same then
+        return choice.id
+      end
+    end
+    return nil
+  end)
   local swatches = {}
   for _, choice in ACCENTS do
     swatches[#swatches + 1] = c.Chip {

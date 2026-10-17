@@ -36,7 +36,14 @@ function ui.boot(definitions: { any }, requires: { any }, setup: (adapter.Contex
     { id = 'ui-host', definition = require('@lunette-plugins/ui/host').definition },
   }
   lovr.graphics, lovr.data = graphics, data
-  lovr.filesystem = { read = host.readFile } :: any
+  -- Settings such as the theme's chosen mode save through write, which keeps nothing, so a page rendered in light
+  -- mode does not change the next fixture's start.
+  lovr.filesystem = {
+    read = host.readFile,
+    write = function(): boolean
+      return true
+    end,
+  } :: any
   local session = assert(fixture.session)
   for _, definition in definitions do
     session:use(definition, {})

@@ -456,6 +456,9 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
       access = table.freeze(table.clone(options))
       themeService:setOptions { textScale = options.textScale, highContrast = options.highContrast }
     end,
+    accent = function(_self: uiHost.Service): uiHost.Color
+      return themeService:accent()
+    end,
     setAccent = function(_self: uiHost.Service, given: uiHost.Color): ()
       themeService:setAccent(given)
     end,

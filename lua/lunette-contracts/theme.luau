@@ -131,8 +131,12 @@ export type Service = {
   read current: (Service) -> Theme,
   -- The base theme: the dark mode and the default accent, with the current options, which default appearance uses.
   read base: (Service) -> Theme,
+  -- Sets the mode, and saves it for the next session.
   read setMode: (Service, Mode) -> (),
-  -- Sets the accent colour; the theme guards its contrast against the surface rather than rejecting it.
+  -- The accent colour as it was chosen, before the theme guarded its contrast.
+  read accent: (Service) -> Color,
+  -- Sets the accent colour, and saves it for the next session. The theme guards its contrast against the surface
+  -- rather than rejecting it.
   read setAccent: (Service, Color) -> (),
   read setOptions: (Service, Options) -> (),
   -- Calls `run` with the current theme after each change, for the owner's lifetime.

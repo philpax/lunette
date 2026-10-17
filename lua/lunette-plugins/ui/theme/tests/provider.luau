@@ -4,6 +4,7 @@ local palette = require '../private/palette'
 local expect = testing.expect
 local test = testing.suite()
 
+-- Starts the provider over whichever fake native API is installed, so two sessions can share its save files.
 local function start(config: { [string]: any }?): (testing.Session, contract.Service, any)
   local session = testing.start { { id = 'theme', definition = require('../').definition, config = config } }
   local observed = session:observe(contract.capability)
@@ -11,6 +12,7 @@ local function start(config: { [string]: any }?): (testing.Session, contract.Ser
 end
 
 test('the configured mode and accent choose the starting theme', function()
+  testing.native()
   local session, service = start { mode = 'light', accent = { 0.9, 0.55, 0.65 } }
   local current = service:current()
   expect.equal(current.mode, 'light', 'the configured mode')
@@ -21,6 +23,7 @@ test('the configured mode and accent choose the starting theme', function()
 end)
 
 test('each change resolves a new theme and tells every listener, and a repeated value changes nothing', function()
+  testing.native()
   local session, service, owner = start()
   local heard: { contract.Theme } = {}
   service:onChanged(owner, {
@@ -49,6 +52,35 @@ test('each change resolves a new theme and tells every listener, and a repeated 
   expect.raises(function()
     service:setOptions { textScale = 3 }
   end, 'text scale')
+  session:close()
+end)
+
+test('a chosen mode and accent are saved, and a later session starts with them over the configured ones', function()
+  local native = testing.native()
+  local session, service = start { mode = 'dark' }
+  service:setMode 'light'
+  service:setAccent { 0.9, 0.55, 0.65 }
+  session:close()
+  expect.truthy(native.events.files['theme.settings'], 'the choices were saved')
+  local later, restored = start { mode = 'dark' }
+  expect.equal(restored:current().mode, 'light', 'the saved mode wins over the configured one')
+  expect.near(restored:accent()[1], 0.9, 1e-9, 'and the saved accent')
+  later:close()
+end)
+
+test('an invalid saved value falls back to the configuration, and a newer file is left unchanged', function()
+  local native = testing.native()
+  native.events.files['theme.settings'] =
+    'return { version = 1, settings = { mode = "sepia", accent = { 0.2, 0.3, 0.4 } } }'
+  local session, service = start { mode = 'light' }
+  expect.equal(service:current().mode, 'light', 'an invalid mode keeps the configured one')
+  expect.near(service:accent()[2], 0.3, 1e-9, 'a valid accent still applies')
+  session:close()
+  local future = 'return { version = 2, settings = { mode = "dark" } }'
+  native.events.files['theme.settings'] = future
+  session, service = start { mode = 'light' }
+  service:setMode 'dark'
+  expect.equal(native.events.files['theme.settings'], future, 'a newer file is never overwritten')
   session:close()
 end)
 
