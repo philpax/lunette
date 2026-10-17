@@ -137,19 +137,6 @@ impl Fonts {
             .load_font_source(fontdb::Source::Binary(data));
         self.system.db().len() - before
     }
-
-    /// The family names available, sorted and without duplicates.
-    pub fn families(&self) -> Vec<String> {
-        let mut names: Vec<String> = self
-            .system
-            .db()
-            .faces()
-            .flat_map(|face| face.families.iter().map(|(name, _)| name.clone()))
-            .collect();
-        names.sort();
-        names.dedup();
-        names
-    }
 }
 
 impl fmt::Debug for Fonts {
