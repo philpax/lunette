@@ -119,7 +119,7 @@ return plugin.consumer<<{}, {}>> {
     local appearance = actions:register(context, {
       id = 'desktop/default-appearance',
       label = 'Default appearance',
-      group = 'session',
+      group = 'Session',
       selected = shown,
       run = function(): ()
         host:setDefaultAppearance(not host:defaultAppearance())
@@ -138,7 +138,7 @@ return plugin.consumer<<{}, {}>> {
     actions:register(context, {
       id = 'desktop/accessibility',
       label = 'Accessibility',
-      group = 'session',
+      group = 'Session',
       run = function(): ()
         if open and not open.dead then
           close()
