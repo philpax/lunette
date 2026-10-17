@@ -44,7 +44,6 @@ export type Block =
 -- Quotes and list items parse their content as blocks.
 local blocks: (source: { string }) -> { Block }
 local lines: (source: string) -> { string }
-local collectText: (tree: { read [number]: Block }, into: { string }) -> ()
 
 -- Parses a whole document.
 function parse.document(source: string): { Block }
@@ -56,13 +55,6 @@ parse.runs = inline.runs
 
 -- The text content of inline spans, with a break as a newline.
 parse.inlineText = inline.text
-
--- The text content of a block tree: each block's text on its own line, and a table's cells separated by spaces.
-function parse.plainText(tree: { read [number]: Block }): string
-  local parts: { string } = {}
-  collectText(tree, parts)
-  return table.concat(parts, '\n')
-end
 
 -- Lines.
 
@@ -531,37 +523,6 @@ function blocks(source: { string }): { Block }
     end
   end
   return list
-end
-
--- Text.
-
-local function rowText(cells: { read [number]: Content }): string
-  local parts: { string } = {}
-  for _, cell in cells do
-    table.insert(parts, inline.text(cell))
-  end
-  return table.concat(parts, ' ')
-end
-
-function collectText(tree: { read [number]: Block }, into: { string }): ()
-  for _, block in tree do
-    if block.kind == 'heading' or block.kind == 'paragraph' then
-      table.insert(into, inline.text(block.content))
-    elseif block.kind == 'quote' then
-      collectText(block.blocks, into)
-    elseif block.kind == 'list' then
-      for _, item in block.items do
-        collectText(item, into)
-      end
-    elseif block.kind == 'code' then
-      table.insert(into, block.text)
-    elseif block.kind == 'table' then
-      table.insert(into, rowText(block.header))
-      for _, row in block.rows do
-        table.insert(into, rowText(row))
-      end
-    end
-  end
 end
 
 return parse

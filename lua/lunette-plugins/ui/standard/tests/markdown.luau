@@ -1,6 +1,7 @@
 local testing = require '@testing'
 local fixture = require '@testing/ui-host'
 local parse = require '../private/markdown/parse'
+local parsedText = require './support/markdown-text'
 local expect = testing.expect
 local test = testing.suite()
 
@@ -300,7 +301,7 @@ test('the plain text of a parse contains every content word of the input', funct
   for seed = 1, 200 do
     local used: { string } = {}
     local source = document(generator(seed), used)
-    local text = parse.plainText(parse.document(source))
+    local text = parsedText.document(parse.document(source))
     for _, word in used do
       expect.truthy(string.find(text, '%f[%w]' .. word .. '%f[%W]'), `seed {seed}: '{word}' is in the text of {source}`)
     end
@@ -316,7 +317,7 @@ test('parsing arbitrary bytes does not raise and keeps every letter', function()
       table.insert(parts, alphabet[random(#alphabet)])
     end
     local source = table.concat(parts)
-    local text = parse.plainText(parse.document(source))
+    local text = parsedText.document(parse.document(source))
     local _, wanted = string.gsub(source, '[ab]', '')
     local _, found = string.gsub(text, '[ab]', '')
     expect.equal(found, wanted, `the letters of {string.format('%q', source)}`)
