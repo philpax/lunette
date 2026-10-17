@@ -249,6 +249,174 @@ fn a_rejected_batch_leaves_the_tree_unchanged() {
 }
 
 #[test]
+fn a_font_borrow_rejection_leaves_earlier_changes_unapplied() {
+    for text_change in [
+        Change::Create {
+            id: 4,
+            content: ContentSpec::Text {
+                text: "new text".to_owned(),
+                style: TextStyle::default(),
+            },
+            style: Box::default(),
+        },
+        Change::SetText {
+            id: 2,
+            text: "replacement text".to_owned(),
+            style: TextStyle::default(),
+        },
+        Change::SetText {
+            id: 2,
+            text: "original text".to_owned(),
+            style: TextStyle::default(),
+        },
+    ] {
+        let mut tree = tree();
+        tree.apply(vec![
+            fixed(1, 0.01, 0.01),
+            Change::Create {
+                id: 2,
+                content: ContentSpec::Text {
+                    text: "original text".to_owned(),
+                    style: TextStyle::default(),
+                },
+                style: Box::default(),
+            },
+        ])
+        .expect("a valid batch");
+        let fonts = tree.fonts.clone();
+        let _borrow = fonts.borrow();
+        let error = tree
+            .apply(vec![fixed(3, 0.01, 0.01), text_change])
+            .expect_err("the shared font borrow prevents shaping");
+        assert_eq!(error, ApplyError::FontsBusy { index: 1 });
+        assert!(!tree.contains(3), "the earlier create was not applied");
+        assert!(!tree.contains(4), "the text create was not applied");
+        let Content::Text(block) = &tree.nodes[&2].content else {
+            panic!("node 2 remains text");
+        };
+        assert_eq!(block.text(), "original text");
+    }
+}
+
+#[test]
+fn invalid_text_styles_are_rejected_before_mutations_or_font_borrows() {
+    for text_change in [
+        Change::Create {
+            id: 4,
+            content: ContentSpec::Text {
+                text: "new text".to_owned(),
+                style: TextStyle {
+                    size: -1.0,
+                    ..TextStyle::default()
+                },
+            },
+            style: Box::default(),
+        },
+        Change::SetText {
+            id: 2,
+            text: "replacement text".to_owned(),
+            style: TextStyle {
+                size: -1.0,
+                ..TextStyle::default()
+            },
+        },
+    ] {
+        let mut tree = tree();
+        tree.apply(vec![Change::Create {
+            id: 2,
+            content: ContentSpec::Text {
+                text: "original text".to_owned(),
+                style: TextStyle::default(),
+            },
+            style: Box::default(),
+        }])
+        .expect("a text node");
+        let fonts = tree.fonts.clone();
+        let _borrow = fonts.borrow();
+        assert_eq!(
+            tree.apply(vec![fixed(3, 0.01, 0.01), text_change]),
+            Err(ApplyError::TextStyle {
+                index: 1,
+                error: TextStyleError::Size(-1.0)
+            })
+        );
+        assert!(!tree.contains(3), "the earlier create was not applied");
+        assert!(!tree.contains(4), "the invalid text create was not applied");
+    }
+}
+
+#[test]
+fn batches_without_text_do_not_borrow_fonts() {
+    let mut tree = tree();
+    let fonts = tree.fonts.clone();
+    let _borrow = fonts.borrow_mut();
+    tree.apply(vec![]).expect("an empty batch needs no fonts");
+    tree.apply(vec![
+        Change::Create {
+            id: 1,
+            content: ContentSpec::Box,
+            style: column(),
+        },
+        fixed(2, 0.01, 0.01),
+        Change::SetChildren {
+            id: 1,
+            children: vec![2],
+        },
+        Change::SetStyle {
+            id: 1,
+            style: row(0.0),
+        },
+        Change::Remove { id: 2 },
+    ])
+    .expect("box changes need no fonts");
+    assert_eq!(tree.len(), 1);
+    assert!(tree.nodes[&1].children.is_empty());
+}
+
+#[test]
+fn prepared_text_changes_keep_batch_order_and_invalidate_measurements() {
+    let mut tree = tree();
+    let style = TextStyle::default();
+    tree.apply(vec![Change::Create {
+        id: 1,
+        content: ContentSpec::Text {
+            text: "x".to_owned(),
+            style: style.clone(),
+        },
+        style: Box::default(),
+    }])
+    .expect("a text node");
+    let before = tree.compute(1, None, None, &NoScripts).expect("a root");
+    tree.apply(vec![
+        Change::SetText {
+            id: 1,
+            text: "xx".to_owned(),
+            style: style.clone(),
+        },
+        Change::SetText {
+            id: 1,
+            text: "xxxx".to_owned(),
+            style: style.clone(),
+        },
+    ])
+    .expect("text changes apply in order");
+    let after = tree.compute(1, None, None, &NoScripts).expect("a root");
+    assert!(placement(&after, 1).width > placement(&before, 1).width);
+    tree.apply(vec![Change::SetText {
+        id: 1,
+        text: "xxxx".to_owned(),
+        style,
+    }])
+    .expect("an unchanged text update remains valid");
+    assert!(
+        tree.compute(1, None, None, &NoScripts)
+            .expect("a root")
+            .changed
+            .is_empty()
+    );
+}
+
+#[test]
 fn invalid_batches_are_named() {
     let mut tree = tree();
     tree.apply(vec![

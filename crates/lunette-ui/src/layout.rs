@@ -360,6 +360,29 @@ impl fmt::Display for ComputeError {
 
 impl std::error::Error for ComputeError {}
 
+enum PreparedChange {
+    Create {
+        id: NodeId,
+        content: Content,
+        style: Box<Style>,
+    },
+    SetStyle {
+        id: NodeId,
+        style: Box<Style>,
+    },
+    SetChildren {
+        id: NodeId,
+        children: Vec<NodeId>,
+    },
+    SetText {
+        id: NodeId,
+        block: TextBlock,
+    },
+    Remove {
+        id: NodeId,
+    },
+}
+
 #[derive(Debug)]
 struct Node {
     style: Style,
@@ -435,8 +458,9 @@ impl Tree {
     /// Returns the first change that cannot be applied.
     pub fn apply(&mut self, changes: Vec<Change>) -> Result<(), ApplyError> {
         self.check(&changes)?;
-        for (index, change) in changes.into_iter().enumerate() {
-            self.apply_one(index, change)?;
+        let changes = self.prepare(changes)?;
+        for change in changes {
+            self.apply_one(change);
         }
         Ok(())
     }
@@ -635,50 +659,70 @@ impl Tree {
         Ok(())
     }
 
-    fn apply_one(&mut self, index: usize, change: Change) -> Result<(), ApplyError> {
-        match change {
-            Change::Create { id, content, style } => {
-                let content = match content {
-                    ContentSpec::Box => Content::Box,
-                    ContentSpec::Text { text, style } => {
-                        let mut fonts = self
-                            .fonts
-                            .try_borrow_mut()
-                            .map_err(|_| ApplyError::FontsBusy { index })?;
-                        Content::Text(
-                            TextBlock::new(&mut fonts, &text, style)
-                                .map_err(|error| ApplyError::TextStyle { index, error })?,
-                        )
+    fn prepare(&self, changes: Vec<Change>) -> Result<Vec<PreparedChange>, ApplyError> {
+        changes
+            .into_iter()
+            .enumerate()
+            .map(|(index, change)| {
+                Ok(match change {
+                    Change::Create { id, content, style } => {
+                        let content = match content {
+                            ContentSpec::Box => Content::Box,
+                            ContentSpec::Text { text, style } => {
+                                Content::Text(self.prepare_text(index, &text, style)?)
+                            }
+                            ContentSpec::Leaf(descriptor) => Content::Leaf(descriptor),
+                            ContentSpec::Measured => Content::Measured,
+                            ContentSpec::Scripted => Content::Scripted,
+                        };
+                        PreparedChange::Create { id, content, style }
                     }
-                    ContentSpec::Leaf(descriptor) => Content::Leaf(descriptor),
-                    ContentSpec::Measured => Content::Measured,
-                    ContentSpec::Scripted => Content::Scripted,
-                };
+                    Change::SetStyle { id, style } => PreparedChange::SetStyle { id, style },
+                    Change::SetChildren { id, children } => {
+                        PreparedChange::SetChildren { id, children }
+                    }
+                    Change::SetText { id, text, style } => PreparedChange::SetText {
+                        id,
+                        block: self.prepare_text(index, &text, style)?,
+                    },
+                    Change::Remove { id } => PreparedChange::Remove { id },
+                })
+            })
+            .collect()
+    }
+
+    fn prepare_text(
+        &self,
+        index: usize,
+        text: &str,
+        style: TextStyle,
+    ) -> Result<TextBlock, ApplyError> {
+        let mut fonts = self
+            .fonts
+            .try_borrow_mut()
+            .map_err(|_| ApplyError::FontsBusy { index })?;
+        TextBlock::new(&mut fonts, text, style)
+            .map_err(|error| ApplyError::TextStyle { index, error })
+    }
+
+    fn apply_one(&mut self, change: PreparedChange) {
+        match change {
+            PreparedChange::Create { id, content, style } => {
                 self.nodes.insert(id, Node::new(content, *style));
             }
-            Change::SetStyle { id, style } => {
+            PreparedChange::SetStyle { id, style } => {
                 if let Some(node) = self.nodes.get_mut(&id) {
                     node.style = *style;
                 }
                 self.mark_dirty(id);
             }
-            Change::SetText { id, text, style } => {
-                if let Some(Node {
-                    content: Content::Text(block),
-                    ..
-                }) = self.nodes.get_mut(&id)
-                {
-                    let mut fonts = self
-                        .fonts
-                        .try_borrow_mut()
-                        .map_err(|_| ApplyError::FontsBusy { index })?;
-                    block
-                        .set(&mut fonts, &text, style)
-                        .map_err(|error| ApplyError::TextStyle { index, error })?;
+            PreparedChange::SetText { id, block } => {
+                if let Some(node) = self.nodes.get_mut(&id) {
+                    node.content = Content::Text(block);
                 }
                 self.mark_dirty(id);
             }
-            Change::SetChildren { id, children } => {
+            PreparedChange::SetChildren { id, children } => {
                 let previous = self
                     .nodes
                     .get_mut(&id)
@@ -702,7 +746,7 @@ impl Tree {
                 }
                 self.mark_dirty(id);
             }
-            Change::Remove { id } => {
+            PreparedChange::Remove { id } => {
                 let parent = self.nodes.get(&id).and_then(|node| node.parent);
                 if let Some(parent) = parent {
                     if let Some(node) = self.nodes.get_mut(&parent) {
@@ -719,7 +763,6 @@ impl Tree {
                 }
             }
         }
-        Ok(())
     }
 
     /// Clears the caches of `id` and every ancestor, because each ancestor's layout may depend

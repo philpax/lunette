@@ -163,6 +163,49 @@ fn invalid_changes_are_named() {
 }
 
 #[test]
+fn a_font_borrow_rejection_keeps_earlier_lua_styles_unchanged() {
+    let lua = layout_lua();
+    run(
+        &lua,
+        r"
+        tree = lunette.newLayoutTree()
+        tree:apply {
+          { op = 'create', id = 1, kind = 'box', style = { width = 0.05, height = 0.02 } },
+          { op = 'create', id = 2, kind = 'text', text = 'original' },
+        }
+        tree:compute(1)
+        ",
+    );
+    let fonts = lua
+        .app_data_ref::<LayoutFonts>()
+        .expect("shared fonts")
+        .0
+        .clone();
+    let borrow = fonts.borrow();
+    let error = lua
+        .load(
+            r"
+            tree:apply {
+              { op = 'style', id = 1, style = { width = 0.1, height = 0.02 } },
+              { op = 'text', id = 2, text = 'replacement' },
+            }
+            ",
+        )
+        .exec()
+        .expect_err("the shared font borrow prevents shaping")
+        .to_string();
+    assert!(error.contains("change 1: the fonts are in use"), "{error}");
+    drop(borrow);
+    run(
+        &lua,
+        r"
+        assert(tree.size == 2)
+        assert(#tree:compute(1) == 0, 'the earlier style did not change the layout')
+        ",
+    );
+}
+
+#[test]
 fn text_layout_reports_shaped_lines() {
     let lua = layout_lua();
     run(
