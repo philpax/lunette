@@ -5,7 +5,7 @@ local plugin = require '@lunette-plugin'
 local accessibility = require '@lunette-contracts/accessibility'
 local uiHost = require '@lunette-contracts/ui-host'
 local inspection = require '@lunette-contracts/inspection'
-local protected = require '@lunette-plugins/diagnostics/protected-call'
+local listeners = require '@lunette-plugins/registration/listeners'
 local ui = require '@lunette-plugins/ui/react'
 local config = require '@self/config'
 
@@ -13,8 +13,7 @@ export type Config = config.Config
 export type Settings = config.Settings
 
 local function build(context: plugin.Context, options: Settings): accessibility.Service
-  local current = table.clone(options) :: { [string]: any }
-  local store = ui.store(table.freeze(table.clone(current)) :: accessibility.Settings)
+  local store = ui.store(table.freeze(table.clone(options)) :: accessibility.Settings)
   -- The toolkit host applies the settings it understands; they reach it now and after each change.
   local host = context:require(uiHost.capability)
   local function apply(settings: accessibility.Settings): ()
@@ -30,20 +29,19 @@ local function build(context: plugin.Context, options: Settings): accessibility.
   context:effect(function(): () -> ()
     return unsubscribe
   end)
-  local listeners: { { owner: plugin.Owner, listener: accessibility.Listener } } = {}
+  local announcements = listeners.new<<accessibility.Listener>>(context)
 
   local service: accessibility.Service = {
     settings = store :: any,
     update = function(_self: accessibility.Service, changes: { [string]: any }): ()
       assert(type(changes) == 'table', 'accessibility: changes are a table of settings')
-      local next = table.clone(current)
+      local next = table.clone(store:get()) :: { [string]: any }
       for name, value in changes do
         local valid = type(name) == 'string' and pcall(config.schema.parse, { [name] = value }, 'accessibility')
         assert(valid, `accessibility: {tostring(value)} is not a valid {tostring(name)}`)
         next[name] = value
       end
-      current = next
-      store:set(table.freeze(table.clone(next)))
+      store:set(table.freeze(next) :: accessibility.Settings)
       context:save(changes)
     end,
     announce = function(
@@ -56,11 +54,9 @@ local function build(context: plugin.Context, options: Settings): accessibility.
         type(announcement) == 'table' and type(announcement.text) == 'string',
         'accessibility: an announcement has text'
       )
-      for _, entry in table.clone(listeners) do
-        protected.call('accessibility: announcement listener', function(): ()
-          entry.listener.run(announcement)
-        end)
-      end
+      announcements:each('accessibility: announcement listener', function(listener: accessibility.Listener): ()
+        listener.run(announcement)
+      end)
     end,
     onAnnouncement = function(
       _self: accessibility.Service,
@@ -68,16 +64,8 @@ local function build(context: plugin.Context, options: Settings): accessibility.
       listener: accessibility.Listener
     ): plugin.Effect
       context:checkOwner(owner)
-      return context:acquire(owner, function(): () -> ()
-        local entry = { owner = owner, listener = listener }
-        table.insert(listeners, entry)
-        return function(): ()
-          local index = table.find(listeners, entry)
-          if index then
-            table.remove(listeners, index)
-          end
-        end
-      end)
+      listeners.check('accessibility onAnnouncement', listener)
+      return announcements:add(owner, listener)
     end,
     inspect = function(_self: accessibility.Service): inspection.Snapshot
       local state: { [string]: string | number | boolean } = {}
