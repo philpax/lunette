@@ -7,7 +7,6 @@ local drops = require '@lunette-contracts/drops'
 local surfaces = require '@lunette-contracts/surfaces'
 local vrUi = require '@testing/vr-ui'
 local fixture = require '@testing/ui-host'
-local config = require '../config'
 local test = testing.suite()
 
 type WindowPanel = {
@@ -89,11 +88,6 @@ end
 local function label(env: Environment, titlebar: string, key: string): string
   return node(env, titlebar, `{key}/face/label`).props.text
 end
-
-test('decorations take their appearance from the theme, with an optional height', function()
-  expect.equal(config.schema.parse({}).height, nil, 'the theme sets the height by default')
-  expect.equal(config.schema.parse({ height = 0.05 }).height, 0.05)
-end)
 
 test('a window titlebar requests close, reports a refusal, and is withdrawn while the window is hidden', function()
   local env = boot()

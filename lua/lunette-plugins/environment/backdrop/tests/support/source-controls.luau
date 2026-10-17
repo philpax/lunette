@@ -67,7 +67,6 @@ function fixture.boot(options: Options?): Environment
   local choice = selection.new(options.settings)
   local view = fixture.view()
   local enabled = true
-  local recorder = uiPanels.new()
   local parent = plugin.consumer {
     name = 'testing/backdrop-source',
     init = function(context: plugin.Context): ()

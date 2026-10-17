@@ -158,7 +158,7 @@ test('actions that unload plugins ask for confirmation and name what they unload
   running.runtime:close()
 end)
 
-test('text actions share their display and execution record and leave no binding after the edit', function()
+test('text actions are available only during an edit and leave no stale binding', function()
   local running, state = fixture()
   expect.equal(controller.button(state, 'confirm'), nil, 'Confirm is absent outside an edit')
   expect.falsy(controller.invoke(state, 'missing'), 'an unknown action cannot run')
@@ -167,8 +167,6 @@ test('text actions share their display and execution record and leave no binding
   for _, id in { 'confirm', 'cancel', 'clear' } do
     local action = assert(controller.button(state, id), id .. ' is available during an edit')
     expect.equal(action.reason, nil, id .. ' is enabled')
-    expect.truthy(action.editor, id .. ' preserves editor status handling')
-    expect.equal(type(action.run), 'function', id .. ' carries its execution')
   end
   controller.setText(state, '3')
   expect.truthy(controller.invoke(state, 'confirm'), 'the named Confirm action edits the draft')

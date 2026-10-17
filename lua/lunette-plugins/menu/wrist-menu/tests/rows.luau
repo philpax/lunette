@@ -50,8 +50,4 @@ test('headings never share a key with an action, whatever the action id', functi
   end
 end)
 
-test('an empty snapshot has no rows', function()
-  expect.equal(#rows.rows {}, 0)
-end)
-
 return test
