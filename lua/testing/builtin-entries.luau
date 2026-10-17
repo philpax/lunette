@@ -30,7 +30,6 @@ local entries: { [string]: compose.Source } = {
   audio = require('@lunette-plugins/audio/capture').definition,
   ['audio-analysis'] = require('@lunette-plugins/audio/analysis').definition,
   ['desktop/render'] = require('@lunette-plugins/panels/renderer').definition,
-  ['desktop/hint'] = require('@lunette-plugins/environment/empty-desktop-hint').definition,
   ['desktop/decorations'] = require('@lunette-plugins/panels/decorations').definition,
   ['desktop/pointing'] = require('@lunette-plugins/input/hand-pointers').definition,
   ['desktop/mouse-pointer'] = require('@lunette-plugins/input/mouse-pointer').definition,

@@ -45,7 +45,6 @@ local CONFIGS = {
   ['desktop/persistence'] = { file = 'desktop.state' },
   ['desktop/keyboard'] = { placement = { distance = 0.45 } },
   ['desktop/rules'] = { rules = { { match = { appId = 'mail' }, properties = { tags = { 'mail' } } } } },
-  ['desktop/hint'] = { text = 'fixture hint' },
   ['desktop/errors'] = { width = 1.2 },
   ['desktop/workspaces'] = { names = { 'work' } },
 }

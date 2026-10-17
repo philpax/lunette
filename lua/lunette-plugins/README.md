@@ -6,7 +6,7 @@ The shipped tree contains independent plugin leaves in responsibility categories
 
 - [Audio](audio/README.md): PCM capture and shared spectral analysis.
 - [Diagnostics](diagnostics/README.md): Error reporting, retention, and presentation.
-- [Environment](environment/README.md): Background rendering and empty-desktop guidance.
+- [Environment](environment/README.md): Background rendering.
 - [Graphics](graphics/README.md): Caller-owned drawing mechanisms.
 - [Input](input/README.md): Keyboard routing, virtual keyboards, and controller attachment.
 - [Interaction](interaction/README.md): Surface offers, pointer gestures, grabs, and drops.
@@ -42,7 +42,6 @@ The hierarchy is a clean break. Removed paths have no forwarding modules or comp
 | `errors` | `@lunette-plugins/diagnostics/error-stream` |
 | `desktop/errors` | `@lunette-plugins/diagnostics/error-display` |
 | `desktop/backdrop` | `@lunette-plugins/environment/backdrop` |
-| `desktop/hint` | `@lunette-plugins/environment/empty-desktop-hint` |
 | `bindings` | `@lunette-plugins/input/bindings` |
 | `focus` | `@lunette-plugins/input/focus` |
 | `desktop/input` | `@lunette-plugins/input/physical-routing` |

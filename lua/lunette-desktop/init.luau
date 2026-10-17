@@ -32,7 +32,6 @@ local audioAnalysis = require '@lunette-plugins/audio/analysis'
 local render = require '@lunette-plugins/panels/renderer'
 local backdrop = require '@lunette-plugins/environment/backdrop'
 local monitors = require '@lunette-plugins/panels/monitors'
-local hint = require '@lunette-plugins/environment/empty-desktop-hint'
 local decorations = require '@lunette-plugins/panels/decorations'
 local pointing = require '@lunette-plugins/input/hand-pointers'
 local mousePointer = require '@lunette-plugins/input/mouse-pointer'
@@ -95,7 +94,6 @@ local DEFAULT: { plugin.Entry } = plugin.compose {
   { id = 'audio', definition = audio.definition },
   { id = 'audio-analysis', definition = audioAnalysis.definition },
   { id = 'desktop/render', definition = render.definition },
-  { id = 'desktop/hint', definition = hint.definition },
   { id = 'desktop/decorations', definition = decorations.definition },
   { id = 'desktop/pointing', definition = pointing.definition },
   { id = 'desktop/mouse-pointer', definition = mousePointer.definition },
