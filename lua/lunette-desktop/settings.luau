@@ -28,6 +28,7 @@ local desktopErrors = require '@lunette-plugins/diagnostics/error-display/config
 local recovery = require '@lunette-plugins/diagnostics/recovery/config'
 local desktopWorkspaces = require '@lunette-plugins/workspace/controller/config'
 local desktopMonitors = require '@lunette-plugins/panels/monitors/config'
+local desktopAccessibility = require '@lunette-plugins/ui/accessibility-settings/config'
 local desktopRules = require '@lunette-plugins/window/configured-rules/config'
 local desktopPersistence = require '@lunette-plugins/layout/persistence/config'
 local desktopArrange = require '@lunette-plugins/layout/arrange/config'
@@ -71,6 +72,7 @@ local shape: {
   read ['desktop/adoption']: schema.Schema<desktopAdoption.Config?, desktopAdoption.Settings?>,
   read ['desktop/pacing']: schema.Schema<desktopPacing.Config?, desktopPacing.Settings?>,
   read ['desktop/manager']: schema.Schema<desktopManager.Config?, desktopManager.Settings?>,
+  read ['desktop/accessibility']: schema.Schema<desktopAccessibility.Config?, desktopAccessibility.Settings?>,
 } =
   {
     interaction = optional<<interaction.Config, interaction.Settings>>(interaction.schema),
@@ -112,6 +114,9 @@ local shape: {
     ['desktop/adoption'] = optional<<desktopAdoption.Config, desktopAdoption.Settings>>(desktopAdoption.schema),
     ['desktop/pacing'] = optional<<desktopPacing.Config, desktopPacing.Settings>>(desktopPacing.schema),
     ['desktop/manager'] = optional<<desktopManager.Config, desktopManager.Settings>>(desktopManager.schema),
+    ['desktop/accessibility'] = optional<<desktopAccessibility.Config, desktopAccessibility.Settings>>(
+      desktopAccessibility.schema
+    ),
   }
 local descriptor = schema.object<<typeof(shape)>>(shape)
 

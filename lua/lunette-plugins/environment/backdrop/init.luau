@@ -134,6 +134,7 @@ create = function(given: Options, attach: Attach?): Factory
         miniature = renderer.miniature,
         sectors = responseChild.SECTORS,
         hold = responseChild.SECTOR_HOLD,
+        visible = settings.controlsVisible,
       })
       if attach then
         attach(context, state, controls, settings)

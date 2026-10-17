@@ -6,6 +6,7 @@ local uiHost = require '@lunette-contracts/ui-host'
 local uiComponents = require '@lunette-contracts/ui-components'
 local menu = require '@lunette-contracts/menu'
 local ui = require '@lunette-plugins/ui/react'
+local toggle = require '@lunette-plugins/menu/toggle'
 local selection = require '../selection/selection'
 local stores = require './stores'
 local component = require './component'
@@ -22,6 +23,8 @@ export type View = {
   read miniature: (Pass, model.Frame, number, number?, number) -> (),
   read sectors: number,
   read hold: number,
+  -- Whether the panel opens at start, as it was left in the last session.
+  read visible: boolean,
 }
 
 controls.PANEL = 'desktop/backdrop/controls'
@@ -49,7 +52,7 @@ function controls.attach(context: plugin.Context, choice: selection.State, rende
         hold = view.hold,
       })
       local summary = ui.store(scene.summary(view.observed))
-      local registration: menu.Registration? = nil
+      local opener: toggle.Toggle? = nil
       local visible, live = false, true
       local panel = host:newPanel(childContext, {
         name = controls.PANEL,
@@ -69,9 +72,6 @@ function controls.attach(context: plugin.Context, choice: selection.State, rende
         end
         visible, choice.frozen = show, show
         panel:setVisible(show)
-        if registration then
-          registration:update { selected = show }
-        end
         published.refresh()
       end
       -- Each request refreshes the stores at once, so the panel shows its result at the next commit, and saves the
@@ -135,7 +135,9 @@ function controls.attach(context: plugin.Context, choice: selection.State, rende
           end, { diagnostic = diagnostic })
         end,
         close = function(): ()
-          setVisible(false)
+          if opener then
+            opener:set(false)
+          end
         end,
       }
       local mounted = ui.mount(
@@ -159,13 +161,22 @@ function controls.attach(context: plugin.Context, choice: selection.State, rende
           mounted:unmount()
         end
       end)
-      registration = menus:register(childContext, {
+      -- Opening and closing saves `controlsVisible` through the backdrop entry, so the panel opens at the next start
+      -- as it was left.
+      opener = toggle.attach(childContext, menus, {
         id = 'desktop/backdrop/open',
         label = 'Backdrop',
         group = 'Appearance',
         order = 100,
-        run = function(): ()
-          setVisible(not visible)
+        visible = view.visible,
+        show = function(): ()
+          setVisible(true)
+        end,
+        hide = function(): ()
+          setVisible(false)
+        end,
+        save = function(open: boolean): ()
+          context:save { controlsVisible = open }
         end,
       })
       -- Sampling runs before the host's commit in the scene phase, so a change shows in the same frame.

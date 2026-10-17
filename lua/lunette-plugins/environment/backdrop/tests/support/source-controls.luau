@@ -56,6 +56,7 @@ function fixture.view(): any
     end,
     sectors = 12,
     hold = 0.65,
+    visible = false,
   }
 end
 

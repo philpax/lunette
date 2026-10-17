@@ -9,6 +9,8 @@ local frame = require '@lunette-contracts/frame'
 local uiHost = require '@lunette-contracts/ui-host'
 local uiComponents = require '@lunette-contracts/ui-components'
 local ui = require '@lunette-plugins/ui/react'
+local toggle = require '@lunette-plugins/menu/toggle'
+local config = require '@self/config'
 
 type Props = { service: accessibility.Service, close: () -> () }
 
@@ -93,8 +95,9 @@ local SettingsPanel = ui.component('AccessibilitySettings', function(props: Prop
   }
 end)
 
-return plugin.consumer<<{}, {}>> {
+return plugin.consumer<<config.Config, config.Settings>> {
   name = 'desktop/accessibility',
+  schema = config.schema,
   requires = {
     accessibility.capability,
     menu.capability,
@@ -102,25 +105,20 @@ return plugin.consumer<<{}, {}>> {
     uiHost.capability,
     uiComponents.capability,
   },
-  init = function(context: plugin.Context): ()
+  init = function(context: plugin.Context, settings: config.Settings): ()
     local service = context:require(accessibility.capability)
     local host = context:require(uiHost.capability)
     local components = context:require(uiComponents.capability)
-    local open: uiHost.Panel? = nil
-    local function close(): ()
-      if open then
-        open:destroy()
-        open = nil
-      end
-    end
     local actions = context:require(menu.capability)
+    local open: uiHost.Panel? = nil
+    local panel: toggle.Toggle
     -- The chord also switches default appearance, so the action's selection follows the host each frame.
-    local shown = host:defaultAppearance()
+    local appearanceShown = host:defaultAppearance()
     local appearance = actions:register(context, {
       id = 'desktop/default-appearance',
       label = 'Default appearance',
       group = 'Session',
-      selected = shown,
+      selected = appearanceShown,
       run = function(): ()
         host:setDefaultAppearance(not host:defaultAppearance())
       end,
@@ -129,31 +127,41 @@ return plugin.consumer<<{}, {}>> {
       phase = 'scene',
       run = function(): ()
         local on = host:defaultAppearance()
-        if on ~= shown then
-          shown = on
+        if on ~= appearanceShown then
+          appearanceShown = on
           appearance:update { selected = on }
         end
       end,
     })
-    actions:register(context, {
+    -- The panel opens ahead of the user, or where it was last left, and stays there until it is grabbed and moved.
+    panel = toggle.attach(context, actions, {
       id = 'desktop/accessibility',
       label = 'Accessibility',
       group = 'Session',
-      run = function(): ()
-        if open and not open.dead then
-          close()
-          return
-        end
-        -- The panel opens ahead of the user and stays where it opened, until it is grabbed and moved.
-        local panel = host:newPanel(context, { name = 'Accessibility' })
+      visible = settings.visible,
+      show = function(requested: boolean): ()
+        local made = host:newPanel(context, { name = 'Accessibility' })
         ui.mount(
-          panel,
-          SettingsPanel { service = service, close = close },
+          made,
+          SettingsPanel {
+            service = service,
+            close = function(): ()
+              panel:set(false)
+            end,
+          },
           { components = components, owner = context }
         )
-        open = panel
-        -- Traversal enters the panel, so a controller can change settings without pointing.
-        host:nextPanel()
+        open = made
+        -- Traversal enters a panel the user asked for, so a controller can change settings without pointing.
+        if requested then
+          host:nextPanel()
+        end
+      end,
+      hide = function(): ()
+        if open then
+          open:destroy()
+          open = nil
+        end
       end,
     })
   end,

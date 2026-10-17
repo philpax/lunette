@@ -8,6 +8,7 @@ local uiComponents = require '@lunette-contracts/ui-components'
 local composition = require '@lunette-contracts/composition'
 local frame = require '@lunette-contracts/frame'
 local menu = require '@lunette-contracts/menu'
+local toggle = require '@lunette-plugins/menu/toggle'
 local focus = require '@lunette-contracts/focus'
 local notifications = require '@lunette-contracts/notifications'
 local config = require '../../config'
@@ -68,9 +69,9 @@ function shell.start(context: plugin.Context, settings: config.Settings, service
   local kinds = graphKinds.register(services.host, context)
   local revision = ui.store(0)
   local dead = false
-  local visible = settings.visible
+  local visible = false
   local untilRefresh = settings.refreshInterval
-  local registration: menu.Registration? = nil
+  local opener: toggle.Toggle? = nil
   local panel = services.open {
     name = 'desktop/manager',
     pose = lovr.math.newMat4():translate(settings.position),
@@ -154,10 +155,6 @@ function shell.start(context: plugin.Context, settings: config.Settings, service
     end
     controller.update(state)
     render()
-    local handle = registration
-    if handle then
-      handle:update { selected = show }
-    end
   end
 
   local value: model.Model = {
@@ -176,7 +173,9 @@ function shell.start(context: plugin.Context, settings: config.Settings, service
       end
     end,
     close = function(): ()
-      setVisible(false)
+      if opener then
+        opener:set(false)
+      end
     end,
     kinds = kinds,
     sidebarWidth = math.min(SIDEBAR_MAXIMUM, settings.width * SIDEBAR_SHARE),
@@ -194,7 +193,7 @@ function shell.start(context: plugin.Context, settings: config.Settings, service
       services.host:setDefaultAppearance(on)
     end,
   }
-  panel:setVisible(visible)
+  panel:setVisible(false)
   ui.mount(panel, app.Root(value), { components = services.components, owner = context })
   context:effect(function(): () -> ()
     return function(): ()
@@ -202,14 +201,18 @@ function shell.start(context: plugin.Context, settings: config.Settings, service
       closeDialog()
     end
   end)
-  registration = services.menu:register(context, {
+  -- Opening and closing saves `visible`, so the manager opens at the next start as it was left.
+  opener = toggle.attach(context, services.menu, {
     id = 'desktop/manager/open',
     label = 'Plugins',
     group = 'Session',
     order = 20,
-    selected = visible,
-    run = function(): ()
-      setVisible(not visible)
+    visible = settings.visible,
+    show = function(): ()
+      setVisible(true)
+    end,
+    hide = function(): ()
+      setVisible(false)
     end,
   })
   services.frame:onUpdate(context, {
