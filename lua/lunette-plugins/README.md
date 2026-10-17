@@ -18,7 +18,6 @@ The shipped tree contains independent plugin leaves in responsibility categories
 - [Registration](registration/README.md): Caller-owned listeners and named values.
 - [Scale](scale/README.md): Output-scale recommendations and application.
 - [Session](session/README.md): Frame dispatch, session actions, and runtime management.
-- [Theme](theme/README.md): Appearance resolution, named themes, and selection.
 - [UI](ui/README.md): The UI host, standard kinds, components, notifications, and accessibility.
 - [Window](window/README.md): Rules, placement, and adoption.
 - [Workspace](workspace/README.md): Panel tags and workspace visibility.
@@ -70,11 +69,7 @@ The hierarchy is a clean break. Removed paths have no forwarding modules or comp
 | `frame` | `@lunette-plugins/session/frame` |
 | `desktop/actions` | `@lunette-plugins/session/menu-actions` |
 | `desktop/manager` | `@lunette-plugins/session/plugin-manager` |
-| `theme` | `@lunette-plugins/theme/resolver` |
-| `themes` | `@lunette-plugins/theme/catalog` |
-| `theme/standard` | `@lunette-plugins/theme/standard` |
-| `theme/arcade` | `@lunette-plugins/theme/arcade` |
-| `desktop/theme` | `@lunette-plugins/theme/selector` |
+| `theme` | `@lunette-plugins/ui/theme` |
 | `rules` | `@lunette-plugins/window/rule-resolver` |
 | `desktop/rules` | `@lunette-plugins/window/configured-rules` |
 | `placement` | `@lunette-plugins/window/placement` |
@@ -98,11 +93,8 @@ Removed helper paths map to exact public libraries. Stable values map to neutral
 | `client-pixels` | `@lunette-plugins/graphics/client-pixels` |
 | `theme/rounded-geometry` | `@lunette-plugins/graphics/rounded-geometry` |
 | `theme/drawing` | `@lunette-plugins/graphics/rounded-drawing` |
-| `theme/descriptors` stable values, resolution, font keys, and equality | `@lunette-contracts/schemas/theme` |
-| `theme/descriptors` editable settings and projection | `@lunette-plugins/theme/configuration` |
 | `theme/frame-style` | `@lunette-contracts/schemas/frame-style` |
 | `rules/policy` shared value validation and field classification | `@lunette-contracts/schemas/rules` |
-| `theme/base` | `@lunette-plugins/theme/base` remains public. |
 | `interaction/picking` | `@lunette-plugins/interaction/picking` remains a public library. |
 | `layout/arc/geometry` | `@lunette-plugins/layout/arc/geometry` remains a public extension. |
 | `keyboard/draw` legend drawing | `@lunette-plugins/input/keyboard/legend` |

@@ -6,7 +6,6 @@ local lunette = require '@lunette'
 local uiHost = require '@lunette-contracts/ui-host'
 local records = require './records'
 local handles = require './handles'
-local theme = require './theme'
 local focus = require './focus'
 
 local tree = {}
@@ -186,6 +185,13 @@ local function validate(env: Environment, node: records.Node): ()
   end
 end
 
+-- An elevation token name resolves through the theme's elevation table; a number is taken as metres.
+local function tokenLength(tokens: { read [string]: number }, value: string | number): number
+  if type(value) == 'number' then
+    return value
+  end
+  return assert(tokens[value], `ui theme: '{value}' is not a token`)
+end
 local function resolve(env: Environment, node: records.Node): Resolved
   local registration = node.kind.registration
   local layout = registration.layout
@@ -222,7 +228,7 @@ local function resolve(env: Environment, node: records.Node): Resolved
     if type(elevation) == 'function' then
       resolved.elevation = elevation(node.props, tokens)
     elseif elevation ~= nil then
-      resolved.elevation = theme.length(tokens.elevation, elevation, 0)
+      resolved.elevation = tokenLength(tokens.elevation :: any, elevation)
     end
   end)
   return resolved

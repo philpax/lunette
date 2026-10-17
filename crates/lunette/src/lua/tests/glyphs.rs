@@ -17,10 +17,8 @@ fn glyph_lua() -> Lua {
     let session = session(Vec::new());
     let lua = lua(&session);
     lua.set_app_data(LayoutFonts(Rc::new(RefCell::new(Fonts::bundled([
-        include_bytes!(
-            "../../../../../lua/lunette-plugins/theme/arcade/fonts/SpaceMono-Regular.ttf"
-        )
-        .to_vec(),
+        include_bytes!("../../../../../lua/lunette-plugins/ui/standard/fonts/Iosevka-Regular.ttf")
+            .to_vec(),
     ])))));
     lua
 }
@@ -49,7 +47,7 @@ fn shaped_glyphs_are_placed_in_the_atlas_and_their_page_uploads() {
         r"
         local tree = lunette.newLayoutTree()
         tree:apply {
-          { op = 'create', id = 1, kind = 'text', text = 'H H', textStyle = { family = 'Space Mono', size = 0.01 } },
+          { op = 'create', id = 1, kind = 'text', text = 'H H', textStyle = { family = 'Iosevka', size = 0.01 } },
         }
         tree:compute(1)
         glyphs = assert(tree:textLayout(1))[1].glyphs
@@ -108,7 +106,7 @@ fn many_glyphs_generate_in_the_background_and_all_arrive() {
         local tree = lunette.newLayoutTree()
         local text = 'The quick brown fox jumps over the lazy dog 0123456789 ABCDEFGHIJKLMNOPQRSTUVWXYZ'
         tree:apply {
-          { op = 'create', id = 1, kind = 'text', text = text, textStyle = { family = 'Space Mono', size = 0.01 } },
+          { op = 'create', id = 1, kind = 'text', text = text, textStyle = { family = 'Iosevka', size = 0.01 } },
         }
         tree:compute(1)
         atlas = lunette.glyphAtlas()

@@ -2,7 +2,7 @@
 
 local schema = require '@lunette-plugin/schema'
 local vocabulary = require '@lunette-contracts/vocabulary'
-local theme = require '@lunette-contracts/schemas/theme'
+local color = require '@lunette-contracts/schemas/color'
 
 local frameStyle = {}
 local nonnegative = schema.number { minimum = 0 }
@@ -11,7 +11,7 @@ local descriptor = schema.object {
   headerRadius = nonnegative,
   borderThickness = nonnegative,
   borderDepth = nonnegative,
-  borderColor = theme.color,
+  borderColor = color,
 }
 
 function frameStyle.validate(value: vocabulary.FrameStyle): vocabulary.FrameStyle

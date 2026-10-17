@@ -1,9 +1,8 @@
--- Resolves sparse keyboard appearance over global tokens without owning native resources.
+-- Resolves sparse keyboard appearance over the session theme without owning native resources.
 
 local schema = require '@lunette-plugin/schema'
 local theme = require '@lunette-contracts/theme'
-local descriptors = require '@lunette-contracts/schemas/theme'
-local configuration = require '@lunette-plugins/theme/configuration'
+local color = require '@lunette-contracts/schemas/color'
 local hooks = require '../hooks'
 
 local appearance = {}
@@ -13,52 +12,29 @@ export type Style = hooks.Style
 local positive = schema.number { positive = true }
 local nonnegative = schema.number { minimum = 0 }
 
-type StyleShape<F> = {
-  font: schema.Schema<schema.Input<F>?, schema.Output<F>?>,
-  backingRadius: schema.Schema<number?, number?>,
-  keyRadius: schema.Schema<number?, number?>,
-  keyUnit: schema.Schema<number?, number?>,
-  gap: schema.Schema<number?, number?>,
-  plateDepth: schema.Schema<number?, number?>,
-  legendDepth: schema.Schema<number?, number?>,
-  margin: schema.Schema<number?, number?>,
-  plateColor: schema.Schema<schema.Input<typeof(descriptors.color)>?, schema.Output<typeof(descriptors.color)>?>,
-  keyColor: schema.Schema<schema.Input<typeof(descriptors.color)>?, schema.Output<typeof(descriptors.color)>?>,
-  heldColor: schema.Schema<schema.Input<typeof(descriptors.color)>?, schema.Output<typeof(descriptors.color)>?>,
-  hoverColor: schema.Schema<schema.Input<typeof(descriptors.color)>?, schema.Output<typeof(descriptors.color)>?>,
-  legendColor: schema.Schema<schema.Input<typeof(descriptors.color)>?, schema.Output<typeof(descriptors.color)>?>,
-  legendHeight: schema.Schema<number?, number?>,
+local options = schema.object {
+  backingRadius = schema.optional(nonnegative),
+  keyRadius = schema.optional(nonnegative),
+  keyUnit = schema.optional(positive),
+  gap = schema.optional(nonnegative),
+  plateDepth = schema.optional(nonnegative),
+  legendDepth = schema.optional(nonnegative),
+  margin = schema.optional(nonnegative),
+  plateColor = schema.optional(color),
+  keyColor = schema.optional(color),
+  heldColor = schema.optional(color),
+  hoverColor = schema.optional(color),
+  legendColor = schema.optional(color),
+  legendHeight = schema.optional(positive),
 }
-local function style<F>(font: F): schema.Schema<schema.ObjectInput<StyleShape<F>>, schema.ObjectOutput<StyleShape<F>>>
-  return schema.object {
-    font = schema.optional(font),
-    backingRadius = schema.optional(nonnegative),
-    keyRadius = schema.optional(nonnegative),
-    keyUnit = schema.optional(positive),
-    gap = schema.optional(nonnegative),
-    plateDepth = schema.optional(nonnegative),
-    legendDepth = schema.optional(nonnegative),
-    margin = schema.optional(nonnegative),
-    plateColor = schema.optional(descriptors.color),
-    keyColor = schema.optional(descriptors.color),
-    heldColor = schema.optional(descriptors.color),
-    hoverColor = schema.optional(descriptors.color),
-    legendColor = schema.optional(descriptors.color),
-    legendHeight = schema.optional(positive),
-  }
-end
-
-local options = style(descriptors.font)
-local editableStyle = style(configuration.editableFont)
-export type EditableStyleConfig = schema.Input<typeof(editableStyle)>
-export type EditableStyle = schema.Output<typeof(editableStyle)>
--- A sparse style whose omitted fields fall through to the theme.
+export type EditableStyleConfig = schema.Input<typeof(options)>
+export type EditableStyle = schema.Output<typeof(options)>
+-- A sparse style whose omitted fields fall through to the session theme.
 export type Options = schema.Output<typeof(options)>
 
-appearance.editableStyle = editableStyle
+appearance.editableStyle = options
 
 local BASE: Options = options.parse {
-  font = { kind = 'default' },
   backingRadius = 0,
   keyRadius = 0,
   keyUnit = 0.028,
@@ -75,23 +51,21 @@ local BASE: Options = options.parse {
 }
 
 function appearance.project(value: EditableStyle): Options
-  local projected: { [string]: unknown } = table.clone(value) :: any
-  projected.font = if value.font then configuration.projectFont(value.font, 'keyboard style.font') else nil
-  return options.parse(projected)
+  return options.parse(value)
 end
 
+-- The board takes the theme's panel surface for its plate, raised keys with the accent while held, and the theme's
+-- ink for legends.
 function appearance.resolve(global: theme.Theme, provider: Options): Options
+  local colors = global.colors
   local tokens = options.resolve({
-    font = global.typography.font,
-    backingRadius = global.radii.keyboardBacking,
-    keyRadius = global.radii.keyboardKey,
-    gap = global.metrics.keyboardGap,
-    plateColor = global.colors.background,
-    keyColor = global.colors.control,
-    heldColor = global.colors.pressed,
-    hoverColor = global.colors.hovered,
-    legendColor = global.colors.foreground,
-    legendHeight = global.typography.keyboardLegendHeight,
+    backingRadius = global.radii.panel,
+    keyRadius = global.radii.control,
+    plateColor = colors.surface,
+    keyColor = colors.raised,
+    heldColor = colors.accent,
+    hoverColor = colors.hover,
+    legendColor = colors.ink,
   }, BASE, 'keyboard style')
   return options.resolve(provider, tokens, 'keyboard style')
 end

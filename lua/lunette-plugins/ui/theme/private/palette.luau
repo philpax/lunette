@@ -1,10 +1,10 @@
 -- Resolves the default lunette theme for a mode and an accent colour.
 
-local uiHost = require '@lunette-contracts/ui-host'
+local contract = require '@lunette-contracts/theme'
 
 local theme = {}
 
-export type Mode = 'dark' | 'light'
+export type Mode = contract.Mode
 
 local PALETTES: { [Mode]: { [string]: string } } = {
   dark = {
@@ -47,7 +47,7 @@ theme.DEFAULT_ACCENT = table.freeze { 0x9f / 255, 0xd3 / 255, 0xe6 / 255, 1 }
 local ACCENT_CONTRAST = 3
 local INK_CONTRAST = 4.5
 
-function theme.hex(value: string): uiHost.Color
+function theme.hex(value: string): contract.Color
   assert(string.match(value, '^#%x%x%x%x%x%x$'), `ui theme: '{value}' is not a #rrggbb colour`)
   return table.freeze {
     tonumber(string.sub(value, 2, 3), 16) :: number / 255,
@@ -64,16 +64,16 @@ local function channel(value: number): number
   return ((value + 0.055) / 1.055) ^ 2.4
 end
 
-function theme.luminance(color: uiHost.Color): number
+function theme.luminance(color: contract.Color): number
   return 0.2126 * channel(color[1]) + 0.7152 * channel(color[2]) + 0.0722 * channel(color[3])
 end
 
-function theme.contrast(first: uiHost.Color, second: uiHost.Color): number
+function theme.contrast(first: contract.Color, second: contract.Color): number
   local a, b = theme.luminance(first), theme.luminance(second)
   return (math.max(a, b) + 0.05) / (math.min(a, b) + 0.05)
 end
 
-function theme.mix(from: uiHost.Color, to: uiHost.Color, amount: number): uiHost.Color
+function theme.mix(from: contract.Color, to: contract.Color, amount: number): contract.Color
   return table.freeze {
     from[1] + (to[1] - from[1]) * amount,
     from[2] + (to[2] - from[2]) * amount,
@@ -86,7 +86,7 @@ local WHITE = table.freeze { 1, 1, 1, 1 }
 local BLACK = table.freeze { 0, 0, 0, 1 }
 
 -- Moves the accent away from the surface's lightness until it reaches the contrast guard.
-function theme.guardAccent(accent: uiHost.Color, surface: uiHost.Color, required: number?): uiHost.Color
+function theme.guardAccent(accent: contract.Color, surface: contract.Color, required: number?): contract.Color
   local target = if theme.luminance(surface) < 0.18 then WHITE else BLACK
   local guarded = accent
   for step = 1, 20 do
@@ -99,7 +99,7 @@ function theme.guardAccent(accent: uiHost.Color, surface: uiHost.Color, required
 end
 
 -- The darker or lighter of the palette's inks, whichever reads on the accent, falling back to black or white.
-function theme.inkOn(fill: uiHost.Color, dark: uiHost.Color, light: uiHost.Color): uiHost.Color
+function theme.inkOn(fill: contract.Color, dark: contract.Color, light: contract.Color): contract.Color
   for _, candidate in { dark, light, BLACK, WHITE } do
     if theme.contrast(candidate, fill) >= INK_CONTRAST then
       return candidate
@@ -108,9 +108,9 @@ function theme.inkOn(fill: uiHost.Color, dark: uiHost.Color, light: uiHost.Color
   return if theme.luminance(fill) > 0.18 then BLACK else WHITE
 end
 
-local SPACING: uiHost.Spacing = table.freeze { xs = 0.002, sm = 0.004, md = 0.008, lg = 0.012, xl = 0.018 }
-local RADII: uiHost.Radii = table.freeze { panel = 0.003, control = 0.0015, pill = 0.5 }
-local ELEVATION: uiHost.Elevation = table.freeze {
+local SPACING: contract.Spacing = table.freeze { xs = 0.002, sm = 0.004, md = 0.008, lg = 0.012, xl = 0.018 }
+local RADII: contract.Radii = table.freeze { panel = 0.003, control = 0.0015, pill = 0.5 }
+local ELEVATION: contract.Elevation = table.freeze {
   base = 0,
   raised = 0.003,
   selected = 0.0045,
@@ -123,7 +123,7 @@ local ELEVATION: uiHost.Elevation = table.freeze {
   contentOffset = 0.00025,
   panelDepth = 0.004,
 }
-local SIZES: uiHost.Sizes = table.freeze {
+local SIZES: contract.Sizes = table.freeze {
   control = 0.03,
   row = 0.034,
   header = 0.042,
@@ -147,7 +147,7 @@ local function typography(
   weight: number,
   lineHeight: number,
   letterSpacing: number?
-): uiHost.Typography
+): contract.Typography
   return table.freeze {
     family = family,
     size = size,
@@ -159,7 +159,7 @@ end
 
 local SANS = 'IBM Plex Sans'
 local MONO = 'Iosevka'
-local TYPE: uiHost.TypeScale = table.freeze {
+local TYPE: contract.TypeScale = table.freeze {
   body = typography(SANS, 0.012, 400, 1.35),
   label = typography(SANS, 0.012, 500, 1.3),
   caption = typography(SANS, 0.0095, 400, 1.3),
@@ -172,12 +172,7 @@ local TYPE: uiHost.TypeScale = table.freeze {
   engraved = typography(MONO, 0.0085, 400, 1.3, 0.12),
 }
 
-export type Options = {
-  -- Multiplies every typography role's size.
-  read textScale: number?,
-  -- Pushes ink, lines, and edges to the extremes of the mode.
-  read highContrast: boolean?,
-}
+export type Options = contract.Options
 
 local HIGH_CONTRAST: { [Mode]: { [string]: string } } = {
   dark = {
@@ -210,18 +205,18 @@ local HIGH_CONTRAST: { [Mode]: { [string]: string } } = {
   },
 }
 
-local function scaled(scale: number): uiHost.TypeScale
+local function scaled(scale: number): contract.TypeScale
   if scale == 1 then
     return TYPE
   end
-  local result: { [string]: uiHost.Typography } = {}
+  local result: { [string]: contract.Typography } = {}
   for name, role in TYPE :: any do
     result[name] = typography(role.family, role.size * scale, role.weight, role.lineHeight, role.letterSpacing)
   end
   return table.freeze(result) :: any
 end
 
-function theme.resolve(mode: Mode, accent: uiHost.Color, options: Options?): uiHost.Theme
+function theme.resolve(mode: Mode, accent: contract.Color, options: Options?): contract.Theme
   local given: Options = options or {}
   local base = assert(PALETTES[mode], `ui theme: '{mode}' is not a mode`)
   local palette = base
@@ -231,14 +226,14 @@ function theme.resolve(mode: Mode, accent: uiHost.Color, options: Options?): uiH
       palette[name] = value
     end
   end
-  local function named(name: string): uiHost.Color
+  local function named(name: string): contract.Color
     return theme.hex(assert(palette[name], `ui theme: the palette has no {name}`))
   end
   local surface, raised, sunken, ink, band = named 'surface', named 'raised', named 'sunken', named 'ink', named 'band'
   local bandInk = named 'bandInk'
   local guarded = theme.guardAccent(accent, surface)
   local header = theme.mix(band, guarded, if mode == 'dark' then 0.2 else 0.22)
-  local colors: uiHost.Colors = table.freeze {
+  local colors: contract.Colors = table.freeze {
     surface = surface,
     raised = raised,
     sunken = sunken,
@@ -276,18 +271,6 @@ function theme.resolve(mode: Mode, accent: uiHost.Color, options: Options?): uiH
     sizes = SIZES,
     motion = MOTION,
   }
-end
-
--- A token name resolves through its table; a number is taken as metres.
-function theme.length(tokens: any, value: (string | number)?, fallback: number): number
-  if value == nil then
-    return fallback
-  end
-  if type(value) == 'number' then
-    return value
-  end
-  local found = (tokens :: { [string]: number? })[value]
-  return assert(found, `ui theme: '{value}' is not a token`)
 end
 
 return theme

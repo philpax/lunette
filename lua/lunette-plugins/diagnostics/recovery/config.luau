@@ -1,9 +1,8 @@
 local schema = require '@lunette-plugin/schema'
-local descriptors = require '@lunette-contracts/schemas/theme'
+local color = require '@lunette-contracts/schemas/color'
 
 local positive = schema.number { positive = true }
 local count = schema.number { minimum = 1, integer = true }
-local color = descriptors.color
 
 local descriptor = schema.object {
   -- Capabilities whose provider must be active for the toolkit to work: the host, and the components plugin, which

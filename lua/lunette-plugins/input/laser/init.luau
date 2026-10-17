@@ -175,7 +175,7 @@ local function makeLaser(
         end)
       end,
       pointer = pointer,
-      style = style.resolve(state.themes:current().theme, settings.style, styleOverrides),
+      style = style.resolve(state.themes:current(), settings.style, styleOverrides),
       styleOverrides = styleOverrides,
       input = frameInput,
       icon = dragIcon.new(),
@@ -285,21 +285,22 @@ end
 local function build(context: plugin.Context, settings: Settings): Service
   -- The published service is revoked with this activation, so its methods need no liveness guard. Lasers
   -- outlive the call that made them, so they check the activation themselves.
-  local themes: theme.Service = context:require(theme.capability)
-  local revision = -1
+  local themes = context:require(theme.capability)
+  -- The theme service resolves a new table on each change, so its identity tells a change apart.
+  local applied: theme.Theme? = nil
   local state: ProviderState
   local function refreshStyle(): ()
     if not state.active or not context:active() then
       return
     end
-    local snapshot = themes:current()
-    if revision == snapshot.revision then
+    local current = themes:current()
+    if applied == current then
       return
     end
     for _, target in ipairs(state.lasers) do
-      target.style = style.resolve(snapshot.theme, settings.style, target.styleOverrides)
+      target.style = style.resolve(current, settings.style, target.styleOverrides)
     end
-    revision = snapshot.revision
+    applied = current
   end
   state = {
     active = true,
@@ -380,11 +381,6 @@ local function build(context: plugin.Context, settings: Settings): Service
       end
     end,
   }
-  themes:onChanged(context, {
-    run = function(_snapshot: theme.Snapshot): ()
-      refreshStyle()
-    end,
-  })
   refreshStyle()
   return service
 end

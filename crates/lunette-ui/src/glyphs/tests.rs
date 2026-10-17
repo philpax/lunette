@@ -454,11 +454,11 @@ fn a_glyph_completed_twice_keeps_its_first_placement() {
 #[test]
 fn a_shaped_glyph_has_a_closed_outline_inside_its_em() {
     let mut fonts = Fonts::bundled([include_bytes!(
-        "../../../../lua/lunette-plugins/theme/arcade/fonts/SpaceMono-Regular.ttf"
+        "../../../../lua/lunette-plugins/ui/standard/fonts/Iosevka-Regular.ttf"
     )
     .to_vec()]);
     let style = TextStyle {
-        family: Some("Space Mono".to_owned()),
+        family: Some("Iosevka".to_owned()),
         ..TextStyle::default()
     };
     let mut block = TextBlock::new(&mut fonts, "H ", style).expect("the style is valid");

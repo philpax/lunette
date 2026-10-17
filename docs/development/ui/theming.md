@@ -21,7 +21,7 @@ The comfortable density in [Target sizes](#target-sizes) satisfies the touch con
 
 ## Token structure
 
-The UI tokens are part of the global theme contract, [`lua/lunette-contracts/theme.luau`](../../../lua/lunette-contracts/theme.luau), and keep its structure of named groups.
+The [theme provider](../../../lua/lunette-plugins/ui/theme/README.md) owns the session's theme, whose types are in the [theme contract](../../../lua/lunette-contracts/theme.luau), as named groups of tokens. It sits below the UI host, so surfaces outside the toolkit keep their appearance while the host is disabled. Surfaces drawn outside the toolkit, such as the virtual keyboard, the laser, the mouse cursor, and window outlines, take their colours from the same theme.
 
 | Group | Tokens |
 |---|---|

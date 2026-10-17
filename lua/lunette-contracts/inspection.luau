@@ -26,7 +26,6 @@ export type Kind =
   | 'keyboard'
   | 'laser'
   | 'pointer'
-  | 'theme'
   | 'override'
   | 'contribution'
 

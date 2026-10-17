@@ -1,6 +1,6 @@
 local testing = require '@testing'
 local uiHost = require '@lunette-contracts/ui-host'
-local theme = require '../private/theme'
+local theme = require '../private/palette'
 local expect = testing.expect
 local test = testing.suite()
 

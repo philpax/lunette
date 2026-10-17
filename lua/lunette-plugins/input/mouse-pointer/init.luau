@@ -106,7 +106,7 @@ end
 local function init(context: plugin.Context, settings: Settings): ()
   local frameService: frame.Service = context:require(frame.capability)
   local surfaceService: surfaces.Service = context:require(surfaces.capability)
-  local themes: theme.Service = context:require(theme.capability)
+  local themes = context:require(theme.capability)
 
   local aim = cursor.CENTRE
   local held = buttons.new()
@@ -207,8 +207,9 @@ local function init(context: plugin.Context, settings: Settings): ()
       local pointer = current.pointer
       local hovered = pointer.hovered ~= nil
       local distance = if hovered and pointer.distance then pointer.distance else settings.distance
-      local colors = themes:current().theme.colors
-      local color = if hovered then settings.hoverColor or colors.pointerHovered else settings.color or colors.pointer
+      -- The cursor takes the colours the controller beams take: muted ink, and the accent over a surface.
+      local colors = themes:current().colors
+      local color = if hovered then settings.hoverColor or colors.accent else settings.color or colors.muted
       drawCursor(pass, line.origin + line.direction * distance, distance * settings.cursorAngle, color)
     end,
   })

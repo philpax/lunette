@@ -12,10 +12,8 @@ fn layout_lua() -> Lua {
     let session = session(Vec::new());
     let lua = lua(&session);
     lua.set_app_data(LayoutFonts(Rc::new(RefCell::new(Fonts::bundled([
-        include_bytes!(
-            "../../../../../lua/lunette-plugins/theme/arcade/fonts/SpaceMono-Regular.ttf"
-        )
-        .to_vec(),
+        include_bytes!("../../../../../lua/lunette-plugins/ui/standard/fonts/Iosevka-Regular.ttf")
+            .to_vec(),
     ])))));
     lua
 }
@@ -65,7 +63,7 @@ fn a_scripted_layout_measures_and_places_its_children() {
           { op = 'create', id = 1, kind = 'box', style = { flexDirection = 'row' } },
           { op = 'create', id = 2, kind = 'scripted' },
           { op = 'create', id = 3, kind = 'leaf', leaf = { kind = 'fixed', width = 0.01, height = 0.02 } },
-          { op = 'create', id = 4, kind = 'text', text = 'ring', textStyle = { family = 'Space Mono' } },
+          { op = 'create', id = 4, kind = 'text', text = 'ring', textStyle = { family = 'Iosevka' } },
           { op = 'children', id = 2, children = { 3, 4 } },
           { op = 'children', id = 1, children = { 2 } },
         }
@@ -176,7 +174,7 @@ fn text_layout_reports_shaped_lines() {
         local tree = lunette.newLayoutTree()
         tree:apply {
           { op = 'create', id = 1, kind = 'box', style = { width = 0.05 } },
-          { op = 'create', id = 2, kind = 'text', text = 'alpha beta gamma', textStyle = { family = 'Space Mono', size = 0.01 } },
+          { op = 'create', id = 2, kind = 'text', text = 'alpha beta gamma', textStyle = { family = 'Iosevka', size = 0.01 } },
           { op = 'children', id = 1, children = { 2 } },
         }
         tree:compute(1)

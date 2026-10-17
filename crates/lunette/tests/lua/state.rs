@@ -102,7 +102,6 @@ pub fn install(lua: &Lua, roots: &Roots) -> mlua::Result<()> {
     // Layout tests measure text with bundled faces only, so results match on every machine.
     let mut fonts = Vec::new();
     for path in [
-        "lunette-plugins/theme/arcade/fonts/SpaceMono-Regular.ttf",
         "lunette-plugins/ui/standard/fonts/IBMPlexSans-Regular.ttf",
         "lunette-plugins/ui/standard/fonts/IBMPlexSans-Medium.ttf",
         "lunette-plugins/ui/standard/fonts/IBMPlexSans-SemiBold.ttf",

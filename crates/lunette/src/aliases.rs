@@ -169,14 +169,6 @@ pub const INSTALL_ARTIFACTS: &[InstallArtifact] = &[
         destination: "lua/.luaurc",
     },
     InstallArtifact {
-        source: "lua/lunette-plugins/theme/arcade/fonts/SpaceMono-Regular.ttf",
-        destination: "lua/lunette-plugins/theme/arcade/fonts/SpaceMono-Regular.ttf",
-    },
-    InstallArtifact {
-        source: "lua/lunette-plugins/theme/arcade/fonts/OFL.txt",
-        destination: "lua/lunette-plugins/theme/arcade/fonts/OFL.txt",
-    },
-    InstallArtifact {
         source: "lua/lunette-plugins/ui/standard/fonts/IBMPlexSans-Regular.ttf",
         destination: "lua/lunette-plugins/ui/standard/fonts/IBMPlexSans-Regular.ttf",
     },

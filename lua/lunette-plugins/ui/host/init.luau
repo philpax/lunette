@@ -10,10 +10,10 @@ local keys = require '@lunette-contracts/keys'
 local vocabulary = require '@lunette-contracts/vocabulary'
 local inspection = require '@lunette-contracts/inspection'
 local protected = require '@lunette-plugins/diagnostics/protected-call'
+local themeContract = require '@lunette-contracts/theme'
 local config = require '@self/config'
 local records = require '@self/private/records'
 local registry = require '@self/private/registry'
-local themes = require '@self/private/theme'
 local tree = require '@self/private/tree'
 local layout = require '@self/private/layout'
 local input = require '@self/private/input'
@@ -46,9 +46,8 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
   local focusService = context:require(focusContract.capability)
   local interactionService = context:require(interaction.capability)
   local traverse: traversal.Traversal
-  local mode: themes.Mode = settings.mode
-  local accent: uiHost.Color = settings.accent or themes.DEFAULT_ACCENT
-  local current = themes.resolve(mode, accent)
+  local themeService = context:require(themeContract.capability)
+  local current = themeService:current()
   local kinds = registry.new(context)
   local contributions = outlets.new()
   local faces = fonts.new()
@@ -218,14 +217,12 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
     end
   end
 
-  -- Default appearance resolves the base theme; the accessibility settings apply in either appearance.
+  -- Default appearance draws with the base theme; the accessibility settings apply in either appearance.
   local function retheme(): ()
-    local options = { textScale = access.textScale, highContrast = access.highContrast }
-    current = if kinds.defaultAppearance
-      then themes.resolve('dark', themes.DEFAULT_ACCENT, options)
-      else themes.resolve(mode, accent, options)
+    current = if kinds.defaultAppearance then themeService:base() else themeService:current()
     invalidateAll()
   end
+  themeService:onChanged(context, { run = retheme })
 
   local function setDefaultAppearance(on: boolean): ()
     if kinds.defaultAppearance ~= on then
@@ -442,11 +439,7 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
       return current
     end,
     setMode = function(_self: uiHost.Service, given: 'dark' | 'light'): ()
-      assert(given == 'dark' or given == 'light', `ui: '{tostring(given)}' is not a theme mode`)
-      if given ~= mode then
-        mode = given
-        retheme()
-      end
+      themeService:setMode(given)
     end,
     setAccessibility = function(_self: uiHost.Service, options: uiHost.AccessibilityOptions): ()
       assert(type(options) == 'table', 'ui: accessibility options are a table')
@@ -455,16 +448,11 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
         scale == nil or (type(scale) == 'number' and scale >= 0.5 and scale <= 2),
         'ui: a text scale is from 0.5 to 2'
       )
-      local changed = access.textScale ~= options.textScale or access.highContrast ~= options.highContrast
       access = table.freeze(table.clone(options))
-      if changed then
-        retheme()
-      end
+      themeService:setOptions { textScale = options.textScale, highContrast = options.highContrast }
     end,
     setAccent = function(_self: uiHost.Service, given: uiHost.Color): ()
-      assert(type(given) == 'table' and #given >= 3, 'ui: an accent is a colour')
-      accent = table.freeze { given[1], given[2], given[3], given[4] or 1 }
-      retheme()
+      themeService:setAccent(given)
     end,
     navigate = function(_self: uiHost.Service, direction: string): boolean
       local codes = keys.CODES
@@ -590,7 +578,7 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
       end
       return inspection.snapshot(
         result,
-        { mode = mode, defaultAppearance = kinds.defaultAppearance },
+        { mode = current.mode, defaultAppearance = kinds.defaultAppearance },
         { 'kind and visual callbacks are not run' }
       )
     end,
@@ -602,6 +590,12 @@ return plugin.provider<<Config, Settings, uiHost.Service>> {
   name = 'ui-host',
   schema = config.schema,
   capability = uiHost.capability,
-  requires = { frame.capability, surfaces.capability, focusContract.capability, interaction.capability },
+  requires = {
+    frame.capability,
+    surfaces.capability,
+    focusContract.capability,
+    interaction.capability,
+    themeContract.capability,
+  },
   build = build,
 }

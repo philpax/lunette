@@ -15,7 +15,7 @@ desktop.run {
       },
     },
     -- Titlebars and every toolkit panel take the accent; the theme keeps it readable.
-    ['ui-host'] = { accent = { 0.9, 0.55, 0.65 } },
+    theme = { accent = { 0.9, 0.55, 0.65 } },
     ['desktop/decorations'] = { height = 0.045 },
     -- A predicate can match any window property.
     ['desktop/rules'] = {

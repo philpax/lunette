@@ -85,16 +85,16 @@ end
 local REMOVED_KEYS: { string } = { 'panel', 'run' }
 
 local function build(context: plugin.Context, settings: Settings): Service
-  local broker = context:require(theme.capability)
-  local paint = appearance.prepare(broker, settings, broker:current())
+  local themes = context:require(theme.capability)
+  local paint = appearance.prepare(themes:current(), settings)
   local state: ProviderState
   local function currentPaint(): appearance.Paint
     if not state.active or not context:active() then
       return paint
     end
-    local snapshot = broker:current()
-    if snapshot.revision ~= paint.revision then
-      paint = appearance.prepare(broker, settings, snapshot)
+    local current = themes:current()
+    if current ~= paint.theme then
+      paint = appearance.prepare(current, settings)
     end
     return paint
   end
@@ -137,11 +137,6 @@ local function build(context: plugin.Context, settings: Settings): Service
     host = host,
   }
   state = created
-  broker:onChanged(context, {
-    run = function(_snapshot: theme.Snapshot): ()
-      currentPaint()
-    end,
-  })
   -- This effect runs last, while removal listeners still have live owners.
   context:effect(function(): () -> ()
     return function()

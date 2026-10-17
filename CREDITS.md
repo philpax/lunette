@@ -24,12 +24,6 @@ lunette dynamically links its LÖVR fork for XR, rendering, audio, and Lua. Patc
 
 msdfgen is copyright 2016-2023 Viktor Chlumsky and licensed under the MIT licence, carried in `vendor/lovr/deps/msdfgen` with its licence in `LICENSE.txt`. LÖVR builds it as `libmsdfgen.so`, and lunette links the same library directly to generate the UI toolkit's distance field glyphs. Installation copies it beside `liblovr.so`.
 
-## Space Mono
-
-Space Mono is copyright 2016 The Space Mono Project Authors (<https://github.com/googlefonts/spacemono>) and licensed under the SIL Open Font License, Version 1.1. The bundled font and licence are unmodified copies from `google/fonts` revision `8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5`: [SpaceMono-Regular.ttf](https://raw.githubusercontent.com/google/fonts/8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5/ofl/spacemono/SpaceMono-Regular.ttf) and [OFL.txt](https://raw.githubusercontent.com/google/fonts/8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5/ofl/spacemono/OFL.txt).
-
-Copies live under `lua/lunette-plugins/theme/arcade/fonts/`. Distributions preserve `OFL.txt` with the font.
-
 ## IBM Plex Sans
 
 IBM Plex Sans is copyright 2017 IBM Corp., with Reserved Font Name "Plex", and licensed under the SIL Open Font License, Version 1.1. The UI toolkit's standard kinds bundle the Regular, Medium, and SemiBold weights unmodified, as Google Fonts serves them, in `lua/lunette-plugins/ui/standard/fonts/`, with the licence from [IBM/plex](https://github.com/IBM/plex/blob/master/LICENSE.txt) as `OFL-IBMPlex.txt`.

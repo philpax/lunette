@@ -10,14 +10,14 @@ use super::*;
 /// A bundled monospace face from the repository, so every advance is the same.
 fn fonts() -> Fonts {
     Fonts::bundled([include_bytes!(
-        "../../../../lua/lunette-plugins/theme/arcade/fonts/SpaceMono-Regular.ttf"
+        "../../../../lua/lunette-plugins/ui/standard/fonts/Iosevka-Regular.ttf"
     )
     .to_vec()])
 }
 
 fn style() -> TextStyle {
     TextStyle {
-        family: Some("Space Mono".to_owned()),
+        family: Some("Iosevka".to_owned()),
         ..TextStyle::default()
     }
 }
@@ -28,14 +28,14 @@ fn close(a: f32, b: f32) -> bool {
 
 #[test]
 fn bundled_fonts_contain_only_the_given_faces() {
-    assert_eq!(fonts().families(), vec!["Space Mono".to_owned()]);
+    assert_eq!(fonts().families(), vec!["Iosevka".to_owned()]);
 }
 
 #[test]
 fn a_file_given_again_adds_no_faces() {
     let mut fonts = fonts();
     let data =
-        include_bytes!("../../../../lua/lunette-plugins/theme/arcade/fonts/SpaceMono-Regular.ttf")
+        include_bytes!("../../../../lua/lunette-plugins/ui/standard/fonts/Iosevka-Regular.ttf")
             .to_vec();
     assert_eq!(fonts.add(data), 0);
     assert_eq!(fonts.add(b"not a font".to_vec()), 0);

@@ -104,7 +104,7 @@ Native additions:
 - resvg for SVG rasterisation, a new dependency pinned exactly. The Markdown composite parses in Lua, so it needs no native parser.
 - The IBM Plex Sans and Iosevka fonts, bundled with their licences and recorded in CREDITS.md.
 
-The theme contract grows to carry the default theme in [Theming](theming.md#the-default-theme): surface roles including sides and header bands, the accent with its guard, elevation, and motion. The standard Dark and Light themes become the lunette theme's two modes, and Arcade stays a separate theme on the new contract.
+The UI host's theme carries the default theme in [Theming](theming.md#the-default-theme): surface roles including sides and header bands, the accent with its guard, elevation, and motion. The standard Dark and Light themes are the lunette theme's two modes. The earlier theme contract, its catalog and selector, and the Arcade theme are removed, and the keyboard, laser, mouse cursor, and window outlines read the session theme from the theme provider, below the host.
 - A maximum for panel curvature in the panels service, which today validates only that the curve is not negative.
 - The `getHandPose` declaration's metadata, which must state the zero result for an unavailable pose.
 
@@ -202,7 +202,6 @@ These parts of the design remain open:
 - Native instance packing; Lua packs instance data and sends it per batch.
 - The panels service's optional chrome title, which still draws with `pass:text` when `chrome` is on; window titles otherwise come from the decorations titlebar.
 - Host mouse capture and release, which belong to #49.
-- The theme tokens that only the earlier errors overlay and hint used, which remain in the theme contract.
 
 ## Issue updates
 

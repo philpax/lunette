@@ -249,18 +249,14 @@ test('drawKey wraps the default for every key, with the hover state and the live
     expect.equal(entry.hovered, entry.key.code == 31, 'only the hovered key is hovered')
   end
   local observed = env.session:observe(theme.capability)
-  local selection = observed.service:select(observed.context, {
-    colors = { control = { 0.21, 0.22, 0.23, 1 } },
-    typography = { keyboardLegendHeight = 0.02 },
-    metrics = { keyboardGap = 0.01 },
-  })
+  observed.service:setMode 'light'
+  local current = observed.service:current()
   table.clear(env.drawn)
   board:draw(env.native.events.pass)
   local style = env.drawn[1].style
-  expect.equal(style.gap, 0, 'the provider gap wins over global metrics')
-  expect.near(style.legendHeight, 0.02, 1e-9, 'an omitted provider value follows the global theme')
-  expect.equal(style.keyColor[1], 0.21, 'the global palette maps the key colour')
-  selection:dispose()
+  expect.equal(style.gap, 0, 'the provider gap wins')
+  expect.equal(style.keyColor[1], current.colors.raised[1], "the live theme's raised colour maps the key colour")
+  expect.equal(style.legendColor[1], current.colors.ink[1], "and its ink the legends'")
   env.session:close()
 end)
 

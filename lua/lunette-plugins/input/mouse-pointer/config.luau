@@ -1,5 +1,5 @@
 local schema = require '@lunette-plugin/schema'
-local descriptors = require '@lunette-contracts/schemas/theme'
+local color = require '@lunette-contracts/schemas/color'
 
 local positive = schema.number { positive = true }
 local nonnegative = schema.number { minimum = 0 }
@@ -18,9 +18,9 @@ local descriptor = schema.object {
   distance = schema.default(positive)(1.5),
   -- The cursor's angular radius in radians, so the cursor keeps its apparent size at any distance.
   cursorAngle = schema.default(positive)(0.004),
-  -- The colours default to the theme's pointer colours.
-  color = schema.optional(descriptors.color),
-  hoverColor = schema.optional(descriptors.color),
+  -- The colours default to the toolkit theme's muted ink and accent.
+  color = schema.optional(color),
+  hoverColor = schema.optional(color),
 }
 
 export type Config = schema.Input<typeof(descriptor)>

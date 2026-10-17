@@ -5,9 +5,9 @@ local interaction = require '@lunette-plugins/interaction/pointers/config'
 local laser = require '@lunette-plugins/input/laser/config'
 local keyboard = require '@lunette-plugins/input/keyboard/config'
 local uiHost = require '@lunette-plugins/ui/host/config'
+local theme = require '@lunette-plugins/ui/theme/config'
 local notifications = require '@lunette-plugins/ui/notifications/config'
 local accessibility = require '@lunette-plugins/ui/accessibility/config'
-local desktopTheme = require '@lunette-plugins/theme/selector/config'
 local panels = require '@lunette-plugins/panels/service/config'
 local rules = require '@lunette-plugins/window/rule-resolver/config'
 local placement = require '@lunette-plugins/window/placement/config'
@@ -42,9 +42,9 @@ local shape: {
   read laser: schema.Schema<laser.Config?, laser.Settings?>,
   read keyboard: schema.Schema<keyboard.Config?, keyboard.Settings?>,
   read ['ui-host']: schema.Schema<uiHost.Config?, uiHost.Settings?>,
+  read theme: schema.Schema<theme.Config?, theme.Settings?>,
   read notifications: schema.Schema<notifications.Config?, notifications.Settings?>,
   read accessibility: schema.Schema<accessibility.Config?, accessibility.Settings?>,
-  read ['desktop/theme']: schema.Schema<desktopTheme.Config?, desktopTheme.Settings?>,
   read panels: schema.Schema<panels.Config?, panels.Settings?>,
   read rules: schema.Schema<rules.Config?, rules.Settings?>,
   read placement: schema.Schema<placement.Config?, placement.Settings?>,
@@ -77,9 +77,9 @@ local shape: {
     laser = optional<<laser.Config, laser.Settings>>(laser.schema),
     keyboard = optional<<keyboard.Config, keyboard.Settings>>(keyboard.schema),
     ['ui-host'] = optional<<uiHost.Config, uiHost.Settings>>(uiHost.schema),
+    theme = optional<<theme.Config, theme.Settings>>(theme.schema),
     notifications = optional<<notifications.Config, notifications.Settings>>(notifications.schema),
     accessibility = optional<<accessibility.Config, accessibility.Settings>>(accessibility.schema),
-    ['desktop/theme'] = optional<<desktopTheme.Config, desktopTheme.Settings>>(desktopTheme.schema),
     panels = optional<<panels.Config, panels.Settings>>(panels.schema),
     rules = optional<<rules.Config, rules.Settings>>(rules.schema),
     placement = optional<<placement.Config, placement.Settings>>(placement.schema),

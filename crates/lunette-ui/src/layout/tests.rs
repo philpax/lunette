@@ -16,7 +16,7 @@ use super::*;
 
 fn tree() -> Tree {
     Tree::new(std::rc::Rc::new(RefCell::new(Fonts::bundled([
-        include_bytes!("../../../../lua/lunette-plugins/theme/arcade/fonts/SpaceMono-Regular.ttf")
+        include_bytes!("../../../../lua/lunette-plugins/ui/standard/fonts/Iosevka-Regular.ttf")
             .to_vec(),
     ]))))
 }
@@ -184,7 +184,7 @@ fn text_wraps_to_the_width_it_is_given() {
         content: ContentSpec::Text {
             text: "alpha beta gamma delta epsilon".to_owned(),
             style: crate::text::TextStyle {
-                family: Some("Space Mono".to_owned()),
+                family: Some("Iosevka".to_owned()),
                 ..Default::default()
             },
         },

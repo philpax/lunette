@@ -12,7 +12,6 @@ local display = require '@lunette-contracts/keyboard-display'
 local tags = require '@lunette-contracts/tags'
 local surfaces = require '@lunette-contracts/surfaces'
 local lunette = require '@lunette'
-local theme = require '@lunette-contracts/theme'
 local test = testing.suite()
 
 test('wrist menu actions are VR accessible', function()
@@ -22,7 +21,6 @@ test('wrist menu actions are VR accessible', function()
     display: display.Service?,
     tags: tags.Service?,
     surfaces: surfaces.Service?,
-    theme: theme.Service?,
   } =
     {}
   local observer = adapter.define {
@@ -32,14 +30,12 @@ test('wrist menu actions are VR accessible', function()
       display.capability,
       tags.capability,
       surfaces.capability,
-      theme.capability,
     },
     init = function(context: adapter.Context)
       services.menu = context:require(menu.capability)
       services.display = context:require(display.capability)
       services.tags = context:require(tags.capability)
       services.surfaces = context:require(surfaces.capability)
-      services.theme = context:require(theme.capability)
     end,
   }
   local panels = uiPanels.new()
@@ -65,8 +61,6 @@ test('wrist menu actions are VR accessible', function()
   local function invoke(id: string)
     panels:click(fixture, wristMenu.PANEL, wristMenu.row(id), 'right')
   end
-  invoke 'desktop/theme/arcade'
-  expect.equal(services.theme:current().theme.typography.font.kind, 'file', 'Appearance selects Arcade')
   invoke 'desktop/keyboard/toggle'
   expect.truthy(services.display:isVisible(), 'Keyboard shows the shared board')
   invoke 'desktop/keyboard/toggle'

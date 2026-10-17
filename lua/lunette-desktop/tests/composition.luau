@@ -17,9 +17,6 @@ test('settings cover entries with options and shipped empty schemas', function()
   local expected = {
     'frame',
     'theme',
-    'themes',
-    'theme/standard',
-    'theme/arcade',
     'surfaces',
     'panels',
     'drops',
@@ -33,7 +30,6 @@ test('settings cover entries with options and shipped empty schemas', function()
     'notifications',
     'accessibility',
     'menu',
-    'desktop/theme',
     'tags',
     'rules',
     'placement',
@@ -72,7 +68,7 @@ test('settings cover entries with options and shipped empty schemas', function()
   local entries = desktop.compose()
   expect.equal(#entries, #expected, 'the shipped entry count')
   local fields = settings.schema.inspect().fields
-  local factories = { ['desktop/theme'] = true, ['desktop/persistence'] = true, ['desktop/arrange'] = true }
+  local factories = { ['desktop/persistence'] = true, ['desktop/arrange'] = true }
   for index, entry in ipairs(entries) do
     expect.equal(entry.id, expected[index], 'the shipped entry at position ' .. index)
     expect.equal(builtinEntries[entry.id], entry.definition, 'the registered definition of ' .. entry.id)

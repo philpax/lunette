@@ -2,11 +2,6 @@
 
 local plugin = require '@lunette-plugin'
 local frame = require '@lunette-plugins/session/frame'
-local theme = require '@lunette-plugins/theme/resolver'
-local themeCatalog = require '@lunette-plugins/theme/catalog'
-local standardThemes = require '@lunette-plugins/theme/standard'
-local arcadeTheme = require '@lunette-plugins/theme/arcade'
-local themeSelector = require '@lunette-plugins/theme/selector'
 local surfaces = require '@lunette-plugins/interaction/surfaces'
 local panels = require '@lunette-plugins/panels/service'
 local drops = require '@lunette-plugins/interaction/drops'
@@ -16,6 +11,7 @@ local interaction = require '@lunette-plugins/interaction/pointers'
 local laser = require '@lunette-plugins/input/laser'
 local keyboard = require '@lunette-plugins/input/keyboard'
 local uiHost = require '@lunette-plugins/ui/host'
+local theme = require '@lunette-plugins/ui/theme'
 local uiStandard = require '@lunette-plugins/ui/standard'
 local notifications = require '@lunette-plugins/ui/notifications'
 local accessibilityProvider = require '@lunette-plugins/ui/accessibility'
@@ -73,9 +69,6 @@ local OPTION_KEYS: { string } = { 'patches', 'settings' }
 local DEFAULT: { plugin.Entry } = plugin.compose {
   { id = 'frame', definition = frame.definition },
   { id = 'theme', definition = theme.definition },
-  { id = 'themes', definition = themeCatalog.definition },
-  { id = 'theme/standard', definition = standardThemes.definition },
-  { id = 'theme/arcade', definition = arcadeTheme.definition },
   { id = 'surfaces', definition = surfaces.definition },
   { id = 'panels', definition = panels.definition },
   { id = 'drops', definition = drops.definition },
@@ -89,7 +82,6 @@ local DEFAULT: { plugin.Entry } = plugin.compose {
   { id = 'notifications', definition = notifications.definition },
   { id = 'accessibility', definition = accessibilityProvider.definition },
   { id = 'menu', definition = menu.definition },
-  { id = 'desktop/theme', definition = themeSelector.definition },
   { id = 'tags', definition = tags.definition },
   { id = 'rules', definition = rules.definition },
   { id = 'placement', definition = placement.definition },
