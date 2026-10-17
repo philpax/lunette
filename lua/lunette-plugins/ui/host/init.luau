@@ -40,6 +40,9 @@ type Live = {
   packed: pack.Packed?,
 }
 
+-- Seconds a grabbed panel stays still before the host saves where it rests.
+local SETTLE_SECONDS = 0.5
+
 local function build(context: plugin.Context, settings: Settings): uiHost.Service
   local frameService = context:require(frame.capability)
   local surfaceService = context:require(surfaces.capability)
@@ -47,6 +50,7 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
   local interactionService = context:require(interaction.capability)
   local traverse: traversal.Traversal
   local themeService = context:require(themeContract.capability)
+  local placed = table.clone(settings.placed) :: { [string]: config.Placement }
   local current = themeService:current()
   local kinds = registry.new(context)
   local contributions = outlets.new()
@@ -229,6 +233,23 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
   end
   themeService:onChanged(context, { run = retheme })
 
+  -- Saves where a grabbed panel came to rest, once a grab has left it still for a moment, so a drag writes once.
+  local function rest(record: records.Panel, dt: number): ()
+    local settling = record.settling
+    if settling == nil then
+      return
+    end
+    settling += dt
+    record.settling = settling
+    if settling < SETTLE_SECONDS or record.dead then
+      return
+    end
+    record.settling = nil
+    local x, y, z, angle, ax, ay, az = record.pose:getPose()
+    placed[record.name] = { position = vector.create(x, y, z), rotation = { angle, ax, ay, az } }
+    context:save { placed = table.clone(placed) }
+  end
+
   local function setDefaultAppearance(on: boolean): ()
     if kinds.defaultAppearance ~= on then
       kinds.defaultAppearance = on
@@ -255,6 +276,7 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
         if record.closing and (record.fade == nil or record.fade.value <= 0.02) then
           table.insert(faded, record)
         end
+        rest(record, dt)
         index += 1
       end
       for _, record in faded do
@@ -340,6 +362,13 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
       end
       local record, handle = panels.new(provider, owner, options)
       recordsOf[handle] = record
+      local saved = record.remembered and placed[record.name]
+      if saved then
+        local rotation = saved.rotation
+        local angle, ax, ay, az = rotation[1], rotation[2], rotation[3], rotation[4]
+        record.pose:set(lovr.math.mat4():translate(saved.position):rotate(angle, ax, ay, az))
+        record.placeAhead = nil
+      end
       context:acquire(owner, function(): () -> ()
         return function(): ()
           handle:destroy()

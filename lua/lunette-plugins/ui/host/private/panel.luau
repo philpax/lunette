@@ -59,6 +59,7 @@ function panel.new(
   record.curve = curve
   record.grabbable = (presentation == 'world' or presentation == 'attach') and options.grabbable ~= false
   record.placeAhead = presentation == 'world' and options.pose == nil
+  record.remembered = presentation == 'world' and record.grabbable
   if presentation == 'attach' then
     local target = options.target
     assert(target ~= nil and target.width and target.height, 'ui: an attached panel names a target surface')
@@ -106,6 +107,10 @@ function panel.new(
   local handle: uiHost.Panel
   local surface = panel.surface(provider, record, function(pose: Mat4): ()
     handle:setPose(pose)
+    -- A grab moved the panel, so the host saves where it rests once it stops moving.
+    if record.remembered then
+      record.settling = 0
+    end
   end)
   handle = {
     name = record.name,

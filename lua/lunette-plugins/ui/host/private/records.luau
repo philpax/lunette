@@ -172,6 +172,10 @@ export type Panel = {
   followTarget: Mat4?,
   -- Set for a world panel made without a pose, until the host places it ahead of the head or its owner poses it.
   placeAhead: boolean?,
+  -- Set for a world panel made grabbable, whose resting place the host saves after a grab moves it, and the seconds
+  -- since the grab last moved it.
+  remembered: boolean?,
+  settling: number?,
   -- The outlet instances placed in the panel, whose contributions render in its commits.
   placements: { Placement },
 }

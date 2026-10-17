@@ -351,7 +351,8 @@ export type PanelOptions = {
   read width: number?,
   read height: number?,
   read size: ('fixed' | 'content')?,
-  -- A world panel without a pose opens ahead of the head and stays there until it is moved.
+  -- A world panel without a pose opens ahead of the head and stays there until it is moved. A grabbable world panel
+  -- that a grab left somewhere in an earlier session opens there instead.
   read pose: Mat4?,
   read grabbable: boolean?,
   -- A panel created hidden shows when setVisible is called.
