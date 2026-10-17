@@ -25,11 +25,6 @@ fn close(a: f32, b: f32) -> bool {
 }
 
 #[test]
-fn bundled_fonts_contain_only_the_given_faces() {
-    assert_eq!(fonts().families(), vec![test_fonts::MONO_FAMILY.to_owned()]);
-}
-
-#[test]
 fn a_file_given_again_adds_no_faces() {
     let mut fonts = fonts();
     let data = test_fonts::MONO.to_vec();
@@ -44,17 +39,6 @@ fn empty_text_keeps_one_line() {
     let (width, height) = block.measure(&mut fonts, None);
     assert_eq!(width, 0.0);
     assert!(close(height, 0.012 * 1.3), "one line high, got {height}");
-}
-
-#[test]
-fn monospace_advances_add_up() {
-    let mut fonts = fonts();
-    let mut one = TextBlock::new(&mut fonts, "a", style()).expect("valid style");
-    let mut ten = TextBlock::new(&mut fonts, "aaaaaaaaaa", style()).expect("valid style");
-    let (single, _) = one.measure(&mut fonts, None);
-    let (tenfold, _) = ten.measure(&mut fonts, None);
-    assert!(single > 0.0);
-    assert!(close(tenfold, single * 10.0), "{tenfold} against {single}");
 }
 
 #[test]

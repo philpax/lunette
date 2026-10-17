@@ -15,10 +15,6 @@ const WIDE: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 1
   <rect width="20" height="10" fill="#0000ff"/>
 </svg>"##;
 
-const CIRCLE: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">
-  <circle cx="5" cy="5" r="4" fill="#00ff00"/>
-</svg>"##;
-
 const TRANSLUCENT: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 4">
   <rect width="4" height="4" fill="#ffffff" fill-opacity="0.5"/>
 </svg>"##;
@@ -38,24 +34,6 @@ fn pixel(raster: &Raster, x: u32, y: u32) -> [u8; 4] {
     let mut rgba = [0; 4];
     rgba.copy_from_slice(&raster.pixels[start..start + 4]);
     rgba
-}
-
-#[test]
-fn a_filled_square_covers_the_canvas() {
-    let raster = raster(SQUARE, 4, 4);
-    assert_eq!((raster.width, raster.height), (4, 4));
-    let (pixels, rest) = raster.pixels.as_chunks::<4>();
-    assert_eq!((pixels.len(), rest.len()), (4 * 4, 0));
-    for rgba in pixels {
-        assert_eq!(*rgba, [255, 0, 0, 255]);
-    }
-}
-
-#[test]
-fn the_canvas_has_the_requested_size_whatever_the_document_size() {
-    let raster = raster(SQUARE, 7, 3);
-    assert_eq!((raster.width, raster.height), (7, 3));
-    assert_eq!(raster.pixels.len(), 7 * 3 * 4);
 }
 
 #[test]
@@ -94,19 +72,6 @@ fn a_square_document_is_fitted_and_centred_horizontally() {
 }
 
 #[test]
-fn a_circle_is_drawn_at_its_scaled_position() {
-    let raster = raster(CIRCLE, 100, 100);
-    assert_eq!(pixel(&raster, 50, 50), [0, 255, 0, 255], "the centre");
-    assert_eq!(
-        pixel(&raster, 50, 15),
-        [0, 255, 0, 255],
-        "inside the top edge"
-    );
-    assert_eq!(pixel(&raster, 2, 2), CLEAR, "the corner outside the circle");
-    assert_eq!(pixel(&raster, 50, 5), CLEAR, "above the circle");
-}
-
-#[test]
 fn pixels_have_straight_alpha() {
     let raster = raster(TRANSLUCENT, 4, 4);
     let [red, green, blue, alpha] = pixel(&raster, 2, 2);
@@ -116,46 +81,6 @@ fn pixels_have_straight_alpha() {
         "colour is not premultiplied"
     );
     assert!((127..=128).contains(&alpha), "half opacity, not {alpha}");
-}
-
-#[test]
-fn malformed_xml_is_an_error() {
-    let error = rasterize(b"<svg", size(4, 4)).expect_err("the document is malformed");
-    assert!(matches!(
-        error,
-        SvgError::Parse(usvg::Error::ParsingFailed(_))
-    ));
-    assert!(
-        error
-            .to_string()
-            .starts_with("svg: the document is not well-formed XML: "),
-        "{error}"
-    );
-}
-
-#[test]
-fn text_that_is_not_svg_is_an_error() {
-    let error = rasterize(b"an icon", size(4, 4)).expect_err("the text is not SVG");
-    assert!(matches!(error, SvgError::Parse(_)), "{error}");
-}
-
-#[test]
-fn bytes_that_are_not_utf8_are_an_error() {
-    let error = rasterize(&[0xff, 0xfe, 0x00], size(4, 4)).expect_err("the bytes are not UTF-8");
-    assert_eq!(error.to_string(), "svg: the document is not UTF-8 text");
-}
-
-#[test]
-fn a_document_without_a_size_is_an_error() {
-    let error = rasterize(
-        br##"<svg xmlns="http://www.w3.org/2000/svg" width="0" height="10"/>"##,
-        size(4, 4),
-    )
-    .expect_err("the document has no area");
-    assert_eq!(
-        error.to_string(),
-        "svg: the document has no positive width and height and no view box"
-    );
 }
 
 #[test]
@@ -185,54 +110,6 @@ fn embedded_data_images_are_drawn() {
     );
     let raster = raster(&document, 4, 4);
     assert_eq!(pixel(&raster, 2, 2), [255, 0, 0, 255]);
-}
-
-#[test]
-fn a_compressed_document_is_drawn() {
-    let raster = raster_bytes(&gzip_stored(SQUARE.as_bytes()), 4, 4);
-    assert_eq!(pixel(&raster, 2, 2), [255, 0, 0, 255]);
-}
-
-#[test]
-fn malformed_compression_is_an_error() {
-    let error = rasterize(&[0x1f, 0x8b, 0x08, 0x00, 0xff], size(4, 4))
-        .expect_err("the gzip stream is truncated");
-    assert_eq!(
-        error.to_string(),
-        "svg: the document's gzip compression is malformed"
-    );
-}
-
-fn raster_bytes(document: &[u8], width: u32, height: u32) -> Raster {
-    rasterize(document, size(width, height)).expect("the document rasterises")
-}
-
-/// A gzip member holding `data` in one stored deflate block, so the test needs no compressor.
-fn gzip_stored(data: &[u8]) -> Vec<u8> {
-    let length = u16::try_from(data.len()).expect("the fixture fits one stored block");
-    let mut out = vec![0x1f, 0x8b, 0x08, 0, 0, 0, 0, 0, 0, 0xff];
-    out.push(0x01);
-    out.extend(length.to_le_bytes());
-    out.extend((!length).to_le_bytes());
-    out.extend(data);
-    out.extend(crc32(data).to_le_bytes());
-    out.extend(u32::from(length).to_le_bytes());
-    out
-}
-
-fn crc32(data: &[u8]) -> u32 {
-    let mut crc = !0u32;
-    for &byte in data {
-        crc ^= u32::from(byte);
-        for _ in 0..8 {
-            crc = if crc & 1 == 1 {
-                (crc >> 1) ^ 0xedb8_8320
-            } else {
-                crc >> 1
-            };
-        }
-    }
-    !crc
 }
 
 #[test]

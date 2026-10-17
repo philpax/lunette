@@ -767,22 +767,6 @@ mod tests {
         );
     }
 
-    /// A request covers the one boot that follows it. A second restart for
-    /// another reason runs the configuration again.
-    #[test]
-    fn a_request_is_taken_once() {
-        let request = SafeModeRequest::default();
-        assert_eq!(request.take(), BootEntry::Configuration);
-
-        request.request();
-        assert_eq!(request.take(), BootEntry::SafeMode);
-        assert_eq!(
-            request.take(),
-            BootEntry::Configuration,
-            "taking the request resets it"
-        );
-    }
-
     /// Asking for safe mode queues LÖVR's own restart, and leaves the request
     /// for the next boot to take.
     #[test]
@@ -800,6 +784,11 @@ mod tests {
             1
         );
         assert_eq!(request.take(), BootEntry::SafeMode);
+        assert_eq!(
+            request.take(),
+            BootEntry::Configuration,
+            "a request covers only the next boot"
+        );
     }
 
     /// A configuration that disabled the event module cannot restart, and the

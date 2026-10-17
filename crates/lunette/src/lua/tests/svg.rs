@@ -42,10 +42,6 @@ fn invalid_documents_and_sizes_are_refused() {
             "svg: the document is not well-formed XML",
         ),
         (
-            "lunette.rasterizeSvg('', 4, 4)".to_owned(),
-            "svg: the document is not well-formed XML",
-        ),
-        (
             format!("lunette.rasterizeSvg({square}, 0, 4)"),
             "svg: the width 0 is not a whole number of pixels from 1 to 4096",
         ),

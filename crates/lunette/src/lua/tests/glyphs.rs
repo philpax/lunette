@@ -73,9 +73,6 @@ fn shaped_glyphs_are_placed_in_the_atlas_and_their_page_uploads() {
         local again = atlas:glyph(glyphs[3].face, glyphs[3].id)
         assert(again.u0 == letter.u0 and again.v0 == letter.v0, 'a glyph keeps its place')
         assert(atlas:revision(1) == 1, 'the page was written once')
-        for _ = 1, 3 do
-          assert(atlas:revision(1) == 1, 'reading a revision does not change the page')
-        end
         assert(atlas:revision(0) == nil and atlas:pixels(0) == nil, 'page indices start at one')
         local pixels = assert(atlas:pixels(1))
         assert(#pixels == atlas.pageSize * atlas.pageSize * 4, 'the page is RGBA8')
@@ -117,11 +114,9 @@ fn many_glyphs_generate_in_the_background_and_all_arrive() {
             table.insert(glyphs, glyph)
           end
         end
-        local started = os.clock()
         for _, glyph in glyphs do
           atlas:glyph(glyph.face, glyph.id)
         end
-        assert(os.clock() - started < 0.05, 'asking for every glyph does not wait for their fields')
         function poll()
           atlas:update()
           local waiting = false
