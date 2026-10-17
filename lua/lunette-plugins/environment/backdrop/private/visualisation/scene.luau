@@ -219,7 +219,7 @@ end
 -- The summary as a caption.
 function scene.caption(summary: Summary): string
   if summary.silent then
-    return 'Nothing is sounding.'
+    return 'Silent.'
   end
   local parts: { string } = {}
   for _, pool in summary.pools do

@@ -111,7 +111,7 @@ test('the summary counts each pool, the skipped onsets, and silence', function()
   expect.equal(scene.caption(summary), 'Onsets: bass 0/4, mid 1/8, treble 0/8')
   local quiet = scene.summary { frame = frame(), raw = table.create(8, 0) }
   expect.equal(quiet.silent, true)
-  expect.equal(scene.caption(quiet), 'Nothing is sounding.')
+  expect.equal(scene.caption(quiet), 'Silent.')
   expect.equal(scene.sameSummary(summary, quiet), false)
   expect.equal(scene.sameSummary(summary, scene.summary(observed)), true)
 end)

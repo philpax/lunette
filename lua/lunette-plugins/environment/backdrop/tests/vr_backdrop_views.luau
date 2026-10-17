@@ -33,7 +33,7 @@ test('the open control panel draws the sky model and the skyline as volumes ever
   expect.equal(#env.view.models, 2, 'the model draws again without the panel changing')
   expect.equal(
     fixture.node(env, 'body/response/content/onsets').props.text,
-    'Nothing is sounding.',
+    'Silent.',
     'the caption reports silence'
   )
   fixture.click(env, 'body/reactive')
