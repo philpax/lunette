@@ -156,7 +156,8 @@ impl Described for GlyphAtlas {
             }
             /// A page's revision, which advances whenever a glyph is written to it, or nil for a page that does not exist.
             method revision(_lua, this, page: usize) -> Option<u64> {
-                Ok(page_of(this, page)?.map(|page| page.revision))
+                let state = borrow(this)?;
+                Ok(page.checked_sub(1).and_then(|index| state.atlas.pages().get(index)).map(|page| page.revision))
             }
             /// A page's pixels as tightly packed RGBA8 rows, top row first, which `lovr.data.newBlob` wraps for `lovr.data.newImage`, or nil for a page that does not exist.
             method pixels(lua, this, page: usize) -> Option<LuaString> {
@@ -176,14 +177,6 @@ fn borrow(this: &GlyphAtlas) -> mlua::Result<std::cell::Ref<'_, State>> {
 
 fn config(this: &GlyphAtlas) -> mlua::Result<AtlasConfig> {
     Ok(borrow(this)?.atlas.config())
-}
-
-fn page_of(this: &GlyphAtlas, page: usize) -> mlua::Result<Option<lunette_ui::glyphs::Page>> {
-    let state = borrow(this)?;
-    Ok(page
-        .checked_sub(1)
-        .and_then(|index| state.atlas.pages().get(index))
-        .cloned())
 }
 
 fn glyph(

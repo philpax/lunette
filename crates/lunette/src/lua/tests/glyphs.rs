@@ -73,6 +73,10 @@ fn shaped_glyphs_are_placed_in_the_atlas_and_their_page_uploads() {
         local again = atlas:glyph(glyphs[3].face, glyphs[3].id)
         assert(again.u0 == letter.u0 and again.v0 == letter.v0, 'a glyph keeps its place')
         assert(atlas:revision(1) == 1, 'the page was written once')
+        for _ = 1, 3 do
+          assert(atlas:revision(1) == 1, 'reading a revision does not change the page')
+        end
+        assert(atlas:revision(0) == nil and atlas:pixels(0) == nil, 'page indices start at one')
         local pixels = assert(atlas:pixels(1))
         assert(#pixels == atlas.pageSize * atlas.pageSize * 4, 'the page is RGBA8')
         assert(atlas:pixels(2) == nil and atlas:revision(2) == nil, 'a missing page answers nil')
