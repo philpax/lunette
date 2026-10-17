@@ -37,8 +37,11 @@
           };
 
           # LOVR dlopens these rather than linking them, so rpath does not reach
-          # them and LD_LIBRARY_PATH has to.
+          # them and LD_LIBRARY_PATH has to. libuuid is for the XR runtime
+          # rather than LOVR: SteamVR's vrclient.so, which both the OpenXR and
+          # OpenVR backends load, links it and fails to load without it.
           runtimeLibs = with pkgs; [
+            libuuid
             vulkan-loader
             libGL
             libx11
