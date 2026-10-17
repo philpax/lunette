@@ -1,6 +1,7 @@
 -- The gallery's settings page in the plugin manager: the theme mode, shown when the manager selects the gallery.
 
 local uiHost = require '@lunette-contracts/ui-host'
+local theme = require '@lunette-contracts/theme'
 local pluginManager = require '@lunette-contracts/plugin-manager'
 local ui = require '@lunette-plugins/ui/react'
 
@@ -8,8 +9,8 @@ local settings = {}
 
 local NAME = 'dev/ui-gallery'
 
--- The settings page component for a host, which it reads and changes the theme mode of.
-function settings.page(host: uiHost.Service): (props: any?) -> ui.Child
+-- The settings page reads the host's effective mode and changes it through the theme service.
+function settings.page(host: uiHost.Service, themeService: theme.Service): (props: any?) -> ui.Child
   return ui.component('GallerySettings', function(props: pluginManager.SettingsProps): ui.Child
     local c = ui.useComponents()
     local mode, setMode = ui.useState(host:theme().mode)
@@ -30,7 +31,7 @@ function settings.page(host: uiHost.Service): (props: any?) -> ui.Child
         options = { { id = 'dark', label = 'Dark' }, { id = 'light', label = 'Light' } },
         onChange = function(next: 'dark' | 'light')
           setMode(next)
-          host:setMode(next)
+          themeService:setMode(next)
         end,
       },
     }

@@ -470,9 +470,6 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
     theme = function(_self: uiHost.Service): uiHost.Theme
       return current
     end,
-    setMode = function(_self: uiHost.Service, given: 'dark' | 'light'): ()
-      themeService:setMode(given)
-    end,
     setAccessibility = function(_self: uiHost.Service, options: uiHost.AccessibilityOptions): ()
       assert(type(options) == 'table', 'ui: accessibility options are a table')
       local scale = options.textScale
@@ -482,12 +479,6 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
       )
       access = table.freeze(table.clone(options))
       themeService:setOptions { textScale = options.textScale, highContrast = options.highContrast }
-    end,
-    accent = function(_self: uiHost.Service): uiHost.Color
-      return themeService:accent()
-    end,
-    setAccent = function(_self: uiHost.Service, given: uiHost.Color): ()
-      themeService:setAccent(given)
     end,
     navigate = function(_self: uiHost.Service, direction: string): boolean
       local codes = keys.CODES

@@ -440,11 +440,6 @@ export type Service = {
   read defaultAppearance: (Service) -> boolean,
   -- The theme panels draw with: the theme service's current theme, or its base theme in default appearance.
   read theme: (Service) -> Theme,
-  -- Change the session's theme through the theme service.
-  read setMode: (Service, 'dark' | 'light') -> (),
-  -- The accent colour as it was chosen, before the theme guarded its contrast.
-  read accent: (Service) -> Color,
-  read setAccent: (Service, Color) -> (),
   -- The accessibility settings the host applies: text scale and high contrast reach the theme, reduced motion snaps
   -- hover lift and press travel, and haptics off silences press feedback.
   read setAccessibility: (Service, AccessibilityOptions) -> (),

@@ -2,12 +2,14 @@
 
 local ui = require '@lunette-plugins/ui/react'
 local uiHost = require '@lunette-contracts/ui-host'
+local theme = require '@lunette-contracts/theme'
 local notifications = require '@lunette-contracts/notifications'
 
 local pages = {}
 
 export type Props = {
   host: uiHost.Service,
+  theme: theme.Service,
   page: string?,
   -- The overlays page opens dialogs over this panel, as this owner, and shows toasts when notifications are given.
   panel: uiHost.Panel?,
@@ -562,7 +564,7 @@ pages.Gallery = ui.component('Gallery', function(props: Props): ui.Child
   local mode, setMode = ui.useState(props.host:theme().mode)
   -- The chip of the accent the theme holds, which may be one saved in an earlier session.
   local accent, setAccent = ui.useState(function(): string?
-    local chosen = props.host:accent()
+    local chosen = props.theme:accent()
     for _, choice in ACCENTS do
       local same = true
       for index = 1, 3 do
@@ -582,7 +584,7 @@ pages.Gallery = ui.component('Gallery', function(props: Props): ui.Child
       selected = accent == choice.id,
       onChange = function()
         setAccent(choice.id)
-        props.host:setAccent(choice.color)
+        props.theme:setAccent(choice.color)
       end,
     }
   end
@@ -610,7 +612,7 @@ pages.Gallery = ui.component('Gallery', function(props: Props): ui.Child
             options = { { id = 'dark', label = 'Dark' }, { id = 'light', label = 'Light' } },
             onChange = function(next: 'dark' | 'light')
               setMode(next)
-              props.host:setMode(next)
+              props.theme:setMode(next)
             end,
           },
           c.Spacer { key = 'gap' },

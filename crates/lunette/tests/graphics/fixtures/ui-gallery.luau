@@ -2,6 +2,7 @@
 
 local testing = require '@testing'
 local uiHost = require '@lunette-contracts/ui-host'
+local theme = require '@lunette-contracts/theme'
 local uiComponents = require '@lunette-contracts/ui-components'
 local ui = require '@lunette-plugins/ui/react'
 local render = require './support/ui'
@@ -20,17 +21,18 @@ for _, mode in { 'dark', 'light' } do
     test(`the {page.id} page renders in {mode} mode`, function()
       local scene = render.boot(
         { require('@lunette-plugins/ui/standard').definition },
-        { uiComponents.capability },
+        { uiComponents.capability, theme.capability },
         function(context: any)
           local host = context:require(uiHost.capability)
-          host:setMode(mode :: any)
+          local themeService = context:require(theme.capability)
+          themeService:setMode(mode :: any)
           local panel = host:newPanel(context, {
             name = 'gallery',
             width = 0.56,
             height = 0.5,
             pose = lovr.math.newMat4(),
           })
-          ui.mount(panel, pages.Gallery { host = host, page = page.id }, {
+          ui.mount(panel, pages.Gallery { host = host, theme = themeService, page = page.id }, {
             components = context:require(uiComponents.capability),
             owner = context,
           })
@@ -47,12 +49,13 @@ end
 test('a gallery page renders bent on a curved panel', function()
   local scene = render.boot(
     { require('@lunette-plugins/ui/standard').definition },
-    { uiComponents.capability },
+    { uiComponents.capability, theme.capability },
     function(context: any)
       local host = context:require(uiHost.capability)
+      local themeService = context:require(theme.capability)
       local panel =
         host:newPanel(context, { name = 'curved', width = 0.56, height = 0.5, curve = 1.6, pose = lovr.math.newMat4() })
-      ui.mount(panel, pages.Gallery { host = host, page = 'choices' }, {
+      ui.mount(panel, pages.Gallery { host = host, theme = themeService, page = 'choices' }, {
         components = context:require(uiComponents.capability),
         owner = context,
       })
@@ -71,17 +74,18 @@ test('the gallery settings page renders in an attributed outlet frame', function
   -- The contribution comes from a plugin named as the gallery, so the frame names it.
   local gallery = adapter.define {
     name = 'dev/ui-gallery',
-    requires = { uiHost.capability, uiComponents.capability },
+    requires = { uiHost.capability, theme.capability, uiComponents.capability },
     init = function(context: adapter.Context)
       local host = context:require(uiHost.capability)
-      ui.contribute(context, pluginManager.settings, settings.page(host), {
+      local themeService = context:require(theme.capability)
+      ui.contribute(context, pluginManager.settings, settings.page(host, themeService), {
         components = context:require(uiComponents.capability),
       })
     end,
   }
   local scene = render.boot(
     { require('@lunette-plugins/ui/standard').definition, gallery },
-    { uiComponents.capability },
+    { uiComponents.capability, theme.capability },
     function(context: any)
       local host = context:require(uiHost.capability)
       local c = context:require(uiComponents.capability)

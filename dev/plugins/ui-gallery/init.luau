@@ -1,6 +1,7 @@
 -- Shows every standard kind on a panel that the wrist menu opens, with controls for the theme.
 local plugin = require '@lunette-plugin'
 local uiHost = require '@lunette-contracts/ui-host'
+local theme = require '@lunette-contracts/theme'
 local uiComponents = require '@lunette-contracts/ui-components'
 local notifications = require '@lunette-contracts/notifications'
 local menu = require '@lunette-contracts/menu'
@@ -19,9 +20,10 @@ type Settings = schema.Output<typeof(descriptor)>
 return plugin.consumer<<Config, Settings>> {
   name = 'dev/ui-gallery',
   schema = descriptor,
-  requires = { uiHost.capability, uiComponents.capability, notifications.capability, menu.capability },
+  requires = { uiHost.capability, theme.capability, uiComponents.capability, notifications.capability, menu.capability },
   init = function(context: plugin.Context, options: Settings): ()
     local host = context:require(uiHost.capability)
+    local themeService = context:require(theme.capability)
     local components = context:require(uiComponents.capability)
     local toasts = context:require(notifications.capability)
     local open: uiHost.Panel? = nil
@@ -38,6 +40,7 @@ return plugin.consumer<<Config, Settings>> {
           panel,
           pages.Gallery {
             host = host,
+            theme = themeService,
             panel = panel,
             owner = context,
             components = components,
@@ -58,6 +61,6 @@ return plugin.consumer<<Config, Settings>> {
       end,
     })
     -- The plugin manager shows the gallery's settings page when it selects the gallery.
-    ui.contribute(context, pluginManager.settings, settings.page(host), { components = components })
+    ui.contribute(context, pluginManager.settings, settings.page(host, themeService), { components = components })
   end,
 }
