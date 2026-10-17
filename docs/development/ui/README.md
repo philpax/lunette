@@ -19,8 +19,6 @@ The UI toolkit builds the session's in-scene interfaces: the plugin manager, the
 13. [Testing](testing.md): inspection, addressing by id, and the test layers.
 14. [Research](research.md): the systems that informed the design, what was taken from each, and why.
 
-[Migration](migration.md) records the move from the earlier `lunette/ui` toolkit to this design. It is deleted when the migration is complete.
-
 ## Terms
 
 The documents use these terms consistently.
