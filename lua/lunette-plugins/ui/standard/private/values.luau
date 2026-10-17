@@ -281,7 +281,13 @@ function values.register(service: uiHost.Service, owner: any): { [string]: uiHos
     },
     role = 'slider',
     semantics = function(props: uiHost.Props, state: { read [string]: any }): uiHost.Semantics
-      return { name = props.label, value = props.value, min = props.min or 0, max = props.max or 1 }
+      return {
+        name = props.label,
+        value = props.value,
+        min = props.min or 0,
+        max = props.max or 1,
+        disabled = not tokens.enabled(props),
+      }
     end,
     layout = {
       kind = 'container',
@@ -296,6 +302,7 @@ function values.register(service: uiHost.Service, owner: any): { [string]: uiHos
       state: { read [string]: any },
       act: uiHost.Actions
     ): uiHost.Child
+      local enabled = tokens.enabled(props)
       local shown = props.value or 0
       if state.preview ~= false then
         shown = state.preview
@@ -309,7 +316,13 @@ function values.register(service: uiHost.Service, owner: any): { [string]: uiHos
           key = 'heading',
           align = 'center',
           gap = 'sm',
-          element('lunette/text', { key = 'label', text = props.label or '', style = 'body', grow = 1 }),
+          element('lunette/text', {
+            key = 'label',
+            text = props.label or '',
+            style = 'body',
+            color = if enabled then 'ink' else 'muted',
+            grow = 1,
+          }),
           -- The detent's name comes before the value, so the value and its unit keep their place at the end of the
           -- row whether or not the value sits on a detent.
           if detent
@@ -330,6 +343,7 @@ function values.register(service: uiHost.Service, owner: any): { [string]: uiHos
           max = props.max,
           step = props.step,
           detents = props.detents,
+          disabled = not enabled,
           disabledReason = props.disabledReason,
           onPreview = function(value: number)
             act.setState { preview = value }

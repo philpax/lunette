@@ -171,7 +171,7 @@ function actions.register(service: uiHost.Service, owner: any): { [string]: uiHo
     },
     role = 'button',
     semantics = function(props: uiHost.Props, state: { read [string]: any }): uiHost.Semantics
-      return { name = props.label, disabled = props.disabledReason ~= nil }
+      return { name = props.label, disabled = not tokens.enabled(props) }
     end,
     layout = {
       kind = 'container',
@@ -204,6 +204,7 @@ function actions.register(service: uiHost.Service, owner: any): { [string]: uiHo
           key = 'face',
           variant = variant,
           grow = props.grow,
+          disabled = not enabled,
           disabledReason = props.disabledReason,
           onActivate = function()
             act.emit 'onActivate'
@@ -243,7 +244,7 @@ function actions.register(service: uiHost.Service, owner: any): { [string]: uiHo
     },
     role = 'checkbox',
     semantics = function(props: uiHost.Props, state: { read [string]: any }): uiHost.Semantics
-      return { name = props.label, checked = props.selected == true }
+      return { name = props.label, checked = props.selected == true, disabled = not tokens.enabled(props) }
     end,
     expand = function(
       props: uiHost.Props,
@@ -252,10 +253,12 @@ function actions.register(service: uiHost.Service, owner: any): { [string]: uiHo
       act: uiHost.Actions
     ): uiHost.Child
       local selected = props.selected == true
+      local enabled = tokens.enabled(props)
       return {
         element('lunette/button-face', {
           key = 'face',
           variant = if selected then 'selected' else 'default',
+          disabled = not enabled,
           disabledReason = props.disabledReason,
           onActivate = function()
             act.emit('onChange', not selected)
@@ -264,7 +267,7 @@ function actions.register(service: uiHost.Service, owner: any): { [string]: uiHo
             key = 'label',
             text = props.label or '',
             style = 'label',
-            color = if selected then 'accentInk' else 'ink',
+            color = if not enabled then 'muted' elseif selected then 'accentInk' else 'ink',
             wrap = false,
           }),
         }),

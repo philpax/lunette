@@ -195,7 +195,7 @@ function choices.register(service: uiHost.Service, owner: any): { [string]: uiHo
     },
     role = 'switch',
     semantics = function(props: uiHost.Props, state: { read [string]: any }): uiHost.Semantics
-      return { name = props.label, checked = props.value == true, disabled = props.disabledReason ~= nil }
+      return { name = props.label, checked = props.value == true, disabled = not tokens.enabled(props) }
     end,
     expand = function(
       props: uiHost.Props,
@@ -203,15 +203,22 @@ function choices.register(service: uiHost.Service, owner: any): { [string]: uiHo
       _state: { read [string]: any },
       act: uiHost.Actions
     ): uiHost.Child
+      local disabled = not tokens.enabled(props)
       return {
         element('lunette/choice-row', {
           key = 'row',
+          disabled = disabled,
           disabledReason = props.disabledReason,
           onActivate = function()
             act.emit('onChange', not props.value)
           end,
           label(props, 'text'),
-          element('lunette/switch', { key = 'switch', value = props.value, disabledReason = props.disabledReason }),
+          element('lunette/switch', {
+            key = 'switch',
+            value = props.value,
+            disabled = disabled,
+            disabledReason = props.disabledReason,
+          }),
         }),
       }
     end,
@@ -279,7 +286,7 @@ function choices.register(service: uiHost.Service, owner: any): { [string]: uiHo
     },
     role = 'checkbox',
     semantics = function(props: uiHost.Props, state: { read [string]: any }): uiHost.Semantics
-      return { name = props.label, checked = props.value == true, disabled = props.disabledReason ~= nil }
+      return { name = props.label, checked = props.value == true, disabled = not tokens.enabled(props) }
     end,
     expand = function(
       props: uiHost.Props,
@@ -290,6 +297,7 @@ function choices.register(service: uiHost.Service, owner: any): { [string]: uiHo
       return {
         element('lunette/choice-row', {
           key = 'row',
+          disabled = not tokens.enabled(props),
           disabledReason = props.disabledReason,
           onActivate = function()
             act.emit('onChange', not props.value)

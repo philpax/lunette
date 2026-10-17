@@ -98,7 +98,7 @@ function fields.register(service: uiHost.Service, owner: any): { [string]: uiHos
 
   service:registerKind(owner, {
     name = 'lunette/field-text',
-    props = schema.object {
+    props = shapes.disableable {
       value = optional(schema.string()),
       placeholder = optional(schema.string()),
       caret = optional(schema.number()),
@@ -135,7 +135,7 @@ function fields.register(service: uiHost.Service, owner: any): { [string]: uiHos
         { fill = theme.colors.accent, offset = 0 }
       )
     end
-    draw:text { color = if empty then theme.colors.muted else theme.colors.ink }
+    draw:text { color = if empty or not tokens.enabled(props) then theme.colors.muted else theme.colors.ink }
     if props.focused then
       local x = if empty then 0 else caretX(lines, props.caret)
       local width = theme.sizes.headerRule
@@ -166,7 +166,7 @@ function fields.register(service: uiHost.Service, owner: any): { [string]: uiHos
     },
     role = 'textbox',
     semantics = function(props: uiHost.Props, state: { read [string]: any }): uiHost.Semantics
-      return { value = props.value, disabled = props.disabledReason ~= nil }
+      return { value = props.value, disabled = not tokens.enabled(props) }
     end,
     layout = {
       kind = 'container',
@@ -271,6 +271,8 @@ function fields.register(service: uiHost.Service, owner: any): { [string]: uiHos
           key = 'text',
           value = shown.value,
           placeholder = props.placeholder,
+          disabled = not tokens.enabled(props),
+          disabledReason = props.disabledReason,
           caret = shown.caret,
           anchor = shown.anchor,
           focused = state.focused,
