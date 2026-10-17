@@ -15,7 +15,7 @@ export type Definition = {
   context: Context?,
 }
 
-export type Context = { default: any, id: number }
+export type Context = { default: any, provider: Definition }
 
 -- A component element: library data that never reaches the host.
 export type ComponentElement = {
@@ -27,7 +27,6 @@ export type ComponentElement = {
 
 export type Instance = {
   definition: Definition,
-  key: string?,
   props: { [string]: any },
   parent: Instance?,
   hooks: { Hook },
@@ -38,7 +37,6 @@ export type Instance = {
   children: { [string]: Instance },
   -- Stable functions that forward to the latest function props, by prop name.
   forwards: { [string]: (...any) -> ...any },
-  contexts: { [number]: any },
   dirty: boolean,
   stale: boolean,
   mounted: boolean,
@@ -57,23 +55,30 @@ export type Root = {
 
 instances.COMPONENT = '@react/component'
 
-local contextIds = 0
-
 function instances.newContext(default: any): Context
-  contextIds += 1
-  return { default = default, id = contextIds }
+  local provider: Definition = {
+    name = 'Provider',
+    render = function(props: any): any
+      local hook = instances.hook('provider', function(): Hook
+        return { value = props.value, subscribers = setmetatable({}, { __mode = 'k' }) }
+      end)
+      if hook.value ~= props.value then
+        hook.value = props.value
+        for subscriber in hook.subscribers do
+          instances.invalidate(subscriber)
+        end
+      end
+      return props.children
+    end,
+  }
+  local context: Context = { default = default, provider = provider }
+  provider.context = context
+  return context
 end
 
-function instances.new(
-  root: Root,
-  definition: Definition,
-  props: { [string]: any },
-  parent: Instance?,
-  key: string?
-): Instance
+function instances.new(root: Root, definition: Definition, props: { [string]: any }, parent: Instance?): Instance
   return {
     definition = definition,
-    key = key,
     props = props,
     parent = parent,
     hooks = {},
@@ -81,7 +86,6 @@ function instances.new(
     output = {},
     children = {},
     forwards = {},
-    contexts = {},
     dirty = true,
     stale = true,
     mounted = true,
@@ -304,7 +308,7 @@ local function resolveNode(
       end
       child.props = component.props
     else
-      child = instances.new(owner.root, component.component, component.props, owner, component.key)
+      child = instances.new(owner.root, component.component, component.props, owner)
       owner.children[childPath] = child
     end
     for _, element in instances.resolve(child) do

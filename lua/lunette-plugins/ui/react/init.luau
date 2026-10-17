@@ -12,7 +12,7 @@ local ui = {}
 export type Element = uiHost.Element
 export type Child = uiHost.Child | instances.ComponentElement
 export type Children = { read [number]: Child }
-export type Context<T> = { default: T, id: number }
+export type Context<T> = { default: T }
 export type Ref<T> = { current: T }
 
 export type Store<T> = vocabulary.Store<T>
@@ -105,7 +105,7 @@ local function bindRoot(
     render = function(): any
       return ui.provide(componentsContext, options.components, element(given))
     end,
-  }, {}, nil, nil)
+  }, {}, nil)
   local unmounted = false
   mount:bind {
     render = function(): ()
@@ -204,34 +204,11 @@ function ui.createContext<T>(default: T): Context<T>
   return instances.newContext(default) :: any
 end
 
-local providers: { [number]: instances.Definition } = {}
-
 -- Provides a context value to the children's subtree.
 function ui.provide<T>(context: Context<T>, value: T, children: Child): Child
-  local definition = providers[context.id]
-  if not definition then
-    local created: instances.Definition = {
-      name = 'Provider',
-      context = context :: any,
-      render = function(props: any): any
-        local hook = instances.hook('provider', function(): instances.Hook
-          return { value = props.value, subscribers = setmetatable({}, { __mode = 'k' }) }
-        end)
-        if hook.value ~= props.value then
-          hook.value = props.value
-          for subscriber in hook.subscribers do
-            instances.invalidate(subscriber)
-          end
-        end
-        return props.children
-      end,
-    }
-    providers[context.id] = created
-    definition = created
-  end
   local element: instances.ComponentElement = {
     kind = instances.COMPONENT,
-    component = definition,
+    component = (context :: any).provider,
     key = nil,
     props = { value = value, children = children },
   }
