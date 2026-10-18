@@ -52,7 +52,14 @@ build:
 run:
 	LUNETTE_STDLIB_PATH="$(CURDIR)/lua" LUNETTE_CONFIG_PATH="$(CURDIR)/dev" $(CARGO) run -p lunette --bin lunette -- $(ARGS)
 
-.PHONY: check-codegen
+.PHONY: bench-desktop check-benchmarks check-codegen
+
+# BENCH_ARGS accepts the custom harness options, such as --rounds 9 --frames 1200.
+bench-desktop:
+	$(CARGO) bench -p lunette --bench desktop -- $(BENCH_ARGS)
+
+check-benchmarks:
+	$(CARGO) test -p lunette --bench desktop -- --smoke
 
 CODEGEN_BUILD_DIR ?= $(CARGO_TARGET_DIR)/luau-codegen-tests
 
@@ -64,7 +71,7 @@ check-codegen:
 	$(CODEGEN_BUILD_DIR)/Luau.UnitTest --test-case='QuaternionConstant*,A64Float4*'
 
 # The standing checks, in the order .github/workflows/ci.yml runs them.
-check: check-format check-install check-headset check-graphics check-rust check-definitions check-luau-annotations check-luau check-codegen
+check: check-format check-install check-headset check-graphics check-rust check-definitions check-luau-annotations check-luau check-codegen check-benchmarks
 
 check-install:
 	python3 crates/lunette/tests/fixtures/install.py
@@ -86,7 +93,7 @@ check-graphics:
 
 check-format:
 	$(CARGO) +nightly fmt --all -- --check
-	stylua --check lua etc/xdg/lunette examples dev crates/lunette/tests/luau_check crates/lunette/tests/graphics/fixtures
+	stylua --check lua etc/xdg/lunette examples dev crates/lunette/tests/luau_check crates/lunette/tests/graphics/fixtures crates/lunette/benches
 
 # Split in two because clippy builds through RUSTC_WORKSPACE_WRAPPER and shares
 # no artifacts with the tests, so CI runs the halves in parallel.

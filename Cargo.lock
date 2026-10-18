@@ -923,6 +923,7 @@ dependencies = [
  "parking_lot",
  "pretty_assertions",
  "proptest",
+ "serde_json",
  "smithay",
  "taffy",
  "tempfile",

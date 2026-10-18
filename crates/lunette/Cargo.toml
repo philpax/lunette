@@ -65,6 +65,7 @@ lunette-ui = { path = "../lunette-ui", features = ["test-fonts"] }
 libtest-mimic.workspace = true
 pretty_assertions.workspace = true
 proptest.workspace = true
+serde_json.workspace = true
 tempfile.workspace = true
 
 # The Lua test runner discovers its tests at run time, one per test file under
@@ -80,6 +81,11 @@ name = "graphics"
 path = "tests/graphics/main.rs"
 harness = false
 required-features = ["graphics-tests"]
+
+[[bench]]
+name = "desktop"
+path = "benches/desktop.rs"
+harness = false
 
 [lints]
 workspace = true

@@ -80,6 +80,14 @@ The Lua integration target runs files directly under module-local `tests/` direc
 cargo test -p lunette --test lua
 ```
 
+### Desktop benchmarks
+
+`make bench-desktop` compares O1 interpretation, O2 interpretation, and O2 native compilation in release mode. Unsupported builds and CPUs report the reason and run only the interpreter modes. `BENCH_ARGS` passes options to the harness; `make bench-desktop BENCH_ARGS='--help'` lists them. Standard output contains JSON results, and progress uses stderr. A retained result uses `make --silent bench-desktop > target/desktop-benchmark.json`. `--mode o2-native` restricts the run to one execution mode for profiling; it does not produce paired mode comparisons.
+
+The workload in `crates/lunette/benches/scene.luau` opens the desktop panels and adopts deterministic client windows. Production plugins run through `lovr.update` and `lovr.draw`, with LÖVR math and the native layout engine. Windows, tracking, and graphics calls use the existing test facilities. These timings measure callback work, including test recording overhead. They exclude client rendering, texture import, GPU submission, XR waits, and presentation, so they do not predict headset FPS. The geometry workload calls production picking and panel hit testing separately.
+
+The harness warms each fresh state, rotates and reverses execution order between rounds, and reports per-round frame mean, frame p95, update and draw means, geometry time, setup time, and Lua memory. Update and draw timings exclude input preparation and trace cleanup, but draw still includes graphics recording. The recorder also uses the selected compiler, so its optimisation contributes to the measured change. Scene checks reject missing panels, inactive plugins, and missing client-content draws. The geometry checksum must match across samples; desktop draw and input traces are not compared across modes. Setup includes loading and opening the panels; it is not a source-reload timing. Comparisons require the same machine, build, arguments, and system load. `make check-benchmarks` validates every supported mode with a short run, without a performance threshold. Untimed caller-frame probes distinguish native entry from interpreter fallback after the first assertion and after representative work. Native validation requires both post-assertion probes to remain native. The JSON compares O1 with O2 separately from O2 with native compilation. [LÖVR integration](native/lovr-integration.md#luau-performance) records measurements and native compilation limits.
+
 ### Plugin dependency checks
 
 The dependency target checks resolved production imports, including examples and development plugins, against public module boundaries. It reads the strict checker's dependency graph, using the vendored Luau parser and Navigator. The Lua and graphics suites exercise test imports; the installed-root trial loads every installed module without development roots.
