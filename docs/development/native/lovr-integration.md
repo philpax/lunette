@@ -40,6 +40,8 @@ Texture handoff runs under the queue guard and forbids graphics reentry. Destruc
 
 OpenVR uses native panel overlays and two projection-eye overlays, not scene-compositor submission. Each eye needs a separate two-dimensional output because the overlay descriptor cannot select an array layer. Runtime resolution changes require restart. There is no game-depth occlusion.
 
+SteamVR composites overlays asynchronously, and each overlay call is a synchronous request to its compositor process. The backend therefore sets only the overlay properties that changed and never hides a visible overlay to update it, since a hidden overlay drops out of whichever frame SteamVR composites in the meantime. A failed update hides the overlay rather than show a partial configuration.
+
 Projection transforms use the inverse eye pose and vertically reversed projection tangents at the runtime call; rendering still uses the eye pose and ordinary tangents. This follows SteamVR's OpenXR implementation because the SDK omits the convention. Reversing it makes scene content move with the head.
 
 Frame update waits and samples predicted tracking; getters do not wait. Regressed or invalid predictions expose no pose or synthetic time. Dashboard focus suppresses input. Haptics use bounded pulses because accepted vibrations cannot be cancelled. Quit acknowledgement waits until the host commits to exit because callbacks can veto quit.
