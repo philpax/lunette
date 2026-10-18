@@ -95,9 +95,11 @@ jobs:
 
       # Cargo compares mtimes, and a checkout's are newer than the cached
       # artifacts. git-restore-mtime stamps nothing on git 2.50 and later.
+      # A file takes the time its change reached the first-parent history, so
+      # a merged branch's older commits cannot date it before a cached build.
       - name: Date the tree from its commits
         run: |
-          git -c core.quotePath=false log --no-merges --pretty=format:@%ct --name-only |
+          git -c core.quotePath=false log --first-parent --diff-merges=first-parent --pretty=format:@%ct --name-only |
             awk '/^@/ { stamp = substr($0, 2); next }
                  NF && !seen[$0]++ { print stamp "\t" $0 }' |
             while IFS=$'\t' read -r stamp path; do
