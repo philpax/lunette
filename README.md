@@ -5,6 +5,9 @@
   </picture>
 </h1>
 
+> [!WARNING]
+> lunette is experimental. It maintains zero backwards compatibility and is under rapid development churn. Only use it if you're ready to pull in changes every day.
+
 lunette is a scriptable XR workspace for Linux that can spawn Wayland applications, mirror your monitors, and more. It can run as an overlay or as its own independent application. It has native support for both PCVR and the Steam Frame. Everything user-facing is a Luau plugin. It's _your_ workspace.
 
 The long-term goal is a completely standalone XR working environment that can be reshaped with code on the fly, from inside the headset. Remake your world. Choose your environment. Make it work for you.
