@@ -109,7 +109,24 @@ fn watch_lovr_sources(lovr_dir: &Path) -> Result<(), BuildError> {
             }
         })?;
     }
-    for directory in ["deps/openvr/src", "deps/openvr/headers"] {
+    for file in ["deps/luau/CMakeLists.txt", "deps/luau/Sources.cmake"] {
+        println!("cargo::rerun-if-changed={}", lovr_dir.join(file).display());
+    }
+    for directory in [
+        "deps/openvr/src",
+        "deps/openvr/headers",
+        "deps/luau/Analysis",
+        "deps/luau/Ast",
+        "deps/luau/Bytecode",
+        "deps/luau/CodeGen",
+        "deps/luau/Common",
+        "deps/luau/Compiler",
+        "deps/luau/Config",
+        "deps/luau/Inliner",
+        "deps/luau/Require",
+        "deps/luau/VM",
+        "deps/luau/extern",
+    ] {
         let directory = lovr_dir.join(directory);
         if !directory
             .try_exists()
