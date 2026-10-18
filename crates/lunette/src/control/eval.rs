@@ -30,9 +30,8 @@
 //! (`lua_vm_is_topframe`) and does nothing elsewhere; a long loop in a callee
 //! runs until control returns to the chunk's own frame. A single native call (an
 //! allocator loop, a C function that never returns to the VM) is
-//! uninterruptible by any hook. Luau in LÖVR's build has no codegen
-//! (`Luau.CodeGen` is `EXCLUDE_FROM_ALL`), so the interrupt is the entire
-//! mechanism.
+//! uninterruptible by any hook. Both interpreted and native Luau execution
+//! use these safepoints; enabling CodeGen does not make the budget a hard bound.
 //!
 //! A hard bound would need a watchdog outside Lua. The chunk holds the Lua
 //! thread, so a watchdog cannot stop the run without aborting the process.
@@ -125,6 +124,10 @@ fn evaluate_with_clock(lua: &Lua, chunk: &str, budget: Budget, clock: Rc<dyn Clo
         ));
     }
 
+    if let Err(error) = crate::execution::compile(lua, &function) {
+        return Reply::LoadError(error.to_string());
+    }
+
     let started = clock.now();
     let overrun = Overrun::default();
     let interrupt = Interrupt {
@@ -181,6 +184,8 @@ struct Interrupt {
 
 thread_local! {
     static INTERRUPT: RefCell<Option<Interrupt>> = const { RefCell::new(None) };
+    #[cfg(test)]
+    static OVERRUN_WAS_NATIVE: Cell<bool> = const { Cell::new(false) };
 }
 
 /// What the interrupt raises with. Reaches the user when their own `pcall`
@@ -239,6 +244,12 @@ unsafe fn install_interrupt(lua: &Lua, interrupt: Interrupt) {
             if action.is_none() {
                 return;
             }
+
+            #[cfg(test)]
+            OVERRUN_WAS_NATIVE.with(|native| {
+                // SAFETY: the interrupt runs in the frame whose execution mode is queried.
+                native.set(unsafe { ffi::lua_incustomexecution(state, 0) } != 0);
+            });
 
             // The raise collapses the chunk. The overrun flag marks the outcome
             // as budget-caused for the caller's outcome mapping.
@@ -388,6 +399,7 @@ fn scope_to_modules(lua: &Lua, function: &Function) -> mlua::Result<()> {
     reason = "a failed expectation is how a test reports a failure; the ban is on production code"
 )]
 mod tests {
+    use mlua::ffi;
     use pretty_assertions::assert_eq;
 
     use super::*;
@@ -550,11 +562,75 @@ mod tests {
     /// passed and raises, the same mechanism as a real overrun.
     #[test]
     fn a_chunk_that_never_finishes_is_abandoned_rather_than_running_forever() {
-        let outcome = with_test_clock(&crate::test_lua::session_lua(), "while true do end");
+        for mode in [
+            crate::execution::ExecutionMode::Interpreter,
+            crate::execution::ExecutionMode::Optimized,
+        ] {
+            let lua = crate::test_lua::session_lua();
+            crate::execution::configure(&lua, mode).expect("the execution mode is supported");
+            let outcome = with_test_clock(&lua, "while true do end");
 
+            assert!(
+                matches!(outcome, Reply::Abandoned { .. }),
+                "expected the {mode:?} budget to end it, and the chunk answered {outcome:?}"
+            );
+            assert_eq!(
+                returned(answer(&lua, "return 42")),
+                vec![Value::Integer(42)]
+            );
+        }
+    }
+
+    #[test]
+    fn native_execution_is_bounded_or_rejected_when_unavailable() {
+        let lua = crate::test_lua::session_lua();
+        let configured = crate::execution::configure(&lua, crate::execution::ExecutionMode::Native);
+        if !crate::execution::supported() {
+            assert!(
+                configured.is_err(),
+                "unsupported native execution is rejected"
+            );
+            assert_eq!(
+                returned(answer(&lua, "return 42")),
+                vec![Value::Integer(42)]
+            );
+            return;
+        }
+        configured.expect("native execution is supported");
+        unsafe extern "C-unwind" fn native_probe(state: *mut ffi::lua_State) -> i32 {
+            // SAFETY: Lua invokes this callback with a live state and a Lua caller at level 1.
+            unsafe {
+                let native = ffi::lua_incustomexecution(state, 1);
+                ffi::lua_pushboolean(state, native);
+            }
+            1
+        }
+        // SAFETY: the callback follows the Lua C ABI, has no captures, and only inspects its caller.
+        let probe = unsafe { lua.create_c_function(native_probe) }.expect("the probe is created");
+        lua.globals()
+            .set("native_probe", probe)
+            .expect("the probe is installed");
+        assert_eq!(
+            returned(answer(
+                &lua,
+                "local functions = {function(probe) local total = 0; for i = 1, 100 do total += i end; return probe(), total end}; return functions[1](native_probe)"
+            )),
+            vec![Value::Boolean(true), Value::Integer(5050)],
+        );
+        OVERRUN_WAS_NATIVE.with(|native| native.set(false));
+        let outcome = with_test_clock(&lua, "while true do end");
+        assert!(matches!(outcome, Reply::Abandoned { .. }), "{outcome:?}");
         assert!(
-            matches!(outcome, Reply::Abandoned { .. }),
-            "expected the budget to end it, and the chunk answered {outcome:?}"
+            OVERRUN_WAS_NATIVE.with(Cell::get),
+            "the interrupt abandons a native frame"
+        );
+        assert_eq!(
+            returned(answer(&lua, "return 42")),
+            vec![Value::Integer(42)]
+        );
+        assert!(matches!(answer(&lua, "local ="), Reply::LoadError(_)));
+        assert!(
+            matches!(answer(&lua, "error('native sentinel')"), Reply::RuntimeError(message) if message.contains("native sentinel"))
         );
     }
 

@@ -4,7 +4,7 @@
 
 `vendor/lovr` points at `philpax/lovr`'s `lunette` branch, rebased onto upstream `dev`. Clone recursively. Patches stay narrow and additive unless they fix an upstream defect. The internal OpenVR backend is a deliberate larger exception: LÖVR still owns every headset session, and OpenXR behavior and defaults must remain intact.
 
-The nested Luau fork retains LÖVR's vector, quaternion, and Lua-ABI additions plus mlua requirements. Its upstream updates are merged rather than rebased. Submodule commits must be pushed before parent pointers; unresolved pointers break fresh clones. [Contribution rules](../../../CONTRIBUTING.md) own fork workflow.
+The nested Luau fork retains LÖVR's vector, quaternion, and Lua-ABI additions plus mlua requirements. Its upstream updates are merged rather than rebased. Both forks use a `lunette` branch. Their `.gitmodules` entries set `update = rebase` to preserve an attached branch during ordinary submodule updates; initial clones still require attaching the branch, and an explicit `--checkout` can detach it. Submodule commits must be pushed before parent pointers; unresolved pointers break fresh clones. [Contribution rules](../../../CONTRIBUTING.md) own fork workflow.
 
 ## The patch set
 
@@ -18,7 +18,15 @@ No patches have been proposed upstream. Integration plumbing keeps one Luau impl
 
 Additive patches support foreign-image ownership, optional Vulkan extensions, runtime layer limits and session generations, overlay visibility, Luau entry files, physical modifier snapshots, and shader-variable state restoration. Runtime declarations come from metadata and generation; call-site workarounds for wrong declarations can change behavior.
 
-Defect fixes cover Luau loader registration, configuration without a main file, native initialization, partial resource acquisition, and buffer arrays of vectors filled from flat numbers, which wrote only the first quarter of a vec4 array. Failure paths must retain or release every acquired resource. Optional-callback inference has focused regressions but the full updated upstream Luau suite still fails, including additional failures beyond the fork baseline; LÖVR does not link CodeGen.
+Defect fixes cover Luau loader registration, configuration without a main file, native initialization, partial resource acquisition, and buffer arrays of vectors filled from flat numbers, which wrote only the first quarter of a vec4 array. Failure paths must retain or release every acquired resource. Optional-callback inference has focused regressions but the full updated upstream Luau unit suite still has failures beyond the fork baseline. LÖVR links CodeGen in lunette builds; compiling Lua functions remains an explicit per-VM request.
+
+### Luau execution
+
+Production remains at O1. `lunette::execution` configures the LÖVR and mlua compilers together for one VM and its coroutines. It changes no process-wide Luau flags. Rust-loaded functions require an explicit compile request; LÖVR's `luax_loadbufferx` applies the configured mode after loading.
+
+The Luau fork supports native compilation for four-component float vectors on x86-64 and ARM64. Double-vector builds remain unsupported and reject native configuration without changing the VM's compiler options. Both generators handle the runtime's 24-byte values and 48-byte table nodes without changing the `lua_pushvector` ABI that mlua's `luau-vector4` feature matches. ARM64 runtime validation uses Linux cross-compilation and QEMU, not physical ARM64 hardware; ARM64 performance and macOS execution remain unmeasured. Quaternion arithmetic and several vector builtins retain VM fallback paths. A successful compile request does not establish that every function or instruction runs natively.
+
+The control evaluator's deterministic runaway-chunk test verifies that the interrupt abandons an actual native frame, that a subsequent evaluation succeeds, and that syntax and runtime errors remain distinct.
 
 ### Shader pipeline cache lifetimes
 

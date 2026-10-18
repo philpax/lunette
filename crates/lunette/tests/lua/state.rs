@@ -384,9 +384,12 @@ fn load_file(lua: &Lua, name: &str) -> mlua::Result<Function> {
     };
     let source = fs::read_to_string(&path)
         .map_err(|error| mlua::Error::runtime(format!("require: {}: {error}", path.display())))?;
-    lua.load(source)
+    let function = lua
+        .load(source)
         .set_name(format!("@{virtual_path}"))
-        .into_function()
+        .into_function()?;
+    lunette::execution::compile(lua, &function)?;
+    Ok(function)
 }
 
 /// The file `name` resolves to, and its path in the virtual filesystem.

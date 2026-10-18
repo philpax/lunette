@@ -2,6 +2,7 @@
 	path = vendor/lovr
 	url = https://github.com/philpax/lovr.git
 	branch = lunette
+	update = rebase
 [submodule "vendor/mlua"]
 	path = vendor/mlua
 	url = https://github.com/philpax/mlua.git

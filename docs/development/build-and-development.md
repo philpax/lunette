@@ -68,6 +68,7 @@ Logs use stderr. `lunctl` inspects the running state between frames. Imported-im
 | `make check-headset` | Hardware-free native runtime/GPU seams; CMake and vendored glslang |
 | `make check-graphics` | Real LÖVR rendering; Vulkan loader and explicit Mesa lavapipe ICD |
 | `make check-install` | Actual installation rules; Python, C compiler, and patchelf |
+| `make check-codegen` | Four-component Luau native conformance and focused assembler/allocator/compiler tests; CMake and a C++ compiler |
 
 Logic tests preserve the separation from LÖVR graphics. Compositor clients use an in-process socket pair rather than binding a host socket. Missing prerequisites fail their selected check rather than silently skipping. Hardware-free checks do not establish live capture, controller bindings, or presentation.
 

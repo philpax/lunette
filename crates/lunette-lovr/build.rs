@@ -166,7 +166,8 @@ fn build_lovr(lovr_dir: &Path, jolt_source: Option<&OsString>) -> PathBuf {
             .define("LOVR_USE_LUAU", "ON")
             .define("LOVR_USE_LUAJIT", "OFF")
             .define("LOVR_EXPORT_LUA_SYMBOLS", "ON")
-            .define("LOVR_LUAU_ANALYSIS", "ON");
+            .define("LOVR_LUAU_ANALYSIS", "ON")
+            .define("LOVR_LUAU_CODEGEN", "ON");
         config
             .define("LOVR_BUILD_SHARED", "ON")
             .define("LOVR_BUILD_WITH_SYMBOLS", "ON");

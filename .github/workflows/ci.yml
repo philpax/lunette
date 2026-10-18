@@ -151,6 +151,9 @@ jobs:
 
       - run: make check-${{ matrix.half }}
 
+      - run: make check-codegen
+        if: matrix.half == 'test'
+
       - run: make check-definitions
         if: matrix.half == 'test'
 

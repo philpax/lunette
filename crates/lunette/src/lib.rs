@@ -8,6 +8,7 @@ pub mod audio;
 pub mod callback_error;
 pub mod control;
 pub mod events;
+pub mod execution;
 pub mod frame;
 pub mod host;
 pub mod import;

@@ -52,8 +52,19 @@ build:
 run:
 	LUNETTE_STDLIB_PATH="$(CURDIR)/lua" LUNETTE_CONFIG_PATH="$(CURDIR)/dev" $(CARGO) run -p lunette --bin lunette -- $(ARGS)
 
+.PHONY: check-codegen
+
+CODEGEN_BUILD_DIR ?= $(CARGO_TARGET_DIR)/luau-codegen-tests
+
+check-codegen:
+	cmake -S vendor/lovr/deps/luau -B $(CODEGEN_BUILD_DIR) -DCMAKE_BUILD_TYPE=Debug -DLUAU_BUILD_TESTS=ON -DLUAU_BUILD_CLI=OFF -DLUAU_VECTOR_FOUR_WIDE=ON -DLUAU_VECTOR_DOUBLE=OFF
+	cmake --build $(CODEGEN_BUILD_DIR) --target Luau.Conformance Luau.UnitTest --parallel $${CMAKE_BUILD_PARALLEL_LEVEL:-4}
+	$(CODEGEN_BUILD_DIR)/Luau.Conformance --codegen
+	$(CODEGEN_BUILD_DIR)/Luau.UnitTest --test-suite=x64Assembly,A64Assembly,IrRegAllocX64
+	$(CODEGEN_BUILD_DIR)/Luau.UnitTest --test-case='QuaternionConstant*,A64Float4*'
+
 # The standing checks, in the order .github/workflows/ci.yml runs them.
-check: check-format check-install check-headset check-graphics check-rust check-definitions check-luau-annotations check-luau
+check: check-format check-install check-headset check-graphics check-rust check-definitions check-luau-annotations check-luau check-codegen
 
 check-install:
 	python3 crates/lunette/tests/fixtures/install.py
