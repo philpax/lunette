@@ -18,7 +18,6 @@ local keyboard = plugin.consumer<<Config, Settings>>({
       id = 'desktop/keyboard/toggle',
       label = 'Keyboard',
       group = 'Session',
-      order = 10,
       selected = displayService:isVisible(),
       run = function(): ()
         if context:active() then
@@ -45,7 +44,6 @@ return plugin.consumer<<Config, Settings>> {
       id = 'desktop/reload',
       label = 'Reload configuration',
       group = 'Session',
-      order = 30,
       run = function(): ()
         if not context:active() then
           return

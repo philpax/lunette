@@ -30,11 +30,15 @@ Hover and capture are separate. Native sinks receive native input; sinkless surf
 
 Tracking loss, pointer or surface withdrawal, provider replacement, hidden panels, disabled or removed controls, and grabs cancel affected gestures. Cancellation never activates a control. Grabs cancel Lua captures before movement and release native pressed sinks. A held button cannot start another gesture until released; after tracking loss, all buttons stay blocked until a tracked sample reports all up. Recovery is private to each pointer.
 
+A surface can answer `triggerGrabs` at the current hit coordinates before a primary-button press. The query returns a boolean and does not depend on a preceding hover event. Delivery stops if the query withdraws the pointer or kills the surface. This replaces the `triggerGrabbable` flag; replacement providers implement the query rather than updating a flag during pointer delivery. The declarations version the affected capabilities because their public types carry surfaces.
+
 Vibration uses the callback supplied by the pointer's creator and returns false when none exists. Providers must not infer controller ownership.
+
+A pointer's captures move to another surface only through `transfer`, which delivers no release or cancel; the receiving surface sees the press's later motion and its release. Press observers run when any button goes down, before the pressed surface receives the press, with the pressed surface or nil for a press on nothing or on a native sink. A hand reported near stands its idle ray down: the ray delivers no hover, presses nothing, and draws nothing until no owner reports the hand, and a ray that holds a button or a grab keeps working until it is idle for a frame. Near reports and press observers end with their owners.
 
 ## Frame dispatch
 
-Update phases run `input`, `scene`, `pointing`, and `overlay`; drawing adds `feedback` last. Pointing therefore uses current scene poses, and feedback draws after UI. Within a phase, ascending order precedes registration order. Key and text dispatch runs `binding` before `delivery`; true consumes the event. Quit handlers cannot veto quit.
+Update phases run `input`, `scene`, `pointing`, and `overlay`; drawing adds `feedback` last. Pointing therefore uses current scene poses, and feedback draws after UI. Within a phase, ascending order precedes registration order. Key and text dispatch runs `binding` before `delivery`; true consumes the event. Mouse movement, button, and wheel events reach mouse handlers in registration order and cannot be consumed. Quit handlers cannot veto quit.
 
 Each handler and surface offer has a protected call. Raising key or text handlers consume nothing; invalid or raising offers contribute no surfaces. The [frame provider](../../lunette-plugins/session/frame/README.md) owns callback installation.
 

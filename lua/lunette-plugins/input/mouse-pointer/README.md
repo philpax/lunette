@@ -1,0 +1,11 @@
+# Mouse pointer
+
+Drives one interaction pointer from the mouse while LÖVR's desktop window receives mouse input. It runs in the desktop simulator; a headset session ignores the mouse unless the `headset` option is on, so the desktop window stays usable while the headset is worn. The ray starts at the head and points through a cursor held as yaw and pitch offsets from the head's forward direction. With the `headset` option, mouse movement in a headset session turns the cursor by the configured sensitivity, inside a cone around that direction, so the cursor follows the head as it turns. In the desktop simulator, the window shows the head's view, so the ray points through the window's own cursor instead. The [simulator](../simulator/README.md) turns the head with a secondary-button drag. The primary, secondary, and middle buttons press the pointer's left, right, and middle buttons, and the wheel scrolls the hovered surface. A primary click on empty space ends the keyboard focus that a mouse click gave a window. While a panel is carried, the wheel pushes it away or pulls it nearer.
+
+The ray has no aim filter and no trigger lock, because a mouse does not move when its button is pressed. The mouse is a separate source, so it hovers and captures independently of the controllers.
+
+The pointer and its own seat are made at the first mouse movement. A session without a mouse therefore has no extra seat and draws no cursor. With the `headset` option, the cursor sits ahead of the head and would hover whatever the user looks at, so it withdraws after `idleTimeout` seconds without mouse input and returns with the next input. The simulator keeps it. The cursor is a sphere of constant apparent size at the hit point, or at the configured distance along the ray when the ray hits nothing. It draws in the session theme's muted ink, and in its accent over a surface, unless the options set other colours.
+
+The pointer reads mouse events only while the desktop window has input. Host mouse capture, which would take the mouse independently of window focus, is not implemented.
+
+[Options](config.luau) · [Frame contract](../../../lunette-contracts/frame.luau) · [Interaction contract](../../../lunette-contracts/interaction.luau)

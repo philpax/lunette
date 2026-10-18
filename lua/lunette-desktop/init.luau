@@ -2,11 +2,7 @@
 
 local plugin = require '@lunette-plugin'
 local frame = require '@lunette-plugins/session/frame'
-local theme = require '@lunette-plugins/theme/resolver'
-local themeCatalog = require '@lunette-plugins/theme/catalog'
-local standardThemes = require '@lunette-plugins/theme/standard'
-local arcadeTheme = require '@lunette-plugins/theme/arcade'
-local themeSelector = require '@lunette-plugins/theme/selector'
+local savedSettings = require '@lunette-plugins/storage/saved-settings'
 local surfaces = require '@lunette-plugins/interaction/surfaces'
 local panels = require '@lunette-plugins/panels/service'
 local drops = require '@lunette-plugins/interaction/drops'
@@ -15,7 +11,12 @@ local bindings = require '@lunette-plugins/input/bindings'
 local interaction = require '@lunette-plugins/interaction/pointers'
 local laser = require '@lunette-plugins/input/laser'
 local keyboard = require '@lunette-plugins/input/keyboard'
-local ui = require '@lunette-plugins/ui/toolkit'
+local uiHost = require '@lunette-plugins/ui/host'
+local theme = require '@lunette-plugins/ui/theme'
+local uiStandard = require '@lunette-plugins/ui/standard'
+local notifications = require '@lunette-plugins/ui/notifications'
+local accessibilityProvider = require '@lunette-plugins/ui/accessibility'
+local accessibilitySettings = require '@lunette-plugins/ui/accessibility-settings'
 local menu = require '@lunette-plugins/menu/action-registry'
 local tags = require '@lunette-plugins/workspace/tags'
 local rules = require '@lunette-plugins/window/rule-resolver'
@@ -31,14 +32,16 @@ local audioAnalysis = require '@lunette-plugins/audio/analysis'
 local render = require '@lunette-plugins/panels/renderer'
 local backdrop = require '@lunette-plugins/environment/backdrop'
 local monitors = require '@lunette-plugins/panels/monitors'
-local hint = require '@lunette-plugins/environment/empty-desktop-hint'
 local decorations = require '@lunette-plugins/panels/decorations'
 local pointing = require '@lunette-plugins/input/hand-pointers'
+local mousePointer = require '@lunette-plugins/input/mouse-pointer'
+local simulator = require '@lunette-plugins/input/simulator'
 local input = require '@lunette-plugins/input/physical-routing'
 local keyboardDisplay = require '@lunette-plugins/input/keyboard-display'
 local wristMenu = require '@lunette-plugins/menu/wrist-menu'
 local actions = require '@lunette-plugins/session/menu-actions'
 local errors = require '@lunette-plugins/diagnostics/error-display'
+local recovery = require '@lunette-plugins/diagnostics/recovery'
 local workspaces = require '@lunette-plugins/workspace/controller'
 local defaultRules = require '@lunette-plugins/window/configured-rules'
 local arrangement = require '@lunette-plugins/layout/persistence'
@@ -66,9 +69,6 @@ local OPTION_KEYS: { string } = { 'patches', 'settings' }
 local DEFAULT: { plugin.Entry } = plugin.compose {
   { id = 'frame', definition = frame.definition },
   { id = 'theme', definition = theme.definition },
-  { id = 'themes', definition = themeCatalog.definition },
-  { id = 'theme/standard', definition = standardThemes.definition },
-  { id = 'theme/arcade', definition = arcadeTheme.definition },
   { id = 'surfaces', definition = surfaces.definition },
   { id = 'panels', definition = panels.definition },
   { id = 'drops', definition = drops.definition },
@@ -77,9 +77,11 @@ local DEFAULT: { plugin.Entry } = plugin.compose {
   { id = 'interaction', definition = interaction.definition },
   { id = 'laser', definition = laser.definition },
   { id = 'keyboard', definition = keyboard.definition },
-  { id = 'ui', definition = ui.definition },
+  { id = 'ui-host', definition = uiHost.definition },
+  { id = 'ui-standard', definition = uiStandard.definition },
+  { id = 'notifications', definition = notifications.definition },
+  { id = 'accessibility', definition = accessibilityProvider.definition },
   { id = 'menu', definition = menu.definition },
-  { id = 'desktop/theme', definition = themeSelector.definition },
   { id = 'tags', definition = tags.definition },
   { id = 'rules', definition = rules.definition },
   { id = 'placement', definition = placement.definition },
@@ -92,14 +94,16 @@ local DEFAULT: { plugin.Entry } = plugin.compose {
   { id = 'audio', definition = audio.definition },
   { id = 'audio-analysis', definition = audioAnalysis.definition },
   { id = 'desktop/render', definition = render.definition },
-  { id = 'desktop/hint', definition = hint.definition },
   { id = 'desktop/decorations', definition = decorations.definition },
   { id = 'desktop/pointing', definition = pointing.definition },
+  { id = 'desktop/mouse-pointer', definition = mousePointer.definition },
+  { id = 'desktop/simulator', definition = simulator.definition },
   { id = 'desktop/input', definition = input.definition },
   { id = 'desktop/keyboard', definition = keyboardDisplay.definition },
   { id = 'desktop/menu', definition = wristMenu.definition },
   { id = 'desktop/actions', definition = actions.definition },
   { id = 'desktop/errors', definition = errors.definition },
+  { id = 'diagnostics/recovery', definition = recovery.definition },
   { id = 'desktop/workspaces', definition = workspaces.definition },
   { id = 'desktop/monitors', definition = monitors.definition },
   { id = 'desktop/rules', definition = defaultRules.definition },
@@ -110,6 +114,7 @@ local DEFAULT: { plugin.Entry } = plugin.compose {
   { id = 'desktop/scale', definition = scale.definition },
   { id = 'desktop/backdrop', definition = backdrop.definition },
   { id = 'desktop/manager', definition = manager.definition },
+  { id = 'desktop/accessibility', definition = accessibilitySettings.definition },
 }
 
 -- Each setting becomes one configuration patch after the given ones, so one composition rejects a setting and a patch
@@ -157,6 +162,7 @@ function desktop.run(options: Options?): ()
       or entry.id == 'desktop/keyboard'
       or entry.id == 'desktop/pointing'
       or entry.id == 'desktop/actions'
+      or entry.id == 'diagnostics/recovery'
     then
       protected[#protected + 1] = entry.id
     end
@@ -165,7 +171,14 @@ function desktop.run(options: Options?): ()
   frame.install {
     start = function(): ()
       if not running then
-        running = management.start(entries, { protected = protected })
+        -- The UI toolkit's providers can be reconfigured, because default appearance and the recovery plugin undo
+        -- a configuration that breaks the interface. Other providers the protected entries need stay fixed.
+        -- Settings changed in a session are saved in the save directory and apply over the configuration.
+        running = management.start(entries, {
+          protected = protected,
+          reconfigurable = { 'ui-host', 'ui-standard' },
+          saved = savedSettings.open 'settings.saved',
+        })
       end
     end,
     stop = function(): ()

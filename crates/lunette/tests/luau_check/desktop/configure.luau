@@ -9,7 +9,7 @@ local accepted = {
   plugin.configure('custom-persistence-id', persistence.definition) { file = 'desktop.state' },
 }
 local patches: { plugin.Patch } = {
-  { id = 'desktop/hint', disabled = true },
+  { id = 'desktop/backdrop', disabled = true },
   { id = 'desktop/menu', config = { hand = 'left' } },
   { id = 'desktop/keyboard', definition = keyboard.definition, config = { placement = { distance = 0.5 } } },
   { insert = { id = 'custom-keyboard-id', definition = keyboard.definition }, after = 'desktop/keyboard' },
@@ -26,8 +26,8 @@ local composed = desktop.compose {
 }
 
 local wrongPatches: { plugin.Patch } = {
-  { id = 'desktop/hint', disabled = false }, -- reject.
-  { id = 'desktop/hint' }, -- reject.
+  { id = 'desktop/backdrop', disabled = false }, -- reject.
+  { id = 'desktop/backdrop' }, -- reject.
 }
 
 local rejected = {

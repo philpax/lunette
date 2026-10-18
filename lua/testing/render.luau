@@ -7,13 +7,15 @@ local render = {}
 
 export type FontSpec =
   { read kind: 'default' }
-  | { read kind: 'file', read file: string, read size: number, read spread: number }
+  | { read kind: 'file', read file: string, read size: number, read spread: number? }
 export type Font = {
   spec: FontSpec,
   released: boolean,
   release: (Font) -> (),
   getHeight: (Font) -> number,
   getLineSpacing: (Font) -> number,
+  getAscent: (Font) -> number,
+  setPixelDensity: (Font, number?) -> (),
   getWidth: (Font, string) -> number,
   getLines: (Font, string, number?) -> { string },
 }
@@ -105,6 +107,8 @@ export type Recorder = {
   newFont: (Recorder, string, number, number) -> Font,
   newMesh: (Recorder, number | VertexFormat, ({ { number } } | number | MeshFlags)?, MeshFlags?) -> Mesh,
   newShader: (Recorder, string, string) -> Shader,
+  newTexture: (Recorder, any, any?) -> Texture,
+  textureAcquisitions: { Texture },
   assertMeshesReleased: (Recorder) -> (),
   assertResourcesReleased: (Recorder) -> (),
   within: <R...>(Recorder, Box, (Pass) -> R...) -> R...,
@@ -115,7 +119,7 @@ export type Recorder = {
 local Recorder = {}
 Recorder.__index = Recorder
 
-type FileFontSpec = { read kind: 'file', read file: string, read size: number, read spread: number }
+type FileFontSpec = { read kind: 'file', read file: string, read size: number, read spread: number? }
 local newFont: (FileFontSpec?, Recorder?) -> Font
 local newPass: (Recorder) -> Pass
 local copyState: (State) -> State
@@ -137,7 +141,7 @@ local SETTERS = {
   'setCullMode',
   'setScissor',
 }
-local DRAW_METHODS = { 'plane', 'roundrect', 'text', 'line', 'sphere', 'draw' }
+local DRAW_METHODS = { 'plane', 'roundrect', 'text', 'line', 'sphere', 'box', 'capsule', 'cylinder', 'draw' }
 
 function render.new(calls: ({ Call } | () -> { Call })?): Recorder
   calls = calls or {}
@@ -153,6 +157,7 @@ function render.new(calls: ({ Call } | () -> { Call })?): Recorder
     fontMeasurements = {},
     meshAcquisitions = {},
     shaderAcquisitions = {},
+    textureAcquisitions = {},
     meshReleases = {},
     shaderReleases = {},
     _state = {},
@@ -179,6 +184,16 @@ function Recorder.newMesh(
     local message = self.meshFailure
     self.meshFailure = nil
     error(message, 0)
+  end
+  -- `newMesh(vertices, flags)` passes vertices in the default format where a format would otherwise be.
+  local initial: { { number } }? = nil
+  if type(formatOrCount) == 'table' then
+    local first = (formatOrCount :: { any })[1]
+    if type(first) == 'table' and type(first[1]) == 'number' then
+      initial = formatOrCount :: any
+      flags = verticesOrCount :: MeshFlags?
+      formatOrCount, verticesOrCount = #formatOrCount, nil
+    end
   end
   local custom = type(formatOrCount) == 'table'
   if not custom and type(verticesOrCount) == 'table' then
@@ -214,7 +229,7 @@ function Recorder.newMesh(
     flags = if flags then table.freeze(table.clone(flags)) else nil,
     attributeCount = attributeCount,
     positionOffset = positionOffset,
-    vertices = {},
+    vertices = if initial then table.clone(initial) else {},
     indices = {},
     released = false,
   }
@@ -269,6 +284,31 @@ function Recorder.newShader(self: Recorder, vertex: string, fragment: string): S
   return shader
 end
 
+-- A texture records the images uploaded to it, so a test can tell how often its pixels changed.
+export type Texture = {
+  released: boolean,
+  uploads: number,
+  setPixels: (Texture, any) -> (),
+  release: (Texture) -> (),
+}
+
+function Recorder.newTexture(self: Recorder, _source: any, _options: any?): Texture
+  local texture: Texture = {
+    released = false,
+    uploads = 1,
+    setPixels = function(texture: Texture, _image: any): ()
+      assert(not texture.released, 'render recorder: pixels set on a released texture')
+      texture.uploads += 1
+    end,
+    release = function(texture: Texture): ()
+      assert(not texture.released, 'render recorder: texture released twice')
+      texture.released = true
+    end,
+  }
+  self.textureAcquisitions[#self.textureAcquisitions + 1] = texture
+  return texture
+end
+
 function Recorder.assertMeshesReleased(self: Recorder)
   for _, mesh in self.meshAcquisitions do
     assert(mesh.released, 'render recorder: leaked mesh')
@@ -279,6 +319,9 @@ function Recorder.assertResourcesReleased(self: Recorder)
   self:assertMeshesReleased()
   for _, shader in self.shaderAcquisitions do
     assert(shader.released, 'render recorder: leaked shader')
+  end
+  for _, texture in self.textureAcquisitions do
+    assert(texture.released, 'render recorder: leaked texture')
   end
 end
 
@@ -349,7 +392,7 @@ end
 
 newFont = function(spec: FileFontSpec?, recorder: Recorder?): Font
   local font = { spec = spec or table.freeze { kind = 'default' }, released = false }
-  local advance = if spec then 0.7 + spec.size / 1000 + spec.spread / 10000 else 0.5
+  local advance = if spec then 0.7 + spec.size / 1000 + (spec.spread or 0) / 10000 else 0.5
   local height = if spec then 1.2 else 1
   local function live(method: string, text: string?)
     assert(not font.released, 'render recorder: released font used for ' .. method)
@@ -369,6 +412,13 @@ newFont = function(spec: FileFontSpec?, recorder: Recorder?): Font
   function font.getLineSpacing(self: Font): number
     live 'getLineSpacing'
     return if spec then 1.1 else 1
+  end
+  function font.getAscent(self: Font): number
+    live 'getAscent'
+    return height * 0.8
+  end
+  function font.setPixelDensity(self: Font, _density: number?)
+    live 'setPixelDensity'
   end
   function font.getWidth(self: Font, text: string): number
     live('getWidth', text)

@@ -12,7 +12,9 @@ mod audio;
 mod children;
 mod drags;
 mod events;
+mod glyphs;
 mod layers;
+mod layout;
 mod lunctl;
 mod monitors;
 mod outputs;
@@ -21,6 +23,7 @@ mod properties;
 mod scene;
 mod seat_reload;
 mod seats;
+mod svg;
 mod text;
 mod windows;
 

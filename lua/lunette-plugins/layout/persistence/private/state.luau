@@ -102,11 +102,13 @@ function state.new(file: string): State
           if declined then
             return false, declined
           end
-          local captured = capture.capture(held, panels, tags)
-          if not lovr.filesystem.write(file, format.render(captured)) then
-            return false, path .. ' could not be written'
+          -- Retain the latest capture for restore and retry even when persistence fails.
+          arrangement = capture.merge(arrangement, capture.capture(held, panels, tags))
+          local written, failure =
+            pcall(lunette.saveFile, lovr.filesystem.getSaveDirectory(), file, format.render(arrangement))
+          if not written then
+            return false, `{path} could not be written: {tostring(failure)}`
           end
-          arrangement = captured
           return true, nil
         end,
         restore = function(_service: arrangementContract.Service): number

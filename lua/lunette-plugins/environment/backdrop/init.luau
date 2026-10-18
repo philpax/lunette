@@ -8,6 +8,7 @@ local draw = require '@self/private/rendering/draw'
 local selection = require '@self/private/selection/selection'
 local responseChild = require '@self/private/response-child'
 local sourceControls = require '@self/private/controls/source-controls'
+local scene = require '@self/private/visualisation/scene'
 
 local backdrop = {}
 export type Config = config.Config
@@ -85,6 +86,12 @@ create = function(given: Options, attach: Attach?): Factory
       local current = state:update(0, true)
       local headPosition = vector.pack(0, 0, 0)
       local facing: number? = nil
+      local observed: scene.Observed = {
+        frame = current,
+        raw = table.create(model.SPECTRUM_BANDS, 0),
+        facing = nil,
+        anchor = nil,
+      }
       local service: frame.Service = context:require(frame.capability)
       service:onUpdate(context, {
         phase = 'scene',
@@ -100,6 +107,10 @@ create = function(given: Options, attach: Attach?): Factory
           if reach == reach and reach > 1e-6 and reach < math.huge then
             facing = (math.atan2(dx, dz) / (2 * math.pi)) % 1
           end
+          observed.frame, observed.facing = current, facing
+          for band = 1, model.SPECTRUM_BANDS do
+            observed.raw[band] = state.target.spectrum[band] * state.responseStrength
+          end
         end,
       })
       service:onDraw(context, {
@@ -113,9 +124,18 @@ create = function(given: Options, attach: Attach?): Factory
         return state.visibility > 0 or (controls.enabled() and not lovr.headset.isMainSessionVisible())
       end, function(): number?
         return facing
+      end, function(anchor: number?): ()
+        observed.anchor = anchor
       end))
       processStatus(context, choice)
-      sourceControls.attach(context, choice, controls)
+      sourceControls.attach(context, choice, controls, {
+        observed = observed,
+        palette = settings.palette,
+        miniature = renderer.miniature,
+        sectors = responseChild.SECTORS,
+        hold = responseChild.SECTOR_HOLD,
+        visible = settings.controlsVisible,
+      })
       if attach then
         attach(context, state, controls, settings)
       end

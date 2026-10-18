@@ -14,6 +14,12 @@ Acquire inside `init` or `build`, return the inverse with the successful acquisi
 
 Effects are flat siblings. Inverses run in reverse registration order, not nested acquisition order. An inverse that needs another effect released first must dispose it explicitly. Disposal after activation ends does nothing. Event delivery stops as soon as activation becomes inactive, before subscription cleanup.
 
+## Optional services
+
+`plugin.connectOptional(context, name, capability)` connects through one child activation without adding the capability to the parent's requirements. Its getter returns nil while the provider is unavailable and after the parent ends. A new provider activation supplies a new connection. Each call creates a separate child, so an outage affects only that capability.
+
+A connection pairs the service with the child owner that depends on it. Owner-scoped service calls use `connection.owner`, not the parent context. Callers read the getter when using the service rather than retaining a connection across lifecycle changes. The runtime releases the connection with the child activation; the helper keeps no global registry.
+
 ## Owner-scoped resources
 
 The provider's own context and live dependants bound to that generation are valid owners. Acquisition rejects forged, unrelated, or ended owners before doing work. A provider uses its own context for internal dependencies within the caller-owned effect; callers need not declare implementation dependencies.

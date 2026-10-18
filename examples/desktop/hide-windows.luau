@@ -19,7 +19,6 @@ return plugin.consumer<<Config, Settings>> {
       id = 'example/hide-windows',
       label = 'Hide windows',
       group = 'Examples',
-      order = 1,
       selected = false,
       run = function()
         if not context:active() then

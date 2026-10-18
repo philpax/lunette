@@ -13,7 +13,7 @@ export type Settings = config.Settings
 
 local function build(context: plugin.Context, settings: Settings): keyboard.Service
   local focusService: focus.Service = context:require(focus.capability)
-  local themeService: theme.Service = context:require(theme.capability)
+  local themes = context:require(theme.capability)
   local boards: { [board.Board]: keyboard.Owner } = {}
   return {
     inspect = function(_self: keyboard.Service): inspection.Snapshot
@@ -73,7 +73,7 @@ local function build(context: plugin.Context, settings: Settings): keyboard.Serv
           local created, destroyState, clearInput, refresh = create(
             settings,
             source,
-            themeService,
+            themes,
             active,
             notify,
             function(): ()
@@ -96,8 +96,8 @@ local function build(context: plugin.Context, settings: Settings): keyboard.Serv
           table.insert(disposers, function(): ()
             changed:dispose()
           end)
-          local themeChanged = themeService:onChanged(context, {
-            run = function(_snapshot: theme.Snapshot): ()
+          local themeChanged = themes:onChanged(context, {
+            run = function(_theme: theme.Theme): ()
               refresh()
             end,
           })

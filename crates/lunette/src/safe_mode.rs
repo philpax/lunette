@@ -1,13 +1,16 @@
-//! Linux-specific embedded fallback configuration for startup failures.
+//! Linux-specific embedded fallback configuration for startup failures and requested recovery.
 //!
-//! Safe mode runs when `lovr.boot` or `lovr.load` fails. It uses no file-backed
+//! Safe mode runs when `lovr.boot` or `lovr.load` fails, and on the boot after a
+//! session asks for it with `lunette.restartIntoSafeMode`. It uses no file-backed
 //! module roots, so it can run when the standard library or installation is
 //! unavailable. Other callback failures use [`crate::callback_error`]. A failed
 //! reload leaves the current session running. See
 //! [error handling](../../../docs/development/native/lua-api.md#errors).
 
-use mlua::{Function, Lua, Table, Value};
-use tracing::{error, info};
+use std::{cell::Cell, error::Error, fmt, rc::Rc};
+
+use mlua::{Function, Lua, MultiValue, Table, Value};
+use tracing::{error, info, warn};
 
 use crate::reload;
 
@@ -16,6 +19,102 @@ const SOURCE: &str = include_str!("safe_mode.luau");
 
 /// The chunk name used in safe-mode tracebacks.
 const CHUNK_NAME: &str = "@safe-mode.luau";
+
+/// The module `boot.lua` requires for the configuration. lunette passes a
+/// configuration directory as LÖVR's source, so the entry is `main.luau` or
+/// `main.lua`, which LÖVR requires as `main`.
+const MAIN_MODULE: &[u8] = b"main";
+
+/// What the next boot runs.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum BootEntry {
+    /// The configuration, with safe mode as the fallback when it does not load.
+    #[default]
+    Configuration,
+    /// Safe mode, without running the configuration.
+    SafeMode,
+}
+
+/// A request, made from one Lua state, that the next boot run safe mode.
+///
+/// It lives on the session, which outlives each Lua state, so a request
+/// crosses the restart that follows it. One request covers one boot: taking it
+/// resets it.
+#[derive(Debug, Default)]
+pub struct SafeModeRequest(Cell<BootEntry>);
+
+impl SafeModeRequest {
+    /// Asks for safe mode on the next boot.
+    pub fn request(&self) {
+        self.0.set(BootEntry::SafeMode);
+    }
+
+    /// Withdraws a request whose restart could not be queued.
+    pub fn withdraw(&self) {
+        self.0.set(BootEntry::Configuration);
+    }
+
+    /// Answers what this boot runs, and resets the request so that the boot
+    /// after it runs the configuration again.
+    pub fn take(&self) -> BootEntry {
+        self.0.replace(BootEntry::Configuration)
+    }
+}
+
+/// Asks for safe mode on the next boot, then queues a hard restart through
+/// `lovr.event.restart`.
+///
+/// The restart happens once the frame's callbacks return, as [`crate::restart`]
+/// describes. A request whose restart cannot be queued is withdrawn, so a later
+/// restart for another reason runs the configuration.
+///
+/// # Errors
+///
+/// Returns an error if `lovr.event` is not loaded or its `restart` raises.
+pub fn restart_into_safe_mode(lua: &Lua, request: &SafeModeRequest) -> Result<(), SafeModeError> {
+    request.request();
+    let queued = queue_restart(lua);
+    if queued.is_err() {
+        request.withdraw();
+    }
+    queued
+}
+
+fn queue_restart(lua: &Lua) -> Result<(), SafeModeError> {
+    let lovr: Table = lua.globals().get("lovr").map_err(SafeModeError::Lua)?;
+    let event: Option<Table> = lovr.get("event").map_err(SafeModeError::Lua)?;
+    let event = event.ok_or(SafeModeError::EventModuleMissing)?;
+    let restart: Function = event.get("restart").map_err(SafeModeError::Lua)?;
+    restart.call::<()>(()).map_err(SafeModeError::Lua)
+}
+
+/// Why a restart into safe mode could not be queued.
+#[derive(Debug)]
+pub enum SafeModeError {
+    /// The configuration disabled LÖVR's event module, which carries the restart.
+    EventModuleMissing,
+    /// Reading `lovr.event.restart`, or calling it, raised.
+    Lua(mlua::Error),
+}
+
+impl fmt::Display for SafeModeError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("safe mode: the restart could not be queued: ")?;
+        match self {
+            Self::EventModuleMissing => formatter.write_str("lovr.event is not loaded"),
+            Self::Lua(error) => write!(formatter, "{error}"),
+        }
+    }
+}
+
+impl Error for SafeModeError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::EventModuleMissing => None,
+            Self::Lua(error) => Some(error),
+        }
+    }
+}
 
 /// Compiles [`SOURCE`] without running it.
 ///
@@ -26,7 +125,8 @@ pub fn load(lua: &Lua) -> mlua::Result<Function> {
     lua.load(SOURCE).set_name(CHUNK_NAME).into_function()
 }
 
-/// Installs a `lovr.boot` wrapper that starts safe mode when startup fails.
+/// Installs a `lovr.boot` wrapper that starts safe mode when startup fails,
+/// or, for [`BootEntry::SafeMode`], in place of the configuration.
 ///
 /// Call after `boot.lua` creates `lovr` and before its coroutine resumes. The
 /// wrapper covers `lovr.load`; later callback failures remain outside this boundary.
@@ -34,26 +134,84 @@ pub fn load(lua: &Lua) -> mlua::Result<Function> {
 /// # Errors
 ///
 /// Returns an error if `lovr.boot` cannot be read or replaced.
-pub fn install_trigger(lua: &Lua) -> mlua::Result<()> {
+pub fn install_trigger(lua: &Lua, entry: BootEntry) -> mlua::Result<()> {
     let lovr: Table = lua.globals().get("lovr")?;
     let boot: Function = lovr.get("boot")?;
 
-    let wrapper = lua.create_function(move |lua, ()| match boot.call::<Value>(()) {
-        Ok(loop_function) => Ok(loop_function),
-        Err(failure) => start(lua, &failure),
-    })?;
+    let wrapper = match entry {
+        BootEntry::Configuration => {
+            lua.create_function(move |lua, ()| match boot.call::<Value>(()) {
+                Ok(loop_function) => Ok(loop_function),
+                Err(failure) => start(lua, &Reason::LoadFailed(failure.to_string())),
+            })?
+        }
+        BootEntry::SafeMode => {
+            lua.create_function(move |lua, ()| boot_without_configuration(lua, &boot))?
+        }
+    };
     lovr.set("boot", wrapper)
+}
+
+/// Why safe mode is running.
+#[derive(Debug)]
+enum Reason {
+    /// The configuration did not load, with the error it raised.
+    LoadFailed(String),
+    /// The previous session asked for safe mode.
+    Requested,
+}
+
+/// Runs LÖVR's boot with a `require` that refuses the configuration's entry
+/// module, then starts safe mode in its place.
+///
+/// The boot loads `conf.luau` and starts the modules before it requires the
+/// entry, so safe mode starts with graphics and the headset running, as it does
+/// after a configuration that does not load.
+fn boot_without_configuration(lua: &Lua, boot: &Function) -> mlua::Result<Value> {
+    let globals = lua.globals();
+    let require: Function = globals.get("require")?;
+    let refused = Rc::new(Cell::new(false));
+    let guard = {
+        let refused = Rc::clone(&refused);
+        let require = require.clone();
+        lua.create_function(move |_, arguments: MultiValue| {
+            if let Some(Value::String(name)) = arguments.front()
+                && name.as_bytes().as_ref() == MAIN_MODULE
+            {
+                refused.set(true);
+                return Err(mlua::Error::runtime(
+                    "safe mode: the configuration is not loaded, because safe mode was requested",
+                ));
+            }
+            require.call::<MultiValue>(arguments)
+        })?
+    };
+    globals.set("require", guard)?;
+    let booted = boot.call::<Value>(());
+    globals.set("require", require)?;
+
+    match booted {
+        Err(_) if refused.get() => start(lua, &Reason::Requested),
+        Err(failure) => start(lua, &Reason::LoadFailed(failure.to_string())),
+        Ok(loop_function) => {
+            warn!("safe mode was requested, but the boot did not require the configuration");
+            Ok(loop_function)
+        }
+    }
 }
 
 /// Runs safe mode and returns its frame loop.
 ///
-/// The host logs the load error and passes it to the safe-mode chunk.
+/// The host logs the reason and passes it to the safe-mode chunk.
 ///
 /// # Errors
 ///
 /// Returns an error if safe mode does not load or run.
-fn start(lua: &Lua, failure: &mlua::Error) -> mlua::Result<Value> {
-    let reported = failure.to_string();
+fn start(lua: &Lua, reason: &Reason) -> mlua::Result<Value> {
+    let (reported, requested) = match reason {
+        Reason::LoadFailed(reported) => (reported.as_str(), false),
+        Reason::Requested => ("the previous session requested safe mode", true),
+    };
     let lovr: Table = lua.globals().get("lovr")?;
     if let Some(graphics) = lovr.get::<Option<Table>>("graphics")? {
         let is_initialized: Function = graphics.get("isInitialized")?;
@@ -64,14 +222,18 @@ fn start(lua: &Lua, failure: &mlua::Error) -> mlua::Result<Value> {
             return lua.create_function(|_, ()| Ok(1)).map(Value::Function);
         }
     }
-    error!("lua: the configuration could not be loaded, so safe mode is running: {reported}");
+    if requested {
+        info!("safe mode is running because the previous session requested it");
+    } else {
+        error!("lua: the configuration could not be loaded, so safe mode is running: {reported}");
+    }
 
     if let Err(error) = reload::clear_user_callbacks(&lua.globals()) {
         error!("lua: the failed configuration's callbacks could not be cleared: {error}");
     }
 
-    load(lua)?.call::<()>(reported)?;
-    info!("safe mode is running; fix the configuration and press the reload key");
+    load(lua)?.call::<()>((reported, requested))?;
+    info!("safe mode is running; press the reload key to load the configuration");
 
     let run: Function = lua.globals().get::<Table>("lovr")?.get("run")?;
     run.call(())
@@ -87,7 +249,9 @@ mod tests {
     use mlua::{Function, Lua, Table, Value};
     use pretty_assertions::assert_eq;
 
-    use crate::safe_mode::{install_trigger, load};
+    use crate::safe_mode::{
+        BootEntry, SafeModeRequest, install_trigger, load, restart_into_safe_mode,
+    };
 
     /// The fake `lunette` module, `lovr`, and recording pass that each case runs
     /// the chunk against. They are written in Lua because the real API is
@@ -408,6 +572,43 @@ mod tests {
         assert_eq!(reloads, 1, "only the reload key should reload");
     }
 
+    /// Holding both triggers is the controller path to the reload key, so a
+    /// user in a headset can leave safe mode without a keyboard. One hold
+    /// reloads once, and a short hold does not reload.
+    #[test]
+    fn holding_both_triggers_reloads_once() {
+        let lua = started();
+        lua.load("recorded.installHeadset() recorded.tracked['hand/right/point'] = true")
+            .exec()
+            .expect("the headset should install");
+        call(&lua, "load", ());
+
+        lua.load("recorded.trigger = true")
+            .exec()
+            .expect("the triggers should go down");
+        call(&lua, "update", 1.0);
+        let reloads = |lua: &Lua| -> i64 {
+            recorder(lua)
+                .get("reloads")
+                .expect("reloads should be counted")
+        };
+        assert_eq!(reloads(&lua), 0, "a short hold does not reload");
+        call(&lua, "update", 1.5);
+        assert_eq!(reloads(&lua), 1, "a long hold reloads");
+        call(&lua, "update", 5.0);
+        assert_eq!(reloads(&lua), 1, "the same hold reloads once");
+
+        lua.load("recorded.trigger = false")
+            .exec()
+            .expect("the triggers should come up");
+        call(&lua, "update", 0.1);
+        lua.load("recorded.trigger = true")
+            .exec()
+            .expect("the triggers should go down again");
+        call(&lua, "update", 2.5);
+        assert_eq!(reloads(&lua), 2, "a new hold reloads again");
+    }
+
     /// Safe mode must survive a failed reload, because it is the last
     /// configuration left running.
     #[test]
@@ -462,7 +663,7 @@ mod tests {
     #[test]
     fn a_configuration_that_does_not_load_produces_safe_mode() {
         let lua = booting("error('main.luau:1: a deliberate defect')");
-        install_trigger(&lua).expect("the trigger should install");
+        install_trigger(&lua, BootEntry::Configuration).expect("the trigger should install");
 
         assert_eq!(boot(&lua), "safe mode's loop");
 
@@ -473,7 +674,7 @@ mod tests {
             "the load error should have reached safe mode: {drawn}"
         );
         assert!(
-            drawn.contains("f5"),
+            drawn.contains("f5") && drawn.contains("both triggers"),
             "the panel should say how to leave safe mode: {drawn}"
         );
     }
@@ -488,7 +689,7 @@ mod tests {
         )
         .exec()
         .expect("the failed graphics module should install");
-        install_trigger(&lua).expect("the trigger should install");
+        install_trigger(&lua, BootEntry::Configuration).expect("the trigger should install");
 
         let boot: Function = lovr(&lua).get("boot").expect("boot should exist");
         let frame_loop = boot
@@ -515,7 +716,7 @@ mod tests {
         )
         .exec()
         .expect("the initialized graphics module should install");
-        install_trigger(&lua).expect("the trigger should install");
+        install_trigger(&lua, BootEntry::Configuration).expect("the trigger should install");
 
         assert_eq!(boot(&lua), "safe mode's loop");
         assert!(drawn(&lua).contains("main.luau:1"));
@@ -531,7 +732,7 @@ mod tests {
              function lovr.lunwindowopened() end
              error('main.luau:3: a deliberate defect')",
         );
-        install_trigger(&lua).expect("the trigger should install");
+        install_trigger(&lua, BootEntry::Configuration).expect("the trigger should install");
 
         boot(&lua);
 
@@ -549,7 +750,7 @@ mod tests {
     #[test]
     fn a_configuration_that_loads_is_left_alone() {
         let lua = booting("");
-        install_trigger(&lua).expect("the trigger should install");
+        install_trigger(&lua, BootEntry::Configuration).expect("the trigger should install");
 
         assert_eq!(boot(&lua), "the configuration's own loop");
 
@@ -564,6 +765,88 @@ mod tests {
                 .expect("readable"),
             "safe mode should not have installed anything over a session that loaded"
         );
+    }
+
+    /// Asking for safe mode queues LÖVR's own restart, and leaves the request
+    /// for the next boot to take.
+    #[test]
+    fn a_restart_into_safe_mode_queues_a_restart() {
+        let lua = environment();
+        lua.load("restarts = 0 lovr.event = { restart = function() restarts = restarts + 1 end }")
+            .exec()
+            .expect("the event module should install");
+        let request = SafeModeRequest::default();
+
+        restart_into_safe_mode(&lua, &request).expect("the restart is queued");
+
+        assert_eq!(
+            lua.load("return restarts").eval::<i64>().expect("readable"),
+            1
+        );
+        assert_eq!(request.take(), BootEntry::SafeMode);
+        assert_eq!(
+            request.take(),
+            BootEntry::Configuration,
+            "a request covers only the next boot"
+        );
+    }
+
+    /// A configuration that disabled the event module cannot restart, and the
+    /// request is withdrawn so it does not surprise a later restart.
+    #[test]
+    fn a_restart_that_cannot_be_queued_withdraws_the_request() {
+        let lua = environment();
+        let request = SafeModeRequest::default();
+
+        let error =
+            restart_into_safe_mode(&lua, &request).expect_err("no event module means no restart");
+
+        assert!(
+            error.to_string().starts_with("safe mode: "),
+            "an error's context prefix names the subsystem: {error}"
+        );
+        assert_eq!(request.take(), BootEntry::Configuration);
+    }
+
+    /// A requested safe mode starts the modules through LÖVR's boot but does
+    /// not run the configuration, and says why it is running.
+    #[test]
+    fn a_requested_safe_mode_skips_the_configuration() {
+        let lua = booting("require('conf') require('main')");
+        lua.load(
+            "mainRan = false confRan = false
+             package.preload.conf = function() confRan = true end
+             package.preload.main = function() mainRan = true end
+             originalRequire = require",
+        )
+        .exec()
+        .expect("the modules should be preloaded");
+        install_trigger(&lua, BootEntry::SafeMode).expect("the trigger should install");
+
+        assert_eq!(boot(&lua), "safe mode's loop");
+
+        let (main_ran, conf_ran, restored) = lua
+            .load("return mainRan, confRan, require == originalRequire")
+            .eval::<(bool, bool, bool)>()
+            .expect("readable");
+        assert!(!main_ran, "the configuration's entry should not run");
+        assert!(conf_ran, "other modules should still load");
+        assert!(restored, "require should be restored after the boot");
+        let drawn = drawn(&lua);
+        assert!(drawn.contains("requested"), "{drawn}");
+    }
+
+    /// A requested safe mode whose boot fails before the configuration still
+    /// reaches safe mode, reporting that failure.
+    #[test]
+    fn a_requested_safe_mode_reports_an_earlier_failure() {
+        let lua = booting("error('conf.luau:1: a deliberate defect')");
+        install_trigger(&lua, BootEntry::SafeMode).expect("the trigger should install");
+
+        assert_eq!(boot(&lua), "safe mode's loop");
+
+        let drawn = drawn(&lua);
+        assert!(drawn.contains("conf.luau:1"), "{drawn}");
     }
 
     /// Every module `package.loaded` holds, by name.

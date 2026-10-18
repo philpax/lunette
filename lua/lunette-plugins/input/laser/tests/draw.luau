@@ -7,7 +7,7 @@ local theme = require '@lunette-contracts/theme'
 local expect = testing.expect
 local test = testing.suite()
 
-local function fixture(hook: laser.Draw): (testing.Native, laser.Beam, render.Recorder)
+local function fixture(hook: laser.Draw): (testing.Native, laser.Beam, render.Recorder, theme.Theme)
   local native = testing.native()
   local session = testing.start {
     'theme',
@@ -30,10 +30,9 @@ local function fixture(hook: laser.Draw): (testing.Native, laser.Beam, render.Re
       }
     end,
   })[1]
+  -- A mode change after the laser was made reaches its next update.
   local appearance = session:observe(theme.capability)
-  appearance.service:select(appearance.context, {
-    colors = { pointer = { 0.9, 0.1, 0.3, 0.8 }, pointerHovered = { 0.1, 0.9, 0.4, 1 } },
-  })
+  appearance.service:setMode 'light'
   target:update {}
   local recorder = render.new()
   recorder.pass:setDepthTest 'gequal'
@@ -41,12 +40,12 @@ local function fixture(hook: laser.Draw): (testing.Native, laser.Beam, render.Re
   recorder.pass:setColor(0.2, 0.3, 0.4, 0.5)
   recorder.pass:setShader 'caller shader'
   recorder.pass:setMaterial 'caller material'
-  return native, target, recorder
+  return native, target, recorder, appearance.service:current()
 end
 
 test('the beam draws as an overlay in the theme colour, and a raising hook leaves the pass restored', function()
   local raising = false
-  local _, target, recorder = fixture(function(laserTarget: laser.Beam, pass: Pass, base: laser.DrawBase)
+  local _, target, recorder, current = fixture(function(laserTarget: laser.Beam, pass: Pass, base: laser.DrawBase)
     if raising then
       pass:setDepthTest 'less'
       pass:setDepthWrite(false)
@@ -62,7 +61,7 @@ test('the beam draws as an overlay in the theme colour, and a raising hook leave
       expect.equal(call.state.setDepthTest[1], nil, 'laser is an overlay')
       expect.equal(call.state.setDepthWrite[1], false, 'laser never writes scene depth')
       expect.equal(call.state.setMaterial[1], nil, 'beam has no inherited texture')
-      expect.equal(call.state.setColor[1], 0.9, 'beam uses the live pointer colour')
+      expect.equal(call.state.setColor[1], current.colors.muted[1], "beam uses the live theme's muted ink")
     end
   end
   recorder:assertRestored(caller)

@@ -18,7 +18,7 @@ No patches have been proposed upstream. Integration plumbing keeps one Luau impl
 
 Additive patches support foreign-image ownership, optional Vulkan extensions, runtime layer limits and session generations, overlay visibility, Luau entry files, physical modifier snapshots, and shader-variable state restoration. Runtime declarations come from metadata and generation; call-site workarounds for wrong declarations can change behavior.
 
-Defect fixes cover Luau loader registration, configuration without a main file, native initialization, and partial resource acquisition. Failure paths must retain or release every acquired resource. Optional-callback inference has focused regressions but the full updated upstream Luau suite still fails, including additional failures beyond the fork baseline; LÖVR does not link CodeGen.
+Defect fixes cover Luau loader registration, configuration without a main file, native initialization, partial resource acquisition, and buffer arrays of vectors filled from flat numbers, which wrote only the first quarter of a vec4 array. Failure paths must retain or release every acquired resource. Optional-callback inference has focused regressions but the full updated upstream Luau suite still fails, including additional failures beyond the fork baseline; LÖVR does not link CodeGen.
 
 ### Shader pipeline cache lifetimes
 

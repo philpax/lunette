@@ -4,6 +4,7 @@ local adapter = require '@lunette-plugin/adapter'
 local compose = require '@lunette-plugin/compose'
 local configured = require '@lunette-plugin/configured'
 local fields = require '@lunette-plugin/fields'
+local optionalConnection = require '@lunette-plugin/optional-connection'
 
 local plugin = {}
 
@@ -15,6 +16,7 @@ export type Declaration = adapter.Declaration
 export type Definition<C> = adapter.Definition<C>
 export type Entry = compose.Entry
 export type Patch = compose.Patch
+export type Connection<T> = optionalConnection.Connection<T>
 
 -- `plugin.capability<<Service>> { ... }` names the service type. The name is not authenticated.
 function plugin.capability<T>(spec: adapter.CapabilitySpec): Capability<T>
@@ -24,6 +26,9 @@ end
 plugin.rejectUnknownFields = fields.rejectUnknownFields
 
 plugin.ownerLabel = adapter.ownerLabel
+
+-- The getter returns a live service and its child owner, or nil while no provider is active.
+plugin.connectOptional = optionalConnection.connect
 
 -- Explicit instantiation names the configuration, settings, and service types:
 -- `plugin.provider<<Config, Settings, Service>> { ... }`.

@@ -71,6 +71,27 @@ export type TextHandler = {
   read run: (HostTextEvent) -> boolean?,
 }
 
+-- What LÖVR's mouse callbacks report while its desktop window has input. Positions and movement are window pixels with
+-- y downward, and `button` is LÖVR's number: 1 is primary, 2 secondary, and 3 middle. Wheel deltas are positive
+-- rightward and upward.
+export type HostMouseEvent =
+  { read kind: 'move', read x: number, read y: number, read dx: number, read dy: number }
+  | { read kind: 'press', read x: number, read y: number, read button: number }
+  | { read kind: 'release', read x: number, read y: number, read button: number }
+  | { read kind: 'wheel', read dx: number, read dy: number }
+
+-- Mouse handlers run in registration order and cannot consume an event.
+export type MouseHandler = {
+  read run: (HostMouseEvent) -> (),
+}
+
+-- Simulate handlers run in registration order from `lovr.simulate`, which LÖVR calls each frame before the update
+-- while the headset has no session, to drive the head and hands from the desktop window. While no simulate handler is
+-- registered, LÖVR's own simulator runs.
+export type SimulateHandler = {
+  read run: (number) -> (),
+}
+
 export type QuitHandler = {
   read run: () -> (),
 }
@@ -87,6 +108,8 @@ export type Service = {
   read onDraw: (Service, Owner, DrawHandler) -> plugin.Effect,
   read onKey: (Service, Owner, KeyHandler) -> plugin.Effect,
   read onText: (Service, Owner, TextHandler) -> plugin.Effect,
+  read onMouse: (Service, Owner, MouseHandler) -> plugin.Effect,
+  read onSimulate: (Service, Owner, SimulateHandler) -> plugin.Effect,
   read onQuit: (Service, Owner, QuitHandler) -> plugin.Effect,
 }
 
@@ -101,6 +124,6 @@ frame.DRAW_PHASES = table.freeze { 'input', 'scene', 'pointing', 'overlay', 'fee
 -- The key and text phases in the order they run.
 frame.INPUT_PHASES = table.freeze { 'binding', 'delivery' } :: { InputPhase }
 
-frame.capability = plugin.capability<<Service>> { name = 'lunette/frame', version = 2 }
+frame.capability = plugin.capability<<Service>> { name = 'lunette/frame', version = 3 }
 
 return frame

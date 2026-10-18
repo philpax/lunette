@@ -1,4 +1,5 @@
--- Owns manager domain transitions, schema drafts, and session composition actions.
+-- Owns manager domain transitions, schema drafts, graph gestures, and session composition actions. Graph positions
+-- are canvas pixels from the canvas's top-left corner.
 
 local composition = require '@lunette-contracts/composition'
 local graph = require '../inspection/graph'
@@ -6,67 +7,62 @@ local view = require '../inspection/view'
 local projection = require '../inspection/projection'
 local details = require '../inspection/details'
 local brokers = require '../inspection/brokers'
-local draw = require '../presentation/draw'
 local editor = require './editor'
-local toolbarLayout = require '../presentation/toolbar-layout'
 local controllerActions = require './controller-actions'
 local controller = {}
+
 export type Path = editor.Path
+export type Tab = controllerActions.Tab
+export type Action = controllerActions.Action
 type Registration = typeof(require('@lunette-contracts/inspection').snapshot({}).registrations[1])
 
 export type State = controllerActions.State & {
   projected: projection.Projected,
   entries: { composition.Entry },
   readers: { brokers.Reader },
-  sidebar: number,
-  layout: toolbarLayout.Layout,
   draftEntry: string?,
-  buttons: { controllerActions.Button },
-  actions: { [string]: controllerActions.Action },
-  lines: { string },
-  detailRecords: { string },
-  measuredRecords: { string }?,
-  measuredDetails: { string }?,
-  wrappedDetails: boolean,
+  actions: { [string]: Action },
+  details: { string },
+  -- Whether the camera has been fitted to a measured canvas.
+  fitted: boolean,
+}
+
+-- A request to confirm an action that unloads plugins.
+export type Confirmation = {
+  read action: string,
+  read entry: string,
+  read title: string,
+  read body: string,
+  read confirm: string,
 }
 
 local refresh: (State) -> ()
 local selectedEntry: (State) -> composition.Entry?
-local showDetails: (State, { string }) -> ()
-local localPoint: (State, graph.Point) -> graph.Point
 local cancelEdit = controllerActions.cancelEdit
 
-function controller.new(service: composition.Service, readers: { brokers.Reader }, width: number, height: number): State
-  local layout = toolbarLayout.compute(width, height, false, false, nil, 'entries', 'inspect')
+function controller.new(service: composition.Service, readers: { brokers.Reader }): State
   local state: State = {
-    view = view.new { x = layout.graphBounds.width, y = layout.graphBounds.height },
+    view = view.new { x = 1, y = 1 },
     service = service,
     projected = projection.snapshot(service:snapshot()),
     entries = {},
     readers = readers,
-    width = width,
-    height = height,
     presentation = 'entries',
-    sidebar = toolbarLayout.sidebarWidth(width),
     tab = 'inspect',
     catalog = {},
     catalogSelection = nil,
-    layout = layout,
-    scroll = 0,
+    savedSettings = {},
+    savedSelection = nil,
     draft = nil,
     draftEntry = nil,
     row = nil,
     edit = nil,
     text = '',
     message = '',
-    buttons = {},
     actions = {},
     editorRows = {},
-    lines = {},
-    detailRecords = {},
-    measuredRecords = nil,
-    measuredDetails = nil,
-    wrappedDetails = false,
+    details = {},
+    fitted = false,
   }
   refresh(state)
   return state
@@ -76,52 +72,95 @@ function controller.update(state: State): ()
   refresh(state)
 end
 
--- Rows and the catalog are lists; the details text is wrapped only while neither is shown.
-function controller.listed(state: State): boolean
-  return state.tab == 'catalog' or (state.tab == 'configure' and state.draft ~= nil)
+function controller.button(state: State, id: string): Action?
+  return state.actions[id]
 end
 
-function controller.measureDetails(state: State, font: Font, size: number): ()
-  if controller.listed(state) then
-    return
+function controller.selected(state: State): composition.Entry?
+  return selectedEntry(state)
+end
+
+-- The status line: the edit or search in progress, or the last message.
+function controller.status(state: State): string
+  if state.edit then
+    return 'Editing: ' .. state.text
+  elseif state.view.searchActive then
+    return 'Search: ' .. state.view.query
   end
-  local all = draw.wrapDetails(font, state.detailRecords, state.sidebar, size)
-  state.measuredRecords, state.measuredDetails = state.detailRecords, all
-  showDetails(state, all)
-  state.wrappedDetails = true
-end
-
-function controller.options(state: State): draw.Options
-  return {
-    width = state.width,
-    height = state.height,
-    sidebar = state.sidebar,
-    detailsTop = state.layout.detailsTop,
-    details = state.lines,
-    wrappedDetails = state.wrappedDetails,
-    body = if controller.listed(state) then state.layout.bodyBounds else nil,
-    footer = if state.edit
-      then 'Editing: ' .. state.text
-      else if state.view.searchActive then 'Search: ' .. state.view.query else state.message,
-  }
+  return state.message
 end
 
 function controller.invoke(state: State, id: string): boolean
   refresh(state)
-  for _, button in state.buttons do
-    if button.id == id and button.enabled then
-      local action = state.actions[id]
-      local ok, problem = pcall(action.run)
-      if not ok then
-        state.message = tostring(problem)
-      elseif not action.editor then
-        state.message = 'Action completed; state and diagnostics appear in the inspector.'
-      end
-      refresh(state)
-      return ok
+  local action = controller.button(state, id)
+  if not action or action.reason ~= nil then
+    return false
+  end
+  local ok, problem = pcall(action.run)
+  if not ok then
+    state.message = tostring(problem)
+  elseif not action.editor then
+    state.message = 'Action completed; state and diagnostics appear in the inspector.'
+  end
+  refresh(state)
+  return ok
+end
+
+local VERBS: { [string]: { title: string, effect: string } } = {
+  disable = { title = 'Disable', effect = 'stops until it is enabled again' },
+  reload = { title = 'Reload', effect = 'restarts with its current configuration' },
+  remove = { title = 'Remove', effect = 'unloads, and Catalog can load it again' },
+}
+local NAMED_LIMIT = 8
+
+-- The confirmation an action needs, or nil when it runs directly. Actions that unload the selected entry name the
+-- plugins they also unload.
+function controller.confirmation(state: State, id: string): Confirmation?
+  local verb = VERBS[id]
+  local entry = selectedEntry(state)
+  local button = controller.button(state, id)
+  if not verb or not entry or not button or button.reason ~= nil then
+    return nil
+  end
+  local affected = graph.impact(state.projected.graph, entry.instanceId)
+  local names: { string } = {}
+  for index, instanceId in affected do
+    if index > NAMED_LIMIT then
+      names[#names + 1] = `and {#affected - NAMED_LIMIT} more`
+      break
+    end
+    local instance = state.projected.instances[instanceId]
+    names[#names + 1] = if instance then instance.name else '#' .. instanceId
+  end
+  local body = `{entry.id} {verb.effect}.`
+  if #affected > 0 then
+    body ..= ` This also unloads {#affected} dependent or owned plugin{if #affected == 1 then '' else 's'}: ` .. table.concat(
+      names,
+      ', '
+    ) .. '.'
+  end
+  return table.freeze {
+    action = id,
+    entry = entry.id,
+    title = `{verb.title} {entry.id}?`,
+    body = body,
+    confirm = verb.title,
+  }
+end
+
+function controller.select(state: State, selection: graph.Selection?): ()
+  view.select(state.view, selection)
+  refresh(state)
+end
+
+-- Selects the entry's instance, as choosing it in the entry list does.
+function controller.selectEntry(state: State, id: string): ()
+  for _, entry in state.entries do
+    if entry.id == id then
+      controller.select(state, { kind = 'node', id = entry.instanceId })
+      return
     end
   end
-  return false
 end
 
 function controller.setSearch(state: State, value: string): ()
@@ -129,11 +168,9 @@ function controller.setSearch(state: State, value: string): ()
   refresh(state)
 end
 
-function controller.endSearch(state: State, refreshDetails: boolean?): ()
+function controller.endSearch(state: State): ()
   view.endSearch(state.view)
-  if refreshDetails ~= false then
-    refresh(state)
-  end
+  refresh(state)
 end
 
 function controller.setText(state: State, value: string): ()
@@ -168,12 +205,10 @@ function controller.confirmText(state: State): boolean
 end
 
 -- Ending an edit deselects its row, so selecting the row again restarts the edit.
-function controller.cancelText(state: State, refreshDetails: boolean?): ()
+function controller.cancelText(state: State): ()
   cancelEdit(state)
   state.row = nil
-  if refreshDetails ~= false then
-    refresh(state)
-  end
+  refresh(state)
 end
 
 function controller.clearText(state: State): ()
@@ -229,6 +264,37 @@ function controller.choose(state: State, index: number, choiceIndex: number): ()
   refresh(state)
 end
 
+function controller.selectSaved(state: State, id: string, field: string): ()
+  state.savedSelection = { id = id, field = field }
+  refresh(state)
+end
+
+-- A configuration value as the Configure and Saved tabs show it.
+function controller.valueText(value: unknown): string
+  local kind = type(value)
+  if kind == 'string' then
+    return string.format('%q', value :: string)
+  elseif kind == 'number' then
+    return string.format('%.4g', value :: number)
+  elseif kind == 'vector' then
+    local v = value :: vector
+    return string.format('(%.3g, %.3g, %.3g)', v.x, v.y, v.z)
+  elseif kind == 'table' then
+    local parts: { string } = {}
+    for index, item in value :: { unknown } do
+      if index > 4 then
+        parts[#parts + 1] = '...'
+        break
+      end
+      parts[#parts + 1] = controller.valueText(item)
+    end
+    return '{ ' .. table.concat(parts, ', ') .. ' }'
+  elseif value == nil then
+    return 'not set'
+  end
+  return tostring(value)
+end
+
 function controller.selectCatalog(state: State, id: string): ()
   for index, known in state.catalog do
     if known.id == id then
@@ -243,49 +309,39 @@ function controller.selectCatalog(state: State, id: string): ()
   end
 end
 
-function controller.scrollBy(state: State, rows: number): ()
-  if rows == rows and math.abs(rows) < math.huge then
-    state.scroll = math.max(0, state.scroll + math.floor(rows))
-    refresh(state)
+-- Records the canvas size, and fits the camera to the graph the first time the canvas has a size. Answers whether
+-- the size changed.
+function controller.resize(state: State, width: number, height: number): boolean
+  if not (width > 0 and height > 0 and width < math.huge and height < math.huge) then
+    return false
   end
+  local viewport = state.view.viewport
+  if viewport.x == width and viewport.y == height then
+    return false
+  end
+  state.view.viewport = { x = width, y = height }
+  if not state.fitted then
+    state.fitted = true
+    state.view.camera = graph.fit(state.view.layout, state.view.viewport)
+  end
+  return true
 end
 
 function controller.graphPress(state: State, point: graph.Point): ()
-  local bounds = state.layout.graphBounds
-  if
-    point.x >= bounds.x
-    and point.x < bounds.x + bounds.width
-    and point.y >= bounds.y
-    and point.y < bounds.y + bounds.height
-  then
-    view.press(state.view, localPoint(state, point))
-  end
+  view.press(state.view, point)
 end
 
 function controller.graphMove(state: State, point: graph.Point): ()
-  view.move(state.view, localPoint(state, point))
+  view.move(state.view, point)
 end
 
-function controller.graphRelease(state: State, point: graph.Point, published: view.State?): ()
-  local previous = state.view.selection
-  local gesture = state.view.dragging
-  if published and gesture and gesture.kind == 'pending-click' then
-    local target = table.clone(published)
-    target.dragging = gesture
-    view.release(target, localPoint(state, point))
-    if state.view.dragging == gesture then
-      state.view.selection = target.selection
-      state.view.dragging = nil
-    end
+-- A release inside the canvas completes a click or a drag; one outside it keeps the pan and selects nothing.
+function controller.graphRelease(state: State, point: graph.Point, inside: boolean): ()
+  if inside then
+    view.release(state.view, point)
   else
-    view.release(state.view, localPoint(state, point))
-  end
-  local selection = state.view.selection
-  if
-    (previous == nil) ~= (selection == nil)
-    or (previous and selection and (previous.id ~= selection.id or previous.kind ~= selection.kind))
-  then
-    state.scroll = 0
+    view.move(state.view, point)
+    view.cancel(state.view)
   end
   refresh(state)
 end
@@ -294,8 +350,11 @@ function controller.graphCancel(state: State): ()
   view.cancel(state.view)
 end
 
-function controller.graphZoom(state: State, point: graph.Point, factor: number): ()
-  view.zoom(state.view, localPoint(state, point), factor)
+-- Zooms about a point in the canvas, or about its centre when no point is given.
+function controller.graphZoom(state: State, factor: number, point: graph.Point?): ()
+  if factor > 0 and factor < math.huge then
+    view.zoom(state.view, point or { x = state.view.viewport.x / 2, y = state.view.viewport.y / 2 }, factor)
+  end
 end
 
 selectedEntry = function(state: State): composition.Entry?
@@ -303,30 +362,21 @@ selectedEntry = function(state: State): composition.Entry?
   return if selection and selection.kind == 'node' then details.entry(state.entries, selection.id) else nil
 end
 
-localPoint = function(state: State, point: graph.Point): graph.Point
-  return { x = point.x - state.layout.graphBounds.x, y = point.y - state.layout.graphBounds.y }
-end
-
-showDetails = function(state: State, all: { string }): ()
-  state.scroll = math.clamp(state.scroll, 0, math.max(0, #all - 1))
-  state.lines = table.move(all, state.scroll + 1, #all, 1, {})
-end
-
 refresh = function(state: State): ()
   state.projected = projection.snapshot(state.service:snapshot())
   state.entries = state.service:entries()
   state.catalog = state.service:catalog()
-  -- The graph viewport does not depend on the sidebar, so it is settled before the selection is.
-  local graphBounds = toolbarLayout.compute(
-    state.width,
-    state.height,
-    false,
-    state.view.searchActive,
-    nil,
-    state.presentation,
-    state.tab
-  ).graphBounds
-  state.view.viewport = { x = graphBounds.width, y = graphBounds.height }
+  state.savedSettings = state.service:savedSettings()
+  local chosen = state.savedSelection
+  if chosen then
+    local present = false
+    for _, setting in state.savedSettings do
+      present = present or (setting.id == chosen.id and setting.field == chosen.field)
+    end
+    if not present then
+      state.savedSelection = nil
+    end
+  end
   view.update(state.view, state.projected.graph)
   local entry = selectedEntry(state)
   if not entry or (state.draftEntry and state.draftEntry ~= entry.id) then
@@ -341,32 +391,20 @@ refresh = function(state: State): ()
   end
   local draft = state.draft
   state.editorRows = if draft then editor.rows(draft) else {}
-  state.wrappedDetails = false
-  local selectedRow = if state.tab == 'configure' and state.row then state.editorRows[state.row] else nil
-  local valueField: ('boolean' | 'choice')? = nil
-  if selectedRow and not selectedRow.readOnly then
-    if selectedRow.control == 'boolean' or selectedRow.control == 'choice' then
-      valueField = selectedRow.control
-    end
-  end
-  state.layout = toolbarLayout.compute(
-    state.width,
-    state.height,
-    state.edit ~= nil,
-    state.view.searchActive,
-    valueField,
-    state.presentation,
-    state.tab
-  )
   if state.tab == 'catalog' then
-    showDetails(state, { 'Known session entries', 'Select a removed entry, then Load.' })
+    state.details = { 'Known session entries', 'Select a removed entry, then Load.' }
+  elseif state.tab == 'saved' then
+    state.details = {
+      'Saved settings',
+      'Settings changed in a session, which take precedence over main.luau. Forget returns a setting to main.luau.',
+    }
   elseif state.tab == 'configure' and entry and entry.schema then
-    showDetails(state, { entry.id .. ': configuration draft', 'Callbacks and opaque values remain read-only.' })
+    state.details = { entry.id .. ': configuration draft', 'Callbacks and opaque values remain read-only.' }
     if state.message == '' then
       state.message = tostring(#state.editorRows) .. ' options.'
     end
   else
-    local all = details.lines(
+    state.details = details.lines(
       state.projected,
       state.view.selection,
       state.entries,
@@ -375,32 +413,15 @@ refresh = function(state: State): ()
         return state.service:ownerId(registration.owner)
       end
     )
-    local previous = state.detailRecords
-    local unchanged = #previous == #all
-    for index, record in all do
-      if previous[index] ~= record then
-        unchanged = false
-        break
-      end
-    end
-    if unchanged then
-      all = previous
-    end
-    state.detailRecords = all
-    if state.measuredRecords == all and state.measuredDetails then
-      all = state.measuredDetails
-      state.wrappedDetails = true
-    end
-    showDetails(state, all)
   end
-  state.buttons, state.actions = controllerActions.build(state, state.layout, entry, {
-    confirm = function()
+  state.actions = controllerActions.build(state, entry, {
+    confirm = function(): ()
       controller.confirmText(state)
     end,
-    cancel = function()
+    cancel = function(): ()
       controller.cancelText(state)
     end,
-    clear = function()
+    clear = function(): ()
       controller.clearText(state)
     end,
   })

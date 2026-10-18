@@ -6,9 +6,14 @@ local controls = require './controls'
 
 local sourceControls = {}
 
-function sourceControls.attach(context: plugin.Context, choice: selection.State, renderer: controls.Renderer): ()
+function sourceControls.attach(
+  context: plugin.Context,
+  choice: selection.State,
+  renderer: controls.Renderer,
+  view: controls.View
+): ()
   attention.attach(context, choice)
-  controls.attach(context, choice, renderer)
+  controls.attach(context, choice, renderer, view)
 end
 
 return sourceControls

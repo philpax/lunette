@@ -15,7 +15,10 @@ use lunette::{
     aliases::{DEVELOPMENT_ALIASES, Resolution},
     callback_error::{TracedError, report_traced},
     lua::{
+        glyphs::glyph_atlas,
         keys::{KeyCodes, locking_modifier_names, modifier_names},
+        layout::{LayoutFonts, load_layout_font, new_layout_tree},
+        svg::rasterize_svg,
         text_boundaries,
     },
     mirrors::NoMonitors,
@@ -25,6 +28,7 @@ use lunette::{
     },
     reload, require, scale,
 };
+use lunette_ui::text::Fonts;
 use mlua::{Function, Lua, Table, Value, ffi::lua_State};
 use tracing_subscriber::fmt::MakeWriter;
 
@@ -95,6 +99,22 @@ pub fn install(lua: &Lua, roots: &Roots) -> mlua::Result<()> {
         .set("require", lua.create_function(require_module)?)?;
     require::install(lua)?;
 
+    // Layout tests measure text with bundled faces only, so results match on every machine.
+    let mut fonts = Vec::new();
+    for path in [
+        "lunette-plugins/ui/standard/fonts/IBMPlexSans-Regular.ttf",
+        "lunette-plugins/ui/standard/fonts/IBMPlexSans-Medium.ttf",
+        "lunette-plugins/ui/standard/fonts/IBMPlexSans-SemiBold.ttf",
+        "lunette-plugins/ui/standard/fonts/Iosevka-Regular.ttf",
+    ] {
+        fonts.push(fs::read(roots.lua.join(path)).map_err(|error| {
+            mlua::Error::runtime(format!("the test font {path} could not be read: {error}"))
+        })?);
+    }
+    lua.set_app_data(LayoutFonts(Rc::new(std::cell::RefCell::new(
+        Fonts::bundled(fonts),
+    ))));
+
     let native = native(lua)?;
     preload.set(
         "@lunette",
@@ -154,6 +174,24 @@ fn native(lua: &Lua) -> mlua::Result<Table> {
         lua.create_function(|_, text| text_boundaries(text))?,
     )?;
     native.set(
+        "newLayoutTree",
+        lua.create_function(|lua, ()| new_layout_tree(lua))?,
+    )?;
+    native.set(
+        "loadLayoutFont",
+        lua.create_function(|lua, data: mlua::LuaString| load_layout_font(lua, &data))?,
+    )?;
+    native.set(
+        "rasterizeSvg",
+        lua.create_function(|lua, (svg, width, height): (mlua::LuaString, f64, f64)| {
+            rasterize_svg(lua, &svg, width, height)
+        })?,
+    )?;
+    native.set(
+        "glyphAtlas",
+        lua.create_function(|lua, ()| Ok(glyph_atlas(lua)))?,
+    )?;
+    native.set(
         "scaleSteps",
         lua.create_function(|_, ()| Ok(scale::ladder()))?,
     )?;
@@ -199,6 +237,25 @@ fn host(lua: &Lua) -> mlua::Result<Table> {
     )?;
     host.set("collect", lua.create_function(|lua, ()| lua.gc_collect())?)?;
     host.set(
+        "readFile",
+        lua.create_function(|lua, path: String| {
+            let sources = lua
+                .app_data_ref::<Sources>()
+                .ok_or_else(|| mlua::Error::runtime("the module sources are missing"))?;
+            let resolved = resolve_alias_path(&sources.roots, &path)?;
+            let data = fs::read(&resolved).map_err(|error| {
+                mlua::Error::runtime(format!("{}: {error}", resolved.display()))
+            })?;
+            lua.create_string(data)
+        })?,
+    )?;
+    host.set(
+        "writeSnapshot",
+        lua.create_function(|_, (name, data): (String, mlua::LuaString)| {
+            write_snapshot(&name, &data.as_bytes())
+        })?,
+    )?;
+    host.set(
         "useConfiguration",
         lua.create_function(|lua, directory: String| {
             let path = lua
@@ -211,6 +268,40 @@ fn host(lua: &Lua) -> mlua::Result<Table> {
         })?,
     )?;
     Ok(host)
+}
+
+/// Resolves an alias path such as `@lunette-plugins/ui/standard/fonts/a.ttf` under the `lua/`
+/// directory, for fixtures that stand in for `lovr.filesystem`.
+fn resolve_alias_path(roots: &Roots, path: &str) -> mlua::Result<PathBuf> {
+    let relative = path
+        .strip_prefix('@')
+        .ok_or_else(|| mlua::Error::runtime(format!("readFile: '{path}' is not an alias path")))?;
+    if relative
+        .split('/')
+        .any(|segment| segment == ".." || segment.is_empty())
+    {
+        return Err(mlua::Error::runtime(format!(
+            "readFile: '{path}' leaves the module roots"
+        )));
+    }
+    Ok(roots.lua.join(relative))
+}
+
+/// Writes a rendered image for review to the integration tests' temporary directory.
+fn write_snapshot(name: &str, data: &[u8]) -> mlua::Result<()> {
+    if name.is_empty()
+        || !name
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+    {
+        return Err(mlua::Error::runtime(format!(
+            "writeSnapshot: '{name}' is not a lowercase hyphenated name"
+        )));
+    }
+    let directory = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("ui-snapshots");
+    fs::create_dir_all(&directory)
+        .and_then(|()| fs::write(directory.join(format!("{name}.png")), data))
+        .map_err(|error| mlua::Error::runtime(format!("writeSnapshot: {name}: {error}")))
 }
 
 /// Reports `traced` through the session's error boundary, `report_traced`, to

@@ -1,0 +1,124 @@
+-- Boots the UI host in a test session and renders its panels through real LÖVR graphics.
+-- The session installs recording fakes for LÖVR's graphics; the real modules are put back once it has booted.
+
+local lunette = require '@lunette'
+local host = require '@testing/host'
+local vrUi = require '@testing/vr-ui'
+local adapter = require '@lunette-plugin/adapter'
+local uiHost = require '@lunette-contracts/ui-host'
+
+local ui = {}
+
+export type Scene = {
+  fixture: vrUi.Fixture,
+  service: uiHost.Service,
+  owner: adapter.Context,
+}
+
+local FONTS = {
+  '@lunette-plugins/ui/standard/fonts/IBMPlexSans-Regular.ttf',
+  '@lunette-plugins/ui/standard/fonts/IBMPlexSans-Medium.ttf',
+  '@lunette-plugins/ui/standard/fonts/IBMPlexSans-SemiBold.ttf',
+  '@lunette-plugins/ui/standard/fonts/Iosevka-Regular.ttf',
+}
+
+-- Definitions are extra plugins, such as the standard kinds, used once the real graphics and file reading are back;
+-- setup runs inside a consumer plugin.
+function ui.boot(definitions: { any }, requires: { any }, setup: (adapter.Context) -> ()): Scene
+  local graphics, data = lovr.graphics, lovr.data
+  local fixture = vrUi.boot {
+    'frame',
+    'surfaces',
+    'focus',
+    'drops',
+    'interaction',
+    'theme',
+    { id = 'ui-host', definition = require('@lunette-plugins/ui/host').definition },
+  }
+  lovr.graphics, lovr.data = graphics, data
+  -- Settings such as the theme's chosen mode save through write, which keeps nothing, so a page rendered in light
+  -- mode does not change the next fixture's start.
+  lovr.filesystem = {
+    read = host.readFile,
+    write = function(): boolean
+      return true
+    end,
+  } :: any
+  local session = assert(fixture.session)
+  for _, definition in definitions do
+    session:use(definition, {})
+  end
+  local scene: Scene = { fixture = fixture } :: any
+  local needed = { uiHost.capability }
+  for _, capability in requires do
+    table.insert(needed, capability)
+  end
+  assert(fixture.session):use(
+    adapter.define {
+      name = 'testing/ui-graphics-consumer',
+      requires = needed,
+      init = function(context: adapter.Context)
+        scene.owner = context
+        scene.service = context:require(uiHost.capability)
+        for _, file in FONTS do
+          local bytes = lovr.filesystem.read(file)
+          assert(type(bytes) == 'string', `ui: the font '{file}' could not be read`)
+          lunette.loadLayoutFont(bytes)
+        end
+        setup(context)
+      end,
+    },
+    {}
+  )
+  return scene
+end
+
+-- The longest the glyph atlas's workers may take to generate a scene's glyphs.
+local GLYPH_DEADLINE = 30
+
+local function drawTo(scene: Scene, texture: Texture, depth: Texture, eye: vector, target: vector): ()
+  local width, height = texture:getDimensions()
+  local pass = lovr.graphics.newPass { texture = texture, depth = depth, samples = 1 }
+  pass:setClear(0.02, 0.02, 0.03, 1)
+  local view = lovr.math.mat4():target(eye, target, vector.pack(0, 1, 0))
+  pass:setViewPose(1, view)
+  pass:setProjection(1, lovr.math.mat4():perspective(math.rad(40), width / height, 0.01, 0))
+  lovr.draw(pass)
+  lovr.graphics.submit(pass)
+end
+
+-- Renders the scene from a camera at `eye` looking at `target`, and returns the image. Glyphs are generated in the
+-- background, so frames are drawn until a frame asks for none that the atlas has not placed.
+function ui.render(scene: Scene, width: number, height: number, eye: vector, target: vector): Image
+  scene.fixture:step()
+  local texture = lovr.graphics.newTexture(width, height, {
+    format = 'rgba8',
+    linear = false,
+    samples = 1,
+    mipmaps = false,
+    usage = { 'render', 'transfer' },
+  })
+  local depth = lovr.graphics.newTexture(width, height, { format = 'd32f', usage = 'render', samples = 1 })
+  local atlas = lunette.glyphAtlas()
+  local deadline = os.clock() + GLYPH_DEADLINE
+  drawTo(scene, texture, depth, eye, target)
+  while atlas.pending > 0 do
+    assert(os.clock() < deadline, 'the glyph atlas did not finish generating the scene')
+    drawTo(scene, texture, depth, eye, target)
+  end
+  local readback = texture:newReadback()
+  lovr.graphics.submit {}
+  readback:wait()
+  local image = assert(readback:getImage(), 'the readback has no image')
+  local reported = scene.fixture.native.events.reported
+  if #reported > 0 then
+    error('the host reported: ' .. reported[1].message .. '\n' .. reported[1].traceback, 0)
+  end
+  return image
+end
+
+function ui.snapshot(name: string, image: Image): ()
+  host.writeSnapshot(name, image:encode():getString())
+end
+
+return ui

@@ -39,14 +39,25 @@ export type PointerOptions = {
 
 local inspection = require '@lunette-contracts/inspection'
 
+export type Hand = 'left' | 'right'
+
+-- Runs when any pointer's button goes down, with the surface it pressed, or nil for a press on nothing or on a
+-- window's client. An overlay closes on an outside press through it.
+export type PressObserver = { read run: (Surface?) -> () }
+
 export type Service = {
   read inspect: (Service) -> inspection.Snapshot,
   read newPointer: (Service, Owner, PointerOptions?) -> Pointer,
+  -- Near beats far: a near interactor, such as a fingertip hovering a panel, reports its hand as near, and the same
+  -- hand's idle ray stands down until no owner reports it. A report ends when its owner does.
+  read reportNear: (Service, Owner, Hand, boolean) -> (),
+  read isNear: (Service, Hand) -> boolean,
+  read onPress: (Service, Owner, PressObserver) -> plugin.Effect,
 }
 
 export type Capability = plugin.Capability<Service>
 
-local capability = plugin.capability<<Service>> { name = 'lunette/interaction', version = 2 }
+local capability = plugin.capability<<Service>> { name = 'lunette/interaction', version = 3 }
 
 interaction.capability = capability
 

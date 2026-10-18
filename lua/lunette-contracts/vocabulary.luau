@@ -5,6 +5,13 @@ local plugin = require '@lunette-plugin'
 
 local vocabulary = {}
 
+-- An observable value. Services publish state as stores so that consumers, such as UI components, need not poll.
+-- `subscribe` returns a function that ends the subscription.
+export type Store<T> = {
+  read get: (Store<T>) -> T,
+  read subscribe: (Store<T>, (T) -> ()) -> () -> (),
+}
+
 -- `window.contentType` uses the values reported by `wp_content_type_v1`.
 export type ContentType = 'none' | 'photo' | 'video' | 'game'
 
@@ -154,6 +161,9 @@ export type Pointer = {
   read withdraw: (Pointer) -> (),
   -- Cancels only this surface's active gestures. Held buttons require an observed release before another press.
   read cancel: (Pointer, Surface, CancelReason) -> (),
+  -- Moves this pointer's captures from one surface to another without a release or a cancel, so a press on a menu's
+  -- opener can drag onto the menu and release there. Answers whether any capture moved.
+  read transfer: (Pointer, Surface, Surface) -> boolean,
   read destroy: (Pointer) -> boolean,
   read hover: (Pointer, Surface?) -> (),
   read setButton: (Pointer, ButtonState) -> (),
@@ -185,10 +195,13 @@ type SurfaceFields = {
   read attachFrame: ((Surface, plugin.Owner, FrameStyle) -> FrameAttachment)?,
   read dead: boolean,
   read grabbable: boolean?,
-  -- A primary-button edge begins a spatial grab instead of a click on this surface.
-  read triggerGrabbable: boolean?,
+  -- Answers whether a primary-button edge at the current hit begins a spatial grab instead of a click.
+  read triggerGrabs: ((Surface, number, number) -> boolean)?,
   -- A composite surface can direct its grab to an owning surface offered alongside it.
   read grabTarget: ((Surface) -> Surface?)?,
+  -- Picking prefers a hit on a surface with a higher priority over a nearer hit, and treats nil as 0. Recovery
+  -- surfaces use it so that a broken surface in front of them cannot cover them.
+  read pickPriority: number?,
   read pose: Mat4?,
   read width: number?,
   read height: number?,
@@ -206,8 +219,9 @@ type MovableFields = {
   read attachFrame: ((Surface, plugin.Owner, FrameStyle) -> FrameAttachment)?,
   read dead: boolean,
   read grabbable: boolean?,
-  read triggerGrabbable: boolean?,
+  read triggerGrabs: ((Surface, number, number) -> boolean)?,
   read grabTarget: ((Surface) -> Surface?)?,
+  read pickPriority: number?,
   read pose: Mat4?,
   read width: number?,
   read height: number?,

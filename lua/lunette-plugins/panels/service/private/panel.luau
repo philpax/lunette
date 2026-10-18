@@ -175,7 +175,7 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
             pass:setFont(font)
             drawing.chrome(created, pass, paint.style, font)
           end
-          if current() and host.paint().revision == paint.revision and not created.granted then
+          if current() and host.paint() == paint and not created.granted then
             if created.chrome or frame.joined(created.frame) then
               drawing.border(created, pass, paint.style)
             else

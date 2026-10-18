@@ -142,7 +142,7 @@ install-lua:
 	manifest="$$( $(install_manifest) )" || exit $$?; \
 	printf '%s\n' "$$manifest" | while read -r source destination; do \
 		if test -d "$$source"; then \
-			files="$$($(FIND) "$$source" -type d -name tests -prune -o -type f -name '*.luau' -print)" || exit $$?; \
+			files="$$($(FIND) "$$source" -type d -name tests -prune -o -type f -print)" || exit $$?; \
 			if test -n "$$files"; then \
 				printf '%s\n' "$$files" | while IFS= read -r file; do \
 					relative="$${file#$$source/}"; \

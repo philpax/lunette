@@ -1,4 +1,9 @@
-//! Linux-only: supplies the two DMA buffers WayVR's screencopy backend captures into.
+//! Linux-only: supplies the DMA buffers WayVR's screencopy backend captures into.
+//!
+//! The buffers rotate through three, not two. The backend requests the next frame as soon as
+//! lunette takes the last one, and with two buffers that request reuses the image lunette
+//! displayed until that moment. Frames still in flight on the GPU sample it while the host
+//! compositor redraws it, which shows a partly drawn desktop for a frame.
 //!
 //! A device lifetime guard keeps detached upstream workers from using a destroyed device.
 
@@ -29,6 +34,9 @@ pub(crate) fn exporters(device: Arc<GraphicsDevice>, formats: Vec<DrmFormat>) ->
         })
     })
 }
+
+/// The number of images a stream rotates through.
+const BUFFERS: usize = 3;
 
 struct Exporter {
     device: Arc<GraphicsDevice>,
@@ -61,7 +69,7 @@ impl CaptureExporter for Exporter {
                         })
                 })?
                 .modifier;
-            for _ in 0..2 {
+            for _ in 0..BUFFERS {
                 match ExportedImage::create(Arc::clone(&self.device), size, fourcc, modifier) {
                     Ok(image) => self.images.push(image),
                     Err(error) => {
@@ -72,7 +80,7 @@ impl CaptureExporter for Exporter {
                 }
             }
         }
-        self.current = 1 - self.current;
+        self.current = (self.current + 1) % BUFFERS;
         let image = self.images.get(self.current)?;
         Some((
             FramePlane {

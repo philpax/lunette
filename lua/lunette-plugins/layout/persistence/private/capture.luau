@@ -90,6 +90,19 @@ function arrangement.capture(held: slots.Slots, panels: panelsContract.Service, 
   return { entries = entries }
 end
 
+-- The captured arrangement with every earlier entry that no live panel replaced, such as a monitor not mirrored yet
+-- or an application that is closed, so a save does not forget what is absent.
+function arrangement.merge(previous: format.File, captured: format.File): format.File
+  local present = arrangement.slotsFor(captured)
+  local entries = table.clone(captured.entries)
+  for _, entry in ipairs(previous.entries) do
+    if not present[arrangement.slotKey(entry.kind, entry.key, entry.slot)] then
+      entries[#entries + 1] = entry
+    end
+  end
+  return { entries = entries }
+end
+
 -- Applies saved pose, size, and tag membership. Tag holds belong to the binding context. The format refuses an
 -- entry whose pose does not decode.
 function arrangement.apply(

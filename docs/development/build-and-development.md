@@ -20,7 +20,7 @@ The flake provides a development shell, not a package output. It prefetches Jolt
 
 ## Module roots
 
-[Alias descriptors](../../crates/lunette/src/aliases.rs) own runtime roots, generated `.luaurc` files, and install artifacts. `@lunette` is native preload; other installed roots are mounted files. `@testing` and `dev/` are development-only and must not appear in installed modules. Session startup does not run the checker.
+[Alias descriptors](../../crates/lunette/src/aliases.rs) own runtime roots, generated `.luaurc` files, and install artifacts. `@lunette` is native preload; other installed roots are mounted files. Installation copies every file in an installed root except its `tests` directories, so a plugin's assets, such as fonts, install beside its modules without a manifest entry; the explicit install artifacts are files from outside the roots. `@testing` and `dev/` are development-only and must not appear in installed modules. Session startup does not run the checker.
 
 Relative requires follow Luau's file-relative rules. A directory's `init.luau` names the directory module: `./` starts beside that directory, while `@self` starts inside it. The session wrapper resolves names into `package.loaded`, so source reload clears the same cache. Replacing it with Luau's separate require cache would break that agreement.
 
@@ -52,7 +52,7 @@ make run ARGS="--config-path etc/xdg/lunette"
 
 `make run` selects the source Lua roots and `dev/` configuration; the second command selects the shipped configuration. Plain `cargo run` uses installed defaults. The shipped desktop launches no application; development launch behavior stays in `dev/`.
 
-The desktop simulator runs real compositor, client, and input paths without an XR runtime. lunette logs its first free socket from `wayland-20`; `WAYLAND_DISPLAY=<logged-name> <app>` connects an adopted client. [Source reload](native/lua-api.md#reload) is the headset iteration path; hard restart replaces graphics.
+The desktop simulator runs real compositor, client, and input paths without an XR runtime. The [simulator plugin](../../lua/lunette-plugins/input/simulator/README.md) describes its mouse and keyboard controls. lunette logs its first free socket from `wayland-20`; `WAYLAND_DISPLAY=<logged-name> <app>` connects an adopted client. [Source reload](native/lua-api.md#reload) is the headset iteration path; hard restart replaces graphics.
 
 Logs use stderr. `lunctl` inspects the running state between frames. Imported-image diagnosis can set `LUNETTE_IMPORT_QUEUE_FAMILY` to `foreign` or `ignored` and `LUNETTE_IMPORT_LAYOUT` to `general` or `undefined`. These override barriers for experiments, not portability guarantees; [validation](native/rendering-validation.md#imported-image-ownership-barriers) records limits.
 
@@ -104,6 +104,8 @@ nix develop .#graphics -c env -u DISPLAY -u WAYLAND_DISPLAY make check
 On Debian or Ubuntu, `mesa-vulkan-drivers` supplies lavapipe. `VK_DRIVER_FILES` names its ICD JSON; older loaders accept `VK_ICD_FILENAMES`.
 
 Readbacks need submission and polling. A headset image read in update precedes that frame's draw and can be empty. Capture submitted output rather than treating an early read as presentation evidence.
+
+The UI fixtures write PNG snapshots of the host's rendering and of every widget gallery page, in both theme modes, to `target/tmp/ui-snapshots/`. The snapshots are for review; the fixtures assert only that each page draws without a reported error and that sampled pixels have the expected colours.
 
 ### Native headset tests
 

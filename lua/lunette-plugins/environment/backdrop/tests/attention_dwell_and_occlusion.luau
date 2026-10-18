@@ -41,14 +41,12 @@ test('attention_dwell_and_occlusion', function()
 
   fixture.aimHead(env, 0)
   env.running:step(0.4)
-  local uiOwner = env.running.session:observe(require('@lunette-contracts/ui').capability).context
-  local uiBlock = env.ui:newPanel(uiOwner, {
+  local uiOwner = env.running.session:observe(require('@lunette-contracts/ui-host').capability).context
+  local uiBlock = env.host:newPanel(uiOwner, {
     name = 'testing/occluder',
     pose = lovr.math.newMat4():translate(0, 1.5, -1),
     width = 1,
     height = 0.5,
-    logicalWidth = 100,
-    logicalHeight = 50,
   })
   env.running:step(1)
   expect.equal(env.choice.attended, second, 'an offered UI surface occludes the window')
@@ -67,6 +65,9 @@ for failureAt = 1, 2 do
   test('the attention badge restores the pass when plane ' .. failureAt .. ' raises', function()
     local env = fixture.boot { settings = { sourceMode = 'attention' } }
     fixture.window(env, 70 + failureAt, env.native.newProcess(70 + failureAt))
+    -- The untracked wrist hides the wrist menu, whose text the fake renderer cannot draw, so the frame reports only
+    -- the injected failure.
+    env.running:tracked('left', false)
     env.running:step(0.4)
     local pass = env.native.events.pass
     local recorder = env.native.events.render

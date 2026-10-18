@@ -154,4 +154,46 @@ test('nonfinite input is rejected without disturbing a held gesture', function()
   f:close()
 end)
 
+test('trigger grab queries receive the current finite hit and cannot continue after teardown', function()
+  for _, destroyPointer in { false, true } do
+    local f = fixture()
+    local pointer = f:pointer()
+    local target = f:surface 'query'
+    target.pose = lovr.math.newMat4()
+    target.setPose = function() end
+    local queries = 0
+    target.triggerGrabs = function(_self: any, x: number, y: number): boolean
+      queries += 1
+      expect.near(x, 0.7, 1e-6, 'the current hit x reaches the query')
+      expect.near(y, 0.5, 1e-6, 'the current hit y reaches the query')
+      if destroyPointer then
+        pointer:destroy()
+      else
+        target.dead = true
+      end
+      return true
+    end
+    f:update(pointer, { target }, { x = 0.2, buttons = { left = true } })
+    expect.equal(queries, 1, 'one query on the primary edge')
+    expect.equal(pointer.grabbed, nil, 'a dead query participant cannot acquire a grab')
+    expect.equal(#f:matching 'press', 0, 'teardown cannot fall through to press delivery')
+    f:close()
+  end
+end)
+
+test('trigger grab query results are validated', function()
+  local f = fixture()
+  local pointer = f:pointer()
+  local target = f:surface 'invalid-query'
+  target.triggerGrabs = function(): any
+    return 'yes'
+  end
+  local ok, failure = pcall(function()
+    f:update(pointer, { target }, { buttons = { left = true } })
+  end)
+  expect.falsy(ok, 'a non-boolean query result is rejected')
+  expect.truthy(tostring(failure):find('triggerGrabs answers a boolean', 1, true), 'the error identifies the query')
+  f:close()
+end)
+
 return test

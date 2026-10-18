@@ -1,4 +1,4 @@
--- A board owns routed input, scaled appearance, and its theme face.
+-- A board owns routed input, scaled appearance, and its legend font.
 local lunette = require '@lunette'
 local focus = require '@lunette-contracts/focus'
 local keyboard = require '@lunette-contracts/keyboard'
@@ -37,7 +37,7 @@ end
 local function create(
   settings: config.Settings,
   source: focus.Source,
-  themeService: theme.Service,
+  themes: theme.Service,
   active: () -> boolean,
   notify: (keyboard.VisibilityChange) -> (),
   dispose: () -> ()
@@ -45,12 +45,13 @@ local function create(
   local unitsWide, unitsHigh = extentOf(settings)
   local providerStyle = appearance.project(settings.style)
   local pose = lovr.math.newMat4()
-  local snapshot = themeService:current()
-  local nominal = appearance.resolve(snapshot.theme, providerStyle)
-  local font = themeService:font(nominal.font)
+  -- The theme service resolves a new table on each change, so its identity tells a change apart.
+  local applied = themes:current()
+  local nominal = appearance.resolve(applied, providerStyle)
+  local font = lovr.graphics.getDefaultFont()
   local scale = 1
   local style = appearance.scaled(nominal, font, scale)
-  local appliedRevision, geometryRevision = snapshot.revision, 0
+  local geometryRevision = 0
   local meshCache = meshDrawing.newCache()
   local keyCaches: { [number]: { [number]: meshDrawing.Cache } } = {}
   local locks: { [lunette.ModifierName]: boolean } = {}
@@ -150,17 +151,16 @@ local function create(
     if state.dead or not active() then
       return
     end
-    local latest = themeService:current()
-    if latest.revision == appliedRevision then
+    local latest = themes:current()
+    if latest == applied then
       return
     end
-    local nextNominal = appearance.resolve(latest.theme, providerStyle)
-    local nextFont = themeService:font(nextNominal.font)
-    local nextStyle = appearance.scaled(nextNominal, nextFont, scale)
+    local nextNominal = appearance.resolve(latest, providerStyle)
+    local nextStyle = appearance.scaled(nextNominal, font, scale)
     local width, height = unitsWide * nextStyle.keyUnit, unitsHigh * nextStyle.keyUnit
     local geometryChanged = appearance.geometryChanged(style, nextStyle)
     local meshChanged = appearance.meshChanged(style, nextStyle)
-    nominal, font, style, appliedRevision = nextNominal, nextFont, nextStyle, latest.revision
+    nominal, style, applied = nextNominal, nextStyle, latest
     state.width, state.height = width, height
     local failures: { string } = {}
     if geometryChanged then

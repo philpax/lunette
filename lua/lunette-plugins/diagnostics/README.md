@@ -1,6 +1,6 @@
 # Diagnostics
 
-Diagnostics separates error reporting, retention, and presentation. [Error stream](error-stream/README.md) retains native Lua reports and suppresses repeats. [Error display](error-display/README.md) presents the latest report independently of retention. The [errors contract](../../lunette-contracts/errors.luau) defines shared reports, and [native error boundaries](../../../docs/development/native/lua-api.md#errors) define protected dispatch and reporting.
+Diagnostics separates error reporting, retention, presentation, and recovery. [Error stream](error-stream/README.md) retains native Lua reports and suppresses repeats. [Error display](error-display/README.md) presents reports on a UI toolkit panel, with dismissal and a deduplicated history, independently of retention. [Recovery](recovery/README.md) keeps the session operable when the UI toolkit fails, without depending on it. The [errors contract](../../lunette-contracts/errors.luau) defines shared reports, and [native error boundaries](../../../docs/development/native/lua-api.md#errors) define protected dispatch and reporting.
 
 - [Protected call](protected-call.luau), `@lunette-plugins/diagnostics/protected-call`, runs a supplied callback and reports failure through the public native error API. It returns failure instead of raising the callback error again.
 - [Desktop logging](desktop-logging.luau), `@lunette-plugins/diagnostics/desktop-logging`, forwards reports to LÖVR logging under `lunette.desktop`. Without logging, it prints the message with the `lunette: ` prefix.

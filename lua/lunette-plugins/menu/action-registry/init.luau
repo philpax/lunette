@@ -43,7 +43,6 @@ local function create(context: plugin.Context): contract.Service
           id = action.id,
           label = action.label,
           group = action.group,
-          order = action.order,
           enabled = entry.enabled,
           selected = entry.selected,
           token = entry.token,
@@ -54,8 +53,8 @@ local function create(context: plugin.Context): contract.Service
       if first.group ~= second.group then
         return first.group < second.group
       end
-      if first.order ~= second.order then
-        return first.order < second.order
+      if first.label ~= second.label then
+        return first.label < second.label
       end
       return first.id < second.id
     end)
@@ -156,7 +155,6 @@ local function create(context: plugin.Context): contract.Service
         result[#result + 1] = inspection.registration('handler', 'menu.register', entry.owner, row.id, true, {
           label = row.label,
           group = row.group,
-          order = row.order,
           enabled = row.enabled,
           selected = row.selected,
         })

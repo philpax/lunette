@@ -11,7 +11,6 @@ export type Action = {
   read id: string,
   read label: string,
   read group: string?,
-  read order: number?,
   read enabled: boolean?,
   read selected: boolean?,
   read run: () -> (),
@@ -38,7 +37,6 @@ export type Descriptor = {
   read id: string,
   read label: string,
   read group: string,
-  read order: number,
   read enabled: boolean,
   read selected: boolean,
   read token: Token,
@@ -63,6 +61,6 @@ export type Service = {
 
 export type Capability = plugin.Capability<Service>
 
-menu.capability = plugin.capability<<Service>> { name = 'lunette/menu', version = 1 }
+menu.capability = plugin.capability<<Service>> { name = 'lunette/menu', version = 2 }
 
 return menu

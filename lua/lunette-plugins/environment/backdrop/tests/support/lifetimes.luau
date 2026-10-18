@@ -8,7 +8,8 @@ local testing = require '@testing'
 local builtinEntries = require '@testing/builtin-entries'
 local frame = require '@lunette-contracts/frame'
 local menu = require '@lunette-contracts/menu'
-local ui = require '@lunette-contracts/ui'
+local uiHost = require '@lunette-contracts/ui-host'
+local recorded = require './panels'
 local panels = require '@lunette-contracts/panels'
 local surfaces = require '@lunette-contracts/surfaces'
 local composition = require '@lunette-contracts/composition'
@@ -16,15 +17,16 @@ local composition = require '@lunette-contracts/composition'
 export type Services = {
   frame: frame.Service?,
   menu: menu.Service?,
-  ui: ui.Service?,
+  host: uiHost.Service?,
   panels: panels.Service?,
   surfaces: surfaces.Service?,
   composition: composition.Service?,
+  recorder: recorded.Recorder?,
 }
 export type Observers = {
   frame: testing.Observed<frame.Service>,
   menu: testing.Observed<menu.Service>,
-  ui: testing.Observed<ui.Service>,
+  host: testing.Observed<uiHost.Service>,
   panels: testing.Observed<panels.Service>,
   surfaces: testing.Observed<surfaces.Service>,
 }
@@ -33,7 +35,7 @@ local lifetimes = {}
 local capabilities = {
   frame = frame.capability,
   menu = menu.capability,
-  ui = ui.capability,
+  host = uiHost.capability,
   panels = panels.capability,
   surfaces = surfaces.capability,
 }
@@ -50,7 +52,8 @@ function lifetimes.entries(factory: backdrop.Factory?): { plugin.Entry }
       'focus',
       'interaction',
       'laser',
-      'ui',
+      'ui-host',
+      'ui-standard',
       'menu',
       'audio',
       'audio-analysis',
@@ -72,7 +75,7 @@ function lifetimes.observe(session: testing.Session): Observers
 end
 
 function lifetimes.run()
-  local services = {}
+  local services: Services = { recorder = recorded.recorder() }
   local entries = table.clone(lifetimes.entries())
   local required = table.clone(capabilities)
   required.composition = composition.capability
