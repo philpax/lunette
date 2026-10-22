@@ -67,6 +67,7 @@ fn serial_fixtures(roots: &Roots) -> Result<(), String> {
         "shader-specialization",
         "ui-host",
         "ui-uploads",
+        "buffer-data",
         "ui-gallery",
         "backdrop-views",
     ] {
