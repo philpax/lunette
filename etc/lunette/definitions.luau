@@ -1354,6 +1354,7 @@ export type DeviceButton =
   | "nib"
 
 export type FoveationLevel =
+  | "none"
   | "low"
   | "medium"
   | "high"
@@ -1425,6 +1426,8 @@ export type HeadsetModule = {
   getDriver: () -> string,
   getFeatures: () -> { read battery: boolean, read overlay: boolean, read proximity: boolean, read passthrough: boolean, read refreshRate: boolean, read depthSubmission: boolean, read eyeTracking: boolean, read handTracking: boolean, read handTrackingElbow: boolean, read keyboardTracking: boolean, read viveTrackers: boolean, read handModel: boolean, read controllerModel: boolean, read controllerSkeleton: boolean, read cubeBackground: boolean, read equirectBackground: boolean, read layerColor: boolean, read layerCurve: boolean, read layerDepthTest: boolean, read layerFilter: boolean },
   getFoveation: () -> (FoveationLevel, boolean),
+  getFoveationOverlay: () -> boolean,
+  getFrameTiming: () -> { read interval: number, read work: number, read prediction: number, read skipped: number, read compositor: { read frame: number, read gpu: number, read cpu: number, read presents: number, read mispresented: number, read dropped: number, read reprojecting: boolean }? }?,
   getHandOrientation: (hand: "left" | "right", pose: HandPose?) -> (number, number, number, number),
   getHandPose: (hand: "left" | "right", pose: HandPose?) -> (number, number, number, number, number, number, number),
   getHandPosition: (hand: "left" | "right", pose: HandPose?) -> (number, number, number),
@@ -1486,6 +1489,7 @@ export type HeadsetModule = {
   setFoveation:
     & ((level: FoveationLevel, dynamic: boolean?) -> boolean)
     & (() -> boolean),
+  setFoveationOverlay: (enabled: boolean) -> boolean,
   setLayers:
     & ((...Layer) -> ())
     & ((t: {}) -> ()),

@@ -245,6 +245,14 @@ export type Events = {
   headPose: Mat4,
   eyePose: Mat4,
   mainSessionVisible: boolean,
+  -- Foveation as the headset holds it. Set `foveationSupported` to false to make enabling either report false.
+  foveation: { level: string, dynamic: boolean, overlay: boolean },
+  foveationSupported: boolean,
+  -- What `lovr.headset.getFrameTiming` answers: nil until a test sets it.
+  frameTiming: { [string]: any }?,
+  -- Whether GPU timing is enabled, and what `lovr.graphics.getTiming` answers while it is.
+  timingEnabled: boolean,
+  passTiming: { [any]: { duration: number, submit: number } }?,
   input: { InputCall },
   draw: { render.Call },
   logs: { { string? } },
@@ -329,6 +337,11 @@ function native.new(): Fake
     headPose = lovr.math.newMat4():translate(0, 1.5, 0),
     eyePose = lovr.math.newMat4():translate(0, 1.5, 0),
     mainSessionVisible = false,
+    foveation = { level = 'none', dynamic = false, overlay = false },
+    foveationSupported = true,
+    frameTiming = nil,
+    timingEnabled = false,
+    passTiming = nil,
     input = {},
     draw = {},
     logs = {},
@@ -887,6 +900,15 @@ installLovr = function(events: Events)
     getDefaultFont = function(): render.Font
       return font
     end,
+    isTimingEnabled = function(): boolean
+      return events.timingEnabled
+    end,
+    setTimingEnabled = function(enabled: boolean): ()
+      events.timingEnabled = enabled
+    end,
+    getTiming = function(): { [any]: { duration: number, submit: number } }?
+      return if events.timingEnabled then events.passTiming else nil
+    end,
   }
   -- A blob carries its contents to a constructor such as `newFont`, which the fake does not parse.
   lovr.data = {
@@ -1016,6 +1038,33 @@ installLovr = function(events: Events)
         return state.axisX, state.axisY
       end
       return 0, 0
+    end,
+    -- As in LÖVR, disabling foveation or the overlay succeeds even where neither is supported.
+    getFoveation = function(): (string, boolean)
+      return events.foveation.level, events.foveation.dynamic
+    end,
+    setFoveation = function(level: string?, dynamic: boolean?): boolean
+      if level == nil or level == 'none' then
+        events.foveation.level, events.foveation.dynamic = 'none', false
+        return true
+      elseif not events.foveationSupported then
+        return false
+      end
+      events.foveation.level, events.foveation.dynamic = level, dynamic ~= false
+      return true
+    end,
+    getFoveationOverlay = function(): boolean
+      return events.foveation.overlay
+    end,
+    setFoveationOverlay = function(enabled: boolean): boolean
+      if enabled and not events.foveationSupported then
+        return false
+      end
+      events.foveation.overlay = enabled
+      return true
+    end,
+    getFrameTiming = function(): { [string]: any }?
+      return events.frameTiming
     end,
     vibrate = function(device: string, strength: number, duration: number): boolean
       events.haptics = (events.haptics or 0) + 1

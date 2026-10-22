@@ -16,7 +16,7 @@ git -C vendor/lovr log --oneline upstream/dev..lunette
 
 No patches have been proposed upstream. Integration plumbing keeps one Luau implementation in `liblovr.so` for both mlua and analysis. Linking a second checker copy duplicates Luau flag registration and can loop during static initialization. The shared build exports native symbols and a registration-only audio table so declaration tests do not initialize miniaudio.
 
-Additive patches support foreign-image ownership, optional Vulkan extensions, runtime layer limits and session generations, overlay visibility, Luau entry files, physical modifier snapshots, and shader-variable state restoration. Runtime declarations come from metadata and generation; call-site workarounds for wrong declarations can change behavior.
+Additive patches support foreign-image ownership, optional Vulkan extensions, runtime layer limits and session generations, overlay visibility, Luau entry files, physical modifier snapshots, shader-variable state restoration, stereo canvases that render each view into its own texture, CPU-written fragment density maps, and headset frame timing. Runtime declarations come from metadata and generation; call-site workarounds for wrong declarations can change behavior.
 
 Defect fixes cover Luau loader registration, configuration without a main file, native initialization, partial resource acquisition, and buffer arrays of vectors filled from flat numbers, which wrote only the first quarter of a vec4 array. Failure paths must retain or release every acquired resource. Optional-callback inference has focused regressions but the full updated upstream Luau unit suite still has failures beyond the fork baseline. LÖVR links CodeGen in lunette builds; compiling Lua functions remains an explicit per-VM request.
 
@@ -97,7 +97,9 @@ Private backend operations dispatch all headset and layer calls. Layers retain t
 
 Texture handoff runs under the queue guard and forbids graphics reentry. Destruction waits until the guard is released. Failed runtime overlay destruction retains the handle and backing rather than freeing an image still referenced externally.
 
-OpenVR uses native panel overlays and two projection-eye overlays, not scene-compositor submission. Each eye needs a separate two-dimensional output because the overlay descriptor cannot select an array layer. Runtime resolution changes require restart. There is no game-depth occlusion.
+OpenVR uses native panel overlays and two projection-eye overlays, not scene-compositor submission. Each eye needs a separate two-dimensional image because the overlay descriptor cannot select an array layer. The scene pass therefore uses a stereo canvas: the fork records its draws once and plays them back per eye into that eye's image, with single-view pipelines and the camera offset selecting the eye. SteamVR samples a handed-off image while the next frame renders, so each eye rotates through three images. Only `lovr.headset.getTexture` renders into an array, which submission copies into the eye images. Runtime resolution changes require restart. There is no game-depth occlusion.
+
+Foveation uses a fragment density map per eye, rebuilt every frame around the gaze that `GetEyeTrackedFoveationCenter` reports, or around the optical axis when there is none. The Frame reports gaze with Y pointing down. `lovr.headset.setFoveationOverlay` tints each eye by its density for diagnosis, and `lovr.headset.getFrameTiming` reports the backend's pacing alongside SteamVR's compositor timing.
 
 SteamVR composites overlays asynchronously, and each overlay call is a synchronous request to its compositor process. The backend therefore sets only the overlay properties that changed and never hides a visible overlay to update it, since a hidden overlay drops out of whichever frame SteamVR composites in the meantime. A failed update hides the overlay rather than show a partial configuration.
 
