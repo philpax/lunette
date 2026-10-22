@@ -58,12 +58,13 @@ pub enum Execution {
     Tiered,
 }
 
-// The threshold amortises a function's compile cost over its interpreted calls, and the budget bounds the compilation added to one frame.
+// The threshold amortises a function's compile cost over its interpreted calls, and the budget bounds the compilation added to
+// one frame. The tiered compilation notes record the Steam Frame measurements behind both values.
 const TIER_UP: TierUp = TierUp {
-    threshold: NonZeroU32::new(1000).unwrap(),
+    threshold: NonZeroU32::new(10_000).unwrap(),
     queue_capacity: NonZeroU32::new(256).unwrap(),
 };
-const PROMOTION_BUDGET: InstructionBudget = InstructionBudget(1000);
+const PROMOTION_BUDGET: InstructionBudget = InstructionBudget(250);
 
 /// Boots LÖVR and runs the Lua session until it exits.
 ///

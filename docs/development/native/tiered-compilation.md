@@ -26,6 +26,18 @@ Sessions protect the standard library and mark the environment safe, so promoted
 
 Counting adds a decrement and a branch to every interpreted call and back-edge of a counting function. A promoted function stops counting, and a function that never becomes hot keeps counting.
 
+## Results
+
+The Steam Frame is the target. Its measurements use the desktop benchmark with `--renderer hardware` on one pinned performance core, eight paired rounds, and 600 warmup and 600 timed frames. Callback CPU is the update and draw thread CPU. Raw captures stay local in the ignored `docs/development/benchmarks/` directory.
+
+A threshold of 1000 promoted about 460 functions and lost to marker-only compilation in every round on the Frame, although it beat all-native compilation on an x86-64 workstation. Promoting lukewarm functions cost more than it saved on ARM64. A threshold of 10000 promotes about 220 functions and wins.
+
+A budget of 1000 instructions produced promotions of about 3 ms in one frame. A budget of 250 keeps most promotions under 1 ms, but one large function still takes about 1.7 ms, because the first queued function always compiles. Counting costs about 0.6% of callback CPU against O2 interpretation, which is within the observed variation.
+
+Before sessions protected the standard library, native code of any kind saved only 2 to 5% of Frame callback CPU, because every builtin call fell back to a C call. With builtin fast paths, tiered compilation reduces callback CPU by about 9.6% against O1 interpretation and by 4.1% against marker-only compilation, winning every round, and halves the geometry workload. It compiles in about 55 ms against about 250 ms for all-native compilation, and reserves 4 MiB of code arena after three reloads against 40 MiB.
+
+[`boot.rs`](../../../crates/lunette/src/boot.rs) uses these results for its threshold and budget. Live headset sessions and long reload sequences remain unmeasured.
+
 ## Measuring
 
 The desktop benchmark measures tiered compilation beside the other modes. `o2-tiered` promotes between warmup and timed frames, as the session does, and reports promotion thread CPU separately from callback CPU, with per-frame warmup series that show convergence. `o2-counting` counts without promoting, which bounds the counters' interpreter overhead against `o2-interpreter`; it runs only when `--modes` names it. `--tier-threshold`, `--tier-queue`, and `--tier-budget` set the parameters. [Build and development](../build-and-development.md#desktop-benchmarks) describes the harness and its offscreen renderer.
