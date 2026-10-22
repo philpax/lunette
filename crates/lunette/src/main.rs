@@ -249,6 +249,7 @@ fn main() -> ExitCode {
         &layers,
         chunks.as_ref(),
         startup,
+        arguments.luau_execution,
     )
 }
 
