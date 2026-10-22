@@ -13,20 +13,21 @@ use std::{
     ffi::c_int,
     fs,
     mem::MaybeUninit,
+    num::NonZeroU32,
     path::{Path, PathBuf},
     process::{Command, ExitCode, Stdio},
     time::Instant,
 };
 
 use clap::{Parser, ValueEnum};
-use lunette::execution::{self, ExecutionMode};
+use lunette::execution::{self, ExecutionMode, InstructionBudget, TierUp};
 use mlua::{Function, Lua, ObjectLike, Table, ffi};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 #[derive(Clone, Parser)]
 #[command(
-    about = "Compare Luau O1, O2, and supported O2 native execution without a display or headset"
+    about = "Compare Luau O1, O2, and supported O2 native and tiered execution without a display or headset"
 )]
 struct Arguments {
     #[arg(long, default_value = "7", value_parser = clap::value_parser!(u32).range(1..))]
@@ -47,8 +48,20 @@ struct Arguments {
     #[arg(long, default_value = "10", value_parser = clap::value_parser!(u32).range(1..))]
     reload_warmup: u32,
     /// Restrict measurement to one execution mode for profiling.
-    #[arg(long, value_enum)]
+    #[arg(long, value_enum, conflicts_with = "modes")]
     mode: Option<Mode>,
+    /// Compare these execution modes instead of the default set.
+    #[arg(long, value_enum, value_delimiter = ',')]
+    modes: Vec<Mode>,
+    /// Interpreted entries plus loop iterations before a tiered function waits for promotion.
+    #[arg(long, default_value = "1000", value_parser = clap::value_parser!(u32).range(1..=i64::from(i32::MAX)))]
+    tier_threshold: u32,
+    /// Hot functions that can wait for promotion at once.
+    #[arg(long, default_value = "256", value_parser = clap::value_parser!(u32).range(1..=i64::from(i32::MAX)))]
+    tier_queue: u32,
+    /// Bytecode instructions promoted between frames; at least one queued function promotes.
+    #[arg(long, default_value = "1000")]
+    tier_budget: usize,
     /// Collect Luau callback stacks instead of performance measurements or reloads.
     #[arg(long, requires = "mode")]
     profile_output: Option<PathBuf>,
@@ -88,6 +101,11 @@ enum Mode {
     Native,
     #[value(name = "o2-native-marked")]
     Marked,
+    #[value(name = "o2-tiered")]
+    Tiered,
+    /// Tiered counting without promotion, which bounds the counters' interpreter overhead.
+    #[value(name = "o2-counting")]
+    Counting,
 }
 
 impl Mode {
@@ -97,6 +115,7 @@ impl Mode {
             Self::O2 => ExecutionMode::Optimized,
             Self::Native => ExecutionMode::Native,
             Self::Marked => ExecutionMode::NativeMarked,
+            Self::Tiered | Self::Counting => ExecutionMode::Tiered,
         }
     }
 
@@ -106,6 +125,47 @@ impl Mode {
             Self::O2 => "o2-interpreter",
             Self::Native => "o2-native",
             Self::Marked => "o2-native-marked",
+            Self::Tiered => "o2-tiered",
+            Self::Counting => "o2-counting",
+        }
+    }
+
+    /// Whether load-time compilation binds native code for the scene's modules.
+    fn binds_at_load(self) -> bool {
+        matches!(self, Self::Native | Self::Marked)
+    }
+
+    fn counts(self) -> bool {
+        matches!(self, Self::Tiered | Self::Counting)
+    }
+}
+
+/// The native compilation a span of compiler work must contain.
+#[derive(Clone, Copy)]
+enum NativeWork {
+    /// No native compilation request.
+    None,
+    /// Marked-only requests that bind nothing, because no scene module carries a directive.
+    Attempted,
+    /// Bound native functions and emitted code.
+    Bound,
+}
+
+impl NativeWork {
+    fn of_scene(mode: Mode) -> Self {
+        match mode {
+            Mode::O1 | Mode::O2 => Self::None,
+            Mode::Native | Mode::Marked | Mode::Tiered => Self::Bound,
+            Mode::Counting => Self::Attempted,
+        }
+    }
+
+    // A reload loads sources without running frames, so tiered modes have promoted nothing yet.
+    fn of_reload(mode: Mode) -> Self {
+        match mode {
+            Mode::O1 | Mode::O2 => Self::None,
+            Mode::Native | Mode::Marked => Self::Bound,
+            Mode::Tiered | Mode::Counting => Self::Attempted,
         }
     }
 }
@@ -179,6 +239,8 @@ struct Measurement {
     lua_bytes_after_initial_gc: usize,
     source_loads: Value,
     reloads: Vec<Value>,
+    promotion_cpu_mean_us: f64,
+    tier_up: Value,
 }
 
 fn main() -> ExitCode {
@@ -263,6 +325,19 @@ fn run(mut arguments: Arguments) -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
     let (mut modes, native_codegen) = available_modes()?;
+    if !arguments.modes.is_empty() {
+        if let Some(missing) = arguments.modes.iter().find(|mode| !modes.contains(mode)) {
+            return Err(format!(
+                "desktop benchmark: {} is not supported by this build or CPU",
+                missing.name()
+            )
+            .into());
+        }
+        modes = arguments.modes.clone();
+    } else {
+        // Counting is an overhead diagnostic rather than a candidate, so it runs only on request.
+        modes.retain(|mode| *mode != Mode::Counting);
+    }
     if let Some(mode) = arguments.mode {
         if !modes.contains(&mode) {
             return Err(format!(
@@ -309,6 +384,8 @@ fn run(mut arguments: Arguments) -> Result<(), Box<dyn Error>> {
                 "update_thread_cpu_mean_us": sample.update_cpu_mean_us,
                 "draw_thread_cpu_mean_us": sample.draw_cpu_mean_us,
                 "callback_thread_cpu_mean_us": sample.update_cpu_mean_us + sample.draw_cpu_mean_us,
+                "promotion_thread_cpu_mean_us": sample.promotion_cpu_mean_us,
+                "tier_up": sample.tier_up,
                 "submit_mean_us": sample.submit_mean_us,
                 "submit_thread_cpu_mean_us": sample.submit_cpu_mean_us,
                 "wait_mean_us": sample.wait_mean_us,
@@ -348,6 +425,13 @@ fn run(mut arguments: Arguments) -> Result<(), Box<dyn Error>> {
                 "update_mean_us_median": median(samples.iter().map(|s| s.update_mean_us).collect()),
                 "draw_mean_us_median": median(samples.iter().map(|s| s.draw_mean_us).collect()),
                 "callback_thread_cpu_mean_us_median": median(samples.iter().map(|s| s.update_cpu_mean_us + s.draw_cpu_mean_us).collect()),
+                "callback_plus_promotion_thread_cpu_mean_us_median": median(samples.iter().map(|s| s.update_cpu_mean_us + s.draw_cpu_mean_us + s.promotion_cpu_mean_us).collect()),
+                "promotion_thread_cpu_mean_us_median": median(samples.iter().map(|s| s.promotion_cpu_mean_us).collect()),
+                "scene_native_compile_cpu_ms_median": median(samples.iter().map(|s| counter(&s.compiler_scene_work, "native_compile_cpu_ns") / 1e6).collect()),
+                "scene_native_functions_bound_median": median(samples.iter().map(|s| counter(&s.compiler_scene_work, "native_functions_bound")).collect()),
+                "scene_native_code_bytes_median": median(samples.iter().map(|s| counter(&s.compiler_scene_work, "native_code_bytes")).collect()),
+                "codegen_reserved_bytes_after_initial_gc_median": median(samples.iter().map(|s| counter(&s.compiler_after_initial_gc, "codegen_reserved_bytes")).collect()),
+                "codegen_reserved_bytes_after_reloads_median": median(samples.iter().map(|s| s.reloads.last().map_or(0., |reload| counter(&reload["compiler_after_gc"], "codegen_reserved_bytes"))).collect()),
                 "update_thread_cpu_mean_us_median": median(samples.iter().map(|s| s.update_cpu_mean_us).collect()),
                 "draw_thread_cpu_mean_us_median": median(samples.iter().map(|s| s.draw_cpu_mean_us).collect()),
                 "submit_mean_us_median": median(samples.iter().map(|s| s.submit_mean_us).collect()),
@@ -359,25 +443,31 @@ fn run(mut arguments: Arguments) -> Result<(), Box<dyn Error>> {
             })
         })
         .collect();
-    let comparisons: Vec<Value> = modes
-        .windows(2)
-        .map(|pair| {
+    let comparisons: Vec<Value> = comparison_pairs(&modes)
+        .into_iter()
+        .map(|(baseline, candidate)| {
             Ok(json!({
-                "baseline": pair[0].name(),
-                "candidate": pair[1].name(),
-                "paired_reduction_percent": paired_reductions(&measurements, pair[0], pair[1])?,
+                "baseline": baseline.name(),
+                "candidate": candidate.name(),
+                "paired_reduction_percent": paired_reductions(&measurements, baseline, candidate)?,
             }))
         })
         .collect::<Result<_, Box<dyn Error>>>()?;
     println!(
         "{}",
         serde_json::to_string_pretty(&json!({
-            "schema": 12,
+            "schema": 13,
             "smoke": arguments.smoke,
             "workload": arguments.renderer.name(),
             "timing": "elapsed clocks include scheduling delays; thread CPU measures update/draw and submission separately, excluding driver worker threads, GPU execution, compositor imports, XR waits, and presentation",
             "native_codegen": native_codegen,
-            "native_execution_verification": "untimed lua_incustomexecution caller-frame checks at entry, after the initial assert, after draw, and after geometry; all-native post-assert wrappers must be native, marker-only wrappers must stay interpreted; a raw callback verifies production picking is native in both native modes before every initial/reload timing loop; later instructions and callees may fall back to the interpreter",
+            "native_execution_verification": "untimed lua_incustomexecution caller-frame checks at entry, after the initial assert, after draw, and after geometry; all-native post-assert wrappers must be native, marker-only wrappers must stay interpreted, and tiered wrappers are recorded without an expectation; a raw callback verifies production picking is native in both load-time native modes before every initial/reload timing loop, and records tiered picking after warmup; later instructions and callees may fall back to the interpreter",
+            "tier_up": {
+                "threshold": arguments.tier_threshold,
+                "queue_capacity": arguments.tier_queue,
+                "instruction_budget_per_frame": arguments.tier_budget,
+                "promotion": "between frames, after each warmup and timed frame; promotion thread CPU is measured outside the callbacks and reported separately",
+            },
             "sample_order": "rotating modes with each following round reversed",
             "sample_isolation": if arguments.renderer == Renderer::Offscreen { "fresh child process per sample; inherited environment and CPU affinity; process startup excluded from setup timing" } else { "fresh Lua state per sample in one process" },
             "architecture": std::env::consts::ARCH,
@@ -404,7 +494,14 @@ fn run(mut arguments: Arguments) -> Result<(), Box<dyn Error>> {
 fn available_modes() -> Result<(Vec<Mode>, Value), Box<dyn Error>> {
     if execution::supported() {
         return Ok((
-            vec![Mode::O1, Mode::O2, Mode::Native, Mode::Marked],
+            vec![
+                Mode::O1,
+                Mode::O2,
+                Mode::Native,
+                Mode::Marked,
+                Mode::Tiered,
+                Mode::Counting,
+            ],
             json!({ "available": true, "reason": null }),
         ));
     }
@@ -461,6 +558,12 @@ fn measure_in_child(
         &arguments.reload_frames.to_string(),
         "--reload-warmup",
         &arguments.reload_warmup.to_string(),
+        "--tier-threshold",
+        &arguments.tier_threshold.to_string(),
+        "--tier-queue",
+        &arguments.tier_queue.to_string(),
+        "--tier-budget",
+        &arguments.tier_budget.to_string(),
     ]);
     if arguments.smoke {
         command.arg("--smoke");
@@ -503,12 +606,17 @@ fn measure(mode: Mode, round: u32, arguments: &Arguments) -> Result<Measurement,
     let mut jit_symbols = None;
     let mut workload: Option<Table> = None;
     let result = (|| {
-        if arguments.profile_output.is_some() && matches!(mode, Mode::Native | Mode::Marked) {
+        if arguments.profile_output.is_some()
+            && matches!(mode, Mode::Native | Mode::Marked | Mode::Tiered)
+        {
             jit_symbols = Some(profiling::jit_symbols::JitSymbols::install()?);
         }
         // Only the loader wrapper is installed before this point; every scene module uses this mode.
         execution::enable_metrics(&lua)?;
         execution::configure(&lua, mode.execution())?;
+        if mode.counts() {
+            execution::set_tier_up(&lua, tier_up(arguments)?)?;
+        }
         let loader = state::BenchmarkLoader {
             marked: if mode == Mode::Marked {
                 MARKED_MODULES
@@ -542,7 +650,7 @@ fn measure(mode: Mode, round: u32, arguments: &Arguments) -> Result<Measurement,
         let mut measured = measure_workload(&lua, &scene, &probe, mode, setup_ms, arguments)?;
         measured.compiler_scene_work =
             compiler_metrics::difference(&compiler_before_scene, &measured.compiler_metrics)?;
-        validate_compiler_work(&measured.compiler_scene_work, mode)?;
+        validate_compiler_work(&measured.compiler_scene_work, NativeWork::of_scene(mode))?;
         measured.compiler_before_scene = compiler_before_scene;
         drop(scene);
         lua.gc_collect()?;
@@ -660,17 +768,20 @@ unsafe extern "C-unwind" fn caller_is_native(state: *mut ffi::lua_State) -> c_in
 }
 
 fn selected_execution(lua: &Lua, workload: &Table, mode: Mode) -> mlua::Result<()> {
-    lua.set_named_registry_value("benchmark.selected.native", mlua::Value::Nil)?;
-    // SAFETY: the callback only inspects its live caller and returns a valid raycast result.
-    let probe = unsafe { lua.create_c_function(selected_caller_is_native)? };
-    workload.call_function::<()>("selectedProbe", probe)?;
-    let actual: bool = lua.named_registry_value("benchmark.selected.native")?;
-    if actual != matches!(mode, Mode::Native | Mode::Marked) {
+    if selected_is_native(lua, workload)? != mode.binds_at_load() {
         return Err(mlua::Error::runtime(
             "desktop benchmark: selected production picking execution does not match its native scope",
         ));
     }
     Ok(())
+}
+
+fn selected_is_native(lua: &Lua, workload: &Table) -> mlua::Result<bool> {
+    lua.set_named_registry_value("benchmark.selected.native", mlua::Value::Nil)?;
+    // SAFETY: the callback only inspects its live caller and returns a valid raycast result.
+    let probe = unsafe { lua.create_c_function(selected_caller_is_native)? };
+    workload.call_function::<()>("selectedProbe", probe)?;
+    lua.named_registry_value("benchmark.selected.native")
 }
 
 unsafe extern "C-unwind" fn selected_caller_is_native(state: *mut ffi::lua_State) -> c_int {
@@ -716,7 +827,9 @@ fn measure_workload(
         frame.call((1, probe))?;
     let (_, micro_entry, micro_after_geometry, micro_after_assert): (f64, bool, bool, bool) =
         micro.call((arguments.micro_iterations, probe))?;
-    if mode != Mode::Native {
+    if mode.counts() {
+        // Wrappers promote once they become hot, so their entry state depends on the warmup history rather than on the mode.
+    } else if mode != Mode::Native {
         for (function, actual) in [
             ("frame entry", frame_entry),
             ("frame after draw", frame_after_draw),
@@ -735,9 +848,14 @@ fn measure_workload(
             verify_execution(mode, function, actual)?;
         }
     }
+    let mut warmup_log = PromotionLog::default();
+    let mut warmup_callback_cpu_us = Vec::with_capacity(arguments.warmup as usize);
     for index in 1..=arguments.warmup {
-        frame.call::<()>(index)?;
+        let result: FrameResult = frame.call(index)?;
+        warmup_callback_cpu_us.push(result.5 + result.6);
+        warmup_log.after_frame(lua, mode, arguments, index)?;
     }
+    let picking_native_after_warmup = selected_is_native(lua, workload)?;
     workload.call_function::<()>("validate", ())?;
     micro.call::<f64>(arguments.micro_iterations)?;
     let profiler = arguments
@@ -761,6 +879,7 @@ fn measure_workload(
     let (mut update_us, mut draw_us) = (0., 0.);
     let (mut update_cpu_us, mut draw_cpu_us) = (0., 0.);
     let (mut submit_us, mut submit_cpu_us, mut wait_us) = (0., 0., 0.);
+    let mut timed_log = PromotionLog::default();
     for index in 1..=arguments.frames {
         let started = Instant::now();
         let (update, draw, _, _, _, update_cpu, draw_cpu, submit, submit_cpu, wait): FrameResult =
@@ -784,13 +903,14 @@ fn measure_workload(
         submit_us += submit;
         submit_cpu_us += submit_cpu;
         wait_us += wait;
+        timed_log.after_frame(lua, mode, arguments, arguments.warmup + index)?;
     }
     drop(boundary);
     if let Some(profiler) = profiler {
         let mut report = profiler.finish()?;
         report["mode"] = json!(mode.name());
         report["process_id"] = json!(std::process::id());
-        report["jit_perf_map"] = if matches!(mode, Mode::Native | Mode::Marked) {
+        report["jit_perf_map"] = if matches!(mode, Mode::Native | Mode::Marked | Mode::Tiered) {
             json!(format!("/tmp/perf-{}.map", std::process::id()))
         } else {
             serde_json::Value::Null
@@ -866,6 +986,70 @@ fn measure_workload(
         lua_bytes_after_initial_gc: 0,
         source_loads: source_loads(lua)?,
         reloads: Vec::new(),
+        promotion_cpu_mean_us: timed_log.cpu_us / f64::from(arguments.frames),
+        tier_up: json!({
+            "warmup": warmup_log.report(),
+            "timed": timed_log.report(),
+            "hot_queue_len_after": execution::hot_queue_len(lua)?,
+            "picking_native_after_warmup": picking_native_after_warmup,
+            "warmup_callback_thread_cpu_us": warmup_callback_cpu_us,
+            "warmup_promotion_thread_cpu_us": warmup_log.series,
+        }),
+    })
+}
+
+/// Promotion work between frames in one phase of a workload measurement.
+#[derive(Default)]
+struct PromotionLog {
+    calls: u32,
+    functions: usize,
+    cpu_us: f64,
+    max_cpu_us: f64,
+    last_frame: Option<u32>,
+    series: Vec<f64>,
+}
+
+impl PromotionLog {
+    fn after_frame(
+        &mut self,
+        lua: &Lua,
+        mode: Mode,
+        arguments: &Arguments,
+        frame: u32,
+    ) -> Result<(), Box<dyn Error>> {
+        if mode != Mode::Tiered || execution::hot_queue_len(lua)? == 0 {
+            self.series.push(0.);
+            return Ok(());
+        }
+        let started = thread_cpu_seconds()?;
+        let functions = execution::promote(lua, InstructionBudget(arguments.tier_budget))?;
+        let cpu_us = (thread_cpu_seconds()? - started) * 1e6;
+        self.calls += 1;
+        self.functions += functions;
+        self.cpu_us += cpu_us;
+        self.max_cpu_us = self.max_cpu_us.max(cpu_us);
+        self.last_frame = Some(frame);
+        self.series.push(cpu_us);
+        Ok(())
+    }
+
+    fn report(&self) -> Value {
+        json!({
+            "promotion_calls": self.calls,
+            "functions_promoted": self.functions,
+            "promotion_thread_cpu_us": self.cpu_us,
+            "max_promotion_thread_cpu_us": self.max_cpu_us,
+            "last_promotion_frame": self.last_frame,
+        })
+    }
+}
+
+fn tier_up(arguments: &Arguments) -> Result<TierUp, Box<dyn Error>> {
+    Ok(TierUp {
+        threshold: NonZeroU32::new(arguments.tier_threshold)
+            .ok_or("desktop benchmark: the tier-up threshold is zero")?,
+        queue_capacity: NonZeroU32::new(arguments.tier_queue)
+            .ok_or("desktop benchmark: the tier-up queue capacity is zero")?,
     })
 }
 
@@ -903,7 +1087,7 @@ fn measure_reloads(
             }
         }
         let delta = compiler_metrics::difference(&before, &after)?;
-        validate_compiler_work(&delta, original.mode)?;
+        validate_compiler_work(&delta, NativeWork::of_reload(original.mode))?;
         let validated = measure_workload(
             lua,
             &current,
@@ -941,6 +1125,8 @@ fn measure_reloads(
             "source_loads": loads_after,
             "frame_native": validated.frame_native,
             "micro_native": validated.micro_native,
+            "promotion_thread_cpu_mean_us": validated.promotion_cpu_mean_us,
+            "tier_up": validated.tier_up,
         }));
     }
     Ok(results)
@@ -957,7 +1143,7 @@ fn retired_workload(lua: &Lua, controller: &Table) -> mlua::Result<Table> {
     Ok(weak)
 }
 
-fn validate_compiler_work(work: &Value, mode: Mode) -> Result<(), Box<dyn Error>> {
+fn validate_compiler_work(work: &Value, native: NativeWork) -> Result<(), Box<dyn Error>> {
     let count = |key: &str| {
         work[key]
             .as_u64()
@@ -970,11 +1156,15 @@ fn validate_compiler_work(work: &Value, mode: Mode) -> Result<(), Box<dyn Error>
     {
         return Err("desktop benchmark: compiler work is missing or has native failures".into());
     }
-    let native = matches!(mode, Mode::Native | Mode::Marked);
-    if native != (count("native_functions_bound")? > 0)
-        || native != (count("native_code_bytes")? > 0)
-        || (!native && count("native_compile_calls")? != 0)
-    {
+    let bound = count("native_functions_bound")? > 0;
+    let emitted = count("native_code_bytes")? > 0;
+    let requested = count("native_compile_calls")? > 0;
+    let matches = match native {
+        NativeWork::None => !requested && !bound && !emitted,
+        NativeWork::Attempted => requested && !bound && !emitted,
+        NativeWork::Bound => bound && emitted,
+    };
+    if !matches {
         return Err(
             "desktop benchmark: compiler emission does not match the requested scope".into(),
         );
@@ -1042,11 +1232,32 @@ fn paired_reductions(
                 "update": reduction(base.update_mean_us, next.update_mean_us),
                 "draw": reduction(base.draw_mean_us, next.draw_mean_us),
                 "callback_thread_cpu": reduction(base.update_cpu_mean_us + base.draw_cpu_mean_us, next.update_cpu_mean_us + next.draw_cpu_mean_us),
+                "callback_plus_promotion_thread_cpu": reduction(base.update_cpu_mean_us + base.draw_cpu_mean_us + base.promotion_cpu_mean_us, next.update_cpu_mean_us + next.draw_cpu_mean_us + next.promotion_cpu_mean_us),
                 "micro": reduction(base.micro_us, next.micro_us),
                 "micro_thread_cpu": reduction(base.micro_cpu_us, next.micro_cpu_us),
             }))
         })
         .collect()
+}
+
+// Adjacent modes, plus tiered against each mode it replaces and counting against the interpreter it slows.
+fn comparison_pairs(modes: &[Mode]) -> Vec<(Mode, Mode)> {
+    let mut pairs: Vec<(Mode, Mode)> = modes.windows(2).map(|pair| (pair[0], pair[1])).collect();
+    for extra in [
+        (Mode::O1, Mode::Tiered),
+        (Mode::O2, Mode::Tiered),
+        (Mode::Native, Mode::Tiered),
+        (Mode::O2, Mode::Counting),
+    ] {
+        if modes.contains(&extra.0) && modes.contains(&extra.1) && !pairs.contains(&extra) {
+            pairs.push(extra);
+        }
+    }
+    pairs
+}
+
+fn counter(work: &Value, key: &str) -> f64 {
+    work[key].as_u64().unwrap_or_default() as f64
 }
 
 fn reduction(baseline: f64, optimized: f64) -> f64 {

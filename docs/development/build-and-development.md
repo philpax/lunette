@@ -82,7 +82,7 @@ cargo test -p lunette --test lua
 
 ### Desktop benchmarks
 
-`make bench-desktop` compares O1 interpretation, O2 interpretation, all-module O2 native compilation, and marker-only O2 native compilation in release mode. Unsupported builds and CPUs report the reason and run only the interpreter modes. `BENCH_ARGS` passes options to the harness; `make bench-desktop BENCH_ARGS='--help'` lists them. Standard output contains JSON results, and progress uses stderr, so a retained result uses `make --silent bench-desktop > target/desktop-benchmark.json`. `--mode` restricts the run to one execution mode and produces no paired comparisons.
+`make bench-desktop` compares O1 interpretation, O2 interpretation, all-module O2 native compilation, marker-only O2 native compilation, and [tiered compilation](native/tiered-compilation.md#measuring) in release mode. Unsupported builds and CPUs report the reason and run only the interpreter modes. `BENCH_ARGS` passes options to the harness; `make bench-desktop BENCH_ARGS='--help'` lists them. Standard output contains JSON results, and progress uses stderr, so a retained result uses `make --silent bench-desktop > target/desktop-benchmark.json`. `--mode` restricts the run to one execution mode and produces no paired comparisons; `--modes` compares a chosen list.
 
 The workload in `crates/lunette/benches/scene.luau` opens the desktop panels and adopts deterministic client windows. Production plugins run through `lovr.update` and `lovr.draw` with LÖVR math and the native layout engine; windows and tracking use the existing test facilities. A separate geometry workload calls production picking and panel hit testing.
 
