@@ -1,8 +1,10 @@
 -- Deterministic desktop update/draw and production picking workloads for the hardware-free benchmark runner.
+local offscreen = require './offscreen'
+
 local scene = {}
 
-function scene.setup(offscreen: boolean?, cpuClock: (() -> number)?): any
-  return require('./session').new(offscreen, cpuClock)
+function scene.setup(driver: offscreen.Driver?, cpuClock: (() -> number)?): any
+  return require('./session').new(driver, cpuClock)
 end
 
 function scene.prepareEpoch(stable: any): any

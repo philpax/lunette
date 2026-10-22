@@ -77,7 +77,8 @@ struct Arguments {
     /// Optional perf record acknowledgement FIFO.
     #[arg(long, requires_all = ["profile_output", "profile_perf_control"])]
     profile_perf_ack: Option<PathBuf>,
-    /// Render with real offscreen LÖVR graphics instead of the Lua graphics recorder.
+    /// Render with real offscreen LÖVR graphics instead of the Lua graphics recorder: `offscreen` on Mesa lavapipe, `hardware` on the
+    /// system's own Vulkan driver.
     #[arg(long, value_enum, default_value = "recorded")]
     renderer: Renderer,
     /// Validate the scene and compiler modes without collecting performance results.
@@ -174,6 +175,7 @@ impl NativeWork {
 enum Renderer {
     Recorded,
     Offscreen,
+    Hardware,
 }
 
 impl Renderer {
@@ -181,6 +183,24 @@ impl Renderer {
         match self {
             Self::Recorded => "all-panels-recorded-graphics",
             Self::Offscreen => "all-panels-offscreen-graphics",
+            Self::Hardware => "all-panels-hardware-graphics",
+        }
+    }
+
+    fn argument(self) -> &'static str {
+        match self {
+            Self::Recorded => "recorded",
+            Self::Offscreen => "offscreen",
+            Self::Hardware => "hardware",
+        }
+    }
+
+    /// The driver the Lua harness renders with, or `None` when it records graphics calls.
+    fn driver(self) -> Option<&'static str> {
+        match self {
+            Self::Recorded => None,
+            Self::Offscreen => Some("software"),
+            Self::Hardware => Some("hardware"),
         }
     }
 }
@@ -351,7 +371,7 @@ fn run(mut arguments: Arguments) -> Result<(), Box<dyn Error>> {
     let mut measurements = Vec::new();
     for round in 0..arguments.rounds {
         for mode in round_modes(&modes, round) {
-            let measured = if arguments.renderer == Renderer::Offscreen {
+            let measured = if arguments.renderer.driver().is_some() {
                 measure_in_child(mode, round + 1, &arguments)?
             } else {
                 measure(mode, round + 1, &arguments)?
@@ -469,7 +489,7 @@ fn run(mut arguments: Arguments) -> Result<(), Box<dyn Error>> {
                 "promotion": "between frames, after each warmup and timed frame; promotion thread CPU is measured outside the callbacks and reported separately",
             },
             "sample_order": "rotating modes with each following round reversed",
-            "sample_isolation": if arguments.renderer == Renderer::Offscreen { "fresh child process per sample; inherited environment and CPU affinity; process startup excluded from setup timing" } else { "fresh Lua state per sample in one process" },
+            "sample_isolation": if arguments.renderer.driver().is_some() { "fresh child process per sample; inherited environment and CPU affinity; process startup excluded from setup timing" } else { "fresh Lua state per sample in one process" },
             "architecture": std::env::consts::ARCH,
             "os": std::env::consts::OS,
             "debug_assertions": cfg!(debug_assertions),
@@ -543,7 +563,7 @@ fn measure_in_child(
         "--mode",
         mode.name(),
         "--renderer",
-        "offscreen",
+        arguments.renderer.argument(),
         "--rounds",
         "1",
         "--frames",
@@ -588,7 +608,7 @@ fn measure_in_child(
 fn measure(mode: Mode, round: u32, arguments: &Arguments) -> Result<Measurement, Box<dyn Error>> {
     let roots = state::Roots::of_repository(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."));
     let started = Instant::now();
-    let graphics = if arguments.renderer == Renderer::Offscreen {
+    let graphics = if arguments.renderer.driver().is_some() {
         Some(owner::Owner::new()?)
     } else {
         None
@@ -637,10 +657,8 @@ fn measure(mode: Mode, round: u32, arguments: &Arguments) -> Result<Measurement,
         let module: Table = require.call("scene")?;
         let cpu_clock =
             lua.create_function(|_, ()| thread_cpu_seconds().map_err(mlua::Error::external))?;
-        let controller: Table = module.call_function(
-            "setup",
-            (arguments.renderer == Renderer::Offscreen, cpu_clock),
-        )?;
+        let controller: Table =
+            module.call_function("setup", (arguments.renderer.driver(), cpu_clock))?;
         workload = Some(controller.clone());
         drop(module);
         drop(require);
