@@ -4,6 +4,8 @@ use mlua::{Function, Lua, ffi};
 
 use super::*;
 
+mod tier_up;
+
 // The local probe avoids a global lookup that can leave native execution before the callback.
 const PROBE_SOURCE: &str = r#"
 local functions = {
@@ -18,11 +20,12 @@ local functions = {
 return functions[1](...)
 "#;
 
-const MODES: [ExecutionMode; 4] = [
+const MODES: [ExecutionMode; 5] = [
     ExecutionMode::Interpreter,
     ExecutionMode::Optimized,
     ExecutionMode::Native,
     ExecutionMode::NativeMarked,
+    ExecutionMode::Tiered,
 ];
 
 #[test]
@@ -298,7 +301,11 @@ fn c_and_mlua_loaders_agree_and_mlua_requires_explicit_native_compilation() {
 fn native_configuration_succeeds_or_preserves_both_compilers_when_unsupported() {
     let lua = Lua::new();
     for mode in [ExecutionMode::Interpreter, ExecutionMode::Optimized] {
-        for native_mode in [ExecutionMode::Native, ExecutionMode::NativeMarked] {
+        for native_mode in [
+            ExecutionMode::Native,
+            ExecutionMode::NativeMarked,
+            ExecutionMode::Tiered,
+        ] {
             configure(&lua, mode).expect("bytecode compilation is supported");
             let before_c = c_settings(&lua);
             let before_mlua = inlining_upvalues(&lua, Loader::Mlua);
@@ -753,7 +760,10 @@ fn configure_mode(lua: &Lua, mode: ExecutionMode) {
 }
 
 fn is_native(mode: ExecutionMode) -> bool {
-    matches!(mode, ExecutionMode::Native | ExecutionMode::NativeMarked)
+    matches!(
+        mode,
+        ExecutionMode::Native | ExecutionMode::NativeMarked | ExecutionMode::Tiered
+    )
 }
 
 fn c_settings(lua: &Lua) -> (i32, bool) {
@@ -818,7 +828,7 @@ fn snapshot(lua: &Lua) -> LuauMetrics {
         .expect("metrics are enabled")
 }
 
-fn counters(metrics: &LuauMetrics) -> [u64; 25] {
+fn counters(metrics: &LuauMetrics) -> [u64; 29] {
     [
         metrics.bytecodeCompileCalls,
         metrics.bytecodeCompileInputBytes,
@@ -841,6 +851,10 @@ fn counters(metrics: &LuauMetrics) -> [u64; 25] {
         metrics.nativeCompileFailures,
         metrics.nativeCompileElapsedNs,
         metrics.nativeCompileCpuNs,
+        metrics.hotPromotionCalls,
+        metrics.hotFunctionsPromoted,
+        metrics.hotPromotionElapsedNs,
+        metrics.hotPromotionCpuNs,
         metrics.codegenReservationBytes,
         metrics.codegenReservationCount,
         metrics.codegenPeakReservedBytes,
