@@ -168,34 +168,57 @@ function geometry.insideRing(
   return strip(outer, inner, clip)
 end
 
+-- Packed doubles keep the key exact, including the sign of zero, without formatting numbers or allocating the clamped profile on
+-- every draw.
+local KEY = '<' .. string.rep('d', 13)
+local CLIPPED_KEY = '<' .. string.rep('d', 17)
+
 function geometry.key(bounds: Bounds, given: Profile, clip: Bounds?, thickness: number?): string
-  local profile = geometry.profile(bounds, given)
-  local values = {
-    bounds.x,
-    bounds.y,
-    bounds.width,
-    bounds.height,
-    profile.topLeft.x,
-    profile.topLeft.y,
-    profile.topRight.x,
-    profile.topRight.y,
-    profile.bottomRight.x,
-    profile.bottomRight.y,
-    profile.bottomLeft.x,
-    profile.bottomLeft.y,
-    thickness or 0,
-  }
+  local halfWidth, halfHeight = bounds.width / 2, bounds.height / 2
+  local topLeft, topRight, bottomRight, bottomLeft = given.topLeft, given.topRight, given.bottomRight, given.bottomLeft
+  local x, y, width, height = bounds.x, bounds.y, bounds.width, bounds.height
+  local topLeftX, topLeftY = math.min(topLeft.x, halfWidth), math.min(topLeft.y, halfHeight)
+  local topRightX, topRightY = math.min(topRight.x, halfWidth), math.min(topRight.y, halfHeight)
+  local bottomRightX, bottomRightY = math.min(bottomRight.x, halfWidth), math.min(bottomRight.y, halfHeight)
+  local bottomLeftX, bottomLeftY = math.min(bottomLeft.x, halfWidth), math.min(bottomLeft.y, halfHeight)
   if clip then
-    values[#values + 1] = clip.x
-    values[#values + 1] = clip.y
-    values[#values + 1] = clip.width
-    values[#values + 1] = clip.height
+    return string.pack(
+      CLIPPED_KEY,
+      x,
+      y,
+      width,
+      height,
+      topLeftX,
+      topLeftY,
+      topRightX,
+      topRightY,
+      bottomRightX,
+      bottomRightY,
+      bottomLeftX,
+      bottomLeftY,
+      thickness or 0,
+      clip.x,
+      clip.y,
+      clip.width,
+      clip.height
+    )
   end
-  local parts: { string } = {}
-  for _, value in values do
-    parts[#parts + 1] = string.format('%.17g', value)
-  end
-  return table.concat(parts, ' ')
+  return string.pack(
+    KEY,
+    x,
+    y,
+    width,
+    height,
+    topLeftX,
+    topLeftY,
+    topRightX,
+    topRightY,
+    bottomRightX,
+    bottomRightY,
+    bottomLeftX,
+    bottomLeftY,
+    thickness or 0
+  )
 end
 
 corner = function(x: number, y: number): Corner

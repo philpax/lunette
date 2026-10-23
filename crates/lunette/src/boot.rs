@@ -20,6 +20,7 @@ use std::{
 use lunette::{
     aliases::ModuleRoots,
     control::{CHUNKS_PER_FRAME, ChunkQueue, answer},
+    environment,
     execution::{self, ExecutionMode, InstructionBudget, TierUp},
     frame::{FrameDriver, Startup},
     layers::{LovrBlits, LovrLayers},
@@ -57,12 +58,13 @@ pub enum Execution {
     Tiered,
 }
 
-// The threshold amortises a function's compile cost over its interpreted calls, and the budget bounds the compilation added to one frame.
+// The threshold amortises a function's compile cost over its interpreted calls, and the budget bounds the compilation added to
+// one frame. The tiered compilation notes record the Steam Frame measurements behind both values.
 const TIER_UP: TierUp = TierUp {
-    threshold: NonZeroU32::new(1000).unwrap(),
+    threshold: NonZeroU32::new(10_000).unwrap(),
     queue_capacity: NonZeroU32::new(256).unwrap(),
 };
-const PROMOTION_BUDGET: InstructionBudget = InstructionBudget(1000);
+const PROMOTION_BUDGET: InstructionBudget = InstructionBudget(250);
 
 /// Boots LÖVR and runs the Lua session until it exits.
 ///
@@ -178,6 +180,12 @@ fn run_session(
         // Before `boot.lua`, which requires `main.luau` through it.
         if let Err(error) = require::install(&lua_handle) {
             error!("lua: relative require could not be installed: {error}");
+            return LOAD_FAILED;
+        }
+
+        // After the host's globals and before any configuration code, so builtin fast paths stay valid for the session.
+        if let Err(error) = environment::protect(&lua_handle) {
+            error!("lua: the standard library could not be protected: {error}");
             return LOAD_FAILED;
         }
 

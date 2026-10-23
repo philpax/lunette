@@ -13,6 +13,8 @@ lunette --config-path DIR
 
 `--dump-config` writes the runnable configuration and a `.luaurc` for the installed modules. A `.luaurc` copied from the repository resolves the wrong paths beside an installed configuration. `lunette check` checks types without running plugins; starting the session validates settings and exercises behavior. With no custom configuration, lunette runs the shipped one directly.
 
+The standard library is read-only: configuration code cannot patch `math`, `string`, `table`, or the other libraries, and assigning a global such as `type` or `pairs` raises an error. Plugins replace behaviour instead.
+
 `lunette --luau-execution tiered` compiles Luau functions to native code once they become hot, which reduces the CPU time of frequently run configuration and plugin code. Promotion happens between frames. A CPU or build without native compilation runs the session interpreted and logs why.
 
 ## Settings

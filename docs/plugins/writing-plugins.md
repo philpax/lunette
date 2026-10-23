@@ -8,6 +8,8 @@ The native `@lunette` API supplies mechanisms. The plugin facade owns activation
 
 Shipped plugins live under [responsibility categories](../../lua/lunette-plugins/README.md), including providers and desktop consumers. Module paths do not determine capability names or composition entry ids: `@lunette-plugins/input/keyboard-display` has the entry id `desktop/keyboard`. Each leaf has an independent entry. Categories have no activation module.
 
+The standard library is read-only, and its global names, such as `math`, `type`, and `pairs`, cannot be reassigned. A plugin that needs different behavior provides it through a service or its own module rather than patching a library.
+
 Supported author imports are a plugin's entry, its declared config module, its deliberate extensions, and exact public libraries. A neighbouring source file is not implicitly public. Private sources linked as implementation references do not become supported imports. The plugin guides define this boundary, and the [production dependency check](../../crates/lunette/tests/plugin_dependencies.rs) guards resolved source imports.
 
 ## Start a configuration

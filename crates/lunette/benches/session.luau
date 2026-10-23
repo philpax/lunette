@@ -17,7 +17,6 @@ function session.new(driver: offscreen.Driver?, cpuClock: (() -> number)?): any
     headset = lovr.headset,
     filesystem = lovr.filesystem,
     log = lovr.log,
-    date = os.date,
   }
   local stable: any = { current = nil, closed = false, cpuClock = cpuClock, clientTextures = {} }
   host.benchmark = stable
@@ -50,7 +49,6 @@ function session.new(driver: offscreen.Driver?, cpuClock: (() -> number)?): any
     lovr.graphics, lovr.data = original.graphics, original.data
     lovr.timer, lovr.system, lovr.headset = original.timer, original.system, original.headset
     lovr.filesystem, lovr.log = original.filesystem, original.log
-    os.date = original.date
     stable.fake = nil
     table.clear(stable.clientTextures)
     host.benchmark = nil
@@ -75,9 +73,6 @@ function session.new(driver: offscreen.Driver?, cpuClock: (() -> number)?): any
       assert(original.graphics and original.data, 'benchmark: offscreen mode needs real graphics and data')
       lovr.graphics, lovr.data = original.graphics, original.data
       stable.renderer = offscreen.new(driver)
-    end
-    os.date = function(_format: string?, _time: number?): string
-      return '12:00'
     end
     local events = stable.fake.events
     for index = 1, 8 do

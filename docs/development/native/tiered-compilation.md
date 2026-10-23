@@ -22,9 +22,21 @@ Promotion only reaches the speed of all-native compilation for the functions it 
 
 The CodeGen arena never reuses freed blocks, as [the LÖVR integration notes](lovr-integration.md#native-compile-cost) record for all-native compilation. A source reload creates new prototypes, which become hot and promote again, so arena reservation still grows with each reload, by the size of the hot set rather than of every loaded module.
 
-The global environment stays mutable, so promoted code keeps the guarded fallbacks for builtin calls and imports, and generic `ipairs` loops can leave native execution. Sandboxed Luau states do not have these fallbacks, which is why the fork's conformance tests sandbox their states.
+Sessions protect the standard library and mark the environment safe, so promoted code takes builtin fast paths. Imports are still looked up when they run rather than resolved at load.
 
 Counting adds a decrement and a branch to every interpreted call and back-edge of a counting function. A promoted function stops counting, and a function that never becomes hot keeps counting.
+
+## Results
+
+The Steam Frame is the target. Its measurements use the desktop benchmark with `--renderer hardware` on one pinned performance core, eight paired rounds, and 600 warmup and 600 timed frames. Callback CPU is the update and draw thread CPU. Raw captures stay local in the ignored `docs/development/benchmarks/` directory.
+
+A threshold of 1000 promoted about 460 functions and lost to marker-only compilation in every round on the Frame, although it beat all-native compilation on an x86-64 workstation. Promoting lukewarm functions cost more than it saved on ARM64. A threshold of 10000 promotes about 220 functions and wins.
+
+A budget of 1000 instructions produced promotions of about 3 ms in one frame. A budget of 250 keeps most promotions under 1 ms, but one large function still takes about 1.7 ms, because the first queued function always compiles. Counting costs about 0.6% of callback CPU against O2 interpretation, which is within the observed variation.
+
+Before sessions protected the standard library, native code of any kind saved only 2 to 5% of Frame callback CPU, because every builtin call fell back to a C call. With builtin fast paths, tiered compilation reduces callback CPU by about 9.6% against O1 interpretation and by 4.1% against marker-only compilation, winning every round, and halves the geometry workload. It compiles in about 55 ms against about 250 ms for all-native compilation, and reserves 4 MiB of code arena after three reloads against 40 MiB.
+
+[`boot.rs`](../../../crates/lunette/src/boot.rs) uses these results for its threshold and budget. Live headset sessions and long reload sequences remain unmeasured.
 
 ## Measuring
 

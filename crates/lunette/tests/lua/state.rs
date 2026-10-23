@@ -15,6 +15,7 @@ use std::{
 use lunette::{
     aliases::{DEVELOPMENT_ALIASES, Resolution},
     callback_error::{TracedError, report_traced},
+    environment,
     lua::{
         glyphs::glyph_atlas,
         keys::{KeyCodes, locking_modifier_names, modifier_names},
@@ -70,7 +71,16 @@ pub struct BenchmarkLoader {
 }
 
 pub fn new(roots: &Roots) -> mlua::Result<Lua> {
+    new_with(roots, |_| Ok(()))
+}
+
+/// Builds a state like [`new`] after `prepare` runs on the fresh state, before the standard library is protected.
+pub fn new_with(
+    roots: &Roots,
+    prepare: impl FnOnce(&Lua) -> mlua::Result<()>,
+) -> mlua::Result<Lua> {
     let lua = Lua::new();
+    prepare(&lua)?;
     let lovr = lua.create_table()?;
     // SAFETY: the opener follows the Lua C function protocol, and the state
     // shares the Luau build `liblovr.so` exports.
@@ -133,7 +143,8 @@ pub fn install(lua: &Lua, roots: &Roots) -> mlua::Result<()> {
         "@testing/host",
         lua.create_function(move |_, ()| Ok(host.clone()))?,
     )?;
-    Ok(())
+    // Tests run in the environment a session protects, so a test that patches a builtin fails as a configuration would.
+    environment::protect(lua)
 }
 
 pub fn take_reports(lua: &Lua) -> Vec<String> {
