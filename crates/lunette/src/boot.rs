@@ -21,7 +21,7 @@ use lunette::{
     aliases::ModuleRoots,
     control::{CHUNKS_PER_FRAME, ChunkQueue, answer},
     environment,
-    execution::{self, ExecutionMode, InstructionBudget, TierUp},
+    execution::{self, ExecutionMode, InstructionBudget, Promoter, TierUp},
     frame::{FrameDriver, Startup},
     layers::{LovrBlits, LovrLayers},
     lua::{PoolRegistry, Session, install},
@@ -153,7 +153,7 @@ fn run_session(
     }
 
     // Before any chunk loads, because counting and type information apply at load.
-    let promotion = configure_execution(&lua_handle, execution);
+    let promoter = configure_execution(&lua_handle, execution);
 
     unsafe {
         raw::luax_setmainthread(state.cast());
@@ -229,7 +229,7 @@ fn run_session(
         // `run_steps`.
         set_log_callback(raw::luax_vlog, thread.cast());
 
-        let between_frames = BetweenFrames { control, promotion };
+        let between_frames = BetweenFrames { control, promoter };
         let outcome = run_steps(
             state,
             thread,
@@ -250,22 +250,31 @@ fn run_session(
 /// Work that runs on the Lua thread after one frame ends and before the next begins.
 struct BetweenFrames<'a> {
     control: Option<&'a ChunkQueue>,
-    promotion: Option<InstructionBudget>,
+    promoter: Option<Promoter>,
 }
 
 impl BetweenFrames<'_> {
     fn run(&mut self, lua: &Lua) {
-        // Promotion runs between frames, so its compilation never lands inside a callback.
-        if let Some(budget) = self.promotion
-            && let Err(error) = execution::promote(lua, budget)
+        // Binding and handing over jobs run between frames, while code generation runs on the promoter's worker.
+        if let Some(promoter) = &mut self.promoter
+            && let Err(error) = promoter.step(lua)
         {
             error!("lua: hot functions could not be promoted, and promotion stops: {error}");
-            self.promotion = None;
+            self.shutdown(lua);
         }
 
         // Chunks run between frames, when no callback can race them.
         if let Some(control) = self.control {
             control.drain(CHUNKS_PER_FRAME, |chunk| answer(lua, chunk));
+        }
+    }
+
+    /// Stops promotion before the state closes, because the worker may still be reading functions the state owns.
+    fn shutdown(&mut self, lua: &Lua) {
+        if let Some(promoter) = self.promoter.take()
+            && let Err(error) = promoter.shutdown(lua)
+        {
+            error!("lua: promotion did not stop cleanly: {error}");
         }
     }
 }
@@ -330,6 +339,7 @@ unsafe fn run_steps(
                             "no display and no XR runtime: \
                              the session has nothing to present"
                         );
+                        between_frames.shutdown(lua_handle);
                         return finish_terminal(
                             state,
                             thread,
@@ -355,6 +365,7 @@ unsafe fn run_steps(
                 unsafe { raw::os_sleep(0.0) };
             }
             Step::Restart => {
+                between_frames.shutdown(lua_handle);
                 return finish_terminal(
                     state,
                     thread,
@@ -366,6 +377,7 @@ unsafe fn run_steps(
                 );
             }
             Step::Exit { status } => {
+                between_frames.shutdown(lua_handle);
                 return finish_terminal(
                     state,
                     thread,
@@ -380,19 +392,20 @@ unsafe fn run_steps(
     }
 }
 
-/// Configures the state's compilers and returns the promotion budget when hot functions should promote.
+/// Configures the state's compilers and returns the promoter when hot functions should promote.
 ///
 /// A CPU or build without native compilation keeps the interpreter, because the session must still start.
-fn configure_execution(lua: &Lua, execution: Execution) -> Option<InstructionBudget> {
+fn configure_execution(lua: &Lua, execution: Execution) -> Option<Promoter> {
     match execution {
         Execution::Interpreter => None,
         Execution::Tiered => {
             match execution::configure(lua, ExecutionMode::Tiered)
                 .and_then(|()| execution::set_tier_up(lua, TIER_UP))
+                .and_then(|()| Promoter::spawn(PROMOTION_BUDGET).map_err(mlua::Error::external))
             {
-                Ok(()) => {
-                    info!("lua: hot functions promote to native code between frames");
-                    Some(PROMOTION_BUDGET)
+                Ok(promoter) => {
+                    info!("lua: hot functions compile on a worker and promote between frames");
+                    Some(promoter)
                 }
                 Err(error) => {
                     warn!(

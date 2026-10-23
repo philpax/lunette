@@ -24,7 +24,7 @@ use std::{
 };
 
 use clap::{Parser, ValueEnum};
-use lunette::execution::{self, ExecutionMode, InstructionBudget, TierUp};
+use lunette::execution::{self, ExecutionMode, InstructionBudget, Promoter, TierUp};
 use mlua::{Function, Lua, ObjectLike, Table, ffi};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -66,6 +66,9 @@ struct Arguments {
     /// Bytecode instructions promoted between frames; at least one queued function promotes.
     #[arg(long, default_value = "1000")]
     tier_budget: usize,
+    /// Generate tiered code on a worker thread, binding it between frames as a session does.
+    #[arg(long)]
+    tier_worker: bool,
     /// Collect Luau callback stacks instead of performance measurements or reloads.
     #[arg(long, requires = "mode")]
     profile_output: Option<PathBuf>,
@@ -490,6 +493,7 @@ fn run(mut arguments: Arguments) -> Result<(), Box<dyn Error>> {
                 "threshold": arguments.tier_threshold,
                 "queue_capacity": arguments.tier_queue,
                 "instruction_budget_per_frame": arguments.tier_budget,
+                "worker": arguments.tier_worker,
                 "promotion": "between frames, after each warmup and timed frame; promotion thread CPU is measured outside the callbacks and reported separately",
             },
             "sample_order": "rotating modes with each following round reversed",
@@ -589,6 +593,9 @@ fn measure_in_child(
         "--tier-budget",
         &arguments.tier_budget.to_string(),
     ]);
+    if arguments.tier_worker {
+        command.arg("--tier-worker");
+    }
     if arguments.smoke {
         command.arg("--smoke");
     }
@@ -640,6 +647,9 @@ fn measure(mode: Mode, round: u32, arguments: &Arguments) -> Result<Measurement,
         execution::configure(&lua, mode.execution())?;
         if mode.counts() {
             execution::set_tier_up(&lua, tier_up(arguments)?)?;
+        }
+        if mode == Mode::Tiered && arguments.tier_worker {
+            lua.set_app_data(Promoter::spawn(InstructionBudget(arguments.tier_budget))?);
         }
         let loader = state::BenchmarkLoader {
             marked: if mode == Mode::Marked {
@@ -696,6 +706,11 @@ fn measure(mode: Mode, round: u32, arguments: &Arguments) -> Result<Measurement,
         && let Err(error) = workload.call_function::<()>("close", ())
     {
         failures.push(format!("scene cleanup: {error}"));
+    }
+    if let Some(promoter) = lua.remove_app_data::<Promoter>()
+        && let Err(error) = promoter.shutdown(&lua)
+    {
+        failures.push(format!("promotion shutdown: {error}"));
     }
     failures.extend(state::shutdown(&lua));
     drop(lua);
@@ -1039,13 +1054,22 @@ impl PromotionLog {
         arguments: &Arguments,
         frame: u32,
     ) -> Result<(), Box<dyn Error>> {
-        if mode != Mode::Tiered || execution::hot_queue_len(lua)? == 0 {
+        let worker = lua.app_data_mut::<Promoter>();
+        if mode != Mode::Tiered || (worker.is_none() && execution::hot_queue_len(lua)? == 0) {
             self.series.push(0.);
             return Ok(());
         }
+        // With a worker, the frame thread only binds finished jobs and hands over new ones; the worker's time is in the compiler metrics.
         let started = thread_cpu_seconds()?;
-        let functions = execution::promote(lua, InstructionBudget(arguments.tier_budget))?;
+        let functions = match worker {
+            Some(mut promoter) => promoter.step(lua)?,
+            None => execution::promote(lua, InstructionBudget(arguments.tier_budget))?,
+        };
         let cpu_us = (thread_cpu_seconds()? - started) * 1e6;
+        if functions == 0 && cpu_us < 1. {
+            self.series.push(cpu_us);
+            return Ok(());
+        }
         self.calls += 1;
         self.functions += functions;
         self.cpu_us += cpu_us;
