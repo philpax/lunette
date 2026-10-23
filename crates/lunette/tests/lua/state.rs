@@ -4,7 +4,8 @@
 //! rest. `lovr.math` comes from `liblovr.so`, so pose tests use LÖVR's own `Mat4`.
 
 use std::{
-    ffi::c_int,
+    collections::{BTreeMap, BTreeSet},
+    ffi::{CString, c_int},
     fs, io, mem,
     path::PathBuf,
     rc::Rc,
@@ -60,6 +61,13 @@ struct Sources {
 
 #[derive(Default)]
 struct Reports(Vec<String>);
+
+/// Benchmark-only source policy; ordinary integration suites retain the mlua loader.
+#[derive(Default)]
+pub struct BenchmarkLoader {
+    pub marked: BTreeSet<String>,
+    pub loads: BTreeMap<String, u32>,
+}
 
 pub fn new(roots: &Roots) -> mlua::Result<Lua> {
     let lua = Lua::new();
@@ -384,6 +392,34 @@ fn load_file(lua: &Lua, name: &str) -> mlua::Result<Function> {
     };
     let source = fs::read_to_string(&path)
         .map_err(|error| mlua::Error::runtime(format!("require: {}: {error}", path.display())))?;
+    let policy = lua.app_data_mut::<BenchmarkLoader>().map(|mut loader| {
+        *loader.loads.entry(virtual_path.clone()).or_default() += 1;
+        loader.marked.contains(&virtual_path)
+    });
+    if let Some(marked) = policy {
+        let source = if marked {
+            format!("--!native\n{source}")
+        } else {
+            source
+        };
+        let name = CString::new(format!("@{virtual_path}")).map_err(mlua::Error::external)?;
+        // SAFETY: the source and name outlive the protected call; exec_raw roots the loaded
+        // function, converts it to a handle, and restores the stack on success or failure.
+        return unsafe {
+            lua.exec_raw((), |state| {
+                let status = lunette_lovr::raw::luax_loadbufferx(
+                    state.cast(),
+                    source.as_ptr().cast(),
+                    source.len(),
+                    name.as_ptr(),
+                    std::ptr::null(),
+                );
+                if status != mlua::ffi::LUA_OK {
+                    mlua::ffi::lua_error(state);
+                }
+            })
+        };
+    }
     let function = lua
         .load(source)
         .set_name(format!("@{virtual_path}"))

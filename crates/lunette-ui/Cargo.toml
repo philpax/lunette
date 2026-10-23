@@ -14,7 +14,14 @@ taffy = { workspace = true }
 test-fonts = []
 
 [dev-dependencies]
+clap = { workspace = true }
+libc = { workspace = true }
 pretty_assertions = { workspace = true }
+serde_json = { workspace = true }
+
+[[bench]]
+name = "layout_compute"
+harness = false
 
 [lints]
 workspace = true
