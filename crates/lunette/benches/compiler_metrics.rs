@@ -38,6 +38,8 @@ pub fn snapshot(lua: &Lua) -> mlua::Result<Value> {
         "hot_functions_promoted": stats.hotFunctionsPromoted,
         "hot_promotion_elapsed_ns": stats.hotPromotionElapsedNs,
         "hot_promotion_cpu_ns": stats.hotPromotionCpuNs,
+        "hot_bind_elapsed_ns": stats.hotBindElapsedNs,
+        "hot_bind_cpu_ns": stats.hotBindCpuNs,
         "codegen_reserved_bytes": stats.codegenReservedBytes,
         "codegen_peak_reserved_bytes": stats.codegenPeakReservedBytes,
         "codegen_reservation_bytes": stats.codegenReservationBytes,
@@ -80,6 +82,8 @@ pub fn difference(before: &Value, after: &Value) -> mlua::Result<Value> {
         "hot_functions_promoted",
         "hot_promotion_elapsed_ns",
         "hot_promotion_cpu_ns",
+        "hot_bind_elapsed_ns",
+        "hot_bind_cpu_ns",
         "codegen_reservation_bytes",
         "codegen_reservation_count",
     ] {

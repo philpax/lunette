@@ -4,6 +4,7 @@ use mlua::{Function, Lua, ffi};
 
 use super::*;
 
+mod promoter;
 mod tier_up;
 
 // The local probe avoids a global lookup that can leave native execution before the callback.
@@ -828,7 +829,7 @@ fn snapshot(lua: &Lua) -> LuauMetrics {
         .expect("metrics are enabled")
 }
 
-fn counters(metrics: &LuauMetrics) -> [u64; 29] {
+fn counters(metrics: &LuauMetrics) -> [u64; 31] {
     [
         metrics.bytecodeCompileCalls,
         metrics.bytecodeCompileInputBytes,
@@ -855,6 +856,8 @@ fn counters(metrics: &LuauMetrics) -> [u64; 29] {
         metrics.hotFunctionsPromoted,
         metrics.hotPromotionElapsedNs,
         metrics.hotPromotionCpuNs,
+        metrics.hotBindElapsedNs,
+        metrics.hotBindCpuNs,
         metrics.codegenReservationBytes,
         metrics.codegenReservationCount,
         metrics.codegenPeakReservedBytes,
@@ -901,4 +904,49 @@ fn assert_times_advance(metrics: &LuauMetrics) {
         assert!(metrics.bytecodeCompileCpuNs > 0);
         assert!(metrics.bytecodeLoadCpuNs > 0);
     }
+}
+
+/// Returns a VM in tiered execution with the given threshold, or `None` when native compilation is unsupported.
+fn tiered(threshold: u32) -> Option<Lua> {
+    let lua = Lua::new();
+    configure_tiered(&lua, threshold).then_some(lua)
+}
+
+fn configure_tiered(lua: &Lua, threshold: u32) -> bool {
+    configure(lua, ExecutionMode::Interpreter).expect("interpreter execution is supported");
+    configure_mode(lua, ExecutionMode::Tiered);
+    if !supported() {
+        return false;
+    }
+    set_tier_up(
+        lua,
+        TierUp {
+            threshold: NonZeroU32::new(threshold).expect("the threshold is nonzero"),
+            queue_capacity: NonZeroU32::new(8).expect("the capacity is nonzero"),
+        },
+    )
+    .expect("tier-up parameters are accepted");
+    true
+}
+
+// The chunk is loaded after the parameters apply, so its own entry counts too. Draining a chunk that queued itself keeps the queue to the
+// functions under test, which is unambiguous only while nothing else waits.
+fn returned(lua: &Lua, loader: Loader, source: &str) -> Function {
+    let chunk = loader
+        .load(lua, source, c"@tier-up.luau")
+        .expect("the fixture loads");
+    let before = hot_queue_len(lua).expect("the queue is readable");
+    let function = chunk.call(()).expect("the fixture returns a function");
+    if hot_queue_len(lua).expect("the queue is readable") > before {
+        assert_eq!(
+            before, 0,
+            "a queued chunk is drained only from an empty queue"
+        );
+        promote(lua, InstructionBudget(usize::MAX)).expect("the chunk promotes");
+    }
+    function
+}
+
+fn call_probe(lua: &Lua, function: &Function) -> bool {
+    function.call(probe(lua)).expect("the probe returns")
 }

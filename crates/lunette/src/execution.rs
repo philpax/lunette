@@ -1,10 +1,19 @@
 //! Configures per-VM Luau compilation, promotes hot functions to native code, and snapshots opt-in bridge metrics.
 
-use std::{mem::MaybeUninit, num::NonZeroU32};
+mod promoter;
+
+use std::{
+    ffi::c_void,
+    mem::MaybeUninit,
+    num::NonZeroU32,
+    ptr::{self, NonNull},
+};
 
 use lunette_lovr::raw;
 pub use lunette_lovr::raw::LuauMetrics;
 use mlua::{Function, Lua, chunk::Compiler, ffi};
+
+pub use self::promoter::Promoter;
 
 /// Compilation applied to chunks loaded after configuration.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -130,6 +139,63 @@ pub fn promote(lua: &Lua, budget: InstructionBudget) -> mlua::Result<usize> {
     };
     usize::try_from(bound)
         .map_err(|_| mlua::Error::runtime("lua execution: promotion requires tiered execution"))
+}
+
+/// Hot functions taken from the queue so that their code can be generated away from the Lua thread.
+///
+/// The job keeps its functions alive. After [`HotJob::compile`] returns, it is passed to [`bind_hot`] or [`discard_hot`] on the VM it came
+/// from, before that VM closes. A job that is dropped instead leaks its allocation and keeps its functions pinned; [`Promoter`] never
+/// drops one while its VM is open.
+#[must_use = "a hot job is bound or discarded on its VM"]
+pub struct HotJob(NonNull<c_void>);
+
+// SAFETY: compilation reads only the job's snapshots and the functions it pins, and touches no Lua state, so one other thread may own it.
+unsafe impl Send for HotJob {}
+
+impl HotJob {
+    /// Generates the job's native code. It touches no Lua state, so it runs on any thread while the VM continues.
+    pub fn compile(&mut self) {
+        // SAFETY: the job is live and owned by this value, and the bridge reads only the job.
+        unsafe { raw::luax_compileluauhot(self.0.as_ptr()) }
+    }
+}
+
+/// Takes queued hot functions within the budget for compilation away from the Lua thread, or `None` when nothing is queued or the VM is
+/// not in [`ExecutionMode::Tiered`].
+pub fn take_hot(lua: &Lua, budget: InstructionBudget) -> mlua::Result<Option<HotJob>> {
+    let mut job = ptr::null_mut();
+    // SAFETY: `exec_raw` locks the live VM, protects the pin reservation, and restores the stack.
+    unsafe {
+        lua.exec_raw::<()>((), |state| {
+            job = raw::luax_takeluauhot(state.cast(), budget.0);
+        })?;
+    }
+    Ok(NonNull::new(job).map(HotJob))
+}
+
+/// Installs a compiled job's native code and returns how many functions were bound.
+///
+/// Functions compiled through another path or given a breakpoint while the job was compiled keep their state. The job must have come from
+/// this VM, and [`HotJob::compile`] must have returned.
+pub fn bind_hot(lua: &Lua, job: HotJob) -> mlua::Result<usize> {
+    let mut bound = 0;
+    // SAFETY: `exec_raw` locks the live VM and restores the stack. The job came from this VM and compilation has finished.
+    unsafe {
+        lua.exec_raw::<()>((), |state| {
+            bound = raw::luax_bindluauhot(state.cast(), job.0.as_ptr());
+        })?;
+    }
+    Ok(usize::try_from(bound).unwrap_or_default())
+}
+
+/// Releases a job without installing its code. The job must have come from this VM, and no compilation of it may be running.
+pub fn discard_hot(lua: &Lua, job: HotJob) -> mlua::Result<()> {
+    // SAFETY: `exec_raw` locks the live VM and restores the stack. The job came from this VM and nothing else reads it.
+    unsafe {
+        lua.exec_raw::<()>((), |state| {
+            raw::luax_discardluauhot(state.cast(), job.0.as_ptr());
+        })
+    }
 }
 
 /// Returns the number of hot functions waiting for [`promote`].
