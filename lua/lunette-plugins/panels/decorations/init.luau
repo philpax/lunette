@@ -82,7 +82,9 @@ return plugin.consumer<<Config, Settings>> {
         end)
         local entry = entries[target]
         if entry then
-          entry.options:set(options)
+          if not controls.sameContent(entry.options:get(), options) then
+            entry.options:set(options)
+          end
         else
           local store = ui.store(options)
           local surface = (target :: any) :: vocabulary.Surface
