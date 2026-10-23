@@ -22,7 +22,7 @@ Promotion only reaches the speed of all-native compilation for the functions it 
 
 The CodeGen arena never reuses freed blocks, as [the LÖVR integration notes](lovr-integration.md#native-compile-cost) record for all-native compilation. A source reload creates new prototypes, which become hot and promote again, so arena reservation still grows with each reload, by the size of the hot set rather than of every loaded module.
 
-The global environment stays mutable, so promoted code keeps the guarded fallbacks for builtin calls and imports, and generic `ipairs` loops can leave native execution. Sandboxed Luau states do not have these fallbacks, which is why the fork's conformance tests sandbox their states.
+Sessions protect the standard library and mark the environment safe, so promoted code takes builtin fast paths. Imports are still looked up when they run rather than resolved at load.
 
 Counting adds a decrement and a branch to every interpreted call and back-edge of a counting function. A promoted function stops counting, and a function that never becomes hot keeps counting.
 

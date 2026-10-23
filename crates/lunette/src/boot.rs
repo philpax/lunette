@@ -20,6 +20,7 @@ use std::{
 use lunette::{
     aliases::ModuleRoots,
     control::{CHUNKS_PER_FRAME, ChunkQueue, answer},
+    environment,
     execution::{self, ExecutionMode, InstructionBudget, TierUp},
     frame::{FrameDriver, Startup},
     layers::{LovrBlits, LovrLayers},
@@ -178,6 +179,12 @@ fn run_session(
         // Before `boot.lua`, which requires `main.luau` through it.
         if let Err(error) = require::install(&lua_handle) {
             error!("lua: relative require could not be installed: {error}");
+            return LOAD_FAILED;
+        }
+
+        // After the host's globals and before any configuration code, so builtin fast paths stay valid for the session.
+        if let Err(error) = environment::protect(&lua_handle) {
+            error!("lua: the standard library could not be protected: {error}");
             return LOAD_FAILED;
         }
 

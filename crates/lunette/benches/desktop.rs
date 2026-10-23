@@ -5,6 +5,10 @@ mod compiler_metrics;
 mod owner;
 mod profiling;
 #[path = "../tests/lua/state.rs"]
+#[expect(
+    dead_code,
+    reason = "state::new is for the ordinary Lua runner; the benchmark fixes the clock first"
+)]
 mod state;
 
 use std::{
@@ -615,13 +619,13 @@ fn measure(mode: Mode, round: u32, arguments: &Arguments) -> Result<Measurement,
     };
     let lua = match &graphics {
         Some(owner) => {
-            owner
-                .configure(&roots)
+            fix_clock(owner.lua())
+                .and_then(|()| owner.configure(&roots))
                 .and_then(|()| owner.initialize())
                 .map_err(|error| error.to_string())?;
             owner.lua().clone()
         }
-        None => state::new(&roots)?,
+        None => state::new_with(&roots, fix_clock)?,
     };
     let mut jit_symbols = None;
     let mut workload: Option<Table> = None;
@@ -1060,6 +1064,13 @@ impl PromotionLog {
             "last_promotion_frame": self.last_frame,
         })
     }
+}
+
+// The wrist menu's clock reads `os.date`, so a fixed time keeps its text and glyphs identical across samples and
+// frames. It is installed before the session protects the standard library.
+fn fix_clock(lua: &Lua) -> mlua::Result<()> {
+    let os: Table = lua.globals().get("os")?;
+    os.set("date", lua.create_function(|_, ()| Ok("12:00"))?)
 }
 
 fn tier_up(arguments: &Arguments) -> Result<TierUp, Box<dyn Error>> {
