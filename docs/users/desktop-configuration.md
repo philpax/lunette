@@ -15,7 +15,7 @@ lunette --config-path DIR
 
 The standard library is read-only: configuration code cannot patch `math`, `string`, `table`, or the other libraries, and assigning a global such as `type` or `pairs` raises an error. Plugins replace behaviour instead.
 
-`lunette --luau-execution tiered` compiles Luau functions to native code once they become hot, which reduces the CPU time of frequently run configuration and plugin code. Promotion happens between frames. A CPU or build without native compilation runs the session interpreted and logs why.
+Sessions compile Luau functions to native code once they become hot, which reduces the CPU time of frequently run configuration and plugin code. Compilation runs on a worker thread, and the compiled code takes effect between frames. `lunette --luau-execution interpreter` runs the session interpreted instead, and a CPU or build without native compilation does so automatically and logs why.
 
 ## Settings
 

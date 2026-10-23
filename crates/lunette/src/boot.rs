@@ -52,9 +52,9 @@ pub struct SessionPaths<'a> {
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq, clap::ValueEnum)]
 pub enum Execution {
     /// O1 bytecode, as LÖVR loads it without configuration.
-    #[default]
     Interpreter,
-    /// Native compilation of functions that become hot, promoted between frames.
+    /// Native compilation of functions that become hot, generated on a worker and installed between frames.
+    #[default]
     Tiered,
 }
 

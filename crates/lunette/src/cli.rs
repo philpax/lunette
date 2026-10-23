@@ -43,8 +43,9 @@ pub struct Cli {
 
     /// How the session compiles Luau.
     ///
-    /// `tiered` compiles functions to native code once they become hot. A CPU
-    /// or build without native compilation interprets instead.
+    /// `tiered`, the default, compiles functions to native code once they
+    /// become hot, and `interpreter` runs O1 bytecode only. A CPU or build
+    /// without native compilation interprets instead.
     #[arg(long, value_enum, default_value_t)]
     pub luau_execution: Execution,
 

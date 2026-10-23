@@ -1,6 +1,6 @@
 # Tiered compilation
 
-Tiered compilation compiles Luau functions to native code once they become hot, without source markers. A session runs arbitrary user and plugin code, so the host cannot know in advance which modules deserve `--!native`, and compiling everything costs startup time and code arena on every reload. `lunette --luau-execution tiered` selects it; the default remains O1 interpretation.
+Tiered compilation compiles Luau functions to native code once they become hot, without source markers. A session runs arbitrary user and plugin code, so the host cannot know in advance which modules deserve `--!native`, and compiling everything costs startup time and code arena on every reload. Sessions use it by default, and `lunette --luau-execution interpreter` selects O1 interpretation instead.
 
 ## Mechanism
 
