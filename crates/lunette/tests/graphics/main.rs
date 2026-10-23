@@ -66,6 +66,7 @@ fn serial_fixtures(roots: &Roots) -> Result<(), String> {
         "aurora-reload",
         "shader-specialization",
         "ui-host",
+        "ui-uploads",
         "ui-gallery",
         "backdrop-views",
     ] {

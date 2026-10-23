@@ -885,6 +885,12 @@ installLovr = function(events: Events)
   local font = recorder.font
   events.render = recorder
   lovr.graphics = {
+    getLimits = function(): { read uniformBufferAlign: number }
+      return { uniformBufferAlign = 256 }
+    end,
+    newBuffer = function(format: string, length: number): render.Buffer
+      return recorder:newBuffer(format, length)
+    end,
     newMesh = function(...: any): render.Mesh
       return recorder:newMesh(...)
     end,

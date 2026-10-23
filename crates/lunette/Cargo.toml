@@ -3,6 +3,7 @@ name = "lunette"
 # The crate builds two binaries. A bare `cargo run` selects this one, and
 # lunctl is reached with `--bin lunctl`.
 default-run = "lunette"
+autobenches = false
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
@@ -65,6 +66,7 @@ lunette-ui = { path = "../lunette-ui", features = ["test-fonts"] }
 libtest-mimic.workspace = true
 pretty_assertions.workspace = true
 proptest.workspace = true
+serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 tempfile.workspace = true
 
@@ -85,6 +87,11 @@ required-features = ["graphics-tests"]
 [[bench]]
 name = "desktop"
 path = "benches/desktop.rs"
+harness = false
+
+[[bench]]
+name = "graph_snapshot"
+path = "benches/graph_snapshot.rs"
 harness = false
 
 [lints]

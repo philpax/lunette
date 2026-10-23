@@ -402,6 +402,8 @@ impl ScriptContext for Context<'_, '_> {
         self.computation
             .set_unrounded_layout(taffy_id(child), &layout);
         if let Some(node) = self.computation.tree.nodes.get_mut(&child) {
+            // A later callback error does not roll back this placement.
+            self.computation.tree.placement_dirty |= node.transform != transform;
             node.transform = transform;
         }
         self.placed.push(child);
@@ -451,6 +453,11 @@ impl LayoutPartialTree for Computation<'_> {
 
     fn set_unrounded_layout(&mut self, id: TaffyId, layout: &taffy::Layout) {
         if let Some(node) = self.tree.nodes.get_mut(&host_id(id)) {
+            // Only these layout fields contribute to the reported placement.
+            self.tree.placement_dirty |= node.layout.location.x != layout.location.x
+                || node.layout.location.y != layout.location.y
+                || node.layout.size.width != layout.size.width
+                || node.layout.size.height != layout.size.height;
             node.layout = *layout;
         }
     }

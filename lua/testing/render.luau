@@ -2,6 +2,7 @@
 -- Text bounds are metric boxes, not rasterized glyph ink.
 -- meshFailure and shaderFailure inject one acquisition error; acquisition and release lists record resource counts.
 -- Custom meshes and uniforms record submitted data without shader execution or GPU validation.
+-- Buffer sends snapshot their ranges at recording time; mutable-buffer submission semantics are not modeled.
 
 local render = {}
 
@@ -35,6 +36,14 @@ export type Mesh = {
   release: (Mesh) -> (),
 }
 export type Shader = { vertex: string, fragment: string, released: boolean, release: (Shader) -> () }
+export type Buffer = {
+  kind: 'buffer',
+  capacity: number,
+  data: { number },
+  released: boolean,
+  setData: (Buffer, { number }, number, number, number) -> (),
+  release: (Buffer) -> (),
+}
 -- Recorded graphics calls retain the different overloads accepted at the LÖVR boundary.
 export type TextureToken = { read name: string?, read getDimensions: ((TextureToken) -> (number, number))? }
 export type Argument =
@@ -50,6 +59,7 @@ export type Argument =
   | Font
   | Mesh
   | Shader
+  | Buffer
   | TextureToken
   | { number }
   | { { number } }
@@ -96,8 +106,10 @@ export type Recorder = {
   fontMeasurements: { { font: Font, method: string, text: string? } },
   meshAcquisitions: { Mesh },
   shaderAcquisitions: { Shader },
+  bufferAcquisitions: { Buffer },
   meshReleases: { Mesh },
   shaderReleases: { Shader },
+  bufferReleases: { Buffer },
   meshFailure: string?,
   shaderFailure: string?,
   _state: State,
@@ -107,6 +119,7 @@ export type Recorder = {
   newFont: (Recorder, string, number, number) -> Font,
   newMesh: (Recorder, number | VertexFormat, ({ { number } } | number | MeshFlags)?, MeshFlags?) -> Mesh,
   newShader: (Recorder, string, string) -> Shader,
+  newBuffer: (Recorder, string, number) -> Buffer,
   newTexture: (Recorder, any, any?) -> Texture,
   textureAcquisitions: { Texture },
   assertMeshesReleased: (Recorder) -> (),
@@ -157,9 +170,11 @@ function render.new(calls: ({ Call } | () -> { Call })?): Recorder
     fontMeasurements = {},
     meshAcquisitions = {},
     shaderAcquisitions = {},
+    bufferAcquisitions = {},
     textureAcquisitions = {},
     meshReleases = {},
     shaderReleases = {},
+    bufferReleases = {},
     _state = {},
     _transform = lovr.math.newMat4(),
     _stacks = { state = {}, transform = {} },
@@ -284,6 +299,52 @@ function Recorder.newShader(self: Recorder, vertex: string, fragment: string): S
   return shader
 end
 
+function Recorder.newBuffer(self: Recorder, format: string, capacity: number): Buffer
+  assert(format == 'vec4', 'render recorder: unsupported buffer format')
+  assert(
+    type(capacity) == 'number' and capacity > 0 and capacity < math.huge and capacity % 1 == 0,
+    'render recorder: invalid buffer capacity'
+  )
+  local recorder = self
+  local buffer: Buffer =
+    { kind = 'buffer', capacity = capacity, data = table.create(capacity * 4, 0), released = false }
+  function buffer.setData(self: Buffer, data: { number }, destination: number, source: number, count: number)
+    assert(not self.released, 'render recorder: released buffer updated')
+    assert(
+      type(destination) == 'number'
+        and destination >= 1
+        and destination % 1 == 0
+        and type(source) == 'number'
+        and source >= 1
+        and source % 1 == 0
+        and type(count) == 'number'
+        and count >= 0
+        and count % 1 == 0,
+      'render recorder: invalid buffer write range'
+    )
+    assert(destination - 1 + count <= self.capacity, 'render recorder: buffer write exceeds capacity')
+    assert(type(data) == 'table' and source - 1 + count * 4 <= #data, 'render recorder: buffer source range exceeded')
+    for index = source, source + count * 4 - 1 do
+      local value = data[index]
+      assert(
+        type(value) == 'number' and value == value and math.abs(value) < math.huge,
+        'render recorder: invalid buffer value'
+      )
+    end
+    for index = 0, count * 4 - 1 do
+      self.data[(destination - 1) * 4 + index + 1] = data[source + index]
+    end
+  end
+  function buffer.release(self: Buffer)
+    assert(not self.released, 'render recorder: buffer released twice')
+    self.released = true
+    self.data = {}
+    recorder.bufferReleases[#recorder.bufferReleases + 1] = self
+  end
+  self.bufferAcquisitions[#self.bufferAcquisitions + 1] = buffer
+  return buffer
+end
+
 -- A texture records the images uploaded to it, so a test can tell how often its pixels changed.
 export type Texture = {
   released: boolean,
@@ -319,6 +380,9 @@ function Recorder.assertResourcesReleased(self: Recorder)
   self:assertMeshesReleased()
   for _, shader in self.shaderAcquisitions do
     assert(shader.released, 'render recorder: leaked shader')
+  end
+  for _, buffer in self.bufferAcquisitions do
+    assert(buffer.released, 'render recorder: leaked buffer')
   end
   for _, texture in self.textureAcquisitions do
     assert(texture.released, 'render recorder: leaked texture')
@@ -485,6 +549,27 @@ newPass = function(recorder: Recorder): Pass
     return copy
   end
   function pass.send(self: Pass, name: string, ...: Argument)
+    local value, offset, extent = ...
+    if type(value) == 'table' and value.kind == 'buffer' then
+      local buffer = value :: Buffer
+      assert(not buffer.released, 'render recorder: released buffer sent')
+      assert(
+        type(offset) == 'number'
+          and offset >= 0
+          and offset % 16 == 0
+          and type(extent) == 'number'
+          and extent > 0
+          and extent % 16 == 0
+          and offset + extent <= buffer.capacity * 16,
+        'render recorder: invalid buffer range'
+      )
+      local snapshot = {}
+      for index = offset / 4 + 1, (offset + extent) / 4 do
+        snapshot[#snapshot + 1] = buffer.data[index]
+      end
+      record('send', name, { snapshot }, offset, extent)
+      return
+    end
     local call = record('send', name, ...)
     for index = 3, call.n do
       call[index] = copyUniform(call[index])

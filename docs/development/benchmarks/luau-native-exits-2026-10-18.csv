@@ -1,3 +1,0 @@
-configuration,rounds,frames,warmup,micro_iterations,record_counters,cold_functions,compile_requests,functions_compiled,functions_bound,compile_failures,regular_block_hits,fallback_block_hits,vm_exit_hits,counter_failures
-before-continuation,1,3,2,20,True,True,298,3161,3161,0,38573697,4083643,2367953,0
-after-continuation,1,3,2,20,True,True,298,3161,3161,0,68510666,24132592,32990,0
