@@ -35,6 +35,24 @@ fn ten_reloads_leave_the_session_where_one_does() {
     assert_exit_status("reload", 9);
 }
 
+/// Both execution modes boot, and a hot function computes the same result after promotion as before it.
+#[test]
+fn tiered_execution_promotes_without_changing_results() {
+    for execution in ["interpreter", "tiered"] {
+        let (mut command, _data) = session::command("tiered");
+        let output = command
+            .args(["--luau-execution", execution])
+            .output()
+            .unwrap_or_else(|error| panic!("the lunette binary could not be run: {error}"));
+        assert_eq!(
+            output.status.code(),
+            Some(7),
+            "{execution}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
 /// The write goes to the save directory, which is mounted behind the module roots. The
 /// `fixture` field tells the temporary tree apart from any other the session might resolve,
 /// and the marker reaches the configuration as `arg[1]`.

@@ -3,7 +3,10 @@ local lunette = require '@lunette'
 
 local offscreen = {}
 
-function offscreen.new(): any
+-- Software rendering is the reproducible comparison; hardware rendering measures a device's own driver.
+export type Driver = 'software' | 'hardware'
+
+function offscreen.new(driver: Driver): any
   local graphics, data = lovr.graphics, lovr.data
   local resources = {}
   local closed = false
@@ -75,7 +78,14 @@ function offscreen.new(): any
   end
 
   local ok, failure = pcall(function(): ()
-    assert(details.device:lower():find 'llvmpipe', 'benchmark graphics: device is not Mesa lavapipe')
+    if driver == 'software' then
+      assert(details.device:lower():find 'llvmpipe', 'benchmark graphics: device is not Mesa lavapipe')
+    else
+      assert(
+        not details.device:lower():find 'llvmpipe',
+        'benchmark graphics: hardware rendering selected Mesa lavapipe'
+      )
+    end
     target = own(graphics.newTexture(details.width, details.height, {
       format = 'rgba8',
       linear = true,

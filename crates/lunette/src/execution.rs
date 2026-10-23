@@ -1,6 +1,6 @@
-//! Configures per-VM Luau compilation and snapshots opt-in bridge metrics.
+//! Configures per-VM Luau compilation, promotes hot functions to native code, and snapshots opt-in bridge metrics.
 
-use std::mem::MaybeUninit;
+use std::{mem::MaybeUninit, num::NonZeroU32};
 
 use lunette_lovr::raw;
 pub use lunette_lovr::raw::LuauMetrics;
@@ -18,7 +18,26 @@ pub enum ExecutionMode {
     Native,
     /// Optimized bytecode and Luau's marked-only native compilation for `--!native` modules and `@native` functions.
     NativeMarked,
+    /// Optimized bytecode, marked-only compilation at load, and native compilation of other functions once they become hot.
+    ///
+    /// Functions loaded in this mode count interpreted entries and loop iterations. A function whose count reaches the [`TierUp`] threshold waits in a bounded queue until [`promote`] compiles it. Promotion needs no source markers, so it covers code whose workload is unknown in advance.
+    Tiered,
 }
+
+/// Promotion parameters for [`ExecutionMode::Tiered`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TierUp {
+    /// Interpreted entries plus loop iterations after which a function waits for promotion.
+    pub threshold: NonZeroU32,
+    /// Functions that can wait at once. A function that finds the queue full counts again from the threshold.
+    pub queue_capacity: NonZeroU32,
+}
+
+/// The bytecode instructions one [`promote`] call may compile.
+///
+/// Compilation cost grows with function size, so a budget in instructions bounds the time a promotion takes more closely than a function count.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct InstructionBudget(pub usize);
 
 /// Sets compilation options for the VM and its coroutines.
 ///
@@ -26,12 +45,16 @@ pub enum ExecutionMode {
 pub fn configure(lua: &Lua, mode: ExecutionMode) -> mlua::Result<()> {
     let optimization = match mode {
         ExecutionMode::Interpreter => 1,
-        ExecutionMode::Optimized | ExecutionMode::Native | ExecutionMode::NativeMarked => 2,
+        ExecutionMode::Optimized
+        | ExecutionMode::Native
+        | ExecutionMode::NativeMarked
+        | ExecutionMode::Tiered => 2,
     };
     let native_scope = match mode {
         ExecutionMode::Interpreter | ExecutionMode::Optimized => NativeScope::None,
         ExecutionMode::Native => NativeScope::All,
         ExecutionMode::NativeMarked => NativeScope::Marked,
+        ExecutionMode::Tiered => NativeScope::Tiered,
     };
     // SAFETY: `exec_raw` locks the live VM, protects registry allocations, and restores the stack.
     let configured: bool = unsafe {
@@ -73,6 +96,54 @@ pub fn compile(lua: &Lua, function: &Function) -> mlua::Result<()> {
     }
 }
 
+/// Sets the threshold and queue capacity that [`ExecutionMode::Tiered`] applies to functions loaded afterwards.
+///
+/// The parameters persist across mode changes. Other modes stop newly loaded functions from counting, and functions already waiting stay queued.
+pub fn set_tier_up(lua: &Lua, tier_up: TierUp) -> mlua::Result<()> {
+    let threshold = c_int(tier_up.threshold, "threshold")?;
+    let queue_capacity = c_int(tier_up.queue_capacity, "queue capacity")?;
+    // SAFETY: `exec_raw` locks the live VM, protects registry and queue allocations, and restores the stack.
+    let set: bool = unsafe {
+        lua.exec_raw((), |state| {
+            let set = raw::luax_setluautierup(state.cast(), threshold, queue_capacity);
+            ffi::lua_pushboolean(state, i32::from(set));
+        })?
+    };
+    if !set {
+        return Err(mlua::Error::runtime(
+            "lua execution: tier-up requires a build with native compilation",
+        ));
+    }
+    Ok(())
+}
+
+/// Compiles queued hot functions oldest first and returns how many were bound to native code.
+///
+/// Compilation stops before the next function would exceed the budget, but always takes the first one, so a function larger than the budget still promotes. Functions already compiled through another path leave the queue without compiling. Nested functions are not compiled with their parent. Frames already running a promoted function finish in the interpreter, and its next call enters native code.
+pub fn promote(lua: &Lua, budget: InstructionBudget) -> mlua::Result<usize> {
+    // SAFETY: `exec_raw` locks the live VM, protects the call, and restores the stack. Compilation allocates no Lua objects.
+    let bound: i32 = unsafe {
+        lua.exec_raw((), |state| {
+            let bound = raw::luax_promoteluau(state.cast(), budget.0);
+            ffi::lua_pushinteger(state, bound.into());
+        })?
+    };
+    usize::try_from(bound)
+        .map_err(|_| mlua::Error::runtime("lua execution: promotion requires tiered execution"))
+}
+
+/// Returns the number of hot functions waiting for [`promote`].
+pub fn hot_queue_len(lua: &Lua) -> mlua::Result<usize> {
+    // SAFETY: `exec_raw` locks the live VM and restores the stack. The query reads one field.
+    let len: i32 = unsafe {
+        lua.exec_raw((), |state| {
+            let len = raw::luax_getluauhotqueuesize(state.cast());
+            ffi::lua_pushinteger(state, len.into());
+        })?
+    };
+    Ok(usize::try_from(len).unwrap_or_default())
+}
+
 /// Enables cumulative metrics for the VM and its coroutines before the first successful execution configuration.
 ///
 /// Repeated calls are idempotent, including after configuration. A late first call returns an error without changing compilation settings. Metrics cover calls through the LÖVR bridge, not mlua's bytecode compiler or loader. Explicit native compilation through [`compile`] is included.
@@ -94,7 +165,7 @@ pub fn enable_metrics(lua: &Lua) -> mlua::Result<()> {
 
 /// Returns a scalar metrics snapshot, or `None` when metrics are disabled.
 ///
-/// Counters remain cumulative across snapshots, configuration changes, source reloads, and garbage collection. `codegenReservedBytes` and `codegenLiveReservationCount` are live arena-reservation gauges; the corresponding peak fields are high-water marks. `codegenReservationBytes` and `codegenReservationCount` are cumulative reservation totals. These reservations do not measure live executable code. Native code, data, and metadata byte counters measure cumulative emission.
+/// Counters remain cumulative across snapshots, configuration changes, source reloads, and garbage collection. `codegenReservedBytes` and `codegenLiveReservationCount` are live arena-reservation gauges; the corresponding peak fields are high-water marks. `codegenReservationBytes` and `codegenReservationCount` are cumulative reservation totals. These reservations do not measure live executable code. Native code, data, and metadata byte counters measure cumulative emission. The native totals include [`promote`] calls, and the `hot` fields report that subset.
 ///
 /// Times are nanoseconds spent in bridge calls. The availability fields identify supported elapsed, calling-thread CPU, and native CodeGen measurements. `lastNativeCompileResult` holds the Luau CodeGen result value, or `-1` before any native compilation call. Reading a snapshot does not reset counters or gauges.
 pub fn metrics(lua: &Lua) -> mlua::Result<Option<LuauMetrics>> {
@@ -126,6 +197,16 @@ enum NativeScope {
     None = 0,
     All = 1,
     Marked = 2,
+    Tiered = 3,
+}
+
+fn c_int(value: NonZeroU32, name: &str) -> mlua::Result<i32> {
+    i32::try_from(value.get()).map_err(|_| {
+        mlua::Error::runtime(format!(
+            "lua execution: the tier-up {name} exceeds {}",
+            i32::MAX
+        ))
+    })
 }
 
 #[cfg(test)]

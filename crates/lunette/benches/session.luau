@@ -2,10 +2,12 @@
 local native = require '@testing/native'
 local host = require '@testing/host'
 local lunette = require '@lunette'
+local offscreen = require './offscreen'
 
 local session = {}
 
-function session.new(offscreen: boolean?, cpuClock: (() -> number)?): any
+-- Without a driver, the session records graphics calls in Lua instead of rendering.
+function session.new(driver: offscreen.Driver?, cpuClock: (() -> number)?): any
   assert(host.benchmark == nil, 'benchmark: a session is already active')
   local original = {
     graphics = lovr.graphics,
@@ -69,10 +71,10 @@ function session.new(offscreen: boolean?, cpuClock: (() -> number)?): any
   local ok, failure = pcall(function(): ()
     -- Install the fake before optimized imports can capture the native boundary.
     stable.fake = native.new()
-    if offscreen then
+    if driver then
       assert(original.graphics and original.data, 'benchmark: offscreen mode needs real graphics and data')
       lovr.graphics, lovr.data = original.graphics, original.data
-      stable.renderer = require('./offscreen').new()
+      stable.renderer = offscreen.new(driver)
     end
     os.date = function(_format: string?, _time: number?): string
       return '12:00'
