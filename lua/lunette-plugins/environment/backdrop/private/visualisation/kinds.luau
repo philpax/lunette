@@ -29,6 +29,7 @@ local SKYLINE_DEPTH = 0.05
 local CURTAIN_REACH = 1.4
 -- Radians the model tips toward the viewer about the panel's horizontal axis.
 local MODEL_TILT = math.pi / 4
+local GROUND = table.freeze { 0.16, 0.18, 0.22, 0.9 }
 -- A light from above and to the left of the viewer shades the faces of the columns and markers.
 local VERTEX = [[
   vec4 lovrmain() {
@@ -47,6 +48,9 @@ local tint: (Pass, scene.Color, uiHost.Volume) -> ()
 
 function kinds.register(host: uiHost.Service, owner: plugin.Context, sources: Sources): Constructors
   local shader = shaded(owner)
+  -- Visuals can run again each frame. Weak keys keep storage with the node without retaining removed panels.
+  local skylines: { [uiHost.Node]: scene.SkylineBuffer } = setmetatable({}, { __mode = 'k' })
+  local models: { [uiHost.Node]: scene.MarkerBuffer } = setmetatable({}, { __mode = 'k' })
   local skyline = host:registerKind(owner, {
     name = 'desktop/backdrop/skyline',
     layout = {
@@ -58,6 +62,11 @@ function kinds.register(host: uiHost.Service, owner: plugin.Context, sources: So
     visuals = { 'desktop/backdrop/skyline' },
   })
   host:registerVisual(owner, 'desktop/backdrop/skyline', function(node: uiHost.Node, draw: uiHost.Draw): ()
+    local buffer = skylines[node]
+    if not buffer then
+      buffer = scene.newSkyline()
+      skylines[node] = buffer
+    end
     local theme = node.theme
     draw:box(nil, { fill = theme.colors.sunken, radius = theme.radii.control })
     draw:volume(nil, {
@@ -69,7 +78,8 @@ function kinds.register(host: uiHost.Service, owner: plugin.Context, sources: So
           sources.palette,
           volume.width * 0.94,
           volume.height * 0.9,
-          volume.depth
+          volume.depth,
+          buffer
         )
         pass:setShader(shader())
         pass:setDepthTest 'gequal'
@@ -98,16 +108,27 @@ function kinds.register(host: uiHost.Service, owner: plugin.Context, sources: So
     visuals = { 'desktop/backdrop/model' },
   })
   host:registerVisual(owner, 'desktop/backdrop/model', function(node: uiHost.Node, draw: uiHost.Draw): ()
+    local buffer = models[node]
+    if not buffer then
+      buffer = scene.newMarkers()
+      models[node] = buffer
+    end
     local theme = node.theme
     local size = node.props.size :: number
-    local accent = table.clone(theme.colors.accent :: { number })
     draw:box(nil, { fill = theme.colors.sunken, radius = theme.radii.control })
     draw:volume(nil, {
       depth = size,
       draw = function(pass: Pass, volume: uiHost.Volume): ()
         local radius = math.min(volume.width, volume.height, volume.depth) / 2 / CURTAIN_REACH
         local observed = sources.observed
-        local markers = scene.markers(observed, sources.palette, sources.sectors, sources.hold, accent)
+        local markers = scene.markers(
+          observed,
+          sources.palette,
+          sources.sectors,
+          sources.hold,
+          node.theme.colors.accent :: { number },
+          buffer
+        )
         -- The model sits in the middle of the volume and turns with the world rather than the panel, so each of its
         -- directions is the direction in the sky it shows. It tips its top toward the viewer, so the ground and its
         -- marks face the panel's reader.
@@ -118,7 +139,7 @@ function kinds.register(host: uiHost.Service, owner: plugin.Context, sources: So
         pass:setShader(shader())
         pass:setDepthTest 'gequal'
         pass:setDepthWrite(true)
-        tint(pass, { 0.16, 0.18, 0.22, 0.9 }, volume)
+        tint(pass, GROUND :: { number }, volume)
         pass:cylinder(vector.create(0, -radius * 0.04, 0), vector.create(0, -radius * 0.015, 0), radius * 1.06, true)
         for _, rod in markers.rods do
           tint(pass, rod.color, volume)

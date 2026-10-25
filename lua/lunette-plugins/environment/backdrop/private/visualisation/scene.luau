@@ -49,6 +49,20 @@ export type Ball = { read at: vector, read radius: number, read color: Color }
 
 export type Markers = { read rods: { Rod }, read balls: { Ball } }
 
+type StoredBar = { x: number, y: number, z: number, width: number, height: number, depth: number, color: Color }
+type StoredRod = { from: vector, to: vector, radius: number, color: Color }
+type StoredBall = { at: vector, radius: number, color: Color }
+
+export type SkylineBuffer = { read shape: Skyline, read bars: { StoredBar }, read caps: { StoredBar } }
+export type MarkerBuffer = {
+  read shape: Markers,
+  read rods: { StoredRod },
+  read balls: { StoredBall },
+  read ink: Color,
+  read accent: Color,
+  read bound: Color,
+}
+
 export type Pool = { read band: model.Band, read used: number, read size: number }
 
 export type Summary = { read pools: { Pool }, read discarded: number, read silent: boolean }
@@ -67,9 +81,29 @@ local COARSE: { model.Band } =
 local WHITE = table.freeze { 1, 1, 1, 1 }
 
 local unit: (number?) -> number
-local display: ({ read [number]: number }, number, number) -> Color
+local display: (Color, { read [number]: number }, number, number) -> ()
 local direction: (number, number) -> vector
 local bandColor: (Palette, model.Band) -> { read [number]: number }
+local storedBar: ({ StoredBar }, number) -> StoredBar
+local storedRod: (MarkerBuffer, number, vector, vector, number, Color) -> ()
+local storedBall: (MarkerBuffer, number, vector, number) -> StoredBall
+local copyColor: (Color, Color) -> ()
+
+-- Buffers belong to one view. Their shapes remain valid until that buffer is updated again.
+function scene.newSkyline(): SkylineBuffer
+  return { shape = { bars = {}, caps = {} }, bars = {}, caps = {} }
+end
+
+function scene.newMarkers(): MarkerBuffer
+  return {
+    shape = { rods = {}, balls = {} },
+    rods = {},
+    balls = {},
+    ink = table.clone(WHITE :: { number }),
+    accent = {},
+    bound = {},
+  }
+end
 
 -- Adds a row to the front of the history, keeping at most `scene.ROWS`.
 function scene.push(history: { Row }, row: Row): ()
@@ -94,10 +128,12 @@ function scene.skyline(
   palette: Palette,
   width: number,
   height: number,
-  depth: number
+  depth: number,
+  reuse: SkylineBuffer?
 ): Skyline
-  local bars: { Bar } = {}
-  local caps: { Bar } = {}
+  local buffer = reuse or scene.newSkyline()
+  local bars, caps = buffer.shape.bars, buffer.shape.caps
+  local barCount, capCount = 0, 0
   local slot = width / model.SPECTRUM_BANDS
   local half = slot * (1 - GAP) / 2
   local spacing = depth / scene.ROWS
@@ -108,19 +144,17 @@ function scene.skyline(
     for band = 1, model.SPECTRUM_BANDS do
       local level = unit(row.spectrum[band])
       local balance = if level > 0 then math.clamp((row.stereo[band] or 0) / level, -1, 1) else 0
-      local sides = { level * (1 - math.max(balance, 0)), level * (1 + math.min(balance, 0)) }
       local centre = -width / 2 + (band - 0.5) * slot
       for side = 1, 2 do
-        local tall = math.max(height * sides[side], height * 0.01)
-        table.insert(bars, {
-          x = centre + (side - 1.5) * half,
-          y = floor + tall / 2,
-          z = z,
-          width = half * 0.9,
-          height = tall,
-          depth = spacing * 0.6,
-          color = display(bandColor(palette, COARSE[band]), 0.35 + 0.65 * sides[side], fade),
-        })
+        local levelAtSide = if side == 1 then level * (1 - math.max(balance, 0)) else level * (1 + math.min(balance, 0))
+        local tall = math.max(height * levelAtSide, height * 0.01)
+        barCount += 1
+        local bar = storedBar(buffer.bars, barCount)
+        bar.x = centre + (side - 1.5) * half
+        bar.y, bar.z = floor + tall / 2, z
+        bar.width, bar.height, bar.depth = half * 0.9, tall, spacing * 0.6
+        display(bar.color, bandColor(palette, COARSE[band]), 0.35 + 0.65 * levelAtSide, fade)
+        bars[barCount] = bar
       end
     end
   end
@@ -128,62 +162,89 @@ function scene.skyline(
     local level = unit(raw[band])
     if level > 0 then
       local thickness = height * 0.012
-      table.insert(caps, {
-        x = -width / 2 + (band - 0.5) * slot,
-        y = floor + height * level + thickness / 2,
-        z = depth - spacing / 2,
-        width = half * 2,
-        height = thickness,
-        depth = spacing * 0.8,
-        color = table.clone(WHITE :: { number }),
-      })
+      capCount += 1
+      local cap = storedBar(buffer.caps, capCount)
+      cap.x = -width / 2 + (band - 0.5) * slot
+      cap.y, cap.z = floor + height * level + thickness / 2, depth - spacing / 2
+      cap.width, cap.height, cap.depth = half * 2, thickness, spacing * 0.8
+      copyColor(cap.color, WHITE :: { number })
+      caps[capCount] = cap
     end
   end
-  return { bars = bars, caps = caps }
+  for index = #bars, barCount + 1, -1 do
+    bars[index] = nil
+  end
+  for index = #caps, capCount + 1, -1 do
+    caps[index] = nil
+  end
+  return buffer.shape
 end
 
 -- Marks on the ground of a unit model of the sky: the facing as a needle from the head, the anchor as a rod to the
 -- rim with two shorter rods at the bounds of its hold, a tick at each sector's edge, and a ball for each live onset
 -- on its band's ring, growing and fading with its age.
-function scene.markers(observed: Observed, palette: Palette, sectors: number, hold: number, accent: Color): Markers
-  local rods: { Rod } = {}
-  local balls: { Ball } = {}
-  local ink = table.clone(WHITE :: { number })
+function scene.markers(
+  observed: Observed,
+  palette: Palette,
+  sectors: number,
+  hold: number,
+  accent: Color,
+  reuse: MarkerBuffer?
+): Markers
+  local buffer = reuse or scene.newMarkers()
+  local rods, balls = buffer.shape.rods, buffer.shape.balls
+  local rodCount, ballCount = 0, 1
+  local ink, bound = buffer.ink, buffer.bound
+  copyColor(buffer.accent, accent)
+  copyColor(bound, accent)
+  bound[4] = (bound[4] or 1) * 0.5
   for sector = 0, sectors - 1 do
     local turn = (sector + 0.5) / sectors
-    table.insert(rods, { from = direction(turn, 0.94), to = direction(turn, 1.08), radius = 0.02, color = ink })
+    rodCount += 1
+    storedRod(buffer, rodCount, direction(turn, 0.94), direction(turn, 1.08), 0.02, ink)
   end
   local anchor = observed.anchor
   if anchor then
-    table.insert(rods, { from = vector.zero, to = direction(anchor, 1.08), radius = 0.03, color = accent })
-    local bound = table.clone(accent)
-    bound[4] = (bound[4] or 1) * 0.5
-    table.insert(rods, {
-      from = direction(anchor - hold / sectors, 0.3),
-      to = direction(anchor - hold / sectors, 1),
-      radius = 0.015,
-      color = bound,
-    })
-    table.insert(rods, {
-      from = direction(anchor + hold / sectors, 0.3),
-      to = direction(anchor + hold / sectors, 1),
-      radius = 0.015,
-      color = bound,
-    })
+    rodCount += 1
+    storedRod(buffer, rodCount, vector.zero, direction(anchor, 1.08), 0.03, buffer.accent)
+    rodCount += 1
+    storedRod(
+      buffer,
+      rodCount,
+      direction(anchor - hold / sectors, 0.3),
+      direction(anchor - hold / sectors, 1),
+      0.015,
+      bound
+    )
+    rodCount += 1
+    storedRod(
+      buffer,
+      rodCount,
+      direction(anchor + hold / sectors, 0.3),
+      direction(anchor + hold / sectors, 1),
+      0.015,
+      bound
+    )
   end
   if observed.facing then
-    table.insert(rods, { from = vector.zero, to = direction(observed.facing, 0.6), radius = 0.04, color = ink })
+    rodCount += 1
+    storedRod(buffer, rodCount, vector.zero, direction(observed.facing, 0.6), 0.04, ink)
   end
-  table.insert(balls, { at = vector.zero, radius = 0.08, color = ink })
+  local head = storedBall(buffer, 1, vector.zero, 0.08)
+  copyColor(head.color, ink)
   for _, wave in observed.frame.waves do
     local progress = if wave.lifetime > 0 then math.clamp(wave.age / wave.lifetime, 0, 1) else 1
-    table.insert(balls, {
-      at = direction(wave.position, BAND_RING[wave.band]),
-      radius = 0.06 + 0.1 * progress,
-      color = display(bandColor(palette, wave.band), 1, unit(wave.strength) * (1 - progress)),
-    })
+    ballCount += 1
+    local ball = storedBall(buffer, ballCount, direction(wave.position, BAND_RING[wave.band]), 0.06 + 0.1 * progress)
+    display(ball.color, bandColor(palette, wave.band), 1, unit(wave.strength) * (1 - progress))
   end
-  return { rods = rods, balls = balls }
+  for index = #rods, rodCount + 1, -1 do
+    rods[index] = nil
+  end
+  for index = #balls, ballCount + 1, -1 do
+    balls[index] = nil
+  end
+  return buffer.shape
 end
 
 -- How full each band's onset pool is, how many onsets a full pool skipped, and whether anything is sounding.
@@ -234,14 +295,12 @@ unit = function(value: number?): number
 end
 
 -- The palette is linear light and a pass colour is sRGB, so each channel is encoded after scaling.
-display = function(linear: { read [number]: number }, scale: number, alpha: number): Color
-  local color: Color = {}
+display = function(color: Color, linear: { read [number]: number }, scale: number, alpha: number): ()
   for channel = 1, 3 do
     local value = unit((linear[channel] or 0) * scale)
     color[channel] = if value <= 0.0031308 then value * 12.92 else 1.055 * value ^ (1 / 2.4) - 0.055
   end
   color[4] = unit(alpha)
-  return color
 end
 
 bandColor = function(palette: Palette, band: model.Band): { read [number]: number }
@@ -252,6 +311,47 @@ end
 direction = function(turn: number, distance: number): vector
   local angle = turn * 2 * math.pi
   return vector.create(math.sin(angle) * distance, 0, math.cos(angle) * distance)
+end
+
+storedBar = function(pool: { StoredBar }, index: number): StoredBar
+  local bar = pool[index]
+  if not bar then
+    bar = { x = 0, y = 0, z = 0, width = 0, height = 0, depth = 0, color = {} }
+    pool[index] = bar
+  end
+  return bar
+end
+
+storedRod = function(buffer: MarkerBuffer, index: number, from: vector, to: vector, radius: number, color: Color): ()
+  local rod = buffer.rods[index]
+  if not rod then
+    rod = { from = from, to = to, radius = radius, color = color }
+    buffer.rods[index] = rod
+  else
+    rod.from, rod.to, rod.radius, rod.color = from, to, radius, color
+  end
+  buffer.shape.rods[index] = rod
+end
+
+storedBall = function(buffer: MarkerBuffer, index: number, at: vector, radius: number): StoredBall
+  local ball = buffer.balls[index]
+  if not ball then
+    ball = { at = at, radius = radius, color = {} }
+    buffer.balls[index] = ball
+  else
+    ball.at, ball.radius = at, radius
+  end
+  buffer.shape.balls[index] = ball
+  return ball
+end
+
+copyColor = function(target: Color, source: Color): ()
+  for index = 1, #source do
+    target[index] = source[index]
+  end
+  for index = #target, #source + 1, -1 do
+    target[index] = nil
+  end
 end
 
 return scene
