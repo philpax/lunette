@@ -8,6 +8,7 @@ local shape = require '../shape'
 local shader = require './shader'
 local pack = require './pack'
 local images = require './images'
+local upload = require './upload'
 
 local renderer = {}
 
@@ -23,8 +24,8 @@ export type Resources = {
   imageShader: Shader,
   -- A unit quad from 0 to 1, y down, that each glyph instance scales.
   quad: Mesh,
-  batch: { number },
-  glyphBatch: { number },
+  boxes: upload.Layout,
+  glyphData: upload.Layout,
   images: images.Cache,
   atlas: lunette.GlyphAtlas,
   -- A texture per atlas page and the page revision it holds.
@@ -155,8 +156,8 @@ function renderer.acquire(report: (string) -> ()): (Resources, () -> ())
       imageShader = keep(lovr.graphics.newShader(shader.imageVertex, shader.imageFragment, { label = 'ui/images' })),
       quad = quad(keep),
       images = cache,
-      batch = table.create(shader.SLOTS * shader.BATCH * 4, 0),
-      glyphBatch = table.create(shader.GLYPH_SLOTS * shader.GLYPH_BATCH * 4, 0),
+      boxes = upload.layout('Boxes', shader.SLOTS, shader.BATCH),
+      glyphData = upload.layout('Glyphs', shader.GLYPH_SLOTS, shader.GLYPH_BATCH),
       atlas = lunette.glyphAtlas(),
       pages = pages,
       placements = {},
@@ -269,17 +270,7 @@ local function drawBoxes(
   local light, dark = theme.colors.edgeLight, theme.colors.edgeDark
   pass:send('edgeLight', { light[1], light[2], light[3], light[4] })
   pass:send('edgeDark', { dark[1], dark[2], dark[3], dark[4] })
-  local stride = shader.SLOTS * 4
-  local batch = resources.batch
-  local transform = centre(panel)
-  local first = 0
-  while first < packed.count do
-    local count = math.min(shader.BATCH, packed.count - first)
-    table.move(packed.boxes, first * stride + 1, (first + count) * stride, 1, batch)
-    pass:send('Boxes', { batch })
-    pass:draw(mesh, transform, count)
-    first += count
-  end
+  upload.draw(resources.boxes, pass, mesh, centre(panel), packed.boxes, packed.count)
 end
 
 local function drawImages(
@@ -365,22 +356,13 @@ local function drawGlyphs(
   local atlas = resources.atlas
   local range = atlas.range / atlas.pageSize
   pass:send('glyphRange', { range, range, 0, 0 })
-  local stride = shader.GLYPH_SLOTS * 4
-  local batch = resources.glyphBatch
   for index, total in packed.glyphCounts do
     atlas:touch(index)
     local texture = page(resources, index)
     local data = packed.glyphs[index]
     if texture and data and total > 0 then
       pass:setMaterial(texture)
-      local first = 0
-      while first < total do
-        local count = math.min(shader.GLYPH_BATCH, total - first)
-        table.move(data, first * stride + 1, (first + count) * stride, 1, batch)
-        pass:send('Glyphs', { batch })
-        pass:draw(resources.quad, lovr.math.mat4(), count)
-        first += count
-      end
+      upload.draw(resources.glyphData, pass, resources.quad, lovr.math.mat4(), data, total)
     end
   end
   pass:setMaterial(nil)

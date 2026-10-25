@@ -58,8 +58,13 @@ run:
 bench-desktop:
 	$(CARGO) bench -p lunette --bench desktop -- $(BENCH_ARGS)
 
+# Offscreen validation uses the same explicit lavapipe selection as check-graphics.
 check-benchmarks:
+	$(CARGO) test -p lunette-ui --bench layout_compute -- --bench --smoke
+	$(CARGO) test -p lunette --bench graph_snapshot -- --bench --smoke
 	$(CARGO) test -p lunette --bench desktop -- --smoke
+	$(CARGO) test -p lunette --bench desktop -- --smoke --renderer offscreen
+	$(CARGO) test -p lunette --bench desktop -- --smoke --renderer offscreen --mode o2-interpreter --profile-output "$(abspath $(CARGO_TARGET_DIR)/desktop-profile-smoke.json)"
 
 CODEGEN_BUILD_DIR ?= $(CARGO_TARGET_DIR)/luau-codegen-tests
 

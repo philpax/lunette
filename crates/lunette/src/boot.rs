@@ -9,6 +9,7 @@ use std::{
     env,
     ffi::{CStr, OsString, c_int},
     mem,
+    num::NonZeroU32,
     os::unix::ffi::OsStrExt,
     path::Path,
     process::ExitCode,
@@ -19,6 +20,8 @@ use std::{
 use lunette::{
     aliases::ModuleRoots,
     control::{CHUNKS_PER_FRAME, ChunkQueue, answer},
+    environment,
+    execution::{self, ExecutionMode, InstructionBudget, Promoter, TierUp},
     frame::{FrameDriver, Startup},
     layers::{LovrBlits, LovrLayers},
     lua::{PoolRegistry, Session, install},
@@ -45,6 +48,24 @@ pub struct SessionPaths<'a> {
     pub forwarded: &'a [OsString],
 }
 
+/// How each session's Lua state compiles Luau.
+#[derive(Debug, Clone, Copy, Default, Eq, PartialEq, clap::ValueEnum)]
+pub enum Execution {
+    /// O1 bytecode, as LÖVR loads it without configuration.
+    Interpreter,
+    /// Native compilation of functions that become hot, generated on a worker and installed between frames.
+    #[default]
+    Tiered,
+}
+
+// The threshold amortises a function's compile cost over its interpreted calls, and the budget sizes each job the worker compiles,
+// which the frame thread snapshots and binds. The tiered compilation notes record the Steam Frame measurements behind both values.
+const TIER_UP: TierUp = TierUp {
+    threshold: NonZeroU32::new(10_000).unwrap(),
+    queue_capacity: NonZeroU32::new(256).unwrap(),
+};
+const PROMOTION_BUDGET: InstructionBudget = InstructionBudget(2000);
+
 /// Boots LÖVR and runs the Lua session until it exits.
 ///
 /// The session, layer registry, and startup settings outlive each Lua state. A restart replaces
@@ -55,6 +76,7 @@ pub fn run(
     layers: &Rc<PoolRegistry<LovrLayers>>,
     control: Option<&ChunkQueue>,
     startup: Startup,
+    execution: Execution,
 ) -> ExitCode {
     let platform = match Platform::init() {
         Ok(platform) => platform,
@@ -76,7 +98,7 @@ pub fn run(
     let mut cookie: raw::Variant = unsafe { mem::zeroed() };
 
     let status = loop {
-        match run_session(paths, session, &mut driver, control, &mut cookie) {
+        match run_session(paths, session, &mut driver, control, &mut cookie, execution) {
             Outcome::Restart => (),
             Outcome::Exit { status } => break status,
         }
@@ -116,6 +138,7 @@ fn run_session(
     driver: &mut FrameDriver,
     control: Option<&ChunkQueue>,
     cookie: &mut raw::Variant,
+    execution: Execution,
 ) -> Outcome {
     // SAFETY: LÖVR's boot sequence runs in order on a state this function exclusively owns. Each
     // cast converts between bindgen's and mlua-sys' declarations of the same C type.
@@ -128,6 +151,9 @@ fn run_session(
         error!("lua: the interpreter state could not be allocated");
         return LOAD_FAILED;
     }
+
+    // Before any chunk loads, because counting and type information apply at load.
+    let promoter = configure_execution(&lua_handle, execution);
 
     unsafe {
         raw::luax_setmainthread(state.cast());
@@ -154,6 +180,12 @@ fn run_session(
         // Before `boot.lua`, which requires `main.luau` through it.
         if let Err(error) = require::install(&lua_handle) {
             error!("lua: relative require could not be installed: {error}");
+            return LOAD_FAILED;
+        }
+
+        // After the host's globals and before any configuration code, so builtin fast paths stay valid for the session.
+        if let Err(error) = environment::protect(&lua_handle) {
+            error!("lua: the standard library could not be protected: {error}");
             return LOAD_FAILED;
         }
 
@@ -197,12 +229,53 @@ fn run_session(
         // `run_steps`.
         set_log_callback(raw::luax_vlog, thread.cast());
 
-        let outcome = run_steps(state, thread, session, driver, control, cookie, &lua_handle);
+        let between_frames = BetweenFrames { control, promoter };
+        let outcome = run_steps(
+            state,
+            thread,
+            session,
+            driver,
+            between_frames,
+            cookie,
+            &lua_handle,
+        );
 
         // `run_steps` closed the state, and dropping the handle would close it again.
         std::mem::forget(lua_handle);
 
         outcome
+    }
+}
+
+/// Work that runs on the Lua thread after one frame ends and before the next begins.
+struct BetweenFrames<'a> {
+    control: Option<&'a ChunkQueue>,
+    promoter: Option<Promoter>,
+}
+
+impl BetweenFrames<'_> {
+    fn run(&mut self, lua: &Lua) {
+        // Binding and handing over jobs run between frames, while code generation runs on the promoter's worker.
+        if let Some(promoter) = &mut self.promoter
+            && let Err(error) = promoter.step(lua)
+        {
+            error!("lua: hot functions could not be promoted, and promotion stops: {error}");
+            self.shutdown(lua);
+        }
+
+        // Chunks run between frames, when no callback can race them.
+        if let Some(control) = self.control {
+            control.drain(CHUNKS_PER_FRAME, |chunk| answer(lua, chunk));
+        }
+    }
+
+    /// Stops promotion before the state closes, because the worker may still be reading functions the state owns.
+    fn shutdown(&mut self, lua: &Lua) {
+        if let Some(promoter) = self.promoter.take()
+            && let Err(error) = promoter.shutdown(lua)
+        {
+            error!("lua: promotion did not stop cleanly: {error}");
+        }
     }
 }
 
@@ -218,7 +291,7 @@ unsafe fn run_steps(
     thread: *mut lua::lua_State,
     session: &Rc<Session<LovrTexture>>,
     driver: &mut FrameDriver,
-    control: Option<&ChunkQueue>,
+    mut between_frames: BetweenFrames<'_>,
     cookie: &mut raw::Variant,
     lua_handle: &Lua,
 ) -> Outcome {
@@ -266,6 +339,7 @@ unsafe fn run_steps(
                             "no display and no XR runtime: \
                              the session has nothing to present"
                         );
+                        between_frames.shutdown(lua_handle);
                         return finish_terminal(
                             state,
                             thread,
@@ -284,16 +358,14 @@ unsafe fn run_steps(
                 // callbacks and subscribers are retired.
                 driver.end_frame();
 
-                // Chunks run between frames, when no callback can race them.
-                // `lua_handle` outlives this loop, so the captured `&Lua` stays valid.
-                if let Some(control) = control {
-                    control.drain(CHUNKS_PER_FRAME, |chunk| answer(lua_handle, chunk));
-                }
+                // `lua_handle` outlives this loop, so the `&Lua` that chunk answers capture stays valid.
+                between_frames.run(lua_handle);
 
                 // SAFETY: `os_sleep` yields to the platform and does not access Lua state.
                 unsafe { raw::os_sleep(0.0) };
             }
             Step::Restart => {
+                between_frames.shutdown(lua_handle);
                 return finish_terminal(
                     state,
                     thread,
@@ -305,6 +377,7 @@ unsafe fn run_steps(
                 );
             }
             Step::Exit { status } => {
+                between_frames.shutdown(lua_handle);
                 return finish_terminal(
                     state,
                     thread,
@@ -314,6 +387,32 @@ unsafe fn run_steps(
                     lua_handle,
                     Outcome::Exit { status },
                 );
+            }
+        }
+    }
+}
+
+/// Configures the state's compilers and returns the promoter when hot functions should promote.
+///
+/// A CPU or build without native compilation keeps the interpreter, because the session must still start.
+fn configure_execution(lua: &Lua, execution: Execution) -> Option<Promoter> {
+    match execution {
+        Execution::Interpreter => None,
+        Execution::Tiered => {
+            match execution::configure(lua, ExecutionMode::Tiered)
+                .and_then(|()| execution::set_tier_up(lua, TIER_UP))
+                .and_then(|()| Promoter::spawn(PROMOTION_BUDGET).map_err(mlua::Error::external))
+            {
+                Ok(promoter) => {
+                    info!("lua: hot functions compile on a worker and promote between frames");
+                    Some(promoter)
+                }
+                Err(error) => {
+                    warn!(
+                        "lua: tiered execution is unavailable, and the session interprets: {error}"
+                    );
+                    None
+                }
             }
         }
     }

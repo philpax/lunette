@@ -3,6 +3,9 @@
     reason = "Tests fail loudly on a malformed fixture; that is the assertion."
 )]
 
+mod compose;
+mod unchanged_compose;
+
 use std::cell::RefCell;
 
 use pretty_assertions::assert_eq;

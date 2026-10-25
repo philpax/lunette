@@ -20,6 +20,8 @@ Lua reads one per-frame snapshot. Mutations are asynchronous requests; a resize 
 
 The compositor owns authoritative native state outside Lua. The plugin attachment holds the Lua values needed by the current state's runtimes. Each operation carries an activation identity; expired activations have no resource authority. Reload and restart close runtimes before clearing modules or closing the state. The native API and plugin attachment exist only in the main Lua state.
 
+The main state's standard library is frozen before configuration code runs, and its builtin global names cannot be rebound. Luau's builtin fast paths assume unchanged builtins and are enabled only in a safe environment, so this protection is what lets them run. Imports are still looked up when they run, because the host and tests rebind tables such as `lovr.graphics` after code loads; [`environment.rs`](../../crates/lunette/src/environment.rs) owns the protected set.
+
 `lunette-compositor` must not depend on `lunette-lovr`. This preserves logic-headless testing. `lunette-capture` implements host integration seams declared by the compositor; the compositor does not depend on capture.
 
 ## Plugin runtime

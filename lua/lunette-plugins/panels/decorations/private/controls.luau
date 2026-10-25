@@ -62,4 +62,19 @@ function controls.options(context: plugin.Context, panel: panels.Panel, refusal:
   }
 end
 
+-- For the same context and target, callbacks read live handles and methods; selection shares the refusal state.
+-- Only the title and ordered action fields affect rendering.
+function controls.sameContent(first: Options, second: Options): boolean
+  if first.title ~= second.title or #first.actions ~= #second.actions then
+    return false
+  end
+  for index, action in first.actions do
+    local other = second.actions[index]
+    if action.id ~= other.id or action.label ~= other.label or action.enabled ~= other.enabled then
+      return false
+    end
+  end
+  return true
+end
+
 return controls

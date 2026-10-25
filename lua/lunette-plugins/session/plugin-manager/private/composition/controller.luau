@@ -9,6 +9,7 @@ local details = require '../inspection/details'
 local brokers = require '../inspection/brokers'
 local editor = require './editor'
 local controllerActions = require './controller-actions'
+local publication = require './configure-publication'
 local controller = {}
 
 export type Path = editor.Path
@@ -68,8 +69,11 @@ function controller.new(service: composition.Service, readers: { brokers.Reader 
   return state
 end
 
-function controller.update(state: State): ()
+function controller.update(state: State): boolean
+  local before = publication.capture(state, selectedEntry(state), controller.status(state), controller.valueText)
   refresh(state)
+  local after = publication.capture(state, selectedEntry(state), controller.status(state), controller.valueText)
+  return publication.changed(before, after)
 end
 
 function controller.button(state: State, id: string): Action?

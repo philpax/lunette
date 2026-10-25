@@ -7,6 +7,7 @@ pub mod aliases;
 pub mod audio;
 pub mod callback_error;
 pub mod control;
+pub mod environment;
 pub mod events;
 pub mod execution;
 pub mod frame;

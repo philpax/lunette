@@ -195,6 +195,7 @@ impl Model {
     }
 
     fn check(&self) -> Result<(), TestCaseError> {
+        prop_assert_eq!(self.graph.snapshot(), self.graph.snapshot_reference());
         let mut holders: BTreeMap<ContractKey, InstanceId> = BTreeMap::new();
         let mut claimants: BTreeMap<ContractKey, InstanceId> = BTreeMap::new();
         for id in self.live() {
@@ -343,6 +344,7 @@ impl Model {
 
     fn shutdown(&mut self, failures: &[bool]) -> Result<(), TestCaseError> {
         self.graph.request(Intent::Shutdown).unwrap();
+        self.check()?;
         let bound = self.ids.len() + 1;
         let mut steps = 0;
         while let Some(action) = self.graph.next_action() {
@@ -365,7 +367,7 @@ impl Model {
             self.graph.shutdown_requested && self.graph.instances.is_empty(),
             "shutdown did not complete"
         );
-        Ok(())
+        self.check()
     }
 }
 

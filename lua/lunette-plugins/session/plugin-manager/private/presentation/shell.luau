@@ -69,6 +69,7 @@ function shell.start(context: plugin.Context, settings: config.Settings, service
   -- The session focus target a text field of the panel took, returned when the field's edit ends.
   local keyboard: focus.TargetHandle? = nil
 
+  local renderedAppearance = services.host:defaultAppearance()
   local function render(): ()
     revision:set(revision:get() + 1)
   end
@@ -172,7 +173,8 @@ function shell.start(context: plugin.Context, settings: config.Settings, service
     end,
     releaseField = releaseField,
     defaultAppearance = function(): boolean
-      return services.host:defaultAppearance()
+      renderedAppearance = services.host:defaultAppearance()
+      return renderedAppearance
     end,
     setDefaultAppearance = function(on: boolean): ()
       services.host:setDefaultAppearance(on)
@@ -216,8 +218,10 @@ function shell.start(context: plugin.Context, settings: config.Settings, service
       untilRefresh -= dt
       if untilRefresh <= 0 then
         untilRefresh = settings.refreshInterval
-        controller.update(state)
-        render()
+        local changed = controller.update(state)
+        if changed or services.host:defaultAppearance() ~= renderedAppearance then
+          render()
+        end
       end
     end,
   })

@@ -394,6 +394,10 @@ impl Node {
 pub struct Tree {
     nodes: HashMap<NodeId, Node>,
     fonts: SharedFonts,
+    /// Composition is reusable only for the same root and offered dimensions.
+    last_composed: Option<(NodeId, Option<f32>, Option<f32>)>,
+    /// Geometry, transforms, topology, and report resets invalidate composition together.
+    placement_dirty: bool,
 }
 
 impl fmt::Debug for Tree {
@@ -410,6 +414,8 @@ impl Tree {
         Self {
             nodes: HashMap::new(),
             fonts,
+            last_composed: None,
+            placement_dirty: true,
         }
     }
 
@@ -434,6 +440,10 @@ impl Tree {
     pub fn apply(&mut self, changes: Vec<Change>) -> Result<(), ApplyError> {
         self.check(&changes)?;
         let changes = self.prepare(changes)?;
+        // Even an unchanged batch can reset reports or change which descendants are composed.
+        if !changes.is_empty() {
+            self.placement_dirty = true;
+        }
         for change in changes {
             self.apply_one(change);
         }
@@ -465,7 +475,14 @@ impl Tree {
         computation.run(root, width, height);
         let failures = computation.failures;
         let mut changed = Vec::new();
-        self.compose(root, 0.0, 0.0, &mut changed);
+        let stamp = (root, width, height);
+        // Native layout still runs so callbacks and failures belong to this computation.
+        // PartialEq keeps None distinct from Some and prevents a NaN input from matching.
+        if self.placement_dirty || self.last_composed != Some(stamp) {
+            self.placement_dirty = false;
+            self.compose(root, 0.0, 0.0, &mut changed);
+            self.last_composed = Some(stamp);
+        }
         Ok(Outcome { changed, failures })
     }
 
@@ -482,24 +499,35 @@ impl Tree {
     /// Walks the tree from `id`, composing positions into the root's coordinates, and reports
     /// every node whose placement differs from the one last reported.
     fn compose(&mut self, id: NodeId, u: f32, v: f32, changed: &mut Vec<Placement>) {
-        let Some(node) = self.nodes.get_mut(&id) else {
-            return;
-        };
-        let placement = Placement {
-            id,
-            u: u + node.layout.location.x,
-            v: v + node.layout.location.y,
-            width: node.layout.size.width,
-            height: node.layout.size.height,
-            transform: node.transform,
-        };
-        if node.reported != Some(placement) {
-            node.reported = Some(placement);
-            changed.push(placement);
-        }
-        let children = node.children.clone();
-        for child in children {
-            self.compose(child, placement.u, placement.v, changed);
+        let mut stack = vec![(id, u, v)];
+        while let Some((id, u, v)) = stack.pop() {
+            let Some(node) = self.nodes.get_mut(&id) else {
+                continue;
+            };
+            let placement = Placement {
+                id,
+                u: u + node.layout.location.x,
+                v: v + node.layout.location.y,
+                width: node.layout.size.width,
+                height: node.layout.size.height,
+                transform: node.transform,
+            };
+            // NaN differs on every report, even when cached native layout makes no writes.
+            // Test composed positions too: opposite infinities can create NaN only here.
+            self.placement_dirty |= placement.u.is_nan()
+                || placement.v.is_nan()
+                || placement.width.is_nan()
+                || placement.height.is_nan()
+                || placement.transform.rotation.is_nan()
+                || placement.transform.scale.is_nan();
+            if node.reported != Some(placement) {
+                node.reported = Some(placement);
+                changed.push(placement);
+            }
+            // Reverse pushes preserve preorder while borrowing the children instead of cloning them.
+            for &child in node.children.iter().rev() {
+                stack.push((child, placement.u, placement.v));
+            }
         }
     }
 

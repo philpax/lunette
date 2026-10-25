@@ -12,6 +12,8 @@ use std::{
 use clap::Parser;
 use lunette::aliases::{self, ModuleRoots};
 
+use crate::boot::Execution;
+
 /// What the user asked lunette to do.
 #[derive(Debug, Parser)]
 #[command(
@@ -38,6 +40,14 @@ pub struct Cli {
     /// Without a directory it writes to the first entry of the search path.
     #[arg(long, value_name = "DIR", num_args = 0..=1, default_missing_value = "")]
     pub dump_config: Option<PathBuf>,
+
+    /// How the session compiles Luau.
+    ///
+    /// `tiered`, the default, compiles functions to native code once they
+    /// become hot, and `interpreter` runs O1 bytecode only. A CPU or build
+    /// without native compilation interprets instead.
+    #[arg(long, value_enum, default_value_t)]
+    pub luau_execution: Execution,
 
     /// Passed through to LÖVR, and on to the configuration as `arg`.
     #[arg(trailing_var_arg = true, allow_hyphen_values = true)]

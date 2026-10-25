@@ -1,47 +1,29 @@
 -- Deterministic desktop update/draw and production picking workloads for the hardware-free benchmark runner.
-local native = require '@testing/native'
+local offscreen = require './offscreen'
 
 local scene = {}
 
-local prepare: (native.Fake, (any) -> ()) -> any
-
-function scene.setup(): any
-  -- Install fake functions before loading modules whose optimized imports may otherwise capture native functions.
-  local fake = native.new()
-  local originalDate = os.date
-  os.date = function(_format: string?, _time: number?): string
-    return '12:00'
-  end
-  local session
-  local ok, workload = pcall(function(): any
-    local result = prepare(fake, function(running: any): ()
-      session = running
-    end)
-    result.validate()
-    return result
-  end)
-  if not ok then
-    os.date = originalDate
-    if session then
-      local released, failure = pcall(function(): ()
-        session:close()
-      end)
-      assert(released, `{workload}; benchmark cleanup: {failure}`)
-    end
-    error(workload, 0)
-  end
-  local close = workload.close
-  workload.close = function(): ()
-    local released, failure = pcall(close)
-    os.date = originalDate
-    if not released then
-      error(failure, 0)
-    end
-  end
-  return workload
+function scene.setup(driver: offscreen.Driver?, cpuClock: (() -> number)?): any
+  return require('./session').new(driver, cpuClock)
 end
 
-prepare = function(fake: native.Fake, started: (any) -> ()): any
+function scene.prepareEpoch(stable: any): any
+  assert(not stable.closed, 'benchmark: session is closed')
+  local fake, renderer, cpuClock = stable.fake, stable.renderer, stable.cpuClock
+  fake.assertResourcesReleased()
+  local events = fake.events
+  -- Disposed fake records retain callbacks until their inspection history is cleared.
+  table.clear(events.subscriptions)
+  table.clear(events.seats)
+  table.clear(events.claims)
+  table.clear(events.audio)
+  table.clear(events.files)
+  events.saved, events.time, events.frameGeneration = nil, 0, 0
+  for _, window in events.windows do
+    table.clear(window.properties)
+    window.commit = 0
+  end
+  local clientTextures = stable.clientTextures
   local testing = require '@testing'
   testing.host.useConfiguration 'dev'
   local desktop = require '@lunette-desktop'
@@ -58,27 +40,7 @@ prepare = function(fake: native.Fake, started: (any) -> ()): any
   local management = require '@lunette-plugin/management'
   local adapter = require '@lunette-plugin/adapter'
   local frame = require '@lunette-plugins/session/frame'
-  local events = fake.events
   local recorder = uiPanels.new()
-  local clientTextures = {}
-  for index = 1, 8 do
-    local window = fake.newWindow(index, `org.fixture.Window{index}`)
-    window.title = `Benchmark window {index}`
-    window.width = 960 + index * 32
-    window.height = 540 + index * 16
-    local texture = {
-      name = `benchmark client {index}`,
-      getDimensions = function(): (number, number)
-        return window.width, window.height
-      end,
-    }
-    clientTextures[texture] = index
-    window.getTexture = function(): any
-      events.textures = (events.textures or 0) + 1
-      return texture
-    end
-    events.windows[index] = window
-  end
   local fixture = vrUi.attach(fake)
   local host, windowPanels, display
   local observer = adapter.define {
@@ -118,19 +80,30 @@ prepare = function(fake: native.Fake, started: (any) -> ()): any
       reconfigurable = { 'ui-host', 'ui-standard' },
     }
   )
+  local sessionClosed = false
   local session = {
     runtime = running.runtime,
     close = function(): ()
-      running.runtime:close()
-      fake.assertResourcesReleased()
+      if sessionClosed then
+        return
+      end
+      sessionClosed = true
+      local released, failure = pcall(function(): ()
+        running.runtime:close()
+      end)
+      local checked, problem = pcall(fake.assertResourcesReleased)
+      if not released or not checked then
+        error((if released then '' else tostring(failure)) .. (if checked then '' else '; ' .. tostring(problem)), 0)
+      end
     end,
   }
-  started(session)
   local closed = false
   local workload = {
     panels = 0,
     windows = 8,
     label = 'development desktop, all panels, eight client windows, two moving hands',
+    renderer = if renderer then 'offscreen' else 'recorded',
+    rendering = if renderer then renderer.details else nil,
   }
 
   local function retainLive(resources: { any }): ()
@@ -174,8 +147,8 @@ prepare = function(fake: native.Fake, started: (any) -> ()): any
 
   workload.close = function(): ()
     if not closed then
-      session:close()
       closed = true
+      session:close()
     end
   end
 
@@ -218,8 +191,8 @@ prepare = function(fake: native.Fake, started: (any) -> ()): any
     fixture:step(1 / 90)
   end)
   if not ok then
-    workload.close()
-    error(problem, 0)
+    local released, failure = pcall(workload.close)
+    error(tostring(problem) .. (if released then '' else '; benchmark cleanup: ' .. tostring(failure)), 0)
   end
 
   local expected = {
@@ -259,8 +232,9 @@ prepare = function(fake: native.Fake, started: (any) -> ()): any
 
   workload.frame = function(
     index: number,
-    nativeProbe: (() -> boolean)?
-  ): (number, number, boolean?, boolean?, boolean?)
+    nativeProbe: (() -> boolean)?,
+    profileBoundary: ((string, boolean) -> ())?
+  ): (number, number, boolean?, boolean?, boolean?, number, number, number, number, number)
     local executingNative = if nativeProbe then nativeProbe() else nil
     assert(not closed, 'benchmark: workload is closed')
     local afterAssertNative = if nativeProbe then nativeProbe() else nil
@@ -270,49 +244,87 @@ prepare = function(fake: native.Fake, started: (any) -> ()): any
     for number, window in events.windows do
       window.commit = math.floor(index / (number % 3 + 1))
     end
+    local framePass = if renderer then renderer.prepare() else pass
     local before = events.textures or 0
     fake.advanceFrame(1 / 90)
+    if profileBoundary then
+      profileBoundary('update', true)
+    end
     local started = os.clock()
+    local updateCpuStarted = if cpuClock then cpuClock() else 0
     update(1 / 90)
+    local updateCpu = if cpuClock then (cpuClock() - updateCpuStarted) * 1e6 else 0
     local updated = os.clock()
-    local discarded = draw(pass)
-    local afterDrawNative = if nativeProbe then nativeProbe() else nil
+    if profileBoundary then
+      profileBoundary('update', false)
+      profileBoundary('draw', true)
+    end
+    local drawing = os.clock()
+    local drawCpuStarted = if cpuClock then cpuClock() else 0
+    local discarded = draw(framePass)
+    local drawCpu = if cpuClock then (cpuClock() - drawCpuStarted) * 1e6 else 0
     local drawn = os.clock()
+    if profileBoundary then
+      profileBoundary('draw', false)
+    end
+    local afterDrawNative = if nativeProbe then nativeProbe() else nil
     assert(discarded == false, 'benchmark: draw vetoed the pass')
-    draws, text, meshes = #events.draw, 0, 0
-    table.clear(contentDraws)
-    for _, call in events.draw do
-      if call[1] == 'draw' or call[1] == 'plane' then
-        local material = call.state.setMaterial
-        local window = material and clientTextures[material[1]]
-        if window then
-          contentDraws[window] = true
+    local submitted, submitCpu, waited = 0, 0, 0
+    if renderer then
+      submitted, submitCpu, waited = renderer.submit(cpuClock)
+      renderer.stats()
+    else
+      draws, text, meshes = #events.draw, 0, 0
+      table.clear(contentDraws)
+      for _, call in events.draw do
+        if call[1] == 'draw' or call[1] == 'plane' then
+          local material = call.state.setMaterial
+          local window = material and clientTextures[material[1]]
+          if window then
+            contentDraws[window] = true
+          end
+        end
+        if call[1] == 'text' then
+          text += 1
+        elseif call[1] == 'draw' then
+          meshes += 1
         end
       end
-      if call[1] == 'text' then
-        text += 1
-      elseif call[1] == 'draw' then
-        meshes += 1
-      end
+      sawDraw = sawDraw or draws > 0
+      sawText = sawText or text > 0
+      sawMeshes = sawMeshes or meshes > 0
     end
     textures = (events.textures or 0) - before
     frames += 1
-    sawDraw = sawDraw or draws > 0
-    sawText = sawText or text > 0
-    sawMeshes = sawMeshes or meshes > 0
     sawWindows = sawWindows or textures == 8
     clearTraces()
     lovr.math.drain()
-    return (updated - started) * 1e6, (drawn - updated) * 1e6, executingNative, afterDrawNative, afterAssertNative
+    return (updated - started) * 1e6,
+      (drawn - drawing) * 1e6,
+      executingNative,
+      afterDrawNative,
+      afterAssertNative,
+      updateCpu,
+      drawCpu,
+      submitted,
+      submitCpu,
+      waited
   end
 
   workload.validate = function(): ()
     healthy()
-    assert(frames > 0 and draws > 0 and text > 0 and meshes > 0, 'benchmark: missing desktop drawing')
-    assert(sawDraw and sawText and sawMeshes and sawWindows and textures == 8, 'benchmark: missing window drawing')
+    assert(frames > 0 and sawWindows and textures == 8, 'benchmark: missing window texture retrievals')
+    if renderer then
+      renderer.validate()
+    else
+      assert(draws > 0 and text > 0 and meshes > 0, 'benchmark: missing desktop drawing')
+      assert(sawDraw and sawText and sawMeshes, 'benchmark: missing window drawing')
+    end
     assert(#events.windows == 8 and #windowPanels:all() == 8, 'benchmark: wrong adopted window count')
     for index, window in events.windows do
-      assert(contentDraws[index], `benchmark: client window {index} content was not drawn`)
+      if not renderer then
+        assert(contentDraws[index], `benchmark: client window {index} content was not drawn`)
+      end
       local panel = assert(windowPanels:forSource(window), 'benchmark: window was not adopted')
       assert(panel.kind == 'window' and not panel.dead and not panel.hidden, 'benchmark: window is not visible')
     end
@@ -331,6 +343,23 @@ prepare = function(fake: native.Fake, started: (any) -> ()): any
     assert(recorder:node('desktop/manager', outletPath), 'benchmark: gallery settings outlet is not mounted')
     assert(#events.draw == 0 and #events.input == 0, 'benchmark: frame traces were retained')
     assert(#events.render.fontMeasurements == 0, 'benchmark: font measurement traces were retained')
+  end
+
+  workload.ready = function(): ()
+    workload.frame(1)
+    if renderer then
+      -- Freeze simulation time so only the client textures change between the paired readbacks.
+      renderer.ready(function(): ()
+        local framePass = renderer.prepare()
+        local before = events.textures or 0
+        assert(draw(framePass) == false, 'benchmark: draw vetoed the pass')
+        renderer.submit()
+        textures = (events.textures or 0) - before
+        clearTraces()
+        lovr.math.drain()
+      end, healthy)
+    end
+    workload.validate()
   end
 
   local targets = {}
@@ -358,6 +387,13 @@ prepare = function(fake: native.Fake, started: (any) -> ()): any
       direction = vector.pack(0, 0, -1),
     }
   end
+  workload.selectedProbe = function(callback: (any, vector, vector) -> (number, number, number)): ()
+    assert(not closed, 'benchmark: workload is closed')
+    local target = { dead = false, pickPriority = 0, raycast = callback }
+    local hit = picking.pick({ target }, vector.pack(0, 0, 0), vector.pack(0, 0, -1), 4)
+    assert(hit == target, 'benchmark: selected picking probe missed')
+  end
+
   workload.micro = function(iterations: number, nativeProbe: (() -> boolean)?): (number, boolean?, boolean?, boolean?)
     local executingNative = if nativeProbe then nativeProbe() else nil
     assert(not closed, 'benchmark: workload is closed')
@@ -382,8 +418,8 @@ prepare = function(fake: native.Fake, started: (any) -> ()): any
     return checksum, executingNative, afterGeometryNative, afterAssertNative
   end
 
-  workload.frame(1)
-  return workload, session
+  workload.ready()
+  return workload
 end
 
 return scene

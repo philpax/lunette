@@ -147,11 +147,11 @@ jobs:
           # Mesa versions that omit the architecture use this name.
           if [ ! -f "$icd" ]; then icd=/usr/share/vulkan/icd.d/lvp_icd.json; fi
           test -f "$icd"
-          env -u DISPLAY -u WAYLAND_DISPLAY VK_DRIVER_FILES="$icd" VK_ICD_FILENAMES="$icd" make check-graphics
+          env -u DISPLAY -u WAYLAND_DISPLAY VK_DRIVER_FILES="$icd" VK_ICD_FILENAMES="$icd" make check-graphics check-benchmarks
 
       - run: make check-${{ matrix.half }}
 
-      - run: make check-codegen check-benchmarks
+      - run: make check-codegen
         if: matrix.half == 'test'
 
       - run: make check-definitions
