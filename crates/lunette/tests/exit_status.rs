@@ -53,6 +53,23 @@ fn tiered_execution_promotes_without_changing_results() {
     }
 }
 
+#[test]
+fn proactive_gc_preserves_coroutines_restart_cookies_and_error_exits() {
+    for budget in ["0", "200"] {
+        let (mut command, _data) = session::command("gc-lifecycle");
+        let output = command
+            .args(["--luau-gc-budget-us", budget])
+            .output()
+            .unwrap_or_else(|error| panic!("the lunette binary could not be run: {error}"));
+        assert_eq!(
+            output.status.code(),
+            Some(17),
+            "budget {budget}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
 /// The write goes to the save directory, which is mounted behind the module roots. The
 /// `fixture` field tells the temporary tree apart from any other the session might resolve,
 /// and the marker reaches the configuration as `arg[1]`.

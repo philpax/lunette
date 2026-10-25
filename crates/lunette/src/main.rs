@@ -249,7 +249,10 @@ fn main() -> ExitCode {
         &layers,
         chunks.as_ref(),
         startup,
-        arguments.luau_execution,
+        boot::RuntimeOptions {
+            execution: arguments.luau_execution,
+            gc_budget: arguments.luau_gc_budget_us,
+        },
     )
 }
 

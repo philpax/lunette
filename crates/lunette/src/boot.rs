@@ -3,6 +3,7 @@
 //! The sequence preserves LÖVR's step order and passes Unix paths to Lua as raw bytes. It also
 //! mounts the Lua module roots into LÖVR's virtual filesystem before configuration code runs.
 
+mod gc;
 mod headset;
 
 use std::{
@@ -33,6 +34,9 @@ use lunette_lovr::{BOOT_LUA, Platform, clear_log_callback, raw, set_log_callback
 use mlua::Lua;
 use mlua_sys as lua;
 use tracing::{debug, error, info, warn};
+
+pub(crate) use crate::boot::gc::GcBudget;
+use crate::boot::gc::{GcScheduler, Report as GcReport};
 
 /// The directories a session is loaded from.
 ///
@@ -66,6 +70,13 @@ const TIER_UP: TierUp = TierUp {
 };
 const PROMOTION_BUDGET: InstructionBudget = InstructionBudget(2000);
 
+/// Host execution controls applied independently to each new Lua state.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct RuntimeOptions {
+    pub execution: Execution,
+    pub gc_budget: GcBudget,
+}
+
 /// Boots LÖVR and runs the Lua session until it exits.
 ///
 /// The session, layer registry, and startup settings outlive each Lua state. A restart replaces
@@ -76,7 +87,7 @@ pub fn run(
     layers: &Rc<PoolRegistry<LovrLayers>>,
     control: Option<&ChunkQueue>,
     startup: Startup,
-    execution: Execution,
+    options: RuntimeOptions,
 ) -> ExitCode {
     let platform = match Platform::init() {
         Ok(platform) => platform,
@@ -98,7 +109,7 @@ pub fn run(
     let mut cookie: raw::Variant = unsafe { mem::zeroed() };
 
     let status = loop {
-        match run_session(paths, session, &mut driver, control, &mut cookie, execution) {
+        match run_session(paths, session, &mut driver, control, &mut cookie, options) {
             Outcome::Restart => (),
             Outcome::Exit { status } => break status,
         }
@@ -138,7 +149,7 @@ fn run_session(
     driver: &mut FrameDriver,
     control: Option<&ChunkQueue>,
     cookie: &mut raw::Variant,
-    execution: Execution,
+    options: RuntimeOptions,
 ) -> Outcome {
     // SAFETY: LÖVR's boot sequence runs in order on a state this function exclusively owns. Each
     // cast converts between bindgen's and mlua-sys' declarations of the same C type.
@@ -153,7 +164,7 @@ fn run_session(
     }
 
     // Before any chunk loads, because counting and type information apply at load.
-    let promoter = configure_execution(&lua_handle, execution);
+    let promoter = configure_execution(&lua_handle, options.execution);
 
     unsafe {
         raw::luax_setmainthread(state.cast());
@@ -229,7 +240,11 @@ fn run_session(
         // `run_steps`.
         set_log_callback(raw::luax_vlog, thread.cast());
 
-        let between_frames = BetweenFrames { control, promoter };
+        let between_frames = BetweenFrames {
+            control,
+            promoter,
+            gc: GcScheduler::new(options.gc_budget),
+        };
         let outcome = run_steps(
             state,
             thread,
@@ -251,10 +266,13 @@ fn run_session(
 struct BetweenFrames<'a> {
     control: Option<&'a ChunkQueue>,
     promoter: Option<Promoter>,
+    gc: GcScheduler,
 }
 
 impl BetweenFrames<'_> {
-    fn run(&mut self, lua: &Lua) {
+    fn run(&mut self, lua: &Lua) -> mlua::Result<GcReport> {
+        let gc = self.gc.run(lua)?;
+
         // Binding and handing over jobs run between frames, while code generation runs on the promoter's worker.
         if let Some(promoter) = &mut self.promoter
             && let Err(error) = promoter.step(lua)
@@ -267,6 +285,7 @@ impl BetweenFrames<'_> {
         if let Some(control) = self.control {
             control.drain(CHUNKS_PER_FRAME, |chunk| answer(lua, chunk));
         }
+        Ok(gc)
     }
 
     /// Stops promotion before the state closes, because the worker may still be reading functions the state owns.
@@ -358,8 +377,21 @@ unsafe fn run_steps(
                 // callbacks and subscribers are retired.
                 driver.end_frame();
 
+                // This precedes the next headset sync; it is not guaranteed idle time and lies outside headset work timing.
                 // `lua_handle` outlives this loop, so the `&Lua` that chunk answers capture stays valid.
-                between_frames.run(lua_handle);
+                if let Err(error) = between_frames.run(lua_handle) {
+                    error!("lua: proactive collection failed: {error}");
+                    between_frames.shutdown(lua_handle);
+                    return finish_terminal(
+                        state,
+                        thread,
+                        session,
+                        driver,
+                        cookie,
+                        lua_handle,
+                        LOAD_FAILED,
+                    );
+                }
 
                 // SAFETY: `os_sleep` yields to the platform and does not access Lua state.
                 unsafe { raw::os_sleep(0.0) };

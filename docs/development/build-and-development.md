@@ -56,6 +56,16 @@ The desktop simulator runs real compositor, client, and input paths without an X
 
 Logs use stderr. `lunctl` inspects the running state between frames. Imported-image diagnosis can set `LUNETTE_IMPORT_QUEUE_FAMILY` to `foreign` or `ignored` and `LUNETTE_IMPORT_LAYOUT` to `general` or `undefined`. These override barriers for experiments, not portability guarantees; [validation](native/rendering-validation.md#imported-image-ownership-barriers) records limits.
 
+### Proactive Luau collection
+
+The host runs proactive Luau GC steps after a completed frame, before promotion and control chunks. Automatic allocation-assisted collection remains enabled with its existing tuning. Explicit steps can start a cycle below the automatic heap threshold, so proactive collection can increase total CPU work and collection frequency while reducing heap residency. The host does not force a full collection or require an unfinished cycle to finish within one frame. [`boot/gc.rs`](../../crates/lunette/src/boot/gc.rs) owns the provisional budget and step cap; the budget is a conservative starting point, not a measured optimum.
+
+`--luau-gc-budget-us 0` disables only proactive steps for an independent comparison. A positive integer sets their elapsed-time budget in microseconds, independently of `--luau-execution`. These are host developer controls, not desktop settings. A step can contain an indivisible atomic phase and exceed the budget. The elapsed cap prevents starting more steps; it cannot cap one step or all automatic GC work.
+
+`RUST_LOG=lunette::gc=trace` reports proactive elapsed time, steps, cycle completion, budget overruns, and per-state cumulative counters. Trace logging adds overhead and is for diagnosis, not uninstrumented timing comparisons. The counters exclude allocation assists and cycles completed elsewhere in the VM.
+
+This boundary precedes the next headset sync and is not guaranteed idle time. Headset work timing ends before it. Comparisons keep the build, scene, execution mode, and allocation fixes constant, change only the GC budget, and measure total frame cadence and missed refresh intervals as well as GC time. A lower headset work metric alone does not establish a frame-time improvement.
+
 ## Testing
 
 `make check` is the full standing check. Focused commands support iteration:

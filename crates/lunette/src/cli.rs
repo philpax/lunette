@@ -12,7 +12,7 @@ use std::{
 use clap::Parser;
 use lunette::aliases::{self, ModuleRoots};
 
-use crate::boot::Execution;
+use crate::boot::{Execution, GcBudget};
 
 /// What the user asked lunette to do.
 #[derive(Debug, Parser)]
@@ -48,6 +48,12 @@ pub struct Cli {
     /// without native compilation interprets instead.
     #[arg(long, value_enum, default_value_t)]
     pub luau_execution: Execution,
+
+    /// Soft microsecond budget for proactive GC between frames; zero disables only proactive work.
+    ///
+    /// This developer comparison control does not cap an indivisible Luau step or disable automatic GC.
+    #[arg(long, value_name = "MICROSECONDS", default_value_t)]
+    pub luau_gc_budget_us: GcBudget,
 
     /// Passed through to LÖVR, and on to the configuration as `arg`.
     #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
@@ -198,6 +204,29 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
+
+    #[test]
+    fn a_gc_budget_is_independent_of_execution_and_not_forwarded() {
+        let arguments = Cli::try_parse_from([
+            "lunette",
+            "--luau-execution",
+            "interpreter",
+            "--luau-gc-budget-us",
+            "0",
+            "fixture",
+        ])
+        .expect("the host accepts a disabled proactive collector");
+        assert_eq!(arguments.luau_execution, Execution::Interpreter);
+        assert_eq!(arguments.luau_gc_budget_us.to_string(), "0");
+        assert_eq!(arguments.forwarded, [OsString::from("fixture")]);
+    }
+
+    #[test]
+    fn invalid_gc_budgets_fail_instead_of_reaching_the_configuration() {
+        for budget in ["-1", "0.5", "18446744073709551616"] {
+            assert!(Cli::try_parse_from(["lunette", "--luau-gc-budget-us", budget]).is_err());
+        }
+    }
 
     /// A standard library with every root a `.luaurc` names.
     fn standard_library() -> TempDir {
