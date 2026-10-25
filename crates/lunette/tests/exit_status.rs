@@ -70,6 +70,41 @@ fn proactive_gc_preserves_coroutines_restart_cookies_and_error_exits() {
     }
 }
 
+#[test]
+fn frame_timing_reports_actual_between_frame_collection() {
+    // The large positive budget avoids testing submillisecond host scheduling; the step cap still bounds collection.
+    for budget in ["0", "1000000"] {
+        let (mut command, _data) = session::command("frame-timing-gc");
+        let output = command
+            .args(["--luau-gc-budget-us", budget, budget])
+            .output()
+            .unwrap_or_else(|error| panic!("the lunette binary could not be run: {error}"));
+        assert_eq!(
+            output.status.code(),
+            Some(19),
+            "budget {budget}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+#[test]
+fn frame_timing_report_failures_and_missing_publication_terminate() {
+    for (expected_budget, mode, status) in [("200", "observe", 21), ("0", "cancel", 22)] {
+        let (mut command, _data) = session::command("frame-timing-gc");
+        let output = command
+            .args(["--luau-gc-budget-us", "0", expected_budget, mode])
+            .output()
+            .unwrap_or_else(|error| panic!("the lunette binary could not be run: {error}"));
+        assert_eq!(
+            output.status.code(),
+            Some(status),
+            "{mode}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
 /// The write goes to the save directory, which is mounted behind the module roots. The
 /// `fixture` field tells the temporary tree apart from any other the session might resolve,
 /// and the marker reaches the configuration as `arg[1]`.

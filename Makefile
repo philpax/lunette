@@ -98,7 +98,7 @@ check-graphics:
 
 check-format:
 	$(CARGO) +nightly fmt --all -- --check
-	stylua --check lua etc/xdg/lunette examples dev crates/lunette/tests/luau_check crates/lunette/tests/graphics/fixtures crates/lunette/benches
+	stylua --check lua etc/xdg/lunette examples dev crates/lunette/tests/luau_check crates/lunette/tests/graphics/fixtures crates/lunette/benches crates/lunette/src/frame_timing/sampler.luau
 
 # Split in two because clippy builds through RUSTC_WORKSPACE_WRAPPER and shares
 # no artifacts with the tests, so CI runs the halves in parallel.
@@ -108,7 +108,10 @@ check-clippy:
 	$(CARGO) clippy --workspace --all-targets --all-features -- -D warnings
 	$(CARGO) clippy --workspace --all-targets --no-default-features -- -D warnings
 
-check-test:
+check-frame-trace:
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s dev/tools -p 'test_analyze_frame_trace.py'
+
+check-test: check-frame-trace
 	$(CARGO) test --workspace
 	$(CARGO) test --workspace --no-default-features
 

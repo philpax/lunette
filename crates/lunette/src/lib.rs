@@ -11,6 +11,7 @@ pub mod environment;
 pub mod events;
 pub mod execution;
 pub mod frame;
+pub mod frame_timing;
 pub mod host;
 pub mod import;
 pub mod keymaps;

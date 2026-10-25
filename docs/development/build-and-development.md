@@ -56,6 +56,10 @@ The desktop simulator runs real compositor, client, and input paths without an X
 
 Logs use stderr. `lunctl` inspects the running state between frames. Imported-image diagnosis can set `LUNETTE_IMPORT_QUEUE_FAMILY` to `foreign` or `ignored` and `LUNETTE_IMPORT_LAYOUT` to `general` or `undefined`. These override barriers for experiments, not portability guarantees; [validation](native/rendering-validation.md#imported-image-ownership-barriers) records limits.
 
+### Frame traces
+
+The development wrist menu starts, stops, exports, and cancels bounded CPU frame captures without a panel. The [frame tracer](../../dev/plugins/frame-trace/README.md) describes the CSV analyzer, timing alignment, observer overhead, and repeated A/B workflow. It is idle until started and is not installed with the shipped desktop.
+
 ### Proactive Luau collection
 
 The host runs proactive Luau GC steps after a completed frame, before promotion and control chunks. Automatic allocation-assisted collection remains enabled with its existing tuning. Explicit steps can start a cycle below the automatic heap threshold, so proactive collection can increase total CPU work and collection frequency while reducing heap residency. The host does not force a full collection or require an unfinished cycle to finish within one frame. [`boot/gc.rs`](../../crates/lunette/src/boot/gc.rs) owns the provisional budget and step cap; the budget is a conservative starting point, not a measured optimum.

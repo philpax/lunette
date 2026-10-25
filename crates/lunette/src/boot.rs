@@ -200,18 +200,42 @@ fn run_session(
             return LOAD_FAILED;
         }
 
+        let execution_mode = if promoter.is_some() {
+            "tiered"
+        } else {
+            "interpreter"
+        };
+        if let Err(error) = lunette::frame_timing::install(&lua_handle, execution_mode) {
+            error!("lua: frame timing could not be installed: {error}");
+            return LOAD_FAILED;
+        }
+        let boot_source = match lunette::frame_timing::instrument_boot(BOOT_LUA) {
+            Ok(source) => source,
+            Err(error) => {
+                error!("{error}");
+                return LOAD_FAILED;
+            }
+        };
         push_arg_table(state, paths.config, paths.forwarded, cookie);
 
         lua::lua_pushcfunction(state, message_handler);
 
         let loaded = raw::luax_loadbufferx(
             state.cast(),
-            BOOT_LUA.as_ptr().cast(),
-            BOOT_LUA.len(),
+            boot_source.as_ptr().cast(),
+            boot_source.len(),
             c"@boot.lua".as_ptr(),
             ptr::null(),
         );
-        if loaded != 0 || lua::lua_pcall(state, 0, 1, -2) != 0 {
+        if loaded == 0 {
+            // The sampler is an argument to the host boot chunk, never a session global.
+            lua::lua_getfield(
+                state,
+                lua::LUA_REGISTRYINDEX,
+                c"lunette.frame-timing".as_ptr(),
+            );
+        }
+        if loaded != 0 || lua::lua_pcall(state, 1, 1, -3) != 0 {
             let described = owned_string(state, -1)
                 .unwrap_or_else(|| "boot.lua failed with a non-string error value".to_owned());
             error!("lua: {described}");
@@ -272,6 +296,14 @@ struct BetweenFrames<'a> {
 impl BetweenFrames<'_> {
     fn run(&mut self, lua: &Lua) -> mlua::Result<GcReport> {
         let gc = self.gc.run(lua)?;
+        lunette::frame_timing::collected(
+            lua,
+            gc.elapsed.as_secs_f64(),
+            gc.budget.as_micros(),
+            gc.steps,
+            gc.cycle_completed,
+            gc.overrun,
+        )?;
 
         // Binding and handing over jobs run between frames, while code generation runs on the promoter's worker.
         if let Some(promoter) = &mut self.promoter
@@ -379,6 +411,10 @@ unsafe fn run_steps(
 
                 // This precedes the next headset sync; it is not guaranteed idle time and lies outside headset work timing.
                 // `lua_handle` outlives this loop, so the `&Lua` that chunk answers capture stays valid.
+                let trace_started = match lunette::frame_timing::active(lua_handle) {
+                    Ok(true) => Some(std::time::Instant::now()),
+                    _ => None,
+                };
                 if let Err(error) = between_frames.run(lua_handle) {
                     error!("lua: proactive collection failed: {error}");
                     between_frames.shutdown(lua_handle);
@@ -392,6 +428,12 @@ unsafe fn run_steps(
                         LOAD_FAILED,
                     );
                 }
+
+                lunette::frame_timing::publish_reported(
+                    lua_handle,
+                    session.as_ref(),
+                    trace_started.map(|started| started.elapsed().as_secs_f64()),
+                );
 
                 // SAFETY: `os_sleep` yields to the platform and does not access Lua state.
                 unsafe { raw::os_sleep(0.0) };

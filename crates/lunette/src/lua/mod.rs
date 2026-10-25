@@ -649,6 +649,11 @@ module! {
         svg::rasterize_svg(lua, &svg, width, height)
     }
 
+    /// Observes coherent CPU frame records after host collection. Only one observer may be active. The record is reused, so listeners copy fields before returning. Durations are seconds and heap samples are net KiB, not allocation counts. Native work sampled at sync describes preceding work. Missing phases remain nil. No GPU timing is enabled or read. The returned cancellation function is idempotent; a plugin owns it through context:on. Custom lovr.run overrides are not observed.
+    fn observeFrameTiming(lua, _session, listener: crate::frame_timing::Listener) -> Cancel {
+        crate::frame_timing::observe(lua, listener)
+    }
+
     /// Writes `contents` to the file `name` inside `directory` atomically: to a temporary file beside it, flushed and renamed over the target, so a reader sees the old file or the new one. `directory` is an absolute path to an existing directory, such as `lovr.filesystem.getSaveDirectory()`, and `name` is a file name with no separator. A failure raises an error. Errors before replacement leave any previous file in place. A directory-flush error after replacement leaves the new file visible, but its survival across a crash or power loss is unconfirmed.
     fn saveFile(_lua, _session, directory: String, name: String, contents: mlua::LuaString) -> () {
         save_file::save(std::path::Path::new(&directory), &name, &contents.as_bytes())
@@ -664,7 +669,12 @@ module! {
             lua,
             session.mirrors(),
             session.as_ref(),
-            &|| session.clear_subscribers(),
+            &|| {
+                session.clear_subscribers();
+                if let Err(error) = crate::frame_timing::clear(lua) {
+                    callback_error::report(lua, &session.listeners(ERROR), "frame timing reload", &error);
+                }
+            },
         ))
     }
 

@@ -36,6 +36,10 @@ export type AudioState = { read kind: 'starting' } | { read kind: 'active', read
 -- later frames.
 export type AudioSnapshot = { read source: AudioSource, read state: AudioState, read frameGeneration: number, read blocks: { read [number]: AudioBlock } }
 
+-- A reused coherent CPU frame record. Durations are seconds; heap values are
+-- net KiB. Missing phases are nil.
+export type FrameTiming = { read sequence: number?, read syncTime: number?, read sync: number?, read interval: number?, read update: number?, read draw: number?, read graphicsSubmit: number?, read headsetSubmit: number?, read present: number?, read gc: number?, read observer: number?, read heapSync: number?, read heapUpdate: number?, read heapDraw: number?, read heapGraphicsSubmit: number?, read heapHeadsetSubmit: number?, read heapPresent: number?, read heapGc: number?, read nativeInterval: number?, read nativeWork: number?, read skipped: number?, read refreshRate: number?, read gcBudgetUs: number?, read gcSteps: number?, read active: boolean?, read visible: boolean?, read focused: boolean?, read gpuTiming: boolean?, read gcCycleCompleted: boolean?, read gcOverrun: boolean?, read antialias: boolean?, read foveation: string?, read executionMode: string?, read supersample: string?, read betweenFrames: number? }
+
 -- One length for every edge, or a length for each of the top, right, bottom,
 -- and left edges.
 export type LayoutEdges = number | string | { read top: (number | string)?, read right: (number | string)?, read bottom: (number | string)?, read left: (number | string)? }
@@ -882,6 +886,14 @@ export type Lunette = {
   -- files are not followed and text elements are not drawn. A document that
   -- does not parse raises an error.
   read rasterizeSvg: (svg: string, width: number, height: number) -> (string, number, number),
+  -- Observes coherent CPU frame records after host collection. Only one
+  -- observer may be active. The record is reused, so listeners copy fields
+  -- before returning. Durations are seconds and heap samples are net KiB, not
+  -- allocation counts. Native work sampled at sync describes preceding work.
+  -- Missing phases remain nil. No GPU timing is enabled or read. The returned
+  -- cancellation function is idempotent; a plugin owns it through context:on.
+  -- Custom lovr.run overrides are not observed.
+  read observeFrameTiming: (listener: (record: FrameTiming) -> ()) -> () -> (),
   -- Writes `contents` to the file `name` inside `directory` atomically: to a
   -- temporary file beside it, flushed and renamed over the target, so a reader
   -- sees the old file or the new one. `directory` is an absolute path to an

@@ -46,6 +46,7 @@ pub fn render() -> String {
         AudioSource::<NullTexture>::ALIAS,
         AudioState::ALIAS,
         AudioSnapshot::<NullTexture>::ALIAS,
+        crate::frame_timing::FrameTiming::ALIAS,
     ] {
         render_alias(&mut out, &alias, &handles);
     }
