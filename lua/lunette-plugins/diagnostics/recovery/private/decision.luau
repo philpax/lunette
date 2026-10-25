@@ -40,12 +40,6 @@ export type Decision = {
   read markGood: boolean,
 }
 
--- The snapshot fields `missing` reads, so that it accepts a runtime snapshot or a smaller table in a test.
-export type Instance = {
-  read state: string,
-  read provided: { read [number]: { read contract: { read name: string } } },
-}
-
 function decision.initial(): State
   local state: State = {
     errorStreak = 0,
@@ -55,25 +49,6 @@ function decision.initial(): State
     marked = false,
   }
   return table.freeze(state)
-end
-
--- The capabilities in `toolkit` that no active instance provides, in `toolkit` order.
-function decision.missing(instances: { read [number]: Instance }, toolkit: { read [number]: string }): { string }
-  local active: { [string]: boolean } = {}
-  for _, instance in instances do
-    if instance.state == 'active' then
-      for _, provided in instance.provided do
-        active[provided.contract.name] = true
-      end
-    end
-  end
-  local missing: { string } = {}
-  for _, name in toolkit do
-    if not active[name] then
-      missing[#missing + 1] = name
-    end
-  end
-  return missing
 end
 
 -- Whether a report's message is attributed to the host by one of the prefixes.

@@ -59,7 +59,20 @@ export type GoodConfiguration = {
   read entries: { read [number]: GoodEntry },
 }
 
+-- A compact synchronous read. The revision changes when the observed entry order, configuration values, or enabled
+-- intent differs from the previous read. Missing names include only contracts with no active provider, including children.
+export type Observation = {
+  read revision: number,
+  -- Compact immutable values allow callers to compare their own samples when another caller observes between them.
+  read entries: { read [number]: GoodEntry },
+  read missing: { read [number]: string },
+  read draining: boolean,
+  read closing: boolean,
+  read closed: boolean,
+}
+
 export type Service = {
+  read observe: (Service, { read [number]: string }) -> Observation,
   read entries: (Service) -> { Entry },
   read catalog: (Service) -> { read [number]: KnownEntry },
   read snapshot: (Service) -> lunette.PluginRuntimeSnapshot,
@@ -85,6 +98,6 @@ export type Service = {
   read suspendSaved: (Service) -> number,
 }
 
-composition.capability = plugin.capability<<Service>> { name = 'lunette/composition', version = 3 }
+composition.capability = plugin.capability<<Service>> { name = 'lunette/composition', version = 4 }
 
 return composition

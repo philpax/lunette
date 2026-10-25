@@ -110,29 +110,6 @@ test('a composition is never marked good while errors persist', function()
   end
 end)
 
-test('missing lists toolkit capabilities that no active instance provides, in toolkit order', function()
-  local function instance(state: string, names: { string }): decision.Instance
-    local provided = {}
-    for index, name in names do
-      provided[index] = { contract = { name = name } }
-    end
-    return { state = state, provided = provided }
-  end
-  local toolkit = { 'lunette/ui-host', 'lunette/ui-components' }
-  expect.equal(
-    #decision.missing(
-      { instance('active', { 'lunette/ui-host' }), instance('active', { 'lunette/ui-components' }) },
-      toolkit
-    ),
-    0,
-    'both active'
-  )
-  local missing = decision.missing({ instance('inactive', { 'lunette/ui-host' }), instance('failed', {}) }, toolkit)
-  expect.equal(table.concat(missing, ','), 'lunette/ui-host,lunette/ui-components', 'neither active')
-  missing = decision.missing({ instance('active', { 'lunette/ui-components' }) }, toolkit)
-  expect.equal(table.concat(missing, ','), 'lunette/ui-host', 'a removed host')
-end)
-
 test('fromHost matches a report by its context prefix', function()
   expect.truthy(decision.fromHost("ui: panel 'x' draw: boom", { 'ui:' }), 'the host context')
   expect.falsy(decision.fromHost('frame.onUpdate: boom', { 'ui:' }), 'another context')

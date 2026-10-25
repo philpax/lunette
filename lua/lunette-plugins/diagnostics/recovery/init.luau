@@ -24,9 +24,13 @@ local required: plugin.Declaration = {
   surfaces.capability,
 }
 
-local function describe(reason: decision.Reason?, missing: { string }): string
+local function describe(reason: decision.Reason?, missing: { read [number]: string }): string
   if reason == 'missing' then
-    return 'The UI toolkit is not running: ' .. table.concat(missing, ', ') .. ' has no active provider.'
+    local names: { string } = {}
+    for _, name in missing do
+      names[#names + 1] = name
+    end
+    return 'The UI toolkit is not running: ' .. table.concat(names, ', ') .. ' has no active provider.'
   end
   return 'The UI host reports errors on every frame.'
 end
@@ -40,8 +44,8 @@ local function init(context: plugin.Context, settings: Settings): ()
 
   local state = decision.initial()
   local reason: decision.Reason? = nil
-  local missing: { string } = {}
-  local previous: { restore.Recorded }? = nil
+  local missing: { read [number]: string } = {}
+  local previous: composition.Observation? = nil
   local untilPoll = 0
   local hostErrors = 0
   local recent: { string } = {}
@@ -210,10 +214,12 @@ local function init(context: plugin.Context, settings: Settings): ()
       untilPoll -= dt
       if untilPoll <= 0 then
         untilPoll = settings.pollSeconds
-        missing = decision.missing(compositionService:snapshot().instances, settings.toolkit)
-        local captured = restore.capture(compositionService:entries())
-        changed = previous ~= nil and not restore.same(previous, captured)
-        previous = captured
+        local observation = compositionService:observe(settings.toolkit)
+        missing = observation.missing
+        changed = previous ~= nil
+          and previous.revision ~= observation.revision
+          and not restore.same(previous.entries, observation.entries)
+        previous = observation
       end
       local result = decision.step(state, {
         missing = missing,

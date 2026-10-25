@@ -196,6 +196,8 @@ function management.start(entries: { compose.Entry }, options: Options?): Runnin
   local catalogOrder: { string } = {}
   local changing = true
   local good: contract.GoodConfiguration? = nil
+  local observed: { contract.GoodEntry } = table.freeze({} :: { contract.GoodEntry })
+  local revision = 0
 
   local function forget(id: string): ()
     local record = records[id]
@@ -207,25 +209,20 @@ function management.start(entries: { compose.Entry }, options: Options?): Runnin
     end
   end
 
-  local function observe(): lunette.PluginRuntimeSnapshot
-    local snapshot = runtime:snapshot()
-    if changing or snapshot.draining then
-      return snapshot
-    end
-    local states: { [string]: lunette.PluginInstanceSnapshot } = {}
-    for _, instance in snapshot.instances do
-      states[instance.id] = instance
+  local function reconcile(status: lunette.PluginRuntimeStatus): ()
+    if changing or status.draining then
+      return
     end
     for index = #order, 1, -1 do
       local id = order[index]
       local record = records[id]
       local state = record.instance:state()
-      local node = states[record.instance:id()]
+      local _, retired = record.instance:intent()
       if state == 'removed' then
         forget(id)
       elseif state == 'quarantined' then
         record.removing = false
-      elseif node and node.retired then
+      elseif retired then
         -- Disposal intent can be accepted even when its implicit drain raises.
         record.removing = true
       elseif state == 'active' then
@@ -238,6 +235,11 @@ function management.start(entries: { compose.Entry }, options: Options?): Runnin
         end
       end
     end
+  end
+
+  local function observe(): lunette.PluginRuntimeSnapshot
+    local snapshot = runtime:snapshot()
+    reconcile(snapshot)
     return snapshot
   end
 
@@ -399,7 +401,62 @@ function management.start(entries: { compose.Entry }, options: Options?): Runnin
     runtime:drain()
   end
 
+  local function observation(toolkit: { read [number]: string }): contract.Observation
+    local status = runtime:status()
+    reconcile(status)
+    local changed = false
+    local count = 0
+    for _, id in order do
+      local record = records[id]
+      if record.instance:state() ~= 'removed' then
+        count += 1
+        local enabled = record.instance:intent()
+        local previous = observed[count]
+        if
+          not previous
+          or previous.id ~= id
+          or previous.enabled ~= enabled
+          or not equal(previous.config, record.config)
+        then
+          changed = true
+        end
+      end
+    end
+    if changed or count ~= #observed then
+      revision += 1
+      local captured: { contract.GoodEntry } = {}
+      for _, id in order do
+        local record = records[id]
+        if record.instance:state() ~= 'removed' then
+          captured[#captured + 1] = table.freeze {
+            id = id,
+            config = record.config,
+            enabled = record.instance:intent(),
+          }
+        end
+      end
+      observed = table.freeze(captured)
+    end
+    local missing: { string } = {}
+    for _, name in toolkit do
+      if not runtime:hasActiveProvider(name) then
+        missing[#missing + 1] = name
+      end
+    end
+    return table.freeze {
+      revision = revision,
+      entries = observed,
+      missing = table.freeze(missing),
+      draining = status.draining,
+      closing = status.closing,
+      closed = status.closed,
+    }
+  end
+
   local service: contract.Service = table.freeze {
+    observe = function(_self: contract.Service, toolkit: { read [number]: string }): contract.Observation
+      return observation(toolkit)
+    end,
     catalog = function(_self: contract.Service): { read [number]: contract.KnownEntry }
       observe()
       local result: { contract.KnownEntry } = {}

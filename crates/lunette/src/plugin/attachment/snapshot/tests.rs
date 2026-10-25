@@ -61,6 +61,52 @@ fn snapshots_are_detached_and_reentrant_during_load_and_cleanup() -> mlua::Resul
 }
 
 #[test]
+fn compact_status_observes_intents_and_reentrant_lifecycle_without_draining() -> mlua::Result<()> {
+    let lua = lua()?;
+    lua.load(r#"
+        local p = native.plugin
+        local runtime = p.runtime()
+        local capability = p.contract('status/provider', 1)
+        local instance
+        local observedLoads = 0
+        local definition = p.define({}, {service = capability}, function(context)
+            observedLoads += 1
+            assert(runtime:status().draining)
+            assert(not runtime:hasActiveProvider('status/provider'))
+            assert(instance:intent())
+            context:effect(function()
+                return function()
+                    assert(runtime:status().draining)
+                    assert(not runtime:hasActiveProvider('status/provider'))
+                end
+            end)
+            return {service = {}}
+        end, 'observed')
+        instance = runtime:use(definition, nil)
+        assert(not instance:intent())
+        instance:enable()
+        local status = runtime:status()
+        assert(not status.draining and not status.closed and not status.closing)
+        assert(not pcall(function() status.closed = true end))
+        assert(runtime:hasActiveProvider('status/provider'))
+        assert(not runtime:hasActiveProvider('status/missing'))
+        instance:requestReload(nil)
+        assert(instance:intent())
+        assert(runtime:hasActiveProvider('status/provider'), 'deferred reload retains the published provider until drain')
+        assert(observedLoads == 1, 'observation does not drain')
+        runtime:drain()
+        assert(observedLoads == 2)
+        instance:disable()
+        assert(not instance:intent() and not runtime:hasActiveProvider('status/provider'))
+        runtime:close()
+        assert(runtime:status().closed)
+        assert(not status.closed, 'status is detached')
+        local enabled, retired = instance:intent()
+        assert(not enabled and retired)
+    "#).exec()
+}
+
+#[test]
 fn snapshots_expose_bindings_and_quarantine() -> mlua::Result<()> {
     let lua = lua()?;
     lua.load(r#"

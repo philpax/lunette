@@ -94,6 +94,7 @@ export type Instance<C> = {
   read dispose: (Instance<C>) -> (),
   read requestReload: (Instance<C>, C) -> (),
   read state: (Instance<C>) -> native.PluginState,
+  read intent: (Instance<C>) -> (boolean, boolean),
 }
 
 -- Receives an entry's saved changes, by the instance id of the context that saved them.
@@ -106,6 +107,8 @@ export type RuntimeOptions = {
 export type Runtime = {
   read use: <C>(Runtime, Definition<C>, C) -> Instance<C>,
   read snapshot: (Runtime) -> native.PluginRuntimeSnapshot,
+  read status: (Runtime) -> native.PluginRuntimeStatus,
+  read hasActiveProvider: (Runtime, string) -> boolean,
   read ownerId: (Runtime, Owner) -> string?,
   read close: (Runtime) -> (),
   read drain: (Runtime) -> (),
@@ -537,6 +540,12 @@ function adapter.runtime(options: RuntimeOptions?): Runtime
     end,
     snapshot = function(_self: Runtime): native.PluginRuntimeSnapshot
       return nativeRuntime:snapshot()
+    end,
+    status = function(_self: Runtime): native.PluginRuntimeStatus
+      return nativeRuntime:status()
+    end,
+    hasActiveProvider = function(_self: Runtime, name: string): boolean
+      return nativeRuntime:hasActiveProvider(name)
     end,
     ownerId = function(_self: Runtime, owner: Owner): string?
       local context = nativeContexts[(owner :: unknown) :: Context]

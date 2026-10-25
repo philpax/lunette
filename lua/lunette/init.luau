@@ -681,6 +681,13 @@ export type PluginRuntimeSnapshot = {
   read closed: boolean,
 }
 
+-- Immutable data copied from one synchronous runtime inspection.
+export type PluginRuntimeStatus = {
+  read draining: boolean,
+  read closing: boolean,
+  read closed: boolean,
+}
+
 -- An opaque native token naming one contract declaration.
 export type PluginContractToken = {
   -- A type brand that makes this handle nominal. The field does not exist at
@@ -705,6 +712,12 @@ export type PluginRuntime = {
   -- Copies coherent runtime state without lifecycle work, callbacks, or
   -- diagnostic consumption.
   read snapshot: (self: PluginRuntime) -> PluginRuntimeSnapshot,
+  -- Copies runtime lifecycle flags without inspecting instances or performing
+  -- lifecycle work.
+  read status: (self: PluginRuntime) -> PluginRuntimeStatus,
+  -- Reports whether an active instance, including a child, publishes any
+  -- version of this contract name.
+  read hasActiveProvider: (self: PluginRuntime, name: string) -> boolean,
   -- Returns a context's owning instance identity only when it belongs to this
   -- exact runtime, including after its activation ends.
   read ownerId: (self: PluginRuntime, context: PluginContext) -> string?,
@@ -732,6 +745,9 @@ export type PluginInstance = {
   -- Returns this handle's exact runtime-local identity, without consulting its
   -- name or lifecycle.
   read id: (self: PluginInstance) -> string,
+  -- Reports requested enabled and retired intent without lifecycle work.
+  -- Removed handles return false, true.
+  read intent: (self: PluginInstance) -> (boolean, boolean),
   -- Reports this instance's lifecycle state.
   read state: (self: PluginInstance) -> PluginState,
 }

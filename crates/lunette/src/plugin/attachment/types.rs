@@ -13,7 +13,7 @@ use crate::{
     plugin::{
         attachment::{
             context, lifecycle,
-            snapshot::{self, PluginRuntimeSnapshot},
+            snapshot::{self, PluginRuntimeSnapshot, PluginRuntimeStatus},
             state::{DefinitionData, RuntimeState},
         },
         contracts::PluginContractToken,
@@ -194,6 +194,18 @@ impl MethodsDescribed for PluginRuntime {
                 snapshot::snapshot(&this.state)
             }
 
+            /// Copies runtime lifecycle flags without inspecting instances or performing lifecycle work.
+            method status(_lua, this) -> PluginRuntimeStatus {
+                snapshot::status(&this.state)
+            }
+
+            /// Reports whether an active instance, including a child, publishes any version of this contract name.
+            method hasActiveProvider(_lua, this, name: String) -> bool {
+                let state = this.state.try_borrow()
+                    .map_err(|_| mlua::Error::runtime("plugin status: runtime state is mutably borrowed"))?;
+                Ok(state.graph.has_active_provider(&name))
+            }
+
             /// Returns a context's owning instance identity only when it belongs to this exact runtime, including after its activation ends.
             method ownerId(_lua, this, context: UserDataRef<PluginContext>) -> Option<String> {
                 Ok(context.runtime.upgrade()
@@ -276,6 +288,17 @@ impl MethodsDescribed for PluginInstance {
             /// Returns this handle's exact runtime-local identity, without consulting its name or lifecycle.
             method id(_lua, this) -> String {
                 Ok(snapshot::instance_id(this.id))
+            }
+
+            /// Reports requested enabled and retired intent without lifecycle work. Removed handles return false, true.
+            method intent(_lua, this) -> (bool, bool) {
+                let Some(runtime) = this.runtime.upgrade() else {
+                    return Ok((false, true));
+                };
+                let state = runtime.try_borrow()
+                    .map_err(|_| mlua::Error::runtime("plugin intent: runtime state is mutably borrowed"))?;
+                Ok(state.graph.intent(this.id)
+                    .map_or((false, true), |intent| (intent.enabled, intent.retired)))
             }
 
             /// Reports this instance's lifecycle state.

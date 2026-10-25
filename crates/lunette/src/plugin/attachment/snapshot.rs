@@ -143,6 +143,23 @@ snapshot_record!(PluginRuntimeSnapshot {
     closed => "closed": bool,
 });
 
+snapshot_record!(PluginRuntimeStatus {
+    draining => "draining": bool,
+    closing => "closing": bool,
+    closed => "closed": bool,
+});
+
+pub(super) fn status(runtime: &Rc<RefCell<RuntimeState>>) -> mlua::Result<PluginRuntimeStatus> {
+    let state = runtime
+        .try_borrow()
+        .map_err(|_| mlua::Error::runtime("plugin status: runtime state is mutably borrowed"))?;
+    Ok(PluginRuntimeStatus {
+        draining: state.draining,
+        closing: state.closing,
+        closed: state.closed,
+    })
+}
+
 /// Takes one borrow to copy coherent native state, releasing it before any Lua allocation.
 pub(super) fn snapshot(runtime: &Rc<RefCell<RuntimeState>>) -> mlua::Result<PluginRuntimeSnapshot> {
     let state = runtime
@@ -211,6 +228,7 @@ pub(crate) fn records() -> Vec<Record> {
         PluginEffectSnapshot::RECORD,
         PluginInstanceSnapshot::RECORD,
         PluginRuntimeSnapshot::RECORD,
+        PluginRuntimeStatus::RECORD,
     ]
 }
 

@@ -192,4 +192,46 @@ test('saved settings are set aside by ray until the next start, and stay saved',
   end)
 end)
 
+test('compact observation agrees with the recovery composition comparison', function()
+  local restore = require '../private/restore'
+  fixture.run(nil, function(env: fixture.Environment): ()
+    local service = env.composition
+    local previous = restore.capture(service:entries())
+    local revision = service:observe({}).revision
+    local function check(action: () -> ()): ()
+      action()
+      local captured = restore.capture(service:entries())
+      local observation = service:observe {}
+      expect.equal(observation.revision ~= revision, not restore.same(previous, captured))
+      previous, revision = captured, observation.revision
+    end
+    check(function()
+      service:configure('settings', { value = 1 })
+    end)
+    check(function()
+      service:configure('settings', { value = 2 })
+    end)
+    check(function()
+      service:reload 'settings'
+    end)
+    check(function()
+      service:disable 'settings'
+    end)
+    check(function()
+      service:enable 'settings'
+    end)
+    check(function()
+      service:remove 'settings'
+      service:restore 'settings'
+    end)
+    local sampled = service:observe {}
+    service:configure('settings', { value = 3 })
+    service:observe {}
+    service:configure('settings', { value = 2 })
+    local returned = service:observe {}
+    expect.truthy(returned.revision ~= sampled.revision, 'another observer can see an intermediate change')
+    expect.equal(restore.same(sampled.entries, returned.entries), true, 'recovery compares its own sampled values')
+  end)
+end)
+
 return test

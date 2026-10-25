@@ -309,6 +309,20 @@ impl Graph {
         self.node(instance).map(|node| node.phase.state())
     }
 
+    /// Returns the requested enabled and retirement state without planning lifecycle work.
+    pub fn intent(&self, instance: InstanceId) -> Result<IntentState, GraphError> {
+        self.node(instance).map(|node| node.intent)
+    }
+
+    /// Reports whether any active instance, including a child, publishes a contract with this name.
+    #[must_use]
+    pub fn has_active_provider(&self, name: &str) -> bool {
+        self.instances.values().any(|node| {
+            node.phase.state() == LifecycleState::Active
+                && node.provided.iter().any(|key| key.name() == name)
+        })
+    }
+
     #[must_use]
     pub fn len(&self) -> usize {
         self.instances.len()
