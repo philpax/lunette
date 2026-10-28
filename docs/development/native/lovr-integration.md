@@ -88,7 +88,7 @@ The trusted action bundle lives beside the real library. [Build and development]
 
 The host keeps LÖVR's callback loop. At frame start it refreshes snapshots and imports; at frame end it submits layer claims and sends compositor requests. Scene skipping wraps headset pass/texture access because obtaining a pass already acquires scene resources.
 
-Returning a truthy value from `lovr.draw` discards the headset pass. The session can remain active and paced while rendering nothing. Native and dispatcher error boundaries are specified in [errors](lua-api.md#errors); an unprotected callback can terminate the process.
+Returning a truthy first result from `lovr.draw` discards the main pass and its preparatory passes. The session can remain active and paced while rendering nothing. An optional second result supplies ordered preparatory passes for that draw invocation. The host submits them before the main and mirror passes in one graphics submission. The [frame provider](../../../lua/lunette-plugins/session/frame/README.md) collects these passes from plugin draw handlers; plugins do not submit them directly. The host checks the boot-loop anchors when it installs this extension and frame timing, so upstream loop changes require an explicit update. Native and dispatcher error boundaries are specified in [errors](lua-api.md#errors); an unprotected callback can terminate the process.
 
 ## Restart semantics
 

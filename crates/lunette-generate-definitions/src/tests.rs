@@ -1,6 +1,8 @@
 //! Exercises the vendored emitter with in-memory metadata and output.
 
-use mlua::{Function, Lua, Table};
+use mlua::{Function, Lua, Table, Value};
+
+use super::{DRAW_METADATA, extend_draw_metadata};
 
 #[test]
 fn table_schemas_keep_optional_fields_read_write_splits_and_empty_tables() -> mlua::Result<()> {
@@ -105,6 +107,80 @@ fn keyed_return_tables_preserve_their_domain_key_and_fields() -> mlua::Result<()
             "{invalid}"
         );
     }
+    Ok(())
+}
+
+#[test]
+fn draw_callback_adds_optional_preparation_passes_only_for_lunette() -> mlua::Result<()> {
+    let lua = Lua::new();
+    lua.load(
+        r#"
+        lovr = {
+            filesystem = { getSource = function() return 'memory' end },
+            system = { getOS = function() return 'Linux' end }
+        }
+        os = { execute = function() end }
+        io = { open = function()
+            return {
+                write = function(_, text) generated = text end,
+                close = function() end
+            }
+        end }
+        "#,
+    )
+    .exec()?;
+    let generator: Function = lua
+        .load(include_str!(
+            "../../../vendor/lovr-docs/api/generators/luau.lua"
+        ))
+        .eval()?;
+    let metadata: Value = lua
+        .load(include_str!(
+            "../../../vendor/lovr-docs/api/lovr/callbacks/draw.lua"
+        ))
+        .eval()?;
+
+    let untouched = extend_draw_metadata(&lua, "lovr/callbacks/mirror", metadata.clone())?;
+    let Value::Table(untouched) = untouched else {
+        return Err(mlua::Error::RuntimeError(
+            "draw callback metadata is not a table".to_owned(),
+        ));
+    };
+    let untouched_returns: Table = untouched.get("returns")?;
+    assert!(untouched_returns.get::<Value>("preparations")?.is_nil());
+
+    let Value::Table(metadata) = extend_draw_metadata(&lua, DRAW_METADATA, metadata)? else {
+        return Err(mlua::Error::RuntimeError(
+            "draw callback metadata is not a table".to_owned(),
+        ));
+    };
+    let arguments: Table = metadata.get("arguments")?;
+    let argument: Table = arguments.get("pass")?;
+    argument.set("name", "pass")?;
+    let returns: Table = metadata.get("returns")?;
+    let skip: Table = returns.get("skip")?;
+    skip.set("name", "skip")?;
+    let preparations: Table = returns.get("preparations")?;
+    preparations.set("name", "preparations")?;
+    let variant: Table = metadata.get::<Table>("variants")?.raw_get(1)?;
+    let variant_returns: Table = variant.get("returns")?;
+    let mut resolved_returns = Vec::new();
+    for name in variant_returns.sequence_values::<String>() {
+        resolved_returns.push(returns.get::<Table>(name?)?);
+    }
+    variant.set("arguments", lua.create_sequence_from([argument])?)?;
+    variant.set("returns", lua.create_sequence_from(resolved_returns)?)?;
+    metadata.set("name", "draw")?;
+
+    let api = lua.create_table()?;
+    api.set("modules", lua.create_table()?)?;
+    api.set("callbacks", lua.create_sequence_from([metadata])?)?;
+    generator.call::<()>(api)?;
+    let generated: String = lua.globals().get("generated")?;
+    assert!(
+        generated.contains("draw: ((pass: Pass) -> (boolean?, {Pass}?))?"),
+        "{generated}"
+    );
     Ok(())
 }
 

@@ -263,6 +263,110 @@ fn window_draw_time_is_present_even_when_draw_suppresses_submission() {
 }
 
 #[test]
+fn preparatory_passes_precede_headset_and_mirror_in_one_submission() {
+    for bits in 0..32 {
+        let tracing = bits & 1 != 0;
+        let headset = bits & 2 != 0;
+        let window = bits & 4 != 0;
+        let skip = bits & 8 != 0;
+        let mirror_skip = bits & 16 != 0;
+        for preparations in ["nil", "{}", "table.freeze { first, second }"] {
+            let lua = setup();
+            lua.load(HEADSET).exec().expect("headset facade");
+            lua.load(format!(
+                                "first, second, headset, window = {{}}, {{}}, {{}}, {{}}
+                                local expected = {{}}
+                                if {headset} and not {skip} then
+                                    for _, pass in ipairs({preparations} or {{}}) do expected[#expected + 1] = pass end
+                                    expected[#expected + 1] = headset
+                                end
+                                if {window} and not {mirror_skip} then expected[#expected + 1] = window end
+                                lovr.headset.getPass = function() return {headset} and headset or nil end
+                                lovr.graphics = {{
+                                    getWindowPass = function() return {window} and window or nil end,
+                                    submit = function(...)
+                                        local actual = {{}}
+                                        local firstArgument = ...
+                                        if firstArgument and firstArgument ~= headset and firstArgument ~= window then
+                                            assert(select('#', ...) == 1, 'table submission has no extra arguments')
+                                            actual = firstArgument
+                                        else
+                                            for i = 1, select('#', ...) do
+                                                local pass = select(i, ...)
+                                                if pass then actual[#actual + 1] = pass end
+                                            end
+                                        end
+                                        assert(#actual == #expected, 'submission pass count')
+                                        for i, pass in ipairs(expected) do assert(actual[i] == pass, 'submission order') end
+                                        submits = (submits or 0) + 1
+                                    end,
+                                    present = function() presents = (presents or 0) + 1 end,
+                                    isTimingEnabled = function() return false end,
+                                }}
+                                lovr.draw = function(pass)
+                                    assert(pass == headset)
+                                    draws = (draws or 0) + 1
+                                    return {skip}, {preparations}
+                                end
+                                lovr.mirror = function(pass) assert(pass == window); return {mirror_skip} end
+                                expectedSubmits = #expected > 0 and 1 or 0"
+                            ))
+                            .exec()
+                            .expect("ordered headset setup");
+            let _cancel = if tracing {
+                let listener = lua.load("return function() end").eval().expect("listener");
+                Some(observe(&lua, Listener(listener)).expect("observer"))
+            } else {
+                None
+            };
+            lua.load(
+                                "frame = lovr.run(); frame()
+                                assert((submits or 0) == expectedSubmits, 'one graphics submission')
+                                assert(headsetSubmits == 1 and presents == 1, 'presentation unchanged')",
+                            )
+                            .exec()
+                            .expect("ordered headset frame");
+        }
+    }
+}
+
+#[test]
+fn window_preparations_are_invocation_local_and_draw_veto_discards_them() {
+    for skip in [false, true] {
+        let lua = setup();
+        lua.load(format!(
+            "first, second, window = {{}}, {{}}, {{}}
+            drawCalls = 0
+            lovr.graphics = {{
+                getWindowPass = function() return window end,
+                submit = function(...)
+                    submits = (submits or 0) + 1
+                    if drawCalls == 1 then
+                        local passes = ...
+                        assert(select('#', ...) == 1 and #passes == 3)
+                        assert(passes[1] == first and passes[2] == second and passes[3] == window)
+                    else
+                        assert(select('#', ...) == 1 and (...) == window, 'no stale preparations')
+                    end
+                end,
+                present = function() presents = (presents or 0) + 1 end,
+            }}
+            lovr.draw = function(pass)
+                assert(pass == window)
+                drawCalls += 1
+                return {skip}, drawCalls == 1 and {{ first, second }} or nil
+            end
+            frame = lovr.run(); frame(); frame()
+            lovr.draw = nil; frame()
+            assert((submits or 0) == ({skip} and 1 or 3))
+            assert(presents == 3)"
+        ))
+        .exec()
+        .expect("window preparations and veto");
+    }
+}
+
+#[test]
 fn callback_reacquisition_survives_old_cancel_and_error_and_records_are_readonly() {
     let lua = setup();
     let acquire = lua

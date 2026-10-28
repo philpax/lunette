@@ -250,7 +250,7 @@ pub fn publish(lua: &Lua, between_seconds: Option<f64>) -> mlua::Result<()> {
     result
 }
 
-/// Adds phase marks at exact known boot boundaries, rejecting upstream drift instead of partial instrumentation.
+/// Adds frame phase marks and ordered preparatory passes at checked boot boundaries.
 pub fn instrument_boot(source: &[u8]) -> Result<String, String> {
     let mut source = String::from_utf8(source.to_vec())
         .map_err(|error| format!("frame timing: boot source: {error}"))?;
@@ -276,12 +276,16 @@ pub fn instrument_boot(source: &[u8]) -> Result<String, String> {
             "      if tracing then frameTrace.before() end\n      local window = lovr.graphics.getWindowPass()",
         ),
         (
+            "        if headset and lovr.draw and lovr.draw(headset) then headset = nil end",
+            "        local preparations\n        if headset and lovr.draw then\n          local skip\n          skip, preparations = lovr.draw(headset)\n          if skip then headset, preparations = nil, nil end\n        end",
+        ),
+        (
             "        if headset or window then lovr.graphics.submit(headset, window) end\n        lovr.headset.submit()",
-            "        if tracing then frameTrace.mark('heapDraw', 'draw') end\n        if headset or window then\n          lovr.graphics.submit(headset, window)\n          if tracing then frameTrace.mark('heapGraphicsSubmit', 'graphicsSubmit') end\n        end\n        lovr.headset.submit()\n        if tracing then frameTrace.mark('heapHeadsetSubmit', 'headsetSubmit') end",
+            "        if tracing then frameTrace.mark('heapDraw', 'draw') end\n        if headset or window then\n          if preparations and #preparations > 0 then\n            local passes = {}\n            for i, pass in ipairs(preparations) do passes[i] = pass end\n            if headset then passes[#passes + 1] = headset end\n            if window then passes[#passes + 1] = window end\n            lovr.graphics.submit(passes)\n          else\n            lovr.graphics.submit(headset, window)\n          end\n          if tracing then frameTrace.mark('heapGraphicsSubmit', 'graphicsSubmit') end\n        end\n        lovr.headset.submit()\n        if tracing then frameTrace.mark('heapHeadsetSubmit', 'headsetSubmit') end",
         ),
         (
             "      elseif window and (not lovr.draw or not lovr.draw(window)) then\n        lovr.graphics.submit(window)\n      end\n      lovr.graphics.present()",
-            "      else\n        local skip = window and lovr.draw and lovr.draw(window)\n        if tracing then frameTrace.mark('heapDraw', 'draw') end\n        if window and not skip then\n          lovr.graphics.submit(window)\n          if tracing then frameTrace.mark('heapGraphicsSubmit', 'graphicsSubmit') end\n        end\n      end\n      if tracing then frameTrace.before() end\n      lovr.graphics.present()\n      if tracing then frameTrace.mark('heapPresent', 'present') end",
+            "      else\n        local skip, preparations\n        if window and lovr.draw then skip, preparations = lovr.draw(window) end\n        if tracing then frameTrace.mark('heapDraw', 'draw') end\n        if window and not skip then\n          if preparations and #preparations > 0 then\n            local passes = {}\n            for i, pass in ipairs(preparations) do passes[i] = pass end\n            passes[#passes + 1] = window\n            lovr.graphics.submit(passes)\n          else\n            lovr.graphics.submit(window)\n          end\n          if tracing then frameTrace.mark('heapGraphicsSubmit', 'graphicsSubmit') end\n        end\n      end\n      if tracing then frameTrace.before() end\n      lovr.graphics.present()\n      if tracing then frameTrace.mark('heapPresent', 'present') end",
         ),
         (
             "    elseif lovr.headset then\n      lovr.headset.submit()",

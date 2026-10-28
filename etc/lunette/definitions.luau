@@ -2191,7 +2191,7 @@ declare lovr: {
   getVersion: () -> (number, number, number, string, string),
 
   conf: ((t: LovrConfiguration) -> ())?,
-  draw: ((pass: Pass) -> boolean?)?,
+  draw: ((pass: Pass) -> (boolean?, {Pass}?))?,
   errhand: ((message: string) -> (() -> any)?)?,
   filechanged: ((path: string, action: FileAction, oldpath: string?) -> ())?,
   focus: ((focused: boolean, display: DisplayType) -> ())?,

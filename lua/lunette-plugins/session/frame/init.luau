@@ -4,6 +4,7 @@ local contract = require '@lunette-contracts/frame'
 local protected = require '@lunette-plugins/diagnostics/protected-call'
 local inspection = require '@lunette-contracts/inspection'
 local translation = require '@self/private/translation'
+local drawPasses = require '@self/private/draw-passes'
 
 local frame = {}
 
@@ -14,7 +15,7 @@ export type Hooks = {
 
 type Dispatcher = {
   update: (number) -> (),
-  draw: (Pass) -> (),
+  draw: (Pass) -> { Pass }?,
   key: (KeyCode, number, boolean, translation.LovrModifiers?) -> (),
   text: (string, number) -> (),
   mouse: (contract.HostMouseEvent) -> (),
@@ -125,7 +126,7 @@ local function create(context: plugin.Context): (contract.Service, Dispatcher)
   local currentBatch: contract.Batch? = nil
   local batches: { Entry<(contract.Batch) -> ()> } = {}
   local updates: { Entry<(number) -> ()> } = {}
-  local draws: { Entry<(Pass) -> ()> } = {}
+  local draws: { Entry<drawPasses.Run> } = {}
   local keys: { Entry<(contract.HostKeyEvent) -> boolean?> } = {}
   local texts: { Entry<(contract.HostTextEvent) -> boolean?> } = {}
   local mice: { Entry<(contract.HostMouseEvent) -> ()> } = {}
@@ -214,11 +215,8 @@ local function create(context: plugin.Context): (contract.Service, Dispatcher)
         return nil
       end)
     end,
-    draw = function(pass: Pass): ()
-      dispatch('lovr.draw', draws, function(run: (Pass) -> ()): boolean?
-        run(pass)
-        return nil
-      end)
+    draw = function(pass: Pass): { Pass }?
+      return drawPasses.dispatch(context, draws, pass)
     end,
     key = function(key: KeyCode, scancode: number, isRepeat: boolean, host: translation.LovrModifiers?): ()
       local snapshot = if host ~= nil then translation.snapshot(host) else nil
@@ -414,12 +412,9 @@ function frame.install(hooks: Hooks): ()
     end
   end
 
-  function lovr.draw(pass: Pass): boolean
+  function lovr.draw(pass: Pass): (boolean, { Pass }?)
     local current = bound
-    if current then
-      current.draw(pass)
-    end
-    return false
+    return false, if current then current.draw(pass) else nil
   end
 
   function lovr.keypressed(key: KeyCode, scancode: number, isrepeat: boolean, modifiers: translation.LovrModifiers?)

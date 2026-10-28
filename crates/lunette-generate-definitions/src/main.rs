@@ -32,6 +32,8 @@ const FORK_BRANCH: &str = "lunette";
 /// What the checker loads: the generated definitions, plus what lovr-docs does
 /// not describe.
 const CHECKER_DEFINITIONS: &str = "etc/lunette/definitions.luau";
+/// The exact metadata module for the callback with host-specific returns.
+const DRAW_METADATA: &str = "lovr/callbacks/draw";
 
 /// The `lunette` module the checker loads, rendered from the Rust
 /// registration surface. The lovr-docs metadata does not describe it.
@@ -345,6 +347,41 @@ fn install_generator_globals(lua: &Lua, api_root: &Path) -> mlua::Result<()> {
     Ok(())
 }
 
+/// Extends the draw callback with the second result interpreted by Lunette's host.
+///
+/// LÖVR's metadata describes only the first result. The host also accepts an
+/// optional array of preparation passes, so this local override adds it only
+/// to the draw callback without changing the vendored metadata.
+fn extend_draw_metadata(lua: &Lua, name: &str, value: mlua::Value) -> mlua::Result<mlua::Value> {
+    if name != DRAW_METADATA {
+        return Ok(value);
+    }
+
+    let mlua::Value::Table(metadata) = value else {
+        return Err(mlua::Error::RuntimeError(
+            "lovr/callbacks/draw metadata is not a table".to_owned(),
+        ));
+    };
+    let returns: Table = metadata.get("returns")?;
+    let preparations = lua.create_table()?;
+    preparations.set("type", "{Pass}?")?;
+    preparations.set(
+        "description",
+        "Optional preparation passes submitted before the main display pass.",
+    )?;
+    returns.set("preparations", preparations)?;
+
+    let variants: Table = metadata.get("variants")?;
+    for index in 1..=variants.raw_len() {
+        let variant: Table = variants.raw_get(index)?;
+        let variant_returns: Table = variant.get("returns")?;
+        let count = variant_returns.raw_len();
+        variant_returns.raw_set(count + 1, "preparations")?;
+    }
+
+    Ok(mlua::Value::Table(metadata))
+}
+
 /// Installs the `require` the aggregator loads each document with.
 ///
 /// LÖVR's loader copies the module name into a path, substituting `.` for
@@ -373,6 +410,7 @@ fn install_require(lua: &Lua, api_root: &Path) -> mlua::Result<()> {
             .load(&source)
             .set_name(format!("@lovr-docs/api/{}.lua", name.replace('.', "/")))
             .eval()?;
+        let value = extend_draw_metadata(lua, &name, value)?;
         loaded.set(name, value.clone())?;
         Ok(value)
     })?;

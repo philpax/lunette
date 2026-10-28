@@ -1,40 +1,12 @@
 local testing = require '@testing'
 local expect = testing.expect
 local plugin = require '@lunette-plugin'
-local adapter = require '@lunette-plugin/adapter'
-local frame = require '../'
 local frameContract = require '@lunette-contracts/frame'
+local environment = require './support/environment'
 
 local test = testing.suite()
-
-type Environment = { native: testing.Native, stopped: number, session: testing.Session? }
-type Register = (plugin.Context, frameContract.Service) -> ()
-
--- The frame provider over the fake native API, with the callbacks installed as `testing.boot` installs them,
--- except that quit also counts each stop in `env.stopped`.
-local function start(): Environment
-  local env: Environment = { native = testing.native(), stopped = 0 }
-  frame.install {
-    start = function() end,
-    stop = function()
-      env.stopped += 1
-      env.session.runtime:close()
-    end,
-  }
-  env.session = testing.start { 'frame' }
-  env.session.native = env.native
-  return env
-end
-
-local function consumer(env: Environment, name: string, register: Register): adapter.Instance<{}>
-  return env.session:use(adapter.define {
-    name = name,
-    requires = { frameContract.capability },
-    init = function(context: plugin.Context)
-      register(context, context:require(frameContract.capability))
-    end,
-  })
-end
+local start = environment.start
+local consumer = environment.consumer
 
 local function recorder(trace: { string }): (string) -> () -> ()
   return function(label: string): () -> ()

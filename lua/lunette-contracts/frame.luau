@@ -53,10 +53,14 @@ export type UpdateHandler = {
   read run: (number) -> (),
 }
 
+-- Preparatory passes run in list order before the main draw Pass. Nil and an empty list add no passes.
+export type DrawPasses = { read [number]: Pass }
+export type DrawRun = ((Pass) -> ()) | ((Pass) -> DrawPasses?)
+
 export type DrawHandler = {
   read phase: DrawPhase,
   read order: number?,
-  read run: (Pass) -> (),
+  read run: DrawRun,
 }
 
 export type KeyHandler = {
@@ -124,6 +128,6 @@ frame.DRAW_PHASES = table.freeze { 'input', 'scene', 'pointing', 'overlay', 'fee
 -- The key and text phases in the order they run.
 frame.INPUT_PHASES = table.freeze { 'binding', 'delivery' } :: { InputPhase }
 
-frame.capability = plugin.capability<<Service>> { name = 'lunette/frame', version = 3 }
+frame.capability = plugin.capability<<Service>> { name = 'lunette/frame', version = 4 }
 
 return frame
