@@ -900,8 +900,14 @@ installLovr = function(events: Events)
     newShader = function(source: string, second: any?, options: any?): render.Shader
       return recorder:newShader(source, second, options)
     end,
-    newTexture = function(source: any, second: any?, third: any?): render.Texture
-      return recorder:newTexture(source, second, third)
+    newTexture = function(source: any, second: any?, third: any?, fourth: any?): render.Texture
+      return recorder:newTexture(source, second, third, fourth)
+    end,
+    newPass = function(canvas: any?): render.Pass
+      return recorder:newPass(canvas)
+    end,
+    isFormatSupported = function(format: string, ...: string): (boolean, boolean)
+      return recorder:isFormatSupported(format, ...)
     end,
     newSampler = function(options: any?): render.Sampler
       return recorder:newSampler(options)

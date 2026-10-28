@@ -3,6 +3,7 @@
 -- Resource failure fields inject one acquisition error; acquisition and release lists record resource counts.
 -- Custom meshes and uniforms record submitted data without shader execution or GPU validation.
 -- Buffer sends snapshot their ranges at recording time; mutable-buffer submission semantics are not modeled.
+-- Passes have separate sinks; reset clears drawing state and counters without erasing recorded evidence.
 
 local render = {}
 
@@ -79,7 +80,25 @@ export type Stacks = { state: { State }, transform: { Mat4 } }
 export type Checkpoint = { state: State, transform: Mat4, stacks: Stacks }
 export type Call = { [number]: Argument, n: number, state: State, transform: Mat4, draw: boolean?, points: { vector }? }
 export type Box = { read x: number, read y: number, read width: number, read height: number, read tolerance: number? }
+export type Canvas = { [number]: Texture, texture: Texture?, depth: (boolean | string | Texture)?, samples: number? }
 export type Pass = {
+  recorder: Recorder,
+  released: boolean,
+  type: (Pass) -> string,
+  release: (Pass) -> (),
+  reset: (Pass) -> (),
+  getDimensions: (Pass) -> (number, number),
+  getWidth: (Pass) -> number,
+  getHeight: (Pass) -> number,
+  getStats: (Pass) -> { draws: number, computes: number },
+  getViewCount: (Pass) -> number,
+  getCanvas: (Pass) -> Canvas?,
+  setCanvas: (Pass, Canvas) -> (),
+  getProjection: (Pass, number, Mat4) -> Mat4,
+  setProjection: (Pass, number, Mat4) -> (),
+  getViewPose: (Pass, number, Mat4, boolean?) -> Mat4,
+  setViewPose: (Pass, number, Mat4, boolean?) -> (),
+  mesh: (Pass, ...Argument) -> (),
   getFont: (Pass) -> Font,
   send: (Pass, string, ...Argument) -> (),
   setClear: (Pass, ...Argument) -> (),
@@ -92,6 +111,7 @@ export type Pass = {
   setBlendMode: (Pass, ...Argument) -> (),
   setCullMode: (Pass, ...Argument) -> (),
   setScissor: (Pass, ...Argument) -> (),
+  setViewport: (Pass, ...Argument) -> (),
   push: (Pass, ...Argument) -> (),
   pop: (Pass, ...Argument) -> (),
   origin: (Pass) -> (),
@@ -112,6 +132,19 @@ export type Recorder = {
   _sink: () -> { Call },
   font: Font,
   pass: Pass,
+  width: number,
+  height: number,
+  viewCount: number,
+  samples: number,
+  canvas: Canvas?,
+  projections: { Mat4 },
+  viewPoses: { Mat4 },
+  formatSupported: boolean,
+  formatSupport: { linear: boolean, srgb: boolean }?,
+  formatQueries: { Arguments },
+  passAcquisitions: { Pass },
+  passReleases: { Pass },
+  passFailure: string?,
   fontMeasurements: { { font: Font, method: string, text: string? } },
   meshAcquisitions: { Mesh },
   shaderAcquisitions: { Shader },
@@ -134,8 +167,10 @@ export type Recorder = {
   newMesh: (Recorder, number | VertexFormat, ({ { number } } | number | MeshFlags)?, MeshFlags?) -> Mesh,
   newShader: (Recorder, string, (string | any)?, any?) -> Shader,
   newBuffer: (Recorder, string, number) -> Buffer,
-  newTexture: (Recorder, any, any?, any?) -> Texture,
+  newTexture: (Recorder, any, any?, any?, any?) -> Texture,
   newSampler: (Recorder, any?) -> Sampler,
+  newPass: (Recorder, Canvas?) -> Pass,
+  isFormatSupported: (Recorder, string, ...string) -> (boolean, boolean),
   textureAcquisitions: { Texture },
   samplerAcquisitions: { Sampler },
   assertMeshesReleased: (Recorder) -> (),
@@ -169,8 +204,9 @@ local SETTERS = {
   'setBlendMode',
   'setCullMode',
   'setScissor',
+  'setViewport',
 }
-local DRAW_METHODS = { 'plane', 'roundrect', 'text', 'line', 'sphere', 'box', 'capsule', 'cylinder', 'draw' }
+local DRAW_METHODS = { 'plane', 'roundrect', 'text', 'line', 'sphere', 'box', 'capsule', 'cylinder', 'draw', 'mesh' }
 
 function render.new(calls: ({ Call } | () -> { Call })?): Recorder
   calls = calls or {}
@@ -183,6 +219,17 @@ function render.new(calls: ({ Call } | () -> { Call })?): Recorder
     calls = sink(),
     _sink = sink,
     font = newFont(),
+    width = 640,
+    height = 480,
+    viewCount = 1,
+    samples = 4,
+    canvas = { samples = 4 },
+    projections = {},
+    viewPoses = {},
+    formatSupported = true,
+    formatQueries = {},
+    passAcquisitions = {},
+    passReleases = {},
     fontMeasurements = {},
     meshAcquisitions = {},
     shaderAcquisitions = {},
@@ -201,6 +248,36 @@ function render.new(calls: ({ Call } | () -> { Call })?): Recorder
   self.pass = newPass(self)
   self._initial = self:checkpoint()
   return self
+end
+
+function Recorder.newPass(self: Recorder, canvas: Canvas?): Pass
+  if self.passFailure then
+    local message = self.passFailure
+    self.passFailure = nil
+    error(message, 0)
+  end
+  local target = render.new()
+  target.width, target.height, target.viewCount = 0, 0, 0
+  target.canvas = nil
+  local pass = target.pass
+  local recorder = self
+  function pass.release(self: Pass)
+    assert(not self.released, 'render recorder: pass released twice')
+    self.released = true
+    recorder.passReleases[#recorder.passReleases + 1] = self
+  end
+  if canvas then
+    pass:setCanvas(canvas)
+  end
+  self.passAcquisitions[#self.passAcquisitions + 1] = pass
+  return pass
+end
+
+function Recorder.isFormatSupported(self: Recorder, format: string, ...: string): (boolean, boolean)
+  self.formatQueries[#self.formatQueries + 1] = table.pack(format, ...)
+  local support = self.formatSupport
+  return if support then support.linear else self.formatSupported,
+    if support then support.srgb else self.formatSupported
 end
 
 function Recorder.newFont(self: Recorder, file: string, size: number, spread: number): Font
@@ -373,14 +450,20 @@ end
 export type Texture = {
   width: number?,
   height: number?,
+  layers: number,
   options: any?,
   released: boolean,
   uploads: number,
+  getDimensions: (Texture) -> (number?, number?, number),
+  getLayerCount: (Texture) -> number,
+  getSampleCount: (Texture) -> number,
+  getType: (Texture) -> string,
+  getFormat: (Texture) -> (string, boolean),
   setPixels: (Texture, any) -> (),
   release: (Texture) -> (),
 }
 
-function Recorder.newTexture(self: Recorder, source: any, second: any?, third: any?): Texture
+function Recorder.newTexture(self: Recorder, source: any, second: any?, third: any?, fourth: any?): Texture
   if self.textureFailure then
     local message = self.textureFailure
     self.textureFailure = nil
@@ -388,12 +471,32 @@ function Recorder.newTexture(self: Recorder, source: any, second: any?, third: a
   end
   local recorder = self
   local allocated = type(source) == 'number'
+  local layered = allocated and type(third) == 'number'
   local texture: Texture = {
     width = if allocated then source else nil,
     height = if allocated then second else nil,
-    options = if allocated then third else second,
+    layers = if layered then third else 1,
+    options = if allocated then (if layered then fourth else third) else second,
     released = false,
     uploads = if allocated then 0 else 1,
+    getDimensions = function(texture: Texture): (number?, number?, number)
+      return texture.width, texture.height, texture.layers
+    end,
+    getLayerCount = function(texture: Texture): number
+      return texture.layers
+    end,
+    getSampleCount = function(texture: Texture): number
+      return (texture.options and texture.options.samples) or 1
+    end,
+    getType = function(texture: Texture): string
+      return (texture.options and texture.options.type) or (if layered then 'array' else '2d')
+    end,
+    getFormat = function(texture: Texture): (string, boolean)
+      local options = texture.options
+      local format = (options and options.format) or 'rgba8'
+      local linear = options ~= nil and not not options.linear
+      return format, linear
+    end,
     setPixels = function(texture: Texture, _image: any): ()
       assert(not texture.released, 'render recorder: pixels set on a released texture')
       texture.uploads += 1
@@ -444,6 +547,10 @@ function Recorder.assertResourcesReleased(self: Recorder)
   end
   for _, sampler in self.samplerAcquisitions do
     assert(sampler.released, 'render recorder: leaked sampler')
+  end
+  for _, pass in self.passAcquisitions do
+    assert(pass.released, 'render recorder: leaked pass')
+    pass.recorder:assertResourcesReleased()
   end
 end
 
@@ -576,8 +683,10 @@ newFont = function(spec: FileFontSpec?, recorder: Recorder?): Font
 end
 
 newPass = function(recorder: Recorder): Pass
-  local pass = {}
+  local pass = { recorder = recorder, released = false }
+  local draws, computes = 0, 0
   local function record(name: string, ...: Argument): Call
+    assert(not pass.released, 'render recorder: released pass used')
     recorder.calls = recorder._sink()
     local call: Call = table.pack(name, ...)
     for index = 2, call.n do
@@ -589,6 +698,79 @@ newPass = function(recorder: Recorder): Pass
     call.transform = lovr.math.newMat4(recorder._transform)
     recorder.calls[#recorder.calls + 1] = call
     return call
+  end
+  function pass.type(self: Pass): string
+    return 'Pass'
+  end
+  function pass.release(self: Pass)
+    assert(not self.released, 'render recorder: pass released twice')
+    self.released = true
+  end
+  function pass.reset(self: Pass)
+    record 'reset'
+    draws, computes = 0, 0
+    recorder._state = {}
+    recorder._transform:identity()
+    recorder._stacks = { state = {}, transform = {} }
+    recorder.projections = {}
+    recorder.viewPoses = {}
+  end
+  function pass.getDimensions(self: Pass): (number, number)
+    return recorder.width, recorder.height
+  end
+  function pass.getWidth(self: Pass): number
+    return recorder.width
+  end
+  function pass.getHeight(self: Pass): number
+    return recorder.height
+  end
+  function pass.getStats(self: Pass): { draws: number, computes: number }
+    return { draws = draws, computes = computes }
+  end
+  function pass.getViewCount(self: Pass): number
+    return recorder.viewCount
+  end
+  function pass.getCanvas(self: Pass): Canvas?
+    if not recorder.canvas then
+      return nil
+    end
+    local canvas = table.clone(recorder.canvas)
+    canvas.samples = recorder.samples
+    return canvas
+  end
+  function pass.setCanvas(self: Pass, canvas: Canvas)
+    record('setCanvas', table.clone(canvas))
+    local texture = canvas.texture or canvas[1]
+    assert(texture and not texture.released, 'render recorder: invalid canvas texture')
+    recorder.canvas = table.clone(canvas)
+    recorder.canvas[1] = texture
+    recorder.canvas.texture = nil
+    recorder.width, recorder.height = texture.width, texture.height
+    recorder.viewCount = texture.layers
+    recorder.samples = canvas.samples or 4
+  end
+  local function checkView(view: number)
+    assert(view % 1 == 0 and view >= 1 and view <= recorder.viewCount, 'render recorder: invalid view')
+  end
+  function pass.getProjection(self: Pass, view: number, matrix: Mat4): Mat4
+    checkView(view)
+    return matrix:set(recorder.projections[view] or lovr.math.newMat4())
+  end
+  function pass.setProjection(self: Pass, view: number, matrix: Mat4)
+    checkView(view)
+    record('setProjection', view, matrix)
+    recorder.projections[view] = lovr.math.newMat4(matrix)
+  end
+  function pass.getViewPose(self: Pass, view: number, matrix: Mat4, inverted: boolean?): Mat4
+    checkView(view)
+    matrix:set(recorder.viewPoses[view] or lovr.math.newMat4())
+    return if inverted then matrix:invert() else matrix
+  end
+  function pass.setViewPose(self: Pass, view: number, matrix: Mat4, inverted: boolean?)
+    checkView(view)
+    record('setViewPose', view, matrix, inverted)
+    local pose = lovr.math.newMat4(matrix)
+    recorder.viewPoses[view] = if inverted then pose:invert() else pose
   end
   for _, method in SETTERS do
     pass[method] = function(_: Pass, ...: Argument)
@@ -685,10 +867,12 @@ newPass = function(recorder: Recorder): Pass
       local call = record(method, ...)
       call.draw = true
       call.points = geometry(method, table.pack(...), call.transform, pass:getFont())
+      draws += 1
     end
   end
   function pass.compute(self: Pass, x: number, y: number, z: number): ()
     record('compute', x, y, z)
+    computes += 1
   end
   return pass
 end
