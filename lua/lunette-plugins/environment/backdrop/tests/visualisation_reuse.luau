@@ -209,21 +209,26 @@ test('full-history geometry eliminates the oracle allocation volume after warmup
   expect.equal(oldSkyline, 787, 'the oracle allocates 384 bars, 8 caps, their colors, and three shape tables')
   expect.equal(oldMarkers, 91, 'the oracle allocates marker records, onset colors, and shape tables')
   local skyBuffer, markerBuffer = scene.newSkyline(), scene.newMarkers()
-  scene.skyline(rows, raw, palette, 0.8, 0.1, 0.05, skyBuffer)
-  scene.markers(state, palette, 32, 0.65, accent, markerBuffer)
-  collectgarbage 'collect'
-  collectgarbage 'stop'
-  local before = collectgarbage 'count'
+  local allocated = 0
   local ok, problem = pcall(function(): ()
+    scene.skyline(rows, raw, palette, 0.8, 0.1, 0.05, skyBuffer)
+    scene.markers(state, palette, 32, 0.65, accent, markerBuffer)
+    -- Warm and measure in the same protected frame to exclude Lua stack growth from the update allocation count.
+    collectgarbage 'collect'
+    collectgarbage 'stop'
+    local before = collectgarbage 'count'
     for _ = 1, 120 do
       scene.skyline(rows, raw, palette, 0.8, 0.1, 0.05, skyBuffer)
       scene.markers(state, palette, 32, 0.65, accent, markerBuffer)
     end
+    allocated = collectgarbage 'count' - before
   end)
-  local allocated = collectgarbage 'count' - before
   collectgarbage 'restart'
   assert(ok, problem)
-  expect.truthy(allocated <= 1, '120 warmed skyline and marker updates increase the heap by at most 1 KiB')
+  expect.truthy(
+    allocated <= 1,
+    `120 warmed skyline and marker updates increase the heap by at most 1 KiB; observed {allocated} KiB`
+  )
   print(
     `backdrop geometry: oracle {oldSkyline + oldMarkers} reachable tables/frame; warmed 120 updates {allocated} KiB`
   )
