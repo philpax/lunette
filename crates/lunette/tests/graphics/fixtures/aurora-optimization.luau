@@ -1,4 +1,5 @@
--- Compares production shaders with a frozen independent source, on the real indexed backdrop surfaces.
+-- Compares the analytic production shaders, not the sampled sky draw path, with frozen independent sources.
+-- The separate sky-texture fixture covers approximate fidelity of the complete production renderer.
 local testing = require '@testing'
 local config = require '@lunette-plugins/environment/backdrop/config'
 local geometry = require '@lunette-plugins/environment/backdrop/private/rendering/geometry'

@@ -1,6 +1,6 @@
 -- Records development-only drawing with real LÖVR transforms and deterministic codepoint font metrics.
 -- Text bounds are metric boxes, not rasterized glyph ink.
--- meshFailure and shaderFailure inject one acquisition error; acquisition and release lists record resource counts.
+-- Resource failure fields inject one acquisition error; acquisition and release lists record resource counts.
 -- Custom meshes and uniforms record submitted data without shader execution or GPU validation.
 -- Buffer sends snapshot their ranges at recording time; mutable-buffer submission semantics are not modeled.
 
@@ -35,7 +35,15 @@ export type Mesh = {
   setIndices: (Mesh, { number }) -> (),
   release: (Mesh) -> (),
 }
-export type Shader = { vertex: string, fragment: string, released: boolean, release: (Shader) -> () }
+export type Shader = {
+  vertex: string?,
+  fragment: string?,
+  compute: string?,
+  options: any?,
+  released: boolean,
+  release: (Shader) -> (),
+}
+export type Sampler = { options: any?, released: boolean, release: (Sampler) -> () }
 export type Buffer = {
   kind: 'buffer',
   capacity: number,
@@ -97,6 +105,7 @@ export type Pass = {
   line: (Pass, ...Argument) -> (),
   sphere: (Pass, ...Argument) -> (),
   draw: (Pass, ...Argument) -> (),
+  compute: (Pass, number, number, number) -> (),
 }
 export type Recorder = {
   calls: { Call },
@@ -107,21 +116,28 @@ export type Recorder = {
   meshAcquisitions: { Mesh },
   shaderAcquisitions: { Shader },
   bufferAcquisitions: { Buffer },
+  samplerAcquisitions: { Sampler },
   meshReleases: { Mesh },
   shaderReleases: { Shader },
   bufferReleases: { Buffer },
+  samplerReleases: { Sampler },
+  textureReleases: { Texture },
   meshFailure: string?,
   shaderFailure: string?,
+  samplerFailure: string?,
+  textureFailure: string?,
   _state: State,
   _transform: Mat4,
   _stacks: Stacks,
   _initial: Checkpoint,
   newFont: (Recorder, string, number, number) -> Font,
   newMesh: (Recorder, number | VertexFormat, ({ { number } } | number | MeshFlags)?, MeshFlags?) -> Mesh,
-  newShader: (Recorder, string, string) -> Shader,
+  newShader: (Recorder, string, (string | any)?, any?) -> Shader,
   newBuffer: (Recorder, string, number) -> Buffer,
-  newTexture: (Recorder, any, any?) -> Texture,
+  newTexture: (Recorder, any, any?, any?) -> Texture,
+  newSampler: (Recorder, any?) -> Sampler,
   textureAcquisitions: { Texture },
+  samplerAcquisitions: { Sampler },
   assertMeshesReleased: (Recorder) -> (),
   assertResourcesReleased: (Recorder) -> (),
   within: <R...>(Recorder, Box, (Pass) -> R...) -> R...,
@@ -171,10 +187,13 @@ function render.new(calls: ({ Call } | () -> { Call })?): Recorder
     meshAcquisitions = {},
     shaderAcquisitions = {},
     bufferAcquisitions = {},
+    samplerAcquisitions = {},
     textureAcquisitions = {},
     meshReleases = {},
     shaderReleases = {},
     bufferReleases = {},
+    samplerReleases = {},
+    textureReleases = {},
     _state = {},
     _transform = lovr.math.newMat4(),
     _stacks = { state = {}, transform = {} },
@@ -282,14 +301,19 @@ function Recorder.newMesh(
   return mesh
 end
 
-function Recorder.newShader(self: Recorder, vertex: string, fragment: string): Shader
+function Recorder.newShader(self: Recorder, source: string, second: any?, options: any?): Shader
   if self.shaderFailure then
     local message = self.shaderFailure
     self.shaderFailure = nil
     error(message, 0)
   end
   local recorder = self
-  local shader = { vertex = vertex, fragment = fragment, released = false }
+  local shader: Shader
+  if type(second) == 'string' then
+    shader = { vertex = source, fragment = second, options = options, released = false }
+  else
+    shader = { compute = source, options = second, released = false }
+  end
   function shader.release(self: Shader)
     assert(not self.released, 'render recorder: shader released twice')
     self.released = true
@@ -345,18 +369,31 @@ function Recorder.newBuffer(self: Recorder, format: string, capacity: number): B
   return buffer
 end
 
--- A texture records the images uploaded to it, so a test can tell how often its pixels changed.
+-- Upload textures record pixel updates; allocated textures retain their requested dimensions and options.
 export type Texture = {
+  width: number?,
+  height: number?,
+  options: any?,
   released: boolean,
   uploads: number,
   setPixels: (Texture, any) -> (),
   release: (Texture) -> (),
 }
 
-function Recorder.newTexture(self: Recorder, _source: any, _options: any?): Texture
+function Recorder.newTexture(self: Recorder, source: any, second: any?, third: any?): Texture
+  if self.textureFailure then
+    local message = self.textureFailure
+    self.textureFailure = nil
+    error(message, 0)
+  end
+  local recorder = self
+  local allocated = type(source) == 'number'
   local texture: Texture = {
+    width = if allocated then source else nil,
+    height = if allocated then second else nil,
+    options = if allocated then third else second,
     released = false,
-    uploads = 1,
+    uploads = if allocated then 0 else 1,
     setPixels = function(texture: Texture, _image: any): ()
       assert(not texture.released, 'render recorder: pixels set on a released texture')
       texture.uploads += 1
@@ -364,10 +401,28 @@ function Recorder.newTexture(self: Recorder, _source: any, _options: any?): Text
     release = function(texture: Texture): ()
       assert(not texture.released, 'render recorder: texture released twice')
       texture.released = true
+      recorder.textureReleases[#recorder.textureReleases + 1] = texture
     end,
   }
   self.textureAcquisitions[#self.textureAcquisitions + 1] = texture
   return texture
+end
+
+function Recorder.newSampler(self: Recorder, options: any?): Sampler
+  if self.samplerFailure then
+    local message = self.samplerFailure
+    self.samplerFailure = nil
+    error(message, 0)
+  end
+  local recorder = self
+  local sampler: Sampler = { options = options, released = false }
+  function sampler.release(self: Sampler)
+    assert(not self.released, 'render recorder: sampler released twice')
+    self.released = true
+    recorder.samplerReleases[#recorder.samplerReleases + 1] = self
+  end
+  self.samplerAcquisitions[#self.samplerAcquisitions + 1] = sampler
+  return sampler
 end
 
 function Recorder.assertMeshesReleased(self: Recorder)
@@ -386,6 +441,9 @@ function Recorder.assertResourcesReleased(self: Recorder)
   end
   for _, texture in self.textureAcquisitions do
     assert(texture.released, 'render recorder: leaked texture')
+  end
+  for _, sampler in self.samplerAcquisitions do
+    assert(sampler.released, 'render recorder: leaked sampler')
   end
 end
 
@@ -628,6 +686,9 @@ newPass = function(recorder: Recorder): Pass
       call.draw = true
       call.points = geometry(method, table.pack(...), call.transform, pass:getFont())
     end
+  end
+  function pass.compute(self: Pass, x: number, y: number, z: number): ()
+    record('compute', x, y, z)
   end
   return pass
 end

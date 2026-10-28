@@ -12,6 +12,8 @@ The Backdrop action in the Appearance menu group opens and closes the control pa
 
 The panel's Response section shows what the backdrop responds to, drawn as [volumes](../../ui/host/README.md) that rise out of the panel. The sky model is the backdrop itself in miniature, drawn with the same shaders, aligned with the world rather than the panel, and tipped toward the viewer. Its ground marks the head, the facing, the onset anchor with the range of facings that keeps it, each sector edge, and each live onset on its band's ring. The skyline stands a column for each channel of each spectrum band, shortened on the quieter side by the stereo balance. A cap marks the analysed level the column moves toward, and older rows recede toward the panel. A caption counts each band's occupied onset slots and the onsets that full pools skipped. The views draw and sample only while the panel is open.
 
+Diagnostic views show the analytic overhead field rather than the filtered approximation used by the normal sky and its miniature.
+
 The panel pauses automatic selection while open. Its toggles, source mode, presets, and diagnostic view are [saved settings](../../storage/README.md#saved-settings) of the `desktop/backdrop` entry, so they apply at the next start. A pinned application is a process, so it is not saved. Unavailable audio fades toward zero.
 
 [Options](config.luau) · [Example](../../../../examples/audio-backdrop/main.luau) · [Audio limits and pending live acceptance](../../../../docs/development/native/audio.md)

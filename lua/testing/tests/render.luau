@@ -1,5 +1,6 @@
 local testing = require '@testing'
 local render = require '@testing/render'
+local native = require '@testing/native'
 local expect = testing.expect
 local test = testing.suite()
 
@@ -112,6 +113,122 @@ test('table uniforms remain independent nested snapshots', function()
   recorder.pass:send('Instances', values)
   values[1][1] = 9
   expectValues(recorder.calls[1][3][1], { 1, 2, 3, 4 })
+end)
+
+test('compute shaders and graphics overloads retain their arguments and release once', function()
+  local fake = native.new()
+  local recorder = fake.events.render
+  local graphics = lovr.graphics
+  local options = { label = 'storage texture' }
+  local compute = graphics.newShader('compute source', options)
+  local raster = graphics.newShader('vertex source', 'fragment source', { label = 'raster' })
+  local allocated = graphics.newTexture(64, 32, {
+    format = 'rgba8',
+    usage = { 'storage', 'sample' },
+    storage = true,
+    samples = 4,
+  })
+  local image = { pixels = true }
+  local uploaded = graphics.newTexture(image, { mipmaps = true })
+  local samplerOptions = { filter = 'nearest', wrap = 'clamp' }
+  local sampler = graphics.newSampler(samplerOptions)
+
+  expect.equal(compute.compute, 'compute source')
+  expect.equal(compute.vertex, nil)
+  expect.equal(compute.fragment, nil)
+  expect.equal(compute.options, options)
+  expect.equal(raster.vertex, 'vertex source')
+  expect.equal(raster.fragment, 'fragment source')
+  expect.equal(raster.compute, nil)
+  expect.equal(allocated.width, 64)
+  expect.equal(allocated.height, 32)
+  expect.equal(allocated.options.format, 'rgba8')
+  expect.equal(allocated.options.usage[1], 'storage')
+  expect.equal(allocated.options.storage, true)
+  expect.equal(allocated.options.samples, 4)
+  expect.equal(allocated.uploads, 0)
+  expect.equal(uploaded.uploads, 1)
+  expect.equal(uploaded.options.mipmaps, true)
+  expect.equal(sampler.options, samplerOptions)
+  expect.equal(recorder.shaderAcquisitions[1], compute)
+  expect.equal(recorder.shaderAcquisitions[2], raster)
+  expect.equal(recorder.textureAcquisitions[1], allocated)
+  expect.equal(recorder.textureAcquisitions[2], uploaded)
+  expect.equal(recorder.samplerAcquisitions[1], sampler)
+
+  expect.raises(function()
+    recorder:assertResourcesReleased()
+  end, 'leaked shader')
+  compute:release()
+  raster:release()
+  allocated:release()
+  uploaded:release()
+  expect.equal(#recorder.shaderReleases, 2)
+  expect.equal(#recorder.textureReleases, 2)
+  expect.raises(function()
+    recorder:assertResourcesReleased()
+  end, 'leaked sampler')
+  sampler:release()
+  expect.equal(#recorder.samplerReleases, 1)
+  expect.raises(function()
+    sampler:release()
+  end, 'sampler released twice')
+  expect.raises(function()
+    allocated:release()
+  end, 'texture released twice')
+  recorder:assertResourcesReleased()
+  fake.assertResourcesReleased()
+end)
+
+test('compute pass calls snapshot shader state without becoming draws', function()
+  local recorder = render.new()
+  local shader = recorder:newShader 'compute source'
+  recorder.pass:setShader(shader)
+  recorder.pass:send('Scale', { 2, 3, 4 })
+  recorder.pass:compute(4, 2, 1)
+  local call = recorder.calls[3]
+  expect.equal(call[1], 'compute')
+  expect.equal(call[2], 4)
+  expect.equal(call[3], 2)
+  expect.equal(call[4], 1)
+  expect.equal(call.draw, nil)
+  expect.equal(call.state.setShader[1], shader)
+  expectValues(recorder.calls[2][3], { 2, 3, 4 })
+  recorder.pass:setShader 'next shader'
+  expect.equal(call.state.setShader[1], shader, 'the compute command keeps its shader-state snapshot')
+  shader:release()
+  recorder:assertResourcesReleased()
+end)
+
+test('texture and sampler failures are consumed once before acquisition is recorded', function()
+  local recorder = render.new()
+  recorder.shaderFailure = 'injected shader failure'
+  expect.raises(function()
+    recorder:newShader 'compute source'
+  end, 'injected shader failure')
+  local shader = recorder:newShader 'compute source'
+  expect.equal(#recorder.shaderAcquisitions, 1)
+
+  recorder.textureFailure = 'injected texture failure'
+  expect.raises(function()
+    recorder:newTexture(8, 4, { format = 'rgba8' })
+  end, 'injected texture failure')
+  local texture = recorder:newTexture(8, 4, { format = 'rgba8' })
+  expect.equal(#recorder.textureAcquisitions, 1)
+
+  recorder.samplerFailure = 'injected sampler failure'
+  expect.raises(function()
+    recorder:newSampler { filter = 'nearest' }
+  end, 'injected sampler failure')
+  local sampler = recorder:newSampler { filter = 'nearest' }
+  expect.equal(#recorder.samplerAcquisitions, 1)
+  texture:release()
+  sampler:release()
+  expect.equal(#recorder.textureReleases, 1)
+  expect.equal(#recorder.samplerReleases, 1)
+  shader:release()
+  expect.equal(#recorder.shaderReleases, 1)
+  recorder:assertResourcesReleased()
 end)
 
 return test

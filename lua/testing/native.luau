@@ -897,11 +897,14 @@ installLovr = function(events: Events)
     newFont = function(file: string, size: number, spread: number): render.Font
       return recorder:newFont(file, size, spread)
     end,
-    newShader = function(vertex: string, fragment: string): render.Shader
-      return recorder:newShader(vertex, fragment)
+    newShader = function(source: string, second: any?, options: any?): render.Shader
+      return recorder:newShader(source, second, options)
     end,
-    newTexture = function(source: any, options: any?): render.Texture
-      return recorder:newTexture(source, options)
+    newTexture = function(source: any, second: any?, third: any?): render.Texture
+      return recorder:newTexture(source, second, third)
+    end,
+    newSampler = function(options: any?): render.Sampler
+      return recorder:newSampler(options)
     end,
     getDefaultFont = function(): render.Font
       return font

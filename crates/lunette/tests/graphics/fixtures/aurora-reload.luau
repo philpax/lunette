@@ -40,6 +40,7 @@ test('aurora_reload_memory_pixels', function(): ()
     local baseline = pixels.summary(warmImage)
     local liveBudget = stats()
     expect.truthy(liveBudget.buffers > cold.buffers, 'production indexed meshes allocate real GPU buffers')
+    expect.truthy(liveBudget.textures > cold.textures, 'production overhead field allocates a real GPU texture')
     expect.near(baseline.alpha, 1, 1 / 255, 'warm sky covers the target')
     local heldContext = current.context
     instance:disable()

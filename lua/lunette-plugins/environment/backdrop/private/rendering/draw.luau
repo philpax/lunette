@@ -24,6 +24,10 @@ type Resources = {
   skyShader: Shader,
   curtainShader: Shader,
   wispShader: Shader,
+  skyCompute: Shader,
+  overheadTexture: Texture,
+  overheadSampler: Sampler,
+  lastFrame: model.Frame?,
 }
 local acquireResources: (plugin.Context, config.Settings) -> Resources
 local drawScene: (Pass, Resources, config.Settings, model.Frame, number, number?, number, ('front' | 'back')?) -> ()
@@ -97,9 +101,23 @@ drawScene = function(
   view: number,
   skyCull: ('front' | 'back')?
 ): ()
+  local response = { frame.bass, frame.mid, frame.treble, frame.brightness }
+  if view == 0 and frame.brightness > 0 and held.lastFrame ~= frame then
+    -- Scene and miniature share one Frame in a submitted pass. Multiple Frames in an unsubmitted pass are unsupported:
+    -- LÖVR records all compute work before its draws, so a later dispatch would replace the earlier frame's field.
+    pass:setShader(held.skyCompute)
+    pass:send('backdropResponse', response)
+    pass:send('backdropSky', { 0, frame.time, 0, 0 })
+    pass:send('backdropMid', settings.palette.mid)
+    pass:send('backdropTreble', settings.palette.treble)
+    pass:send('overheadImage', held.overheadTexture)
+    pass:compute(48, 48, 1)
+    held.lastFrame = frame
+  end
   pass:setShader(held.skyShader)
   pass:setCullMode(skyCull)
-  local response = { frame.bass, frame.mid, frame.treble, frame.brightness }
+  pass:send('overheadTexture', held.overheadTexture)
+  pass:send('overheadSampler', held.overheadSampler)
   local waves, details, ends, live = waveUniforms.prepare(frame.waves, frame.responseStrength)
   local spectrum = frame.spectrum
   local stereo = frame.stereo
@@ -175,13 +193,46 @@ acquireResources = function(context: plugin.Context, settings: config.Settings):
     end
     local ok, failure = pcall(function(): ()
       local data = geometry.build(settings)
+      local sky = mesh(data.sky)
+      local curtain = mesh(data.curtain)
+      local wisps = mesh(data.wisps)
+      local skyShader = compile(shader.skyVertex, shader.skyCachedFragment)
+      local curtainShader = compile(shader.curtainVertex, shader.curtainFragment)
+      local wispShader = compile(shader.wispVertex, shader.wispFragment)
+      local skyCompute = lovr.graphics.newShader(shader.skyCompute, { label = 'desktop/backdrop overhead' })
+      table.insert(releases, 1, function(): ()
+        skyCompute:release()
+      end)
+      local overheadTexture = lovr.graphics.newTexture(384, 384, {
+        type = '2d',
+        format = 'rgba16f',
+        linear = true,
+        samples = 1,
+        mipmaps = false,
+        usage = { 'sample', 'storage' },
+      })
+      table.insert(releases, 1, function(): ()
+        overheadTexture:release()
+      end)
+      local overheadSampler = lovr.graphics.newSampler {
+        filter = 'linear',
+        wrap = 'clamp',
+        mipmaprange = { 0, 0 },
+      }
+      table.insert(releases, 1, function(): ()
+        overheadSampler:release()
+      end)
       held = {
-        sky = mesh(data.sky),
-        curtain = mesh(data.curtain),
-        wisps = mesh(data.wisps),
-        skyShader = compile(shader.skyVertex, shader.skyFragment),
-        curtainShader = compile(shader.curtainVertex, shader.curtainFragment),
-        wispShader = compile(shader.wispVertex, shader.wispFragment),
+        sky = sky,
+        curtain = curtain,
+        wisps = wisps,
+        skyShader = skyShader,
+        curtainShader = curtainShader,
+        wispShader = wispShader,
+        skyCompute = skyCompute,
+        overheadTexture = overheadTexture,
+        overheadSampler = overheadSampler,
+        lastFrame = nil,
       }
     end)
     if not ok then
