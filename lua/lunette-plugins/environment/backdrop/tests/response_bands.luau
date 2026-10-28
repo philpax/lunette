@@ -153,8 +153,17 @@ test('the renderer receives the spectrum and band-tagged waves', function()
   end
   expect.truthy(bands[1] and bands[2] and bands[3], 'each band index reaches the shader')
   expect.equal(env.uniforms.backdropWaveCount, 3, 'the shaders loop over the three live waves only')
+  local details = env.uniforms.backdropWaveDetail :: { { number } }
   for index = 1, 3 do
     expect.truthy(sent[index][2] > 0, 'live waves fill the first slots')
+    expect.truthy(details[index][2] > 0, 'prepared travel reaches the shader')
+    expect.truthy(details[index][3] > 0 and details[index][3] < 1, 'prepared band decay reaches the shader')
+    expect.truthy(details[index][4] > 0 and details[index][4] < 1, 'prepared flash decay reaches the shader')
+  end
+  for index = 4, model.MAX_WAVES do
+    for lane = 1, 4 do
+      expect.equal(details[index][lane], 0, 'inactive prepared slots are cleared')
+    end
   end
   for _, colour in { 'backdropBass', 'backdropMid', 'backdropTreble', 'backdropFocus' } do
     expect.truthy(env.uniforms[colour] ~= nil, colour .. ' sent')

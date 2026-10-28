@@ -8,6 +8,7 @@ local shader = {}
 local WAVES = [[
   const int WAVES = WAVE_COUNT;
   uniform vec4 backdropWaves[WAVES];
+  // Frequency detail, travelled distance, band decay (including treble rise), and initial bass decay.
   uniform vec4 backdropWaveDetail[WAVES];
   uniform int backdropWaveCount;
 
@@ -32,22 +33,9 @@ local WAVES = [[
 -- in units per second. Their multipliers are whole numbers so every term is continuous where the clock wraps;
 -- a multiplier of 140 completes a cycle in about 29 seconds at full motion.
 
--- Wavefront speeds in turns of the ring per second.
-local BASS_SPEED = 0.3
-local MID_SPEED = 0.16
-
 local function withWaves(source: string): string
   local waves = string.gsub(WAVES, 'WAVE_COUNT', tostring(model.MAX_WAVES))
-  local constants: { [string]: string } = {
-    BASS_SPEED = string.format('%.4f', BASS_SPEED),
-    MID_SPEED = string.format('%.4f', MID_SPEED),
-  }
-  -- Only the named constants are replaced; other upper-case words such as WAVES and UV are left alone.
-  return (
-    string.gsub(waves .. source, '[%u_]+', function(name: string): string
-      return constants[name] or name
-    end)
-  )
+  return waves .. source
 end
 
 local SPECTRUM = [[
@@ -55,13 +43,15 @@ local SPECTRUM = [[
   uniform vec4 backdropStereo[2];
   uniform vec4 backdropFacing;
 
-  float spectrum(int index, float u) {
+  // Increasing longitude from forward goes left; a positive channel difference goes right.
+  float stereoSide(float u) {
+    return -sin(TAU * (u - backdropFacing.x));
+  }
+  float spectrum(int index, float side) {
     int group = index / 4;
     int lane = index - group * 4;
     float combined = backdropSpectrum[group][lane];
     float stereo = backdropStereo[group][lane];
-    // Increasing longitude from forward goes left; a positive channel difference goes right.
-    float side = -sin(TAU * (u - backdropFacing.x));
     return max(0., combined + stereo * side);
   }
 ]]
@@ -147,10 +137,13 @@ shader.skyFragment = withWaves [[
     vec2 warp = vec2(fbm(q * 1.1 + circle(time * 45.) * 1.5), fbm(q * 1.1 + vec2(5.2, 1.3) + circle(time * 37. + 1.) * 1.5));
     field = q + (warp - .5) * 1.4;
     density = fbm(field * vec2(1.6, 3.) + circle(time * 23.) * .8);
-    float pulse = .5 + .5 * sin(time * 160. + fbm(q * .7) * 9.);
     float threshold = .6 - .12 * energy;
+    // A zero-density patch emits no light, so its pulse, rays, and colour need no further noise samples.
+    float cloud = smoothstep(threshold - .08, threshold + .3, density);
+    if (cloud == 0.) return vec3(0.);
+    float pulse = .5 + .5 * sin(time * 160. + fbm(q * .7) * 9.);
     // A wide edge keeps the patches diffuse, and fine streaks along the field give them the texture of rays.
-    float cloud = smoothstep(threshold - .08, threshold + .3, density) * mix(.25, 1., pulse);
+    cloud *= mix(.25, 1., pulse);
     // The streaks are a warped sine rather than stretched noise, whose stretched cells would show as straight lines.
     float streaks = .55 + .45 * sin(field.y * 26. + fbm(field * 2. + 7.7) * 7.);
     vec3 color = mix(backdropMid, backdropTreble, smoothstep(.35, .7, fbm(field * .8 + 3.1)));
@@ -161,26 +154,33 @@ shader.skyFragment = withWaves [[
     float up = smoothstep(0., .85, height);
     vec3 sky = mix(backdropHorizon, backdropZenith, up);
     sky *= mix(.18, 1., smoothstep(-.2, .12, height));
-    float burst = 0.;
-    for (int i = 0; i < min(backdropWaveCount, WAVES); i++) {
-      vec4 wave = backdropWaves[i];
-      if (wave.w > 2.5) {
-        float distance = ringDistance(UV.x, wave.z);
-        burst += wave.y * exp(-distance * distance * 300.);
+    float above = smoothstep(.05, .5, height);
+    if (above > 0.) {
+      vec2 cell = floor(UV * vec2(360., 180.));
+      float seed = hash(cell);
+      // Even the strongest treble onset only lights seeds at or above .994.
+      if (seed >= .998 - .004) {
+        vec2 point = fract(UV * vec2(360., 180.)) - .5;
+        float shape = 1. - smoothstep(.015, .08, length(point));
+        if (shape > 0.) {
+          float burst = 0.;
+          for (int i = 0; i < min(backdropWaveCount, WAVES); i++) {
+            vec4 wave = backdropWaves[i];
+            if (wave.w > 2.5) {
+              float distance = ringDistance(UV.x, wave.z);
+              burst += wave.y * exp(-distance * distance * 300.);
+            }
+          }
+          float star = step(.998, seed) * shape;
+          // A treble burst adds stars of its own and lights them only in the treble hue.
+          float extra = step(.998 - .004 * min(burst, 1.), seed) * shape;
+          float rate = .0092038847 * (1. + backdropResponse.z * 3.);
+          float twinkle = .6 + .4 * sin(backdropSky.y * rate + seed * 6.2831853);
+          sky += backdropGlint * star * twinkle * above * .13;
+          sky += backdropTreble * extra * twinkle * above * min(burst, 1.) * .6;
+        }
       }
     }
-    vec2 cell = floor(UV * vec2(360., 180.));
-    vec2 point = fract(UV * vec2(360., 180.)) - .5;
-    float seed = hash(cell);
-    float shape = 1. - smoothstep(.015, .08, length(point));
-    float star = step(.998, seed) * shape;
-    // A treble burst adds stars of its own and lights them only in the treble hue.
-    float extra = step(.998 - .004 * min(burst, 1.), seed) * shape;
-    float rate = .0092038847 * (1. + backdropResponse.z * 3.);
-    float twinkle = .6 + .4 * sin(backdropSky.y * rate + seed * 6.2831853);
-    float above = smoothstep(.05, .5, height);
-    sky += backdropGlint * star * twinkle * above * .13;
-    sky += backdropTreble * extra * twinkle * above * min(burst, 1.) * .6;
     // The curtains' light spills into the low sky as a faint airglow that swells with the mid band.
     float airglow = exp(-abs(height - .3) * 6.) * smoothstep(.08, .2, height);
     sky += backdropMid * airglow * (.005 + .015 * backdropResponse.y);
@@ -189,14 +189,18 @@ shader.skyFragment = withWaves [[
     vec3 direction = normalize(skyDirection);
     float energy = dot(backdropResponse.xyz, vec3(1. / 3.));
     float time = backdropSky.y * (TAU / 4096.);
-    vec2 projected;
-    vec2 warped;
-    float density;
-    vec3 patches = overhead(direction, time, energy, projected, warped, density);
     int view = int(backdropSky.w + .5);
-    if (view == 1) {
-      return vec4(direction * .5 + .5, 1.);
-    } else if (view == 2) {
+    if (view == 1) return vec4(direction * .5 + .5, 1.);
+    float fieldMask = smoothstep(.3, .65, height);
+    vec2 projected = vec2(0.);
+    vec2 warped = vec2(0.);
+    float density = 0.;
+    vec3 patches = vec3(0.);
+    // Diagnostics inspect the unmasked field; normal rendering needs it only where it contributes light.
+    if (view != 0 || (fieldMask > 0. && backdropSky.z > 0.)) {
+      patches = overhead(direction, time, energy, projected, warped, density);
+    }
+    if (view == 2) {
       return vec4(fract(projected), 0., 1.);
     } else if (view == 3) {
       ivec2 cell = ivec2(floor(warped * vec2(1.6, 3.)));
@@ -206,7 +210,7 @@ shader.skyFragment = withWaves [[
     } else if (view == 5) {
       return vec4(patches * 6., 1.);
     }
-    vec3 field = patches * smoothstep(.3, .65, height) * backdropSky.z;
+    vec3 field = patches * fieldMask * backdropSky.z;
     float alpha = clamp(backdropSky.x, 0., 1.);
     return vec4((clamp(sky * backdropSky.z, 0., .12) + min(field, vec3(.35))) * alpha, alpha);
   }
@@ -224,9 +228,10 @@ shader.curtainVertex = withWaves(SPECTRUM .. [[
     float angle = TAU * u;
     float phase = angle + layer * 1.8;
     float levels[8];
+    float side = stereoSide(u);
     float energy = 0.;
     for (int i = 0; i < 8; i++) {
-      levels[i] = spectrum(i, u);
+      levels[i] = spectrum(i, side);
       energy += levels[i] / 8.;
     }
     float own = layer < .5 ? max(max(levels[0], levels[1]), levels[2])
@@ -239,18 +244,19 @@ shader.curtainVertex = withWaves(SPECTRUM .. [[
     for (int i = 0; i < min(backdropWaveCount, WAVES); i++) {
       vec4 wave = backdropWaves[i];
       float distance = ringDistance(u, wave.z);
-      float detail = clamp(backdropWaveDetail[i].x, 0., 1.);
+      vec4 prepared = backdropWaveDetail[i];
+      float detail = prepared.x;
       float strength = wave.y * onsetFocus(wave.w, backdropFocus.xyz);
       float width = mix(.85, 1.25, detail);
       if (wave.w < 1.5) {
-        float front = distance - wave.x * BASS_SPEED * mix(.9, 1.1, detail);
-        heave += strength * exp(-front * front * 220. * width) * exp(-wave.x * 1.2);
+        float front = distance - prepared.y;
+        heave += strength * exp(-front * front * 220. * width) * prepared.z;
       } else if (wave.w < 2.5) {
-        float front = distance - wave.x * MID_SPEED * mix(.9, 1.1, detail);
+        float front = distance - prepared.y;
         ripple += strength * exp(-front * front * 1100. * width) * sin(front * 100.);
-        lift += strength * exp(-front * front * 650. * width) * exp(-wave.x * 1.5);
+        lift += strength * exp(-front * front * 650. * width) * prepared.z;
       } else {
-        surge += strength * exp(-distance * distance * 420. * width) * exp(-wave.x * 3.) * smoothstep(0., .08, wave.x);
+        surge += strength * exp(-distance * distance * 420. * width) * prepared.z;
       }
     }
     heave = min(heave, 1.5);
@@ -302,13 +308,15 @@ shader.curtainFragment = withWaves(SPECTRUM .. [[
     float u = UV.x;
     float v = UV.y;
     float visibility = backdropScene.x;
+    if (visibility <= 0. || backdropResponse.w <= 0. || v <= 0.) return vec4(0.);
     float time = backdropScene.y * (6.28318530718 / 4096.);
     float layer = backdropScene.z;
     float phase = u * 6.28318530718 + layer * 1.8;
     float levels[8];
     float drive[8];
+    float side = stereoSide(u);
     for (int i = 0; i < 8; i++) {
-      levels[i] = spectrum(i, u);
+      levels[i] = spectrum(i, side);
       // Retain quiet detail at the mapped half-scale without raising the full-scale lighting budget.
       drive[i] = levels[i] * (.5 + .5 * levels[i]);
     }
@@ -339,23 +347,24 @@ shader.curtainFragment = withWaves(SPECTRUM .. [[
     for (int i = 0; i < min(backdropWaveCount, WAVES); i++) {
       vec4 wave = backdropWaves[i];
       float distance = ringDistance(u, wave.z);
-      float detail = clamp(backdropWaveDetail[i].x, 0., 1.);
+      vec4 prepared = backdropWaveDetail[i];
+      float detail = prepared.x;
       float strength = wave.y * onsetFocus(wave.w, backdropFocus.xyz);
       float width = mix(.85, 1.25, detail);
       if (wave.w < 1.5) {
-        float front = distance - wave.x * BASS_SPEED * mix(.9, 1.1, detail);
-        float pulse = strength * exp(-distance * distance * 650. * width) * exp(-wave.x * 8.);
-        pulse += strength * ripple(front, 380. * width, mix(75., 100., detail)) * exp(-wave.x * 1.2);
+        float front = distance - prepared.y;
+        float pulse = strength * exp(-distance * distance * 650. * width) * prepared.w;
+        pulse += strength * ripple(front, 380. * width, mix(75., 100., detail)) * prepared.z;
         flash += pulse;
         flashZone += pulse * zone(v, mix(.035, .14, detail) + min(wave.x, .4) * .08, .13);
       } else if (wave.w < 2.5) {
-        float front = distance - wave.x * MID_SPEED * mix(.9, 1.1, detail);
-        float pulse = strength * ripple(front, 950. * width, mix(120., 150., detail)) * exp(-wave.x * 1.5);
+        float front = distance - prepared.y;
+        float pulse = strength * ripple(front, 950. * width, mix(120., 150., detail)) * prepared.z;
         crest += pulse;
         crestZone += pulse * zone(v, mix(.26, .48, detail), mix(.16, .11, detail));
       } else {
         // The envelope rises smoothly; fine rays shimmer spatially instead of flashing the whole curtain.
-        float pulse = strength * exp(-distance * distance * 420. * width) * exp(-wave.x * 3.) * smoothstep(0., .08, wave.x);
+        float pulse = strength * exp(-distance * distance * 420. * width) * prepared.z;
         surge += pulse;
         surgeZone += pulse * zone(v, mix(.58, .72, detail), .16);
       }

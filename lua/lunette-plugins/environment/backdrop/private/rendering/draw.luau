@@ -7,6 +7,7 @@ local geometry = require './geometry'
 local model = require './model'
 local selection = require '../selection/selection'
 local shader = require './shader'
+local waveUniforms = require './wave-uniforms'
 
 local draw = {}
 export type Renderer = {
@@ -114,7 +115,7 @@ drawScene = function(
         BAND_INDEX[wave.band],
       }
       else { 0, 0, 0, 0 }
-    details[index] = { if wave then wave.frequency else 0, 0, 0, 0 }
+    details[index] = if wave then waveUniforms.detail(wave) else { 0, 0, 0, 0 }
   end
   local spectrum = frame.spectrum
   local stereo = frame.stereo
