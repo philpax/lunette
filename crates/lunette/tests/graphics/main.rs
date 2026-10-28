@@ -64,6 +64,7 @@ fn serial_fixtures(roots: &Roots) -> Result<(), String> {
         "aurora-optimization",
         "aurora-sky-texture",
         "aurora-curtain-texture",
+        "aurora-half-resolution",
         "aurora-bands",
         "aurora-transparency",
         "aurora-reload",
