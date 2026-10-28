@@ -153,6 +153,10 @@ test('the renderer receives the spectrum and band-tagged waves', function()
   end
   expect.truthy(bands[1] and bands[2] and bands[3], 'each band index reaches the shader')
   expect.equal(env.uniforms.backdropWaveCount, 3, 'the shaders loop over the three live waves only')
+  local ends = env.uniforms.backdropWaveEnds :: { number }
+  for lane, value in { 1, 2, 3, 0 } do
+    expect.equal(ends[lane], value, 'the cumulative band ends reach the curtain shader')
+  end
   local details = env.uniforms.backdropWaveDetail :: { { number } }
   for index = 1, 3 do
     expect.truthy(sent[index][2] > 0, 'live waves fill the first slots')

@@ -139,8 +139,10 @@ local function withField(run: (Capture) -> ()): ()
         waves[index], details[index] = { 0, 0, 0, 0 }, { 0, 0, 0, 0 }
       end
       local onset = settings.onset
+      local ends = { 0, 0, 0, 0 }
       if onset then
         local band = if onset.band == 'bass' then 1 elseif onset.band == 'treble' then 3 else 2
+        ends = if band == 1 then { 1, 1, 1, 0 } elseif band == 2 then { 0, 1, 1, 0 } else { 0, 0, 1, 0 }
         waves[1] = { onset.age or 0.15, onset.strength, onset.position or 0.5, band }
         details[1] = waveUniforms.detail {
           age = onset.age or 0.15,
@@ -154,6 +156,7 @@ local function withField(run: (Capture) -> ()): ()
       pass:send('backdropWaves', waves)
       pass:send('backdropWaveDetail', details)
       pass:send('backdropWaveCount', if onset then 1 else 0)
+      pass:send('backdropWaveEnds', ends)
       pass:fill()
       return pixels.read(render.read(texture, pass))
     end

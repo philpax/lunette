@@ -27,7 +27,6 @@ type Resources = {
 }
 local acquireResources: (plugin.Context, config.Settings) -> Resources
 local drawScene: (Pass, Resources, config.Settings, model.Frame, number, number?, number, ('front' | 'back')?) -> ()
-local BAND_INDEX = table.freeze { bass = 1, mid = 2, treble = 3 } :: { read [model.Band]: number }
 -- The sky shader's diagnostic views, by index; zero draws the backdrop normally.
 local DIAGNOSTIC = table.freeze {
   none = 0,
@@ -101,22 +100,7 @@ drawScene = function(
   pass:setShader(held.skyShader)
   pass:setCullMode(skyCull)
   local response = { frame.bass, frame.mid, frame.treble, frame.brightness }
-  local waves: { { number } } = {}
-  local details: { { number } } = {}
-  -- The model keeps its live waves contiguous from the first slot.
-  local live = math.min(#frame.waves, model.MAX_WAVES)
-  for index = 1, model.MAX_WAVES do
-    local wave = frame.waves[index]
-    waves[index] = if wave
-      then {
-        wave.age,
-        wave.strength * (1 - wave.age / wave.lifetime) * frame.responseStrength,
-        wave.position,
-        BAND_INDEX[wave.band],
-      }
-      else { 0, 0, 0, 0 }
-    details[index] = if wave then waveUniforms.detail(wave) else { 0, 0, 0, 0 }
-  end
+  local waves, details, ends, live = waveUniforms.prepare(frame.waves, frame.responseStrength)
   local spectrum = frame.spectrum
   local stereo = frame.stereo
   pass:send('backdropSky', { visibility, frame.time, frame.brightness, view })
@@ -153,6 +137,7 @@ drawScene = function(
   pass:send('backdropWaves', waves)
   pass:send('backdropWaveDetail', details)
   pass:send('backdropWaveCount', live)
+  pass:send('backdropWaveEnds', ends)
   for layer = 0, 2 do
     pass:send('backdropScene', { visibility, frame.time, layer, settings.distance })
     pass:send('backdropFocus', LAYER_FOCUS[layer + 1])

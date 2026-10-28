@@ -40,4 +40,69 @@ test('new treble onsets rise from zero and frequency bounds control travel', fun
   end
 end)
 
+test('packing preserves every live prefix and source order within each band', function()
+  local orders = {
+    { 'bass', 'mid', 'treble' },
+    { 'treble', 'mid', 'bass' },
+    { 'mid', 'treble', 'bass', 'treble', 'mid', 'bass', 'bass' },
+    { 'bass' },
+    { 'mid' },
+    { 'treble' },
+  }
+  for _, order in orders do
+    for count = 0, model.MAX_WAVES do
+      local source = {}
+      for index = 1, count do
+        source[index] = {
+          age = index / 100,
+          strength = 0.9 - index / 100,
+          position = index / (model.MAX_WAVES + 1),
+          band = order[(index - 1) % #order + 1],
+          lifetime = 1.2,
+          frequency = index / model.MAX_WAVES,
+        }
+      end
+      local original = table.clone(source)
+      local snapshots = {}
+      for index, value in source do
+        snapshots[index] = table.clone(value)
+      end
+      local packed, details, ends, live = uniforms.prepare(source, 0.7)
+      testing.expect.equal(live, count, 'the count comes from the live prefix')
+      testing.expect.equal(#packed, model.MAX_WAVES, 'all wave slots are sent')
+      testing.expect.equal(#details, model.MAX_WAVES, 'all detail slots are sent')
+      local slot = 0
+      for band, name in { 'bass', 'mid', 'treble' } do
+        for _, value in original do
+          if value.band == name then
+            slot += 1
+            local expected =
+              { value.age, value.strength * (1 - value.age / value.lifetime) * 0.7, value.position, band }
+            local prepared = uniforms.detail(value)
+            for lane = 1, 4 do
+              testing.expect.equal(packed[slot][lane], expected[lane], 'stable band order preserves each row')
+              testing.expect.equal(details[slot][lane], prepared[lane], 'prepared detail follows its wave')
+            end
+          end
+        end
+        testing.expect.equal(ends[band], slot, 'each cumulative end follows the actual packed band')
+      end
+      testing.expect.equal(ends[4], 0, 'the unused uniform lane is cleared')
+      for index = count + 1, model.MAX_WAVES do
+        for lane = 1, 4 do
+          testing.expect.equal(packed[index][lane], 0, 'inactive wave slots are cleared')
+          testing.expect.equal(details[index][lane], 0, 'inactive detail slots are cleared')
+        end
+      end
+      testing.expect.equal(#source, count, 'packing does not resize the model waves')
+      for index, value in source do
+        testing.expect.equal(value, original[index], 'packing does not reorder or replace model waves')
+        for field, expected in snapshots[index] do
+          testing.expect.equal(value[field], expected, 'packing does not change a model wave')
+        end
+      end
+    end
+  end
+end)
+
 return test

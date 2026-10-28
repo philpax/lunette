@@ -7,6 +7,7 @@ local production = require '@lunette-plugins/environment/backdrop/private/render
 local waveUniforms = require '@lunette-plugins/environment/backdrop/private/rendering/wave-uniforms'
 local cleanup = require '@lunette-plugins/lifecycle/cleanup'
 local original = require './support/aurora-original-shader'
+local bandLoopOriginal = require '@lunette-plugins/environment/backdrop/tests/support/band-loop-original-shader'
 local render = require './support/render'
 local pixels = require './support/pixels'
 
@@ -23,6 +24,9 @@ type InputOptions = {
   facing: number?,
   count: number?,
   band: number?,
+  order: { number }?,
+  shaderCount: number?,
+  shaderEnds: NumberRow?,
   angle: Angle?,
 }
 type Input = {
@@ -38,8 +42,12 @@ type Input = {
   facing: number,
   waves: { NumberRow },
   details: { NumberRow },
+  packed: { NumberRow },
   prepared: { NumberRow },
+  sourcePrepared: { NumberRow },
+  ends: NumberRow,
   count: number,
+  shaderCount: number?,
   angle: Angle,
 }
 type ShaderVersion = 'original' | 'production'
@@ -91,14 +99,18 @@ local function withResources<T>(run: (keep: Keep) -> T): T
   return result
 end
 
-local function waveInputs(count: number, singleBand: number?): ({ NumberRow }, { NumberRow }, { NumberRow })
-  local waves, details, prepared = {}, {}, {}
-  local bands = { 'bass', 'mid', 'treble' }
+local function waveInputs(
+  count: number,
+  singleBand: number?,
+  order: { number }?
+): ({ NumberRow }, { NumberRow }, { NumberRow }, { NumberRow }, NumberRow, { NumberRow })
+  local waves, details, source, sourcePrepared = {}, {}, {}, {}
+  local bands: { model.Band } = { 'bass', 'mid', 'treble' }
   local ages = { 0, 0.02, 0.079, 0.08, 0.081, 0.3, 0.7 }
   for index = 1, model.MAX_WAVES do
     if index <= count then
-      local band = singleBand or (index - 1) % 3 + 1
-      if count == model.MAX_WAVES then
+      local band = singleBand or (if order then order[(index - 1) % #order + 1] else (index - 1) % 3 + 1)
+      if count == model.MAX_WAVES and not order and not singleBand then
         band = if index <= model.wavePools.bass
           then 1
           elseif index <= model.wavePools.bass + model.wavePools.mid then 2
@@ -108,29 +120,37 @@ local function waveInputs(count: number, singleBand: number?): ({ NumberRow }, {
       -- Ages straddle the treble rise and exercise fresh and decaying fronts; positions also cross the UV seam.
       local age = if count == 1 then 0.08 else ages[(index - 1) % #ages + 1]
       local position = if count <= 3 then 0.46 + index * 0.02 else (0.98 + fraction * 0.91) % 1
-      waves[index] = { age, 0.95 - fraction * 0.6, position, band }
       local frequency = if count == 1 then (band - 1) / 2 else fraction
+      local lifetime = model.waveLifetimes[bands[band]]
+      local strength = 0.95 - fraction * 0.6
+      waves[index] = { age, strength, position, band }
       details[index] = { frequency, 0, 0, 0 }
-      prepared[index] = waveUniforms.detail {
+      source[index] = {
         age = age,
-        strength = waves[index][2],
+        -- Undo the draw-time fade so the frozen reference retains its established amplitudes.
+        strength = strength / (1 - age / lifetime),
         position = position,
         band = bands[band],
-        lifetime = model.waveLifetimes[bands[band]],
+        lifetime = lifetime,
         frequency = frequency,
       }
+      sourcePrepared[index] = waveUniforms.detail(source[index])
     else
       -- Nonzero inactive slots catch implementations that accidentally consume more than the live prefix.
       waves[index], details[index] = { 0.1, 1, 0.5, 3 }, { 1, 0, 0, 0 }
-      prepared[index] = { 1, 0.016, 0.74, 0.45 }
+      sourcePrepared[index] = { 1, 0.016, 0.74, 0.45 }
     end
   end
-  return waves, details, prepared
+  local packed, prepared, ends = waveUniforms.prepare(source, 1)
+  for index = count + 1, model.MAX_WAVES do
+    packed[index], prepared[index] = { 0.1, 1, 0.5, 3 }, { 1, 0.016, 0.74, 0.45 }
+  end
+  return waves, details, packed, prepared, ends, sourcePrepared
 end
 
 local function inputs(options: InputOptions): Input
   local count = options.count or 0
-  local waves, details, prepared = waveInputs(count, options.band)
+  local waves, details, packed, prepared, ends, sourcePrepared = waveInputs(count, options.band, options.order)
   return {
     time = options.time or 0,
     visibility = options.visibility or 1,
@@ -144,13 +164,17 @@ local function inputs(options: InputOptions): Input
     facing = options.facing or 0.5,
     waves = waves,
     details = details,
+    packed = packed,
     prepared = prepared,
+    sourcePrepared = sourcePrepared,
+    ends = options.shaderEnds or ends,
     count = count,
+    shaderCount = options.shaderCount,
     angle = options.angle or CURTAIN_ANGLE,
   }
 end
 
-local function withOracle(run: (compare: Compare) -> ()): ()
+local function withOracle(run: (compare: Compare) -> (), exactBandLoops: boolean?): ()
   withResources(function(keep: Keep): ()
     local settings = config.schema.parse {}
     local data = geometry.build(settings)
@@ -167,7 +191,8 @@ local function withOracle(run: (compare: Compare) -> ()): ()
         curtain = keep(lovr.graphics.newShader(source.curtainVertex, source.curtainFragment)),
       }
     end
-    local shaders = { original = compile(original), production = compile(production) }
+    local shaders =
+      { original = compile(if exactBandLoops then bandLoopOriginal else original), production = compile(production) }
     local texture = keep(lovr.graphics.newTexture(WIDTH, HEIGHT, {
       format = 'rgba32f',
       linear = true,
@@ -189,15 +214,21 @@ local function withOracle(run: (compare: Compare) -> ()): ()
       pass:setColor(1, 1, 1, 1)
       pass:setShader(shaders[version][kind])
       pass:send('backdropResponse', input.response)
-      pass:send('backdropWaves', input.waves)
-      pass:send('backdropWaveDetail', if version == 'production' then input.prepared else input.details)
-      pass:send('backdropWaveCount', input.count)
+      pass:send('backdropWaves', if version == 'production' then input.packed else input.waves)
+      pass:send(
+        'backdropWaveDetail',
+        if version == 'production' then input.prepared elseif exactBandLoops then input.sourcePrepared else input.details
+      )
+      pass:send('backdropWaveCount', if version == 'production' then input.shaderCount or input.count else input.count)
       if kind == 'sky' then
         pass:send('backdropSky', { input.visibility, input.time, input.brightness, input.view })
         pass:send('backdropZenith', settings.palette.zenith)
         pass:send('backdropHorizon', settings.palette.horizon)
         pass:send('backdropGlint', settings.palette.glint)
       else
+        if version == 'production' then
+          pass:send('backdropWaveEnds', input.ends)
+        end
         pass:send('backdropScene', { input.visibility, input.time, input.layer, settings.distance })
         pass:send('backdropFocus', input.focus)
         pass:send('backdropSpectrum', { { unpack(input.spectrum, 1, 4) }, { unpack(input.spectrum, 5, 8) } })
@@ -245,15 +276,16 @@ local function withOracle(run: (compare: Compare) -> ()): ()
         end
       end
       local mean = sum / (#expected.values * 4)
+      local maxError, meanError = if exactBandLoops then 0 else MAX_ERROR, if exactBandLoops then 0 else MEAN_ERROR
       assert(
-        maximum <= MAX_ERROR and mean <= MEAN_ERROR,
+        maximum <= maxError and mean <= meanError,
         string.format(
           '%s: RGBA max %.9g (limit %.9g), mean %.9g (limit %.9g)',
           label,
           maximum,
-          MAX_ERROR,
+          maxError,
           mean,
-          MEAN_ERROR
+          meanError
         )
       )
       local belowHorizon = kind == 'sky'
@@ -318,6 +350,10 @@ test('each isolated curtain layer matches for spectrum, onsets, focus, and visib
     { name = 'mid-onset', time = 123, count = 1, band = 2 },
     { name = 'treble-onset', time = 4095, count = 1, band = 3 },
     { name = 'one-onset-per-band', time = 123, audio = true, count = 3 },
+    { name = 'treble-only-prefix', time = 123, count = 12, band = 3 },
+    { name = 'no-bass-prefix', time = 123, count = 12, order = { 3, 2, 3, 2, 2 } },
+    { name = 'no-mid-prefix', time = 123, count = 12, order = { 3, 1, 3, 1, 1 } },
+    { name = 'no-treble-prefix', time = 123, count = 12, order = { 2, 1, 2, 1, 1 } },
     { name = 'full-wave-pool', time = 4095, audio = true, count = model.MAX_WAVES },
     { name = 'zero-focus', time = 123, audio = true, count = model.MAX_WAVES, focus = { 0, 0, 0, 0 } },
     {
@@ -345,6 +381,51 @@ test('each isolated curtain layer matches for spectrum, onsets, focus, and visib
         local options = table.clone(scenario)
         options.layer = layer
         compare('curtain', inputs(options), string.format('curtain/layer-%d/%s', layer, scenario.name))
+      end
+    end
+  end)
+end)
+
+test('mixed wave prefixes preserve the original sky and curtain accumulation order', function(): ()
+  withOracle(function(compare: Compare): ()
+    local order = { 3, 2, 1, 3, 2, 1, 1 }
+    for count = 0, model.MAX_WAVES do
+      local input = inputs { time = 123, audio = true, count = count, order = order, layer = count % 3 }
+      compare('curtain', input, string.format('curtain/mixed-prefix-%d', count))
+      input.angle = ANGLES[2]
+      compare('sky', input, string.format('sky/mixed-prefix-%d', count))
+    end
+    for layer = 0, 2 do
+      compare(
+        'curtain',
+        inputs { time = 123, count = model.MAX_WAVES, order = order, layer = layer },
+        'dense-before-silence'
+      )
+      compare('curtain', inputs { time = 123, layer = layer }, 'silence-after-dense')
+    end
+  end, true)
+end)
+
+test('curtain wave bounds clamp the count and keep band ends monotone', function(): ()
+  local scenarios: { Scenario } = {
+    { name = 'negative-count', count = 0, shaderCount = -3, shaderEnds = { 40, -2, 0, 0 } },
+    {
+      name = 'oversized-count-and-ends',
+      count = model.MAX_WAVES,
+      band = 1,
+      shaderCount = 90,
+      shaderEnds = { 60, 80, 0, 0 },
+    },
+    { name = 'reversed-ends', count = 6, band = 1, shaderEnds = { 6, -2, 0, 0 } },
+    { name = 'negative-ends', count = 6, band = 3, shaderEnds = { -4, -2, 0, 0 } },
+    { name = 'oversized-mid-end', count = 6, band = 2, shaderEnds = { -2, 90, 0, 0 } },
+  }
+  withOracle(function(compare: Compare): ()
+    for layer = 0, 2 do
+      for _, scenario in scenarios do
+        local options = table.clone(scenario)
+        options.layer = layer
+        compare('curtain', inputs(options), string.format('curtain/bounds/layer-%d/%s', layer, scenario.name))
       end
     end
   end)

@@ -4,7 +4,7 @@ local model = require './model'
 local shader = {}
 
 -- Waves arrive as (age, faded strength, longitude, band), with band 1 bass, 2 mid, and 3 treble. Live waves fill the
--- first `backdropWaveCount` slots, so each loop stops there and costs only what is sounding, however large the pools.
+-- first `backdropWaveCount` slots, grouped stably by band. The cumulative ends bound the curtain's band loops.
 local WAVES = [[
   const int WAVES = WAVE_COUNT;
   uniform vec4 backdropWaves[WAVES];
@@ -288,6 +288,7 @@ shader.curtainVertex = withWaves(SPECTRUM .. [[
   }
 ]])
 shader.curtainFragment = withWaves(SPECTRUM .. [[
+  uniform vec4 backdropWaveEnds;
   uniform vec4 backdropScene;
   uniform vec4 backdropResponse;
   uniform vec4 backdropFocus;
@@ -344,30 +345,45 @@ shader.curtainFragment = withWaves(SPECTRUM .. [[
     float flashZone = 0.;
     float crestZone = 0.;
     float surgeZone = 0.;
-    for (int i = 0; i < min(backdropWaveCount, WAVES); i++) {
+    int count = clamp(backdropWaveCount, 0, WAVES);
+    int bassEnd = clamp(int(backdropWaveEnds.x), 0, count);
+    int midEnd = clamp(int(backdropWaveEnds.y), bassEnd, count);
+    for (int i = 0; i < bassEnd; i++) {
       vec4 wave = backdropWaves[i];
-      float distance = ringDistance(u, wave.z);
       vec4 prepared = backdropWaveDetail[i];
       float detail = prepared.x;
-      float strength = wave.y * onsetFocus(wave.w, backdropFocus.xyz);
+      float strength = wave.y * onsetFocus(1., backdropFocus.xyz);
       float width = mix(.85, 1.25, detail);
-      if (wave.w < 1.5) {
-        float front = distance - prepared.y;
-        float pulse = strength * exp(-distance * distance * 650. * width) * prepared.w;
-        pulse += strength * ripple(front, 380. * width, mix(75., 100., detail)) * prepared.z;
-        flash += pulse;
-        flashZone += pulse * zone(v, mix(.035, .14, detail) + min(wave.x, .4) * .08, .13);
-      } else if (wave.w < 2.5) {
-        float front = distance - prepared.y;
-        float pulse = strength * ripple(front, 950. * width, mix(120., 150., detail)) * prepared.z;
-        crest += pulse;
-        crestZone += pulse * zone(v, mix(.26, .48, detail), mix(.16, .11, detail));
-      } else {
-        // The envelope rises smoothly; fine rays shimmer spatially instead of flashing the whole curtain.
-        float pulse = strength * exp(-distance * distance * 420. * width) * prepared.z;
-        surge += pulse;
-        surgeZone += pulse * zone(v, mix(.58, .72, detail), .16);
-      }
+      float distance = ringDistance(u, wave.z);
+      float front = distance - prepared.y;
+      float pulse = strength * exp(-distance * distance * 650. * width) * prepared.w;
+      pulse += strength * ripple(front, 380. * width, mix(75., 100., detail)) * prepared.z;
+      flash += pulse;
+      flashZone += pulse * zone(v, mix(.035, .14, detail) + min(wave.x, .4) * .08, .13);
+    }
+    for (int i = bassEnd; i < midEnd; i++) {
+      vec4 wave = backdropWaves[i];
+      vec4 prepared = backdropWaveDetail[i];
+      float detail = prepared.x;
+      float strength = wave.y * onsetFocus(2., backdropFocus.xyz);
+      float width = mix(.85, 1.25, detail);
+      float distance = ringDistance(u, wave.z);
+      float front = distance - prepared.y;
+      float pulse = strength * ripple(front, 950. * width, mix(120., 150., detail)) * prepared.z;
+      crest += pulse;
+      crestZone += pulse * zone(v, mix(.26, .48, detail), mix(.16, .11, detail));
+    }
+    for (int i = midEnd; i < count; i++) {
+      vec4 wave = backdropWaves[i];
+      vec4 prepared = backdropWaveDetail[i];
+      float detail = prepared.x;
+      float strength = wave.y * onsetFocus(3., backdropFocus.xyz);
+      float width = mix(.85, 1.25, detail);
+      float distance = ringDistance(u, wave.z);
+      // The envelope rises smoothly; fine rays shimmer spatially instead of flashing the whole curtain.
+      float pulse = strength * exp(-distance * distance * 420. * width) * prepared.z;
+      surge += pulse;
+      surgeZone += pulse * zone(v, mix(.58, .72, detail), .16);
     }
     flash = min(flash, 1.5);
     crest = min(crest, 1.5);
