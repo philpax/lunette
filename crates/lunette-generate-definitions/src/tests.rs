@@ -2,7 +2,10 @@
 
 use mlua::{Function, Lua, Table, Value};
 
-use super::{DRAW_METADATA, extend_draw_metadata};
+use super::{
+    CANVAS_METADATA, DRAW_METADATA, GRAPHICS_METHOD_METADATA, extend_canvas_metadata,
+    extend_draw_metadata, extend_graphics_method_metadata,
+};
 
 #[test]
 fn table_schemas_keep_optional_fields_read_write_splits_and_empty_tables() -> mlua::Result<()> {
@@ -181,6 +184,245 @@ fn draw_callback_adds_optional_preparation_passes_only_for_lunette() -> mlua::Re
         generated.contains("draw: ((pass: Pass) -> (boolean?, {Pass}?))?"),
         "{generated}"
     );
+    Ok(())
+}
+
+#[test]
+fn canvas_metadata_declares_runtime_texture_and_depth_shapes() -> mlua::Result<()> {
+    for (name, source, is_method) in [
+        (
+            CANVAS_METADATA[0],
+            include_str!("../../../vendor/lovr-docs/api/lovr/graphics/newPass.lua"),
+            false,
+        ),
+        (
+            CANVAS_METADATA[1],
+            include_str!("../../../vendor/lovr-docs/api/lovr/graphics/Pass/setCanvas.lua"),
+            true,
+        ),
+    ] {
+        let lua = Lua::new();
+        lua.load(
+            r#"
+            lovr = {
+                filesystem = { getSource = function() return 'memory' end },
+                system = { getOS = function() return 'Linux' end }
+            }
+            os = { execute = function() end }
+            io = { open = function()
+                return {
+                    write = function(_, text) generated = text end,
+                    close = function() end
+                }
+            end }
+            "#,
+        )
+        .exec()?;
+        let generator: Function = lua
+            .load(include_str!(
+                "../../../vendor/lovr-docs/api/generators/luau.lua"
+            ))
+            .eval()?;
+        let Value::Table(metadata) = lua.load(source).eval()? else {
+            return Err(mlua::Error::RuntimeError(format!(
+                "{name} vendor metadata is not a table"
+            )));
+        };
+        let arguments: Table = metadata.get("arguments")?;
+        for pair in arguments.clone().pairs::<String, Table>() {
+            let (argument_name, argument) = pair?;
+            argument.set("name", argument_name)?;
+        }
+        let returns: Table = metadata.get("returns")?;
+        for pair in returns.clone().pairs::<String, Table>() {
+            let (return_name, value) = pair?;
+            value.set("name", return_name)?;
+        }
+        let variants: Table = metadata.get("variants")?;
+        for variant in variants.sequence_values::<Table>() {
+            let variant = variant?;
+            for field in ["arguments", "returns"] {
+                let names: Table = variant.get(field)?;
+                let resolved = names
+                    .sequence_values::<String>()
+                    .map(|name| {
+                        let name = name?;
+                        let values = if field == "arguments" {
+                            &arguments
+                        } else {
+                            &returns
+                        };
+                        values.get::<Table>(name)
+                    })
+                    .collect::<mlua::Result<Vec<_>>>()?;
+                variant.set(field, lua.create_sequence_from(resolved)?)?;
+            }
+        }
+        metadata.set("name", if is_method { "setCanvas" } else { "newPass" })?;
+        let Value::Table(metadata) = extend_canvas_metadata(&lua, name, Value::Table(metadata))?
+        else {
+            return Err(mlua::Error::RuntimeError(format!(
+                "{name} local metadata is not a table"
+            )));
+        };
+
+        let module = lua.create_table()?;
+        module.set("name", if is_method { "graphics" } else { "lovr" })?;
+        module.set("enums", lua.create_table()?)?;
+        module.set("functions", lua.create_table()?)?;
+        module.set("objects", lua.create_table()?)?;
+        if is_method {
+            let object = lua.create_table()?;
+            object.set("name", "Pass")?;
+            object.set("methods", lua.create_sequence_from([metadata])?)?;
+            module.set("objects", lua.create_sequence_from([object])?)?;
+        } else {
+            module.set("functions", lua.create_sequence_from([metadata])?)?;
+        }
+        let api = lua.create_table()?;
+        api.set("modules", lua.create_sequence_from([module])?)?;
+        api.set("callbacks", lua.create_table()?)?;
+        generator.call::<()>(api)?;
+        let generated: String = lua.globals().get("generated")?;
+
+        assert!(
+            generated.contains("read texture: Texture?"),
+            "{name} did not generate the optional named color texture:\n{generated}"
+        );
+        assert!(
+            generated.contains(
+                "read depth: Texture | TextureFormat | boolean | { read texture: Texture, read resolve: Texture? }"
+            ),
+            "{name} did not generate the runtime depth shape:\n{generated}"
+        );
+        assert!(
+            generated.contains("read samples: number?"),
+            "{name} did not generate the optional sample count:\n{generated}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn graphics_method_overrides_preserve_real_variants_and_correct_declarations() -> mlua::Result<()> {
+    for (name, source, method_name) in [
+        (
+            GRAPHICS_METHOD_METADATA[0],
+            include_str!("../../../vendor/lovr-docs/api/lovr/graphics/Pass/getCanvas.lua"),
+            "getCanvas",
+        ),
+        (
+            GRAPHICS_METHOD_METADATA[1],
+            include_str!("../../../vendor/lovr-docs/api/lovr/graphics/Pass/mesh.lua"),
+            "mesh",
+        ),
+    ] {
+        let lua = Lua::new();
+        lua.load(
+            r#"
+            lovr = {
+                filesystem = { getSource = function() return 'memory' end },
+                system = { getOS = function() return 'Linux' end }
+            }
+            os = { execute = function() end }
+            io = { open = function()
+                return {
+                    write = function(_, text) generated = text end,
+                    close = function() end
+                }
+            end }
+            "#,
+        )
+        .exec()?;
+        let generator: Function = lua
+            .load(include_str!(
+                "../../../vendor/lovr-docs/api/generators/luau.lua"
+            ))
+            .eval()?;
+        let Value::Table(metadata) = lua.load(source).eval()? else {
+            return Err(mlua::Error::RuntimeError(format!(
+                "{name} vendor metadata is not a table"
+            )));
+        };
+        metadata.set("name", method_name)?;
+        let Value::Table(metadata) =
+            extend_graphics_method_metadata(&lua, name, Value::Table(metadata))?
+        else {
+            return Err(mlua::Error::RuntimeError(format!(
+                "{name} local metadata is not a table"
+            )));
+        };
+        let arguments: Table = metadata.get("arguments")?;
+        for pair in arguments.clone().pairs::<String, Table>() {
+            let (argument_name, argument) = pair?;
+            argument.set("name", argument_name)?;
+        }
+        let returns: Table = metadata.get("returns")?;
+        for pair in returns.clone().pairs::<String, Table>() {
+            let (return_name, value) = pair?;
+            value.set("name", return_name)?;
+        }
+        let variants: Table = metadata.get("variants")?;
+        for variant in variants.sequence_values::<Table>() {
+            let variant = variant?;
+            for field in ["arguments", "returns"] {
+                let names: Table = variant.get(field)?;
+                let resolved = names
+                    .sequence_values::<String>()
+                    .map(|name| {
+                        let name = name?;
+                        let values = if field == "arguments" {
+                            &arguments
+                        } else {
+                            &returns
+                        };
+                        values.get::<Table>(name)
+                    })
+                    .collect::<mlua::Result<Vec<_>>>()?;
+                variant.set(field, lua.create_sequence_from(resolved)?)?;
+            }
+        }
+
+        let method = metadata;
+        let object = lua.create_table()?;
+        object.set("name", "Pass")?;
+        object.set("methods", lua.create_sequence_from([method])?)?;
+        let module = lua.create_table()?;
+        module.set("name", "graphics")?;
+        module.set("enums", lua.create_table()?)?;
+        module.set("functions", lua.create_table()?)?;
+        module.set("objects", lua.create_sequence_from([object])?)?;
+        let api = lua.create_table()?;
+        api.set("modules", lua.create_sequence_from([module])?)?;
+        api.set("callbacks", lua.create_table()?)?;
+        generator.call::<()>(api)?;
+        let generated: String = lua.globals().get("generated")?;
+
+        if method_name == "getCanvas" {
+            assert_eq!(
+                generated.matches("function getCanvas(self)").count(),
+                1,
+                "{generated}"
+            );
+            assert!(
+                generated.contains(
+                    "function getCanvas(self): { read depth: any, read samples: number }?"
+                ),
+                "{generated}"
+            );
+        } else {
+            assert!(
+                generated.contains(
+                    "function mesh(self, vertexCount: number, x: number?, y: number?, z: number?"
+                ),
+                "numeric-count mesh overload missing:\n{generated}"
+            );
+            assert!(
+                generated.contains("function mesh(self, vertices: Buffer?, x: number?"),
+                "existing Buffer mesh overload missing:\n{generated}"
+            );
+        }
+    }
     Ok(())
 }
 
