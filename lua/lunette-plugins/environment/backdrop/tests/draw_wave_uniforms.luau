@@ -57,12 +57,12 @@ for _, miniature in { false, true } do
             current = call[2]
           elseif call[1] == 'send' then
             sent[call[2]] = call[3]
-            if call[2] == 'backdropWaveEnds' then
+            if call[2] == 'backdropWaveEnds' and current.fragment == shader.curtainCachedFragment then
               endsSends += 1
             end
           elseif call[1] == 'draw' then
             draws += 1
-            if current.fragment == shader.curtainFragment then
+            if current.fragment == shader.curtainCachedFragment then
               curtains += 1
               expect.equal(endsSends, 1, 'the ends are supplied again before any curtain draw')
               expect.equal(sent.backdropWaveCount, count, 'the live count reaches every curtain layer')

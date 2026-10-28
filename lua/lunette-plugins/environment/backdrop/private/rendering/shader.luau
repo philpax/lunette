@@ -1,6 +1,7 @@
 -- Cached overhead light, analytic sky diagnostics, and emissive curtains with fixed onset positions.
 local model = require './model'
 local overheadField = require './overhead-field'
+local onsetField = require './onset-field'
 
 local shader = {}
 
@@ -274,7 +275,8 @@ shader.curtainVertex = withWaves(SPECTRUM .. [[
     return ClipFromLocal * vec4(position, 1.);
   }
 ]])
-shader.curtainFragment = withWaves(SPECTRUM .. [[
+local function curtainFragment(onsets: string, bindings: string): string
+  return withWaves(SPECTRUM .. bindings .. [[
   uniform vec4 backdropWaveEnds;
   uniform vec4 backdropScene;
   uniform vec4 backdropResponse;
@@ -285,13 +287,7 @@ shader.curtainFragment = withWaves(SPECTRUM .. [[
   uniform vec3 backdropMid;
   uniform vec3 backdropTreble;
 
-  float zone(float v, float centre, float width) {
-    float distance = (v - centre) / width;
-    return exp(-distance * distance * 2.);
-  }
-  float ripple(float front, float width, float frequency) {
-    return exp(-front * front * width) * (.55 + .45 * cos(front * frequency));
-  }
+]] .. onsetField.equations .. [[
   vec4 lovrmain() {
     float u = UV.x;
     float v = UV.y;
@@ -332,46 +328,7 @@ shader.curtainFragment = withWaves(SPECTRUM .. [[
     float flashZone = 0.;
     float crestZone = 0.;
     float surgeZone = 0.;
-    int count = clamp(backdropWaveCount, 0, WAVES);
-    int bassEnd = clamp(int(backdropWaveEnds.x), 0, count);
-    int midEnd = clamp(int(backdropWaveEnds.y), bassEnd, count);
-    for (int i = 0; i < bassEnd; i++) {
-      vec4 wave = backdropWaves[i];
-      vec4 prepared = backdropWaveDetail[i];
-      float detail = prepared.x;
-      float strength = wave.y * onsetFocus(1., backdropFocus.xyz);
-      float width = mix(.85, 1.25, detail);
-      float distance = ringDistance(u, wave.z);
-      float front = distance - prepared.y;
-      float pulse = strength * exp(-distance * distance * 650. * width) * prepared.w;
-      pulse += strength * ripple(front, 380. * width, mix(75., 100., detail)) * prepared.z;
-      flash += pulse;
-      flashZone += pulse * zone(v, mix(.035, .14, detail) + min(wave.x, .4) * .08, .13);
-    }
-    for (int i = bassEnd; i < midEnd; i++) {
-      vec4 wave = backdropWaves[i];
-      vec4 prepared = backdropWaveDetail[i];
-      float detail = prepared.x;
-      float strength = wave.y * onsetFocus(2., backdropFocus.xyz);
-      float width = mix(.85, 1.25, detail);
-      float distance = ringDistance(u, wave.z);
-      float front = distance - prepared.y;
-      float pulse = strength * ripple(front, 950. * width, mix(120., 150., detail)) * prepared.z;
-      crest += pulse;
-      crestZone += pulse * zone(v, mix(.26, .48, detail), mix(.16, .11, detail));
-    }
-    for (int i = midEnd; i < count; i++) {
-      vec4 wave = backdropWaves[i];
-      vec4 prepared = backdropWaveDetail[i];
-      float detail = prepared.x;
-      float strength = wave.y * onsetFocus(3., backdropFocus.xyz);
-      float width = mix(.85, 1.25, detail);
-      float distance = ringDistance(u, wave.z);
-      // The envelope rises smoothly; fine rays shimmer spatially instead of flashing the whole curtain.
-      float pulse = strength * exp(-distance * distance * 420. * width) * prepared.z;
-      surge += pulse;
-      surgeZone += pulse * zone(v, mix(.58, .72, detail), .16);
-    }
+]] .. onsets .. [[
     flash = min(flash, 1.5);
     crest = min(crest, 1.5);
     surge = min(surge, 1.5);
@@ -419,6 +376,11 @@ shader.curtainFragment = withWaves(SPECTRUM .. [[
     return vec4(light, alpha) * clamp(visibility, 0., 1.);
   }
 ]])
+end
+
+shader.curtainFragment = curtainFragment(onsetField.analytic, '')
+shader.curtainCachedFragment = curtainFragment(onsetField.cached, onsetField.bindings)
+shader.curtainCompute = withWaves(onsetField.compute)
 
 shader.wispVertex = withWaves [[
   uniform vec4 backdropScene;

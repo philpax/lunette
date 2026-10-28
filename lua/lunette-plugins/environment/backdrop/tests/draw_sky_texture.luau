@@ -125,16 +125,16 @@ for _, miniatureFirst in { false, true } do
       expect.equal(#env.recorder.meshAcquisitions, 3, 'the geometry count is unchanged')
       expect.equal(
         #env.recorder.shaderAcquisitions,
-        4,
-        'the renderer owns three graphics shaders and one compute shader'
+        5,
+        'the renderer owns three graphics shaders and two compute shaders'
       )
       expect.equal(
         env.recorder.shaderAcquisitions[1].fragment,
         shader.skyCachedFragment,
         'normal rendering uses the cached variant'
       )
-      expect.equal(#env.recorder.textureAcquisitions, 1, 'the methods share one texture')
-      expect.equal(#env.recorder.samplerAcquisitions, 1, 'the methods share one sampler')
+      expect.equal(#env.recorder.textureAcquisitions, 3, 'the methods share the sky and onset textures')
+      expect.equal(#env.recorder.samplerAcquisitions, 2, 'the methods share the sky and onset samplers')
       local texture = env.recorder.textureAcquisitions[1]
       expect.equal(texture.width, 384, 'the field width is fixed')
       expect.equal(texture.height, 384, 'the field height is fixed')
@@ -164,8 +164,8 @@ test('new Frame identities refresh at the same model time and across the clock w
     env.renderer.miniature(env.pass, value, 0.5, nil, 1)
     expect.equal(#calls(env, 'compute'), 1, 'each new Frame records one field even when the clock does not change')
   end
-  expect.equal(#env.recorder.textureAcquisitions, 1, 'new Frames reuse the same texture')
-  expect.equal(#env.recorder.samplerAcquisitions, 1, 'new Frames reuse the same sampler')
+  expect.equal(#env.recorder.textureAcquisitions, 3, 'new Frames reuse the same textures')
+  expect.equal(#env.recorder.samplerAcquisitions, 2, 'new Frames reuse the same samplers')
   close(env)
 end)
 
@@ -285,7 +285,7 @@ test('compute recording errors restore state and permit a retry of the same Fram
   close(env)
 end)
 
-for _, failureAt in { 'shader1', 'shader2', 'shader3', 'shader4', 'texture', 'sampler' } do
+for _, failureAt in { 'shader1', 'shader2', 'shader3', 'shader4', 'shader5', 'texture', 'sampler' } do
   test(failureAt .. ' acquisition failure releases every partial resource and retries', function(): ()
     local env = boot()
     local value = frame(env)
@@ -355,9 +355,9 @@ test('cancelled effect registration releases the complete acquisition before ret
   lovr.graphics.newSampler = original
   expect.equal(ok, false, 'a cancelled acquisition cannot escape the effect registration')
   expect.truthy(string.find(tostring(failure), 'cancel', 1, true), 'the registration reports cancellation')
-  expect.equal(#env.recorder.shaderAcquisitions, 4, 'cancellation follows the complete shader acquisition')
-  expect.equal(#env.recorder.textureAcquisitions, 1, 'cancellation includes the field texture')
-  expect.equal(#env.recorder.samplerAcquisitions, 1, 'cancellation includes the sampler')
+  expect.equal(#env.recorder.shaderAcquisitions, 5, 'cancellation follows the complete shader acquisition')
+  expect.equal(#env.recorder.textureAcquisitions, 3, 'cancellation includes the sky and onset textures')
+  expect.equal(#env.recorder.samplerAcquisitions, 2, 'cancellation includes both samplers')
   env.recorder:assertResourcesReleased()
   env.recorder:assertRestored(checkpoint)
   expect.equal(#calls(env, 'compute'), 0, 'cancelled registration records no compute')
@@ -382,12 +382,12 @@ for _, partial in { false, true } do
           local label = if name == 'newMesh'
             then 'mesh' .. tostring(#env.recorder.meshAcquisitions)
             elseif name == 'newShader' then 'shader' .. tostring(#env.recorder.shaderAcquisitions)
-            elseif name == 'newTexture' then 'texture'
-            else 'sampler'
+            elseif name == 'newTexture' then 'texture' .. tostring(#env.recorder.textureAcquisitions)
+            else 'sampler' .. tostring(#env.recorder.samplerAcquisitions)
           resource.release = function(self: any): ()
             table.insert(releases, label)
             release(self)
-            if label == 'texture' or label == 'shader4' then
+            if label == 'texture1' or label == 'shader4' or label == 'shader5' or label == 'texture3' then
               error('injected release ' .. label .. ' failure', 0)
             end
           end
@@ -421,7 +421,7 @@ for _, partial in { false, true } do
         )
       end
       expect.truthy(
-        string.find(tostring(failure), 'injected release texture failure', 1, true),
+        string.find(tostring(failure), 'injected release texture1 failure', 1, true),
         'the texture cleanup error is retained'
       )
       expect.truthy(
@@ -430,7 +430,8 @@ for _, partial in { false, true } do
       )
       expect.equal(
         table.concat(releases, ','),
-        (if partial then '' else 'sampler,') .. 'texture,shader4,shader3,shader2,shader1,mesh3,mesh2,mesh1',
+        (if partial then '' else 'sampler2,texture3,texture2,shader5,sampler1,')
+          .. 'texture1,shader4,shader3,shader2,shader1,mesh3,mesh2,mesh1',
         'every resource releases in reverse acquisition order'
       )
       env.recorder:assertResourcesReleased()

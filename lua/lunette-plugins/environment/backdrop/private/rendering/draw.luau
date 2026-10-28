@@ -27,7 +27,12 @@ type Resources = {
   skyCompute: Shader,
   overheadTexture: Texture,
   overheadSampler: Sampler,
-  lastFrame: model.Frame?,
+  curtainCompute: Shader,
+  onsetPulses: Texture,
+  onsetZones: Texture,
+  onsetSampler: Sampler,
+  skyLastFrame: model.Frame?,
+  lastOnsetFrame: model.Frame?,
 }
 local acquireResources: (plugin.Context, config.Settings) -> Resources
 local drawScene: (Pass, Resources, config.Settings, model.Frame, number, number?, number, ('front' | 'back')?) -> ()
@@ -102,7 +107,8 @@ drawScene = function(
   skyCull: ('front' | 'back')?
 ): ()
   local response = { frame.bass, frame.mid, frame.treble, frame.brightness }
-  if view == 0 and frame.brightness > 0 and held.lastFrame ~= frame then
+  local waves, details, ends, live = waveUniforms.prepare(frame.waves, frame.responseStrength)
+  if view == 0 and frame.brightness > 0 and held.skyLastFrame ~= frame then
     -- Scene and miniature share one Frame in a submitted pass. Multiple Frames in an unsubmitted pass are unsupported:
     -- LÖVR records all compute work before its draws, so a later dispatch would replace the earlier frame's field.
     pass:setShader(held.skyCompute)
@@ -112,13 +118,23 @@ drawScene = function(
     pass:send('backdropTreble', settings.palette.treble)
     pass:send('overheadImage', held.overheadTexture)
     pass:compute(48, 48, 1)
-    held.lastFrame = frame
+    held.skyLastFrame = frame
+  end
+  if view == 0 and frame.brightness > 0 and live > 8 and held.lastOnsetFrame ~= frame then
+    pass:setShader(held.curtainCompute)
+    pass:send('backdropWaves', waves)
+    pass:send('backdropWaveDetail', details)
+    pass:send('backdropWaveCount', live)
+    pass:send('backdropWaveEnds', ends)
+    pass:send('onsetPulsesImage', held.onsetPulses)
+    pass:send('onsetZonesImage', held.onsetZones)
+    pass:compute(64, 8, 1)
+    held.lastOnsetFrame = frame
   end
   pass:setShader(held.skyShader)
   pass:setCullMode(skyCull)
   pass:send('overheadTexture', held.overheadTexture)
   pass:send('overheadSampler', held.overheadSampler)
-  local waves, details, ends, live = waveUniforms.prepare(frame.waves, frame.responseStrength)
   local spectrum = frame.spectrum
   local stereo = frame.stereo
   pass:send('backdropSky', { visibility, frame.time, frame.brightness, view })
@@ -137,6 +153,9 @@ drawScene = function(
     return
   end
   pass:setShader(held.curtainShader)
+  pass:send('onsetPulses', held.onsetPulses)
+  pass:send('onsetZones', held.onsetZones)
+  pass:send('onsetSampler', held.onsetSampler)
   pass:send('backdropResponse', response)
   pass:send('backdropSpectrum', {
     { spectrum[1], spectrum[2], spectrum[3], spectrum[4] },
@@ -197,7 +216,7 @@ acquireResources = function(context: plugin.Context, settings: config.Settings):
       local curtain = mesh(data.curtain)
       local wisps = mesh(data.wisps)
       local skyShader = compile(shader.skyVertex, shader.skyCachedFragment)
-      local curtainShader = compile(shader.curtainVertex, shader.curtainFragment)
+      local curtainShader = compile(shader.curtainVertex, shader.curtainCachedFragment)
       local wispShader = compile(shader.wispVertex, shader.wispFragment)
       local skyCompute = lovr.graphics.newShader(shader.skyCompute, { label = 'desktop/backdrop overhead' })
       table.insert(releases, 1, function(): ()
@@ -222,6 +241,34 @@ acquireResources = function(context: plugin.Context, settings: config.Settings):
       table.insert(releases, 1, function(): ()
         overheadSampler:release()
       end)
+      local curtainCompute = lovr.graphics.newShader(shader.curtainCompute, { label = 'desktop/backdrop onsets' })
+      table.insert(releases, 1, function(): ()
+        curtainCompute:release()
+      end)
+      local function onsetTexture(height: number): Texture
+        local made = lovr.graphics.newTexture(512, height, {
+          type = '2d',
+          format = 'rgba16f',
+          linear = true,
+          samples = 1,
+          mipmaps = false,
+          usage = { 'sample', 'storage' },
+        })
+        table.insert(releases, 1, function(): ()
+          made:release()
+        end)
+        return made
+      end
+      local onsetPulses = onsetTexture(1)
+      local onsetZones = onsetTexture(64)
+      local onsetSampler = lovr.graphics.newSampler {
+        filter = 'linear',
+        wrap = { 'repeat', 'clamp', 'clamp' },
+        mipmaprange = { 0, 0 },
+      }
+      table.insert(releases, 1, function(): ()
+        onsetSampler:release()
+      end)
       held = {
         sky = sky,
         curtain = curtain,
@@ -232,7 +279,12 @@ acquireResources = function(context: plugin.Context, settings: config.Settings):
         skyCompute = skyCompute,
         overheadTexture = overheadTexture,
         overheadSampler = overheadSampler,
-        lastFrame = nil,
+        curtainCompute = curtainCompute,
+        onsetPulses = onsetPulses,
+        onsetZones = onsetZones,
+        onsetSampler = onsetSampler,
+        skyLastFrame = nil,
+        lastOnsetFrame = nil,
       }
     end)
     if not ok then

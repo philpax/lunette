@@ -365,7 +365,7 @@ test('provider outages withdraw only dependent backdrop children and recover wit
   step(native, source, nil, pcm)
   session:draw()
   -- The backdrop draws before the UI host in the scene phase, so it acquires the first shaders.
-  local backdropShaders = table.move(native.events.render.shaderAcquisitions, 1, 4, 1, {})
+  local backdropShaders = table.move(native.events.render.shaderAcquisitions, 1, 5, 1, {})
   open(services())
   session:draw()
   local baseline = totals(native, services())
@@ -459,7 +459,7 @@ test('provider outages withdraw only dependent backdrop children and recover wit
       'raw status is independent of analysis'
     )
     expect.equal(session:draw(), false, 'the renderer draws through the provider outage')
-    expect.equal(live(backdropShaders, 'released'), 4, 'the renderer keeps its shaders')
+    expect.equal(live(backdropShaders, 'released'), 5, 'the renderer keeps its shaders')
     if case.status then
       expect.truthy(statusContains(recorder, case.status), 'the control panel reports the missing provider')
     end
