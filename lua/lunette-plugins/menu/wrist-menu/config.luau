@@ -23,6 +23,9 @@ local descriptor = schema.object {
   size = schema.default(positive)(0.115),
   offset = schema.default(schema.vector())(vector.pack(-0.03, -0.01, 0.125)),
   expanded = schema.default(expanded)(expanded.parse {}),
+  -- Ids of menu actions shown as buttons above the closed menu button, top first. An action that is not registered
+  -- shows no button.
+  shortcuts = schema.default(schema.array(schema.string())) { 'desktop/panels/hide' },
   facing = schema.default(facing)(facing.parse {}),
 }
 

@@ -6,6 +6,8 @@ The menu is a [UI host](../../ui/host/README.md) panel built from the [standard 
 
 On the wrist, the menu fades with the angle between its face and the direction to the head: it is opaque within `facing.visible`, transparent past `facing.hidden`, and eases between them. A faded menu takes no presses, so a hand passing behind the wrist does not catch it. A torn-off menu stays opaque.
 
+The actions named in `shortcuts` show as quiet buttons in a row above the closed button, drawing an action's icon when it has one, and the time sits in a row of the same height below it, so the button stays centred on the wrist point. The default shortcut is Hide panels.
+
 The `haptic` setting and the `logicalWidth`, `logicalHeight`, and `rowHeight` fields of `expanded` are removed. The UI host gives every press the same pulse, and the panel lays out its rows in metres from the theme.
 
 [Options](config.luau) · [Menu workflow](../../../../docs/users/desktop-configuration.md#menu-and-keyboard)

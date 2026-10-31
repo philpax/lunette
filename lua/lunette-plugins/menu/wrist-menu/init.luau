@@ -71,7 +71,8 @@ return plugin.consumer<<Config, Settings>> {
     -- The pose the menu last placed the panel at on the wrist, which a grab changes.
     local placed: { number }? = nil
     local opened = ui.store(false)
-    local snapshot = ui.store({} :: rows.Snapshot)
+    -- The closed button's shortcuts read the actions too, so the snapshot follows them whether or not the menu is open.
+    local snapshot = ui.store(menuService:list() :: rows.Snapshot)
     local time = ui.store(os.date(TIME_FORMAT))
     local function live(): boolean
       return context:active() and not panel.dead
@@ -80,9 +81,7 @@ return plugin.consumer<<Config, Settings>> {
       if not live() then
         return
       end
-      if value then
-        snapshot:set(menuService:list())
-      else
+      if not value then
         detached = false
       end
       -- Only the open menu tears off; the closed button stays on the wrist.
@@ -98,6 +97,7 @@ return plugin.consumer<<Config, Settings>> {
         opened = opened,
         snapshot = snapshot,
         time = time,
+        shortcuts = settings.shortcuts,
         size = settings.size,
         width = expanded.width,
         height = expanded.height,
@@ -117,12 +117,17 @@ return plugin.consumer<<Config, Settings>> {
             menuService:invoke(descriptor.id, descriptor.token)
           end
         end,
+        shortcut = function(descriptor: menu.Descriptor): ()
+          if live() and tracked and not opened:get() then
+            menuService:invoke(descriptor.id, descriptor.token)
+          end
+        end,
       },
       { components = components, owner = context }
     )
     menuService:onChanged(context, {
       run = function(): ()
-        if live() and opened:get() then
+        if live() then
           snapshot:set(menuService:list())
         end
       end,
