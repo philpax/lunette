@@ -131,11 +131,26 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
     end,
   }
 
+  -- Live hidePanels effects. While any holds, every panel that is not essential is suppressed.
+  local hiders = 0
+  local function suppress(record: records.Panel): ()
+    local suppressed = hiders > 0 and not record.essential
+    if suppressed == record.suppressed then
+      return
+    end
+    record.suppressed = suppressed
+    if suppressed and record.focused then
+      env.blurNode(record.focused)
+    end
+    record.sync()
+  end
+
   provider = {
     env = env,
     router = router,
     offer = function(record: records.Panel, surface: vocabulary.Surface): ()
       table.insert(live, { record = record, surface = surface })
+      suppress(record)
     end,
     resolve = function(handle: uiHost.Panel): records.Panel
       return assert(recordsOf[handle], 'ui: the panel was not made by this host')
@@ -336,7 +351,7 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
       end
       for _, entry in live do
         local record = entry.record
-        if record.visible and record.root and record.width > 0 and record.height > 0 then
+        if record.visible and not record.suppressed and record.root and record.width > 0 and record.height > 0 then
           protected.call(`ui: panel '{record.name}' draw`, function(): ()
             layout.place(record)
             local packed = pack.run(record, env, function(name: string): { uiHost.Visual }
@@ -386,6 +401,22 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
         end
       end)
       return handle
+    end,
+    hidePanels = function(_self: uiHost.Service, owner: plugin.Owner): plugin.Effect
+      context:checkOwner(owner)
+      local function apply(): ()
+        for _, entry in live do
+          suppress(entry.record)
+        end
+      end
+      return context:acquire(owner, function(): () -> ()
+        hiders += 1
+        apply()
+        return function(): ()
+          hiders -= 1
+          apply()
+        end
+      end)
     end,
     registerKind = function(
       _self: uiHost.Service,

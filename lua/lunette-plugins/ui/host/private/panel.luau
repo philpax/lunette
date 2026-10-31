@@ -81,6 +81,8 @@ function panel.new(
     record.modality = modality
     record.parent = if options.parent then provider.resolve(options.parent) else nil
   end
+  local parent = record.parent
+  record.essential = options.essential == true or (parent ~= nil and parent.essential)
   local env = provider.env
 
   local mount: uiHost.Mount = {
@@ -290,6 +292,8 @@ function panel.record(
     opacity = motion.channel(1),
     ghosts = {},
     closing = false,
+    essential = false,
+    suppressed = false,
     presentation = 'world',
     curve = 0,
     target = nil,

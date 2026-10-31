@@ -17,10 +17,10 @@ end
 -- An owner's opacity below this takes no input, so a panel fading in cannot be pressed before it can be seen.
 local OPAQUE = 0.1
 
--- Whether a visible panel is opaque enough to take input. A panel fading out stops at once.
+-- Whether a visible, unsuppressed panel is opaque enough to take input. A panel fading out stops at once.
 function motion.shown(panel: records.Panel): boolean
   local opacity = panel.opacity
-  return panel.visible and opacity.target > 0 and opacity.value >= OPAQUE
+  return panel.visible and not panel.suppressed and opacity.target > 0 and opacity.value >= OPAQUE
 end
 
 -- Advances a channel, answering whether it moved. A zero duration snaps, as reduced motion asks.

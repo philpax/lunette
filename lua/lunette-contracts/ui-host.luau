@@ -397,6 +397,9 @@ export type PanelOptions = {
   read parent: Panel?,
   -- A dialog blocks presses on its parent panel, or on every other toolkit panel when it is session-modal.
   read modality: ('panel' | 'session')?,
+  -- An essential panel, such as the wrist menu, stays shown while panels are hidden together. Its overlays and
+  -- dialogs are essential with it.
+  read essential: boolean?,
 }
 
 export type Panel = {
@@ -424,6 +427,9 @@ export type Panel = {
 
 export type Service = {
   read newPanel: (Service, Owner, PanelOptions) -> Panel,
+  -- Hides every panel that is not essential, including panels made while it holds, until the effect is disposed or
+  -- its owner ends. Hidden panels give up their focus and take no input.
+  read hidePanels: (Service, Owner) -> plugin.Effect,
   read registerKind: (Service, Owner, KindRegistration) -> Constructor,
   read registerVisual: (Service, Owner, string, Visual) -> plugin.Effect,
   -- Replaces a registered kind under its name for the owner's lifetime. The newest live override is current, fields

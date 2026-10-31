@@ -177,6 +177,9 @@ export type Panel = {
   ghosts: { Ghost },
   -- Set while a panel fades out before it is destroyed; it takes no hits.
   closing: boolean,
+  -- An essential panel stays shown while panels are hidden together; a suppressed one is hidden by that.
+  essential: boolean,
+  suppressed: boolean,
   -- The follow presentation's current target, which it moves to only when the head turns far enough away.
   followTarget: Mat4?,
   -- Set for a world panel made without a pose, until the host places it ahead of the head or its owner poses it.

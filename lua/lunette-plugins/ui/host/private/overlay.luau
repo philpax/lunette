@@ -27,6 +27,7 @@ function overlay.render(provider: panel.Provider, portal: records.Node): records
     local created = panel.record(`{opener.name}/{portal.slot}`, opener.owner, 'content', nil, nil, opener.pose)
     created.overlay = { portal = portal, opener = opener, hit = portal.props.hit ~= false }
     created.fade = { value = 0, target = 1, velocity = 0 }
+    created.essential = opener.essential
     portal.overlay = created
     record = created
     local surface = panel.surface(provider, created, nil)
