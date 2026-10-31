@@ -579,6 +579,8 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
             height = record.height,
             nodes = count,
             visible = record.visible,
+            -- Whether the panel takes input, which it does not while hidden or faded out.
+            pressable = motion.shown(record),
             presentation = record.presentation,
           })
         )

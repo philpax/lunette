@@ -43,7 +43,7 @@ local function boot(config: Config?): Environment
   local env: Environment = { running = running, panels = panels } :: any
   env.hand = config and config.hand or 'left'
   env.pointer = if env.hand == 'left' then 'right' else 'left'
-  running:pose(env.hand, lovr.math.newMat4():translate(0, 1.2, -0.5))
+  running:pose(env.hand, wristMenu.facingPose())
   running:tracked(env.hand, true)
   running:step()
   running.session:use(adapter.define {
@@ -248,6 +248,26 @@ test('the closed wrist button cannot be grabbed off the wrist', function()
   expect.near(vector.magnitude(position(env) - wrist), 0, 1e-6, 'the held button stays on the wrist')
   running:button(env.pointer, 'grip', false)
   running:step()
+  env.running:close()
+end)
+
+test('the menu fades and takes no presses while its wrist turns it away from the head', function()
+  local env = boot()
+  expect.truthy(env.panels:pressable(PANEL), 'a menu facing the head can be pressed')
+  -- Held level, the wrist turns the menu edge-on to the head.
+  env.running:pose(env.hand, lovr.math.newMat4():translate(0, 1.2, -0.5))
+  for _ = 1, 60 do
+    if not env.panels:pressable(PANEL) then
+      break
+    end
+    env.running:step()
+  end
+  expect.falsy(env.panels:pressable(PANEL), 'a menu turned away cannot be pressed')
+  expect.truthy(shown(env), 'it stays shown while it fades')
+  click(env, 'open')
+  expect.near((size(env)), 0.115, 1e-6, 'a press at the faded button does not open it')
+  wristMenu.open(env.running, env.panels, env.pointer)
+  expect.near((size(env)), 0.32, 1e-6, 'turning the wrist back lets the button open the menu')
   env.running:close()
 end)
 

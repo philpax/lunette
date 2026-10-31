@@ -33,7 +33,7 @@ Patches target an existing entry by id or insert a local plugin's `definition`. 
 
 ## Menu and keyboard
 
-The wrist menu exposes session actions, including configuration reload, the [runtime manager](runtime-manager.md), accessibility, default appearance, and workspaces. These actions need no key chords. Reload applies source edits without closing applications.
+The wrist menu exposes session actions, including configuration reload, the [runtime manager](runtime-manager.md), accessibility, default appearance, and workspaces. These actions need no key chords. Reload applies source edits without closing applications. The menu fades out as the wrist turns it away from the head, so it is not seen from behind or edge-on, and a faded menu takes no presses. Its `facing` option sets the angles.
 
 Focusing a UI text field shows the shared keyboard. Hiding it ends focus and keeps the text. The [keyboard plugin](../../lua/lunette-plugins/input/keyboard/README.md) describes placement and replacement.
 

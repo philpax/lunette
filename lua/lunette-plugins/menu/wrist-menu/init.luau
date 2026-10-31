@@ -1,6 +1,7 @@
 -- Renders owner-scoped menu actions on a tracked wrist through the UI host and the standard kinds. Grabbing the open
 -- menu tears it off the wrist: it stays where it is released, as a world panel, until it is closed, when it returns to
--- the wrist. The button and the open menu's header show the local time.
+-- the wrist. The button and the open menu's header show the local time. On the wrist, the menu fades as it turns away
+-- from the head.
 local plugin = require '@lunette-plugin'
 local uiHost = require '@lunette-contracts/ui-host'
 local uiComponents = require '@lunette-contracts/ui-components'
@@ -10,6 +11,7 @@ local ui = require '@lunette-plugins/ui/react'
 local config = require '@self/config'
 local rows = require '@self/private/rows'
 local view = require '@self/private/view'
+local facing = require '@self/private/facing'
 
 export type Config = config.Config
 export type Settings = config.Settings
@@ -131,6 +133,7 @@ return plugin.consumer<<Config, Settings>> {
         end
         local isTracked = lovr.headset.isTracked(device)
         if detached then
+          panel:setOpacity(1)
           tracked = isTracked
           return
         end
@@ -147,6 +150,8 @@ return plugin.consumer<<Config, Settings>> {
         end
         local pose = wristPose(device, settings.offset)
         panel:setPose(pose)
+        local hx, hy, hz = lovr.headset.getPose 'head'
+        panel:setOpacity(facing.opacity(facing.angle(pose, vector.pack(hx, hy, hz)), settings.facing))
         placed = { pose:unpack(true) }
         if not shown then
           shown = true
