@@ -28,10 +28,15 @@ return function(context: plugin.Context, settings: config.Settings): contract.Se
   local auto: focus.TargetHandle? = nil
   local currentTarget: focus.TargetHandle? = nil
   local revision = 0
+  -- Live suppress effects; while any holds, a visible keyboard is neither drawn nor offered.
+  local suppressors = 0
   local subscribers = listeners.new<<contract.Listener>>(context)
 
   local function live(): boolean
     return not stopped and context:active()
+  end
+  local function shown(): boolean
+    return live() and visible and suppressors == 0
   end
   local function notify(reason: keyboard.VisibilityReason): ()
     revision += 1
@@ -159,7 +164,7 @@ return function(context: plugin.Context, settings: config.Settings): contract.Se
     name = 'keyboard-display',
     list = function(): { vocabulary.Surface }
       local target = board
-      return if live() and visible and target and not target.dead then { target } else {}
+      return if shown() and target and not target.dead then { target } else {}
     end,
   })
   -- The bar follows the board after pointing has moved either of them this frame.
@@ -169,7 +174,7 @@ return function(context: plugin.Context, settings: config.Settings): contract.Se
     run = function(_dt: number): ()
       local target = board
       if bar then
-        bar:sync(live() and visible and target ~= nil and not target.dead)
+        bar:sync(shown() and target ~= nil and not target.dead)
       end
     end,
   })
@@ -178,7 +183,7 @@ return function(context: plugin.Context, settings: config.Settings): contract.Se
     order = 1,
     run = function(pass: Pass): ()
       local target = board
-      if live() and visible and target and not target.dead then
+      if shown() and target and not target.dead then
         target:draw(pass)
       end
     end,
@@ -186,10 +191,13 @@ return function(context: plugin.Context, settings: config.Settings): contract.Se
 
   local service: contract.Service = {
     inspect = function(_self: contract.Service): inspection.Snapshot
-      return inspection.snapshot(
-        subscribers:inspect 'keyboard-display.onChanged',
-        { visible = live() and visible, manual = manual, automatic = auto ~= nil, made = board ~= nil }
-      )
+      return inspection.snapshot(subscribers:inspect 'keyboard-display.onChanged', {
+        visible = live() and visible,
+        suppressed = suppressors > 0,
+        manual = manual,
+        automatic = auto ~= nil,
+        made = board ~= nil,
+      })
     end,
     show = function(_self: contract.Service): boolean
       return show()
@@ -202,6 +210,15 @@ return function(context: plugin.Context, settings: config.Settings): contract.Se
     end,
     isVisible = function(_self: contract.Service): boolean
       return live() and visible
+    end,
+    suppress = function(_self: contract.Service, owner: contract.Owner): plugin.Effect
+      context:checkOwner(owner)
+      return context:acquire(owner, function(): () -> ()
+        suppressors += 1
+        return function(): ()
+          suppressors -= 1
+        end
+      end)
     end,
     onChanged = function(_self: contract.Service, owner: contract.Owner, listener: contract.Listener): plugin.Effect
       context:checkOwner(owner)
