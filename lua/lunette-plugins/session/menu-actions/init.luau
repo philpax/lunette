@@ -4,6 +4,7 @@ local plugin = require '@lunette-plugin'
 local menu = require '@lunette-contracts/menu'
 local display = require '@lunette-contracts/keyboard-display'
 local panels = require '@lunette-contracts/panels'
+local uiHost = require '@lunette-contracts/ui-host'
 local logging = require '@lunette-plugins/diagnostics/desktop-logging'
 
 export type Config = {}
@@ -43,14 +44,18 @@ local SHOWN_ICON =
 local HIDDEN_ICON =
   [[<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="13" height="11" rx="2" opacity="0.5"/><path d="M8 4h11a2 2 0 0 1 2 2v9" opacity="0.5"/><path d="M3 3l18 18"/></svg>]]
 
--- Hides every window and monitor panel, and panels that open while they are hidden, until it is chosen again. The
--- overrides are this activation's own, so a panel another plugin hides stays hidden when they are shown.
+-- Hides every window and monitor panel, every toolkit panel but the essential ones such as the wrist menu, and the
+-- keyboard, including panels that open while they are hidden, until it is chosen again. The overrides are this
+-- activation's own, so a panel another plugin hides stays hidden when they are shown, and the keyboard returns where
+-- it was, if it was up. The toolkit and the keyboard are optional, so their outages leave the window panels' toggle working.
 local panelVisibility = plugin.consumer<<Config, Settings>>({
   name = 'desktop/actions/panels',
   requires = { menu.capability, panels.capability },
   init = function(context: plugin.Context, _settings: Settings): ()
     local menuService: menu.Service = context:require(menu.capability)
     local panelService: panels.Service = context:require(panels.capability)
+    local toolkit = plugin.connectOptional(context, 'desktop/actions/panels/toolkit', uiHost.capability)
+    local keyboard = plugin.connectOptional(context, 'desktop/actions/panels/keyboard', display.capability)
     local overrides: { plugin.Effect } = {}
     local hidden = false
     local function hide(panel: panels.Panel): ()
@@ -73,6 +78,14 @@ local panelVisibility = plugin.consumer<<Config, Settings>>({
         if hidden then
           for _, panel in panelService:all() do
             hide(panel)
+          end
+          local host = toolkit()
+          if host then
+            table.insert(overrides, host.service:hidePanels(host.owner))
+          end
+          local board = keyboard()
+          if board then
+            table.insert(overrides, board.service:suppress(board.owner))
           end
         else
           for _, override in overrides do

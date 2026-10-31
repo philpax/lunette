@@ -61,6 +61,8 @@ return plugin.consumer<<Config, Settings>> {
       width = math.max(settings.size, expanded.width),
       height = math.max(settings.size, expanded.height),
       grabbable = false,
+      -- The menu holds the control that brings hidden panels back, so it stays when they are hidden.
+      essential = true,
     })
     panel:setVisible(false)
     local device: Device = if settings.hand == 'left' then 'hand/left' else 'hand/right'
