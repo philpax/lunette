@@ -8,6 +8,7 @@ local style = require './private/style'
 local input = require './private/input'
 local dragIcon = require './private/drag-icon'
 local clientPixels = require '@lunette-plugins/graphics/client-pixels'
+local visibility = require './private/visibility'
 
 -- The record a draw hook receives: the contract's laser and the provider state its drawing reads.
 export type Beam = {
@@ -20,6 +21,8 @@ export type Beam = {
   read pointer: interaction.Pointer,
   read style: style.Style,
   read input: contracts.Input?,
+  -- The beam's opacity from 0 to 1, which a draw hook multiplies into its colours. A hook is not called at zero.
+  read visibility: number,
   -- The geometry and shaders that draw the icon of a drag the seat carries.
   read icon: dragIcon.State,
   read iconShaders: clientPixels.Shaders,
@@ -64,6 +67,8 @@ local CONTROL = schema.enum<<DeviceButton>> {
 local BUTTON = schema.enum<<lunette.PointerButton>> { 'left', 'right', 'middle', 'back', 'forward' }
 local MAPPING = schema.object { control = CONTROL, button = BUTTON }
 local STYLE = style.configuration
+local OVERLAY_BEAM = schema.enum<<visibility.Mode>> { 'engaged', 'always' }
+local NONNEGATIVE = schema.number { minimum = 0 }
 local function defaultCallback<F>(callback: F): schema.Schema<F?, F>
   return schema.default(schema.callback(callback))(callback)
 end
@@ -72,6 +77,8 @@ type ConfigurationShape<R, D> = {
   aim: schema.Schema<schema.Input<typeof(aim.schema)>?, schema.Output<typeof(aim.schema)>>,
   triggerLock: schema.Schema<schema.Input<typeof(triggerLock.schema)>?, schema.Output<typeof(triggerLock.schema)>>,
   buttons: schema.Schema<{ schema.Input<typeof(MAPPING)> }?, { read [number]: schema.Output<typeof(MAPPING)> }>,
+  overlayBeam: schema.Schema<visibility.Mode?, visibility.Mode>,
+  fadeOut: schema.Schema<number?, number>,
   readInput: schema.Schema<R?, R>,
   draw: schema.Schema<D?, D>,
 }
@@ -87,6 +94,11 @@ local function configuration<R, D>(
     aim = schema.default(aim.schema)(aim.schema.parse {}),
     triggerLock = schema.default(triggerLock.schema)(triggerLock.schema.parse {}),
     buttons = schema.default(schema.array(MAPPING)) { { control = 'trigger', button = 'left' } },
+    -- Over another application's scene, 'engaged' draws a beam only while it hovers a surface, holds a grab, or holds
+    -- a button, and 'always' draws it whenever its hand is tracked.
+    overlayBeam = schema.default(OVERLAY_BEAM) 'engaged',
+    -- Seconds a beam takes to fade out once it stops being drawn.
+    fadeOut = schema.default(NONNEGATIVE)(0.15),
     readInput = defaultCallback(reader),
     draw = defaultCallback(drawing),
   }
