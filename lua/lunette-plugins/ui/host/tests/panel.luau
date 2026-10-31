@@ -1,6 +1,7 @@
 local testing = require '@testing'
 local panels = require '../private/panel'
 local input = require '../private/input'
+local motion = require '../private/motion'
 local fixture = require '@testing/ui-host'
 local expect = testing.expect
 local test = testing.suite()
@@ -73,6 +74,34 @@ test('internal fade destruction publishes surface liveness without a public hand
   panels.destroy(provider, record)
   local releases = counts()
   expect.equal(releases, 1, 'internal cleanup is idempotent')
+end)
+
+local function hits(surface: any): boolean
+  return surface:raycast(vector.pack(0, 0, 1), vector.pack(0, 0, -1)) ~= nil
+end
+
+test('an owner opacity fades the panel and gates its input', function()
+  local _, record, handle, surface = made()
+  expect.truthy(hits(surface), 'an opaque panel takes rays')
+  handle:setOpacity(0)
+  expect.truthy(surface.dead, 'a panel fading out withdraws its surface at once')
+  expect.falsy(hits(surface), 'a panel fading out takes no rays at once')
+  expect.equal(record.opacity.value, 1, 'the opacity animates rather than jumping')
+  motion.panel(record, 1, 0.1)
+  expect.near(record.opacity.value, 0, 1e-6, 'the fade settles')
+  handle:setOpacity(1)
+  expect.falsy(hits(surface), 'a transparent panel fading in is not yet pressable')
+  motion.panel(record, 1, 0.1)
+  record.sync()
+  expect.falsy(surface.dead, 'the surface returns once the panel is opaque again')
+  expect.truthy(hits(surface), 'an opaque panel takes rays again')
+end)
+
+test('an owner opacity is a number from 0 to 1', function()
+  local _, _, handle = made()
+  for _, bad in { -0.1, 1.5, 0 / 0, 'half' :: any } do
+    expect.falsy(pcall(handle.setOpacity, handle, bad), `{tostring(bad)} is refused`)
+  end
 end)
 
 return test

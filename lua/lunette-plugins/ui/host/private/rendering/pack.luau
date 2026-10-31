@@ -206,7 +206,8 @@ function pack.run(
       end
     end
   end
-  local panelOpacity = if panel.fade then math.clamp(panel.fade.value, 0, 1) else 1
+  local panelOpacity = (if panel.fade then math.clamp(panel.fade.value, 0, 1) else 1)
+    * math.clamp(panel.opacity.value, 0, 1)
   local function visit(node: records.Node, clip: { number }, inherited: number): ()
     if outside(clip, node) then
       return

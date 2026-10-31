@@ -46,4 +46,17 @@ test('a long frame cannot overshoot, and a zero duration snaps', function()
   expect.equal(snapped.value, 5)
 end)
 
+test('a panel takes input only while its owner opacity is visible and not fading out', function()
+  local panel: any = { visible = true, opacity = motion.channel(1) }
+  expect.truthy(motion.shown(panel), 'opaque')
+  panel.opacity.target = 0
+  expect.falsy(motion.shown(panel), 'fading out')
+  panel.opacity = { value = 0.05, target = 1, velocity = 0 }
+  expect.falsy(motion.shown(panel), 'nearly transparent while fading in')
+  panel.opacity.value = 0.5
+  expect.truthy(motion.shown(panel), 'half faded in')
+  panel.visible = false
+  expect.falsy(motion.shown(panel), 'hidden')
+end)
+
 return test

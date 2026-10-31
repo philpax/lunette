@@ -8,7 +8,7 @@ The host accepts the closed presentation values `world`, `follow`, `dialog`, and
 
 World panels stay at their supplied or initial pose until moved. Follow panels lazily follow the head. Dialog panels sit in front of their parent or the head and apply modality. Attached panels sit above a target surface and direct grabs to that target.
 
-A caller can set a panel's pose explicitly, as the wrist-menu consumer does. Wrist and summoned placement are consumer policy rather than registered host presentations. There is no automatic angular-size preservation, presentation-scale system, or density transition protocol.
+A caller can set a panel's pose explicitly, as the wrist-menu consumer does. Wrist and summoned placement are consumer policy rather than registered host presentations. A consumer can also fade a panel with an owner opacity, as the wrist menu does when it faces away from the head. The host animates that opacity with the theme's motion, multiplies it with its own fades, and withdraws the panel from pointer, touch, and focus input while it fades out or is nearly transparent. An overlay follows its opener's opacity. There is no automatic angular-size preservation, presentation-scale system, or density transition protocol.
 
 ## Comfort
 

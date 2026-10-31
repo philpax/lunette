@@ -407,6 +407,9 @@ export type Panel = {
   read setPose: (Panel, Mat4) -> (),
   read size: (Panel) -> (number, number),
   read setVisible: (Panel, boolean) -> (),
+  -- Fades a visible panel toward an opacity from 0 to 1 with the theme's motion, or at once under reduced motion. A
+  -- panel that is fading out, or that is nearly transparent, takes no pointer, touch, or focus input.
+  read setOpacity: (Panel, number) -> (),
   read setCurve: (Panel, number) -> (),
   -- Sets a fixed panel's size, or a content-sized panel's maximum, in metres.
   read setSize: (Panel, number?, number?) -> (),

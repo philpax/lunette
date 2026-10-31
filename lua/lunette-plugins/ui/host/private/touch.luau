@@ -6,6 +6,7 @@ local records = require './records'
 local input = require './input'
 local poke = require './poke'
 local shape = require './shape'
+local motion = require './motion'
 
 local touch = {}
 
@@ -69,7 +70,7 @@ end
 function touch.candidates(panels: { records.Panel }, env: records.Environment, point: vector): { poke.Candidate }
   local list: { poke.Candidate } = {}
   for _, panel in panels do
-    if panel.visible and not panel.dead and panel.width > 0 then
+    if motion.shown(panel) and not panel.dead and panel.width > 0 then
       local inverse = lovr.math.mat4(panel.pose):invert()
       local x, y, lz = shape.toPanel(panel, inverse:mul(point.x, point.y, point.z))
       if x >= 0 and y >= 0 and x <= panel.width and y <= panel.height and lz > -BEHIND then

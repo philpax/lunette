@@ -191,7 +191,7 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
       local list: { vocabulary.Surface } = {}
       for _, entry in live do
         local relation = entry.record.overlay
-        if entry.record.visible and entry.record.width > 0 and (relation == nil or relation.hit) then
+        if motion.shown(entry.record) and entry.record.width > 0 and (relation == nil or relation.hit) then
           list[#list + 1] = entry.surface
         end
       end
@@ -272,7 +272,10 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
         overlay.place(provider, entry.record)
         -- Reduced motion snaps every channel to its target.
         local record = entry.record
-        motion.panel(record, dt, if access.reducedMotion then 0 else current.motion.crisp)
+        if motion.panel(record, dt, if access.reducedMotion then 0 else current.motion.crisp) then
+          -- An owner's fade crosses the opacity that takes input, so the surface republishes whether it is live.
+          record.sync()
+        end
         if record.closing and (record.fade == nil or record.fade.value <= 0.02) then
           table.insert(faded, record)
         end

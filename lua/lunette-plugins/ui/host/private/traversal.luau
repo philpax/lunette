@@ -7,6 +7,7 @@ local focusContract = require '@lunette-contracts/focus'
 local keys = require '@lunette-contracts/keys'
 local records = require './records'
 local focus = require './focus'
+local motion = require './motion'
 
 local traversal = {}
 
@@ -214,7 +215,7 @@ end
 function traversal.nextPanel(state: Traversal): boolean
   local panels: { records.Panel } = {}
   for _, panel in state.panels() do
-    if panel.visible and not panel.dead and panel.overlay == nil and #focus.order(state.env, panel) > 0 then
+    if motion.shown(panel) and not panel.dead and panel.overlay == nil and #focus.order(state.env, panel) > 0 then
       table.insert(panels, panel)
     end
   end

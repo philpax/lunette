@@ -11,6 +11,7 @@ local layout = require './layout'
 local input = require './input'
 local shape = require './shape'
 local placements = require './placements'
+local motion = require './motion'
 
 local panel = {}
 
@@ -153,6 +154,15 @@ function panel.new(
       assert(type(gap) == 'number' and gap >= 0 and gap < math.huge, 'ui: a gap is a non-negative length')
       record.gap = gap
     end,
+    setOpacity = function(_self: uiHost.Panel, opacity: number): ()
+      assert(type(opacity) == 'number' and opacity >= 0 and opacity <= 1, 'ui: an opacity is from 0 to 1')
+      record.opacity.target = opacity
+      -- A panel fading out gives up its focus as a hidden one does.
+      if opacity <= 0 and record.focused then
+        env.blurNode(record.focused)
+      end
+      record.sync()
+    end,
     setVisible = function(_self: uiHost.Panel, visible: boolean): ()
       record.visible = visible == true
       -- A hidden panel gives up its focus, so the keyboard does not stay up for a field nobody can see.
@@ -195,7 +205,7 @@ function panel.surface(provider: Provider, record: records.Panel, setPose: ((Mat
       direction: vector,
       backFace: boolean?
     ): (number?, number?, number?)
-      if record.dead or record.closing or not record.visible or record.width <= 0 or record.height <= 0 then
+      if record.dead or record.closing or not motion.shown(record) or record.width <= 0 or record.height <= 0 then
         return nil, nil, nil
       end
       local localOrigin, localDirection = shape.localRay(record, origin, direction)
@@ -237,7 +247,7 @@ function panel.surface(provider: Provider, record: records.Panel, setPose: ((Mat
   record.sync = function(): ()
     fields.width, fields.height = record.width, record.height
     fields.grabbable = record.grabbable
-    fields.dead = record.dead or record.closing or not record.visible
+    fields.dead = record.dead or record.closing or not motion.shown(record)
   end
   return surface
 end
@@ -277,6 +287,7 @@ function panel.record(
     focused = nil,
     session = nil,
     fade = nil,
+    opacity = motion.channel(1),
     ghosts = {},
     closing = false,
     presentation = 'world',

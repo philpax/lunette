@@ -94,6 +94,8 @@ function overlay.place(provider: panel.Provider, record: records.Panel): ()
   local elevation = anchor.z + theme.elevation.raised
   record.pose:set(shape.frame(opener, left + width / 2, top + height / 2, elevation))
   record.visible = opener.visible
+  -- An overlay fades with its opener, and stops taking input with it.
+  record.opacity.target = opener.opacity.target
   record.sync()
 end
 

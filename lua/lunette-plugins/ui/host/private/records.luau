@@ -172,6 +172,8 @@ export type Panel = {
   modality: ('panel' | 'session')?,
   -- The panel's own fade, for panels that fade in and out, and the ghosts of exiting nodes.
   fade: Channel?,
+  -- The opacity its owner asks for, which multiplies the host's own fade.
+  opacity: Channel,
   ghosts: { Ghost },
   -- Set while a panel fades out before it is destroyed; it takes no hits.
   closing: boolean,
