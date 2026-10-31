@@ -28,10 +28,20 @@ local function moved(panel: uiHost.Panel, placed: { number }): boolean
   return false
 end
 
-local function wristPose(device: Device, offset: vector): Mat4
+-- The menu rolls this far counter-clockwise about its own face, so it reads level on a wrist turned towards the head.
+local ROLL = 5 * math.pi / 16
+-- Metres the menu stands out from the wrist, towards the viewer.
+local LIFT = 0.03
+
+-- The menu sits a button size below the offset, along its own face.
+local function wristPose(device: Device, offset: vector, size: number): Mat4
   local x, y, z, angle, ax, ay, az = lovr.headset.getPose(device)
   local pose = lovr.math.newMat4(x, y, z, angle, ax, ay, az)
-  return pose:translate(offset):rotate(math.pi, -0.7071066, 0.0007963618, 0.7071066)
+  return pose
+    :translate(offset)
+    :rotate(math.pi, -0.7071066, 0.0007963618, 0.7071066)
+    :rotate(ROLL, 0, 0, 1)
+    :translate(0, -size, LIFT)
 end
 
 return plugin.consumer<<Config, Settings>> {
@@ -148,7 +158,7 @@ return plugin.consumer<<Config, Settings>> {
           placed = nil
           return
         end
-        local pose = wristPose(device, settings.offset)
+        local pose = wristPose(device, settings.offset, settings.size)
         panel:setPose(pose)
         local hx, hy, hz = lovr.headset.getPose 'head'
         panel:setOpacity(facing.opacity(facing.angle(pose, vector.pack(hx, hy, hz)), settings.facing))

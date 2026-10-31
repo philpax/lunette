@@ -11,7 +11,7 @@ export type Props = {
   read snapshot: ui.Store<rows.Snapshot>,
   -- The local time of day, as hh:mm:ss.
   read time: ui.Store<string>,
-  -- The closed button's edge, in metres.
+  -- The configured button size in metres. The closed button is a square half this wide.
   read size: number,
   read width: number,
   read height: number,
@@ -27,11 +27,12 @@ view.Menu = ui.component('WristMenu', function(props: Props): ui.Child
   local time = ui.useStore(props.time)
   if not opened then
     return c.Panel {
-      width = props.size,
+      width = props.size / 2,
       padding = 'xs',
       gap = 'xs',
+      -- The panel is centred on the wrist and the time beneath keeps its height, so the button keeps its centre.
       c.Column {
-        height = props.size,
+        height = props.size / 2,
         c.Button { key = 'open', label = 'Menu', grow = 1, onActivate = props.open },
       },
       c.Text { key = 'time', text = time, style = 'readout', color = 'muted', align = 'center' },
