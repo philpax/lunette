@@ -14,6 +14,19 @@ local config = require '../config'
 local vocabulary = require '@lunette-contracts/vocabulary'
 local inspection = require '@lunette-contracts/inspection'
 
+-- Seconds the keyboard rests after a move before its pose is saved.
+local SETTLE_SECONDS = 0.5
+
+-- Whether two unpacked poses differ.
+local function moved(pose: { number }, saved: { number }): boolean
+  for index, value in pose do
+    if math.abs(value - saved[index]) > 1e-5 then
+      return true
+    end
+  end
+  return false
+end
+
 return function(context: plugin.Context, settings: config.Settings): contract.Service
   local keys: keyboard.Service = context:require(keyboard.capability)
   local routes: focus.Service = context:require(focus.capability)
@@ -31,6 +44,10 @@ return function(context: plugin.Context, settings: config.Settings): contract.Se
   -- Live suppress effects; while any holds, a visible keyboard is neither drawn nor offered.
   local suppressors = 0
   local subscribers = listeners.new<<contract.Listener>>(context)
+  -- The pose and size last seen, and seconds the keyboard has rested since they last changed, so a drag saves once.
+  local savedPose: { number }? = nil
+  local savedShown = settings.shown
+  local settling: number? = nil
 
   local function live(): boolean
     return not stopped and context:active()
@@ -189,6 +206,49 @@ return function(context: plugin.Context, settings: config.Settings): contract.Se
     end,
   })
 
+  -- Saves the keyboard's resting pose and size once it has stayed still for a moment, and whether it is shown manually.
+  local function persist(dt: number): ()
+    local target = board
+    local shownNow = live() and visible and manual
+    if shownNow and target and not target.dead then
+      local pose = { target.pose:unpack(true) }
+      table.insert(pose, target.width)
+      table.insert(pose, target.height)
+      if savedPose == nil or moved(pose, savedPose) then
+        settling = 0
+        savedPose = pose
+      elseif settling ~= nil then
+        settling += dt
+      end
+    end
+    local changes: { [string]: unknown } = {}
+    local dirty = false
+    if settling ~= nil and settling >= SETTLE_SECONDS and target and not target.dead then
+      settling = nil
+      local x, y, z, angle, ax, ay, az = target.pose:getPose()
+      changes.placed = {
+        position = vector.create(x, y, z),
+        rotation = { angle, ax, ay, az },
+        width = target.width,
+        height = target.height,
+      }
+      dirty = true
+    end
+    if shownNow ~= savedShown then
+      savedShown = shownNow
+      changes.shown = shownNow
+      dirty = true
+    end
+    if dirty then
+      context:save(changes)
+    end
+  end
+  clock:onUpdate(context, {
+    phase = 'scene',
+    order = 2,
+    run = persist,
+  })
+
   local service: contract.Service = {
     inspect = function(_self: contract.Service): inspection.Snapshot
       return inspection.snapshot(subscribers:inspect 'keyboard-display.onChanged', {
@@ -229,5 +289,27 @@ return function(context: plugin.Context, settings: config.Settings): contract.Se
       return subscribers:add(owner, { run = listener.run })
     end,
   }
+  -- A keyboard shown manually in the previous session or before a reload returns where it was left.
+  if settings.shown then
+    local placed = settings.placed
+    if placed then
+      local target = newBoard()
+      local rotation = placed.rotation
+      target:setPose(
+        lovr.math.newMat4():translate(placed.position):rotate(rotation[1], rotation[2], rotation[3], rotation[4])
+      )
+      if placed.width or placed.height then
+        target:setSize(placed.width, placed.height)
+      end
+      local pose = { target.pose:unpack(true) }
+      table.insert(pose, target.width)
+      table.insert(pose, target.height)
+      savedPose = pose
+      manual = true
+      target:setVisible(true)
+    else
+      show()
+    end
+  end
   return table.freeze(service)
 end
