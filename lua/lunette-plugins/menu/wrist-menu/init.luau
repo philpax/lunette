@@ -1,7 +1,7 @@
--- Renders owner-scoped menu actions on a tracked wrist through the UI host and the standard kinds. Grabbing the open
--- menu tears it off the wrist: it stays where it is released, as a world panel, until it is closed, when it returns to
--- the wrist. The button and the open menu's header show the local time. On the wrist, the menu fades as it turns away
--- from the head.
+-- Renders owner-scoped menu actions on a tracked wrist through the UI host and the standard kinds. A gauntlet stays on
+-- the wrist with the shortcuts, the menu button, and the local time; the menu button opens the list beside it, as if
+-- expanded out of it. Grabbing the open list tears it off the wrist: it stays where it is released, as a world panel,
+-- until it is closed, when it returns beside the gauntlet. On the wrist, both fade as they turn away from the head.
 local plugin = require '@lunette-plugin'
 local uiHost = require '@lunette-contracts/ui-host'
 local uiComponents = require '@lunette-contracts/ui-components'
@@ -51,6 +51,9 @@ local function wristPose(device: Device, offset: vector, size: number): Mat4
     :translate(0, -size, LIFT)
 end
 
+-- Metres between the gauntlet's right edge and the list's left edge while the list is on the wrist.
+local LIST_GAP = 0.01
+
 return plugin.consumer<<Config, Settings>> {
   name = 'desktop/menu',
   schema = config.schema,
@@ -61,32 +64,41 @@ return plugin.consumer<<Config, Settings>> {
     local menuService: menu.Service = context:require(menu.capability)
     local frameService: frame.Service = context:require(frame.capability)
     local expanded = settings.expanded
-    -- The panel takes its content's size, so it is the closed button or the open list, centred on the wrist pose.
-    local panel = host:newPanel(context, {
+    -- Both panels hold the control that brings hidden panels back, so they stay when panels are hidden.
+    local gauntlet = host:newPanel(context, {
       name = 'desktop/menu',
       size = 'content',
-      width = math.max(settings.size, expanded.width),
-      height = math.max(settings.size, expanded.height),
+      width = settings.size,
+      height = settings.size * 2,
       grabbable = false,
-      -- The menu holds the control that brings hidden panels back, so it stays when they are hidden.
       essential = true,
       curve = WRAP_CURVE,
       curveAxis = WRAP_AXIS,
+      visible = false,
     })
-    panel:setVisible(false)
+    local list = host:newPanel(context, {
+      name = 'desktop/menu/list',
+      size = 'content',
+      width = expanded.width,
+      height = expanded.height,
+      grabbable = true,
+      essential = true,
+      visible = false,
+    })
+    -- The list is keyed only while it is torn off, so placement memory never moves it on the wrist.
+    list:setPlacementKey(nil)
     local device: Device = if settings.hand == 'left' then 'hand/left' else 'hand/right'
     local tracked = false
-    -- Set while the open menu is torn off the wrist.
+    -- Set while the open list is torn off the wrist.
     local detached = false
-    local shown = false
-    -- The pose the menu last placed the panel at on the wrist, which a grab changes.
+    local gauntletShown, listShown = false, false
+    -- The pose the menu last placed the list at beside the gauntlet, which a grab changes.
     local placed: { number }? = nil
     local opened = ui.store(false)
-    -- The closed button's shortcuts read the actions too, so the snapshot follows them whether or not the menu is open.
     local snapshot = ui.store(menuService:list() :: rows.Snapshot)
     local time = ui.store(os.date(TIME_FORMAT))
     local function live(): boolean
-      return context:active() and not panel.dead
+      return context:active() and not gauntlet.dead and not list.dead
     end
     local function setOpened(value: boolean): ()
       if not live() then
@@ -94,32 +106,55 @@ return plugin.consumer<<Config, Settings>> {
       end
       if not value then
         detached = false
-        panel:setPlacementKey(nil)
+        placed = nil
+        list:setPlacementKey(nil)
       end
-      -- Only the open menu tears off; the closed button stays on the wrist.
-      panel:setGrabbable(value)
-      -- The open list is far wider than the wrist, so only the closed button wraps it.
-      panel:setCurve(if value then 0 else WRAP_CURVE)
       opened:set(value)
     end
     local function reachable(): boolean
       return tracked or detached
     end
+    local function showList(value: boolean): ()
+      if value ~= listShown then
+        listShown = value
+        list:setVisible(value)
+      end
+    end
+    local function showGauntlet(value: boolean): ()
+      if value ~= gauntletShown then
+        gauntletShown = value
+        gauntlet:setVisible(value)
+      end
+    end
     ui.mount(
-      panel,
-      view.Menu {
+      gauntlet,
+      view.Gauntlet {
         opened = opened,
         snapshot = snapshot,
         time = time,
         shortcuts = settings.shortcuts,
         size = settings.size,
-        width = expanded.width,
-        height = expanded.height,
-        open = function(): ()
+        toggle = function(): ()
           if tracked then
-            setOpened(true)
+            setOpened(not opened:get())
           end
         end,
+        shortcut = function(descriptor: menu.Descriptor): ()
+          if live() and tracked then
+            -- Failed results are already reported by the broker; unavailable registrations are inert.
+            menuService:invoke(descriptor.id, descriptor.token)
+          end
+        end,
+      },
+      { components = components, owner = context }
+    )
+    ui.mount(
+      list,
+      view.List {
+        snapshot = snapshot,
+        time = time,
+        width = expanded.width,
+        height = expanded.height,
         close = function(): ()
           if reachable() then
             setOpened(false)
@@ -127,12 +162,6 @@ return plugin.consumer<<Config, Settings>> {
         end,
         invoke = function(descriptor: menu.Descriptor): ()
           if live() and reachable() and opened:get() then
-            -- Failed results are already reported by the broker; unavailable registrations are inert.
-            menuService:invoke(descriptor.id, descriptor.token)
-          end
-        end,
-        shortcut = function(descriptor: menu.Descriptor): ()
-          if live() and tracked and not opened:get() then
             menuService:invoke(descriptor.id, descriptor.token)
           end
         end,
@@ -148,14 +177,13 @@ return plugin.consumer<<Config, Settings>> {
         context:save { open = isOpen, detached = detached }
       end
     end
-    -- A menu left torn off returns torn off, and placement memory moves it to where it was left before it is first
-    -- drawn. A menu left open on the wrist opens again once the wrist is tracked.
+    -- A list left torn off returns torn off, and placement memory moves it to where it was left before it is first
+    -- drawn. A list left open on the wrist opens again once the wrist is tracked.
     if settings.detached then
       setOpened(true)
       detached = true
-      panel:setPlacementKey(PLACEMENT_KEY)
-      shown = true
-      panel:setVisible(true)
+      list:setPlacementKey(PLACEMENT_KEY)
+      showList(true)
     elseif settings.open then
       setOpened(true)
     end
@@ -178,38 +206,39 @@ return plugin.consumer<<Config, Settings>> {
         if now ~= time:get() then
           time:set(now)
         end
-        if not detached and placed and opened:get() and moved(panel, placed) then
+        if not detached and placed and opened:get() and moved(list, placed) then
           detached = true
           -- Keyed as it is torn off, so its drop is saved without moving it out of hand.
-          panel:setPlacementKey(PLACEMENT_KEY)
+          list:setPlacementKey(PLACEMENT_KEY)
         end
-        local isTracked = lovr.headset.isTracked(device)
-        if detached then
-          panel:setOpacity(1)
-          tracked = isTracked
-          return
-        end
-        if not isTracked then
-          -- The menu also hides here when it was closed while torn off from an untracked hand.
-          if shown then
-            shown = false
-            panel:setVisible(false)
+        tracked = lovr.headset.isTracked(device)
+        if not tracked then
+          showGauntlet(false)
+          -- A list on the wrist closes with it; a torn-off list stays.
+          if not detached and opened:get() then
             setOpened(false)
           end
-          tracked = false
           placed = nil
+          showList(opened:get() and detached)
           return
         end
         local pose = wristPose(device, settings.offset, settings.size)
-        panel:setPose(pose)
+        gauntlet:setPose(pose)
         local hx, hy, hz = lovr.headset.getPose 'head'
-        panel:setOpacity(facing.opacity(facing.angle(pose, vector.pack(hx, hy, hz)), settings.facing))
-        placed = { pose:unpack(true) }
-        if not shown then
-          shown = true
-          panel:setVisible(true)
+        local opacity = facing.opacity(facing.angle(pose, vector.pack(hx, hy, hz)), settings.facing)
+        gauntlet:setOpacity(opacity)
+        showGauntlet(true)
+        if detached then
+          list:setOpacity(1)
+        elseif opened:get() then
+          local gauntletWidth = gauntlet:size()
+          local listWidth = list:size()
+          local listPose = lovr.math.newMat4(pose):translate(gauntletWidth / 2 + LIST_GAP + listWidth / 2, 0, 0)
+          list:setPose(listPose)
+          list:setOpacity(opacity)
+          placed = { listPose:unpack(true) }
         end
-        tracked = true
+        showList(opened:get())
       end,
     })
   end,

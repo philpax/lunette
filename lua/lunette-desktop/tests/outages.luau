@@ -50,7 +50,7 @@ test('keyboard and frame outages remove only what depends on them, and recovery 
     controls:tracked('left', true)
     controls:step()
     wristMenu.open(controls, recorder)
-    recorder:click(controls, wristMenu.PANEL, wristMenu.row 'desktop/reload')
+    recorder:click(controls, wristMenu.LIST, wristMenu.row 'desktop/reload')
   end)
   lunette.reload = reload
   if not ok then

@@ -6,7 +6,9 @@ local vrUi = require '@testing/vr-ui'
 
 local wristMenu = {}
 
+-- The gauntlet on the wrist, and the list its menu button opens.
 wristMenu.PANEL = 'desktop/menu'
+wristMenu.LIST = 'desktop/menu/list'
 
 -- The key path of an action's row in the open menu.
 function wristMenu.row(id: string): string
@@ -40,7 +42,7 @@ end
 -- Opens the menu, which may already be open: the menu stays open across a reload.
 function wristMenu.open(fixture: vrUi.Fixture, panels: uiPanels.Recorder, hand: vrUi.Hand?): ()
   wristMenu.face(fixture, panels, hand)
-  if panels:node(wristMenu.PANEL, 'header/band/close') then
+  if panels:pressable(wristMenu.LIST) then
     return
   end
   panels:click(fixture, wristMenu.PANEL, 'open', hand)
@@ -48,14 +50,14 @@ end
 
 function wristMenu.close(fixture: vrUi.Fixture, panels: uiPanels.Recorder, hand: vrUi.Hand?): ()
   wristMenu.face(fixture, panels, hand)
-  panels:click(fixture, wristMenu.PANEL, 'header/band/close', hand)
+  panels:click(fixture, wristMenu.LIST, 'header/band/close', hand)
 end
 
 -- Opens the menu, clicks the action, and closes the menu again when the action left it open.
 function wristMenu.run(fixture: vrUi.Fixture, panels: uiPanels.Recorder, id: string, hand: vrUi.Hand?): ()
   wristMenu.open(fixture, panels, hand)
-  panels:click(fixture, wristMenu.PANEL, wristMenu.row(id), hand)
-  if panels:node(wristMenu.PANEL, 'header/band/close') then
+  panels:click(fixture, wristMenu.LIST, wristMenu.row(id), hand)
+  if panels:pressable(wristMenu.LIST) then
     wristMenu.close(fixture, panels, hand)
   end
 end
