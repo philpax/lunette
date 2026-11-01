@@ -15,7 +15,7 @@ type Packed = {
   images: { any },
   volumes: { any },
 }
-type Panel = { width: number, height: number, curve: number, pose: Mat4 }
+type Panel = { width: number, height: number, curve: number, curveAxis: number, scale: number, pose: Mat4 }
 type Step = {
   boxes: number,
   glyphs: number,
@@ -342,7 +342,7 @@ local function compare(
 end
 
 local function panel(curve: number, pose: Mat4?): Panel
-  return { width = 1, height = 0.72, curve = curve, pose = pose or lovr.math.newMat4() }
+  return { width = 1, height = 0.72, curve = curve, curveAxis = 0, scale = 1, pose = pose or lovr.math.newMat4() }
 end
 
 local function step(boxes: number, glyphs: number, phase: number, surface: Panel): Step

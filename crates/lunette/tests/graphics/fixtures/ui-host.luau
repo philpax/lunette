@@ -266,22 +266,36 @@ test('images retain panel placement, UV, tint, and clipping through poses and en
     pass:setDepthWrite(true)
     local mesh: Mesh? = nil
     if oracle then
+      -- The image is a grid bent at every vertex, as an image on a curved panel follows the surface beneath it.
+      local divisions = if panel.curve > 0 then 16 else 1
       local vertices = {}
-      for _, corner in { { 0, 1 }, { 1, 1 }, { 0, 0 }, { 1, 0 } } do
-        local u, v = corner[1], corner[2]
-        local x = rect.x + u * rect.width - panel.width / 2
-        local y = panel.height / 2 - rect.y - v * rect.height
-        local z = rect.z
-        if panel.curve > 0 then
-          local radius = 1 / panel.curve
-          local angle = x * panel.curve
-          x, z = (radius - z) * math.sin(angle), radius - (radius - z) * math.cos(angle)
+      local indices = {}
+      for column = 0, divisions do
+        for row = 0, divisions do
+          local u, v = column / divisions, row / divisions
+          local x = rect.x + u * rect.width - panel.width / 2
+          local y = panel.height / 2 - rect.y - v * rect.height
+          local z = rect.z
+          if panel.curve > 0 then
+            local radius = 1 / panel.curve
+            local angle = x * panel.curve
+            x, z = (radius - z) * math.sin(angle), radius - (radius - z) * math.cos(angle)
+          end
+          local wx, wy, wz = panel.pose:mul(x, y, z)
+          table.insert(vertices, { wx, wy, wz, 0, 0, 1, u, v })
         end
-        local wx, wy, wz = panel.pose:mul(x, y, z)
-        table.insert(vertices, { wx, wy, wz, 0, 0, 1, u, v })
+      end
+      for column = 0, divisions - 1 do
+        for row = 0, divisions - 1 do
+          local corner = column * (divisions + 1) + row + 1
+          local right = corner + divisions + 1
+          for _, index in { corner, corner + 1, right, right, corner + 1, right + 1 } do
+            table.insert(indices, index)
+          end
+        end
       end
       mesh = lovr.graphics.newMesh(vertices)
-      mesh:setIndices { 1, 2, 3, 3, 2, 4 }
+      mesh:setIndices(indices)
       pass:push 'state'
       pass:setShader(oracleShader)
       pass:send('imageClip', clip)
@@ -354,7 +368,7 @@ test('images retain panel placement, UV, tint, and clipping through poses and en
       },
     }
   do
-    local panel = { width = 0.2, height = 0.12, curve = case.curve, pose = case.pose }
+    local panel = { width = 0.2, height = 0.12, curve = case.curve, curveAxis = 0, scale = 1, pose = case.pose }
     local actual = render(panel, case.enclosing, false)
     local expected = render(panel, case.enclosing, true)
     local different = 0
