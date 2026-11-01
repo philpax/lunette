@@ -188,10 +188,10 @@ export type Panel = {
   followTarget: Mat4?,
   -- Set for a world panel made without a pose, until the host places it ahead of the head or its owner poses it.
   placeAhead: boolean?,
-  -- Set for a world panel made grabbable, whose resting place the host saves after a grab moves it, and the seconds
-  -- since the grab last moved it.
+  -- Set for a world panel made grabbable, which placement memory remembers by the panel's name.
   remembered: boolean?,
-  settling: number?,
+  -- The surface's placement key: the panel's name for a remembered panel, or what its owner sets.
+  placementKey: string?,
   -- The outlet instances placed in the panel, whose contributions render in its commits.
   placements: { Placement },
 }

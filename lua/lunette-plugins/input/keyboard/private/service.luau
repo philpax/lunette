@@ -35,6 +35,10 @@ local function build(context: plugin.Context, settings: Settings): keyboard.Serv
       if callback ~= nil and type(callback) ~= 'function' then
         error('keyboard: onVisibilityChanged is a function', 2)
       end
+      local key = options and options.placementKey
+      if key ~= nil and (type(key) ~= 'string' or key == '') then
+        error('keyboard: placementKey is a non-empty string', 2)
+      end
       local label = 'keyboard visibility (' .. plugin.ownerLabel(owner) .. ')'
       local function active(): boolean
         return context:active() and context:owns(owner)
@@ -82,7 +86,8 @@ local function build(context: plugin.Context, settings: Settings): keyboard.Serv
               if effect then
                 effect:dispose()
               end
-            end
+            end,
+            options and options.placementKey
           )
           made = created
           table.insert(disposers, destroyState)

@@ -7,8 +7,9 @@ local PLACEMENT = schema.object {
 }
 
 local SCHEMA = schema.object {
-  -- Where the user left each grabbable world panel, by panel name. The host saves it once a grabbed panel settles,
-  -- and a panel made with that name opens there instead of at its owner's pose.
+  -- Where the user left each grabbable world panel, by panel name, as saved before placement memory took over. A
+  -- panel made with that name still opens there until placement memory saves a newer placement; the host no longer
+  -- writes it.
   placed = schema.default(schema.map(PLACEMENT)) {},
   -- Tracked bare fingertips press nodes by touch.
   touch = schema.default(schema.boolean())(true),

@@ -23,6 +23,7 @@ type State = {
   height: number,
   visible: boolean,
   layer: string,
+  placementKey: string?,
 }
 
 local function extentOf(settings: config.Settings): (number, number)
@@ -40,7 +41,8 @@ local function create(
   themes: theme.Service,
   active: () -> boolean,
   notify: (keyboard.VisibilityChange) -> (),
-  dispose: () -> ()
+  dispose: () -> (),
+  placementKey: string?
 ): (board.Board, () -> (), () -> (), () -> ())
   local unitsWide, unitsHigh = extentOf(settings)
   local providerStyle = appearance.project(settings.style)
@@ -73,6 +75,7 @@ local function create(
     height = unitsHigh * style.keyUnit,
     visible = true,
     layer = 'base',
+    placementKey = placementKey,
   }
 
   local function modifiers(): { lunette.ModifierName }

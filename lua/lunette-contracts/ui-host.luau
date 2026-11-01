@@ -425,6 +425,8 @@ export type Panel = {
   read setGrabbable: (Panel, boolean) -> (),
   -- Sets the gap above an attached panel's target.
   read setGap: (Panel, number) -> (),
+  -- Sets or clears the name placement memory remembers the panel by. A grabbable world panel starts with its own name.
+  read setPlacementKey: (Panel, string?) -> (),
   read destroy: (Panel) -> (),
   -- The live node with this key path, such as 'controls/enabled', for tests and inspection.
   read find: (Panel, string) -> Node?,

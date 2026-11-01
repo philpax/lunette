@@ -5,8 +5,7 @@ local placement = schema.object {
   drop = schema.default(schema.number())(0.35),
   tilt = schema.default(schema.number())(math.pi / 6),
 }
--- Where the keyboard was left: its position, its rotation as an angle about an axis, and its size in metres, which a
--- resize changes.
+-- Where earlier versions saved the keyboard. Placement memory now keeps it, so the display accepts and ignores this.
 local positive = schema.number { positive = true }
 local placed = schema.object {
   position = schema.vector(),
@@ -16,9 +15,9 @@ local placed = schema.object {
 }
 local descriptor = schema.object {
   placement = schema.default(placement)(placement.parse {}),
-  -- Saved by the display: where the keyboard last came to rest, and whether it was shown by an explicit show action.
-  -- A keyboard that was shown so returns there when the session starts or reloads.
   placed = schema.optional(placed),
+  -- Saved by the display: whether the keyboard was shown by an explicit show action. Such a keyboard shows again when
+  -- the session starts or reloads, and placement memory returns it to where it was left.
   shown = schema.default(schema.boolean())(false),
 }
 

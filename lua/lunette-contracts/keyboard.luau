@@ -44,6 +44,8 @@ export type VisibilityChange = {
 -- Visibility callbacks belong to the owner.
 export type Options = {
   read onVisibilityChanged: ((VisibilityChange) -> ())?,
+  -- The keyboard surface's placement key, so placement memory returns it to where the user left it.
+  read placementKey: string?,
 }
 
 -- A keyboard is a surface an owner places, offers, and draws. Its type repeats
@@ -53,6 +55,7 @@ export type Keyboard = {
   read kind: nil,
   read dead: boolean,
   read grabbable: boolean,
+  read placementKey: string?,
   read pose: Mat4,
   read width: number,
   read height: number,

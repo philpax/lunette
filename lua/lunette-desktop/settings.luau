@@ -30,6 +30,7 @@ local desktopMonitors = require '@lunette-plugins/panels/monitors/config'
 local desktopAccessibility = require '@lunette-plugins/ui/accessibility-settings/config'
 local desktopRules = require '@lunette-plugins/window/configured-rules/config'
 local desktopPersistence = require '@lunette-plugins/layout/persistence/config'
+local desktopPlacementMemory = require '@lunette-plugins/layout/placement-memory/config'
 local desktopArrange = require '@lunette-plugins/layout/arrange/config'
 local desktopAdoption = require '@lunette-plugins/window/adoption-controller/config'
 local desktopPacing = require '@lunette-plugins/pacing/controller/config'
@@ -66,6 +67,7 @@ local shape: {
   read ['desktop/monitors']: schema.Schema<desktopMonitors.Config?, desktopMonitors.Settings?>,
   read ['desktop/rules']: schema.Schema<desktopRules.Config?, desktopRules.Settings?>,
   read ['desktop/persistence']: schema.Schema<desktopPersistence.Config?, desktopPersistence.Settings?>,
+  read ['desktop/placement-memory']: schema.Schema<desktopPlacementMemory.Config?, desktopPlacementMemory.Settings?>,
   read ['desktop/arrange']: schema.Schema<desktopArrange.Config?, desktopArrange.Settings?>,
   read ['desktop/adoption']: schema.Schema<desktopAdoption.Config?, desktopAdoption.Settings?>,
   read ['desktop/pacing']: schema.Schema<desktopPacing.Config?, desktopPacing.Settings?>,
@@ -106,6 +108,9 @@ local shape: {
     ['desktop/rules'] = optional<<desktopRules.Config, desktopRules.Settings>>(desktopRules.schema),
     ['desktop/persistence'] = optional<<desktopPersistence.Config, desktopPersistence.Settings>>(
       desktopPersistence.schema
+    ),
+    ['desktop/placement-memory'] = optional<<desktopPlacementMemory.Config, desktopPlacementMemory.Settings>>(
+      desktopPlacementMemory.schema
     ),
     ['desktop/arrange'] = optional<<desktopArrange.Config, desktopArrange.Settings>>(desktopArrange.schema),
     ['desktop/adoption'] = optional<<desktopAdoption.Config, desktopAdoption.Settings>>(desktopAdoption.schema),

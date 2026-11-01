@@ -45,6 +45,7 @@ local recovery = require '@lunette-plugins/diagnostics/recovery'
 local workspaces = require '@lunette-plugins/workspace/controller'
 local defaultRules = require '@lunette-plugins/window/configured-rules'
 local arrangement = require '@lunette-plugins/layout/persistence'
+local placementMemory = require '@lunette-plugins/layout/placement-memory'
 local arrange = require '@lunette-plugins/layout/arrange'
 local adoptionConsumer = require '@lunette-plugins/window/adoption-controller'
 local pacing = require '@lunette-plugins/pacing/controller'
@@ -108,6 +109,7 @@ local DEFAULT: { plugin.Entry } = plugin.compose {
   { id = 'desktop/monitors', definition = monitors.definition },
   { id = 'desktop/rules', definition = defaultRules.definition },
   { id = 'desktop/persistence', definition = arrangement.definition },
+  { id = 'desktop/placement-memory', definition = placementMemory.definition },
   { id = 'desktop/arrange', definition = arrange.definition },
   { id = 'desktop/adoption', definition = adoptionConsumer.definition },
   { id = 'desktop/pacing', definition = pacing.definition },

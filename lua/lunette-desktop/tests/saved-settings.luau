@@ -34,7 +34,7 @@ local function start(): (theme.Service, uiHost.Panel)
   return assert(service, 'the observer sees the theme'), assert(panel, 'the observer makes its panel')
 end
 
-test('a theme mode and where a grab leaves a panel are saved in the save directory', function()
+test('a theme mode and where a grab drops a panel are saved in the save directory', function()
   local native = testing.native()
   local first, panel = start()
   expect.equal(first:current().mode, 'dark', 'the configured mode applies')
@@ -69,8 +69,9 @@ test('a theme mode and where a grab leaves a panel are saved in the save directo
   expect.near(moved.x, 0.5, 0.02, 'the grip carried the panel')
   loaded = versionedFile.parse(assert(native.events.files['settings.saved']), 'settings.saved', 1)
   assert(loaded.kind == 'data', 'the file parses')
-  local placement = loaded.data.entries['ui-host'].placed['saved-settings-panel']
-  expect.near(placement.position.x, moved.x, 1e-6, 'the file holds where the panel rests')
+  local placement = loaded.data.entries['desktop/placement-memory'].placed['saved-settings-panel']
+  expect.near(placement.position.x, moved.x, 1e-6, 'the file holds where the panel was dropped')
+  expect.near(placement.width, 0.3, 1e-6, 'and its width')
   local shutdown = testing.host.shutdown()
   expect.equal(#shutdown, 0, table.concat(shutdown, '\n'))
 end)

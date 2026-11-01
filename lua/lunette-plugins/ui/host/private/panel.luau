@@ -66,6 +66,7 @@ function panel.new(
   record.grabbable = (presentation == 'world' or presentation == 'attach') and options.grabbable ~= false
   record.placeAhead = presentation == 'world' and options.pose == nil
   record.remembered = presentation == 'world' and record.grabbable
+  record.placementKey = if record.remembered then record.name else nil
   if presentation == 'attach' then
     local target = options.target
     assert(target ~= nil and target.width and target.height, 'ui: an attached panel names a target surface')
@@ -114,10 +115,6 @@ function panel.new(
   local handle: uiHost.Panel
   local surface = panel.surface(provider, record, function(pose: Mat4): ()
     handle:setPose(pose)
-    -- A grab moved the panel, so the host saves where it rests once it stops moving.
-    if record.remembered then
-      record.settling = 0
-    end
   end)
   handle = {
     name = record.name,
@@ -154,6 +151,11 @@ function panel.new(
     end,
     setGrabbable = function(_self: uiHost.Panel, grabbable: boolean): ()
       record.grabbable = (record.presentation == 'world' or record.presentation == 'attach') and grabbable == true
+      record.sync()
+    end,
+    setPlacementKey = function(_self: uiHost.Panel, key: string?): ()
+      assert(key == nil or (type(key) == 'string' and key ~= ''), 'ui: a placement key is a non-empty string')
+      record.placementKey = key
       record.sync()
     end,
     setGap = function(_self: uiHost.Panel, gap: number): ()
@@ -202,6 +204,7 @@ function panel.surface(provider: Provider, record: records.Panel, setPose: ((Mat
     kind = nil,
     dead = false,
     grabbable = record.grabbable,
+    placementKey = record.placementKey,
     pose = record.pose,
     width = record.width,
     height = record.height,
@@ -263,6 +266,7 @@ function panel.surface(provider: Provider, record: records.Panel, setPose: ((Mat
   record.sync = function(): ()
     fields.width, fields.height = record.width * record.scale, record.height * record.scale
     fields.grabbable = record.grabbable
+    fields.placementKey = record.placementKey
     fields.dead = record.dead or record.closing or not motion.shown(record)
   end
   return surface
