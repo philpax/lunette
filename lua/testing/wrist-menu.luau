@@ -37,8 +37,12 @@ function wristMenu.face(fixture: vrUi.Fixture, panels: uiPanels.Recorder, hand: 
   error 'wrist-menu: the menu does not become pressable when it faces the head'
 end
 
+-- Opens the menu, which may already be open: the menu stays open across a reload.
 function wristMenu.open(fixture: vrUi.Fixture, panels: uiPanels.Recorder, hand: vrUi.Hand?): ()
   wristMenu.face(fixture, panels, hand)
+  if panels:node(wristMenu.PANEL, 'header/band/close') then
+    return
+  end
   panels:click(fixture, wristMenu.PANEL, 'open', hand)
 end
 

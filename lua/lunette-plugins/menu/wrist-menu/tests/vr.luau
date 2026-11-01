@@ -23,7 +23,7 @@ type Action = { calls: number, registration: menu.Registration }
 
 local PANEL = wristMenu.PANEL
 
-local function boot(config: Config?): Environment
+local function boot(config: Config?, placed: { [string]: any }?): Environment
   local panels = uiPanels.new()
   local running = vrUi.boot {
     'frame',
@@ -38,6 +38,11 @@ local function boot(config: Config?): Environment
     panels.entry,
     'ui-standard',
     'menu',
+    {
+      id = 'desktop/placement-memory',
+      definition = require('@lunette-plugins/layout/placement-memory').definition,
+      config = { placed = placed or {} },
+    },
     { id = 'desktop/menu', definition = require('../').definition, config = config or {} },
   }
   local env: Environment = { running = running, panels = panels } :: any
@@ -268,6 +273,18 @@ test('the menu fades and takes no presses while its wrist turns it away from the
   expect.near((size(env)), 0.0575, 1e-6, 'a press at the faded button does not open it')
   wristMenu.open(env.running, env.panels, env.pointer)
   expect.near((size(env)), 0.32, 1e-6, 'turning the wrist back lets the button open the menu')
+  env.running:close()
+end)
+
+test('a menu left torn off returns torn off, where placement memory saved it', function()
+  local env = boot({ open = true, detached = true }, {
+    ['desktop/menu'] = { position = vector.create(0.4, 1.3, -0.9), rotation = { 0, 0, 1, 0 } },
+  })
+  expect.near((size(env)), 0.32, 1e-6, 'the list is open')
+  expect.near(vector.magnitude(position(env) - vector.pack(0.4, 1.3, -0.9)), 0, 1e-6, 'at the saved placement')
+  env.running:tracked(env.hand, false)
+  env.running:step()
+  expect.truthy(shown(env), 'a torn-off menu stays shown without the wrist')
   env.running:close()
 end)
 

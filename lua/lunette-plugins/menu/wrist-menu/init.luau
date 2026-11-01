@@ -17,6 +17,8 @@ export type Config = config.Config
 export type Settings = config.Settings
 
 local TIME_FORMAT = '%H:%M:%S'
+-- The torn-off menu's name for placement memory.
+local PLACEMENT_KEY = 'desktop/menu'
 
 -- Whether a grab moved the panel from the pose the menu last gave it.
 local function moved(panel: uiHost.Panel, placed: { number }): boolean
@@ -92,6 +94,7 @@ return plugin.consumer<<Config, Settings>> {
       end
       if not value then
         detached = false
+        panel:setPlacementKey(nil)
       end
       -- Only the open menu tears off; the closed button stays on the wrist.
       panel:setGrabbable(value)
@@ -136,6 +139,26 @@ return plugin.consumer<<Config, Settings>> {
       },
       { components = components, owner = context }
     )
+    -- The saved state last written, so a change saves once.
+    local savedOpen, savedDetached = settings.open, settings.detached
+    local function remember(): ()
+      local isOpen = opened:get()
+      if isOpen ~= savedOpen or detached ~= savedDetached then
+        savedOpen, savedDetached = isOpen, detached
+        context:save { open = isOpen, detached = detached }
+      end
+    end
+    -- A menu left torn off returns torn off, and placement memory moves it to where it was left before it is first
+    -- drawn. A menu left open on the wrist opens again once the wrist is tracked.
+    if settings.detached then
+      setOpened(true)
+      detached = true
+      panel:setPlacementKey(PLACEMENT_KEY)
+      shown = true
+      panel:setVisible(true)
+    elseif settings.open then
+      setOpened(true)
+    end
     menuService:onChanged(context, {
       run = function(): ()
         if live() then
@@ -150,12 +173,15 @@ return plugin.consumer<<Config, Settings>> {
         if not live() then
           return
         end
+        remember()
         local now = os.date(TIME_FORMAT)
         if now ~= time:get() then
           time:set(now)
         end
         if not detached and placed and opened:get() and moved(panel, placed) then
           detached = true
+          -- Keyed as it is torn off, so its drop is saved without moving it out of hand.
+          panel:setPlacementKey(PLACEMENT_KEY)
         end
         local isTracked = lovr.headset.isTracked(device)
         if detached then

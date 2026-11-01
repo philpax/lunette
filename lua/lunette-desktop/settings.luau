@@ -35,6 +35,7 @@ local desktopArrange = require '@lunette-plugins/layout/arrange/config'
 local desktopAdoption = require '@lunette-plugins/window/adoption-controller/config'
 local desktopPacing = require '@lunette-plugins/pacing/controller/config'
 local desktopManager = require '@lunette-plugins/session/plugin-manager/config'
+local desktopActions = require '@lunette-plugins/session/menu-actions/config'
 
 -- Typed constructor witnesses avoid expanding nested key unions and recursive rule contracts at each wrapper.
 local optional = (schema.optional :: unknown) :: <I, O>(schema.Schema<I, O>) -> schema.Schema<I?, O?>
@@ -72,6 +73,7 @@ local shape: {
   read ['desktop/adoption']: schema.Schema<desktopAdoption.Config?, desktopAdoption.Settings?>,
   read ['desktop/pacing']: schema.Schema<desktopPacing.Config?, desktopPacing.Settings?>,
   read ['desktop/manager']: schema.Schema<desktopManager.Config?, desktopManager.Settings?>,
+  read ['desktop/actions']: schema.Schema<desktopActions.Config?, desktopActions.Settings?>,
   read ['desktop/accessibility']: schema.Schema<desktopAccessibility.Config?, desktopAccessibility.Settings?>,
 } =
   {
@@ -116,6 +118,7 @@ local shape: {
     ['desktop/adoption'] = optional<<desktopAdoption.Config, desktopAdoption.Settings>>(desktopAdoption.schema),
     ['desktop/pacing'] = optional<<desktopPacing.Config, desktopPacing.Settings>>(desktopPacing.schema),
     ['desktop/manager'] = optional<<desktopManager.Config, desktopManager.Settings>>(desktopManager.schema),
+    ['desktop/actions'] = optional<<desktopActions.Config, desktopActions.Settings>>(desktopActions.schema),
     ['desktop/accessibility'] = optional<<desktopAccessibility.Config, desktopAccessibility.Settings>>(
       desktopAccessibility.schema
     ),

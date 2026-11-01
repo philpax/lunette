@@ -26,6 +26,10 @@ local descriptor = schema.object {
   -- Ids of menu actions shown as buttons above the closed menu button, top first. An action that is not registered
   -- shows no button.
   shortcuts = schema.default(schema.array(schema.string())) { 'desktop/panels/hide' },
+  -- Saved by the menu: whether its list was open, and whether it was torn off the wrist, so a reload or a restart
+  -- leaves it as it was. Placement memory keeps where a torn-off menu was left.
+  open = schema.default(schema.boolean())(false),
+  detached = schema.default(schema.boolean())(false),
   facing = schema.default(facing)(facing.parse {}),
 }
 
