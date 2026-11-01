@@ -219,14 +219,24 @@ function panel.surface(provider: Provider, record: records.Panel, setPose: ((Mat
       if record.curve == 0 and localDirection.z >= 0 and not backFace then
         return nil, nil, nil
       end
-      return shape.ray(record, localOrigin, localDirection, true)
+      local u, v, distance = shape.ray(record, localOrigin, localDirection, true)
+      return u, v, if distance then distance * record.scale else nil
     end,
     project = function(_self: vocabulary.Surface, origin: vector, direction: vector): (number?, number?, number?)
       if record.width <= 0 or record.height <= 0 then
         return nil, nil, nil
       end
       local localOrigin, localDirection = shape.localRay(record, origin, direction)
-      return shape.ray(record, localOrigin, localDirection, false)
+      local u, v, distance = shape.ray(record, localOrigin, localDirection, false)
+      return u, v, if distance then distance * record.scale else nil
+    end,
+    -- A two-handed grab zooms the panel: the width it asks for, in world metres, sets a uniform scale.
+    setSize = function(_self: vocabulary.Surface, width: number?, _height: number?): ()
+      if record.dead or not width or not (width > 0) or width == math.huge or not (record.width > 0) then
+        return
+      end
+      record.scale = width / record.width
+      record.sync()
     end,
     triggerGrabs = function(_self: vocabulary.Surface, x: number, y: number): boolean
       return not record.dead and input.grabs(record, env, x, y)
@@ -251,7 +261,7 @@ function panel.surface(provider: Provider, record: records.Panel, setPose: ((Mat
   }
   local fields = surface :: any
   record.sync = function(): ()
-    fields.width, fields.height = record.width, record.height
+    fields.width, fields.height = record.width * record.scale, record.height * record.scale
     fields.grabbable = record.grabbable
     fields.dead = record.dead or record.closing or not motion.shown(record)
   end
@@ -301,6 +311,7 @@ function panel.record(
     presentation = 'world',
     curve = 0,
     curveAxis = 0,
+    scale = 1,
     target = nil,
     gap = 0,
     rootSize = nil,

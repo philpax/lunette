@@ -60,6 +60,8 @@ The [notification contract](../../../lua/lunette-contracts/notifications.luau) o
 
 A grabbable world panel saves its resting pose under its name in the host's `placed` setting. A later panel with that name uses the saved pose. A caller that poses a panel every frame disables grabbing rather than allowing that placement to overwrite its pose policy. Forgetting `placed` in the runtime manager returns panels to their caller-supplied poses.
 
+A two-handed grab zooms a grabbable panel uniformly, as it scales window panels: text and controls grow with the panel, and layout keeps its unscaled metres. Overlays zoom with their opener. Resizing a panel so that its layout reflows is not supported; [#8](https://github.com/philpax/lunette/issues/8) tracks the equivalent for window contents.
+
 This setting is not a maintained arrangement of toolkit panels. Tagging, automatic reflow, shared layout membership, and saved size or curvature are not guaranteed by it. [#71](https://github.com/philpax/lunette/issues/71) tracks maintained arrangements. Any persistent format change needs the old-reader, new-reader, and old-writer compatibility policy, including an appropriate format version rather than silently dropping unfamiliar fields.
 
 ## Input modes

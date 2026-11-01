@@ -71,7 +71,7 @@ function touch.candidates(panels: { records.Panel }, env: records.Environment, p
   local list: { poke.Candidate } = {}
   for _, panel in panels do
     if motion.shown(panel) and not panel.dead and panel.width > 0 then
-      local inverse = lovr.math.mat4(panel.pose):invert()
+      local inverse = shape.basis(panel):invert()
       local x, y, lz = shape.toPanel(panel, inverse:mul(point.x, point.y, point.z))
       if x >= 0 and y >= 0 and x <= panel.width and y <= panel.height and lz > -BEHIND then
         local node = input.target(panel, env, x, y) or input.deepest(panel, x, y)

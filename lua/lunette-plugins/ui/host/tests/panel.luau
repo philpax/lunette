@@ -104,4 +104,19 @@ test('an owner opacity is a number from 0 to 1', function()
   end
 end)
 
+test('a size from a two-handed grab zooms the panel, and hits follow the zoom', function()
+  local _, record, _, surface = made()
+  surface:setSize(0.4)
+  expect.near(record.scale, 2, 1e-9, 'twice the width is twice the zoom')
+  expect.near(surface.width, 0.4, 1e-9, 'the surface reports the zoomed width')
+  expect.near(surface.height, 0.2, 1e-9, 'and keeps the proportions')
+  expect.near(record.width, 0.2, 1e-9, 'layout keeps its unscaled width')
+  local u, v, distance = surface:raycast(vector.pack(0.15, 0, 1), vector.pack(0, 0, -1))
+  assert(u and v and distance, 'a ray beyond the unscaled edge but inside the zoomed one hits')
+  expect.near(u, 0.175, 1e-6, 'panel coordinates stay unscaled')
+  expect.near(distance, 1, 1e-6, 'the distance is in world metres')
+  surface:setSize(0)
+  expect.near(record.scale, 2, 1e-9, 'a size of zero is ignored')
+end)
+
 return test

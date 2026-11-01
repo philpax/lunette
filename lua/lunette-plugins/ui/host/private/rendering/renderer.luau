@@ -270,9 +270,9 @@ local function page(resources: Resources, index: number): Texture?
   return texture
 end
 
--- The local transform of a panel's centre, from its pose.
+-- The local transform of a panel's centre, from its pose and zoom.
 local function centre(panel: records.Panel): Mat4
-  return lovr.math.mat4(panel.pose)
+  return shape.basis(panel)
 end
 
 -- The bend the shaders read: the drawn curve, whether boxes use the bendable grid, and the axis's cosine and sine.

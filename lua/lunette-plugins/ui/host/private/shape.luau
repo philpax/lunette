@@ -106,27 +106,33 @@ function shape.ray(
   return nil, nil, nil
 end
 
--- The world pose of a point on the panel at an elevation, facing out of the surface there.
+-- The panel's pose with its zoom: the transform from panel-frame metres to the world.
+function shape.basis(panel: records.Panel): Mat4
+  local scale = panel.scale
+  return lovr.math.mat4(panel.pose):scale(scale, scale, scale)
+end
+
+-- The world pose of a point on the panel at an elevation, facing out of the surface there, with the panel's zoom.
 function shape.frame(panel: records.Panel, u: number, v: number, elevation: number): Mat4
   local x, y = u - panel.width / 2, panel.height / 2 - v
   local curve = shape.curvature(panel)
   if curve == 0 then
-    return lovr.math.mat4(panel.pose):translate(x, y, elevation)
+    return shape.basis(panel):translate(x, y, elevation)
   end
   local bx, by = turn(panel, x, y)
   local radius = 1 / curve
   local angle = bx * curve
   local px, py = turn(panel, (radius - elevation) * math.sin(angle), by, true)
   local axis = panel.curveAxis
-  return lovr.math
-    .mat4(panel.pose)
+  return shape
+    .basis(panel)
     :translate(px, py, radius - (radius - elevation) * math.cos(angle))
     :rotate(-angle, -math.sin(axis), math.cos(axis), 0)
 end
 
 -- A world ray in the panel's local frame.
 function shape.localRay(panel: records.Panel, origin: vector, direction: vector): (vector, vector)
-  local inverse = lovr.math.mat4(panel.pose):invert()
+  local inverse = shape.basis(panel):invert()
   local ox, oy, oz = inverse:mul(origin.x, origin.y, origin.z)
   local tx, ty, tz = inverse:mul(origin.x + direction.x, origin.y + direction.y, origin.z + direction.z)
   return vector.pack(ox, oy, oz), vector.pack(tx - ox, ty - oy, tz - oz)

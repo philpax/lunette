@@ -164,6 +164,8 @@ export type Panel = {
   -- an axis turned anticlockwise from the panel's vertical by curveAxis radians; zero is flat.
   curve: number,
   curveAxis: number,
+  -- A uniform zoom about the panel's centre. Layout stays in unscaled metres; drawing and hit testing scale them.
+  scale: number,
   -- The surface an attached panel sits above, and the gap between them.
   target: vocabulary.Surface?,
   gap: number,

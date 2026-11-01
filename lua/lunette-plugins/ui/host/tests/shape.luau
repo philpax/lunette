@@ -9,6 +9,8 @@ local function panel(curve: number, axis: number?): any
     height = 0.4,
     curve = curve,
     curveAxis = axis or 0,
+    -- A zoom other than one checks that every mapping goes through the panel's basis.
+    scale = 1.5,
     pose = lovr.math.newMat4():translate(0.2, 1.4, -0.8),
   }
 end
@@ -37,7 +39,7 @@ test('a point placed on the surface maps back to its panel coordinates and eleva
   for _, bend in BENDS do
     local curve = `{bend[1]} about {bend[2]}`
     local target = panel(bend[1], bend[2])
-    local inverse = lovr.math.newMat4(target.pose):invert()
+    local inverse = shape.basis(target):invert()
     for _ = 1, 50 do
       local u, v, elevation = nextNumber() * target.width, nextNumber() * target.height, nextNumber() * 0.05
       local x, y, z = shape.frame(target, u, v, elevation):getPosition()
@@ -62,7 +64,7 @@ test('a ray towards a point on the surface hits it there', function()
       assert(hu and hv and distance, `curve {curve}: the ray hits`)
       expect.near(hu, u, 1e-4, `curve {curve}: u`)
       expect.near(hv, v, 1e-4, `curve {curve}: v`)
-      expect.near(distance, vector.magnitude(surface - origin), 1e-4, `curve {curve}: distance`)
+      expect.near(distance * target.scale, vector.magnitude(surface - origin), 1e-4, `curve {curve}: distance`)
     end
   end
 end)
@@ -76,11 +78,11 @@ end)
 
 test('an elevated point on a panel bent away lies outside its surface', function()
   local target = panel(-2)
-  local _, _, zFlat = lovr.math.newMat4(target.pose):invert():mul(shape.frame(target, 0.3, 0.2, 0):getPosition())
-  local _, _, zRaised = lovr.math.newMat4(target.pose):invert():mul(shape.frame(target, 0.3, 0.2, 0.05):getPosition())
+  local _, _, zFlat = shape.basis(target):invert():mul(shape.frame(target, 0.3, 0.2, 0):getPosition())
+  local _, _, zRaised = shape.basis(target):invert():mul(shape.frame(target, 0.3, 0.2, 0.05):getPosition())
   expect.near(zFlat, 0, 1e-6, 'the centre lies on the panel plane')
   expect.near(zRaised, 0.05, 1e-6, 'elevation is towards the viewer')
-  local _, _, edge = lovr.math.newMat4(target.pose):invert():mul(shape.frame(target, 0, 0.2, 0):getPosition())
+  local _, _, edge = shape.basis(target):invert():mul(shape.frame(target, 0, 0.2, 0):getPosition())
   expect.truthy(edge < 0, 'the edges bend away from the viewer')
 end)
 
