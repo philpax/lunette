@@ -54,7 +54,7 @@ Opacity is applied to packed primitives in the ordinary draw sequence. There is 
 
 ## Curvature
 
-Panel curvature uses a vertical cylindrical map, with width measured along the arc. Drawing, panel-coordinate conversion, and inspection use that model. Fixed mesh subdivision limits the geometric approximation. [Spatial model](spatial-model.md#surface-roots) states the coordinate contract.
+Panel curvature uses a cylindrical map, convex or concave and about an axis in the panel plane, with the extent across the axis measured along the arc. Drawing, panel-coordinate conversion, and inspection use that model. Fixed mesh subdivision limits the geometric approximation. [Spatial model](spatial-model.md#surface-roots) states the coordinate contract.
 
 An overlay on a curved opener remains flat and tangent to the opener's curve at the overlay's centre. It is not a concentric curved panel. An attached panel is placed relative to its target and does not imply inherited curved geometry.
 

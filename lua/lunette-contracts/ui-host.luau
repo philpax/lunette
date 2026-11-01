@@ -388,8 +388,12 @@ export type PanelOptions = {
   -- 'world' stays where it is put; 'follow' lazily follows the head, as toasts do; 'dialog' floats in front of its
   -- parent panel, or in front of the head without one, and is modal.
   read presentation: ('world' | 'follow' | 'dialog' | 'attach')?,
-  -- Bends the panel as a vertical cylinder of radius 1 / curve, centred on the viewer's side; zero is flat.
+  -- Bends the panel as a cylinder of radius 1 / |curve| metres: towards the viewer when positive, and away when negative,
+  -- as a band wraps a wrist. Zero is flat. The arc wraps at most half a turn either side of the centre line, and a
+  -- tighter curve is drawn and hit at that limit.
   read curve: number?,
+  -- Radians the cylinder's axis turns anticlockwise from the panel's vertical; zero bends the panel's width.
+  read curveAxis: number?,
   -- An attached panel sits above the top edge of a surface, such as a window panel, is at least as wide as it,
   -- growing to fit content that needs more, and moves it when grabbed; `gap` is metres between the two.
   read target: vocabulary.Surface?,
@@ -413,7 +417,8 @@ export type Panel = {
   -- Fades a visible panel toward an opacity from 0 to 1 with the theme's motion, or at once under reduced motion. A
   -- panel that is fading out, or that is nearly transparent, takes no pointer, touch, or focus input.
   read setOpacity: (Panel, number) -> (),
-  read setCurve: (Panel, number) -> (),
+  -- Sets the curve, and the axis when given.
+  read setCurve: (Panel, number, number?) -> (),
   -- Sets a fixed panel's size, or a content-sized panel's maximum, in metres.
   read setSize: (Panel, number?, number?) -> (),
   -- Whether the grip and a header's trigger drag move a world or attached panel.

@@ -32,6 +32,13 @@ local function positive(value: number?, label: string): ()
   end
 end
 
+-- A finite curve in metres⁻¹ and a finite axis angle in radians. The shape limits how far a curve wraps.
+local function bend(curve: number, axis: number): (number, number)
+  assert(type(curve) == 'number' and curve == curve and math.abs(curve) < math.huge, 'ui: a curve is a finite number')
+  assert(type(axis) == 'number' and axis == axis and math.abs(axis) < math.huge, 'ui: a curve axis is a finite angle')
+  return curve, axis
+end
+
 -- Builds the panel record, its handle, and its surface.
 function panel.new(
   provider: Provider,
@@ -55,9 +62,7 @@ function panel.new(
   )
   record.presentation = presentation
   record.visible = options.visible ~= false
-  local curve = options.curve or 0
-  assert(type(curve) == 'number' and curve >= 0 and curve < 10, 'ui: a curve is from 0 to 10 per metre')
-  record.curve = curve
+  record.curve, record.curveAxis = bend(options.curve or 0, options.curveAxis or 0)
   record.grabbable = (presentation == 'world' or presentation == 'attach') and options.grabbable ~= false
   record.placeAhead = presentation == 'world' and options.pose == nil
   record.remembered = presentation == 'world' and record.grabbable
@@ -144,9 +149,8 @@ function panel.new(
         table.insert(record.changes, change)
       end
     end,
-    setCurve = function(_self: uiHost.Panel, curve: number): ()
-      assert(type(curve) == 'number' and curve >= 0 and curve < 10, 'ui: a curve is from 0 to 10 per metre')
-      record.curve = curve
+    setCurve = function(_self: uiHost.Panel, curve: number, axis: number?): ()
+      record.curve, record.curveAxis = bend(curve, axis or record.curveAxis)
     end,
     setGrabbable = function(_self: uiHost.Panel, grabbable: boolean): ()
       record.grabbable = (record.presentation == 'world' or record.presentation == 'attach') and grabbable == true
@@ -212,7 +216,7 @@ function panel.surface(provider: Provider, record: records.Panel, setPose: ((Mat
       end
       local localOrigin, localDirection = shape.localRay(record, origin, direction)
       -- A flat panel answers rays from behind only when asked, as window panels do.
-      if record.curve <= 0 and localDirection.z >= 0 and not backFace then
+      if record.curve == 0 and localDirection.z >= 0 and not backFace then
         return nil, nil, nil
       end
       return shape.ray(record, localOrigin, localDirection, true)
@@ -296,6 +300,7 @@ function panel.record(
     suppressed = false,
     presentation = 'world',
     curve = 0,
+    curveAxis = 0,
     target = nil,
     gap = 0,
     rootSize = nil,

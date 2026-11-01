@@ -4,7 +4,7 @@ The host places retained nodes on flat or cylindrical panels. Layout determines 
 
 ## Surface roots
 
-A panel is the coordinate root. Coordinates run in metres from its top-left corner, x right and y down, with elevation towards the viewer. Drawing, input, and inspection share that convention. Curvature maps panel width along a vertical cylindrical arc.
+A panel is the coordinate root. Coordinates run in metres from its top-left corner, x right and y down, with elevation towards the viewer. Drawing, input, and inspection share that convention. Curvature maps the panel across a cylindrical arc. The cylinder bends towards the viewer or away from it, and its axis lies in the panel plane at an angle from the panel's vertical, so panel coordinates across the axis are arc length. An arc wraps at most half a turn either side of the centre line; a tighter curve is drawn and hit at that limit.
 
 A panel's curve does not create independently registered surface roots inside its descendants. An overlay is another panel, and a custom volume has a tangent base rather than a new bent child surface.
 
@@ -24,7 +24,7 @@ A node handle reports its centre's world pose and its layout bounds in node or p
 
 ## Surface shapes
 
-The host supports flat panels and a vertical cylindrical curve. It has no public `registerShape` API, GLSL-snippet registration, periodic surface coordinates, or shape-dependent adaptive tessellation. Window and monitor surfaces use their own panel implementation through the shared surface contract.
+The host supports flat panels and a cylindrical curve, convex or concave, about any axis in the panel plane. Window and monitor panels remain concave about the vertical, because OpenXR cylinder layers are viewed from inside. It has no public `registerShape` API, GLSL-snippet registration, periodic surface coordinates, or shape-dependent adaptive tessellation. Window and monitor surfaces use their own panel implementation through the shared surface contract.
 
 The renderer uses fixed subdivision for curved boxes. Drawing and hit conversion follow the same cylinder model, but the host does not guarantee exact agreement with each rendered mesh chord. [Rendering](rendering.md#curvature) states that approximation boundary.
 

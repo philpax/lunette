@@ -160,8 +160,10 @@ export type Panel = {
   focused: Node?,
   session: any?,
   presentation: 'world' | 'follow' | 'dialog' | 'attach',
-  -- The panel bends as a vertical cylinder of radius 1 / curve; zero is flat.
+  -- The panel bends as a cylinder of radius 1 / |curve|, towards the viewer when positive and away when negative, about
+  -- an axis turned anticlockwise from the panel's vertical by curveAxis radians; zero is flat.
   curve: number,
+  curveAxis: number,
   -- The surface an attached panel sits above, and the gap between them.
   target: vocabulary.Surface?,
   gap: number,

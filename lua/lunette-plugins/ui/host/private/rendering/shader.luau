@@ -8,19 +8,26 @@ local shader = {}
 shader.SLOTS = 7
 shader.BATCH = 128
 
--- A curved panel is a vertical cylinder of radius 1 / curve whose centre lies on the viewer's side; panel x is the
--- arc length from the panel's centre line, and elevation is along the cylinder's inward normal.
+-- A curved panel is a cylinder of radius 1 / |curve|, as shape.luau describes it: a positive curve puts its centre on
+-- the viewer's side and a negative one behind. Its axis is turned from the panel's vertical by an angle whose cosine
+-- and sine arrive in panelCurve.zw. Across the axis, panel coordinates are arc length from the panel's centre line,
+-- and elevation is along the surface normal towards the viewer.
 local BEND = [[
   uniform vec4 panelCurve;
 
   vec3 bend(float x, float y, float z) {
     float curve = panelCurve.x;
-    if (curve <= 0.) {
+    if (curve == 0.) {
       return vec3(x, y, z);
     }
+    float c = panelCurve.z;
+    float s = panelCurve.w;
+    float bx = c * x + s * y;
+    float by = -s * x + c * y;
     float radius = 1. / curve;
-    float angle = x * curve;
-    return vec3((radius - z) * sin(angle), y, radius - (radius - z) * cos(angle));
+    float angle = bx * curve;
+    float px = (radius - z) * sin(angle);
+    return vec3(c * px - s * by, s * px + c * by, radius - (radius - z) * cos(angle));
   }
 ]]
 

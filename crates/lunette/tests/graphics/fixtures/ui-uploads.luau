@@ -146,10 +146,11 @@ local function oracle(
     pass:setShader(resources.boxShader)
     pass:send('panelScrim', scrim)
     pass:send('panelSize', { panel.width, panel.height, 0, 0 })
-    pass:send('panelCurve', { panel.curve, if panel.curve > 0 then 1 else 0, 0, 0 })
+    -- The panel bends about its vertical axis, so the axis's cosine and sine are 1 and 0.
+    pass:send('panelCurve', { panel.curve, if panel.curve > 0 then 1 else 0, 1, 0 })
     pass:send('edgeLight', THEME.colors.edgeLight)
     pass:send('edgeDark', THEME.colors.edgeDark)
-    local mesh = if panel.curve > 0 then resources.grid else resources.mesh
+    local mesh = if panel.curve > 0 then resources.columns else resources.mesh
     tableBatches(pass, 'Boxes', packed.boxes, packed.count, 28, 128, mesh, lovr.math.mat4(panel.pose))
   end
   if next(packed.glyphCounts) then
@@ -157,7 +158,7 @@ local function oracle(
     pass:setDepthWrite(false)
     pass:send('panelScrim', scrim)
     pass:send('panelPose', lovr.math.mat4(panel.pose))
-    pass:send('panelCurve', { panel.curve, 0, 0, 0 })
+    pass:send('panelCurve', { panel.curve, 0, 1, 0 })
     pass:send('panelSize', { panel.width, panel.height, 0, 0 })
     local range = resources.atlas.range / resources.atlas.pageSize
     pass:send('glyphRange', { range, range, 0, 0 })
