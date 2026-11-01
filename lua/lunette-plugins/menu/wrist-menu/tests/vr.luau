@@ -254,8 +254,8 @@ end)
 test('the menu fades and takes no presses while its wrist turns it away from the head', function()
   local env = boot()
   expect.truthy(env.panels:pressable(PANEL), 'a menu facing the head can be pressed')
-  -- Held level, the wrist turns the menu edge-on to the head.
-  env.running:pose(env.hand, lovr.math.newMat4():translate(0, 1.2, -0.5))
+  -- A half turn of the wrist faces the menu away from the head.
+  env.running:pose(env.hand, wristMenu.facingPose():rotate(math.pi, 0, 1, 0))
   for _ = 1, 60 do
     if not env.panels:pressable(PANEL) then
       break

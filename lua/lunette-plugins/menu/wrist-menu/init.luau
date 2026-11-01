@@ -32,6 +32,11 @@ end
 local ROLL = 5 * math.pi / 16
 -- Metres the menu stands out from the wrist, towards the viewer.
 local LIFT = 0.03
+-- The menu wraps the wrist as a strip would: bent away from the viewer along its long, vertical axis, around a cylinder
+-- this many metres out from the wrist's centre. The cylinder's axis is therefore the panel's horizontal.
+local WRIST_RADIUS = 0.035
+local WRAP_CURVE = -1 / (WRIST_RADIUS + LIFT)
+local WRAP_AXIS = math.pi / 2
 
 -- The menu sits a button size below the offset, along its own face.
 local function wristPose(device: Device, offset: vector, size: number): Mat4
@@ -63,6 +68,8 @@ return plugin.consumer<<Config, Settings>> {
       grabbable = false,
       -- The menu holds the control that brings hidden panels back, so it stays when they are hidden.
       essential = true,
+      curve = WRAP_CURVE,
+      curveAxis = WRAP_AXIS,
     })
     panel:setVisible(false)
     local device: Device = if settings.hand == 'left' then 'hand/left' else 'hand/right'
@@ -88,6 +95,8 @@ return plugin.consumer<<Config, Settings>> {
       end
       -- Only the open menu tears off; the closed button stays on the wrist.
       panel:setGrabbable(value)
+      -- The open list is far wider than the wrist, so only the closed button wraps it.
+      panel:setCurve(if value then 0 else WRAP_CURVE)
       opened:set(value)
     end
     local function reachable(): boolean

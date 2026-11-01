@@ -4,6 +4,8 @@ Displays a tracked wrist button and registered session actions. Other plugins ad
 
 The menu is a [UI host](../../ui/host/README.md) panel built from the [standard kinds](../../ui/standard/README.md), posed on the configured wrist each frame. Closed, it is one button with the local time, as hh:mm:ss, beneath it. Open, it shows the time in its header and lists the actions under a heading for each group, with groups and the actions in each in alphabetical order and actions without a group last under Other. It highlights a selected action and marks a disabled one as unavailable; the list scrolls with the thumbstick when it is longer than the panel. Grabbing the open menu, with the grip or with the trigger on its header, tears it off the wrist: it stays where it is released and remains shown while the wrist is untracked. The close button returns the menu to its button on the wrist. The closed button cannot be grabbed. Losing the wrist's tracking hides a menu that is on the wrist and closes its list.
 
+The closed button wraps the wrist like a strip, bent along its length; the open list is flat.
+
 On the wrist, the menu fades with the angle between its face and the direction to the head: it is opaque within `facing.visible`, transparent past `facing.hidden`, and eases between them. A faded menu takes no presses, so a hand passing behind the wrist does not catch it. A torn-off menu stays opaque.
 
 The actions named in `shortcuts` show as quiet buttons in a row above the closed button, drawing an action's icon when it has one, and the time sits in a row of the same height below it, so the button stays centred on the wrist point. The default shortcut is Hide panels.
