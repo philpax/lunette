@@ -17,8 +17,11 @@ local CORNER_SEGMENTS = 6
 
 export type Resources = {
   mesh: Mesh,
-  -- A flat grid across the box, which the vertex stage can bend; boxes on curved panels use it.
-  grid: Mesh,
+  -- Flat grids across the box, which the vertex stage can bend; boxes on curved panels use the one subdivided along
+  -- the direction the panel bends: columns about a vertical axis, rows about a horizontal one, and both otherwise.
+  columns: Mesh,
+  rows: Mesh,
+  cells: Mesh,
   boxShader: Shader,
   glyphShader: Shader,
   imageShader: Shader,
@@ -85,29 +88,46 @@ function renderer.template(segments: number): Template
   return { vertices = vertices, indices = indices }
 end
 
--- Columns of the grid template. Thirty-two keeps the chord error under a millimetre across a metre-wide box on a
--- cylinder of one metre radius.
-local GRID_COLUMNS = 32
+-- Divisions of a grid template along the bend. Thirty-two keeps the chord error under a millimetre across a
+-- metre-wide box on a cylinder of one metre radius. A grid divided both ways, for a tilted axis, uses sixteen each
+-- way so that each box stays a few hundred vertices.
+local GRID_DIVISIONS = 32
+local CELL_DIVISIONS = 16
 
 -- A grid of the top face only, with UV running from -1 to 1 across the box.
-function renderer.grid(columns: number): Template
+function renderer.grid(columns: number, rows: number): Template
   local vertices: { { number } } = {}
   local indices: { number } = {}
   for column = 0, columns do
     local u = column / columns * 2 - 1
-    vertices[#vertices + 1] = { 0, 0, 1, 0, 0, 1, u, -1 }
-    vertices[#vertices + 1] = { 0, 0, 1, 0, 0, 1, u, 1 }
+    for row = 0, rows do
+      vertices[#vertices + 1] = { 0, 0, 1, 0, 0, 1, u, row / rows * 2 - 1 }
+    end
   end
   for column = 0, columns - 1 do
-    local top, bottom = column * 2 + 1, column * 2 + 2
-    table.insert(indices, top)
-    table.insert(indices, bottom)
-    table.insert(indices, top + 2)
-    table.insert(indices, top + 2)
-    table.insert(indices, bottom)
-    table.insert(indices, bottom + 2)
+    for row = 0, rows - 1 do
+      local corner = column * (rows + 1) + row + 1
+      local right = corner + rows + 1
+      table.insert(indices, corner)
+      table.insert(indices, corner + 1)
+      table.insert(indices, right)
+      table.insert(indices, right)
+      table.insert(indices, corner + 1)
+      table.insert(indices, right + 1)
+    end
   end
   return { vertices = vertices, indices = indices }
+end
+
+-- The grid template for boxes on a panel bent about this axis.
+local function gridFor(resources: Resources, axis: number): Mesh
+  local across, along = math.abs(math.sin(axis)), math.abs(math.cos(axis))
+  if across < 1e-6 then
+    return resources.columns
+  elseif along < 1e-6 then
+    return resources.rows
+  end
+  return resources.cells
 end
 
 local function quad(keep: <T>(T) -> T): Mesh
@@ -145,12 +165,17 @@ function renderer.acquire(report: (string) -> ()): (Resources, () -> ())
     local template = renderer.template(CORNER_SEGMENTS)
     local mesh = keep(lovr.graphics.newMesh(template.vertices, { storage = 'gpu' }))
     mesh:setIndices(template.indices)
-    local gridTemplate = renderer.grid(GRID_COLUMNS)
-    local grid = keep(lovr.graphics.newMesh(gridTemplate.vertices, { storage = 'gpu' }))
-    grid:setIndices(gridTemplate.indices)
+    local function gridMesh(columns: number, rows: number): Mesh
+      local template = renderer.grid(columns, rows)
+      local grid = keep(lovr.graphics.newMesh(template.vertices, { storage = 'gpu' }))
+      grid:setIndices(template.indices)
+      return grid
+    end
     return {
       mesh = mesh,
-      grid = grid,
+      columns = gridMesh(GRID_DIVISIONS, 1),
+      rows = gridMesh(1, GRID_DIVISIONS),
+      cells = gridMesh(CELL_DIVISIONS, CELL_DIVISIONS),
       boxShader = keep(lovr.graphics.newShader(shader.boxVertex, shader.boxFragment, { label = 'ui/boxes' })),
       glyphShader = keep(lovr.graphics.newShader(shader.glyphVertex, shader.glyphFragment, { label = 'ui/glyphs' })),
       imageShader = keep(lovr.graphics.newShader(shader.imageVertex, shader.imageFragment, { label = 'ui/images' })),
@@ -245,9 +270,15 @@ local function page(resources: Resources, index: number): Texture?
   return texture
 end
 
--- The local transform of a panel's centre, from its pose.
+-- The local transform of a panel's centre, from its pose and zoom.
 local function centre(panel: records.Panel): Mat4
-  return lovr.math.mat4(panel.pose)
+  return shape.basis(panel)
+end
+
+-- The bend the shaders read: the drawn curve, whether boxes use the bendable grid, and the axis's cosine and sine.
+local function curveUniform(panel: records.Panel, grid: boolean): { number }
+  local axis = panel.curveAxis
+  return { shape.curvature(panel), if grid then 1 else 0, math.cos(axis), math.sin(axis) }
 end
 
 local function drawBoxes(
@@ -264,9 +295,10 @@ local function drawBoxes(
   pass:setShader(resources.boxShader)
   pass:send('panelScrim', scrim)
   pass:send('panelSize', { panel.width, panel.height, 0, 0 })
-  local curved = panel.curve > 0
-  pass:send('panelCurve', { panel.curve, if curved then 1 else 0, 0, 0 })
-  local mesh = if curved then resources.grid else resources.mesh
+  local curve = shape.curvature(panel)
+  local curved = curve ~= 0
+  pass:send('panelCurve', curveUniform(panel, curved))
+  local mesh = if curved then gridFor(resources, panel.curveAxis) else resources.mesh
   local light, dark = theme.colors.edgeLight, theme.colors.edgeDark
   pass:send('edgeLight', { light[1], light[2], light[3], light[4] })
   pass:send('edgeDark', { dark[1], dark[2], dark[3], dark[4] })
@@ -287,8 +319,11 @@ local function drawImages(
   pass:send('panelScrim', scrim)
   pass:setDepthWrite(false)
   local pose = centre(panel)
-  pass:send('panelCurve', { panel.curve, 0, 0, 0 })
+  pass:send('panelCurve', curveUniform(panel, false))
   pass:send('panelSize', { panel.width, panel.height, 0, 0 })
+  -- On a curved panel the quad is subdivided so that the vertex stage bends it with the surface beneath; a single
+  -- quad would cut a chord through the curve and sink into the face it sits on.
+  local segments = if shape.curvature(panel) ~= 0 then CELL_DIVISIONS else 1
   for _, run in packed.images do
     local texture = images.texture(resources.images, run.source, run.width, run.height)
     pass:setMaterial(texture)
@@ -296,7 +331,7 @@ local function drawImages(
     pass:send('imageClip', run.clip)
     pass:send('imageRect', { run.x, run.y, run.width, run.height })
     pass:send('imageElevation', { run.z, 0, 0, 0 })
-    pass:plane(pose)
+    pass:plane(pose, 'fill', segments, segments)
   end
   pass:setMaterial(nil)
 end
@@ -351,7 +386,7 @@ local function drawGlyphs(
   pass:send('panelScrim', scrim)
   pass:setDepthWrite(false)
   pass:send('panelPose', centre(panel))
-  pass:send('panelCurve', { panel.curve, 0, 0, 0 })
+  pass:send('panelCurve', curveUniform(panel, false))
   pass:send('panelSize', { panel.width, panel.height, 0, 0 })
   local atlas = resources.atlas
   local range = atlas.range / atlas.pageSize

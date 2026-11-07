@@ -27,6 +27,7 @@ function overlay.render(provider: panel.Provider, portal: records.Node): records
     local created = panel.record(`{opener.name}/{portal.slot}`, opener.owner, 'content', nil, nil, opener.pose)
     created.overlay = { portal = portal, opener = opener, hit = portal.props.hit ~= false }
     created.fade = { value = 0, target = 1, velocity = 0 }
+    created.essential = opener.essential
     portal.overlay = created
     record = created
     local surface = panel.surface(provider, created, nil)
@@ -92,8 +93,12 @@ function overlay.place(provider: panel.Provider, record: records.Panel): ()
   end
   -- On a curved opener the overlay stays flat, tangent to the curve at its centre.
   local elevation = anchor.z + theme.elevation.raised
-  record.pose:set(shape.frame(opener, left + width / 2, top + height / 2, elevation))
+  -- The overlay zooms with its opener, so the frame's scale moves to the overlay's own zoom.
+  record.scale = opener.scale
+  record.pose:set(shape.frame(opener, left + width / 2, top + height / 2, elevation):scale(1 / opener.scale))
   record.visible = opener.visible
+  -- An overlay fades with its opener, and stops taking input with it.
+  record.opacity.target = opener.opacity.target
   record.sync()
 end
 

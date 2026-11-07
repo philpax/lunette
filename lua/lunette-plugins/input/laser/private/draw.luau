@@ -33,11 +33,12 @@ function draw.laser(target: Laser, pass: Pass): ()
   local endY = originY + directionY / length * distance
   local endZ = originZ + directionZ / length * distance
   local color: Color = if hovered then style.hoverColor else style.color
+  local alpha = (color[4] or 1) * target.visibility
 
   passState.withRestore(pass, function()
     pass:setShader()
     pass:setMaterial(nil)
-    pass:setColor(color[1], color[2], color[3], color[4])
+    pass:setColor(color[1], color[2], color[3], alpha)
     pass:setDepthTest()
     pass:setDepthWrite(false)
     pass:line(originX, originY, originZ, endX, endY, endZ)

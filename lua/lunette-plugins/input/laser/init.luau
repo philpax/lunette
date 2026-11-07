@@ -14,6 +14,7 @@ local inspection = require '@lunette-contracts/inspection'
 local theme = require '@lunette-contracts/theme'
 local style = require '@self/private/style'
 local dragIcon = require '@self/private/drag-icon'
+local visibility = require '@self/private/visibility'
 local clientPixels = require '@lunette-plugins/graphics/client-pixels'
 
 export type Service = contracts.Service
@@ -49,6 +50,7 @@ type MutableLaser = {
   style: style.Style,
   read styleOverrides: contracts.StyleOverride,
   input: Input?,
+  visibility: number,
   icon: dragIcon.State,
   iconShaders: clientPixels.Shaders,
   dead: boolean,
@@ -97,6 +99,12 @@ local function live(state: ProviderState): { MutableLaser }
     end
   end
   return found
+end
+
+-- Whether another application's scene shows beneath the session.
+local function overlaid(): boolean
+  local headset = lovr.headset
+  return headset ~= nil and headset.isMainSessionVisible ~= nil and headset.isMainSessionVisible()
 end
 
 -- Whether any button of the frame is down, so a ray mid-gesture does not stand down.
@@ -178,6 +186,8 @@ local function makeLaser(
       style = style.resolve(state.themes:current(), settings.style, styleOverrides),
       styleOverrides = styleOverrides,
       input = frameInput,
+      -- A new beam appears with its first engaged update rather than flashing over another scene.
+      visibility = 0,
       icon = dragIcon.new(),
       iconShaders = state.iconShaders,
       dead = false,
@@ -192,6 +202,7 @@ local function makeLaser(
           previousRaw = nil
           lockState = triggerLock.ready()
           target.input = nil
+          target.visibility = 0
           if not withdrawn then
             withdrawn = true
             self.pointer:withdraw()
@@ -216,6 +227,7 @@ local function makeLaser(
         withdrawn = false
         -- A release frame still delivers to the surface, so a ray stands down only after a whole idle frame.
         local near, holding = interactionService:isNear(self.hand), held(frame)
+        local releasing = wasHeld
         if not near then
           standing = false
         elseif not standing and self.pointer.grabbed == nil and not holding and not wasHeld then
@@ -234,12 +246,19 @@ local function makeLaser(
         end
         self.pointer:update(delivered, if standing then {} else surfaces)
         dragIcon.observe(target.icon, self.pointer.hovered)
+        target.visibility = visibility.step(target.visibility, {
+          mode = settings.overlayBeam,
+          overlaid = overlaid(),
+          engaged = self.pointer.hovered ~= nil or self.pointer.grabbed ~= nil or holding or releasing,
+          dt = frame.dt,
+          fadeOut = settings.fadeOut,
+        })
         if self.pointer.hovered ~= before then
           self:vibrate()
         end
       end,
       draw = function(self: Beam, pass: Pass)
-        if self.dead or not state.active or standing then
+        if self.dead or not state.active or standing or target.visibility <= 0 then
           return
         end
         state.refreshStyle()

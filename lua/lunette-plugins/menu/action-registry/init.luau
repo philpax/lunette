@@ -18,6 +18,7 @@ type Entry = {
   token: contract.Token,
   enabled: boolean,
   selected: boolean,
+  icon: string?,
 }
 
 local function create(context: plugin.Context): contract.Service
@@ -43,6 +44,7 @@ local function create(context: plugin.Context): contract.Service
           id = action.id,
           label = action.label,
           group = action.group,
+          icon = entry.icon,
           enabled = entry.enabled,
           selected = entry.selected,
           token = entry.token,
@@ -76,6 +78,7 @@ local function create(context: plugin.Context): contract.Service
         token = table.freeze { kind = 'menu-token' } :: contract.Token,
         enabled = captured.enabled,
         selected = captured.selected,
+        icon = captured.icon,
       }
       -- An owner fails ownership checks while the runtime releases one of its effects, so an explicit dispose announces
       -- after the release returns.
@@ -104,8 +107,9 @@ local function create(context: plugin.Context): contract.Service
           end
           local enabled = if captured.enabled ~= nil then captured.enabled else entry.enabled
           local selected = if captured.selected ~= nil then captured.selected else entry.selected
-          if enabled ~= entry.enabled or selected ~= entry.selected then
-            entry.enabled, entry.selected = enabled, selected
+          local icon = captured.icon or entry.icon
+          if enabled ~= entry.enabled or selected ~= entry.selected or icon ~= entry.icon then
+            entry.enabled, entry.selected, entry.icon = enabled, selected, icon
             announce()
           end
           return true

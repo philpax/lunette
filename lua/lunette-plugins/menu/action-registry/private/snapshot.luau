@@ -9,14 +9,15 @@ export type Metadata = {
   read id: string,
   read label: string,
   read group: string,
+  read icon: string?,
   read enabled: boolean,
   read selected: boolean,
 }
 
 type Raw = { [unknown]: unknown }
 
-local ACTION_KEYS: { string } = { 'id', 'label', 'group', 'enabled', 'selected', 'run' }
-local STATE_KEYS: { string } = { 'enabled', 'selected' }
+local ACTION_KEYS: { string } = { 'id', 'label', 'group', 'icon', 'enabled', 'selected', 'run' }
+local STATE_KEYS: { string } = { 'enabled', 'selected', 'icon' }
 
 local function plain(operation: string, field: string, value: unknown): Raw
   if type(value) ~= 'table' then
@@ -39,6 +40,13 @@ local function flag(operation: string, field: string, value: unknown): boolean?
   return value :: boolean?
 end
 
+local function svg(operation: string, value: unknown): string?
+  if value ~= nil and (type(value) ~= 'string' or value == '') then
+    error('menu ' .. operation .. ': icon is a non-empty SVG document, not ' .. tostring(value), 4)
+  end
+  return value :: string?
+end
+
 function snapshot.action(value: unknown): (Metadata, () -> ())
   local raw = plain('register', 'action', value)
   plugin.rejectUnknownFields('menu register', raw, ACTION_KEYS, 2)
@@ -51,6 +59,7 @@ function snapshot.action(value: unknown): (Metadata, () -> ())
   if group ~= nil and type(group) ~= 'string' then
     error('menu register: group is a string, not a ' .. type(group), 3)
   end
+  local icon = svg('register', raw.icon)
   local enabled = flag('register', 'enabled', raw.enabled)
   local selected = flag('register', 'selected', raw.selected)
   local run = raw.run
@@ -61,6 +70,7 @@ function snapshot.action(value: unknown): (Metadata, () -> ())
     id = id,
     label = label :: string,
     group = (group :: string?) or '',
+    icon = icon,
     enabled = enabled ~= false,
     selected = selected == true,
   },
@@ -70,7 +80,11 @@ end
 function snapshot.state(value: unknown): contract.State
   local raw = plain('update', 'state', value)
   plugin.rejectUnknownFields('menu update', raw, STATE_KEYS, 2)
-  return { enabled = flag('update', 'enabled', raw.enabled), selected = flag('update', 'selected', raw.selected) }
+  return {
+    enabled = flag('update', 'enabled', raw.enabled),
+    selected = flag('update', 'selected', raw.selected),
+    icon = svg('update', raw.icon),
+  }
 end
 
 return snapshot

@@ -20,11 +20,14 @@ export type Recorder = {
   read panel: (Recorder, string) -> uiHost.Panel?,
   -- The live node at the key path in the named panel.
   read node: (Recorder, string, string) -> uiHost.Node?,
+  -- Whether the host reports the named panel as taking input, which it does not while hidden or faded out.
+  read pressable: (Recorder, string) -> boolean,
   -- Presses and releases the trigger with the ray on the centre of the node, then commits the result.
   read click: (Recorder, vrUi.Fixture, string, string, vrUi.Hand?) -> (),
 }
 
-local function wrap(service: uiHost.Service, panels: { uiHost.Panel }): uiHost.Service
+local function wrap(service: uiHost.Service, panels: { uiHost.Panel }, hosts: { uiHost.Service }): uiHost.Service
+  table.insert(hosts, service)
   local wrapped: { [string]: any } = {}
   for name, method in service :: any do
     if type(method) == 'function' then
@@ -50,6 +53,7 @@ end
 
 function uiPanels.new(): Recorder
   local panels: { uiHost.Panel } = {}
+  local hosts: { uiHost.Service } = {}
   local host = hostPlugin.definition
   local definition = adapter.define({
     name = host.name,
@@ -59,7 +63,7 @@ function uiPanels.new(): Recorder
       local publisher: adapter.Publisher = {
         provide = function<T>(_self: adapter.Publisher, capability: adapter.Capability<T>, value: T): ()
           if (capability :: any) == uiHost.capability then
-            publish:provide(capability, wrap(value :: any, panels) :: any)
+            publish:provide(capability, wrap(value :: any, panels, hosts) :: any)
           else
             publish:provide(capability, value)
           end
@@ -92,6 +96,18 @@ function uiPanels.new(): Recorder
   end
   fields.node = function(_self: Recorder, name: string, path: string): uiHost.Node?
     return node(name, path)
+  end
+  fields.pressable = function(_self: Recorder, name: string): boolean
+    local host = hosts[#hosts]
+    if not host then
+      return false
+    end
+    for _, registration in host:inspect().registrations do
+      if registration.kind == 'panel' and registration.name == name and registration.live then
+        return registration.details.pressable == true
+      end
+    end
+    return false
   end
   -- Scrolls the nearest scrolling ancestor with the thumbstick until the node lies inside it.
   local function reveal(fixture: vrUi.Fixture, name: string, path: string, hand: vrUi.Hand): ()

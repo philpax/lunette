@@ -11,6 +11,7 @@ local layout = require './layout'
 local input = require './input'
 local shape = require './shape'
 local placements = require './placements'
+local motion = require './motion'
 
 local panel = {}
 
@@ -29,6 +30,13 @@ local function positive(value: number?, label: string): ()
   if value ~= nil then
     assert(type(value) == 'number' and value > 0 and value < math.huge, `ui: the panel {label} is a positive length`)
   end
+end
+
+-- A finite curve in metres⁻¹ and a finite axis angle in radians. The shape limits how far a curve wraps.
+local function bend(curve: number, axis: number): (number, number)
+  assert(type(curve) == 'number' and curve == curve and math.abs(curve) < math.huge, 'ui: a curve is a finite number')
+  assert(type(axis) == 'number' and axis == axis and math.abs(axis) < math.huge, 'ui: a curve axis is a finite angle')
+  return curve, axis
 end
 
 -- Builds the panel record, its handle, and its surface.
@@ -54,12 +62,11 @@ function panel.new(
   )
   record.presentation = presentation
   record.visible = options.visible ~= false
-  local curve = options.curve or 0
-  assert(type(curve) == 'number' and curve >= 0 and curve < 10, 'ui: a curve is from 0 to 10 per metre')
-  record.curve = curve
+  record.curve, record.curveAxis = bend(options.curve or 0, options.curveAxis or 0)
   record.grabbable = (presentation == 'world' or presentation == 'attach') and options.grabbable ~= false
   record.placeAhead = presentation == 'world' and options.pose == nil
   record.remembered = presentation == 'world' and record.grabbable
+  record.placementKey = if record.remembered then record.name else nil
   if presentation == 'attach' then
     local target = options.target
     assert(target ~= nil and target.width and target.height, 'ui: an attached panel names a target surface')
@@ -80,6 +87,8 @@ function panel.new(
     record.modality = modality
     record.parent = if options.parent then provider.resolve(options.parent) else nil
   end
+  local parent = record.parent
+  record.essential = options.essential == true or (parent ~= nil and parent.essential)
   local env = provider.env
 
   local mount: uiHost.Mount = {
@@ -106,10 +115,6 @@ function panel.new(
   local handle: uiHost.Panel
   local surface = panel.surface(provider, record, function(pose: Mat4): ()
     handle:setPose(pose)
-    -- A grab moved the panel, so the host saves where it rests once it stops moving.
-    if record.remembered then
-      record.settling = 0
-    end
   end)
   handle = {
     name = record.name,
@@ -141,17 +146,30 @@ function panel.new(
         table.insert(record.changes, change)
       end
     end,
-    setCurve = function(_self: uiHost.Panel, curve: number): ()
-      assert(type(curve) == 'number' and curve >= 0 and curve < 10, 'ui: a curve is from 0 to 10 per metre')
-      record.curve = curve
+    setCurve = function(_self: uiHost.Panel, curve: number, axis: number?): ()
+      record.curve, record.curveAxis = bend(curve, axis or record.curveAxis)
     end,
     setGrabbable = function(_self: uiHost.Panel, grabbable: boolean): ()
       record.grabbable = (record.presentation == 'world' or record.presentation == 'attach') and grabbable == true
       record.sync()
     end,
+    setPlacementKey = function(_self: uiHost.Panel, key: string?): ()
+      assert(key == nil or (type(key) == 'string' and key ~= ''), 'ui: a placement key is a non-empty string')
+      record.placementKey = key
+      record.sync()
+    end,
     setGap = function(_self: uiHost.Panel, gap: number): ()
       assert(type(gap) == 'number' and gap >= 0 and gap < math.huge, 'ui: a gap is a non-negative length')
       record.gap = gap
+    end,
+    setOpacity = function(_self: uiHost.Panel, opacity: number): ()
+      assert(type(opacity) == 'number' and opacity >= 0 and opacity <= 1, 'ui: an opacity is from 0 to 1')
+      record.opacity.target = opacity
+      -- A panel fading out gives up its focus as a hidden one does.
+      if opacity <= 0 and record.focused then
+        env.blurNode(record.focused)
+      end
+      record.sync()
     end,
     setVisible = function(_self: uiHost.Panel, visible: boolean): ()
       record.visible = visible == true
@@ -186,6 +204,7 @@ function panel.surface(provider: Provider, record: records.Panel, setPose: ((Mat
     kind = nil,
     dead = false,
     grabbable = record.grabbable,
+    placementKey = record.placementKey,
     pose = record.pose,
     width = record.width,
     height = record.height,
@@ -195,22 +214,32 @@ function panel.surface(provider: Provider, record: records.Panel, setPose: ((Mat
       direction: vector,
       backFace: boolean?
     ): (number?, number?, number?)
-      if record.dead or record.closing or not record.visible or record.width <= 0 or record.height <= 0 then
+      if record.dead or record.closing or not motion.shown(record) or record.width <= 0 or record.height <= 0 then
         return nil, nil, nil
       end
       local localOrigin, localDirection = shape.localRay(record, origin, direction)
       -- A flat panel answers rays from behind only when asked, as window panels do.
-      if record.curve <= 0 and localDirection.z >= 0 and not backFace then
+      if record.curve == 0 and localDirection.z >= 0 and not backFace then
         return nil, nil, nil
       end
-      return shape.ray(record, localOrigin, localDirection, true)
+      local u, v, distance = shape.ray(record, localOrigin, localDirection, true)
+      return u, v, if distance then distance * record.scale else nil
     end,
     project = function(_self: vocabulary.Surface, origin: vector, direction: vector): (number?, number?, number?)
       if record.width <= 0 or record.height <= 0 then
         return nil, nil, nil
       end
       local localOrigin, localDirection = shape.localRay(record, origin, direction)
-      return shape.ray(record, localOrigin, localDirection, false)
+      local u, v, distance = shape.ray(record, localOrigin, localDirection, false)
+      return u, v, if distance then distance * record.scale else nil
+    end,
+    -- A two-handed grab zooms the panel: the width it asks for, in world metres, sets a uniform scale.
+    setSize = function(_self: vocabulary.Surface, width: number?, _height: number?): ()
+      if record.dead or not width or not (width > 0) or width == math.huge or not (record.width > 0) then
+        return
+      end
+      record.scale = width / record.width
+      record.sync()
     end,
     triggerGrabs = function(_self: vocabulary.Surface, x: number, y: number): boolean
       return not record.dead and input.grabs(record, env, x, y)
@@ -235,9 +264,10 @@ function panel.surface(provider: Provider, record: records.Panel, setPose: ((Mat
   }
   local fields = surface :: any
   record.sync = function(): ()
-    fields.width, fields.height = record.width, record.height
+    fields.width, fields.height = record.width * record.scale, record.height * record.scale
     fields.grabbable = record.grabbable
-    fields.dead = record.dead or record.closing or not record.visible
+    fields.placementKey = record.placementKey
+    fields.dead = record.dead or record.closing or not motion.shown(record)
   end
   return surface
 end
@@ -277,10 +307,15 @@ function panel.record(
     focused = nil,
     session = nil,
     fade = nil,
+    opacity = motion.channel(1),
     ghosts = {},
     closing = false,
+    essential = false,
+    suppressed = false,
     presentation = 'world',
     curve = 0,
+    curveAxis = 0,
+    scale = 1,
     target = nil,
     gap = 0,
     rootSize = nil,

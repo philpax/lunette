@@ -155,7 +155,7 @@ function fixture.open(env: Environment): ()
   env.running:tracked('left', true)
   env.running:step(0)
   wristMenu.open(env.running, env.menuPanels)
-  env.menuPanels:click(env.running, wristMenu.PANEL, wristMenu.row 'desktop/backdrop/open')
+  env.menuPanels:click(env.running, wristMenu.LIST, wristMenu.row 'desktop/backdrop/open')
   env.running:tracked('left', false)
   -- The panel renders what the action changed at the next commit.
   env.running:step(0)

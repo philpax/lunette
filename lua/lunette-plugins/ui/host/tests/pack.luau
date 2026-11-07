@@ -227,6 +227,7 @@ local function mixed(): any
     panel = {
       root = root,
       fade = { value = 0.5 },
+      opacity = { value = 1 },
       ghosts = {
         {
           opacity = { value = 0.25 },
@@ -386,7 +387,13 @@ test('reusing packed output shrinks active buffers and clears images, volumes, a
     },
   }
   local root = node(70, 80, 7, { box(), label })
-  local result = pack.run({ root = root, fade = { value = 2 }, ghosts = {} }, env, {}, glyphs, packed)
+  local result = pack.run(
+    { root = root, fade = { value = 2 }, opacity = { value = 1 }, ghosts = {} },
+    env,
+    {},
+    glyphs,
+    packed
+  )
   expect.equal(result, packed)
   expect.equal(result.boxes, boxes)
   expect.equal(result.glyphs, pages)
@@ -407,7 +414,7 @@ test('reusing packed output shrinks active buffers and clears images, volumes, a
   glyphBuffers(result, { [9] = { expectedGlyph({ 71.375, 80.375, 1.5, 2 }, ATLAS_A, 1, UNCLIPPED, 7.015885) } })
   expect.equal(#images, 0)
   expect.equal(#volumes, 0)
-  expect.equal(pack.run({ ghosts = {} }, env, {}, glyphs, result), result)
+  expect.equal(pack.run({ opacity = { value = 1 }, ghosts = {} }, env, {}, glyphs, result), result)
   expect.equal(result.count, 0)
   glyphBuffers(result, {})
   expect.equal(#images, 0)
@@ -429,7 +436,8 @@ test('a nested pack during glyph lookup cannot overwrite the outer invocation pl
   local nested: pack.Packed? = nil
   local calls = 0
   local outer = pack.run(
-    { root = root, fade = { value = 0.5 }, ghosts = {} },
+    -- The host's fade and the owner's opacity multiply.
+    { root = root, fade = { value = 0.8 }, opacity = { value = 0.625 }, ghosts = {} },
     env,
     {},
     function(face: number, id: number): pack.Glyph?

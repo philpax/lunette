@@ -388,8 +388,12 @@ export type PanelOptions = {
   -- 'world' stays where it is put; 'follow' lazily follows the head, as toasts do; 'dialog' floats in front of its
   -- parent panel, or in front of the head without one, and is modal.
   read presentation: ('world' | 'follow' | 'dialog' | 'attach')?,
-  -- Bends the panel as a vertical cylinder of radius 1 / curve, centred on the viewer's side; zero is flat.
+  -- Bends the panel as a cylinder of radius 1 / |curve| metres: towards the viewer when positive, and away when negative,
+  -- as a band wraps a wrist. Zero is flat. The arc wraps at most half a turn either side of the centre line, and a
+  -- tighter curve is drawn and hit at that limit.
   read curve: number?,
+  -- Radians the cylinder's axis turns anticlockwise from the panel's vertical; zero bends the panel's width.
+  read curveAxis: number?,
   -- An attached panel sits above the top edge of a surface, such as a window panel, is at least as wide as it,
   -- growing to fit content that needs more, and moves it when grabbed; `gap` is metres between the two.
   read target: vocabulary.Surface?,
@@ -397,6 +401,9 @@ export type PanelOptions = {
   read parent: Panel?,
   -- A dialog blocks presses on its parent panel, or on every other toolkit panel when it is session-modal.
   read modality: ('panel' | 'session')?,
+  -- An essential panel, such as the wrist menu, stays shown while panels are hidden together. Its overlays and
+  -- dialogs are essential with it.
+  read essential: boolean?,
 }
 
 export type Panel = {
@@ -407,13 +414,19 @@ export type Panel = {
   read setPose: (Panel, Mat4) -> (),
   read size: (Panel) -> (number, number),
   read setVisible: (Panel, boolean) -> (),
-  read setCurve: (Panel, number) -> (),
+  -- Fades a visible panel toward an opacity from 0 to 1 with the theme's motion, or at once under reduced motion. A
+  -- panel that is fading out, or that is nearly transparent, takes no pointer, touch, or focus input.
+  read setOpacity: (Panel, number) -> (),
+  -- Sets the curve, and the axis when given.
+  read setCurve: (Panel, number, number?) -> (),
   -- Sets a fixed panel's size, or a content-sized panel's maximum, in metres.
   read setSize: (Panel, number?, number?) -> (),
   -- Whether the grip and a header's trigger drag move a world or attached panel.
   read setGrabbable: (Panel, boolean) -> (),
   -- Sets the gap above an attached panel's target.
   read setGap: (Panel, number) -> (),
+  -- Sets or clears the name placement memory remembers the panel by. A grabbable world panel starts with its own name.
+  read setPlacementKey: (Panel, string?) -> (),
   read destroy: (Panel) -> (),
   -- The live node with this key path, such as 'controls/enabled', for tests and inspection.
   read find: (Panel, string) -> Node?,
@@ -421,6 +434,9 @@ export type Panel = {
 
 export type Service = {
   read newPanel: (Service, Owner, PanelOptions) -> Panel,
+  -- Hides every panel that is not essential, including panels made while it holds, until the effect is disposed or
+  -- its owner ends. Hidden panels give up their focus and take no input.
+  read hidePanels: (Service, Owner) -> plugin.Effect,
   read registerKind: (Service, Owner, KindRegistration) -> Constructor,
   read registerVisual: (Service, Owner, string, Visual) -> plugin.Effect,
   -- Replaces a registered kind under its name for the owner's lifetime. The newest live override is current, fields

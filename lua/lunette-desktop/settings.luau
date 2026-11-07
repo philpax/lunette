@@ -30,10 +30,12 @@ local desktopMonitors = require '@lunette-plugins/panels/monitors/config'
 local desktopAccessibility = require '@lunette-plugins/ui/accessibility-settings/config'
 local desktopRules = require '@lunette-plugins/window/configured-rules/config'
 local desktopPersistence = require '@lunette-plugins/layout/persistence/config'
+local desktopPlacementMemory = require '@lunette-plugins/layout/placement-memory/config'
 local desktopArrange = require '@lunette-plugins/layout/arrange/config'
 local desktopAdoption = require '@lunette-plugins/window/adoption-controller/config'
 local desktopPacing = require '@lunette-plugins/pacing/controller/config'
 local desktopManager = require '@lunette-plugins/session/plugin-manager/config'
+local desktopActions = require '@lunette-plugins/session/menu-actions/config'
 
 -- Typed constructor witnesses avoid expanding nested key unions and recursive rule contracts at each wrapper.
 local optional = (schema.optional :: unknown) :: <I, O>(schema.Schema<I, O>) -> schema.Schema<I?, O?>
@@ -66,10 +68,12 @@ local shape: {
   read ['desktop/monitors']: schema.Schema<desktopMonitors.Config?, desktopMonitors.Settings?>,
   read ['desktop/rules']: schema.Schema<desktopRules.Config?, desktopRules.Settings?>,
   read ['desktop/persistence']: schema.Schema<desktopPersistence.Config?, desktopPersistence.Settings?>,
+  read ['desktop/placement-memory']: schema.Schema<desktopPlacementMemory.Config?, desktopPlacementMemory.Settings?>,
   read ['desktop/arrange']: schema.Schema<desktopArrange.Config?, desktopArrange.Settings?>,
   read ['desktop/adoption']: schema.Schema<desktopAdoption.Config?, desktopAdoption.Settings?>,
   read ['desktop/pacing']: schema.Schema<desktopPacing.Config?, desktopPacing.Settings?>,
   read ['desktop/manager']: schema.Schema<desktopManager.Config?, desktopManager.Settings?>,
+  read ['desktop/actions']: schema.Schema<desktopActions.Config?, desktopActions.Settings?>,
   read ['desktop/accessibility']: schema.Schema<desktopAccessibility.Config?, desktopAccessibility.Settings?>,
 } =
   {
@@ -107,10 +111,14 @@ local shape: {
     ['desktop/persistence'] = optional<<desktopPersistence.Config, desktopPersistence.Settings>>(
       desktopPersistence.schema
     ),
+    ['desktop/placement-memory'] = optional<<desktopPlacementMemory.Config, desktopPlacementMemory.Settings>>(
+      desktopPlacementMemory.schema
+    ),
     ['desktop/arrange'] = optional<<desktopArrange.Config, desktopArrange.Settings>>(desktopArrange.schema),
     ['desktop/adoption'] = optional<<desktopAdoption.Config, desktopAdoption.Settings>>(desktopAdoption.schema),
     ['desktop/pacing'] = optional<<desktopPacing.Config, desktopPacing.Settings>>(desktopPacing.schema),
     ['desktop/manager'] = optional<<desktopManager.Config, desktopManager.Settings>>(desktopManager.schema),
+    ['desktop/actions'] = optional<<desktopActions.Config, desktopActions.Settings>>(desktopActions.schema),
     ['desktop/accessibility'] = optional<<desktopAccessibility.Config, desktopAccessibility.Settings>>(
       desktopAccessibility.schema
     ),

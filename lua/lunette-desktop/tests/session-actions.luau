@@ -59,7 +59,7 @@ test('wrist menu actions are VR accessible', function()
   fixture:step()
   wristMenu.open(fixture, panels)
   local function invoke(id: string)
-    panels:click(fixture, wristMenu.PANEL, wristMenu.row(id), 'right')
+    panels:click(fixture, wristMenu.LIST, wristMenu.row(id), 'right')
   end
   invoke 'desktop/keyboard/toggle'
   expect.truthy(services.display:isVisible(), 'Keyboard shows the shared board')
@@ -73,7 +73,8 @@ test('wrist menu actions are VR accessible', function()
   invoke 'desktop/manager/open'
   expect.equal(#services.surfaces:all(), beforeManager + 1, 'Plugins opens the manager panel surface')
   wristMenu.close(fixture, panels)
-  expect.truthy(panels:node(wristMenu.PANEL, 'open'), 'Close returns the menu to its wrist button')
+  expect.falsy(panels:pressable(wristMenu.LIST), 'Close puts the list away')
+  expect.truthy(panels:pressable(wristMenu.PANEL), 'and the gauntlet stays on the wrist')
   local shutdown = testing.host.shutdown()
   expect.equal(#shutdown, 0, 'the session releases its resources: ' .. table.concat(shutdown, '\n'))
   native.assertResourcesReleased()

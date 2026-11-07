@@ -8,7 +8,7 @@ The host accepts the closed presentation values `world`, `follow`, `dialog`, and
 
 World panels stay at their supplied or initial pose until moved. Follow panels lazily follow the head. Dialog panels sit in front of their parent or the head and apply modality. Attached panels sit above a target surface and direct grabs to that target.
 
-A caller can set a panel's pose explicitly, as the wrist-menu consumer does. Wrist and summoned placement are consumer policy rather than registered host presentations. There is no automatic angular-size preservation, presentation-scale system, or density transition protocol.
+A caller can set a panel's pose explicitly, as the wrist-menu consumer does. Wrist and summoned placement are consumer policy rather than registered host presentations. A consumer can also fade a panel with an owner opacity, as the wrist menu does when it faces away from the head. The host animates that opacity with the theme's motion, multiplies it with its own fades, and withdraws the panel from pointer, touch, and focus input while it fades out or is nearly transparent. An overlay follows its opener's opacity. A plugin can hide every panel together with the host's `hidePanels` effect; an essential panel, such as the wrist menu, and its overlays and dialogs stay shown. There is no automatic angular-size preservation, presentation-scale system, or density transition protocol.
 
 ## Comfort
 
@@ -58,9 +58,11 @@ The [notification contract](../../../lua/lunette-contracts/notifications.luau) o
 
 ## World panels and arrangement
 
-A grabbable world panel saves its resting pose under its name in the host's `placed` setting. A later panel with that name uses the saved pose. A caller that poses a panel every frame disables grabbing rather than allowing that placement to overwrite its pose policy. Forgetting `placed` in the runtime manager returns panels to their caller-supplied poses.
+A grabbable world panel offers its name as its surface's placement key, and [placement memory](../../../lua/lunette-plugins/layout/placement-memory/README.md) saves its pose and zoomed width when it is dropped and restores them when a panel with that name opens. Placements saved in the host's older `placed` setting still apply until placement memory saves a newer one. A caller that poses a panel every frame disables grabbing rather than allowing that placement to overwrite its pose policy.
 
-This setting is not a maintained arrangement of toolkit panels. Tagging, automatic reflow, shared layout membership, and saved size or curvature are not guaranteed by it. [#71](https://github.com/philpax/lunette/issues/71) tracks maintained arrangements. Any persistent format change needs the old-reader, new-reader, and old-writer compatibility policy, including an appropriate format version rather than silently dropping unfamiliar fields.
+A two-handed grab zooms a grabbable panel uniformly, as it scales window panels: text and controls grow with the panel, and layout keeps its unscaled metres. Overlays zoom with their opener. Resizing a panel so that its layout reflows is not supported; [#8](https://github.com/philpax/lunette/issues/8) tracks the equivalent for window contents.
+
+This setting is not a maintained arrangement of toolkit panels. Tagging, automatic reflow, shared layout membership, and saved curvature are not guaranteed by it. [#71](https://github.com/philpax/lunette/issues/71) tracks maintained arrangements. Any persistent format change needs the old-reader, new-reader, and old-writer compatibility policy, including an appropriate format version rather than silently dropping unfamiliar fields.
 
 ## Input modes
 

@@ -160,8 +160,12 @@ export type Panel = {
   focused: Node?,
   session: any?,
   presentation: 'world' | 'follow' | 'dialog' | 'attach',
-  -- The panel bends as a vertical cylinder of radius 1 / curve; zero is flat.
+  -- The panel bends as a cylinder of radius 1 / |curve|, towards the viewer when positive and away when negative, about
+  -- an axis turned anticlockwise from the panel's vertical by curveAxis radians; zero is flat.
   curve: number,
+  curveAxis: number,
+  -- A uniform zoom about the panel's centre. Layout stays in unscaled metres; drawing and hit testing scale them.
+  scale: number,
   -- The surface an attached panel sits above, and the gap between them.
   target: vocabulary.Surface?,
   gap: number,
@@ -172,17 +176,22 @@ export type Panel = {
   modality: ('panel' | 'session')?,
   -- The panel's own fade, for panels that fade in and out, and the ghosts of exiting nodes.
   fade: Channel?,
+  -- The opacity its owner asks for, which multiplies the host's own fade.
+  opacity: Channel,
   ghosts: { Ghost },
   -- Set while a panel fades out before it is destroyed; it takes no hits.
   closing: boolean,
+  -- An essential panel stays shown while panels are hidden together; a suppressed one is hidden by that.
+  essential: boolean,
+  suppressed: boolean,
   -- The follow presentation's current target, which it moves to only when the head turns far enough away.
   followTarget: Mat4?,
   -- Set for a world panel made without a pose, until the host places it ahead of the head or its owner poses it.
   placeAhead: boolean?,
-  -- Set for a world panel made grabbable, whose resting place the host saves after a grab moves it, and the seconds
-  -- since the grab last moved it.
+  -- Set for a world panel made grabbable, which placement memory remembers by the panel's name.
   remembered: boolean?,
-  settling: number?,
+  -- The surface's placement key: the panel's name for a remembered panel, or what its owner sets.
+  placementKey: string?,
   -- The outlet instances placed in the panel, whose contributions render in its commits.
   placements: { Placement },
 }

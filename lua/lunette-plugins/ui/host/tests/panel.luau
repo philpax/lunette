@@ -1,6 +1,7 @@
 local testing = require '@testing'
 local panels = require '../private/panel'
 local input = require '../private/input'
+local motion = require '../private/motion'
 local fixture = require '@testing/ui-host'
 local expect = testing.expect
 local test = testing.suite()
@@ -73,6 +74,49 @@ test('internal fade destruction publishes surface liveness without a public hand
   panels.destroy(provider, record)
   local releases = counts()
   expect.equal(releases, 1, 'internal cleanup is idempotent')
+end)
+
+local function hits(surface: any): boolean
+  return surface:raycast(vector.pack(0, 0, 1), vector.pack(0, 0, -1)) ~= nil
+end
+
+test('an owner opacity fades the panel and gates its input', function()
+  local _, record, handle, surface = made()
+  expect.truthy(hits(surface), 'an opaque panel takes rays')
+  handle:setOpacity(0)
+  expect.truthy(surface.dead, 'a panel fading out withdraws its surface at once')
+  expect.falsy(hits(surface), 'a panel fading out takes no rays at once')
+  expect.equal(record.opacity.value, 1, 'the opacity animates rather than jumping')
+  motion.panel(record, 1, 0.1)
+  expect.near(record.opacity.value, 0, 1e-6, 'the fade settles')
+  handle:setOpacity(1)
+  expect.falsy(hits(surface), 'a transparent panel fading in is not yet pressable')
+  motion.panel(record, 1, 0.1)
+  record.sync()
+  expect.falsy(surface.dead, 'the surface returns once the panel is opaque again')
+  expect.truthy(hits(surface), 'an opaque panel takes rays again')
+end)
+
+test('an owner opacity is a number from 0 to 1', function()
+  local _, _, handle = made()
+  for _, bad in { -0.1, 1.5, 0 / 0, 'half' :: any } do
+    expect.falsy(pcall(handle.setOpacity, handle, bad), `{tostring(bad)} is refused`)
+  end
+end)
+
+test('a size from a two-handed grab zooms the panel, and hits follow the zoom', function()
+  local _, record, _, surface = made()
+  surface:setSize(0.4)
+  expect.near(record.scale, 2, 1e-9, 'twice the width is twice the zoom')
+  expect.near(surface.width, 0.4, 1e-9, 'the surface reports the zoomed width')
+  expect.near(surface.height, 0.2, 1e-9, 'and keeps the proportions')
+  expect.near(record.width, 0.2, 1e-9, 'layout keeps its unscaled width')
+  local u, v, distance = surface:raycast(vector.pack(0.15, 0, 1), vector.pack(0, 0, -1))
+  assert(u and v and distance, 'a ray beyond the unscaled edge but inside the zoomed one hits')
+  expect.near(u, 0.175, 1e-6, 'panel coordinates stay unscaled')
+  expect.near(distance, 1, 1e-6, 'the distance is in world metres')
+  surface:setSize(0)
+  expect.near(record.scale, 2, 1e-9, 'a size of zero is ignored')
 end)
 
 return test

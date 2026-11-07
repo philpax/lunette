@@ -11,6 +11,8 @@ export type Action = {
   read id: string,
   read label: string,
   read group: string?,
+  -- An SVG document a renderer may draw in place of the label where space is short. The label still names the action.
+  read icon: string?,
   read enabled: boolean?,
   read selected: boolean?,
   read run: () -> (),
@@ -20,6 +22,8 @@ export type Action = {
 export type State = {
   read enabled: boolean?,
   read selected: boolean?,
+  -- A toggle can show its state by swapping its icon. An action registered without an icon can gain one.
+  read icon: string?,
 }
 
 -- A registration the owner keeps to change its action's state. `update` returns false once the action is gone.
@@ -37,6 +41,7 @@ export type Descriptor = {
   read id: string,
   read label: string,
   read group: string,
+  read icon: string?,
   read enabled: boolean,
   read selected: boolean,
   read token: Token,

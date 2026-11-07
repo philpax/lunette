@@ -39,9 +39,6 @@ type Live = {
   packed: pack.Packed?,
 }
 
--- Seconds a grabbed panel stays still before the host saves where it rests.
-local SETTLE_SECONDS = 0.5
-
 local function build(context: plugin.Context, settings: Settings): uiHost.Service
   local frameService = context:require(frame.capability)
   local surfaceService = context:require(surfaces.capability)
@@ -49,7 +46,6 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
   local interactionService = context:require(interaction.capability)
   local traverse: traversal.Traversal
   local themeService = context:require(themeContract.capability)
-  local placed = table.clone(settings.placed) :: { [string]: config.Placement }
   local current = themeService:current()
   local kinds = registry.new(context)
   local contributions = outlets.new()
@@ -131,11 +127,26 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
     end,
   }
 
+  -- Live hidePanels effects. While any holds, every panel that is not essential is suppressed.
+  local hiders = 0
+  local function suppress(record: records.Panel): ()
+    local suppressed = hiders > 0 and not record.essential
+    if suppressed == record.suppressed then
+      return
+    end
+    record.suppressed = suppressed
+    if suppressed and record.focused then
+      env.blurNode(record.focused)
+    end
+    record.sync()
+  end
+
   provider = {
     env = env,
     router = router,
     offer = function(record: records.Panel, surface: vocabulary.Surface): ()
       table.insert(live, { record = record, surface = surface })
+      suppress(record)
     end,
     resolve = function(handle: uiHost.Panel): records.Panel
       return assert(recordsOf[handle], 'ui: the panel was not made by this host')
@@ -191,7 +202,7 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
       local list: { vocabulary.Surface } = {}
       for _, entry in live do
         local relation = entry.record.overlay
-        if entry.record.visible and entry.record.width > 0 and (relation == nil or relation.hit) then
+        if motion.shown(entry.record) and entry.record.width > 0 and (relation == nil or relation.hit) then
           list[#list + 1] = entry.surface
         end
       end
@@ -233,23 +244,6 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
   end
   themeService:onChanged(context, { run = retheme })
 
-  -- Saves where a grabbed panel came to rest, once a grab has left it still for a moment, so a drag writes once.
-  local function rest(record: records.Panel, dt: number): ()
-    local settling = record.settling
-    if settling == nil then
-      return
-    end
-    settling += dt
-    record.settling = settling
-    if settling < SETTLE_SECONDS or record.dead then
-      return
-    end
-    record.settling = nil
-    local x, y, z, angle, ax, ay, az = record.pose:getPose()
-    placed[record.name] = { position = vector.create(x, y, z), rotation = { angle, ax, ay, az } }
-    context:save { placed = table.clone(placed) }
-  end
-
   local function setDefaultAppearance(on: boolean): ()
     if kinds.defaultAppearance ~= on then
       kinds.defaultAppearance = on
@@ -272,11 +266,13 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
         overlay.place(provider, entry.record)
         -- Reduced motion snaps every channel to its target.
         local record = entry.record
-        motion.panel(record, dt, if access.reducedMotion then 0 else current.motion.crisp)
+        if motion.panel(record, dt, if access.reducedMotion then 0 else current.motion.crisp) then
+          -- An owner's fade crosses the opacity that takes input, so the surface republishes whether it is live.
+          record.sync()
+        end
         if record.closing and (record.fade == nil or record.fade.value <= 0.02) then
           table.insert(faded, record)
         end
-        rest(record, dt)
         index += 1
       end
       for _, record in faded do
@@ -333,7 +329,7 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
       end
       for _, entry in live do
         local record = entry.record
-        if record.visible and record.root and record.width > 0 and record.height > 0 then
+        if record.visible and not record.suppressed and record.root and record.width > 0 and record.height > 0 then
           protected.call(`ui: panel '{record.name}' draw`, function(): ()
             layout.place(record)
             local packed = pack.run(record, env, function(name: string): { uiHost.Visual }
@@ -370,7 +366,9 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
       end
       local record, handle = panels.new(provider, owner, options)
       recordsOf[handle] = record
-      local saved = record.remembered and placed[record.name]
+      -- Placements saved before placement memory existed still open a panel where it was left; placement memory
+      -- replaces them once the panel is next dropped.
+      local saved = record.remembered and settings.placed[record.name]
       if saved then
         local rotation = saved.rotation
         local angle, ax, ay, az = rotation[1], rotation[2], rotation[3], rotation[4]
@@ -383,6 +381,22 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
         end
       end)
       return handle
+    end,
+    hidePanels = function(_self: uiHost.Service, owner: plugin.Owner): plugin.Effect
+      context:checkOwner(owner)
+      local function apply(): ()
+        for _, entry in live do
+          suppress(entry.record)
+        end
+      end
+      return context:acquire(owner, function(): () -> ()
+        hiders += 1
+        apply()
+        return function(): ()
+          hiders -= 1
+          apply()
+        end
+      end)
     end,
     registerKind = function(
       _self: uiHost.Service,
@@ -576,6 +590,8 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
             height = record.height,
             nodes = count,
             visible = record.visible,
+            -- Whether the panel takes input, which it does not while hidden or faded out.
+            pressable = motion.shown(record),
             presentation = record.presentation,
           })
         )

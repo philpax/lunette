@@ -6,11 +6,31 @@ local expanded = schema.object {
   width = schema.default(positive)(0.32),
   height = schema.default(positive)(0.4),
 }
+local angle = schema.number { minimum = 0, maximum = math.pi }
+-- The menu fades as it turns away from the head, so it is not seen from behind or edge-on.
+local facing = schema.refine(schema.object {
+  -- Radians between the menu's face and the direction to the head within which it is fully opaque.
+  visible = schema.default(angle)(1.25),
+  -- Radians past which it is transparent and takes no input.
+  hidden = schema.default(angle)(math.pi / 2),
+})(function(value: { read visible: number, read hidden: number }): ()
+  if value.hidden <= value.visible then
+    error('hidden is not wider than visible', 0)
+  end
+end)
 local descriptor = schema.object {
   hand = schema.default(hand) 'left',
   size = schema.default(positive)(0.115),
   offset = schema.default(schema.vector())(vector.pack(-0.03, -0.01, 0.125)),
   expanded = schema.default(expanded)(expanded.parse {}),
+  -- Ids of menu actions shown as buttons above the closed menu button, top first. An action that is not registered
+  -- shows no button.
+  shortcuts = schema.default(schema.array(schema.string())) { 'desktop/panels/hide' },
+  -- Saved by the menu: whether its list was open, and whether it was torn off the wrist, so a reload or a restart
+  -- leaves it as it was. Placement memory keeps where a torn-off menu was left.
+  open = schema.default(schema.boolean())(false),
+  detached = schema.default(schema.boolean())(false),
+  facing = schema.default(facing)(facing.parse {}),
 }
 
 export type Hand = schema.Output<typeof(hand)>

@@ -64,7 +64,7 @@ test('the shipped configuration starts on load and survives ten production reloa
     fixture:step()
     wristMenu.open(fixture, panels)
     events.logs = {}
-    panels:click(fixture, wristMenu.PANEL, wristMenu.row 'desktop/reload')
+    panels:click(fixture, wristMenu.LIST, wristMenu.row 'desktop/reload')
     expect.falsy(
       pcall(function(): typeof(require('@lunette-contracts/inspection').snapshot {})
         return currentHost:inspect()

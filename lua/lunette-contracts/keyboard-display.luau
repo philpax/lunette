@@ -14,6 +14,9 @@ export type Service = {
   read hide: (Service) -> boolean,
   read toggle: (Service) -> boolean,
   read isVisible: (Service) -> boolean,
+  -- Keeps the keyboard out of sight and out of reach while the effect holds, without changing its visibility, focus
+  -- intent, or placement, so it returns where it was.
+  read suppress: (Service, Owner) -> plugin.Effect,
   read onChanged: (Service, Owner, Listener) -> plugin.Effect,
 }
 export type Capability = plugin.Capability<Service>

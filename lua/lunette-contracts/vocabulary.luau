@@ -202,6 +202,9 @@ type SurfaceFields = {
   -- Picking prefers a hit on a surface with a higher priority over a nearer hit, and treats nil as 0. Recovery
   -- surfaces use it so that a broken surface in front of them cannot cover them.
   read pickPriority: number?,
+  -- A name that identifies the surface across reloads and sessions, so placement memory can return it to where the
+  -- user left it. Surfaces without one are placed by their owners alone.
+  read placementKey: string?,
   read pose: Mat4?,
   read width: number?,
   read height: number?,
@@ -222,6 +225,7 @@ type MovableFields = {
   read triggerGrabs: ((Surface, number, number) -> boolean)?,
   read grabTarget: ((Surface) -> Surface?)?,
   read pickPriority: number?,
+  read placementKey: string?,
   read pose: Mat4?,
   read width: number?,
   read height: number?,
