@@ -5,6 +5,7 @@ local schema = require '@lunette-plugin/schema'
 local menu = require '@lunette-contracts/menu'
 local logging = require '@lunette-plugins/diagnostics/desktop-logging'
 local controller = require '@self/private/controller'
+local exportName = require '@self/private/export-name'
 
 local descriptor = schema.object {
   capacity = schema.default(schema.number { minimum = 1, maximum = 10000, integer = true })(5400),
@@ -41,8 +42,9 @@ return plugin.consumer<<Config, Settings>> {
       observe = native.observeFrameTiming,
       export = function(contents: string): ()
         local directory = lovr.filesystem.getSaveDirectory()
-        native.saveFile(directory, 'frame-trace.csv', contents)
-        logging.report('frame trace: exported ' .. directory .. '/frame-trace.csv', 'info')
+        local name = exportName.unique(os.date '!%Y%m%d-%H%M%S', lovr.filesystem.getDirectoryItems '')
+        native.saveFile(directory, name, contents)
+        logging.report('frame trace: exported ' .. directory .. '/' .. name, 'info')
       end,
       changed = changed,
     })

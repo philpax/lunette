@@ -10,6 +10,7 @@ test('the development menu owns public observation and exports only after captur
   local callback: ((native.FrameTiming) -> ())? = nil
   local cancelled = 0
   local saved: SavedFile? = nil
+  local files: { string } = {}
   native.observeFrameTiming = function(run: (native.FrameTiming) -> ()): () -> ()
     callback = run
     return function(): ()
@@ -20,10 +21,14 @@ test('the development menu owns public observation and exports only after captur
   native.saveFile = function(directory: string, name: string, contents: string): ()
     expect.equal(callback, nil, 'export never runs during observation')
     saved = { directory = directory, name = name, contents = contents }
+    table.insert(files, name)
   end
   lovr.filesystem = {
     getSaveDirectory = function(): string
       return '/trace-fixture'
+    end,
+    getDirectoryItems = function(_path: string): { string }
+      return table.clone(files)
     end,
   }
   local state = testing.start {
@@ -47,10 +52,16 @@ test('the development menu owns public observation and exports only after captur
   }
   expect.equal(cancelled, 1)
   expect.equal(menus:invoke('dev/frame-trace/export').kind, 'invoked')
-  expect.equal(saved.name, 'frame-trace.csv')
-  expect.truthy(saved.contents:find('formatVersion,sequence,syncTime,sync,interval', 1, true))
-  expect.truthy(saved.contents:find('1,12,1,,0.022,0.001', 1, true))
-  expect.truthy(saved.contents:find('"low,custom",interpreter', 1, true), 'public wire quotes metadata')
+  local first = assert(saved)
+  expect.truthy(first.name:match '^frame%-trace%-%d%d%d%d%d%d%d%d%-%d%d%d%d%d%d%-%d%d%d+%.csv$')
+  expect.truthy(first.contents:find('formatVersion,sequence,syncTime,sync,interval', 1, true))
+  expect.equal(menus:invoke('dev/frame-trace/export').kind, 'invoked')
+  local second = assert(saved)
+  expect.truthy(first.name ~= second.name, 'a repeated export does not overwrite the first')
+  expect.equal(second.directory, first.directory)
+  expect.truthy(second.contents:find('formatVersion,sequence,syncTime,sync,interval', 1, true))
+  expect.truthy(second.contents:find('1,12,1,,0.022,0.001', 1, true))
+  expect.truthy(second.contents:find('"low,custom",interpreter', 1, true), 'public wire quotes metadata')
   expect.equal(menus:invoke('dev/frame-trace/cancel').kind, 'invoked')
   expect.equal(menus:invoke('dev/frame-trace/export').kind, 'unavailable')
   expect.equal(menus:invoke('dev/frame-trace/start').kind, 'invoked')

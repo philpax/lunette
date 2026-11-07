@@ -2,7 +2,7 @@
 
 The development desktop adds Start frame trace, Stop frame trace, Export frame trace, and Cancel frame trace to the wrist menu's Development group. The plugin starts idle and opens no panel. Start replaces the previous capture. Stop retains completed rows. Cancel discards the capture. Completion, cancellation, callback errors, runtime shutdown, and source reload release the public native observation subscription. The timer module must be enabled. A custom `lovr.run` override is not observed.
 
-Export writes `frame-trace.csv` atomically in LÖVR's save directory after observation stops. The log reports the path. A later export replaces that file, so an A/B workflow copies each exported file before the next export. File errors use the normal error stream. Capture duration and capacity are bounded by the entry's schema in `init.luau`; reaching either bound stops observation. Export allocates CSV text only after capture. The capture stores primitive fields in preallocated rows and does not retain native records.
+Export writes a CSV atomically in LÖVR's save directory after observation stops. The filename includes a UTC timestamp in `YYYYMMDD-HHMMSS` form and a sequence number; existing names are skipped so repeated exports, including after a source reload in the same second, keep earlier files. The log reports the path. File errors use the normal error stream. Capture duration and capacity are bounded by the entry's schema in `init.luau`; reaching either bound stops observation. Export allocates CSV text only after capture. The capture stores primitive fields in preallocated rows and does not retain native records.
 
 ## Timing alignment
 
