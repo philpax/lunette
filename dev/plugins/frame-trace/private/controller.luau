@@ -1,4 +1,4 @@
--- Owns capture observation and releases it before stop, cancel, export, and error propagation.
+-- Owns bounded capture observation and exports after manual or automatic completion.
 local plugin = require '@lunette-plugin'
 local capture = require './capture'
 
@@ -11,12 +11,10 @@ export type Options = {
   read export: (string) -> (),
   read changed: (() -> ())?,
 }
+export type Status = 'idle' | 'capturing' | 'pending'
 export type Controller = {
-  read start: (Controller) -> (),
-  read stop: (Controller) -> (),
-  read cancel: (Controller) -> (),
-  read export: (Controller) -> (),
-  read status: (Controller) -> string,
+  read toggle: (Controller) -> (),
+  read status: (Controller) -> Status,
 }
 
 function controller.new(context: plugin.Context, options: Options): Controller
@@ -34,16 +32,22 @@ function controller.new(context: plugin.Context, options: Options): Controller
       held:dispose()
     end
   end
-  return {
-    start = function(): ()
-      assert(observation == nil, 'frame trace: capture is already active')
-      local state = capture.new(options.capacity, options.duration)
-      pending = state
-      observation = context:on {
+  local function export(): ()
+    release()
+    changed()
+    options.export(capture.csv(assert(pending)))
+    pending = nil
+    changed()
+  end
+  local function start(): ()
+    local state = capture.new(options.capacity, options.duration)
+    pending = state
+    local ok, result = pcall(function(): plugin.Effect
+      return context:on {
         event = options.observe,
         run = function(record: capture.Record): ()
-          local ok, message = pcall(capture.observe, state, record)
-          if not ok then
+          local observed, message = pcall(capture.observe, state, record)
+          if not observed then
             release()
             capture.cancel(state)
             pending = nil
@@ -51,34 +55,30 @@ function controller.new(context: plugin.Context, options: Options): Controller
             error(message, 0)
           end
           if state.status ~= 'capturing' then
-            release()
-            changed()
+            export()
           end
         end,
       }
-      changed()
-    end,
-    stop = function(): ()
-      release()
-      if pending then
-        capture.stop(pending)
-      end
-      changed()
-    end,
-    cancel = function(): ()
-      release()
-      if pending then
-        capture.cancel(pending)
-      end
+    end)
+    if not ok then
       pending = nil
       changed()
+      error(result, 0)
+    end
+    observation = result
+    changed()
+  end
+  return {
+    toggle = function(): ()
+      if pending then
+        capture.stop(pending)
+        export()
+      else
+        start()
+      end
     end,
-    export = function(): ()
-      assert(observation == nil and pending ~= nil, 'frame trace: no completed capture to export')
-      options.export(capture.csv(assert(pending)))
-    end,
-    status = function(): string
-      return if pending then pending.status else 'idle'
+    status = function(): Status
+      return if not pending then 'idle' elseif pending.status == 'capturing' then 'capturing' else 'pending'
     end,
   }
 end
