@@ -7,6 +7,7 @@ local model = require '@lunette-plugins/environment/backdrop/private/rendering/m
 local cleanup = require '@lunette-plugins/lifecycle/cleanup'
 local frames = require './aurora-curtain-capture'
 local reference = require './aurora-direct-scene'
+local overlay = require './overlay-copy'
 
 local capture = {}
 export type Scenario = {
@@ -24,6 +25,7 @@ export type Scenario = {
   width: number?,
   height: number?,
   miniature: ('first' | 'last')?,
+  overlayCopy: boolean?,
 }
 export type Bounds = { maximum: number, mean: number, rms: number, alpha: number }
 export type Pair = { actual: { number }, expected: { number } }
@@ -274,20 +276,31 @@ function capture.compare(current: Fixture, scenario: Scenario, bounds: Bounds, s
   end
   local pair: Pair = { actual = {}, expected = {} }
   local ok, failure = pcall(function(): ()
+    local actualEyes = if scenario.overlayCopy then overlay.layers(actual, keep) else nil
+    local expectedEyes = if scenario.overlayCopy then overlay.layers(expected, keep) else nil
     local readbacks = {}
     for eye = 1, 2 do
-      readbacks[eye] = { keep(actual:newReadback(0, 0, eye)), keep(expected:newReadback(0, 0, eye)) }
+      if actualEyes and expectedEyes then
+        readbacks[eye] = {
+          keep(actualEyes[eye]:newReadback()),
+          keep(expectedEyes[eye]:newReadback()),
+          keep(actual:newReadback(0, 0, eye)),
+          keep(expected:newReadback(0, 0, eye)),
+        }
+      else
+        readbacks[eye] = { keep(actual:newReadback(0, 0, eye)), keep(expected:newReadback(0, 0, eye)) }
+      end
     end
-    -- This empty submission flushes readbacks only; production code never submits, waits, or reads pixels.
+    -- This empty submission flushes fixture transfers and readbacks; production code never submits, waits, or reads pixels.
     assert(lovr.graphics.submit {}, 'layer readback flush succeeds')
     for eye, pending in readbacks do
       local images = {}
       for index, readback in pending do
-        readback:wait()
-        assert(readback:isComplete(), 'stereo readback completes')
-        local image = readback:getImage()
-        assert(image, 'stereo readback returns an image')
-        images[index] = keep(image)
+        images[index] = overlay.image(readback, keep)
+      end
+      if scenario.overlayCopy then
+        overlay.identical(images[1], images[3], scenario.name .. ' production copied eye ' .. eye)
+        overlay.identical(images[2], images[4], scenario.name .. ' direct copied eye ' .. eye)
       end
       local error, actualCoverage, expectedCoverage = measured(images[1], images[2], pair.actual, pair.expected)
       local detail = string.format(

@@ -142,4 +142,24 @@ test('miniature-first main recording cannot leave preparation draws reading stal
   end)
 end)
 
+-- These offscreen copies complement the native OpenVR backend recorder without executing OpenVR.
+test(
+  'separate 2D overlay copies preserve the eligible stereo backdrop and independent direct composition',
+  function(): ()
+    capture.withFixture({}, function(current: capture.Fixture): ()
+      for _, samples in { 1, 4 } do
+        capture.compare(current, {
+          name = 'dense partial visibility overlay copies',
+          count = 34,
+          width = 960,
+          height = 640,
+          samples = samples,
+          visibility = 0.35,
+          overlayCopy = true,
+        }, BOUNDS)
+      end
+    end)
+  end
+)
+
 return test
