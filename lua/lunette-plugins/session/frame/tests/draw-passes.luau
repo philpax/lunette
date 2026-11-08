@@ -23,6 +23,16 @@ local function register(env: environment.Environment, name: string, run: contrac
   end)
 end
 
+local function registerResult(
+  env: environment.Environment,
+  name: string,
+  result: contract.DrawPasses
+): adapter.Instance<{}>
+  return register(env, name, function(): contract.DrawPasses
+    return result
+  end)
+end
+
 local function draw(env: environment.Environment): (boolean, contract.DrawPasses?)
   return lovr.draw(env.native.events.pass)
 end
@@ -40,9 +50,7 @@ test('missing handlers, void handlers, nil, and empty lists preserve the draw re
   register(env, 'draw-nil', function(): nil
     return nil
   end)
-  register(env, 'draw-empty', function(): contract.DrawPasses
-    return {}
-  end)
+  registerResult(env, 'draw-empty', {})
   expectNone(env, 'empty results')
   expect.equal(#env.native.events.reported, 0, 'empty results are valid')
   env.session:close()
@@ -54,31 +62,20 @@ test('preparatory passes follow phase, order, registration, and list order', fun
   local a, b, c, d, e = pass(), pass(), pass(), pass(), pass()
   local returned = { a, b }
   environment.consumer(env, 'draw-order', function(context: plugin.Context, service: contract.Service)
-    service:onDraw(context, {
-      phase = 'overlay',
-      run = function(): contract.DrawPasses
-        return { e }
-      end,
-    })
-    service:onDraw(context, {
-      phase = 'scene',
-      order = 1,
-      run = function(): contract.DrawPasses
-        return { d }
-      end,
-    })
-    service:onDraw(context, {
-      phase = 'scene',
-      run = function(): contract.DrawPasses
-        return returned
-      end,
-    })
-    service:onDraw(context, {
-      phase = 'scene',
-      run = function(): contract.DrawPasses
-        return { c }
-      end,
-    })
+    for _, handler in ipairs {
+      { phase = 'overlay', result = { e } },
+      { phase = 'scene', order = 1, result = { d } },
+      { phase = 'scene', result = returned },
+      { phase = 'scene', result = { c } },
+    } do
+      service:onDraw(context, {
+        phase = handler.phase,
+        order = handler.order,
+        run = function(): contract.DrawPasses
+          return handler.result
+        end,
+      })
+    end
   end)
   local skip, extras = draw(env)
   expect.equal(skip, false, 'the first result stays false')
@@ -95,9 +92,7 @@ test('frozen results are copied and the same Pass can be returned in distinct dr
   local env = environment.start()
   local preparation = pass()
   local result = table.freeze { preparation }
-  register(env, 'draw-frozen', function(): contract.DrawPasses
-    return result
-  end)
+  registerResult(env, 'draw-frozen', result)
   local _, first = draw(env)
   local _, second = draw(env)
   expect.equal(first[1], preparation, 'the first invocation collects the frozen result')
@@ -113,9 +108,7 @@ test('a failed callback contributes nothing and does not stop later callbacks', 
   register(env, 'draw-failure', function()
     error 'draw callback failure'
   end)
-  register(env, 'draw-after-failure', function(): contract.DrawPasses
-    return { later }
-  end)
+  registerResult(env, 'draw-after-failure', { later })
   local _, extras = draw(env)
   expect.equal(#extras, 1, 'only the later callback contributes')
   expect.equal(extras[1], later, 'the later callback still runs')
@@ -125,103 +118,35 @@ test('a failed callback contributes nothing and does not stop later callbacks', 
 end)
 
 test('malformed results are reported and discarded atomically', function()
+  local duplicate = pass()
   local cases = {
-    {
-      name = 'boolean',
-      result = function(): unknown
-        return false
-      end,
-      message = 'a plain dense array of Pass objects or nil',
-    },
-    {
-      name = 'scalar',
-      result = function(): unknown
-        return pass()
-      end,
-      message = 'a plain dense array of Pass objects or nil',
-    },
-    {
-      name = 'metatable',
-      result = function(): unknown
-        return setmetatable({}, {})
-      end,
-      message = 'a plain dense array',
-    },
-    {
-      name = 'hole',
-      result = function(): unknown
-        return { [1] = pass(), [3] = pass() }
-      end,
-      message = 'dense',
-    },
-    {
-      name = 'field',
-      result = function(): unknown
-        return { pass(), extra = pass() }
-      end,
-      message = 'dense',
-    },
-    {
-      name = 'zero',
-      result = function(): unknown
-        return { [0] = pass() }
-      end,
-      message = 'dense',
-    },
-    {
-      name = 'fraction',
-      result = function(): unknown
-        return { [1.5] = pass() }
-      end,
-      message = 'dense',
-    },
-    {
-      name = 'large-index',
-      result = function(): unknown
-        return { [1e12] = pass() }
-      end,
-      message = 'dense',
-    },
-    {
-      name = 'invalid-pass',
-      result = function(): unknown
-        return { pass(), {} }
-      end,
-      message = 'result[2] is a Pass object',
-    },
-    {
-      name = 'wrong-object',
-      result = function(): unknown
-        return { pass(), lovr.math.newMat4() }
-      end,
-      message = 'result[2] is a Pass object',
-    },
+    { name = 'boolean', result = false, message = 'a plain dense array of Pass objects or nil' },
+    { name = 'scalar', result = pass(), message = 'a plain dense array of Pass objects or nil' },
+    { name = 'metatable', result = setmetatable({}, {}), message = 'a plain dense array' },
+    { name = 'hole', result = { [1] = pass(), [3] = pass() }, message = 'dense' },
+    { name = 'field', result = { pass(), extra = pass() }, message = 'dense' },
+    { name = 'zero', result = { [0] = pass() }, message = 'dense' },
+    { name = 'fraction', result = { [1.5] = pass() }, message = 'dense' },
+    { name = 'large-index', result = { [1e12] = pass() }, message = 'dense' },
+    { name = 'invalid-pass', result = { pass(), {} }, message = 'result[2] is a Pass object' },
+    { name = 'wrong-object', result = { pass(), lovr.math.newMat4() }, message = 'result[2] is a Pass object' },
+    { name = 'duplicate', result = { duplicate, duplicate }, message = 'already appears' },
     {
       name = 'main',
-      result = function(main: Pass): unknown
+      run = function(main: Pass): unknown
         return { pass(), main }
       end,
       message = 'is the main draw Pass',
-    },
-    {
-      name = 'duplicate',
-      result = function(): unknown
-        local p = pass()
-        return { p, p }
-      end,
-      message = 'already appears',
     },
   }
   for _, case in ipairs(cases) do
     local env = environment.start()
     local before, after = pass(), pass()
-    register(env, 'draw-before', function(): contract.DrawPasses
-      return { before }
+    registerResult(env, 'draw-before', { before })
+    register(env, 'draw-malformed', case.run or function(): unknown
+      return case.result
     end)
-    register(env, 'draw-malformed', case.result)
-    register(env, 'draw-after', function(): contract.DrawPasses
-      return { after }
-    end)
+    registerResult(env, 'draw-after', { after })
     local skip, extras = draw(env)
     expect.equal(skip, false, case.name .. ' keeps the main pass')
     expect.equal(#extras, 2, case.name .. ' contributes no partial result')
@@ -238,15 +163,9 @@ end)
 test('duplicates across callbacks reject the entire later result without reserving its other passes', function()
   local env = environment.start()
   local first, nextPass = pass(), pass()
-  register(env, 'draw-first', function(): contract.DrawPasses
-    return { first }
-  end)
-  register(env, 'draw-duplicate', function(): contract.DrawPasses
-    return { nextPass, first }
-  end)
-  register(env, 'draw-next', function(): contract.DrawPasses
-    return { nextPass }
-  end)
+  registerResult(env, 'draw-first', { first })
+  registerResult(env, 'draw-duplicate', { nextPass, first })
+  registerResult(env, 'draw-next', { nextPass })
   local _, extras = draw(env)
   expect.equal(#extras, 2, 'the invalid result contributes nothing')
   expect.equal(extras[1], first, 'the first callback contributes')
@@ -261,9 +180,7 @@ test('dense results have no arbitrary preparatory pass count limit', function()
   for _ = 1, 96 do
     expected[#expected + 1] = pass()
   end
-  register(env, 'draw-many', function(): contract.DrawPasses
-    return expected
-  end)
+  registerResult(env, 'draw-many', expected)
   local _, extras = draw(env)
   expect.equal(#extras, #expected, 'all preparatory passes are collected')
   expect.equal(#env.native.events.reported, 0, 'the dense result is accepted')
@@ -299,13 +216,9 @@ test('disposed owners and registrations are skipped during draw', function()
     removed:disable()
     return nil
   end)
-  removed = register(env, 'draw-removed', function(): contract.DrawPasses
-    return { returned }
-  end)
+  removed = registerResult(env, 'draw-removed', { returned })
   expectNone(env, 'an owner disposed before its callback')
-  local active = register(env, 'draw-active', function(): contract.DrawPasses
-    return { returned }
-  end)
+  local active = registerResult(env, 'draw-active', { returned })
   local _, extras = draw(env)
   expect.equal(extras[1], returned, 'a live owner contributes')
   active:disable()

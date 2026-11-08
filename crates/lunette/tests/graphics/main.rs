@@ -62,10 +62,6 @@ fn serial_fixtures(roots: &Roots) -> Result<(), String> {
     for module in [
         "multiview-overlay-copy",
         "aurora-baseline",
-        "aurora-optimization",
-        "aurora-sky-texture",
-        "aurora-curtain-texture",
-        "aurora-half-resolution",
         "aurora-bands",
         "aurora-transparency",
         "aurora-reload",

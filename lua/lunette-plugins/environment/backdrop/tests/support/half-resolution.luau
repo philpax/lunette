@@ -6,32 +6,26 @@ local draw = require '../../private/rendering/draw'
 local model = require '../../private/rendering/model'
 local selection = require '../../private/selection/selection'
 local expect = testing.expect
-
 local fixture = {}
+
 export type Environment = {
   session: testing.Session,
   recorder: render.Recorder,
   pass: render.Pass,
-  renderer: draw.Renderer,
   state: model.State,
+  renderer: draw.Renderer,
   diagnostic: selection.Diagnostic,
-  instance: any,
 }
 
-function fixture.boot(samples: number?): Environment
+function fixture.boot(large: boolean?): Environment
   local session = testing.boot {}
   local settings = config.schema.parse {}
   local recorder = session.native.events.render
-  recorder.width, recorder.height, recorder.viewCount, recorder.samples = 960, 640, 2, samples or 4
-  local env = {
-    session = session,
-    recorder = recorder,
-    pass = recorder.pass,
-    state = model.new(settings),
-    diagnostic = 'none',
-  }
-  env.instance = session:use(plugin.consumer({
-    name = 'testing/half-resolution',
+  recorder.width, recorder.height, recorder.viewCount, recorder.samples = if large then 960 else 640, 640, 2, 4
+  local env =
+    { session = session, recorder = recorder, pass = recorder.pass, state = model.new(settings), diagnostic = 'none' }
+  session:use(plugin.consumer({
+    name = 'testing/backdrop-renderer',
     init = function(context: plugin.Context): ()
       env.renderer = draw.new(context, settings, function(): selection.Diagnostic
         return env.diagnostic
@@ -44,16 +38,17 @@ end
 function fixture.frame(env: Environment, count: number?): model.Frame
   local value = table.clone(env.state:update(0, false))
   value.visibility, value.brightness, value.responseStrength, value.time = 1, 0.8, 0.6, 23
-  value.bass, value.mid, value.treble = 0.2, 0.4, 0.6
   value.waves = {}
+  local bands = { 'treble', 'bass', 'mid' }
   for index = 1, count or 9 do
+    local band = bands[(index - 1) % #bands + 1]
     value.waves[index] = {
-      age = 0.08 + index * 0.001,
+      age = 0.08,
       strength = 0.7,
       position = index / 32,
       frequency = index / 32,
-      band = 'bass',
-      lifetime = model.waveLifetimes.bass,
+      band = band,
+      lifetime = model.waveLifetimes[band],
     }
   end
   return value
@@ -69,29 +64,19 @@ function fixture.calls(recorder: render.Recorder, method: string): { render.Call
   return found
 end
 
-function fixture.matrix(actual: Mat4, expected: Mat4, message: string): ()
-  local a, b = { actual:unpack(true) }, { expected:unpack(true) }
-  for index = 1, 16 do
-    expect.equal(a[index], b[index], message .. ' component ' .. index)
-  end
-end
-
 function fixture.seedState(env: Environment): render.Checkpoint
   env.pass:setShader 'unlit'
   env.pass:setColor(0.2, 0.3, 0.4, 0.5)
   env.pass:setDepthTest('greater', 0.7)
   env.pass:setDepthWrite(true)
-  env.pass:setCullMode 'front'
   env.pass:setBlendMode('add', 'alphamultiply')
   env.pass:translate(7, -3, 2)
-  env.pass:rotate(0.4, 0, 1, 0)
-  env.pass:scale(2, 3, 4)
   return env.recorder:checkpoint()
 end
 
 function fixture.preparation(result: { render.Pass }?): render.Pass
   expect.truthy(result, 'the scene returns prerequisite passes')
-  expect.equal(#result, 1, 'one pass prepares the half-resolution curtains')
+  expect.equal(#result, 1, 'one pass prepares the curtains')
   return result[1]
 end
 

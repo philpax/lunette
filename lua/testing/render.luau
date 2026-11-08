@@ -139,9 +139,6 @@ export type Recorder = {
   canvas: Canvas?,
   projections: { Mat4 },
   viewPoses: { Mat4 },
-  formatSupported: boolean,
-  formatSupport: { linear: boolean, srgb: boolean }?,
-  formatQueries: { Arguments },
   passAcquisitions: { Pass },
   passReleases: { Pass },
   passFailure: string?,
@@ -153,12 +150,9 @@ export type Recorder = {
   meshReleases: { Mesh },
   shaderReleases: { Shader },
   bufferReleases: { Buffer },
-  samplerReleases: { Sampler },
-  textureReleases: { Texture },
   meshFailure: string?,
   shaderFailure: string?,
   samplerFailure: string?,
-  textureFailure: string?,
   _state: State,
   _transform: Mat4,
   _stacks: Stacks,
@@ -172,7 +166,6 @@ export type Recorder = {
   newPass: (Recorder, Canvas?) -> Pass,
   isFormatSupported: (Recorder, string, ...string) -> (boolean, boolean),
   textureAcquisitions: { Texture },
-  samplerAcquisitions: { Sampler },
   assertMeshesReleased: (Recorder) -> (),
   assertResourcesReleased: (Recorder) -> (),
   within: <R...>(Recorder, Box, (Pass) -> R...) -> R...,
@@ -226,8 +219,6 @@ function render.new(calls: ({ Call } | () -> { Call })?): Recorder
     canvas = { samples = 4 },
     projections = {},
     viewPoses = {},
-    formatSupported = true,
-    formatQueries = {},
     passAcquisitions = {},
     passReleases = {},
     fontMeasurements = {},
@@ -239,8 +230,6 @@ function render.new(calls: ({ Call } | () -> { Call })?): Recorder
     meshReleases = {},
     shaderReleases = {},
     bufferReleases = {},
-    samplerReleases = {},
-    textureReleases = {},
     _state = {},
     _transform = lovr.math.newMat4(),
     _stacks = { state = {}, transform = {} },
@@ -273,11 +262,8 @@ function Recorder.newPass(self: Recorder, canvas: Canvas?): Pass
   return pass
 end
 
-function Recorder.isFormatSupported(self: Recorder, format: string, ...: string): (boolean, boolean)
-  self.formatQueries[#self.formatQueries + 1] = table.pack(format, ...)
-  local support = self.formatSupport
-  return if support then support.linear else self.formatSupported,
-    if support then support.srgb else self.formatSupported
+function Recorder.isFormatSupported(self: Recorder, _format: string, ...: string): (boolean, boolean)
+  return true, true
 end
 
 function Recorder.newFont(self: Recorder, file: string, size: number, spread: number): Font
@@ -454,22 +440,11 @@ export type Texture = {
   options: any?,
   released: boolean,
   uploads: number,
-  getDimensions: (Texture) -> (number?, number?, number),
-  getLayerCount: (Texture) -> number,
-  getSampleCount: (Texture) -> number,
-  getType: (Texture) -> string,
-  getFormat: (Texture) -> (string, boolean),
   setPixels: (Texture, any) -> (),
   release: (Texture) -> (),
 }
 
 function Recorder.newTexture(self: Recorder, source: any, second: any?, third: any?, fourth: any?): Texture
-  if self.textureFailure then
-    local message = self.textureFailure
-    self.textureFailure = nil
-    error(message, 0)
-  end
-  local recorder = self
   local allocated = type(source) == 'number'
   local layered = allocated and type(third) == 'number'
   local texture: Texture = {
@@ -479,24 +454,6 @@ function Recorder.newTexture(self: Recorder, source: any, second: any?, third: a
     options = if allocated then (if layered then fourth else third) else second,
     released = false,
     uploads = if allocated then 0 else 1,
-    getDimensions = function(texture: Texture): (number?, number?, number)
-      return texture.width, texture.height, texture.layers
-    end,
-    getLayerCount = function(texture: Texture): number
-      return texture.layers
-    end,
-    getSampleCount = function(texture: Texture): number
-      return (texture.options and texture.options.samples) or 1
-    end,
-    getType = function(texture: Texture): string
-      return (texture.options and texture.options.type) or (if layered then 'array' else '2d')
-    end,
-    getFormat = function(texture: Texture): (string, boolean)
-      local options = texture.options
-      local format = (options and options.format) or 'rgba8'
-      local linear = options ~= nil and not not options.linear
-      return format, linear
-    end,
     setPixels = function(texture: Texture, _image: any): ()
       assert(not texture.released, 'render recorder: pixels set on a released texture')
       texture.uploads += 1
@@ -504,7 +461,6 @@ function Recorder.newTexture(self: Recorder, source: any, second: any?, third: a
     release = function(texture: Texture): ()
       assert(not texture.released, 'render recorder: texture released twice')
       texture.released = true
-      recorder.textureReleases[#recorder.textureReleases + 1] = texture
     end,
   }
   self.textureAcquisitions[#self.textureAcquisitions + 1] = texture
@@ -517,12 +473,10 @@ function Recorder.newSampler(self: Recorder, options: any?): Sampler
     self.samplerFailure = nil
     error(message, 0)
   end
-  local recorder = self
   local sampler: Sampler = { options = options, released = false }
   function sampler.release(self: Sampler)
     assert(not self.released, 'render recorder: sampler released twice')
     self.released = true
-    recorder.samplerReleases[#recorder.samplerReleases + 1] = self
   end
   self.samplerAcquisitions[#self.samplerAcquisitions + 1] = sampler
   return sampler
