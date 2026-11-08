@@ -1025,8 +1025,7 @@ declare extern type Pass extends Object with
   function fill(self, texture: Texture?)
   function fill(self)
   function finishTally(self): number
-  function getCanvas(self): { read depth: any, read samples: number }
-  function getCanvas(self)
+  function getCanvas(self): { read depth: any, read samples: number }?
   function getClear(self): {}
   function getDimensions(self): (number, number)
   function getHeight(self): number
@@ -1050,6 +1049,7 @@ declare extern type Pass extends Object with
   function mesh(self, vertices: Buffer?, indices: Buffer, position: vector, scales: vector, orientation: quaternion, start: number?, count: number?, instances: number?, base: number?)
   function mesh(self, vertices: Buffer?, indices: Buffer, transform: Mat4, start: number?, count: number?, instances: number?, base: number?)
   function mesh(self, vertices: Buffer?, indices: Buffer, draws: Buffer, drawcount: number?, offset: number?, stride: number?)
+  function mesh(self, vertexCount: number, x: number?, y: number?, z: number?, scale: number?, angle: number?, ax: number?, ay: number?, az: number?, start: number?, count: number?, instances: number?, base: number?)
   function origin(self)
   function plane(self, x: number?, y: number?, z: number?, width: number?, height: number?, angle: number?, ax: number?, ay: number?, az: number?, style: DrawStyle?, columns: number?, rows: number?)
   function plane(self, position: vector, size: vector, orientation: quaternion, style: DrawStyle?, columns: number?, rows: number?)
@@ -1086,7 +1086,7 @@ declare extern type Pass extends Object with
   function setBlendState(self, index: number, opColor: BlendOp, opAlpha: BlendOp, srcColor: BlendFactor, srcAlpha: BlendFactor, dstColor: BlendFactor, dstAlpha: BlendFactor)
   function setBlendState(self, index: number)
   function setCanvas(self, ...: Texture)
-  function setCanvas(self, canvas: { read depth: any?, read samples: number? })
+  function setCanvas(self, canvas: { read depth: Texture | TextureFormat | boolean | { read texture: Texture, read resolve: Texture? } | nil, read samples: number?, read texture: Texture? })
   function setCanvas(self)
   function setClear(self, hex: number)
   function setClear(self, r: number, g: number, b: number, a: number?)
@@ -1267,7 +1267,7 @@ export type GraphicsModule = {
     & ((modelData: ModelData, options: { read mipmaps: boolean?, read materials: boolean?, read raytracer: { read dynamic: boolean?, read fasttrace: boolean?, read fastbuild: boolean?, read compress: boolean? }? }?) -> Model),
   newPass:
     & ((...Texture) -> Pass)
-    & ((canvas: { read depth: { read format: TextureFormat?, read texture: Texture }, read samples: number? }) -> Pass),
+    & ((canvas: { read depth: Texture | TextureFormat | boolean | { read texture: Texture, read resolve: Texture? }, read samples: number?, read texture: Texture? }) -> Pass),
   newRaytracer: (capacity: number, options: { read dynamic: boolean?, read fasttrace: boolean?, read fastbuild: boolean?, read compress: boolean? }?) -> Raytracer,
   newSampler: (parameters: { read filter: FilterMode | { read [number]: FilterMode } | nil, read wrap: WrapMode | { read [number]: WrapMode } | nil, read compare: CompareMode?, read anisotropy: number?, read mipmaprange: {}? }) -> Sampler,
   newShader:
@@ -2191,7 +2191,7 @@ declare lovr: {
   getVersion: () -> (number, number, number, string, string),
 
   conf: ((t: LovrConfiguration) -> ())?,
-  draw: ((pass: Pass) -> boolean?)?,
+  draw: ((pass: Pass) -> (boolean?, {Pass}?))?,
   errhand: ((message: string) -> (() -> any)?)?,
   filechanged: ((path: string, action: FileAction, oldpath: string?) -> ())?,
   focus: ((focused: boolean, display: DisplayType) -> ())?,

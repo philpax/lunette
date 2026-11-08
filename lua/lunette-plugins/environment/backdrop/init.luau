@@ -116,8 +116,8 @@ create = function(given: Options, attach: Attach?): Factory
       service:onDraw(context, {
         phase = 'scene',
         order = -100,
-        run = function(pass: Pass): ()
-          renderer.render(pass, current, headPosition, facing)
+        run = function(pass: Pass): frame.DrawPasses?
+          return renderer.render(pass, current, headPosition, facing)
         end,
       })
       context:child(responseChild.new(choice, state, settings, function(): boolean

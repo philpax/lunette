@@ -17,6 +17,8 @@ type Totals = {
   audio: number,
   meshes: number,
   shaders: number,
+  textures: number,
+  samplers: number,
   frame: number,
   menu: number,
   host: number,
@@ -153,11 +155,28 @@ local function defaults(services: Services): ()
   expect.equal(current.pinned, nil, 'configuration forgets the pinned application')
 end
 
+local function liveFields(textures: { render.Texture }): number
+  local count = 0
+  for _, texture in textures do
+    if
+      not texture.released
+      and texture.width == 384
+      and texture.height == 384
+      and texture.options.format == 'rgba16f'
+    then
+      count += 1
+    end
+  end
+  return count
+end
+
 local function totals(native: testing.Native, services: Services): Totals
   return {
     audio = live(native.events.audio),
     meshes = live(native.events.render.meshAcquisitions, 'released'),
     shaders = live(native.events.render.shaderAcquisitions, 'released'),
+    textures = liveFields(native.events.render.textureAcquisitions),
+    samplers = live(native.events.render.samplerAcquisitions, 'released'),
     frame = registrations(services.frame),
     menu = registrations(services.menu),
     host = registrations(services.host),
@@ -185,12 +204,24 @@ local function children(
   return parent, result
 end
 
-local function shaderGenerationReleased(native: testing.Native, meshes: { render.Mesh }, shaders: { render.Shader }): ()
+local function shaderGenerationReleased(
+  native: testing.Native,
+  meshes: { render.Mesh },
+  shaders: { render.Shader },
+  textures: { render.Texture },
+  samplers: { render.Sampler }
+): ()
   for _, handle in meshes do
     expect.equal(handle.released, true, 'the previous backdrop mesh is released')
   end
   for _, handle in shaders do
     expect.equal(handle.released, true, 'the previous backdrop shader is released')
+  end
+  for _, handle in textures do
+    expect.equal(handle.released, true, 'the previous texture is released')
+  end
+  for _, handle in samplers do
+    expect.equal(handle.released, true, 'the previous sampler is released')
   end
   expect.equal(
     native.events.audioOpened - native.events.audioClosed,
@@ -264,6 +295,8 @@ local function tenSourceReloads()
       local oldHost = assert(services.host)
       local meshes = table.clone(native.events.render.meshAcquisitions)
       local shaders = table.clone(native.events.render.shaderAcquisitions)
+      local textures = table.clone(native.events.render.textureAcquisitions)
+      local samplers = table.clone(native.events.render.samplerAcquisitions)
       local loaded, failure = lunette.reload()
       expect.truthy(loaded, tostring(failure))
       expect.falsy(
@@ -276,7 +309,7 @@ local function tenSourceReloads()
       step(native, system, nil, pcm)
       step(native, system, nil, pcm)
       expect.equal(lovr.draw(native.events.pass), false, 'the next generation renders')
-      shaderGenerationReleased(native, meshes, shaders)
+      shaderGenerationReleased(native, meshes, shaders, textures, samplers)
       open(current)
       defaults(current)
       lovr.draw(native.events.pass)
@@ -332,7 +365,7 @@ test('provider outages withdraw only dependent backdrop children and recover wit
   step(native, source, nil, pcm)
   session:draw()
   -- The backdrop draws before the UI host in the scene phase, so it acquires the first shaders.
-  local backdropShaders = table.move(native.events.render.shaderAcquisitions, 1, 3, 1, {})
+  local backdropShaders = table.move(native.events.render.shaderAcquisitions, 1, 5, 1, {})
   open(services())
   session:draw()
   local baseline = totals(native, services())
@@ -426,7 +459,7 @@ test('provider outages withdraw only dependent backdrop children and recover wit
       'raw status is independent of analysis'
     )
     expect.equal(session:draw(), false, 'the renderer draws through the provider outage')
-    expect.equal(live(backdropShaders, 'released'), 3, 'the renderer keeps its shaders')
+    expect.equal(live(backdropShaders, 'released'), 5, 'the renderer keeps its shaders')
     if case.status then
       expect.truthy(statusContains(recorder, case.status), 'the control panel reports the missing provider')
     end
@@ -448,6 +481,8 @@ test('provider outages withdraw only dependent backdrop children and recover wit
 
   local meshes = table.clone(native.events.render.meshAcquisitions)
   local shaders = table.clone(native.events.render.shaderAcquisitions)
+  local textures = table.clone(native.events.render.textureAcquisitions)
+  local samplers = table.clone(native.events.render.samplerAcquisitions)
   session.instances.frame:disable()
   session.runtime:drain()
   expect.truthy(session.instances[backdropName]:state() ~= 'active', 'a frame outage withdraws the renderer itself')
@@ -457,6 +492,10 @@ test('provider outages withdraw only dependent backdrop children and recover wit
   end
   for _, handle in shaders do
     expect.equal(handle.released, true, 'a frame outage releases shader resources')
+  end
+  expect.equal(liveFields(textures), 0, 'a frame outage releases the overhead texture')
+  for _, handle in samplers do
+    expect.equal(handle.released, true, 'a frame outage releases sampler resources')
   end
   session.instances.frame:enable()
   session.runtime:drain()

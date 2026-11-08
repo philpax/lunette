@@ -32,6 +32,13 @@ const FORK_BRANCH: &str = "lunette";
 /// What the checker loads: the generated definitions, plus what lovr-docs does
 /// not describe.
 const CHECKER_DEFINITIONS: &str = "etc/lunette/definitions.luau";
+/// The exact metadata module for the callback with host-specific returns.
+const DRAW_METADATA: &str = "lovr/callbacks/draw";
+/// The exact metadata modules for canvas arguments with runtime-supported keys.
+const CANVAS_METADATA: [&str; 2] = ["lovr/graphics/newPass", "lovr/graphics/Pass/setCanvas"];
+/// The exact metadata modules with locally corrected graphics method variants.
+const GRAPHICS_METHOD_METADATA: [&str; 2] =
+    ["lovr/graphics/Pass/getCanvas", "lovr/graphics/Pass/mesh"];
 
 /// The `lunette` module the checker loads, rendered from the Rust
 /// registration surface. The lovr-docs metadata does not describe it.
@@ -345,6 +352,151 @@ fn install_generator_globals(lua: &Lua, api_root: &Path) -> mlua::Result<()> {
     Ok(())
 }
 
+/// Extends the draw callback with the second result interpreted by Lunette's host.
+///
+/// LÖVR's metadata describes only the first result. The host also accepts an
+/// optional array of preparation passes, so this local override adds it only
+/// to the draw callback without changing the vendored metadata.
+fn extend_draw_metadata(lua: &Lua, name: &str, value: mlua::Value) -> mlua::Result<mlua::Value> {
+    if name != DRAW_METADATA {
+        return Ok(value);
+    }
+
+    let mlua::Value::Table(metadata) = value else {
+        return Err(mlua::Error::RuntimeError(
+            "lovr/callbacks/draw metadata is not a table".to_owned(),
+        ));
+    };
+    let returns: Table = metadata.get("returns")?;
+    let preparations = lua.create_table()?;
+    preparations.set("type", "{Pass}?")?;
+    preparations.set(
+        "description",
+        "Optional preparation passes submitted before the main display pass.",
+    )?;
+    returns.set("preparations", preparations)?;
+
+    let variants: Table = metadata.get("variants")?;
+    for index in 1..=variants.raw_len() {
+        let variant: Table = variants.raw_get(index)?;
+        let variant_returns: Table = variant.get("returns")?;
+        let count = variant_returns.raw_len();
+        variant_returns.raw_set(count + 1, "preparations")?;
+    }
+
+    Ok(mlua::Value::Table(metadata))
+}
+
+/// Corrects the optional canvas result and adds the numeric vertex-count draw variant.
+fn extend_graphics_method_metadata(
+    lua: &Lua,
+    name: &str,
+    value: mlua::Value,
+) -> mlua::Result<mlua::Value> {
+    if !GRAPHICS_METHOD_METADATA.contains(&name) {
+        return Ok(value);
+    }
+
+    let mlua::Value::Table(metadata) = value else {
+        return Err(mlua::Error::RuntimeError(format!(
+            "{name} metadata is not a table"
+        )));
+    };
+
+    match name {
+        "lovr/graphics/Pass/getCanvas" => {
+            let returns: Table = metadata.get("returns")?;
+            let canvas: Table = returns.get("canvas")?;
+            canvas.set("type", "table?")?;
+
+            let variants: Table = metadata.get("variants")?;
+            let mut kept = Vec::new();
+            for variant in variants.sequence_values::<Table>() {
+                let variant = variant?;
+                let variant_returns: Table = variant.get("returns")?;
+                if variant_returns.raw_len() > 0 {
+                    kept.push(variant);
+                }
+            }
+            metadata.set("variants", lua.create_sequence_from(kept)?)?;
+        }
+        "lovr/graphics/Pass/mesh" => {
+            let arguments: Table = metadata.get("arguments")?;
+            let vertex_count = lua.create_table()?;
+            vertex_count.set("name", "vertexCount")?;
+            vertex_count.set("type", "number")?;
+            arguments.set("vertexCount", vertex_count)?;
+            let variant_arguments = [
+                "vertexCount",
+                "x",
+                "y",
+                "z",
+                "scale",
+                "angle",
+                "ax",
+                "ay",
+                "az",
+                "start",
+                "count",
+                "instances",
+                "base",
+            ];
+            let variant = lua.create_table()?;
+            variant.set(
+                "description",
+                "Draw a range of vertices using a count and numbers for the transform.",
+            )?;
+            variant.set("arguments", lua.create_sequence_from(variant_arguments)?)?;
+            variant.set("returns", lua.create_table()?)?;
+            let variants: Table = metadata.get("variants")?;
+            variants.raw_set(variants.raw_len() + 1, variant)?;
+        }
+        _ => {
+            return Err(mlua::Error::RuntimeError(format!(
+                "unsupported graphics metadata override {name}"
+            )));
+        }
+    }
+
+    Ok(mlua::Value::Table(metadata))
+}
+
+fn extend_canvas_metadata(lua: &Lua, name: &str, value: mlua::Value) -> mlua::Result<mlua::Value> {
+    if !CANVAS_METADATA.contains(&name) {
+        return Ok(value);
+    }
+
+    let mlua::Value::Table(metadata) = value else {
+        return Err(mlua::Error::RuntimeError(format!(
+            "{name} metadata is not a table"
+        )));
+    };
+    let arguments: Table = metadata.get("arguments")?;
+    let canvas: Table = arguments.get("canvas")?;
+    canvas.set("type", "table")?;
+
+    let table: Table = canvas.get("table")?;
+    let texture = lua.create_table()?;
+    texture.set("name", "texture?")?;
+    texture.set("type", "Texture")?;
+    table.raw_set(table.raw_len() + 1, texture)?;
+
+    let depth: Table = table.raw_get(1)?;
+    depth.set("type", "Texture | TextureFormat | boolean | table")?;
+    let depth_table = lua.create_table()?;
+    let depth_texture = lua.create_table()?;
+    depth_texture.set("name", "texture")?;
+    depth_texture.set("type", "Texture")?;
+    let resolve = lua.create_table()?;
+    resolve.set("name", "resolve?")?;
+    resolve.set("type", "Texture")?;
+    depth_table.raw_set(1, depth_texture)?;
+    depth_table.raw_set(2, resolve)?;
+    depth.set("table", depth_table)?;
+
+    Ok(mlua::Value::Table(metadata))
+}
+
 /// Installs the `require` the aggregator loads each document with.
 ///
 /// LÖVR's loader copies the module name into a path, substituting `.` for
@@ -373,6 +525,9 @@ fn install_require(lua: &Lua, api_root: &Path) -> mlua::Result<()> {
             .load(&source)
             .set_name(format!("@lovr-docs/api/{}.lua", name.replace('.', "/")))
             .eval()?;
+        let value = extend_draw_metadata(lua, &name, value)?;
+        let value = extend_canvas_metadata(lua, &name, value)?;
+        let value = extend_graphics_method_metadata(lua, &name, value)?;
         loaded.set(name, value.clone())?;
         Ok(value)
     })?;
