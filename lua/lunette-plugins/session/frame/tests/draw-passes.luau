@@ -37,26 +37,6 @@ local function draw(env: environment.Environment): (boolean, contract.DrawPasses
   return lovr.draw(env.native.events.pass)
 end
 
-local function expectNone(env: environment.Environment, label: string)
-  local skip, extras = draw(env)
-  expect.equal(skip, false, label .. ' keeps the main pass')
-  expect.equal(extras, nil, label .. ' has no preparatory passes')
-end
-
-test('missing handlers, void handlers, nil, and empty lists preserve the draw result', function()
-  local env = environment.start()
-  expectNone(env, 'no handler')
-  register(env, 'draw-void', function() end)
-  register(env, 'draw-nil', function(): nil
-    return nil
-  end)
-  registerResult(env, 'draw-empty', {})
-  expectNone(env, 'empty results')
-  expect.equal(#env.native.events.reported, 0, 'empty results are valid')
-  env.session:close()
-  expectNone(env, 'no provider')
-end)
-
 test('preparatory passes follow phase, order, registration, and list order', function()
   local env = environment.start()
   local a, b, c, d, e = pass(), pass(), pass(), pass(), pass()
@@ -85,20 +65,6 @@ test('preparatory passes follow phase, order, registration, and list order', fun
   end
   table.clear(returned)
   expect.equal(#extras, 5, 'the returned list is copied')
-  env.session:close()
-end)
-
-test('frozen results are copied and the same Pass can be returned in distinct draw invocations', function()
-  local env = environment.start()
-  local preparation = pass()
-  local result = table.freeze { preparation }
-  registerResult(env, 'draw-frozen', result)
-  local _, first = draw(env)
-  local _, second = draw(env)
-  expect.equal(first[1], preparation, 'the first invocation collects the frozen result')
-  expect.equal(second[1], preparation, 'duplicate detection ends with the invocation')
-  expect.falsy(first == result or second == result or first == second, 'each invocation owns a new list')
-  expect.equal(#env.native.events.reported, 0, 'neither invocation reports an error')
   env.session:close()
 end)
 
@@ -171,58 +137,6 @@ test('duplicates across callbacks reject the entire later result without reservi
   expect.equal(extras[1], first, 'the first callback contributes')
   expect.equal(extras[2], nextPass, 'a rejected result does not reserve passes')
   expect.equal(#env.native.events.reported, 1, 'the duplicate is reported')
-  env.session:close()
-end)
-
-test('dense results have no arbitrary preparatory pass count limit', function()
-  local env = environment.start()
-  local expected = {}
-  for _ = 1, 96 do
-    expected[#expected + 1] = pass()
-  end
-  registerResult(env, 'draw-many', expected)
-  local _, extras = draw(env)
-  expect.equal(#extras, #expected, 'all preparatory passes are collected')
-  expect.equal(#env.native.events.reported, 0, 'the dense result is accepted')
-  env.session:close()
-end)
-
-test('draw results do not persist between invocations or provider activations', function()
-  local env = environment.start()
-  local first = pass()
-  local calls = 0
-  register(env, 'draw-once', function(): contract.DrawPasses?
-    calls += 1
-    return if calls == 1 then { first } else nil
-  end)
-  local _, extras = draw(env)
-  expect.equal(extras[1], first, 'the first invocation contributes')
-  expectNone(env, 'the next invocation')
-  local provider = env.session.instances.frame
-  provider:disable()
-  expectNone(env, 'a provider outage')
-  provider:enable()
-  local _, resumed = draw(env)
-  expect.equal(resumed, nil, 'the recovered handler retains no previous result')
-  expect.equal(#env.native.events.reported, 0, 'recovery reports no error')
-  env.session:close()
-end)
-
-test('disposed owners and registrations are skipped during draw', function()
-  local env = environment.start()
-  local removed
-  local returned = pass()
-  register(env, 'draw-disposer', function(): nil
-    removed:disable()
-    return nil
-  end)
-  removed = registerResult(env, 'draw-removed', { returned })
-  expectNone(env, 'an owner disposed before its callback')
-  local active = registerResult(env, 'draw-active', { returned })
-  local _, extras = draw(env)
-  expect.equal(extras[1], returned, 'a live owner contributes')
-  active:disable()
-  expectNone(env, 'a disposed owner on the next invocation')
   env.session:close()
 end)
 

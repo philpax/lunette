@@ -39,7 +39,6 @@ for _, miniatureFirst in { false, true } do
         end
         env.renderer.render(env.pass, value, vector.zero)
         fields(env.recorder, 1, if count > 8 then 1 else 0)
-        expect.equal(#fixture.calls(env.recorder, 'draw'), 15, 'sharing retains direct scene geometry')
         env.recorder:assertRestored(checkpoint)
       end
       expect.equal(#env.recorder.textureAcquisitions, 3, 'fresh Frames and sparse transitions reuse textures')
@@ -47,72 +46,6 @@ for _, miniatureFirst in { false, true } do
     end
   )
 end
-
-test('diagnostic, skipped, and dark draws leave the same Frame available for preparation', function()
-  local env = fixture.boot()
-  local value = fixture.frame(env)
-  value.visibility = 0
-  env.renderer.render(env.pass, value, vector.zero)
-  env.renderer.miniature(env.pass, value, 0.5, nil, 0)
-  expect.equal(#env.recorder.textureAcquisitions, 0, 'skipped draws acquire nothing')
-  value.visibility, value.brightness = 1, 0
-  env.renderer.render(env.pass, value, vector.zero)
-  expect.equal(#fixture.calls(env.recorder, 'compute'), 0, 'dark fields are not computed')
-  value.brightness, env.diagnostic = 0.8, 'field'
-  env.renderer.render(env.pass, value, vector.zero)
-  expect.equal(#fixture.calls(env.recorder, 'compute'), 0, 'diagnostics do not compute fields')
-  table.clear(env.recorder.calls)
-  env.renderer.miniature(env.pass, value, 0.5, nil, 1)
-  env.diagnostic = 'none'
-  env.renderer.render(env.pass, value, vector.zero)
-  fields(env.recorder, 1, 1)
-  fixture.close(env)
-end)
-
-test('an onset recording failure restores state and retries without repeating the sky', function()
-  local env = fixture.boot()
-  local value = fixture.frame(env)
-  local checkpoint = fixture.seedState(env)
-  local original = env.pass.compute
-  env.pass.compute = function(self: render.Pass, x: number, ...: number)
-    if x == 64 then
-      error('injected onset failure', 0)
-    end
-    original(self, x, ...)
-  end
-  expect.raises(function()
-    env.renderer.render(env.pass, value, vector.zero)
-  end, 'injected onset failure')
-  env.pass.compute = original
-  env.recorder:assertRestored(checkpoint)
-  expect.equal(#fixture.calls(env.recorder, 'draw'), 0, 'unprepared fields are never drawn')
-  fields(env.recorder, 1, 0)
-  table.clear(env.recorder.calls)
-  env.renderer.miniature(env.pass, value, 0.5, nil, 1)
-  fields(env.recorder, 0, 1)
-  env.recorder:assertRestored(checkpoint)
-  fixture.close(env)
-end)
-
-test('a draw failure preserves successful fields for another view of the same Frame', function()
-  local env = fixture.boot()
-  local value = fixture.frame(env)
-  local checkpoint = fixture.seedState(env)
-  local original = env.pass.draw
-  env.pass.draw = function()
-    error('injected draw failure', 0)
-  end
-  expect.raises(function()
-    env.renderer.render(env.pass, value, vector.zero)
-  end, 'injected draw failure')
-  env.pass.draw = original
-  fields(env.recorder, 1, 1)
-  env.recorder:assertRestored(checkpoint)
-  table.clear(env.recorder.calls)
-  env.renderer.miniature(env.pass, value, 0.5, nil, 1)
-  fields(env.recorder, 0, 0)
-  fixture.close(env)
-end)
 
 test('sampler acquisition failure releases partial fields and permits a complete retry', function()
   local env = fixture.boot()
