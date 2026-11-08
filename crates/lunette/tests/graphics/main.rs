@@ -60,6 +60,7 @@ fn serial_fixtures(roots: &Roots) -> Result<(), String> {
     graphics_harness_failure_propagation(roots)?;
     fixture(roots, "pixels")?;
     for module in [
+        "multiview-overlay-copy",
         "aurora-baseline",
         "aurora-bands",
         "aurora-transparency",
