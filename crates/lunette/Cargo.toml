@@ -25,6 +25,7 @@ lunette-capture = { path = "../lunette-capture" }
 lunette-compositor = { path = "../lunette-compositor" }
 lunette-lovr = { path = "../lunette-lovr" }
 parking_lot.workspace = true
+serde_json.workspace = true
 # Provides the `Dmabuf`, `Fourcc`, and `Modifier` types the compositor's import seam uses.
 # The features stay at the base set: nothing here touches the frontend or the desktop helpers.
 # Cargo unifies this with the richer set that `lunette-compositor` enables.
@@ -67,7 +68,6 @@ libtest-mimic.workspace = true
 pretty_assertions.workspace = true
 proptest.workspace = true
 serde = { workspace = true, features = ["derive"] }
-serde_json.workspace = true
 tempfile.workspace = true
 
 # The Lua test runner discovers its tests at run time, one per test file under

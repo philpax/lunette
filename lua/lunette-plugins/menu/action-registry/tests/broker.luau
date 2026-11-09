@@ -1,6 +1,7 @@
 local testing = require '@testing'
 local expect = testing.expect
 local fixture = require './support/fixture'
+local menu = require '@lunette-contracts/menu'
 local test = testing.suite()
 
 test('menu owner registration and failure lifecycle', function()
@@ -98,6 +99,46 @@ test('lists sort by group, label, and id, and fill the defaults', function()
   expect.equal(row.group, '', 'the default group')
   expect.equal(row.enabled, true, 'the enabled default')
   expect.equal(row.selected, false, 'the selected default')
+  env.session:close()
+end)
+
+test('disabled reasons disable invocation, preserve omitted state, and clear explicitly', function()
+  local env = fixture.start()
+  local calls, heard = 0, 0
+  env.service:onChanged(env.owner, {
+    run = function()
+      heard += 1
+    end,
+  })
+  local registration = env.service:register(env.owner, {
+    id = 'fixture.reason',
+    label = 'Reason',
+    disabledReason = 'Tracking is lost.',
+    run = function()
+      calls += 1
+    end,
+  })
+  local function row(): menu.Descriptor
+    return env.service:list()[1]
+  end
+  expect.equal(row().disabledReason, 'Tracking is lost.')
+  expect.equal(row().enabled, false, 'a reason alone disables the action')
+  expect.equal(env.service:invoke('fixture.reason').kind, 'unavailable')
+  registration:update { selected = true }
+  expect.equal(row().disabledReason, 'Tracking is lost.', 'omission preserves the reason')
+  registration:update { disabledReason = 'The runtime is unavailable.' }
+  expect.equal(heard, 3, 'a changed reason is announced')
+  registration:update { disabledReason = 'The runtime is unavailable.' }
+  expect.equal(heard, 3, 'an unchanged reason is not announced')
+  registration:update { enabled = false, disabledReason = false }
+  expect.equal(row().disabledReason, nil, 'false clears the reason')
+  expect.equal(row().enabled, false, 'clearing does not override an explicit disabled flag')
+  registration:update { disabledReason = 'Waiting.', enabled = true }
+  expect.equal(row().enabled, false, 'an enabled flag cannot bypass a reason')
+  registration:update { disabledReason = false }
+  expect.equal(row().enabled, true)
+  expect.equal(env.service:invoke('fixture.reason').kind, 'invoked')
+  expect.equal(calls, 1)
   env.session:close()
 end)
 

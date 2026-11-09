@@ -40,6 +40,7 @@ local input = require '@lunette-plugins/input/physical-routing'
 local keyboardDisplay = require '@lunette-plugins/input/keyboard-display'
 local wristMenu = require '@lunette-plugins/menu/wrist-menu'
 local actions = require '@lunette-plugins/session/menu-actions'
+local recenter = require '@lunette-plugins/session/playspace-recenter'
 local errors = require '@lunette-plugins/diagnostics/error-display'
 local recovery = require '@lunette-plugins/diagnostics/recovery'
 local workspaces = require '@lunette-plugins/workspace/controller'
@@ -103,6 +104,7 @@ local DEFAULT: { plugin.Entry } = plugin.compose {
   { id = 'desktop/keyboard', definition = keyboardDisplay.definition },
   { id = 'desktop/menu', definition = wristMenu.definition },
   { id = 'desktop/actions', definition = actions.definition },
+  { id = 'desktop/recenter', definition = recenter.definition },
   { id = 'desktop/errors', definition = errors.definition },
   { id = 'diagnostics/recovery', definition = recovery.definition },
   { id = 'desktop/workspaces', definition = workspaces.definition },

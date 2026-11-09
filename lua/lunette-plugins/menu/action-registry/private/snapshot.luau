@@ -11,13 +11,14 @@ export type Metadata = {
   read group: string,
   read icon: string?,
   read enabled: boolean,
+  read disabledReason: string?,
   read selected: boolean,
 }
 
 type Raw = { [unknown]: unknown }
 
-local ACTION_KEYS: { string } = { 'id', 'label', 'group', 'icon', 'enabled', 'selected', 'run' }
-local STATE_KEYS: { string } = { 'enabled', 'selected', 'icon' }
+local ACTION_KEYS: { string } = { 'id', 'label', 'group', 'icon', 'enabled', 'disabledReason', 'selected', 'run' }
+local STATE_KEYS: { string } = { 'enabled', 'disabledReason', 'selected', 'icon' }
 
 local function plain(operation: string, field: string, value: unknown): Raw
   if type(value) ~= 'table' then
@@ -47,6 +48,13 @@ local function svg(operation: string, value: unknown): string?
   return value :: string?
 end
 
+local function reason(operation: string, value: unknown): string?
+  if value ~= nil and (type(value) ~= 'string' or value == '') then
+    error('menu ' .. operation .. ': disabledReason is a non-empty string, not ' .. tostring(value), 4)
+  end
+  return value :: string?
+end
+
 function snapshot.action(value: unknown): (Metadata, () -> ())
   local raw = plain('register', 'action', value)
   plugin.rejectUnknownFields('menu register', raw, ACTION_KEYS, 2)
@@ -72,6 +80,7 @@ function snapshot.action(value: unknown): (Metadata, () -> ())
     group = (group :: string?) or '',
     icon = icon,
     enabled = enabled ~= false,
+    disabledReason = reason('register', raw.disabledReason),
     selected = selected == true,
   },
     run :: () -> ()
@@ -82,6 +91,7 @@ function snapshot.state(value: unknown): contract.State
   plugin.rejectUnknownFields('menu update', raw, STATE_KEYS, 2)
   return {
     enabled = flag('update', 'enabled', raw.enabled),
+    disabledReason = if raw.disabledReason == false then false else reason('update', raw.disabledReason),
     selected = flag('update', 'selected', raw.selected),
     icon = svg('update', raw.icon),
   }

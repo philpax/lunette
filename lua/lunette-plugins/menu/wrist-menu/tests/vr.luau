@@ -144,6 +144,26 @@ test('the wrist button opens a list of live actions that run when clicked, and C
   env.running:close()
 end)
 
+test('disabled reasons render in the list and shortcuts, then clear when availability returns', function()
+  local env = boot { shortcuts = { 'recenter' } }
+  local action = register(env, 'recenter', { label = 'Recenter playspace' })
+  action.registration:update { disabledReason = 'Head tracking is unavailable.' }
+  click(env, 'open')
+  local row = assert(env.panels:node(LIST, wristMenu.row 'recenter'))
+  expect.equal(row.props.disabledReason, 'Head tracking is unavailable.')
+  expect.equal(row.props.onActivate, nil)
+  expect.equal(assert(env.panels:node(PANEL, 'shortcuts/recenter')).props.disabledReason, row.props.disabledReason)
+  pick(env, wristMenu.row 'recenter')
+  expect.equal(action.calls, 0)
+  action.registration:update { disabledReason = false }
+  env.running:step()
+  row = assert(env.panels:node(LIST, wristMenu.row 'recenter'))
+  expect.equal(row.props.disabledReason, nil, 'the reason disappears on recovery')
+  pick(env, wristMenu.row 'recenter')
+  expect.equal(action.calls, 1)
+  env.running:close()
+end)
+
 test('a list longer than the menu scrolls to reach its last action', function()
   local env = boot()
   local actions: { Action } = {}

@@ -69,6 +69,7 @@ view.Gauntlet = ui.component('WristGauntlet', function(props: GauntletProps): ui
           label = if icon then nil else descriptor.label,
           variant = 'quiet',
           disabled = not descriptor.enabled,
+          disabledReason = descriptor.disabledReason,
           grow = 1,
           onActivate = function(): ()
             props.shortcut(descriptor)
@@ -140,6 +141,7 @@ view.List = ui.component('WristMenuList', function(props: ListProps): ui.Child
                 title = row.title,
                 trailing = row.trailing,
                 selected = descriptor.selected,
+                disabledReason = descriptor.disabledReason,
                 onActivate = if descriptor.enabled
                   then function(): ()
                     props.invoke(descriptor)

@@ -1379,6 +1379,12 @@ export type PassthroughMode =
   | "blend"
   | "add"
 
+export type RecenterStatus =
+  | "available"
+  | "unsupported"
+  | "untracked"
+  | "unavailable"
+
 declare extern type Layer extends Object with
   function getColor(self): (number, number, number, number)
   function getCurve(self): number
@@ -1448,6 +1454,7 @@ export type HeadsetModule = {
   getPosition:
     & ((device: Device?) -> (number, number, number))
     & ((model: Model) -> (number, number, number)),
+  getRecenterStatus: () -> (RecenterStatus, string?),
   getRefreshRate: () -> number?,
   getRefreshRates: () -> {number}?,
   getSessionGeneration: () -> number,
@@ -1481,6 +1488,7 @@ export type HeadsetModule = {
     & ((key: lightuserdata) -> Model?)
     & ((device: Device?) -> Model?),
   pollEvents: () -> (),
+  recenter: () -> boolean,
   setBackground:
     & ((background: Image | { read [number]: Image } | Texture) -> ())
     & (() -> ()),

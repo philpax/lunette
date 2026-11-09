@@ -173,6 +173,10 @@ pub const INSTALL_ARTIFACTS: &[InstallArtifact] = &[
         source: "vendor/lovr/deps/openvr/LICENSE",
         destination: "licenses/OpenVR.txt",
     },
+    InstallArtifact {
+        source: "vendor/lovr/deps/monado/LICENSE",
+        destination: "licenses/Monado.txt",
+    },
 ];
 
 /// Lists the install manifest as source and destination paths.

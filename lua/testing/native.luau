@@ -977,6 +977,12 @@ installLovr = function(events: Events)
     return events.headPose
   end
   lovr.headset = {
+    getRecenterStatus = function(): string
+      return 'unsupported'
+    end,
+    recenter = function(): boolean
+      return false
+    end,
     getFeatures = function(): { read eyeTracking: boolean }
       return { eyeTracking = events.eyeTracking }
     end,

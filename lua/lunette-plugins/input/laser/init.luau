@@ -80,7 +80,7 @@ local function destroy(state: ProviderState, target: MutableLaser): ()
   if index then
     table.remove(state.lasers, index)
   end
-  local released, failure = pcall(function()
+  local released, failure = pcall(function(): ()
     target.pointer:destroy()
   end)
   if target.ownsSeat and not target.seat.dead then
@@ -161,6 +161,7 @@ local function makeLaser(
     local previousRaw: triggerLock.RawAim? = nil
     local lockState: triggerLock.State = triggerLock.ready()
     local withdrawn = false
+    local gripBlocked = false
     -- Near beats far: while this hand's fingertip is reported near a surface, an idle ray stands down and hides. A ray
     -- that holds a button or a grab keeps going until it is idle.
     local standing = false
@@ -191,13 +192,14 @@ local function makeLaser(
       icon = dragIcon.new(),
       iconShaders = state.iconShaders,
       dead = false,
-      update = function(self: Beam, surfaces: { read [number]: Surface })
+      update = function(self: Beam, surfaces: { read [number]: Surface }): ()
         if self.dead or not state.active then
           return
         end
         state.refreshStyle()
         local sampled = self.readInput(self.hand)
         if not sampled then
+          gripBlocked = true
           aimState = nil
           previousRaw = nil
           lockState = triggerLock.ready()
@@ -208,6 +210,22 @@ local function makeLaser(
             self.pointer:withdraw()
           end
           return
+        end
+        -- Tracking loss ends a spatial gesture; a held grip cannot start it again in a new coordinate frame.
+        if not sampled.grip then
+          gripBlocked = false
+        elseif gripBlocked then
+          sampled = {
+            origin = sampled.origin,
+            direction = sampled.direction,
+            pose = sampled.pose,
+            trigger = sampled.trigger,
+            buttons = sampled.buttons,
+            grip = false,
+            scrollX = sampled.scrollX,
+            scrollY = sampled.scrollY,
+            dt = sampled.dt,
+          }
         end
         local filtered, nextAim = aim.update(aimState, sampled, aimSettings)
         aimState = nextAim
@@ -257,12 +275,12 @@ local function makeLaser(
           self:vibrate()
         end
       end,
-      draw = function(self: Beam, pass: Pass)
+      draw = function(self: Beam, pass: Pass): ()
         if self.dead or not state.active or standing or target.visibility <= 0 then
           return
         end
         state.refreshStyle()
-        passState.withRestore(pass, function()
+        passState.withRestore(pass, function(): ()
           settings.draw(self, pass, draw.laser)
         end)
       end,
@@ -290,7 +308,7 @@ local function makeLaser(
       end,
     }
     state.lasers[#state.lasers + 1] = target
-    return target, function()
+    return target, function(): ()
       cleanupEffect = nil
       destroy(state, target)
     end
@@ -332,7 +350,7 @@ local function build(context: plugin.Context, settings: Settings): Service
     refreshStyle = refreshStyle,
   }
   context:effect(function(): () -> ()
-    return function()
+    return function(): ()
       state.active = false
       for _, target in ipairs(live(state)) do
         target:destroy()

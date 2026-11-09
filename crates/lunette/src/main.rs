@@ -4,6 +4,7 @@
 mod boot;
 mod check;
 mod cli;
+mod runtime_manifest;
 
 #[cfg(test)]
 mod log_capture;
@@ -16,6 +17,8 @@ use std::{
     process::ExitCode,
     rc::Rc,
 };
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "x86"))]
+use std::{ffi::CString, os::unix::ffi::OsStrExt};
 
 use boot::SessionPaths;
 use clap::Parser;
@@ -50,6 +53,8 @@ use lunette_compositor::{
     satellite::XwaylandSatellite,
     spawn::ProcFilesystem,
 };
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "x86"))]
+use lunette_lovr::raw;
 use tracing::{error, info, warn};
 use tracing_subscriber::{EnvFilter, filter::LevelFilter};
 
@@ -130,6 +135,7 @@ fn main() -> ExitCode {
 
     let state_directory = state_directory(&StateDirectorySources::from_environment());
     let keymap_defaults = keymap_defaults_from_environment();
+    configure_runtime_recenter();
 
     // SAFETY: no application worker has started, and nothing above spawns threads.
     let host_socket = unsafe { prepare_host_display() };
@@ -254,6 +260,94 @@ fn main() -> ExitCode {
             gc_budget: arguments.luau_gc_budget_us,
         },
     )
+}
+
+#[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "x86")))]
+fn configure_runtime_recenter() {
+    warn!("runtime manifest: architecture has no discovery mapping; playspace reset is disabled");
+}
+
+/// Pins the manifest supplying Monado's optional control library before the first XR connection.
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "x86"))]
+fn configure_runtime_recenter() {
+    let current_directory = match env::current_dir() {
+        Ok(path) => path,
+        Err(error) => {
+            warn!(%error, "runtime manifest: current directory is unavailable; playspace reset is disabled");
+            return;
+        }
+    };
+    // SAFETY: getauxval reads the immutable process auxiliary vector and retains no pointers.
+    let secure = unsafe { libc::getauxval(libc::AT_SECURE) } != 0;
+    let environment = if secure {
+        runtime_manifest::Environment::Ignore
+    } else {
+        runtime_manifest::Environment::Use(runtime_manifest::EnvironmentConfig {
+            xr_runtime_json: non_empty_path(env::var_os("XR_RUNTIME_JSON")),
+            xdg_config_home: non_empty_path(env::var_os("XDG_CONFIG_HOME")),
+            home: non_empty_path(env::var_os("HOME")),
+            xdg_config_dirs: env::var_os("XDG_CONFIG_DIRS"),
+        })
+    };
+    #[cfg(target_arch = "x86_64")]
+    let architecture = runtime_manifest::Architecture::X86_64;
+    #[cfg(target_arch = "aarch64")]
+    let architecture = runtime_manifest::Architecture::Aarch64;
+    #[cfg(target_arch = "x86")]
+    let architecture = runtime_manifest::Architecture::I686;
+    let config = runtime_manifest::LoaderConfig {
+        current_directory,
+        architecture,
+        environment,
+        search: runtime_manifest::SearchConfig::default(),
+    };
+    let filesystem = runtime_manifest::SystemFileSystem;
+    let discovered = runtime_manifest::select_manifest(&config, &filesystem).and_then(|selected| {
+        selected
+            .map(|manifest| {
+                manifest
+                    .monado_library(&filesystem)
+                    .map(|library| (manifest, library))
+            })
+            .transpose()
+    });
+    let (manifest, library) = match discovered {
+        Ok(Some((manifest, Some(library)))) => (manifest, library),
+        Ok(_) => return,
+        Err(error) => {
+            warn!(%error, "playspace reset is disabled; ordinary OpenXR discovery is unchanged");
+            return;
+        }
+    };
+    let stage_setting = env::var_os("OXR_RECENTER_STAGE");
+    let stage_unmapped =
+        !secure && runtime_manifest::monado_stage_unmapped(stage_setting.as_deref());
+    if !stage_unmapped {
+        warn!(
+            "runtime manifest: Monado STAGE mapping is enabled or unknown; playspace reset is disabled"
+        );
+    }
+    let snapshot = manifest.contents();
+    let paths = CString::new(manifest.path().as_os_str().as_bytes()).and_then(|manifest| {
+        CString::new(library.as_os_str().as_bytes()).map(|library| (manifest, library))
+    });
+    let (manifest, library) = match paths {
+        Ok(paths) => paths,
+        Err(error) => {
+            warn!(%error, "runtime manifest: a path contains a nul byte; playspace reset is disabled");
+            return;
+        }
+    };
+    // SAFETY: this thread owns the headset module, no connection exists, and the callee copies both paths.
+    if !unsafe {
+        raw::lovrHeadsetSetRuntimePaths(manifest.as_ptr(), library.as_ptr())
+            && raw::lovrHeadsetSetRuntimeManifestSnapshot(snapshot.as_ptr().cast(), snapshot.len())
+            && raw::lovrHeadsetSetMonadoStageUnmapped(stage_unmapped)
+    } {
+        warn!(
+            "runtime manifest: native runtime configuration is unavailable; playspace reset is disabled"
+        );
+    }
 }
 
 /// Starts audio independently of LÖVR modules and the compositor's graphics device.

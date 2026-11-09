@@ -14,7 +14,33 @@ local surfaces = require '@lunette-contracts/surfaces'
 local lunette = require '@lunette'
 local test = testing.suite()
 
-test('wrist menu actions are VR accessible', function()
+test('recenter stays listed with the default single workspace', function(): ()
+  local native = testing.native()
+  lovr.headset.getRecenterStatus = function(): string
+    return 'unsupported'
+  end
+  local recorder = uiPanels.new()
+  local session = testing.boot(
+    desktop.compose {
+      patches = { { id = 'ui-host', definition = recorder.definition } },
+    },
+    { native = native }
+  )
+  local service = session:observe(menu.capability).service
+  local found = nil
+  for _, action in service:list() do
+    if action.id == 'desktop/playspace/recenter' then
+      found = action
+    end
+  end
+  expect.truthy(found, 'a single workspace does not remove recenter')
+  expect.equal(found.label, 'Recenter playspace')
+  expect.equal(found.enabled, false)
+  expect.truthy(found.disabledReason, 'an unsupported runtime explains the disabled action')
+  session:close()
+end)
+
+test('wrist menu actions are VR accessible', function(): ()
   local native = testing.native()
   local services: {
     menu: menu.Service?,
@@ -31,7 +57,7 @@ test('wrist menu actions are VR accessible', function()
       tags.capability,
       surfaces.capability,
     },
-    init = function(context: adapter.Context)
+    init = function(context: adapter.Context): ()
       services.menu = context:require(menu.capability)
       services.display = context:require(display.capability)
       services.tags = context:require(tags.capability)
@@ -53,12 +79,20 @@ test('wrist menu actions are VR accessible', function()
     reloads += 1
     return true
   end
+  local recenters = 0
+  lovr.headset.getRecenterStatus = function(): string
+    return 'available'
+  end
+  lovr.headset.recenter = function(): boolean
+    recenters += 1
+    return true
+  end
   local fixture = vrUi.attach(native)
   fixture:pose('left', lovr.math.newMat4():translate(0, 1.2, -0.5))
   fixture:tracked('left', true)
   fixture:step()
   wristMenu.open(fixture, panels)
-  local function invoke(id: string)
+  local function invoke(id: string): ()
     panels:click(fixture, wristMenu.LIST, wristMenu.row(id), 'right')
   end
   invoke 'desktop/keyboard/toggle'
@@ -67,6 +101,9 @@ test('wrist menu actions are VR accessible', function()
   expect.falsy(services.display:isVisible(), 'Keyboard hides the shared board')
   invoke 'desktop/workspace/side'
   expect.truthy(services.tags:find('side').selected, 'a pointer chooses the side workspace')
+  invoke 'desktop/playspace/recenter'
+  fixture:step()
+  expect.equal(recenters, 1, 'a pointer queues public playspace recenter for the next input phase')
   invoke 'desktop/reload'
   expect.equal(reloads, 1, 'a pointer invokes public reload once')
   local beforeManager = #services.surfaces:all()

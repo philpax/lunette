@@ -38,6 +38,7 @@ local entries: { [string]: compose.Source } = {
   ['desktop/keyboard'] = require('@lunette-plugins/input/keyboard-display').definition,
   ['desktop/menu'] = require('@lunette-plugins/menu/wrist-menu').definition,
   ['desktop/actions'] = require('@lunette-plugins/session/menu-actions').definition,
+  ['desktop/recenter'] = require('@lunette-plugins/session/playspace-recenter').definition,
   ['desktop/errors'] = require('@lunette-plugins/diagnostics/error-display').definition,
   ['diagnostics/recovery'] = require('@lunette-plugins/diagnostics/recovery').definition,
   ['desktop/workspaces'] = require('@lunette-plugins/workspace/controller').definition,

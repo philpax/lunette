@@ -17,6 +17,7 @@ type Entry = {
   run: (() -> ())?,
   token: contract.Token,
   enabled: boolean,
+  disabledReason: string?,
   selected: boolean,
   icon: string?,
 }
@@ -45,7 +46,8 @@ local function create(context: plugin.Context): contract.Service
           label = action.label,
           group = action.group,
           icon = entry.icon,
-          enabled = entry.enabled,
+          enabled = entry.enabled and entry.disabledReason == nil,
+          disabledReason = entry.disabledReason,
           selected = entry.selected,
           token = entry.token,
         }
@@ -77,6 +79,7 @@ local function create(context: plugin.Context): contract.Service
         run = run,
         token = table.freeze { kind = 'menu-token' } :: contract.Token,
         enabled = captured.enabled,
+        disabledReason = captured.disabledReason,
         selected = captured.selected,
         icon = captured.icon,
       }
@@ -108,8 +111,20 @@ local function create(context: plugin.Context): contract.Service
           local enabled = if captured.enabled ~= nil then captured.enabled else entry.enabled
           local selected = if captured.selected ~= nil then captured.selected else entry.selected
           local icon = captured.icon or entry.icon
-          if enabled ~= entry.enabled or selected ~= entry.selected or icon ~= entry.icon then
+          local disabledReason = entry.disabledReason
+          if captured.disabledReason == false then
+            disabledReason = nil
+          elseif captured.disabledReason ~= nil then
+            disabledReason = captured.disabledReason
+          end
+          if
+            enabled ~= entry.enabled
+            or selected ~= entry.selected
+            or icon ~= entry.icon
+            or disabledReason ~= entry.disabledReason
+          then
             entry.enabled, entry.selected, entry.icon = enabled, selected, icon
+            entry.disabledReason = disabledReason
             announce()
           end
           return true
@@ -142,6 +157,7 @@ local function create(context: plugin.Context): contract.Service
         or not run
         or not live(entry)
         or not entry.enabled
+        or entry.disabledReason ~= nil
         or (expected ~= nil and not rawequal(expected, entry.token))
       then
         return { kind = 'unavailable' }
@@ -160,6 +176,7 @@ local function create(context: plugin.Context): contract.Service
           label = row.label,
           group = row.group,
           enabled = row.enabled,
+          disabledReason = row.disabledReason,
           selected = row.selected,
         })
       end

@@ -14,6 +14,8 @@ export type Action = {
   -- An SVG document a renderer may draw in place of the label where space is short. The label still names the action.
   read icon: string?,
   read enabled: boolean?,
+  -- A reason disables the action independently of enabled.
+  read disabledReason: string?,
   read selected: boolean?,
   read run: () -> (),
 }
@@ -21,6 +23,8 @@ export type Action = {
 -- Omitted state fields preserve their current values.
 export type State = {
   read enabled: boolean?,
+  -- A string sets the reason, false clears it, and omission preserves it.
+  read disabledReason: (string | false)?,
   read selected: boolean?,
   -- A toggle can show its state by swapping its icon. An action registered without an icon can gain one.
   read icon: string?,
@@ -43,6 +47,7 @@ export type Descriptor = {
   read group: string,
   read icon: string?,
   read enabled: boolean,
+  read disabledReason: string?,
   read selected: boolean,
   read token: Token,
 }
@@ -66,6 +71,6 @@ export type Service = {
 
 export type Capability = plugin.Capability<Service>
 
-menu.capability = plugin.capability<<Service>> { name = 'lunette/menu', version = 2 }
+menu.capability = plugin.capability<<Service>> { name = 'lunette/menu', version = 3 }
 
 return menu

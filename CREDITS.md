@@ -36,6 +36,10 @@ Iosevka is copyright 2015-2026 Renzhi Li (Belleve Invis) and licensed under the 
 
 Valve's OpenVR SDK is carried in `vendor/lovr/deps/openvr` under Valve's three-clause BSD licence. The optional Linux Vulkan backend compiles its loader from source. Binary distributions that include the loader must reproduce its copyright, redistribution conditions, and disclaimer from `vendor/lovr/deps/openvr/LICENSE`; installation copies them to `$PREFIX/share/lunette/licenses/OpenVR.txt`. SteamVR is a separate runtime and is not redistributed.
 
+## Monado
+
+The public libmonado header and Boost Software License 1.0 text are carried unmodified in `vendor/lovr/deps/monado` from Monado revision `3acbda6b7dacbe014749020e8543fded54ef076b`, API 1.8.0. The header's SHA-256 is `6322a5570dd958686e69ead1faaba2e714cdcb860adddc4664cec814ef7a6107`. LÖVR optionally loads the runtime's matching control library; neither Monado nor its IPC implementation is bundled. Installation copies the licence to `$PREFIX/share/lunette/licenses/Monado.txt`.
+
 ## awesome
 
 <https://github.com/awesomeWM/awesome>, GPL-2.0.

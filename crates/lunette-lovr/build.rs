@@ -115,6 +115,7 @@ fn watch_lovr_sources(lovr_dir: &Path) -> Result<(), BuildError> {
     for directory in [
         "deps/openvr/src",
         "deps/openvr/headers",
+        "deps/monado",
         "deps/luau/Analysis",
         "deps/luau/Ast",
         "deps/luau/Bytecode",
@@ -341,6 +342,9 @@ fn generate_bindings(
         // inside one callback.
         .allowlist_function("lovrHeadsetGetSessionGeneration")
         .allowlist_function("lovrHeadsetWillExit")
+        .allowlist_function("lovrHeadsetSetRuntimePaths")
+        .allowlist_function("lovrHeadsetSetRuntimeManifestSnapshot")
+        .allowlist_function("lovrHeadsetSetMonadoStageUnmapped")
         // `lovrLayerDestroy` is the destructor `lovrRelease` calls, and
         // `LayerInfo` is the signature.
         .allowlist_function("lovrLayerCreate")
