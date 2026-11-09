@@ -118,4 +118,25 @@ test('a placement ends with its window, with its effect, and with its owner', fu
   env.session:close()
 end)
 
+test('resolved lock properties initialize panels and false overrides a locked default', function()
+  local env = start()
+  env.rules:addSource(env.owner, {
+    name = 'locks',
+    precedence = 200,
+    resolve = function(): rulesContract.Properties
+      return { locked = true }
+    end,
+  })
+  local panel, resolved = place(env)
+  expect.equal(resolved.locked, true, 'rules resolve the lock property')
+  expect.truthy(panel.locked, 'placement forwards locks to panel options')
+  local unlocked = env.placement:place(env.owner, {
+    window = env.native.newWindow(2),
+    properties = { locked = false },
+    defaults = { locked = true },
+  })
+  expect.falsy(unlocked.panel.locked, 'explicit false overrides the default')
+  env.session:close()
+end)
+
 return test

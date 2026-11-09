@@ -18,6 +18,7 @@ export type Options = {
   read priority: number?,
   read title: string?,
   read chrome: boolean?,
+  read locked: boolean?,
   read curve: number?,
 }
 
@@ -31,6 +32,7 @@ type PanelFields = {
   read chrome: boolean,
   read curve: number,
   read hidden: boolean,
+  read locked: boolean,
   read highlighted: boolean,
   read granted: boolean,
   read dead: boolean,
@@ -41,6 +43,7 @@ type PanelFields = {
   read update: (Panel) -> (),
   read draw: (Panel, Pass) -> (),
   read setHidden: (Panel, Owner, boolean) -> plugin.Effect,
+  read setLocked: (Panel, Owner, boolean) -> boolean,
   -- Requests window closure or dismisses and removes a monitor panel; the caller must be live.
   read close: (Panel, Owner) -> boolean,
   read destroy: (Panel, Owner) -> boolean,
@@ -73,13 +76,15 @@ export type Service = {
   read forSource: (Service, Source) -> Panel?,
   read update: (Service) -> (),
   read draw: (Service, Pass) -> (),
+  read isInputLocked: (Service, lunette.Sink) -> boolean,
+  read onLockChanged: (Service, Owner, AddedListener) -> plugin.Effect,
   read onAdded: (Service, Owner, AddedListener) -> plugin.Effect,
   read onRemoved: (Service, Owner, RemovedListener) -> plugin.Effect,
 }
 
 export type Capability = plugin.Capability<Service>
 
-local capability = plugin.capability<<Service>> { name = 'lunette/panels', version = 4 }
+local capability = plugin.capability<<Service>> { name = 'lunette/panels', version = 5 }
 
 panels.capability = capability
 

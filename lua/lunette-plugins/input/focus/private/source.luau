@@ -21,6 +21,7 @@ export type Routing = {
   read keymapSeat: () -> lunette.Seat?,
   read dispose: () -> (),
   read blocked: () -> contract.Result?,
+  read cleanup: ((boolean) -> ())?,
 }
 
 type Batch = { id: number, revision: number, poisoned: boolean }
@@ -63,7 +64,7 @@ function sources.new(
   local mode: 'virtual' | 'physical' = validation.options(options).mode or 'virtual'
   local currentRouting: Routing? = routing
   local sourceLabel = 'focus: source owner ' .. plugin.ownerLabel(owner)
-  local driver = native.new(sourceLabel)
+  local driver = native.new(sourceLabel, routing.cleanup)
   local dead, busy = false, false
   local generation = 0
   local batch: Batch? = nil

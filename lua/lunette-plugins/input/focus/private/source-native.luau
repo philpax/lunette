@@ -31,7 +31,7 @@ local function failed(message: string): Failed
 end
 native.failed = failed
 
-function native.new(label: string): Driver
+function native.new(label: string, cleanup: ((boolean) -> ())?): Driver
   local pending: { Inverse } = {}
   local cleaning = false
   local unsafe: contract.Result? = nil
@@ -63,6 +63,9 @@ function native.new(label: string): Driver
     local release = pending
     pending = {}
     cleaning = true
+    if cleanup then
+      cleanup(true)
+    end
     for index = #release, 1, -1 do
       local inverse = release[index]
       local result = invoke(inverse.label, inverse.run)
@@ -71,6 +74,9 @@ function native.new(label: string): Driver
       end
     end
     cleaning = false
+    if cleanup then
+      cleanup(false)
+    end
     return unsafe == nil
   end
 
@@ -123,7 +129,10 @@ function native.new(label: string): Driver
     if result.kind == 'consumed' and not valid() then
       result = refused 'the native route changed while pressing the key'
     end
-    return finish(result)
+    result = finish(result)
+    return if result.kind == 'consumed' and not valid()
+      then refused 'the native route changed while releasing the key'
+      else result
   end
 
   local function text(target: Target, value: string, scalars: { string }, valid: () -> boolean): contract.Result

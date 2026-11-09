@@ -12,10 +12,11 @@ export type State = {
   revision: number,
   failed: boolean,
   seats: { [number]: Authority },
+  pending: { [number]: Authority },
 }
 
 function routes.new(): State
-  return { current = nil, revision = 0, failed = false, seats = {} }
+  return { current = nil, revision = 0, failed = false, seats = {}, pending = {} }
 end
 
 local function live(target: contract.Target?): boolean
@@ -39,9 +40,20 @@ end
 local function clearSeat(state: State, route: Route): boolean
   local cleared = false
   local failures: { string } = {}
-  for id, authority in pairs(table.clone(state.seats)) do
+  local authorities = table.clone(state.seats)
+  for id, authority in pairs(state.pending) do
     if authority.route == route then
-      state.seats[id] = nil
+      authorities[id] = authority
+    end
+  end
+  for id, authority in pairs(authorities) do
+    if authority.route == route then
+      if state.seats[id] and state.seats[id].route == route then
+        state.seats[id] = nil
+      end
+      if state.pending[id] and state.pending[id].route == route then
+        state.pending[id] = nil
+      end
       cleared = true
       if not authority.seat.dead then
         local ok, result = pcall(function(): boolean
@@ -60,9 +72,9 @@ local function clearSeat(state: State, route: Route): boolean
   return cleared
 end
 
-function routes.focus(state: State, route: Route): boolean
+function routes.focus(state: State, route: Route, eligible: () -> boolean): boolean
   local target = route.target
-  if not live(target) or not target then
+  if not eligible() or not live(target) or not target then
     return false
   end
   if state.current == route then
@@ -71,17 +83,37 @@ function routes.focus(state: State, route: Route): boolean
   local revision = state.revision
   local seat = authoritySeat(target)
   if target.kind == 'native' and target.sink.domain == 'window' then
-    if not seat or seat.dead or not seat:setFocus(target.sink) then
+    if not seat or seat.dead then
+      return false
+    end
+    local pending: Authority = { route = route, seat = seat }
+    -- Keep both prior and in-flight authority visible to synchronous lock listeners.
+    state.pending[seat.id] = pending
+    local ok, accepted = pcall(function(): boolean
+      return seat:setFocus(target.sink)
+    end)
+    if not ok then
+      state.failed = true
+      clearSeat(state, route)
+      error(accepted, 0)
+    end
+    if state.pending[seat.id] ~= pending then
+      return false
+    end
+    if not accepted then
+      state.pending[seat.id] = nil
       return false
     end
   end
-  if state.revision ~= revision or route.target ~= target or not live(target) then
+  if state.revision ~= revision or route.target ~= target or not live(target) or not eligible() then
+    clearSeat(state, route)
     return false
   end
   local previous = state.current
   state.current = route
   state.revision += 1
   if seat then
+    state.pending[seat.id] = nil
     state.seats[seat.id] = { route = route, seat = seat }
   end
   if target.kind == 'local' and previous then

@@ -62,15 +62,28 @@ function state.new(file: string): State
 
   -- Each unmatched entry is reported once per loaded or saved arrangement.
   local reportedStale: { [format.Entry]: boolean } = setmetatable({} :: { [format.Entry]: boolean }, { __mode = 'k' })
-  local function restore(context: plugin.Context, panels: panelsContract.Service, tags: tagsContract.Service): number
-    local restored, stale = capture.restore(held, context, panels, tags, arrangement)
-    for _, entry in ipairs(stale) do
-      if not reportedStale[entry] then
-        reportedStale[entry] = true
-        report('nothing matched the saved ' .. entry.kind .. " '" .. entry.key .. "'")
-      end
+  local applying = false
+  local function applyingSaved(run: () -> number): number
+    local previous = applying
+    applying = true
+    local ok, result = pcall(run)
+    applying = previous
+    if not ok then
+      error(result, 0)
     end
-    return #restored
+    return result
+  end
+  local function restore(context: plugin.Context, panels: panelsContract.Service, tags: tagsContract.Service): number
+    return applyingSaved(function(): number
+      local restored, stale = capture.restore(held, context, panels, tags, arrangement)
+      for _, entry in ipairs(stale) do
+        if not reportedStale[entry] then
+          reportedStale[entry] = true
+          report('nothing matched the saved ' .. entry.kind .. " '" .. entry.key .. "'")
+        end
+      end
+      return #restored
+    end)
   end
 
   return {
@@ -91,25 +104,43 @@ function state.new(file: string): State
       restore(context, panels, tags)
       panels:onAdded(context, {
         run = function(target: panelsContract.Panel)
-          capture.arrived(held, context, panels, tags, arrangement, target)
+          applyingSaved(function(): number
+            capture.arrived(held, context, panels, tags, arrangement, target)
+            return 0
+          end)
+        end,
+      })
+      local function save(): (boolean, string?)
+        if not context:active() then
+          return false, 'arrangement save: the provider is inactive'
+        end
+        if declined then
+          return false, declined
+        end
+        -- Retain the latest capture for restore and retry even when persistence fails.
+        arrangement = capture.merge(arrangement, capture.capture(held, panels, tags))
+        local written, failure =
+          pcall(lunette.saveFile, lovr.filesystem.getSaveDirectory(), file, format.render(arrangement))
+        if not written then
+          return false, `{path} could not be written: {tostring(failure)}`
+        end
+        return true, nil
+      end
+      panels:onLockChanged(context, {
+        run = function(_target: panelsContract.Panel): ()
+          -- Restore events must not replace entries with partially restored panel state.
+          if applying then
+            return
+          end
+          local written, message = save()
+          if not written and message then
+            report(message)
+          end
         end,
       })
       return {
         save = function(_service: arrangementContract.Service): (boolean, string?)
-          if not context:active() then
-            return false, 'arrangement save: the provider is inactive'
-          end
-          if declined then
-            return false, declined
-          end
-          -- Retain the latest capture for restore and retry even when persistence fails.
-          arrangement = capture.merge(arrangement, capture.capture(held, panels, tags))
-          local written, failure =
-            pcall(lunette.saveFile, lovr.filesystem.getSaveDirectory(), file, format.render(arrangement))
-          if not written then
-            return false, `{path} could not be written: {tostring(failure)}`
-          end
-          return true, nil
+          return save()
         end,
         restore = function(_service: arrangementContract.Service): number
           if not context:active() then

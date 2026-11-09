@@ -113,4 +113,41 @@ test('a source name is registered once, and a disposed name is free again', func
   session:close()
 end)
 
+test('lock properties evaluate booleans and reject malformed literals and evaluator results', function()
+  local session, rules, owner, window = start()
+  for _, value in { true, false } do
+    local source = rules:addSource(owner, {
+      name = 'locks',
+      precedence = 100,
+      resolve = function(): rulesContract.Properties
+        return {
+          locked = function(): boolean
+            return value
+          end,
+        }
+      end,
+    })
+    expect.equal(rules:resolve(window).locked, value, 'the lock evaluator returns its boolean')
+    source:dispose()
+  end
+  expect.raises(function()
+    rules:setRules(owner, { rules = { { properties = { locked = 'yes' } } } })
+  end, 'property locked', 'a nonboolean lock literal is refused')
+  rules:addSource(owner, {
+    name = 'bad-lock',
+    precedence = 100,
+    resolve = function(): any
+      return {
+        locked = function(): string
+          return 'yes'
+        end,
+      }
+    end,
+  })
+  expect.raises(function()
+    rules:resolve(window)
+  end, 'property locked', 'a nonboolean lock result is refused')
+  session:close()
+end)
+
 return test

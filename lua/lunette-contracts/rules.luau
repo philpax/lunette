@@ -19,6 +19,7 @@ export type Properties = {
   read chrome: Valued<boolean>?,
   read curve: Valued<number>?,
   read hidden: Valued<boolean>?,
+  read locked: Valued<boolean>?,
   read adopt: Valued<boolean>?,
   read tags: Valued<{ read [number]: string }>?,
   [string]: unknown,
@@ -33,6 +34,7 @@ export type Resolved = {
   read chrome: boolean?,
   read curve: number?,
   read hidden: boolean?,
+  read locked: boolean?,
   read adopt: boolean?,
   read tags: { read [number]: string }?,
   [string]: unknown,
@@ -83,7 +85,7 @@ export type Service = {
 
 export type Capability = plugin.Capability<Service>
 
-local capability = plugin.capability<<Service>> { name = 'lunette/rules', version = 1 }
+local capability = plugin.capability<<Service>> { name = 'lunette/rules', version = 2 }
 
 rules.capability = capability
 

@@ -39,7 +39,7 @@ Focusing a UI text field shows the shared keyboard. Hiding it ends focus and kee
 
 ## Windows, monitors, and workspaces
 
-Grip carries a movable panel, the thumbstick changes its distance, and a second grip resizes it. Releasing grip saves placement. The [interaction provider](../../lua/lunette-plugins/interaction/pointers/README.md) describes movement constraints.
+Grip carries a movable panel, the thumbstick changes its distance, and a second grip resizes it. Releasing grip saves placement. Window and monitor titlebars offer Lock input and Unlock input. Locked content blocks pointing to panels behind it and receives no pointer or routed keyboard input. The titlebar remains usable for unlocking, movement, resizing, and closing. Locking releases held input and focus; unlocking requires fresh input and restores no focus. Lock changes save immediately and return with the panel's saved placement. The [interaction provider](../../lua/lunette-plugins/interaction/pointers/README.md) describes movement constraints.
 
 Monitor capture may ask for screen-sharing permission. Monitor titlebars can restart or stop a mirror and, with portal capture, choose monitors again. The wrist menu's Monitors group turns each monitor's mirror on and off, and a mirror turned off or closed stays off in later sessions until it is turned on again. A window's close button asks its application to close. See the [monitor controls](../../lua/lunette-plugins/panels/monitors/README.md).
 

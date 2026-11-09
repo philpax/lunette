@@ -12,6 +12,7 @@ export type Entry = {
   width: number?,
   height: number?,
   tags: { string },
+  locked: boolean,
 }
 export type File = { read entries: { Entry } }
 export type Loaded =
@@ -21,9 +22,9 @@ export type Loaded =
 
 local quote: (string | number) -> string
 local renderEntry: (Entry) -> string
-local readEntry: (any) -> (Entry?, string?)
+local readEntry: (any, number) -> (Entry?, string?)
 
-format.VERSION = 1
+format.VERSION = 2
 
 -- Malformed entries are refused and named in `skipped`; the rest load.
 function format.read(text: string): Loaded
@@ -56,7 +57,7 @@ function format.read(text: string): Loaded
   local entries: { Entry } = {}
   local skipped: { string } = {}
   for _, stored in ipairs(held.entries) do
-    local entry, refused = readEntry(stored)
+    local entry, refused = readEntry(stored, version)
     if entry then
       entries[#entries + 1] = entry
     else
@@ -96,6 +97,7 @@ renderEntry = function(entry: Entry): string
     'key = ' .. quote(entry.key),
     'slot = ' .. quote(entry.slot),
     'pose = ' .. quote(entry.pose),
+    'locked = ' .. tostring(entry.locked),
   }
   if entry.width then
     fields[#fields + 1] = 'width = ' .. quote(entry.width)
@@ -116,7 +118,7 @@ local function size(value: unknown): boolean
 end
 
 -- The parameter is `any` because narrowing `unknown` reaches `table` and no further.
-readEntry = function(stored: any): (Entry?, string?)
+readEntry = function(stored: any, version: number): (Entry?, string?)
   if type(stored) ~= 'table' then
     return nil, 'an entry is a table, not a ' .. type(stored)
   end
@@ -141,6 +143,9 @@ readEntry = function(stored: any): (Entry?, string?)
   if not size(stored.width) or not size(stored.height) then
     return refuse 'has a size that is not a positive number'
   end
+  if version >= 2 and type(stored.locked) ~= 'boolean' then
+    return refuse 'has no boolean input lock'
+  end
   if type(stored.tags) ~= 'table' then
     return refuse 'has no tag list'
   end
@@ -159,6 +164,7 @@ readEntry = function(stored: any): (Entry?, string?)
     width = stored.width,
     height = stored.height,
     tags = tags,
+    locked = version >= 2 and stored.locked == true,
   }
 end
 

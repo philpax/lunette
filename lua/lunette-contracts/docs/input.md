@@ -8,6 +8,8 @@ Focus holds one route to a native sink and optional seat, or a local receiver. T
 
 Lua routing and native seat focus are separate. A window target takes its seat's authority; switching seats leaves earlier native focus until its target withdraws it. Disposing an old target cannot clear a later target's authority. A local route withdraws the preceding window authority; host sinks cannot change host-compositor focus.
 
+When the panel registry is available, a locked panel denies every routed focus request for its sink. Locking releases held keys and modifiers and withdraws all matching native seat authorities, including routes no longer current. Distinct monitor sinks retain independent eligibility even though host keyboard delivery shares the host desktop. Unlocking restores no route. Direct native callers and physical input handled by the host desktop are outside this policy.
+
 Delivery selects one target and route revision. Route changes stop the operation without forwarding to the replacement. Re-entrant delivery is refused, and unhandled input never falls through to another target. Callback failures report an error. Delivery is not transactional; native text may deliver a prefix before refusal.
 
 Key releases and modifier clearing go to the original sink and seat on reset, route loss, or source disposal. A refused or raising inverse blocks later delivery from that source, preventing stuck keys from being transferred to a new route.
@@ -27,6 +29,8 @@ A route transition invalidates remaining committed text even if focus returns to
 ## Surface pointer delivery
 
 Hover and capture are separate. Native sinks receive native input; sinkless surfaces receive Lua events. A pointer and button capture the pressed surface through movement and release, even when another surface is hovered. Picking uses bounded coordinates; captured drag projection may be unbounded. Events are read-only snapshots, and scroll already includes pointer scaling and inversion.
+
+Locked panel content remains an occluding hit target, but receives no hover, motion, button, or scroll delivery through the pointer service, including explicit `hover` and `setButton` calls. Locking releases retained native buttons and window hover immediately; held buttons need a release before another press. The host cursor cannot be withdrawn, so leaving monitor content ends the Lua hover without moving or hiding the host cursor. The separate titlebar stays interactive, and the panel remains offered as its grab target.
 
 Tracking loss, pointer or surface withdrawal, provider replacement, hidden panels, disabled or removed controls, and grabs cancel affected gestures. Cancellation never activates a control. Grabs cancel Lua captures before movement and release native pressed sinks. A held button cannot start another gesture until released; after tracking loss, all buttons stay blocked until a tracked sample reports all up. Recovery is private to each pointer.
 

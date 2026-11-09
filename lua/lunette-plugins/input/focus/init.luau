@@ -5,6 +5,7 @@ local plugin = require '@lunette-plugin'
 local contract = require '@lunette-contracts/focus'
 local frame = require '@lunette-contracts/frame'
 local inspection = require '@lunette-contracts/inspection'
+local panels = require '@lunette-contracts/panels'
 local protected = require '@lunette-plugins/diagnostics/protected-call'
 local listeners = require '@lunette-plugins/registration/listeners'
 local routes = require '@self/private/routes'
@@ -32,6 +33,42 @@ local function create(context: plugin.Context): Service
   local recentSeat: lunette.Seat? = nil
   local failed = false
   local stopped = false
+  local panelService: panels.Service? = nil
+  local detaching = false
+  local sweeping = false
+  local sweepAgain = false
+  local withdrawing = 0
+  local lockQueryFailed = false
+  local revoked: { [Entry]: boolean } = {}
+  local sweepSafely: () -> ()
+
+  local function eligible(entry: Entry): boolean
+    local target = entry.target
+    if not target then
+      return false
+    end
+    if target.kind == 'local' then
+      return true
+    end
+    if detaching or revoked[entry] or lockQueryFailed or target.sink.dead or (target.seat and target.seat.dead) then
+      return false
+    end
+    local connected = panelService
+    if connected then
+      local ok, locked = pcall(function(): boolean
+        return connected:isInputLocked(target.sink)
+      end)
+      if not ok then
+        lockQueryFailed, state.failed = true, true
+        protected.call('focus: panel lock eligibility', function(): ()
+          error(locked, 0)
+        end)
+        return false
+      end
+      return not locked
+    end
+    return true
+  end
 
   local function live(entry: Entry): boolean
     return not stopped and not entry.dead and context:owns(entry.owner)
@@ -52,13 +89,19 @@ local function create(context: plugin.Context): Service
     return table.freeze(value)
   end
   local function resetSources(): boolean
+    withdrawing += 1
     local ok = true
     for input in pairs(table.clone(sources)) do
       if not input:reset() then
         ok = false
       end
     end
-    failed = state.failed or not ok
+    withdrawing -= 1
+    state.failed = state.failed or not ok
+    failed = state.failed
+    if withdrawing == 0 and sweepAgain and not sweeping then
+      sweepSafely()
+    end
     return ok
   end
   local function notify(previous: Entry?): ()
@@ -90,7 +133,10 @@ local function create(context: plugin.Context): Service
     end)
   end
   local function transition(entry: Entry?, blur: boolean): boolean
-    if entry and not blur and not live(entry) then
+    if entry and not blur and (not live(entry) or withdrawing > 0 or not eligible(entry)) then
+      if not sweeping and withdrawing == 0 and not eligible(entry) then
+        transition(entry, true)
+      end
       return false
     end
     if entry and not blur and state.current == entry then
@@ -104,17 +150,31 @@ local function create(context: plugin.Context): Service
       if not resetSources() and not blur then
         return false
       end
-      if state.revision ~= revision or (entry and not blur and not live(entry)) then
+      if state.revision ~= revision or (entry and not blur and (not live(entry) or not eligible(entry))) then
         return false
       end
     end
     local sourcesReady = not failed
+    if blur then
+      withdrawing += 1
+    end
     local ok, accepted = pcall(function(): boolean
-      if entry then
-        return if blur then routes.blur(state, entry) else routes.focus(state, entry)
+      local selected = entry
+      if selected then
+        return if blur
+          then routes.blur(state, selected)
+          else routes.focus(state, selected, function(): boolean
+            return live(selected) and eligible(selected)
+          end)
       end
       return false
     end)
+    if blur then
+      withdrawing -= 1
+    end
+    if withdrawing == 0 and sweepAgain and not sweeping then
+      sweepSafely()
+    end
     if state.revision ~= revision then
       local target = entry and entry.target
       if entry and not blur and target and target.kind == 'native' then
@@ -191,11 +251,68 @@ local function create(context: plugin.Context): Service
   local function sweep(): ()
     for _, entry in pairs(table.clone(entries)) do
       local target = entry.target
-      if target and target.kind == 'native' and (target.sink.dead or (target.seat and target.seat.dead)) then
-        transition(entry, true)
+      if target and target.kind == 'native' and not eligible(entry) then
+        revoked[entry] = true
       end
     end
+    for entry in pairs(table.clone(revoked)) do
+      transition(entry, true)
+      revoked[entry] = nil
+    end
   end
+  sweepSafely = function(): ()
+    if sweeping or withdrawing > 0 then
+      return
+    end
+    sweeping = true
+    repeat
+      sweepAgain = false
+      sweep()
+    until not sweepAgain
+    sweeping = false
+    if detaching then
+      panelService = nil
+      detaching = false
+    end
+  end
+  local function requestSweep(): ()
+    sweepAgain = true
+    sweepSafely()
+  end
+  context:child(plugin.consumer<<{}, {}>>({
+    name = 'focus/panel-locks',
+    requires = { panels.capability },
+    init = function(observer: plugin.Context, _settings: {}): ()
+      local connected: panels.Service = observer:require(panels.capability)
+      observer:effect(function(): () -> ()
+        panelService = connected
+        return function(): ()
+          -- Keep the connection until every native authority is withdrawn, including older routes.
+          detaching = true
+          requestSweep()
+        end
+      end)
+      connected:onLockChanged(observer, {
+        run = function(panel: panels.Panel): ()
+          -- A prior listener may already have unlocked the panel; the transition still revokes its routes.
+          local sink = panel.source.sink
+          for _, entry in pairs(entries) do
+            local target = entry.target
+            if target and target.kind == 'native' and target.sink == sink then
+              revoked[entry] = true
+            end
+          end
+          requestSweep()
+        end,
+      })
+      connected:onAdded(observer, {
+        run = function(_panel: panels.Panel): ()
+          requestSweep()
+        end,
+      })
+      requestSweep()
+    end,
+  }).definition)
   local lossObserver = plugin.consumer<<{}, {}>> {
     name = 'focus/native-loss',
     requires = { frame.capability },
@@ -205,12 +322,12 @@ local function create(context: plugin.Context): Service
         phase = 'input',
         order = -100,
         run = function(_dt: number): ()
-          sweep()
+          sweepSafely()
         end,
       })
       clock:onBatch(observer, {
         run = function(_batch: frame.Batch): ()
-          sweep()
+          sweepSafely()
         end,
       })
     end,
@@ -254,8 +371,9 @@ local function create(context: plugin.Context): Service
       return register(owner, target)
     end,
     focused = function(_self: Service): contract.TargetHandle?
+      sweepSafely()
       local entry = current()
-      if not entry or not live(entry) then
+      if not entry or not live(entry) or not eligible(entry) then
         return nil
       end
       if not routes.current(state) then
@@ -275,12 +393,12 @@ local function create(context: plugin.Context): Service
       local value, effect = context:resource(owner, function(): (contract.Source, () -> ())
         local made, inverse = source.new(context, owner, options, {
           snapshot = function(): source.Snapshot
-            sweep()
+            sweepSafely()
             local entry = current()
             return {
-              handle = entry and entry.handle,
-              target = entry and entry.target,
-              owner = entry and entry.owner,
+              handle = if entry and eligible(entry) then entry.handle else nil,
+              target = if entry and eligible(entry) then entry.target else nil,
+              owner = if entry and eligible(entry) then entry.owner else nil,
               revision = state.revision,
             }
           end,
@@ -292,11 +410,21 @@ local function create(context: plugin.Context): Service
             end
           end,
           blocked = function(): contract.Result?
+            if withdrawing > 0 or detaching then
+              local result: contract.Result = { kind = 'refused', message = 'native focus is being withdrawn' }
+              return table.freeze(result)
+            end
             if state.failed then
               local result: contract.Result = { kind = 'refused', message = 'native focus cleanup is unresolved' }
               return table.freeze(result)
             end
             return nil
+          end,
+          cleanup = function(active: boolean): ()
+            withdrawing += if active then 1 else -1
+            if not active and withdrawing == 0 and sweepAgain and not sweeping then
+              sweepSafely()
+            end
           end,
           keymapSeat = keymapSeat,
         })

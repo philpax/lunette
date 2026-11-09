@@ -6,6 +6,8 @@ Consumers and replacement providers preserve these resource, input, and appearan
 
 Follow `onAdded` and `onRemoved`, not private registries. Removal listeners run before owner authority ends; panels removed during unload are not announced from that owner's inverse. A hidden panel remains registered but is neither drawn nor picked and releases its layer. Window close requests client closure; monitor close dismisses capture and removes the panel.
 
+Input locks belong to the panel registry, independent of decorations and visibility. A live owner changes a lock through `setLocked`; `onLockChanged` announces transitions. A locked panel retains drawing, picking, and spatial movement but exposes no content sink. Decorations keep their own usable surfaces, including panels with native chrome. Lock eligibility compares sink delivery identities, not handle table keys. Multiple panels for the same source share sink eligibility: any locked panel denies that sink.
+
 One supplied dimension follows source aspect; supplying both fixes the rectangle. Drawing and picking share rounded and curved geometry, but granted layers stay rectangular at rounded corners. [Panels](../lunette-plugins/panels/service/README.md) describes the built-in renderer.
 
 ## Joined frames

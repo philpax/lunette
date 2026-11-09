@@ -46,6 +46,9 @@ function policy.evaluate(properties: rules.Properties, window: lunette.Window): 
       then (value :: (lunette.Window, string) -> unknown)(window, key)
       else value
   end
+  if result.locked ~= nil and type(result.locked) ~= 'boolean' then
+    error('rules: property locked evaluates to a boolean, not a ' .. type(result.locked))
+  end
   return (result :: unknown) :: rules.Resolved
 end
 

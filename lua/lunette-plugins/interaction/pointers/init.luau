@@ -4,6 +4,7 @@ local plugin = require '@lunette-plugin'
 local contracts = require '@lunette-contracts/interaction'
 local dropsContract = require '@lunette-contracts/drops'
 local focusContract = require '@lunette-contracts/focus'
+local panelsContract = require '@lunette-contracts/panels'
 local vocabulary = require '@lunette-contracts/vocabulary'
 local grab = require '@self/private/grab'
 local picking = require '@lunette-plugins/interaction/picking'
@@ -59,9 +60,38 @@ local function build(context: plugin.Context, settings: Settings): Service
   local owners: { [Pointer]: contracts.Owner } = {}
   local dropService: dropsContract.Service = context:require(dropsContract.capability)
   local focusService: focusContract.Service = context:require(focusContract.capability)
+  local panelService: panelsContract.Service? = nil
+  local lockCleanup = 0
+  local lockQueryFailed = false
+
+  local function allowed(sink: lunette.Sink?, surface: Surface?): boolean
+    if lockQueryFailed or (surface and surface.locked) then
+      return false
+    end
+    local panels = panelService
+    if sink and panels then
+      local ok, locked = pcall(function(): boolean
+        return panels:isInputLocked(sink)
+      end)
+      if not ok then
+        lockQueryFailed = true
+        protected.call('interaction: panel lock eligibility', function(): ()
+          error(locked, 0)
+        end)
+        return false
+      end
+      return not locked
+    end
+    return true
+  end
 
   local function live(state: State): boolean
-    return active and context:active() and not state.dead and not state.withdrawing
+    return active
+      and context:active()
+      and not state.dead
+      and not state.failed
+      and not state.withdrawing
+      and lockCleanup == 0
   end
 
   local carrying = grab.new {
@@ -104,8 +134,9 @@ local function build(context: plugin.Context, settings: Settings): Service
       live = function(): boolean
         return live(state)
       end,
+      allowed = allowed,
       focus = function(sink: lunette.Sink?)
-        if settings.focusOnPress then
+        if settings.focusOnPress and allowed(sink, nil) then
           local generation = state.generation
           nativeFocus.give(state, sink, context, focusService, function(): boolean
             return live(state) and state.generation == generation
@@ -195,6 +226,7 @@ local function build(context: plugin.Context, settings: Settings): Service
     if not live(state) or state.generation ~= beforeValidation then
       return
     end
+    cleanup.run(CLEANUP, input.revoke(state, pointer, host(state)))
     state.generation += 1
     local generation = state.generation
     local function current(): boolean
@@ -295,11 +327,62 @@ local function build(context: plugin.Context, settings: Settings): Service
       dt = frame.dt,
       tuning = state.tuning,
     }
-    input.scroll(state, pointer, hit, sink, dx, dy)
+    input.scroll(state, pointer, hit, sink, dx, dy, host(state))
     if current() then
       input.buttons(state, pointer, sample, sink, hit, host(state))
     end
   end
+
+  context:child(plugin.consumer<<{}, {}>>({
+    name = 'interaction/panel-locks',
+    requires = { panelsContract.capability },
+    init = function(child: plugin.Context, _settings: {}): ()
+      panelService = child:require(panelsContract.capability)
+      local function revoke(changed: panelsContract.Panel?): ()
+        local inverses: { () -> () } = {}
+        for pointer, state in pairs(states) do
+          if changed then
+            state.generation += 1
+          end
+          for _, inverse in ipairs(input.revoke(state, pointer, host(state), changed, changed and changed.source.sink)) do
+            inverses[#inverses + 1] = inverse
+          end
+        end
+        lockCleanup += 1
+        local ok, failure = pcall(cleanup.run, CLEANUP, inverses)
+        lockCleanup -= 1
+        if not ok then
+          error(failure, 0)
+        end
+      end
+      child:effect(function(): () -> ()
+        revoke()
+        return function(): ()
+          local inverses: { () -> () } = {}
+          for pointer, state in pairs(states) do
+            inverses[#inverses + 1] = function(): ()
+              withdraw(state, pointer, 'provider-replaced', true)
+            end
+          end
+          cleanup.run(CLEANUP, inverses)
+          panelService = nil
+        end
+      end)
+      local panels = panelService
+      if panels then
+        panels:onLockChanged(child, {
+          run = function(changed: panelsContract.Panel): ()
+            revoke(changed)
+          end,
+        })
+        panels:onAdded(child, {
+          run = function(_panel: panelsContract.Panel): ()
+            revoke()
+          end,
+        })
+      end
+    end,
+  }).definition)
 
   local function tuningFor(overrides: contracts.TuningOverride?): contracts.Tuning
     if not overrides then
@@ -326,6 +409,7 @@ local function build(context: plugin.Context, settings: Settings): Service
       scaling = nil,
       pointer = nil,
       dead = false,
+      failed = false,
       generation = 0,
       withdrawing = false,
       seat = options and options.seat,
@@ -392,7 +476,7 @@ local function build(context: plugin.Context, settings: Settings): Service
         end
       end,
       focus = function(_self: Pointer, sink: lunette.Sink?)
-        if live(state) then
+        if live(state) and allowed(sink, nil) then
           state.generation += 1
           local generation = state.generation
           nativeFocus.give(state, sink, context, focusService, function(): boolean
@@ -417,7 +501,7 @@ local function build(context: plugin.Context, settings: Settings): Service
         end
       end,
       transfer = function(_self: Pointer, from: Surface, to: Surface): boolean
-        return live(state) and input.transfer(state, from, to)
+        return live(state) and allowed(nil, to) and input.transfer(state, from, to)
       end,
       withdraw = function(self: Pointer)
         if live(state) then

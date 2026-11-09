@@ -23,6 +23,7 @@ export type NativePress = { sink: lunette.Sink, surface: Surface? }
 
 export type State = {
   dead: boolean,
+  failed: boolean,
   generation: number,
   withdrawing: boolean,
   seat: lunette.Seat?,
@@ -42,6 +43,7 @@ export type State = {
 
 export type Host = {
   read live: () -> boolean,
+  read allowed: (lunette.Sink?, Surface?) -> boolean,
   read focus: (lunette.Sink) -> (),
   read hoveredByAnother: (Surface) -> boolean,
   -- Tells press observers that a button went down, on the surface it pressed or on nothing.
@@ -216,7 +218,16 @@ local function detachButton(
   if press then
     inverses[#inverses + 1] = function()
       if not press.sink.dead and seatLive(state) then
-        press.sink:button(button, false, state.seat)
+        local ok, released = pcall(function(): boolean
+          return press.sink:button(button, false, state.seat)
+        end)
+        if not ok or released == false then
+          state.failed = true
+          error(
+            'interaction: native button release: ' .. (if ok then 'sink refused release' else tostring(released)),
+            0
+          )
+        end
       end
     end
   end
@@ -327,8 +338,15 @@ local function hoverInverses(state: State, pointer: Pointer, previous: Surface, 
       end
     end,
     function()
-      if sink and not sink.dead and seatLive(state) then
-        sink:leave(state.seat)
+      if sink and sink.domain == 'window' and not sink.dead and seatLive(state) then
+        local leaving: lunette.Sink = sink
+        local ok, left = pcall(function(): boolean
+          return leaving:leave(state.seat)
+        end)
+        if not ok or left == false then
+          state.failed = true
+          error('interaction: native hover release: ' .. (if ok then 'sink refused leave' else tostring(left)), 0)
+        end
       end
     end,
     function()
@@ -367,10 +385,15 @@ function input.hover(
   sink: lunette.Sink?,
   host: Host
 ): ()
+  if not host.allowed(sink, hit) then
+    sink = nil
+  end
   local previous = state.hovered
-  local inverses = if previous and previous ~= hit then hoverInverses(state, pointer, previous, host) else {}
+  local inverses = if previous and (previous ~= hit or state.hoveredSink ~= sink)
+    then hoverInverses(state, pointer, previous, host)
+    else {}
   state.hovered, state.hoveredSink, state.hitX, state.hitY, state.distance = hit, sink, x, y, distance
-  if previous == hit then
+  if previous == hit and #inverses == 0 then
     return
   end
   local generation = state.generation
@@ -381,7 +404,7 @@ function input.hover(
       end
     end
     inverses[#inverses + 1] = function()
-      if not sink and host.live() and state.generation == generation and not hit.dead then
+      if not sink and host.live() and state.generation == generation and not hit.dead and host.allowed(nil, hit) then
         notify(hit, {
           kind = 'enter',
           pointer = pointer,
@@ -406,8 +429,12 @@ local function press(
 ): ()
   state.pressed[button] = true
   local generation = state.generation
+  if not host.allowed(sink, surface) then
+    state.blocked[button] = true
+    return
+  end
   host.pressed(if sink then nil else surface)
-  if not host.live() or state.generation ~= generation then
+  if not host.live() or state.generation ~= generation or not host.allowed(sink, surface) then
     return
   end
   if sink then
@@ -456,6 +483,32 @@ function input.transfer(state: State, from: Surface, to: Surface): boolean
     end
   end
   return moved
+end
+
+function input.revoke(state: State, pointer: Pointer, host: Host, changed: Surface?, sink: lunette.Sink?): { Inverse }
+  local function denied(target: Surface?, native: lunette.Sink?): boolean
+    return not host.allowed(native, target)
+      or (changed ~= nil and target == changed)
+      or (sink ~= nil and native == sink)
+  end
+  local inverses: { Inverse } = {}
+  for _, button in ipairs(vocabulary.POINTER_BUTTONS) do
+    local capture, press = state.captures[button], state.pressedSink[button]
+    local surface = if capture then capture.surface else press and press.surface
+    if denied(surface, press and press.sink) then
+      state.generation += 1
+      for _, inverse in ipairs(detachButton(state, pointer, button, 'disabled', true, true)) do
+        inverses[#inverses + 1] = inverse
+      end
+    end
+  end
+  if state.hovered and denied(state.hovered, state.hoveredSink) then
+    state.generation += 1
+    for _, inverse in ipairs(input.clearHover(state, pointer, host)) do
+      inverses[#inverses + 1] = inverse
+    end
+  end
+  return inverses
 end
 
 function input.releases(state: State, pointer: Pointer, sample: Sample): { Inverse }
@@ -521,7 +574,7 @@ function input.motion(
   local ray = if length > 0 then frame.direction * (1 / length) else frame.direction
   for _, button in ipairs(vocabulary.POINTER_BUTTONS) do
     local capture = captures[button]
-    if capture and not capture.surface.dead then
+    if capture and not capture.surface.dead and host.allowed(nil, capture.surface) then
       local target = capture.surface
       local x, y, distance = target:raycast(frame.origin, ray)
       if not host.live() or state.generation ~= generation then
@@ -541,7 +594,7 @@ function input.motion(
       end
     end
   end
-  if hit and not hit.dead then
+  if hit and not hit.dead and host.allowed(sink, hit) then
     if sink then
       if not sink.dead and seatLive(state) and state.hitX and state.hitY then
         sink:pointer(state.hitX, state.hitY, state.seat)
@@ -562,7 +615,12 @@ function input.motion(
       return
     end
     local capture = captures[button]
-    if capture and state.captures[button] == capture and not capture.surface.dead then
+    if
+      capture
+      and state.captures[button] == capture
+      and not capture.surface.dead
+      and host.allowed(nil, capture.surface)
+    then
       local event: contracts.PointerEvent = {
         kind = 'move',
         pointer = pointer,
@@ -577,8 +635,16 @@ function input.motion(
   end
 end
 
-function input.scroll(state: State, pointer: Pointer, hit: Surface?, sink: lunette.Sink?, dx: number, dy: number): ()
-  if dx == 0 and dy == 0 then
+function input.scroll(
+  state: State,
+  pointer: Pointer,
+  hit: Surface?,
+  sink: lunette.Sink?,
+  dx: number,
+  dy: number,
+  host: Host
+): ()
+  if not host.allowed(sink, hit) or (dx == 0 and dy == 0) then
     return
   end
   if sink then

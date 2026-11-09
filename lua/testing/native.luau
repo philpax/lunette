@@ -427,6 +427,9 @@ function native.new(): Fake
     local sink: Sink = { domain = domain }
     for _, name in ipairs(SINK_METHODS) do
       sink[name] = function(_: Sink, ...: unknown): boolean
+        if domain == 'host' and name == 'leave' then
+          return false
+        end
         events.input[#events.input + 1] = { name, ... }
         return true
       end

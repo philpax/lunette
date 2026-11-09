@@ -36,6 +36,7 @@ export type Host = {
   read contentShader: (boolean) -> Shader?,
   -- Called once a panel is dead and its claim released.
   read removed: (State) -> (),
+  read lockChanged: (State) -> (),
 }
 
 type Override = {
@@ -55,6 +56,7 @@ type PanelData = {
   chrome: boolean,
   curve: number,
   hidden: boolean,
+  locked: boolean,
   highlighted: boolean,
   granted: boolean,
   dead: boolean,
@@ -85,6 +87,7 @@ type PanelMethods = {
   read update: (Panel) -> (),
   read draw: (Panel, Pass) -> (),
   read setHidden: (Panel, Owner, boolean) -> plugin.Effect,
+  read setLocked: (Panel, Owner, boolean) -> boolean,
   read close: (Panel, Owner) -> boolean,
   read destroy: (Panel, Owner) -> boolean,
 }
@@ -105,6 +108,9 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
     error('panels: a panel is over a source, and nil is not one', 4)
   end
   local settings: Options = options or {}
+  if settings.locked ~= nil and type(settings.locked) ~= 'boolean' then
+    error('panels: locked is a boolean, not a ' .. type(settings.locked), 4)
+  end
   local curve = checkCurve(if settings.curve == nil then 0 else settings.curve, 4)
   local created: State
   local exposed: PanelMethods = {
@@ -138,7 +144,7 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
       return panel.raycast(created, origin, direction, backFace)
     end,
     sink = function(_self: vocabulary.Surface): lunette.Sink?
-      if created.dead or created.source.dead then
+      if created.dead or created.source.dead or created.locked then
         return nil
       end
       return created.source.sink
@@ -171,7 +177,7 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
               drawing.clearOutline(created)
             end
           end
-          if created.chrome and font then
+          if created.chrome and font and not (created.frame and created.frame.live) then
             pass:setFont(font)
             drawing.chrome(created, pass, paint.style, font)
           end
@@ -196,6 +202,18 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
         error('panels setHidden: hidden is a boolean, not a ' .. type(hidden), 2)
       end
       return panel.setHidden(created, caller, hidden)
+    end,
+    setLocked = function(_self: Panel, caller: Owner, locked: boolean): boolean
+      if type(locked) ~= 'boolean' then
+        error('panels setLocked: locked is a boolean, not a ' .. type(locked), 2)
+      end
+      host.checkOwner(caller)
+      if created.dead or created.source.dead or created.locked == locked then
+        return false
+      end
+      created.locked = locked
+      host.lockChanged(created)
+      return true
     end,
     close = function(_self: Panel, caller: Owner): boolean
       if created.dead or created.source.dead then
@@ -235,6 +253,7 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
     chrome = chrome,
     curve = curve,
     hidden = false,
+    locked = settings.locked == true,
     highlighted = false,
     granted = false,
     dead = false,

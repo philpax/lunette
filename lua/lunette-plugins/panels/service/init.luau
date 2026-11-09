@@ -30,6 +30,7 @@ type ProviderState = {
   panels: { panel.State },
   shaders: clientPixels.Shaders,
   added: listeners.Listeners<contracts.PanelCallback>,
+  lockChanged: listeners.Listeners<contracts.PanelCallback>,
   removed: listeners.Listeners<RemovedListener>,
   host: panel.Host,
 }
@@ -113,6 +114,11 @@ local function build(context: plugin.Context, settings: Settings): Service
     contentShader = function(opaque: boolean): Shader?
       return state.shaders.choose(opaque)
     end,
+    lockChanged = function(target: panel.State)
+      state.lockChanged:each('panels: lock listener', function(callback: contracts.PanelCallback)
+        callback(target)
+      end)
+    end,
     removed = function(target: panel.State)
       local index = table.find(state.panels, target)
       if index then
@@ -133,6 +139,7 @@ local function build(context: plugin.Context, settings: Settings): Service
       return state.active
     end),
     added = listeners.new<<contracts.PanelCallback>>(context),
+    lockChanged = listeners.new<<contracts.PanelCallback>>(context),
     removed = listeners.new<<RemovedListener>>(context),
     host = host,
   }
@@ -145,6 +152,7 @@ local function build(context: plugin.Context, settings: Settings): Service
         panel.retire(target)
       end
       state.added:clear()
+      state.lockChanged:clear()
       state.removed:clear()
     end
   end)
@@ -198,6 +206,7 @@ local function build(context: plugin.Context, settings: Settings): Service
             width = target.width,
             height = target.height,
             hidden = target.hidden,
+            locked = target.locked,
             priority = target.priority,
             layerClaim = target.claim ~= nil,
             mesh = target.mesh ~= nil,
@@ -258,6 +267,18 @@ local function build(context: plugin.Context, settings: Settings): Service
       for _, target in ipairs(livePanels(state)) do
         target:draw(pass)
       end
+    end,
+    isInputLocked = function(_self: Service, sink: lunette.Sink): boolean
+      for _, target in ipairs(state.panels) do
+        if not target.dead and not target.source.dead and target.locked and target.source.sink == sink then
+          return true
+        end
+      end
+      return false
+    end,
+    onLockChanged = function(_self: Service, owner: Owner, listener: contracts.AddedListener): plugin.Effect
+      listeners.check('panels onLockChanged', listener)
+      return state.lockChanged:add(owner, listener.run)
     end,
     onAdded = function(_self: Service, owner: Owner, listener: contracts.AddedListener): plugin.Effect
       listeners.check('panels onAdded', listener)

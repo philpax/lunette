@@ -31,7 +31,7 @@ type Environment = {
 local WINDOW = 'desktop/decorations/window/7'
 local MONITOR = 'desktop/decorations/monitor/screen-a'
 
-local function boot(): Environment
+local function boot(chrome: boolean?): Environment
   local native = testing.native()
   local monitor = native.newMonitor 'screen-a'
   native.events.monitors = { monitor }
@@ -68,6 +68,7 @@ local function boot(): Environment
   env.panel = registry.service:fromWindow(registry.context, window, {
     pose = lovr.math.newMat4():translate(-2, 1, -2),
     width = 1,
+    chrome = chrome,
   })
   running:step()
   env.mirror = assert(registry.service:forSource(monitor))
@@ -464,6 +465,148 @@ test('monitor selection shows a refused, pending, and failed request, and retrie
   expect.equal(native.events.monitorSelections, 1, 'a failure does not retry by itself')
   click(env, MONITOR, 'select')
   expect.equal(native.events.monitorSelections, 2, 'a retry starts a fresh request')
+end)
+
+test('VR titlebars lock content without clickthrough and remain movable, unlockable, and closable', function()
+  local env = boot()
+  for index, entry in { { titlebar = WINDOW, panel = env.panel }, { titlebar = MONITOR, panel = env.mirror } } do
+    local behind = env.registry.service:fromWindow(env.registry.context, env.running.native.newWindow(70 + index), {
+      pose = lovr.math.newMat4(entry.panel.pose):translate(0, 0, -0.2),
+      width = entry.panel.width,
+      height = entry.panel.height,
+    })
+    local function content(): vrUi.Geometry
+      return {
+        pose = entry.panel.pose,
+        width = entry.panel.width,
+        height = entry.panel.height,
+        logicalWidth = 1,
+        logicalHeight = 1,
+        visible = true,
+      }
+    end
+    local function presses(): number
+      local count = 0
+      for _, event in env.running.native.events.input do
+        if event[1] == 'button' and event[3] == true then
+          count += 1
+        end
+      end
+      return count
+    end
+    env.running:step()
+    env.running:step()
+    local options = controls.options(env.registry.context, entry.panel, nil, function() end)
+    expect.equal(
+      #options.actions,
+      if entry.panel.kind == 'window' then 1 else 3,
+      'the header includes the added lock action'
+    )
+    expect.equal(options.actions[#options.actions].id, 'lock', 'locking follows the monitor-specific actions')
+    expect.equal(label(env, entry.titlebar, 'lock'), 'Lock input', 'an unlocked panel offers locking')
+    click(env, entry.titlebar, 'lock')
+    env.running:step()
+    env.running:step()
+    expect.truthy(entry.panel.locked, 'the titlebar updates authoritative panel state')
+    expect.equal(label(env, entry.titlebar, 'lock'), 'Unlock input', 'a locked panel offers unlocking')
+    expect.truthy(
+      assert(env.host:find(`{entry.titlebar}:header`)).props.title:find('[locked]', 1, true),
+      'the title marks the lock'
+    )
+    table.clear(env.running.native.events.input)
+    env.running:click(content(), 0.5, 0.5)
+    expect.equal(presses(), 0, 'locked content sends no native press to its source or the panel behind it')
+
+    local px, py, pz = entry.panel.pose:getPosition()
+    local title = fixture.nodeGeometry(node(env, entry.titlebar, 'title'))
+    env.running:aim(title, title.logicalWidth / 2, title.logicalHeight / 2)
+    env.running:step()
+    env.running:button('right', 'trigger', true)
+    env.running:step()
+    local moved = lovr.math.newMat4(title.pose):translate(0.3, 0.1, 0.9)
+    env.running:pose('right', moved)
+    env.running:step()
+    env.running:button('right', 'trigger', false)
+    env.running:step()
+    local x, y, z = entry.panel.pose:getPosition()
+    expect.near(x, px + 0.3, 1e-5, 'a locked panel moves in x through its titlebar')
+    expect.near(y, py + 0.1, 1e-5, 'a locked panel moves in y through its titlebar')
+    expect.near(z, pz - 0.1, 1e-5, 'a locked panel moves in z through its titlebar')
+    expect.truthy(entry.panel.locked, 'moving retains the lock')
+
+    click(env, entry.titlebar, 'lock')
+    env.running:step()
+    env.running:step()
+    expect.falsy(entry.panel.locked, 'the locked titlebar remains interactive')
+    expect.equal(label(env, entry.titlebar, 'lock'), 'Lock input', 'unlocking restores the action label')
+    table.clear(env.running.native.events.input)
+    env.running:click(content(), 0.5, 0.5)
+    expect.truthy(presses() > 0, 'a fresh content click works after unlocking')
+    click(env, entry.titlebar, 'close')
+    if entry.panel.kind == 'window' then
+      expect.equal(env.closeRequests, 1, 'the window titlebar still requests close')
+    else
+      expect.truthy(entry.panel.dead, 'the monitor titlebar still closes the mirror')
+    end
+    behind:destroy(env.registry.context)
+  end
+  env.running:close()
+end)
+
+test('native chrome windows retain an accessible toolkit lock and close action', function()
+  local env = boot(true)
+  expect.truthy(env.panel.chrome, 'the window requests native chrome')
+  expect.equal(label(env, WINDOW, 'lock'), 'Lock input', 'native chrome also has a toolkit lock action')
+  click(env, WINDOW, 'lock')
+  env.running:step()
+  env.running:step()
+  expect.truthy(env.panel.locked, 'the toolkit action locks a native-chrome window')
+  click(env, WINDOW, 'lock')
+  env.running:step()
+  env.running:step()
+  expect.falsy(env.panel.locked, 'the toolkit action unlocks a native-chrome window')
+  click(env, WINDOW, 'close')
+  expect.equal(env.closeRequests, 1, 'native chrome does not hide the toolkit close action')
+  env.running:close()
+end)
+
+test('retained lock callbacks read live state and guard the context and both handles', function()
+  local env = boot()
+  local active = true
+  local context = {
+    active = function(): boolean
+      return active
+    end,
+  } :: any
+  local target = {
+    kind = 'window',
+    source = { title = 'Fixture', dead = false },
+    dead = false,
+    locked = false,
+  } :: any
+  local changes = 0
+  target.setLocked = function(self: any, owner: any, locked: boolean): boolean
+    expect.equal(owner, context, 'the titlebar context authorizes the mutation')
+    self.locked = locked
+    changes += 1
+    return true
+  end
+  local options = controls.options(context, target, nil, function() end)
+  local toggle = options.actions[#options.actions].run
+  toggle()
+  toggle()
+  expect.falsy(target.locked, 'a retained callback toggles live state rather than captured state')
+  expect.equal(changes, 2, 'both live toggles run')
+  active = false
+  toggle()
+  active = true
+  target.dead = true
+  toggle()
+  target.dead = false
+  target.source.dead = true
+  toggle()
+  expect.equal(changes, 2, 'inactive contexts and dead handles are inert')
+  env.running:close()
 end)
 
 return test

@@ -58,6 +58,7 @@ function service.panelOptions(properties: Properties, window: lunette.Window): p
     title = properties.title,
     priority = properties.priority,
     chrome = properties.chrome,
+    locked = properties.locked,
     curve = properties.curve,
   }
 end

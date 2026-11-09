@@ -205,6 +205,7 @@ type SurfaceFields = {
   -- A name that identifies the surface across reloads and sessions, so placement memory can return it to where the
   -- user left it. Surfaces without one are placed by their owners alone.
   read placementKey: string?,
+  read locked: boolean?,
   read pose: Mat4?,
   read width: number?,
   read height: number?,
@@ -226,6 +227,7 @@ type MovableFields = {
   read grabTarget: ((Surface) -> Surface?)?,
   read pickPriority: number?,
   read placementKey: string?,
+  read locked: boolean?,
   read pose: Mat4?,
   read width: number?,
   read height: number?,

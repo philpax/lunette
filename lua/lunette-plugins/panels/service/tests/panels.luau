@@ -124,4 +124,46 @@ test('the most recent live override decides whether a panel is hidden', function
   env.session:close()
 end)
 
+test('input locks are panel state and keep content pickable while denying its sink', function()
+  local env = start()
+  local source = env.native.newWindow(21)
+  local panel = env.panels:fromWindow(env.owner, source, { pose = lovr.math.newMat4():translate(0, 0, -2) })
+  local changes = 0
+  env.panels:onLockChanged(env.owner, {
+    run = function(changed: contract.Panel)
+      expect.equal(changed, panel, 'the changed panel')
+      changes += 1
+    end,
+  })
+  expect.falsy(panel.locked, 'unlocked by default')
+  expect.truthy(panel:setLocked(env.other, true), 'another live owner can lock')
+  expect.truthy(panel.locked, 'the panel owns the state')
+  expect.equal(panel:sink(), nil, 'content exposes no input sink')
+  expect.truthy(env.panels:isInputLocked(source.sink), 'raw sink routes are denied')
+  local _, _, distance = panel:raycast(vector.pack(0, 0, 0), vector.pack(0, 0, -1))
+  expect.truthy(distance, 'locked content still occludes')
+  expect.falsy(panel:setLocked(env.owner, true), 'idempotent toggles do not notify')
+  expect.equal(changes, 1, 'one transition')
+  expect.truthy(panel:setLocked(env.owner, false), 'unlock succeeds')
+  expect.equal(panel:sink(), source.sink, 'fresh input can use the sink')
+  env.session:close()
+end)
+
+test('duplicate panels share sink lock eligibility and validate lock values', function()
+  local env = start()
+  local source = env.native.newWindow(22)
+  local first = env.panels:fromWindow(env.owner, source)
+  local second = env.panels:fromWindow(env.owner, source, { locked = true })
+  expect.truthy(env.panels:isInputLocked(first:sink()), 'one locked duplicate denies the shared sink')
+  second:setLocked(env.owner, false)
+  expect.falsy(env.panels:isInputLocked(source.sink), 'all duplicates must be unlocked')
+  expect.raises(function()
+    first:setLocked(env.owner, 'locked')
+  end, nil, 'invalid transition value')
+  expect.raises(function()
+    env.panels:fromWindow(env.owner, source, { locked = 'locked' })
+  end, nil, 'invalid initial lock')
+  env.session:close()
+end)
+
 return test

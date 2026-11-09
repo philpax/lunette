@@ -69,7 +69,7 @@ return plugin.consumer<<Config, Settings>> {
       local height = settings.height or theme.sizes.header
       local live: { [panels.Panel]: boolean } = {}
       for _, target in registry:all() do
-        if target.dead or target.source.dead or target.chrome then
+        if target.dead or target.source.dead then
           continue
         end
         live[target] = true

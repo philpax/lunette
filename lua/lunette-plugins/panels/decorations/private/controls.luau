@@ -51,8 +51,18 @@ function controls.options(context: plugin.Context, panel: panels.Panel, refusal:
       table.insert(actions, { id = 'select', label = label, enabled = state.state ~= 'pending', run = select })
     end
   end
+  table.insert(actions, {
+    id = 'lock',
+    label = if panel.locked then 'Unlock input' else 'Lock input',
+    enabled = true,
+    run = function(): ()
+      if context:active() and not panel.dead and not panel.source.dead then
+        panel:setLocked(context, not panel.locked)
+      end
+    end,
+  })
   return {
-    title = title,
+    title = if panel.locked then title .. ' [locked]' else title,
     actions = actions,
     close = function(): ()
       if context:active() and not panel.dead and not panel.source.dead and not panel:close(context) then

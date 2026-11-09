@@ -40,7 +40,7 @@ function arrangement.answer(
   if not entry then
     return nil
   end
-  return { pose = entry.pose, width = entry.width, height = entry.height, tags = entry.tags }
+  return { pose = entry.pose, width = entry.width, height = entry.height, tags = entry.tags, locked = entry.locked }
 end
 
 -- Window panels use held slots; monitor panels use their order among live panels of the same identity.
@@ -81,6 +81,7 @@ function arrangement.capture(held: slots.Slots, panels: panelsContract.Service, 
           width = target.width,
           height = target.height,
           tags = names,
+          locked = target.locked,
         }
       else
         logging.report('a ' .. target.kind .. ' panel has no identity, so it is not saved', 'warn')
@@ -103,7 +104,7 @@ function arrangement.merge(previous: format.File, captured: format.File): format
   return { entries = entries }
 end
 
--- Applies saved pose, size, and tag membership. Tag holds belong to the binding context. The format refuses an
+-- Applies saved pose, size, lock state, and tag membership. Tag holds belong to the binding context. The format refuses an
 -- entry whose pose does not decode.
 function arrangement.apply(
   context: plugin.Context,
@@ -111,6 +112,7 @@ function arrangement.apply(
   target: panelsContract.Panel,
   entry: Entry
 ): ()
+  target:setLocked(context, entry.locked)
   target:setPose(assert(vocabulary.decodePose(entry.pose)))
   if entry.width or entry.height then
     if target.kind == 'monitor' and entry.width then
