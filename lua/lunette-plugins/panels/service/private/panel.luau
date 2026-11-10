@@ -13,6 +13,7 @@ local vocabulary = require '@lunette-contracts/vocabulary'
 local frame = require './frame'
 local silhouette = require './silhouette'
 local children = require './children'
+local curved = require '@lunette-plugins/graphics/curved-surface'
 
 local panel = {}
 
@@ -37,6 +38,10 @@ export type Host = {
   -- Called once a panel is dead and its claim released.
   read removed: (State) -> (),
   read lockChanged: (State) -> (),
+  read curveChanged: (State) -> (),
+  read transformLockChanged: (State) -> (),
+  -- Whether the headset composites curved layers, cached once per update.
+  read layerCurve: () -> boolean,
 }
 
 type Override = {
@@ -55,8 +60,12 @@ type PanelData = {
   title: string?,
   chrome: boolean,
   curve: number,
+  curveExplicit: boolean,
   hidden: boolean,
   locked: boolean,
+  lockedExplicit: boolean,
+  transformLocked: boolean,
+  transformLockedExplicit: boolean,
   highlighted: boolean,
   granted: boolean,
   dead: boolean,
@@ -88,6 +97,8 @@ type PanelMethods = {
   read draw: (Panel, Pass) -> (),
   read setHidden: (Panel, Owner, boolean) -> plugin.Effect,
   read setLocked: (Panel, Owner, boolean) -> boolean,
+  read setCurve: (Panel, number, boolean?) -> boolean,
+  read setTransformLocked: (Panel, Owner, boolean) -> boolean,
   read close: (Panel, Owner) -> boolean,
   read destroy: (Panel, Owner) -> boolean,
 }
@@ -110,6 +121,9 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
   local settings: Options = options or {}
   if settings.locked ~= nil and type(settings.locked) ~= 'boolean' then
     error('panels: locked is a boolean, not a ' .. type(settings.locked), 4)
+  end
+  if settings.transformLocked ~= nil and type(settings.transformLocked) ~= 'boolean' then
+    error('panels: transformLocked is a boolean, not a ' .. type(settings.transformLocked), 4)
   end
   local curve = checkCurve(if settings.curve == nil then 0 else settings.curve, 4)
   local created: State
@@ -215,6 +229,38 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
       host.lockChanged(created)
       return true
     end,
+    setCurve = function(_self: Panel, curve: number, commit: boolean?): boolean
+      local value = checkCurve(curve, 2)
+      if created.dead then
+        return false
+      end
+      local changed = created.curve ~= value
+      -- A commit notifies even when the value is unchanged; a preview of the same value does nothing.
+      if not changed and commit ~= true then
+        return false
+      end
+      created.curve = value
+      -- The next update re-decides whether the layer or the scene draws the curve.
+      if created.claim then
+        layer.release(created)
+      end
+      if commit == true then
+        host.curveChanged(created)
+      end
+      return true
+    end,
+    setTransformLocked = function(_self: Panel, caller: Owner, locked: boolean): boolean
+      if type(locked) ~= 'boolean' then
+        error('panels setTransformLocked: transformLocked is a boolean, not a ' .. type(locked), 2)
+      end
+      host.checkOwner(caller)
+      if created.dead or created.source.dead or created.transformLocked == locked then
+        return false
+      end
+      created.transformLocked = locked
+      host.transformLockChanged(created)
+      return true
+    end,
     close = function(_self: Panel, caller: Owner): boolean
       if created.dead or created.source.dead then
         return false
@@ -252,8 +298,12 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
     title = settings.title,
     chrome = chrome,
     curve = curve,
+    curveExplicit = settings.curve ~= nil,
     hidden = false,
     locked = settings.locked == true,
+    lockedExplicit = settings.locked ~= nil,
+    transformLocked = settings.transformLocked == true,
+    transformLockedExplicit = settings.transformLocked ~= nil,
     highlighted = false,
     granted = false,
     dead = false,
@@ -495,6 +545,13 @@ function panel.claim(target: State)
   if target.dead or target.hidden or target.source.dead or target.host.settings.rendering ~= 'layer' then
     return
   end
+  -- A curved window needs a compositor that submits cylinder layers; without one it draws in the scene.
+  if target.kind == 'window' and target.curve > 0 and not target.host.layerCurve() then
+    if target.claim then
+      layer.release(target)
+    end
+    return
+  end
   local described: drawing.Source = target
   if described.kind == 'window' and #described.source:getChildSurfaces() > 0 then
     if target.claim then
@@ -554,7 +611,8 @@ function panel.update(target: State)
       held:setPosition(target.pose:getPosition())
       held:setOrientation(target.pose:getOrientation())
       held:setDimensions(target.width, target.height)
-      held:setCurve(target.curve)
+      -- One shared clamp serves the layer, the hit test, and the scene mesh.
+      held:setCurve(curved.curvature(target.width, target.height, target.curve, 0))
     end)
   end
 end

@@ -20,6 +20,8 @@ export type Options = {
   read chrome: boolean?,
   read locked: boolean?,
   read curve: number?,
+  -- Transform lock: the pointer grab path refuses to move or resize the panel. Its owner still poses and sizes it.
+  read transformLocked: boolean?,
 }
 
 type PanelFields = {
@@ -31,8 +33,13 @@ type PanelFields = {
   read title: string?,
   read chrome: boolean,
   read curve: number,
+  -- Whether the creator gave the property, so the properties store fills only what it omitted.
+  read curveExplicit: boolean,
   read hidden: boolean,
   read locked: boolean,
+  read lockedExplicit: boolean,
+  read transformLocked: boolean,
+  read transformLockedExplicit: boolean,
   read highlighted: boolean,
   read granted: boolean,
   read dead: boolean,
@@ -40,10 +47,13 @@ type PanelFields = {
   read raycast: (Surface, vector, vector, boolean?) -> (number?, number?, number?),
   read setPose: (Surface, Mat4) -> (),
   read setSize: (Surface, number?, number?) -> (),
+  -- Sets the curve; a commit notifies listeners, and a preview does not. Answers whether anything changed.
+  read setCurve: (Panel, number, boolean?) -> boolean,
   read update: (Panel) -> (),
   read draw: (Panel, Pass) -> (),
   read setHidden: (Panel, Owner, boolean) -> plugin.Effect,
   read setLocked: (Panel, Owner, boolean) -> boolean,
+  read setTransformLocked: (Panel, Owner, boolean) -> boolean,
   -- Requests window closure or dismisses and removes a monitor panel; the caller must be live.
   read close: (Panel, Owner) -> boolean,
   read destroy: (Panel, Owner) -> boolean,
@@ -78,13 +88,15 @@ export type Service = {
   read draw: (Service, Pass) -> (),
   read isInputLocked: (Service, lunette.Sink) -> boolean,
   read onLockChanged: (Service, Owner, AddedListener) -> plugin.Effect,
+  read onCurveChanged: (Service, Owner, AddedListener) -> plugin.Effect,
+  read onTransformLockChanged: (Service, Owner, AddedListener) -> plugin.Effect,
   read onAdded: (Service, Owner, AddedListener) -> plugin.Effect,
   read onRemoved: (Service, Owner, RemovedListener) -> plugin.Effect,
 }
 
 export type Capability = plugin.Capability<Service>
 
-local capability = plugin.capability<<Service>> { name = 'lunette/panels', version = 5 }
+local capability = plugin.capability<<Service>> { name = 'lunette/panels', version = 6 }
 
 panels.capability = capability
 

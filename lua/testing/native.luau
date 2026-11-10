@@ -242,6 +242,8 @@ export type Events = {
   window: { width: number, height: number, mouseMode: string, view: { number } },
   eyeTracked: boolean,
   eyeTracking: boolean,
+  -- Whether the headset composites curved layers, which `lovr.headset.getFeatures` reports.
+  layerCurve: boolean,
   headPose: Mat4,
   eyePose: Mat4,
   mainSessionVisible: boolean,
@@ -263,6 +265,8 @@ export type Events = {
   writes: number,
   -- Save files other than the arrangement, by path.
   files: { [string]: string },
+  -- How many times each save file other than the arrangement was written.
+  fileWrites: { [string]: number },
   -- Set to a message to make the next `lunette.saveFile` raise it.
   saveFailure: string?,
   enumerations: number,
@@ -334,6 +338,7 @@ function native.new(): Fake
     window = { width = 800, height = 600, mouseMode = 'normal', view = { 0.8, 0.8, 0.65, 0.65 } },
     eyeTracked = false,
     eyeTracking = false,
+    layerCurve = true,
     headPose = lovr.math.newMat4():translate(0, 1.5, 0),
     eyePose = lovr.math.newMat4():translate(0, 1.5, 0),
     mainSessionVisible = false,
@@ -351,6 +356,7 @@ function native.new(): Fake
     reads = 0,
     writes = 0,
     files = {},
+    fileWrites = {},
     enumerations = 0,
     closed = 0,
     writeMode = 'ok',
@@ -569,6 +575,7 @@ installNative = function(fake: Fake, events: Events, subscribe: Subscribe, clear
       return
     end
     events.files[name] = contents
+    events.fileWrites[name] = (events.fileWrites[name] or 0) + 1
   end
   lunette.windows = function(): { Window }
     events.enumerations += 1
@@ -983,8 +990,8 @@ installLovr = function(events: Events)
     recenter = function(): boolean
       return false
     end,
-    getFeatures = function(): { read eyeTracking: boolean }
-      return { eyeTracking = events.eyeTracking }
+    getFeatures = function(): { read eyeTracking: boolean, read layerCurve: boolean }
+      return { eyeTracking = events.eyeTracking, layerCurve = events.layerCurve }
     end,
     isMainSessionVisible = function(): boolean
       return events.mainSessionVisible

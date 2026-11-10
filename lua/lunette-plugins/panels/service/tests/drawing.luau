@@ -333,4 +333,59 @@ test('a capture draws the WayVR UVs of its transform, and a changed transform re
   expect.truthy(made[1].released, 'a replaced mesh is released')
 end)
 
+test('a curved window keeps its composition layer only where the headset supports cylinder layers', function()
+  local native = testing.native()
+  native.events.layerCurve = false
+  local session = testing.start {
+    'theme',
+    { id = 'panels', definition = require('../').definition, config = { rendering = 'layer' } },
+  }
+  local observed = session:observe(contract.capability)
+  local window = native.newWindow(5)
+  window.getTexture = function(): Texture
+    return {
+      name = 'curved pixels',
+      getDimensions = function(): (number, number)
+        return 2000, 1000
+      end,
+    }
+  end
+  local panel = observed.service:fromWindow(observed.context, window, { height = 1, curve = 0.5 })
+  expect.equal(#native.events.claims, 0, 'a curved window claims no layer without the feature')
+  expect.falsy(panel.claim, 'the curved window falls back to the scene')
+  native.events.layerCurve = true
+  observed.service:update()
+  expect.equal(#native.events.claims, 1, 'the layer returns once the feature appears')
+  expect.truthy(panel.claim, 'the curved window holds the layer')
+  native.events.layerCurve = false
+  observed.service:update()
+  expect.falsy(panel.claim, 'losing the feature releases the layer again')
+  session:close()
+end)
+
+test('a window widened past the curve limit keeps its layer and hit test on one clamped curve', function()
+  local native, session, panels, owner, window = start { rendering = 'layer' }
+  local panel = panels:fromWindow(owner, window, { height = 1 })
+  panel:setSize(4.1, nil)
+  expect.truthy(panel:setCurve(4, true), 'the tight curve applies')
+  panels:update()
+  expect.truthy(panel.claim, 'the widened window claims a layer')
+  local curves: { number } = {}
+  panel.claim.granted = true
+  panel.claim.layer = {
+    setViewport = function() end,
+    setPosition = function() end,
+    setOrientation = function() end,
+    setDimensions = function() end,
+    setCurve = function(_: Layer, curve: number)
+      curves[#curves + 1] = curve
+    end,
+  }
+  panels:update()
+  local expected = 2 * math.pi / 4.1
+  expect.near(curves[#curves], expected, 1e-6, 'the layer takes the shared clamp')
+  expect.near(panel.curve, 4, 1e-9, 'the panel keeps the asked-for curve')
+  session:close()
+end)
+
 return test
