@@ -152,8 +152,18 @@ export type Panel = {
   dead: boolean,
   grabbable: boolean,
   revision: number,
-  -- Publishes the size and liveness to the panel's surface.
+  -- Publishes the size, liveness, and surface properties to the panel's surface.
   sync: () -> (),
+  -- The options the panel was made with, nil for an overlay panel, and the public handle of a top-level panel.
+  options: uiHost.PanelOptions?,
+  handle: uiHost.Panel?,
+  -- The panel's shared properties. A commit notifies the properties listeners; a preview does not. A preview is a
+  -- curve change the Settings control shows while its slider is held; the value is applied but not saved.
+  locked: boolean,
+  transformLocked: boolean,
+  setCurve: (Panel, number, number?, boolean?) -> (),
+  setLocked: (Panel, boolean, boolean?) -> (),
+  setTransformLocked: (Panel, boolean, boolean?) -> (),
   -- Set for a panel that the host made for a portal.
   overlay: Overlay?,
   -- The panel's focused node, and its registration with the session's keyboard focus.
@@ -278,6 +288,10 @@ export type Environment = {
   read pressed: (Panel, Node?) -> (),
   -- Whether an open modal dialog blocks presses on the panel.
   read blocked: (Panel) -> boolean,
+  -- A committed property change on a top-level panel: the properties listeners hear it, and the store saves from it.
+  read changed: (Panel) -> (),
+  -- Cancels content input on a panel as its input lock engages: content captures, hover, focus, and touch.
+  read cancelContent: (Panel) -> (),
   -- Whether presses give haptic feedback.
   read haptics: () -> boolean,
   -- Pulses each pointer that holds the node, when haptics are on.

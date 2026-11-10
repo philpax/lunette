@@ -21,6 +21,8 @@ local function made(): (any, any, any, any, () -> (number, number))
     release = function()
       releases += 1
     end,
+    changed = function() end,
+    cancelContent = function() end,
   }
   local handle, surface
   record, handle, surface = panels.new(provider, {}, { name = 'liveness', width = 0.2, height = 0.1 })
@@ -66,7 +68,7 @@ end)
 
 test('internal fade destruction publishes surface liveness without a public handle', function()
   local provider, _, _, _, counts = made()
-  local record = panels.record('overlay', {}, 'fixed', 0.2, 0.1, nil)
+  local record = panels.record(provider, 'overlay', {}, 'fixed', 0.2, 0.1, nil)
   local surface = panels.surface(provider, record, nil)
   record.closing = true
   panels.destroy(provider, record)
@@ -117,6 +119,120 @@ test('a size from a two-handed grab zooms the panel, and hits follow the zoom', 
   expect.near(distance, 1, 1e-6, 'the distance is in world metres')
   surface:setSize(0)
   expect.near(record.scale, 2, 1e-9, 'a size of zero is ignored')
+end)
+
+test('a panel publishes its curve, locks, and properties, and only commits notify', function()
+  local state = fixture.boot { width = 0.3, height = 0.2 }
+  local uiHost = require '@lunette-contracts/ui-host'
+  local changes: { string } = {}
+  state.service:onPropertiesChanged(state.owner, {
+    run = function(changed: uiHost.Panel)
+      table.insert(changes, changed.name)
+    end,
+  })
+  local panel = state.panel
+  expect.equal(panel:curve(), 0, 'flat by default')
+  panel:setCurve(0.5, 0.25, false)
+  expect.near(panel:curve(), 0.5, 1e-9, 'a preview applies the curve')
+  expect.near(panel:curveAxis(), 0.25, 1e-9, 'the axis applies')
+  expect.equal(#changes, 0, 'a preview does not notify')
+  panel:setCurve(0.5, 0.25, true)
+  expect.equal(#changes, 1, 'a commit notifies even for the same value')
+  panel:setTransformLocked(true)
+  expect.truthy(panel:transformLocked(), 'the transform lock applies')
+  expect.truthy(fixture.surface(state).transformLocked, 'the surface publishes the transform lock')
+  expect.equal(#changes, 2, 'the transform toggle notifies')
+  panel:setLocked(true)
+  expect.truthy(panel:locked(), 'the input lock applies')
+  expect.falsy(fixture.surface(state).locked, 'the input lock stays off the surface')
+  expect.equal(#changes, 3, 'the input toggle notifies')
+  local properties = panel:properties()
+  expect.near(properties.curve, 0.5, 1e-9, 'the shared value curve')
+  expect.near(properties.curveAxis, 0.25, 1e-9, 'the shared value axis')
+  expect.truthy(properties.inputLocked, 'the shared value input lock')
+  expect.truthy(properties.transformLocked, 'the shared value transform lock')
+  state.fixture:close()
+end)
+
+test('the bend read clamps at the shared half-turn limit', function()
+  local state = fixture.boot { width = 0.3, height = 0.2 }
+  local uiHost = require '@lunette-contracts/ui-host'
+  local seen: uiHost.Bend? = nil
+  state.service:registerKind(state.owner, {
+    name = 'test/bend',
+    expand = function(
+      _props: uiHost.Props,
+      _children: { read [number]: uiHost.Element },
+      _state: { read [string]: any },
+      act: uiHost.Actions
+    ): uiHost.Child
+      act.setCurve(100, 0, false)
+      seen = act.bend()
+      return nil
+    end,
+  })
+  fixture.show(state, uiHost.element 'test/bend')
+  local bend = assert(seen)
+  expect.near(bend.curve, 2 * math.pi / 0.3, 1e-6, 'the width wraps one circumference')
+  expect.near(state.panel:curve(), 100, 1e-9, 'the panel keeps the asked-for curve')
+  state.fixture:close()
+end)
+
+test('a transform-locked toolkit panel refuses a grab and resize but its owner can pose and size', function()
+  local state = fixture.boot { width = 0.3, height = 0.2 }
+  local interaction = require '@lunette-contracts/interaction'
+  local observed = assert(state.fixture.session):observe(interaction.capability)
+  local pointer = assert(observed.service):newPointer(assert(observed.context))
+  local surface = fixture.surface(state)
+  local geometry = fixture.geometry(state)
+  local px, py, pz = geometry.pose:mul(0, 0, 1)
+  local frame = {
+    origin = vector.pack(px, py, pz),
+    direction = vector.pack(0, 0, -1),
+    pose = lovr.math.newMat4(),
+    buttons = {},
+    grip = true,
+  }
+  pointer:update(frame, { surface })
+  expect.equal(pointer.grabbed, surface, 'an unlocked panel is grabbable')
+  pointer:endGrab()
+  state.panel:setTransformLocked(true)
+  pointer:update(frame, { surface })
+  expect.falsy(pointer.grabbed, 'the transform lock refuses a grip')
+  expect.falsy(pointer:beginGrab(surface, lovr.math.newMat4()), 'a direct grab is refused too')
+  local width = state.panel:size()
+  state.panel:setSize(state.panel:size() + 0.1, nil)
+  expect.near(select(1, state.panel:size()), width + 0.1, 1e-9, 'the owner can still size the panel')
+  state.panel:setPose(lovr.math.newMat4():translate(0, 1.4, -1))
+  expect.truthy(state.panel:pose(), 'the owner can still pose the panel')
+  state.fixture:close()
+end)
+
+test('a panel arrival reaches the added listener with its options', function()
+  local state = fixture.boot { width = 0.3, height = 0.2 }
+  local uiHost = require '@lunette-contracts/ui-host'
+  local arrived: { string } = {}
+  local options: { uiHost.PanelOptions } = {}
+  state.service:onPanelAdded(state.owner, {
+    run = function(panel: uiHost.Panel, given: uiHost.PanelOptions)
+      table.insert(arrived, panel.name)
+      table.insert(options, given)
+    end,
+  })
+  local made = state.service:newPanel(state.owner, { name = 'late', width = 0.2, height = 0.1 })
+  expect.equal(arrived[1], 'late', 'the arrival is announced')
+  expect.equal(options[1].width, 0.2, 'the creation options travel with it')
+  local entries = state.service:panels()
+  expect.equal(#entries, 2, 'the live top-level panels')
+  local found = false
+  for _, entry in entries do
+    if entry.panel == made then
+      found = true
+    end
+  end
+  expect.truthy(found, 'the late panel is enumerated')
+  made:destroy()
+  state.fixture:close()
 end)
 
 return test

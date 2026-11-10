@@ -127,6 +127,8 @@ function structure.register(service: uiHost.Service, owner: any): { [string]: ui
     },
     visuals = { 'lunette/header-band' },
     handle = true,
+    -- The header carries the panel's Settings control, so an input lock leaves it usable.
+    lockFree = true,
   })
   service:registerVisual(owner, 'lunette/header-band', function(node: uiHost.Node, draw: uiHost.Draw)
     local theme = node.theme

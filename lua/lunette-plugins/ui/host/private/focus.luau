@@ -5,6 +5,7 @@ local uiHost = require '@lunette-contracts/ui-host'
 local keys = require '@lunette-contracts/keys'
 local records = require './records'
 local handles = require './handles'
+local input = require './input'
 
 local focus = {}
 
@@ -27,6 +28,10 @@ function focus.policy(env: records.Environment, node: records.Node): 'text' | 'p
     end
   end
   if node.props.disabledReason ~= nil or node.props.disabled == true then
+    return 'none'
+  end
+  -- Content on an input-locked panel takes no focus; a lockFree header and the Settings overlay still do.
+  if input.contentLocked(node) then
     return 'none'
   end
   return declared

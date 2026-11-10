@@ -1,5 +1,6 @@
 local testing = require '@testing'
 local fixture = require '@testing/ui-host'
+local uiHost = require '@lunette-contracts/ui-host'
 local expect = testing.expect
 local test = testing.suite()
 
@@ -145,5 +146,71 @@ for _, replacement in { 'text', 'after' } do
     state.fixture:close()
   end)
 end
+
+test('a content node on an input-locked panel takes no focus and a focused one is blurred', function()
+  local state = fixture.boot {
+    width = 0.3,
+    height = 0.2,
+    setup = function(service: any, owner: any)
+      service:registerKind(owner, {
+        name = 'test/column',
+        layout = {
+          kind = 'container',
+          style = function(): any
+            return { flexDirection = 'column' }
+          end,
+        },
+      })
+      service:registerKind(owner, {
+        name = 'test/content',
+        layout = {
+          kind = 'container',
+          style = function(): any
+            return { width = 0.1, height = 0.04 }
+          end,
+        },
+        focus = 'pointer',
+        interactive = function(): boolean
+          return true
+        end,
+      })
+      service:registerKind(owner, {
+        name = 'test/header',
+        layout = {
+          kind = 'container',
+          style = function(): any
+            return { width = 0.1, height = 0.04 }
+          end,
+        },
+        focus = 'pointer',
+        interactive = function(): boolean
+          return true
+        end,
+        lockFree = true,
+      })
+    end,
+  }
+  fixture.show(
+    state,
+    uiHost.element('test/column', {
+      uiHost.element('test/content', { key = 'content' }),
+      uiHost.element('test/header', { key = 'header' }),
+    })
+  )
+  expect.truthy(state.service:nextPanel(), 'the panel takes session focus')
+  local content = assert(state.panel:find 'content')
+  local header = assert(state.panel:find 'header')
+  fixture.click(state, 'content')
+  expect.truthy(content.state.focused, 'the content takes focus while unlocked')
+  state.panel:setLocked(true)
+  expect.falsy(content.state.focused, 'the lock blurs the focused content')
+  expect.truthy(state.service:navigate 'next', 'the header stays traversable')
+  expect.truthy(header.state.focused, 'the lockFree header takes focus')
+  expect.falsy(content.state.focused, 'the locked content never takes focus')
+  state.panel:setLocked(false)
+  expect.truthy(state.service:navigate 'next', 'unlocked traversal sees both controls')
+  expect.truthy(content.state.focused, 'the content returns to the order')
+  state.fixture:close()
+end)
 
 return test
