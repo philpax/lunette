@@ -30,6 +30,8 @@ Rust pools complete layers because creation can synchronously allocate swapchain
 
 OpenXR uses a conservative fraction of the reported runtime limit because overlays share that limit with the primary application. OpenVR reserves projection-eye slots and counts omitted panels and pending cleanup against its local cap. Exact ceilings and size steps belong in the pool implementation; the OpenVR cap is not an SDK guarantee.
 
+A curved window claims a cylinder layer only where `lovr.headset.getFeatures().layerCurve` is true. Otherwise it releases the claim and draws in the scene, where the CPU arc mesh is available. The layer, the hit test, and the mesh share one half-turn clamp from the [curved-surface library](../../../lua/lunette-plugins/graphics/curved-surface.luau), so a panel wider than its cylinder wraps once consistently.
+
 Session generation detects replacement even when stop and start occur between snapshots. Missing or replaced sessions revoke grants and release stale layers. A live zero-budget session makes no allocation attempt and reports refusal once per claim per session. Copies track installed buffer identity as well as damage; a new commit must not be missed because its damage counter is unchanged.
 
 ## Frame pacing and scene skipping

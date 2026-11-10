@@ -25,7 +25,9 @@ export type TableRow = { read id: string, read cells: { read [number]: string } 
 export type Service = {
   -- Structure.
   -- A panel face. Given a title, it shows the standard header band with detail, onBack, onClose, and the children of
-  -- a HeaderActions child, and a trigger drag on the band's empty space moves the panel.
+  -- a HeaderActions child, and a trigger drag on the band's empty space moves the panel. `propertiesControl = false`
+  -- omits the header's Settings control; `properties` supplies the controller that targets another panel, such as a
+  -- native titlebar's target.
   read Panel: Constructor,
   read HeaderActions: Constructor,
   read Body: Constructor,
@@ -49,6 +51,8 @@ export type Service = {
   -- Markdown: source, and onLink, which receives a link's target.
   read Markdown: Constructor,
   -- Actions.
+  -- `icon` draws an image in the button's ink in place of its label, which stays the accessible name; `active`
+  -- exposes the selected state and lifts the control.
   read Button: Constructor,
   read Chip: Constructor,
   -- Choices.
@@ -58,6 +62,8 @@ export type Service = {
   read Segmented: Constructor,
   read Dropdown: Constructor,
   -- Values.
+  -- `showHeading = false` omits the label row and detent names, for a slider whose heading sits beside a numeric
+  -- entry; the label remains the accessible name.
   read Slider: Constructor,
   -- Collections.
   read List: Constructor,

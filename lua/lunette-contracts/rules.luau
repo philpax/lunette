@@ -20,6 +20,7 @@ export type Properties = {
   read curve: Valued<number>?,
   read hidden: Valued<boolean>?,
   read locked: Valued<boolean>?,
+  -- The panel's transform lock, which refuses pointer grabs and resizes but not its owner's placement.
   read transformLocked: Valued<boolean>?,
   read adopt: Valued<boolean>?,
   read tags: Valued<{ read [number]: string }>?,

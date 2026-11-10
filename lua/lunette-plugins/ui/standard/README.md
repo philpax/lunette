@@ -4,6 +4,10 @@ Registers the standard kinds and their visuals in the default lunette theme, reg
 
 Lengths that take a spacing token, such as `gap = 'md'`, also take metres. Text takes a type role (`body`, `label`, `caption`, `section`, `heading`, `title`, `value`, `mono`) and a colour role. Choice and collection kinds take options or items with string ids, which they key with `uiHost.keyOf`, so ids may contain any characters. A control with `disabled = true` or `disabledReason` takes no input and is skipped by controller traversal. `disabledReason` also shows the reason. `Outlet` places one of the host's outlets, whose contributions other plugins render; it registers no kind of its own.
 
+A `Button` takes an `icon` and an `active` state. The icon draws in the button's ink in place of the label, and the label stays the accessible name. Active keeps the variant's fill, tints the ink with the accent, lifts the control, and reports `selected` semantics. A `Slider` with `showHeading = false` omits its label row and detent names for a heading held beside a numeric entry; the label remains the accessible name.
+
+A titled `Panel` shows a Settings control left of close and after any caller `HeaderActions`: quick input-lock and transform-lock icon buttons when each applies, then a gear. The popup holds the bend and axis, each with a numeric entry and a slider, and both locks. A native titlebar supplies a controller that disables the axis and negative bend; without one the control writes the panel that holds the header. `propertiesControl = false` omits the control. A preview applies while a control is held, and a release or a valid entry commits, so only a committed value reaches the properties store.
+
 The fonts are under the SIL Open Font License; [CREDITS.md](../../../../CREDITS.md) records their sources.
 
 [Contract](../../../lunette-contracts/ui-components.luau)

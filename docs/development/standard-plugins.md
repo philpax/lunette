@@ -26,6 +26,8 @@ Rules, persistence, adoption, and layout application remain independently replac
 
 The adoption consumer owns both recording dropped poses and registering the source that reads them. Splitting these across a consumer and replaceable provider would lose hand-placed poses when the provider changes. Persistence owns disk storage; arrangement owns layout application.
 
+Panel properties are separate from placement. One versioned store keeps each panel's curve, axis, input lock, and transform lock for windows, monitor mirrors, and toolkit panels, while the arrangement keeps pose, size, and tags. A property that a creator or rule supplies at creation wins over the stored value, and only a top-level world toolkit panel joins the store. The arrangement is version 3 and holds no properties; a version 1 or 2 input lock migrates into the store before a version 3 write.
+
 ## Pacing and scale
 
 Providers select rates and scales; desktop consumers observe and apply them and restore changes on unload. [Native pacing](native/rendering.md#frame-pacing-and-scene-skipping) and [output configuration](native/compositor.md#outputs) remain independent mechanisms.

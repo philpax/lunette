@@ -10,6 +10,12 @@ Panels and registrations end with their creation owners or the host. A caller ca
 
 A grabbable world panel opens at its saved resting pose when one exists under its name in the host's `placed` saved setting. A panel posed by its caller each frame disables grabbing. Forgetting `placed` in the runtime manager returns panels to their caller-supplied poses. This is pose persistence, not maintained arrangements, which remain deferred in [#71](https://github.com/philpax/lunette/issues/71).
 
+## Properties and content lock
+
+A panel publishes its curve, axis, input lock, transform lock, and shared `PanelProperties` value. A composite reads and writes them through its actions; a commit notifies the host's properties listeners and a preview does not. The surface carries the transform lock, so the shared grab path refuses to move or resize a locked panel, but not the input lock: a surface-level input lock would also block the header that carries the Settings control.
+
+The input lock refuses content pointers, scrolls, touches, and focus. A node with a `lockFree` ancestor, such as the standard header band, and a separately mounted Settings overlay stay usable, so a locked panel can always be unlocked. Engaging the lock cancels content presses in flight, blurs focused content, and resets a touching hand; a trigger press on a locked header can still start a spatial grab. Only top-level panels have public handles, so the properties store sees world panels and never an overlay.
+
 ## Contributions and overrides
 
 Outlets bind owner-scoped contributions once per placement, with separate state and effects. They render after the panel root, in the outlet's order or by contributor name. Incompatible versions and conflicting declarations are rejected. Contribution failures are attributed to their owner without stopping the rest of the panel. Attributed outlets frame and clip each contribution and name the contributing plugin.

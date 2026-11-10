@@ -1,4 +1,6 @@
--- The desktop's saved arrangement. `save` refuses to overwrite a file it could not read or one a newer version wrote.
+-- The desktop's saved arrangement: pose, size, and tags, with panel properties in their own store.
+-- `save` refuses to overwrite a file it could not read or one a newer version wrote. The saved shape and its version
+-- are defined by `layout/persistence/private/format.luau`.
 
 local plugin = require '@lunette-plugin'
 
