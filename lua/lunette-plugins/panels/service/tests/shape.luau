@@ -4,6 +4,7 @@ local expect = testing.expect
 local quad = require '@lunette-contracts/quad'
 local shape = require '../private/shape'
 local geometry = require '@lunette-plugins/graphics/rounded-geometry'
+local curved = require '@lunette-plugins/graphics/curved-surface'
 
 local test = testing.suite()
 
@@ -88,6 +89,26 @@ test('every vertex of the drawn arc lies on the cylinder', function()
     end
     expect.near(vertices[1][7], 0, 1e-12, 'the arc starts at the left edge of the texture')
     expect.near(vertices[#vertices][7], 1, 1e-12, 'and ends at the right edge')
+  end
+end)
+
+test('a curve past the half-turn limit meshes on one clamped cylinder', function()
+  local width, curve = 4.1, 4
+  local bounded = curved.curvature(width, 1, curve, 0)
+  local radius = 1 / bounded
+  local vertices = shape.arc(width, 1, curve, 8)
+  expect.near(vertices[1][1], 0, 1e-6, 'the clamped arc starts on the axis')
+  expect.near(vertices[#vertices][1], 0, 1e-6, 'and ends on the axis')
+  expect.near(vertices[1][3], 2 * radius, 1e-6, 'the arc wraps once at the clamped radius')
+  local rounded = shape.rounded(width, 1, curve, {
+    { x = 0, y = 0 },
+    { x = width, y = 0 },
+    { x = width, y = 1 },
+    { x = 0, y = 1 },
+  })
+  expect.truthy(#rounded > 0, 'the rounded mesh has vertices')
+  for _, vertex in rounded do
+    expect.near(vertex[1] * vertex[1] + (vertex[3] - radius) ^ 2, radius * radius, 1e-5, 'on the clamped cylinder')
   end
 end)
 

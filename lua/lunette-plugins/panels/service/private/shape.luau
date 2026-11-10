@@ -76,8 +76,10 @@ end
 -- LÖVR's default mesh format takes them: position, normal toward the axis,
 -- and texture coordinate with the origin at the top-left.
 function shape.arc(width: number, height: number, curve: number, segments: number): ({ { number } }, { number })
-  local radius = 1 / curve
-  local half = shape.halfAngle(width, curve)
+  -- The mesh takes the same half-turn clamp as the hit test and the layer, so a width past the limit draws once.
+  local bounded = curved.curvature(width, height, math.max(curve, 0), 0)
+  local radius = 1 / bounded
+  local half = shape.halfAngle(width, bounded)
   local vertices: { { number } } = {}
   local indices: { number } = {}
   for index = 0, segments do
@@ -145,7 +147,8 @@ function shape.rounded(
 ): ({ { number } }, { number })
   local vertices: { { number } } = {}
   local indices: { number } = {}
-  local strips = if curve > 0 then shape.SEGMENTS else 1
+  local bounded = curved.curvature(width, height, math.max(curve, 0), 0)
+  local strips = if bounded > 0 then shape.SEGMENTS else 1
   for strip = 0, strips - 1 do
     local clipped = if strips == 1
       then polygon
@@ -155,7 +158,7 @@ function shape.rounded(
         width = width / strips,
         height = height,
       })
-    appendPolygon(vertices, indices, width, height, curve, clipped)
+    appendPolygon(vertices, indices, width, height, bounded, clipped)
   end
   return vertices, indices
 end
@@ -171,6 +174,7 @@ function shape.mapTriangles(
 ): ({ { number } }, { number })
   local vertices: { { number } } = {}
   local indices: { number } = {}
+  local bounded = curved.curvature(width, height, math.max(curve, 0), 0)
   for index = 1, #triangles, 3 do
     local polygon: { geometry.Point } = {}
     local top: number = math.huge
@@ -181,7 +185,7 @@ function shape.mapTriangles(
       top = math.min(top, point[2])
       bottom = math.max(bottom, point[2])
     end
-    if curve > 0 then
+    if bounded > 0 then
       for strip = 0, shape.SEGMENTS - 1 do
         local left = if strip == 0 then -expansion else width * strip / shape.SEGMENTS
         local right = if strip == shape.SEGMENTS - 1 then width + expansion else width * (strip + 1) / shape.SEGMENTS
@@ -190,12 +194,12 @@ function shape.mapTriangles(
           indices,
           width,
           height,
-          curve,
+          bounded,
           geometry.clip(polygon, { x = left, y = top, width = right - left, height = bottom - top })
         )
       end
     else
-      appendPolygon(vertices, indices, width, height, curve, polygon)
+      appendPolygon(vertices, indices, width, height, bounded, polygon)
     end
   end
   return vertices, indices
