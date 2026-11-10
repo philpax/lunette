@@ -101,6 +101,7 @@ fn allowed(leaves: &BTreeSet<PathBuf>, source: &Path, target: &Path) -> bool {
                         | "lua/lunette-plugins/diagnostics/desktop-logging.luau"
                         | "lua/lunette-plugins/graphics/pass-state.luau"
                         | "lua/lunette-plugins/graphics/client-pixels.luau"
+                        | "lua/lunette-plugins/graphics/curved-surface.luau"
                         | "lua/lunette-plugins/graphics/rounded-geometry.luau"
                         | "lua/lunette-plugins/graphics/rounded-drawing.luau"
                         | "lua/lunette-plugins/registration/listeners.luau"
@@ -153,6 +154,11 @@ fn ownership_rejects_unknown_exports_and_shared_implementation_imports() {
         &leaves,
         other,
         Path::new("lua/lunette-plugins/graphics/undocumented.luau")
+    ));
+    assert!(allowed(
+        &leaves,
+        other,
+        Path::new("lua/lunette-plugins/graphics/curved-surface.luau")
     ));
     assert!(!permits(
         Path::new("lua/lunette-plugin/adapter.luau"),

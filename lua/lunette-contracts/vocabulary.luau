@@ -205,7 +205,10 @@ type SurfaceFields = {
   -- A name that identifies the surface across reloads and sessions, so placement memory can return it to where the
   -- user left it. Surfaces without one are placed by their owners alone.
   read placementKey: string?,
+  -- Input lock: the content takes no input. It is independent of `transformLocked`.
   read locked: boolean?,
+  -- Transform lock: the pointer grab path refuses to move or resize the surface. Its owner still poses and sizes it.
+  read transformLocked: boolean?,
   read pose: Mat4?,
   read width: number?,
   read height: number?,
@@ -228,6 +231,7 @@ type MovableFields = {
   read pickPriority: number?,
   read placementKey: string?,
   read locked: boolean?,
+  read transformLocked: boolean?,
   read pose: Mat4?,
   read width: number?,
   read height: number?,

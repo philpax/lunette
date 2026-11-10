@@ -1,9 +1,12 @@
--- Pure geometry of a curved panel, using LÖVR's layer curve: a vertical cylinder of radius 1 / curve with
--- its centre on the viewer's side, the panel's centre on it at the panel's pose, and the width measured
--- along the arc. A curve of zero or less is flat.
+-- Pure geometry of a native curved panel, using LÖVR's layer curve: a vertical cylinder of radius 1 / curve with
+-- its centre on the viewer's side, the panel's centre on it at the panel's pose, and the width measured along the
+-- arc. A curve of zero or less is flat. The cylinder maths is shared with the toolkit host.
+--
+-- This module also builds the CPU meshes the scene drawing uses; those are native-only.
 
 local quad = require '@lunette-contracts/quad'
 local geometry = require '@lunette-plugins/graphics/rounded-geometry'
+local curved = require '@lunette-plugins/graphics/curved-surface'
 
 local shape = {}
 
@@ -15,14 +18,14 @@ export type Curved = quad.Quad & {
 -- How many flat strips the in-scene drawing of a curve is made of.
 shape.SEGMENTS = 32
 
--- The half-angle the arc subtends, which never exceeds a half turn: a panel
--- wider than its cylinder's circumference wraps no further.
+-- The half-angle the arc subtends, which never exceeds a half turn: a panel wider than its cylinder's circumference
+-- wraps no further.
 function shape.halfAngle(width: number, curve: number): number
-  return math.min(width * curve / 2, math.pi)
+  return curved.halfAngle(width, curve)
 end
 
--- Returns the pixel coordinate, from the top-left and along the arc, and the distance along the ray where
--- it meets the arc's inner face, or nothing.
+-- Returns the pixel coordinate, from the top-left and along the arc, and the distance along the ray where it meets
+-- the arc's inner face, or nothing.
 function shape.hit(target: Curved, origin: vector, direction: vector): (number?, number?, number?)
   local curve = target.curve
   if not (curve > 0) or curve == math.huge then
@@ -43,52 +46,30 @@ function shape.hit(target: Curved, origin: vector, direction: vector): (number?,
   if target.width <= 0 or target.height <= 0 or target.pixelWidth <= 0 or target.pixelHeight <= 0 then
     return nil, nil, nil
   end
-  local radius = 1 / curve
-  local half = shape.halfAngle(target.width, curve)
 
+  local inverse = lovr.math.mat4(target.pose):invert()
   local originX, originY, originZ = origin:unpack()
   local directionX, directionY, directionZ = direction:unpack()
-  local inverse = lovr.math.mat4(target.pose):invert()
   local ox, oy, oz = inverse:mul(originX, originY, originZ, 1)
   local dx, dy, dz = inverse:mul(directionX, directionY, directionZ, 0)
-
-  -- The circle in the horizontal plane, centred at (0, radius) in x and z.
-  local a = dx * dx + dz * dz
-  if a == 0 then
+  local surface = curved.surface(target.width, target.height, curve, 0)
+  local u, v, distance = curved.ray(surface, vector.pack(ox, oy, oz), vector.pack(dx, dy, dz), true, target.backFace)
+  if not u or not v then
     return nil, nil, nil
   end
-  local cz = oz - radius
-  local b = 2 * (ox * dx + cz * dz)
-  local c = ox * ox + cz * cz - radius * radius
-  local discriminant = b * b - 4 * a * c
-  if discriminant < 0 then
+  local pixelX = u / target.width * target.pixelWidth
+  local pixelY = v / target.height * target.pixelHeight
+  if
+    target.polygon
+    and not geometry.contains(
+      target.polygon,
+      pixelX / target.pixelWidth * target.width,
+      pixelY / target.pixelHeight * target.height
+    )
+  then
     return nil, nil, nil
   end
-  local root = math.sqrt(discriminant)
-  for _, distance in ipairs { (-b - root) / (2 * a), (-b + root) / (2 * a) } do
-    if distance > 0 then
-      local x, y, z = ox + distance * dx, oy + distance * dy, oz + distance * dz
-      local angle = math.atan2(x, radius - z)
-      -- The inner face is the one a ray leaving the axis meets.
-      local outward = x * dx + (z - radius) * dz
-      local front = outward > 0 or target.backFace
-      if front and math.abs(angle) <= half and math.abs(y) <= target.height / 2 then
-        local pixelX = (angle + half) / (2 * half) * target.pixelWidth
-        local pixelY = (target.height / 2 - y) / target.height * target.pixelHeight
-        if
-          not target.polygon
-          or geometry.contains(
-            target.polygon,
-            pixelX / target.pixelWidth * target.width,
-            pixelY / target.pixelHeight * target.height
-          )
-        then
-          return pixelX, pixelY, distance
-        end
-      end
-    end
-  end
-  return nil, nil, nil
+  return pixelX, pixelY, distance
 end
 
 -- The vertices and triangle indices of the arc in the panel's space, as
