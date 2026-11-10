@@ -309,4 +309,33 @@ test('a quick lock is hidden and its toggle disabled when the lock does not appl
   state.fixture:close()
 end)
 
+test('the Settings popup stays where it opened while the bend changes', function()
+  local state = boot()
+  show(state)
+  open(state)
+  local function titlePosition(): (number, number, number)
+    local title = assert(state.panel:find 'header/band/settings/popup/body/title')
+    return title:pose():getPosition()
+  end
+  local x, y, z = titlePosition()
+  drag(state, 'header/band/settings/popup/body/bend/track', { 0.5, 0.5 }, { 0.85, 0.5 })
+  expect.truthy(state.panel:curve() > 0, 'the bend changed')
+  local nx, ny, nz = titlePosition()
+  expect.near(nx, x, 1e-6, 'the popup did not move in x')
+  expect.near(ny, y, 1e-6, 'the popup did not move in y')
+  expect.near(nz, z, 1e-6, 'the popup did not move in z')
+  state.fixture:close()
+end)
+
+test('the axis turns while the panel is flat', function()
+  local state = boot()
+  show(state)
+  open(state)
+  drag(state, 'header/band/settings/popup/body/axis/track', { 0.5, 0.5 }, { 0.8, 0.5 })
+  expect.truthy(state.panel:curveAxis() ~= 0, 'the axis turns before a bend')
+  local axis = assert(state.panel:find 'header/band/settings/popup/body/axis/heading/value')
+  expect.truthy(axis.props.value ~= '0.0', 'the numeric entry follows the axis')
+  state.fixture:close()
+end)
+
 return test

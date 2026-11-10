@@ -40,8 +40,9 @@ export type Element = {
 -- The host's portal kind, 'lunette/portal', renders its children into an overlay panel raised above the portal's
 -- parent, which it uses as the anchor. Its props are `placement` ('below' or 'above', flipping when the overlay does
 -- not fit), `matchWidth` to take at least the anchor's width, `hit` (false for an overlay that takes no input),
--- `onDismiss`, which runs on a press outside the overlay and its opener, and `handoff`, which moves a ray press held
--- inside the parent onto the new overlay so the press can be released on an item there.
+-- `onDismiss`, which runs on a press outside the overlay and its opener, `handoff`, which moves a ray press held
+-- inside the parent onto the new overlay so the press can be released on an item there, and `sticky`, which keeps the
+-- overlay where it opened instead of following its anchor until it is dismissed.
 
 -- A child of an element constructor: nil and false hold their position, and arrays flatten in place.
 export type Child = Element | { read [number]: Child } | false | nil

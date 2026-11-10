@@ -745,4 +745,23 @@ test('following the target curve writes no properties entry', function()
   env.running:close()
 end)
 
+test('a window titlebar Settings disables the axis with its reason', function()
+  local env = boot()
+  env.running:step()
+  env.running:step()
+  clickNode(env, WINDOW, 'settings/gear')
+  env.running:step()
+  env.running:step()
+  local axis = node(env, WINDOW, 'settings/popup/body/axis/track')
+  expect.truthy(axis.props.disabled, 'the native axis is disabled')
+  expect.equal(
+    axis.props.disabledReason,
+    'Window and monitor panels bend about the vertical.',
+    'the slider states the reason'
+  )
+  local reason = node(env, WINDOW, 'settings/popup/body/axis-reason')
+  expect.equal(reason.props.text, axis.props.disabledReason, 'the reason is visible in place')
+  env.running:close()
+end)
+
 return test

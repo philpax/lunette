@@ -269,6 +269,10 @@ export type Overlay = {
   opener: Panel,
   -- Whether the overlay answers hit queries; tooltips do not.
   hit: boolean,
+  -- A sticky overlay keeps the pose it opened at instead of following its anchor. Its contents may change, such as a
+  -- Settings bend while the panel bends, without the control moving under the pointer.
+  sticky: boolean,
+  placed: boolean,
 }
 
 export type Environment = {

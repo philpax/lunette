@@ -303,6 +303,8 @@ function settings.control(
       key = 'popup',
       placement = 'above',
       handoff = true,
+      -- The popup stays where it opened: changing the bend must not move the control being used.
+      sticky = true,
       onDismiss = close,
       element('lunette/menu', {
         element('lunette/body', {
@@ -349,6 +351,10 @@ function settings.control(
             axisEntry,
             axisSubmit
           ),
+          -- A disabled axis states its reason in place, not only in the hover tooltip.
+          if not controller.axis
+            then text(controller.axisReason or 'The axis is unavailable.', 'caption', 'axis-reason', 'muted')
+            else nil,
           element('lunette/separator', {}),
           element('lunette/toggle', {
             key = 'input-lock',

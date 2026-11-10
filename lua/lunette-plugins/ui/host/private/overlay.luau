@@ -26,7 +26,13 @@ function overlay.render(provider: panel.Provider, portal: records.Node): records
   if not record then
     local created =
       panel.record(provider, `{opener.name}/{portal.slot}`, opener.owner, 'content', nil, nil, opener.pose)
-    created.overlay = { portal = portal, opener = opener, hit = portal.props.hit ~= false }
+    created.overlay = {
+      portal = portal,
+      opener = opener,
+      hit = portal.props.hit ~= false,
+      sticky = portal.props.sticky == true,
+      placed = false,
+    }
     created.fade = { value = 0, target = 1, velocity = 0 }
     created.essential = opener.essential
     portal.overlay = created
@@ -80,6 +86,14 @@ function overlay.place(provider: panel.Provider, record: records.Panel): ()
   if relation.portal.props.matchWidth and root and root.props.minWidth ~= anchor.width then
     overlay.render(provider, relation.portal)
   end
+  -- A sticky overlay keeps its opening pose, so a control inside it does not move away from a ray that is dragging it.
+  -- Its visibility and opacity still follow the opener.
+  if relation.sticky and relation.placed then
+    record.visible = opener.visible
+    record.opacity.target = opener.opacity.target
+    record.sync()
+    return
+  end
   local theme = anchor.handle.theme
   local width, height = record.width, record.height
   local left = anchor.x
@@ -100,6 +114,7 @@ function overlay.place(provider: panel.Provider, record: records.Panel): ()
   record.visible = opener.visible
   -- An overlay fades with its opener, and stops taking input with it.
   record.opacity.target = opener.opacity.target
+  relation.placed = true
   record.sync()
 end
 
