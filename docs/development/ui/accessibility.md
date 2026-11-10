@@ -12,7 +12,7 @@ Default appearance retains accessibility settings. A theme override must not rem
 
 ## Roles and semantics
 
-Kinds can declare a role and semantics. Node inspection reports role-bearing nodes with their accessible name, value, and state. An icon-only button exposes its label as the accessible name and its active state as `selected`, with a state label such as "Input locked" or "Transform unlocked"; the icon adds no accessible text of its own. The accessibility service relays explicit announcements from callers. It does not publish the proposed automatic event stream of every node appearance, value change, and focus move.
+Kinds can declare a role and semantics. Node inspection reports role-bearing nodes with their accessible name, value, and state. An icon-only button exposes its label as the accessible name and its active state as `selected`. A quick unlock names its action, such as "Unlock input" or "Unlock transform", and the icon adds no accessible text of its own. The accessibility service relays explicit announcements from callers. It does not publish the proposed automatic event stream of every node appearance, value change, and focus move.
 
 Assistive consumers can use inspection and public traversal. Those reads do not grant authority over other owners' panels or establish an unrestricted event-dispatch API. A custom canvas does not acquire separately focusable internal items without representing them as nodes or adding a public contract.
 

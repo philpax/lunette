@@ -39,7 +39,7 @@ Focusing a UI text field shows the shared keyboard. Hiding it ends focus and kee
 
 ## Windows, monitors, and workspaces
 
-Grip carries a movable panel, the thumbstick changes its distance, and a second grip resizes it. Releasing grip saves placement. A titled panel, including a window or monitor titlebar, shows a gear labelled Settings left of close, with a lock icon marked `I` for the input lock and a lock marked `T` for the transform lock when each applies. Each quick lock toggles immediately and shows its state; the Settings popup also holds both toggles and the panel's bend and axis.
+Grip carries a movable panel, the thumbstick changes its distance, and a second grip resizes it. Releasing grip saves placement. A titled panel, including a window or monitor titlebar, shows a gear labelled Settings left of close. While the input lock is active, a pointer-with-lock icon appears beside the gear; while the transform lock is active, a move-gizmo-with-lock icon does. Each quick icon unlocks its lock. An unlocked panel shows neither, and the Settings popup holds both toggles and the panel's bend and axis.
 
 The input lock affects panel content only. Locked content blocks pointing to panels behind it and receives no pointer, touch, scroll, or routed keyboard input, while the header band and the Settings popup stay usable, so the panel can always be unlocked. An in-flight content press is cancelled and activates nothing. Locking releases held content input and focus; unlocking requires fresh input and restores no focus.
 

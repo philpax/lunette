@@ -98,6 +98,11 @@ local function click(env: Environment, titlebar: string, key: string)
   env.running:click(fixture.nodeGeometry(node(env, titlebar, `{key}/face`)), 0.5, 0.5)
 end
 
+-- Clicks a node without assuming a face child, as a toggle's expanded row has none.
+local function clickNode(env: Environment, titlebar: string, key: string): ()
+  env.running:click(fixture.nodeGeometry(node(env, titlebar, key)), 0.5, 0.5)
+end
+
 local function label(env: Environment, titlebar: string, key: string): string
   return node(env, titlebar, `{key}/face/label`).props.text
 end
@@ -516,19 +521,21 @@ test('VR titlebars lock content without clickthrough and remain movable, unlocka
     for _, action in options.actions do
       expect.truthy(action.id ~= 'lock', 'the old lock action is gone')
     end
-    expect.equal(
-      node(env, entry.titlebar, 'settings/input-lock').props.label,
-      'Input unlocked',
-      'the titlebar offers the quick lock'
+    expect.falsy(
+      env.host:find(`{entry.titlebar}:header/band/settings/input-lock`),
+      'an unlocked panel offers no quick unlock'
     )
-    click(env, entry.titlebar, 'settings/input-lock')
+    clickNode(env, entry.titlebar, 'settings/gear')
     env.running:step()
     env.running:step()
-    expect.truthy(entry.panel.locked, 'the titlebar updates authoritative panel state')
+    clickNode(env, entry.titlebar, 'settings/popup/body/input-lock/row')
+    env.running:step()
+    env.running:step()
+    expect.truthy(entry.panel.locked, 'the Settings toggle updates authoritative panel state')
     expect.equal(
       node(env, entry.titlebar, 'settings/input-lock').props.label,
-      'Input locked',
-      'the quick lock shows its state'
+      'Unlock input',
+      'the quick unlock appears while locked'
     )
     expect.truthy(
       assert(env.host:find(`{entry.titlebar}:header`)).props.title:find('[locked]', 1, true),
@@ -558,12 +565,8 @@ test('VR titlebars lock content without clickthrough and remain movable, unlocka
     click(env, entry.titlebar, 'settings/input-lock')
     env.running:step()
     env.running:step()
-    expect.falsy(entry.panel.locked, 'the locked titlebar remains interactive')
-    expect.equal(
-      node(env, entry.titlebar, 'settings/input-lock').props.label,
-      'Input unlocked',
-      'unlocking restores the label'
-    )
+    expect.falsy(entry.panel.locked, 'the quick unlock unlocks from the locked titlebar')
+    expect.falsy(env.host:find(`{entry.titlebar}:header/band/settings/input-lock`), 'the quick unlock disappears')
     table.clear(env.running.native.events.input)
     env.running:click(content(), 0.5, 0.5)
     expect.truthy(presses() > 0, 'a fresh content click works after unlocking')
@@ -581,19 +584,19 @@ end)
 test('native chrome windows retain an accessible toolkit input lock and close action', function()
   local env = boot(true)
   expect.truthy(env.panel.chrome, 'the window requests native chrome')
-  expect.equal(
-    node(env, WINDOW, 'settings/input-lock').props.label,
-    'Input unlocked',
-    'native chrome also has the quick lock'
-  )
-  click(env, WINDOW, 'settings/input-lock')
+  expect.falsy(env.host:find(`${WINDOW}:header/band/settings/input-lock`), 'an unlocked panel has no quick unlock')
+  clickNode(env, WINDOW, 'settings/gear')
+  env.running:step()
+  env.running:step()
+  clickNode(env, WINDOW, 'settings/popup/body/input-lock/row')
   env.running:step()
   env.running:step()
   expect.truthy(env.panel.locked, 'the toolkit control locks a native-chrome window')
+  expect.equal(node(env, WINDOW, 'settings/input-lock').props.label, 'Unlock input', 'the quick unlock appears')
   click(env, WINDOW, 'settings/input-lock')
   env.running:step()
   env.running:step()
-  expect.falsy(env.panel.locked, 'the toolkit control unlocks a native-chrome window')
+  expect.falsy(env.panel.locked, 'the quick unlock unlocks a native-chrome window')
   click(env, WINDOW, 'close')
   expect.equal(env.closeRequests, 1, 'native chrome does not hide the toolkit close action')
   env.running:close()

@@ -158,6 +158,14 @@ test('a titled panel places the gear and quick locks left of close and after cal
       c.Body { key = 'body' },
     }
   )
+  expect.equal(state.panel:find 'header/band/settings/input-lock', nil, 'no quick lock while unlocked')
+  expect.equal(state.panel:find 'header/band/settings/transform-lock', nil, 'no transform lock while unlocked')
+  fixture.click(state, 'header/band/settings/gear')
+  state.fixture:step()
+  fixture.click(state, 'header/band/settings/popup/body/input-lock')
+  state.fixture:step()
+  fixture.click(state, 'header/band/settings/popup/body/transform-lock')
+  state.fixture:step()
   local reset = assert(state.panel:find 'header/band/reset'):panelBounds()
   local gear = assert(state.panel:find 'header/band/settings/gear'):panelBounds()
   local close = assert(state.panel:find 'header/band/close'):panelBounds()
@@ -165,6 +173,8 @@ test('a titled panel places the gear and quick locks left of close and after cal
   expect.truthy(gear.x < close.x, 'the gear precedes close')
   local input = assert(state.panel:find 'header/band/settings/input-lock')
   local transform = assert(state.panel:find 'header/band/settings/transform-lock')
+  expect.equal(input.props.label, 'Unlock input', 'the quick input lock names its action')
+  expect.equal(transform.props.label, 'Unlock transform', 'the quick transform lock names its action')
   expect.truthy(input:panelBounds().x < gear.x, 'the input lock sits left of the gear')
   expect.truthy(transform:panelBounds().x < gear.x, 'the transform lock sits left of the gear')
   expect.equal(

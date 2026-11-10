@@ -193,21 +193,24 @@ function settings.control(
     controller.transformLock.set(value)
   end
 
+  -- A quick lock is an unlock affordance: it appears only while its lock is active, and the Settings toggles are the
+  -- way to enable one. A hidden icon never offers to turn something on.
   local function lockButton(
     key: string,
     icon: uiHost.ImageSource,
     value: boolean,
-    labels: { string },
+    label: string,
     run: () -> ()
   ): uiHost.Element?
-    if not (if key == 'input-lock' then inputAvailable else transformAvailable) then
+    local available = if key == 'input-lock' then inputAvailable else transformAvailable
+    if not available or not value then
       return nil
     end
     return element('lunette/button', {
       key = key,
-      label = if value then labels[1] else labels[2],
+      label = label,
       icon = icon,
-      active = value,
+      active = true,
       variant = 'band',
       onActivate = run,
     })
@@ -372,18 +375,12 @@ function settings.control(
     key = 'settings',
     align = 'center',
     gap = 'xs',
-    lockButton('input-lock', icons.inputLock, inputLocked, { 'Input locked', 'Input unlocked' }, function()
+    lockButton('input-lock', icons.inputLock, inputLocked, 'Unlock input', function()
       setInputLocked(not inputLocked)
     end),
-    lockButton(
-      'transform-lock',
-      icons.transformLock,
-      transformLocked,
-      { 'Transform locked', 'Transform unlocked' },
-      function()
-        setTransformLocked(not transformLocked)
-      end
-    ),
+    lockButton('transform-lock', icons.transformLock, transformLocked, 'Unlock transform', function()
+      setTransformLocked(not transformLocked)
+    end),
     element('lunette/button', {
       key = 'gear',
       label = 'Settings',
