@@ -8,6 +8,7 @@ local frame = require '@lunette-contracts/frame'
 local panels = require '@lunette-contracts/panels'
 local rules = require '@lunette-contracts/rules'
 local tags = require '@lunette-contracts/tags'
+local uiHost = require '@lunette-contracts/ui-host'
 local logging = require '@lunette-plugins/diagnostics/desktop-logging'
 local state = require '@self/private/state'
 local config = require '@self/config'
@@ -44,11 +45,16 @@ local function define(): plugin.Definition<Config>
     schema = config.schema,
     requires = required,
     build = function(context: plugin.Context, settings: Settings): arrangementContract.Service
+      -- The toolkit host is optional: native properties persist without it, and its panels join the store when it
+      -- appears. The getter has no connect notification, so the store polls it.
+      local uiHostGetter = plugin.connectOptional(context, 'desktop/ui-host', uiHost.capability)
       local service = stateFor(settings):bind(
         context,
         context:require(panels.capability),
         context:require(tags.capability),
-        context:require(rules.capability)
+        context:require(rules.capability),
+        context:require(frame.capability),
+        uiHostGetter
       )
       local dropService: drops.Service = context:require(drops.capability)
       dropService:onDropped(context, {

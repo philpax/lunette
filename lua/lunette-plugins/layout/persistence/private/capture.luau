@@ -40,32 +40,41 @@ function arrangement.answer(
   if not entry then
     return nil
   end
-  return { pose = entry.pose, width = entry.width, height = entry.height, tags = entry.tags, locked = entry.locked }
+  return { pose = entry.pose, width = entry.width, height = entry.height, tags = entry.tags }
 end
 
--- Window panels use held slots; monitor panels use their order among live panels of the same identity.
-function arrangement.panelSlot(
-  held: slots.Slots,
-  counts: { [string]: number },
-  target: panelsContract.Panel,
-  key: string
-): number?
+-- The slot that identifies a panel's saved entry. Windows keep a held slot; monitors take their ordinal among the
+-- live panels of the same identity, in service order, so two mirrors of one key get distinct entries. The arrangement
+-- and the properties store both use this, so a save cannot put two mirrors on one slot.
+function arrangement.slotOf(held: slots.Slots, panels: panelsContract.Service, target: panelsContract.Panel): number?
+  if target.dead then
+    return nil
+  end
+  local key = held:key(target)
+  if not key then
+    return nil
+  end
   if target.kind == 'window' then
     return held:hold(target.source)
   end
-  local counted = target.kind .. '\0' .. key
-  local slot = (counts[counted] or 0) + 1
-  counts[counted] = slot
-  return slot
+  local slot = 0
+  for _, other in ipairs(panels:all()) do
+    if not other.dead and other.kind == 'monitor' and held:key(other) == key then
+      slot += 1
+      if other == target then
+        return slot
+      end
+    end
+  end
+  return nil
 end
 
 function arrangement.capture(held: slots.Slots, panels: panelsContract.Service, tags: tagsContract.Service): format.File
   local entries: { Entry } = {}
-  local counts: { [string]: number } = {}
   for _, target in ipairs(panels:all()) do
     if not target.dead then
       local key = held:key(target)
-      local slot = key and arrangement.panelSlot(held, counts, target, key)
+      local slot = arrangement.slotOf(held, panels, target)
       if key and slot then
         local names: { string } = {}
         for _, existing in ipairs(tags:all()) do
@@ -81,7 +90,6 @@ function arrangement.capture(held: slots.Slots, panels: panelsContract.Service, 
           width = target.width,
           height = target.height,
           tags = names,
-          locked = target.locked,
         }
       else
         logging.report('a ' .. target.kind .. ' panel has no identity, so it is not saved', 'warn')
@@ -104,15 +112,14 @@ function arrangement.merge(previous: format.File, captured: format.File): format
   return { entries = entries }
 end
 
--- Applies saved pose, size, lock state, and tag membership. Tag holds belong to the binding context. The format refuses an
--- entry whose pose does not decode.
+-- Applies saved pose, size, and tag membership. Tag holds belong to the binding context. The format refuses an entry
+-- whose pose does not decode. The input lock, curve, and transform lock belong to the properties store.
 function arrangement.apply(
   context: plugin.Context,
   tags: tagsContract.Service,
   target: panelsContract.Panel,
   entry: Entry
 ): ()
-  target:setLocked(context, entry.locked)
   target:setPose(assert(vocabulary.decodePose(entry.pose)))
   if entry.width or entry.height then
     if target.kind == 'monitor' and entry.width then
@@ -138,12 +145,11 @@ function arrangement.restore(
   local available = arrangement.slotsFor(file)
   local restored: { panelsContract.Panel } = {}
   local matched: { [Entry]: boolean } = {}
-  local counts: { [string]: number } = {}
 
   for _, target in ipairs(panels:all()) do
     if not target.dead then
       local key = held:key(target)
-      local slot = key and arrangement.panelSlot(held, counts, target, key)
+      local slot = arrangement.slotOf(held, panels, target)
       local entry = key and slot and available[arrangement.slotKey(target.kind, key, slot)]
       if entry then
         arrangement.apply(context, tags, target, entry)
@@ -179,13 +185,8 @@ function arrangement.arrived(
   if not key then
     return
   end
-  local slot = 1
-  for _, other in ipairs(panels:all()) do
-    if other ~= target and not other.dead and other.kind == 'monitor' and held:key(other) == key then
-      slot += 1
-    end
-  end
-  local entry = arrangement.slotsFor(file)[arrangement.slotKey('monitor', key, slot)]
+  local slot = arrangement.slotOf(held, panels, target)
+  local entry = slot and arrangement.slotsFor(file)[arrangement.slotKey('monitor', key, slot)]
   if entry then
     arrangement.apply(context, tags, target, entry)
   end

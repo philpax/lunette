@@ -15,6 +15,7 @@ local propertyKinds: { read [string]: PropertyKind } = table.freeze({
   curve = 'number',
   hidden = 'boolean',
   locked = 'boolean',
+  transformLocked = 'boolean',
   adopt = 'boolean',
   tags = 'tags',
 } :: { [string]: PropertyKind })

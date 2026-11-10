@@ -23,6 +23,7 @@ type Environment = {
   registry: testing.Observed<panels.Service>,
   monitor: testing.Monitor,
   host: uiHost.Service,
+  hostContext: testing.Context,
   closeRequests: number,
   panel: WindowPanel,
   mirror: panels.Panel,
@@ -31,7 +32,7 @@ type Environment = {
 local WINDOW = 'desktop/decorations/window/7'
 local MONITOR = 'desktop/decorations/monitor/screen-a'
 
-local function boot(chrome: boolean?): Environment
+local function boot(chrome: boolean?, persistence: boolean?): Environment
   local native = testing.native()
   local monitor = native.newMonitor 'screen-a'
   native.events.monitors = { monitor }
@@ -51,13 +52,23 @@ local function boot(chrome: boolean?): Environment
     'desktop/render',
     'desktop/decorations',
     'desktop/monitors',
+    if persistence then 'rules' else nil,
+    if persistence then 'tags' else nil,
+    if persistence then 'placement' else nil,
+    if persistence then 'desktop/persistence' else nil,
   }, { native = native })
   local registry = running.session:observe(panels.capability)
+  local hostObserved = running.session:observe(uiHost.capability)
+  if persistence then
+    local stored = running.session:observe(require('@lunette-contracts/arrangement').capability)
+    assert(stored.service, 'the persistence service')
+  end
   local env: Environment = {
     running = running,
     registry = registry,
     monitor = monitor,
-    host = assert(running.session:observe(uiHost.capability).service),
+    host = assert(hostObserved.service),
+    hostContext = assert(hostObserved.context),
     closeRequests = 0,
   } :: any
   local window = native.newWindow(7)
@@ -705,6 +716,29 @@ test('the transform lock stops the titlebar drag but not its buttons', function(
   expect.near(z, pz, 1e-9, 'the locked panel does not move in z')
   click(env, WINDOW, 'close')
   expect.equal(env.closeRequests, 1, 'the close button still works')
+  env.running:close()
+end)
+
+test('following the target curve writes no properties entry', function()
+  local env = boot(false, true)
+  local file = 'panel-properties.saved'
+  local changes = 0
+  env.host:onPropertiesChanged(env.hostContext, {
+    run = function(): ()
+      changes += 1
+    end,
+  })
+  env.panel:setCurve(0.5, true)
+  env.running:step()
+  env.running:step()
+  local writes = env.running.native.events.fileWrites[file] or 0
+  expect.truthy(writes >= 1, 'the native commit saved the properties')
+  expect.equal(changes, 0, 'a native commit is not a toolkit properties change')
+  for _ = 1, 4 do
+    env.running:step()
+  end
+  expect.equal(env.running.native.events.fileWrites[file], writes, 'the titlebar follow writes nothing')
+  expect.equal(changes, 0, 'the non-committing follow announces no toolkit change')
   env.running:close()
 end)
 
