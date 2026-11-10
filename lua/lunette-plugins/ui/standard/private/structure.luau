@@ -5,6 +5,7 @@ local uiHost = require '@lunette-contracts/ui-host'
 local schema = require '@lunette-plugin/schema'
 local tokens = require './tokens'
 local shapes = require './props'
+local settings = require './settings'
 
 local optional = schema.optional
 
@@ -33,6 +34,22 @@ function structure.register(service: uiHost.Service, owner: any): { [string]: ui
       detail = optional(schema.string()),
       onBack = optional(shapes.activate),
       onClose = optional(shapes.activate),
+      -- The header's Settings control: the gear and quick locks left of close, with the bend, axis, and both locks.
+      -- A dialog's own header is not a Panel, so it has no such control.
+      propertiesControl = optional(schema.boolean()),
+      properties = optional(settings.schema),
+    },
+    state = {
+      settingsOpen = false,
+      seeded = false,
+      inputLocked = false,
+      transformLocked = false,
+      bendText = false,
+      axisText = false,
+      bendInvalid = false,
+      axisInvalid = false,
+      committedCurve = 0,
+      committedAxis = 0,
     },
     layout = {
       kind = 'container',
@@ -52,7 +69,12 @@ function structure.register(service: uiHost.Service, owner: any): { [string]: ui
       end,
     },
     visuals = { 'lunette/panel' },
-    expand = function(props: uiHost.Props, children: { read [number]: uiHost.Element }): uiHost.Child
+    expand = function(
+      props: uiHost.Props,
+      children: { read [number]: uiHost.Element },
+      state: { read [string]: any },
+      act: uiHost.Actions
+    ): uiHost.Child
       if props.title == nil then
         return children
       end
@@ -64,6 +86,11 @@ function structure.register(service: uiHost.Service, owner: any): { [string]: ui
         else
           content[#content + 1] = child
         end
+      end
+      -- The Settings control follows the caller's header actions and precedes close.
+      local control = settings.control(props, state, act, props.properties)
+      if control then
+        actions[#actions + 1] = control :: uiHost.Element
       end
       return {
         element('lunette/header', {

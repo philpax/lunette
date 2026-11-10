@@ -1,0 +1,259 @@
+-- Covers lua/lunette-plugins/ui/standard/private/settings.luau: the header control, its popup, and the shared value.
+
+local testing = require '@testing'
+local fixture = require '@testing/ui-host'
+local uiHost = require '@lunette-contracts/ui-host'
+local curvature = require '../private/curvature'
+local expect = testing.expect
+local test = testing.suite()
+
+local function boot(): fixture.State
+  return fixture.boot { standard = true, width = 0.6, height = 0.5 }
+end
+
+local function show(state: fixture.State, panelProps: { [string]: any }?, body: { [string]: any }?): ()
+  local c = assert(state.components)
+  local props = panelProps or {}
+  fixture.show(
+    state,
+    c.Panel {
+      title = 'Workspace',
+      onClose = function() end,
+      properties = props.properties,
+      propertiesControl = props.propertiesControl,
+      c.Body { key = 'body', c.Text { key = 'text', text = 'Content' } },
+    }
+  )
+end
+
+local function open(state: fixture.State): ()
+  fixture.click(state, 'header/band/settings/gear')
+  state.fixture:step()
+end
+
+local function drag(state: fixture.State, path: string, from: { number }, to: { number }): ()
+  local node = assert(state.panel:find(path), `no node at {path}`)
+  -- The path may be in an overlay panel, so the aim follows the node's own pose rather than the opener's panel.
+  local geometry = fixture.nodeGeometry(node)
+  local function at(point: { number }): (number, number)
+    return point[1], point[2]
+  end
+  local runner = state.fixture
+  runner:button('right', 'trigger', false)
+  runner:aim(geometry, at(from))
+  runner:step()
+  runner:button('right', 'trigger', true)
+  runner:step()
+  for step = 1, 4 do
+    local t = step / 4
+    runner:aim(geometry, at { from[1] + (to[1] - from[1]) * t, from[2] + (to[2] - from[2]) * t })
+    runner:step()
+  end
+  runner:button('right', 'trigger', false)
+  runner:step()
+end
+
+local function propertyEvents(state: fixture.State): { number }
+  local count: { number } = { 0 }
+  state.service:onPropertiesChanged(state.owner, {
+    run = function(_panel: uiHost.Panel)
+      count[1] += 1
+    end,
+  })
+  return count
+end
+
+test('the gear and quick locks render as icon buttons', function()
+  local state = boot()
+  show(state)
+  local gear = assert(state.panel:find 'header/band/settings/gear')
+  expect.equal(gear.props.label, 'Settings', 'the gear is named Settings')
+  expect.truthy(gear.props.icon, 'the gear draws an icon')
+  expect.falsy(gear.props.active, 'the menu starts closed')
+  local input = assert(state.panel:find 'header/band/settings/input-lock')
+  expect.equal(input.props.label, 'Input unlocked', 'the input lock names its state')
+  expect.truthy(input.props.icon, 'the input lock draws an icon')
+  local transform = assert(state.panel:find 'header/band/settings/transform-lock')
+  expect.equal(transform.props.label, 'Transform unlocked', 'the transform lock names its state')
+  expect.truthy(transform.props.icon, 'the transform lock draws an icon')
+  expect.equal(state.service:findByRole('button', 'Settings'), gear, 'the gear is reachable by role and name')
+  expect.truthy(state.service:nextPanel(), 'the panel takes session focus')
+  expect.truthy(state.service:navigate 'next', 'traversal reaches the controls')
+  state.fixture:close()
+end)
+
+test('the Settings popup contains bend, axis, and both locks', function()
+  local state = boot()
+  show(state)
+  expect.equal(state.panel:find 'header/band/settings/popup', nil, 'the menu is absent while closed')
+  open(state)
+  expect.truthy(state.panel:find 'header/band/settings/popup', 'the menu opens')
+  local title = assert(state.panel:find 'header/band/settings/popup/body/title')
+  expect.equal(title.props.text, 'Settings', 'the popup heading')
+  expect.truthy(state.panel:find 'header/band/settings/popup/body/bend/heading/label', 'the bend row')
+  expect.truthy(state.panel:find 'header/band/settings/popup/body/bend/track', 'the bend slider')
+  expect.truthy(state.panel:find 'header/band/settings/popup/body/axis/heading/label', 'the axis row')
+  expect.truthy(state.panel:find 'header/band/settings/popup/body/axis/track', 'the axis slider')
+  expect.truthy(state.panel:find 'header/band/settings/popup/body/input-lock', 'the input lock toggle')
+  expect.truthy(state.panel:find 'header/band/settings/popup/body/transform-lock', 'the transform lock toggle')
+  fixture.click(state, 'body/text')
+  expect.equal(state.panel:find 'header/band/settings/popup', nil, 'a press outside dismisses the menu')
+  state.fixture:close()
+end)
+
+test('the quick locks and the Settings toggles share state', function()
+  local state = boot()
+  show(state)
+  open(state)
+  fixture.click(state, 'header/band/settings/input-lock')
+  state.fixture:step()
+  expect.truthy(state.panel:locked(), 'the quick input lock applies')
+  local input = assert(state.panel:find 'header/band/settings/input-lock')
+  expect.equal(input.props.label, 'Input locked', 'the quick lock shows its state')
+  expect.truthy(input.props.active, 'the quick lock reads active')
+  local toggle = assert(state.panel:find 'header/band/settings/popup/body/input-lock')
+  expect.truthy(toggle.props.value, 'the Settings toggle follows the quick lock')
+  fixture.click(state, 'header/band/settings/popup/body/input-lock')
+  state.fixture:step()
+  expect.falsy(state.panel:locked(), 'the Settings toggle unlocks')
+  input = assert(state.panel:find 'header/band/settings/input-lock')
+  expect.equal(input.props.label, 'Input unlocked', 'the quick lock follows the toggle')
+  state.fixture:close()
+end)
+
+test('the bend slider bends the panel and commits once on release', function()
+  local state = boot()
+  show(state)
+  local events = propertyEvents(state)
+  open(state)
+  drag(state, 'header/band/settings/popup/body/bend/track', { 0.5, 0.5 }, { 0.8, 0.5 })
+  expect.truthy(state.panel:curve() > 0, 'the panel bends towards the viewer')
+  expect.equal(events[1], 1, 'the release commits once')
+  state.fixture:close()
+end)
+
+test('the axis slider turns the bend and keeps the arc', function()
+  local state = boot()
+  show(state)
+  open(state)
+  drag(state, 'header/band/settings/popup/body/bend/track', { 0.5, 0.5 }, { 0.8, 0.5 })
+  local before = curvature.read {
+    curve = state.panel:curve(),
+    axis = state.panel:curveAxis(),
+    width = select(1, state.panel:size()),
+    height = select(2, state.panel:size()),
+  }
+  drag(state, 'header/band/settings/popup/body/axis/track', { 0.5, 0.5 }, { 0.75, 0.5 })
+  expect.truthy(state.panel:curveAxis() ~= 0, 'the axis turns')
+  local after = curvature.read {
+    curve = state.panel:curve(),
+    axis = state.panel:curveAxis(),
+    width = select(1, state.panel:size()),
+    height = select(2, state.panel:size()),
+  }
+  expect.near(after.bend, before.bend, 1.0, 'the arc is kept while the axis turns')
+  state.fixture:close()
+end)
+
+local function keyboard(state: fixture.State): any
+  local focusContract = require '@lunette-contracts/focus'
+  local observed = assert(state.fixture.session):observe(focusContract.capability)
+  local service = assert(observed.service)
+  return service, service:newSource(assert(observed.context), { mode = 'virtual' })
+end
+
+local function enterBend(state: fixture.State, text: string): ()
+  fixture.click(state, 'header/band/settings/popup/body/bend/heading/value')
+  state.fixture:step()
+  local _, source = keyboard(state)
+  local codes = require('@lunette-contracts/keys').CODES
+  for _ = 1, 12 do
+    source:key { code = codes.backspace }
+  end
+  source:text(text)
+  source:key { code = codes.enter }
+  state.fixture:step()
+end
+
+test('a numeric entry sets the bend and an out-of-range entry is clamped on submit', function()
+  local state = boot()
+  show(state)
+  open(state)
+  enterBend(state, '90')
+  local width, height = state.panel:size()
+  local shown =
+    curvature.read { curve = state.panel:curve(), axis = state.panel:curveAxis(), width = width, height = height }
+  expect.near(shown.bend, 90, 0.5, 'the entry bends the panel')
+  enterBend(state, '1000')
+  local clamped = curvature.read {
+    curve = state.panel:curve(),
+    axis = state.panel:curveAxis(),
+    width = width,
+    height = height,
+  }
+  expect.near(clamped.bend, curvature.MAX_BEND, 1.0, 'the out-of-range entry is clamped')
+  state.fixture:close()
+end)
+
+test('closing the popup reverts an uncommitted preview', function()
+  local state = boot()
+  show(state)
+  local events = propertyEvents(state)
+  open(state)
+  local track = assert(state.panel:find 'header/band/settings/popup/body/bend/track')
+  track.props.onPreview(90)
+  state.fixture:step()
+  expect.truthy(state.panel:curve() > 0, 'the preview applies')
+  expect.equal(events[1], 0, 'the preview does not commit')
+  fixture.click(state, 'body/text')
+  expect.equal(state.panel:curve(), 0, 'dismissing the menu reverts the preview')
+  expect.equal(events[1], 0, 'the revert writes nothing')
+  state.fixture:close()
+end)
+
+test('a window and monitor titlebar controller offers no negative bend or axis', function()
+  local state = boot()
+  local previews: { { number } } = {}
+  local commits: { number } = {}
+  local controller: any = {
+    bend = function(): uiHost.Bend
+      return { curve = 0.2, axis = 0, width = 0.6, height = 0.5 }
+    end,
+    setCurve = function(curve: number, axis: number, commit: boolean?)
+      if commit then
+        table.insert(commits, curve)
+      else
+        table.insert(previews, { curve, axis })
+      end
+    end,
+    axis = false,
+    negative = false,
+    axisReason = 'Window and monitor panels bend about the vertical.',
+    inputLock = {
+      available = true,
+      get = function(): boolean
+        return false
+      end,
+      set = function() end,
+    },
+    transformLock = {
+      available = true,
+      get = function(): boolean
+        return false
+      end,
+      set = function() end,
+    },
+  }
+  show(state, { properties = controller })
+  open(state)
+  local bend = assert(state.panel:find 'header/band/settings/popup/body/bend/track')
+  expect.equal(bend.props.min, 0, 'the bend starts at flat')
+  local axis = assert(state.panel:find 'header/band/settings/popup/body/axis/track')
+  expect.truthy(axis.props.disabled, 'the axis is disabled')
+  expect.equal(axis.props.disabledReason, controller.axisReason, 'the axis states why')
+  bend.props.onFinish(90)
+  expect.equal(#commits, 1, 'the bend commits through the controller')
+  state.fixture:close()
+end)
+
+return test

@@ -146,4 +146,50 @@ test('trigger grabbing uses each pointer current hit without a settled hover fra
   state.fixture:close()
 end)
 
+test('a titled panel places the gear and quick locks left of close and after caller actions', function()
+  local state = boot()
+  local c = assert(state.components)
+  fixture.show(
+    state,
+    c.Panel {
+      title = 'Settings',
+      onClose = function() end,
+      c.HeaderActions { c.Button { key = 'reset', label = 'Reset', variant = 'band' } },
+      c.Body { key = 'body' },
+    }
+  )
+  local reset = assert(state.panel:find 'header/band/reset'):panelBounds()
+  local gear = assert(state.panel:find 'header/band/settings/gear'):panelBounds()
+  local close = assert(state.panel:find 'header/band/close'):panelBounds()
+  expect.truthy(gear.x > reset.x, 'the gear follows caller actions')
+  expect.truthy(gear.x < close.x, 'the gear precedes close')
+  local input = assert(state.panel:find 'header/band/settings/input-lock')
+  local transform = assert(state.panel:find 'header/band/settings/transform-lock')
+  expect.truthy(input:panelBounds().x < gear.x, 'the input lock sits left of the gear')
+  expect.truthy(transform:panelBounds().x < gear.x, 'the transform lock sits left of the gear')
+  expect.equal(
+    state.service:findByRole('button', 'Settings'),
+    assert(state.panel:find 'header/band/settings/gear'),
+    'the gear is reachable by role and name'
+  )
+  state.fixture:close()
+end)
+
+test('propertiesControl false removes the Settings control', function()
+  local state = boot()
+  local c = assert(state.components)
+  fixture.show(
+    state,
+    c.Panel {
+      title = 'Plain',
+      propertiesControl = false,
+      onClose = function() end,
+      c.Body { key = 'body' },
+    }
+  )
+  expect.equal(state.panel:find 'header/band/settings', nil, 'no gear is shown')
+  expect.equal(state.panel:find 'header/band/settings/gear', nil, 'no gear node is shown')
+  state.fixture:close()
+end)
+
 return test

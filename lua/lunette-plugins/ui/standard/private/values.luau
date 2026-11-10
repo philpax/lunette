@@ -278,6 +278,9 @@ function values.register(service: uiHost.Service, owner: any): { [string]: uiHos
       format = optional(schema.string()),
       onChange = optional(schema.callback(function(_value: number) end)),
       onCommit = optional(schema.callback(function(_value: number) end)),
+      -- A slider whose label is shown elsewhere, such as beside a numeric entry, omits its heading and detent names.
+      -- The accessible name stays from the label.
+      showHeading = optional(schema.boolean()),
     },
     role = 'slider',
     semantics = function(props: uiHost.Props, state: { read [string]: any }): uiHost.Semantics
@@ -311,8 +314,9 @@ function values.register(service: uiHost.Service, owner: any): { [string]: uiHos
       end
       local detent = detentAt(props, shown)
       local readout = string.format(props.format or '%.2f', shown)
-      return {
-        element('lunette/row', {
+      local heading = if props.showHeading == false
+        then nil
+        else element('lunette/row', {
           key = 'heading',
           align = 'center',
           gap = 'sm',
@@ -335,7 +339,9 @@ function values.register(service: uiHost.Service, owner: any): { [string]: uiHos
           if props.unit
             then element('lunette/text', { key = 'unit', text = props.unit, style = 'readout', color = 'muted' })
             else nil,
-        }),
+        })
+      return {
+        heading,
         element('lunette/slider-track', {
           key = 'track',
           value = shown,
@@ -363,7 +369,7 @@ function values.register(service: uiHost.Service, owner: any): { [string]: uiHos
             end
           end,
         }),
-        detentLabels(props, detent),
+        if props.showHeading == false then nil else detentLabels(props, detent),
       }
     end,
   })

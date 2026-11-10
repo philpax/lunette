@@ -47,6 +47,7 @@ function actions.face(
   theme: uiHost.Theme,
   variant: Variant,
   enabled: boolean,
+  active: boolean,
   state: { read [string]: any }
 ): (uiHost.Color?, uiHost.Color?, uiHost.Color)
   local colors = theme.colors
@@ -54,16 +55,24 @@ function actions.face(
     return colors.sunken, nil, colors.muted
   end
   local hovered = state.hovered or state.pressed
+  local fill, side, ink
   if variant == 'primary' or variant == 'selected' then
-    return if hovered then lighten(colors.accent, 0.12) else colors.accent, colors.side, colors.accentInk
+    fill, side, ink = if hovered then lighten(colors.accent, 0.12) else colors.accent, colors.side, colors.accentInk
   elseif variant == 'danger' then
-    return if hovered then lighten(colors.danger, 0.12) else colors.danger, colors.side, colors.dangerInk
+    fill, side, ink = if hovered then lighten(colors.danger, 0.12) else colors.danger, colors.side, colors.dangerInk
   elseif variant == 'quiet' then
-    return if hovered then colors.hover else nil, nil, colors.ink
+    fill, side, ink = if hovered then colors.hover else nil, nil, colors.ink
   elseif variant == 'band' then
-    return if hovered then lighten(colors.header, 0.1) else nil, nil, colors.bandInk
+    fill, side, ink = if hovered then lighten(colors.header, 0.1) else nil, nil, colors.bandInk
+  else
+    fill, side, ink = if hovered then colors.hover else colors.raised, colors.side, colors.ink
   end
-  return if hovered then colors.hover else colors.raised, colors.side, colors.ink
+  -- An active icon button keeps its variant's fill and takes the accent ink, so the state reads without a second
+  -- control changing shape.
+  if active then
+    ink = colors.accent
+  end
+  return fill, side, ink
 end
 
 local function raisedVariant(variant: Variant): boolean
@@ -78,6 +87,9 @@ function actions.register(service: uiHost.Service, owner: any): { [string]: uiHo
     props = shapes.disableable {
       variant = optional(shapes.variant),
       grow = optional(schema.number()),
+      -- An image drawn in the button's ink instead of a label, for an icon-only control.
+      icon = optional(shapes.image),
+      active = optional(schema.boolean()),
       onActivate = optional(shapes.activate),
       -- Receives the press's source, 'ray' or 'touch', when the press starts rather than when it activates.
       onPress = optional(schema.callback(function(_source: string) end)),
@@ -105,7 +117,13 @@ function actions.register(service: uiHost.Service, owner: any): { [string]: uiHo
       end,
     },
     elevation = function(props: uiHost.Props, theme: uiHost.Theme): number
-      if not tokens.enabled(props) or not raisedVariant(props.variant or 'default') then
+      if not tokens.enabled(props) then
+        return 0
+      end
+      if props.active == true then
+        return theme.elevation.selected
+      end
+      if not raisedVariant(props.variant or 'default') then
         return 0
       end
       return if props.variant == 'selected' then theme.elevation.selected else theme.elevation.raised
@@ -120,7 +138,8 @@ function actions.register(service: uiHost.Service, owner: any): { [string]: uiHo
   service:registerVisual(owner, 'lunette/button-face', function(node: uiHost.Node, draw: uiHost.Draw)
     local theme = node.theme
     local enabled = tokens.enabled(node.props)
-    local fill, side = actions.face(theme, node.props.variant or 'default', enabled, node.state)
+    local fill, side, ink =
+      actions.face(theme, node.props.variant or 'default', enabled, node.props.active == true, node.state)
     if fill then
       draw:box(nil, {
         fill = fill,
@@ -129,6 +148,18 @@ function actions.register(service: uiHost.Service, owner: any): { [string]: uiHo
         edges = side ~= nil,
         border = if enabled then 0 else theme.sizes.rule,
         borderColor = theme.colors.line,
+      })
+    end
+    if node.props.icon then
+      local size = theme.sizes.control * 0.6
+      draw:image({
+        x = (node.bounds.width - size) / 2,
+        y = (node.bounds.height - size) / 2,
+        width = size,
+        height = size,
+      }, {
+        source = node.props.icon,
+        tint = ink,
       })
     end
   end)
@@ -159,19 +190,22 @@ function actions.register(service: uiHost.Service, owner: any): { [string]: uiHo
     draw:box(nil, { fill = theme.colors.band, radius = theme.radii.control, side = theme.colors.side, edges = true })
   end)
 
-  -- Button props: label, variant ('default', 'primary', 'quiet', 'band', 'danger'), onActivate, disabledReason, and grow.
+  -- Button props: label, variant ('default', 'primary', 'quiet', 'band', 'danger'), icon, active, onActivate,
+  -- disabledReason, and grow. An icon draws in the label's place; the label stays the accessible name.
   constructors.Button = service:registerKind(owner, {
     name = 'lunette/button',
     props = shapes.disableable {
       label = optional(schema.string()),
       variant = optional(shapes.variant),
+      icon = optional(shapes.image),
+      active = optional(schema.boolean()),
       onActivate = optional(shapes.activate),
       grow = optional(schema.number()),
       alignSelf = optional(shapes.align),
     },
     role = 'button',
     semantics = function(props: uiHost.Props, state: { read [string]: any }): uiHost.Semantics
-      return { name = props.label, disabled = not tokens.enabled(props) }
+      return { name = props.label, selected = props.active == true, disabled = not tokens.enabled(props) }
     end,
     layout = {
       kind = 'container',
@@ -203,6 +237,8 @@ function actions.register(service: uiHost.Service, owner: any): { [string]: uiHo
         element('lunette/button-face', {
           key = 'face',
           variant = variant,
+          icon = props.icon,
+          active = props.active == true,
           grow = props.grow,
           disabled = not enabled,
           disabledReason = props.disabledReason,
@@ -212,7 +248,8 @@ function actions.register(service: uiHost.Service, owner: any): { [string]: uiHo
           onHover = function(hovered: boolean)
             act.setState { showReason = hovered and not enabled }
           end,
-          if props.label
+          -- An icon button shows only its icon; its label remains the accessible name.
+          if props.label and not props.icon
             then element(
               'lunette/text',
               { key = 'label', text = props.label, style = 'label', color = ink, wrap = false }
