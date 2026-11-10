@@ -499,16 +499,26 @@ test('VR titlebars lock content without clickthrough and remain movable, unlocka
     local options = controls.options(env.registry.context, entry.panel, nil, function() end)
     expect.equal(
       #options.actions,
-      if entry.panel.kind == 'window' then 1 else 3,
-      'the header includes the added lock action'
+      if entry.panel.kind == 'window' then 0 else 2,
+      'the header keeps only its monitor restart and selection actions'
     )
-    expect.equal(options.actions[#options.actions].id, 'lock', 'locking follows the monitor-specific actions')
-    expect.equal(label(env, entry.titlebar, 'lock'), 'Lock input', 'an unlocked panel offers locking')
-    click(env, entry.titlebar, 'lock')
+    for _, action in options.actions do
+      expect.truthy(action.id ~= 'lock', 'the old lock action is gone')
+    end
+    expect.equal(
+      node(env, entry.titlebar, 'settings/input-lock').props.label,
+      'Input unlocked',
+      'the titlebar offers the quick lock'
+    )
+    click(env, entry.titlebar, 'settings/input-lock')
     env.running:step()
     env.running:step()
     expect.truthy(entry.panel.locked, 'the titlebar updates authoritative panel state')
-    expect.equal(label(env, entry.titlebar, 'lock'), 'Unlock input', 'a locked panel offers unlocking')
+    expect.equal(
+      node(env, entry.titlebar, 'settings/input-lock').props.label,
+      'Input locked',
+      'the quick lock shows its state'
+    )
     expect.truthy(
       assert(env.host:find(`{entry.titlebar}:header`)).props.title:find('[locked]', 1, true),
       'the title marks the lock'
@@ -534,11 +544,15 @@ test('VR titlebars lock content without clickthrough and remain movable, unlocka
     expect.near(z, pz - 0.1, 1e-5, 'a locked panel moves in z through its titlebar')
     expect.truthy(entry.panel.locked, 'moving retains the lock')
 
-    click(env, entry.titlebar, 'lock')
+    click(env, entry.titlebar, 'settings/input-lock')
     env.running:step()
     env.running:step()
     expect.falsy(entry.panel.locked, 'the locked titlebar remains interactive')
-    expect.equal(label(env, entry.titlebar, 'lock'), 'Lock input', 'unlocking restores the action label')
+    expect.equal(
+      node(env, entry.titlebar, 'settings/input-lock').props.label,
+      'Input unlocked',
+      'unlocking restores the label'
+    )
     table.clear(env.running.native.events.input)
     env.running:click(content(), 0.5, 0.5)
     expect.truthy(presses() > 0, 'a fresh content click works after unlocking')
@@ -553,25 +567,28 @@ test('VR titlebars lock content without clickthrough and remain movable, unlocka
   env.running:close()
 end)
 
-test('native chrome windows retain an accessible toolkit lock and close action', function()
+test('native chrome windows retain an accessible toolkit input lock and close action', function()
   local env = boot(true)
   expect.truthy(env.panel.chrome, 'the window requests native chrome')
-  expect.equal(label(env, WINDOW, 'lock'), 'Lock input', 'native chrome also has a toolkit lock action')
-  click(env, WINDOW, 'lock')
+  expect.equal(
+    node(env, WINDOW, 'settings/input-lock').props.label,
+    'Input unlocked',
+    'native chrome also has the quick lock'
+  )
+  click(env, WINDOW, 'settings/input-lock')
   env.running:step()
   env.running:step()
-  expect.truthy(env.panel.locked, 'the toolkit action locks a native-chrome window')
-  click(env, WINDOW, 'lock')
+  expect.truthy(env.panel.locked, 'the toolkit control locks a native-chrome window')
+  click(env, WINDOW, 'settings/input-lock')
   env.running:step()
   env.running:step()
-  expect.falsy(env.panel.locked, 'the toolkit action unlocks a native-chrome window')
+  expect.falsy(env.panel.locked, 'the toolkit control unlocks a native-chrome window')
   click(env, WINDOW, 'close')
   expect.equal(env.closeRequests, 1, 'native chrome does not hide the toolkit close action')
   env.running:close()
 end)
 
 test('retained lock callbacks read live state and guard the context and both handles', function()
-  local env = boot()
   local active = true
   local context = {
     active = function(): boolean
@@ -583,6 +600,10 @@ test('retained lock callbacks read live state and guard the context and both han
     source = { title = 'Fixture', dead = false },
     dead = false,
     locked = false,
+    transformLocked = false,
+    curve = 0,
+    width = 1,
+    height = 0.6,
   } :: any
   local changes = 0
   target.setLocked = function(self: any, owner: any, locked: boolean): boolean
@@ -591,21 +612,99 @@ test('retained lock callbacks read live state and guard the context and both han
     changes += 1
     return true
   end
+  target.setTransformLocked = function(self: any, owner: any, locked: boolean): boolean
+    self.transformLocked = locked
+    changes += 1
+    return true
+  end
+  target.setCurve = function() end
   local options = controls.options(context, target, nil, function() end)
-  local toggle = options.actions[#options.actions].run
-  toggle()
-  toggle()
+  local properties = assert(options.properties)
+  properties.inputLock.set(true)
+  properties.inputLock.set(false)
   expect.falsy(target.locked, 'a retained callback toggles live state rather than captured state')
   expect.equal(changes, 2, 'both live toggles run')
   active = false
-  toggle()
+  properties.inputLock.set(true)
   active = true
   target.dead = true
-  toggle()
+  properties.inputLock.set(true)
   target.dead = false
   target.source.dead = true
-  toggle()
+  properties.inputLock.set(true)
+  target.source.dead = false
   expect.equal(changes, 2, 'inactive contexts and dead handles are inert')
+  properties.transformLock.set(true)
+  expect.truthy(target.transformLocked, 'the transform lock reaches the target')
+  expect.equal(changes, 3, 'the transform toggle runs once')
+end)
+
+test('a titlebar curves its native panel on commit and the axis is disabled with its reason', function()
+  local env = boot()
+  local changes = 0
+  env.registry.service:onCurveChanged(env.registry.context, {
+    run = function(): ()
+      changes += 1
+    end,
+  })
+  expect.equal(changes, 0, 'no curve change before any control')
+  for _, entry in { { titlebar = WINDOW, panel = env.panel }, { titlebar = MONITOR, panel = env.mirror } } do
+    local before = changes
+    local options = controls.options(env.registry.context, entry.panel, nil, function() end)
+    expect.equal(changes, before, 'the controller construction does not notify')
+    local properties = assert(options.properties)
+    expect.falsy(properties.axis, 'a native panel offers no axis')
+    expect.falsy(properties.negative, 'a native panel does not bend away')
+    expect.truthy(properties.axisReason, 'the disabled axis states why')
+    properties.setCurve(0.5, 0, false)
+    expect.near(entry.panel.curve, 0.5, 1e-9, 'the preview applies')
+    expect.equal(changes, before, 'the preview does not notify')
+    properties.setCurve(0.5, 0, true)
+    expect.equal(changes, before + 1, 'the commit notifies once')
+  end
+  env.running:close()
+end)
+
+test('the titlebar follows its target curve', function()
+  local env = boot()
+  env.panel:setCurve(0.75, true)
+  env.running:step()
+  env.running:step()
+  local found = false
+  for _, entry in env.host:panels() do
+    if entry.panel.name == WINDOW then
+      found = true
+      expect.near(entry.panel:curve(), 0.75, 1e-9, 'the titlebar takes the target curve')
+      expect.near(entry.panel:curveAxis(), 0, 1e-9, 'about the vertical')
+    end
+  end
+  expect.truthy(found, 'the titlebar is a live panel')
+  env.running:close()
+end)
+
+test('the transform lock stops the titlebar drag but not its buttons', function()
+  local env = boot()
+  env.running:step()
+  env.running:step()
+  local options = controls.options(env.registry.context, env.panel, nil, function() end)
+  assert(options.properties).transformLock.set(true)
+  expect.truthy(env.panel.transformLocked, 'the transform lock applies')
+  local px, py, pz = env.panel.pose:getPosition()
+  local title = fixture.nodeGeometry(node(env, WINDOW, 'title'))
+  env.running:aim(title, title.logicalWidth / 2, title.logicalHeight / 2)
+  env.running:step()
+  env.running:button('right', 'trigger', true)
+  env.running:step()
+  env.running:pose('right', lovr.math.newMat4(title.pose):translate(0.3, 0.1, 0.9))
+  env.running:step()
+  env.running:button('right', 'trigger', false)
+  env.running:step()
+  local x, y, z = env.panel.pose:getPosition()
+  expect.near(x, px, 1e-9, 'the locked panel does not move in x')
+  expect.near(y, py, 1e-9, 'the locked panel does not move in y')
+  expect.near(z, pz, 1e-9, 'the locked panel does not move in z')
+  click(env, WINDOW, 'close')
+  expect.equal(env.closeRequests, 1, 'the close button still works')
   env.running:close()
 end)
 

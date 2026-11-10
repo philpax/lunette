@@ -2,8 +2,37 @@
 local lunette = require '@lunette'
 local plugin = require '@lunette-plugin'
 local panels = require '@lunette-contracts/panels'
+local curved = require '@lunette-plugins/graphics/curved-surface'
 
 local controls = {}
+
+-- The standard Settings control's controller, structurally. A native panel bends about the vertical only and has no
+-- axis or negative bend; its locks are the panel's own state.
+export type Lock = {
+  read available: boolean,
+  read reason: string?,
+  read get: () -> boolean,
+  read set: (boolean) -> (),
+}
+
+export type Bend = {
+  read curve: number,
+  read axis: number,
+  read width: number,
+  read height: number,
+}
+
+export type Properties = {
+  read bend: () -> Bend,
+  read setCurve: (number, number?, boolean?) -> (),
+  read axis: boolean,
+  read negative: boolean,
+  read axisReason: string?,
+  read inputLock: Lock,
+  read transformLock: Lock,
+}
+
+local AXIS_REASON = 'Window and monitor panels bend about the vertical.'
 
 export type Action = {
   read id: string,
@@ -16,6 +45,8 @@ export type Options = {
   read title: string,
   read actions: { Action },
   read close: () -> (),
+  -- The Settings controller for the native panel, or nil for a titlebar that offers no Settings control.
+  read properties: Properties?,
 }
 
 function controls.options(context: plugin.Context, panel: panels.Panel, refusal: string?, select: () -> ()): Options
@@ -51,16 +82,53 @@ function controls.options(context: plugin.Context, panel: panels.Panel, refusal:
       table.insert(actions, { id = 'select', label = label, enabled = state.state ~= 'pending', run = select })
     end
   end
-  table.insert(actions, {
-    id = 'lock',
-    label = if panel.locked then 'Unlock input' else 'Lock input',
-    enabled = true,
-    run = function(): ()
+  local properties: Properties = {
+    bend = function(): Bend
+      local width, height = panel.width, panel.height
+      return {
+        curve = curved.curvature(width, height, panel.curve, 0),
+        axis = 0,
+        width = width,
+        height = height,
+      }
+    end,
+    setCurve = function(curve: number, _axis: number?, commit: boolean?): ()
       if context:active() and not panel.dead and not panel.source.dead then
-        panel:setLocked(context, not panel.locked)
+        if commit == true then
+          panel:setCurve(curve, true)
+        else
+          panel:setCurve(curve, false)
+        end
       end
     end,
-  })
+    axis = false,
+    negative = false,
+    axisReason = AXIS_REASON,
+    inputLock = {
+      available = true,
+      reason = nil,
+      get = function(): boolean
+        return panel.locked
+      end,
+      set = function(value: boolean): ()
+        if context:active() and not panel.dead and not panel.source.dead then
+          panel:setLocked(context, value)
+        end
+      end,
+    },
+    transformLock = {
+      available = true,
+      reason = nil,
+      get = function(): boolean
+        return panel.transformLocked
+      end,
+      set = function(value: boolean): ()
+        if context:active() and not panel.dead and not panel.source.dead then
+          panel:setTransformLocked(context, value)
+        end
+      end,
+    },
+  }
   return {
     title = if panel.locked then title .. ' [locked]' else title,
     actions = actions,
@@ -69,6 +137,7 @@ function controls.options(context: plugin.Context, panel: panels.Panel, refusal:
         error('panel close: request was refused for ' .. tostring(panel.source.id), 0)
       end
     end,
+    properties = properties,
   }
 end
 
