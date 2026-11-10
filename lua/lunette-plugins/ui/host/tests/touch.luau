@@ -10,7 +10,7 @@ local poke = require '../private/poke'
 
 local test = testing.suite()
 
-local function record()
+local function record(): any
   local provider = {
     env = {},
     router = input.new(),

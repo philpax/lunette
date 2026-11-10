@@ -256,4 +256,43 @@ test('a window and monitor titlebar controller offers no negative bend or axis',
   state.fixture:close()
 end)
 
+test('a quick lock is hidden and its toggle disabled when the lock does not apply', function()
+  local state = boot()
+  local controller: any = {
+    bend = function(): uiHost.Bend
+      return { curve = 0, axis = 0, width = 0.6, height = 0.5 }
+    end,
+    setCurve = function() end,
+    axis = true,
+    negative = true,
+    inputLock = {
+      available = false,
+      reason = 'This panel takes no content input.',
+      get = function(): boolean
+        return false
+      end,
+      set = function() end,
+    },
+    transformLock = {
+      available = false,
+      reason = 'This panel has no placement a grab can move.',
+      get = function(): boolean
+        return false
+      end,
+      set = function() end,
+    },
+  }
+  show(state, { properties = controller })
+  expect.equal(state.panel:find 'header/band/settings/input-lock', nil, 'the quick input lock is hidden')
+  expect.equal(state.panel:find 'header/band/settings/transform-lock', nil, 'the quick transform lock is hidden')
+  open(state)
+  local input = assert(state.panel:find 'header/band/settings/popup/body/input-lock')
+  expect.truthy(input.props.disabled, 'the input toggle is disabled')
+  expect.equal(input.props.disabledReason, controller.inputLock.reason, 'the input toggle states why')
+  local transform = assert(state.panel:find 'header/band/settings/popup/body/transform-lock')
+  expect.truthy(transform.props.disabled, 'the transform toggle is disabled')
+  expect.equal(transform.props.disabledReason, controller.transformLock.reason, 'the transform toggle states why')
+  state.fixture:close()
+end)
+
 return test
