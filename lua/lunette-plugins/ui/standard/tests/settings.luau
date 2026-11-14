@@ -193,6 +193,15 @@ test('a numeric entry sets the bend and an out-of-range entry is clamped on subm
   local state = boot()
   show(state)
   open(state)
+  enterBend(state, '22.5')
+  local decimal = curvature.read {
+    curve = state.panel:curve(),
+    axis = state.panel:curveAxis(),
+    width = select(1, state.panel:size()),
+    height = select(2, state.panel:size()),
+  }
+  expect.near(decimal.bend, 22.5, 0.05, 'a decimal entry is kept')
+  expect.equal(assert(state.panel:find 'header/band/settings/popup/body/bend/heading/value').props.value, '22.5')
   enterBend(state, '90')
   local width, height = state.panel:size()
   local shown =
@@ -352,10 +361,31 @@ test('the Settings popup stays where it opened while the bend changes', function
   local x, y, z = titlePosition()
   drag(state, 'header/band/settings/popup/body/bend/track', { 0.5, 0.5 }, { 0.85, 0.5 })
   expect.truthy(state.panel:curve() > 0, 'the bend changed')
-  local nx, ny, nz = titlePosition()
-  expect.near(nx, x, 1e-6, 'the popup did not move in x')
-  expect.near(ny, y, 1e-6, 'the popup did not move in y')
-  expect.near(nz, z, 1e-6, 'the popup did not move in z')
+  local bentX, bentY, bentZ, bentFx, bentFy, bentFz = popup()
+  expect.near(bentX, x, 1e-6, 'the bend does not move the popup in x')
+  expect.near(bentY, y, 1e-6, 'the bend does not move the popup in y')
+  expect.near(bentZ, z, 1e-6, 'the bend does not move the popup in z')
+  expect.near(bentFx, fx, 1e-6, 'the bend keeps the popup angle in x')
+  expect.near(bentFy, fy, 1e-6, 'the bend keeps the popup angle in y')
+  expect.near(bentFz, fz, 1e-6, 'the bend keeps the popup angle in z')
+  local px, py, pz = state.panel:pose():getPosition()
+  state.panel:setPose(lovr.math.newMat4():translate(px + 0.2, py, pz))
+  state.fixture:step()
+  expect.near(popup() - bentX, 0.2, 1e-5, 'moving the panel carries the popup along')
+  state.fixture:close()
+end)
+
+test('a dial commit keeps its fractional snap angle', function()
+  local state = boot()
+  show(state)
+  open(state)
+  local angle = math.rad(22.5)
+  local to = { 0.5 + 0.3 * math.sin(angle), 0.5 - 0.3 * math.cos(angle) }
+  drag(state, 'header/band/settings/popup/body/bend/track', { 0.5, 0.5 }, to)
+  local width, height = state.panel:size()
+  local shown =
+    curvature.read { curve = state.panel:curve(), axis = state.panel:curveAxis(), width = width, height = height }
+  expect.near(shown.bend, 22.5, 0.1, 'the fractional snap is kept')
   state.fixture:close()
 end)
 

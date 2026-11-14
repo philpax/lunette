@@ -9,23 +9,23 @@ local curvature = {}
 curvature.MAX_BEND = 180
 curvature.MAX_AXIS = 180
 
--- The bend and axis in degrees, from the panel's shared bend. The bend is the signed total arc across the axis, so a
--- window that bends half a turn reads 180 and one that bends away reads -180.
+-- The bend and axis in degrees, from the panel's shared bend. The bend is the signed angle the surface turns from the
+-- centre line to the edge across the axis, so a half turn each side reads 180 and one that bends away reads -180.
 function curvature.read(bend: uiHost.Bend): { bend: number, axis: number }
   local across = curved.across(bend.width, bend.height, bend.axis)
   return {
-    bend = math.deg(bend.curve * across),
+    bend = math.deg(bend.curve * across / 2),
     axis = curvature.wrapAxis(math.deg(bend.axis)),
   }
 end
 
--- The curve that bends the panel's extent across the axis by the given degrees.
+-- The curve that turns the surface by the given degrees from its centre line to its edge across the axis.
 function curvature.curve(degrees: number, axis: number, width: number, height: number): number
   local across = curved.across(width, height, axis)
   if across <= 0 then
     return 0
   end
-  return math.rad(degrees) / across
+  return math.rad(degrees) * 2 / across
 end
 
 -- Wraps an axis into (-180, 180], so a turn past the end reads as the shortest turn back.

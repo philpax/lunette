@@ -42,6 +42,12 @@ test('a zero-size panel has no bend', function()
   expect.equal(read.axis, 0, 'no axis')
 end)
 
+test('a bend degree is the surface turn from the centre line to the edge', function()
+  expect.near(curvature.curve(90, 0, 0.6, 0.4), math.pi / 0.6, 1e-9, '90 degrees turns a half circle across the panel')
+  expect.near(curvature.read(bend(math.pi / 0.6, 0, 0.6, 0.4)).bend, 90, 1e-9, 'and reads back')
+  expect.near(curvature.curve(180, 0, 0.6, 0.4), 2 * math.pi / 0.6, 1e-9, '180 degrees reaches the shared clamp')
+end)
+
 test('the control limits are the half-turn', function()
   expect.equal(curvature.MAX_BEND, 180, 'the bend')
   expect.equal(curvature.MAX_AXIS, 180, 'the axis')

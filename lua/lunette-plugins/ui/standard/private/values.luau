@@ -1,4 +1,5 @@
--- Value kinds: the slider, a continuous value with optional named detents.
+-- Value kinds: the slider, a continuous value with optional named detents, and the angle dial, a signed angle in
+-- degrees with an optional snap angle.
 
 local lunette = require '@lunette'
 local uiHost = require '@lunette-contracts/ui-host'
@@ -120,6 +121,69 @@ local function detentLabels(props: uiHost.Props, current: any): uiHost.Element?
     })
   end
   return element('lunette/row', { key = 'detents', justify = 'space-between', labels })
+end
+
+-- The dial's full turn, and the arc's approximate segment length in degrees.
+local TURN = 360
+local ARC_SEGMENT = 15
+
+-- A point on the dial at an angle in degrees from the top, clockwise, with y growing downward.
+local function dialPoint(cx: number, cy: number, radius: number, degrees: number): (number, number)
+  local angle = math.rad(degrees)
+  return cx + radius * math.sin(angle), cy - radius * math.cos(angle)
+end
+
+-- A dial angle in degrees from the top, clockwise, in (-180, 180].
+local function angleOf(x: number, y: number, width: number, height: number): number
+  return math.deg(math.atan2(x - width / 2, height / 2 - y))
+end
+
+-- The value rounded to the nearest snap angle, then clamped to the range.
+local function snapped(props: uiHost.Props, value: number): number
+  local snap = props.snap or 0
+  if snap > 0 then
+    value = math.round(value / snap) * snap
+  end
+  return math.clamp(value, props.min or -TURN / 2, props.max or TURN / 2)
+end
+
+local function angleStep(props: uiHost.Props): number
+  return props.snap or props.step or 1
+end
+
+-- The value under a point on the dial. A point at the centre names no direction, so the current value stays.
+local function angleValueAt(node: uiHost.Node, x: number, y: number, current: number): number
+  local bounds = node.bounds
+  local distance = math.sqrt((x - bounds.width / 2) ^ 2 + (y - bounds.height / 2) ^ 2)
+  if distance < math.min(bounds.width, bounds.height) * 0.12 then
+    return current
+  end
+  return snapped(node.props, angleOf(x, y, bounds.width, bounds.height))
+end
+
+local function drawArc(
+  draw: uiHost.Draw,
+  cx: number,
+  cy: number,
+  radius: number,
+  from: number,
+  to: number,
+  width: number,
+  color: uiHost.Color,
+  offset: number
+): ()
+  local sweep = to - from
+  if sweep <= 0 then
+    return
+  end
+  local segments = math.max(1, math.ceil(sweep / ARC_SEGMENT))
+  local step = sweep / segments
+  local x, y = dialPoint(cx, cy, radius, from)
+  for index = 1, segments do
+    local nextX, nextY = dialPoint(cx, cy, radius, from + step * index)
+    draw:line(x, y, nextX, nextY, { width = width, color = color, offset = offset })
+    x, y = nextX, nextY
+  end
 end
 
 function values.register(service: uiHost.Service, owner: any): { [string]: uiHost.Constructor }
@@ -262,6 +326,158 @@ function values.register(service: uiHost.Service, owner: any): { [string]: uiHos
     }, { fill = mark, offset = lift + theme.elevation.contentOffset })
   end)
 
+  service:registerKind(owner, {
+    name = 'lunette/angle-track',
+    props = shapes.disableable {
+      value = optional(schema.number()),
+      min = optional(schema.number()),
+      max = optional(schema.number()),
+      -- The granularity in degrees: a value always rounds to a multiple of it.
+      snap = optional(schema.number()),
+      step = optional(schema.number()),
+      onPreview = optional(schema.callback(function(_value: number) end)),
+      onFinish = optional(schema.callback(function(_value: number) end)),
+      onCancel = optional(shapes.activate),
+    },
+    focus = 'pointer',
+    engage = true,
+    layout = {
+      kind = 'container',
+      style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
+        local size = theme.sizes.thumb * 4
+        return { width = size, height = size, alignSelf = 'center' }
+      end,
+    },
+    claims = { drag = 'both' },
+    interactive = function(props: uiHost.Props): boolean
+      return tokens.enabled(props)
+    end,
+    visuals = { 'lunette/angle-track' },
+    event = function(node: uiHost.Node, event: uiHost.Event, base: (uiHost.Node, uiHost.Event) -> ())
+      local kind = event.kind
+      if kind == 'press' or kind == 'drag' then
+        local value = angleValueAt(node, (event :: any).x, (event :: any).y, previewed[node] or node.props.value or 0)
+        -- A drag ticks the holding pointer as it reaches each snap angle, as a stepped slider does.
+        local previous = previewed[node]
+        local snap = node.props.snap or 0
+        if kind == 'drag' and previous and snap > 0 and math.round(previous / snap) ~= math.round(value / snap) then
+          node:feedback 'detent'
+        end
+        previewed[node] = value
+        node:emit('onPreview', value)
+      elseif kind == 'release' then
+        local value = angleValueAt(node, (event :: any).x, (event :: any).y, previewed[node] or node.props.value or 0)
+        previewed[node] = nil
+        node:emit('onFinish', value)
+      elseif kind == 'scroll' then
+        local scroll = event :: any
+        local step = angleStep(node.props)
+        local from = snapped(node.props, node.props.value or 0)
+        node:emit('onFinish', snapped(node.props, from + (scroll.dx + scroll.dy) * step / 100))
+      elseif kind == 'cancel' then
+        previewed[node] = nil
+        node:emit 'onCancel'
+      elseif kind == 'key' then
+        -- Directions adjust the angle from a keyboard at once, and from a controller only once traversal engaged the
+        -- dial, so a controller user is never trapped in it.
+        local key = event :: any
+        local codes = keys.CODES
+        local adjusts = node.state.engaged or key.source ~= 'controller'
+        local direction = if key.code == codes.right or key.code == codes.up
+          then 1
+          elseif key.code == codes.left or key.code == codes.down then -1
+          else 0
+        if adjusts and direction ~= 0 then
+          local from = snapped(node.props, node.props.value or 0)
+          node:emit('onFinish', snapped(node.props, from + direction * angleStep(node.props)))
+        else
+          base(node, event)
+        end
+      elseif
+        kind ~= 'hover-enter'
+        and kind ~= 'hover-leave'
+        and kind ~= 'activate'
+        and kind ~= 'drag-start'
+        and kind ~= 'drag-end'
+      then
+        base(node, event)
+      end
+    end,
+  })
+  service:registerVisual(owner, 'lunette/angle-track', function(node: uiHost.Node, draw: uiHost.Draw)
+    local theme = node.theme
+    local props = node.props
+    local bounds = node.bounds
+    local enabled = tokens.enabled(props)
+    local size = math.min(bounds.width, bounds.height)
+    local cx, cy = bounds.width / 2, bounds.height / 2
+    local radius = size / 2 - theme.sizes.thumb * 0.55
+    local low, high = props.min or -TURN / 2, props.max or TURN / 2
+    local mark = if enabled then theme.colors.accent else theme.colors.muted
+    local value = math.clamp(props.value or 0, low, high)
+    local lift = if node.state.dragging then theme.elevation.raised else theme.elevation.thumb
+    -- The rail spans the range, and the selected arc runs from zero, or from the range's near end when it excludes zero.
+    drawArc(
+      draw,
+      cx,
+      cy,
+      radius,
+      math.max(low, -TURN / 2),
+      math.min(high, TURN / 2),
+      theme.sizes.rail,
+      theme.colors.rail,
+      lift
+    )
+    local origin = math.clamp(0, low, high)
+    drawArc(draw, cx, cy, radius, math.min(origin, value), math.max(origin, value), theme.sizes.rail, mark, lift)
+    -- A snap angle marks each multiple within the range, the nearest one in the accent.
+    local snap = props.snap or 0
+    if snap > 0 then
+      local first = math.ceil(math.max(low, -TURN / 2) / snap) * snap
+      local last = math.min(high, TURN / 2)
+      local current = math.round(value / snap) * snap
+      local tick = theme.sizes.rule * 2
+      for angle = first, last, snap do
+        local innerX, innerY = dialPoint(cx, cy, radius - tick, angle)
+        local outerX, outerY = dialPoint(cx, cy, radius + tick, angle)
+        draw:line(innerX, innerY, outerX, outerY, {
+          width = theme.sizes.rule,
+          color = if math.abs(angle - current) < 1e-9 then mark else theme.colors.line,
+          offset = lift,
+        })
+      end
+    end
+    local handleX, handleY = dialPoint(cx, cy, radius, value)
+    draw:line(cx, cy, handleX, handleY, {
+      width = theme.sizes.rule * 2,
+      color = mark,
+      offset = lift + theme.elevation.contentOffset,
+    })
+    draw:box({
+      x = cx - theme.sizes.rule,
+      y = cy - theme.sizes.rule,
+      width = theme.sizes.rule * 2,
+      height = theme.sizes.rule * 2,
+    }, { fill = mark, radius = theme.radii.pill, offset = lift })
+    local active = node.state.hovered or node.state.dragging
+    local growth = if active and enabled then HANDLE_GROWTH else 1
+    local handleSize = theme.sizes.thumb * 0.8 * growth
+    draw:box({
+      x = handleX - handleSize / 2,
+      y = handleY - handleSize / 2,
+      width = handleSize,
+      height = handleSize,
+    }, {
+      fill = if active then theme.colors.hover else theme.colors.raised,
+      border = theme.sizes.edge * 2,
+      borderColor = mark,
+      radius = theme.radii.pill,
+      side = theme.colors.side,
+      offset = lift,
+      edges = true,
+    })
+  end)
+
   -- Slider props: label, value, min, max, step, detents, unit, onChange, and onCommit. While a drag is in progress,
   -- the dragged value is shown and reported through onChange; onCommit reports the released value. After a
   -- release the slider keeps showing the released value until the value prop changes.
@@ -370,6 +586,105 @@ function values.register(service: uiHost.Service, owner: any): { [string]: uiHos
           end,
         }),
         if props.showHeading == false then nil else detentLabels(props, detent),
+      }
+    end,
+  })
+
+  -- Angle props: label, value in degrees, min, max, snap, unit, format, onChange, and onCommit. A drag on the dial
+  -- snaps to the nearest multiple of the snap angle; the value is reported in degrees.
+  constructors.Angle = service:registerKind(owner, {
+    name = 'lunette/angle',
+    props = shapes.disableable {
+      label = optional(schema.string()),
+      value = optional(schema.number()),
+      min = optional(schema.number()),
+      max = optional(schema.number()),
+      snap = optional(schema.number()),
+      step = optional(schema.number()),
+      unit = optional(schema.string()),
+      format = optional(schema.string()),
+      onChange = optional(schema.callback(function(_value: number) end)),
+      onCommit = optional(schema.callback(function(_value: number) end)),
+      showHeading = optional(schema.boolean()),
+    },
+    role = 'slider',
+    semantics = function(props: uiHost.Props, state: { read [string]: any }): uiHost.Semantics
+      return {
+        name = props.label,
+        value = props.value,
+        min = props.min or -TURN / 2,
+        max = props.max or TURN / 2,
+        disabled = not tokens.enabled(props),
+      }
+    end,
+    layout = {
+      kind = 'container',
+      style = function(_props: uiHost.Props, theme: uiHost.Theme): lunette.LayoutStyle
+        return { flexDirection = 'column', alignItems = 'stretch', gap = theme.spacing.xs }
+      end,
+    },
+    state = { preview = false, pending = false, pendingFrom = false },
+    expand = function(
+      props: uiHost.Props,
+      _children: { read [number]: uiHost.Element },
+      state: { read [string]: any },
+      act: uiHost.Actions
+    ): uiHost.Child
+      local enabled = tokens.enabled(props)
+      local shown = props.value or 0
+      if state.preview ~= false then
+        shown = state.preview
+      elseif state.pending ~= false and props.value == state.pendingFrom then
+        shown = state.pending
+      end
+      local readout = string.format(props.format or '%.1f', shown)
+      local heading = if props.showHeading == false
+        then nil
+        else element('lunette/row', {
+          key = 'heading',
+          align = 'center',
+          gap = 'sm',
+          element('lunette/text', {
+            key = 'label',
+            text = props.label or '',
+            style = 'body',
+            color = if enabled then 'ink' else 'muted',
+            grow = 1,
+          }),
+          element('lunette/text', { key = 'value', text = readout, style = 'value', wrap = false }),
+          if props.unit
+            then element('lunette/text', { key = 'unit', text = props.unit, style = 'readout', color = 'muted' })
+            else nil,
+        })
+      return {
+        heading,
+        element('lunette/angle-track', {
+          key = 'track',
+          value = shown,
+          min = props.min,
+          max = props.max,
+          snap = props.snap,
+          step = props.step,
+          disabled = not enabled,
+          disabledReason = props.disabledReason,
+          onPreview = function(value: number)
+            act.setState { preview = value }
+            act.emit('onChange', value)
+          end,
+          onFinish = function(value: number)
+            act.setState { preview = false, pending = value, pendingFrom = props.value }
+            act.emit('onChange', value)
+            act.emit('onCommit', value)
+          end,
+          -- A cancelled drag returns to the value prop and reports it, so a consumer that followed the preview
+          -- returns too.
+          onCancel = function()
+            if state.preview ~= false then
+              act.setState { preview = false }
+              act.emit('onChange', props.value)
+            end
+          end,
+        }),
       }
     end,
   })

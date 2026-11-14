@@ -65,6 +65,9 @@ export type Service = {
   -- `showHeading = false` omits the label row and detent names, for a slider whose heading sits beside a numeric
   -- entry; the label remains the accessible name.
   read Slider: Constructor,
+  -- A signed angle in degrees on a dial, with an optional snap angle the value always rounds to. `showHeading = false`
+  -- omits the label row, for a control whose heading sits beside a numeric entry.
+  read Angle: Constructor,
   -- Collections.
   read List: Constructor,
   read ListRow: Constructor,

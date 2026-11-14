@@ -146,9 +146,10 @@ function fields.register(service: uiHost.Service, owner: any): { [string]: uiHos
     end
   end)
 
-  -- TextField props: value, placeholder, onChange, onSubmit, onCancel, invalid, mono, prefix, unit, grow, and
-  -- disabledReason. The field edits a draft while focused and reports each change; Enter submits and Escape leaves the
-  -- field. A prefix, such as a vector component's axis, and a unit sit inside the field in muted monospace.
+  -- TextField props: value, placeholder, onChange, onSubmit, onCancel, invalid, mono, prefix, unit, grow, width,
+  -- minWidth, and disabledReason. The field edits a draft while focused and reports each change; Enter submits and
+  -- Escape leaves the field. A prefix, such as a vector component's axis, and a unit sit inside the field in muted
+  -- monospace. Width and minWidth in metres give a stable entry area for values of varying length.
   constructors.TextField = service:registerKind(owner, {
     name = 'lunette/text-field',
     props = shapes.disableable {
@@ -162,6 +163,9 @@ function fields.register(service: uiHost.Service, owner: any): { [string]: uiHos
       prefix = optional(schema.string()),
       unit = optional(schema.string()),
       grow = optional(schema.number()),
+      -- A fixed width or a minimum width in metres, for a field whose values need a stable entry area.
+      width = optional(shapes.length),
+      minWidth = optional(shapes.length),
       alignSelf = optional(shapes.align),
     },
     role = 'textbox',
@@ -171,7 +175,14 @@ function fields.register(service: uiHost.Service, owner: any): { [string]: uiHos
     layout = {
       kind = 'container',
       style = function(props: uiHost.Props): lunette.LayoutStyle
-        return { flexDirection = 'column', alignItems = 'stretch', grow = props.grow, alignSelf = props.alignSelf }
+        return {
+          flexDirection = 'column',
+          alignItems = 'stretch',
+          grow = props.grow,
+          alignSelf = props.alignSelf,
+          width = props.width,
+          minWidth = props.minWidth,
+        }
       end,
     },
     focus = 'text',

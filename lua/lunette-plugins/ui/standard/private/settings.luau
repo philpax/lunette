@@ -11,6 +11,9 @@ local element = uiHost.element
 
 local settings = {}
 
+-- A sixteenth of a turn: the dials land on a readable bend or axis.
+local ANGLE_SNAP = 22.5
+
 -- One lock the control offers, and whether it applies to this panel. `reason` is shown when it does not.
 export type Lock = {
   read available: boolean,
@@ -96,11 +99,6 @@ end
 
 local function text(value: string, style: string, key: string, color: string?): uiHost.Element
   return element('lunette/text', { key = key, text = value, style = style, color = color })
-end
-
--- Rounds a value to the control's step so a slider release does not drift on float error.
-local function settled(value: number): number
-  return math.floor(value + 0.5)
 end
 
 -- Draws the header's lock icons and gear and, while open, the Settings popup.
@@ -249,6 +247,8 @@ function settings.control(
         align = 'center',
         gap = 'sm',
         element('lunette/text', { key = 'label', text = label, style = 'body', grow = 1 }),
+          -- Wide enough for a signed three-digit reading, such as -180.0.
+          minWidth = 0.07,
         element('lunette/text-field', {
           key = 'value',
           value = valueText,
@@ -264,13 +264,13 @@ function settings.control(
           end,
         }),
       }),
-      -- The slider draws no heading of its own: the row above holds the label and the numeric entry.
-      element('lunette/slider', {
+      -- The dial draws no heading of its own: the row above holds the label and the numeric entry.
+      element('lunette/angle', {
         label = label,
         value = value,
         min = low,
         max = high,
-        step = 1,
+        snap = ANGLE_SNAP,
         showHeading = false,
         disabled = disabled,
         disabledReason = reason,
@@ -290,8 +290,9 @@ function settings.control(
       act.setState { bendInvalid = true }
       return
     end
-    commit(math.clamp(settled(value), minimum, bendLimit), axisRadians)
-    act.setState { bendText = curvature.format(math.clamp(settled(value), minimum, bendLimit)) }
+    local clamped = math.clamp(value, minimum, bendLimit)
+    commit(clamped, axisRadians)
+    act.setState { bendText = curvature.format(clamped) }
   end
 
   local function axisEntry(text: string): ()
@@ -333,10 +334,10 @@ function settings.control(
             bendLimit,
             function(value: number)
               act.setState { bendText = curvature.format(value), bendInvalid = false }
-              preview(settled(value), axisRadians)
+              preview(value, axisRadians)
             end,
             function(value: number)
-              commit(settled(value), axisRadians)
+              commit(value, axisRadians)
             end,
             bendEntry,
             bendSubmit
