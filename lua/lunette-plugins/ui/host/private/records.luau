@@ -269,10 +269,12 @@ export type Overlay = {
   opener: Panel,
   -- Whether the overlay answers hit queries; tooltips do not.
   hit: boolean,
-  -- A sticky overlay keeps the pose it opened at instead of following its anchor. Its contents may change, such as a
-  -- Settings bend while the panel bends, without the control moving under the pointer.
+  -- A sticky overlay is parented to the panel its opener is attached to, or to the opener: it keeps the local pose it
+  -- opened at, so moving or turning that panel carries it along while a bend that only moves the opener's surface
+  -- neither moves nor turns it. Its contents may change, such as a Settings bend while the panel bends.
   sticky: boolean,
-  placed: boolean,
+  -- The opening pose in that parent's basis, which a sticky overlay keeps.
+  localPose: Mat4?,
 }
 
 export type Environment = {

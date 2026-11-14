@@ -350,7 +350,7 @@ test('a quick lock is hidden and its toggle disabled when the lock does not appl
   state.fixture:close()
 end)
 
-test('the Settings popup stays where it opened while the bend changes', function()
+test('the Settings popup is parented to the panel and keeps its angle through a bend', function()
   local state = boot()
   show(state)
   open(state)

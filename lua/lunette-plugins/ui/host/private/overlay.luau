@@ -31,7 +31,6 @@ function overlay.render(provider: panel.Provider, portal: records.Node): records
       opener = opener,
       hit = portal.props.hit ~= false,
       sticky = portal.props.sticky == true,
-      placed = false,
     }
     created.fade = { value = 0, target = 1, velocity = 0 }
     created.essential = opener.essential
@@ -86,14 +85,6 @@ function overlay.place(provider: panel.Provider, record: records.Panel): ()
   if relation.portal.props.matchWidth and root and root.props.minWidth ~= anchor.width then
     overlay.render(provider, relation.portal)
   end
-  -- A sticky overlay keeps its opening pose, so a control inside it does not move away from a ray that is dragging it.
-  -- Its visibility and opacity still follow the opener.
-  if relation.sticky and relation.placed then
-    record.visible = opener.visible
-    record.opacity.target = opener.opacity.target
-    record.sync()
-    return
-  end
   local theme = anchor.handle.theme
   local width, height = record.width, record.height
   local left = anchor.x
@@ -110,11 +101,31 @@ function overlay.place(provider: panel.Provider, record: records.Panel): ()
   local elevation = anchor.z + theme.elevation.raised
   -- The overlay zooms with its opener, so the frame's scale moves to the overlay's own zoom.
   record.scale = opener.scale
-  record.pose:set(shape.frame(opener, left + width / 2, top + height / 2, elevation):scale(1 / opener.scale))
+  if relation.sticky then
+    -- A sticky overlay is parented to the panel its opener is attached to, or to the opener itself. Binding to the
+    -- attached target means a bend that only moves the opener's surface does not move the control under the pointer,
+    -- while moving or turning the panel still carries the overlay.
+    local target = opener.target
+    local targetPose = if target and not target.dead then target.pose else nil
+    local basis = if targetPose
+      then lovr.math.mat4(targetPose):scale(opener.scale, opener.scale, opener.scale)
+      else shape.basis(opener)
+    local held: Mat4
+    local existing = relation.localPose
+    if existing then
+      held = existing
+    else
+      local opened = shape.frame(opener, left + width / 2, top + height / 2, elevation)
+      held = lovr.math.mat4(basis):invert():mul(opened)
+      relation.localPose = held
+    end
+    record.pose:set(basis:mul(held):scale(1 / opener.scale))
+  else
+    record.pose:set(shape.frame(opener, left + width / 2, top + height / 2, elevation):scale(1 / opener.scale))
+  end
   record.visible = opener.visible
   -- An overlay fades with its opener, and stops taking input with it.
   record.opacity.target = opener.opacity.target
-  relation.placed = true
   record.sync()
 end
 

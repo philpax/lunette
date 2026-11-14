@@ -314,7 +314,7 @@ function settings.control(
       key = 'popup',
       placement = 'above',
       handoff = true,
-      -- The popup stays where it opened: changing the bend must not move the control being used.
+      -- The popup is parented to the panel, so a bend does not turn or move the control being used.
       sticky = true,
       onDismiss = close,
       element('lunette/menu', {
