@@ -123,42 +123,65 @@ local function detentLabels(props: uiHost.Props, current: any): uiHost.Element?
   return element('lunette/row', { key = 'detents', justify = 'space-between', labels })
 end
 
--- The dial's full turn, and the arc's approximate segment length in degrees.
-local TURN = 360
+-- The dial's maximum magnitude, and the arc's approximate segment length in degrees.
+local MAX_ANGLE = 180
 local ARC_SEGMENT = 15
 
--- A point on the dial at an angle in degrees from the top, clockwise, with y growing downward.
+-- A point on the dial at an angle in degrees from the left, clockwise, with y growing downward.
 local function dialPoint(cx: number, cy: number, radius: number, degrees: number): (number, number)
-  local angle = math.rad(degrees)
+  local angle = math.rad(degrees - 90)
   return cx + radius * math.sin(angle), cy - radius * math.cos(angle)
 end
 
--- A dial angle in degrees from the top, clockwise, in (-180, 180].
+-- A dial angle in degrees from the left, clockwise, in [0, 360).
 local function angleOf(x: number, y: number, width: number, height: number): number
-  return math.deg(math.atan2(x - width / 2, height / 2 - y))
+  local fromTop = math.deg(math.atan2(x - width / 2, height / 2 - y))
+  local fromLeft = fromTop + 90
+  if fromLeft < 0 then
+    fromLeft += 360
+  elseif fromLeft >= 360 then
+    fromLeft -= 360
+  end
+  return fromLeft
 end
 
--- The value rounded to the nearest snap angle, then clamped to the range.
-local function snapped(props: uiHost.Props, value: number): number
+-- The radius of the centre button that flips the sign.
+local function buttonRadius(theme: uiHost.Theme): number
+  return theme.sizes.thumb * 0.55
+end
+
+local function insideButton(node: uiHost.Node, x: number, y: number): boolean
+  local bounds = node.bounds
+  local distance = math.sqrt((x - bounds.width / 2) ^ 2 + (y - bounds.height / 2) ^ 2)
+  return distance <= buttonRadius(node.theme)
+end
+
+-- The magnitude rounded to the nearest snap angle, then clamped to the dial's range.
+local function snapped(props: uiHost.Props, magnitude: number): number
   local snap = props.snap or 0
   if snap > 0 then
-    value = math.round(value / snap) * snap
+    magnitude = math.round(magnitude / snap) * snap
   end
-  return math.clamp(value, props.min or -TURN / 2, props.max or TURN / 2)
+  return math.clamp(magnitude, props.min or 0, props.max or MAX_ANGLE)
 end
 
 local function angleStep(props: uiHost.Props): number
   return props.snap or props.step or 1
 end
 
--- The value under a point on the dial. A point at the centre names no direction, so the current value stays.
+-- The value under a point on the dial. The dial shows the magnitude on its right half; the centre button holds the
+-- sign, and a point on it keeps the current value.
 local function angleValueAt(node: uiHost.Node, x: number, y: number, current: number): number
-  local bounds = node.bounds
-  local distance = math.sqrt((x - bounds.width / 2) ^ 2 + (y - bounds.height / 2) ^ 2)
-  if distance < math.min(bounds.width, bounds.height) * 0.12 then
+  if insideButton(node, x, y) then
     return current
   end
-  return snapped(node.props, angleOf(x, y, bounds.width, bounds.height))
+  local bounds = node.bounds
+  local angle = angleOf(x, y, bounds.width, bounds.height)
+  local low, high = node.props.min or 0, node.props.max or MAX_ANGLE
+  -- The unused half of the dial holds the nearest end, so dragging past a limit does not wrap to the other one.
+  local magnitude = if angle <= high then math.max(angle, low) elseif angle < 270 then high else low
+  magnitude = snapped(node.props, magnitude)
+  return if current < 0 then -magnitude else magnitude
 end
 
 local function drawArc(
@@ -191,6 +214,8 @@ function values.register(service: uiHost.Service, owner: any): { [string]: uiHos
   -- The last value each held track previewed, which a notch is measured from. Several drag events can arrive before
   -- the track renders the previous one, so its value prop can lag behind.
   local previewed: { [uiHost.Node]: number } = setmetatable({}, { __mode = 'k' }) :: any
+  -- The value a press on the centre button previewed, until its release.
+  local signPressed: { [uiHost.Node]: number } = setmetatable({}, { __mode = 'k' }) :: any
 
   service:registerKind(owner, {
     name = 'lunette/slider-track',
@@ -332,9 +357,11 @@ function values.register(service: uiHost.Service, owner: any): { [string]: uiHos
       value = optional(schema.number()),
       min = optional(schema.number()),
       max = optional(schema.number()),
-      -- The granularity in degrees: a value always rounds to a multiple of it.
+      -- The granularity in degrees: a magnitude always rounds to a multiple of it.
       snap = optional(schema.number()),
       step = optional(schema.number()),
+      -- Whether the centre button offers the opposite sign.
+      negatable = optional(schema.boolean()),
       onPreview = optional(schema.callback(function(_value: number) end)),
       onFinish = optional(schema.callback(function(_value: number) end)),
       onCancel = optional(shapes.activate),
@@ -355,31 +382,51 @@ function values.register(service: uiHost.Service, owner: any): { [string]: uiHos
     visuals = { 'lunette/angle-track' },
     event = function(node: uiHost.Node, event: uiHost.Event, base: (uiHost.Node, uiHost.Event) -> ())
       local kind = event.kind
-      if kind == 'press' or kind == 'drag' then
+      if kind == 'press' then
+        if node.props.negatable ~= false and insideButton(node, (event :: any).x, (event :: any).y) then
+          local value = -(node.props.value or 0)
+          signPressed[node] = value
+          node:emit('onPreview', value)
+          return
+        end
         local value = angleValueAt(node, (event :: any).x, (event :: any).y, previewed[node] or node.props.value or 0)
-        -- A drag ticks the holding pointer as it reaches each snap angle, as a stepped slider does.
+        previewed[node] = value
+        node:emit('onPreview', value)
+      elseif kind == 'drag' then
+        if signPressed[node] ~= nil then
+          return
+        end
+        -- A drag ticks the holding pointer as it reaches each snap magnitude, as a stepped slider does.
+        local value = angleValueAt(node, (event :: any).x, (event :: any).y, previewed[node] or node.props.value or 0)
         local previous = previewed[node]
         local snap = node.props.snap or 0
-        if kind == 'drag' and previous and snap > 0 and math.round(previous / snap) ~= math.round(value / snap) then
+        if previous and snap > 0 and math.round(math.abs(previous) / snap) ~= math.round(math.abs(value) / snap) then
           node:feedback 'detent'
         end
         previewed[node] = value
         node:emit('onPreview', value)
       elseif kind == 'release' then
+        local sign = signPressed[node]
+        signPressed[node] = nil
+        if sign ~= nil then
+          node:emit('onFinish', sign)
+          return
+        end
         local value = angleValueAt(node, (event :: any).x, (event :: any).y, previewed[node] or node.props.value or 0)
         previewed[node] = nil
         node:emit('onFinish', value)
       elseif kind == 'scroll' then
         local scroll = event :: any
-        local step = angleStep(node.props)
-        local from = snapped(node.props, node.props.value or 0)
-        node:emit('onFinish', snapped(node.props, from + (scroll.dx + scroll.dy) * step / 100))
+        local current = node.props.value or 0
+        local magnitude = snapped(node.props, math.abs(current) + (scroll.dx + scroll.dy) * angleStep(node.props) / 100)
+        node:emit('onFinish', if current < 0 then -magnitude else magnitude)
       elseif kind == 'cancel' then
         previewed[node] = nil
+        signPressed[node] = nil
         node:emit 'onCancel'
       elseif kind == 'key' then
-        -- Directions adjust the angle from a keyboard at once, and from a controller only once traversal engaged the
-        -- dial, so a controller user is never trapped in it.
+        -- Directions adjust the magnitude from a keyboard at once, and from a controller only once traversal engaged
+        -- the dial, so a controller user is never trapped in it.
         local key = event :: any
         local codes = keys.CODES
         local adjusts = node.state.engaged or key.source ~= 'controller'
@@ -388,8 +435,9 @@ function values.register(service: uiHost.Service, owner: any): { [string]: uiHos
           elseif key.code == codes.left or key.code == codes.down then -1
           else 0
         if adjusts and direction ~= 0 then
-          local from = snapped(node.props, node.props.value or 0)
-          node:emit('onFinish', snapped(node.props, from + direction * angleStep(node.props)))
+          local current = node.props.value or 0
+          local magnitude = snapped(node.props, math.abs(current) + direction * angleStep(node.props))
+          node:emit('onFinish', if current < 0 then -magnitude else magnitude)
         else
           base(node, event)
         end
@@ -412,29 +460,18 @@ function values.register(service: uiHost.Service, owner: any): { [string]: uiHos
     local size = math.min(bounds.width, bounds.height)
     local cx, cy = bounds.width / 2, bounds.height / 2
     local radius = size / 2 - theme.sizes.thumb * 0.55
-    local low, high = props.min or -TURN / 2, props.max or TURN / 2
+    local low, high = props.min or 0, props.max or MAX_ANGLE
     local mark = if enabled then theme.colors.accent else theme.colors.muted
-    local value = math.clamp(props.value or 0, low, high)
+    local value = math.clamp(math.abs(props.value or 0), low, high)
     local lift = if node.state.dragging then theme.elevation.raised else theme.elevation.thumb
-    -- The rail spans the range, and the selected arc runs from zero, or from the range's near end when it excludes zero.
-    drawArc(
-      draw,
-      cx,
-      cy,
-      radius,
-      math.max(low, -TURN / 2),
-      math.min(high, TURN / 2),
-      theme.sizes.rail,
-      theme.colors.rail,
-      lift
-    )
-    local origin = math.clamp(0, low, high)
-    drawArc(draw, cx, cy, radius, math.min(origin, value), math.max(origin, value), theme.sizes.rail, mark, lift)
+    -- The rail spans the magnitude range, and the selected arc runs from its near end to the value.
+    drawArc(draw, cx, cy, radius, low, high, theme.sizes.rail, theme.colors.rail, lift)
+    drawArc(draw, cx, cy, radius, low, value, theme.sizes.rail, mark, lift)
     -- A snap angle marks each multiple within the range, the nearest one in the accent.
     local snap = props.snap or 0
     if snap > 0 then
-      local first = math.ceil(math.max(low, -TURN / 2) / snap) * snap
-      local last = math.min(high, TURN / 2)
+      local first = math.ceil(low / snap) * snap
+      local last = high
       local current = math.round(value / snap) * snap
       local tick = theme.sizes.rule * 2
       for angle = first, last, snap do
@@ -453,12 +490,39 @@ function values.register(service: uiHost.Service, owner: any): { [string]: uiHos
       color = mark,
       offset = lift + theme.elevation.contentOffset,
     })
-    draw:box({
-      x = cx - theme.sizes.rule,
-      y = cy - theme.sizes.rule,
-      width = theme.sizes.rule * 2,
-      height = theme.sizes.rule * 2,
-    }, { fill = mark, radius = theme.radii.pill, offset = lift })
+    local rule = theme.sizes.rule
+    if props.negatable ~= false then
+      -- The centre button flips the sign: a plus for one direction, a minus for the other.
+      local button = buttonRadius(theme)
+      draw:box({
+        x = cx - button,
+        y = cy - button,
+        width = button * 2,
+        height = button * 2,
+      }, {
+        fill = if node.state.hovered then theme.colors.hover else theme.colors.raised,
+        border = theme.sizes.edge * 2,
+        borderColor = mark,
+        radius = theme.radii.pill,
+        side = theme.colors.side,
+        offset = lift,
+        edges = true,
+      })
+      local arm = button * 0.45
+      local sign = if enabled then theme.colors.ink else theme.colors.muted
+      local offset = lift + theme.elevation.contentOffset * 2
+      draw:line(cx - arm, cy, cx + arm, cy, { width = rule * 2, color = sign, offset = offset })
+      if (props.value or 0) >= 0 then
+        draw:line(cx, cy - arm, cx, cy + arm, { width = rule * 2, color = sign, offset = offset })
+      end
+    else
+      draw:box({
+        x = cx - rule,
+        y = cy - rule,
+        width = rule * 2,
+        height = rule * 2,
+      }, { fill = mark, radius = theme.radii.pill, offset = lift })
+    end
     local active = node.state.hovered or node.state.dragging
     local growth = if active and enabled then HANDLE_GROWTH else 1
     local handleSize = theme.sizes.thumb * 0.8 * growth
@@ -590,8 +654,8 @@ function values.register(service: uiHost.Service, owner: any): { [string]: uiHos
     end,
   })
 
-  -- Angle props: label, value in degrees, min, max, snap, unit, format, onChange, and onCommit. A drag on the dial
-  -- snaps to the nearest multiple of the snap angle; the value is reported in degrees.
+  -- Angle props: label, value in degrees, min, max, snap, negatable, unit, format, onChange, and onCommit. The dial
+  -- shows the magnitude from 0 to max; the centre button flips the sign unless negatable is false.
   constructors.Angle = service:registerKind(owner, {
     name = 'lunette/angle',
     props = shapes.disableable {
@@ -601,6 +665,7 @@ function values.register(service: uiHost.Service, owner: any): { [string]: uiHos
       max = optional(schema.number()),
       snap = optional(schema.number()),
       step = optional(schema.number()),
+      negatable = optional(schema.boolean()),
       unit = optional(schema.string()),
       format = optional(schema.string()),
       onChange = optional(schema.callback(function(_value: number) end)),
@@ -609,11 +674,12 @@ function values.register(service: uiHost.Service, owner: any): { [string]: uiHos
     },
     role = 'slider',
     semantics = function(props: uiHost.Props, state: { read [string]: any }): uiHost.Semantics
+      local max = props.max or MAX_ANGLE
       return {
         name = props.label,
         value = props.value,
-        min = props.min or -TURN / 2,
-        max = props.max or TURN / 2,
+        min = -max,
+        max = max,
         disabled = not tokens.enabled(props),
       }
     end,
@@ -665,6 +731,7 @@ function values.register(service: uiHost.Service, owner: any): { [string]: uiHos
           max = props.max,
           snap = props.snap,
           step = props.step,
+          negatable = props.negatable,
           disabled = not enabled,
           disabledReason = props.disabledReason,
           onPreview = function(value: number)

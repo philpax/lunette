@@ -31,12 +31,24 @@ local function open(state: fixture.State): ()
   state.fixture:step()
 end
 
+-- The node's own surface, in metres, so an aim inside an overlay reaches the control rather than the opener.
+local function nodeGeometry(node: any): any
+  local bounds = node:panelBounds()
+  return {
+    pose = node:pose(),
+    width = bounds.width,
+    height = bounds.height,
+    logicalWidth = bounds.width,
+    logicalHeight = bounds.height,
+    visible = true,
+  }
+end
+
 local function drag(state: fixture.State, path: string, from: { number }, to: { number }): ()
   local node = assert(state.panel:find(path), `no node at {path}`)
-  -- The path may be in an overlay panel, so the aim follows the node's own pose rather than the opener's panel.
-  local geometry = fixture.nodeGeometry(node)
+  local geometry = nodeGeometry(node)
   local function at(point: { number }): (number, number)
-    return point[1], point[2]
+    return point[1] * geometry.width, point[2] * geometry.height
   end
   local runner = state.fixture
   runner:button('right', 'trigger', false)
@@ -49,6 +61,20 @@ local function drag(state: fixture.State, path: string, from: { number }, to: { 
     runner:aim(geometry, at { from[1] + (to[1] - from[1]) * t, from[2] + (to[2] - from[2]) * t })
     runner:step()
   end
+  runner:button('right', 'trigger', false)
+  runner:step()
+end
+
+-- Presses the centre sign button of a dial and releases it.
+local function pressCentre(state: fixture.State, path: string): ()
+  local node = assert(state.panel:find(path), `no node at {path}`)
+  local geometry = nodeGeometry(node)
+  local runner = state.fixture
+  runner:button('right', 'trigger', false)
+  runner:aim(geometry, geometry.width / 2, geometry.height / 2)
+  runner:step()
+  runner:button('right', 'trigger', true)
+  runner:step()
   runner:button('right', 'trigger', false)
   runner:step()
 end
@@ -140,7 +166,7 @@ test('the bend slider bends the panel and commits once on release', function()
   show(state)
   local events = propertyEvents(state)
   open(state)
-  drag(state, 'header/band/settings/popup/body/bend/track', { 0.5, 0.5 }, { 0.8, 0.5 })
+  drag(state, 'header/band/settings/popup/body/bend/track', { 0.15, 0.5 }, { 0.5, 0.15 })
   expect.truthy(state.panel:curve() > 0, 'the panel bends towards the viewer')
   expect.equal(events[1], 1, 'the release commits once')
   state.fixture:close()
@@ -150,14 +176,14 @@ test('the axis slider turns the bend and keeps the arc', function()
   local state = boot()
   show(state)
   open(state)
-  drag(state, 'header/band/settings/popup/body/bend/track', { 0.5, 0.5 }, { 0.8, 0.5 })
+  drag(state, 'header/band/settings/popup/body/bend/track', { 0.15, 0.5 }, { 0.5, 0.15 })
   local before = curvature.read {
     curve = state.panel:curve(),
     axis = state.panel:curveAxis(),
     width = select(1, state.panel:size()),
     height = select(2, state.panel:size()),
   }
-  drag(state, 'header/band/settings/popup/body/axis/track', { 0.5, 0.5 }, { 0.75, 0.5 })
+  drag(state, 'header/band/settings/popup/body/axis/track', { 0.15, 0.5 }, { 0.5, 0.15 })
   expect.truthy(state.panel:curveAxis() ~= 0, 'the axis turns')
   local after = curvature.read {
     curve = state.panel:curve(),
@@ -362,7 +388,7 @@ test('the Settings popup is parented to the panel and keeps its angle through a 
     return x, y, z, fx, fy, fz
   end
   local x, y, z, fx, fy, fz = popup()
-  drag(state, 'header/band/settings/popup/body/bend/track', { 0.5, 0.5 }, { 0.85, 0.5 })
+  drag(state, 'header/band/settings/popup/body/bend/track', { 0.15, 0.5 }, { 0.5, 0.15 })
   expect.truthy(state.panel:curve() > 0, 'the bend changed')
   local bentX, bentY, bentZ, bentFx, bentFy, bentFz = popup()
   expect.near(bentX, x, 1e-6, 'the bend does not move the popup in x')
@@ -383,8 +409,8 @@ test('a dial commit keeps its fractional snap angle', function()
   show(state)
   open(state)
   local angle = math.rad(22.5)
-  local to = { 0.5 + 0.3 * math.sin(angle), 0.5 - 0.3 * math.cos(angle) }
-  drag(state, 'header/band/settings/popup/body/bend/track', { 0.5, 0.5 }, to)
+  local to = { 0.5 - 0.3 * math.cos(angle), 0.5 - 0.3 * math.sin(angle) }
+  drag(state, 'header/band/settings/popup/body/bend/track', { 0.15, 0.5 }, to)
   local width, height = state.panel:size()
   local shown =
     curvature.read { curve = state.panel:curve(), axis = state.panel:curveAxis(), width = width, height = height }
@@ -392,11 +418,35 @@ test('a dial commit keeps its fractional snap angle', function()
   state.fixture:close()
 end)
 
+test('the bend centre button bends away from the viewer', function()
+  local state = boot()
+  show(state)
+  open(state)
+  drag(state, 'header/band/settings/popup/body/bend/track', { 0.15, 0.5 }, { 0.5, 0.15 })
+  local width, height = state.panel:size()
+  local forward = curvature.read {
+    curve = state.panel:curve(),
+    axis = state.panel:curveAxis(),
+    width = width,
+    height = height,
+  }
+  expect.near(forward.bend, 90, 1.0, 'the bend is towards the viewer')
+  pressCentre(state, 'header/band/settings/popup/body/bend/track')
+  local away = curvature.read {
+    curve = state.panel:curve(),
+    axis = state.panel:curveAxis(),
+    width = width,
+    height = height,
+  }
+  expect.near(away.bend, -90, 1.0, 'the centre button bends away')
+  state.fixture:close()
+end)
+
 test('the axis turns while the panel is flat', function()
   local state = boot()
   show(state)
   open(state)
-  drag(state, 'header/band/settings/popup/body/axis/track', { 0.5, 0.5 }, { 0.8, 0.5 })
+  drag(state, 'header/band/settings/popup/body/axis/track', { 0.15, 0.5 }, { 0.5, 0.15 })
   expect.truthy(state.panel:curveAxis() ~= 0, 'the axis turns before a bend')
   local axis = assert(state.panel:find 'header/band/settings/popup/body/axis/heading/value')
   expect.truthy(axis.props.value ~= '0.0', 'the numeric entry follows the axis')

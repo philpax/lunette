@@ -15,7 +15,7 @@ local function sweep(state: fixture.State, track: any, from: number, to: number)
   local cx, cy = bounds.x + bounds.width / 2, bounds.y + bounds.height / 2
   local radius = math.min(bounds.width, bounds.height) * 0.35
   local function at(degrees: number): (number, number)
-    local angle = math.rad(degrees)
+    local angle = math.rad(degrees - 90)
     return cx + radius * math.sin(angle), cy - radius * math.cos(angle)
   end
   local runner = state.fixture
@@ -29,6 +29,20 @@ local function sweep(state: fixture.State, track: any, from: number, to: number)
     runner:aim(geometry, at(from + (to - from) * step / 4))
     runner:step()
   end
+  runner:button('right', 'trigger', false)
+  runner:step()
+end
+
+-- Presses the centre sign button of a dial and releases it.
+local function pressCentre(state: fixture.State, track: any): ()
+  local bounds = track:panelBounds()
+  local runner = state.fixture
+  local geometry = fixture.geometry(state)
+  runner:button('right', 'trigger', false)
+  runner:aim(geometry, bounds.x + bounds.width / 2, bounds.y + bounds.height / 2)
+  runner:step()
+  runner:button('right', 'trigger', true)
+  runner:step()
   runner:button('right', 'trigger', false)
   runner:step()
 end
@@ -61,7 +75,7 @@ test('a dial drag previews and its release snaps to the nearest angle', function
           key = 'yaw',
           label = 'Yaw',
           value = 0,
-          min = -180,
+          min = 0,
           max = 180,
           snap = 22.5,
           onChange = function(value: number)
@@ -83,7 +97,7 @@ test('a dial drag previews and its release snaps to the nearest angle', function
   state.fixture:close()
 end)
 
-test('a dial accepts a negative angle and an unsnapped one', function()
+test('the centre button negates the angle, and a free dial keeps its angle', function()
   local state = boot()
   local c = assert(state.components)
   local commits: { number } = {}
@@ -96,9 +110,10 @@ test('a dial accepts a negative angle and an unsnapped one', function()
           key = 'yaw',
           label = 'Yaw',
           value = 0,
-          min = -180,
+          min = 0,
           max = 180,
           snap = 22.5,
+          negatable = true,
           onCommit = function(value: number)
             table.insert(commits, value)
           end,
@@ -107,8 +122,9 @@ test('a dial accepts a negative angle and an unsnapped one', function()
           key = 'free',
           label = 'Free',
           value = 0,
-          min = -180,
+          min = 0,
           max = 180,
+          negatable = true,
           onCommit = function(value: number)
             table.insert(commits, value)
           end,
@@ -116,10 +132,16 @@ test('a dial accepts a negative angle and an unsnapped one', function()
       },
     }
   )
-  sweep(state, assert(state.panel:find 'body/yaw/track'), 0, -50)
-  expect.equal(commits[1], -45, 'a snap picks the nearest negative angle')
-  sweep(state, assert(state.panel:find 'body/free/track'), 0, 50)
-  expect.near(commits[2], 50, 1e-3, 'without a snap the dial reports the angle it was given')
+  local yaw = assert(state.panel:find 'body/yaw/track')
+  sweep(state, yaw, 0, 50)
+  expect.equal(commits[1], 45, 'the drag snaps to 45 degrees')
+  pressCentre(state, yaw)
+  expect.equal(commits[2], -45, 'the centre button flips the sign')
+  local free = assert(state.panel:find 'body/free/track')
+  sweep(state, free, 0, 50)
+  expect.near(commits[3], 50, 1e-3, 'without a snap the dial reports the magnitude it was given')
+  pressCentre(state, free)
+  expect.near(commits[4], -50, 1e-3, 'the free dial flips its sign too')
   state.fixture:close()
 end)
 
@@ -136,7 +158,7 @@ test('a drag across the dial hub keeps the dragged value', function()
           key = 'yaw',
           label = 'Yaw',
           value = 0,
-          min = -180,
+          min = 0,
           max = 180,
           snap = 22.5,
           onChange = function(value: number)
@@ -150,7 +172,7 @@ test('a drag across the dial hub keeps the dragged value', function()
   local bounds = track:panelBounds()
   local cx, cy = bounds.x + bounds.width / 2, bounds.y + bounds.height / 2
   local radius = math.min(bounds.width, bounds.height) * 0.35
-  local angle = math.rad(45)
+  local angle = math.rad(45 - 90)
   local geometry = fixture.geometry(state)
   local runner = state.fixture
   runner:button('right', 'trigger', false)
@@ -181,7 +203,7 @@ test('an angle steps by its snap angle from the keyboard', function()
           key = 'yaw',
           label = 'Yaw',
           value = value,
-          min = -180,
+          min = 0,
           max = 180,
           snap = 22.5,
           onCommit = function(next: number)

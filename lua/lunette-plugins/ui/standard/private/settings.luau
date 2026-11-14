@@ -234,6 +234,7 @@ function settings.control(
     reason: string?,
     low: number,
     high: number,
+    negatable: boolean,
     applyPreview: (number) -> (),
     applyCommit: (number) -> (),
     onText: (string) -> (),
@@ -271,6 +272,7 @@ function settings.control(
         min = low,
         max = high,
         snap = ANGLE_SNAP,
+        negatable = negatable,
         showHeading = false,
         disabled = disabled,
         disabledReason = reason,
@@ -330,8 +332,9 @@ function settings.control(
             state.bendInvalid == true,
             false,
             nil,
-            minimum,
+            0,
             bendLimit,
+            controller.negative,
             function(value: number)
               act.setState { bendText = curvature.format(value), bendInvalid = false }
               preview(value, axisRadians)
@@ -350,8 +353,9 @@ function settings.control(
             state.axisInvalid == true,
             not controller.axis,
             controller.axisReason,
-            -curvature.MAX_AXIS,
+            0,
             curvature.MAX_AXIS,
+            controller.axis,
             function(value: number)
               act.setState { axisText = curvature.format(value), axisInvalid = false }
               preview(bendValue, math.rad(value))
