@@ -126,7 +126,7 @@ end)
 test('a native commit and a native transform toggle each write panel-properties.saved once', function()
   withStore({}, function(env: Environment)
     local panel = env.panels:fromWindow(env.context, env.native.newWindow(1))
-    expect.truthy(panel:setCurve(0.5, true), 'the commit applies')
+    expect.truthy(panel:setCurve(0.5, nil, true), 'the commit applies')
     expect.equal(env.native.events.fileWrites[FILE], 1, 'the commit writes the store')
     expect.truthy(panel:setCurve(0.7), 'the preview applies')
     expect.equal(env.native.events.fileWrites[FILE], 1, 'a preview writes nothing')
@@ -157,8 +157,8 @@ test('two live panels for one monitor key get distinct ids and separate properti
     local monitor = env.native.newMonitor 'screen-a'
     local first = env.panels:fromMonitor(env.context, monitor)
     local second = env.panels:fromMonitor(env.context, monitor)
-    expect.truthy(first:setCurve(0.3, true), 'the first curving applies')
-    expect.truthy(second:setCurve(0.6, true), 'the second curving applies')
+    expect.truthy(first:setCurve(0.3, nil, true), 'the first curving applies')
+    expect.truthy(second:setCurve(0.6, nil, true), 'the second curving applies')
     local data = readStore(env.native)
     expect.truthy(data['monitor/screen-a/1'], 'the first mirror has slot one')
     expect.truthy(data['monitor/screen-a/2'], 'the second mirror has slot two')
@@ -183,6 +183,55 @@ test('a creator property wins over the store', function()
   end)
 end)
 
+test('a native axis restores and saves', function()
+  local text = versionedFile.render({
+    ['window/terminal/1'] = { curve = 0.5, curveAxis = 0.75, inputLocked = false, transformLocked = false },
+  }, properties.VERSION)
+  withStore({ storeText = text }, function(env: Environment)
+    local panel = env.panels:fromWindow(env.context, env.native.newWindow(1))
+    expect.near(panel.curveAxis, 0.75, 1e-9, 'the stored axis restores')
+    panel:setCurve(0.5, math.pi / 2, true)
+    local stored = readStore(env.native)['window/terminal/1']
+    expect.near(stored.curveAxis, math.pi / 2, 1e-9, 'the axis saves')
+  end)
+end)
+
+test('an equivalent stored axis restores and saves canonically', function()
+  local text = versionedFile.render({
+    ['window/terminal/1'] = { curve = 0.5, curveAxis = 5, inputLocked = false, transformLocked = false },
+  }, properties.VERSION)
+  withStore({ storeText = text }, function(env: Environment)
+    local panel = env.panels:fromWindow(env.context, env.native.newWindow(1))
+    expect.near(panel.curveAxis, 5 - 2 * math.pi, 1e-9, 'the axis restores canonically')
+    panel:setLocked(env.context, true)
+    local stored = readStore(env.native)['window/terminal/1']
+    expect.near(stored.curveAxis, 5 - 2 * math.pi, 1e-9, 'the next save is canonical')
+  end)
+end)
+
+test('a creator curve and axis each fill the other from the store', function()
+  local text = versionedFile.render({
+    ['window/curve-only/1'] = { curve = 0.5, curveAxis = 0.75, inputLocked = false, transformLocked = false },
+    ['window/axis-only/1'] = { curve = 0.5, curveAxis = 0.75, inputLocked = false, transformLocked = false },
+    ['window/both/1'] = { curve = 0.5, curveAxis = 0.75, inputLocked = false, transformLocked = false },
+  }, properties.VERSION)
+  withStore({ storeText = text }, function(env: Environment)
+    local curveOnly = env.panels:fromWindow(env.context, env.native.newWindow(1, 'curve-only'), { curve = 0.9 })
+    expect.near(curveOnly.curve, 0.9, 1e-9, 'the creator curve wins')
+    expect.near(curveOnly.curveAxis, 0.75, 1e-9, 'the stored axis fills the other')
+    local axisOnly =
+      env.panels:fromWindow(env.context, env.native.newWindow(2, 'axis-only'), { curveAxis = math.pi / 2 })
+    expect.near(axisOnly.curve, 0.5, 1e-9, 'the stored curve fills the other')
+    expect.near(axisOnly.curveAxis, math.pi / 2, 1e-9, 'the creator axis wins')
+    local both = env.panels:fromWindow(env.context, env.native.newWindow(3, 'both'), {
+      curve = 0.9,
+      curveAxis = math.pi / 2,
+    })
+    expect.near(both.curve, 0.9, 1e-9, 'both creator values win')
+    expect.near(both.curveAxis, math.pi / 2, 1e-9, 'and the store fills nothing')
+  end)
+end)
+
 test('a store from a later version is refused and left alone', function()
   local text = versionedFile.render({}, properties.VERSION + 1)
   local native = withStore({ storeText = text }, function(env: Environment)
@@ -200,10 +249,10 @@ test('a save keeps the entries of panels that are no longer live', function()
     local firstWindow = env.native.newWindow(1, 'terminal')
     local first = env.panels:fromWindow(env.context, firstWindow)
     local second = env.panels:fromWindow(env.context, env.native.newWindow(2, 'browser'))
-    first:setCurve(0.3, true)
-    second:setCurve(0.6, true)
+    first:setCurve(0.3, nil, true)
+    second:setCurve(0.6, nil, true)
     first:destroy(env.context)
-    second:setCurve(0.4, true)
+    second:setCurve(0.4, nil, true)
     local data = readStore(env.native)
     expect.truthy(data['window/terminal/1'], 'the closed application keeps its entry')
     expect.truthy(data['window/browser/1'], 'the live panel keeps its entry')
@@ -308,6 +357,48 @@ test('a toolkit creator property wins over the store', function()
   end)
 end)
 
+test('a toolkit axis restores and saves', function()
+  local text = versionedFile.render({
+    ['toolkit/axis-panel'] = { curve = 0.5, curveAxis = 0.75, inputLocked = false, transformLocked = false },
+  }, properties.VERSION)
+  withStore({ storeText = text, uiHost = true }, function(env: Environment)
+    env.session:update()
+    local host = assert(env.host)
+    local panel = host:newPanel(assert(env.hostOwner), { name = 'axis-panel', width = 0.3, height = 0.2 })
+    expect.near(panel:curve(), 0.5, 1e-9, 'the stored curve restores')
+    expect.near(panel:curveAxis(), 0.75, 1e-9, 'the stored axis restores')
+    panel:setCurve(0.5, math.pi / 2, true)
+    expect.near(readStore(env.native)['toolkit/axis-panel'].curveAxis, math.pi / 2, 1e-9, 'the axis saves')
+    panel:destroy()
+  end)
+end)
+
+test('a toolkit creator curve and axis each fill the other from the store', function()
+  local text = versionedFile.render({
+    ['toolkit/curve-only'] = { curve = 0.5, curveAxis = 0.75, inputLocked = false, transformLocked = false },
+    ['toolkit/axis-only'] = { curve = 0.5, curveAxis = 0.75, inputLocked = false, transformLocked = false },
+    ['toolkit/both'] = { curve = 0.5, curveAxis = 0.75, inputLocked = false, transformLocked = false },
+  }, properties.VERSION)
+  withStore({ storeText = text, uiHost = true }, function(env: Environment)
+    env.session:update()
+    local host = assert(env.host)
+    local owner = assert(env.hostOwner)
+    local curveOnly = host:newPanel(owner, { name = 'curve-only', width = 0.3, height = 0.2, curve = 0.9 })
+    expect.near(curveOnly:curve(), 0.9, 1e-9, 'the creator curve wins')
+    expect.near(curveOnly:curveAxis(), 0.75, 1e-9, 'the stored axis fills the other')
+    local axisOnly = host:newPanel(owner, { name = 'axis-only', width = 0.3, height = 0.2, curveAxis = math.pi / 2 })
+    expect.near(axisOnly:curve(), 0.5, 1e-9, 'the stored curve fills the other')
+    expect.near(axisOnly:curveAxis(), math.pi / 2, 1e-9, 'the creator axis wins')
+    local both =
+      host:newPanel(owner, { name = 'both', width = 0.3, height = 0.2, curve = 0.9, curveAxis = math.pi / 2 })
+    expect.near(both:curve(), 0.9, 1e-9, 'both creator values win')
+    expect.near(both:curveAxis(), math.pi / 2, 1e-9, 'and the store fills nothing')
+    for _, panel in { curveOnly, axisOnly, both } do
+      panel:destroy()
+    end
+  end)
+end)
+
 test('a provider restart restores native properties and keeps saving', function()
   local native = testing.native()
   local state = persist.new(persist.FILE)
@@ -347,7 +438,7 @@ test('a provider restart restores native properties and keeps saving', function(
       init = function(context: testing.Context)
         bind(context)
         panel = panels:fromWindow(owner, native.newWindow(1))
-        panel:setCurve(0.5, true)
+        panel:setCurve(0.5, nil, true)
         panel:setCurve(0.2)
         expect.near(panel.curve, 0.2, 1e-9, 'the preview changes the panel without saving')
       end,
@@ -367,7 +458,7 @@ test('a provider restart restores native properties and keeps saving', function(
       init = function(context: testing.Context)
         bind(context)
         expect.near(panel.curve, 0.5, 1e-9, 'the stored value returns on the restart')
-        panel:setCurve(0.6, true)
+        panel:setCurve(0.6, nil, true)
         expect.truthy(native.events.fileWrites[FILE] >= 2, 'the restarted store keeps saving')
       end,
     },

@@ -54,7 +54,7 @@ Opacity is applied to packed primitives in the ordinary draw sequence. There is 
 
 ## Curvature
 
-Panel curvature uses a cylindrical map, convex or concave and about an axis in the panel plane, with the extent across the axis measured along the arc. Drawing, panel-coordinate conversion, and inspection use that model. Fixed mesh subdivision limits the geometric approximation. [Spatial model](spatial-model.md#surface-roots) states the coordinate contract.
+Panel curvature uses a cylindrical map, convex or concave and about an axis in the panel plane, with the extent across the axis measured along the arc. Drawing, panel-coordinate conversion, and inspection use that model. Fixed mesh subdivision limits the geometric approximation. The native service splits its scene polygons along the across-axis direction so every content, outline, and child vertex and normal follows the shared cylinder; the toolkit host keeps its shader geometry. [Spatial model](spatial-model.md#surface-roots) states the coordinate contract.
 
 An overlay on a curved opener remains flat and tangent to the opener's curve at the overlay's centre. It is not a concentric curved panel. An attached panel is placed relative to its target and does not imply inherited curved geometry. The native service and the host map rays through one shared [curved-surface library](../../../lua/lunette-plugins/graphics/curved-surface.luau), so both families agree on a hit; the host still draws its own shader geometry and the native service its meshes.
 

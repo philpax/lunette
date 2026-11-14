@@ -19,7 +19,9 @@ export type Options = {
   read title: string?,
   read chrome: boolean?,
   read locked: boolean?,
+  -- A signed curve, and the axis in radians it bends about. A tilted or negative panel draws in the scene.
   read curve: number?,
+  read curveAxis: number?,
   -- Transform lock: the pointer grab path refuses to move or resize the panel. Its owner still poses and sizes it.
   read transformLocked: boolean?,
 }
@@ -33,8 +35,10 @@ type PanelFields = {
   read title: string?,
   read chrome: boolean,
   read curve: number,
+  read curveAxis: number,
   -- Whether the creator gave the property, so the properties store fills only what it omitted.
   read curveExplicit: boolean,
+  read curveAxisExplicit: boolean,
   read hidden: boolean,
   read locked: boolean,
   read lockedExplicit: boolean,
@@ -47,8 +51,9 @@ type PanelFields = {
   read raycast: (Surface, vector, vector, boolean?) -> (number?, number?, number?),
   read setPose: (Surface, Mat4) -> (),
   read setSize: (Surface, number?, number?) -> (),
-  -- Sets the curve; a commit notifies listeners, and a preview does not. Answers whether anything changed.
-  read setCurve: (Panel, number, boolean?) -> boolean,
+  -- Sets the curve and, when given, the axis. A commit notifies listeners, and a preview does not. Answers whether
+  -- anything changed.
+  read setCurve: (Panel, number, number?, boolean?) -> boolean,
   read update: (Panel) -> (),
   read draw: (Panel, Pass) -> (),
   read setHidden: (Panel, Owner, boolean) -> plugin.Effect,

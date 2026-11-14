@@ -8,6 +8,7 @@ local panelProperties = require '@lunette-contracts/panel-properties'
 local frameContract = require '@lunette-contracts/frame'
 local uiHostContract = require '@lunette-contracts/ui-host'
 local versionedFile = require '@lunette-plugins/storage/versioned-file'
+local curved = require '@lunette-plugins/graphics/curved-surface'
 local slots = require './slots'
 local format = require './format'
 local capture = require './capture'
@@ -65,7 +66,8 @@ local function valid(value: any): panelProperties.PanelProperties?
   end
   return {
     curve = value.curve,
-    curveAxis = value.curveAxis,
+    -- An equivalent angle from a stale or foreign file is rewritten canonically on the next save.
+    curveAxis = curved.normalizeAxis(value.curveAxis),
     inputLocked = value.inputLocked,
     transformLocked = value.transformLocked,
   }
@@ -147,7 +149,7 @@ function properties.new(source: Source): Store
     end
     entries[panelProperties.encodeId(id)] = panelProperties.propertiesOf {
       curve = panel.curve,
-      curveAxis = 0,
+      curveAxis = panel.curveAxis,
       inputLocked = panel.locked,
       transformLocked = panel.transformLocked,
     }
@@ -162,8 +164,11 @@ function properties.new(source: Source): Store
     if not ctx then
       return false
     end
-    if not panel.curveExplicit then
-      panel:setCurve(value.curve, false)
+    -- The creator and the store each fill what the other omits.
+    local curve = if panel.curveExplicit then panel.curve else value.curve
+    local axis = if panel.curveAxisExplicit then panel.curveAxis else value.curveAxis
+    if not (panel.curveExplicit and panel.curveAxisExplicit) then
+      panel:setCurve(curve, axis, false)
     end
     if not panel.lockedExplicit then
       panel:setLocked(ctx, value.inputLocked)
@@ -221,8 +226,11 @@ function properties.new(source: Source): Store
     options: uiHostContract.PanelOptions,
     value: panelProperties.PanelProperties
   ): ()
-    if options.curve == nil then
-      handle:setCurve(value.curve, value.curveAxis, false)
+    -- The creator and the store each fill what the other omits.
+    local curve = if options.curve ~= nil then handle:curve() else value.curve
+    local axis = if options.curveAxis ~= nil then handle:curveAxis() else value.curveAxis
+    if options.curve == nil or options.curveAxis == nil then
+      handle:setCurve(curve, axis, false)
     end
     if options.locked == nil then
       handle:setLocked(value.inputLocked, false)

@@ -271,6 +271,7 @@ test('a v2 input lock migrates into the store on first bind', function()
     local stored = native.events.files['panel-properties.saved']
     expect.truthy(stored, 'the migration writes the store')
     expect.truthy(stored:find('inputLocked = true', 1, true), 'the true lock is stored')
+    expect.truthy(stored:find('curveAxis = 0', 1, true), 'the migrated axis is zero')
     expect.equal(binding:save(), true, 'the arrangement saves after the migration')
     expect.truthy(native.events.saved:find('version = 3', 1, true), 'the arrangement then writes version three')
   end)

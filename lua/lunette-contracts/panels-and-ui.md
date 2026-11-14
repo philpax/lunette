@@ -10,13 +10,13 @@ Input locks belong to the panel registry, independent of decorations and visibil
 
 A transform lock is a surface property beside the input lock and is independent of it. The pointer grab path refuses grip, titlebar trigger drags, and two-handed resize, including size, on a locked surface, and a grab in flight detaches. Owner `setPose` and `setSize`, rules, and restore still apply. Input lock preserves spatial grabs, and transform lock leaves content interactive.
 
-Curve changes at runtime follow the same split: a commit notifies and a preview does not. A curved window uses a cylinder composition layer only where the headset reports `layerCurve`; otherwise it draws in the scene. The native service and the toolkit host map rays through the shared [curved-surface](../lunette-plugins/graphics/curved-surface.luau) library, so a native hit and a toolkit hit agree, and one half-turn clamp serves the layer, the hit test, and the scene mesh.
+Curve changes at runtime follow the same split: a commit notifies and a preview does not. A native panel takes a signed curve and an axis, and the axis is normalised into `(-pi, pi]` at the record. A negative curve or a tilted axis draws in the scene; a cylinder composition layer holds only an untilted positive curve, and only where the headset reports `layerCurve`. A flat window claims and drives its layer whatever its axis, because the axis has no effect on a flat surface. The native service and the toolkit host map rays through the shared [curved-surface](../lunette-plugins/graphics/curved-surface.luau) library, so a native hit and a toolkit hit agree, and one half-turn clamp serves the layer, the hit test, and the scene mesh. Native content, outline, and child meshes split polygons across the axis so their vertices and normals follow the same cylinder.
 
 One supplied dimension follows source aspect; supplying both fixes the rectangle. Drawing and picking share rounded and curved geometry, but granted layers stay rectangular at rounded corners. [Panels](../lunette-plugins/panels/service/README.md) describes the built-in renderer.
 
 ## Joined frames
 
-The optional [frame attachment](vocabulary.luau) validates the whole style before changing state and allows one live attachment per target. Disposal is idempotent; updates after disposal or target death raise. Ineligible targets keep a dormant attachment: native panels join only when visible, flat, and scene-rendered; UI panels join while visible.
+The optional [frame attachment](vocabulary.luau) validates the whole style before changing state and allows one live attachment per target. Disposal is idempotent; updates after disposal or target death raise. Ineligible targets keep a dormant attachment: native panels join only when visible, flat, and scene-rendered, and a flat panel's axis does not matter; UI panels join while visible.
 
 Targets draw the joined outline even without panel chrome. Hiding, destroying, or unloading a titlebar releases its attachment. Retained titlebars synchronize after source and decoration updates but before picking. See the [panel renderer](../lunette-plugins/panels/service/README.md).
 

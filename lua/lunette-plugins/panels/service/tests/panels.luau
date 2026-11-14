@@ -176,7 +176,7 @@ test('a panel changes its curve at runtime and maps a ray to planar source pixel
   })
   local flatX = panel:raycast(vector.pack(0.5, 0, 0), vector.pack(0, 0, -1))
   expect.near(flatX, (0.5 + panel.width / 2) / panel.width * 800, 1e-3, 'the flat pixel')
-  expect.truthy(panel:setCurve(1, true), 'the runtime curve applies')
+  expect.truthy(panel:setCurve(1, nil, true), 'the runtime curve applies')
   expect.near(panel.curve, 1, 1e-9, 'the panel owns the curve')
   local curvedX = panel:raycast(vector.pack(0.5, 0, 0), vector.pack(0, 0, -1))
   expect.truthy(curvedX, 'the curved face is hit')
@@ -189,33 +189,84 @@ test('a panel changes its curve at runtime and maps a ray to planar source pixel
     height = 1,
   })
   local mirrorFlat = mirror:raycast(vector.pack(0.5, 0, 0), vector.pack(0, 0, -1))
-  expect.truthy(mirror:setCurve(1, true), 'a monitor curves too')
+  expect.truthy(mirror:setCurve(1, nil, true), 'a monitor curves too')
   local mirrorCurved = mirror:raycast(vector.pack(0.5, 0, 0), vector.pack(0, 0, -1))
   expect.truthy(mirrorCurved and mirrorCurved ~= mirrorFlat, 'the monitor arc moves the pixel')
   env.session:close()
 end)
 
-test('a curve preview is silent and a commit always notifies', function()
+test('a panel takes a signed curve and an axis at runtime, and only a commit notifies', function()
   local env = start()
   local panel = env.panels:fromWindow(env.owner, env.native.newWindow(32))
-  local changes: { number } = {}
+  local changes: { { curve: number, axis: number } } = {}
   env.panels:onCurveChanged(env.owner, {
     run = function(changed: contract.Panel)
       expect.equal(changed, panel, 'the changed panel')
-      changes[#changes + 1] = changed.curve
+      changes[#changes + 1] = { curve = changed.curve, axis = changed.curveAxis }
     end,
   })
-  expect.truthy(panel:setCurve(0.5), 'the preview applies')
-  expect.near(panel.curve, 0.5, 1e-9, 'the preview curve')
+  expect.truthy(panel:setCurve(-0.5, math.pi / 4), 'the signed preview applies')
+  expect.near(panel.curve, -0.5, 1e-9, 'the signed curve')
+  expect.near(panel.curveAxis, math.pi / 4, 1e-9, 'the axis')
   expect.equal(#changes, 0, 'the preview does not notify')
-  expect.falsy(panel:setCurve(0.5), 'an unchanged preview does nothing')
-  expect.truthy(panel:setCurve(0.5, true), 'an unchanged commit still notifies')
-  expect.equal(changes[1], 0.5, 'the committed curve')
-  expect.truthy(panel:setCurve(0.25, true), 'a changed commit notifies')
+  expect.falsy(panel:setCurve(-0.5, math.pi / 4), 'an unchanged preview does nothing')
+  expect.truthy(panel:setCurve(-0.5, math.pi / 4, true), 'an unchanged commit still notifies')
+  expect.equal(changes[1].curve, -0.5, 'the committed curve')
+  expect.equal(changes[1].axis, math.pi / 4, 'the committed axis')
+  expect.truthy(panel:setCurve(0.25, nil, true), 'a changed commit notifies')
   expect.equal(#changes, 2, 'two commits')
+  env.session:close()
+end)
+
+test('setCurve without an axis keeps the current axis', function()
+  local env = start()
+  local panel = env.panels:fromWindow(env.owner, env.native.newWindow(35))
+  panel:setCurve(0.5, math.pi / 4, false)
+  panel:setCurve(0.75, nil, false)
+  expect.near(panel.curve, 0.75, 1e-9, 'the new curve')
+  expect.near(panel.curveAxis, math.pi / 4, 1e-9, 'the kept axis')
+  env.session:close()
+end)
+
+test('a non-finite curve or axis is refused', function()
+  local env = start()
+  local panel = env.panels:fromWindow(env.owner, env.native.newWindow(36))
+  for _, curve in { 0 / 0, math.huge, -math.huge, 'flat' :: any } do
+    expect.raises(function()
+      panel:setCurve(curve)
+    end, nil, 'a curve of ' .. tostring(curve))
+  end
+  for _, axis in { 0 / 0, math.huge, -math.huge, 'tilted' :: any } do
+    expect.raises(function()
+      panel:setCurve(0.5, axis)
+    end, nil, 'an axis of ' .. tostring(axis))
+  end
   expect.raises(function()
-    panel:setCurve(-1)
-  end, nil, 'a negative curve is refused')
+    env.panels:fromWindow(env.owner, env.native.newWindow(37), { curve = 0 / 0 })
+  end, nil, 'a non-finite creation curve')
+  expect.raises(function()
+    env.panels:fromWindow(env.owner, env.native.newWindow(38), { curveAxis = math.huge })
+  end, nil, 'a non-finite creation axis')
+  env.session:close()
+end)
+
+test('a native curve axis normalises at the record', function()
+  local env = start()
+  local panel = env.panels:fromWindow(env.owner, env.native.newWindow(39))
+  expect.truthy(panel:setCurve(0.5, 5, true), 'the axis applies')
+  expect.near(panel.curveAxis, 5 - 2 * math.pi, 1e-9, 'the stored axis')
+  panel:setCurve(0.5, -math.pi, true)
+  expect.near(panel.curveAxis, math.pi, 1e-9, 'a half turn from below')
+  local created = env.panels:fromWindow(env.owner, env.native.newWindow(40), { curveAxis = 3 * math.pi })
+  expect.near(created.curveAxis, math.pi, 1e-9, 'creation normalises too')
+  local inspected = false
+  for _, registration in env.panels:inspect().registrations do
+    if registration.kind == 'panel' and registration.details.sourceId == 40 then
+      inspected = true
+      expect.near(registration.details.curveAxis, math.pi, 1e-9, 'inspection reports the axis')
+    end
+  end
+  expect.truthy(inspected, 'the created panel is inspected')
   env.session:close()
 end)
 
@@ -250,7 +301,7 @@ test('a curved target detaches the joined outline', function()
     borderColor = { 1, 1, 1, 1 },
   })
   expect.truthy(attachment:isJoined(), 'a flat panel joins its outline')
-  panel:setCurve(0.5, true)
+  panel:setCurve(0.5, nil, true)
   expect.falsy(attachment:isJoined(), 'a curved panel draws its own chrome')
   attachment:dispose()
   env.session:close()

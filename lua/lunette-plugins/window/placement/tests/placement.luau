@@ -157,4 +157,23 @@ test('a rule transform lock initializes a panel and placement still poses it', f
   env.session:close()
 end)
 
+test('a rule curve axis initializes a panel and placement still poses it', function()
+  local env = start()
+  local pose = lovr.math.newMat4():translate(1, 1.5, -2)
+  env.rules:addSource(env.owner, {
+    name = 'fixture-curve',
+    precedence = 50,
+    resolve = function(): rulesContract.Properties
+      return { pose = vocabulary.encodePose(pose), curve = 0.5, curveAxis = math.pi / 4 }
+    end,
+  })
+  local panel = place(env)
+  expect.near(panel.curve, 0.5, 1e-9, 'the rule curve initializes the panel')
+  expect.near(panel.curveAxis, math.pi / 4, 1e-9, 'the rule axis initializes the panel')
+  expect.truthy(panel.curveExplicit, 'the rule curve is explicit')
+  expect.truthy(panel.curveAxisExplicit, 'the rule axis is explicit')
+  expect.near(panel.pose:getPosition(), 1, 1e-5, 'placement still poses the panel')
+  env.session:close()
+end)
+
 return test

@@ -17,7 +17,7 @@ export type PanelId =
   | { read kind: 'monitor', read key: string, read slot: number }
   | { read kind: 'toolkit', read name: string }
 
--- What a panel family reads for its shared value. Native panels bend about the vertical only, so their axis is zero.
+-- What a panel family reads for its shared value. The axis is in radians, normalised by the panel record.
 export type Fields = {
   read curve: number,
   read curveAxis: number,

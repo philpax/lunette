@@ -13,6 +13,7 @@ local propertyKinds: { read [string]: PropertyKind } = table.freeze({
   priority = 'number',
   chrome = 'boolean',
   curve = 'number',
+  curveAxis = 'number',
   hidden = 'boolean',
   locked = 'boolean',
   transformLocked = 'boolean',

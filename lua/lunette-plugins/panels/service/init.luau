@@ -242,6 +242,7 @@ local function build(context: plugin.Context, settings: Settings): Service
             locked = target.locked,
             transformLocked = target.transformLocked,
             curve = target.curve,
+            curveAxis = target.curveAxis,
             priority = target.priority,
             layerClaim = target.claim ~= nil,
             mesh = target.mesh ~= nil,
