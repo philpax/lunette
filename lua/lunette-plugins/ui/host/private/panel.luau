@@ -283,6 +283,9 @@ function panel.surface(provider: Provider, record: records.Panel, setPose: ((Mat
     triggerGrabs = function(_self: vocabulary.Surface, x: number, y: number): boolean
       return not record.dead and input.grabs(record, env, x, y)
     end,
+    triggerDrags = function(_self: vocabulary.Surface, x: number, y: number): boolean
+      return not record.dead and input.drags(record, env, x, y)
+    end,
     onPointer = function(_self: vocabulary.Surface, event: vocabulary.PointerEvent): ()
       if not record.dead then
         input.surface(provider.router, record, env, event)

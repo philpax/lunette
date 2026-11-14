@@ -244,6 +244,104 @@ test('a panel arrival reaches the added listener with its options', function()
   state.fixture:close()
 end)
 
+test('a control inside a scroll view does not claim the scroll drag', function()
+  local state = fixture.boot { standard = true, width = 0.4, height = 0.25 }
+  local c = assert(state.components)
+  fixture.show(
+    state,
+    c.Panel {
+      c.Body {
+        key = 'body',
+        c.ScrollView {
+          key = 'list',
+          height = 0.15,
+          c.Button { key = 'row', label = 'Row', onActivate = function() end },
+        },
+      },
+    }
+  )
+  local surface = fixture.surface(state)
+  local row = assert(state.service:findByRole('button', 'Row')):panelBounds()
+  expect.falsy(
+    surface:triggerDrags(row.x + row.width / 2, row.y + row.height / 2),
+    'a button inside a scroll view does not start the scroll drag'
+  )
+  local scroll = assert(state.panel:find 'body/list'):panelBounds()
+  expect.truthy(
+    surface:triggerDrags(scroll.x + scroll.width / 2, scroll.y + scroll.height - 0.005),
+    'the scroll view background starts its drag'
+  )
+  state.fixture:close()
+end)
+
+test('a laser trigger press on a slider drags it even with the trigger lock on', function()
+  local state = fixture.boot { standard = true, triggerLock = true, width = 0.4, height = 0.25 }
+  local c = assert(state.components)
+  local values: { number } = {}
+  fixture.show(
+    state,
+    c.Panel {
+      c.Body {
+        key = 'body',
+        c.Slider {
+          key = 'level',
+          label = 'Level',
+          value = 0.5,
+          onChange = function(value: number)
+            table.insert(values, value)
+          end,
+        },
+      },
+    }
+  )
+  local track = assert(state.panel:find 'body/level/track')
+  local bounds = track:panelBounds()
+  local geometry = fixture.geometry(state)
+  local runner = state.fixture
+  runner:aim(geometry, bounds.x + bounds.width * 0.5, bounds.y + bounds.height / 2)
+  runner:step()
+  runner:step()
+  runner:button('right', 'trigger', true)
+  runner:step()
+  local pressed = values[#values]
+  -- A small move stays inside the trigger lock's unlock thresholds, so a held ray would not reach the slider.
+  runner:aim(geometry, bounds.x + bounds.width * 0.55, bounds.y + bounds.height / 2)
+  runner:step()
+  expect.truthy(values[#values] > pressed, 'the slider follows the held trigger')
+  runner:button('right', 'trigger', false)
+  runner:step()
+  state.fixture:close()
+end)
+
+test('a surface answers whether a press begins a drag on a control', function()
+  local state = fixture.boot { standard = true, width = 0.4, height = 0.25 }
+  local c = assert(state.components)
+  fixture.show(
+    state,
+    c.Panel {
+      c.Body {
+        key = 'body',
+        c.Slider { key = 'level', label = 'Level', value = 0.5 },
+        c.Angle { key = 'turn', label = 'Turn', value = 0, snap = 22.5 },
+      },
+    }
+  )
+  local surface = fixture.surface(state)
+  local slider = assert(state.panel:find 'body/level/track'):panelBounds()
+  expect.truthy(
+    surface:triggerDrags(slider.x + slider.width / 2, slider.y + slider.height / 2),
+    'a slider track begins a drag'
+  )
+  local angle = assert(state.panel:find 'body/turn/track'):panelBounds()
+  expect.truthy(
+    surface:triggerDrags(angle.x + angle.width / 2, angle.y + angle.height / 2),
+    'an angle dial begins a drag'
+  )
+  local label = assert(state.panel:find 'body/level/heading/label'):panelBounds()
+  expect.falsy(surface:triggerDrags(label.x + label.width / 2, label.y + label.height / 2), 'a label does not')
+  state.fixture:close()
+end)
+
 test('an attached panel sits on its target top edge, following the curve and axis', function()
   local curved = require '@lunette-plugins/graphics/curved-surface'
   local state = fixture.boot { width = 0.3, height = 0.2 }

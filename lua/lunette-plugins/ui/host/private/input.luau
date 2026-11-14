@@ -162,6 +162,14 @@ function input.grabs(panel: records.Panel, env: records.Environment, x: number, 
   return false
 end
 
+-- Whether a trigger press at the point begins a drag on the node that would capture it. A claim belongs to the node
+-- that makes it, so a control inside a scrolling ancestor does not report the ancestor's drag.
+function input.drags(panel: records.Panel, env: records.Environment, x: number, y: number): boolean
+  local node = input.target(panel, env, x, y)
+  local claims = node and node.kind.registration.claims
+  return claims ~= nil and claims.drag ~= nil
+end
+
 -- Pulses each pointer whose press the node holds.
 function input.pulse(router: Router, node: records.Node, _event: 'detent'): ()
   for _, state in router.pointers do

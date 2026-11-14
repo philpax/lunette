@@ -42,6 +42,8 @@ Grabbable panels use the session's existing panel-grab path, including a trigger
 
 An input lock is separate and affects host content only. Content on a locked toolkit panel answers no pointer target, scroll, touch, or focus, while a `lockFree` node such as the header band remains routed, so its Settings control can unlock the panel. Engaging the lock cancels content presses in flight and resets a touching hand; the next fresh press is required. A trigger press on locked content can still begin a spatial grab, because the lock preserves movement rather than blocking it.
 
+A laser's trigger lock holds the aim during a pull so a click does not slip onto a neighbour. A pull that begins on a drag control is exempt: the surface answers `triggerDrags` at the press hit, and the laser leaves the ray live for the whole pull, so a slider or dial follows the hand. A control inside a scrolling ancestor does not inherit the ancestor's drag claim.
+
 [#69](https://github.com/philpax/lunette/issues/69) tracks those input mechanisms. One-handed alternatives and the distinction between scaling a panel and resizing client content remain product constraints. A two-handed gesture cannot be the sole way to perform a session action.
 
 ## Semantic events

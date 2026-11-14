@@ -5,7 +5,7 @@ local contracts = require '@lunette-contracts/laser'
 local triggerLock = {}
 
 export type State =
-  { read kind: 'ready' | 'escaped' }
+  { read kind: 'ready' | 'escaped' | 'dragging' }
   | {
     read kind: 'locked',
     read origin: vector,
@@ -26,12 +26,16 @@ export type Sample = {
   read grabbed: contracts.Surface?,
   read surfaces: { read [number]: contracts.Surface },
   read resetAfter: number,
+  -- Whether the press begins a drag on a control, such as a slider, whose drag needs the live ray.
+  read dragPress: boolean,
 }
 
 local READY: { read kind: 'ready' } = { kind = 'ready' }
 local ESCAPED: { read kind: 'escaped' } = { kind = 'escaped' }
+local DRAGGING: { read kind: 'dragging' } = { kind = 'dragging' }
 table.freeze(READY)
 table.freeze(ESCAPED)
+table.freeze(DRAGGING)
 local positive = schema.number { positive = true }
 local descriptor = schema.object {
   enabled = schema.default(schema.boolean())(true),
@@ -81,11 +85,20 @@ function triggerLock.update(state: State, sample: Sample, settings: contracts.Tr
     -- The release frame retains the locked position, so releasing cannot move a click onto a neighbour.
     return lockedFrame(filtered, state), if trigger > settings.threshold then state else READY
   end
+  if state.kind == 'dragging' then
+    -- A press that began on a drag control keeps the live ray until the trigger is released, even when the drag
+    -- moves off the control that started it.
+    return filtered, if trigger > settings.threshold then state else READY
+  end
   if trigger <= settings.threshold then
     return filtered, READY
   end
   if state.kind == 'escaped' then
     return filtered, state
+  end
+  -- Locking would fight a drag on a value control, so the press never locks.
+  if sample.dragPress then
+    return filtered, DRAGGING
   end
   local previous = sample.previous
   local previousRaw = sample.previousRaw
