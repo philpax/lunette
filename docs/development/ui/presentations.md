@@ -28,7 +28,7 @@ An overlay anchors to its opener and supports the placement choices in the host 
 
 A curved opener creates a flat overlay tangent to the curve at the overlay's centre, raised above its anchor. The overlay does not share a concentric cylindrical surface. Tooltips can opt out of hit testing so they do not block content behind them. A Settings popup opens above its gear: a flat overlay below would be occluded by a strongly bent panel, and a crossed axis can tilt the popup past horizontal. The popup is sticky, so changing the bend does not move the control being dragged; it stays at its opening pose until dismissed.
 
-A titlebar attached above a native panel follows its target's curve, and the joined outline detaches when the target curves because the outline is a flat-panel feature. The titlebar's own curve is a preview, not a properties commit.
+A titlebar attached above a native panel sits on the target's top edge frame, tangent to the target's curve and axis, so bending or tilting the target carries it. The joined outline detaches when the target curves because the outline is a flat-panel feature. The titlebar's own curve and axis are a preview, not a properties commit. Its bottom edge meets the target's top edge along the tangent; the titlebar's own curve makes that join approximate on a strongly curved target.
 
 An input lock is content-only. The header band registers as `lockFree`, and a portal's overlay is a separate panel, so the Settings path stays reachable while the panel's content is locked. Any other content mount must be marked `lockFree` or it is locked with the content.
 

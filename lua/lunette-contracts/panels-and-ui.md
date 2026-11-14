@@ -18,7 +18,7 @@ One supplied dimension follows source aspect; supplying both fixes the rectangle
 
 The optional [frame attachment](vocabulary.luau) validates the whole style before changing state and allows one live attachment per target. Disposal is idempotent; updates after disposal or target death raise. Ineligible targets keep a dormant attachment: native panels join only when visible, flat, and scene-rendered, and a flat panel's axis does not matter; UI panels join while visible.
 
-Targets draw the joined outline even without panel chrome. Hiding, destroying, or unloading a titlebar releases its attachment. Retained titlebars synchronize after source and decoration updates but before picking. See the [panel renderer](../lunette-plugins/panels/service/README.md).
+An attached panel is placed on the target surface's top-edge frame from the surface's `curve` and `curveAxis`, so a bend or a tilted axis carries it. Targets draw the joined outline even without panel chrome. Hiding, destroying, or unloading a titlebar releases its attachment. Retained titlebars synchronize after source and decoration updates but before picking. See the [panel renderer](../lunette-plugins/panels/service/README.md).
 
 ## Keyboards
 

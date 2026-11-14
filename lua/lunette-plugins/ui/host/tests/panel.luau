@@ -244,4 +244,42 @@ test('a panel arrival reaches the added listener with its options', function()
   state.fixture:close()
 end)
 
+test('an attached panel sits on its target top edge, following the curve and axis', function()
+  local curved = require '@lunette-plugins/graphics/curved-surface'
+  local state = fixture.boot { width = 0.3, height = 0.2 }
+  local target: any = {
+    dead = false,
+    pose = lovr.math.newMat4():translate(0, 1, -1),
+    width = 0.4,
+    height = 0.3,
+    curve = 1,
+    curveAxis = math.pi / 4,
+  }
+  local title = state.service:newPanel(state.owner, {
+    name = 'titlebar',
+    presentation = 'attach',
+    target = target,
+    height = 0.04,
+  })
+  state.fixture:step()
+  local _, height = title:size()
+  local surface = curved.surface(target.width, target.height, target.curve, target.curveAxis)
+  local expected = lovr.math
+    .mat4(target.pose)
+    :mul(curved.frame(surface, target.width / 2, 0, 0))
+    :translate(0, height / 2, state.service:theme().elevation.contentOffset)
+  local x, y, z = expected:getPosition()
+  local px, py, pz = title:pose():getPosition()
+  expect.near(px, x, 1e-5, 'the top-edge x')
+  expect.near(py, y, 1e-5, 'the top-edge y')
+  expect.near(pz, z, 1e-5, 'the top-edge z')
+  local fx, fy, fz = expected:mul(0, 0, 1, 0)
+  local tx, ty, tz = title:pose():mul(0, 0, 1, 0)
+  expect.near(tx, fx, 1e-5, 'the top-edge angle x')
+  expect.near(ty, fy, 1e-5, 'the top-edge angle y')
+  expect.near(tz, fz, 1e-5, 'the top-edge angle z')
+  title:destroy()
+  state.fixture:close()
+end)
+
 return test
