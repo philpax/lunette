@@ -225,7 +225,39 @@ test('closing the popup reverts an uncommitted preview', function()
   state.fixture:close()
 end)
 
-test('a window and monitor titlebar controller offers no negative bend or axis', function()
+test('opening and closing an over-limit panel preserves the raw curve and axis', function()
+  local state = boot()
+  show(state)
+  state.panel:setCurve(100, math.pi / 4, true)
+  local events = propertyEvents(state)
+  open(state)
+  fixture.click(state, 'body/text')
+  expect.equal(state.panel:curve(), 100, 'the raw curve is restored')
+  expect.near(state.panel:curveAxis(), math.pi / 4, 1e-9, 'the raw axis is restored')
+  expect.equal(events[1], 0, 'restoring writes nothing')
+  state.fixture:close()
+end)
+
+test('committing the displayed bend lowers the stored curve to the limit', function()
+  local state = boot()
+  show(state)
+  state.panel:setCurve(100, 0, true)
+  open(state)
+  local track = assert(state.panel:find 'header/band/settings/popup/body/bend/track')
+  track.props.onFinish(track.props.value)
+  state.fixture:step()
+  local width, height = state.panel:size()
+  expect.truthy(state.panel:curve() < 100, 'the commit lowers the stored curve')
+  expect.near(
+    state.panel:curve(),
+    curvature.curve(track.props.value, 0, width, height),
+    1e-9,
+    'the stored curve is the displayed arc'
+  )
+  state.fixture:close()
+end)
+
+test('a controller without an axis disables the axis row and states its reason', function()
   local state = boot()
   local previews: { { number } } = {}
   local commits: { number } = {}

@@ -237,6 +237,9 @@ export type Actions = {
   read setState: ({ [string]: any } | ({ read [string]: any }) -> { [string]: any }) -> (),
   read emit: (string, ...any) -> (),
   read bend: () -> Bend,
+  -- The stored curve and axis before the half-turn clamp, so a control can restore exactly what it found.
+  read curve: () -> number,
+  read curveAxis: () -> number,
   read setCurve: (number, number?, boolean?) -> (),
   read locked: () -> boolean,
   read setLocked: (boolean, boolean?) -> (),

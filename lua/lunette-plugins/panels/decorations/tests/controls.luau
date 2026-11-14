@@ -653,7 +653,7 @@ test('retained lock callbacks read live state and guard the context and both han
   expect.equal(changes, 3, 'the transform toggle runs once')
 end)
 
-test('a titlebar curves its native panel on commit and the axis is disabled with its reason', function()
+test('a titlebar curves its native panel on commit and offers the axis and a negative bend', function()
   local env = boot()
   local changes = 0
   env.registry.service:onCurveChanged(env.registry.context, {
@@ -745,7 +745,7 @@ test('following the target curve writes no properties entry', function()
   env.running:close()
 end)
 
-test('a window titlebar Settings disables the axis with its reason', function()
+test('a window titlebar Settings offers the axis and a negative bend', function()
   local env = boot()
   env.running:step()
   env.running:step()

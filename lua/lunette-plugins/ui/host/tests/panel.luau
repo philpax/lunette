@@ -154,6 +154,15 @@ test('a panel publishes its curve, locks, and properties, and only commits notif
   state.fixture:close()
 end)
 
+test('a toolkit panel normalises its curve axis', function()
+  local state = fixture.boot { width = 0.3, height = 0.2 }
+  state.panel:setCurve(0.5, 5, false)
+  expect.near(state.panel:curveAxis(), 5 - 2 * math.pi, 1e-9, 'setCurve normalises the axis')
+  state.panel:setCurve(0.5, -math.pi, false)
+  expect.near(state.panel:curveAxis(), math.pi, 1e-9, 'a half turn from below normalises too')
+  state.fixture:close()
+end)
+
 test('the bend read clamps at the shared half-turn limit', function()
   local state = fixture.boot { width = 0.3, height = 0.2 }
   local uiHost = require '@lunette-contracts/ui-host'

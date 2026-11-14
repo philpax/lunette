@@ -13,6 +13,7 @@ local shape = require './shape'
 local placements = require './placements'
 local motion = require './motion'
 local panelProperties = require '@lunette-contracts/panel-properties'
+local curved = require '@lunette-plugins/graphics/curved-surface'
 
 local panel = {}
 
@@ -36,11 +37,12 @@ local function positive(value: number?, label: string): ()
   end
 end
 
--- A finite curve in metres⁻¹ and a finite axis angle in radians. The shape limits how far a curve wraps.
+-- A finite curve in metres⁻¹ and a finite axis angle in radians, stored canonically. The shape limits how far a
+-- curve wraps.
 local function bend(curve: number, axis: number): (number, number)
   assert(type(curve) == 'number' and curve == curve and math.abs(curve) < math.huge, 'ui: a curve is a finite number')
   assert(type(axis) == 'number' and axis == axis and math.abs(axis) < math.huge, 'ui: a curve axis is a finite angle')
-  return curve, axis
+  return curve, curved.normalizeAxis(axis)
 end
 
 -- Builds the panel record, its handle, and its surface.

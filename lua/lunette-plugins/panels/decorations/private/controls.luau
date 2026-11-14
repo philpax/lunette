@@ -6,8 +6,8 @@ local curved = require '@lunette-plugins/graphics/curved-surface'
 
 local controls = {}
 
--- The standard Settings control's controller, structurally. A native panel bends about the vertical only and has no
--- axis or negative bend; its locks are the panel's own state.
+-- The standard Settings control's controller, structurally. A native panel takes a signed curve and a full axis; its
+-- locks are the panel's own state.
 export type Lock = {
   read available: boolean,
   read reason: string?,
@@ -24,6 +24,8 @@ export type Bend = {
 
 export type Properties = {
   read bend: () -> Bend,
+  -- The stored curve and axis, before any clamp, so an untouched Settings popup restores exactly what it found.
+  read raw: (() -> { curve: number, axis: number })?,
   read setCurve: (number, number?, boolean?) -> (),
   read axis: boolean,
   read negative: boolean,
@@ -31,8 +33,6 @@ export type Properties = {
   read inputLock: Lock,
   read transformLock: Lock,
 }
-
-local AXIS_REASON = 'Window and monitor panels bend about the vertical.'
 
 export type Action = {
   read id: string,
@@ -85,25 +85,25 @@ function controls.options(context: plugin.Context, panel: panels.Panel, refusal:
   local properties: Properties = {
     bend = function(): Bend
       local width, height = panel.width, panel.height
+      -- The read-out derives its degrees from the same across-axis extent the panel bends over.
       return {
-        curve = curved.curvature(width, height, panel.curve, 0),
-        axis = 0,
+        curve = curved.curvature(width, height, panel.curve, panel.curveAxis),
+        axis = panel.curveAxis,
         width = width,
         height = height,
       }
     end,
-    setCurve = function(curve: number, _axis: number?, commit: boolean?): ()
+    raw = function(): { curve: number, axis: number }
+      return { curve = panel.curve, axis = panel.curveAxis }
+    end,
+    setCurve = function(curve: number, axis: number?, commit: boolean?): ()
       if context:active() and not panel.dead and not panel.source.dead then
-        if commit == true then
-          panel:setCurve(curve, true)
-        else
-          panel:setCurve(curve, false)
-        end
+        panel:setCurve(curve, axis, commit == true)
       end
     end,
-    axis = false,
-    negative = false,
-    axisReason = AXIS_REASON,
+    axis = true,
+    negative = true,
+    axisReason = nil,
     inputLock = {
       available = true,
       reason = nil,

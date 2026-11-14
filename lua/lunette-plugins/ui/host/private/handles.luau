@@ -259,6 +259,12 @@ function handles.actions(node: records.Node): uiHost.Actions
         height = panel.height,
       }
     end,
+    curve = function(): number
+      return panel.curve
+    end,
+    curveAxis = function(): number
+      return panel.curveAxis
+    end,
     setCurve = function(curve: number, axis: number?, commit: boolean?): ()
       panel.setCurve(panel, curve, axis, if commit == nil then true else commit)
     end,

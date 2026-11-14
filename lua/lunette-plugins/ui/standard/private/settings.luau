@@ -24,6 +24,8 @@ export type Controller = {
   read setCurve: (number, number?, boolean?) -> (),
   -- Whether the axis is offered, whether a bend away from the viewer is offered, and why the axis is not.
   read axis: boolean,
+  -- The stored curve and axis, before any clamp, so an untouched popup restores exactly what it found.
+  read raw: (() -> { curve: number, axis: number })?,
   read negative: boolean,
   read axisReason: string?,
   read inputLock: Lock,
@@ -41,6 +43,9 @@ local function checked(value: unknown): Controller
   for _, name in { 'axis', 'negative' } do
     if type(controller[name]) ~= 'boolean' then
       error('ui standard: a properties controller has a boolean ' .. name)
+  if controller.raw ~= nil and type(controller.raw) ~= 'function' then
+    error 'ui standard: a properties controller raw is a function when present'
+  end
     end
   end
   for _, name in { 'inputLock', 'transformLock' } do
@@ -66,6 +71,9 @@ local function ownPanel(act: uiHost.Actions): Controller
     setCurve = act.setCurve,
     axis = true,
     negative = true,
+    raw = function(): { curve: number, axis: number }
+      return { curve = act.curve(), axis = act.curveAxis() }
+    end,
     axisReason = nil,
     inputLock = {
       available = true,
@@ -152,6 +160,8 @@ function settings.control(
   end
 
   local function open(): ()
+    local read = controller.raw
+    local committed = if read then read() else { curve = current.curve, axis = current.axis }
     local current = controller.bend()
     local values = curvature.read(current)
     act.setState {
@@ -163,8 +173,8 @@ function settings.control(
       axisText = curvature.format(values.axis),
       bendInvalid = false,
       axisInvalid = false,
-      committedCurve = current.curve,
-      committedAxis = current.axis,
+      committedCurve = committed.curve,
+      committedAxis = committed.axis,
     }
   end
 

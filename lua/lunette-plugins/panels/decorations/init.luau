@@ -110,8 +110,9 @@ return plugin.consumer<<Config, Settings>> {
           entries[target] = { panel = panel, options = store, attachment = attachment }
         end
         local current = entries[target]
-        -- The titlebar follows its target's curve without committing, so the bar and the panel wrap together.
-        current.panel:setCurve(target.curve, 0, false)
+        -- The titlebar follows its target's curve and axis without committing, so the bar and the panel wrap
+        -- together.
+        current.panel:setCurve(target.curve, target.curveAxis, false)
         -- A titlebar outside a joined outline leaves a small gap above its panel.
         local joined = current.attachment ~= nil and current.attachment:isJoined()
         current.panel:setGap(if joined then 0 else theme.spacing.sm)
