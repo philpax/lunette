@@ -307,10 +307,10 @@ function panel.surface(provider: Provider, record: records.Panel, setPose: ((Mat
   local fields = surface :: any
   record.sync = function(): ()
     fields.width, fields.height = record.width * record.scale, record.height * record.scale
+    fields.curve, fields.curveAxis = record.curve, record.curveAxis
     fields.grabbable = record.grabbable
     fields.placementKey = record.placementKey
     -- Input lock stays off the surface: the host routers refuse content only, so a header and its Settings control
-    fields.curve, fields.curveAxis = record.curve, record.curveAxis
     -- remain usable. A transform lock is a surface property the shared grab path reads.
     fields.transformLocked = record.transformLocked
     fields.dead = record.dead or record.closing or not motion.shown(record)

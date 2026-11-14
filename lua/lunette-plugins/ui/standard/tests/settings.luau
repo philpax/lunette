@@ -354,11 +354,14 @@ test('the Settings popup is parented to the panel and keeps its angle through a 
   local state = boot()
   show(state)
   open(state)
-  local function titlePosition(): (number, number, number)
+  local function popup(): (number, number, number, number, number, number)
     local title = assert(state.panel:find 'header/band/settings/popup/body/title')
-    return title:pose():getPosition()
+    local pose = title:pose()
+    local x, y, z = pose:getPosition()
+    local fx, fy, fz = pose:mul(0, 0, 1, 0)
+    return x, y, z, fx, fy, fz
   end
-  local x, y, z = titlePosition()
+  local x, y, z, fx, fy, fz = popup()
   drag(state, 'header/band/settings/popup/body/bend/track', { 0.5, 0.5 }, { 0.85, 0.5 })
   expect.truthy(state.panel:curve() > 0, 'the bend changed')
   local bentX, bentY, bentZ, bentFx, bentFy, bentFz = popup()

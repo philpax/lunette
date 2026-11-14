@@ -24,11 +24,11 @@ export type Lock = {
 
 export type Controller = {
   read bend: () -> uiHost.Bend,
+  -- The stored curve and axis, before any clamp, so an untouched popup restores exactly what it found.
+  read raw: (() -> { curve: number, axis: number })?,
   read setCurve: (number, number?, boolean?) -> (),
   -- Whether the axis is offered, whether a bend away from the viewer is offered, and why the axis is not.
   read axis: boolean,
-  -- The stored curve and axis, before any clamp, so an untouched popup restores exactly what it found.
-  read raw: (() -> { curve: number, axis: number })?,
   read negative: boolean,
   read axisReason: string?,
   read inputLock: Lock,
@@ -43,12 +43,12 @@ local function checked(value: unknown): Controller
   if type(controller.bend) ~= 'function' or type(controller.setCurve) ~= 'function' then
     error 'ui standard: a properties controller has bend and setCurve functions'
   end
-  for _, name in { 'axis', 'negative' } do
-    if type(controller[name]) ~= 'boolean' then
-      error('ui standard: a properties controller has a boolean ' .. name)
   if controller.raw ~= nil and type(controller.raw) ~= 'function' then
     error 'ui standard: a properties controller raw is a function when present'
   end
+  for _, name in { 'axis', 'negative' } do
+    if type(controller[name]) ~= 'boolean' then
+      error('ui standard: a properties controller has a boolean ' .. name)
     end
   end
   for _, name in { 'inputLock', 'transformLock' } do
@@ -71,12 +71,12 @@ settings.schema = schema.custom<<Controller>> { runtimeType = 'table', validate 
 local function ownPanel(act: uiHost.Actions): Controller
   return {
     bend = act.bend,
-    setCurve = act.setCurve,
-    axis = true,
-    negative = true,
     raw = function(): { curve: number, axis: number }
       return { curve = act.curve(), axis = act.curveAxis() }
     end,
+    setCurve = act.setCurve,
+    axis = true,
+    negative = true,
     axisReason = nil,
     inputLock = {
       available = true,
@@ -158,10 +158,10 @@ function settings.control(
   end
 
   local function open(): ()
-    local read = controller.raw
-    local committed = if read then read() else { curve = current.curve, axis = current.axis }
     local current = controller.bend()
     local values = curvature.read(current)
+    local read = controller.raw
+    local committed = if read then read() else { curve = current.curve, axis = current.axis }
     act.setState {
       settingsOpen = true,
       seeded = true,
@@ -247,13 +247,13 @@ function settings.control(
         align = 'center',
         gap = 'sm',
         element('lunette/text', { key = 'label', text = label, style = 'body', grow = 1 }),
-          -- Wide enough for a signed three-digit reading, such as -180.0.
-          minWidth = 0.07,
         element('lunette/text-field', {
           key = 'value',
           value = valueText,
           mono = true,
           grow = 0,
+          -- Wide enough for a signed three-digit reading, such as -180.0.
+          minWidth = 0.07,
           invalid = invalid,
           disabled = disabled,
           disabledReason = reason,
