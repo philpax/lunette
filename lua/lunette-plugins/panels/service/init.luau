@@ -31,8 +31,12 @@ type ProviderState = {
   shaders: clientPixels.Shaders,
   added: listeners.Listeners<contracts.PanelCallback>,
   lockChanged: listeners.Listeners<contracts.PanelCallback>,
+  curveChanged: listeners.Listeners<contracts.PanelCallback>,
+  transformLockChanged: listeners.Listeners<contracts.PanelCallback>,
   removed: listeners.Listeners<RemovedListener>,
   host: panel.Host,
+  -- Whether the headset composites curved layers; the service refreshes it once per update.
+  layerCurve: boolean,
 }
 
 local config = require '@self/config'
@@ -85,6 +89,11 @@ end
 
 local REMOVED_KEYS: { string } = { 'panel', 'run' }
 
+local function supportsLayerCurve(): boolean
+  local features = lovr.headset.getFeatures()
+  return features.layerCurve == true
+end
+
 local function build(context: plugin.Context, settings: Settings): Service
   local themes = context:require(theme.capability)
   local paint = appearance.prepare(themes:current(), settings)
@@ -119,6 +128,19 @@ local function build(context: plugin.Context, settings: Settings): Service
         callback(target)
       end)
     end,
+    curveChanged = function(target: panel.State)
+      state.curveChanged:each('panels: curve listener', function(callback: contracts.PanelCallback)
+        callback(target)
+      end)
+    end,
+    transformLockChanged = function(target: panel.State)
+      state.transformLockChanged:each('panels: transform lock listener', function(callback: contracts.PanelCallback)
+        callback(target)
+      end)
+    end,
+    layerCurve = function(): boolean
+      return state.layerCurve
+    end,
     removed = function(target: panel.State)
       local index = table.find(state.panels, target)
       if index then
@@ -140,8 +162,11 @@ local function build(context: plugin.Context, settings: Settings): Service
     end),
     added = listeners.new<<contracts.PanelCallback>>(context),
     lockChanged = listeners.new<<contracts.PanelCallback>>(context),
+    curveChanged = listeners.new<<contracts.PanelCallback>>(context),
+    transformLockChanged = listeners.new<<contracts.PanelCallback>>(context),
     removed = listeners.new<<RemovedListener>>(context),
     host = host,
+    layerCurve = supportsLayerCurve(),
   }
   state = created
   -- This effect runs last, while removal listeners still have live owners.
@@ -153,6 +178,8 @@ local function build(context: plugin.Context, settings: Settings): Service
       end
       state.added:clear()
       state.lockChanged:clear()
+      state.curveChanged:clear()
+      state.transformLockChanged:clear()
       state.removed:clear()
     end
   end)
@@ -161,6 +188,12 @@ local function build(context: plugin.Context, settings: Settings): Service
     inspect = function(_self: Service): inspection.Snapshot
       local result = state.added:inspect 'panels.onAdded'
       for _, entry in ipairs(state.removed:inspect 'panels.onRemoved') do
+        result[#result + 1] = entry
+      end
+      for _, entry in ipairs(state.curveChanged:inspect 'panels.onCurveChanged') do
+        result[#result + 1] = entry
+      end
+      for _, entry in ipairs(state.transformLockChanged:inspect 'panels.onTransformLockChanged') do
         result[#result + 1] = entry
       end
       local claims, meshes = 0, 0
@@ -207,6 +240,9 @@ local function build(context: plugin.Context, settings: Settings): Service
             height = target.height,
             hidden = target.hidden,
             locked = target.locked,
+            transformLocked = target.transformLocked,
+            curve = target.curve,
+            curveAxis = target.curveAxis,
             priority = target.priority,
             layerClaim = target.claim ~= nil,
             mesh = target.mesh ~= nil,
@@ -229,10 +265,13 @@ local function build(context: plugin.Context, settings: Settings): Service
           )
         end
       end
-      return inspection.snapshot(
-        result,
-        { active = state.active, layerClaims = claims, meshes = meshes, opaqueShader = state.shaders.held(true) }
-      )
+      return inspection.snapshot(result, {
+        active = state.active,
+        layerClaims = claims,
+        layerCurve = state.layerCurve,
+        meshes = meshes,
+        opaqueShader = state.shaders.held(true),
+      })
     end,
     fromWindow = function(_self: Service, owner: Owner, window: lunette.Window, options: Options?): WindowPanel
       return (create(state, owner, { kind = 'window', source = window }, options) :: unknown) :: WindowPanel
@@ -257,6 +296,7 @@ local function build(context: plugin.Context, settings: Settings): Service
       return nil
     end,
     update = function(_self: Service)
+      state.layerCurve = supportsLayerCurve()
       currentPaint()
       for _, target in ipairs(livePanels(state)) do
         target:update()
@@ -279,6 +319,14 @@ local function build(context: plugin.Context, settings: Settings): Service
     onLockChanged = function(_self: Service, owner: Owner, listener: contracts.AddedListener): plugin.Effect
       listeners.check('panels onLockChanged', listener)
       return state.lockChanged:add(owner, listener.run)
+    end,
+    onCurveChanged = function(_self: Service, owner: Owner, listener: contracts.AddedListener): plugin.Effect
+      listeners.check('panels onCurveChanged', listener)
+      return state.curveChanged:add(owner, listener.run)
+    end,
+    onTransformLockChanged = function(_self: Service, owner: Owner, listener: contracts.AddedListener): plugin.Effect
+      listeners.check('panels onTransformLockChanged', listener)
+      return state.transformLockChanged:add(owner, listener.run)
     end,
     onAdded = function(_self: Service, owner: Owner, listener: contracts.AddedListener): plugin.Effect
       listeners.check('panels onAdded', listener)

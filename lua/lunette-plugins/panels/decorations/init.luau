@@ -32,6 +32,8 @@ local Titlebar = ui.component('Titlebar', function(props: TitlebarProps): ui.Chi
   return c.Panel {
     title = options.title,
     onClose = options.close,
+    properties = options.properties,
+    propertiesControl = options.properties ~= nil,
     c.HeaderActions { buttons },
   }
 end)
@@ -108,6 +110,9 @@ return plugin.consumer<<Config, Settings>> {
           entries[target] = { panel = panel, options = store, attachment = attachment }
         end
         local current = entries[target]
+        -- The titlebar follows its target's curve and axis without committing, so the bar and the panel wrap
+        -- together.
+        current.panel:setCurve(target.curve, target.curveAxis, false)
         -- A titlebar outside a joined outline leaves a small gap above its panel.
         local joined = current.attachment ~= nil and current.attachment:isJoined()
         current.panel:setGap(if joined then 0 else theme.spacing.sm)

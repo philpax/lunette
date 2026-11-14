@@ -29,6 +29,8 @@ local outlets = require '@self/private/outlets'
 local placements = require '@self/private/placements'
 local pack = require '@self/private/rendering/pack'
 local renderer = require '@self/private/rendering/renderer'
+local poke = require '@self/private/poke'
+local listeners = require '@lunette-plugins/registration/listeners'
 
 export type Config = config.Config
 export type Settings = config.Settings
@@ -36,6 +38,8 @@ export type Settings = config.Settings
 type Live = {
   record: records.Panel,
   surface: vocabulary.Surface,
+  -- The creation options of a top-level panel; an overlay panel has none and no public handle.
+  options: uiHost.PanelOptions?,
   packed: pack.Packed?,
 }
 
@@ -56,6 +60,8 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
   local recordsOf: { [uiHost.Panel]: records.Panel } = setmetatable({}, { __mode = 'k' }) :: any
   local reportedMissing: { [string]: boolean } = {}
   local held = chord.new()
+  local panelAdded = listeners.new<<(uiHost.Panel, uiHost.PanelOptions) -> ()>>(context)
+  local propertiesChanged = listeners.new<<(uiHost.Panel) -> ()>>(context)
   local resources: renderer.Resources? = nil
   local releaseResources: (() -> ())? = nil
 
@@ -125,6 +131,30 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
         end
       end
     end,
+    changed = function(record: records.Panel): ()
+      local handle = record.handle
+      if not handle or record.dead then
+        return
+      end
+      propertiesChanged:each('ui: properties listener', function(listener: (uiHost.Panel) -> ())
+        listener(handle)
+      end)
+    end,
+    -- The input lock cancels content only. A lockFree header keeps its capture, so its Settings control stays usable.
+    cancelContent = function(record: records.Panel): ()
+      input.cancelContent(router, env, record, function(node: records.Node): boolean
+        return not input.lockFree(node)
+      end)
+      if record.focused and not input.lockFree(record.focused) then
+        env.blurNode(record.focused)
+      end
+      for name, hand in touching.hands do
+        if hand.panel == record then
+          poke.reset(hand)
+          touching.markers[name] = nil
+        end
+      end
+    end,
   }
 
   -- Live hidePanels effects. While any holds, every panel that is not essential is suppressed.
@@ -145,7 +175,7 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
     env = env,
     router = router,
     offer = function(record: records.Panel, surface: vocabulary.Surface): ()
-      table.insert(live, { record = record, surface = surface })
+      table.insert(live, { record = record, surface = surface, options = record.options })
       suppress(record)
     end,
     resolve = function(handle: uiHost.Panel): records.Panel
@@ -158,6 +188,12 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
         end
       end
       return nil
+    end,
+    changed = function(record: records.Panel): ()
+      env.changed(record)
+    end,
+    cancelContent = function(record: records.Panel): ()
+      env.cancelContent(record)
     end,
     release = function(record: records.Panel): ()
       traversal.release(record)
@@ -215,6 +251,8 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
       for _, entry in table.clone(live) do
         panels.destroy(provider, entry.record)
       end
+      panelAdded:clear()
+      propertiesChanged:clear()
       if releaseResources then
         releaseResources()
         releaseResources, resources = nil, nil
@@ -380,7 +418,44 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
           handle:destroy()
         end
       end)
+      panelAdded:each('ui: panel added listener', function(listener: (uiHost.Panel, uiHost.PanelOptions) -> ())
+        listener(handle, options)
+      end)
       return handle
+    end,
+    panels = function(_self: uiHost.Service): { uiHost.PanelEntry }
+      local result: { uiHost.PanelEntry } = {}
+      for _, entry in live do
+        local handle, options = entry.record.handle, entry.record.options
+        if handle and options and not entry.record.dead then
+          result[#result + 1] = { panel = handle, options = options }
+        end
+      end
+      return result
+    end,
+    onPanelAdded = function(
+      _self: uiHost.Service,
+      owner: plugin.Owner,
+      listener: uiHost.PanelAddedListener
+    ): plugin.Effect
+      context:checkOwner(owner)
+      assert(
+        type(listener) == 'table' and type(listener.run) == 'function',
+        'ui: a panel-added listener has a run function'
+      )
+      return panelAdded:add(owner, listener.run)
+    end,
+    onPropertiesChanged = function(
+      _self: uiHost.Service,
+      owner: plugin.Owner,
+      listener: uiHost.PropertiesChangedListener
+    ): plugin.Effect
+      context:checkOwner(owner)
+      assert(
+        type(listener) == 'table' and type(listener.run) == 'function',
+        'ui: a properties listener has a run function'
+      )
+      return propertiesChanged:add(owner, listener.run)
     end,
     hidePanels = function(_self: uiHost.Service, owner: plugin.Owner): plugin.Effect
       context:checkOwner(owner)
@@ -593,6 +668,11 @@ local function build(context: plugin.Context, settings: Settings): uiHost.Servic
             -- Whether the panel takes input, which it does not while hidden or faded out.
             pressable = motion.shown(record),
             presentation = record.presentation,
+            curve = record.curve,
+            curveAxis = record.curveAxis,
+            inputLocked = record.locked,
+            transformLocked = record.transformLocked,
+            grabbable = record.grabbable,
           })
         )
       end

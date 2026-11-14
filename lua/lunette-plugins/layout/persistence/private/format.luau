@@ -12,7 +12,8 @@ export type Entry = {
   width: number?,
   height: number?,
   tags: { string },
-  locked: boolean,
+  -- A version 1 or 2 input lock, read only to migrate it into the properties store. Never written.
+  locked: boolean?,
 }
 export type File = { read entries: { Entry } }
 export type Loaded =
@@ -24,7 +25,7 @@ local quote: (string | number) -> string
 local renderEntry: (Entry) -> string
 local readEntry: (any, number) -> (Entry?, string?)
 
-format.VERSION = 2
+format.VERSION = 3
 
 -- Malformed entries are refused and named in `skipped`; the rest load.
 function format.read(text: string): Loaded
@@ -97,7 +98,6 @@ renderEntry = function(entry: Entry): string
     'key = ' .. quote(entry.key),
     'slot = ' .. quote(entry.slot),
     'pose = ' .. quote(entry.pose),
-    'locked = ' .. tostring(entry.locked),
   }
   if entry.width then
     fields[#fields + 1] = 'width = ' .. quote(entry.width)
@@ -143,7 +143,7 @@ readEntry = function(stored: any, version: number): (Entry?, string?)
   if not size(stored.width) or not size(stored.height) then
     return refuse 'has a size that is not a positive number'
   end
-  if version >= 2 and type(stored.locked) ~= 'boolean' then
+  if version < 3 and version >= 2 and type(stored.locked) ~= 'boolean' then
     return refuse 'has no boolean input lock'
   end
   if type(stored.tags) ~= 'table' then
@@ -164,7 +164,8 @@ readEntry = function(stored: any, version: number): (Entry?, string?)
     width = stored.width,
     height = stored.height,
     tags = tags,
-    locked = version >= 2 and stored.locked == true,
+    -- Only the versions that had an input lock carry one for the migration.
+    locked = if version < 3 then version >= 2 and stored.locked == true else nil,
   }
 end
 

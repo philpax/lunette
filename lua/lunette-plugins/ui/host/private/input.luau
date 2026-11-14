@@ -100,7 +100,25 @@ local function interactive(env: records.Environment, node: records.Node): boolea
   return registration.event ~= nil
 end
 
--- The nearest interactive node at or above the deepest node under the point.
+-- Whether a node stays usable while its panel's input lock is on: the node, or an ancestor, is lockFree.
+function input.lockFree(node: records.Node): boolean
+  local current: records.Node? = node
+  while current do
+    if current.kind.registration.lockFree then
+      return true
+    end
+    current = current.parent
+  end
+  return false
+end
+
+-- Whether the input lock makes a node content: the panel is locked and no lockFree ancestor exempts the node.
+function input.contentLocked(node: records.Node): boolean
+  return node.panel.locked and not input.lockFree(node)
+end
+
+-- The nearest interactive node at or above the deepest node under the point. Locked content answers nothing, so a
+-- pointer sees no target there while the header and the Settings overlay stay usable.
 function input.target(
   panel: records.Panel,
   env: records.Environment,
@@ -115,7 +133,7 @@ function input.target(
       return nil
     end
     if accepts then
-      return node
+      return if input.contentLocked(node) then nil else node
     end
     node = node.parent
   end
@@ -142,6 +160,14 @@ function input.grabs(panel: records.Panel, env: records.Environment, x: number, 
     node = node.parent
   end
   return false
+end
+
+-- Whether a trigger press at the point begins a drag on the node that would capture it. A claim belongs to the node
+-- that makes it, so a control inside a scrolling ancestor does not report the ancestor's drag.
+function input.drags(panel: records.Panel, env: records.Environment, x: number, y: number): boolean
+  local node = input.target(panel, env, x, y)
+  local claims = node and node.kind.registration.claims
+  return claims ~= nil and claims.drag ~= nil
 end
 
 -- Pulses each pointer whose press the node holds.
@@ -368,6 +394,41 @@ local function prune(router: Router, pointer: Pointer, state: PointerState): ()
   end
 end
 
+-- Ends content gestures on a panel as its input lock engages: content captures are cancelled, their presses and
+-- hovers clear, and a handed-off press on the panel is dropped. A lockFree node keeps its own capture.
+function input.cancelContent(
+  router: Router,
+  env: records.Environment,
+  panel: records.Panel,
+  isContent: (records.Node) -> boolean
+): ()
+  local states: { PointerState } = {}
+  for _, state in router.pointers do
+    states[#states + 1] = state
+  end
+  for _, state in states do
+    state.generation += 1
+    local current = currentState(router, state)
+    local capture = state.capture
+    if capture and capture.node.panel == panel and isContent(capture.node) then
+      state.capture = nil
+      local node = capture.node
+      node.host.pressed, node.host.dragging = false, false
+      respond(node)
+      input.dispatch(env, node, { kind = 'cancel', reason = 'control-removed' })
+    end
+    if current() then
+      local hovered = state.hovered
+      if hovered and hovered.panel == panel and isContent(hovered) then
+        setHovered(env, state, nil, current)
+      end
+    end
+    if state.handoff == panel then
+      state.handoff = nil
+    end
+  end
+end
+
 local function route(
   router: Router,
   panel: records.Panel,
@@ -504,7 +565,7 @@ local function route(
     end
   elseif event.kind == 'scroll' then
     local over = input.deepest(panel, x, y)
-    if over then
+    if over and not input.contentLocked(over) then
       input.dispatch(env, over, { kind = 'scroll', dx = event.dx, dy = event.dy, x = x, y = y }, x, y)
     end
   end

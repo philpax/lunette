@@ -20,6 +20,7 @@ export type Outline = {
   height: number?,
   radius: number?,
   curve: number?,
+  curveAxis: number?,
   headerHeight: number?,
   headerRadius: number?,
   thickness: number?,
@@ -30,6 +31,7 @@ export type Drawable = {
   read width: number,
   read height: number,
   read curve: number,
+  read curveAxis: number,
   read title: string?,
   read highlighted: boolean,
   read granted: boolean?,
@@ -38,6 +40,7 @@ export type Drawable = {
   mesh: Mesh?,
   meshKey: string?,
   meshCurve: number?,
+  meshCurveAxis: number?,
   meshTransform: string?,
   meshCrop: string?,
   outline: Outline?,
@@ -112,6 +115,7 @@ local function contentMesh(target: Drawable, transform: CaptureTransform, crop: 
     and contour
     and target.meshKey == contour.key
     and target.meshCurve == target.curve
+    and target.meshCurveAxis == target.curveAxis
     and target.meshTransform == transform
     and target.meshCrop == cropped
   then
@@ -121,9 +125,9 @@ local function contentMesh(target: Drawable, transform: CaptureTransform, crop: 
   local vertices: { { number } }
   local indices: { number }
   if rounded then
-    vertices, indices = shape.rounded(target.width, target.height, target.curve, polygon)
-  elseif target.curve > 0 then
-    vertices, indices = shape.arc(target.width, target.height, target.curve, shape.SEGMENTS)
+    vertices, indices = shape.rounded(target.width, target.height, target.curve, target.curveAxis, polygon)
+  elseif target.curve ~= 0 then
+    vertices, indices = shape.arc(target.width, target.height, target.curve, target.curveAxis, shape.SEGMENTS)
   else
     local w, h = target.width / 2, target.height / 2
     vertices = {
@@ -141,7 +145,8 @@ local function contentMesh(target: Drawable, transform: CaptureTransform, crop: 
   local made = buildMesh(vertices, indices)
   local previous = target.mesh
   target.mesh, target.meshKey = made, key
-  target.meshCurve, target.meshTransform, target.meshCrop = target.curve, transform, cropped
+  target.meshCurve, target.meshCurveAxis = target.curve, target.curveAxis
+  target.meshTransform, target.meshCrop = transform, cropped
   if previous then
     previous:release()
   end
@@ -205,7 +210,7 @@ function draw.content(target: Drawable, pass: Pass, style: appearance.Style, con
     pass:setShader(shader)
     pass:setMaterial(sampled)
     local transformed = transform ~= 'normal' and transform ~= 'undefined'
-    local mesh = if target.curve > 0
+    local mesh = if target.curve ~= 0
         or transformed
         or rounded
         or not isFull(crop)
@@ -215,7 +220,7 @@ function draw.content(target: Drawable, pass: Pass, style: appearance.Style, con
       pass:draw(mesh, target.pose)
     else
       local previous = target.mesh
-      target.mesh, target.meshKey = nil, nil
+      target.mesh, target.meshKey, target.meshCurveAxis = nil, nil, nil
       if previous then
         previous:release()
       end
@@ -259,6 +264,7 @@ function draw.border(target: Drawable, pass: Pass, style: appearance.Style): ()
     or cache.height ~= target.height
     or cache.radius ~= radius
     or cache.curve ~= target.curve
+    or cache.curveAxis ~= target.curveAxis
     or cache.headerHeight ~= headerHeight
     or cache.headerRadius ~= headerRadius
     or cache.thickness ~= thickness
@@ -280,10 +286,11 @@ function draw.border(target: Drawable, pass: Pass, style: appearance.Style): ()
     end
     local points, triangles = geometry.ring(bounds, profile, thickness)
     local vertices, indices =
-      shape.mapTriangles(target.width, target.height, target.curve, points, triangles, thickness)
+      shape.mapTriangles(target.width, target.height, target.curve, target.curveAxis, points, triangles)
     local made = buildMesh(vertices, indices)
     local previous = cache.mesh
     cache.width, cache.height, cache.radius, cache.curve = target.width, target.height, radius, target.curve
+    cache.curveAxis = target.curveAxis
     cache.headerHeight, cache.headerRadius, cache.thickness, cache.mesh = headerHeight, headerRadius, thickness, made
     if previous then
       previous:release()

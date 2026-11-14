@@ -1,3 +1,9 @@
+// Clang on the CI image no longer exposes the C11 atomic_uint typedef through stdatomic.h when
+// LÖVR's util.h and task.h are parsed. The typedef repeats the standard one, and C11 accepts a
+// repeated typedef of the same type, so toolchains that already provide it are unaffected.
+#include <stdatomic.h>
+typedef _Atomic unsigned int atomic_uint;
+
 // bindgen parses this translation unit. api.h provides the luax_* entry
 // points and, transitively, the Variant type that stores the restart
 // cookie. os.h provides the platform hooks. util.h provides the log

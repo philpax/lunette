@@ -12,6 +12,8 @@ local input = require './input'
 local shape = require './shape'
 local placements = require './placements'
 local motion = require './motion'
+local panelProperties = require '@lunette-contracts/panel-properties'
+local curved = require '@lunette-plugins/graphics/curved-surface'
 
 local panel = {}
 
@@ -20,6 +22,9 @@ export type Provider = {
   read router: input.Router,
   read offer: (records.Panel, vocabulary.Surface) -> (),
   read release: (records.Panel) -> (),
+  -- A committed property change on a top-level panel, and the content cancellation an engaging input lock runs.
+  read changed: (records.Panel) -> (),
+  read cancelContent: (records.Panel) -> (),
   -- The record behind a panel handle this host made.
   read resolve: (uiHost.Panel) -> records.Panel,
   -- The surface a live panel offers.
@@ -32,11 +37,12 @@ local function positive(value: number?, label: string): ()
   end
 end
 
--- A finite curve in metres⁻¹ and a finite axis angle in radians. The shape limits how far a curve wraps.
+-- A finite curve in metres⁻¹ and a finite axis angle in radians, stored canonically. The shape limits how far a
+-- curve wraps.
 local function bend(curve: number, axis: number): (number, number)
   assert(type(curve) == 'number' and curve == curve and math.abs(curve) < math.huge, 'ui: a curve is a finite number')
   assert(type(axis) == 'number' and axis == axis and math.abs(axis) < math.huge, 'ui: a curve axis is a finite angle')
-  return curve, axis
+  return curve, curved.normalizeAxis(axis)
 end
 
 -- Builds the panel record, its handle, and its surface.
@@ -54,7 +60,10 @@ function panel.new(
   if sizing == 'fixed' then
     assert(options.width and options.height, 'ui: a fixed panel has a width and a height')
   end
-  local record = panel.record(options.name, owner, sizing, options.width, options.height, options.pose)
+  local record = panel.record(provider, options.name, owner, sizing, options.width, options.height, options.pose)
+  record.options = options
+  record.locked = options.locked == true
+  record.transformLocked = options.transformLocked == true
   local presentation = options.presentation or 'world'
   assert(
     presentation == 'world' or presentation == 'follow' or presentation == 'dialog' or presentation == 'attach',
@@ -146,8 +155,37 @@ function panel.new(
         table.insert(record.changes, change)
       end
     end,
-    setCurve = function(_self: uiHost.Panel, curve: number, axis: number?): ()
-      record.curve, record.curveAxis = bend(curve, axis or record.curveAxis)
+    curve = function(_self: uiHost.Panel): number
+      return record.curve
+    end,
+    curveAxis = function(_self: uiHost.Panel): number
+      return record.curveAxis
+    end,
+    setCurve = function(_self: uiHost.Panel, curve: number, axis: number?, commit: boolean?): ()
+      record.setCurve(record, curve, axis, if commit == nil then true else commit)
+    end,
+    locked = function(_self: uiHost.Panel): boolean
+      return record.locked
+    end,
+    setLocked = function(_self: uiHost.Panel, locked: boolean, commit: boolean?): ()
+      record.setLocked(record, locked, if commit == nil then true else commit)
+    end,
+    transformLocked = function(_self: uiHost.Panel): boolean
+      return record.transformLocked
+    end,
+    setTransformLocked = function(_self: uiHost.Panel, locked: boolean, commit: boolean?): ()
+      record.setTransformLocked(record, locked, if commit == nil then true else commit)
+    end,
+    grabbable = function(_self: uiHost.Panel): boolean
+      return record.grabbable
+    end,
+    properties = function(_self: uiHost.Panel): panelProperties.PanelProperties
+      return panelProperties.propertiesOf {
+        curve = record.curve,
+        curveAxis = record.curveAxis,
+        inputLocked = record.locked,
+        transformLocked = record.transformLocked,
+      }
     end,
     setGrabbable = function(_self: uiHost.Panel, grabbable: boolean): ()
       record.grabbable = (record.presentation == 'world' or record.presentation == 'attach') and grabbable == true
@@ -186,6 +224,7 @@ function panel.new(
       return panel.find(record, path)
     end,
   }
+  record.handle = handle
   local syncSurface = record.sync
   record.sync = function(): ()
     (handle :: any).dead = record.dead
@@ -244,6 +283,9 @@ function panel.surface(provider: Provider, record: records.Panel, setPose: ((Mat
     triggerGrabs = function(_self: vocabulary.Surface, x: number, y: number): boolean
       return not record.dead and input.grabs(record, env, x, y)
     end,
+    triggerDrags = function(_self: vocabulary.Surface, x: number, y: number): boolean
+      return not record.dead and input.drags(record, env, x, y)
+    end,
     onPointer = function(_self: vocabulary.Surface, event: vocabulary.PointerEvent): ()
       if not record.dead then
         input.surface(provider.router, record, env, event)
@@ -265,8 +307,12 @@ function panel.surface(provider: Provider, record: records.Panel, setPose: ((Mat
   local fields = surface :: any
   record.sync = function(): ()
     fields.width, fields.height = record.width * record.scale, record.height * record.scale
+    fields.curve, fields.curveAxis = record.curve, record.curveAxis
     fields.grabbable = record.grabbable
     fields.placementKey = record.placementKey
+    -- Input lock stays off the surface: the host routers refuse content only, so a header and its Settings control
+    -- remain usable. A transform lock is a surface property the shared grab path reads.
+    fields.transformLocked = record.transformLocked
     fields.dead = record.dead or record.closing or not motion.shown(record)
   end
   return surface
@@ -274,6 +320,7 @@ end
 
 -- A panel record with no content. A content-sized panel takes the width and height as its maximum.
 function panel.record(
+  provider: Provider,
   name: string,
   owner: plugin.Owner,
   sizing: 'fixed' | 'content',
@@ -303,6 +350,13 @@ function panel.record(
     grabbable = false,
     revision = 0,
     sync = function(): () end,
+    options = nil,
+    handle = nil,
+    locked = false,
+    transformLocked = false,
+    setCurve = function(): () end,
+    setLocked = function(): () end,
+    setTransformLocked = function(): () end,
     overlay = nil,
     focused = nil,
     session = nil,
@@ -324,6 +378,47 @@ function panel.record(
     followTarget = nil,
     placements = {},
   }
+  -- A committed property change reaches the host's properties listeners; a preview applies without saving.
+  record.setCurve = function(self: records.Panel, curve: number, axis: number?, commit: boolean?)
+    local value, angle = bend(curve, axis or self.curveAxis)
+    local changed = self.curve ~= value or self.curveAxis ~= angle
+    if not changed and commit ~= true then
+      return
+    end
+    self.curve, self.curveAxis = value, angle
+    self.revision += 1
+    self.sync()
+    if commit == true then
+      provider.changed(self)
+    end
+  end
+  record.setLocked = function(self: records.Panel, locked: boolean, commit: boolean?)
+    local value = locked == true
+    local changed = self.locked ~= value
+    if not changed and commit ~= true then
+      return
+    end
+    -- Cancelling before the flag applies lets the content captures, focus, and touches end under the old routing.
+    if value and not self.locked then
+      provider.cancelContent(self)
+    end
+    self.locked = value
+    self.sync()
+    if commit == true then
+      provider.changed(self)
+    end
+  end
+  record.setTransformLocked = function(self: records.Panel, locked: boolean, commit: boolean?)
+    local value = locked == true
+    if self.transformLocked == value and commit ~= true then
+      return
+    end
+    self.transformLocked = value
+    self.sync()
+    if commit == true then
+      provider.changed(self)
+    end
+  end
   record.tree = layout.newTree(record)
   return record
 end

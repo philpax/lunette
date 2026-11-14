@@ -197,6 +197,9 @@ type SurfaceFields = {
   read grabbable: boolean?,
   -- Answers whether a primary-button edge at the current hit begins a spatial grab instead of a click.
   read triggerGrabs: ((Surface, number, number) -> boolean)?,
+  -- Answers whether a trigger press at the point begins a drag on a control, such as a slider, instead of a click.
+  -- A laser leaves its ray live for such a press, because holding it still would fight the drag.
+  read triggerDrags: ((Surface, number, number) -> boolean)?,
   -- A composite surface can direct its grab to an owning surface offered alongside it.
   read grabTarget: ((Surface) -> Surface?)?,
   -- Picking prefers a hit on a surface with a higher priority over a nearer hit, and treats nil as 0. Recovery
@@ -205,10 +208,16 @@ type SurfaceFields = {
   -- A name that identifies the surface across reloads and sessions, so placement memory can return it to where the
   -- user left it. Surfaces without one are placed by their owners alone.
   read placementKey: string?,
+  -- Input lock: the content takes no input. It is independent of `transformLocked`.
   read locked: boolean?,
+  -- Transform lock: the pointer grab path refuses to move or resize the surface. Its owner still poses and sizes it.
+  read transformLocked: boolean?,
   read pose: Mat4?,
   read width: number?,
   read height: number?,
+  -- The surface's cylindrical curve and the axis it bends about, for an attached panel placed on its edge.
+  read curve: number?,
+  read curveAxis: number?,
   read sink: ((Surface) -> lunette.Sink?)?,
   read raycast: (Surface, vector, vector, boolean?) -> (number?, number?, number?),
   read project: ((Surface, vector, vector) -> (number?, number?, number?))?,
@@ -228,9 +237,13 @@ type MovableFields = {
   read pickPriority: number?,
   read placementKey: string?,
   read locked: boolean?,
+  read transformLocked: boolean?,
   read pose: Mat4?,
   read width: number?,
   read height: number?,
+  -- The surface's cylindrical curve and the axis it bends about, for an attached panel placed on its edge.
+  read curve: number?,
+  read curveAxis: number?,
   read sink: ((Surface) -> lunette.Sink?)?,
   read raycast: (Surface, vector, vector, boolean?) -> (number?, number?, number?),
   read project: ((Surface, vector, vector) -> (number?, number?, number?))?,

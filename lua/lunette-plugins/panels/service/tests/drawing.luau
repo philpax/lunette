@@ -27,7 +27,7 @@ type Layer = {
   read setPosition: () -> (),
   read setOrientation: () -> (),
   read setDimensions: () -> (),
-  read setCurve: () -> (),
+  read setCurve: (Layer, number) -> (),
 }
 type Drawable = {
   read draw: (Drawable, typeof(testing.native().events.pass)) -> (),
@@ -54,7 +54,7 @@ local function start(config: Config?): (Native, testing.Session, contract.Servic
   return native, session, observed.service, observed.context, window
 end
 
-local function grantLayer(panel: Drawable, viewports: { { number } })
+local function grantLayer(panel: Drawable, viewports: { { number } }, curves: { number }?)
   panel.claim.granted = true
   panel.claim.layer = {
     setViewport = function(_: Layer, x: number, y: number, width: number, height: number)
@@ -63,7 +63,11 @@ local function grantLayer(panel: Drawable, viewports: { { number } })
     setPosition = function() end,
     setOrientation = function() end,
     setDimensions = function() end,
-    setCurve = function() end,
+    setCurve = function(_: Layer, curve: number)
+      if curves then
+        curves[#curves + 1] = curve
+      end
+    end,
   }
 end
 
@@ -319,18 +323,156 @@ test('a capture draws the WayVR UVs of its transform, and a changed transform re
   monitor.getTexture = function(): Texture
     return { name = 'captured pixels' }
   end
-  local target = { kind = 'monitor', source = monitor, pose = lovr.math.newMat4(), width = 2, height = 1, curve = 0.4 }
+  local target = {
+    kind = 'monitor',
+    source = monitor,
+    pose = lovr.math.newMat4(),
+    width = 2,
+    height = 1,
+    curve = 0.4,
+    curveAxis = 0,
+  }
   for _, case in TRANSFORMS do
     monitor.frameTransform = case[1]
     drawing.content(target, native.events.pass, style, shader)
     local vertices = made[#made].vertices
-    for corner, index in { 1, #vertices - 1, 2, #vertices } do
-      expect.equal(vertices[index][7], case[2][corner][1], case[1] .. ': u of corner ' .. corner)
-      expect.equal(vertices[index][8], case[2][corner][2], case[1] .. ': v of corner ' .. corner)
+    for corner, expected in case[2] do
+      local found = false
+      for _, vertex in vertices do
+        found = found or (vertex[7] == expected[1] and vertex[8] == expected[2])
+      end
+      expect.truthy(found, case[1] .. `: the UVs of corner {corner}`)
     end
   end
   expect.equal(#made, #TRANSFORMS, 'each transform made its own mesh')
   expect.truthy(made[1].released, 'a replaced mesh is released')
+end)
+
+test('a curved window keeps its composition layer only where the headset supports cylinder layers', function()
+  local native = testing.native()
+  native.events.layerCurve = false
+  local session = testing.start {
+    'theme',
+    { id = 'panels', definition = require('../').definition, config = { rendering = 'layer' } },
+  }
+  local observed = session:observe(contract.capability)
+  local window = native.newWindow(5)
+  window.getTexture = function(): Texture
+    return {
+      name = 'curved pixels',
+      getDimensions = function(): (number, number)
+        return 2000, 1000
+      end,
+    }
+  end
+  local panel = observed.service:fromWindow(observed.context, window, { height = 1, curve = 0.5 })
+  expect.equal(#native.events.claims, 0, 'a curved window claims no layer without the feature')
+  expect.falsy(panel.claim, 'the curved window falls back to the scene')
+  native.events.layerCurve = true
+  observed.service:update()
+  expect.equal(#native.events.claims, 1, 'the layer returns once the feature appears')
+  expect.truthy(panel.claim, 'the curved window holds the layer')
+  native.events.layerCurve = false
+  observed.service:update()
+  expect.falsy(panel.claim, 'losing the feature releases the layer again')
+  session:close()
+end)
+
+test('only the axis rebuilds content, outline, and child meshes', function()
+  local native, session, panels, owner, window = start { style = { windowRadius = 0.1 } }
+  local panel = panels:fromWindow(owner, window, { height = 1, chrome = true, curve = 0.5 })
+  local made = native.events.render.meshAcquisitions
+  window.children = { menu() }
+  drawn(native, panel)
+  local first = #made
+  expect.equal(first, 3, 'the content, outline, and child meshes')
+  drawn(native, panel)
+  expect.equal(#made, first, 'an unchanged panel keeps its meshes')
+  panel:setCurve(0.5, math.pi / 4, true)
+  drawn(native, panel)
+  expect.equal(#made, first + 3, 'only the axis rebuilds all three meshes')
+  session:close()
+end)
+
+test('a tilted or signed window draws in the scene and releases its layer', function()
+  local native, session, panels, owner, window = start { rendering = 'layer' }
+  local panel = panels:fromWindow(owner, window, { height = 1 })
+  expect.equal(#native.events.claims, 1, 'the flat window claims')
+  expect.truthy(panel:setCurve(0.5, math.pi / 4, true), 'the tilted curve applies')
+  panels:update()
+  expect.truthy(native.events.claims[1].dead, 'the tilted window releases its claim')
+  expect.falsy(panel.claim, 'the tilted window holds no layer')
+  local tilted = drawn(native, panel)
+  expect.truthy(tilted.plane or tilted.draw, 'the scene draws the tilted content')
+  expect.truthy(panel:setCurve(-0.5, 0, true), 'the signed curve applies')
+  panels:update()
+  expect.falsy(panel.claim, 'the signed window holds no layer')
+  local signed = drawn(native, panel)
+  expect.truthy(signed.plane or signed.draw, 'the scene draws the signed content')
+  session:close()
+end)
+
+test('an untilted positive window keeps its layer', function()
+  local native, session, panels, owner, window = start { rendering = 'layer' }
+  local panel = panels:fromWindow(owner, window, { height = 1, curve = 0.5 })
+  panels:update()
+  expect.equal(#native.events.claims, 1, 'the curved window claims')
+  expect.truthy(panel.claim, 'the untilted curve holds the layer')
+  grantLayer(panel, {})
+  panels:update()
+  expect.equal(drawn(native, panel).plane, nil, 'the granted layer draws no scene content')
+  session:close()
+end)
+
+test('a flat window keeps and drives its layer whatever its axis', function()
+  local native, session, panels, owner, window = start { rendering = 'layer' }
+  local panel = panels:fromWindow(owner, window, { height = 1, curveAxis = math.pi / 4 })
+  expect.equal(#native.events.claims, 1, 'the flat window claims')
+  local curves: { number } = {}
+  grantLayer(panel, {}, curves)
+  panels:update()
+  expect.truthy(panel.claim, 'the flat window keeps its layer')
+  expect.equal(curves[#curves], 0, 'the layer is driven flat')
+  expect.equal(drawn(native, panel).plane, nil, 'the granted layer draws no scene content')
+  session:close()
+end)
+
+test('a window returns to the layer when its axis returns to zero', function()
+  local native, session, panels, owner, window = start { rendering = 'layer' }
+  local panel = panels:fromWindow(owner, window, { height = 1, curve = 0.5 })
+  panel:setCurve(0.5, math.pi / 2, true)
+  panels:update()
+  expect.falsy(panel.claim, 'the tilted window draws in the scene')
+  panel:setCurve(0.5, 0, true)
+  panels:update()
+  expect.equal(#native.events.claims, 2, 'the window claims again at axis zero')
+  expect.truthy(panel.claim, 'the untilted window holds the layer')
+  session:close()
+end)
+
+test('a window widened past the curve limit keeps its layer and hit test on one clamped curve', function()
+  local native, session, panels, owner, window = start { rendering = 'layer' }
+  local panel = panels:fromWindow(owner, window, { height = 1 })
+  panel:setSize(4.1, nil)
+  expect.truthy(panel:setCurve(4, nil, true), 'the tight curve applies')
+  panels:update()
+  expect.truthy(panel.claim, 'the widened window claims a layer')
+  local curves: { number } = {}
+  panel.claim.granted = true
+  panel.claim.layer = {
+    setViewport = function() end,
+    setPosition = function() end,
+    setOrientation = function() end,
+    setDimensions = function() end,
+    setCurve = function(_: Layer, curve: number)
+      curves[#curves + 1] = curve
+    end,
+  }
+  panels:update()
+  local expected = 2 * math.pi / 4.1
+  expect.near(curves[#curves], expected, 1e-6, 'the layer takes the shared clamp')
+  expect.near(panel.curve, 4, 1e-9, 'the panel keeps the asked-for curve')
+  session:close()
 end)
 
 return test

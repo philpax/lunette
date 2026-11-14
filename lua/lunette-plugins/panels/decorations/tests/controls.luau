@@ -8,6 +8,8 @@ local surfaces = require '@lunette-contracts/surfaces'
 local vrUi = require '@testing/vr-ui'
 local fixture = require '@testing/ui-host'
 local controls = require '../private/controls'
+local curved = require '@lunette-plugins/graphics/curved-surface'
+local curvature = require '@lunette-plugins/ui/standard/private/curvature'
 local test = testing.suite()
 
 type WindowPanel = {
@@ -23,6 +25,7 @@ type Environment = {
   registry: testing.Observed<panels.Service>,
   monitor: testing.Monitor,
   host: uiHost.Service,
+  hostContext: testing.Context,
   closeRequests: number,
   panel: WindowPanel,
   mirror: panels.Panel,
@@ -31,7 +34,7 @@ type Environment = {
 local WINDOW = 'desktop/decorations/window/7'
 local MONITOR = 'desktop/decorations/monitor/screen-a'
 
-local function boot(chrome: boolean?): Environment
+local function boot(chrome: boolean?, persistence: boolean?): Environment
   local native = testing.native()
   local monitor = native.newMonitor 'screen-a'
   native.events.monitors = { monitor }
@@ -51,13 +54,23 @@ local function boot(chrome: boolean?): Environment
     'desktop/render',
     'desktop/decorations',
     'desktop/monitors',
+    if persistence then 'rules' else nil,
+    if persistence then 'tags' else nil,
+    if persistence then 'placement' else nil,
+    if persistence then 'desktop/persistence' else nil,
   }, { native = native })
   local registry = running.session:observe(panels.capability)
+  local hostObserved = running.session:observe(uiHost.capability)
+  if persistence then
+    local stored = running.session:observe(require('@lunette-contracts/arrangement').capability)
+    assert(stored.service, 'the persistence service')
+  end
   local env: Environment = {
     running = running,
     registry = registry,
     monitor = monitor,
-    host = assert(running.session:observe(uiHost.capability).service),
+    host = assert(hostObserved.service),
+    hostContext = assert(hostObserved.context),
     closeRequests = 0,
   } :: any
   local window = native.newWindow(7)
@@ -85,6 +98,11 @@ end
 
 local function click(env: Environment, titlebar: string, key: string)
   env.running:click(fixture.nodeGeometry(node(env, titlebar, `{key}/face`)), 0.5, 0.5)
+end
+
+-- Clicks a node without assuming a face child, as a toggle's expanded row has none.
+local function clickNode(env: Environment, titlebar: string, key: string): ()
+  env.running:click(fixture.nodeGeometry(node(env, titlebar, key)), 0.5, 0.5)
 end
 
 local function label(env: Environment, titlebar: string, key: string): string
@@ -499,16 +517,28 @@ test('VR titlebars lock content without clickthrough and remain movable, unlocka
     local options = controls.options(env.registry.context, entry.panel, nil, function() end)
     expect.equal(
       #options.actions,
-      if entry.panel.kind == 'window' then 1 else 3,
-      'the header includes the added lock action'
+      if entry.panel.kind == 'window' then 0 else 2,
+      'the header keeps only its monitor restart and selection actions'
     )
-    expect.equal(options.actions[#options.actions].id, 'lock', 'locking follows the monitor-specific actions')
-    expect.equal(label(env, entry.titlebar, 'lock'), 'Lock input', 'an unlocked panel offers locking')
-    click(env, entry.titlebar, 'lock')
+    for _, action in options.actions do
+      expect.truthy(action.id ~= 'lock', 'the old lock action is gone')
+    end
+    expect.falsy(
+      env.host:find(`{entry.titlebar}:header/band/settings/input-lock`),
+      'an unlocked panel offers no quick unlock'
+    )
+    clickNode(env, entry.titlebar, 'settings/gear')
     env.running:step()
     env.running:step()
-    expect.truthy(entry.panel.locked, 'the titlebar updates authoritative panel state')
-    expect.equal(label(env, entry.titlebar, 'lock'), 'Unlock input', 'a locked panel offers unlocking')
+    clickNode(env, entry.titlebar, 'settings/popup/body/input-lock/row')
+    env.running:step()
+    env.running:step()
+    expect.truthy(entry.panel.locked, 'the Settings toggle updates authoritative panel state')
+    expect.equal(
+      node(env, entry.titlebar, 'settings/input-lock').props.label,
+      'Unlock input',
+      'the quick unlock appears while locked'
+    )
     expect.truthy(
       assert(env.host:find(`{entry.titlebar}:header`)).props.title:find('[locked]', 1, true),
       'the title marks the lock'
@@ -534,11 +564,11 @@ test('VR titlebars lock content without clickthrough and remain movable, unlocka
     expect.near(z, pz - 0.1, 1e-5, 'a locked panel moves in z through its titlebar')
     expect.truthy(entry.panel.locked, 'moving retains the lock')
 
-    click(env, entry.titlebar, 'lock')
+    click(env, entry.titlebar, 'settings/input-lock')
     env.running:step()
     env.running:step()
-    expect.falsy(entry.panel.locked, 'the locked titlebar remains interactive')
-    expect.equal(label(env, entry.titlebar, 'lock'), 'Lock input', 'unlocking restores the action label')
+    expect.falsy(entry.panel.locked, 'the quick unlock unlocks from the locked titlebar')
+    expect.falsy(env.host:find(`{entry.titlebar}:header/band/settings/input-lock`), 'the quick unlock disappears')
     table.clear(env.running.native.events.input)
     env.running:click(content(), 0.5, 0.5)
     expect.truthy(presses() > 0, 'a fresh content click works after unlocking')
@@ -553,25 +583,28 @@ test('VR titlebars lock content without clickthrough and remain movable, unlocka
   env.running:close()
 end)
 
-test('native chrome windows retain an accessible toolkit lock and close action', function()
+test('native chrome windows retain an accessible toolkit input lock and close action', function()
   local env = boot(true)
   expect.truthy(env.panel.chrome, 'the window requests native chrome')
-  expect.equal(label(env, WINDOW, 'lock'), 'Lock input', 'native chrome also has a toolkit lock action')
-  click(env, WINDOW, 'lock')
+  expect.falsy(env.host:find(`${WINDOW}:header/band/settings/input-lock`), 'an unlocked panel has no quick unlock')
+  clickNode(env, WINDOW, 'settings/gear')
   env.running:step()
   env.running:step()
-  expect.truthy(env.panel.locked, 'the toolkit action locks a native-chrome window')
-  click(env, WINDOW, 'lock')
+  clickNode(env, WINDOW, 'settings/popup/body/input-lock/row')
   env.running:step()
   env.running:step()
-  expect.falsy(env.panel.locked, 'the toolkit action unlocks a native-chrome window')
+  expect.truthy(env.panel.locked, 'the toolkit control locks a native-chrome window')
+  expect.equal(node(env, WINDOW, 'settings/input-lock').props.label, 'Unlock input', 'the quick unlock appears')
+  click(env, WINDOW, 'settings/input-lock')
+  env.running:step()
+  env.running:step()
+  expect.falsy(env.panel.locked, 'the quick unlock unlocks a native-chrome window')
   click(env, WINDOW, 'close')
   expect.equal(env.closeRequests, 1, 'native chrome does not hide the toolkit close action')
   env.running:close()
 end)
 
 test('retained lock callbacks read live state and guard the context and both handles', function()
-  local env = boot()
   local active = true
   local context = {
     active = function(): boolean
@@ -583,6 +616,10 @@ test('retained lock callbacks read live state and guard the context and both han
     source = { title = 'Fixture', dead = false },
     dead = false,
     locked = false,
+    transformLocked = false,
+    curve = 0,
+    width = 1,
+    height = 0.6,
   } :: any
   local changes = 0
   target.setLocked = function(self: any, owner: any, locked: boolean): boolean
@@ -591,21 +628,332 @@ test('retained lock callbacks read live state and guard the context and both han
     changes += 1
     return true
   end
+  target.setTransformLocked = function(self: any, owner: any, locked: boolean): boolean
+    self.transformLocked = locked
+    changes += 1
+    return true
+  end
+  target.setCurve = function() end
   local options = controls.options(context, target, nil, function() end)
-  local toggle = options.actions[#options.actions].run
-  toggle()
-  toggle()
+  local properties = assert(options.properties)
+  properties.inputLock.set(true)
+  properties.inputLock.set(false)
   expect.falsy(target.locked, 'a retained callback toggles live state rather than captured state')
   expect.equal(changes, 2, 'both live toggles run')
   active = false
-  toggle()
+  properties.inputLock.set(true)
   active = true
   target.dead = true
-  toggle()
+  properties.inputLock.set(true)
   target.dead = false
   target.source.dead = true
-  toggle()
+  properties.inputLock.set(true)
+  target.source.dead = false
   expect.equal(changes, 2, 'inactive contexts and dead handles are inert')
+  properties.transformLock.set(true)
+  expect.truthy(target.transformLocked, 'the transform lock reaches the target')
+  expect.equal(changes, 3, 'the transform toggle runs once')
+end)
+
+test('a titlebar curves its native panel on commit and offers the axis and a negative bend', function()
+  local env = boot()
+  local changes = 0
+  env.registry.service:onCurveChanged(env.registry.context, {
+    run = function(): ()
+      changes += 1
+    end,
+  })
+  expect.equal(changes, 0, 'no curve change before any control')
+  for _, entry in { { titlebar = WINDOW, panel = env.panel }, { titlebar = MONITOR, panel = env.mirror } } do
+    local before = changes
+    local options = controls.options(env.registry.context, entry.panel, nil, function() end)
+    expect.equal(changes, before, 'the controller construction does not notify')
+    local properties = assert(options.properties)
+    expect.truthy(properties.axis, 'a native panel offers the axis')
+    expect.truthy(properties.negative, 'a native panel bends away too')
+    expect.equal(properties.axisReason, nil, 'the axis is available without a reason')
+    properties.setCurve(0.5, math.pi / 4, false)
+    expect.near(entry.panel.curve, 0.5, 1e-9, 'the preview applies the curve')
+    expect.near(entry.panel.curveAxis, math.pi / 4, 1e-9, 'the preview applies the axis')
+    expect.equal(changes, before, 'the preview does not notify')
+    properties.setCurve(0.5, math.pi / 4, true)
+    expect.equal(changes, before + 1, 'the commit notifies once')
+  end
+  env.running:close()
+end)
+
+test('the titlebar sits on the top edge of a tilted target', function()
+  local env = boot()
+  env.panel:setCurve(0.5, math.pi / 4, true)
+  env.running:step()
+  env.running:step()
+  local titlebar: any = nil
+  for _, entry in env.host:panels() do
+    if entry.panel.name == WINDOW then
+      titlebar = entry.panel
+    end
+  end
+  assert(titlebar, 'the titlebar is a live panel')
+  local target = env.panel
+  local surface = curved.surface(target.width, target.height, target.curve, target.curveAxis)
+  local theme = env.host:theme()
+  local _, height = titlebar:size()
+  local expected = lovr.math
+    .mat4(target.pose)
+    :mul(curved.frame(surface, target.width / 2, 0, 0))
+    :translate(0, height / 2 + theme.spacing.sm, theme.elevation.contentOffset)
+  local x, y, z = expected:getPosition()
+  local px, py, pz = titlebar:pose():getPosition()
+  expect.near(px, x, 1e-5, 'the top-edge x')
+  expect.near(py, y, 1e-5, 'the top-edge y')
+  expect.near(pz, z, 1e-5, 'the top-edge z')
+  local fx, fy, fz = expected:mul(0, 0, 1, 0)
+  local tx, ty, tz = titlebar:pose():mul(0, 0, 1, 0)
+  expect.near(tx, fx, 1e-5, 'the top-edge angle x')
+  expect.near(ty, fy, 1e-5, 'the top-edge angle y')
+  expect.near(tz, fz, 1e-5, 'the top-edge angle z')
+  env.running:close()
+end)
+
+test('the Settings popup stays put through a bend and follows the window', function()
+  local env = boot()
+  env.running:step()
+  env.running:step()
+  clickNode(env, WINDOW, 'settings/gear')
+  env.running:step()
+  env.running:step()
+  local title = assert(env.host:find(`{WINDOW}:header/band/settings/popup/body/title`), 'the popup title')
+  local function poseOf(): (number, number, number, number, number, number)
+    local pose = title:pose()
+    local x, y, z = pose:getPosition()
+    local fx, fy, fz = pose:mul(0, 0, 1, 0)
+    return x, y, z, fx, fy, fz
+  end
+  local x, y, z, fx, fy, fz = poseOf()
+  env.panel:setCurve(0.5, math.pi / 4, true)
+  env.running:step()
+  env.running:step()
+  local bentX, bentY, bentZ, bentFx, bentFy, bentFz = poseOf()
+  expect.near(bentX, x, 1e-6, 'the bend does not move the popup in x')
+  expect.near(bentY, y, 1e-6, 'the bend does not move the popup in y')
+  expect.near(bentZ, z, 1e-6, 'the bend does not move the popup in z')
+  expect.near(bentFx, fx, 1e-6, 'the bend keeps the popup angle in x')
+  expect.near(bentFy, fy, 1e-6, 'the bend keeps the popup angle in y')
+  expect.near(bentFz, fz, 1e-6, 'the bend keeps the popup angle in z')
+  local px, py, pz = env.panel.pose:getPosition()
+  env.panel:setPose(lovr.math.newMat4():translate(px + 0.2, py, pz))
+  env.running:step()
+  env.running:step()
+  expect.near(poseOf() - bentX, 0.2, 1e-5, 'moving the window carries the popup')
+  env.running:close()
+end)
+
+test('the titlebar follows its target curve and axis', function()
+  local env = boot()
+  env.panel:setCurve(0.75, math.pi / 4, true)
+  env.running:step()
+  env.running:step()
+  local found = false
+  for _, entry in env.host:panels() do
+    if entry.panel.name == WINDOW then
+      found = true
+      expect.near(entry.panel:curve(), 0.75, 1e-9, 'the titlebar takes the target curve')
+      expect.near(entry.panel:curveAxis(), math.pi / 4, 1e-9, 'and the target axis')
+    end
+  end
+  expect.truthy(found, 'the titlebar is a live panel')
+  env.running:close()
+end)
+
+test('the transform lock stops the titlebar drag but not its buttons', function()
+  local env = boot()
+  env.running:step()
+  env.running:step()
+  local options = controls.options(env.registry.context, env.panel, nil, function() end)
+  assert(options.properties).transformLock.set(true)
+  expect.truthy(env.panel.transformLocked, 'the transform lock applies')
+  local px, py, pz = env.panel.pose:getPosition()
+  local title = fixture.nodeGeometry(node(env, WINDOW, 'title'))
+  env.running:aim(title, title.logicalWidth / 2, title.logicalHeight / 2)
+  env.running:step()
+  env.running:button('right', 'trigger', true)
+  env.running:step()
+  env.running:pose('right', lovr.math.newMat4(title.pose):translate(0.3, 0.1, 0.9))
+  env.running:step()
+  env.running:button('right', 'trigger', false)
+  env.running:step()
+  local x, y, z = env.panel.pose:getPosition()
+  expect.near(x, px, 1e-9, 'the locked panel does not move in x')
+  expect.near(y, py, 1e-9, 'the locked panel does not move in y')
+  expect.near(z, pz, 1e-9, 'the locked panel does not move in z')
+  click(env, WINDOW, 'close')
+  expect.equal(env.closeRequests, 1, 'the close button still works')
+  env.running:close()
+end)
+
+test('following the target curve and axis writes no properties entry', function()
+  local env = boot(false, true)
+  local file = 'panel-properties.saved'
+  local changes = 0
+  env.host:onPropertiesChanged(env.hostContext, {
+    run = function(): ()
+      changes += 1
+    end,
+  })
+  env.panel:setCurve(0.5, math.pi / 4, true)
+  env.running:step()
+  env.running:step()
+  local writes = env.running.native.events.fileWrites[file] or 0
+  expect.truthy(writes >= 1, 'the native commit saved the properties')
+  expect.equal(changes, 0, 'a native commit is not a toolkit properties change')
+  for _ = 1, 4 do
+    env.running:step()
+  end
+  expect.equal(env.running.native.events.fileWrites[file], writes, 'the titlebar follow writes nothing')
+  expect.equal(changes, 0, 'the non-committing follow announces no toolkit change')
+  local followed = false
+  for _, entry in env.host:panels() do
+    if entry.panel.name == WINDOW then
+      followed = true
+      expect.near(entry.panel:curve(), 0.5, 1e-9, 'the titlebar follows the curve')
+      expect.near(entry.panel:curveAxis(), math.pi / 4, 1e-9, 'and the axis')
+    end
+  end
+  expect.truthy(followed, 'the titlebar is a live panel')
+  env.running:close()
+end)
+
+test('a window titlebar Settings offers the axis and a negative bend', function()
+  local env = boot()
+  env.running:step()
+  env.running:step()
+  clickNode(env, WINDOW, 'settings/gear')
+  env.running:step()
+  env.running:step()
+  local axis = node(env, WINDOW, 'settings/popup/body/axis/track')
+  expect.falsy(axis.props.disabled, 'the native axis is enabled')
+  expect.equal(axis.props.disabledReason, nil, 'the axis has no disabled reason')
+  expect.truthy(axis.props.negatable, 'the axis offers the opposite sign')
+  local bend = node(env, WINDOW, 'settings/popup/body/bend/track')
+  expect.equal(bend.props.min, 0, 'the bend dial starts at flat')
+  expect.truthy(bend.props.negatable, 'the bend offers the opposite sign')
+  expect.equal(env.host:find(`{WINDOW}:header/band/settings/popup/body/axis-reason`), nil, 'no reason is shown')
+  env.running:close()
+end)
+
+test('a window and monitor titlebar turn the target axis', function()
+  local env = boot(false, true)
+  env.running:step()
+  env.running:step()
+  local file = 'panel-properties.saved'
+  for _, entry in { { titlebar = WINDOW, panel = env.panel }, { titlebar = MONITOR, panel = env.mirror } } do
+    clickNode(env, entry.titlebar, 'settings/gear')
+    env.running:step()
+    env.running:step()
+    local track = node(env, entry.titlebar, 'settings/popup/body/axis/track')
+    track.props.onPreview(45)
+    env.running:step()
+    expect.near(entry.panel.curveAxis, math.rad(45), 1e-9, 'the preview turns the axis')
+    local writes = env.running.native.events.fileWrites[file] or 0
+    track.props.onFinish(45)
+    env.running:step()
+    expect.near(entry.panel.curveAxis, math.rad(45), 1e-9, 'the commit turns the axis')
+    expect.equal((env.running.native.events.fileWrites[file] or 0), writes + 1, 'the commit saves once')
+    clickNode(env, entry.titlebar, 'settings/gear')
+    env.running:step()
+  end
+  env.running:close()
+end)
+
+test("a tilted panel's read-out uses the panel's axis", function()
+  local context = {
+    active = function(): boolean
+      return true
+    end,
+  } :: any
+  local target = {
+    kind = 'window',
+    source = { title = 'Fixture', dead = false },
+    dead = false,
+    locked = false,
+    transformLocked = false,
+    curve = 1,
+    curveAxis = math.pi / 4,
+    width = 2,
+    height = 2,
+    setCurve = function() end,
+    setLocked = function() end,
+    setTransformLocked = function() end,
+  } :: any
+  local properties = assert(controls.options(context, target, nil, function() end).properties)
+  local bend = properties.bend()
+  expect.near(bend.axis, math.pi / 4, 1e-9, 'the bend reports the panel axis')
+  local shown = curvature.read(bend)
+  local withAxis = math.deg(bend.curve * curved.across(2, 2, math.pi / 4) / 2)
+  local withVertical = math.deg(bend.curve * curved.across(2, 2, 0) / 2)
+  expect.near(shown.bend, withAxis, 1e-9, 'the read-out uses the across-axis extent')
+  expect.truthy(math.abs(withAxis - withVertical) > 1, 'the axis changes the read-out')
+end)
+
+test('a tilted controller clamps with the across-axis extent', function()
+  local context = {
+    active = function(): boolean
+      return true
+    end,
+  } :: any
+  local target = {
+    kind = 'window',
+    source = { title = 'Fixture', dead = false },
+    dead = false,
+    locked = false,
+    transformLocked = false,
+    curve = 4,
+    curveAxis = math.pi / 4,
+    width = 2,
+    height = 2,
+    setCurve = function() end,
+    setLocked = function() end,
+    setTransformLocked = function() end,
+  } :: any
+  local properties = assert(controls.options(context, target, nil, function() end).properties)
+  local expected = curved.curvature(2, 2, 4, math.pi / 4)
+  expect.near(properties.bend().curve, expected, 1e-9, 'the clamp uses the across-axis extent')
+  expect.truthy(expected < math.pi, 'the tilted extent clamps tighter than the width alone')
+end)
+
+test('opening and closing Settings on an over-limit tilted panel leaves the stored values untouched', function()
+  local env = boot()
+  env.panel:setCurve(100, math.pi / 4, true)
+  env.running:step()
+  env.running:step()
+  clickNode(env, WINDOW, 'settings/gear')
+  env.running:step()
+  env.running:step()
+  clickNode(env, WINDOW, 'settings/gear')
+  env.running:step()
+  expect.near(env.panel.curve, 100, 1e-9, 'the stored curve is untouched')
+  expect.near(env.panel.curveAxis, math.pi / 4, 1e-9, 'the stored axis is untouched')
+  env.running:close()
+end)
+
+test('committing the displayed bend lowers an over-limit stored curve to the drawn limit', function()
+  local env = boot()
+  env.panel:setCurve(100, 0, true)
+  env.running:step()
+  env.running:step()
+  clickNode(env, WINDOW, 'settings/gear')
+  env.running:step()
+  env.running:step()
+  local bend = node(env, WINDOW, 'settings/popup/body/bend/track')
+  bend.props.onFinish(bend.props.value)
+  env.running:step()
+  expect.truthy(env.panel.curve < 100, 'the commit lowers the stored curve')
+  expect.near(
+    env.panel.curve,
+    curvature.curve(bend.props.value, 0, env.panel.width, env.panel.height),
+    1e-9,
+    'to the displayed arc'
+  )
   env.running:close()
 end)
 

@@ -13,6 +13,7 @@ local vocabulary = require '@lunette-contracts/vocabulary'
 local frame = require './frame'
 local silhouette = require './silhouette'
 local children = require './children'
+local curved = require '@lunette-plugins/graphics/curved-surface'
 
 local panel = {}
 
@@ -37,6 +38,10 @@ export type Host = {
   -- Called once a panel is dead and its claim released.
   read removed: (State) -> (),
   read lockChanged: (State) -> (),
+  read curveChanged: (State) -> (),
+  read transformLockChanged: (State) -> (),
+  -- Whether the headset composites curved layers, cached once per update.
+  read layerCurve: () -> boolean,
 }
 
 type Override = {
@@ -55,8 +60,14 @@ type PanelData = {
   title: string?,
   chrome: boolean,
   curve: number,
+  curveAxis: number,
+  curveExplicit: boolean,
+  curveAxisExplicit: boolean,
   hidden: boolean,
   locked: boolean,
+  lockedExplicit: boolean,
+  transformLocked: boolean,
+  transformLockedExplicit: boolean,
   highlighted: boolean,
   granted: boolean,
   dead: boolean,
@@ -68,6 +79,7 @@ type PanelData = {
   mesh: Mesh?,
   meshKey: string?,
   meshCurve: number?,
+  meshCurveAxis: number?,
   meshTransform: string?,
   meshCrop: string?,
   outline: drawing.Outline?,
@@ -88,6 +100,8 @@ type PanelMethods = {
   read draw: (Panel, Pass) -> (),
   read setHidden: (Panel, Owner, boolean) -> plugin.Effect,
   read setLocked: (Panel, Owner, boolean) -> boolean,
+  read setCurve: (Panel, number, number?, boolean?) -> boolean,
+  read setTransformLocked: (Panel, Owner, boolean) -> boolean,
   read close: (Panel, Owner) -> boolean,
   read destroy: (Panel, Owner) -> boolean,
 }
@@ -97,10 +111,18 @@ export type Source =
 export type State = PanelData & PanelMethods & Source
 
 local function checkCurve(curve: unknown, level: number): number
-  if type(curve) ~= 'number' or curve ~= curve or curve < 0 or curve == math.huge then
-    error('panels: a curve is a finite number, zero or more, not ' .. tostring(curve), level)
+  if type(curve) ~= 'number' or curve ~= curve or math.abs(curve) == math.huge then
+    error('panels: a curve is a finite number, not ' .. tostring(curve), level)
   end
   return curve :: number
+end
+
+-- The axis is stored canonically, so equivalent angles compare and persist as one value.
+local function checkAxis(axis: unknown, level: number): number
+  if type(axis) ~= 'number' or axis ~= axis or math.abs(axis) == math.huge then
+    error('panels: a curve axis is a finite angle, not ' .. tostring(axis), level)
+  end
+  return curved.normalizeAxis(axis :: number)
 end
 
 function panel.new(host: Host, owner: Owner, source: Source, options: Options?): State
@@ -111,7 +133,11 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
   if settings.locked ~= nil and type(settings.locked) ~= 'boolean' then
     error('panels: locked is a boolean, not a ' .. type(settings.locked), 4)
   end
+  if settings.transformLocked ~= nil and type(settings.transformLocked) ~= 'boolean' then
+    error('panels: transformLocked is a boolean, not a ' .. type(settings.transformLocked), 4)
+  end
   local curve = checkCurve(if settings.curve == nil then 0 else settings.curve, 4)
+  local curveAxis = checkAxis(if settings.curveAxis == nil then 0 else settings.curveAxis, 4)
   local created: State
   local exposed: PanelMethods = {
     attachFrame = function(
@@ -167,7 +193,7 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
           pass:setColor(1, 1, 1, 1)
           if created.granted then
             local previous = created.mesh
-            created.mesh, created.meshKey = nil, nil
+            created.mesh, created.meshKey, created.meshCurveAxis = nil, nil, nil
             if previous then
               previous:release()
             end
@@ -215,6 +241,39 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
       host.lockChanged(created)
       return true
     end,
+    setCurve = function(_self: Panel, curve: number, axis: number?, commit: boolean?): boolean
+      local value = checkCurve(curve, 2)
+      local angle = if axis == nil then created.curveAxis else checkAxis(axis, 2)
+      if created.dead then
+        return false
+      end
+      local changed = created.curve ~= value or created.curveAxis ~= angle
+      -- A commit notifies even when the value is unchanged; a preview of the same value does nothing.
+      if not changed and commit ~= true then
+        return false
+      end
+      created.curve, created.curveAxis = value, angle
+      -- The next update re-decides whether the layer or the scene draws the curve.
+      if created.claim then
+        layer.release(created)
+      end
+      if commit == true then
+        host.curveChanged(created)
+      end
+      return true
+    end,
+    setTransformLocked = function(_self: Panel, caller: Owner, locked: boolean): boolean
+      if type(locked) ~= 'boolean' then
+        error('panels setTransformLocked: transformLocked is a boolean, not a ' .. type(locked), 2)
+      end
+      host.checkOwner(caller)
+      if created.dead or created.source.dead or created.transformLocked == locked then
+        return false
+      end
+      created.transformLocked = locked
+      host.transformLockChanged(created)
+      return true
+    end,
     close = function(_self: Panel, caller: Owner): boolean
       if created.dead or created.source.dead then
         return false
@@ -252,8 +311,14 @@ function panel.new(host: Host, owner: Owner, source: Source, options: Options?):
     title = settings.title,
     chrome = chrome,
     curve = curve,
+    curveAxis = curveAxis,
+    curveExplicit = settings.curve ~= nil,
+    curveAxisExplicit = settings.curveAxis ~= nil,
     hidden = false,
     locked = settings.locked == true,
+    lockedExplicit = settings.locked ~= nil,
+    transformLocked = settings.transformLocked == true,
+    transformLockedExplicit = settings.transformLocked ~= nil,
     highlighted = false,
     granted = false,
     dead = false,
@@ -284,7 +349,7 @@ function panel.release(target: State): boolean
   table.clear(target.overrides)
   target.hidden = false
   local mesh = target.mesh
-  target.mesh, target.meshKey = nil, nil
+  target.mesh, target.meshKey, target.meshCurveAxis = nil, nil, nil
   local operations: { () -> () } = {
     function(): ()
       frame.clear(target)
@@ -458,7 +523,7 @@ function panel.resize(target: State, width: number?, height: number?)
   target.sourceAspect = aspect
 end
 
--- The flat quad, or the arc a positive curve gives.
+-- The flat quad, or the arc a nonzero curve gives.
 function panel.raycast(
   target: State,
   origin: vector,
@@ -485,6 +550,7 @@ function panel.raycast(
     pixelHeight = pixelHeight,
     backFace = backFace,
     curve = target.curve,
+    curveAxis = target.curveAxis,
   }, origin, direction)
 end
 
@@ -494,6 +560,17 @@ end
 function panel.claim(target: State)
   if target.dead or target.hidden or target.source.dead or target.host.settings.rendering ~= 'layer' then
     return
+  end
+  -- The layer holds an untilted positive curve, and a flat window whatever its axis. A negative or tilted curve,
+  -- or a compositor without cylinder layers, draws in the scene.
+  if target.kind == 'window' then
+    local curve, axis = target.curve, target.curveAxis
+    if curve < 0 or (curve > 0 and (axis ~= 0 or not target.host.layerCurve())) then
+      if target.claim then
+        layer.release(target)
+      end
+      return
+    end
   end
   local described: drawing.Source = target
   if described.kind == 'window' and #described.source:getChildSurfaces() > 0 then
@@ -548,13 +625,18 @@ function panel.update(target: State)
   if target.kind ~= 'window' or target.host.settings.rendering ~= 'layer' then
     return
   end
+  -- A flat window is driven with a flat layer whatever its axis; a curved one only when it is untilted.
+  if target.curve < 0 or (target.curve > 0 and target.curveAxis ~= 0) then
+    return
+  end
   local textureWidth, textureHeight = panel.textureSize(target)
   if textureWidth and textureHeight then
     layer.drive(target, cropViewport(target, textureWidth, textureHeight), function(held: Layer): ()
       held:setPosition(target.pose:getPosition())
       held:setOrientation(target.pose:getOrientation())
       held:setDimensions(target.width, target.height)
-      held:setCurve(target.curve)
+      -- One shared clamp serves the layer, the hit test, and the scene mesh.
+      held:setCurve(curved.curvature(target.width, target.height, target.curve, target.curveAxis))
     end)
   end
 end

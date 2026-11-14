@@ -371,6 +371,7 @@ function scene.prepareEpoch(stable: any): any
       pixelWidth = 1000,
       pixelHeight = 700,
       curve = if index % 2 == 0 then 0.8 else 0,
+      curveAxis = 0,
       dead = false,
       pickPriority = index % 3,
     }

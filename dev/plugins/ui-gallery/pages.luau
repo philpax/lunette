@@ -220,6 +220,9 @@ local Values = ui.component('Values', function(): ui.Child
   local c = ui.useComponents()
   local response, setResponse = ui.useState(0.75)
   local volume, setVolume = ui.useState(-12)
+  local yaw, setYaw = ui.useState(45)
+  local pitch, setPitch = ui.useState(-22.5)
+  local free, setFree = ui.useState(30)
   local name, setName = ui.useState 'Living room desk'
   local width, setWidth = ui.useState '1.9'
   local position, setPosition = ui.useState { x = '0.40', y = '1.25', z = '-0.80' }
@@ -265,6 +268,54 @@ local Values = ui.component('Values', function(): ui.Child
         },
       c.Text { key = 'position-label', text = 'Position', style = 'label' },
       c.Row { key = 'position', gap = 'sm', axis 'x', axis 'y', axis 'z' },
+    },
+    c.Section {
+      key = 'angles',
+      title = 'Angles',
+      c.Angle {
+        key = 'yaw',
+        label = 'Yaw',
+        value = yaw,
+        min = 0,
+        max = 180,
+        snap = 22.5,
+        negatable = true,
+        unit = '°',
+        onChange = setYaw,
+      },
+      c.Angle {
+        key = 'pitch',
+        label = 'Pitch',
+        value = pitch,
+        min = 0,
+        max = 90,
+        snap = 15,
+        negatable = true,
+        unit = '°',
+        onChange = setPitch,
+      },
+      c.Angle {
+        key = 'free',
+        label = 'Free',
+        value = free,
+        min = 0,
+        max = 180,
+        negatable = true,
+        unit = '°',
+        format = '%.0f',
+        onChange = setFree,
+      },
+      c.Angle {
+        key = 'locked',
+        label = 'Tilt',
+        value = 22.5,
+        min = 0,
+        max = 180,
+        snap = 22.5,
+        negatable = true,
+        unit = '°',
+        disabledReason = 'Tilt is fixed by the mount.',
+      },
     },
     c.Section {
       key = 'sliders',

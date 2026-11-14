@@ -7,6 +7,7 @@ local lunette = require '@lunette'
 local inspection = require '@lunette-contracts/inspection'
 local vocabulary = require '@lunette-contracts/vocabulary'
 local theme = require '@lunette-contracts/theme'
+local panelProperties = require '@lunette-contracts/panel-properties'
 
 local uiHost = {}
 
@@ -39,8 +40,9 @@ export type Element = {
 -- The host's portal kind, 'lunette/portal', renders its children into an overlay panel raised above the portal's
 -- parent, which it uses as the anchor. Its props are `placement` ('below' or 'above', flipping when the overlay does
 -- not fit), `matchWidth` to take at least the anchor's width, `hit` (false for an overlay that takes no input),
--- `onDismiss`, which runs on a press outside the overlay and its opener, and `handoff`, which moves a ray press held
--- inside the parent onto the new overlay so the press can be released on an item there.
+-- `onDismiss`, which runs on a press outside the overlay and its opener, `handoff`, which moves a ray press held
+-- inside the parent onto the new overlay so the press can be released on an item there, and `sticky`, which parents
+-- the overlay to its opener so it keeps the local pose it opened at until it is dismissed.
 
 -- A child of an element constructor: nil and false hold their position, and arrays flatten in place.
 export type Child = Element | { read [number]: Child } | false | nil
@@ -221,10 +223,30 @@ export type Layout =
     read textStyle: (props: Props, theme: Theme) -> lunette.LayoutTextStyle,
   }
 
--- Actions are plain functions, so a composite's callbacks can close over them.
+-- The bend the panel is drawn at: the curve it was given, clamped by the shared half-turn limit, and the axis.
+export type Bend = {
+  read curve: number,
+  read axis: number,
+  read width: number,
+  read height: number,
+}
+
+-- Actions are plain functions, so a composite's callbacks can close over them. The property actions read and write
+-- the panel the node is in; a commit notifies the properties listeners, and a preview does not.
 export type Actions = {
   read setState: ({ [string]: any } | ({ read [string]: any }) -> { [string]: any }) -> (),
   read emit: (string, ...any) -> (),
+  read bend: () -> Bend,
+  -- The stored curve and axis before the half-turn clamp, so a control can restore exactly what it found.
+  read curve: () -> number,
+  read curveAxis: () -> number,
+  read setCurve: (number, number?, boolean?) -> (),
+  read locked: () -> boolean,
+  read setLocked: (boolean, boolean?) -> (),
+  read transformLocked: () -> boolean,
+  read setTransformLocked: (boolean, boolean?) -> (),
+  -- Whether the transform lock can apply: a dialog or follow panel has no placement a grab can move.
+  read transformAvailable: () -> boolean,
 }
 
 export type Role =
@@ -300,6 +322,9 @@ export type KindRegistration = {
   -- A composite kind expands into other elements instead of drawing. An override's expansion receives the
   -- expansion beneath it as `base`.
   read expand: Expand?,
+  -- A node that stays usable while its panel's input lock is on, such as a panel's own header band. Content is
+  -- locked; a header that carries the Settings control must stay reachable, or the panel could not be unlocked.
+  read lockFree: boolean?,
 }
 
 export type Expand = (
@@ -394,6 +419,10 @@ export type PanelOptions = {
   read curve: number?,
   -- Radians the cylinder's axis turns anticlockwise from the panel's vertical; zero bends the panel's width.
   read curveAxis: number?,
+  -- The panel's content takes no input while the input lock is on; a node marked lockFree still does.
+  read locked: boolean?,
+  -- The pointer grab path refuses to move or resize the panel; its owner still poses and sizes it.
+  read transformLocked: boolean?,
   -- An attached panel sits above the top edge of a surface, such as a window panel, is at least as wide as it,
   -- growing to fit content that needs more, and moves it when grabbed; `gap` is metres between the two.
   read target: vocabulary.Surface?,
@@ -417,8 +446,18 @@ export type Panel = {
   -- Fades a visible panel toward an opacity from 0 to 1 with the theme's motion, or at once under reduced motion. A
   -- panel that is fading out, or that is nearly transparent, takes no pointer, touch, or focus input.
   read setOpacity: (Panel, number) -> (),
-  -- Sets the curve, and the axis when given.
-  read setCurve: (Panel, number, number?) -> (),
+  read curve: (Panel) -> number,
+  read curveAxis: (Panel) -> number,
+  -- Sets the curve, and the axis when given. A commit, the default, notifies the properties listeners; a preview
+  -- does not.
+  read setCurve: (Panel, number, number?, boolean?) -> (),
+  read locked: (Panel) -> boolean,
+  read setLocked: (Panel, boolean, boolean?) -> (),
+  read transformLocked: (Panel) -> boolean,
+  read setTransformLocked: (Panel, boolean, boolean?) -> (),
+  read grabbable: (Panel) -> boolean,
+  -- The shared value the properties store saves and restores.
+  read properties: (Panel) -> panelProperties.PanelProperties,
   -- Sets a fixed panel's size, or a content-sized panel's maximum, in metres.
   read setSize: (Panel, number?, number?) -> (),
   -- Whether the grip and a header's trigger drag move a world or attached panel.
@@ -434,6 +473,10 @@ export type Panel = {
 
 export type Service = {
   read newPanel: (Service, Owner, PanelOptions) -> Panel,
+  -- The live top-level panels and their creation options. Overlay panels have no handle and are excluded.
+  read panels: (Service) -> { PanelEntry },
+  read onPanelAdded: (Service, Owner, PanelAddedListener) -> plugin.Effect,
+  read onPropertiesChanged: (Service, Owner, PropertiesChangedListener) -> plugin.Effect,
   -- Hides every panel that is not essential, including panels made while it holds, until the effect is disposed or
   -- its owner ends. Hidden panels give up their focus and take no input.
   read hidePanels: (Service, Owner) -> plugin.Effect,
@@ -476,6 +519,23 @@ export type Service = {
   read findByRole: (Service, Role, string) -> Node?,
 }
 
+-- A listener for a top-level panel's arrival. Overlay panels have no public handle and are not announced.
+export type PanelAddedListener = {
+  read run: (Panel, PanelOptions) -> (),
+}
+
+-- A listener for a committed property change on a top-level panel: a curve or axis commit, or either lock toggle.
+export type PropertiesChangedListener = {
+  read run: (Panel) -> (),
+}
+
+-- A live top-level panel and the options it was made with, which tell whether its owner gave a property or left it
+-- for the properties store to fill.
+export type PanelEntry = {
+  read panel: Panel,
+  read options: PanelOptions,
+}
+
 export type AccessibilityOptions = {
   read textScale: number?,
   read highContrast: boolean?,
@@ -485,7 +545,7 @@ export type AccessibilityOptions = {
 
 export type Capability = plugin.Capability<Service>
 
-uiHost.capability = plugin.capability<<Service>> { name = 'lunette/ui-host', version = 1 }
+uiHost.capability = plugin.capability<<Service>> { name = 'lunette/ui-host', version = 2 }
 
 local function highest(list: { [any]: any }): number
   local count = 0

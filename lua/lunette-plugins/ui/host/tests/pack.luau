@@ -225,6 +225,10 @@ local function mixed(): any
   second[1].side = nil
   return {
     panel = {
+      width = 1,
+      height = 1,
+      curve = 0,
+      curveAxis = 0,
       root = root,
       fade = { value = 0.5 },
       opacity = { value = 1 },
@@ -484,6 +488,22 @@ test('a nested pack during glyph lookup cannot overwrite the outer invocation pl
     opacity = 0.125,
     kind = 'test/packed',
   }, 'outer volume')
+end)
+
+test('a curved panel lifts its content above the box grid chords', function()
+  local env = environment()
+  local tokens = env.theme()
+  local flat = { width = 1, height = 0.1, curve = 0, curveAxis = 0 }
+  expect.near(pack.contentLift(flat, tokens), tokens.elevation.contentOffset, 1e-12, 'a flat panel keeps the offset')
+  local vertical = { width = 1, height = 0.1, curve = 1.6, curveAxis = 0 }
+  local tilted = { width = 1, height = 0.1, curve = 1.6, curveAxis = math.pi / 4 }
+  local mirror = { width = 1, height = 0.1, curve = -1.6, curveAxis = 0 }
+  local verticalLift = pack.contentLift(vertical, tokens)
+  local tiltedLift = pack.contentLift(tilted, tokens)
+  expect.truthy(verticalLift > tokens.elevation.contentOffset, 'a curved panel lifts its content')
+  expect.truthy(tiltedLift > verticalLift, 'a tilted axis needs a greater lift')
+  expect.near(pack.contentLift(mirror, tokens), verticalLift, 1e-12, 'the sign does not change the lift')
+  expect.truthy(tiltedLift < tokens.elevation.contentOffset + 0.002, 'the lift stays small')
 end)
 
 return test

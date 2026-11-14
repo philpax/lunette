@@ -24,7 +24,7 @@ A node handle reports its centre's world pose and its layout bounds in node or p
 
 ## Surface shapes
 
-The host supports flat panels and a cylindrical curve, convex or concave, about any axis in the panel plane. Window and monitor panels remain concave about the vertical, because OpenXR cylinder layers are viewed from inside. It has no public `registerShape` API, GLSL-snippet registration, periodic surface coordinates, or shape-dependent adaptive tessellation. Window and monitor surfaces use their own panel implementation through the shared surface contract.
+The host supports flat panels and a cylindrical curve, convex or concave, about any axis in the panel plane. Window and monitor panels take the same signed curve and axis and draw in the scene when either is not the untilted positive case a cylinder composition layer holds. It has no public `registerShape` API, GLSL-snippet registration, periodic surface coordinates, or shape-dependent adaptive tessellation. Window and monitor surfaces use their own panel implementation through the shared surface contract.
 
 The renderer uses fixed subdivision for curved boxes. Drawing and hit conversion follow the same cylinder model, but the host does not guarantee exact agreement with each rendered mesh chord. [Rendering](rendering.md#curvature) states that approximation boundary.
 
