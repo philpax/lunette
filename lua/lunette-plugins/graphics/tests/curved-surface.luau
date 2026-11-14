@@ -65,6 +65,74 @@ test('the frame follows the arc and turns about the axis', function()
   expect.near(ez, radius - radius * math.cos(angle), 1e-6, 'the edge z')
 end)
 
+test('point and frame agree for flat, signed, and tilted surfaces', function()
+  local points = { { 0, 0 }, { 1, 0.5 }, { 2, 1 }, { 0.25, 0.75 } }
+  for _, axis in { 0, math.pi / 4, math.pi / 2 } do
+    for _, curve in { 0, 1, -1 } do
+      local bent = surface(2, 1, curve, axis)
+      for _, at in points do
+        local where = `curve {curve}, axis {axis}, point {at[1]},{at[2]}`
+        local px, py, pz, nx, ny, nz = curved.point(bent, at[1], at[2])
+        local frame = curved.frame(bent, at[1], at[2], 0)
+        local fx, fy, fz = frame:getPosition()
+        -- LÖVR matrices hold single-precision floats, so the frame agrees with the closed form to that precision.
+        expect.near(fx, px, 1e-6, where .. ': x')
+        expect.near(fy, py, 1e-6, where .. ': y')
+        expect.near(fz, pz, 1e-6, where .. ': z')
+        local dx, dy, dz = frame:mul(0, 0, 1, 0)
+        expect.near(dx, nx, 1e-6, where .. ': normal x')
+        expect.near(dy, ny, 1e-6, where .. ': normal y')
+        expect.near(dz, nz, 1e-6, where .. ': normal z')
+        expect.near(math.sqrt(nx * nx + ny * ny + nz * nz), 1, 1e-9, where .. ': unit normal')
+      end
+    end
+  end
+end)
+
+test('a flat surface ignores its axis', function()
+  for _, axis in { 0, math.pi / 4, math.pi / 2 } do
+    local flat = surface(2, 1, 0, axis)
+    local x, y, z, nx, ny, nz = curved.point(flat, 1.5, 0.25)
+    expect.near(x, 0.5, 1e-9, 'the plane x')
+    expect.near(y, 0.25, 1e-9, 'the plane y')
+    expect.near(z, 0, 1e-9, 'the plane z')
+    expect.equal(nx, 0, 'the normal x')
+    expect.equal(ny, 0, 'the normal y')
+    expect.equal(nz, 1, 'the normal z')
+  end
+end)
+
+test('bend and panel coordinates round-trip', function()
+  local points = { { 0, 0 }, { 1, 0.5 }, { 2, 1 }, { -0.05, 1.05 } }
+  for _, axis in { 0, math.pi / 4, math.pi / 2 } do
+    for _, curve in { 0, 1, -1 } do
+      local bent = surface(2, 1, curve, axis)
+      for _, at in points do
+        local a, b = curved.bendOf(bent, at[1], at[2])
+        local u, v = curved.panelOf(bent, a, b)
+        expect.near(u, at[1], 1e-9, 'the panel u')
+        expect.near(v, at[2], 1e-9, 'the panel v')
+      end
+    end
+  end
+end)
+
+test('the axis normalises into the control range', function()
+  expect.equal(curved.normalizeAxis(0), 0, 'zero')
+  expect.near(curved.normalizeAxis(math.pi), math.pi, 1e-12, 'a half turn')
+  expect.near(curved.normalizeAxis(-math.pi), math.pi, 1e-12, 'a half turn from below')
+  expect.near(curved.normalizeAxis(math.pi + 0.1), -math.pi + 0.1, 1e-12, 'just past a half turn')
+  expect.near(curved.normalizeAxis(-math.pi - 0.1), math.pi - 0.1, 1e-12, 'just below a half turn')
+  expect.equal(curved.normalizeAxis(2 * math.pi), 0, 'a full turn')
+  expect.near(curved.normalizeAxis(5), 5 - 2 * math.pi, 1e-12, 'more than a half turn')
+  expect.raises(function()
+    curved.normalizeAxis(0 / 0)
+  end, nil, 'a NaN axis')
+  expect.raises(function()
+    curved.normalizeAxis(math.huge)
+  end, nil, 'an infinite axis')
+end)
+
 test('the half-turn clamp is the only limit on how far a panel wraps', function()
   local width, height = 2, 4
   expect.near(curved.across(width, height, 0), 2, 1e-9, 'the width across a vertical axis')

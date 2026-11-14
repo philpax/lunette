@@ -50,11 +50,55 @@ function curved.surface(width: number, height: number, curve: number, axis: numb
   }
 end
 
+-- An axis angle in radians, wrapped into (-pi, pi] so equivalent angles compare and persist canonically. A
+-- non-finite angle is a caller error.
+function curved.normalizeAxis(angle: number): number
+  assert(
+    type(angle) == 'number' and angle == angle and math.abs(angle) < math.huge,
+    'curved: an axis is a finite angle'
+  )
+  local wrapped = angle % (2 * HALF_TURN)
+  if wrapped > HALF_TURN then
+    wrapped -= 2 * HALF_TURN
+  elseif wrapped <= -HALF_TURN then
+    wrapped += 2 * HALF_TURN
+  end
+  return wrapped
+end
+
 -- Turns panel-frame x and y into the bend's frame, where the axis is vertical, or back with `back`.
 local function turn(axis: number, x: number, y: number, back: boolean?): (number, number)
   local angle = if back then -axis else axis
   local c, s = math.cos(angle), math.sin(angle)
   return c * x + s * y, -s * x + c * y
+end
+
+-- A point in panel coordinates in the bend's frame: `a` runs across the cylinder's axis, in the direction the
+-- curve bends, and `b` runs along the axis.
+function curved.bendOf(surface: Surface, u: number, v: number): (number, number)
+  return turn(surface.axis, u - surface.width / 2, surface.height / 2 - v)
+end
+
+-- The inverse of `curved.bendOf`: panel coordinates from the bend frame.
+function curved.panelOf(surface: Surface, a: number, b: number): (number, number)
+  local x, y = turn(surface.axis, a, b, true)
+  return x + surface.width / 2, surface.height / 2 - y
+end
+
+-- The position and outward unit normal, in the panel's frame, of a point at panel coordinates on the surface.
+function curved.point(surface: Surface, u: number, v: number): (number, number, number, number, number, number)
+  local width, height, axis = surface.width, surface.height, surface.axis
+  local x, y = u - width / 2, height / 2 - v
+  local curve = surface.curve
+  if curve == 0 then
+    return x, y, 0, 0, 0, 1
+  end
+  local bx, by = turn(axis, x, y)
+  local radius = 1 / curve
+  local angle = bx * curve
+  local px, py = turn(axis, radius * math.sin(angle), by, true)
+  local nx, ny = -math.cos(axis) * math.sin(angle), -math.sin(axis) * math.sin(angle)
+  return px, py, radius - radius * math.cos(angle), nx, ny, math.cos(angle)
 end
 
 -- Maps a point in the panel's frame to panel coordinates and a height above the surface along its normal. Panel
