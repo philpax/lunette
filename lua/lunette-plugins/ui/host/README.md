@@ -10,6 +10,12 @@ Panels and registrations end with their creation owners or the host. A caller ca
 
 A grabbable world panel opens at its saved resting pose when one exists under its name in the host's `placed` saved setting. A panel posed by its caller each frame disables grabbing. Forgetting `placed` in the runtime manager returns panels to their caller-supplied poses. This is pose persistence, not maintained arrangements, which remain deferred in [#71](https://github.com/philpax/lunette/issues/71).
 
+## Properties and content lock
+
+A panel publishes its curve, axis, input lock, transform lock, and shared `PanelProperties` value. A composite reads and writes them through its actions; a commit notifies the host's properties listeners and a preview does not. The surface carries the transform lock, so the shared grab path refuses to move or resize a locked panel, but not the input lock: a surface-level input lock would also block the header that carries the Settings control.
+
+The input lock refuses content pointers, scrolls, touches, and focus. A node with a `lockFree` ancestor, such as the standard header band, and a separately mounted Settings overlay stay usable, so a locked panel can always be unlocked. Engaging the lock cancels content presses in flight, blurs focused content, and resets a touching hand; a trigger press on a locked header can still start a spatial grab. Only top-level panels have public handles, so the properties store sees world panels and never an overlay.
+
 ## Contributions and overrides
 
 Outlets bind owner-scoped contributions once per placement, with separate state and effects. They render after the panel root, in the outlet's order or by contributor name. Incompatible versions and conflicting declarations are rejected. Contribution failures are attributed to their owner without stopping the rest of the panel. Attributed outlets frame and clip each contribution and name the contributing plugin.
@@ -24,7 +30,7 @@ A caller mutates mode or accent through the theme service it explicitly requires
 
 Rays arrive through the shared surfaces and interaction services. Fingertip touch reports the hand as near so its idle ray stands down. Press captures a node; release activates only inside that node without a drag, and cancellation never activates. Kind overrides preserve matching capture. Keys reach the focused node, and unconsumed keys can drive traversal. Focusing a text field by pointing, traversal, or a focus request takes session focus and requests the shared keyboard. Controller traversal works while no ray points at a host panel.
 
-A portal creates a separate overlay anchored to its opener. Outside presses dismiss overlays, and an explicit handoff lets a held ray press release on an overlay item. On a curved opener, the overlay stays flat and tangent at its centre rather than curving concentrically.
+An attached panel sits on its target surface's top edge, tangent to the target's curve and axis, so bending or tilting the target carries the panel with it. A portal creates a separate overlay anchored to its opener. Outside presses dismiss overlays, and an explicit handoff lets a held ray press release on an overlay item. On a curved opener, the overlay stays flat and tangent at its centre rather than curving concentrically. A sticky portal is parented to the panel behind its opener, or to its opener when there is none: it keeps the local pose it opened at, so moving or turning that panel carries it along while a bend that only moves the opener's surface neither moves nor turns it. It still follows the opener's visibility and is dismissed as usual.
 
 Commits run once per frame in the scene update. Changes made during pointing render on the next frame. Mount completion is a boolean query, not a callback, and the authoring library's effect hooks run after submission but before layout. There is no post-layout adapter or same-frame reconciliation after input.
 

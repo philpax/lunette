@@ -44,6 +44,13 @@ export type Hand = {
   untracked: number,
 }
 
+-- Forgets a hand's hover and press without reporting either, as when its panel's input lock cancels content.
+function poke.reset(hand: Hand): ()
+  hand.panel, hand.pressed, hand.armed, hand.released = nil, false, false, false
+  hand.deepest, hand.shallowest, hand.untracked = 0, 0, 0
+  table.clear(hand.previous)
+end
+
 function poke.new(): Hand
   return {
     panel = nil,

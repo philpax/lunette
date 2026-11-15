@@ -4,6 +4,7 @@ local lunette = require '@lunette'
 local uiHost = require '@lunette-contracts/ui-host'
 local records = require './records'
 local shape = require './shape'
+local curved = require '@lunette-plugins/graphics/curved-surface'
 
 local handles = {}
 
@@ -242,12 +243,46 @@ function handles.refreshBounds(node: records.Node): ()
 end
 
 function handles.actions(node: records.Node): uiHost.Actions
+  local panel = node.panel
   return {
     setState = function(update: any): ()
       handles.setState(node, update)
     end,
     emit = function(name: string, ...: any): ()
       node.handle:emit(name, ...)
+    end,
+    bend = function(): uiHost.Bend
+      return {
+        curve = curved.curvature(panel.width, panel.height, panel.curve, panel.curveAxis),
+        axis = panel.curveAxis,
+        width = panel.width,
+        height = panel.height,
+      }
+    end,
+    curve = function(): number
+      return panel.curve
+    end,
+    curveAxis = function(): number
+      return panel.curveAxis
+    end,
+    setCurve = function(curve: number, axis: number?, commit: boolean?): ()
+      panel.setCurve(panel, curve, axis, if commit == nil then true else commit)
+    end,
+    locked = function(): boolean
+      return panel.locked
+    end,
+    setLocked = function(locked: boolean, commit: boolean?): ()
+      panel.setLocked(panel, locked, if commit == nil then true else commit)
+    end,
+    transformLocked = function(): boolean
+      return panel.transformLocked
+    end,
+    setTransformLocked = function(locked: boolean, commit: boolean?): ()
+      panel.setTransformLocked(panel, locked, if commit == nil then true else commit)
+    end,
+    -- A world or attached panel has placement a grab moves; a dialog or follow panel has none.
+    transformAvailable = function(): boolean
+      return panel.grabbable
     end,
   }
 end

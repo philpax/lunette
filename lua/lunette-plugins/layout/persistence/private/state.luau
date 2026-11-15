@@ -7,11 +7,14 @@ local arrangementContract = require '@lunette-contracts/arrangement'
 local panelsContract = require '@lunette-contracts/panels'
 local rulesContract = require '@lunette-contracts/rules'
 local tagsContract = require '@lunette-contracts/tags'
+local frameContract = require '@lunette-contracts/frame'
+local uiHostContract = require '@lunette-contracts/ui-host'
 local vocabulary = require '@lunette-contracts/vocabulary'
 local format = require './format'
 local logging = require '@lunette-plugins/diagnostics/desktop-logging'
 local slots = require './slots'
 local capture = require './capture'
+local properties = require './properties'
 
 local state = {}
 
@@ -21,7 +24,9 @@ export type State = {
     plugin.Context,
     panelsContract.Service,
     tagsContract.Service,
-    rulesContract.Service
+    rulesContract.Service,
+    frameContract.Service,
+    (() -> plugin.Connection<uiHostContract.Service>?)?
   ) -> arrangementContract.Service,
 }
 
@@ -35,12 +40,15 @@ function state.new(file: string): State
   local path = lovr.filesystem.getSaveDirectory() .. '/' .. file
   local text: string? = lovr.filesystem.read(file)
   local arrangement: format.File = { entries = {} }
+  -- The file as first loaded, kept for the properties store's version 1 and 2 input-lock migration.
+  local loadedFile: format.File = { entries = {} }
   -- A refused file is left alone: saving over it would discard what this version cannot read.
   local declined: string? = nil
   if text then
     local loaded = format.read(text)
     if loaded.kind == 'arrangement' then
       arrangement = loaded.file
+      loadedFile = loaded.file
       for _, message in ipairs(loaded.skipped) do
         report(message)
       end
@@ -59,6 +67,18 @@ function state.new(file: string): State
   end
   -- Held slots keep live windows on their slots across provider outages.
   local held = slots.new()
+  local store = properties.new {
+    loaded = loadedFile.entries,
+    held = held,
+    declined = function(): string?
+      return declined
+    end,
+    refuse = function(message: string): ()
+      declined = message
+      report(message)
+    end,
+    report = report,
+  }
 
   -- Each unmatched entry is reported once per loaded or saved arrangement.
   local reportedStale: { [format.Entry]: boolean } = setmetatable({} :: { [format.Entry]: boolean }, { __mode = 'k' })
@@ -74,16 +94,18 @@ function state.new(file: string): State
     return result
   end
   local function restore(context: plugin.Context, panels: panelsContract.Service, tags: tagsContract.Service): number
-    return applyingSaved(function(): number
-      local restored, stale = capture.restore(held, context, panels, tags, arrangement)
+    local restored = applyingSaved(function(): number
+      local matched, stale = capture.restore(held, context, panels, tags, arrangement)
       for _, entry in ipairs(stale) do
         if not reportedStale[entry] then
           reportedStale[entry] = true
           report('nothing matched the saved ' .. entry.kind .. " '" .. entry.key .. "'")
         end
       end
-      return #restored
+      return #matched
     end)
+    store:restore()
+    return restored
   end
 
   return {
@@ -92,8 +114,11 @@ function state.new(file: string): State
       context: plugin.Context,
       panels: panelsContract.Service,
       tags: tagsContract.Service,
-      rules: rulesContract.Service
+      rules: rulesContract.Service,
+      frame: frameContract.Service,
+      uiHostGetter: (() -> plugin.Connection<uiHostContract.Service>?)?
     ): arrangementContract.Service
+      store:bind(context, panels, frame, uiHostGetter)
       rules:addSource(context, {
         name = 'desktop.persist',
         precedence = vocabulary.PRECEDENCE.persisted,
@@ -117,6 +142,12 @@ function state.new(file: string): State
         if declined then
           return false, declined
         end
+        -- Properties are written before the arrangement, so a version 3 file never replaces a version 2 file whose
+        -- input locks the properties store has not saved.
+        local stored, storeMessage = store:save()
+        if not stored then
+          return false, storeMessage
+        end
         -- Retain the latest capture for restore and retry even when persistence fails.
         arrangement = capture.merge(arrangement, capture.capture(held, panels, tags))
         local written, failure =
@@ -126,18 +157,6 @@ function state.new(file: string): State
         end
         return true, nil
       end
-      panels:onLockChanged(context, {
-        run = function(_target: panelsContract.Panel): ()
-          -- Restore events must not replace entries with partially restored panel state.
-          if applying then
-            return
-          end
-          local written, message = save()
-          if not written and message then
-            report(message)
-          end
-        end,
-      })
       return {
         save = function(_service: arrangementContract.Service): (boolean, string?)
           return save()

@@ -197,7 +197,8 @@ local function build(context: plugin.Context, settings: Settings): Service
   end
 
   local function beginGrab(state: State, pointer: Pointer, target: Surface, pose: Mat4?): boolean
-    if not live(state) or target.dead or not pose or not target.setPose then
+    -- Every caller passes here, so a transform-locked surface refuses a grab even through a direct pointer call.
+    if not live(state) or target.dead or target.transformLocked == true or not pose or not target.setPose then
       return false
     end
     local inverses = input.detach(state, pointer, nil, 'grab', false)
@@ -245,6 +246,17 @@ local function build(context: plugin.Context, settings: Settings): Service
     local gripped, grabbed = frame.grip, state.grabbed
     if grabbed then
       state.gripped = gripped
+      -- A transform lock that engages mid-grab ends it rather than continue moving a panel the user cannot move.
+      if grabbed.transformLocked == true then
+        if if state.grabInput == 'trigger' then sample.held.left == true else gripped then
+          state.blocked.left = true
+        end
+        local detach = carrying.detachGrab(state, pointer)
+        if detach then
+          cleanup.run(CLEANUP, { detach })
+        end
+        return
+      end
       local held = if state.grabInput == 'trigger' then sample.held.left == true else gripped
       if grabbed.dead or not held or not offeredSet[grabbed] then
         local releases = input.releases(state, pointer, sample)
@@ -302,8 +314,13 @@ local function build(context: plugin.Context, settings: Settings): Service
         return
       end
     end
+    -- A transform lock refuses grip, titlebar trigger drags, and two-handed resize from both the hit surface and the
+    -- surface the grab would move.
+    local transformLocked = (hit ~= nil and hit.transformLocked == true)
+      or (grabTarget ~= nil and grabTarget.transformLocked == true)
     if
       (startingGrab or triggerGrab)
+      and not transformLocked
       and grabTarget
       and offeredSet[grabTarget]
       and beginGrab(state, pointer, grabTarget, frame.pose)

@@ -28,6 +28,6 @@ export type Service = {
 
 export type Capability = plugin.Capability<Service>
 
-drops.capability = plugin.capability<<Service>> { name = 'lunette/drops', version = 2 }
+drops.capability = plugin.capability<<Service>> { name = 'lunette/drops', version = 3 }
 
 return drops

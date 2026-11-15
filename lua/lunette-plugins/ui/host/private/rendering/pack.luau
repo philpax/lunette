@@ -6,6 +6,7 @@ local uiHost = require '@lunette-contracts/ui-host'
 local records = require '../records'
 local record = require './record'
 local shader = require './shader'
+local curved = require '@lunette-plugins/graphics/curved-surface'
 
 local pack = {}
 
@@ -51,6 +52,25 @@ export type Packed = {
   images: { ImageRun },
   volumes: { VolumeRun },
 }
+
+-- The grid chords of a curved box rise above the ideal cylinder between samples. Lift text and images by the
+-- greatest rise over a panel-sized box, so they do not sink into the box beneath them once the curve is strong or
+-- the axis is tilted; the fixed elevation offset alone does not cover it.
+function pack.contentLift(panel: records.Panel, theme: uiHost.Theme): number
+  local offset = theme.elevation.contentOffset
+  local width, height = panel.width or 0, panel.height or 0
+  local curve, axis = panel.curve or 0, panel.curveAxis or 0
+  local drawn = curved.curvature(width, height, curve, axis)
+  if drawn == 0 then
+    return offset
+  end
+  local across, along = math.abs(math.cos(axis)), math.abs(math.sin(axis))
+  -- The grid is divided once across for a vertical or horizontal axis, and both ways for a tilted one.
+  local divisions = if across < 1e-6 or along < 1e-6 then 32 else 16
+  local cell = (across * width + along * height) / divisions
+  local radius = 1 / math.abs(drawn)
+  return offset + radius * (1 - math.cos(math.abs(drawn) * cell / 2))
+end
 
 local function intersect(clip: { number }, node: records.Node): { number }
   return {
@@ -130,7 +150,7 @@ function pack.run(
     data[slot + 17], data[slot + 18], data[slot + 19], data[slot + 20] = z, 0, 0, 0
   end
   local tokens = env.theme()
-  local contentOffset = tokens.elevation.contentOffset
+  local contentOffset = pack.contentLift(panel, tokens)
   local edgeWidth = tokens.sizes.edge
   local function emit(primitives: { records.Primitive }, at: Placement, kind: string): ()
     local opacity = at.opacity

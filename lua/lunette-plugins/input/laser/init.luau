@@ -229,15 +229,34 @@ local function makeLaser(
         end
         local filtered, nextAim = aim.update(aimState, sampled, aimSettings)
         aimState = nextAim
+        -- A trigger press on a drag control, such as a slider or a dial, must keep moving the ray, so the press never
+        -- locks. The hit is the one the pointer last reported, which is the surface the press starts on. The query
+        -- runs only where a lock could begin, so a held drag never repeats the tree walk.
+        local hovered, hitX, hitY = self.pointer.hovered, self.pointer.hitX, self.pointer.hitY
+        local dragPress = false
+        if
+          lockState.kind == 'ready'
+          and sampled.trigger ~= nil
+          and sampled.trigger > lockSettings.threshold
+          and not sampled.grip
+          and self.pointer.grabbed == nil
+          and hovered
+          and hovered.triggerDrags
+          and hitX
+          and hitY
+        then
+          dragPress = hovered:triggerDrags(hitX, hitY) == true
+        end
         local frame, nextLock = triggerLock.update(lockState, {
           raw = sampled,
           filtered = filtered,
           previous = target.input,
           previousRaw = previousRaw,
-          hovered = self.pointer.hovered,
+          hovered = hovered,
           grabbed = self.pointer.grabbed,
           surfaces = surfaces,
           resetAfter = aimSettings.resetAfter,
+          dragPress = dragPress,
         }, lockSettings)
         lockState = nextLock
         previousRaw = { origin = sampled.origin, direction = sampled.direction }

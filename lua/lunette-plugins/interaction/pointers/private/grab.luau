@@ -122,6 +122,9 @@ function grab.new(host: Host): Methods
   end
 
   local function beginGrab(self: Pointer, target: Surface, handPose: Mat4): boolean
+    if target.transformLocked == true then
+      return false
+    end
     local state = host.state(self)
     local position = vector.pack(handPose:getPosition())
     state.handPosition = position
@@ -151,7 +154,8 @@ function grab.new(host: Host): Methods
     local current = host.current(self)
     local scaling = state.scaling
     local target = state.grabbed
-    if not current() or not scaling or not target or target.dead or not handPose then
+    -- A transform lock includes size, so a two-handed resize of a locked surface does nothing.
+    if not current() or not scaling or not target or target.dead or target.transformLocked == true or not handPose then
       return
     end
     state.handPosition = vector.pack(handPose:getPosition())

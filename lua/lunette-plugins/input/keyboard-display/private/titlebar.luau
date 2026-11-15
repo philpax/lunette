@@ -33,7 +33,7 @@ function titlebar.new(
   })
   panel.root:bind {
     render = function(): ()
-      panel.root:submit(components.Panel { title = 'Keyboard', onClose = close })
+      panel.root:submit(components.Panel { title = 'Keyboard', onClose = close, propertiesControl = false })
     end,
   }
   local shown = false

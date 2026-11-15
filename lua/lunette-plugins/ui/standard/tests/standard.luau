@@ -937,4 +937,57 @@ test('a virtual list of thousands keeps only the rows near its visible part, and
   state.fixture:close()
 end)
 
+test('an icon button draws its icon, keeps its name, and exposes its active state', function()
+  local state = boot()
+  local c = assert(state.components)
+  local icons = require '../private/icons'
+  fixture.show(
+    state,
+    c.Panel {
+      title = 'Icons',
+      propertiesControl = false,
+      onClose = function() end,
+      c.Body {
+        key = 'body',
+        c.Button { key = 'gear', label = 'Settings', icon = icons.gear, active = true, variant = 'band' },
+      },
+    }
+  )
+  local gear = assert(state.panel:find 'body/gear')
+  expect.equal(gear.props.label, 'Settings', 'the label stays the accessible name')
+  local face = assert(state.panel:find 'body/gear/face')
+  expect.truthy(face.props.icon, 'the face draws the icon')
+  expect.equal(state.panel:find 'body/gear/face/label', nil, 'an icon button draws no label')
+  expect.equal(state.service:findByRole('button', 'Settings'), gear, 'the button is reachable by name')
+  local selected = false
+  for _, registration in state.service:inspectNodes().registrations do
+    if registration.name == 'Icons:body/gear' then
+      selected = selected or registration.details.selected == true
+    elseif registration.details.label == 'Settings' then
+      selected = selected or registration.details.selected == true
+    end
+  end
+  expect.truthy(selected, 'the active state is exposed as selected')
+  state.fixture:close()
+end)
+
+test('a slider without a heading keeps its accessible name and its track', function()
+  local state = boot()
+  local c = assert(state.components)
+  fixture.show(
+    state,
+    c.Panel {
+      c.Body {
+        key = 'body',
+        c.Slider { key = 'bend', label = 'Bend', value = 1, min = 0, max = 2, showHeading = false },
+      },
+    }
+  )
+  expect.equal(state.panel:find 'body/bend/heading', nil, 'the heading is omitted')
+  expect.truthy(state.panel:find 'body/bend/track', 'the track remains')
+  local slider = assert(state.panel:find 'body/bend')
+  expect.equal(state.service:findByRole('slider', 'Bend'), slider, 'the accessible name remains')
+  state.fixture:close()
+end)
+
 return test

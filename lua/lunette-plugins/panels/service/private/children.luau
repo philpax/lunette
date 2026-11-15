@@ -13,7 +13,7 @@ local children = {}
 -- How far apart in depth successive layers of a window are drawn, in metres. Coplanar quads z-fight.
 children.SEPARATION = 0.0002
 
-export type Target = { read width: number, read height: number, read curve: number }
+export type Target = { read width: number, read height: number, read curve: number, read curveAxis: number }
 
 type Placed = {
   read x: number,
@@ -54,7 +54,7 @@ function children.geometry(
   if area(clipped) <= 0 then
     return nil, nil
   end
-  local vertices, indices = shape.rounded(target.width, target.height, target.curve, clipped)
+  local vertices, indices = shape.rounded(target.width, target.height, target.curve, target.curveAxis, clipped)
   if #indices == 0 then
     return nil, nil
   end
@@ -149,6 +149,7 @@ meshFor = function(drawing: Drawing, child: lunette.ChildSurface): Entry?
     drawing.target.width,
     drawing.target.height,
     drawing.target.curve,
+    drawing.target.curveAxis,
     drawing.windowWidth,
     drawing.windowHeight,
     child.x,

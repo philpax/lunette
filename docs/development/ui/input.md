@@ -38,7 +38,11 @@ A kind can declare a drag axis. After movement passes the threshold, the capture
 
 ## Manipulation
 
-Grabbable panels use the session's existing panel-grab path, including a trigger handle such as a titlebar. The surface answers `triggerGrabs` from the current hit coordinates before a primary-button press is delivered, so a press does not depend on a preceding hover update. Attached chrome directs a grab to its target. This does not establish general node manipulation, shared constraint sessions, grab spheres, or multi-capture transforms.
+Grabbable panels use the session's existing panel-grab path, including a trigger handle such as a titlebar. The surface answers `triggerGrabs` from the current hit coordinates before a primary-button press is delivered, so a press does not depend on a preceding hover update. Attached chrome directs a grab to its target. A transform lock on either the hit surface or the surface the grab would move refuses grip, the titlebar trigger drag, and two-handed resize, including size; a grab in flight detaches when the lock engages. Owner placement, rules, and restore remain outside the gesture boundary. This does not establish general node manipulation, shared constraint sessions, grab spheres, or multi-capture transforms.
+
+An input lock is separate and affects host content only. Content on a locked toolkit panel answers no pointer target, scroll, touch, or focus, while a `lockFree` node such as the header band remains routed, so its Settings control can unlock the panel. Engaging the lock cancels content presses in flight and resets a touching hand; the next fresh press is required. A trigger press on locked content can still begin a spatial grab, because the lock preserves movement rather than blocking it.
+
+A laser's trigger lock holds the aim during a pull so a click does not slip onto a neighbour. A pull that begins on a drag control is exempt: the surface answers `triggerDrags` at the press hit, and the laser leaves the ray live for the whole pull, so a slider or dial follows the hand. A control inside a scrolling ancestor does not inherit the ancestor's drag claim.
 
 [#69](https://github.com/philpax/lunette/issues/69) tracks those input mechanisms. One-handed alternatives and the distinction between scaling a panel and resizing client content remain product constraints. A two-handed gesture cannot be the sole way to perform a session action.
 
@@ -60,7 +64,7 @@ The interaction service owns tracking-loss cancellation and held-button quaranti
 
 ## Near touch
 
-Touch uses physical distances and hysteresis. Entry from the front arms a poke. Contact past the activation depth presses, recoil releases, and movement back towards the surface re-arms a repeated press. A short tracking loss retains the gesture; after the grace period the router cancels it and requires front entry again. These rules prevent jitter or reacquisition inside a panel from creating an unintended press.
+Touch uses physical distances and hysteresis. Entry from the front arms a poke. Contact past the activation depth presses, recoil releases, and movement back towards the surface re-arms a repeated press. A short tracking loss retains the gesture; after the grace period the router cancels it and requires front entry again. These rules prevent jitter or reacquisition inside a panel from creating an unintended press. An input lock cancels a touch press on content as it engages, so a locked panel captures and activates nothing.
 
 The current touch constants belong to the [poke implementation](../../../lua/lunette-plugins/ui/host/private/poke.luau). They need headset tuning and are not copied defaults here. Their distances remain physical rather than scaling with a panel. A fingertip proxy supplies contact feedback, as [Motion and feedback](motion-and-feedback.md#fingertip-proxy) describes.
 
@@ -72,7 +76,7 @@ Trigger-induced movement is a measured source of selection errors. [Research](re
 
 ## Scrolling
 
-Ray scroll input routes to the hit node and can bubble through its ancestors. Standard scroll controls also expose visible scrolling affordances and node-handle requests. Drag-to-scroll that competes with a descendant's drag axis needs the deferred gesture resolution in [#69](https://github.com/philpax/lunette/issues/69).
+Ray scroll input routes to the hit node and can bubble through its ancestors. Scroll over locked content is refused. Standard scroll controls also expose visible scrolling affordances and node-handle requests. Drag-to-scroll that competes with a descendant's drag axis needs the deferred gesture resolution in [#69](https://github.com/philpax/lunette/issues/69).
 
 ## Focus
 

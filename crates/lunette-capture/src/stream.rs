@@ -691,9 +691,9 @@ mod tests {
             mouse: None,
         };
 
-        for index in 0..planes {
+        for (index, plane) in frame.planes.iter_mut().enumerate().take(planes) {
             let (read, write) = pipe();
-            frame.planes[index] = FramePlane {
+            *plane = FramePlane {
                 fd: Some(read.as_raw_fd()),
                 offset: u32::try_from(index).expect("a small plane index") * 4096,
                 stride: 7680,

@@ -2,6 +2,7 @@
 -- panels lazily ahead of the head, and world panels made without a pose ahead of the head when they first show.
 
 local uiHost = require '@lunette-contracts/ui-host'
+local curved = require '@lunette-plugins/graphics/curved-surface'
 local records = require './records'
 
 local presentation = {}
@@ -54,8 +55,17 @@ function presentation.place(record: records.Panel, head: Head?, dt: number, them
       return
     end
     record.minWidth = target.width or record.minWidth
-    local above = (target.height or 0) / 2 + record.gap + record.height / 2
-    record.pose:set(target.pose):translate(0, above, theme.elevation.contentOffset)
+    -- The panel sits on the target's top edge, tangent there, so a curve or a tilted axis carries it. The offset is
+    -- the gap and the panel's own half height; its own curve approximates the bottom edge.
+    local width, height = target.width or 0, target.height or 0
+    local surface = curved.surface(width, height, target.curve or 0, target.curveAxis or 0)
+    local above = record.gap + record.height / 2
+    record.pose:set(
+      lovr.math
+        .mat4(target.pose)
+        :mul(curved.frame(surface, width / 2, 0, 0))
+        :translate(0, above, theme.elevation.contentOffset)
+    )
   elseif record.presentation == 'world' then
     -- A world panel made without a pose opens ahead of the head, as a dialog without a parent does, and then stays
     -- where it opened until it is moved.

@@ -60,6 +60,8 @@ function service.panelOptions(properties: Properties, window: lunette.Window): p
     chrome = properties.chrome,
     locked = properties.locked,
     curve = properties.curve,
+    curveAxis = properties.curveAxis,
+    transformLocked = properties.transformLocked,
   }
 end
 

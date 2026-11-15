@@ -11,7 +11,7 @@ type Crop = { read x: number, read y: number, read width: number, read height: n
 type Child = { read x: number, read y: number, read width: number, read height: number, read crop: Crop }
 type Vertices = { { number } }
 
-local PANEL = { width = 2, height = 1, curve = 0 }
+local PANEL = { width = 2, height = 1, curve = 0, curveAxis = 0 }
 local WINDOW_WIDTH, WINDOW_HEIGHT = 1000, 500
 local SQUARE = geometry.perimeter({ x = 0, y = 0, width = 2, height = 1 }, geometry.uniform(0))
 local FULL = { x = 0, y = 0, width = 1, height = 1 }
@@ -101,7 +101,7 @@ test("a child in a rounded corner keeps inside the panel's contour", function()
 end)
 
 test('a child on a curved panel lies on the arc', function()
-  local curved = { width = 2, height = 1, curve = 0.5 }
+  local curved = { width = 2, height = 1, curve = 0.5, curveAxis = 0 }
   local vertices = children.geometry(curved, SQUARE, WINDOW_WIDTH, WINDOW_HEIGHT, child(0, 0, 1000, 500))
   assert(vertices, 'the child is drawn')
   local radius = 1 / curved.curve

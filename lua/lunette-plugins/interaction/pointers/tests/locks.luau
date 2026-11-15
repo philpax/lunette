@@ -202,4 +202,88 @@ test('a refused lock inverse fails the pointer closed after unlock', function()
   session:close()
 end)
 
+test('a transform-locked panel refuses grip and trigger grabs while content input still works', function()
+  local native, session, owner, source, panel, pointer, update = start 'window'
+  expect.truthy(panel:setTransformLocked(owner, true), 'the lock applies')
+  update(false)
+  local before = #native.events.input
+  pointer:setButton { pressed = true, sink = source.sink, surface = panel }
+  expect.truthy(#native.events.input > before, 'content input still reaches the window')
+
+  local frame = {
+    origin = vector.pack(0, 0, 0),
+    direction = vector.pack(0, 0, -1),
+    pose = lovr.math.newMat4():translate(0, 0, -1),
+    buttons = {},
+    grip = true,
+  }
+  pointer:update(frame, { panel })
+  expect.falsy(pointer.grabbed, 'a grip does not grab the locked panel')
+
+  local titlebar = {
+    dead = false,
+    pose = lovr.math.newMat4():translate(0, 0.6, -2),
+    width = 1,
+    height = 0.2,
+    raycast = function(): (number, number, number)
+      return 0.5, 0.5, 3
+    end,
+    triggerGrabs = function(): boolean
+      return true
+    end,
+    grabTarget = function(): any
+      return panel
+    end,
+  }
+  local trigger = {
+    origin = vector.pack(0, 0, 0),
+    direction = vector.pack(0, 0, -1),
+    pose = lovr.math.newMat4():translate(0, 0, -1),
+    buttons = { left = true },
+    grip = false,
+  }
+  pointer:update(trigger, { titlebar, panel })
+  expect.falsy(pointer.grabbed, 'a titlebar trigger drag is refused while the target is locked')
+  session:close()
+end)
+
+test('a two-handed resize of a transform-locked panel is refused', function()
+  local _, session, owner, _, panel, pointer, update = start 'window'
+  update(false)
+  expect.truthy(pointer:beginGrab(panel, lovr.math.newMat4():translate(0, 0, -1)), 'the first hand grabs')
+  expect.truthy(panel:setTransformLocked(owner, true), 'the lock applies to the held panel')
+  local width = panel.width
+  pointer:scaleWith(lovr.math.newMat4():translate(1, 0, -1))
+  expect.equal(panel.width, width, 'the width does not change')
+  session:close()
+end)
+
+test('a grab in flight ends when the panel is transform-locked', function()
+  local _, session, owner, _, panel, pointer, update = start 'window'
+  update(false)
+  local frame = {
+    origin = vector.pack(0, 0, 0),
+    direction = vector.pack(0, 0, -1),
+    pose = lovr.math.newMat4():translate(0, 0, -1),
+    buttons = {},
+    grip = true,
+  }
+  pointer:update(frame, { panel })
+  expect.equal(pointer.grabbed, panel, 'the panel is held before the lock')
+  expect.truthy(panel:setTransformLocked(owner, true), 'the lock applies')
+  pointer:update(frame, { panel })
+  expect.falsy(pointer.grabbed, 'the held grab detaches when the lock engages')
+  session:close()
+end)
+
+test('a transform-locked panel leaves its content interactive', function()
+  local native, session, owner, source, panel, pointer, update = start 'window'
+  expect.truthy(panel:setTransformLocked(owner, true), 'the lock applies')
+  update(false)
+  local before = #native.events.input
+  pointer:setButton { button = 'right', pressed = true, sink = source.sink, surface = panel }
+  expect.truthy(#native.events.input > before, 'a content press still reaches the window')
+  session:close()
+end)
+
 return test

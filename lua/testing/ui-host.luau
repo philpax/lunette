@@ -24,6 +24,8 @@ export type Options = {
   setup: ((uiHost.Service, adapter.Context) -> ())?,
   -- Loads the standard kinds, whose bundled fonts the fake filesystem reads from the repository.
   standard: boolean?,
+  -- Leaves the laser's trigger lock on, so a control drags only if the laser leaves the ray live for it.
+  triggerLock: boolean?,
   -- Further plugin definitions to load after the standard kinds, such as the notifications provider, each a
   -- definition or a table of a definition and its config.
   plugins: { any }?,
@@ -41,7 +43,7 @@ function fixture.boot(options: Options?): State
     {
       id = 'laser',
       definition = require('@lunette-plugins/input/laser').definition,
-      config = { aim = { enabled = false }, triggerLock = { enabled = false } },
+      config = { aim = { enabled = false }, triggerLock = { enabled = options.triggerLock == true } },
     },
     'desktop/pointing',
     { id = 'ui-host', definition = require('@lunette-plugins/ui/host').definition },

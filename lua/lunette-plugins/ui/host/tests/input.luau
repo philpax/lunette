@@ -358,4 +358,137 @@ test('interactive hover clearing on release cannot strand a completed capture', 
   state.fixture:close()
 end)
 
+local function activations(events: { string }): number
+  local count = 0
+  for _, event in events do
+    if string.find(event, ':activate', 1, true) then
+      count += 1
+    end
+  end
+  return count
+end
+
+local function lockBoot(): (fixture.State, { string })
+  local activates = {}
+  local state = fixture.boot {
+    width = 0.3,
+    height = 0.2,
+    setup = function(service: any, owner: any)
+      service:registerKind(owner, {
+        name = 'test/column',
+        layout = {
+          kind = 'container',
+          style = function(): any
+            return { flexDirection = 'column' }
+          end,
+        },
+      })
+      service:registerKind(owner, {
+        name = 'test/content',
+        layout = {
+          kind = 'container',
+          style = function(): any
+            return { width = 0.1, height = 0.04 }
+          end,
+        },
+        interactive = function(): boolean
+          return true
+        end,
+        event = function(node: any, event: any)
+          table.insert(activates, `{node.key}:{event.kind}`)
+          if event.kind == 'activate' then
+            node:emit 'onActivate'
+          end
+        end,
+      })
+      service:registerKind(owner, {
+        name = 'test/header',
+        layout = {
+          kind = 'container',
+          style = function(): any
+            return { width = 0.2, height = 0.05, flexDirection = 'row' }
+          end,
+        },
+        handle = true,
+        lockFree = true,
+      })
+    end,
+  }
+  fixture.show(
+    state,
+    uiHost.element('test/column', {
+      uiHost.element('test/header', {
+        key = 'header',
+        uiHost.element('test/content', { key = 'inside' }),
+      }),
+      uiHost.element('test/content', { key = 'outside' }),
+    })
+  )
+  return state, activates
+end
+
+test('an input-locked toolkit panel blocks content but keeps a lockFree header usable', function()
+  local state, activates = lockBoot()
+  fixture.click(state, 'header/inside')
+  expect.truthy(activations(activates) > 0, 'an unlocked header control works')
+  table.clear(activates)
+  state.panel:setLocked(true)
+  fixture.click(state, 'outside')
+  expect.equal(
+    activations(activates),
+    0,
+    'locked content outside the header is blocked: ' .. table.concat(activates, ',')
+  )
+  fixture.click(state, 'header/inside')
+  expect.truthy(activations(activates) > 0, 'the lockFree header control still works while the panel is locked')
+  state.panel:setLocked(false)
+  table.clear(activates)
+  fixture.click(state, 'outside')
+  expect.truthy(activations(activates) > 0, 'unlocking restores content')
+  state.fixture:close()
+end)
+
+test('a content press in flight when the lock engages is cancelled and never activates', function()
+  local state, activates = lockBoot()
+  local node = assert(state.panel:find 'outside')
+  local bounds = node:panelBounds()
+  local surface = fixture.surface(state)
+  local pointer = fixture.pointer()
+  local x, y = bounds.x + bounds.width / 2, bounds.y + bounds.height / 2
+  surface:onPointer { kind = 'enter', pointer = pointer, x = x, y = y }
+  surface:onPointer { kind = 'press', button = 'left', pointer = pointer, x = x, y = y }
+  state.panel:setLocked(true)
+  surface:onPointer { kind = 'release', button = 'left', pointer = pointer, x = x, y = y }
+  expect.equal(activations(activates), 0, 'the cancelled press never activates: ' .. table.concat(activates, ','))
+  state.fixture:close()
+end)
+
+test('a scroll over locked content does not scroll it, and a trigger press on the locked header grabs', function()
+  local state, activates = lockBoot()
+  local node = assert(state.panel:find 'outside')
+  local bounds = node:panelBounds()
+  local surface = fixture.surface(state)
+  local pointer = fixture.pointer()
+  local x, y = bounds.x + bounds.width / 2, bounds.y + bounds.height / 2
+  state.panel:setLocked(true)
+  surface:onPointer { kind = 'scroll', pointer = pointer, x = x, y = y, dx = 1, dy = 0 }
+  expect.equal(#activates, 0, 'locked content receives no scroll')
+
+  local interaction = require '@lunette-contracts/interaction'
+  local observed = assert(state.fixture.session):observe(interaction.capability)
+  local device = assert(observed.service):newPointer(assert(observed.context))
+  local headerNode = assert(state.panel:find 'header')
+  local geometry = fixture.nodeGeometry(headerNode)
+  local px, py, pz = geometry.pose:mul(0.08, 0, 1)
+  device:update({
+    origin = vector.pack(px, py, pz),
+    direction = vector.pack(0, 0, -1),
+    pose = lovr.math.newMat4(),
+    buttons = { left = true },
+    grip = false,
+  }, { surface })
+  expect.equal(device.grabbed, surface, 'a trigger press on the locked header starts a spatial grab')
+  state.fixture:close()
+end)
+
 return test
